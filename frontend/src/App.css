@@ -504,3 +504,56 @@ body {
   .welcome-title { font-size: 20px; }
   .welcome-subtitle { font-size: 14px; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+  fill: none;
+  stroke: #f6c76e;
+  stroke-linecap: round;
+  stroke-width: 2.6;
+}
+
+/* Kolibri Avatar — from kolibriai.ru */
+.kolibri-avatar {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 38% 28%, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0.62) 58%, rgba(230, 247, 255, 0.72)),
+    rgba(255, 255, 255, 0.76);
+  box-shadow: 0 14px 34px rgba(11, 149, 244, 0.18);
+}
+.theme-dark .kolibri-avatar {
+  background:
+    radial-gradient(circle at 38% 28%, rgba(30, 40, 60, 0.96), rgba(20, 25, 40, 0.62) 58%, rgba(15, 30, 50, 0.72)),
+    rgba(20, 25, 40, 0.76);
+  box-shadow: 0 14px 34px rgba(56, 189, 248, 0.12);
+}
+.kolibri-avatar svg { position: relative; z-index: 1; width: 100%; height: 100%; overflow: visible; }
+.kolibri-avatar__body { stroke: rgba(6, 119, 198, 0.78); stroke-width: 1.8; }
+.kolibri-avatar__belly { stroke: rgba(255, 255, 255, 0.64); stroke-width: 1; }
+.kolibri-avatar__wing, .kolibri-avatar__wing-back { stroke: rgba(6, 119, 198, 0.64); stroke-width: 1.6; }
+.kolibri-avatar__wing-back { opacity: 0.72; }
+.kolibri-avatar__tail { fill: #1da9f5; stroke: rgba(6, 119, 198, 0.64); stroke-width: 1.5; }
+.kolibri-avatar__beak { fill: #ffae2c; stroke: #d97800; stroke-width: 1.2; }
+.kolibri-avatar__eye { fill: #1a0f08; }
+.kolibri-avatar__eye-white { fill: #ffffff; stroke: rgba(7, 24, 62, 0.08); stroke-width: 1; }
+.kolibri-avatar__spark { fill: #ffffff; }
+.kolibri-avatar__shadow { fill: rgba(7, 24, 62, 0.1); }
+.kolibri-avatar__head-glow { fill: rgba(255, 255, 255, 0.2); }
+.kolibri-avatar__crest { fill: #21baf6; stroke: rgba(6, 119, 198, 0.52); stroke-width: 1.2; }
+.kolibri-avatar__cheek { fill: rgba(255, 149, 170, 0.38); }
+.kolibri-avatar__smile, .kolibri-avatar__foot { fill: none; stroke: #845012; stroke-linecap: round; stroke-width: 2.2; }
+.kolibri-avatar__glow {
+  position: absolute; inset: 12%; border-radius: inherit;
+  background: radial-gradient(circle, rgba(11, 149, 244, 0.22), transparent 70%);
+  filter: blur(12px);
+}
+.kolibri-avatar__lid, .kolibri-avatar__brow, .kolibri-avatar__steam { fill: none; stroke: #102653; stroke-linecap: round; stroke-width: 2.6; }
+.kolibri-avatar--error .kolibri-avatar__wing, .kolibri-avatar--angry-soft .kolibri-avatar__wing { fill: #ffb347; }
+.kolibri-avatar__mark { font-family: var(--font-ui); font-size: 24px; font-weight: 900; paint-order: stroke; stroke: #ffffff; stroke-width: 3px; }
+.kolibri-avatar__mark--question, .kolibri-avatar__mark--sleep { fill: #0b95f4; }
+.kolibri-avatar__mark--error { fill: #ff2f3f; }
+.kolibri-avatar__book path { fill: #1865c9; stroke: #ffffff; stroke-linejoin: round; stroke-width: 1.5; }
+.kolibri-avatar__sparkles { fill: none; stroke: #f6c76e; stroke-linecap: round; stroke-width: 2.6; }

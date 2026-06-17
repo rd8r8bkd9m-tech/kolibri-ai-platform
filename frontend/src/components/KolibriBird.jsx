@@ -1,93 +1,108 @@
 import { motion } from "framer-motion"
 
-const states = {
-  idle: { y: [0, -6, 0], duration: 3 },
-  thinking: { y: [0, -3, 0], duration: 1.5 },
-  happy: { y: [0, -12, 0], duration: 0.8 },
-  error: { y: [0, 2, 0], duration: 2 },
+const stateLabels = {
+  idle: "спокойна",
+  greeting: "приветствует",
+  listening: "слушает",
+  thinking: "думает",
+  writing: "пишет",
+  learning: "учится",
+  success: "готово",
+  error: "нужна помощь",
+  happy: "радуется",
+  surprised: "удивлена",
+  "angry-soft": "сердится мягко",
+  calm: "спокойна",
+  sleepy: "спит",
+  flying: "летит",
 }
 
-export function KolibriBird({ size = 72, className = "", state = "idle" }) {
-  const anim = states[state] || states.idle
+export function KolibriBird({ state = "idle", size = 56, className = "" }) {
+  const px = typeof size === "number" ? size : 56
+  const animate =
+    state === "thinking" || state === "learning"
+      ? { y: [0, -3, 0], rotate: [-1, 1, -1] }
+      : state === "flying"
+        ? { x: [0, 4, 0], y: [0, -5, 0], rotate: [-4, 5, -4] }
+        : state === "success" || state === "happy"
+          ? { scale: [1, 1.06, 1] }
+          : {}
+
   return (
-    <motion.svg
-      width={size}
-      height={size}
-      viewBox="0 0 120 120"
-      fill="none"
-      className={className}
-      animate={{ y: anim.y }}
-      transition={{ duration: anim.duration, repeat: Infinity, ease: "easeInOut" }}
+    <motion.div
+      className={`kolibri-avatar kolibri-avatar--${state} ${className}`}
+      style={{ width: px, height: px }}
+      animate={animate}
+      transition={{ duration: 1.8, repeat: state === "idle" || state === "calm" ? 0 : Infinity }}
+      aria-label={`Колибри ${stateLabels[state] || state}`}
+      role="img"
     >
-      <defs>
-        <linearGradient id="birdGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#79E8FF" />
-          <stop offset="50%" stopColor="#26BDF2" />
-          <stop offset="100%" stopColor="#0B8FF3" />
-        </linearGradient>
-        <linearGradient id="wingGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" stopColor="#26BDF2" />
-          <stop offset="100%" stopColor="#0B8FF3" stopOpacity="0.6" />
-        </linearGradient>
-        <filter id="birdGlow">
-          <feGaussianBlur stdDeviation="3" result="blur" />
-          <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
-        </filter>
-      </defs>
-      
-      <motion.circle
-        cx="60" cy="55" r="40"
-        fill="url(#birdGrad)"
-        opacity="0.12"
-        animate={{ r: [38, 42, 38], opacity: [0.1, 0.18, 0.1] }}
-        transition={{ duration: 2, repeat: Infinity }}
-      />
-      
-      <motion.ellipse
-        cx="60" cy="55" rx="22" ry="26"
-        fill="url(#birdGrad)"
-        filter="url(#birdGlow)"
-        animate={{ ry: [26, 27, 26] }}
-        transition={{ duration: 2, repeat: Infinity }}
-      />
-      
-      <circle cx="60" cy="32" r="14" fill="url(#birdGrad)" />
-      
-      <circle cx="55" cy="30" r="3.5" fill="white" />
-      <motion.circle
-        cx="55" cy="30" r="2"
-        fill="#0a1628"
-        animate={state === "thinking" 
-          ? { cx: [55, 52, 55, 58, 55], cy: [30, 29, 30, 29, 30] }
-          : { cx: [55, 54, 55, 56, 55] }
-        }
-        transition={{ duration: state === "thinking" ? 1.5 : 4, repeat: Infinity }}
-      />
-      
-      {state === "happy" && (
-        <>
-          <motion.path d="M50 34 Q55 38 60 34" stroke="#0a1628" strokeWidth="1.5" fill="none"
-            initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} />
-        </>
-      )}
-      
-      <path d="M42 33 L30 36 L42 38 Z" fill="#F59E0B" />
-      
-      <motion.path
-        d="M75 45 Q95 35 90 55 Q85 65 75 60 Z"
-        fill="url(#wingGrad)"
-        animate={{
-          d: state === "happy"
-            ? ["M75 45 Q100 20 95 50 Q88 62 75 60 Z", "M75 45 Q95 35 90 55 Q85 65 75 60 Z"]
-            : ["M75 45 Q95 35 90 55 Q85 65 75 60 Z", "M75 45 Q100 25 95 50 Q88 62 75 60 Z", "M75 45 Q95 35 90 55 Q85 65 75 60 Z"],
-        }}
-        transition={{ duration: state === "happy" ? 0.6 : 1.5, repeat: Infinity, ease: "easeInOut" }}
-      />
-      
-      <path d="M55 78 Q40 95 30 90 Q45 85 55 78" fill="#26BDF2" opacity="0.7" />
-      
-      <line x1="55" y1="80" x2="50" y2="95" stroke="#0B8FF3" strokeWidth="2" strokeLinecap="round" />
-      <line x1="65" y1="80" x2="70" y2="95" stroke="#0B8FF3" strokeWidth="2" strokeLinecap="round" />
-    </motion.svg>
+      <svg viewBox="0 0 112 112" aria-hidden="true">
+        <defs>
+          <linearGradient id={`kolibriBody-${state}`} x1="32" x2="82" y1="18" y2="78" gradientUnits="userSpaceOnUse">
+            <stop stopColor="#79E8FF" />
+            <stop offset="0.48" stopColor="#26BDF2" />
+            <stop offset="1" stopColor="#0B8FF3" />
+          </linearGradient>
+          <linearGradient id={`kolibriWing-${state}`} x1="12" x2="57" y1="20" y2="64" gradientUnits="userSpaceOnUse">
+            <stop stopColor="#8CF5FF" />
+            <stop offset="1" stopColor="#1096F4" />
+          </linearGradient>
+          <radialGradient id={`kolibriBelly-${state}`} cx="0" cy="0" r="1" gradientTransform="matrix(28 0 0 25 58 65)" gradientUnits="userSpaceOnUse">
+            <stop stopColor="#FFFFFF" />
+            <stop offset="1" stopColor="#E7FBFF" />
+          </radialGradient>
+        </defs>
+        <ellipse className="kolibri-avatar__shadow" cx="57" cy="94" rx="25" ry="7" />
+        <path className="kolibri-avatar__wing-back" fill={`url(#kolibriWing-${state})`} d="M30 58C16 53 8 40 12 27c17 3 31 15 41 33-7 7-15 8-23-2Z" />
+        <path className="kolibri-avatar__tail" d="M36 70 17 86l24-1 9-12Z" />
+        <path className="kolibri-avatar__body" fill={`url(#kolibriBody-${state})`} d="M35 67c-7-20 5-43 27-49 20-5 39 8 43 28 4 21-11 40-33 45-18 4-32-5-37-24Z" />
+        <path className="kolibri-avatar__head-glow" d="M49 29c8-10 25-12 36-2 8 8 11 20 6 31-7-10-18-17-31-18-6 0-9-4-11-11Z" />
+        <path className="kolibri-avatar__belly" fill={`url(#kolibriBelly-${state})`} d="M47 71c-5-13 2-29 17-33 14-3 25 5 29 17-3 16-14 28-31 31-7-1-12-6-15-15Z" />
+        <path className="kolibri-avatar__wing" fill={`url(#kolibriWing-${state})`} d="M31 60C18 49 15 31 25 17c16 6 29 21 35 41-8 9-20 11-29 2Z" />
+        <path className="kolibri-avatar__crest" d="M56 18c1-7 8-12 14-10-1 7-6 12-14 10Zm10 2c3-7 11-9 17-5-3 6-9 9-17 5Zm-19 5c-2-6 1-13 7-16 3 7 1 13-7 16Z" />
+        <path className="kolibri-avatar__beak" d="M84 48 107 39 88 56Z" />
+        <circle className="kolibri-avatar__cheek" cx="76" cy="60" r="7" />
+        <circle className="kolibri-avatar__eye-white" cx="66" cy="43" r="11" />
+        <circle className="kolibri-avatar__eye-white" cx="84" cy="43" r="9.5" />
+        <circle className="kolibri-avatar__eye" cx="67" cy="44" r="6.5" />
+        <circle className="kolibri-avatar__eye" cx="84" cy="44" r="5.8" />
+        <circle className="kolibri-avatar__spark" cx="69.5" cy="41" r="2.2" />
+        <circle className="kolibri-avatar__spark" cx="86" cy="41.5" r="1.8" />
+        <path className="kolibri-avatar__smile" d="M73 54c3 3 7 3 10 0" />
+        <path className="kolibri-avatar__foot" d="M57 88c-2 4-5 6-9 5" />
+        <path className="kolibri-avatar__foot" d="M69 88c2 4 5 6 9 5" />
+        {state === "surprised" && <text className="kolibri-avatar__mark kolibri-avatar__mark--question" x="88" y="27">?</text>}
+        {state === "error" && <text className="kolibri-avatar__mark kolibri-avatar__mark--error" x="92" y="31">!</text>}
+        {state === "sleepy" && <text className="kolibri-avatar__mark kolibri-avatar__mark--sleep" x="86" y="27">Z</text>}
+        {state === "learning" && (
+          <g className="kolibri-avatar__book">
+            <path d="M65 70c8-5 16-5 23 0v15c-7-4-15-4-23 0Z" />
+            <path d="M65 70c-8-5-16-5-23 0v15c7-4 15-4 23 0Z" />
+            <path d="M65 70v15" />
+          </g>
+        )}
+        {(state === "happy" || state === "success") && (
+          <g className="kolibri-avatar__sparkles">
+            <path d="M96 61v10M91 66h10" />
+            <path d="M28 24v7M24.5 27.5h7" />
+          </g>
+        )}
+        {state === "sleepy" && (
+          <>
+            <path className="kolibri-avatar__lid" d="M58 43c5 3 11 3 16 0" />
+            <path className="kolibri-avatar__lid" d="M79 43c4 2 9 2 13 0" />
+          </>
+        )}
+        {state === "angry-soft" && (
+          <>
+            <path className="kolibri-avatar__brow" d="M58 35l14 4" />
+            <path className="kolibri-avatar__brow" d="M90 35l-12 4" />
+            <path className="kolibri-avatar__steam" d="M91 22c5 2 5 7 0 9" />
+          </>
+        )}
+      </svg>
+      <span className="kolibri-avatar__glow" />
+    </motion.div>
   )
 }
