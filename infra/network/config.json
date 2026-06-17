@@ -1,0 +1,64 @@
+{
+  "network": "Kolibri Network",
+  "vpn_subnet": "10.99.0.0/24",
+  "vpn_port": 51830,
+  "servers": {
+    "home": {
+      "public_ip": "178.207.11.90",
+      "vpn_ip": "10.99.0.1",
+      "ssh_alias": "kolibri-home",
+      "role": "training-hub",
+      "ram": "15GB",
+      "cpu": "6 cores",
+      "disk": "28GB",
+      "tasks": ["model-training", "data-generation", "fine-tuning"],
+      "mimo_path": "/usr/local/bin/mimo",
+      "sudo_password": "Busya26"
+    },
+    "main": {
+      "public_ip": "104.253.43.117",
+      "vpn_ip": "10.99.0.2",
+      "ssh_alias": "kolibri-main",
+      "role": "api-gateway",
+      "ram": "1.9GB",
+      "cpu": "1 vCPU",
+      "disk": "16GB",
+      "tasks": ["frontend", "api-gateway", "routing"],
+      "mimo_path": "/root/.mimocode/bin/mimo",
+      "services": ["kolibri-ai", "nginx"]
+    },
+    "uiap": {
+      "public_ip": "31.57.26.151",
+      "vpn_ip": "10.99.0.3",
+      "ssh_alias": "kolibri-uiap",
+      "role": "rag-engine",
+      "ram": "3.8GB",
+      "cpu": "2 cores",
+      "disk": "34GB",
+      "tasks": ["chromadb", "embeddings", "knowledge-base"],
+      "mimo_path": "/root/.mimocode/bin/mimo"
+    },
+    "qjns": {
+      "public_ip": "217.60.63.97",
+      "vpn_ip": "10.99.0.4",
+      "ssh_alias": "kolibri-qjns",
+      "role": "agent-executor",
+      "ram": "1.9GB",
+      "cpu": "1 vCPU",
+      "disk": "16GB",
+      "tasks": ["code-execution", "tool-calling", "planning"],
+      "mimo_path": "/root/.mimocode/bin/mimo"
+    },
+    "9fts": {
+      "public_ip": "94.183.235.154",
+      "vpn_ip": "10.99.0.5",
+      "ssh_alias": "kolibri-9fts",
+      "role": "inference",
+      "ram": "1.9GB",
+      "cpu": "1 vCPU",
+      "disk": "16GB",
+      "tasks": ["model-inference", "llama.cpp", "gguf"],
+      "mimo_path": "/root/.mimocode/bin/mimo"
+    }
+  }
+}
