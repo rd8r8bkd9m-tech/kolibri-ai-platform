@@ -32,3 +32,6 @@ TTS_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 AI_API_KEY = os.getenv("KOLIBRI_AI_API_KEY", "")
 AI_BASE_URL = os.getenv("KOLIBRI_AI_BASE_URL", "https://api.openai.com/v1")
 AI_MODEL = os.getenv("KOLIBRI_AI_MODEL", "mimo-v2.5-pro")
+
+FORMULALM_URL = os.getenv("KOLIBRI_FORMULALM_URL", "http://10.99.0.1:8004")
+FORMULALM_ENABLED = os.getenv("KOLIBRI_FORMULALM_ENABLED", "false").lower() == "true"

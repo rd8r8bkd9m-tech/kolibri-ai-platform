@@ -11,30 +11,36 @@ KOLIBRI_SYSTEM_PROMPT = (
 
 @router.get("/api/v1/ai/models")
 async def get_models():
-    return {"models": [{"name": "mimo-auto", "description": "Auto mode"}], "system_prompt": KOLIBRI_SYSTEM_PROMPT}
+    from providers import manager
+    return {"models": manager.get_model_catalog(), "system_prompt": KOLIBRI_SYSTEM_PROMPT}
 
 @router.get("/api/v1/model/stats")
 async def get_model_stats():
-    return {"status": "ok", "models": ["mimo-auto"], "active": "mimo-auto"}
+    from providers import manager
+    catalog = manager.get_model_catalog()
+    return {"status": "ok", "models": [m["name"] for m in catalog], "active": catalog[0]["name"] if catalog else "none"}
 
 @router.post("/api/v1/ai/chat")
 async def chat(request: Request):
-    from providers import AIProviderManager
-    manager = AIProviderManager()
+    from providers import manager
     body = await request.json()
     messages = body.get("messages", [])
-    result = await manager.generate(messages=messages, provider="mimo")
+    model = body.get("model", "auto")
+    provider = body.get("provider")
+    result = await manager.generate(messages=messages, model=model, provider=provider)
     return result
 
 @router.post("/api/v1/ai/chat/stream")
 async def chat_stream(request: Request):
-    from providers import AIProviderManager
-    manager = AIProviderManager()
+    from providers import manager
     body = await request.json()
     messages = body.get("messages", [])
-    result = await manager.generate(messages=messages, provider="mimo")
+    model = body.get("model", "auto")
+    provider = body.get("provider")
+
     async def generate():
-        yield f"data: {json.dumps(result)}\n\n"
+        async for chunk in manager.generate_stream(messages=messages, model=model, provider=provider):
+            yield f"data: {json.dumps(chunk)}\n\n"
         yield "data: [DONE]\n\n"
     return StreamingResponse(generate(), media_type="text/event-stream")
 

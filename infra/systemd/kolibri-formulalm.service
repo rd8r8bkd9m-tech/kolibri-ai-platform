@@ -1,0 +1,17 @@
+[Unit]
+Description=Kolibri FormulaLM API
+After=network.target kolibri-ai.service
+
+[Service]
+Type=simple
+User=ladik
+WorkingDirectory=/srv/kolibri/repo
+ExecStart=/srv/kolibri/repo/.venv/bin/python3 /opt/kolibri-ai/formulalm_api.py
+Restart=on-failure
+RestartSec=5
+Environment=FORMULALM_HOST=0.0.0.0
+Environment=FORMULALM_PORT=8004
+Environment=PYTHONPATH=/srv/kolibri/repo/backend
+
+[Install]
+WantedBy=multi-user.target

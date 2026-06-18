@@ -324,7 +324,18 @@ app.add_middleware(
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "provider_status": ai_manager.get_status()}
+    formulalm_status = "disabled"
+    if ai_manager.formulalm:
+        try:
+            available = await ai_manager.formulalm.is_available()
+            formulalm_status = "online" if available else "unreachable"
+        except Exception:
+            formulalm_status = "error"
+    return {
+        "status": "ok",
+        "provider_status": ai_manager.get_status(),
+        "formulalm": formulalm_status,
+    }
 
 @app.get("/metrics")
 async def metrics():
