@@ -7,7 +7,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 REMOTE="ladik@kolibri-home"
-REMOTE_DIR="/opt/kolibri-ai"
+REMOTE_DIR="/srv/kolibri/repo/backend"
 
 echo "=== Deploying FormulaLM API to Home server ==="
 
