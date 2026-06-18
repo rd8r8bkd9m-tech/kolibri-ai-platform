@@ -1,0 +1,116 @@
+name: Kolibri AI CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install ruff
+      - name: Lint backend
+        run: ruff check backend/ --select E,F,W --ignore E501
+
+  test:
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements.txt
+      - name: Run syntax check
+        run: python -m py_compile backend/main.py && python -m py_compile backend/auth.py && python -m py_compile backend/config.py
+
+  build-frontend:
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [test, build-frontend]
+    if: github.ref == 'refs/heads/main'
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download frontend build
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+
+      - name: Setup SSH
+        env:
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H 104.253.43.117 >> ~/.ssh/known_hosts 2>/dev/null || true
+          ssh-keyscan -H 31.57.26.151 >> ~/.ssh/known_hosts 2>/dev/null || true
+          ssh-keyscan -H 217.60.63.97 >> ~/.ssh/known_hosts 2>/dev/null || true
+          ssh-keyscan -H 94.183.235.154 >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Deploy to Main (API Gateway + Frontend)
+        run: |
+          scp -r backend/ root@104.253.43.117:/opt/kolibri-ai/backend/
+          scp -r frontend/dist/ root@104.253.43.117:/opt/kolibri-ai/frontend/
+          ssh root@104.253.43.117 "systemctl restart kolibri-ai && nginx -t && systemctl reload nginx"
+
+      - name: Deploy to UIAP (RAG Engine)
+        run: |
+          scp infra/network/api.py root@31.57.26.151:/opt/kolibri-ai/network/api.py
+          ssh root@31.57.26.151 "systemctl restart kolibri-network"
+
+      - name: Deploy to QJNS (Agent)
+        run: |
+          scp infra/network/api.py root@217.60.63.97:/opt/kolibri-ai/network/api.py
+          ssh root@217.60.63.97 "systemctl restart kolibri-network"
+
+      - name: Deploy to 9FTS (Inference)
+        run: |
+          scp infra/network/api.py root@94.183.235.154:/opt/kolibri-ai/inference/api.py
+          ssh root@94.183.235.154 "systemctl restart kolibri-inference"
+
+      - name: Health check
+        run: |
+          sleep 5
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://104.253.43.117/api/health)
+          if [ "$STATUS" != "200" ]; then
+            echo "ERROR: Health check failed (HTTP $STATUS)"
+            exit 1
+          fi
+          echo "All services healthy ✓"
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "Deploy failed for commit ${{ github.sha }}"
+          # Add webhook notification here if needed

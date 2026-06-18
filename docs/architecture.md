@@ -43,13 +43,13 @@ Kolibri AI — распределённая AI-платформа на 6 сер�
               │                  │                  │
               ▼                  ▼                  ▼
 ┌─────────────────┐ ┌─────────────────┐
-│   HOME (Redis)  │ │   JOAU (Worker) │
+│   HOME (Redis)  │ │   NEW (Worker)  │
 │  178.207.11.90  │ │  109.248.161.39 │
 │  10.99.0.1      │ │  10.99.0.6      │
 │                 │ │                 │
 │  Redis 6379     │ │  Organism Agent │
-│  Training Hub   │ │  :9001          │
-│  Organism API   │ │                 │
+│  Training Hub   │ │  Worker Service │
+│  Organism API   │ │  :9001          │
 │  :9001          │ │                 │
 └─────────────────┘ └─────────────────┘
 ```
@@ -65,7 +65,7 @@ Kolibri AI — распределённая AI-платформа на 6 сер�
 | UIAP | 10.99.0.3 | 31.57.26.151 | порт 22 |
 | QJNS | 10.99.0.4 | 217.60.63.97 | порт 22 |
 | 9FTS | 10.99.0.5 | 94.183.235.154 | порт 22 |
-| Joau | 10.99.0.6 | 109.248.161.39 | порт 22 |
+| New | 10.99.0.6 | 109.248.161.39 | порт 22 |
 
 Каждый узел подключён ко всем остальным (full mesh).
 Redis на Home доступен всем узлям через VPN.
@@ -76,11 +76,13 @@ Redis на Home доступен всем узлям через VPN.
 - **IP**: 104.253.43.117 / 10.99.0.2
 - **Порты**: 80 (nginx), 8000 (FastAPI), 9001 (Organism)
 - **Сервисы**:
-  - FastAPI backend — основной API
+  - FastAPI backend — основной API (JWT auth, rate limiting, structured logging)
   - React 19 + Vite frontend (SPA)
   - Proxy routes к UIAP, QJNS, 9FTS
   - Nginx reverse proxy
   - Organism agent (job processor)
+  - Health checker (фоновая проверка нод каждые 30с)
+  - Prometheus метрики (`/metrics`)
 - **Данные**: SQLite (`/opt/kolibri-ai/data/kolibri.db`)
 
 ### Home (Training Hub)
@@ -104,7 +106,7 @@ Redis на Home доступен всем узлям через VPN.
 - **IP**: 217.60.63.97 / 10.99.0.4
 - **Порты**: 8003
 - **Сервисы**:
-  - MiMo CLI — AI агент
+  - Agent service — AI агент
   - Agent planner — цепочки рассуждений
   - Tool execution
   - Organism agent
@@ -112,18 +114,19 @@ Redis на Home доступен всем узлям через VPN.
 ### 9FTS (Inference)
 - **IP**: 94.183.235.154 / 10.99.0.5
 - **Порты**: 8001
-- **Статус**: нестабилен (часто down)
+- **Статус**: нестабилен (часто down из-за RAM 1.9GB)
 - **Сервисы**:
   - TinyLlama-1.1B (Q4_K_M)
   - llama.cpp HTTP server
   - Organism agent
 
-### Joau (Worker)
+### New/Joau (Worker)
 - **IP**: 109.248.161.39 / 10.99.0.6
 - **Порты**: 9001
 - **Сервисы**:
   - Organism agent (worker mode)
-  - Backup inference (MiMo CLI)
+  - Worker service
+  - Backup inference
   - Job processor
 
 ## Потоки данных
@@ -132,7 +135,7 @@ Redis на Home доступен всем узлям через VPN.
 ```
 User → Main:8000 /api/chat
   → AIProviderManager.generate()
-  → subprocess: mimo CLI
+  → httpx POST to OpenAI-compatible API
   → Response → Cache (SQLite)
   → User
 ```
@@ -149,7 +152,7 @@ User → Main:8000 /api/pipeline
 
 ### 3. RAG Search Flow
 ```
-User → Main /api/knowledge → Proxy → UIAP:8002/rag/search
+User → Main /api/knowledge → Proxy → UIAP:8002/rag/documents
   → ChromaDB vector search
   → Top-K results with scores
   → Response via proxy
@@ -168,20 +171,40 @@ Any node → Submit Job → Redis Queue
 
 | Компонент | Технология |
 |-----------|-----------|
-| Frontend | React 19, Vite 8, Framer Motion, Tailwind CSS |
-| Backend | FastAPI, SQLite, httpx |
+| Frontend | React 19, Vite 8, Framer Motion, tailwind-merge, CSS variables |
+| Backend | FastAPI, SQLite, httpx, PyJWT, bcrypt |
 | RAG | ChromaDB, sentence-transformers |
 | Inference | TinyLlama-1.1B (Q4_K_M), llama.cpp |
-| Agent | MiMo CLI |
+| Agent | Agent service (Python) |
 | Network | WireGuard mesh VPN |
 | Orchestration | Kolibri Organism v3 (Redis) |
 | Core | Rust (kolibri_nano) |
+| Monitoring | Prometheus, Grafana |
+| CI/CD | GitHub Actions |
 | Languages | Python 3.11+, Rust 2021, JavaScript ESM |
+
+## Мониторинг
+
+### Prometheus + Grafana
+
+Запускаются через Docker Compose:
+
+- **Prometheus** (port 9090) — сбор метрик с backend (`/metrics`)
+- **Grafana** (port 3000) — визуализация дашбордов
+
+Конфигурация: `monitoring/prometheus.yml`
+
+### Dockerfiles
+
+- `Dockerfile.backend` — Python 3.11-slim
+- `Dockerfile.frontend` — Node 20 (build) + Nginx (serve)
+- `Dockerfile.organism` — Python 3.11-slim
 
 ## Безопасность
 
-- CORS: `allow_origins=["*"]` (development)
-- Rate limiting: 60 req/min per IP (SQLite-based)
-- WireGuard: все межсерверные соединения через VPN
+- JWT аутентификация (register, login, refresh tokens)
+- CORS: настраивается через env var `CORS_ORIGINS` (по умолчанию localhost)
+- Rate limiting: 60 req/min per IP (настраивается через env)
+- WireGuard: все межсерверные соединения через VPN (порт 51830)
 - SSH: ключевая аутентификация
-- Нет аутентификации пользователей (MVP stage)
+- Security headers в Nginx: X-Content-Type-Options, X-Frame-Options, Referrer-Policy

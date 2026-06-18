@@ -59,6 +59,17 @@
       "disk": "16GB",
       "tasks": ["model-inference", "llama.cpp", "gguf"],
       "mimo_path": "/root/.mimocode/bin/mimo"
+    },
+    "kolibri": {
+      "public_ip": "109.248.161.39",
+      "vpn_ip": "10.99.0.6",
+      "ssh_alias": "kolibri-new",
+      "role": "worker",
+      "ram": "unknown",
+      "cpu": "unknown",
+      "disk": "unknown",
+      "tasks": ["general-compute", "backup"],
+      "mimo_path": "/root/.mimocode/bin/mimo"
     }
   }
 }

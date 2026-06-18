@@ -60,7 +60,10 @@
 | Personal Core | ✅ | 7 параметров + core digits |
 | Estimate Engine | ✅ | Создание и расчёт смет |
 | Storage | ✅ | JSON файловое хранилище |
-| 32 теста | ✅ | Полное покрытие модулей |
+| Micro Weights | ✅ | Микровеса связей |
+| Estimate Pipeline | ✅ | Пайплайн смет (5 агентов) |
+| Thinking Engine | ✅ | Движок мышления |
+| 56 тестов | ✅ | 54 unit + 2 integration |
 
 ## Phase 5 — UI Enhancement 🔧
 
@@ -73,6 +76,8 @@
 | Thinking Block | ✅ | Блок рассуждений модели |
 | Markdown рендеринг | ✅ | С подсветкой кода |
 | Cluster Monitor | ✅ | Визуализация кластера |
+| Estimate Editor | ✅ | Редактор смет (241 строка) |
+| Sidebar | ✅ | Боковая панель навигации |
 | Mobile Responsive | 🔧 | Адаптивный дизайн |
 
 ## Phase 6 — Multimodal 📋
@@ -108,25 +113,25 @@
 | Multi-step Planning | 📋 | Сложные цепочки рассуждений |
 | Agent Memory | 📋 | Долгосрочная память агента |
 
-## Phase 9 — Training & Fine-tuning 📋
+## Phase 9 — Training & Fine-tuning 🔧
 
 | Функция | Статус | Описание |
 |---------|--------|----------|
-| Dataset Preparation | 📋 | Скрипты подготовки данных |
-| LoRA Fine-tuning | 📋 | Адаптеры для моделей |
-| Model Merging | 📋 | Слияние адаптеров |
+| Dataset Preparation | ✅ | Скрипты подготовки данных (generate_data.py, extract_conversations.py) |
+| LoRA Fine-tuning | ✅ | Адаптеры для моделей (finetune.py) |
+| Model Merging | ✅ | Слияние адаптеров (merge_adapter.py) |
 | Evaluation | 📋 | Оценка качества моделей |
-| Auto-training Pipeline | 📋 | Автоматическое обучение |
+| Auto-training Pipeline | 🔧 | Автоматическое обучение (train_scheduler.py) |
 
-## Phase 10 — Production Ready 📋
+## Phase 10 — Production Ready 🔧
 
 | Функция | Статус | Описание |
 |---------|--------|----------|
-| User Authentication | 📋 | JWT / OAuth |
+| User Authentication | ✅ | JWT (register, login, refresh) |
 | Rate Limiting (Redis) | 📋 | Перенос в Redis |
-| Monitoring (Prometheus) | 📋 | Метрики |
-| Logging (structured) | 📋 | Структурированные логи |
-| CI/CD Pipeline | 📋 | GitHub Actions |
+| Monitoring (Prometheus) | ✅ | Метрики + Grafana дашборды |
+| Logging (structured) | ✅ | JSON structured logging |
+| CI/CD Pipeline | ✅ | GitHub Actions (lint → test → build → deploy) |
 | Backup Strategy | 📋 | Автобэкапы |
 | Load Balancing | 📋 | Балансировка нагрузки |
 | SSL/TLS | 📋 | Let's Encrypt |
@@ -138,15 +143,14 @@
 1. **Phase 5** (UI) — улучшить UX, закончить Canvas
 2. **Phase 7** (Documents) — экспорт смет и документов
 3. **Phase 8** (Agent) — реальные инструменты
-4. **Phase 10** (Production) — аутентификация, мониторинг
+4. **Phase 10** (Production) — SSL/TLS, rate limiting в Redis, бэкапы
 5. **Phase 6** (Multimodal) — голос и изображения
-6. **Phase 9** (Training) — fine-tuning моделей
+6. **Phase 9** (Training) — evaluation, полная автоматизация
 
 ## Известные проблемы
 
-- **9FTS нестабилен**: inference сервер часто падает из-за нехватки RAM
-- **Нет аутентификации**: все API открыты
-- **CORS wildcard**: `allow_origins=["*"]`
-- **Монолитный frontend**: App.jsx ~700 строк
+- **9FTS нестабилен**: inference сервер часто падает из-за нехватки RAM (1.9GB)
+- **Нет SSL/TLS**: HTTP only
+- **Монолитный frontend**: App.jsx ~743 строки, 21 useState
 - **SQLite**: не подходит для production с множеством запросов
 - **Rate limit на SQLite**: медленно при высокой нагрузке

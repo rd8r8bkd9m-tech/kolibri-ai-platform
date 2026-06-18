@@ -3,8 +3,8 @@
 ## Обзор
 
 `kolibri_nano` — локальное ядро интеллекта, написанное на Rust.
-Содержит 8 модулей: память, следы, ассоциации, уверенность, ядро,
-движок смет, персональное ядро и хранилище.
+Содержит 11 модулей: память, следы, ассоциации, уверенность, ядро,
+движок смет, персональное ядро, хранилище, микровеса, пайплайн и мышление.
 
 ## Структура
 
@@ -20,7 +20,10 @@ kolibri_nano/
     ├── confidence.rs       # ConfidenceScore — оценка уверенности
     ├── estimate_engine.rs  # EstimateEngine — движок смет
     ├── personal_core.rs    # PersonalCore — персональный профиль
-    └── storage.rs          # Storage — файловое хранилище
+    ├── storage.rs          # Storage — файловое хранилище
+    ├── micro_weights.rs    # MicroWeight — микровеса связей
+    ├── pipeline.rs         # EstimatePipeline — пайплайн смет
+    └── thinking.rs         # ThinkingEngine — движок мышления
 └── tests/
     └── integration_tests.rs
 ```
@@ -311,6 +314,92 @@ pub struct Storage {
 | `exists(subdir, name) -> bool` | Проверить |
 | `list_files(subdir) -> Vec<String>` | Список файлов |
 
+### 9. micro_weights.rs — Микровеса
+
+Микровеса связей между сущностями с интуитивными коэффициентами.
+
+```rust
+pub struct MicroWeight {
+    pub from: String,
+    pub to: String,
+    pub weight: f32,
+    pub confidence: f32,
+    pub intuition: f32,       // Интуитивный коэффициент
+}
+
+pub struct MicroWeightStore {
+    weights: Vec<MicroWeight>,
+}
+```
+
+**Методы**:
+| Метод | Описание |
+|-------|----------|
+| `add(weight)` | Добавить микровес |
+| `find(from, to) -> Option` | Найти связь |
+| `update(from, to, delta)` | Обновить вес |
+| `strongest_for(entity) -> Option` | Самая сильная связь |
+| `len() -> usize` | Количество |
+
+### 10. pipeline.rs — Пайплайн смет
+
+Полный пайплайн генерации строительных смет с агентной архитектурой.
+
+```rust
+pub struct EstimatePipeline {
+    agents: Vec<Box<dyn Agent>>,
+}
+
+// Агенты пайплайна:
+pub struct ParserAgent;       // Парсинг входных данных
+pub struct ClassifierAgent;   // Классификация типа работ
+pub struct NormativeAgent;    // Подбор нормативов (ГОСТ/СНиП)
+pub struct CalculatorAgent;   // Расчёт стоимостей
+pub struct ValidatorAgent;    // Валидация результата
+```
+
+**Типы зданий и конструкций**:
+```rust
+pub enum BuildingType {
+    Residential, Commercial, Industrial, ...
+}
+
+pub enum StructureType {
+    Wall, Floor, Roof, Foundation, ...
+}
+```
+
+### 11. thinking.rs — Движок мышления
+
+Движок обработки стимулов и генерации мыслей.
+
+```rust
+pub struct ThinkingEngine {
+    context: Context,
+}
+
+pub enum Stimulus {
+    Text(String),
+    Voice(Vec<f32>),
+    File(String),
+    Image(String),
+    Action(String),
+    Sensor(f32),
+}
+
+pub struct Context {
+    pub user_id: String,
+    pub session_id: String,
+    pub history: Vec<Thought>,
+}
+
+pub struct Thought {
+    pub content: String,
+    pub confidence: f32,
+    pub source: String,
+}
+```
+
 ## Python интеграция
 
 ### Вариант 1: PyO3 (рекомендуется)
@@ -350,7 +439,7 @@ cargo build --release
 
 ## Тесты
 
-32 теста покрывают все модули:
+56 тестов (54 unit + 2 integration) покрывают все модули:
 
 ```bash
 cargo test
@@ -362,6 +451,9 @@ cargo test
 # test personal_core::tests::test_update_from_behavior ... ok
 # test core_engine::tests::test_learn_from_result ... ok
 # test storage::tests::test_save_load ... ok
+# test micro_weights::tests::test_add_and_find ... ok
+# test pipeline::tests::test_parser_agent ... ok
+# test thinking::tests::test_stimulus_processing ... ok
 # ... и другие
 ```
 

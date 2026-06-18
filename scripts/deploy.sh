@@ -45,9 +45,16 @@ deploy_home() {
     echo "Home deployed ✓"
 }
 
+deploy_new() {
+    echo "=== Deploying Kolibri (Worker) ==="
+    scp -o ConnectTimeout=$SSH_TIMEOUT infra/network/api.py kolibri-new:/opt/kolibri-network/
+    ssh -o ConnectTimeout=$SSH_TIMEOUT kolibri-new "systemctl restart kolibri-network"
+    echo "Kolibri-new deployed ✓"
+}
+
 deploy_network() {
     echo "=== Deploying Kolibri Network to all servers ==="
-    for srv in kolibri-main kolibri-uiap kolibri-qjns kolibri-9fts; do
+    for srv in kolibri-main kolibri-uiap kolibri-qjns kolibri-9fts kolibri-new; do
         scp -o ConnectTimeout=$SSH_TIMEOUT infra/network/api.py $srv:/opt/kolibri-network/ 2>/dev/null && \
         ssh -o ConnectTimeout=$SSH_TIMEOUT $srv "systemctl restart kolibri-network" 2>/dev/null && \
         echo "  $srv ✓" || echo "  $srv ✗ (skipped)"
@@ -60,16 +67,18 @@ case $SERVER in
     qjns)   deploy_qjns ;;
     9fts)   deploy_9fts ;;
     home)   deploy_home ;;
+    new)    deploy_new ;;
     network) deploy_network ;;
     all)
         deploy_main
         deploy_uiap
         deploy_qjns
         deploy_home
+        deploy_new
         echo "=== All deployed ==="
         ;;
     *)
-        echo "Usage: $0 [main|uiap|qjns|9fts|home|network|all]"
+        echo "Usage: $0 [main|uiap|qjns|9fts|home|new|network|all]"
         exit 1
         ;;
 esac

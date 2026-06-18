@@ -14,7 +14,7 @@
 | Framer Motion | 12.40.0 | Анимации |
 | react-markdown | 10.1.0 | Рендеринг Markdown |
 | remark-gfm | 4.0.1 | GitHub Flavored Markdown |
-| tailwind-merge | 3.6.0 | Утилита для Tailwind |
+| tailwind-merge | 3.6.0 | Утилита для Tailwind классов |
 | clsx | 2.1.1 | Условные классы |
 
 ## Структура проекта
@@ -26,7 +26,7 @@ frontend/
 ├── package.json
 └── src/
     ├── main.jsx              # Точка входа
-    ├── App.jsx               # Основной компонент (~700 строк)
+    ├── App.jsx               # Основной компонент (~743 строки)
     ├── App.css               # Стили приложения
     ├── index.css             # Глобальные стили
     ├── globals.css           # CSS переменные (темы)
@@ -34,42 +34,59 @@ frontend/
     │   ├── KolibriBird.jsx   # Анимированный талисман колибри
     │   ├── KolibriAvatar.tsx # Аватар пользователя
     │   ├── MessageBubble.tsx # Пузырь сообщения
-    │   └── ThinkingIndicator.tsx # Индикатор "Думаю..."
+    │   ├── ThinkingIndicator.tsx # Индикатор "Думаю..."
+    │   ├── Sidebar.jsx       # Боковая панель навигации (282 строки)
+    │   └── KolibriCompanion.jsx # Компаньон колибри (82 строки)
     ├── features/
     │   ├── canvas/
     │   │   └── CanvasCard.tsx    # Карточки для Canvas системы
     │   ├── chat/                 # (заготовка)
     │   ├── documents/            # (заготовка)
-    │   ├── estimates/            # (заготовка)
+    │   ├── estimates/
+    │   │   └── EstimateEditor.jsx # Редактор смет (241 строка)
     │   ├── memory/               # (заготовка)
     │   └── settings/             # (заготовка)
     ├── shared/
     │   └── types.ts              # TypeScript типы
     ├── lib/
     │   └── utils.js              # Утилиты
+    ├── app/                      # (заготовка)
     └── assets/
-        └── kolibri-mascot.png    # Талисман
+        ├── kolibri-mascot.png    # Талисман
+        ├── vite.svg              # Vite logo
+        ├── react.svg             # React logo
+        └── hero.png              # Hero image
 ```
 
 ## Основной компонент (App.jsx)
 
-Монолитный компонент, управляющий всем UI. Содержит:
+Монолитный компонент, управляющий всем UI (~743 строки, 21 useState).
 
 ### Состояние (useState)
-- `messages` — массив сообщений чата
-- `input` — текст ввода
-- `loading` — индикатор загрузки
-- `ws` — WebSocket соединение
-- `connected` — статус подключения
-- `providers` — список AI-провайдеров
-- `selectedProvider` — выбранный провайдер
-- `sidebar` — открытие/закрытие сайдбара
-- `theme` — тема (dark/light)
-- `activeTab` — активная вкладка (chat/documents/search/cluster)
-- `documents` — список документов
-- `clusterStatus` — статус кластера
-- `conversations` — история диалогов
-- `conversationId` — текущий диалог
+
+| Хук | Описание |
+|-----|----------|
+| `messages` | Массив сообщений чата |
+| `input` | Текст ввода |
+| `loading` | Индикатор загрузки |
+| `ws` | WebSocket соединение |
+| `connected` | Статус подключения |
+| `providers` | Список AI-провайдеров |
+| `selectedProvider` | Выбранный провайдер |
+| `sidebar` | Открытие/закрытие сайдбара |
+| `theme` | Тема (dark/light) |
+| `activeTab` | Активная вкладка (chat/documents/search/cluster) |
+| `documents` | Список документов |
+| `clusterStatus` | Статус кластера |
+| `conversations` | История диалогов |
+| `conversationId` | Текущий диалог |
+| `docLoading` | Загрузка документов |
+| `docError` | Ошибка документов |
+| `uploading` | Загрузка файлов |
+| `searchQuery` | Поисковый запрос |
+| `searchResults` | Результаты поиска |
+| `searchLoading` | Загрузка поиска |
+| `estimateEditor` | Состояние редактора смет |
 
 ### Навигация (вкладки)
 
@@ -120,6 +137,18 @@ import { KolibriBird } from "./components/KolibriBird"
 <KolibriBird size={64} state="thinking" />
 ```
 
+### Sidebar
+Боковая панель навигации (282 строки):
+- Логотип Kolibri + кнопка "Новый чат"
+- Навигация (Чат, Документы, Поиск, Сеть)
+- История диалогов (до 20 последних)
+- Выбор модели
+- Переключатель темы
+- Индикатор подключения
+
+### KolibriCompanion
+Компаньон колибри (82 строки) — интерактивный элемент UI.
+
 ### CanvasCard (features/canvas/)
 Система карточек для отображения структурированных данных AI.
 
@@ -150,6 +179,13 @@ import { CanvasCard } from './features/canvas/CanvasCard';
   onAction={(action, card) => console.log(action, card)}
 />
 ```
+
+### EstimateEditor (features/estimates/)
+Редактор строительных смет (241 строка). Полноценный компонент с:
+- Формой ввода параметров сметы
+- Таблицей работ и материалов
+- Расчётом итогов
+- Экспортом в JSON
 
 ### ThinkingBlock
 Блок рассуждений модели. Парсит `<thinking>...</thinking>` из ответа.
@@ -224,16 +260,6 @@ npm run lint     # ESLint
 ```
 
 Production build раздается через FastAPI static files на Main сервере.
-
-## Sidebar
-
-Содержит:
-- Логотип Kolibri + кнопка "Новый чат"
-- Навигация (Чат, Документы, Поиск, Сеть)
-- История диалогов (до 20 последних)
-- Выбор модели
-- Переключатель темы
-- Индикатор подключения
 
 ## Quick Actions
 

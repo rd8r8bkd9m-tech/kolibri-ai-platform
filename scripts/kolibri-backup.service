@@ -1,0 +1,7 @@
+[Unit]
+Description=Kolibri AI Daily Backup
+
+[Service]
+Type=oneshot
+ExecStart=/opt/kolibri-ai/scripts/backup.sh daily
+User=root

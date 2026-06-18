@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+*.db
+*.sqlite
+data/
+node_modules/
+dist/
+.git/
+.mimocode/
+*.log
+.DS_Store
+*.gguf
+scripts/training/data/

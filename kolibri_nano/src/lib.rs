@@ -1,0 +1,22 @@
+pub mod associations;
+pub mod confidence;
+pub mod core_engine;
+pub mod estimate_engine;
+pub mod memory;
+pub mod micro_weights;
+pub mod personal_core;
+pub mod pipeline;
+pub mod storage;
+pub mod thinking;
+pub mod traces;
+
+pub use associations::Association;
+pub use confidence::{ConfidenceScore, calculate_confidence};
+pub use core_engine::KolibriCore;
+pub use estimate_engine::EstimateEngine;
+pub use memory::MemoryEngine;
+pub use micro_weights::{MicroWeight, MicroWeightStore};
+pub use personal_core::PersonalCore;
+pub use pipeline::{EstimatePipeline, ParserAgent, ClassifierAgent, NormativeAgent, CalculatorAgent, ValidatorAgent};
+pub use thinking::{ThinkingEngine, Stimulus, Context, Thought};
+pub use traces::{Trace, TraceType};

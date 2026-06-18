@@ -1,0 +1,12 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir fastapi uvicorn httpx psutil redis
+
+COPY infra/network/api.py .
+COPY infra/network/organism.py .
+
+EXPOSE 9001
+
+CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "9001"]

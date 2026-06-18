@@ -3,8 +3,9 @@ import tempfile
 import asyncio
 from pathlib import Path
 
-TTS_DIR = Path("/opt/kolibri-ai/data/tts")
-TTS_DIR.mkdir(parents=True, exist_ok=True)
+from config import TTS_OUTPUT_DIR
+
+TTS_DIR = TTS_OUTPUT_DIR
 
 
 class TTSEngine:

@@ -1,0 +1,19 @@
+[Unit]
+Description=Kolibri Organism Network Layer
+After=network.target redis.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/kolibri-ai/network
+Environment=KOLIBRI_NODE=main
+Environment=KOLIBRI_ROLE=gateway
+Environment=KOLIBRI_PORT=9001
+Environment=KOLIBRI_REDIS=10.99.0.1
+Environment=KOLIBRI_REDIS_PORT=6379
+ExecStart=/usr/bin/python3 -m uvicorn api:app --host 0.0.0.0 --port 9001
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

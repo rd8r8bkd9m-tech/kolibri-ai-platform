@@ -33,12 +33,81 @@ curl http://localhost:8000/api/health
 ```json
 {
   "models": [
-    {"name": "mimo-auto", "description": "Auto mode (recommended)", "available": true},
     {"name": "mimo-v2.5-pro", "description": "High quality reasoning", "available": true},
     {"name": "mimo-v2.5-lite", "description": "Fast lightweight model", "available": true}
   ],
   "system_prompt": "Ты — Kolibri AI, большая языковая модель..."
 }
+```
+
+### GET /metrics
+Prometheus-format метрики.
+
+```json
+{
+  "uptime_seconds": 86400,
+  "total_requests": 12345,
+  "total_errors": 42
+}
+```
+
+---
+
+## Auth API
+
+### POST /api/auth/register
+Регистрация нового пользователя.
+
+```bash
+curl -X POST http://localhost:8000/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"username": "user1", "password": "securepass"}'
+```
+
+```json
+{
+  "access_token": "eyJ...",
+  "refresh_token": "eyJ...",
+  "token_type": "bearer"
+}
+```
+
+### POST /api/auth/login
+Логин. Возвращает JWT токены.
+
+```bash
+curl -X POST http://localhost:8000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username": "user1", "password": "securepass"}'
+```
+
+```json
+{
+  "access_token": "eyJ...",
+  "refresh_token": "eyJ...",
+  "token_type": "bearer"
+}
+```
+
+### POST /api/auth/refresh
+Обновление access токена.
+
+```bash
+curl -X POST http://localhost:8000/api/auth/refresh \
+  -H "Content-Type: application/json" \
+  -d '{"refresh_token": "eyJ..."}'
+```
+
+### GET /api/auth/me
+Получить текущего авторизованного пользователя (требует auth).
+
+```bash
+curl http://localhost:8000/api/auth/me \
+  -H "Authorization: Bearer eyJ..."
+```
+
+```json
+{"id": 1, "username": "user1"}
 ```
 
 ---
@@ -53,7 +122,7 @@ curl -X POST http://localhost:8000/api/chat \
   -H "Content-Type: application/json" \
   -d '{
     "messages": [{"role": "user", "content": "Привет!"}],
-    "model": "auto",
+    "model": "mimo-v2.5-pro",
     "provider": "mimo",
     "temperature": 0.7,
     "max_tokens": 2048,
@@ -65,32 +134,33 @@ curl -X POST http://localhost:8000/api/chat \
 | Поле | Тип | По умолчанию | Описание |
 |------|-----|-------------|----------|
 | messages | ChatMessage[] | *обязательно* | История сообщений |
-| model | string | "auto" | Имя модели |
+| model | string | null | Имя модели |
 | provider | string | null | Провайдер (mimo, openai, anthropic) |
-| temperature | float | 0.7 | Температура генерации |
-| max_tokens | int | 2048 | Максимум токенов |
+| temperature | float | null | Температура генерации |
+| max_tokens | int | null | Максимум токенов |
 | enable_thinking | bool | false | Включить reasoning |
 | system_prompt | string | null | Доп. системный промпт |
+| conversation_id | string | null | ID диалога для сохранения сообщений |
 
 **Ответ**:
 ```json
 {
   "response": "Привет! Чем могу помочь?",
   "provider": "mimo",
-  "model": "mimo-auto",
+  "model": "mimo-v2.5-pro",
   "cached": false
 }
 ```
 
 ### WebSocket /ws/chat
-Стриминг чата через WebSocket.
+Стриминг чата через WebSocket. Поддерживает JWT auth через query param.
 
 ```javascript
-const ws = new WebSocket("ws://localhost:8000/ws/chat");
+const ws = new WebSocket("ws://localhost:8000/ws/chat?token=eyJ...");
 ws.onopen = () => {
   ws.send(JSON.stringify({
     messages: [{role: "user", content: "Привет!"}],
-    model: "auto"
+    model: "mimo-v2.5-pro"
   }));
 };
 ws.onmessage = (e) => {
@@ -131,8 +201,8 @@ curl -X POST http://localhost:8000/api/pipeline \
 | stream | bool | false | Стриминг (заглушка) |
 
 **Автоопределение intent** (ключевые слова):
-- **agent**: "выполни", "сделай", "запусти", "вычисли", "deploy", "shell"
-- **rag**: "документ", "смета", "расценк", "цена на", "гост", "снип"
+- **agent**: "выполни", "сделай", "запусти", "вычисли", "посчитай", "deploy", "shell", "execute", "run", "calculate", "compute", "найди файл", "прочитай файл", "создай файл", "установи", "настрой", "проверь сервер", "скрипт", "команда", "терминал"
+- **rag**: "документ", "смета", "расценк", "цена на", "гост", "снип", "стоимость", "какие материалы", "нормы", "спец", "по документам", "в базе", "найди в документации", "согласно", "по данным", "из файла"
 - **chat**: всё остальное
 
 **Ответ**:
@@ -234,16 +304,36 @@ curl -X POST http://localhost:8000/api/tools \
 
 ---
 
+## Cluster API
+
+### GET /api/v1/cluster
+Агрегированный статус здоровья всех нод кластера (данные от health_checker).
+
+```json
+{
+  "nodes": {
+    "home": {"status": "ok", "ip": "10.99.0.1", "role": "training"},
+    "main": {"status": "ok", "ip": "10.99.0.2", "role": "gateway"},
+    "uiap": {"status": "ok", "ip": "10.99.0.3", "role": "rag"},
+    "qjns": {"status": "ok", "ip": "10.99.0.4", "role": "agent"},
+    "9fts": {"status": "down", "ip": "10.99.0.5", "role": "inference"}
+  }
+}
+```
+
+---
+
 ## Proxy Routes
 
-Main сервер проксирует запросы к другим сервисам:
+Main сервер проксирует запросы к другим сервисам.
+URL-ы берутся из env vars. Префикс удаляется перед проксированием.
 
-| Префикс | Target | Описание |
-|---------|--------|----------|
-| `/api/knowledge/*` | UIAP:8002/rag/* | RAG Engine |
-| `/api/agent/*` | QJNS:8003/agent/* | Agent Executor |
-| `/api/inference/*` | 9FTS:8001/inference/* | Inference |
-| `/cluster/*` | localhost:9001 | Organism (local) |
+| Префикс | Target | Добавляется | Описание |
+|---------|--------|-------------|----------|
+| `/api/knowledge/*` | RAG_SERVICE_URL | `/rag/documents` | RAG Engine |
+| `/api/agent/*` | AGENT_SERVICE_URL | `/agent` | Agent Executor |
+| `/api/inference/*` | INFERENCE_SERVICE_URL | `/inference` | Inference |
+| `/cluster/*` | localhost:9001 | (ничего) | Organism (local) |
 
 ---
 
@@ -254,7 +344,7 @@ Main сервер проксирует запросы к другим серви
 ### GET /api/v1/ai/models
 ### GET /api/v1/model/stats
 ### POST /api/v1/ai/chat
-### POST /api/v1/ai/chat/stream (SSE)
+### POST /api/v1/ai/chat/stream (SSE — single-event, не true streaming)
 ### POST /api/v1/ai/imagine (заглушка)
 ### POST /api/v1/ai/vision/analyze (заглушка)
 ### POST /api/v1/ai/demo/learn/text (заглушка)
@@ -361,6 +451,7 @@ POST /broadcast           — Широковещательное сообщен�
 |-----|----------|
 | 200 | Успех |
 | 400 | Неверный запрос |
+| 401 | Не авторизован |
 | 404 | Не найдено |
 | 429 | Rate limit (60 req/min) |
 | 500 | Внутренняя ошибка сервера |

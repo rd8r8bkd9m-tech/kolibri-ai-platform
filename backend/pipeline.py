@@ -15,14 +15,46 @@ from enum import Enum
 import httpx
 from pydantic import BaseModel
 
+from config import RAG_SERVICE_URL, AGENT_SERVICE_URL, INFERENCE_SERVICE_URL
+from logging_config import get_logger
+
+logger = get_logger("pipeline")
+
 
 # ── Service endpoints ──────────────────────────────────────────────
 
-RAG_URL = "http://10.99.0.3:8002"
-AGENT_URL = "http://10.99.0.4:8003"
-INFERENCE_URL = "http://10.99.0.5:8001"
+RAG_URL = RAG_SERVICE_URL
+AGENT_URL = AGENT_SERVICE_URL
+INFERENCE_URL = INFERENCE_SERVICE_URL
 
 REQUEST_TIMEOUT = 60.0
+MAX_RETRIES = 3
+BASE_DELAY = 1.0
+
+
+# ── Retry helper ──────────────────────────────────────────────────
+
+async def _retry_request(coro_factory, *, retries: int = MAX_RETRIES, base_delay: float = BASE_DELAY):
+    """Retry an async callable with exponential backoff.
+
+    coro_factory: a zero-arg callable that returns a fresh coroutine each time.
+    Returns the result on success; raises the last exception after exhausting retries.
+    """
+    last_exc = None
+    for attempt in range(retries):
+        try:
+            return await coro_factory()
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.ReadTimeout) as exc:
+            last_exc = exc
+            if attempt < retries - 1:
+                delay = base_delay * (2 ** attempt)
+                logger.warning(
+                    f"Request failed (attempt {attempt + 1}/{retries}), retrying in {delay:.1f}s: {exc}"
+                )
+                await asyncio.sleep(delay)
+            else:
+                logger.error(f"Request failed after {retries} attempts: {exc}")
+    raise last_exc
 
 
 # ── Models ─────────────────────────────────────────────────────────
@@ -91,13 +123,15 @@ def detect_intent(message: str) -> Intent:
 
 async def call_rag_search(query: str, top_k: int = 5) -> Dict[str, Any]:
     """Search RAG engine for relevant documents."""
-    async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
-        resp = await client.post(
-            f"{RAG_URL}/rag/search",
-            json={"query": query, "top_k": top_k},
-        )
-        resp.raise_for_status()
-        return resp.json()
+    async def _do():
+        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+            resp = await client.post(
+                f"{RAG_URL}/rag/search",
+                json={"query": query, "top_k": top_k},
+            )
+            resp.raise_for_status()
+            return resp.json()
+    return await _retry_request(_do)
 
 
 async def call_rag_health() -> bool:
@@ -115,17 +149,19 @@ async def call_inference_generate(
     temperature: float = 0.7,
 ) -> Dict[str, Any]:
     """Generate text via Inference service."""
-    async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
-        resp = await client.post(
-            f"{INFERENCE_URL}/inference/generate",
-            json={
-                "prompt": prompt,
-                "max_tokens": max_tokens,
-                "temperature": temperature,
-            },
-        )
-        resp.raise_for_status()
-        return resp.json()
+    async def _do():
+        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+            resp = await client.post(
+                f"{INFERENCE_URL}/inference/generate",
+                json={
+                    "prompt": prompt,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                },
+            )
+            resp.raise_for_status()
+            return resp.json()
+    return await _retry_request(_do)
 
 
 async def call_inference_health() -> bool:
@@ -142,17 +178,19 @@ async def call_agent_chat(
     conversation: Optional[List[Dict[str, str]]] = None,
 ) -> Dict[str, Any]:
     """Send message to Agent for planning + tool execution."""
-    async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
-        resp = await client.post(
-            f"{AGENT_URL}/agent/chat",
-            json={
-                "message": message,
-                "conversation": conversation or [],
-                "stream": False,
-            },
-        )
-        resp.raise_for_status()
-        return resp.json()
+    async def _do():
+        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+            resp = await client.post(
+                f"{AGENT_URL}/agent/chat",
+                json={
+                    "message": message,
+                    "conversation": conversation or [],
+                    "stream": False,
+                },
+            )
+            resp.raise_for_status()
+            return resp.json()
+    return await _retry_request(_do)
 
 
 async def call_agent_health() -> bool:

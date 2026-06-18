@@ -12,3 +12,7 @@ venv/
 data/
 *.log
 .DS_Store
+.mimocode/
+.playwright-cli/
+logs/
+target/
