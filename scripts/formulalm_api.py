@@ -21,7 +21,7 @@ logger = logging.getLogger("formulalm-api")
 sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
 
 from fastapi import FastAPI
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
 import uvicorn
@@ -64,7 +64,7 @@ async def health():
         has_lm = getattr(engine, "_lm_trained", False)
         return {"status": "ok", "lm_trained": has_lm, "model": "formulalm"}
     except Exception as e:
-        return {"status": "error", "error": str(e)}
+        return JSONResponse(status_code=503, content={"status": "error", "error": str(e)})
 
 
 @app.post("/api/v1/generate", response_model=GenerateResponse)

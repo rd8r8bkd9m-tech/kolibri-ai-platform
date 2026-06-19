@@ -1,9 +1,6 @@
 """
 FormulaLM Training — обучение на исторических данных корпуса.
 
-Загружает тексты из full_corpus.txt + corpus/*.txt + kolibri_fractal_memory.jsonl,
-обучает BPE токенизатор, затем эволюционирует FormulaLM.
-
 Usage:
     python3 train_formulalm.py [--generations 200] [--vocab-size 8000] [--max-texts 5000]
 """
@@ -23,17 +20,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger("train-formulalm")
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
+sys.path.insert(0, str(Path(__file__).parent))
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 MODELS_DIR = DATA_DIR / "models"
 
 
 def load_corpus(max_texts: int = 5000) -> list[str]:
-    """Загрузить тексты из всех доступных источников."""
     texts: list[str] = []
 
-    # 1. full_corpus.txt
     full_corpus = DATA_DIR / "full_corpus.txt"
     if full_corpus.exists():
         lines = full_corpus.read_text(encoding="utf-8", errors="replace").splitlines()
@@ -43,98 +38,79 @@ def load_corpus(max_texts: int = 5000) -> list[str]:
                 texts.append(line)
         logger.info("full_corpus.txt: %d строк, отобрано %d", len(lines), len(texts))
 
-    # 2. corpus/*.txt
     corpus_dir = DATA_DIR / "corpus"
     if corpus_dir.is_dir():
-        count_before = len(texts)
+        n = len(texts)
         for f in sorted(corpus_dir.glob("*.txt")):
             try:
-                content = f.read_text(encoding="utf-8", errors="replace")
-                for para in content.split("\n\n"):
+                for para in f.read_text(encoding="utf-8", errors="replace").split("\n\n"):
                     para = para.strip()
                     if len(para) > 30:
                         texts.append(para)
             except Exception:
                 continue
-        logger.info("corpus/*.txt: +%d параграфов", len(texts) - count_before)
+        logger.info("corpus/*.txt: +%d", len(texts) - n)
 
-    # 3. kolibri_fractal_memory.jsonl
     fractal = DATA_DIR / "models" / "kolibri_fractal_memory.jsonl"
     if fractal.exists():
-        count_before = len(texts)
+        n = len(texts)
         for line in fractal.read_text(encoding="utf-8", errors="replace").splitlines():
             try:
                 obj = json.loads(line)
-                q = obj.get("question", "")
-                a = obj.get("answer", "")
-                if len(q) > 20:
-                    texts.append(q)
-                if len(a) > 20:
-                    texts.append(a)
-                text = obj.get("text", obj.get("content", ""))
-                if len(text) > 20:
-                    texts.append(text)
+                for key in ("question", "answer", "text", "content"):
+                    val = obj.get(key, "")
+                    if len(val) > 20:
+                        texts.append(val)
             except Exception:
                 continue
-        logger.info("fractal_memory: +%d записей", len(texts) - count_before)
+        logger.info("fractal_memory: +%d", len(texts) - n)
 
-    # 4. kolibri_qa.kqa (если это JSONL)
     qa_file = DATA_DIR / "models" / "kolibri_qa.kqa"
     if qa_file.exists():
-        count_before = len(texts)
-        try:
-            content = qa_file.read_text(encoding="utf-8", errors="replace")
-            for line in content.splitlines():
-                try:
-                    obj = json.loads(line)
-                    q = obj.get("question", obj.get("q", ""))
-                    a = obj.get("answer", obj.get("a", ""))
-                    if len(q) > 10:
-                        texts.append(q)
-                    if len(a) > 10:
-                        texts.append(a)
-                except Exception:
-                    if len(line) > 30:
-                        texts.append(line)
-        except Exception:
-            pass
-        logger.info("kolibri_qa: +%d записей", len(texts) - count_before)
+        n = len(texts)
+        for line in qa_file.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                obj = json.loads(line)
+                for key in ("question", "answer", "q", "a"):
+                    val = obj.get(key, "")
+                    if len(val) > 10:
+                        texts.append(val)
+            except Exception:
+                if len(line) > 30:
+                    texts.append(line)
+        logger.info("kolibri_qa: +%d", len(texts) - n)
 
-    # Дедупликация
     seen = set()
-    unique: list[str] = []
+    unique = []
     for t in texts:
         h = hash(t[:200])
         if h not in seen:
             seen.add(h)
             unique.append(t)
 
-    logger.info("Итого: %d уникальных текстов (лимит %d)", len(unique), max_texts)
+    logger.info("Итого: %d уникальных (лимит %d)", len(unique), max_texts)
     return unique[:max_texts]
 
 
 def train_bpe_tokenizer(texts: list[str], vocab_size: int = 8000):
-    """Обучить BPE токенизатор."""
     from service.tokenizer import BPETokenizer
-
     tokenizer = BPETokenizer(vocab_size=vocab_size)
     tokenizer.train(texts[:2000])
-    logger.info("BPE tokenizer: vocab_size=%d", len(tokenizer))
+    logger.info("BPE tokenizer: vocab=%d", len(tokenizer))
     return tokenizer
 
 
 def encode_texts(tokenizer, texts: list[str], min_len: int = 5) -> list[list[int]]:
-    """Закодировать тексты в последовательности токенов."""
-    sequences: list[list[int]] = []
-    for text in texts:
+    seqs = []
+    for t in texts:
         try:
-            ids = tokenizer.encode(text)
+            ids = tokenizer.encode(t)
             if len(ids) >= min_len:
-                sequences.append(ids)
+                seqs.append(ids)
         except Exception:
             continue
-    logger.info("Закодировано %d последовательностей (мин. длина %d)", len(sequences), min_len)
-    return sequences
+    logger.info("Закодировано %d последовательностей", len(seqs))
+    return seqs
 
 
 def train_formulalm(
@@ -147,9 +123,7 @@ def train_formulalm(
     save_every: int = 10,
     output_prefix: str = "formulalm_trained",
 ):
-    """Обучить FormulaLM эволюцией с логированием."""
-    from service.formula_lm import FormulaLM, _softmax, _top_p_filter
-    import math
+    from service.formula_lm import FormulaLM
 
     model = FormulaLM(
         vocab_size=vocab_size,
@@ -158,97 +132,67 @@ def train_formulalm(
         num_formulas=num_formulas,
     )
 
-    logger.info(
-        "FormulaLM: vocab=%d, embed=%d, ctx=%d, formulas=%d, generations=%d",
-        vocab_size, embed_dim, context_size, num_formulas, generations,
-    )
+    logger.info("FormulaLM: vocab=%d embed=%d ctx=%d formulas=%d gen=%d",
+                vocab_size, embed_dim, context_size, num_formulas, generations)
 
-    start_time = time.time()
-    batch_size = min(50, len(sequences))
+    batch_size = min(200, len(sequences))
     train_seqs = sequences[:batch_size]
-    logger.info("Training на %d последовательностях (batch=%d)...", len(sequences), batch_size)
+    logger.info("Batch: %d последовательностей", batch_size)
 
-    import random
-    import numpy as np
+    start = time.time()
 
-    for gen in range(generations):
-        # Evaluate fitness
-        for idx, f in enumerate(model.formulas):
-            f.fitness = model._evaluate(f, train_seqs)
+    for gen_start in range(0, generations, save_every):
+        gen_count = min(save_every, generations - gen_start)
 
-        ranked = sorted(range(len(model.formulas)), key=lambda i: model.formulas[i].fitness, reverse=True)
-        model._best_idx = ranked[0]
+        # Use original evolve() — much faster than inline loop
+        model.evolve(train_seqs, generations=gen_count)
 
-        # Log BEFORE replacement
-        if model.generation % 5 == 0 or model.generation == 0:
-            best_f = model.formulas[model._best_idx].fitness
-            ppl = math.exp(-best_f) if -500 < best_f < 500 else float('inf')
-            elapsed = time.time() - start_time
-            logger.info(
-                "gen=%d/%d, fitness=%.4f, ppl=%.2f, elapsed=%.0fs",
-                model.generation, generations, best_f, ppl, elapsed,
-            )
+        # Log AFTER evolve returns (fitness is already updated)
+        best_f = model.formulas[model._best_idx].fitness
+        import math
+        ppl = math.exp(-best_f) if -500 < best_f < 500 else float('inf')
+        elapsed = time.time() - start
+        logger.info("gen=%d/%d, fitness=%.4f, ppl=%.1f, elapsed=%.0fs",
+                     model.generation, generations, best_f, ppl, elapsed)
 
-        if model.generation > 0 and model.generation % save_every == 0:
-            save_path = MODELS_DIR / f"{output_prefix}_{model.generation}.npz"
-            model.save(save_path)
-            logger.info("Чекпоинт: %s", save_path)
+        save_path = MODELS_DIR / f"{output_prefix}_{model.generation}.npz"
+        model.save(save_path)
+        logger.info("Чекпоинт: %s", save_path)
 
-        # Elitism 25%
-        elite_count = max(2, model.num_formulas // 4)
-        new_formulas = [model.formulas[ranked[i]].copy() for i in range(elite_count)]
-
-        while len(new_formulas) < model.num_formulas:
-            pa = model._tournament(ranked)
-            pb = model._tournament(ranked)
-            child = model.formulas[pa].crossover(model.formulas[pb])
-            rate = 0.05 if gen < generations // 2 else 0.02
-            child.mutate(rate=rate)
-            new_formulas.append(child)
-
-        model.formulas = new_formulas
-        model.generation += 1
-
-    total_time = time.time() - start_time
-    logger.info("Обучение завершено: %d gen, %.0fс", generations, total_time)
+    total = time.time() - start
+    logger.info("Готово: %d gen, %.0fс", generations, total)
 
     final_path = MODELS_DIR / f"{output_prefix}_final.npz"
     model.save(final_path)
-    logger.info("Финальная модель: %s", final_path)
+    logger.info("Финал: %s", final_path)
     return model
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Train FormulaLM on historical corpus")
-    parser.add_argument("--max-texts", type=int, default=5000, help="Max texts to use")
-    parser.add_argument("--vocab-size", type=int, default=8000, help="BPE vocabulary size")
-    parser.add_argument("--embed-dim", type=int, default=64, help="Embedding dimension")
-    parser.add_argument("--context-size", type=int, default=256, help="Context window size")
-    parser.add_argument("--num-formulas", type=int, default=16, help="Number of evolutionary formulas")
-    parser.add_argument("--generations", type=int, default=200, help="Evolution generations")
-    parser.add_argument("--save-every", type=int, default=10, help="Save checkpoint every N generations")
-    parser.add_argument("--output", type=str, default="formulalm_trained", help="Output file prefix")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--max-texts", type=int, default=5000)
+    parser.add_argument("--vocab-size", type=int, default=8000)
+    parser.add_argument("--embed-dim", type=int, default=64)
+    parser.add_argument("--context-size", type=int, default=256)
+    parser.add_argument("--num-formulas", type=int, default=16)
+    parser.add_argument("--generations", type=int, default=200)
+    parser.add_argument("--save-every", type=int, default=10)
+    parser.add_argument("--output", type=str, default="formulalm_trained")
     args = parser.parse_args()
 
     logger.info("=== FormulaLM Training ===")
-    logger.info("Data dir: %s", DATA_DIR)
 
-    # 1. Загрузка корпуса
     texts = load_corpus(max_texts=args.max_texts)
     if len(texts) < 50:
-        logger.error("Недостаточно текстов: %d (нужно >= 50)", len(texts))
+        logger.error("Мало текстов: %d", len(texts))
         sys.exit(1)
 
-    # 2. Обучение BPE
     tokenizer = train_bpe_tokenizer(texts, vocab_size=args.vocab_size)
-
-    # 3. Кодирование
     sequences = encode_texts(tokenizer, texts)
     if len(sequences) < 30:
-        logger.error("Недостаточно последовательностей: %d (нужно >= 30)", len(sequences))
+        logger.error("Мало последовательностей: %d", len(sequences))
         sys.exit(1)
 
-    # 4. Обучение FormulaLM
     model = train_formulalm(
         sequences=sequences,
         vocab_size=args.vocab_size,
@@ -260,16 +204,11 @@ def main():
         output_prefix=args.output,
     )
 
-    # 5. Тест генерации
     logger.info("=== Тест генерации ===")
-    test_prompts = ["Привет", "Что такое искусственный интеллект?", "Смета на ремонт"]
-    for prompt in test_prompts:
+    for prompt in ["Привет", "Что такое AI?", "Смета на ремонт"]:
         ids = tokenizer.encode(prompt)
-        generated = model.generate(ids, max_tokens=30, temperature=0.8)
-        text = tokenizer.decode(generated)
-        logger.info("'%s' → '%s'", prompt, text)
-
-    logger.info("=== Готово ===")
+        out = model.generate(ids, max_tokens=30, temperature=0.8)
+        logger.info("'%s' → '%s'", prompt, tokenizer.decode(out))
 
 
 if __name__ == "__main__":
