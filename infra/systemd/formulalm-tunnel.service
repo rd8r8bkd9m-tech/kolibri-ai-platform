@@ -1,0 +1,12 @@
+[Unit]
+Description=SSH tunnel to FormulaLM API on Home (10.99.0.1:8004)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -N -L 8004:127.0.0.1:8004 -p 2222 ladik@178.207.11.90
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

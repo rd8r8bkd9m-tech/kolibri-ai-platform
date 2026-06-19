@@ -45,6 +45,21 @@ deploy_home() {
     echo "Home deployed ✓"
 }
 
+deploy_formulalm() {
+    echo "=== Deploying FormulaLM API to Home ==="
+    scp -o ConnectTimeout=$SSH_TIMEOUT -P 2222 scripts/formulalm_api.py ladik@178.207.11.90:/srv/kolibri/repo/backend/formulalm_api.py
+    scp -o ConnectTimeout=$SSH_TIMEOUT -P 2222 scripts/train_formulalm.py ladik@178.207.11.90:/srv/kolibri/repo/backend/train_formulalm.py
+    ssh -o ConnectTimeout=$SSH_TIMEOUT -p 2222 ladik@178.207.11.90 "pkill -f formulalm_api 2>/dev/null; cd /srv/kolibri/repo/backend && PYTHONPATH=/srv/kolibri/repo/backend nohup /srv/kolibri/repo/.venv/bin/python3 formulalm_api.py > /tmp/formulalm_api.log 2>&1 &"
+    echo "FormulaLM API deployed ✓"
+}
+
+deploy_tunnel() {
+    echo "=== Setting up FormulaLM SSH tunnel on Main ==="
+    scp -o ConnectTimeout=$SSH_TIMEOUT infra/systemd/formulalm-tunnel.service kolibri-main:/etc/systemd/system/
+    ssh -o ConnectTimeout=$SSH_TIMEOUT kolibri-main "systemctl daemon-reload && systemctl enable formulalm-tunnel && systemctl restart formulalm-tunnel"
+    echo "Tunnel deployed ✓"
+}
+
 deploy_new() {
     echo "=== Deploying Kolibri (Worker) ==="
     scp -o ConnectTimeout=$SSH_TIMEOUT infra/network/api.py kolibri-new:/opt/kolibri-network/
@@ -68,6 +83,8 @@ case $SERVER in
     9fts)   deploy_9fts ;;
     home)   deploy_home ;;
     new)    deploy_new ;;
+    formulalm) deploy_formulalm ;;
+    tunnel) deploy_tunnel ;;
     network) deploy_network ;;
     all)
         deploy_main
@@ -78,7 +95,7 @@ case $SERVER in
         echo "=== All deployed ==="
         ;;
     *)
-        echo "Usage: $0 [main|uiap|qjns|9fts|home|new|network|all]"
+        echo "Usage: $0 [main|uiap|qjns|9fts|home|new|formulalm|tunnel|network|all]"
         exit 1
         ;;
 esac
