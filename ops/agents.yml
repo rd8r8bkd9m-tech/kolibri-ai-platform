@@ -27,6 +27,8 @@
       "role": "training-hub",
       "deputy": "FormulaLM Lead",
       "specialization": "formulalm-training-and-api",
+      "provider_name": "kolibri-training-hub",
+      "access_status": "ssh_key_ok",
       "ssh_alias": "ladik@178.207.11.90",
       "ssh_port": 2222,
       "vpn_ip": "10.99.0.1",
@@ -50,6 +52,8 @@
       "role": "api-gateway-release",
       "deputy": "Release Lead",
       "specialization": "backend-api-frontend-release-coordination",
+      "provider_name": "kolibri-main-api",
+      "access_status": "ssh_key_ok",
       "ssh_alias": "kolibri-main",
       "vpn_ip": "10.99.0.2",
       "mimo_bin": "/root/.mimocode/bin/mimo",
@@ -110,12 +114,12 @@
       }
     },
     "9fts": {
-      "enabled": false,
+      "enabled": true,
       "role": "legacy-inference-recovery",
       "deputy": "Inference Lead",
       "specialization": "inference-node-recovery-and-canary-serving",
       "provider_name": "kolibri-inference-recovery",
-      "access_status": "network_unreachable",
+      "access_status": "ssh_key_ok",
       "ssh_alias": "kolibri-9fts",
       "vpn_ip": "10.99.0.5",
       "mimo_bin": "/root/.mimocode/bin/mimo",
@@ -128,14 +132,15 @@
         "min_disk_free_gb": 3,
         "max_ram_percent": 90,
         "requires_vpn": true
-      },
-      "disabled_reason": "SSH and ping are unreachable from Mac and peer VPS nodes even though HostVDS reports ACTIVE power_state=1, port ACTIVE, and allow_all security group; requires API reboot and rescue/console diagnostics if reboot fails."
+      }
     },
     "kolibri": {
       "enabled": true,
       "role": "worker-backup-node",
       "deputy": "Worker Lead",
       "specialization": "background-jobs-backups-general-compute",
+      "provider_name": "kolibri-worker-backup",
+      "access_status": "ssh_key_ok",
       "ssh_alias": "kolibri-new",
       "vpn_ip": "10.99.0.6",
       "mimo_bin": "/root/.mimocode/bin/mimo",
