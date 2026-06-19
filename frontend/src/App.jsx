@@ -1,7 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useState, useEffect, useRef } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import "./App.css"
-import { KolibriBird } from "./components/KolibriBird"
 import { KolibriCompanion } from "./components/KolibriCompanion"
 import { Sidebar } from "./components/Sidebar"
 import { ErrorBoundary } from "./components/ErrorBoundary"
@@ -11,6 +10,11 @@ import { SearchView } from "./components/SearchView"
 import { ClusterView } from "./components/ClusterView"
 import { BottomSheet } from "./components/BottomSheet"
 import { EstimateEditor } from "./features/estimates/EstimateEditor"
+import { useWebSocket } from "./hooks/useWebSocket"
+import { useConversations } from "./hooks/useConversations"
+import { useDocuments } from "./hooks/useDocuments"
+import { useCluster } from "./hooks/useCluster"
+import { useSearch } from "./hooks/useSearch"
 
 const API_BASE = ""
 
@@ -18,28 +22,24 @@ export default function App() {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState("")
   const [loading, setLoading] = useState(false)
-  const [ws, setWs] = useState(null)
-  const [connected, setConnected] = useState(false)
   const [providers, setProviders] = useState([])
   const [selectedProvider, setSelectedProvider] = useState("mimo")
   const [sidebar, setSidebar] = useState(false)
   const [theme, setTheme] = useState(() => localStorage.getItem("kolibri-theme") || "dark")
   const [activeTab, setActiveTab] = useState("chat")
-  const [documents, setDocuments] = useState([])
-  const [docLoading, setDocLoading] = useState(false)
-  const [docError, setDocError] = useState("")
-  const [uploading, setUploading] = useState(false)
-  const [clusterStatus, setClusterStatus] = useState(null)
-  const [searchQuery, setSearchQuery] = useState("")
-  const [searchResults, setSearchResults] = useState([])
-  const [searchLoading, setSearchLoading] = useState(false)
-  const [conversationId, setConversationId] = useState(null)
   const [estimateEditor, setEstimateEditor] = useState(null)
-  const [conversations, setConversations] = useState([])
   const [globalError, setGlobalError] = useState("")
-  const [convLoading, setConvLoading] = useState(false)
   const messagesRef = useRef(null)
   const inputRef = useRef(null)
+
+  const { ws, connected, connectWS } = useWebSocket({ setMessages, setLoading })
+  const {
+    conversations, conversationId, setConversationId, convLoading,
+    fetchConversations, loadLastConversation, loadConversation, deleteConversation,
+  } = useConversations({ API_BASE, setMessages, setActiveTab, setSidebar, setGlobalError })
+  const { documents, docLoading, docError, uploading, handleFileUpload } = useDocuments({ API_BASE, activeTab })
+  const { clusterStatus, fetchCluster } = useCluster({ API_BASE })
+  const { searchQuery, setSearchQuery, searchResults, searchLoading, handleSearch } = useSearch({ API_BASE })
 
   useEffect(() => {
     const root = document.documentElement
@@ -50,7 +50,7 @@ export default function App() {
   }, [theme])
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/providers`).then(r => r.json()).then(setProviders).catch(() => {})
+    fetch(`${API_BASE}/api/providers`).then(r => r.json()).then(setProviders).catch((e) => console.error("Failed to fetch providers", e))
     connectWS()
     fetchCluster()
     loadLastConversation()
@@ -88,135 +88,7 @@ export default function App() {
     if (messagesRef.current) messagesRef.current.scrollTo({ top: messagesRef.current.scrollHeight, behavior: "smooth" })
   }, [messages])
 
-  const fetchCluster = async () => {
-    try {
-      const r = await fetch(`${API_BASE}/cluster/status`)
-      if (r.ok) setClusterStatus(await r.json())
-    } catch { /* cluster unavailable */ }
-  }
-
-  const fetchDocuments = async () => {
-    setDocLoading(true); setDocError("")
-    try {
-      const r = await fetch(`${API_BASE}/api/knowledge`)
-      if (!r.ok) { setDocError(`Ошибка ${r.status}`); setDocLoading(false); return }
-      const d = await r.json()
-      setDocuments(d.documents || d.items || [])
-    } catch { setDocError("Не удалось загрузить документы") }
-    setDocLoading(false)
-  }
-
-  useEffect(() => { if (activeTab === "documents") fetchDocuments() }, [activeTab])
-
-  const fetchConversations = async () => {
-    try { const r = await fetch(`${API_BASE}/api/conversations`); if (r.ok) setConversations(await r.json()) } catch {}
-  }
-
-  const loadLastConversation = async () => {
-    setConvLoading(true)
-    try {
-      const r = await fetch(`${API_BASE}/api/conversations`)
-      if (r.ok) {
-        const convs = await r.json()
-        if (convs.length > 0) {
-          const last = convs[0]
-          setConversationId(last.id)
-          const mr = await fetch(`${API_BASE}/api/conversations/${last.id}/messages`)
-          if (mr.ok) {
-            const msgs = await mr.json()
-            if (msgs.length > 0) {
-              setMessages(msgs.map(m => ({ role: m.role, content: m.content, provider: m.provider, timestamp: m.created_at ? new Date(m.created_at).getTime() : Date.now() })))
-            }
-          }
-        }
-      }
-    } catch { /* first visit or offline */ }
-    setConvLoading(false)
-  }
-
-  const loadConversation = async (id) => {
-    setConvLoading(true)
-    try {
-      const r = await fetch(`${API_BASE}/api/conversations/${id}/messages`)
-      if (r.ok) {
-        const msgs = await r.json()
-        setMessages(msgs.map(m => ({ role: m.role, content: m.content, provider: m.provider, timestamp: m.created_at ? new Date(m.created_at).getTime() : Date.now() })))
-        setConversationId(id)
-        setActiveTab("chat")
-        setSidebar(false)
-      }
-    } catch { setGlobalError("Не удалось загрузить диалог") }
-    setConvLoading(false)
-  }
-
-  const deleteConversation = async (id) => {
-    try {
-      const r = await fetch(`${API_BASE}/api/conversations/${id}`, { method: "DELETE" })
-      if (!r.ok) { setGlobalError("Не удалось удалить диалог"); return }
-      if (id === conversationId) { setConversationId(null); setMessages([]) }
-      fetchConversations()
-    } catch { setGlobalError("Ошибка удаления") }
-  }
-
   useEffect(() => { fetchConversations() }, [])
-
-  const handleFileUpload = async (file) => {
-    setUploading(true)
-    try {
-      const fd = new FormData(); fd.append("file", file)
-      await fetch(`${API_BASE}/api/knowledge/upload`, { method: "POST", body: fd })
-      await fetchDocuments()
-    } catch { setDocError("Ошибка загрузки") }
-    setUploading(false)
-  }
-
-  const connectWS = useCallback(() => {
-    const proto = window.location.protocol === "https:" ? "wss:" : "ws:"
-    let socket
-    const wsHost = window.location.host
-    const token = localStorage.getItem("kolibri_access_token") || ""
-    const wsUrl = `${proto}//${wsHost}/ws/chat${token ? `?token=${token}` : ""}`
-    try { socket = new WebSocket(wsUrl) } catch { return }
-
-    let retryDelay = 1000
-    const maxDelay = 30000
-
-    socket.onopen = () => { setConnected(true); retryDelay = 1000 }
-    socket.onclose = (e) => {
-      setConnected(false)
-      if (e.code !== 4001) {
-        const delay = Math.min(retryDelay, maxDelay)
-        retryDelay = Math.min(retryDelay * 2, maxDelay)
-        setTimeout(connectWS, delay)
-      }
-    }
-    socket.onerror = () => { socket.close() }
-    socket.onmessage = (e) => {
-      const data = JSON.parse(e.data)
-      if (data.streaming) {
-        setMessages(prev => {
-          const n = [...prev]
-          const last = n[n.length - 1]
-          if (last && last.role === "assistant" && last.streaming) last.content += data.chunk || ""
-          return [...n]
-        })
-      } else if (data.done || data.response) {
-        setMessages(prev => {
-          const n = [...prev]
-          const last = n[n.length - 1]
-          if (last && last.role === "assistant" && last.streaming) {
-            last.content = data.response || last.content || ""
-            last.provider = data.provider
-            last.streaming = false
-            if (data.canvas) last.canvas = data.canvas
-          }
-          return [...n]
-        })
-        setLoading(false)
-      }
-    }
-    setWs(socket)
-  }, [])
 
   const sendMessage = async () => {
     if (!input.trim() || loading) return
@@ -233,7 +105,7 @@ export default function App() {
           body: JSON.stringify({ title: input.slice(0, 80) })
         })
         if (r.ok) { const c = await r.json(); convId = c.id; setConversationId(convId) }
-      } catch {}
+      } catch (e) { console.error("Failed to create conversation", e) }
     }
 
     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -249,18 +121,6 @@ export default function App() {
       setLoading(false)
     }
     fetchConversations()
-  }
-
-  const handleSearch = async () => {
-    if (!searchQuery.trim()) return
-    setSearchLoading(true)
-    try {
-      const r = await fetch(`${API_BASE}/rag/search`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: searchQuery, limit: 5 }) })
-      if (!r.ok) { setSearchResults([]); setSearchLoading(false); return }
-      const d = await r.json()
-      setSearchResults(d.results || [])
-    } catch { setSearchResults([]) }
-    setSearchLoading(false)
   }
 
   const quickActions = [
