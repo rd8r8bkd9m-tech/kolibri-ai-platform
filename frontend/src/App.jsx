@@ -36,6 +36,8 @@ export default function App() {
   const [conversationId, setConversationId] = useState(null)
   const [estimateEditor, setEstimateEditor] = useState(null)
   const [conversations, setConversations] = useState([])
+  const [globalError, setGlobalError] = useState("")
+  const [convLoading, setConvLoading] = useState(false)
   const messagesRef = useRef(null)
   const inputRef = useRef(null)
 
@@ -83,21 +85,24 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (messagesRef.current) messagesRef.current.scrollTop = messagesRef.current.scrollHeight
+    if (messagesRef.current) messagesRef.current.scrollTo({ top: messagesRef.current.scrollHeight, behavior: "smooth" })
   }, [messages])
 
   const fetchCluster = async () => {
-    try { const r = await fetch(`${API_BASE}/cluster/status`); setClusterStatus(await r.json()) } catch {}
+    try {
+      const r = await fetch(`${API_BASE}/cluster/status`)
+      if (r.ok) setClusterStatus(await r.json())
+    } catch { /* cluster unavailable */ }
   }
 
   const fetchDocuments = async () => {
     setDocLoading(true); setDocError("")
     try {
       const r = await fetch(`${API_BASE}/api/knowledge`)
-      if (!r.ok) { setDocLoading(false); return }
+      if (!r.ok) { setDocError(`Ошибка ${r.status}`); setDocLoading(false); return }
       const d = await r.json()
       setDocuments(d.documents || d.items || [])
-    } catch {}
+    } catch { setDocError("Не удалось загрузить документы") }
     setDocLoading(false)
   }
 
@@ -108,6 +113,7 @@ export default function App() {
   }
 
   const loadLastConversation = async () => {
+    setConvLoading(true)
     try {
       const r = await fetch(`${API_BASE}/api/conversations`)
       if (r.ok) {
@@ -124,10 +130,12 @@ export default function App() {
           }
         }
       }
-    } catch {}
+    } catch { /* first visit or offline */ }
+    setConvLoading(false)
   }
 
   const loadConversation = async (id) => {
+    setConvLoading(true)
     try {
       const r = await fetch(`${API_BASE}/api/conversations/${id}/messages`)
       if (r.ok) {
@@ -137,15 +145,17 @@ export default function App() {
         setActiveTab("chat")
         setSidebar(false)
       }
-    } catch {}
+    } catch { setGlobalError("Не удалось загрузить диалог") }
+    setConvLoading(false)
   }
 
   const deleteConversation = async (id) => {
     try {
-      await fetch(`${API_BASE}/api/conversations/${id}`, { method: "DELETE" })
+      const r = await fetch(`${API_BASE}/api/conversations/${id}`, { method: "DELETE" })
+      if (!r.ok) { setGlobalError("Не удалось удалить диалог"); return }
       if (id === conversationId) { setConversationId(null); setMessages([]) }
       fetchConversations()
-    } catch {}
+    } catch { setGlobalError("Ошибка удаления") }
   }
 
   useEffect(() => { fetchConversations() }, [])
@@ -246,6 +256,7 @@ export default function App() {
     setSearchLoading(true)
     try {
       const r = await fetch(`${API_BASE}/rag/search`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: searchQuery, limit: 5 }) })
+      if (!r.ok) { setSearchResults([]); setSearchLoading(false); return }
       const d = await r.json()
       setSearchResults(d.results || [])
     } catch { setSearchResults([]) }
@@ -324,6 +335,22 @@ export default function App() {
               </motion.button>
             </div>
           </header>
+
+          <AnimatePresence>
+            {globalError && (
+              <motion.div className="global-error" initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
+                onClick={() => setGlobalError("")}
+                style={{ background: "var(--error)", color: "#fff", padding: "8px 16px", textAlign: "center", cursor: "pointer", fontSize: "13px" }}>
+                {globalError} (нажмите чтобы закрыть)
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {convLoading && (
+            <div style={{ display: "flex", justifyContent: "center", padding: 8 }}>
+              <div className="typing-indicator"><span /><span /><span /></div>
+            </div>
+          )}
 
           <div className="chat-container">
             <AnimatePresence mode="wait">

@@ -26,7 +26,7 @@ export function ClusterView({ status, onRefresh }) {
     <motion.div key="cluster" className="documents-panel" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
       <div className="documents-header">
         <h2>Сеть Kolibri</h2>
-        <button className="refresh-btn" onClick={onRefresh}>
+        <button className="refresh-btn" onClick={onRefresh} aria-label="Обновить статус сети">
           <motion.svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
             whileHover={{ rotate: 180 }} transition={{ duration: 0.3 }}>
             <polyline points="23,4 23,10 17,10"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>

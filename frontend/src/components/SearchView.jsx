@@ -13,10 +13,10 @@ export function SearchView({ searchQuery, setSearchQuery, searchResults, searchL
             <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
           </svg>
           <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
-            onKeyDown={handleKeyDown}
+            onKeyDown={handleKeyDown} aria-label="Поиск по базе знаний"
             placeholder="Поиск по базе знаний..."
             style={{ flex:1, border:"none", background:"transparent", color:"var(--text-primary)", fontSize:"14px", fontFamily:"var(--font-ui)", outline:"none", padding:"8px 0" }} />
-          <motion.button className="send-btn" style={{ width:"36px", height:"36px" }} onClick={onSearch}
+          <motion.button className="send-btn" style={{ width:"36px", height:"36px" }} onClick={onSearch} aria-label="Найти"
             whileHover={{ scale: 1.08 }} whileTap={{ scale: 0.92 }}>
             {searchLoading ? (
               <motion.svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"

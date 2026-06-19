@@ -42,7 +42,7 @@ export function Sidebar({
             <span className="sidebar-logo-text">Kolibri</span>
             <span className="sidebar-logo-badge">AI</span>
           </div>
-          <motion.button className="new-chat-btn" onClick={onNewChat}
+          <motion.button className="new-chat-btn" onClick={onNewChat} aria-label="Новый чат"
             whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
@@ -76,7 +76,7 @@ export function Sidebar({
                     </svg>
                     <span className="conversation-item-title">{c.title || "Без названия"}</span>
                   </button>
-                  <button className="conversation-delete-btn" onClick={(e) => { e.stopPropagation(); deleteConversation(c.id) }}>
+                  <button className="conversation-delete-btn" aria-label="Удалить диалог" onClick={(e) => { e.stopPropagation(); deleteConversation(c.id) }}>
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                   </button>
                 </div>
@@ -100,6 +100,8 @@ export function Sidebar({
         <div className="sidebar-section">
           <div className="sidebar-label">Тема</div>
           <motion.div className="theme-switch" onClick={() => setTheme(theme === "light" ? "dark" : "light")}
+            tabIndex={0} role="switch" aria-checked={theme === "dark"} aria-label="Переключить тему"
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setTheme(theme === "light" ? "dark" : "light") } }}
             whileTap={{ scale: 0.98 }}>
             <span className="theme-switch-label">{theme === "light" ? "Светлая" : "Тёмная"}</span>
             <div className={`theme-switch-toggle ${theme === "dark" ? "active" : ""}`}></div>

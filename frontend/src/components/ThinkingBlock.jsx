@@ -11,6 +11,8 @@ export function ThinkingBlock({ text, isStreaming }) {
   if (!text) return null
   return (
     <motion.div className="thinking-block" onClick={() => setExpanded(!expanded)}
+      tabIndex={0} role="button" aria-expanded={expanded} aria-label={expanded ? "Свернуть рассуждения" : "Развернуть рассуждения"}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setExpanded(!expanded) } }}
       initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} transition={{ duration: 0.3 }}>
       <div className="thinking-header">
         {isStreaming && <div className="spinner"></div>}
