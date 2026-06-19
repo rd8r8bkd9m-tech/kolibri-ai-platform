@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, Component } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import "./App.css"
 import { KolibriBird } from "./components/KolibriBird"
@@ -377,7 +377,6 @@ export default function App() {
               estimate={estimateEditor}
               onClose={() => setEstimateEditor(null)}
               onSave={(data) => {
-                console.log("Estimate saved:", data)
                 setEstimateEditor(null)
               }}
             />

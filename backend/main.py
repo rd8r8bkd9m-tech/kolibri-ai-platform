@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from providers import AIProviderManager, is_estimate_intent
+from providers import AIProviderManager, is_estimate_intent, manager as ai_manager
 from tts import TTSEngine
 from stt import STTEngine
 from websearch import WebSearchEngine
@@ -111,7 +111,7 @@ def init_db():
 init_db()
 init_users_table()
 
-ai_manager = AIProviderManager()
+ai_manager = ai_manager  # use singleton from providers.py
 tts_engine = TTSEngine()
 stt_engine = STTEngine()
 web_engine = WebSearchEngine()
@@ -510,7 +510,7 @@ async def create_conversation(request: Request, user: dict = Depends(get_current
     try:
         body = await request.json()
         title = body.get("title", "New Chat")
-    except:
+    except Exception:
         title = "New Chat"
     conv_id = f"conv_{int(time.time() * 1000)}"
     conn = sqlite3.connect(str(DB_PATH))
@@ -671,7 +671,11 @@ async def list_documents_endpoint(user: dict = Depends(get_current_user_optional
 @app.get("/api/documents/file/{filename}")
 async def download_document(filename: str, user: dict = Depends(get_current_user_optional)):
     from documents import DOCS_DIR
-    file_path = DOCS_DIR / filename
+    if "/" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    file_path = (DOCS_DIR / filename).resolve()
+    if not file_path.is_relative_to(DOCS_DIR.resolve()):
+        raise HTTPException(status_code=403, detail="Access denied")
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(str(file_path), filename=filename)

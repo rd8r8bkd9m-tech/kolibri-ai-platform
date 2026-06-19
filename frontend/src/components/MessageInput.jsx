@@ -1,4 +1,3 @@
-import { useRef } from "react"
 import { motion } from "framer-motion"
 
 export function MessageInput({ input, setInput, loading, onSend, inputRef }) {
