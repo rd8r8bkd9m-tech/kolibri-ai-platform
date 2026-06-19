@@ -1,0 +1,58 @@
+{
+  "task_id": "telegram-gateway-readonly",
+  "agent_role": "Telegram Gateway Intake",
+  "server": "local",
+  "mode": "read_only",
+  "prompt": "Read-only Telegram gateway smoke task. Inspect scripts/telegram_task_gateway.py, ops/telegram.example.env, and docs/telegram-gateway.md for obvious runbook or safety gaps. Do not edit files, start agents, contact Telegram, SSH, browse, deploy, or reveal secrets. Return a concise structured report.",
+  "worktree": ".",
+  "allowed_paths": [
+    "scripts",
+    "ops",
+    "docs"
+  ],
+  "quality_contract": {
+    "objective": "Validate that the Telegram task gateway can be represented as a safe read-only Mimo task manifest.",
+    "context": "This manifest is a local sample for runner validation and does not start the Telegram poller or a real Mimo agent.",
+    "scope": [
+      "Inspect only gateway-related files and documentation.",
+      "Treat this as a read-only smoke task for Codex review.",
+      "Report any safety or documentation gaps without modifying files."
+    ],
+    "out_of_scope": [
+      "Do not start Telegram polling, Mimo, SSH, browsers, deploys, email, or paid services.",
+      "Do not read secrets, .env files, .ssh, .mimocode, auth files, tokens, or private keys.",
+      "Do not modify repository files or server state."
+    ],
+    "acceptance_criteria": [
+      "The manifest validates with scripts/mimo_task_runner.py validate.",
+      "Any future execution would return status, summary, changed_files, checks, risks, and artifacts.",
+      "No real agent or external service is started by validation."
+    ],
+    "verification_steps": [
+      "Run runner validate against this manifest.",
+      "Confirm no real agent execution is requested by this sample."
+    ],
+    "deliverables": [
+      "Structured result with status, summary, changed_files, checks, risks, and artifacts.",
+      "Concise safety notes for Codex review."
+    ],
+    "stop_conditions": [
+      "Stop if the task requires secrets, credentials, private keys, auth files, or environment dumps.",
+      "Stop if the task requires writing files, deploying, or changing server state."
+    ]
+  },
+  "required_checks": [],
+  "timeout_seconds": 300,
+  "secrets_policy": {
+    "allow_env_files": false,
+    "allow_auth_files": false,
+    "redact_logs": true
+  },
+  "expected_output": {
+    "format": "structured_result",
+    "requires_summary": true,
+    "requires_changed_files": true,
+    "requires_risks": true
+  },
+  "allow_unsafe_permissions": false
+}

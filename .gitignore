@@ -15,4 +15,5 @@ data/
 .mimocode/
 .playwright-cli/
 logs/
+ops/tasks/telegram-queue/
 target/

@@ -145,7 +145,7 @@
       }
     },
     "reserve242": {
-      "enabled": true,
+      "enabled": false,
       "role": "qa-security-node",
       "deputy": "QA/Security Lead",
       "specialization": "shell-injection-tests-no-secrets-checks-browser-baseline",
@@ -163,8 +163,10 @@
       "health_gates": {
         "min_disk_free_gb": 3,
         "max_ram_percent": 92,
-        "requires_vpn": false
-      }
+        "requires_vpn": false,
+        "requires_ssh_key": true
+      },
+      "disabled_reason": "SSH key is not installed yet; password is not available in the local context."
     },
     "hostvds-highload": {
       "enabled": true,
@@ -189,68 +191,312 @@
         "requires_mimo": true,
         "requires_build_toolchain": true
       }
-    }
-  },
-  "planned_role_slots": {
+    },
     "hostvds-agent-01": {
+      "enabled": true,
       "role": "backend-lead-node",
       "deputy": "Backend Lead",
-      "target_plan": "Burstable-2",
-      "tasks": ["rag-api-contract", "intent-routing", "backend-tests"]
+      "specialization": "rag-api-contract-intent-routing-backend-tests",
+      "provider_name": "hostvds-agent-01",
+      "region": "Riga 2 (eu-north1)",
+      "plan": "Burstable-2",
+      "ssh_alias": "root@31.57.27.128",
+      "public_ip": "31.57.27.128",
+      "vpn_ip": "",
+      "mimo_bin": "/root/.mimocode/bin/mimo",
+      "remote_worktree_root": "/opt/kolibri-ai/agent-worktrees",
+      "allowed_paths": [
+        "/opt/kolibri-ai/agent-worktrees",
+        "/opt/kolibri-ai/backend",
+        "/opt/kolibri-ai/infra/network",
+        "/opt/kolibri-ai/tests",
+        "/opt/kolibri-ai/reports"
+      ],
+      "health_gates": {
+        "min_disk_free_gb": 3,
+        "max_ram_percent": 92,
+        "requires_vpn": false,
+        "requires_mimo": true,
+        "requires_ssh_key": true
+      }
     },
     "hostvds-agent-02": {
+      "enabled": true,
       "role": "frontend-design-node",
       "deputy": "Frontend/Design Lead",
-      "target_plan": "Burstable-2",
-      "tasks": ["eslint", "browser-qa", "ui-polish"]
+      "specialization": "eslint-browser-qa-ui-polish",
+      "provider_name": "hostvds-agent-02",
+      "region": "Riga 2 (eu-north1)",
+      "plan": "Burstable-2",
+      "ssh_alias": "root@213.232.204.223",
+      "public_ip": "213.232.204.223",
+      "vpn_ip": "",
+      "mimo_bin": "/root/.mimocode/bin/mimo",
+      "remote_worktree_root": "/opt/kolibri-ai/agent-worktrees",
+      "allowed_paths": [
+        "/opt/kolibri-ai/agent-worktrees",
+        "/opt/kolibri-ai/frontend",
+        "/opt/kolibri-ai/docs/design",
+        "/opt/kolibri-ai/reports"
+      ],
+      "health_gates": {
+        "min_disk_free_gb": 3,
+        "max_ram_percent": 92,
+        "requires_vpn": false,
+        "requires_mimo": true,
+        "requires_ssh_key": true
+      }
     },
     "hostvds-agent-03": {
+      "enabled": true,
       "role": "infra-network-node",
       "deputy": "Infra Lead",
-      "target_plan": "Burstable-2",
-      "tasks": ["worker-completion-contract", "vpn-health", "systemd-hardening"]
+      "specialization": "worker-completion-contract-vpn-health-systemd-hardening",
+      "provider_name": "hostvds-agent-03",
+      "region": "Riga 2 (eu-north1)",
+      "plan": "Burstable-2",
+      "ssh_alias": "root@188.130.206.204",
+      "public_ip": "188.130.206.204",
+      "vpn_ip": "",
+      "mimo_bin": "/root/.mimocode/bin/mimo",
+      "remote_worktree_root": "/opt/kolibri-ai/agent-worktrees",
+      "allowed_paths": [
+        "/opt/kolibri-ai/agent-worktrees",
+        "/opt/kolibri-ai/infra",
+        "/opt/kolibri-ai/ops",
+        "/opt/kolibri-ai/scripts",
+        "/opt/kolibri-ai/reports"
+      ],
+      "health_gates": {
+        "min_disk_free_gb": 3,
+        "max_ram_percent": 92,
+        "requires_vpn": false,
+        "requires_mimo": true,
+        "requires_ssh_key": true
+      }
     },
     "hostvds-agent-04": {
+      "enabled": true,
       "role": "qa-browser-node",
       "deputy": "QA Lead",
-      "target_plan": "Burstable-2",
-      "tasks": ["playwright-baseline", "regression-sweeps", "artifact-review"]
+      "specialization": "playwright-baseline-regression-sweeps-artifact-review",
+      "provider_name": "hostvds-agent-04",
+      "region": "Riga 2 (eu-north1)",
+      "plan": "Burstable-2",
+      "ssh_alias": "root@31.59.41.146",
+      "public_ip": "31.59.41.146",
+      "vpn_ip": "",
+      "mimo_bin": "/root/.mimocode/bin/mimo",
+      "remote_worktree_root": "/opt/kolibri-ai/agent-worktrees",
+      "allowed_paths": [
+        "/opt/kolibri-ai/agent-worktrees",
+        "/opt/kolibri-ai/frontend",
+        "/opt/kolibri-ai/tests",
+        "/opt/kolibri-ai/reports",
+        "/opt/kolibri-ai/artifacts"
+      ],
+      "health_gates": {
+        "min_disk_free_gb": 3,
+        "max_ram_percent": 92,
+        "requires_vpn": false,
+        "requires_mimo": true,
+        "requires_ssh_key": true
+      }
     },
     "hostvds-agent-05": {
+      "enabled": true,
       "role": "security-audit-node",
       "deputy": "Security Lead",
-      "target_plan": "Burstable-2",
-      "tasks": ["shell-injection-tests", "secret-redaction", "permission-boundaries"]
+      "specialization": "shell-injection-secret-redaction-permission-boundaries",
+      "provider_name": "hostvds-agent-05",
+      "region": "Riga 2 (eu-north1)",
+      "plan": "Burstable-2",
+      "ssh_alias": "root@31.56.196.10",
+      "public_ip": "31.56.196.10",
+      "vpn_ip": "",
+      "mimo_bin": "/root/.mimocode/bin/mimo",
+      "remote_worktree_root": "/opt/kolibri-ai/agent-worktrees",
+      "allowed_paths": [
+        "/opt/kolibri-ai/agent-worktrees",
+        "/opt/kolibri-ai/scripts",
+        "/opt/kolibri-ai/infra",
+        "/opt/kolibri-ai/tests",
+        "/opt/kolibri-ai/reports"
+      ],
+      "health_gates": {
+        "min_disk_free_gb": 3,
+        "max_ram_percent": 92,
+        "requires_vpn": false,
+        "requires_mimo": true,
+        "requires_ssh_key": true
+      }
     },
     "hostvds-agent-06": {
+      "enabled": true,
       "role": "docs-knowledge-node",
       "deputy": "Docs Lead",
-      "target_plan": "Burstable-2",
-      "tasks": ["docs-sync", "runbooks", "operator-reports"]
+      "specialization": "docs-sync-runbooks-operator-reports",
+      "provider_name": "server-tqxx",
+      "region": "Kansas City (us-east2)",
+      "plan": "Burstable-4",
+      "ssh_alias": "root@45.39.33.252",
+      "public_ip": "45.39.33.252",
+      "vpn_ip": "",
+      "mimo_bin": "/root/.mimocode/bin/mimo",
+      "remote_worktree_root": "/opt/kolibri-ai/agent-worktrees",
+      "allowed_paths": [
+        "/opt/kolibri-ai/agent-worktrees",
+        "/opt/kolibri-ai/docs",
+        "/opt/kolibri-ai/reports",
+        "/opt/kolibri-ai/runbooks"
+      ],
+      "health_gates": {
+        "min_disk_free_gb": 5,
+        "max_ram_percent": 90,
+        "requires_vpn": false,
+        "requires_mimo": true,
+        "requires_ssh_key": true
+      }
     },
     "hostvds-agent-07": {
+      "enabled": true,
       "role": "formulalm-eval-node",
       "deputy": "FormulaLM Eval Lead",
-      "target_plan": "Burstable-2",
-      "tasks": ["formulalm-health", "eval-prompts", "training-artifact-review"]
+      "specialization": "formulalm-health-eval-prompts-training-artifact-review",
+      "provider_name": "hostvds-agent-07",
+      "region": "Paris (eu-west2)",
+      "plan": "Burstable-2",
+      "ssh_alias": "root@46.8.225.34",
+      "public_ip": "46.8.225.34",
+      "vpn_ip": "",
+      "mimo_bin": "/root/.mimocode/bin/mimo",
+      "remote_worktree_root": "/opt/kolibri-ai/agent-worktrees",
+      "allowed_paths": [
+        "/opt/kolibri-ai/agent-worktrees",
+        "/opt/kolibri-ai/formulalm",
+        "/opt/kolibri-ai/evals",
+        "/opt/kolibri-ai/reports"
+      ],
+      "health_gates": {
+        "min_disk_free_gb": 3,
+        "max_ram_percent": 92,
+        "requires_vpn": false,
+        "requires_mimo": true,
+        "requires_ssh_key": true
+      }
     },
     "hostvds-agent-08": {
+      "enabled": true,
       "role": "rag-eval-node",
       "deputy": "RAG Eval Lead",
-      "target_plan": "Burstable-2",
-      "tasks": ["retrieval-quality", "embedding-drift", "knowledge-fixtures"]
+      "specialization": "retrieval-quality-embedding-drift-knowledge-fixtures",
+      "provider_name": "hostvds-agent-08",
+      "region": "Paris (eu-west2)",
+      "plan": "Burstable-2",
+      "ssh_alias": "root@31.59.105.200",
+      "public_ip": "31.59.105.200",
+      "vpn_ip": "",
+      "mimo_bin": "/root/.mimocode/bin/mimo",
+      "remote_worktree_root": "/opt/kolibri-ai/agent-worktrees",
+      "allowed_paths": [
+        "/opt/kolibri-ai/agent-worktrees",
+        "/opt/kolibri-ai/rag",
+        "/opt/kolibri-ai/evals",
+        "/opt/kolibri-ai/reports"
+      ],
+      "health_gates": {
+        "min_disk_free_gb": 3,
+        "max_ram_percent": 92,
+        "requires_vpn": false,
+        "requires_mimo": true,
+        "requires_ssh_key": true
+      }
     },
     "hostvds-agent-09": {
+      "enabled": true,
       "role": "release-canary-node",
       "deputy": "Canary Lead",
-      "target_plan": "Burstable-2",
-      "tasks": ["canary-deploy", "smoke-tests", "rollback-rehearsal"]
+      "specialization": "canary-deploy-smoke-tests-rollback-rehearsal",
+      "provider_name": "hostvds-agent-09",
+      "region": "Paris (eu-west2)",
+      "plan": "Burstable-2",
+      "ssh_alias": "root@95.182.84.254",
+      "public_ip": "95.182.84.254",
+      "vpn_ip": "",
+      "mimo_bin": "/root/.mimocode/bin/mimo",
+      "remote_worktree_root": "/opt/kolibri-ai/agent-worktrees",
+      "allowed_paths": [
+        "/opt/kolibri-ai/agent-worktrees",
+        "/opt/kolibri-ai/releases",
+        "/opt/kolibri-ai/smoke",
+        "/opt/kolibri-ai/reports"
+      ],
+      "health_gates": {
+        "min_disk_free_gb": 3,
+        "max_ram_percent": 92,
+        "requires_vpn": false,
+        "requires_mimo": true,
+        "requires_ssh_key": true
+      }
     },
     "hostvds-agent-10": {
-      "role": "load-benchmark-node",
-      "deputy": "Performance Lead",
-      "target_plan": "Burstable-2",
-      "tasks": ["api-load-tests", "resource-profiling", "cost-control"]
+      "enabled": true,
+      "role": "asia-edge-load-benchmark-node",
+      "deputy": "Performance/Asia Edge Lead",
+      "specialization": "asia-edge-smoke-api-load-resource-profiling-cost-control",
+      "provider_name": "china",
+      "region": "Hong Kong (asia-east1)",
+      "plan": "Highload-2",
+      "ssh_alias": "root@217.60.38.191",
+      "public_ip": "217.60.38.191",
+      "vpn_ip": "",
+      "ram": "7.8GB",
+      "cpu": "2 vCPU",
+      "disk": "47GB",
+      "mimo_bin": "/root/.mimocode/bin/mimo",
+      "remote_worktree_root": "/opt/kolibri-ai/agent-worktrees",
+      "allowed_paths": [
+        "/opt/kolibri-ai/agent-worktrees",
+        "/opt/kolibri-ai/load",
+        "/opt/kolibri-ai/smoke",
+        "/opt/kolibri-ai/reports"
+      ],
+      "health_gates": {
+        "min_disk_free_gb": 5,
+        "max_ram_percent": 90,
+        "requires_vpn": false,
+        "requires_mimo": true,
+        "requires_ssh_key": true,
+        "cost_review_note": "Created as Highload-2 instead of the requested Burstable-2; keep only if the higher hourly cost is intentional."
+      }
+    },
+    "hostvds-paris-highload": {
+      "enabled": false,
+      "role": "reserve-build-runner",
+      "deputy": "Reserve Build Lead",
+      "specialization": "mimo-readonly-canaries-build-bursts-incident-reserve",
+      "provider_name": "server-yrc5",
+      "region": "Paris (eu-west2)",
+      "plan": "Highload-1",
+      "ssh_alias": "root@95.182.83.60",
+      "public_ip": "95.182.83.60",
+      "vpn_ip": "",
+      "mimo_bin": "/root/.mimocode/bin/mimo",
+      "remote_worktree_root": "/opt/kolibri-ai/agent-worktrees",
+      "allowed_paths": [
+        "/opt/kolibri-ai/agent-worktrees",
+        "/opt/kolibri-ai/builds",
+        "/opt/kolibri-ai/reports"
+      ],
+      "health_gates": {
+        "min_disk_free_gb": 5,
+        "max_ram_percent": 90,
+        "requires_vpn": false,
+        "requires_mimo": true,
+        "requires_ssh_key": true
+      },
+      "disabled_reason": "SSH key is not installed yet; password is not available in the local context."
     }
-  }
+  },
+  "planned_role_slots": {}
 }

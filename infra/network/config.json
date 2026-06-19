@@ -75,6 +75,8 @@
       "vpn_ip": "",
       "ssh_alias": "root@31.57.26.242",
       "role": "qa-security-node",
+      "access_status": "missing_ssh_key",
+      "disabled_reason": "SSH key is not installed yet; password is not available in the local context.",
       "ram": "unknown",
       "cpu": "unknown",
       "disk": "unknown",
@@ -91,58 +93,154 @@
       "disk": "29GB",
       "tasks": ["frontend-build", "rust-tests", "backend-quality-gates", "release-artifacts"],
       "mimo_path": "/root/.mimocode/bin/mimo"
-    }
-  },
-  "planned_servers": {
+    },
     "hostvds-agent-01": {
+      "public_ip": "31.57.27.128",
+      "vpn_ip": "",
+      "ssh_alias": "root@31.57.27.128",
+      "provider_name": "hostvds-agent-01",
+      "region": "Riga 2 (eu-north1)",
       "role": "backend-lead-node",
-      "target_plan": "Burstable-2",
-      "tasks": ["rag-api-contract", "intent-routing", "backend-tests"]
+      "ram": "2GB",
+      "cpu": "1 vCPU",
+      "disk": "20GB",
+      "tasks": ["rag-api-contract", "intent-routing", "backend-tests"],
+      "mimo_path": "/root/.mimocode/bin/mimo"
     },
     "hostvds-agent-02": {
+      "public_ip": "213.232.204.223",
+      "vpn_ip": "",
+      "ssh_alias": "root@213.232.204.223",
+      "provider_name": "hostvds-agent-02",
+      "region": "Riga 2 (eu-north1)",
       "role": "frontend-design-node",
-      "target_plan": "Burstable-2",
-      "tasks": ["eslint", "browser-qa", "ui-polish"]
+      "ram": "2GB",
+      "cpu": "1 vCPU",
+      "disk": "20GB",
+      "tasks": ["eslint", "browser-qa", "ui-polish"],
+      "mimo_path": "/root/.mimocode/bin/mimo"
     },
     "hostvds-agent-03": {
+      "public_ip": "188.130.206.204",
+      "vpn_ip": "",
+      "ssh_alias": "root@188.130.206.204",
+      "provider_name": "hostvds-agent-03",
+      "region": "Riga 2 (eu-north1)",
       "role": "infra-network-node",
-      "target_plan": "Burstable-2",
-      "tasks": ["worker-completion-contract", "vpn-health", "systemd-hardening"]
+      "ram": "2GB",
+      "cpu": "1 vCPU",
+      "disk": "20GB",
+      "tasks": ["worker-completion-contract", "vpn-health", "systemd-hardening"],
+      "mimo_path": "/root/.mimocode/bin/mimo"
     },
     "hostvds-agent-04": {
+      "public_ip": "31.59.41.146",
+      "vpn_ip": "",
+      "ssh_alias": "root@31.59.41.146",
+      "provider_name": "hostvds-agent-04",
+      "region": "Riga 2 (eu-north1)",
       "role": "qa-browser-node",
-      "target_plan": "Burstable-2",
-      "tasks": ["playwright-baseline", "regression-sweeps", "artifact-review"]
+      "ram": "2GB",
+      "cpu": "1 vCPU",
+      "disk": "20GB",
+      "tasks": ["playwright-baseline", "regression-sweeps", "artifact-review"],
+      "mimo_path": "/root/.mimocode/bin/mimo"
     },
     "hostvds-agent-05": {
+      "public_ip": "31.56.196.10",
+      "vpn_ip": "",
+      "ssh_alias": "root@31.56.196.10",
+      "provider_name": "hostvds-agent-05",
+      "region": "Riga 2 (eu-north1)",
       "role": "security-audit-node",
-      "target_plan": "Burstable-2",
-      "tasks": ["shell-injection-tests", "secret-redaction", "permission-boundaries"]
+      "ram": "2GB",
+      "cpu": "1 vCPU",
+      "disk": "20GB",
+      "tasks": ["shell-injection-tests", "secret-redaction", "permission-boundaries"],
+      "mimo_path": "/root/.mimocode/bin/mimo"
     },
     "hostvds-agent-06": {
+      "public_ip": "45.39.33.252",
+      "vpn_ip": "",
+      "ssh_alias": "root@45.39.33.252",
+      "provider_name": "server-tqxx",
+      "region": "Kansas City (us-east2)",
       "role": "docs-knowledge-node",
-      "target_plan": "Burstable-2",
-      "tasks": ["docs-sync", "runbooks", "operator-reports"]
+      "ram": "3.8GB",
+      "cpu": "2 vCPU",
+      "disk": "38GB",
+      "tasks": ["docs-sync", "runbooks", "operator-reports"],
+      "mimo_path": "/root/.mimocode/bin/mimo"
     },
     "hostvds-agent-07": {
+      "public_ip": "46.8.225.34",
+      "vpn_ip": "",
+      "ssh_alias": "root@46.8.225.34",
+      "provider_name": "hostvds-agent-07",
+      "region": "Paris (eu-west2)",
       "role": "formulalm-eval-node",
-      "target_plan": "Burstable-2",
-      "tasks": ["formulalm-health", "eval-prompts", "training-artifact-review"]
+      "ram": "2GB",
+      "cpu": "1 vCPU",
+      "disk": "20GB",
+      "tasks": ["formulalm-health", "eval-prompts", "training-artifact-review"],
+      "mimo_path": "/root/.mimocode/bin/mimo"
     },
     "hostvds-agent-08": {
+      "public_ip": "31.59.105.200",
+      "vpn_ip": "",
+      "ssh_alias": "root@31.59.105.200",
+      "provider_name": "hostvds-agent-08",
+      "region": "Paris (eu-west2)",
       "role": "rag-eval-node",
-      "target_plan": "Burstable-2",
-      "tasks": ["retrieval-quality", "embedding-drift", "knowledge-fixtures"]
+      "ram": "2GB",
+      "cpu": "1 vCPU",
+      "disk": "20GB",
+      "tasks": ["retrieval-quality", "embedding-drift", "knowledge-fixtures"],
+      "mimo_path": "/root/.mimocode/bin/mimo"
     },
     "hostvds-agent-09": {
+      "public_ip": "95.182.84.254",
+      "vpn_ip": "",
+      "ssh_alias": "root@95.182.84.254",
+      "provider_name": "hostvds-agent-09",
+      "region": "Paris (eu-west2)",
       "role": "release-canary-node",
-      "target_plan": "Burstable-2",
-      "tasks": ["canary-deploy", "smoke-tests", "rollback-rehearsal"]
+      "ram": "2GB",
+      "cpu": "1 vCPU",
+      "disk": "20GB",
+      "tasks": ["canary-deploy", "smoke-tests", "rollback-rehearsal"],
+      "mimo_path": "/root/.mimocode/bin/mimo"
     },
     "hostvds-agent-10": {
-      "role": "load-benchmark-node",
-      "target_plan": "Burstable-2",
-      "tasks": ["api-load-tests", "resource-profiling", "cost-control"]
+      "public_ip": "217.60.38.191",
+      "vpn_ip": "",
+      "ssh_alias": "root@217.60.38.191",
+      "provider_name": "china",
+      "region": "Hong Kong (asia-east1)",
+      "role": "asia-edge-load-benchmark-node",
+      "access_status": "ssh_key_ok",
+      "ram": "7.8GB",
+      "cpu": "2 vCPU",
+      "disk": "47GB",
+      "tasks": ["asia-edge-smoke", "api-load-tests", "resource-profiling", "cost-control"],
+      "mimo_path": "/root/.mimocode/bin/mimo",
+      "cost_review_note": "Created as Highload-2 instead of the requested Burstable-2; keep only if the higher hourly cost is intentional."
+    },
+    "hostvds-paris-highload": {
+      "public_ip": "95.182.83.60",
+      "vpn_ip": "",
+      "ssh_alias": "root@95.182.83.60",
+      "provider_name": "server-yrc5",
+      "region": "Paris (eu-west2)",
+      "role": "reserve-build-runner",
+      "access_status": "missing_ssh_key",
+      "disabled_reason": "SSH key is not installed yet; password is not available in the local context.",
+      "ram": "unknown",
+      "cpu": "unknown",
+      "disk": "unknown",
+      "tasks": ["mimo-readonly-canaries", "build-bursts", "incident-reserve"],
+      "mimo_path": "/root/.mimocode/bin/mimo"
     }
-  }
+  },
+  "planned_servers": {}
 }
