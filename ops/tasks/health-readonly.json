@@ -8,6 +8,39 @@
   "allowed_paths": [
     "/opt/kolibri-ai/agent-worktrees/health-readonly"
   ],
+  "quality_contract": {
+    "objective": "Establish whether the selected Kolibri server is safe to receive read-only Mimo agent work.",
+    "context": "This is the first health gate before any continuous agent rollout or controlled mutation task.",
+    "scope": [
+      "Inspect system health, Kolibri service status, VPN reachability, disk, memory, and Mimo availability.",
+      "Use read-only commands only and report exact evidence for every blocker.",
+      "Treat missing tools, missing worktree, or unhealthy services as risks rather than fixing them."
+    ],
+    "out_of_scope": [
+      "Do not edit files, install packages, restart services, reboot, or change firewall rules.",
+      "Do not read secrets, auth files, .env files, .ssh, or .mimocode.",
+      "Do not start long-running agents or background processes."
+    ],
+    "acceptance_criteria": [
+      "Report online/offline status, disk free space, RAM pressure, Mimo path/version, and Kolibri service state.",
+      "Identify whether this server is ready for a read-only pilot task.",
+      "List blockers with concrete remediation recommendations for Codex review."
+    ],
+    "verification_steps": [
+      "Check basic OS, disk, memory, and process/service status.",
+      "Check Mimo version without exposing auth configuration.",
+      "Check recent Kolibri service errors without dumping secrets."
+    ],
+    "deliverables": [
+      "Structured result with status, summary, changed_files, checks, risks, and artifacts.",
+      "Readiness decision: ready, degraded, or blocked.",
+      "Next action recommendation for Codex."
+    ],
+    "stop_conditions": [
+      "Stop if a command requires reading credentials, tokens, private keys, or auth files.",
+      "Stop if the investigation requires modifying server state."
+    ]
+  },
   "required_checks": [],
   "timeout_seconds": 300,
   "secrets_policy": {

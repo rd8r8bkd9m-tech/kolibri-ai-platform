@@ -1,0 +1,60 @@
+{
+  "task_id": "docs-agent-runbook-sync",
+  "agent_role": "Docs Lead",
+  "server": "local",
+  "mode": "read_only",
+  "prompt": "Review the current agent platform implementation and identify documentation/runbook gaps. Do not modify files. Return the exact docs that should be created or updated after hardening, including operator reports, server roles, Mimo task rules, and rollback/deploy boundaries.",
+  "worktree": ".",
+  "allowed_paths": [
+    "ops",
+    "scripts",
+    "infra/network"
+  ],
+  "quality_contract": {
+    "objective": "Produce a documentation gap list for operating the Kolibri Mimo agent platform safely.",
+    "context": "Docs should be updated after actual hardening, not before, and must reflect verified behavior.",
+    "scope": [
+      "Inspect manifests, runner behavior, role config, and reporting expectations.",
+      "Identify missing operator runbooks and task authoring rules.",
+      "Recommend doc structure and acceptance criteria for a future docs mutation."
+    ],
+    "out_of_scope": [
+      "Do not edit documentation in this read-only task.",
+      "Do not read secrets, auth files, .env files, .ssh, or .mimocode.",
+      "Do not invent server facts not present in config or verified reports."
+    ],
+    "acceptance_criteria": [
+      "Return a prioritized docs backlog tied to actual files or missing files.",
+      "Return acceptance criteria for each recommended doc update.",
+      "Flag any facts that require live server verification before documenting."
+    ],
+    "verification_steps": [
+      "Inspect ops manifests and orchestration scripts.",
+      "Check existing docs or README files if they are within allowed paths.",
+      "Separate verified facts from assumptions."
+    ],
+    "deliverables": [
+      "Structured result with status, summary, changed_files, checks, risks, and artifacts.",
+      "Prioritized docs/runbook gap list.",
+      "Proposed docs mutation scope."
+    ],
+    "stop_conditions": [
+      "Stop if the task requires credentials, tokens, private keys, or auth file contents.",
+      "Stop if documenting a fact would require unverified production assumptions."
+    ]
+  },
+  "required_checks": [],
+  "timeout_seconds": 300,
+  "secrets_policy": {
+    "allow_env_files": false,
+    "allow_auth_files": false,
+    "redact_logs": true
+  },
+  "expected_output": {
+    "format": "structured_result",
+    "requires_summary": true,
+    "requires_changed_files": true,
+    "requires_risks": true
+  },
+  "allow_unsafe_permissions": false
+}

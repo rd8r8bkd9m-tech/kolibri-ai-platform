@@ -1,0 +1,58 @@
+{
+  "task_id": "backend-rag-api-contract",
+  "agent_role": "Backend Lead",
+  "server": "main",
+  "mode": "read_only",
+  "prompt": "Review the current RAG/API contract around knowledge search, query, file upload, and Intent.AUTO routing. Do not modify files. Identify concrete mismatches between backend endpoints, frontend callers, and network RAG service contracts. Return a bounded implementation plan with exact files and tests that Codex should review before mutation.",
+  "worktree": "/opt/kolibri-ai/agent-worktrees/backend-rag-api-contract",
+  "allowed_paths": [
+    "/opt/kolibri-ai/agent-worktrees/backend-rag-api-contract"
+  ],
+  "quality_contract": {
+    "objective": "Produce a precise backend contract review for RAG/API and Intent.AUTO before any mutation work.",
+    "context": "Backend changes must be reviewed by Codex because they affect API compatibility, frontend behavior, and worker orchestration.",
+    "scope": [
+      "Compare expected API paths, request payloads, response shapes, and error handling.",
+      "Identify mismatches that can be fixed in a small controlled mutation task.",
+      "Recommend exact tests or compile checks for the future mutation."
+    ],
+    "out_of_scope": [
+      "Do not edit files, deploy, restart services, or change data.",
+      "Do not read secrets, auth files, .env files, .ssh, or .mimocode.",
+      "Do not propose broad rewrites outside the RAG/API contract."
+    ],
+    "acceptance_criteria": [
+      "Every finding references a concrete endpoint, caller, or code path.",
+      "The final plan separates must-fix bugs from optional cleanup.",
+      "The recommended mutation scope lists exact allowed files and required checks."
+    ],
+    "verification_steps": [
+      "Inspect relevant backend, frontend hook, and network service files if available in the worktree.",
+      "Check for existing tests or compile/build commands relevant to the contract.",
+      "Report any missing repo context as a blocker instead of guessing."
+    ],
+    "deliverables": [
+      "Structured result with status, summary, changed_files, checks, risks, and artifacts.",
+      "Prioritized backend contract findings.",
+      "Controlled mutation proposal with exact files and checks."
+    ],
+    "stop_conditions": [
+      "Stop if the task requires credentials, tokens, private keys, or auth file contents.",
+      "Stop if the review requires writing outside allowed_paths."
+    ]
+  },
+  "required_checks": [],
+  "timeout_seconds": 300,
+  "secrets_policy": {
+    "allow_env_files": false,
+    "allow_auth_files": false,
+    "redact_logs": true
+  },
+  "expected_output": {
+    "format": "structured_result",
+    "requires_summary": true,
+    "requires_changed_files": true,
+    "requires_risks": true
+  },
+  "allow_unsafe_permissions": false
+}

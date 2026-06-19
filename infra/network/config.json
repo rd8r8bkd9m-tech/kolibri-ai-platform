@@ -18,11 +18,11 @@
       "public_ip": "104.253.43.117",
       "vpn_ip": "10.99.0.2",
       "ssh_alias": "kolibri-main",
-      "role": "api-gateway",
+      "role": "api-gateway-release",
       "ram": "1.9GB",
       "cpu": "1 vCPU",
       "disk": "16GB",
-      "tasks": ["frontend", "api-gateway", "routing"],
+      "tasks": ["frontend", "api-gateway", "routing", "release-coordination"],
       "mimo_path": "/root/.mimocode/bin/mimo",
       "services": ["kolibri-ai", "nginx"]
     },
@@ -30,7 +30,7 @@
       "public_ip": "31.57.26.151",
       "vpn_ip": "10.99.0.3",
       "ssh_alias": "kolibri-uiap",
-      "role": "rag-engine",
+      "role": "rag-knowledge-engine",
       "ram": "3.8GB",
       "cpu": "2 cores",
       "disk": "34GB",
@@ -41,7 +41,7 @@
       "public_ip": "217.60.63.97",
       "vpn_ip": "10.99.0.4",
       "ssh_alias": "kolibri-qjns",
-      "role": "agent-executor",
+      "role": "tools-agent-executor",
       "ram": "1.9GB",
       "cpu": "1 vCPU",
       "disk": "16GB",
@@ -52,7 +52,7 @@
       "public_ip": "94.183.235.154",
       "vpn_ip": "10.99.0.5",
       "ssh_alias": "kolibri-9fts",
-      "role": "inference",
+      "role": "legacy-inference-recovery",
       "ram": "1.9GB",
       "cpu": "1 vCPU",
       "disk": "16GB",
@@ -63,7 +63,7 @@
       "public_ip": "109.248.161.39",
       "vpn_ip": "10.99.0.6",
       "ssh_alias": "kolibri-new",
-      "role": "worker",
+      "role": "worker-backup-node",
       "ram": "unknown",
       "cpu": "unknown",
       "disk": "unknown",
@@ -74,12 +74,75 @@
       "public_ip": "31.57.26.242",
       "vpn_ip": "",
       "ssh_alias": "root@31.57.26.242",
-      "role": "unclassified-worker",
+      "role": "qa-security-node",
       "ram": "unknown",
       "cpu": "unknown",
       "disk": "unknown",
-      "tasks": ["inventory", "health-check", "classification"],
+      "tasks": ["shell-injection-tests", "no-secrets-checks", "browser-qa-baseline"],
       "mimo_path": "/root/.mimocode/bin/mimo"
+    },
+    "hostvds-highload": {
+      "public_ip": "45.38.139.182",
+      "vpn_ip": "",
+      "ssh_alias": "root@45.38.139.182",
+      "role": "ci-build-release-runner",
+      "ram": "3.8GB",
+      "cpu": "1 vCPU",
+      "disk": "29GB",
+      "tasks": ["frontend-build", "rust-tests", "backend-quality-gates", "release-artifacts"],
+      "mimo_path": "/root/.mimocode/bin/mimo"
+    }
+  },
+  "planned_servers": {
+    "hostvds-agent-01": {
+      "role": "backend-lead-node",
+      "target_plan": "Burstable-2",
+      "tasks": ["rag-api-contract", "intent-routing", "backend-tests"]
+    },
+    "hostvds-agent-02": {
+      "role": "frontend-design-node",
+      "target_plan": "Burstable-2",
+      "tasks": ["eslint", "browser-qa", "ui-polish"]
+    },
+    "hostvds-agent-03": {
+      "role": "infra-network-node",
+      "target_plan": "Burstable-2",
+      "tasks": ["worker-completion-contract", "vpn-health", "systemd-hardening"]
+    },
+    "hostvds-agent-04": {
+      "role": "qa-browser-node",
+      "target_plan": "Burstable-2",
+      "tasks": ["playwright-baseline", "regression-sweeps", "artifact-review"]
+    },
+    "hostvds-agent-05": {
+      "role": "security-audit-node",
+      "target_plan": "Burstable-2",
+      "tasks": ["shell-injection-tests", "secret-redaction", "permission-boundaries"]
+    },
+    "hostvds-agent-06": {
+      "role": "docs-knowledge-node",
+      "target_plan": "Burstable-2",
+      "tasks": ["docs-sync", "runbooks", "operator-reports"]
+    },
+    "hostvds-agent-07": {
+      "role": "formulalm-eval-node",
+      "target_plan": "Burstable-2",
+      "tasks": ["formulalm-health", "eval-prompts", "training-artifact-review"]
+    },
+    "hostvds-agent-08": {
+      "role": "rag-eval-node",
+      "target_plan": "Burstable-2",
+      "tasks": ["retrieval-quality", "embedding-drift", "knowledge-fixtures"]
+    },
+    "hostvds-agent-09": {
+      "role": "release-canary-node",
+      "target_plan": "Burstable-2",
+      "tasks": ["canary-deploy", "smoke-tests", "rollback-rehearsal"]
+    },
+    "hostvds-agent-10": {
+      "role": "load-benchmark-node",
+      "target_plan": "Burstable-2",
+      "tasks": ["api-load-tests", "resource-profiling", "cost-control"]
     }
   }
 }

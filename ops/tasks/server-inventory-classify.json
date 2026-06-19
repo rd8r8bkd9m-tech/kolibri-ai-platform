@@ -8,6 +8,39 @@
   "allowed_paths": [
     "/opt/kolibri-ai/agent-worktrees/server-inventory-classify"
   ],
+  "quality_contract": {
+    "objective": "Classify a newly discovered Kolibri VPS into a precise agent role with safe rollout gates.",
+    "context": "Codex needs reliable server inventory before assigning 24/7 Mimo agents or mutation work.",
+    "scope": [
+      "Collect OS, CPU, RAM, disk, public IP, VPN state, Mimo path/version, and project directory status.",
+      "Map observed capabilities to one recommended primary role.",
+      "Report bootstrap gaps and health gates needed before agent rollout."
+    ],
+    "out_of_scope": [
+      "Do not install packages, write files, restart services, alter firewall, or deploy code.",
+      "Do not read secrets, auth files, .env files, .ssh, or .mimocode.",
+      "Do not assign multiple competing primary roles."
+    ],
+    "acceptance_criteria": [
+      "Return one recommended server role and explain why the hardware/network state supports it.",
+      "Return whether the server is safe for read-only tasks, controlled mutation tasks, or neither.",
+      "Return exact missing prerequisites before 24/7 use."
+    ],
+    "verification_steps": [
+      "Inspect OS, resources, disk, network identity, and available developer tooling.",
+      "Check Mimo version/path without exposing auth configuration.",
+      "Check Kolibri services and /opt/kolibri-ai layout if present."
+    ],
+    "deliverables": [
+      "Structured result with status, summary, changed_files, checks, risks, and artifacts.",
+      "Recommended role, health gates, bootstrap gaps, and rollout readiness.",
+      "Concrete next action for Codex."
+    ],
+    "stop_conditions": [
+      "Stop if the task requires credentials, tokens, private keys, or auth file contents.",
+      "Stop if classification would require modifying server state."
+    ]
+  },
   "required_checks": [],
   "timeout_seconds": 300,
   "secrets_policy": {

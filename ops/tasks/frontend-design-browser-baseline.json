@@ -1,0 +1,58 @@
+{
+  "task_id": "frontend-design-browser-baseline",
+  "agent_role": "Frontend/Design Lead",
+  "server": "hostvds-highload",
+  "mode": "read_only",
+  "prompt": "Establish a browser QA baseline for the Kolibri frontend. Do not modify files. Inspect build/lint readiness, identify likely viewport states to test, and propose a Playwright smoke checklist for desktop and mobile. Return only evidence-backed findings and a minimal next mutation plan.",
+  "worktree": "/opt/kolibri-ai/agent-worktrees/frontend-design-browser-baseline",
+  "allowed_paths": [
+    "/opt/kolibri-ai/agent-worktrees/frontend-design-browser-baseline"
+  ],
+  "quality_contract": {
+    "objective": "Create a practical frontend/design QA baseline before assigning UI mutation work.",
+    "context": "Kolibri UI work must be verified by build, lint, and browser checks before Codex accepts changes.",
+    "scope": [
+      "Review available frontend commands, viewport coverage needs, and visible risk areas.",
+      "Define desktop and mobile smoke checks that catch layout overlap and broken flows.",
+      "Recommend exact evidence artifacts for future UI tasks."
+    ],
+    "out_of_scope": [
+      "Do not edit files, install packages, deploy, or start persistent services.",
+      "Do not read secrets, auth files, .env files, .ssh, or .mimocode.",
+      "Do not redesign the product or create speculative UI concepts."
+    ],
+    "acceptance_criteria": [
+      "Return a browser QA checklist with desktop and mobile coverage.",
+      "Return the exact build/lint checks future frontend mutation tasks must run.",
+      "Call out any missing environment prerequisites as blockers."
+    ],
+    "verification_steps": [
+      "Inspect package scripts and existing frontend structure if present.",
+      "Check whether browser QA can run in the current server context.",
+      "Report missing dependencies rather than installing them."
+    ],
+    "deliverables": [
+      "Structured result with status, summary, changed_files, checks, risks, and artifacts.",
+      "Frontend QA baseline checklist.",
+      "Minimal controlled mutation proposal if issues are found."
+    ],
+    "stop_conditions": [
+      "Stop if the task requires credentials, tokens, private keys, or auth file contents.",
+      "Stop if QA would require writing outside allowed_paths or changing production state."
+    ]
+  },
+  "required_checks": [],
+  "timeout_seconds": 300,
+  "secrets_policy": {
+    "allow_env_files": false,
+    "allow_auth_files": false,
+    "redact_logs": true
+  },
+  "expected_output": {
+    "format": "structured_result",
+    "requires_summary": true,
+    "requires_changed_files": true,
+    "requires_risks": true
+  },
+  "allow_unsafe_permissions": false
+}

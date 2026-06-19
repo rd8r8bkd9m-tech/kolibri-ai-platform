@@ -140,7 +140,7 @@ case "$TASK" in
     security)
         [ -z "$SERVER" ] && { echo "Server required"; exit 1; }
         if [ "$SERVER" = "all" ]; then
-            for s in home main uiap qjns 9fts kolibri reserve242; do task_security_audit "$s" || true; done
+            for s in home main uiap qjns 9fts kolibri reserve242 hostvds-highload; do task_security_audit "$s" || true; done
         else
             task_security_audit "$SERVER"
         fi
@@ -148,7 +148,7 @@ case "$TASK" in
     cleanup)
         [ -z "$SERVER" ] && { echo "Server required"; exit 1; }
         if [ "$SERVER" = "all" ]; then
-            for s in home main uiap qjns 9fts kolibri reserve242; do task_cleanup "$s" || true; done
+            for s in home main uiap qjns 9fts kolibri reserve242 hostvds-highload; do task_cleanup "$s" || true; done
         else
             task_cleanup "$SERVER"
         fi
@@ -156,7 +156,7 @@ case "$TASK" in
     update)
         [ -z "$SERVER" ] && { echo "Server required"; exit 1; }
         if [ "$SERVER" = "all" ]; then
-            for s in home main uiap qjns 9fts kolibri reserve242; do task_update_packages "$s" || true; done
+            for s in home main uiap qjns 9fts kolibri reserve242 hostvds-highload; do task_update_packages "$s" || true; done
         else
             task_update_packages "$SERVER"
         fi
@@ -164,7 +164,7 @@ case "$TASK" in
     services)
         [ -z "$SERVER" ] && { echo "Server required"; exit 1; }
         if [ "$SERVER" = "all" ]; then
-            for s in home main uiap qjns 9fts kolibri reserve242; do task_check_services "$s" || true; done
+            for s in home main uiap qjns 9fts kolibri reserve242 hostvds-highload; do task_check_services "$s" || true; done
         else
             task_check_services "$SERVER"
         fi
@@ -182,7 +182,7 @@ case "$TASK" in
     parallel)
         [ -z "$SERVER" ] && { echo "Prompt required"; exit 1; }
         PROMPT="$SERVER $EXTRA_ARGS"
-        for s in home main uiap qjns 9fts kolibri reserve242; do
+        for s in home main uiap qjns 9fts kolibri reserve242 hostvds-highload; do
             (run_ai_task "$s" "$PROMPT") &
         done
         wait

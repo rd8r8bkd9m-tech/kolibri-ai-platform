@@ -30,6 +30,14 @@ DEFAULT_AGENTS_FILE = PROJECT_DIR / "ops" / "agents.yml"
 DEFAULT_LOG_DIR = PROJECT_DIR / "logs" / "agent-runs"
 DEFAULT_MODEL = "mimo/mimo-auto"
 DEFAULT_TIMEOUT = 300
+QUALITY_LIST_FIELDS = {
+    "scope",
+    "out_of_scope",
+    "acceptance_criteria",
+    "verification_steps",
+    "deliverables",
+    "stop_conditions",
+}
 
 SECRET_KEY_RE = re.compile(r"(api[_-]?key|token|secret|password|passwd|private[_-]?key)", re.I)
 SECRET_ASSIGNMENT_RE = re.compile(
@@ -132,6 +140,105 @@ def validate_allowed_paths(allowed_paths: list[str]) -> None:
             raise RunnerError(f"allowed_paths entry targets forbidden secret area: {item}")
 
 
+def default_quality_contract(prompt: str, task_type: str | None, mode: str) -> dict[str, Any]:
+    task_label = task_type or mode or "agent-task"
+    return {
+        "objective": f"Complete the bounded Kolibri {task_label} assignment with a reviewable structured result.",
+        "context": "This task is executed by a Mimo agent under Codex orchestration for the Kolibri AI platform.",
+        "scope": [
+            "Use only the provided prompt, worktree, and allowed_paths.",
+            "Prefer small, inspectable findings or changes over broad refactors.",
+            "Return evidence for every claim that affects merge, deploy, or server health decisions.",
+        ],
+        "out_of_scope": [
+            "Do not read or write secrets, auth files, .env files, .ssh, or .mimocode.",
+            "Do not deploy, reboot, restart services, or change firewall rules unless the manifest explicitly says so.",
+            "Do not modify unrelated files or pursue speculative cleanup.",
+        ],
+        "acceptance_criteria": [
+            "The final response includes status, summary, changed_files, checks, risks, and artifacts.",
+            "Every recommendation is tied to observed evidence or an explicitly marked assumption.",
+        ],
+        "verification_steps": [
+            "Run the manifest required_checks when available.",
+            "If a check cannot run, report the blocker and exact reason.",
+        ],
+        "deliverables": [
+            "Concise structured result JSON-compatible summary.",
+            "List of changed files or an explicit empty list.",
+            "Risks, blockers, and next recommended action.",
+        ],
+        "stop_conditions": [
+            "Stop immediately if the task requires secrets or credentials not already available through safe runtime context.",
+            "Stop immediately if the work requires writing outside allowed_paths.",
+        ],
+    }
+
+
+def validate_quality_contract(contract: Any, mode: str, required_checks: list[str]) -> list[str]:
+    errors: list[str] = []
+    if not isinstance(contract, dict):
+        return ["quality_contract must be object"]
+
+    for field in {"objective", "context"}:
+        value = contract.get(field)
+        if not isinstance(value, str) or len(value.strip()) < 20:
+            errors.append(f"quality_contract.{field} must be a descriptive string")
+        elif SECRET_ASSIGNMENT_RE.search(value):
+            errors.append(f"quality_contract.{field} appears to contain a secret assignment")
+
+    for field in QUALITY_LIST_FIELDS:
+        value = contract.get(field)
+        if not isinstance(value, list) or not value:
+            errors.append(f"quality_contract.{field} must be a non-empty list")
+            continue
+        for index, item in enumerate(value):
+            if not isinstance(item, str) or len(item.strip()) < 3:
+                errors.append(f"quality_contract.{field}[{index}] must be a non-empty string")
+            elif SECRET_ASSIGNMENT_RE.search(item):
+                errors.append(f"quality_contract.{field}[{index}] appears to contain a secret assignment")
+
+    if mode == "controlled_mutation" and not required_checks:
+        errors.append("controlled_mutation tasks must define required_checks")
+
+    stop_text = " ".join(str(item).lower() for item in contract.get("stop_conditions", []))
+    if "secret" not in stop_text and "credential" not in stop_text:
+        errors.append("quality_contract.stop_conditions must include a secret/credential stop rule")
+
+    return errors
+
+
+def format_bullets(items: list[str]) -> str:
+    return "\n".join(f"- {item}" for item in items)
+
+
+def prompt_for_agent(manifest: dict[str, Any]) -> str:
+    contract = manifest["quality_contract"]
+    required_checks = manifest.get("required_checks") or []
+    checks_text = format_bullets(required_checks) if required_checks else "- No automated checks declared; explain why and provide manual verification evidence."
+    return (
+        "You are a Kolibri Mimo agent working under Codex review.\n\n"
+        f"Agent role: {manifest.get('agent_role', 'unspecified')}\n"
+        f"Server: {manifest['server']}\n"
+        f"Mode: {manifest['mode']}\n"
+        f"Worktree: {manifest['worktree']}\n"
+        f"Allowed paths:\n{format_bullets(list(manifest['allowed_paths']))}\n\n"
+        f"Objective:\n{contract['objective']}\n\n"
+        f"Context:\n{contract['context']}\n\n"
+        f"Task prompt:\n{manifest['prompt']}\n\n"
+        f"Scope:\n{format_bullets(contract['scope'])}\n\n"
+        f"Out of scope:\n{format_bullets(contract['out_of_scope'])}\n\n"
+        f"Acceptance criteria:\n{format_bullets(contract['acceptance_criteria'])}\n\n"
+        f"Verification steps:\n{format_bullets(contract['verification_steps'])}\n\n"
+        f"Required checks:\n{checks_text}\n\n"
+        f"Deliverables:\n{format_bullets(contract['deliverables'])}\n\n"
+        f"Stop conditions:\n{format_bullets(contract['stop_conditions'])}\n\n"
+        "Return a JSON-compatible structured result with exactly these top-level fields: "
+        "status, summary, changed_files, checks, risks, artifacts. "
+        "Do not include secrets, tokens, passwords, private keys, or raw auth file contents."
+    )
+
+
 def validate_manifest(manifest: dict[str, Any], agents: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     required = {
@@ -141,6 +248,7 @@ def validate_manifest(manifest: dict[str, Any], agents: dict[str, Any]) -> list[
         "prompt": str,
         "worktree": str,
         "allowed_paths": list,
+        "quality_contract": dict,
         "required_checks": list,
         "timeout_seconds": int,
         "secrets_policy": dict,
@@ -174,6 +282,14 @@ def validate_manifest(manifest: dict[str, Any], agents: dict[str, Any]) -> list[
     if SECRET_ASSIGNMENT_RE.search(manifest["prompt"]):
         errors.append("prompt appears to contain a secret assignment")
 
+    errors.extend(
+        validate_quality_contract(
+            manifest.get("quality_contract"),
+            manifest["mode"],
+            list(manifest.get("required_checks") or []),
+        )
+    )
+
     return errors
 
 
@@ -190,6 +306,7 @@ def manifest_from_args(args: argparse.Namespace) -> dict[str, Any]:
         "prompt": prompt,
         "worktree": args.worktree or str(PROJECT_DIR),
         "allowed_paths": args.allowed_path or ["."],
+        "quality_contract": default_quality_contract(prompt, args.task_type, args.mode),
         "required_checks": args.required_check or [],
         "timeout_seconds": args.timeout,
         "secrets_policy": {
@@ -237,7 +354,7 @@ def build_mimo_argv(
         "--model",
         manifest.get("model", DEFAULT_MODEL),
     ]
-    args.append(manifest["prompt"])
+    args.append(prompt_for_agent(manifest))
     return args
 
 
@@ -349,6 +466,7 @@ def run_local(args: argparse.Namespace) -> int:
         raise RunnerError("Manifest validation failed: " + "; ".join(errors))
 
     ensure_no_secret_prompt(manifest["prompt"])
+    ensure_no_secret_prompt(prompt_for_agent(manifest))
     worktree = resolve_local_path(manifest["worktree"])
     if not path_is_within(worktree, PROJECT_DIR):
         raise RunnerError(f"Local worktree must be inside project: {worktree}")
@@ -546,6 +664,7 @@ def run_ssh(args: argparse.Namespace) -> int:
     if errors:
         raise RunnerError("Manifest validation failed: " + "; ".join(errors))
     ensure_no_secret_prompt(manifest["prompt"])
+    ensure_no_secret_prompt(prompt_for_agent(manifest))
 
     server = manifest["server"]
     config = server_config(agents, server)
@@ -559,7 +678,7 @@ def run_ssh(args: argparse.Namespace) -> int:
         "mimo_bin": config.get("mimo_bin", "mimo"),
         "worktree": manifest["worktree"],
         "model": manifest.get("model", DEFAULT_MODEL),
-        "prompt": manifest["prompt"],
+        "prompt": prompt_for_agent(manifest),
         "timeout_seconds": manifest["timeout_seconds"],
         "required_checks": manifest.get("required_checks") or [],
     }

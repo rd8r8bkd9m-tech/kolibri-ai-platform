@@ -1,0 +1,58 @@
+{
+  "task_id": "infra-worker-completion-contract",
+  "agent_role": "Infra Lead",
+  "server": "qjns",
+  "mode": "read_only",
+  "prompt": "Review the worker job claim/completion contract. Do not modify files. Confirm whether workers can atomically claim jobs, complete jobs with structured results, and surface failed checks. Return contract gaps, exact endpoint expectations, and a controlled mutation plan if needed.",
+  "worktree": "/opt/kolibri-ai/agent-worktrees/infra-worker-completion-contract",
+  "allowed_paths": [
+    "/opt/kolibri-ai/agent-worktrees/infra-worker-completion-contract"
+  ],
+  "quality_contract": {
+    "objective": "Verify the worker completion contract before any distributed agent rollout.",
+    "context": "The network layer must reliably claim jobs and return structured task results for Codex review.",
+    "scope": [
+      "Inspect claim, completion, status, and result-shape assumptions.",
+      "Identify race conditions, missing statuses, and failure reporting gaps.",
+      "Recommend exact tests or probes for the future mutation task."
+    ],
+    "out_of_scope": [
+      "Do not edit files, restart services, deploy, or mutate job state.",
+      "Do not read secrets, auth files, .env files, .ssh, or .mimocode.",
+      "Do not design a new queue system unless the current contract cannot be salvaged."
+    ],
+    "acceptance_criteria": [
+      "Return whether atomic claim and structured completion are supported.",
+      "Return endpoint expectations with exact request and response fields.",
+      "Return a small controlled mutation plan if gaps remain."
+    ],
+    "verification_steps": [
+      "Inspect available network API and worker code if present.",
+      "Check logs or docs only when they do not expose secrets.",
+      "Report missing repo context as a blocker."
+    ],
+    "deliverables": [
+      "Structured result with status, summary, changed_files, checks, risks, and artifacts.",
+      "Worker contract findings.",
+      "Controlled mutation proposal with checks."
+    ],
+    "stop_conditions": [
+      "Stop if the task requires credentials, tokens, private keys, or auth file contents.",
+      "Stop if review would require mutating jobs, services, or files outside allowed_paths."
+    ]
+  },
+  "required_checks": [],
+  "timeout_seconds": 300,
+  "secrets_policy": {
+    "allow_env_files": false,
+    "allow_auth_files": false,
+    "redact_logs": true
+  },
+  "expected_output": {
+    "format": "structured_result",
+    "requires_summary": true,
+    "requires_changed_files": true,
+    "requires_risks": true
+  },
+  "allow_unsafe_permissions": false
+}

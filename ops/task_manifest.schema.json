@@ -10,6 +10,7 @@
     "prompt",
     "worktree",
     "allowed_paths",
+    "quality_contract",
     "required_checks",
     "timeout_seconds",
     "secrets_policy",
@@ -34,7 +35,7 @@
     },
     "prompt": {
       "type": "string",
-      "minLength": 1
+      "minLength": 20
     },
     "worktree": {
       "type": "string",
@@ -56,6 +57,78 @@
         "type": "string"
       },
       "default": [".env", ".ssh", ".mimocode", "auth.json"]
+    },
+    "quality_contract": {
+      "type": "object",
+      "required": [
+        "objective",
+        "context",
+        "scope",
+        "out_of_scope",
+        "acceptance_criteria",
+        "verification_steps",
+        "deliverables",
+        "stop_conditions"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "objective": {
+          "type": "string",
+          "minLength": 20
+        },
+        "context": {
+          "type": "string",
+          "minLength": 20
+        },
+        "scope": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 3
+          }
+        },
+        "out_of_scope": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 3
+          }
+        },
+        "acceptance_criteria": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "string",
+            "minLength": 8
+          }
+        },
+        "verification_steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 3
+          }
+        },
+        "deliverables": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "string",
+            "minLength": 3
+          }
+        },
+        "stop_conditions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 8
+          }
+        }
+      }
     },
     "required_checks": {
       "type": "array",

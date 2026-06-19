@@ -17,7 +17,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-SERVERS=("home" "main" "uiap" "qjns" "9fts" "kolibri" "reserve242")
+SERVERS=("home" "main" "uiap" "qjns" "9fts" "kolibri" "reserve242" "hostvds-highload")
 
 get_server_info() {
     local server="$1"
@@ -220,7 +220,7 @@ usage() {
     echo "  logs <server> [lines]         View server logs"
     echo "  exec <server> <command>       Execute arbitrary command on server"
     echo ""
-    echo "Servers: home, main, uiap, qjns, 9fts, kolibri, reserve242"
+    echo "Servers: home, main, uiap, qjns, 9fts, kolibri, reserve242, hostvds-highload"
     echo ""
     echo "Examples:"
     echo "  $0 health                     Check all servers"

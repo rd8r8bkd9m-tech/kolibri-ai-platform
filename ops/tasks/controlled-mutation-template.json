@@ -11,6 +11,40 @@
     "infra/network",
     "scripts"
   ],
+  "quality_contract": {
+    "objective": "Implement one bounded Kolibri code change with reviewable diffs and mandatory verification.",
+    "context": "Controlled mutation tasks are allowed only after Codex defines exact scope and reviews the resulting diff/tests.",
+    "scope": [
+      "Edit only files required for the assigned change inside allowed_paths.",
+      "Prefer existing project patterns and keep changes narrow.",
+      "Run required checks and report any failure with exact command output summary."
+    ],
+    "out_of_scope": [
+      "Do not edit secrets, deployment credentials, .env files, .ssh, .mimocode, or unrelated files.",
+      "Do not deploy, push, merge, restart services, or change production state.",
+      "Do not perform broad refactors or style churn outside the assigned change."
+    ],
+    "acceptance_criteria": [
+      "The implementation satisfies the assigned prompt and leaves a small reviewable diff.",
+      "Required checks pass or every failure is explained with a concrete blocker.",
+      "The structured result lists changed files, checks, risks, and artifacts."
+    ],
+    "verification_steps": [
+      "Inspect git diff before final response.",
+      "Run every required_check in the manifest.",
+      "Report manual verification when automated coverage is incomplete."
+    ],
+    "deliverables": [
+      "Structured result with status, summary, changed_files, checks, risks, and artifacts.",
+      "Concise implementation summary for Codex review.",
+      "Residual risks and next recommendation."
+    ],
+    "stop_conditions": [
+      "Stop if the change requires secrets, credentials, private keys, or auth file contents.",
+      "Stop if the task requires writing outside allowed_paths.",
+      "Stop if the requested behavior conflicts with the runner safety policy."
+    ]
+  },
   "required_checks": [
     "python3 -m py_compile backend/main.py backend/auth.py backend/config.py",
     "python3 -m ruff check backend/pipeline.py infra/network/api.py infra/network/organism.py infra/network/worker_service.py infra/network/rag_service.py scripts/mimo_task_runner.py --select E,F,W --ignore E501",

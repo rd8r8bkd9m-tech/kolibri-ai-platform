@@ -3,6 +3,11 @@
   "defaults": {
     "model": "mimo/mimo-auto",
     "timeout_seconds": 300,
+    "role_contract": {
+      "one_primary_role_per_server": true,
+      "cross_role_mutation_requires_codex_review": true,
+      "production_deploy_requires_structured_result": true
+    },
     "required_checks": [
       "python3 -m py_compile backend/main.py backend/auth.py backend/config.py",
       "python3 -m ruff check backend/pipeline.py infra/network/api.py infra/network/organism.py infra/network/worker_service.py infra/network/rag_service.py scripts/mimo_task_runner.py --select E,F,W --ignore E501",
@@ -42,8 +47,9 @@
     },
     "main": {
       "enabled": true,
-      "role": "api-gateway",
+      "role": "api-gateway-release",
       "deputy": "Release Lead",
+      "specialization": "backend-api-frontend-release-coordination",
       "ssh_alias": "kolibri-main",
       "vpn_ip": "10.99.0.2",
       "mimo_bin": "/root/.mimocode/bin/mimo",
@@ -62,8 +68,9 @@
     },
     "uiap": {
       "enabled": true,
-      "role": "rag-engine",
+      "role": "rag-knowledge-engine",
       "deputy": "RAG Lead",
+      "specialization": "chromadb-embeddings-knowledge-search",
       "ssh_alias": "kolibri-uiap",
       "vpn_ip": "10.99.0.3",
       "mimo_bin": "/root/.mimocode/bin/mimo",
@@ -81,8 +88,9 @@
     },
     "qjns": {
       "enabled": true,
-      "role": "agent-executor",
+      "role": "tools-agent-executor",
       "deputy": "Tools Lead",
+      "specialization": "safe-tool-calling-agent-task-execution",
       "ssh_alias": "kolibri-qjns",
       "vpn_ip": "10.99.0.4",
       "mimo_bin": "/root/.mimocode/bin/mimo",
@@ -99,8 +107,9 @@
     },
     "9fts": {
       "enabled": false,
-      "role": "inference",
+      "role": "legacy-inference-recovery",
       "deputy": "Inference Lead",
+      "specialization": "inference-node-recovery-and-canary-serving",
       "ssh_alias": "kolibri-9fts",
       "vpn_ip": "10.99.0.5",
       "mimo_bin": "/root/.mimocode/bin/mimo",
@@ -118,8 +127,9 @@
     },
     "kolibri": {
       "enabled": true,
-      "role": "worker",
+      "role": "worker-backup-node",
       "deputy": "Worker Lead",
+      "specialization": "background-jobs-backups-general-compute",
       "ssh_alias": "kolibri-new",
       "vpn_ip": "10.99.0.6",
       "mimo_bin": "/root/.mimocode/bin/mimo",
@@ -136,8 +146,9 @@
     },
     "reserve242": {
       "enabled": true,
-      "role": "unclassified-worker",
-      "deputy": "Inventory Lead",
+      "role": "qa-security-node",
+      "deputy": "QA/Security Lead",
+      "specialization": "shell-injection-tests-no-secrets-checks-browser-baseline",
       "ssh_alias": "root@31.57.26.242",
       "public_ip": "31.57.26.242",
       "vpn_ip": "",
@@ -145,14 +156,101 @@
       "remote_worktree_root": "/opt/kolibri-ai/agent-worktrees",
       "allowed_paths": [
         "/opt/kolibri-ai/agent-worktrees",
-        "/opt/kolibri-ai"
+        "/opt/kolibri-ai/qa",
+        "/opt/kolibri-ai/tests",
+        "/opt/kolibri-ai/reports"
       ],
       "health_gates": {
         "min_disk_free_gb": 3,
         "max_ram_percent": 92,
-        "requires_vpn": false,
-        "requires_role_classification": true
+        "requires_vpn": false
       }
+    },
+    "hostvds-highload": {
+      "enabled": true,
+      "role": "ci-build-release-runner",
+      "deputy": "Build/Release Lead",
+      "specialization": "frontend-build-rust-tests-backend-quality-gates",
+      "ssh_alias": "root@45.38.139.182",
+      "public_ip": "45.38.139.182",
+      "vpn_ip": "",
+      "mimo_bin": "/root/.mimocode/bin/mimo",
+      "remote_worktree_root": "/opt/kolibri-ai/agent-worktrees",
+      "allowed_paths": [
+        "/opt/kolibri-ai/agent-worktrees",
+        "/opt/kolibri-ai/builds",
+        "/opt/kolibri-ai/releases",
+        "/opt/kolibri-ai/reports"
+      ],
+      "health_gates": {
+        "min_disk_free_gb": 5,
+        "max_ram_percent": 90,
+        "requires_vpn": false,
+        "requires_mimo": true,
+        "requires_build_toolchain": true
+      }
+    }
+  },
+  "planned_role_slots": {
+    "hostvds-agent-01": {
+      "role": "backend-lead-node",
+      "deputy": "Backend Lead",
+      "target_plan": "Burstable-2",
+      "tasks": ["rag-api-contract", "intent-routing", "backend-tests"]
+    },
+    "hostvds-agent-02": {
+      "role": "frontend-design-node",
+      "deputy": "Frontend/Design Lead",
+      "target_plan": "Burstable-2",
+      "tasks": ["eslint", "browser-qa", "ui-polish"]
+    },
+    "hostvds-agent-03": {
+      "role": "infra-network-node",
+      "deputy": "Infra Lead",
+      "target_plan": "Burstable-2",
+      "tasks": ["worker-completion-contract", "vpn-health", "systemd-hardening"]
+    },
+    "hostvds-agent-04": {
+      "role": "qa-browser-node",
+      "deputy": "QA Lead",
+      "target_plan": "Burstable-2",
+      "tasks": ["playwright-baseline", "regression-sweeps", "artifact-review"]
+    },
+    "hostvds-agent-05": {
+      "role": "security-audit-node",
+      "deputy": "Security Lead",
+      "target_plan": "Burstable-2",
+      "tasks": ["shell-injection-tests", "secret-redaction", "permission-boundaries"]
+    },
+    "hostvds-agent-06": {
+      "role": "docs-knowledge-node",
+      "deputy": "Docs Lead",
+      "target_plan": "Burstable-2",
+      "tasks": ["docs-sync", "runbooks", "operator-reports"]
+    },
+    "hostvds-agent-07": {
+      "role": "formulalm-eval-node",
+      "deputy": "FormulaLM Eval Lead",
+      "target_plan": "Burstable-2",
+      "tasks": ["formulalm-health", "eval-prompts", "training-artifact-review"]
+    },
+    "hostvds-agent-08": {
+      "role": "rag-eval-node",
+      "deputy": "RAG Eval Lead",
+      "target_plan": "Burstable-2",
+      "tasks": ["retrieval-quality", "embedding-drift", "knowledge-fixtures"]
+    },
+    "hostvds-agent-09": {
+      "role": "release-canary-node",
+      "deputy": "Canary Lead",
+      "target_plan": "Burstable-2",
+      "tasks": ["canary-deploy", "smoke-tests", "rollback-rehearsal"]
+    },
+    "hostvds-agent-10": {
+      "role": "load-benchmark-node",
+      "deputy": "Performance Lead",
+      "target_plan": "Burstable-2",
+      "tasks": ["api-load-tests", "resource-profiling", "cost-control"]
     }
   }
 }

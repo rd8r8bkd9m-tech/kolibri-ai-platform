@@ -10,6 +10,39 @@
     "/srv/kolibri/repo/data/models",
     "/opt/kolibri-ai/training"
   ],
+  "quality_contract": {
+    "objective": "Verify FormulaLM training/API health without exposing corpus contents or changing the training node.",
+    "context": "FormulaLM is a dedicated Home server responsibility and must remain stable before agent rollout expands.",
+    "scope": [
+      "Inspect FormulaLM service status, health endpoint, checkpoint metadata, disk pressure, RAM pressure, and training lock state.",
+      "Report checkpoint freshness and whether inference/training are currently safe.",
+      "Keep all corpus and model artifacts private; report metadata only."
+    ],
+    "out_of_scope": [
+      "Do not start training, stop services, restart services, edit files, or copy model artifacts.",
+      "Do not read secrets, auth files, .env files, .ssh, or .mimocode.",
+      "Do not expose raw corpus rows, prompts, private documents, or model payloads."
+    ],
+    "acceptance_criteria": [
+      "Return FormulaLM API health status and checkpoint age or absence.",
+      "Return whether an active training process or lock exists.",
+      "Return blockers and safe next actions for Codex review."
+    ],
+    "verification_steps": [
+      "Check service status and the VPN-only health endpoint.",
+      "Inspect model checkpoint metadata without dumping model content.",
+      "Check disk and memory pressure relevant to training stability."
+    ],
+    "deliverables": [
+      "Structured result with status, summary, changed_files, checks, risks, and artifacts.",
+      "FormulaLM readiness decision: ready, degraded, or blocked.",
+      "Recommended next action for training/API maintenance."
+    ],
+    "stop_conditions": [
+      "Stop if a step requires credentials, tokens, private keys, auth files, or corpus content disclosure.",
+      "Stop if a health check would mutate training state or service state."
+    ]
+  },
   "required_checks": [],
   "timeout_seconds": 300,
   "secrets_policy": {
