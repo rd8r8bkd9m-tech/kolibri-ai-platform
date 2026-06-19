@@ -460,6 +460,7 @@ async def websocket_chat(websocket: WebSocket):
             data = await websocket.receive_json()
             messages = data.get("messages", [])
             model = data.get("model", "auto")
+            provider = data.get("provider")
             conv_id = data.get("conversation_id")
 
             if not messages:
@@ -472,6 +473,7 @@ async def websocket_chat(websocket: WebSocket):
             async for chunk in ai_manager.generate_stream(
                 messages=messages,
                 model=model,
+                provider=provider,
                 temperature=data.get("temperature", 0.3 if estimate_mode else 0.7),
                 max_tokens=max_tok,
             ):
