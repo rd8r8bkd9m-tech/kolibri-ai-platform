@@ -17,7 +17,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-SERVERS=("home" "main" "uiap" "qjns" "9fts" "kolibri")
+SERVERS=("home" "main" "uiap" "qjns" "9fts" "kolibri" "reserve242")
 
 get_server_info() {
     local server="$1"
@@ -35,6 +35,16 @@ ssh_exec() {
         ssh -o ConnectTimeout=10 -p 2222 ladik@$(get_server_info "$server" "public_ip") "$cmd" 2>/dev/null
     else
         ssh -o ConnectTimeout=10 "$alias" "$cmd" 2>/dev/null
+    fi
+}
+
+agent_worktree() {
+    local server="$1"
+    local task_id="$2"
+    if [ "$server" = "home" ]; then
+        echo "/srv/kolibri/agent-worktrees/$task_id"
+    else
+        echo "/opt/kolibri-ai/agent-worktrees/$task_id"
     fi
 }
 
@@ -66,16 +76,23 @@ cmd_run() {
     shift
     local prompt="$*"
     local role=$(get_server_info "$server" "role")
-    local mimo_path=$(get_server_info "$server" "mimo_path")
     
     echo -e "${BLUE}[${server}]${NC} Role: ${role}"
     echo -e "${BLUE}[${server}]${NC} Running: ${prompt:0:80}..."
+    local task_id="${server}-custom-$(date +%Y%m%d-%H%M%S)"
     
-    local log_file="$LOG_DIR/${server}_$(date +%Y%m%d_%H%M%S).log"
+    python3 "$PROJECT_DIR/scripts/mimo_task_runner.py" \
+        --log-dir "$LOG_DIR" \
+        run-ssh \
+        --server "$server" \
+        --task-id "$task_id" \
+        --task-type "custom" \
+        --mode "read_only" \
+        --worktree "$(agent_worktree "$server" "$task_id")" \
+        --allowed-path "." \
+        --prompt "$prompt"
     
-    ssh_exec "$server" "$mimo_path run --dangerously-skip-permissions --model mimo/mimo-auto '$prompt'" 2>&1 | tee "$log_file"
-    
-    echo -e "${GREEN}[${server}]${NC} Done. Log: $log_file"
+    echo -e "${GREEN}[${server}]${NC} Done. Logs: $LOG_DIR"
 }
 
 cmd_deploy() {
@@ -99,7 +116,7 @@ cmd_deploy() {
                 ssh_exec "$server" "systemctl restart kolibri-network"
                 ;;
             9fts)
-                scp "$PROJECT_DIR/infra/network/api.py" "$(get_server_info "$server" "ssh_alias"):/opt/kolibri-ai/inference/api.py" 2>/dev/null
+                scp "$PROJECT_DIR/infra/inference/api.py" "$(get_server_info "$server" "ssh_alias"):/opt/kolibri-ai/inference/api.py" 2>/dev/null
                 ssh_exec "$server" "systemctl restart kolibri-inference"
                 ;;
             home)
@@ -127,11 +144,20 @@ cmd_parallel() {
     
     for server in "${SERVERS[@]}"; do
         local log_file="$LOG_DIR/${server}_$(date +%Y%m%d_%H%M%S).log"
+        local task_id="${server}-parallel-$(date +%Y%m%d-%H%M%S)"
         log_files+=("$log_file")
         
         (
-            local mimo_path=$(get_server_info "$server" "mimo_path")
-            ssh_exec "$server" "$mimo_path run --dangerously-skip-permissions --model mimo/mimo-auto '$prompt'" > "$log_file" 2>&1
+            python3 "$PROJECT_DIR/scripts/mimo_task_runner.py" \
+                --log-dir "$LOG_DIR" \
+                run-ssh \
+                --server "$server" \
+                --task-id "$task_id" \
+                --task-type "parallel" \
+                --mode "read_only" \
+                --worktree "$(agent_worktree "$server" "$task_id")" \
+                --allowed-path "." \
+                --prompt "$prompt" > "$log_file" 2>&1
             echo -e "${GREEN}[${server}]${NC} Completed"
         ) &
         pids+=($!)
@@ -194,7 +220,7 @@ usage() {
     echo "  logs <server> [lines]         View server logs"
     echo "  exec <server> <command>       Execute arbitrary command on server"
     echo ""
-    echo "Servers: home, main, uiap, qjns, 9fts, kolibri"
+    echo "Servers: home, main, uiap, qjns, 9fts, kolibri, reserve242"
     echo ""
     echo "Examples:"
     echo "  $0 health                     Check all servers"

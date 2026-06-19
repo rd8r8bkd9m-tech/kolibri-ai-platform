@@ -1,0 +1,25 @@
+{
+  "task_id": "health-readonly",
+  "agent_role": "Infra/DevOps Lead",
+  "server": "main",
+  "mode": "read_only",
+  "prompt": "Read-only health check. Inspect current Kolibri services, disk, memory, VPN reachability, Mimo version, and recent service errors. Do not edit files, restart services, change firewall rules, install packages, or reveal secrets. Return a concise structured report with blockers and recommended next actions.",
+  "worktree": "/opt/kolibri-ai/agent-worktrees/health-readonly",
+  "allowed_paths": [
+    "/opt/kolibri-ai/agent-worktrees/health-readonly"
+  ],
+  "required_checks": [],
+  "timeout_seconds": 300,
+  "secrets_policy": {
+    "allow_env_files": false,
+    "allow_auth_files": false,
+    "redact_logs": true
+  },
+  "expected_output": {
+    "format": "structured_result",
+    "requires_summary": true,
+    "requires_changed_files": true,
+    "requires_risks": true
+  },
+  "allow_unsafe_permissions": false
+}

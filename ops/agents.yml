@@ -1,0 +1,158 @@
+{
+  "version": 1,
+  "defaults": {
+    "model": "mimo/mimo-auto",
+    "timeout_seconds": 300,
+    "required_checks": [
+      "python3 -m py_compile backend/main.py backend/auth.py backend/config.py",
+      "python3 -m ruff check backend/pipeline.py infra/network/api.py infra/network/organism.py infra/network/worker_service.py infra/network/rag_service.py scripts/mimo_task_runner.py --select E,F,W --ignore E501",
+      "npm --prefix frontend run build",
+      "npm --prefix frontend run lint",
+      "cargo test --manifest-path kolibri_nano/Cargo.toml"
+    ],
+    "secrets_policy": {
+      "allow_env_files": false,
+      "allow_auth_files": false,
+      "redact_logs": true
+    }
+  },
+  "servers": {
+    "home": {
+      "enabled": true,
+      "role": "training-hub",
+      "deputy": "FormulaLM Lead",
+      "specialization": "formulalm-training-and-api",
+      "ssh_alias": "ladik@178.207.11.90",
+      "ssh_port": 2222,
+      "vpn_ip": "10.99.0.1",
+      "mimo_bin": "/usr/local/bin/mimo",
+      "remote_worktree_root": "/srv/kolibri/agent-worktrees",
+      "allowed_paths": [
+        "/srv/kolibri/agent-worktrees",
+        "/srv/kolibri/repo",
+        "/opt/kolibri-ai/training"
+      ],
+      "health_gates": {
+        "min_disk_free_gb": 5,
+        "max_ram_percent": 90,
+        "requires_vpn": true,
+        "formulalm_health_url": "http://10.99.0.1:8004/api/v1/health",
+        "training_lock_key": "kolibri:training:lock"
+      }
+    },
+    "main": {
+      "enabled": true,
+      "role": "api-gateway",
+      "deputy": "Release Lead",
+      "ssh_alias": "kolibri-main",
+      "vpn_ip": "10.99.0.2",
+      "mimo_bin": "/root/.mimocode/bin/mimo",
+      "remote_worktree_root": "/opt/kolibri-ai/agent-worktrees",
+      "allowed_paths": [
+        "/opt/kolibri-ai/agent-worktrees",
+        "/opt/kolibri-ai/backend",
+        "/opt/kolibri-ai/frontend"
+      ],
+      "health_gates": {
+        "min_disk_free_gb": 3,
+        "max_ram_percent": 92,
+        "requires_vpn": true,
+        "formulalm_tunnel_service": "formulalm-tunnel.service"
+      }
+    },
+    "uiap": {
+      "enabled": true,
+      "role": "rag-engine",
+      "deputy": "RAG Lead",
+      "ssh_alias": "kolibri-uiap",
+      "vpn_ip": "10.99.0.3",
+      "mimo_bin": "/root/.mimocode/bin/mimo",
+      "remote_worktree_root": "/opt/kolibri-ai/agent-worktrees",
+      "allowed_paths": [
+        "/opt/kolibri-ai/agent-worktrees",
+        "/opt/kolibri-ai/network",
+        "/opt/kolibri-ai/rag"
+      ],
+      "health_gates": {
+        "min_disk_free_gb": 8,
+        "max_ram_percent": 90,
+        "requires_vpn": true
+      }
+    },
+    "qjns": {
+      "enabled": true,
+      "role": "agent-executor",
+      "deputy": "Tools Lead",
+      "ssh_alias": "kolibri-qjns",
+      "vpn_ip": "10.99.0.4",
+      "mimo_bin": "/root/.mimocode/bin/mimo",
+      "remote_worktree_root": "/opt/kolibri-ai/agent-worktrees",
+      "allowed_paths": [
+        "/opt/kolibri-ai/agent-worktrees",
+        "/opt/kolibri-ai/network"
+      ],
+      "health_gates": {
+        "min_disk_free_gb": 3,
+        "max_ram_percent": 92,
+        "requires_vpn": true
+      }
+    },
+    "9fts": {
+      "enabled": false,
+      "role": "inference",
+      "deputy": "Inference Lead",
+      "ssh_alias": "kolibri-9fts",
+      "vpn_ip": "10.99.0.5",
+      "mimo_bin": "/root/.mimocode/bin/mimo",
+      "remote_worktree_root": "/opt/kolibri-ai/agent-worktrees",
+      "allowed_paths": [
+        "/opt/kolibri-ai/agent-worktrees",
+        "/opt/kolibri-ai/inference"
+      ],
+      "health_gates": {
+        "min_disk_free_gb": 3,
+        "max_ram_percent": 90,
+        "requires_vpn": true
+      },
+      "disabled_reason": "Known degraded/offline node until health is verified"
+    },
+    "kolibri": {
+      "enabled": true,
+      "role": "worker",
+      "deputy": "Worker Lead",
+      "ssh_alias": "kolibri-new",
+      "vpn_ip": "10.99.0.6",
+      "mimo_bin": "/root/.mimocode/bin/mimo",
+      "remote_worktree_root": "/opt/kolibri-ai/agent-worktrees",
+      "allowed_paths": [
+        "/opt/kolibri-ai/agent-worktrees",
+        "/opt/kolibri-ai/network"
+      ],
+      "health_gates": {
+        "min_disk_free_gb": 3,
+        "max_ram_percent": 92,
+        "requires_vpn": true
+      }
+    },
+    "reserve242": {
+      "enabled": true,
+      "role": "unclassified-worker",
+      "deputy": "Inventory Lead",
+      "ssh_alias": "root@31.57.26.242",
+      "public_ip": "31.57.26.242",
+      "vpn_ip": "",
+      "mimo_bin": "/root/.mimocode/bin/mimo",
+      "remote_worktree_root": "/opt/kolibri-ai/agent-worktrees",
+      "allowed_paths": [
+        "/opt/kolibri-ai/agent-worktrees",
+        "/opt/kolibri-ai"
+      ],
+      "health_gates": {
+        "min_disk_free_gb": 3,
+        "max_ram_percent": 92,
+        "requires_vpn": false,
+        "requires_role_classification": true
+      }
+    }
+  }
+}

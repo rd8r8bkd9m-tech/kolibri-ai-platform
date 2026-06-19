@@ -1,6 +1,7 @@
 """RAG Service — ChromaDB-powered Retrieval Augmented Generation engine.
 
 Endpoints:
+  GET    /rag/documents       — list indexed documents
   POST   /rag/documents       — upload documents (text/markdown/PDF extraction)
   POST   /rag/search          — semantic search over knowledge base
   POST   /rag/query           — full RAG pipeline (search + context building)
@@ -13,14 +14,13 @@ import hashlib
 import os
 import re
 import time
-import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import chromadb
 from chromadb.config import Settings as ChromaSettings
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 
 # ── Config ─────────────────────────────────────────────────────────
@@ -106,6 +106,15 @@ class DocumentResponse(BaseModel):
     collection: str
 
 
+class DocumentListItem(BaseModel):
+    id: str
+    name: str
+    filename: str
+    chunks_count: int
+    uploaded_at: Optional[str] = None
+    status: str = "processed"
+
+
 class DeleteResponse(BaseModel):
     deleted: bool
     id: str
@@ -177,6 +186,36 @@ async def health():
         }
     except Exception as e:
         return {"status": "error", "service": "rag", "error": str(e)}
+
+
+@app.get("/rag/documents")
+async def list_documents(collection: Optional[str] = None, limit: int = 100):
+    col = get_collection(collection)
+    try:
+        results = col.get(limit=limit, include=["metadatas"])
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    grouped: Dict[str, Dict[str, Any]] = {}
+    for metadata in results.get("metadatas") or []:
+        if not metadata:
+            continue
+        doc_id = str(metadata.get("doc_id") or metadata.get("source") or "unknown")
+        item = grouped.setdefault(
+            doc_id,
+            {
+                "id": doc_id,
+                "name": metadata.get("title") or metadata.get("source") or doc_id,
+                "filename": metadata.get("source") or metadata.get("title") or doc_id,
+                "chunks_count": 0,
+                "uploaded_at": metadata.get("uploaded_at"),
+                "status": "processed",
+            },
+        )
+        item["chunks_count"] += 1
+
+    documents = sorted(grouped.values(), key=lambda x: x.get("uploaded_at") or "", reverse=True)
+    return {"documents": documents, "count": len(documents), "collection": col.name}
 
 
 @app.post("/rag/documents", response_model=DocumentResponse)

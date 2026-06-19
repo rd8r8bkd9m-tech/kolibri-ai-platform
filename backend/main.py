@@ -681,6 +681,9 @@ async def download_document(filename: str, user: dict = Depends(get_current_user
     return FileResponse(str(file_path), filename=filename)
 
 PROXY_ROUTES = {
+    "/api/knowledge/search": {"target": RAG_SERVICE_URL, "strip": "/api/knowledge/search", "add": "/rag/search"},
+    "/api/knowledge/query": {"target": RAG_SERVICE_URL, "strip": "/api/knowledge/query", "add": "/rag/query"},
+    "/api/knowledge/file": {"target": RAG_SERVICE_URL, "strip": "/api/knowledge/file", "add": "/rag/documents/file"},
     "/api/knowledge": {"target": RAG_SERVICE_URL, "strip": "/api/knowledge", "add": "/rag/documents"},
     "/api/agent": {"target": AGENT_SERVICE_URL, "strip": "/api/agent", "add": "/agent"},
     "/api/inference": {"target": INFERENCE_SERVICE_URL, "strip": "/api/inference", "add": "/inference"},
@@ -746,5 +749,4 @@ if frontend_path.exists():
         if file_path.exists() and file_path.is_file():
             return FileResponse(str(file_path))
         return FileResponse(str(frontend_path / "index.html"))
-
 

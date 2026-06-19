@@ -1,0 +1,33 @@
+{
+  "task_id": "controlled-mutation-template",
+  "agent_role": "Backend Lead",
+  "server": "local",
+  "mode": "controlled_mutation",
+  "prompt": "Implement the assigned bounded change only inside allowed_paths. Do not edit secrets, deployment credentials, .mimocode, or unrelated files. Return summary, changed files, checks run, risks, and next recommendation.",
+  "worktree": ".",
+  "allowed_paths": [
+    "backend",
+    "frontend/src",
+    "infra/network",
+    "scripts"
+  ],
+  "required_checks": [
+    "python3 -m py_compile backend/main.py backend/auth.py backend/config.py",
+    "python3 -m ruff check backend/pipeline.py infra/network/api.py infra/network/organism.py infra/network/worker_service.py infra/network/rag_service.py scripts/mimo_task_runner.py --select E,F,W --ignore E501",
+    "npm --prefix frontend run build",
+    "npm --prefix frontend run lint"
+  ],
+  "timeout_seconds": 600,
+  "secrets_policy": {
+    "allow_env_files": false,
+    "allow_auth_files": false,
+    "redact_logs": true
+  },
+  "expected_output": {
+    "format": "structured_result",
+    "requires_summary": true,
+    "requires_changed_files": true,
+    "requires_risks": true
+  },
+  "allow_unsafe_permissions": false
+}

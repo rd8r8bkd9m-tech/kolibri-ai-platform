@@ -234,13 +234,13 @@ async def chain_rag(
         model = gen_result.get("model", "inference")
         if not answer.strip():
             pipeline_steps.append("fallback_direct")
-            answer = f"Based on the knowledge base:\n\n" + "\n\n".join(
+            answer = "Based on the knowledge base:\n\n" + "\n\n".join(
                 f"**[{i+1}]** {s['content']}" for i, s in enumerate(sources[:3])
             )
             model = "rag-direct"
     except Exception:
         pipeline_steps.append("fallback_direct")
-        answer = f"Based on the knowledge base:\n\n" + "\n\n".join(
+        answer = "Based on the knowledge base:\n\n" + "\n\n".join(
             f"**[{i+1}]** {s['content']}" for i, s in enumerate(sources[:3])
         )
         model = "rag-direct"
@@ -383,9 +383,8 @@ async def chain_chat(
 
 async def run_pipeline(req: PipelineRequest) -> PipelineResponse:
     """Main pipeline dispatcher."""
-    intent = req.intent
-    if intent == Intent.AUTO:
-        intent = detect_intent(req.message)
+    requested_intent = req.intent or Intent.AUTO
+    intent = detect_intent(req.message) if requested_intent == Intent.AUTO else requested_intent
 
     if intent == Intent.RAG:
         return await chain_rag(
@@ -400,7 +399,7 @@ async def run_pipeline(req: PipelineRequest) -> PipelineResponse:
             message=req.message,
             conversation=req.conversation,
         )
-    elif intent == Intent.AUTO:
+    elif requested_intent == Intent.AUTO:
         rag_ok = await call_rag_health()
         agent_ok = await call_agent_health()
         if rag_ok and agent_ok:

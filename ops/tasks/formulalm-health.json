@@ -1,0 +1,27 @@
+{
+  "task_id": "formulalm-health",
+  "agent_role": "FormulaLM Lead",
+  "server": "home",
+  "mode": "read_only",
+  "prompt": "Read-only FormulaLM health check. Check kolibri-formulalm service status, http://10.99.0.1:8004/api/v1/health, latest /srv/kolibri/repo/data/models/formulalm_trained_*.npz checkpoint metadata, disk space, RAM pressure, and whether a training lock or active train_formulalm.py process exists. Do not start training, stop services, restart services, edit files, read secrets, or expose corpus contents. Return summary, blockers, checkpoint age, API status, and recommended next actions.",
+  "worktree": "/srv/kolibri/repo",
+  "allowed_paths": [
+    "/srv/kolibri/repo/backend",
+    "/srv/kolibri/repo/data/models",
+    "/opt/kolibri-ai/training"
+  ],
+  "required_checks": [],
+  "timeout_seconds": 300,
+  "secrets_policy": {
+    "allow_env_files": false,
+    "allow_auth_files": false,
+    "redact_logs": true
+  },
+  "expected_output": {
+    "format": "structured_result",
+    "requires_summary": true,
+    "requires_changed_files": true,
+    "requires_risks": true
+  },
+  "allow_unsafe_permissions": false
+}

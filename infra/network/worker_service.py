@@ -5,15 +5,13 @@ Worker node that registers with the Kolibri Organism cluster,
 processes jobs from the distributed queue, and reports metrics.
 """
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI
 import httpx
 import asyncio
 import json
 import os
 import subprocess
 import socket
-import time
 import psutil
 from datetime import datetime
 from typing import Optional
@@ -26,6 +24,8 @@ GATEWAY_IP = os.environ.get("KOLIBRI_GATEWAY", "10.99.0.2")
 GATEWAY_PORT = int(os.environ.get("KOLIBRI_GATEWAY_PORT", "9001"))
 REDIS_HOST = os.environ.get("KOLIBRI_REDIS", "10.99.0.1")
 REDIS_PORT = int(os.environ.get("KOLIBRI_REDIS_PORT", "6379"))
+MIMO_MODEL = os.environ.get("KOLIBRI_MIMO_MODEL", "mimo/mimo-auto")
+MIMO_TIMEOUT = int(os.environ.get("KOLIBRI_MIMO_TIMEOUT", "300"))
 
 gateway_client: Optional[httpx.AsyncClient] = None
 
@@ -97,22 +97,126 @@ async def heartbeat_loop():
         await asyncio.sleep(15)
 
 
+def get_mimo_path() -> str:
+    return "/root/.mimocode/bin/mimo"
+
+
+def normalize_payload(payload) -> dict:
+    if isinstance(payload, dict):
+        return payload
+    if isinstance(payload, str):
+        try:
+            parsed = json.loads(payload)
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            pass
+        return {"prompt": payload}
+    return {"payload": str(payload)}
+
+
+def extract_prompt(payload) -> str:
+    normalized = normalize_payload(payload)
+    prompt = normalized.get("prompt", normalized.get("payload", ""))
+    if isinstance(prompt, (dict, list)):
+        return json.dumps(prompt, ensure_ascii=False)
+    return str(prompt)
+
+
+def summarize_output(stdout: str, stderr: str) -> str:
+    text = (stdout or stderr or "").strip()
+    if not text:
+        return "No output"
+    for line in text.splitlines():
+        line = line.strip()
+        if line:
+            return line[:240]
+    return "No output"
+
+
+def structured_task_result(
+    status: str,
+    *,
+    stdout: str = "",
+    stderr: str = "",
+    returncode: Optional[int] = None,
+    error: Optional[str] = None,
+) -> dict:
+    result = {
+        "status": status,
+        "node": NODE_NAME,
+        "summary": error or summarize_output(stdout, stderr),
+        "output": stdout,
+        "error": error or stderr,
+        "changed_files": [],
+        "checks": [],
+        "risks": [] if status == "completed" else [error or stderr or "task_failed"],
+        "artifacts": [],
+        "completed_at": datetime.now().isoformat(),
+    }
+    if returncode is not None:
+        result["returncode"] = returncode
+    return result
+
+
+async def run_mimo_prompt(prompt: str, timeout: int = MIMO_TIMEOUT) -> dict:
+    if not prompt.strip():
+        return structured_task_result("error", error="empty prompt")
+
+    args = [
+        get_mimo_path(),
+        "run",
+        "--format",
+        "json",
+        "--model",
+        MIMO_MODEL,
+        prompt,
+    ]
+
+    try:
+        result = subprocess.run(
+            args,
+            shell=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+        status = "completed" if result.returncode == 0 else "error"
+        return structured_task_result(
+            status,
+            stdout=result.stdout,
+            stderr=result.stderr,
+            returncode=result.returncode,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return structured_task_result(
+            "timeout",
+            stdout=exc.stdout or "",
+            stderr=exc.stderr or "",
+            error="timeout",
+        )
+    except FileNotFoundError:
+        return structured_task_result("error", error=f"Mimo binary not found: {get_mimo_path()}")
+    except Exception as e:
+        return structured_task_result("error", error=str(e))
+
+
 async def job_processor_loop():
     """Pull jobs from gateway queue and execute them."""
     while True:
         try:
-            resp = await gateway_client.get(
-                f"http://{GATEWAY_IP}:{GATEWAY_PORT}/jobs?status=pending&limit=1",
+            resp = await gateway_client.post(
+                f"http://{GATEWAY_IP}:{GATEWAY_PORT}/job/claim",
+                json={"node": NODE_NAME},
                 timeout=10.0,
             )
             data = resp.json()
-            jobs = data.get("jobs", [])
-            if jobs:
-                job = jobs[0]
-                job_id = job.get("id")
-                if job_id:
-                    result = await execute_job(job)
-                    await report_job_result(job_id, result)
+            job = data.get("job")
+            if job and job.get("id"):
+                job_id = job["id"]
+                result = await execute_job(job)
+                await report_job_result(job_id, result)
         except Exception:
             pass
         await asyncio.sleep(2)
@@ -120,24 +224,8 @@ async def job_processor_loop():
 
 async def execute_job(job: dict) -> dict:
     payload = json.loads(job.get("payload", "{}")) if isinstance(job.get("payload"), str) else job.get("payload", {})
-    task_type = job.get("type", "general")
-    prompt = payload.get("prompt", payload.get("payload", ""))
-
-    mimo_path = "/root/.mimocode/bin/mimo"
-    cmd = f"{mimo_path} run --dangerously-skip-permissions --model mimo/mimo-auto '{prompt}'"
-
-    try:
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=300)
-        return {
-            "status": "completed",
-            "node": NODE_NAME,
-            "output": result.stdout,
-            "error": result.stderr,
-        }
-    except subprocess.TimeoutExpired:
-        return {"status": "error", "node": NODE_NAME, "error": "timeout"}
-    except Exception as e:
-        return {"status": "error", "node": NODE_NAME, "error": str(e)}
+    timeout = int(job.get("timeout", MIMO_TIMEOUT))
+    return await run_mimo_prompt(extract_prompt(payload), timeout=timeout)
 
 
 async def report_job_result(job_id: str, result: dict):
@@ -205,29 +293,13 @@ async def metrics():
 async def direct_task(task: dict):
     """Execute a task directly on this worker."""
     payload = task.get("payload", "")
-    task_type = task.get("type", "general")
-    prompt = payload if isinstance(payload, str) else payload.get("prompt", "")
-
-    mimo_path = "/root/.mimocode/bin/mimo"
-    cmd = f"{mimo_path} run --dangerously-skip-permissions --model mimo/mimo-auto '{prompt}'"
-
-    try:
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=300)
-        return {
-            "status": "completed",
-            "node": NODE_NAME,
-            "output": result.stdout,
-            "error": result.stderr,
-        }
-    except subprocess.TimeoutExpired:
-        return {"status": "error", "node": NODE_NAME, "error": "timeout"}
-    except Exception as e:
-        return {"status": "error", "node": NODE_NAME, "error": str(e)}
+    timeout = int(task.get("timeout", MIMO_TIMEOUT))
+    return await run_mimo_prompt(extract_prompt(payload), timeout=timeout)
 
 
 if __name__ == "__main__":
     import uvicorn
-    print(f"🐝 Kolibri Worker: {NODE_NAME} ({NODE_ROLE}) on :{NODE_PORT}")
+    print(f"Kolibri Worker: {NODE_NAME} ({NODE_ROLE}) on :{NODE_PORT}")
     print(f"   Gateway: {GATEWAY_IP}:{GATEWAY_PORT}")
     print(f"   Redis: {REDIS_HOST}:{REDIS_PORT}")
     uvicorn.run(app, host="0.0.0.0", port=NODE_PORT)

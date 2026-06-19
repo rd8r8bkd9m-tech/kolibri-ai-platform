@@ -23,7 +23,7 @@ export function useDocuments({ API_BASE, activeTab }) {
     setUploading(true)
     try {
       const fd = new FormData(); fd.append("file", file)
-      await fetch(`${API_BASE}/api/knowledge/upload`, { method: "POST", body: fd })
+      await fetch(`${API_BASE}/api/knowledge/file`, { method: "POST", body: fd })
       await fetchDocuments()
     } catch { setDocError("Ошибка загрузки") }
     setUploading(false)

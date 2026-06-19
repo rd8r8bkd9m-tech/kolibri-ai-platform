@@ -30,24 +30,42 @@ ssh_exec() {
     ssh -o ConnectTimeout=10 $port "$alias" "$*" 2>/dev/null
 }
 
+agent_worktree() {
+    local server="$1"
+    local task_id="$2"
+    if [ "$server" = "home" ]; then
+        echo "/srv/kolibri/agent-worktrees/$task_id"
+    else
+        echo "/opt/kolibri-ai/agent-worktrees/$task_id"
+    fi
+}
+
 run_ai_task() {
     local server="$1"
     local prompt="$2"
-    local mimo_path
-    mimo_path=$(get_server_info "$server" "mimo_path")
     local role
     role=$(get_server_info "$server" "role")
     local timestamp=$(date +%Y%m%d_%H%M%S)
+    local task_id="${server}-ai-${timestamp}"
     local log_file="$TASK_LOG/${server}_${timestamp}.log"
     
     echo -e "${BLUE}[$server]${NC} Role: $role"
     echo -e "${BLUE}[$server]${NC} Task: ${prompt:0:80}..."
     
-    ssh_exec "$server" "$mimo_path run --dangerously-skip-permissions --model mimo/mimo-auto '$prompt'" 2>&1 | tee "$log_file"
+    python3 "$PROJECT_DIR/scripts/mimo_task_runner.py" \
+        --log-dir "$TASK_LOG" \
+        run-ssh \
+        --server "$server" \
+        --task-id "$task_id" \
+        --task-type "ai-task" \
+        --mode "read_only" \
+        --worktree "$(agent_worktree "$server" "$task_id")" \
+        --allowed-path "." \
+        --prompt "$prompt" 2>&1 | tee "$log_file"
     
     local exit_code=${PIPESTATUS[0]}
     if [ $exit_code -eq 0 ]; then
-        echo -e "${GREEN}[$server]${NC} Task completed ✓ Log: $log_file"
+        echo -e "${GREEN}[$server]${NC} Task completed. Log: $log_file"
     else
         echo -e "${RED}[$server]${NC} Task failed (exit $exit_code) Log: $log_file"
     fi
@@ -58,31 +76,31 @@ run_ai_task() {
 
 task_security_audit() {
     local server="$1"
-    run_ai_task "$server" "Run a security audit on this server. Check: 1) Open ports (ss -tlnp), 2) Failed SSH logins (journalctl -u sshd), 3) Unusual processes, 4) File permissions on /opt/kolibri-ai, 5) Firewall rules. Report findings and fix any issues."
+    run_ai_task "$server" "Run a read-only security audit on this server. Check: 1) Open ports (ss -tlnp), 2) Failed SSH logins, 3) Unusual processes, 4) File permissions on /opt/kolibri-ai, 5) Firewall rules. Do not modify files, firewall, packages, services, or secrets. Report findings and recommended fixes only."
 }
 
 task_cleanup() {
     local server="$1"
-    run_ai_task "$server" "Clean up this server: 1) Remove old logs (journalctl --vacuum-time=7d), 2) Clean apt cache, 3) Remove unused Docker images, 4) Clean /tmp, 5) Report freed space."
+    run_ai_task "$server" "Read-only cleanup assessment. Check old logs, apt cache size, unused Docker images, /tmp size, and large files. Do not delete or modify anything. Report reclaimable space and exact recommended commands."
 }
 
 task_update_packages() {
     local server="$1"
-    run_ai_task "$server" "Update system packages: 1) apt update, 2) apt upgrade -y (skip if interactive), 3) Check if reboot needed, 4) Report updated packages. Do NOT reboot automatically."
+    run_ai_task "$server" "Read-only package update assessment. Check available updates and whether reboot is needed. Do not run apt update, apt upgrade, install packages, or reboot. Report recommended commands."
 }
 
 task_check_services() {
     local server="$1"
-    run_ai_task "$server" "Check all kolibri services on this server: 1) List running services, 2) Check logs for errors (last 100 lines), 3) Check resource usage, 4) Verify network connectivity to other nodes via VPN (ping 10.99.0.1-6), 5) Report status."
+    run_ai_task "$server" "Read-only service check. List running Kolibri services, inspect recent logs, check resource usage, verify VPN connectivity to 10.99.0.1-6, and report status. Do not restart or edit services."
 }
 
 task_optimize_db() {
-    run_ai_task "main" "Optimize the SQLite database: 1) Run VACUUM on /opt/kolibri-ai/data/kolibri.db, 2) Run ANALYZE, 3) Check integrity, 4) Report database size before and after."
+    run_ai_task "main" "Read-only SQLite assessment. Check database size, integrity-check command availability, and whether VACUUM/ANALYZE is recommended. Do not run VACUUM, ANALYZE, or write to the database. Report exact safe maintenance plan."
 }
 
 task_backup_verify() {
     local server="${1:-main}"
-    run_ai_task "$server" "Verify backups: 1) List recent backups in /opt/kolibri-ai/backups/, 2) Check backup sizes are reasonable, 3) Test restore of latest SQLite backup to /tmp/test_restore.db, 4) Report status."
+    run_ai_task "$server" "Read-only backup assessment. List recent backups in /opt/kolibri-ai/backups/ and check sizes/timestamps. Do not restore, copy, delete, or write files. Report whether a manual restore test is needed."
 }
 
 # ── Usage ─────────────────────────────────────────────────────────────
@@ -122,7 +140,7 @@ case "$TASK" in
     security)
         [ -z "$SERVER" ] && { echo "Server required"; exit 1; }
         if [ "$SERVER" = "all" ]; then
-            for s in home main uiap qjns 9fts kolibri; do task_security_audit "$s" || true; done
+            for s in home main uiap qjns 9fts kolibri reserve242; do task_security_audit "$s" || true; done
         else
             task_security_audit "$SERVER"
         fi
@@ -130,7 +148,7 @@ case "$TASK" in
     cleanup)
         [ -z "$SERVER" ] && { echo "Server required"; exit 1; }
         if [ "$SERVER" = "all" ]; then
-            for s in home main uiap qjns 9fts kolibri; do task_cleanup "$s" || true; done
+            for s in home main uiap qjns 9fts kolibri reserve242; do task_cleanup "$s" || true; done
         else
             task_cleanup "$SERVER"
         fi
@@ -138,7 +156,7 @@ case "$TASK" in
     update)
         [ -z "$SERVER" ] && { echo "Server required"; exit 1; }
         if [ "$SERVER" = "all" ]; then
-            for s in home main uiap qjns 9fts kolibri; do task_update_packages "$s" || true; done
+            for s in home main uiap qjns 9fts kolibri reserve242; do task_update_packages "$s" || true; done
         else
             task_update_packages "$SERVER"
         fi
@@ -146,7 +164,7 @@ case "$TASK" in
     services)
         [ -z "$SERVER" ] && { echo "Server required"; exit 1; }
         if [ "$SERVER" = "all" ]; then
-            for s in home main uiap qjns 9fts kolibri; do task_check_services "$s" || true; done
+            for s in home main uiap qjns 9fts kolibri reserve242; do task_check_services "$s" || true; done
         else
             task_check_services "$SERVER"
         fi
@@ -164,7 +182,7 @@ case "$TASK" in
     parallel)
         [ -z "$SERVER" ] && { echo "Prompt required"; exit 1; }
         PROMPT="$SERVER $EXTRA_ARGS"
-        for s in home main uiap qjns 9fts kolibri; do
+        for s in home main uiap qjns 9fts kolibri reserve242; do
             (run_ai_task "$s" "$PROMPT") &
         done
         wait

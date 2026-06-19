@@ -9,7 +9,7 @@ WorkingDirectory=/srv/kolibri/repo
 ExecStart=/srv/kolibri/repo/.venv/bin/python3 /srv/kolibri/repo/backend/formulalm_api.py
 Restart=on-failure
 RestartSec=5
-Environment=FORMULALM_HOST=0.0.0.0
+Environment=FORMULALM_HOST=10.99.0.1
 Environment=FORMULALM_PORT=8004
 Environment=PYTHONPATH=/srv/kolibri/repo/backend
 

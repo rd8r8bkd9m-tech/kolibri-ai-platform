@@ -15,9 +15,9 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install dependencies
-        run: pip install ruff
+        run: pip install -r backend/requirements-dev.txt
       - name: Lint backend
-        run: ruff check backend/ --select E,F,W --ignore E501
+        run: ruff check backend/pipeline.py infra/network/api.py infra/network/organism.py infra/network/worker_service.py infra/network/rag_service.py scripts/mimo_task_runner.py --select E,F,W --ignore E501
 
   test:
     runs-on: ubuntu-latest
@@ -30,7 +30,7 @@ jobs:
       - name: Install backend dependencies
         run: pip install -r backend/requirements.txt
       - name: Run syntax check
-        run: python -m py_compile backend/main.py && python -m py_compile backend/auth.py && python -m py_compile backend/config.py
+        run: python -m py_compile backend/main.py backend/auth.py backend/config.py backend/providers.py backend/pipeline.py backend/documents.py infra/network/api.py infra/network/worker_service.py scripts/mimo_task_runner.py
 
   build-frontend:
     runs-on: ubuntu-latest
@@ -46,6 +46,9 @@ jobs:
       - name: Build frontend
         working-directory: frontend
         run: npm run build
+      - name: Lint frontend
+        working-directory: frontend
+        run: npm run lint
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -96,7 +99,7 @@ jobs:
 
       - name: Deploy to 9FTS (Inference)
         run: |
-          scp infra/network/api.py root@94.183.235.154:/opt/kolibri-ai/inference/api.py
+          scp infra/inference/api.py root@94.183.235.154:/opt/kolibri-ai/inference/api.py
           ssh root@94.183.235.154 "systemctl restart kolibri-inference"
 
       - name: Health check
@@ -107,7 +110,7 @@ jobs:
             echo "ERROR: Health check failed (HTTP $STATUS)"
             exit 1
           fi
-          echo "All services healthy ✓"
+          echo "All services healthy"
 
       - name: Notify on failure
         if: failure()

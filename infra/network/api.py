@@ -9,7 +9,6 @@ Components:
 """
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
 import httpx
 import asyncio
 import json
@@ -18,8 +17,6 @@ import subprocess
 import socket
 import time
 import uuid
-import pickle
-import hashlib
 import psutil
 from datetime import datetime
 from typing import Optional, Any
@@ -35,6 +32,8 @@ GATEWAY_IP = os.environ.get("KOLIBRI_GATEWAY", "10.99.0.2")
 REDIS_HOST = os.environ.get("KOLIBRI_REDIS", "10.99.0.1")
 REDIS_PORT = int(os.environ.get("KOLIBRI_REDIS_PORT", "6379"))
 VPN_SUBNET = "10.99.0.0/24"
+MIMO_MODEL = os.environ.get("KOLIBRI_MIMO_MODEL", "mimo/mimo-auto")
+MIMO_TIMEOUT = int(os.environ.get("KOLIBRI_MIMO_TIMEOUT", "300"))
 
 # ── Redis Client (simple, no deps) ─────────────────────────────────
 
@@ -51,7 +50,7 @@ class RedisClient:
             try:
                 self._sock.ping()
                 return
-            except:
+            except Exception:
                 self._sock.close()
                 self._sock = None
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -115,7 +114,7 @@ class RedisClient:
     def ping(self) -> bool:
         try:
             return self._command("PING") == "PONG"
-        except:
+        except Exception:
             return False
 
     def set(self, key: str, value: str, ex: int = None) -> bool:
@@ -207,6 +206,13 @@ class JobQueue:
         }
         self.redis.hset(f"{self.results_prefix}{job_id}", "status", JobStatus.PENDING)
         self.redis.hset(f"{self.results_prefix}{job_id}", "created_at", job["created_at"])
+        self.redis.hset(f"{self.results_prefix}{job_id}", "id", job_id)
+        self.redis.hset(f"{self.results_prefix}{job_id}", "type", task_type)
+        self.redis.hset(f"{self.results_prefix}{job_id}", "payload", job["payload"])
+        self.redis.hset(f"{self.results_prefix}{job_id}", "target", target)
+        self.redis.hset(f"{self.results_prefix}{job_id}", "timeout", str(timeout))
+        self.redis.hset(f"{self.results_prefix}{job_id}", "retries", str(retries))
+        self.redis.hset(f"{self.results_prefix}{job_id}", "attempts", "0")
         self.redis.lpush(self.queue_key, json.dumps(job))
         return job_id
 
@@ -216,27 +222,49 @@ class JobQueue:
             return {"status": "not_found"}
         return result
 
-    def process_next(self) -> Optional[dict]:
+    def process_next(self, assigned_to: Optional[str] = None) -> Optional[dict]:
         job_data = self.redis.rpop(self.queue_key)
         if not job_data:
             return None
+        worker = assigned_to or NODE_NAME
         job = json.loads(job_data)
         job["status"] = JobStatus.RUNNING
         job["attempts"] += 1
         job["started_at"] = datetime.now().isoformat()
-        job["assigned_to"] = NODE_NAME
+        job["assigned_to"] = worker
         self.redis.hset(f"{self.results_prefix}{job['id']}", "status", JobStatus.RUNNING)
-        self.redis.hset(f"{self.results_prefix}{job['id']}", "assigned_to", NODE_NAME)
+        self.redis.hset(f"{self.results_prefix}{job['id']}", "assigned_to", worker)
+        self.redis.hset(f"{self.results_prefix}{job['id']}", "attempts", str(job["attempts"]))
+        self.redis.hset(f"{self.results_prefix}{job['id']}", "started_at", job["started_at"])
         return job
 
     def complete(self, job_id: str, result: dict):
         self.redis.hset(f"{self.results_prefix}{job_id}", "status", JobStatus.COMPLETED)
         self.redis.hset(f"{self.results_prefix}{job_id}", "result", json.dumps(result))
         self.redis.hset(f"{self.results_prefix}{job_id}", "completed_at", datetime.now().isoformat())
+        self.redis.hdel(f"{self.results_prefix}{job_id}", "error")
 
     def fail(self, job_id: str, error: str, retry: bool = True):
-        if retry:
+        result_key = f"{self.results_prefix}{job_id}"
+        existing = self.redis.hgetall(result_key)
+        attempts = int(existing.get("attempts", 0) or 0)
+        retries = int(existing.get("retries", 0) or 0)
+
+        if retry and attempts < retries:
             self.redis.hset(f"{self.results_prefix}{job_id}", "status", JobStatus.RETRYING)
+            job = {
+                "id": job_id,
+                "type": existing.get("type", "general"),
+                "payload": existing.get("payload", "{}"),
+                "target": existing.get("target", "auto"),
+                "timeout": int(existing.get("timeout", 300) or 300),
+                "retries": retries,
+                "attempts": attempts,
+                "status": JobStatus.PENDING,
+                "created_at": existing.get("created_at", datetime.now().isoformat()),
+                "created_by": existing.get("created_by", NODE_NAME),
+            }
+            self.redis.lpush(self.queue_key, json.dumps(job))
         else:
             self.redis.hset(f"{self.results_prefix}{job_id}", "status", JobStatus.FAILED)
         self.redis.hset(f"{self.results_prefix}{job_id}", "error", error)
@@ -331,6 +359,111 @@ redis = None
 queue = None
 resources = None
 
+
+def get_mimo_path() -> str:
+    return "/usr/local/bin/mimo" if NODE_NAME == "home" else "/root/.mimocode/bin/mimo"
+
+
+def normalize_payload(payload: Any) -> dict:
+    if isinstance(payload, dict):
+        return payload
+    if isinstance(payload, str):
+        try:
+            parsed = json.loads(payload)
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            pass
+        return {"prompt": payload}
+    return {"payload": str(payload)}
+
+
+def extract_prompt(payload: Any) -> str:
+    normalized = normalize_payload(payload)
+    prompt = normalized.get("prompt", normalized.get("payload", ""))
+    if isinstance(prompt, (dict, list)):
+        return json.dumps(prompt, ensure_ascii=False)
+    return str(prompt)
+
+
+def summarize_output(stdout: str, stderr: str) -> str:
+    text = (stdout or stderr or "").strip()
+    if not text:
+        return "No output"
+    for line in text.splitlines():
+        line = line.strip()
+        if line:
+            return line[:240]
+    return "No output"
+
+
+def structured_task_result(
+    status: str,
+    *,
+    stdout: str = "",
+    stderr: str = "",
+    returncode: Optional[int] = None,
+    error: Optional[str] = None,
+) -> dict:
+    result = {
+        "status": status,
+        "node": NODE_NAME,
+        "summary": error or summarize_output(stdout, stderr),
+        "output": stdout,
+        "error": error or stderr,
+        "changed_files": [],
+        "checks": [],
+        "risks": [] if status == "completed" else [error or stderr or "task_failed"],
+        "artifacts": [],
+        "completed_at": datetime.now().isoformat(),
+    }
+    if returncode is not None:
+        result["returncode"] = returncode
+    return result
+
+
+async def run_mimo_prompt(prompt: str, timeout: int = MIMO_TIMEOUT) -> dict:
+    if not prompt.strip():
+        return structured_task_result("error", error="empty prompt")
+
+    args = [
+        get_mimo_path(),
+        "run",
+        "--format",
+        "json",
+        "--model",
+        MIMO_MODEL,
+        prompt,
+    ]
+
+    try:
+        result = subprocess.run(
+            args,
+            shell=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+        status = "completed" if result.returncode == 0 else "error"
+        return structured_task_result(
+            status,
+            stdout=result.stdout,
+            stderr=result.stderr,
+            returncode=result.returncode,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return structured_task_result(
+            "timeout",
+            stdout=exc.stdout or "",
+            stderr=exc.stderr or "",
+            error="timeout",
+        )
+    except FileNotFoundError:
+        return structured_task_result("error", error=f"Mimo binary not found: {get_mimo_path()}")
+    except Exception as e:
+        return structured_task_result("error", error=str(e))
+
 # ── App ─────────────────────────────────────────────────────────────
 
 @asynccontextmanager
@@ -381,7 +514,7 @@ async def job_processor_loop():
                     queue.complete(job["id"], result)
                 else:
                     queue.fail(job["id"], result.get("error", "unknown"), retry=job["attempts"] < job["retries"])
-        except Exception as e:
+        except Exception:
             pass
         await asyncio.sleep(0.5)
 
@@ -424,23 +557,8 @@ async def dispatch_to(node: str, task_type: str, payload: dict) -> dict:
 
 
 async def run_locally(task_type: str, payload: dict) -> dict:
-    mimo_path = "/root/.mimocode/bin/mimo" if NODE_NAME != "home" else "/usr/local/bin/mimo"
-    prompt = payload.get("prompt", payload.get("payload", ""))
-
-    cmd = f"{mimo_path} run --dangerously-skip-permissions --model mimo/mimo-auto '{prompt}'"
-
-    try:
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=300)
-        return {
-            "status": "completed",
-            "node": NODE_NAME,
-            "output": result.stdout,
-            "error": result.stderr,
-        }
-    except subprocess.TimeoutExpired:
-        return {"status": "error", "error": "timeout"}
-    except Exception as e:
-        return {"status": "error", "error": str(e)}
+    timeout = int(payload.get("timeout", MIMO_TIMEOUT)) if isinstance(payload, dict) else MIMO_TIMEOUT
+    return await run_mimo_prompt(extract_prompt(payload), timeout=timeout)
 
 
 def get_system_load() -> dict:
@@ -465,7 +583,7 @@ def get_vpn_ip() -> str:
         ip = s.getsockname()[0]
         s.close()
         return ip
-    except:
+    except Exception:
         return "0.0.0.0"
 
 
@@ -540,6 +658,17 @@ async def get_job(job_id: str):
     return result
 
 
+@app.post("/job/claim")
+async def claim_job(data: dict = None):
+    """Atomically claim one pending job for a worker node."""
+    data = data or {}
+    assigned_to = data.get("node") or NODE_NAME
+    job = queue.process_next(assigned_to=assigned_to)
+    if not job:
+        return {"status": "empty", "job": None}
+    return {"status": "claimed", "job": job}
+
+
 @app.get("/job/{job_id}/wait")
 async def wait_job(job_id: str, timeout: int = 60):
     start = time.time()
@@ -555,6 +684,19 @@ async def wait_job(job_id: str, timeout: int = 60):
 async def cancel_job(job_id: str):
     queue.redis.hset(f"{queue.results_prefix}{job_id}", "status", "cancelled")
     return {"status": "cancelled", "job_id": job_id}
+
+
+@app.post("/job/{job_id}/complete")
+async def complete_job(job_id: str, result: dict):
+    """Accept structured task results from worker nodes."""
+    status = result.get("status", "error")
+    if status == "completed":
+        queue.complete(job_id, result)
+    else:
+        queue.fail(job_id, result.get("error") or result.get("summary") or "worker_failed", retry=True)
+        queue.redis.hset(f"{queue.results_prefix}{job_id}", "result", json.dumps(result))
+        queue.redis.hset(f"{queue.results_prefix}{job_id}", "completed_at", datetime.now().isoformat())
+    return {"status": "recorded", "job_id": job_id, "result_status": status}
 
 
 @app.get("/jobs")
@@ -664,23 +806,8 @@ async def compute(task: dict):
 async def execute_task(task: dict):
     """Execute task directly on this node."""
     payload = task.get("payload", "")
-    task_type = task.get("type", "general")
-
-    mimo_path = "/root/.mimocode/bin/mimo" if NODE_NAME != "home" else "/usr/local/bin/mimo"
-    cmd = f"{mimo_path} run --dangerously-skip-permissions --model mimo/mimo-auto '{payload}'"
-
-    try:
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=300)
-        return {
-            "status": "completed",
-            "node": NODE_NAME,
-            "output": result.stdout,
-            "error": result.stderr,
-        }
-    except subprocess.TimeoutExpired:
-        return {"status": "timeout", "node": NODE_NAME}
-    except Exception as e:
-        return {"status": "error", "node": NODE_NAME, "error": str(e)}
+    timeout = int(task.get("timeout", MIMO_TIMEOUT))
+    return await run_mimo_prompt(extract_prompt(payload), timeout=timeout)
 
 
 # ── Broadcast ───────────────────────────────────────────────────────
@@ -704,7 +831,7 @@ async def broadcast(data: dict):
                     json={"payload": f"echo: {message}", "type": "broadcast"}
                 )
                 results[name] = "sent"
-        except:
+        except Exception:
             results[name] = "failed"
 
     return {"results": results}

@@ -1,0 +1,25 @@
+{
+  "task_id": "server-inventory-classify",
+  "agent_role": "Inventory Lead",
+  "server": "reserve242",
+  "mode": "read_only",
+  "prompt": "Read-only classification for a newly discovered Kolibri VPS. Check OS, CPU, RAM, disk, public IP, VPN state, Mimo version/path, Python/Node/Git availability, running Kolibri services, and whether /opt/kolibri-ai exists. Do not install packages, write files, restart services, alter firewall, or reveal secrets. Return recommended role, health gates, bootstrap gaps, and whether this server is safe for agent tasks.",
+  "worktree": "/opt/kolibri-ai/agent-worktrees/server-inventory-classify",
+  "allowed_paths": [
+    "/opt/kolibri-ai/agent-worktrees/server-inventory-classify"
+  ],
+  "required_checks": [],
+  "timeout_seconds": 300,
+  "secrets_policy": {
+    "allow_env_files": false,
+    "allow_auth_files": false,
+    "redact_logs": true
+  },
+  "expected_output": {
+    "format": "structured_result",
+    "requires_summary": true,
+    "requires_changed_files": true,
+    "requires_risks": true
+  },
+  "allow_unsafe_permissions": false
+}

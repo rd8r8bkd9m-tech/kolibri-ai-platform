@@ -122,7 +122,7 @@ deploy_server() {
             ssh_exec "$server" "systemctl restart kolibri-network"
             ;;
         9fts)
-            scp "$PROJECT_DIR/infra/network/api.py" "$alias:/opt/kolibri-ai/inference/api.py" 2>/dev/null
+            scp "$PROJECT_DIR/infra/inference/api.py" "$alias:/opt/kolibri-ai/inference/api.py" 2>/dev/null
             ssh_exec "$server" "systemctl restart kolibri-inference"
             ;;
         home)

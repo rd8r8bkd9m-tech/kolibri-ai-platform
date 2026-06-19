@@ -69,6 +69,17 @@
       "disk": "unknown",
       "tasks": ["general-compute", "backup"],
       "mimo_path": "/root/.mimocode/bin/mimo"
+    },
+    "reserve242": {
+      "public_ip": "31.57.26.242",
+      "vpn_ip": "",
+      "ssh_alias": "root@31.57.26.242",
+      "role": "unclassified-worker",
+      "ram": "unknown",
+      "cpu": "unknown",
+      "disk": "unknown",
+      "tasks": ["inventory", "health-check", "classification"],
+      "mimo_path": "/root/.mimocode/bin/mimo"
     }
   }
 }

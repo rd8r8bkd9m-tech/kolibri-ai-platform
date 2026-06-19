@@ -9,10 +9,10 @@ export function useSearch({ API_BASE }) {
     if (!searchQuery.trim()) return
     setSearchLoading(true)
     try {
-      const r = await fetch(`${API_BASE}/rag/search`, {
+      const r = await fetch(`${API_BASE}/api/knowledge/search`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: searchQuery, limit: 5 }),
+        body: JSON.stringify({ query: searchQuery, top_k: 5 }),
       })
       if (!r.ok) { setSearchResults([]); setSearchLoading(false); return }
       const d = await r.json()
