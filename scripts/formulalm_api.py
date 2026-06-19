@@ -1,10 +1,9 @@
 """
-FormulaLM API — thin HTTP wrapper around Kolibri numeric engine.
-Deploy to Home server (10.99.0.1). Exposes /api/v1/generate endpoints
-for the main Kolibri backend to consume.
+FormulaLM API — HTTP wrapper for Kolibri evolutionary model.
+Loads trained checkpoints from /srv/kolibri/repo/data/models/.
+Falls back to ai_engine if no checkpoint found.
 
 Run: python3 formulalm_api.py
-Or via systemd: kolibri-formulalm.service
 """
 
 import os
@@ -18,7 +17,8 @@ from pathlib import Path
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("formulalm-api")
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
+BACKEND_DIR = Path(__file__).parent.parent / "backend"
+sys.path.insert(0, str(BACKEND_DIR))
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -26,22 +26,63 @@ from pydantic import BaseModel
 from typing import Optional
 import uvicorn
 
-app = FastAPI(title="FormulaLM API", version="1.0.0")
+app = FastAPI(title="FormulaLM API", version="2.0.0")
 
-_engine = None
+_model = None
+_tokenizer = None
 
 
-def get_engine():
-    global _engine
-    if _engine is None:
-        try:
-            from service.ai_engine import get_engine as _get_engine
-            _engine = _get_engine()
-            logger.info("FormulaLM engine loaded")
-        except Exception as e:
-            logger.error("Failed to load engine: %s", e)
-            raise
-    return _engine
+def _find_latest_checkpoint():
+    models_dir = BACKEND_DIR.parent / "data" / "models"
+    checkpoints = sorted(models_dir.glob("formulalm_trained_*.npz"), key=lambda p: p.stat().st_mtime, reverse=True)
+    for cp in checkpoints:
+        if "_final" in cp.name:
+            return cp
+    return checkpoints[0] if checkpoints else None
+
+
+def get_model():
+    global _model, _tokenizer
+    if _model is not None:
+        return _model, _tokenizer
+
+    from service.formula_lm import FormulaLM
+    from service.tokenizer import BPETokenizer
+
+    checkpoint = _find_latest_checkpoint()
+    if checkpoint:
+        logger.info("Loading checkpoint: %s", checkpoint)
+        _model = FormulaLM()
+        _model.load(checkpoint)
+        meta_path = checkpoint.with_suffix(".json")
+        if meta_path.exists():
+            meta = json.loads(meta_path.read_text())
+            _model.vocab_size = meta.get("vocab_size", _model.vocab_size)
+            _model.embed_dim = meta.get("embed_dim", _model.embed_dim)
+            logger.info("Model: vocab=%d embed=%d gen=%d fitness=%.4f",
+                        _model.vocab_size, _model.embed_dim,
+                        meta.get("generation", 0), meta.get("best_fitness", 0))
+        _tokenizer = BPETokenizer(vocab_size=_model.vocab_size)
+        corpus_dir = BACKEND_DIR.parent / "data" / "full_corpus.txt"
+        if corpus_dir.exists():
+            texts = [l.strip() for l in corpus_dir.read_text(errors="replace").splitlines() if len(l.strip()) > 20][:2000]
+            _tokenizer.train(texts)
+            logger.info("Tokenizer trained: vocab=%d", len(_tokenizer))
+        return _model, _tokenizer
+
+    logger.warning("No checkpoint found, trying ai_engine fallback")
+    try:
+        from service.ai_engine import get_engine as _get_engine
+        engine = _get_engine()
+        if getattr(engine, "_lm_trained", False):
+            _model = engine._formula_lm
+            _tokenizer = engine._bpe_tokenizer
+            logger.info("Loaded from ai_engine")
+            return _model, _tokenizer
+    except Exception as e:
+        logger.error("ai_engine fallback failed: %s", e)
+
+    return None, None
 
 
 class GenerateRequest(BaseModel):
@@ -59,60 +100,39 @@ class GenerateResponse(BaseModel):
 
 @app.get("/api/v1/health")
 async def health():
-    try:
-        engine = get_engine()
-        has_lm = getattr(engine, "_lm_trained", False)
-        return {"status": "ok", "lm_trained": has_lm, "model": "formulalm"}
-    except Exception as e:
-        return JSONResponse(status_code=503, content={"status": "error", "error": str(e)})
+    model, tok = get_model()
+    if model is None:
+        return JSONResponse(status_code=503, content={"status": "error", "error": "No model loaded"})
+    return {"status": "ok", "lm_trained": True, "vocab": model.vocab_size, "model": "formulalm"}
 
 
 @app.post("/api/v1/generate", response_model=GenerateResponse)
 async def generate(req: GenerateRequest):
     start = time.time()
     try:
-        engine = get_engine()
+        model, tok = get_model()
+        if model is None:
+            return GenerateResponse(text="[No model loaded]", tokens_generated=0, duration_ms=0)
 
-        if not getattr(engine, "_lm_trained", False):
-            return GenerateResponse(
-                text="[FormulaLM not trained yet]",
-                tokens_generated=0,
-                duration_ms=0,
-            )
-
-        from service.tokenizer import encode as bpe_encode
-        from service.tokenizer import decode as bpe_decode
-
-        tokens = bpe_encode(req.prompt)
+        tokens = tok.encode(req.prompt) if tok else [0]
         if not tokens:
             tokens = [0]
 
         generated = []
-        current_ids = list(tokens)
-
+        current = list(tokens)
         for _ in range(req.max_tokens):
-            next_id = engine._lm_predict_next(current_ids, req.temperature)
+            next_id = model.predict_next(current, req.temperature)
             if next_id is None or next_id == 0:
                 break
             generated.append(next_id)
-            current_ids.append(next_id)
+            current.append(next_id)
 
-        text = bpe_decode(generated) if generated else ""
-        duration_ms = (time.time() - start) * 1000
-
-        return GenerateResponse(
-            text=text,
-            tokens_generated=len(generated),
-            duration_ms=round(duration_ms, 1),
-        )
+        text = tok.decode(generated) if tok and generated else ""
+        ms = round((time.time() - start) * 1000, 1)
+        return GenerateResponse(text=text, tokens_generated=len(generated), duration_ms=ms)
     except Exception as e:
         logger.error("generate error: %s", e, exc_info=True)
-        duration_ms = (time.time() - start) * 1000
-        return GenerateResponse(
-            text=f"[Error: {e}]",
-            tokens_generated=0,
-            duration_ms=round(duration_ms, 1),
-        )
+        return GenerateResponse(text=f"[Error: {e}]", tokens_generated=0, duration_ms=round((time.time()-start)*1000, 1))
 
 
 @app.post("/api/v1/generate/stream")
@@ -120,38 +140,32 @@ async def generate_stream(req: GenerateRequest):
     async def event_stream():
         start = time.time()
         try:
-            engine = get_engine()
-
-            if not getattr(engine, "_lm_trained", False):
-                yield f"data: {json.dumps({'text': '[FormulaLM not trained yet]'})}\n\n"
+            model, tok = get_model()
+            if model is None:
+                yield f"data: {json.dumps({'text': '[No model loaded]'})}\n\n"
                 yield "data: [DONE]\n\n"
                 return
 
-            from service.tokenizer import encode as bpe_encode, decode as bpe_decode
-
-            tokens = bpe_encode(req.prompt)
+            tokens = tok.encode(req.prompt) if tok else [0]
             if not tokens:
                 tokens = [0]
 
             generated = []
-            current_ids = list(tokens)
-
+            current = list(tokens)
             for _ in range(req.max_tokens):
-                next_id = engine._lm_predict_next(current_ids, req.temperature)
+                next_id = model.predict_next(current, req.temperature)
                 if next_id is None or next_id == 0:
                     break
                 generated.append(next_id)
-                current_ids.append(next_id)
-
-                partial = bpe_decode(generated[-1:]) if generated else ""
+                current.append(next_id)
+                partial = tok.decode([next_id]) if tok else ""
                 if partial:
                     yield f"data: {json.dumps({'text': partial})}\n\n"
                 await asyncio.sleep(0)
 
-            duration_ms = (time.time() - start) * 1000
-            yield f"data: {json.dumps({'done': True, 'tokens_generated': len(generated), 'duration_ms': round(duration_ms, 1)})}\n\n"
+            ms = round((time.time() - start) * 1000, 1)
+            yield f"data: {json.dumps({'done': True, 'tokens_generated': len(generated), 'duration_ms': ms})}\n\n"
             yield "data: [DONE]\n\n"
-
         except Exception as e:
             logger.error("stream error: %s", e, exc_info=True)
             yield f"data: {json.dumps({'text': f'[Error: {e}]'})}\n\n"
