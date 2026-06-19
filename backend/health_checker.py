@@ -46,6 +46,7 @@ async def _check_node(vpn_ip: str) -> Dict[str, Any]:
         f"http://{vpn_ip}:8001/inference/health",
         f"http://{vpn_ip}:8002/rag/health",
         f"http://{vpn_ip}:8003/agent/health",
+        f"http://{vpn_ip}:8004/api/v1/health",
     ]
     async with httpx.AsyncClient(timeout=HEALTH_TIMEOUT) as client:
         for url in endpoints:

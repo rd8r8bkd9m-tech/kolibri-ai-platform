@@ -12,8 +12,7 @@
       "cpu": "6 cores",
       "disk": "28GB",
       "tasks": ["model-training", "data-generation", "fine-tuning"],
-      "mimo_path": "/usr/local/bin/mimo",
-      "sudo_password": "Busya26"
+      "mimo_path": "/usr/local/bin/mimo"
     },
     "main": {
       "public_ip": "104.253.43.117",
