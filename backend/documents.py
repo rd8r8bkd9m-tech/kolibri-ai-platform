@@ -27,12 +27,12 @@ DOCS_DIR.mkdir(parents=True, exist_ok=True)
 
 def _register_fonts():
     font_paths = [
+        "/System/Library/Fonts/Supplemental/Arial.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
         "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf",
         "/System/Library/Fonts/Helvetica.ttc",
         "/System/Library/Fonts/SFNS.ttf",
-        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
     ]
     for fp in font_paths:
         if os.path.exists(fp):
@@ -46,6 +46,7 @@ def _register_fonts():
 
 def _register_bold_fonts():
     font_paths = [
+        "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
         "/usr/share/fonts/truetype/ubuntu/Ubuntu-B.ttf",
