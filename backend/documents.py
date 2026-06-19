@@ -28,20 +28,40 @@ DOCS_DIR.mkdir(parents=True, exist_ok=True)
 def _register_fonts():
     font_paths = [
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf",
         "/System/Library/Fonts/Helvetica.ttc",
         "/System/Library/Fonts/SFNS.ttf",
+        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
     ]
     for fp in font_paths:
         if os.path.exists(fp):
             try:
-                pdfmetrics.registerFont(TTFont("DejaVu", fp))
-                return "DejaVu"
+                pdfmetrics.registerFont(TTFont("KolibriFont", fp))
+                return "KolibriFont"
             except Exception:
                 continue
     return "Helvetica"
 
 
+def _register_bold_fonts():
+    font_paths = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/truetype/ubuntu/Ubuntu-B.ttf",
+    ]
+    for fp in font_paths:
+        if os.path.exists(fp):
+            try:
+                pdfmetrics.registerFont(TTFont("KolibriFontBold", fp))
+                return "KolibriFontBold"
+            except Exception:
+                continue
+    return "Helvetica-Bold"
+
+
 FONT_NAME = _register_fonts()
+FONT_BOLD = _register_bold_fonts()
 
 
 def generate_estimate_pdf(estimate: dict, output_path: Optional[str] = None) -> str:
@@ -291,3 +311,157 @@ def list_documents() -> list:
                 "created": datetime.fromtimestamp(f.stat().st_ctime).isoformat(),
             })
     return sorted(docs, key=lambda x: x["created"], reverse=True)
+
+
+def generate_act_pdf(estimate: dict, company: dict = None, output_path: Optional[str] = None) -> str:
+    """Акт выполненных работ (PDF)."""
+    if not output_path:
+        filename = f"act_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        output_path = str(DOCS_DIR / filename)
+
+    if company is None:
+        company = {"name": "Kolibri Construction", "inn": "", "phone": ""}
+
+    doc = SimpleDocTemplate(output_path, pagesize=A4, topMargin=20*mm, bottomMargin=20*mm)
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle("Title", parent=styles["Title"], fontName=FONT_NAME, fontSize=16, spaceAfter=12)
+    normal_style = ParagraphStyle("Normal", parent=styles["Normal"], fontName=FONT_NAME, fontSize=10)
+    bold_style = ParagraphStyle("Bold", parent=styles["Normal"], fontName=FONT_BOLD, fontSize=10)
+
+    elements = []
+    elements.append(Paragraph("АКТ ВЫПОЛНЕННЫХ РАБОТ", title_style))
+    elements.append(Spacer(1, 6*mm))
+
+    now = datetime.now()
+    elements.append(Paragraph(f"г. Лениногорск &nbsp;&nbsp;&nbsp; {now.strftime('%d.%m.%Y')}", normal_style))
+    elements.append(Spacer(1, 4*mm))
+
+    client = estimate.get("client", {})
+    contractor = company.get("name", "Исполнитель")
+    customer = client.get("name", "Заказчик")
+
+    elements.append(Paragraph(
+        f"Мы, нижеподписавшиеся, со стороны Исполнителя <b>{contractor}</b>, "
+        f"с одной стороны, и со стороны Заказчика <b>{customer}</b>, с другой стороны, "
+        f"составили настоящий акт о том, что следующие работы выполнены и приняты:",
+        normal_style
+    ))
+    elements.append(Spacer(1, 6*mm))
+
+    items = estimate.get("items", [])
+    if items:
+        header = ["№", "Наименование работ", "Ед.", "Кол-во", "Цена", "Сумма"]
+        data = [header]
+        for i, item in enumerate(items, 1):
+            data.append([
+                str(i),
+                item.get("name", ""),
+                item.get("unit", ""),
+                str(item.get("quantity", 0)),
+                f"{item.get('unit_price', 0):,.2f}",
+                f"{item.get('total', 0):,.2f}",
+            ])
+
+        totals = estimate.get("totals", {})
+        grand = totals.get("grand_total", sum(it.get("total", 0) for it in items))
+        data.append(["", "", "", "", "ИТОГО:", f"{grand:,.2f} руб."])
+
+        col_widths = [25, 180, 40, 50, 60, 70]
+        table = Table(data, colWidths=col_widths)
+        table.setStyle(TableStyle([
+            ("FONTNAME", (0, 0), (-1, -1), FONT_NAME),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#4a5568")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("ALIGN", (2, 0), (-1, -1), "RIGHT"),
+            ("GRID", (0, 0), (-1, len(items)), 0.5, colors.grey),
+            ("LINEABOVE", (-2, -1), (-1, -1), 1.5, colors.HexColor("#2d3748")),
+        ]))
+        elements.append(table)
+
+    elements.append(Spacer(1, 10*mm))
+    elements.append(Paragraph(f"Общая стоимость выполненных работ: <b>{grand:,.2f} руб.</b>", bold_style))
+    elements.append(Spacer(1, 6*mm))
+    elements.append(Paragraph("Работы выполнены в полном объёме и в установленные сроки. Стороны претензий друг к другу не имеют.", normal_style))
+    elements.append(Spacer(1, 12*mm))
+
+    elements.append(Paragraph("Подписи сторон:", bold_style))
+    elements.append(Spacer(1, 4*mm))
+    elements.append(Paragraph(f"Исполнитель: _____________ / {contractor} /", normal_style))
+    elements.append(Spacer(1, 4*mm))
+    elements.append(Paragraph(f"Заказчик: _____________ / {customer} /", normal_style))
+
+    doc.build(elements)
+    return output_path
+
+
+def generate_invoice_pdf(estimate: dict, company: dict = None, output_path: Optional[str] = None) -> str:
+    """Счёт на оплату (PDF)."""
+    if not output_path:
+        filename = f"invoice_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        output_path = str(DOCS_DIR / filename)
+
+    if company is None:
+        company = {"name": "Kolibri Construction", "inn": "", "bank": "", "account": ""}
+
+    doc = SimpleDocTemplate(output_path, pagesize=A4, topMargin=20*mm, bottomMargin=20*mm)
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle("Title", parent=styles["Title"], fontName=FONT_NAME, fontSize=16, spaceAfter=12)
+    normal_style = ParagraphStyle("Normal", parent=styles["Normal"], fontName=FONT_NAME, fontSize=10)
+    bold_style = ParagraphStyle("Bold", parent=styles["Normal"], fontName=FONT_BOLD, fontSize=10)
+
+    elements = []
+    elements.append(Paragraph("СЧЁТ НА ОПЛАТУ", title_style))
+    elements.append(Spacer(1, 6*mm))
+
+    now = datetime.now()
+    elements.append(Paragraph(f"Счёт № {now.strftime('%Y%m%d')}-1 от {now.strftime('%d.%m.%Y')}", bold_style))
+    elements.append(Spacer(1, 4*mm))
+
+    elements.append(Paragraph(f"Поставщик: <b>{company.get('name', '')}</b>", normal_style))
+    if company.get("inn"):
+        elements.append(Paragraph(f"ИНН: {company['inn']}", normal_style))
+    elements.append(Spacer(1, 2*mm))
+
+    client = estimate.get("client", {})
+    elements.append(Paragraph(f"Покупатель: <b>{client.get('name', '')}</b>", normal_style))
+    elements.append(Spacer(1, 6*mm))
+
+    items = estimate.get("items", [])
+    if items:
+        header = ["№", "Наименование", "Кол-во", "Ед.", "Цена", "Сумма"]
+        data = [header]
+        for i, item in enumerate(items, 1):
+            data.append([
+                str(i),
+                item.get("name", ""),
+                str(item.get("quantity", 0)),
+                item.get("unit", ""),
+                f"{item.get('unit_price', 0):,.2f}",
+                f"{item.get('total', 0):,.2f}",
+            ])
+
+        totals = estimate.get("totals", {})
+        grand = totals.get("grand_total", 0)
+        data.append(["", "", "", "", "ИТОГО:", f"{grand:,.2f} руб."])
+
+        col_widths = [25, 170, 50, 40, 65, 75]
+        table = Table(data, colWidths=col_widths)
+        table.setStyle(TableStyle([
+            ("FONTNAME", (0, 0), (-1, -1), FONT_NAME),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2b6cb0")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("ALIGN", (2, 0), (-1, -1), "RIGHT"),
+            ("GRID", (0, 0), (-1, len(items)), 0.5, colors.grey),
+            ("LINEABOVE", (-2, -1), (-1, -1), 2, colors.HexColor("#2b6cb0")),
+        ]))
+        elements.append(table)
+
+    elements.append(Spacer(1, 8*mm))
+    elements.append(Paragraph(f"Итого к оплате: <b>{grand:,.2f} руб.</b>", bold_style))
+    elements.append(Spacer(1, 4*mm))
+    elements.append(Paragraph("Срок оплаты: в течение 3 банковских дней с момента получения счёта.", normal_style))
+
+    doc.build(elements)
+    return output_path

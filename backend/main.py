@@ -645,6 +645,24 @@ async def generate_kp_endpoint(request: Request, user: dict = Depends(get_curren
     path = generate_commercial_offer_pdf(estimate, company)
     return {"path": path, "filename": Path(path).name}
 
+@app.post("/api/documents/act")
+async def generate_act_endpoint(request: Request, user: dict = Depends(get_current_user_optional)):
+    from documents import generate_act_pdf
+    data = await request.json()
+    estimate = data.get("estimate", data)
+    company = data.get("company")
+    path = generate_act_pdf(estimate, company)
+    return {"path": path, "filename": Path(path).name}
+
+@app.post("/api/documents/invoice")
+async def generate_invoice_endpoint(request: Request, user: dict = Depends(get_current_user_optional)):
+    from documents import generate_invoice_pdf
+    data = await request.json()
+    estimate = data.get("estimate", data)
+    company = data.get("company")
+    path = generate_invoice_pdf(estimate, company)
+    return {"path": path, "filename": Path(path).name}
+
 @app.get("/api/documents")
 async def list_documents_endpoint(user: dict = Depends(get_current_user_optional)):
     from documents import list_documents
