@@ -149,6 +149,7 @@ def train_formulalm(
 ):
     """Обучить FormulaLM эволюцией."""
     from service.formula_lm import FormulaLM
+    import math
 
     model = FormulaLM(
         vocab_size=vocab_size,
@@ -165,28 +166,54 @@ def train_formulalm(
 
     start_time = time.time()
     batch_size = min(200, len(sequences))
+    train_seqs = sequences[:batch_size]
 
-    for gen_start in range(0, generations, save_every):
-        gen_count = min(save_every, generations - gen_start)
-        model.evolve(sequences[:batch_size], generations=gen_count)
+    for gen in range(generations):
+        # Evaluate fitness for each formula
+        for f in model.formulas:
+            f.fitness = model._evaluate(f, train_seqs)
 
-        elapsed = time.time() - start_time
-        ppl = model.get_perplexity(sequences[:50])
-        logger.info(
-            "gen=%d, perplexity=%.2f, best_fitness=%.4f, elapsed=%.0fs",
-            model.generation, ppl, model.formulas[model._best_idx].fitness, elapsed,
-        )
+        # Sort by fitness
+        ranked = sorted(range(len(model.formulas)), key=lambda i: model.formulas[i].fitness, reverse=True)
+        model._best_idx = ranked[0]
 
-        # Сохраняем чекпоинт
-        save_path = MODELS_DIR / f"{output_prefix}_{model.generation}.npz"
-        model.save(save_path)
-        logger.info("Чекпоинт сохранён: %s", save_path)
+        # Elitism 25%
+        elite_count = max(2, model.num_formulas // 4)
+        new_formulas = [model.formulas[ranked[i]].copy() for i in range(elite_count)]
+
+        # Children
+        while len(new_formulas) < model.num_formulas:
+            pa = model._tournament(ranked)
+            pb = model._tournament(ranked)
+            child = model.formulas[pa].crossover(model.formulas[pb])
+            rate = 0.05 if gen < generations // 2 else 0.02
+            child.mutate(rate=rate)
+            new_formulas.append(child)
+
+        model.formulas = new_formulas
+        model.generation += 1
+
+        # Log every 5 generations
+        if model.generation % 5 == 0:
+            best_f = model.formulas[model._best_idx].fitness
+            ppl = math.exp(-best_f) if best_f > -500 else float('inf')
+            elapsed = time.time() - start_time
+            logger.info(
+                "gen=%d/%d, fitness=%.4f, ppl=%.2f, elapsed=%.0fs",
+                model.generation, generations, best_f, ppl, elapsed,
+            )
+
+        # Save checkpoint every save_every generations
+        if model.generation % save_every == 0:
+            save_path = MODELS_DIR / f"{output_prefix}_{model.generation}.npz"
+            model.save(save_path)
+            logger.info("Чекпоинт: %s", save_path)
 
     total_time = time.time() - start_time
     final_ppl = model.get_perplexity(sequences[:100])
     logger.info("Обучение завершено: %d поколений, %.0fс, финальный PPL=%.2f", generations, total_time, final_ppl)
 
-    # Финальное сохранение
+    # Final save
     final_path = MODELS_DIR / f"{output_prefix}_final.npz"
     model.save(final_path)
     logger.info("Финальная модель: %s", final_path)
@@ -202,7 +229,7 @@ def main():
     parser.add_argument("--context-size", type=int, default=256, help="Context window size")
     parser.add_argument("--num-formulas", type=int, default=16, help="Number of evolutionary formulas")
     parser.add_argument("--generations", type=int, default=200, help="Evolution generations")
-    parser.add_argument("--save-every", type=int, default=50, help="Save checkpoint every N generations")
+    parser.add_argument("--save-every", type=int, default=10, help="Save checkpoint every N generations")
     parser.add_argument("--output", type=str, default="formulalm_trained", help="Output file prefix")
     args = parser.parse_args()
 
