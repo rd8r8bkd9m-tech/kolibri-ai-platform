@@ -88,8 +88,12 @@ export function Sidebar({
         <div className="sidebar-section">
           <div className="sidebar-label">Модель</div>
           <select className="sidebar-select" value={selectedProvider} onChange={e => setSelectedProvider(e.target.value)}>
-            {providers.filter(p => p.available).map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
-            {providers.length === 0 && <option value="mimo">mimo-auto</option>}
+            {providers.filter(p => p.available).map(p => (
+              <option key={p.name} value={p.name}>
+                {p.name === "formulalm" ? "Kolibri Nano (local)" : p.name === "mimo" ? "MiMo Cloud" : p.name}
+              </option>
+            ))}
+            {providers.length === 0 && <option value="mimo">MiMo Cloud</option>}
           </select>
         </div>
 
@@ -237,9 +241,11 @@ export function Sidebar({
                       onChange={e => setSelectedProvider(e.target.value)}
                     >
                       {providers.filter(p => p.available).map(p => (
-                        <option key={p.name} value={p.name}>{p.name}</option>
+                        <option key={p.name} value={p.name}>
+                          {p.name === "formulalm" ? "Kolibri Nano (local)" : p.name === "mimo" ? "MiMo Cloud" : p.name}
+                        </option>
                       ))}
-                      {providers.length === 0 && <option value="mimo">mimo-auto</option>}
+                      {providers.length === 0 && <option value="mimo">MiMo Cloud</option>}
                     </select>
                   </div>
                 </div>
