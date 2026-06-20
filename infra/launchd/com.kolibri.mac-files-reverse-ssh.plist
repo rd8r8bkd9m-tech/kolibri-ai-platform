@@ -17,7 +17,9 @@
     <string>-o</string>
     <string>ServerAliveCountMax=3</string>
     <string>-R</string>
-    <string>127.0.0.1:22220:127.0.0.1:22</string>
+    <string>10.99.0.1:22220:127.0.0.1:22</string>
+    <string>-R</string>
+    <string>172.17.0.1:22220:127.0.0.1:22</string>
     <string>-p</string>
     <string>2222</string>
     <string>ladik@178.207.11.90</string>

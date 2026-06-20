@@ -6,15 +6,17 @@ tunnel without opening Mac SSH to the public internet.
 Tunnel:
 
 ```text
-home:127.0.0.1:22220 -> mac:127.0.0.1:22
+home:10.99.0.1:22220 -> mac:127.0.0.1:22
+home:172.17.0.1:22220 -> mac:127.0.0.1:22
 ```
 
 From `home`, after macOS Remote Login is enabled:
 
 ```bash
-ssh -p 22220 kolibri@127.0.0.1
-sftp -P 22220 kolibri@127.0.0.1
-rsync -e 'ssh -p 22220' -az kolibri@127.0.0.1:/Users/kolibri/Documents/Codex/kolibri-ai-platform/ /srv/kolibri/repo/
+ssh -p 22220 kolibri@10.99.0.1
+ssh -p 22220 kolibri@172.17.0.1
+sftp -P 22220 kolibri@10.99.0.1
+rsync -e 'ssh -p 22220' -az kolibri@10.99.0.1:/Users/kolibri/Documents/Codex/kolibri-ai-platform/ /srv/kolibri/repo/
 ```
 
 Required Mac prerequisite:
@@ -40,7 +42,7 @@ Add or enable:
 After that, verify from `home`:
 
 ```bash
-ssh -p 22220 kolibri@127.0.0.1 'ls -la /Users/kolibri/Documents/Codex/kolibri-ai-platform'
+ssh -p 22220 kolibri@10.99.0.1 'ls -la /Users/kolibri/Documents/Codex/kolibri-ai-platform'
 ```
 
 Do not copy secrets into Git or factory logs.
