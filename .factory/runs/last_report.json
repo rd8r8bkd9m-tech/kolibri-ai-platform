@@ -1,16 +1,16 @@
 {
   "state": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/.factory/runs/agent_factory_state.json",
-  "generated_at": "2026-06-20T14:24:30.039568+00:00",
+  "generated_at": "2026-06-20T14:40:59.549045+00:00",
   "counts": {
     "queued": 18,
-    "dispatch_failed": 1,
-    "failed": 1,
-    "running": 1
+    "dispatch_failed": 3,
+    "failed": 2
   },
   "by_server": {
     "home": {
       "queued": 1,
-      "running": 1
+      "failed": 1,
+      "dispatch_failed": 1
     },
     "main": {
       "queued": 1,
@@ -41,7 +41,8 @@
       "queued": 1
     },
     "hostvds-agent-03": {
-      "queued": 1
+      "queued": 1,
+      "dispatch_failed": 1
     },
     "hostvds-agent-04": {
       "queued": 1
@@ -80,6 +81,24 @@
       "server": "main",
       "status": "failed",
       "summary": "\u9519\u8bef\uff1a \u672a\u77e5\u547d\u4ee4\uff1amimo run You are a bounded Kolibri development worker. Codex is the reviewer and release manager."
+    },
+    {
+      "task_id": "canary-home-1781964884",
+      "server": "home",
+      "status": "failed",
+      "summary": "Cancelled exact stuck remote runner after no stdout/stderr/result for ~12 minutes; old runner used obsolete Mimocode flags."
+    },
+    {
+      "task_id": "canary2-home-1781965763",
+      "server": "home",
+      "status": "dispatch_failed",
+      "summary": ""
+    },
+    {
+      "task_id": "canary3-hostvds-agent-03-1781966378",
+      "server": "hostvds-agent-03",
+      "status": "dispatch_failed",
+      "summary": ""
     }
   ],
   "next_actions": [

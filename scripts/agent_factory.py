@@ -51,11 +51,25 @@ result_path = Path(sys.argv[2])
 payload = json.loads(payload_path.read_text(encoding="utf-8"))
 started_at = datetime.now(timezone.utc).isoformat()
 worktree = Path(payload["worktree"])
+repo = Path(payload.get("repository") or "")
+
+if repo and repo.exists() and (repo / ".git").exists() and not (worktree / ".git").exists():
+    worktree.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "worktree", "add", "--detach", str(worktree), "HEAD"],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+
 worktree.mkdir(parents=True, exist_ok=True)
 
 argv = [
     payload["agent_bin"],
     "run",
+    "--format",
+    "json",
     "--model",
     payload["model"],
     "--trust",
@@ -226,7 +240,7 @@ def ssh_base(cfg: dict[str, Any]) -> list[str]:
         "-o",
         "BatchMode=yes",
         "-o",
-        "ConnectTimeout=12",
+        "ConnectTimeout=30",
         "-o",
         "ConnectionAttempts=1",
         "-o",
@@ -270,6 +284,10 @@ def worktree_for(server: str, cfg: dict[str, Any], task_id: str) -> str:
         return "/srv/kolibri/repo"
     root = str(cfg.get("remote_worktree_root") or "/opt/kolibri-ai/agent-worktrees").rstrip("/")
     return f"{root}/{task_id}"
+
+
+def repository_for(server: str) -> str:
+    return "/srv/kolibri/repo" if server == "home" else "/opt/kolibri-ai/repo"
 
 
 def prompt_for_task(task: dict[str, Any], cfg: dict[str, Any]) -> str:
@@ -339,18 +357,22 @@ def dispatch_one(task: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
     stderr_path = f"{remote_dir}/stderr.log"
     worktree = worktree_for(server, cfg, task["id"])
     agent_bin = cfg.get("mimo_bin") or "mimo"
-    help_cmd = f"{shlex.quote(agent_bin)} --help | grep -E 'mimo run|run mimocode|run \\[message' >/dev/null"
+    help_cmd = f"{shlex.quote(agent_bin)} --help 2>&1 | grep -E 'mimo run|run mimocode|run \\[message' >/dev/null"
     proc = run_limited(ssh_base(cfg) + [help_cmd], timeout=30)
     if proc.returncode != 0:
+        summary = "agent binary is not compatible with Mimocode run CLI"
+        if proc.returncode == 124 or "timed out" in proc.stderr.lower() or "connection to" in proc.stderr.lower():
+            summary = "ssh/connectivity failed while checking agent binary"
         return {
             "status": "dispatch_failed",
-            "summary": "agent binary is not compatible with Mimocode run CLI",
+            "summary": summary,
             "stderr": proc.stderr[-2000:],
         }
     payload = {
         "task_id": task["id"],
         "server": server,
         "agent_bin": agent_bin,
+        "repository": repository_for(server),
         "worktree": worktree,
         "model": cfg.get("model") or load_agents().get("defaults", {}).get("model", "mimo/mimo-auto"),
         "prompt": prompt_for_task(task, cfg),

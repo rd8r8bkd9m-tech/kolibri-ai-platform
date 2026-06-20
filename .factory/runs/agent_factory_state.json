@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-06-20T13:51:36.985516+00:00",
-  "updated_at": "2026-06-20T14:24:24.543547+00:00",
+  "updated_at": "2026-06-20T14:40:42.468071+00:00",
   "tasks": {
     "bootstrap-home-1781963502": {
       "id": "bootstrap-home-1781963502",
@@ -346,10 +346,10 @@
       "mode": "read_only",
       "backend": "mimo",
       "prompt": "CANARY KOL-CANARY-002. Read-only FormulaLM Proof v1 readiness audit on home. Locate estimate/logits/pipeline blockers, repo state, and next two safe tasks. Do not train, mutate datasets, read secrets, or deploy. Return structured JSON result with status, summary, changed_files, checks, risks, artifacts, next_actions.",
-      "status": "running",
+      "status": "failed",
       "priority": 200,
       "created_at": "2026-06-20T14:14:44.868304+00:00",
-      "updated_at": "2026-06-20T14:22:21.609316+00:00",
+      "updated_at": "2026-06-20T14:31:00+00:00",
       "timeout_seconds": 900,
       "remote": {
         "status": "running",
@@ -361,14 +361,66 @@
         "worktree": "/srv/kolibri/repo",
         "started_at": "2026-06-20T14:16:40.514298+00:00"
       },
-      "result": null,
+      "result": {
+        "status": "failed",
+        "summary": "Cancelled exact stuck remote runner after no stdout/stderr/result for ~12 minutes; old runner used obsolete Mimocode flags.",
+        "errors": [
+          "stuck_runner_cancelled"
+        ],
+        "warnings": [
+          "rerun required with fixed runner argv"
+        ]
+      },
       "collect_errors": [
         {
           "at": "2026-06-20T14:22:21.608360+00:00",
           "status": "collect_failed",
           "stderr": "Connection to 178.207.11.90 port 2222 timed out\n"
+        },
+        {
+          "at": "2026-06-20T14:28:04.526760+00:00",
+          "status": "collect_failed",
+          "stderr": "Connection to 178.207.11.90 port 2222 timed out\n"
         }
       ]
+    },
+    "canary2-home-1781965763": {
+      "id": "canary2-home-1781965763",
+      "wave": "canary2",
+      "server": "home",
+      "mode": "read_only",
+      "backend": "mimo",
+      "prompt": "CANARY2 HOME. Read-only FormulaLM Proof v1 readiness audit. First print one-line JSON heartbeat, then inspect repo paths and FormulaLM blockers only. Do not train, mutate datasets, read secrets, or deploy. Return concise structured JSON with status, summary, changed_files, checks, risks, artifacts, next_actions.",
+      "status": "dispatch_failed",
+      "priority": 250,
+      "created_at": "2026-06-20T14:29:23.814339+00:00",
+      "updated_at": "2026-06-20T14:31:20.519060+00:00",
+      "timeout_seconds": 300,
+      "remote": {
+        "status": "dispatch_failed",
+        "summary": "agent binary is not compatible with Mimocode run CLI",
+        "stderr": "Connection to 178.207.11.90 port 2222 timed out\n"
+      },
+      "result": null
+    },
+    "canary3-hostvds-agent-03-1781966378": {
+      "id": "canary3-hostvds-agent-03-1781966378",
+      "wave": "canary3",
+      "server": "hostvds-agent-03",
+      "mode": "read_only",
+      "backend": "mimo",
+      "prompt": "CANARY3 HOSTVDS-AGENT-03. Read-only factory bootstrap audit in isolated git worktree. Verify repo HEAD, .factory files, Mimocode version, and list blockers for scaling to 4 servers. Do not deploy, restart services, read secrets, or mutate code. Return concise structured JSON with status, summary, changed_files, checks, risks, artifacts, next_actions.",
+      "status": "dispatch_failed",
+      "priority": 260,
+      "created_at": "2026-06-20T14:39:38.734019+00:00",
+      "updated_at": "2026-06-20T14:40:42.463091+00:00",
+      "timeout_seconds": 300,
+      "remote": {
+        "status": "dispatch_failed",
+        "summary": "ssh/connectivity failed while checking agent binary",
+        "stderr": "Connection to 188.130.206.204 port 22 timed out\n"
+      },
+      "result": null
     }
   },
   "events": [
@@ -460,6 +512,93 @@
     {
       "at": "2026-06-20T14:24:24.542453+00:00",
       "kind": "collect",
+      "count": 1
+    },
+    {
+      "at": "2026-06-20T14:28:04.526888+00:00",
+      "kind": "collect",
+      "count": 1
+    },
+    {
+      "at": "2026-06-20T14:29:23.814349+00:00",
+      "kind": "enqueue",
+      "count": 1,
+      "wave": "canary2"
+    },
+    {
+      "at": "2026-06-20T14:29:50.482161+00:00",
+      "kind": "dispatch_one",
+      "task_id": "canary2-home-1781965763",
+      "server": "home",
+      "status": "dispatch_failed"
+    },
+    {
+      "at": "2026-06-20T14:29:50.486588+00:00",
+      "kind": "dispatch",
+      "count": 1
+    },
+    {
+      "at": "2026-06-20T14:30:51.481367+00:00",
+      "kind": "dispatch_one",
+      "task_id": "canary2-home-1781965763",
+      "server": "home",
+      "status": "dispatch_failed"
+    },
+    {
+      "at": "2026-06-20T14:30:51.490628+00:00",
+      "kind": "dispatch",
+      "count": 1
+    },
+    {
+      "at": "2026-06-20T14:31:20.520551+00:00",
+      "kind": "dispatch_one",
+      "task_id": "canary2-home-1781965763",
+      "server": "home",
+      "status": "dispatch_failed"
+    },
+    {
+      "at": "2026-06-20T14:31:20.524946+00:00",
+      "kind": "dispatch",
+      "count": 1
+    },
+    {
+      "at": "2026-06-20T14:34:24.752028+00:00",
+      "kind": "collect",
+      "count": 0
+    },
+    {
+      "at": "2026-06-20T14:39:24.824693+00:00",
+      "kind": "collect",
+      "count": 0
+    },
+    {
+      "at": "2026-06-20T14:39:38.734025+00:00",
+      "kind": "enqueue",
+      "count": 1,
+      "wave": "canary3"
+    },
+    {
+      "at": "2026-06-20T14:39:53.388088+00:00",
+      "kind": "dispatch_one",
+      "task_id": "canary3-hostvds-agent-03-1781966378",
+      "server": "hostvds-agent-03",
+      "status": "dispatch_failed"
+    },
+    {
+      "at": "2026-06-20T14:39:53.393830+00:00",
+      "kind": "dispatch",
+      "count": 1
+    },
+    {
+      "at": "2026-06-20T14:40:42.463950+00:00",
+      "kind": "dispatch_one",
+      "task_id": "canary3-hostvds-agent-03-1781966378",
+      "server": "hostvds-agent-03",
+      "status": "dispatch_failed"
+    },
+    {
+      "at": "2026-06-20T14:40:42.468053+00:00",
+      "kind": "dispatch",
       "count": 1
     }
   ],
