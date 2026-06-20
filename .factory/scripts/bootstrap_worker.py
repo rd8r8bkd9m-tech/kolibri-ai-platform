@@ -31,10 +31,12 @@ mimo_bin="$4"
 apt-get update -y
 apt-get install -y git ca-certificates curl tar gzip
 curl -fsSL https://mimo.xiaomi.com/install | bash -s -- --no-modify-path
+ln -sf "$mimo_bin" /usr/local/bin/mimo
 mkdir -p "$repo_dir" "$worktree_root" /opt/kolibri-ai/reports
 rm -rf "$repo_dir"
 git clone "$repo_bundle" "$repo_dir"
 "$mimo_bin" --version
+"$(command -v mimo)" --version
 "$mimo_bin" --help 2>&1 | grep -E 'mimo run|run mimocode|run \[message' >/dev/null
 git -C "$repo_dir" rev-parse HEAD
 """

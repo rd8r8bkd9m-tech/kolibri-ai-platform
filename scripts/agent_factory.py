@@ -72,8 +72,8 @@ argv = [
     "json",
     "--model",
     payload["model"],
-    "--trust",
-    "--never-ask",
+    "--dir",
+    str(worktree),
     payload["prompt"],
 ]
 
@@ -83,6 +83,36 @@ def tail(value, limit=12000):
     if isinstance(value, bytes):
         value = value.decode("utf-8", "replace")
     return str(value)[-limit:]
+
+def extract_structured(stdout, stderr):
+    text_parts = []
+    for line in (stdout or "").splitlines():
+        try:
+            event = json.loads(line)
+        except Exception:
+            continue
+        part = event.get("part") or {}
+        if part.get("type") == "text" and part.get("text"):
+            text_parts.append(part["text"])
+    text = "\n".join(text_parts).strip()
+    candidate = text
+    if "```json" in text:
+        candidate = text.split("```json", 1)[1].split("```", 1)[0].strip()
+    elif "```" in text:
+        candidate = text.split("```", 1)[1].split("```", 1)[0].strip()
+    try:
+        parsed = json.loads(candidate)
+    except Exception:
+        parsed = {}
+    return text, parsed
+
+def normalize_status(value, returncode):
+    value = str(value or "").lower()
+    if value in {"completed", "complete", "success", "succeeded", "passed", "ok"}:
+        return "completed"
+    if value in {"blocked", "failed"}:
+        return value
+    return "completed" if returncode == 0 else "failed"
 
 try:
     proc = subprocess.run(
@@ -95,19 +125,25 @@ try:
     )
     status = "completed" if proc.returncode == 0 else "failed"
     lines = (proc.stdout or proc.stderr or "").strip().splitlines()
-    summary = next((line.strip() for line in lines if line.strip()), "No output")[:500]
+    extracted_text, structured = extract_structured(proc.stdout, proc.stderr)
+    summary = (
+        structured.get("summary")
+        or (extracted_text.splitlines()[0] if extracted_text else "")
+        or next((line.strip() for line in lines if line.strip()), "No output")
+    )[:500]
     result = {
         "task_id": payload["task_id"],
         "server": payload["server"],
-        "status": status,
+        "status": normalize_status(structured.get("status"), proc.returncode),
         "summary": summary,
         "returncode": proc.returncode,
         "stdout": tail(proc.stdout),
         "stderr": tail(proc.stderr),
-        "changed_files": [],
-        "checks": [],
-        "risks": [] if proc.returncode == 0 else ["agent_returncode_nonzero"],
-        "artifacts": [],
+        "changed_files": structured.get("changed_files") or [],
+        "checks": structured.get("checks") or [],
+        "risks": structured.get("risks") or ([] if proc.returncode == 0 else ["agent_returncode_nonzero"]),
+        "artifacts": structured.get("artifacts") or [],
+        "next_actions": structured.get("next_actions") or structured.get("next_action") or [],
         "started_at": started_at,
         "completed_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -235,6 +271,8 @@ def server_cfg(agents: dict[str, Any], server: str) -> dict[str, Any]:
 
 
 def ssh_base(cfg: dict[str, Any]) -> list[str]:
+    alias = str(cfg["ssh_alias"]).replace("@", "_").replace(":", "_").replace("/", "_")
+    control_path = f"/tmp/kolibri-factory-ssh-{alias}-%p"
     argv = [
         "ssh",
         "-o",
@@ -247,6 +285,12 @@ def ssh_base(cfg: dict[str, Any]) -> list[str]:
         "ServerAliveInterval=5",
         "-o",
         "ServerAliveCountMax=1",
+        "-o",
+        "ControlMaster=auto",
+        "-o",
+        "ControlPersist=10m",
+        "-o",
+        f"ControlPath={control_path}",
     ]
     if cfg.get("ssh_port"):
         argv.extend(["-p", str(cfg["ssh_port"])])
@@ -273,6 +317,36 @@ def run_limited(argv: list[str], *, input_text: str | None = None, timeout: int 
         stdout, stderr = proc.communicate()
         return subprocess.CompletedProcess(argv, 124, stdout, stderr + "\nprocess group timed out")
     return subprocess.CompletedProcess(argv, proc.returncode, stdout, stderr)
+
+
+def retryable_ssh_failure(proc: subprocess.CompletedProcess[str]) -> bool:
+    haystack = f"{proc.stdout}\n{proc.stderr}".lower()
+    return (
+        proc.returncode == 124
+        or "timed out" in haystack
+        or "connection to" in haystack
+        or "connection reset" in haystack
+        or "connection closed" in haystack
+        or "operation timed out" in haystack
+    )
+
+
+def run_ssh_retry(
+    argv: list[str],
+    *,
+    input_text: str | None = None,
+    timeout: int = 45,
+    attempts: int = 3,
+    backoff_seconds: int = 5,
+) -> subprocess.CompletedProcess[str]:
+    last: subprocess.CompletedProcess[str] | None = None
+    for attempt in range(1, attempts + 1):
+        last = run_limited(argv, input_text=input_text, timeout=timeout)
+        if last.returncode == 0 or not retryable_ssh_failure(last) or attempt == attempts:
+            return last
+        time.sleep(backoff_seconds * attempt)
+    assert last is not None
+    return last
 
 
 def remote_root(server: str) -> str:
@@ -358,7 +432,7 @@ def dispatch_one(task: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
     worktree = worktree_for(server, cfg, task["id"])
     agent_bin = cfg.get("mimo_bin") or "mimo"
     help_cmd = f"{shlex.quote(agent_bin)} --help 2>&1 | grep -E 'mimo run|run mimocode|run \\[message' >/dev/null"
-    proc = run_limited(ssh_base(cfg) + [help_cmd], timeout=30)
+    proc = run_ssh_retry(ssh_base(cfg) + [help_cmd], timeout=45, attempts=3)
     if proc.returncode != 0:
         summary = "agent binary is not compatible with Mimocode run CLI"
         if proc.returncode == 124 or "timed out" in proc.stderr.lower() or "connection to" in proc.stderr.lower():
@@ -380,12 +454,12 @@ def dispatch_one(task: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
     }
 
     mkdir = ssh_base(cfg) + [f"mkdir -p {shlex.quote(remote_dir)} && cat > {shlex.quote(payload_path)}"]
-    proc = run_limited(mkdir, input_text=json.dumps(payload), timeout=45)
+    proc = run_ssh_retry(mkdir, input_text=json.dumps(payload), timeout=60, attempts=3)
     if proc.returncode != 0:
         return {"status": "dispatch_failed", "summary": "payload upload failed", "stderr": proc.stderr[-2000:]}
 
     upload = ssh_base(cfg) + [f"cat > {shlex.quote(runner_path)}"]
-    proc = run_limited(upload, input_text=REMOTE_RUNNER, timeout=45)
+    proc = run_ssh_retry(upload, input_text=REMOTE_RUNNER, timeout=60, attempts=3)
     if proc.returncode != 0:
         return {"status": "dispatch_failed", "summary": "runner upload failed", "stderr": proc.stderr[-2000:]}
 
@@ -394,7 +468,7 @@ def dispatch_one(task: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
         f"(setsid python3 {shlex.quote(runner_path)} {shlex.quote(payload_path)} {shlex.quote(result_path)} "
         f"> {shlex.quote(stdout_path)} 2> {shlex.quote(stderr_path)} < /dev/null & echo $!)"
     )
-    proc = run_limited(ssh_base(cfg) + [start_cmd], timeout=45)
+    proc = run_ssh_retry(ssh_base(cfg) + [start_cmd], timeout=60, attempts=3)
     if proc.returncode != 0:
         return {"status": "dispatch_failed", "summary": "remote start failed", "stderr": proc.stderr[-2000:]}
     return {
@@ -465,7 +539,7 @@ def collect_one(task: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
         f"ps -p {shlex.quote(str(task.get('remote', {}).get('pid', '')))} -o pid=,stat=,etime=,args= 2>/dev/null || true; "
         "fi"
     )
-    proc = run_limited(ssh_base(cfg) + [cmd], timeout=35)
+    proc = run_ssh_retry(ssh_base(cfg) + [cmd], timeout=45, attempts=3)
     if proc.returncode != 0:
         return {"status": "collect_failed", "stderr": proc.stderr[-2000:]}
     stdout = proc.stdout.strip()

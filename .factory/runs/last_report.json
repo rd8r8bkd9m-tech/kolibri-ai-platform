@@ -1,10 +1,11 @@
 {
   "state": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/.factory/runs/agent_factory_state.json",
-  "generated_at": "2026-06-20T14:51:07.009482+00:00",
+  "generated_at": "2026-06-20T15:08:51.161870+00:00",
   "counts": {
     "queued": 18,
-    "dispatch_failed": 4,
-    "failed": 2
+    "dispatch_failed": 3,
+    "failed": 4,
+    "completed": 2
   },
   "by_server": {
     "home": {
@@ -39,7 +40,8 @@
     },
     "hostvds-agent-02": {
       "queued": 1,
-      "dispatch_failed": 1
+      "failed": 2,
+      "completed": 2
     },
     "hostvds-agent-03": {
       "queued": 1,
@@ -104,8 +106,14 @@
     {
       "task_id": "canary4-hostvds-agent-02-1781967019",
       "server": "hostvds-agent-02",
-      "status": "dispatch_failed",
-      "summary": ""
+      "status": "failed",
+      "summary": "mimo run [message..]"
+    },
+    {
+      "task_id": "canary5-hostvds-agent-02-1781967524",
+      "server": "hostvds-agent-02",
+      "status": "failed",
+      "summary": "\u2800"
     }
   ],
   "next_actions": [

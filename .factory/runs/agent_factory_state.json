@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-06-20T13:51:36.985516+00:00",
-  "updated_at": "2026-06-20T14:51:03.762253+00:00",
+  "updated_at": "2026-06-20T15:07:57.885541+00:00",
   "tasks": {
     "bootstrap-home-1781963502": {
       "id": "bootstrap-home-1781963502",
@@ -429,17 +429,193 @@
       "mode": "read_only",
       "backend": "mimo",
       "prompt": "CANARY4 HOSTVDS-AGENT-02. Read-only frontend/design worker audit in isolated git worktree. Verify repo HEAD, .factory files, Mimocode version, OpenClaw availability, and blockers for frontend agent work. Do not deploy, restart services, read secrets, or mutate code. Return concise structured JSON with status, summary, changed_files, checks, risks, artifacts, next_actions.",
-      "status": "dispatch_failed",
+      "status": "failed",
       "priority": 270,
       "created_at": "2026-06-20T14:50:19.266398+00:00",
-      "updated_at": "2026-06-20T14:51:03.758297+00:00",
+      "updated_at": "2026-06-20T14:57:46.925933+00:00",
       "timeout_seconds": 300,
       "remote": {
-        "status": "dispatch_failed",
-        "summary": "payload upload failed",
-        "stderr": "Connection to 213.232.204.223 port 22 timed out\n"
+        "status": "running",
+        "pid": "19029",
+        "remote_dir": "/opt/kolibri-ai/agent-runs/factory-canary4-hostvds-agent-02-1781967019/hostvds-agent-02",
+        "result_path": "/opt/kolibri-ai/agent-runs/factory-canary4-hostvds-agent-02-1781967019/hostvds-agent-02/result.json",
+        "stdout_path": "/opt/kolibri-ai/agent-runs/factory-canary4-hostvds-agent-02-1781967019/hostvds-agent-02/stdout.log",
+        "stderr_path": "/opt/kolibri-ai/agent-runs/factory-canary4-hostvds-agent-02-1781967019/hostvds-agent-02/stderr.log",
+        "worktree": "/opt/kolibri-ai/agent-worktrees/canary4-hostvds-agent-02-1781967019",
+        "started_at": "2026-06-20T14:57:17.037659+00:00"
       },
-      "result": null
+      "result": {
+        "task_id": "canary4-hostvds-agent-02-1781967019",
+        "server": "hostvds-agent-02",
+        "status": "failed",
+        "summary": "mimo run [message..]",
+        "returncode": 1,
+        "stdout": "",
+        "stderr": "mimo run [message..]\n\nrun mimocode with a message\n\nPositionals:\n  message  message to send                                                     [array] [default: []]\n\nOptions:\n  -h, --help                          show help                                            [boolean]\n  -v, --version                       show version number                                  [boolean]\n      --print-logs                    print logs to stderr                                 [boolean]\n      --log-level                     log level [string] [choices: \"DEBUG\", \"INFO\", \"WARN\", \"ERROR\"]\n      --pure                          run without external plugins                         [boolean]\n      --command                       the command to run, use message for args              [string]\n  -c, --continue                      continue the last session                            [boolean]\n  -s, --session                       session id to continue                                [string]\n      --fork                          fork the session before continuing (requires --continue or\n                                      --session)                                           [boolean]\n      --share                         share the session                                    [boolean]\n  -m, --model                         model to use in the format of provider/model          [string]\n      --agent                         agent to use                                          [string]\n      --format                        format: default (formatted) or json (raw JSON events)\n                                          [string] [choices: \"default\", \"json\"] [default: \"default\"]\n  -f, --file                          file(s) to attach to message                           [array]\n      --title                         title for the session (uses truncated prompt if no value\n                                      provided)                                             [string]\n      --attach                        attach to a running mimocode server (e.g.,\n                                      http://localhost:4096)                                [string]\n  -p, --password                      basic auth password (defaults to MIMOCODE_SERVER_PASSWORD)\n                                                                                            [string]\n      --dir                           directory to run in, path on remote server if attaching\n                                                                                            [string]\n      --port                          port for the local server (defaults to random port if no value\n                                      provided)                                             [number]\n      --variant                       model variant (provider-specific reasoning effort, e.g., high,\n                                      max, minimal)                                         [string]\n      --thinking                      show thinking blocks                [boolean] [default: false]\n      --dangerously-skip-permissions  auto-approve permissions that are not explicitly denied\n                                      (dangerous!)                        [boolean] [default: false]",
+        "changed_files": [],
+        "checks": [],
+        "risks": [
+          "agent_returncode_nonzero"
+        ],
+        "artifacts": [],
+        "started_at": "2026-06-20T14:57:20.791201+00:00",
+        "completed_at": "2026-06-20T14:57:25.107271+00:00"
+      }
+    },
+    "canary5-hostvds-agent-02-1781967524": {
+      "id": "canary5-hostvds-agent-02-1781967524",
+      "wave": "canary5",
+      "server": "hostvds-agent-02",
+      "mode": "read_only",
+      "backend": "mimo",
+      "prompt": "CANARY5 HOSTVDS-AGENT-02. Read-only worker audit. Verify repo HEAD, .factory files, Mimocode version, OpenClaw availability, and blockers. Do not deploy, restart services, read secrets, or mutate code. Return concise structured JSON with status, summary, changed_files, checks, risks, artifacts, next_actions.",
+      "status": "failed",
+      "priority": 280,
+      "created_at": "2026-06-20T14:58:44.424415+00:00",
+      "updated_at": "2026-06-20T15:01:51.114592+00:00",
+      "timeout_seconds": 240,
+      "remote": {
+        "status": "running",
+        "pid": "19245",
+        "remote_dir": "/opt/kolibri-ai/agent-runs/factory-canary5-hostvds-agent-02-1781967524/hostvds-agent-02",
+        "result_path": "/opt/kolibri-ai/agent-runs/factory-canary5-hostvds-agent-02-1781967524/hostvds-agent-02/result.json",
+        "stdout_path": "/opt/kolibri-ai/agent-runs/factory-canary5-hostvds-agent-02-1781967524/hostvds-agent-02/stdout.log",
+        "stderr_path": "/opt/kolibri-ai/agent-runs/factory-canary5-hostvds-agent-02-1781967524/hostvds-agent-02/stderr.log",
+        "worktree": "/opt/kolibri-ai/agent-worktrees/canary5-hostvds-agent-02-1781967524",
+        "started_at": "2026-06-20T15:01:33.089500+00:00"
+      },
+      "result": {
+        "task_id": "canary5-hostvds-agent-02-1781967524",
+        "server": "hostvds-agent-02",
+        "status": "failed",
+        "summary": "\u2800",
+        "returncode": 1,
+        "stdout": "",
+        "stderr": "\u2800                                       \n\u2588\u2580\u2584\u2580\u2588 \u2588 \u2588\u2584 \u2584\u2588 \u2588\u2580\u2580\u2588 \u2588\u2580\u2580 \u2588\u2580\u2580\u2588 \u2588\u2580\u2580\u2584 \u2588\u2580\u2580\u2580\n\u2588 \u2580 \u2588 \u2588 \u2588 \u2580 \u2588 \u2588  \u2588 \u2588   \u2588  \u2588 \u2588  \u2588 \u2588\u2580\u2580 \n\u2580   \u2580 \u2580 \u2580   \u2580 \u2580\u2580\u2580\u2580 \u2580\u2580\u2580 \u2580\u2580\u2580\u2580 \u2580\u2580\u2580  \u2580\u2580\u2580\u2580\n\nCommands:\n  mimo completion          generate shell completion script\n  mimo acp                 start ACP (Agent Client Protocol) server\n  mimo mcp                 manage MCP (Model Context Protocol) servers\n  mimo [project]           start mimocode tui                                              [default]\n  mimo attach <url>        attach to a running mimocode server\n  mimo run [message..]     run mimocode with a message\n  mimo debug               debugging and troubleshooting tools\n  mimo providers           manage AI providers and credentials                       [aliases: auth]\n  mimo agent               manage agents\n  mimo upgrade [target]    upgrade mimocode to the latest or a specific version\n  mimo uninstall           uninstall mimocode and remove all related files\n  mimo serve               starts a headless mimocode server\n  mimo models [provider]   list all available models\n  mimo stats               show token usage and cost statistics\n  mimo export [sessionID]  export session data as JSON\n  mimo import <file>       import session data from JSON file or URL\n  mimo github              manage GitHub agent\n  mimo pr <number>         fetch and checkout a GitHub PR branch, then run mimocode\n  mimo session             manage sessions\n  mimo plugin <module>     install plugin and update config                          [aliases: plug]\n  mimo db                  database tools\n\nPositionals:\n  project  path to start mimocode in                                                        [string]\n\nOptions:\n  -h, --help         show help                                                             [boolean]\n  -v, --version      show version number                                                   [boolean]\n      --print-logs   print logs to stderr                                                  [boolean]\n      --log-level    log level                  [string] [choices: \"DEBUG\", \"INFO\", \"WARN\", \"ERROR\"]\n      --pure         run without external plugins                                          [boolean]\n      --port         port to listen on                                         [number] [default: 0]\n      --hostname     hostname to listen on                           [string] [default: \"127.0.0.1\"]\n      --mdns         enable mDNS service discovery (defaults hostname to 0.0.0.0)\n                                                                          [boolean] [default: false]\n      --mdns-domain  custom domain name for mDNS service (default: mimocode.local)\n                                                                [string] [default: \"mimocode.local\"]\n      --cors         additional domains to allow for CORS                      [array] [default: []]\n  -m, --model        model to use in the format of provider/model                           [string]\n  -c, --continue     continue the last session                                             [boolean]\n  -s, --session      session id to continue                                                 [string]\n      --fork         fork the session when continuing (use with --continue or --session)   [boolean]\n      --prompt       prompt to use                                                          [string]\n      --agent        agent to use                                                           [string]\n      --never-ask    start in never-ask mode \u2014 auto-decide without asking (permissions excluded),\n                     toggle at runtime with /never-ask                    [boolean] [default: false]\n      --trust        skip workspace trust prompt and trust the directory  [boolean] [default: false]",
+        "changed_files": [],
+        "checks": [],
+        "risks": [
+          "agent_returncode_nonzero"
+        ],
+        "artifacts": [],
+        "started_at": "2026-06-20T15:01:36.836957+00:00",
+        "completed_at": "2026-06-20T15:01:41.504599+00:00"
+      }
+    },
+    "canary6-hostvds-agent-02-1781967785": {
+      "id": "canary6-hostvds-agent-02-1781967785",
+      "wave": "canary6",
+      "server": "hostvds-agent-02",
+      "mode": "read_only",
+      "backend": "mimo",
+      "prompt": "CANARY6 HOSTVDS-AGENT-02. Read-only worker audit. Verify repo HEAD, .factory files, Mimocode version, OpenClaw availability, and blockers. Do not deploy, restart services, read secrets, or mutate code. Return concise JSON text with status, summary, changed_files, checks, risks, artifacts, next_actions.",
+      "status": "completed",
+      "priority": 290,
+      "created_at": "2026-06-20T15:03:05.337073+00:00",
+      "updated_at": "2026-06-20T15:05:31.908414+00:00",
+      "timeout_seconds": 180,
+      "remote": {
+        "status": "running",
+        "pid": "19333",
+        "remote_dir": "/opt/kolibri-ai/agent-runs/factory-canary6-hostvds-agent-02-1781967785/hostvds-agent-02",
+        "result_path": "/opt/kolibri-ai/agent-runs/factory-canary6-hostvds-agent-02-1781967785/hostvds-agent-02/result.json",
+        "stdout_path": "/opt/kolibri-ai/agent-runs/factory-canary6-hostvds-agent-02-1781967785/hostvds-agent-02/stdout.log",
+        "stderr_path": "/opt/kolibri-ai/agent-runs/factory-canary6-hostvds-agent-02-1781967785/hostvds-agent-02/stderr.log",
+        "worktree": "/opt/kolibri-ai/agent-worktrees/canary6-hostvds-agent-02-1781967785",
+        "started_at": "2026-06-20T15:03:30.040985+00:00"
+      },
+      "result": {
+        "task_id": "canary6-hostvds-agent-02-1781967785",
+        "server": "hostvds-agent-02",
+        "status": "completed",
+        "summary": "{\"type\":\"step_start\",\"timestamp\":1781967825205,\"sessionID\":\"ses_11a70ee48ffeCMNhjaf008Lb8p\",\"part\":{\"id\":\"prt_ee58f2924001XrszaSktNRn35Y\",\"messageID\":\"msg_ee58f17d7001TkW5wmRb6dQUzK\",\"sessionID\":\"ses_11a70ee48ffeCMNhjaf008Lb8p\",\"snapshot\":\"bf94df7605682d33e7bc5de8ce3eb4803f6a2450\",\"type\":\"step-start\"}}",
+        "returncode": 0,
+        "stdout": "it -C /opt/kolibri-ai/agent-worktrees/canary6-hostvds-agent-02-1781967785 branch -a --contains HEAD | head -5\",\"description\":\"Check HEAD commit and branches\"},\"output\":\"95635ca313051b000eced9ed0516f47212bfa989 codex: bootstrap first remote mimocode worker\\n* (no branch)\\n\",\"metadata\":{\"output\":\"95635ca313051b000eced9ed0516f47212bfa989 codex: bootstrap first remote mimocode worker\\n* (no branch)\\n\",\"exit\":0,\"description\":\"Check HEAD commit and branches\",\"truncated\":false},\"title\":\"Check HEAD commit and branches\",\"time\":{\"start\":1781967843345,\"end\":1781967843364}},\"id\":\"prt_ee58f6b63001wmMS2mxhi4f68i\",\"sessionID\":\"ses_11a70ee48ffeCMNhjaf008Lb8p\",\"messageID\":\"msg_ee58f51f70018XAwUfh04tequF\"}}\n{\"type\":\"tool_use\",\"timestamp\":1781967846463,\"sessionID\":\"ses_11a70ee48ffeCMNhjaf008Lb8p\",\"part\":{\"type\":\"tool\",\"tool\":\"bash\",\"callID\":\"call_41cbcf49d3db47d3af0b62ce\",\"state\":{\"status\":\"completed\",\"input\":{\"command\":\"ls /root/.mimocode/bin/mimo 2>/dev/null && /root/.mimocode/bin/mimo --version 2>/dev/null || echo \\\"No Mimocode at /root/.mimocode/bin/mimo\\\"\",\"description\":\"Check Mimocode binary location\"},\"output\":\"/root/.mimocode/bin/mimo\\n0.1.1\\n\",\"metadata\":{\"output\":\"/root/.mimocode/bin/mimo\\n0.1.1\\n\",\"exit\":0,\"description\":\"Check Mimocode binary location\",\"truncated\":false},\"title\":\"Check Mimocode binary location\",\"time\":{\"start\":1781967846398,\"end\":1781967846446}},\"id\":\"prt_ee58f653a001EPwOH3dHPFcctX\",\"sessionID\":\"ses_11a70ee48ffeCMNhjaf008Lb8p\",\"messageID\":\"msg_ee58f51f70018XAwUfh04tequF\"}}\n{\"type\":\"step_finish\",\"timestamp\":1781967846587,\"sessionID\":\"ses_11a70ee48ffeCMNhjaf008Lb8p\",\"part\":{\"id\":\"prt_ee58f7c3800117fOCSz89mAXqD\",\"reason\":\"tool-calls\",\"snapshot\":\"bf94df7605682d33e7bc5de8ce3eb4803f6a2450\",\"messageID\":\"msg_ee58f51f70018XAwUfh04tequF\",\"sessionID\":\"ses_11a70ee48ffeCMNhjaf008Lb8p\",\"type\":\"step-finish\",\"tokens\":{\"total\":29418,\"input\":3790,\"output\":380,\"reasoning\":32,\"cache\":{\"write\":0,\"read\":25216}},\"cost\":0}}\n{\"type\":\"step_start\",\"timestamp\":1781967855287,\"sessionID\":\"ses_11a70ee48ffeCMNhjaf008Lb8p\",\"part\":{\"id\":\"prt_ee58f9e9f0015WB33XMfI9k87Z\",\"messageID\":\"msg_ee58f7d1f0015CtnavIBCXLOLG\",\"sessionID\":\"ses_11a70ee48ffeCMNhjaf008Lb8p\",\"snapshot\":\"bf94df7605682d33e7bc5de8ce3eb4803f6a2450\",\"type\":\"step-start\"}}\n{\"type\":\"tool_use\",\"timestamp\":1781967856849,\"sessionID\":\"ses_11a70ee48ffeCMNhjaf008Lb8p\",\"part\":{\"type\":\"tool\",\"tool\":\"bash\",\"callID\":\"call_6736278ead39469e85ba45c1\",\"state\":{\"status\":\"completed\",\"input\":{\"command\":\"openclaw --version 2>/dev/null || openclaw --help 2>/dev/null | head -3 || echo \\\"OpenClaw present but version/help not available\\\"\",\"description\":\"Check OpenClaw version\"},\"output\":\"OpenClaw 2026.6.8 (844f405)\\n\",\"metadata\":{\"output\":\"OpenClaw 2026.6.8 (844f405)\\n\",\"exit\":0,\"description\":\"Check OpenClaw version\",\"truncated\":false},\"title\":\"Check OpenClaw version\",\"time\":{\"start\":1781967856819,\"end\":1781967856844}},\"id\":\"prt_ee58fa18b001O1gXv1rx3Zks49\",\"sessionID\":\"ses_11a70ee48ffeCMNhjaf008Lb8p\",\"messageID\":\"msg_ee58f7d1f0015CtnavIBCXLOLG\"}}\n{\"type\":\"tool_use\",\"timestamp\":1781967857072,\"sessionID\":\"ses_11a70ee48ffeCMNhjaf008Lb8p\",\"part\":{\"type\":\"tool\",\"tool\":\"bash\",\"callID\":\"call_72911c2c92ea4b3a85a2bae8\",\"state\":{\"status\":\"completed\",\"input\":{\"command\":\"git -C /opt/kolibri-ai/agent-worktrees/canary6-hostvds-agent-02-1781967785 status --short 2>/dev/null\",\"description\":\"Check git working tree status\"},\"output\":\"(no output)\",\"metadata\":{\"output\":\"(no output)\",\"exit\":0,\"description\":\"Check git working tree status\",\"truncated\":false},\"title\":\"Check git working tree status\",\"time\":{\"start\":1781967856989,\"end\":1781967857067}},\"id\":\"prt_ee58fa34e001ul1Cn4boussu3t\",\"sessionID\":\"ses_11a70ee48ffeCMNhjaf008Lb8p\",\"messageID\":\"msg_ee58f7d1f0015CtnavIBCXLOLG\"}}\n{\"type\":\"tool_use\",\"timestamp\":1781967857851,\"sessionID\":\"ses_11a70ee48ffeCMNhjaf008Lb8p\",\"part\":{\"type\":\"tool\",\"tool\":\"bash\",\"callID\":\"call_424ea4ce0ff44ae09b697f2a\",\"state\":{\"status\":\"completed\",\"input\":{\"command\":\"cat /opt/kolibri-ai/agent-worktrees/canary6-hostvds-agent-02-1781967785/.factory/tasks/ready/KOL-CANARY-001.json\",\"description\":\"Check first canary task\"},\"output\":\"{\\n  \\\"factory_run_id\\\": \\\"factory-bootstrap-20260620\\\",\\n  \\\"task_id\\\": \\\"KOL-CANARY-001\\\",\\n  \\\"server_id\\\": \\\"hostvds-agent-02\\\",\\n  \\\"agent_role\\\": \\\"FRONTEND_DESIGN_ENGINEER\\\",\\n  \\\"objective\\\": \\\"Read-only OpenClaw canary: verify frontend/design worker readiness, deployed path assumptions, and blockers before any broad UI fanout. Do not deploy or restart services.\\\",\\n  \\\"repository\\\": \\\"/srv/kolibri/repo\\\",\\n  \\\"base_commit\\\": \\\"1dee7b16c5c0bb8bd2163720915146d5b120c297\\\",\\n  \\\"branch\\\": \\\"factory/KOL-CANARY-001-factory-readonly-audit\\\",\\n  \\\"allowed_paths\\\": [\\\"/opt/kolibri-ai\\\",\\\"/srv/kolibri/repo\\\",\\\".factory\\\",\\\"logs/agent-factory\\\",\\\"logs/agent-runs\\\"],\\n  \\\"protected_paths\\\": [\\\".env\\\",\\\".ssh\\\",\\\".mimocode\\\",\\\"auth.json\\\",\\\"tokens\\\",\\\"secrets\\\",\\\"vpn\\\"],\\n  \\\"input_artifacts\\\": [\\\".factory/README.md\\\",\\\".factory/server_inventory.json\\\",\\\".factory/backlog/prioritized.json\\\"],\\n  \\\"output_artifacts\\\": [\\\".factory/tasks/review/KOL-CANARY-001.result.json\\\"],\\n  \\\"acceptance_criteria\\\": [\\n    \\\"Return a structured result envelope.\\\",\\n    \\\"Do not mutate source code.\\\",\\n    \\\"List blockers for safe 2-server canary execution.\\\",\\n    \\\"Confirm whether task schemas and policies are present.\\\"\\n  ],\\n  \\\"required_tests\\\": [\\n    \\\"python3 -m json.tool .factory/server_inventory.json\\\",\\n    \\\"python3 .factory/scripts/factory_status.py\\\"\\n  ],\\n  \\\"resource_limits\\\": {\\n    \\\"max_wall_seconds\\\": 900,\\n    \\\"max_cpu_percent\\\": 100,\\n    \\\"max_ram_mb\\\": 1024,\\n    \\\"max_disk_mb\\\": 256\\n  },\\n  \\\"security_rules\\\": [\\\"No secrets.\\\",\\\"No production mutation.\\\",\\\"No broad process kill.\\\",\\\"No deploy.\\\"],\\n  \\\"report_path\\\": \\\".factory/tasks/review/KOL-CANARY-001.result.json\\\",\\n  \\\"seed\\\": null,\\n  \\\"dry_run\\\": true\\n}\\n\",\"metadata\":{\"output\":\"{\\n  \\\"factory_run_id\\\": \\\"factory-bootstrap-20260620\\\",\\n  \\\"task_id\\\": \\\"KOL-CANARY-001\\\",\\n  \\\"server_id\\\": \\\"hostvds-agent-02\\\",\\n  \\\"agent_role\\\": \\\"FRONTEND_DESIGN_ENGINEER\\\",\\n  \\\"objective\\\": \\\"Read-only OpenClaw canary: verify frontend/design worker readiness, deployed path assumptions, and blockers before any broad UI fanout. Do not deploy or restart services.\\\",\\n  \\\"repository\\\": \\\"/srv/kolibri/repo\\\",\\n  \\\"base_commit\\\": \\\"1dee7b16c5c0bb8bd2163720915146d5b120c297\\\",\\n  \\\"branch\\\": \\\"factory/KOL-CANARY-001-factory-readonly-audit\\\",\\n  \\\"allowed_paths\\\": [\\\"/opt/kolibri-ai\\\",\\\"/srv/kolibri/repo\\\",\\\".factory\\\",\\\"logs/agent-factory\\\",\\\"logs/agent-runs\\\"],\\n  \\\"protected_paths\\\": [\\\".env\\\",\\\".ssh\\\",\\\".mimocode\\\",\\\"auth.json\\\",\\\"tokens\\\",\\\"secrets\\\",\\\"vpn\\\"],\\n  \\\"input_artifacts\\\": [\\\".factory/README.md\\\",\\\".factory/server_inventory.json\\\",\\\".factory/backlog/prioritized.json\\\"],\\n  \\\"output_artifacts\\\": [\\\".factory/tasks/review/KOL-CANARY-001.result.json\\\"],\\n  \\\"acceptance_criteria\\\": [\\n    \\\"Return a structured result envelope.\\\",\\n    \\\"Do not mutate source code.\\\",\\n    \\\"List blockers for safe 2-server canary execution.\\\",\\n    \\\"Confirm whether task schemas and policies are present.\\\"\\n  ],\\n  \\\"required_tests\\\": [\\n    \\\"python3 -m json.tool .factory/server_inventory.json\\\",\\n    \\\"python3 .factory/scripts/factory_status.py\\\"\\n  ],\\n  \\\"resource_limits\\\": {\\n    \\\"max_wall_seconds\\\": 900,\\n    \\\"max_cpu_percent\\\": 100,\\n    \\\"max_ram_mb\\\": 1024,\\n    \\\"max_disk_mb\\\": 256\\n  },\\n  \\\"security_rules\\\": [\\\"No secrets.\\\",\\\"No production mutation.\\\",\\\"No broad process kill.\\\",\\\"No deploy.\\\"],\\n  \\\"report_path\\\": \\\".factory/tasks/review/KOL-CANARY-001.result.json\\\",\\n  \\\"seed\\\": null,\\n  \\\"dry_run\\\": true\\n}\\n\",\"exit\":0,\"description\":\"Check first canary task\",\"truncated\":false},\"title\":\"Check first canary task\",\"time\":{\"start\":1781967857696,\"end\":1781967857781}},\"id\":\"prt_ee58fa57a001rOg09ROkKpNIuz\",\"sessionID\":\"ses_11a70ee48ffeCMNhjaf008Lb8p\",\"messageID\":\"msg_ee58f7d1f0015CtnavIBCXLOLG\"}}\n{\"type\":\"step_finish\",\"timestamp\":1781967857971,\"sessionID\":\"ses_11a70ee48ffeCMNhjaf008Lb8p\",\"part\":{\"id\":\"prt_ee58fa8ae0014rsGWZhbR4IUdY\",\"reason\":\"tool-calls\",\"snapshot\":\"bf94df7605682d33e7bc5de8ce3eb4803f6a2450\",\"messageID\":\"msg_ee58f7d1f0015CtnavIBCXLOLG\",\"sessionID\":\"ses_11a70ee48ffeCMNhjaf008Lb8p\",\"type\":\"step-finish\",\"tokens\":{\"total\":29799,\"input\":532,\"output\":229,\"reasoning\":46,\"cache\":{\"write\":0,\"read\":28992}},\"cost\":0}}\n{\"type\":\"step_start\",\"timestamp\":1781967862781,\"sessionID\":\"ses_11a70ee48ffeCMNhjaf008Lb8p\",\"part\":{\"id\":\"prt_ee58fbbf2001zfCtPUicLWcrdX\",\"messageID\":\"msg_ee58fa9ca001tAaCN8KFqSIBWc\",\"sessionID\":\"ses_11a70ee48ffeCMNhjaf008Lb8p\",\"snapshot\":\"bf94df7605682d33e7bc5de8ce3eb4803f6a2450\",\"type\":\"step-start\"}}\n{\"type\":\"text\",\"timestamp\":1781967871974,\"sessionID\":\"ses_11a70ee48ffeCMNhjaf008Lb8p\",\"part\":{\"id\":\"prt_ee58fc5f1001pk9p1jxHZpuvOd\",\"messageID\":\"msg_ee58fa9ca001tAaCN8KFqSIBWc\",\"sessionID\":\"ses_11a70ee48ffeCMNhjaf008Lb8p\",\"type\":\"text\",\"text\":\"Now I have all the information. Here's the structured audit result:\\n\\n```json\\n{\\n  \\\"status\\\": \\\"completed\\\",\\n  \\\"summary\\\": \\\"Read-only audit of CANARY6 hostvds-agent-02 completed. Repo HEAD verified, .factory v1 fully scaffolded with schemas/policies/scripts, Mimocode 0.1.1 installed but not in PATH, OpenClaw 2026.6.8 available, git working tree clean. Two canary tasks ready in backlog.\\\",\\n  \\\"changed_files\\\": [],\\n  \\\"checks\\\": [\\n    {\\\"name\\\": \\\"repo_head\\\", \\\"result\\\": \\\"95635ca\\\", \\\"detail\\\": \\\"detached HEAD in worktree, no branch\\\"},\\n    {\\\"name\\\": \\\"factory_scaffold\\\", \\\"result\\\": \\\"pass\\\", \\\"detail\\\": \\\".factory/ has config.yaml, schemas, policies, scripts, templates, agents, tasks, memory, backlog\\\"},\\n    {\\\"name\\\": \\\"mimocode_version\\\", \\\"result\\\": \\\"pass\\\", \\\"detail\\\": \\\"v0.1.1 at /root/.mimocode/bin/mimo\\\"},\\n    {\\\"name\\\": \\\"mimocode_in_path\\\", \\\"result\\\": \\\"fail\\\", \\\"detail\\\": \\\"mimo not in PATH; binary at /root/.mimocode/bin/mimo only\\\"},\\n    {\\\"name\\\": \\\"openclaw_availability\\\", \\\"result\\\": \\\"pass\\\", \\\"detail\\\": \\\"OpenClaw 2026.6.8 (844f405) at /usr/bin/openclaw\\\"},\\n    {\\\"name\\\": \\\"git_working_tree\\\", \\\"result\\\": \\\"clean\\\", \\\"detail\\\": \\\"no uncommitted changes\\\"},\\n    {\\\"name\\\": \\\"task_schemas\\\", \\\"result\\\": \\\"pass\\\", \\\"detail\\\": \\\"task_envelope, status, result_envelope schemas present in .factory/schemas/\\\"},\\n    {\\\"name\\\": \\\"canary_tasks_ready\\\", \\\"result\\\": \\\"pass\\\", \\\"detail\\\": \\\"KOL-CANARY-001, KOL-CANARY-002 in .factory/tasks/ready/\\\"},\\n    {\\\"name\\\": \\\"server_inventory_staleness\\\", \\\"result\\\": \\\"warn\\\", \\\"detail\\\": \\\"inventory_at 2026-06-20T17:10:00+03:00; hostvds-agent-02 mimo_status=missing_or_not_on_path (confirmed)\\\"}\\n  ],\\n  \\\"risks\\\": [\\n    \\\"Mimocode binary not in PATH - requires symlink or PATH update before dispatch\\\",\\n    \\\"Detached HEAD state means no branch tracking; new work must create branch explicitly\\\",\\n    \\\"14 of 18 servers have unknown SSH/mimo status in inventory\\\",\\n    \\\"hostvds-agent-01 has no mimo in PATH and no repo in standard paths\\\",\\n    \\\"main server has wrong CLI (Chinese MiMo chat, not Mimocode)\\\"\\n  ],\\n  \\\"artifacts\\\": [\\n    {\\\"type\\\": \\\"audit_result\\\", \\\"path\\\": \\\"inline\\\", \\\"hash\\\": \\\"N/A\\\"}\\n  ],\\n  \\\"next_actions\\\": [\\n    \\\"Add /root/.mimocode/bin to PATH or symlink mimo to /usr/local/bin\\\",\\n    \\\"Create a branch for canary work before starting tasks\\\",\\n    \\\"Verify OpenClaw UI capabilities on this server (frontend-claw-ui-agent role)\\\",\\n    \\\"Update server_inventory.json after confirming mimo PATH fix\\\",\\n    \\\"Proceed with KOL-CANARY-001 once PATH blocker resolved\\\"\\n  ]\\n}\\n```\",\"time\":{\"start\":1781967865329,\"end\":1781967871954}}}\n{\"type\":\"step_finish\",\"timestamp\":1781967872146,\"sessionID\":\"ses_11a70ee48ffeCMNhjaf008Lb8p\",\"part\":{\"id\":\"prt_ee58fdfe9001QcsG9VDblcopKX\",\"reason\":\"stop\",\"snapshot\":\"bf94df7605682d33e7bc5de8ce3eb4803f6a2450\",\"messageID\":\"msg_ee58fa9ca001tAaCN8KFqSIBWc\",\"sessionID\":\"ses_11a70ee48ffeCMNhjaf008Lb8p\",\"type\":\"step-finish\",\"tokens\":{\"total\":31321,\"input\":828,\"output\":724,\"reasoning\":265,\"cache\":{\"write\":0,\"read\":29504}},\"cost\":0}}\n",
+        "stderr": "",
+        "changed_files": [],
+        "checks": [],
+        "risks": [],
+        "artifacts": [],
+        "started_at": "2026-06-20T15:03:33.847802+00:00",
+        "completed_at": "2026-06-20T15:04:32.420501+00:00"
+      }
+    },
+    "canary7-hostvds-agent-02-1781967994": {
+      "id": "canary7-hostvds-agent-02-1781967994",
+      "wave": "canary7",
+      "server": "hostvds-agent-02",
+      "mode": "read_only",
+      "backend": "mimo",
+      "prompt": "CANARY7 HOSTVDS-AGENT-02. Read-only worker audit after PATH fix. Verify repo HEAD, .factory files, command -v mimo, mimo version, OpenClaw availability, git status, and blockers. Do not deploy, restart services, read secrets, or mutate code. Return only JSON with status, summary, changed_files, checks, risks, artifacts, next_actions.",
+      "status": "completed",
+      "priority": 300,
+      "created_at": "2026-06-20T15:06:34.373484+00:00",
+      "updated_at": "2026-06-20T15:10:00+00:00",
+      "timeout_seconds": 180,
+      "remote": {
+        "status": "running",
+        "pid": "19553",
+        "remote_dir": "/opt/kolibri-ai/agent-runs/factory-canary7-hostvds-agent-02-1781967994/hostvds-agent-02",
+        "result_path": "/opt/kolibri-ai/agent-runs/factory-canary7-hostvds-agent-02-1781967994/hostvds-agent-02/result.json",
+        "stdout_path": "/opt/kolibri-ai/agent-runs/factory-canary7-hostvds-agent-02-1781967994/hostvds-agent-02/stdout.log",
+        "stderr_path": "/opt/kolibri-ai/agent-runs/factory-canary7-hostvds-agent-02-1781967994/hostvds-agent-02/stderr.log",
+        "worktree": "/opt/kolibri-ai/agent-worktrees/canary7-hostvds-agent-02-1781967994",
+        "started_at": "2026-06-20T15:06:48.985030+00:00"
+      },
+      "result": {
+        "task_id": "canary7-hostvds-agent-02-1781967994",
+        "server": "hostvds-agent-02",
+        "status": "completed",
+        "summary": "Read-only worker audit for CANARY7 hostvds-agent-02 (frontend-claw-ui-agent) passed. PATH fix verified: /usr/local/bin/mimo is a symlink to /root/.mimocode/bin/mimo, mimo 0.1.1 resolves correctly. OpenClaw 2026.6.8 available. Repo HEAD 95635ca, clean working tree, detached HEAD. Factory v1 bootstrap files present.",
+        "returncode": 0,
+        "stdout": "r-backup-node\\\",\\\"ssh_alias\\\":\\\"kolibri-new\\\",\\\"ssh_port\\\":null,\\\"vpn_ip\\\":\\\"10.99.0.6\\\",\\\"public_ip\\\":null,\\\"region\\\":null,\\\"plan\\\":null,\\\"mimo_bin\\\":\\\"/root/.mimocode/bin/mimo\\\",\\\"remote_worktree_root\\\":\\\"/opt/kolibri-ai/agent-worktrees\\\",\\\"ssh_status\\\":\\\"unknown\\\",\\\"mimo_status\\\":\\\"unknown\\\",\\\"notes\\\":[]},\\n    {\\\"id\\\":\\\"reserve242\\\",\\\"enabled\\\":true,\\\"role\\\":\\\"qa-security-node\\\",\\\"ssh_alias\\\":\\\"root@31.57.26.242\\\",\\\"ssh_port\\\":null,\\\"vpn_ip\\\":\\\"\\\",\\\"public_ip\\\":\\\"31.57.26.242\\\",\\\"region\\\":null,\\\"plan\\\":null,\\\"mimo_bin\\\":\\\"/root/.mimocode/bin/mimo\\\",\\\"remote_worktree_root\\\":\\\"/opt/kolibri-ai/agent-worktrees\\\",\\\"ssh_status\\\":\\\"unknown\\\",\\\"mimo_status\\\":\\\"unknown\\\",\\\"notes\\\":[]},\\n    {\\\"id\\\":\\\"hostvds-highload\\\",\\\"enabled\\\":true,\\\"role\\\":\\\"ci-build-release-runner\\\",\\\"ssh_alias\\\":\\\"root@45.38.139.182\\\",\\\"ssh_port\\\":null,\\\"vpn_ip\\\":\\\"\\\",\\\"public_ip\\\":\\\"45.38.139.182\\\",\\\"region\\\":null,\\\"plan\\\":null,\\\"mimo_bin\\\":\\\"/root/.mimocode/bin/mimo\\\",\\\"remote_worktree_root\\\":\\\"/opt/kolibri-ai/agent-worktrees\\\",\\\"ssh_status\\\":\\\"unknown\\\",\\\"mimo_status\\\":\\\"unknown\\\",\\\"notes\\\":[\\\"last local dispatch attempt timed out\\\"]},\\n    {\\\"id\\\":\\\"hostvds-agent-01\\\",\\\"enabled\\\":true,\\\"role\\\":\\\"backend-lead-node\\\",\\\"ssh_alias\\\":\\\"root@31.57.27.128\\\",\\\"ssh_port\\\":null,\\\"vpn_ip\\\":\\\"\\\",\\\"public_ip\\\":\\\"31.57.27.128\\\",\\\"region\\\":\\\"Riga 2 (eu-north1)\\\",\\\"plan\\\":\\\"Burstable-2\\\",\\\"mimo_bin\\\":\\\"/root/.mimocode/bin/mimo\\\",\\\"remote_worktree_root\\\":\\\"/opt/kolibri-ai/agent-worktrees\\\",\\\"ssh_status\\\":\\\"ok\\\",\\\"mimo_status\\\":\\\"missing_or_not_on_path\\\",\\\"notes\\\":[\\\"health 2026-06-20: SSH ok, no mimo in PATH, no repo in standard paths\\\"]},\\n    {\\\"id\\\":\\\"hostvds-agent-02\\\",\\\"enabled\\\":true,\\\"role\\\":\\\"frontend-claw-ui-agent\\\",\\\"ssh_alias\\\":\\\"root@213.232.204.223\\\",\\\"ssh_port\\\":null,\\\"vpn_ip\\\":\\\"\\\",\\\"public_ip\\\":\\\"213.232.204.223\\\",\\\"region\\\":\\\"Riga 2 (eu-north1)\\\",\\\"plan\\\":\\\"Burstable-2\\\",\\\"mimo_bin\\\":\\\"/root/.mimocode/bin/mimo\\\",\\\"remote_worktree_root\\\":\\\"/opt/kolibri-ai/agent-worktrees\\\",\\\"ssh_status\\\":\\\"ok\\\",\\\"mimo_status\\\":\\\"missing_or_not_on_path\\\",\\\"notes\\\":[\\\"openclaw capable\\\",\\\"health 2026-06-20: OpenClaw present, no mimo in PATH, no repo in standard paths\\\"]},\\n    {\\\"id\\\":\\\"hostvds-agent-03\\\",\\\"enabled\\\":true,\\\"role\\\":\\\"infra-network-node\\\",\\\"ssh_alias\\\":\\\"root@188.130.206.204\\\",\\\"ssh_port\\\":null,\\\"vpn_ip\\\":\\\"\\\",\\\"public_ip\\\":\\\"188.130.206.204\\\",\\\"region\\\":\\\"Riga 2 (eu-north1)\\\",\\\"plan\\\":\\\"Burstable-2\\\",\\\"mimo_bin\\\":\\\"/root/.mimocode/bin/mimo\\\",\\\"remote_worktree_root\\\":\\\"/opt/kolibri-ai/agent-worktrees\\\",\\\"ssh_status\\\":\\\"ok\\\",\\\"mimo_status\\\":\\\"ok\\\",\\\"notes\\\":[\\\"health 2026-06-20: SSH ok\\\",\\\"official Mimocode 0.1.1 installed from https://mimo.xiaomi.com/install\\\",\\\"repo bundle cloned to /opt/kolibri-ai/repo at 8ba49be2395bd7638e6d474c61d6724d3f6b3e69\\\"]},\\n    {\\\"id\\\":\\\"hostvds-agent-04\\\",\\\"enabled\\\":true,\\\"role\\\":\\\"qa-browser-node\\\",\\\"ssh_alias\\\":\\\"root@31.59.41.146\\\",\\\"ssh_port\\\":null,\\\"vpn_ip\\\":\\\"\\\",\\\"public_ip\\\":\\\"31.59.41.146\\\",\\\"region\\\":\\\"Riga 2 (eu-north1)\\\",\\\"plan\\\":\\\"Burstable-2\\\",\\\"mimo_bin\\\":\\\"/root/.mimocode/bin/mimo\\\",\\\"remote_worktree_root\\\":\\\"/opt/kolibri-ai/agent-worktrees\\\",\\\"ssh_status\\\":\\\"unknown\\\",\\\"mimo_status\\\":\\\"unknown\\\",\\\"notes\\\":[]},\",\"truncated\":false,\"loaded\":[]},\"title\":\".factory/server_inventory.json\",\"time\":{\"start\":1781968051194,\"end\":1781968051316}},\"id\":\"prt_ee5929acc001kGbJSMxOBHYuQn\",\"sessionID\":\"ses_11a6de45effeZlwG4OtnoXcB9Y\",\"messageID\":\"msg_ee5926bae001g0AhV5jDph2thr\"}}\n{\"type\":\"tool_use\",\"timestamp\":1781968053682,\"sessionID\":\"ses_11a6de45effeZlwG4OtnoXcB9Y\",\"part\":{\"type\":\"tool\",\"tool\":\"bash\",\"callID\":\"call_ae0d13266431400dbb7912cb\",\"state\":{\"status\":\"completed\",\"input\":{\"command\":\"mimo --version 2>&1 || mimo -v 2>&1 || echo \\\"version flag unknown\\\"\",\"description\":\"Get mimo version info\",\"workdir\":\"/opt/kolibri-ai/agent-worktrees/canary7-hostvds-agent-02-1781967994\"},\"output\":\"0.1.1\\n\",\"metadata\":{\"output\":\"0.1.1\\n\",\"exit\":0,\"description\":\"Get mimo version info\",\"truncated\":false},\"title\":\"Get mimo version info\",\"time\":{\"start\":1781968053637,\"end\":1781968053675}},\"id\":\"prt_ee5928ed0001MkTLPuejb5Blj0\",\"sessionID\":\"ses_11a6de45effeZlwG4OtnoXcB9Y\",\"messageID\":\"msg_ee5926bae001g0AhV5jDph2thr\"}}\n{\"type\":\"step_finish\",\"timestamp\":1781968053784,\"sessionID\":\"ses_11a6de45effeZlwG4OtnoXcB9Y\",\"part\":{\"id\":\"prt_ee592a5b1001CDatYIL6DOUDh4\",\"reason\":\"tool-calls\",\"snapshot\":\"bf94df7605682d33e7bc5de8ce3eb4803f6a2450\",\"messageID\":\"msg_ee5926bae001g0AhV5jDph2thr\",\"sessionID\":\"ses_11a6de45effeZlwG4OtnoXcB9Y\",\"type\":\"step-finish\",\"tokens\":{\"total\":22958,\"input\":1534,\"output\":464,\"reasoning\":32,\"cache\":{\"write\":0,\"read\":20928}},\"cost\":0}}\n{\"type\":\"step_start\",\"timestamp\":1781968062786,\"sessionID\":\"ses_11a6de45effeZlwG4OtnoXcB9Y\",\"part\":{\"id\":\"prt_ee592c93d00146qgrIwGcA0dGI\",\"messageID\":\"msg_ee592a6ae001m6Tcx23qgKJ4Fc\",\"sessionID\":\"ses_11a6de45effeZlwG4OtnoXcB9Y\",\"snapshot\":\"bf94df7605682d33e7bc5de8ce3eb4803f6a2450\",\"type\":\"step-start\"}}\n{\"type\":\"tool_use\",\"timestamp\":1781968063762,\"sessionID\":\"ses_11a6de45effeZlwG4OtnoXcB9Y\",\"part\":{\"type\":\"tool\",\"tool\":\"bash\",\"callID\":\"call_269cb1eb93d041f7b9ee6315\",\"state\":{\"status\":\"completed\",\"input\":{\"command\":\"echo $PATH | tr ':' '\\\\n' | head -20\",\"description\":\"Show current PATH entries\"},\"output\":\"/usr/bin\\n/usr/bin\\n/usr/local/sbin\\n/usr/local/bin\\n/usr/sbin\\n/usr/bin\\n/sbin\\n/bin\\n/usr/games\\n/usr/local/games\\n/snap/bin\\n\",\"metadata\":{\"output\":\"/usr/bin\\n/usr/bin\\n/usr/local/sbin\\n/usr/local/bin\\n/usr/sbin\\n/usr/bin\\n/sbin\\n/bin\\n/usr/games\\n/usr/local/games\\n/snap/bin\\n\",\"exit\":0,\"description\":\"Show current PATH entries\",\"truncated\":false},\"title\":\"Show current PATH entries\",\"time\":{\"start\":1781968063744,\"end\":1781968063756}},\"id\":\"prt_ee592cb84001nJDjA0pUomQbz5\",\"sessionID\":\"ses_11a6de45effeZlwG4OtnoXcB9Y\",\"messageID\":\"msg_ee592a6ae001m6Tcx23qgKJ4Fc\"}}\n{\"type\":\"tool_use\",\"timestamp\":1781968064187,\"sessionID\":\"ses_11a6de45effeZlwG4OtnoXcB9Y\",\"part\":{\"type\":\"tool\",\"tool\":\"bash\",\"callID\":\"call_812eb3a3b0a04122ae5221f8\",\"state\":{\"status\":\"completed\",\"input\":{\"command\":\"ls -la /root/.mimocode/bin/mimo 2>/dev/null; which mimo; file /usr/local/bin/mimo\",\"description\":\"Check mimo binary locations and type\"},\"output\":\"-rwxr-xr-x 1 501 staff 125171840 Jun 15 03:31 /root/.mimocode/bin/mimo\\n/usr/local/bin/mimo\\n/usr/local/bin/mimo: symbolic link to /root/.mimocode/bin/mimo\\n\",\"metadata\":{\"output\":\"-rwxr-xr-x 1 501 staff 125171840 Jun 15 03:31 /root/.mimocode/bin/mimo\\n/usr/local/bin/mimo\\n/usr/local/bin/mimo: symbolic link to /root/.mimocode/bin/mimo\\n\",\"exit\":0,\"description\":\"Check mimo binary locations and type\",\"truncated\":false},\"title\":\"Check mimo binary locations and type\",\"time\":{\"start\":1781968064156,\"end\":1781968064177}},\"id\":\"prt_ee592ccdd001W65sBJdiDa7F9I\",\"sessionID\":\"ses_11a6de45effeZlwG4OtnoXcB9Y\",\"messageID\":\"msg_ee592a6ae001m6Tcx23qgKJ4Fc\"}}\n{\"type\":\"tool_use\",\"timestamp\":1781968064637,\"sessionID\":\"ses_11a6de45effeZlwG4OtnoXcB9Y\",\"part\":{\"type\":\"tool\",\"tool\":\"bash\",\"callID\":\"call_650e36ed71f64bcca229276d\",\"state\":{\"status\":\"completed\",\"input\":{\"command\":\"python3 --version 2>&1; node --version 2>&1; git --version 2>&1\",\"description\":\"Check toolchain availability\"},\"output\":\"Python 3.12.3\\nv24.17.0\\ngit version 2.43.0\\n\",\"metadata\":{\"output\":\"Python 3.12.3\\nv24.17.0\\ngit version 2.43.0\\n\",\"exit\":0,\"description\":\"Check toolchain availability\",\"truncated\":false},\"title\":\"Check toolchain availability\",\"time\":{\"start\":1781968064615,\"end\":1781968064626}},\"id\":\"prt_ee592ce92001M14XDASBJ1nPTc\",\"sessionID\":\"ses_11a6de45effeZlwG4OtnoXcB9Y\",\"messageID\":\"msg_ee592a6ae001m6Tcx23qgKJ4Fc\"}}\n{\"type\":\"step_finish\",\"timestamp\":1781968064789,\"sessionID\":\"ses_11a6de45effeZlwG4OtnoXcB9Y\",\"part\":{\"id\":\"prt_ee592d07b0014nfCS37EKyWdnE\",\"reason\":\"tool-calls\",\"snapshot\":\"bf94df7605682d33e7bc5de8ce3eb4803f6a2450\",\"messageID\":\"msg_ee592a6ae001m6Tcx23qgKJ4Fc\",\"sessionID\":\"ses_11a6de45effeZlwG4OtnoXcB9Y\",\"type\":\"step-finish\",\"tokens\":{\"total\":26388,\"input\":3798,\"output\":165,\"reasoning\":25,\"cache\":{\"write\":0,\"read\":22400}},\"cost\":0}}\n{\"type\":\"step_start\",\"timestamp\":1781968067725,\"sessionID\":\"ses_11a6de45effeZlwG4OtnoXcB9Y\",\"part\":{\"id\":\"prt_ee592dc830011uChtMArLUN6Y0\",\"messageID\":\"msg_ee592d1a7001ot6qQub47gpf4L\",\"sessionID\":\"ses_11a6de45effeZlwG4OtnoXcB9Y\",\"snapshot\":\"bf94df7605682d33e7bc5de8ce3eb4803f6a2450\",\"type\":\"step-start\"}}\n{\"type\":\"text\",\"timestamp\":1781968076021,\"sessionID\":\"ses_11a6de45effeZlwG4OtnoXcB9Y\",\"part\":{\"id\":\"prt_ee592de2f001PQ9iZ3H5nVYACT\",\"messageID\":\"msg_ee592d1a7001ot6qQub47gpf4L\",\"sessionID\":\"ses_11a6de45effeZlwG4OtnoXcB9Y\",\"type\":\"text\",\"text\":\"All checks complete. Here is the structured result:\\n\\n```json\\n{\\n  \\\"status\\\": \\\"success\\\",\\n  \\\"summary\\\": \\\"Read-only worker audit for CANARY7 hostvds-agent-02 (frontend-claw-ui-agent) passed. PATH fix verified: /usr/local/bin/mimo is a symlink to /root/.mimocode/bin/mimo, mimo 0.1.1 resolves correctly. OpenClaw 2026.6.8 available. Repo HEAD 95635ca, clean working tree, detached HEAD. Factory v1 bootstrap files present.\\\",\\n  \\\"changed_files\\\": [],\\n  \\\"checks\\\": {\\n    \\\"repo_head\\\": \\\"95635ca313051b000eced9ed0516f47212bfa989\\\",\\n    \\\"repo_head_message\\\": \\\"codex: bootstrap first remote mimocode worker\\\",\\n    \\\"git_status\\\": \\\"clean, detached HEAD (not on any branch)\\\",\\n    \\\"mimo_path\\\": \\\"/usr/local/bin/mimo (symlink -> /root/.mimocode/bin/mimo)\\\",\\n    \\\"mimo_version\\\": \\\"0.1.1\\\",\\n    \\\"mimo_binary_size\\\": \\\"125171880 bytes (119 MB)\\\",\\n    \\\"openclaw_available\\\": true,\\n    \\\"openclaw_path\\\": \\\"/usr/bin/openclaw\\\",\\n    \\\"openclaw_version\\\": \\\"OpenClaw 2026.6.8 (844f405)\\\",\\n    \\\"python_version\\\": \\\"3.12.3\\\",\\n    \\\"node_version\\\": \\\"v24.17.0\\\",\\n    \\\"git_version\\\": \\\"2.43.0\\\",\\n    \\\"factory_config\\\": \\\"present (.factory/config.yaml, mode=bootstrap, run_id=factory-bootstrap-20260620)\\\",\\n    \\\"factory_server_inventory\\\": \\\"present (.factory/server_inventory.json, 19 servers registered)\\\",\\n    \\\"this_server_inventory_entry\\\": {\\n      \\\"id\\\": \\\"hostvds-agent-02\\\",\\n      \\\"role\\\": \\\"frontend-claw-ui-agent\\\",\\n      \\\"ssh_alias\\\": \\\"root@213.232.204.223\\\",\\n      \\\"region\\\": \\\"Riga 2 (eu-north1)\\\",\\n      \\\"plan\\\": \\\"Burstable-2\\\",\\n      \\\"inventory_mimo_status\\\": \\\"missing_or_not_on_path\\\",\\n      \\\"actual_mimo_status\\\": \\\"ok \u2014 PATH fix resolved the issue\\\"\\n    },\\n    \\\"path_fix_verified\\\": true,\\n    \\\"inventory_stale\\\": true,\\n    \\\"notes\\\": [\\n      \\\"server_inventory.json records mimo_status as 'missing_or_not_on_path' for hostvds-agent-02, but mimo now resolves at /usr/local/bin/mimo -> /root/.mimocode/bin/mimo. Inventory needs update.\\\",\\n      \\\"Detached HEAD \u2014 worktree is not on a named branch. This is normal for a worktree checkout but means no branch tracking is active.\\\"\\n    ]\\n  },\\n  \\\"risks\\\": [\\n    \\\"server_inventory.json is stale for this host (mimo_status still reads 'missing_or_not_on_path') \u2014 should be updated by Codex in next inventory refresh\\\",\\n    \\\"Detached HEAD state: worktree is not tracking a branch; pushes and branch-aware operations will need explicit branch checkout first\\\",\\n    \\\"No .factory/runs/ directory with active run state files \u2014 factory bootstrap run state not yet written to this worktree\\\"\\n  ],\\n  \\\"artifacts\\\": [],\\n  \\\"next_actions\\\": [\\n    \\\"Codex should update server_inventory.json entry for hostvds-agent-02: set mimo_status to 'ok' to reflect PATH fix\\\",\\n    \\\"Codex should confirm this worktree should track a named branch (currently detached HEAD)\\\",\\n    \\\"This worker is ready for dispatched read-only tasks; no blockers remain on this host\\\"\\n  ]\\n}\\n```\",\"time\":{\"start\":1781968068143,\"end\":1781968076001}}}\n{\"type\":\"step_finish\",\"timestamp\":1781968076178,\"sessionID\":\"ses_11a6de45effeZlwG4OtnoXcB9Y\",\"part\":{\"id\":\"prt_ee592fcf7001k4Tm6ZJvwOA6cy\",\"reason\":\"stop\",\"snapshot\":\"bf94df7605682d33e7bc5de8ce3eb4803f6a2450\",\"messageID\":\"msg_ee592d1a7001ot6qQub47gpf4L\",\"sessionID\":\"ses_11a6de45effeZlwG4OtnoXcB9Y\",\"type\":\"step-finish\",\"tokens\":{\"total\":27381,\"input\":362,\"output\":823,\"reasoning\":20,\"cache\":{\"write\":0,\"read\":26176}},\"cost\":0}}\n",
+        "stderr": "",
+        "changed_files": [],
+        "checks": {
+          "repo_head": "95635ca313051b000eced9ed0516f47212bfa989",
+          "repo_head_message": "codex: bootstrap first remote mimocode worker",
+          "git_status": "clean, detached HEAD (not on any branch)",
+          "mimo_path": "/usr/local/bin/mimo (symlink -> /root/.mimocode/bin/mimo)",
+          "mimo_version": "0.1.1",
+          "mimo_binary_size": "125171880 bytes (119 MB)",
+          "openclaw_available": true,
+          "openclaw_path": "/usr/bin/openclaw",
+          "openclaw_version": "OpenClaw 2026.6.8 (844f405)",
+          "python_version": "3.12.3",
+          "node_version": "v24.17.0",
+          "git_version": "2.43.0",
+          "factory_config": "present (.factory/config.yaml, mode=bootstrap, run_id=factory-bootstrap-20260620)",
+          "factory_server_inventory": "present (.factory/server_inventory.json, 19 servers registered)",
+          "this_server_inventory_entry": {
+            "id": "hostvds-agent-02",
+            "role": "frontend-claw-ui-agent",
+            "ssh_alias": "root@213.232.204.223",
+            "region": "Riga 2 (eu-north1)",
+            "plan": "Burstable-2",
+            "inventory_mimo_status": "missing_or_not_on_path",
+            "actual_mimo_status": "ok \u2014 PATH fix resolved the issue"
+          },
+          "path_fix_verified": true,
+          "inventory_stale": true,
+          "notes": [
+            "server_inventory.json records mimo_status as 'missing_or_not_on_path' for hostvds-agent-02, but mimo now resolves at /usr/local/bin/mimo -> /root/.mimocode/bin/mimo. Inventory needs update.",
+            "Detached HEAD \u2014 worktree is not on a named branch. This is normal for a worktree checkout but means no branch tracking is active."
+          ]
+        },
+        "risks": [
+          "server_inventory.json is stale for this host (mimo_status still reads 'missing_or_not_on_path') \u2014 should be updated by Codex in next inventory refresh",
+          "Detached HEAD state: worktree is not tracking a branch; pushes and branch-aware operations will need explicit branch checkout first",
+          "No .factory/runs/ directory with active run state files \u2014 factory bootstrap run state not yet written to this worktree"
+        ],
+        "artifacts": [],
+        "next_actions": [
+          "Codex should update server_inventory.json entry for hostvds-agent-02: set mimo_status to 'ok' to reflect PATH fix",
+          "Codex should confirm this worktree should track a named branch (currently detached HEAD)",
+          "This worker is ready for dispatched read-only tasks; no blockers remain on this host"
+        ],
+        "started_at": "2026-06-20T15:06:52.790651+00:00",
+        "completed_at": "2026-06-20T15:07:56.498037+00:00"
+      }
     }
   },
   "events": [
@@ -646,6 +822,119 @@
     {
       "at": "2026-06-20T14:51:03.762242+00:00",
       "kind": "dispatch",
+      "count": 1
+    },
+    {
+      "at": "2026-06-20T14:54:23.722402+00:00",
+      "kind": "collect",
+      "count": 0
+    },
+    {
+      "at": "2026-06-20T14:57:17.038886+00:00",
+      "kind": "dispatch_one",
+      "task_id": "canary4-hostvds-agent-02-1781967019",
+      "server": "hostvds-agent-02",
+      "status": "running"
+    },
+    {
+      "at": "2026-06-20T14:57:17.043356+00:00",
+      "kind": "dispatch",
+      "count": 1
+    },
+    {
+      "at": "2026-06-20T14:57:46.926146+00:00",
+      "kind": "collect",
+      "count": 1
+    },
+    {
+      "at": "2026-06-20T14:58:44.424421+00:00",
+      "kind": "enqueue",
+      "count": 1,
+      "wave": "canary5"
+    },
+    {
+      "at": "2026-06-20T14:59:49.098127+00:00",
+      "kind": "dispatch_one",
+      "task_id": "canary5-hostvds-agent-02-1781967524",
+      "server": "hostvds-agent-02",
+      "status": "dispatch_failed"
+    },
+    {
+      "at": "2026-06-20T14:59:49.101623+00:00",
+      "kind": "dispatch",
+      "count": 1
+    },
+    {
+      "at": "2026-06-20T15:01:33.090716+00:00",
+      "kind": "dispatch_one",
+      "task_id": "canary5-hostvds-agent-02-1781967524",
+      "server": "hostvds-agent-02",
+      "status": "running"
+    },
+    {
+      "at": "2026-06-20T15:01:33.092907+00:00",
+      "kind": "dispatch",
+      "count": 1
+    },
+    {
+      "at": "2026-06-20T15:01:51.114640+00:00",
+      "kind": "collect",
+      "count": 1
+    },
+    {
+      "at": "2026-06-20T15:03:05.337082+00:00",
+      "kind": "enqueue",
+      "count": 1,
+      "wave": "canary6"
+    },
+    {
+      "at": "2026-06-20T15:03:30.042085+00:00",
+      "kind": "dispatch_one",
+      "task_id": "canary6-hostvds-agent-02-1781967785",
+      "server": "hostvds-agent-02",
+      "status": "running"
+    },
+    {
+      "at": "2026-06-20T15:03:30.043972+00:00",
+      "kind": "dispatch",
+      "count": 1
+    },
+    {
+      "at": "2026-06-20T15:04:00.012752+00:00",
+      "kind": "collect",
+      "count": 1
+    },
+    {
+      "at": "2026-06-20T15:04:23.762862+00:00",
+      "kind": "collect",
+      "count": 0
+    },
+    {
+      "at": "2026-06-20T15:05:31.908517+00:00",
+      "kind": "collect",
+      "count": 1
+    },
+    {
+      "at": "2026-06-20T15:06:34.373491+00:00",
+      "kind": "enqueue",
+      "count": 1,
+      "wave": "canary7"
+    },
+    {
+      "at": "2026-06-20T15:06:48.989936+00:00",
+      "kind": "dispatch_one",
+      "task_id": "canary7-hostvds-agent-02-1781967994",
+      "server": "hostvds-agent-02",
+      "status": "running"
+    },
+    {
+      "at": "2026-06-20T15:06:48.994294+00:00",
+      "kind": "dispatch",
+      "count": 1
+    },
+    {
+      "at": "2026-06-20T15:07:57.885521+00:00",
+      "kind": "collect",
       "count": 1
     }
   ],
