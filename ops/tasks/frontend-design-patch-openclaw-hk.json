@@ -1,0 +1,75 @@
+{
+  "task_id": "frontend-design-patch-openclaw-hk",
+  "agent_role": "Frontend/Design Lead",
+  "agent_backend": "openclaw",
+  "openclaw_agent": "kolibri-frontend-hk",
+  "server": "hostvds-agent-10",
+  "mode": "controlled_mutation",
+  "model": "xiaomi-token-plan/mimo-v2.5-pro",
+  "budget": {
+    "max_usd": 4,
+    "max_tokens": 600000,
+    "max_runtime_seconds": 1800,
+    "billing_note": "One bounded HK OpenClaw draft patch only; stop before broad redesign or backend/API rewrites."
+  },
+  "prompt": "Implement a bounded frontend patch based on the completed HK OpenClaw UX audit. Focus on these fixes only: 1) make static/fallback Agent Ops data visibly labeled with a prominent stale/demo data banner and timestamp; 2) replace the hardcoded Tasks sidebar badge with a computed value from task data; 3) improve Tasks structured-result scanability with pass/fail/pending check indicators and clearer risk severity styling; 4) improve Servers mobile layout by replacing the wide table with responsive server cards or an equivalent mobile-safe layout; 5) add a visible WebSocket reconnect/offline operator signal if it can be done without backend changes. Preserve existing Chat, Docs, Search, Cluster, and Agent Ops navigation. Do not change backend APIs, server configs, secrets, deployment, or package manager policy. Keep the patch small and reviewable.",
+  "worktree": "/opt/kolibri-ai/agent-worktrees/frontend-design-patch-openclaw-hk",
+  "allowed_paths": [
+    "/opt/kolibri-ai/agent-worktrees/frontend-design-patch-openclaw-hk/frontend",
+    "/opt/kolibri-ai/agent-worktrees/frontend-design-patch-openclaw-hk/docs",
+    "/opt/kolibri-ai/agent-worktrees/frontend-design-patch-openclaw-hk/reports",
+    "/opt/kolibri-ai/agent-worktrees/frontend-design-patch-openclaw-hk/artifacts/browser-qa"
+  ],
+  "quality_contract": {
+    "objective": "Produce a bounded, reviewable OpenClaw frontend patch that fixes the top Agent Ops UX blockers found by the HK audit.",
+    "context": "Codex remains reviewer and release gate. OpenClaw may mutate only the isolated frontend worktree and must return a structured result for review.",
+    "scope": [
+      "Patch only frontend/docs/report/artifact files inside the declared worktree.",
+      "Prioritize stale-data trust signals, dynamic task badge, task result readability, mobile servers layout, and reconnect/offline visibility.",
+      "Keep existing Chat, Docs, Search, Cluster, and Agent Ops routes working."
+    ],
+    "out_of_scope": [
+      "Do not edit backend APIs, infra, deploy scripts, server state, package manager policy, or production credentials.",
+      "Do not read or write secrets, auth files, .env files, .ssh, or .mimocode.",
+      "Do not perform broad redesigns, landing pages, marketing copy, or unrelated refactors."
+    ],
+    "acceptance_criteria": [
+      "Frontend lint and build pass after the patch.",
+      "No changed file is outside the allowed paths.",
+      "The patch directly maps to the listed HK audit findings.",
+      "Desktop and mobile layouts do not overlap or hide primary controls."
+    ],
+    "verification_steps": [
+      "Run npm --prefix frontend run lint.",
+      "Run npm --prefix frontend run build.",
+      "Report any browser QA still needed for Codex."
+    ],
+    "deliverables": [
+      "Structured result with status, summary, changed_files, checks, risks, and artifacts.",
+      "Short issue-to-change mapping.",
+      "Remaining risk list."
+    ],
+    "stop_conditions": [
+      "Stop if credentials, tokens, private keys, or auth file contents are required.",
+      "Stop if the task requires editing outside allowed_paths.",
+      "Stop if a requested fix requires backend, deploy, or server changes."
+    ]
+  },
+  "required_checks": [
+    "npm --prefix frontend run lint",
+    "npm --prefix frontend run build"
+  ],
+  "timeout_seconds": 1800,
+  "secrets_policy": {
+    "allow_env_files": false,
+    "allow_auth_files": false,
+    "redact_logs": true
+  },
+  "expected_output": {
+    "format": "structured_result",
+    "requires_summary": true,
+    "requires_changed_files": true,
+    "requires_risks": true
+  },
+  "allow_unsafe_permissions": false
+}
