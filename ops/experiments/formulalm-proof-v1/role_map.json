@@ -1,0 +1,50 @@
+{
+  "run_id": "formulalm-proof-v1",
+  "run_dir": "/srv/kolibri/runs/formulalm-proof-v1",
+  "servers": {
+    "hostvds-highload": {
+      "proof_role": "data-normalization-split-qwen-logits",
+      "tasks": [
+        "find estimates 401-421",
+        "create sha256 dataset manifest",
+        "deduplicate exact and near duplicates",
+        "create document-level train validation test split",
+        "extract frozen Qwen2.5-1.5B top-64 logits"
+      ],
+      "seed": null
+    },
+    "qjns": {
+      "proof_role": "formulalm-evolution",
+      "seed": 101,
+      "tasks": [
+        "train FormulaLM with seed 101",
+        "select checkpoint by validation only",
+        "write metrics and checkpoint hash"
+      ]
+    },
+    "hostvds-agent-07": {
+      "proof_role": "formulalm-evolution",
+      "seed": 202,
+      "tasks": [
+        "train FormulaLM with seed 202",
+        "select checkpoint by validation only",
+        "write metrics and checkpoint hash"
+      ]
+    },
+    "hostvds-agent-10": {
+      "proof_role": "formulalm-evolution-independent-evaluator",
+      "seed": 303,
+      "tasks": [
+        "train FormulaLM with seed 303",
+        "run untouched test exactly once after validation selection",
+        "compare frozen Qwen, random FormulaLM, constant rank bias, and evolved FormulaLM",
+        "write final_report.json"
+      ]
+    }
+  },
+  "scale_limit": {
+    "server_count": 4,
+    "all_19_servers_required": false,
+    "reason": "Proof v1 is a short scientific experiment before full 19-server orchestration."
+  }
+}

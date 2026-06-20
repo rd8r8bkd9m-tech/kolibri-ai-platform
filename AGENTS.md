@@ -17,6 +17,9 @@ decisions require Codex review.
 
 ### Track B: FormulaLM Estimate Pilot
 
+- Run `formulalm-proof-v1` before the full 19-server pilot when the goal is a
+  short scientific proof. It uses four servers, frozen Qwen2.5-1.5B logits,
+  three FormulaLM seeds, and untouched-test full-vocabulary CE.
 - Start with run ID `estimate-pilot-001`.
 - Use only the current 401-421 estimate dataset for the first pilot.
 - Run preflight before any training: inventory, dataset manifest, schema audit,

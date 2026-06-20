@@ -128,6 +128,27 @@ open http://localhost:3000
 
 ## FormulaLM Experiment Mode
 
+For a short scientific proof, run `formulalm-proof-v1` before the full
+19-server pilot. It uses four servers, frozen Qwen2.5-1.5B top-64 logits,
+three FormulaLM seeds, and untouched-test full-vocabulary CE as the primary
+metric.
+
+Validate the proof contract with:
+
+```bash
+python3 scripts/validate_formulalm_proof_v1.py
+```
+
+Check whether the current machine actually has the 401-421 estimate corpus:
+
+```bash
+python3 scripts/validate_formulalm_proof_v1.py --check-data-root backend/data/documents
+```
+
+If data readiness returns `blocked`, do not start logits extraction or training.
+Locate the real corpus first, create `dataset_manifest.json`, and only then run
+the four-server proof.
+
 The FormulaLM pilot uses all 19 server keys from `ops/agents.yml`, not only the
 6 operational VPN nodes above. The canonical run ID is `estimate-pilot-001`, and
 the canonical run directory is:

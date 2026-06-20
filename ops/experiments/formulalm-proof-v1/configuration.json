@@ -1,0 +1,83 @@
+{
+  "run_id": "formulalm-proof-v1",
+  "parent_protocol": "estimate-pilot-001",
+  "objective": "Prove or falsify that an evolutionary FormulaLM reranker improves full-vocabulary cross-entropy of frozen Qwen2.5-1.5B on untouched construction estimates without backpropagation.",
+  "dataset": {
+    "name": "current-401-421-estimates",
+    "split_unit": "document_or_project",
+    "train_ratio": 0.7,
+    "validation_ratio": 0.15,
+    "test_ratio": 0.15,
+    "dedupe_required": true,
+    "near_duplicate_leakage_forbidden": true,
+    "overlapping_windows_across_splits_forbidden": true,
+    "test_used_once": true
+  },
+  "logits": {
+    "base_model": "Qwen2.5-1.5B",
+    "base_model_frozen": true,
+    "context_length_tokens": 64,
+    "top_k": 64,
+    "train_contexts": 10000,
+    "validation_contexts": 2000,
+    "test_contexts": 2000,
+    "required_fields": [
+      "document_id",
+      "block_id",
+      "context_ids",
+      "target_id",
+      "top_ids",
+      "top_logits",
+      "target_position",
+      "target_logit",
+      "full_vocab_logsumexp"
+    ]
+  },
+  "formulalm": {
+    "population": 8,
+    "generations": 100,
+    "seeds": [101, 202, 303],
+    "alpha": [0.03, 0.1, 0.3],
+    "training_method": "mutation_crossover_tournament_selection",
+    "backpropagation_allowed": false,
+    "formula": "final_logits = qwen_logits + alpha * formulalm_bias",
+    "checkpoint_selection": "validation_only"
+  },
+  "baselines": [
+    "frozen_qwen",
+    "qwen_plus_random_formulalm",
+    "qwen_plus_constant_rank_bias",
+    "qwen_plus_evolved_formulalm"
+  ],
+  "test_metrics": [
+    "base_full_vocab_ce",
+    "formula_full_vocab_ce",
+    "delta_ce",
+    "top_k_coverage",
+    "paired_block_bootstrap_ci_95",
+    "improved_fraction",
+    "model_size_mb",
+    "additional_latency_percent"
+  ],
+  "proof_criteria": {
+    "delta_ce_positive": true,
+    "ci_lower_bound_positive": true,
+    "positive_seeds_min": 2,
+    "total_seeds": 3,
+    "must_beat_random_formulalm": true,
+    "must_beat_constant_rank_bias": true,
+    "train_test_leakage_allowed": false,
+    "max_model_size_mb": 50,
+    "max_inference_overhead_percent": 10,
+    "strong_full_vocab_ce_improvement_percent": 1.0
+  },
+  "required_artifacts": [
+    "dataset_manifest.json",
+    "split_manifest.json",
+    "logits_cache",
+    "best_checkpoints",
+    "configuration.json",
+    "metrics_by_seed.json",
+    "final_report.json"
+  ]
+}
