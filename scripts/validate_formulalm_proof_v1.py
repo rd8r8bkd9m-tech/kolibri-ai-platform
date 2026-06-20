@@ -18,6 +18,8 @@ CONFIG_PATH = EXP_DIR / "configuration.json"
 ROLE_MAP_PATH = EXP_DIR / "role_map.json"
 AGENTS_PATH = PROJECT_DIR / "ops" / "agents.yml"
 ESTIMATE_SUFFIXES = {".pdf", ".docx", ".xlsx", ".csv", ".json", ".txt", ".md"}
+DATASET_COUNT_MIN = 401
+DATASET_COUNT_MAX = 421
 
 
 class ValidationError(RuntimeError):
@@ -51,6 +53,9 @@ def validate_contract() -> dict[str, Any]:
         raise ValidationError("run_id mismatch")
     if role_map.get("run_dir") != "/srv/kolibri/runs/formulalm-proof-v1":
         raise ValidationError("unexpected run_dir")
+    dataset = config.get("dataset", {})
+    if dataset.get("expected_count_min") != DATASET_COUNT_MIN or dataset.get("expected_count_max") != DATASET_COUNT_MAX:
+        raise ValidationError("dataset expected count range must be 401-421")
 
     servers = role_map.get("servers", {})
     if len(servers) != 4:
@@ -143,12 +148,13 @@ def discover_estimates(root: Path) -> list[dict[str, Any]]:
 
 def validate_data_readiness(root: Path) -> dict[str, Any]:
     estimates = discover_estimates(root)
-    status = "ready" if len(estimates) >= 421 else "blocked"
+    status = "ready" if DATASET_COUNT_MIN <= len(estimates) <= DATASET_COUNT_MAX else "blocked"
     return {
         "status": status,
         "root": str(root),
         "estimate_like_files": len(estimates),
-        "required_min_estimates": 421,
+        "required_min_estimates": DATASET_COUNT_MIN,
+        "required_max_estimates": DATASET_COUNT_MAX,
         "sample": estimates[:10],
         "blocker": None if status == "ready" else "current 401-421 estimate corpus was not found under the checked root",
     }

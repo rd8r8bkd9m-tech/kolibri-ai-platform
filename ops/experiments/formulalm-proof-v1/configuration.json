@@ -4,6 +4,8 @@
   "objective": "Prove or falsify that an evolutionary FormulaLM reranker improves full-vocabulary cross-entropy of frozen Qwen2.5-1.5B on untouched construction estimates without backpropagation.",
   "dataset": {
     "name": "current-401-421-estimates",
+    "expected_count_min": 401,
+    "expected_count_max": 421,
     "split_unit": "document_or_project",
     "train_ratio": 0.7,
     "validation_ratio": 0.15,
