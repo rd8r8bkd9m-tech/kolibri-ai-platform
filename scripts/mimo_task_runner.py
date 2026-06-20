@@ -432,6 +432,34 @@ def json_from_markdown_block(text: str) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
+def result_from_text(text: str) -> dict[str, Any] | None:
+    block = json_from_markdown_block(text)
+    if block:
+        return block
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def collect_structured_results(value: Any, candidates: list[dict[str, Any]]) -> None:
+    if isinstance(value, dict):
+        if {"status", "summary", "changed_files", "checks", "risks", "artifacts"}.issubset(value):
+            candidates.append(value)
+        for key in ("text", "message", "content", "output"):
+            text = value.get(key)
+            if isinstance(text, str):
+                result = result_from_text(text)
+                if result:
+                    candidates.append(result)
+        for item in value.values():
+            collect_structured_results(item, candidates)
+    elif isinstance(value, list):
+        for item in value:
+            collect_structured_results(item, candidates)
+
+
 def extract_agent_result(stdout: str, stderr: str) -> dict[str, Any] | None:
     """Extract the final structured result from agent output.
 
@@ -452,19 +480,13 @@ def extract_agent_result(stdout: str, stderr: str) -> dict[str, Any] | None:
             continue
         if not isinstance(event, dict):
             continue
+        collect_structured_results(event, candidates)
         part = event.get("part")
         if isinstance(part, dict) and part.get("type") == "text":
             text = str(part.get("text") or "")
-            block = json_from_markdown_block(text)
-            if block:
-                candidates.append(block)
-            else:
-                try:
-                    data = json.loads(text)
-                except json.JSONDecodeError:
-                    data = None
-                if isinstance(data, dict):
-                    candidates.append(data)
+            result = result_from_text(text)
+            if result:
+                candidates.append(result)
         elif {"status", "summary", "changed_files", "checks", "risks", "artifacts"}.issubset(event):
             candidates.append(event)
 
@@ -472,14 +494,12 @@ def extract_agent_result(stdout: str, stderr: str) -> dict[str, Any] | None:
         return candidates[-1]
 
     text = (stdout or stderr or "").strip()
-    block = json_from_markdown_block(text)
-    if block:
-        return block
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        return None
-    return data if isinstance(data, dict) else None
+    direct = result_from_text(text)
+    if direct:
+        candidates = []
+        collect_structured_results(direct, candidates)
+        return candidates[-1] if candidates else direct
+    return None
 
 
 def apply_agent_result(result: dict[str, Any], agent_result: dict[str, Any] | None) -> None:
@@ -490,6 +510,8 @@ def apply_agent_result(result: dict[str, Any], agent_result: dict[str, Any] | No
         if key in agent_result:
             result[key] = agent_result[key]
     agent_status = agent_result.get("status")
+    if agent_status == "complete":
+        agent_status = "completed"
     if isinstance(agent_status, str) and agent_status in {"completed", "failed", "blocked", "degraded"}:
         result["agent_status"] = agent_status
 

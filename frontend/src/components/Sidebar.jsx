@@ -33,6 +33,9 @@ export function Sidebar({
   connected,
   onNewChat,
 }) {
+  const safeProviders = Array.isArray(providers) ? providers : []
+  const availableProviders = safeProviders.filter(provider => provider?.available)
+  const safeConversations = Array.isArray(conversations) ? conversations : []
   const navItems = [
     { id: "overview", label: "Overview", desc: "Операционный центр", icon: <LayoutDashboard size={18} /> },
     { id: "agents", label: "Agents", desc: "Команда агентов", icon: <Bot size={18} /> },
@@ -78,11 +81,11 @@ export function Sidebar({
           ))}
         </nav>
 
-        {conversations.length > 0 && (
+        {safeConversations.length > 0 && (
           <div className="sidebar-section conversation-list-section">
             <div className="sidebar-label">История</div>
             <div className="conversation-list">
-              {conversations.slice(0, 20).map(c => (
+              {safeConversations.slice(0, 20).map(c => (
                 <div key={c.id} className={`conversation-item ${c.id === conversationId ? "active" : ""}`}>
                   <button className="conversation-item-btn" onClick={() => loadConversation(c.id)}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0, opacity: 0.5 }}>
@@ -102,12 +105,12 @@ export function Sidebar({
         <div className="sidebar-section">
           <div className="sidebar-label">Модель</div>
           <select className="sidebar-select" value={selectedProvider} onChange={e => setSelectedProvider(e.target.value)}>
-            {providers.filter(p => p.available).map(p => (
+            {availableProviders.map(p => (
               <option key={p.name} value={p.name}>
                 {p.name === "formulalm" ? "Kolibri Nano (local)" : p.name === "mimo" ? "MiMo Cloud" : p.name}
               </option>
             ))}
-            {providers.length === 0 && <option value="mimo">MiMo Cloud</option>}
+            {safeProviders.length === 0 && <option value="mimo">MiMo Cloud</option>}
           </select>
         </div>
 
@@ -201,11 +204,11 @@ export function Sidebar({
                 ))}
               </div>
 
-              {conversations.length > 0 && (
+              {safeConversations.length > 0 && (
                 <div className="mobile-menu-section">
                   <div className="mobile-menu-section-title">История</div>
                   <div className="mobile-menu-history">
-                    {conversations.slice(0, 10).map((c, i) => (
+                    {safeConversations.slice(0, 10).map((c, i) => (
                       <motion.div
                         key={c.id}
                         className={`mobile-menu-history-item ${c.id === conversationId ? "active" : ""}`}
@@ -252,12 +255,12 @@ export function Sidebar({
                       value={selectedProvider}
                       onChange={e => setSelectedProvider(e.target.value)}
                     >
-                      {providers.filter(p => p.available).map(p => (
+                      {availableProviders.map(p => (
                         <option key={p.name} value={p.name}>
                           {p.name === "formulalm" ? "Kolibri Nano (local)" : p.name === "mimo" ? "MiMo Cloud" : p.name}
                         </option>
                       ))}
-                      {providers.length === 0 && <option value="mimo">MiMo Cloud</option>}
+                      {safeProviders.length === 0 && <option value="mimo">MiMo Cloud</option>}
                     </select>
                   </div>
                 </div>
