@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kolibri.local/schemas/formulalm/task_envelope.schema.json",
+  "title": "FormulaLM Task Envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "run_id",
+    "task_id",
+    "server",
+    "role",
+    "phase",
+    "mode",
+    "run_dir",
+    "allowed_paths",
+    "forbidden_paths",
+    "dataset_scope",
+    "prompt",
+    "required_checks",
+    "expected_outputs",
+    "safety_rules",
+    "timeout_seconds"
+  ],
+  "properties": {
+    "run_id": {
+      "type": "string",
+      "const": "estimate-pilot-001"
+    },
+    "task_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]{1,120}$"
+    },
+    "server": {
+      "type": "string"
+    },
+    "role": {
+      "type": "string"
+    },
+    "phase": {
+      "type": "string",
+      "enum": ["preflight", "read_only", "training", "evaluation", "benchmark", "report"]
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["read_only", "controlled_mutation"]
+    },
+    "run_dir": {
+      "type": "string",
+      "const": "/srv/kolibri/runs/estimate-pilot-001"
+    },
+    "allowed_paths": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
+    },
+    "forbidden_paths": {
+      "type": "array",
+      "minItems": 4,
+      "items": {
+        "type": "string"
+      }
+    },
+    "dataset_scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "range", "immutable", "final_test_hidden"],
+      "properties": {
+        "source": {
+          "type": "string"
+        },
+        "range": {
+          "type": "string",
+          "const": "401-421"
+        },
+        "immutable": {
+          "type": "boolean",
+          "const": true
+        },
+        "final_test_hidden": {
+          "type": "boolean",
+          "const": true
+        }
+      }
+    },
+    "prompt": {
+      "type": "string",
+      "minLength": 20
+    },
+    "required_checks": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "expected_outputs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
+    },
+    "safety_rules": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "string"
+      }
+    },
+    "timeout_seconds": {
+      "type": "integer",
+      "minimum": 30,
+      "maximum": 86400
+    }
+  }
+}

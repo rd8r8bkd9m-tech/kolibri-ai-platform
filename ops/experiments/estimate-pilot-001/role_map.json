@@ -1,0 +1,152 @@
+{
+  "run_id": "estimate-pilot-001",
+  "run_dir": "/srv/kolibri/runs/estimate-pilot-001",
+  "dataset": {
+    "initial_range": "401-421",
+    "later_phases": ["10k", "100k", "1M"],
+    "source_mutation_allowed": false,
+    "final_test_hidden": true
+  },
+  "servers": {
+    "home": {
+      "experiment_role": "registry-metrics-heartbeat-checkpoints-dashboard",
+      "track": "control",
+      "phase": "preflight",
+      "shard": "control",
+      "seed": 1000
+    },
+    "kolibri": {
+      "experiment_role": "ingestion-parsing-anonymization-normalization",
+      "track": "data",
+      "phase": "preflight",
+      "shard": "data-a",
+      "seed": 1001
+    },
+    "hostvds-agent-01": {
+      "experiment_role": "ingestion-parsing-anonymization-normalization",
+      "track": "data",
+      "phase": "preflight",
+      "shard": "data-b",
+      "seed": 1002
+    },
+    "reserve242": {
+      "experiment_role": "duplicate-pii-leakage-split-audit",
+      "track": "qa",
+      "phase": "preflight",
+      "shard": "audit-a",
+      "seed": 1003
+    },
+    "hostvds-agent-05": {
+      "experiment_role": "duplicate-pii-leakage-split-audit",
+      "track": "qa",
+      "phase": "preflight",
+      "shard": "audit-b",
+      "seed": 1004
+    },
+    "uiap": {
+      "experiment_role": "structured-db-retrieval-index-rag-baseline-eval",
+      "track": "retrieval",
+      "phase": "preflight",
+      "shard": "rag-a",
+      "seed": 1005
+    },
+    "hostvds-agent-08": {
+      "experiment_role": "structured-db-retrieval-index-rag-baseline-eval",
+      "track": "retrieval",
+      "phase": "preflight",
+      "shard": "rag-b",
+      "seed": 1006
+    },
+    "qjns": {
+      "experiment_role": "formulalm-island",
+      "track": "formula-island",
+      "phase": "training",
+      "shard": "island-01",
+      "seed": 2001
+    },
+    "hostvds-highload": {
+      "experiment_role": "formulalm-island",
+      "track": "formula-island",
+      "phase": "training",
+      "shard": "island-02",
+      "seed": 2002
+    },
+    "hostvds-agent-02": {
+      "experiment_role": "formulalm-island",
+      "track": "formula-island",
+      "phase": "training",
+      "shard": "island-03",
+      "seed": 2003
+    },
+    "hostvds-agent-03": {
+      "experiment_role": "formulalm-island",
+      "track": "formula-island",
+      "phase": "training",
+      "shard": "island-04",
+      "seed": 2004
+    },
+    "hostvds-agent-04": {
+      "experiment_role": "formulalm-island",
+      "track": "formula-island",
+      "phase": "training",
+      "shard": "island-05",
+      "seed": 2005
+    },
+    "hostvds-agent-06": {
+      "experiment_role": "formulalm-island",
+      "track": "formula-island",
+      "phase": "training",
+      "shard": "island-06",
+      "seed": 2006
+    },
+    "hostvds-agent-09": {
+      "experiment_role": "formulalm-island",
+      "track": "formula-island",
+      "phase": "training",
+      "shard": "island-07",
+      "seed": 2007
+    },
+    "hostvds-paris-highload": {
+      "experiment_role": "formulalm-island",
+      "track": "formula-island",
+      "phase": "training",
+      "shard": "island-08",
+      "seed": 2008
+    },
+    "9fts": {
+      "experiment_role": "frozen-transformer-logits-reranker-training",
+      "track": "reranker",
+      "phase": "training",
+      "shard": "reranker-a",
+      "seed": 3001
+    },
+    "main": {
+      "experiment_role": "frozen-transformer-logits-reranker-training",
+      "track": "reranker",
+      "phase": "training",
+      "shard": "reranker-b",
+      "seed": 3002
+    },
+    "hostvds-agent-07": {
+      "experiment_role": "independent-evaluator",
+      "track": "evaluation",
+      "phase": "evaluation",
+      "shard": "final-eval",
+      "seed": 4001
+    },
+    "hostvds-agent-10": {
+      "experiment_role": "latency-throughput-track-c-benchmark",
+      "track": "benchmark",
+      "phase": "benchmark",
+      "shard": "track-c",
+      "seed": 5001
+    }
+  },
+  "gates": {
+    "preflight_required_before_envelopes": true,
+    "training_requires_preflight_pass": true,
+    "final_test_leakage_allowed": false,
+    "success_requires_metrics": true,
+    "codex_review_required_before_scale": true
+  }
+}

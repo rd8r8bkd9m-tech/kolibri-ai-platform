@@ -1,5 +1,18 @@
 # Kolibri AI — Server Orchestration Guide
 
+This document describes two different modes:
+
+- **Operational mode**: the original 6-node service guide for deployed Kolibri
+  components.
+- **FormulaLM experiment mode**: the 19-server `estimate-pilot-001` research
+  orchestration. It is gated by `AGENTS.md`,
+  `ops/experiments/estimate-pilot-001/role_map.json`, and the FormulaLM schemas
+  under `ops/formulalm/`.
+
+Do not treat FormulaLM experiment roles as deploy permission. MiMo and remote
+Codex workers are bounded executors; Codex remains reviewer and release
+manager.
+
 ## Architecture
 
 ```
@@ -112,3 +125,41 @@ curl http://localhost:9090/targets
 # Check Grafana dashboards
 open http://localhost:3000
 ```
+
+## FormulaLM Experiment Mode
+
+The FormulaLM pilot uses all 19 server keys from `ops/agents.yml`, not only the
+6 operational VPN nodes above. The canonical run ID is `estimate-pilot-001`, and
+the canonical run directory is:
+
+```text
+/srv/kolibri/runs/estimate-pilot-001/
+```
+
+Before task fanout, run:
+
+```bash
+python3 scripts/validate_formulalm_experiment.py --dry-run
+```
+
+The validator proves that:
+
+- `ops/experiments/estimate-pilot-001/role_map.json` covers every server in
+  `ops/agents.yml` exactly once;
+- the role map has eight FormulaLM islands with unique seeds;
+- FormulaLM worker schemas are valid JSON;
+- the sample task envelope targets the 401-421 estimate pilot and keeps source
+  data immutable;
+- safety text forbids unsafe permissions, broad process kills, source-data
+  mutation, final-test leakage, secret logging, and success claims without
+  metrics;
+- 19 task envelopes can be generated in dry-run mode without contacting servers
+  or starting training.
+
+FormulaLM scaling order:
+
+1. hardening and local validation;
+2. read-only preflight;
+3. read-only fanout to healthy servers;
+4. one controlled mutation in an isolated worktree;
+5. 24/7 queue only after Codex reviews diffs, checks, metrics, and risks.

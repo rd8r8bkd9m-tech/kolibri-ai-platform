@@ -1,0 +1,41 @@
+{
+  "run_id": "estimate-pilot-001",
+  "task_id": "estimate-pilot-001-preflight-home",
+  "server": "home",
+  "role": "registry-metrics-heartbeat-checkpoints-dashboard",
+  "phase": "preflight",
+  "mode": "read_only",
+  "run_dir": "/srv/kolibri/runs/estimate-pilot-001",
+  "allowed_paths": [
+    "/srv/kolibri/runs/estimate-pilot-001"
+  ],
+  "forbidden_paths": [
+    ".env",
+    ".ssh",
+    ".mimocode",
+    "auth.json",
+    "private_keys",
+    "tokens"
+  ],
+  "dataset_scope": {
+    "source": "current estimate files discovered during preflight",
+    "range": "401-421",
+    "immutable": true,
+    "final_test_hidden": true
+  },
+  "prompt": "Perform read-only FormulaLM preflight for the assigned role. Do not train, mutate source data, read secrets, or deploy. Return status, evidence, risks, artifacts, and next action.",
+  "required_checks": [
+    "python3 scripts/validate_formulalm_experiment.py --dry-run"
+  ],
+  "expected_outputs": [
+    "status JSON",
+    "artifact list",
+    "risk list"
+  ],
+  "safety_rules": [
+    "Do not read or log secrets.",
+    "Do not mutate source estimate files.",
+    "Do not expose final-test data to training or tuning prompts."
+  ],
+  "timeout_seconds": 900
+}

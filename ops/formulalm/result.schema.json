@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kolibri.local/schemas/formulalm/result.schema.json",
+  "title": "FormulaLM Worker Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "run_id",
+    "task_id",
+    "server",
+    "status",
+    "summary",
+    "changed_files",
+    "checks",
+    "metrics",
+    "risks",
+    "artifacts",
+    "next_action"
+  ],
+  "properties": {
+    "run_id": {
+      "type": "string",
+      "const": "estimate-pilot-001"
+    },
+    "task_id": {
+      "type": "string"
+    },
+    "server": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["completed", "failed", "blocked", "degraded"]
+    },
+    "summary": {
+      "type": "string"
+    },
+    "changed_files": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "next_action": {
+      "type": "string"
+    }
+  }
+}

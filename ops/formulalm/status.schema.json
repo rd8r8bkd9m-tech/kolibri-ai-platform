@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kolibri.local/schemas/formulalm/status.schema.json",
+  "title": "FormulaLM Worker Status",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "run_id",
+    "task_id",
+    "server",
+    "status",
+    "summary",
+    "updated_at",
+    "progress",
+    "risks"
+  ],
+  "properties": {
+    "run_id": {
+      "type": "string",
+      "const": "estimate-pilot-001"
+    },
+    "task_id": {
+      "type": "string"
+    },
+    "server": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["queued", "running", "completed", "failed", "blocked", "degraded"]
+    },
+    "summary": {
+      "type": "string"
+    },
+    "updated_at": {
+      "type": "string"
+    },
+    "progress": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}
