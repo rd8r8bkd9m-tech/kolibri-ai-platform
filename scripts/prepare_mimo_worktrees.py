@@ -14,6 +14,7 @@ import fnmatch
 import json
 import os
 import re
+import shlex
 import stat
 import subprocess
 import sys
@@ -301,10 +302,10 @@ def prepare_one(
     if not isinstance(ssh_alias, str) or not ssh_alias:
         raise PrepError(f"Server has no ssh_alias: {server}")
 
-    ssh_cmd = ["ssh", "-o", "ConnectTimeout=10"]
+    ssh_cmd = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10"]
     if config.get("ssh_port"):
         ssh_cmd.extend(["-p", str(config["ssh_port"])])
-    ssh_cmd.extend([ssh_alias, "python3", "-c", REMOTE_PREPARE])
+    ssh_cmd.extend([ssh_alias, "python3 -c " + shlex.quote(REMOTE_PREPARE)])
     payload = {
         "server": server,
         "remote_root": remote_root,
@@ -321,10 +322,34 @@ def prepare_one(
     )
     assert proc.stdin is not None
     proc.stdin.write(json.dumps(payload).encode("utf-8") + b"\n")
-    file_count, byte_count = write_archive(proc.stdin, source, excludes)
-    proc.stdin.close()
-    proc.stdin = None
-    stdout, stderr = proc.communicate(timeout=args.timeout)
+    file_count = 0
+    byte_count = 0
+    try:
+        file_count, byte_count = write_archive(proc.stdin, source, excludes)
+        proc.stdin.close()
+        proc.stdin = None
+        stdout, stderr = proc.communicate(timeout=args.timeout)
+    except (BrokenPipeError, OSError) as exc:
+        if proc.stdin is not None:
+            try:
+                proc.stdin.close()
+            except OSError:
+                pass
+            proc.stdin = None
+        stdout, stderr = proc.communicate(timeout=args.timeout)
+        return {
+            **manifest,
+            "status": "failed",
+            "returncode": proc.returncode,
+            "stdout": stdout.decode("utf-8", "replace")[-4000:],
+            "stderr": stderr.decode("utf-8", "replace")[-4000:],
+            "files": file_count,
+            "bytes": byte_count,
+            "risks": ["ssh_prepare_failed", "archive_stream_failed"],
+            "error": str(exc),
+            "started_at": started_at,
+            "completed_at": utc_now(),
+        }
     if proc.returncode != 0:
         return {
             **manifest,

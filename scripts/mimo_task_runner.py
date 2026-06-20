@@ -683,10 +683,10 @@ def run_ssh(args: argparse.Namespace) -> int:
         "required_checks": manifest.get("required_checks") or [],
     }
 
-    ssh_cmd = ["ssh", "-o", "ConnectTimeout=10"]
+    ssh_cmd = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10"]
     if config.get("ssh_port"):
         ssh_cmd.extend(["-p", str(config["ssh_port"])])
-    ssh_cmd.extend([ssh_alias, "python3", "-c", REMOTE_LAUNCHER])
+    ssh_cmd.extend([ssh_alias, "python3 -c " + shlex.quote(REMOTE_LAUNCHER)])
 
     try:
         proc = subprocess.run(
