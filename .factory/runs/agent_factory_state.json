@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-06-20T13:51:36.985516+00:00",
-  "updated_at": "2026-06-20T14:40:42.468071+00:00",
+  "updated_at": "2026-06-20T14:51:03.762253+00:00",
   "tasks": {
     "bootstrap-home-1781963502": {
       "id": "bootstrap-home-1781963502",
@@ -421,6 +421,25 @@
         "stderr": "Connection to 188.130.206.204 port 22 timed out\n"
       },
       "result": null
+    },
+    "canary4-hostvds-agent-02-1781967019": {
+      "id": "canary4-hostvds-agent-02-1781967019",
+      "wave": "canary4",
+      "server": "hostvds-agent-02",
+      "mode": "read_only",
+      "backend": "mimo",
+      "prompt": "CANARY4 HOSTVDS-AGENT-02. Read-only frontend/design worker audit in isolated git worktree. Verify repo HEAD, .factory files, Mimocode version, OpenClaw availability, and blockers for frontend agent work. Do not deploy, restart services, read secrets, or mutate code. Return concise structured JSON with status, summary, changed_files, checks, risks, artifacts, next_actions.",
+      "status": "dispatch_failed",
+      "priority": 270,
+      "created_at": "2026-06-20T14:50:19.266398+00:00",
+      "updated_at": "2026-06-20T14:51:03.758297+00:00",
+      "timeout_seconds": 300,
+      "remote": {
+        "status": "dispatch_failed",
+        "summary": "payload upload failed",
+        "stderr": "Connection to 213.232.204.223 port 22 timed out\n"
+      },
+      "result": null
     }
   },
   "events": [
@@ -598,6 +617,34 @@
     },
     {
       "at": "2026-06-20T14:40:42.468053+00:00",
+      "kind": "dispatch",
+      "count": 1
+    },
+    {
+      "at": "2026-06-20T14:44:23.528058+00:00",
+      "kind": "collect",
+      "count": 0
+    },
+    {
+      "at": "2026-06-20T14:49:23.576181+00:00",
+      "kind": "collect",
+      "count": 0
+    },
+    {
+      "at": "2026-06-20T14:50:19.266440+00:00",
+      "kind": "enqueue",
+      "count": 1,
+      "wave": "canary4"
+    },
+    {
+      "at": "2026-06-20T14:51:03.758974+00:00",
+      "kind": "dispatch_one",
+      "task_id": "canary4-hostvds-agent-02-1781967019",
+      "server": "hostvds-agent-02",
+      "status": "dispatch_failed"
+    },
+    {
+      "at": "2026-06-20T14:51:03.762242+00:00",
       "kind": "dispatch",
       "count": 1
     }

@@ -48,6 +48,13 @@ Dry-run dispatch without SSH:
 python3 .factory/scripts/dispatch_task.py --task .factory/tasks/ready/KOL-CANARY-001.json --dry-run
 ```
 
+Bootstrap one remote worker with official Mimocode and a repo bundle:
+
+```bash
+python3 .factory/scripts/bootstrap_worker.py --server hostvds-agent-03 --dry-run
+python3 .factory/scripts/bootstrap_worker.py --server hostvds-agent-03
+```
+
 Validate a result envelope:
 
 ```bash

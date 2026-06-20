@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.kolibri.agent-factory.stream</string>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/kolibri/Documents/Codex/kolibri-ai-platform</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <string>while true; do date -u '+%Y-%m-%dT%H:%M:%SZ'; python3 scripts/agent_factory.py report; echo '--- monitor ---'; tail -n 40 .factory/logs/canary-monitor.launchd.log 2>/dev/null || true; echo '---'; sleep 30; done</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/kolibri/Documents/Codex/kolibri-ai-platform/.factory/logs/factory-stream.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/Users/kolibri/Documents/Codex/kolibri-ai-platform/.factory/logs/factory-stream.err</string>
+</dict>
+</plist>
