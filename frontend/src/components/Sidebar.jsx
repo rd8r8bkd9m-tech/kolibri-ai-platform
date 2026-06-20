@@ -1,4 +1,17 @@
 import { motion, AnimatePresence } from "framer-motion"
+import {
+  BarChart3,
+  Bot,
+  ClipboardList,
+  Files,
+  LayoutDashboard,
+  MessageSquare,
+  Network,
+  Plus,
+  Search,
+  Server,
+  X,
+} from "lucide-react"
 import { KolibriBird } from "./KolibriBird"
 
 export function Sidebar({
@@ -21,10 +34,15 @@ export function Sidebar({
   onNewChat,
 }) {
   const navItems = [
-    { id: "chat", label: "Чат", desc: "Диалог с AI", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg> },
-    { id: "documents", label: "Документы", desc: "База знаний", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg> },
-    { id: "search", label: "Поиск", desc: "Семантический поиск", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> },
-    { id: "cluster", label: "Сеть", desc: `${clusterStatus?.online_nodes || 0} серверов`, icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="2" width="6" height="6" rx="1"/><rect x="16" y="2" width="6" height="6" rx="1"/><rect x="9" y="16" width="6" height="6" rx="1"/><path d="M5 8v3a2 2 0 002 2h10a2 2 0 002-2V8"/></svg> },
+    { id: "overview", label: "Overview", desc: "Операционный центр", icon: <LayoutDashboard size={18} /> },
+    { id: "agents", label: "Agents", desc: "Команда агентов", icon: <Bot size={18} /> },
+    { id: "tasks", label: "Tasks", desc: "Manifests и gates", icon: <ClipboardList size={18} />, badge: "4" },
+    { id: "servers", label: "Servers", desc: `${clusterStatus?.online_nodes || 0} онлайн`, icon: <Server size={18} />, badge: clusterStatus?.online_nodes },
+    { id: "reports", label: "Reports", desc: "10:00 / 18:00 MSK", icon: <BarChart3 size={18} /> },
+    { id: "chat", label: "Chat", desc: "Диалог с AI", icon: <MessageSquare size={18} /> },
+    { id: "documents", label: "Docs", desc: "База знаний", icon: <Files size={18} /> },
+    { id: "search", label: "Search", desc: "Семантический поиск", icon: <Search size={18} /> },
+    { id: "cluster", label: "Network", desc: "Raw cluster status", icon: <Network size={18} /> },
   ]
 
   const handleNavClick = (id) => {
@@ -44,9 +62,7 @@ export function Sidebar({
           </div>
           <motion.button className="new-chat-btn" onClick={onNewChat} aria-label="Новый чат"
             whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-            </svg>
+            <Plus size={14} strokeWidth={2.5} />
             Новый чат
           </motion.button>
         </div>
@@ -57,9 +73,7 @@ export function Sidebar({
               onClick={() => handleNavClick(item.id)}
               whileHover={{ x: 2 }} whileTap={{ scale: 0.98 }}>
               {item.icon}{item.label}
-              {item.id === "cluster" && clusterStatus && (
-                <span className="nav-badge">{clusterStatus.online_nodes}</span>
-              )}
+              {item.badge ? <span className="nav-badge">{item.badge}</span> : null}
             </motion.button>
           ))}
         </nav>
@@ -153,9 +167,7 @@ export function Sidebar({
                   </div>
                 </div>
                 <button className="mobile-menu-close" onClick={() => setSidebar(false)}>
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-                  </svg>
+                  <X size={24} />
                 </button>
               </div>
 
@@ -164,9 +176,7 @@ export function Sidebar({
                 onClick={() => { onNewChat(); setSidebar(false) }}
                 whileTap={{ scale: 0.97 }}
               >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                  <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-                </svg>
+                <Plus size={20} strokeWidth={2.5} />
                 Новый чат
               </motion.button>
 

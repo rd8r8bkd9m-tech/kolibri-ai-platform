@@ -1,0 +1,74 @@
+{
+  "task_id": "frontend-polish-pass-openclaw",
+  "agent_role": "Frontend/Design Lead",
+  "agent_backend": "openclaw",
+  "openclaw_agent": "kolibri-frontend",
+  "server": "hostvds-agent-02",
+  "mode": "controlled_mutation",
+  "model": "xiaomi-token-plan/mimo-v2.5-pro",
+  "budget": {
+    "max_usd": 2,
+    "max_tokens": 300000,
+    "max_runtime_seconds": 1200,
+    "billing_note": "Only fix Codex/QA-listed issues; no new redesign."
+  },
+  "prompt": "Apply only the Codex/QA-listed frontend polish fixes for Kolibri Agent Ops UI. Do not redesign unrelated areas. Preserve existing working flows and fix visible layout, responsive, state, copy, or accessibility issues identified in review artifacts.",
+  "worktree": "/opt/kolibri-ai/agent-worktrees/frontend-polish-pass-openclaw",
+  "allowed_paths": [
+    "/opt/kolibri-ai/agent-worktrees/frontend-polish-pass-openclaw/frontend",
+    "/opt/kolibri-ai/agent-worktrees/frontend-polish-pass-openclaw/docs",
+    "/opt/kolibri-ai/agent-worktrees/frontend-polish-pass-openclaw/reports",
+    "/opt/kolibri-ai/agent-worktrees/frontend-polish-pass-openclaw/artifacts/browser-qa"
+  ],
+  "quality_contract": {
+    "objective": "Fix only reviewed Agent Ops frontend issues without widening the patch.",
+    "context": "Polish work happens after Codex diff review and browser QA; scope must stay tightly bounded.",
+    "scope": [
+      "Address listed UI, responsive, state, copy, or accessibility issues.",
+      "Keep changes small and traceable to a review item.",
+      "Rerun frontend lint and build."
+    ],
+    "out_of_scope": [
+      "Do not add new screens or broad refactors.",
+      "Do not edit backend, deploy scripts, server state, secrets, .env, .ssh, or .mimocode.",
+      "Do not perform production deployment."
+    ],
+    "acceptance_criteria": [
+      "Every changed file maps to a Codex/QA review issue.",
+      "Frontend build and lint pass.",
+      "No unrelated visual redesign is introduced."
+    ],
+    "verification_steps": [
+      "Run npm --prefix frontend run lint.",
+      "Run npm --prefix frontend run build.",
+      "Summarize which review issue each change resolves."
+    ],
+    "deliverables": [
+      "Structured result with status, summary, changed_files, checks, risks, and artifacts.",
+      "Issue-to-change mapping.",
+      "Remaining risk list."
+    ],
+    "stop_conditions": [
+      "Stop if credentials, tokens, private keys, or auth file contents are required.",
+      "Stop if the requested fix requires editing outside allowed_paths.",
+      "Stop if review instructions are absent or ambiguous."
+    ]
+  },
+  "required_checks": [
+    "npm --prefix frontend run lint",
+    "npm --prefix frontend run build"
+  ],
+  "timeout_seconds": 1200,
+  "secrets_policy": {
+    "allow_env_files": false,
+    "allow_auth_files": false,
+    "redact_logs": true
+  },
+  "expected_output": {
+    "format": "structured_result",
+    "requires_summary": true,
+    "requires_changed_files": true,
+    "requires_risks": true
+  },
+  "allow_unsafe_permissions": false
+}

@@ -1,0 +1,64 @@
+{
+  "task_id": "frontend-browser-qa",
+  "agent_role": "QA Lead",
+  "server": "hostvds-agent-04",
+  "mode": "read_only",
+  "prompt": "Run browser QA for the Kolibri Agent Ops frontend. Do not modify source files. Verify desktop and mobile navigation, Overview, Agents, Tasks, Servers, Reports, Chat, Docs, Search, loading/degraded states, console errors, and visible layout overlap. Return screenshots or artifact paths when available.",
+  "worktree": "/opt/kolibri-ai/agent-worktrees/frontend-browser-qa",
+  "allowed_paths": [
+    "/opt/kolibri-ai/agent-worktrees/frontend-browser-qa",
+    "/opt/kolibri-ai/frontend",
+    "/opt/kolibri-ai/artifacts/browser-qa",
+    "/opt/kolibri-ai/reports"
+  ],
+  "quality_contract": {
+    "objective": "Verify the Agent Ops frontend visually and functionally before Codex accepts it.",
+    "context": "UI changes must be checked in browser-like conditions across desktop and mobile viewports.",
+    "scope": [
+      "Run build and lint if dependencies are available.",
+      "Check main navigation and core screens at desktop and mobile sizes.",
+      "Capture console errors, screenshots, and layout overlap findings."
+    ],
+    "out_of_scope": [
+      "Do not edit files, deploy, restart services, or contact paid systems.",
+      "Do not read secrets, auth files, .env files, .ssh, or .mimocode.",
+      "Do not approve merge; Codex remains final reviewer."
+    ],
+    "acceptance_criteria": [
+      "Return pass/fail per screen and viewport.",
+      "Report console errors and missing browser dependencies as explicit blockers.",
+      "Attach artifact paths or state why screenshots were not possible."
+    ],
+    "verification_steps": [
+      "Run npm --prefix frontend run lint.",
+      "Run npm --prefix frontend run build.",
+      "Run browser smoke coverage for desktop and mobile if supported."
+    ],
+    "deliverables": [
+      "Structured result with status, summary, changed_files, checks, risks, and artifacts.",
+      "Browser QA report with blockers and polish notes.",
+      "Screenshot/artifact paths when available."
+    ],
+    "stop_conditions": [
+      "Stop if credentials, tokens, private keys, or auth file contents are required.",
+      "Stop if browser QA would require writing outside allowed_paths."
+    ]
+  },
+  "required_checks": [
+    "npm --prefix frontend run lint",
+    "npm --prefix frontend run build"
+  ],
+  "timeout_seconds": 900,
+  "secrets_policy": {
+    "allow_env_files": false,
+    "allow_auth_files": false,
+    "redact_logs": true
+  },
+  "expected_output": {
+    "format": "structured_result",
+    "requires_summary": true,
+    "requires_changed_files": true,
+    "requires_risks": true
+  },
+  "allow_unsafe_permissions": false
+}

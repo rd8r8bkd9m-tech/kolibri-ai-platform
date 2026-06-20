@@ -8,6 +8,7 @@ import { ChatView } from "./components/ChatView"
 import { DocumentsView } from "./components/DocumentsView"
 import { SearchView } from "./components/SearchView"
 import { ClusterView } from "./components/ClusterView"
+import { AgentOpsView } from "./components/AgentOpsView"
 import { BottomSheet } from "./components/BottomSheet"
 import { EstimateEditor } from "./features/estimates/EstimateEditor"
 import { useWebSocket } from "./hooks/useWebSocket"
@@ -26,7 +27,7 @@ export default function App() {
   const [selectedProvider, setSelectedProvider] = useState("mimo")
   const [sidebar, setSidebar] = useState(false)
   const [theme, setTheme] = useState(() => localStorage.getItem("kolibri-theme") || "dark")
-  const [activeTab, setActiveTab] = useState("chat")
+  const [activeTab, setActiveTab] = useState("overview")
   const [estimateEditor, setEstimateEditor] = useState(null)
   const [globalError, setGlobalError] = useState("")
   const messagesRef = useRef(null)
@@ -50,12 +51,6 @@ export default function App() {
   }, [theme])
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/providers`).then(r => r.json()).then(setProviders).catch((e) => console.error("Failed to fetch providers", e))
-    connectWS()
-    fetchCluster()
-    loadLastConversation()
-    const ci = setInterval(fetchCluster, 15000)
-
     let touchStartX = 0
     let touchStartY = 0
     const onTouchStart = (e) => {
@@ -76,8 +71,6 @@ export default function App() {
     document.addEventListener("touchmove", onTouchMove, { passive: true })
     document.addEventListener("touchend", onTouchEnd, { passive: true })
     return () => {
-      if (ws) ws.close()
-      clearInterval(ci)
       document.removeEventListener("touchstart", onTouchStart)
       document.removeEventListener("touchmove", onTouchMove)
       document.removeEventListener("touchend", onTouchEnd)
@@ -85,10 +78,27 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    if (activeTab !== "chat") return
+    fetch(`${API_BASE}/api/providers`).then(r => r.json()).then(setProviders).catch(() => {})
+    connectWS()
+    loadLastConversation()
+    fetchConversations()
+    // Chat boot is intentionally lazy so the Ops dashboard can render offline without noisy backend 502s.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab])
+
+  useEffect(() => {
+    if (!["servers", "cluster"].includes(activeTab)) return
+    fetchCluster()
+    const ci = setInterval(fetchCluster, 15000)
+    return () => clearInterval(ci)
+    // Cluster polling is intentionally scoped to server views; overview uses fallback data until refresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab])
+
+  useEffect(() => {
     if (messagesRef.current) messagesRef.current.scrollTo({ top: messagesRef.current.scrollHeight, behavior: "smooth" })
   }, [messages])
-
-  useEffect(() => { fetchConversations() }, [])
 
   const sendMessage = async () => {
     if (!input.trim() || loading) return
@@ -131,6 +141,18 @@ export default function App() {
   ]
 
   const birdState = loading ? "thinking" : connected ? "idle" : "error"
+  const opsTabs = ["overview", "agents", "tasks", "servers", "reports"]
+  const headerMeta = {
+    overview: ["Kolibri Ops", "Agent fleet control center"],
+    agents: ["Agents", "Codex, MiMo Code, OpenClaw, QA"],
+    tasks: ["Tasks", "Manifests, results, checks, risks"],
+    servers: ["Servers", "Fleet health and locked actions"],
+    reports: ["Reports", "10:00 / 18:00 MSK and blockers"],
+    chat: ["Chat", "Диалог с AI"],
+    documents: ["Docs", "База знаний и файлы"],
+    search: ["Search", "Семантический поиск"],
+    cluster: ["Network", "Raw cluster status"],
+  }[activeTab] || ["Kolibri AI", "Загрузка..."]
 
   const handleQuickAction = (action) => {
     if (action.title === "Поиск") { setActiveTab("search"); return }
@@ -169,20 +191,20 @@ export default function App() {
         <div className="main-content">
           <header className="header">
             <div className="header-left">
-              <button className="header-btn mobile-menu" onClick={() => setSidebar(!sidebar)}>
+              <button className="header-btn mobile-menu-trigger" onClick={() => setSidebar(!sidebar)}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
                 </svg>
               </button>
               <div>
-                <div className="header-title">Kolibri AI</div>
+                <div className="header-title">{headerMeta[0]}</div>
                 <div className="header-subtitle">
                   {clusterStatus ? (
                     <span className="header-cluster">
                       <span className="pulse-dot" />
-                      {clusterStatus.online_nodes} узлов · {clusterStatus.free_ram_gb} GB RAM
+                      {clusterStatus.online_nodes} узлов · {clusterStatus.free_ram_gb} GB RAM · {headerMeta[1]}
                     </span>
-                  ) : "Загрузка..."}
+                  ) : headerMeta[1]}
                 </div>
               </div>
             </div>
@@ -214,6 +236,16 @@ export default function App() {
 
           <div className="chat-container">
             <AnimatePresence mode="wait">
+              {opsTabs.includes(activeTab) && (
+                <AgentOpsView
+                  view={activeTab}
+                  clusterStatus={clusterStatus}
+                  connected={connected}
+                  onRefresh={fetchCluster}
+                  setView={setActiveTab}
+                />
+              )}
+
               {activeTab === "chat" && (
                 <ChatView
                   messages={messages}
@@ -263,7 +295,7 @@ export default function App() {
             <EstimateEditor
               estimate={estimateEditor}
               onClose={() => setEstimateEditor(null)}
-              onSave={(data) => {
+              onSave={() => {
                 setEstimateEditor(null)
               }}
             />

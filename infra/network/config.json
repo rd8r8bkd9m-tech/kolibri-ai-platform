@@ -127,12 +127,14 @@
       "ssh_alias": "root@213.232.204.223",
       "provider_name": "kolibri-frontend-design",
       "region": "Riga 2 (eu-north1)",
-      "role": "frontend-design-node",
+      "role": "frontend-claw-ui-agent",
       "ram": "2GB",
       "cpu": "1 vCPU",
       "disk": "20GB",
-      "tasks": ["eslint", "browser-qa", "ui-polish"],
-      "mimo_path": "/root/.mimocode/bin/mimo"
+      "tasks": ["openclaw-ux-audit", "agent-ops-saas-ui", "eslint", "browser-qa", "ui-polish"],
+      "mimo_path": "/root/.mimocode/bin/mimo",
+      "openclaw_path": "openclaw",
+      "openclaw_agent": "kolibri-frontend"
     },
     "hostvds-agent-03": {
       "public_ip": "188.130.206.204",
@@ -236,8 +238,13 @@
       "ram": "7.8GB",
       "cpu": "2 vCPU",
       "disk": "47GB",
-      "tasks": ["asia-edge-smoke", "api-load-tests", "resource-profiling", "cost-control"],
+      "tasks": ["asia-edge-smoke", "api-load-tests", "resource-profiling", "cost-control", "openclaw-frontend-audit"],
       "mimo_path": "/root/.mimocode/bin/mimo",
+      "openclaw_path": "openclaw",
+      "openclaw_agent": "kolibri-frontend-hk",
+      "runtime_env_files": [
+        "/root/.openclaw/kolibri-xiaomi-token-plan.env"
+      ],
       "cost_review_note": "Created as Highload-2 instead of the requested Burstable-2; keep only if the higher hourly cost is intentional."
     },
     "hostvds-paris-highload": {

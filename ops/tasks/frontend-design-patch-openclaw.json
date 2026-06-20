@@ -1,0 +1,75 @@
+{
+  "task_id": "frontend-design-patch-openclaw",
+  "agent_role": "Frontend/Design Lead",
+  "agent_backend": "openclaw",
+  "openclaw_agent": "kolibri-frontend",
+  "server": "hostvds-agent-02",
+  "mode": "controlled_mutation",
+  "model": "xiaomi-token-plan/mimo-v2.5-pro",
+  "budget": {
+    "max_usd": 4,
+    "max_tokens": 600000,
+    "max_runtime_seconds": 1800,
+    "billing_note": "One bounded draft patch only; stop before broad rewrites."
+  },
+  "prompt": "Implement a bounded draft patch that upgrades Kolibri frontend into an Agent Ops SaaS console. Preserve existing Chat, Documents, Search, and Cluster behavior. Add operational Overview, Agents, Tasks, Servers, and Reports surfaces with realistic mock/offline/degraded states where backend contracts are missing. Return a structured result for Codex review.",
+  "worktree": "/opt/kolibri-ai/agent-worktrees/frontend-design-patch-openclaw",
+  "allowed_paths": [
+    "/opt/kolibri-ai/agent-worktrees/frontend-design-patch-openclaw/frontend",
+    "/opt/kolibri-ai/agent-worktrees/frontend-design-patch-openclaw/docs",
+    "/opt/kolibri-ai/agent-worktrees/frontend-design-patch-openclaw/reports",
+    "/opt/kolibri-ai/agent-worktrees/frontend-design-patch-openclaw/artifacts/browser-qa"
+  ],
+  "quality_contract": {
+    "objective": "Produce a reviewable frontend draft patch for Kolibri Agent Ops SaaS core flows.",
+    "context": "The frontend should become a dense operational console for agents, servers, task manifests, reports, risks, and chat.",
+    "scope": [
+      "Create functional UI for Overview, Agents, Tasks, Servers, and Reports.",
+      "Reuse existing design tokens and keep current Chat, Documents, Search, and Cluster flows intact.",
+      "Handle loading, empty, error, degraded, offline, and permission blocked states."
+    ],
+    "out_of_scope": [
+      "Do not change backend APIs, deploy scripts, server state, or production credentials.",
+      "Do not read or write secrets, auth files, .env files, .ssh, or .mimocode.",
+      "Do not introduce paid calls or browser automation from this patch task."
+    ],
+    "acceptance_criteria": [
+      "Frontend build and lint pass.",
+      "Navigation exposes Overview, Agents, Tasks, Servers, Reports, Chat, Docs, and Search.",
+      "Task result UI displays status, summary, changed_files, checks, risks, and artifacts.",
+      "Desktop and mobile layouts do not overlap or hide primary controls."
+    ],
+    "verification_steps": [
+      "Run npm --prefix frontend run lint.",
+      "Run npm --prefix frontend run build.",
+      "Document any browser QA that still needs a QA agent."
+    ],
+    "deliverables": [
+      "Structured result with status, summary, changed_files, checks, risks, and artifacts.",
+      "Patch touching only allowed frontend/docs/reports/artifact paths.",
+      "Short browser QA checklist for Codex."
+    ],
+    "stop_conditions": [
+      "Stop if credentials, tokens, private keys, or auth file contents are required.",
+      "Stop if the task requires editing outside allowed_paths.",
+      "Stop if the requested design requires backend or deploy changes."
+    ]
+  },
+  "required_checks": [
+    "npm --prefix frontend run lint",
+    "npm --prefix frontend run build"
+  ],
+  "timeout_seconds": 1800,
+  "secrets_policy": {
+    "allow_env_files": false,
+    "allow_auth_files": false,
+    "redact_logs": true
+  },
+  "expected_output": {
+    "format": "structured_result",
+    "requires_summary": true,
+    "requires_changed_files": true,
+    "requires_risks": true
+  },
+  "allow_unsafe_permissions": false
+}

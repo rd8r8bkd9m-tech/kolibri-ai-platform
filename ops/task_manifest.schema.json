@@ -25,6 +25,16 @@
     "agent_role": {
       "type": "string"
     },
+    "agent_backend": {
+      "type": "string",
+      "enum": ["mimo", "openclaw"],
+      "default": "mimo"
+    },
+    "openclaw_agent": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]{1,80}$",
+      "default": "kolibri-frontend"
+    },
     "server": {
       "type": "string",
       "description": "Server key from ops/agents.yml, or local."
@@ -144,6 +154,28 @@
     "model": {
       "type": "string",
       "default": "mimo/mimo-auto"
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_usd": {
+          "type": "number",
+          "minimum": 0
+        },
+        "max_tokens": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_runtime_seconds": {
+          "type": "integer",
+          "minimum": 30,
+          "maximum": 3600
+        },
+        "billing_note": {
+          "type": "string"
+        }
+      }
     },
     "allow_unsafe_permissions": {
       "type": "boolean",

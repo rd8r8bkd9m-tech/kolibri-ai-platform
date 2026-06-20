@@ -35,6 +35,7 @@ DEFAULT_EXCLUDES = (
     ".git",
     ".mimocode",
     ".playwright-mcp",
+    ".tmp",
     "node_modules",
     "target",
     "dist",

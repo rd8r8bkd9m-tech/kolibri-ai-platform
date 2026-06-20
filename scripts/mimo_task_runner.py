@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Safe task runner for Kolibri Mimo agents.
+"""Safe task runner for Kolibri Mimo/OpenClaw agents.
 
 The runner is intentionally conservative:
-- Mimo is always invoked through argv, never through shell interpolation.
+- Agent CLIs are always invoked through argv, never through shell interpolation.
 - Prompts are redacted before they are written to logs.
 - Remote prompts are sent over SSH stdin to a small Python launcher, not placed
   in the remote shell command.
@@ -28,6 +28,7 @@ from typing import Any
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_AGENTS_FILE = PROJECT_DIR / "ops" / "agents.yml"
 DEFAULT_LOG_DIR = PROJECT_DIR / "logs" / "agent-runs"
+DEFAULT_AGENT_BACKEND = "mimo"
 DEFAULT_MODEL = "mimo/mimo-auto"
 DEFAULT_TIMEOUT = 300
 QUALITY_LIST_FIELDS = {
@@ -216,13 +217,17 @@ def prompt_for_agent(manifest: dict[str, Any]) -> str:
     contract = manifest["quality_contract"]
     required_checks = manifest.get("required_checks") or []
     checks_text = format_bullets(required_checks) if required_checks else "- No automated checks declared; explain why and provide manual verification evidence."
+    budget = manifest.get("budget") or {}
+    budget_text = json.dumps(redact(budget), ensure_ascii=True) if budget else "No explicit token/cost budget declared."
     return (
-        "You are a Kolibri Mimo agent working under Codex review.\n\n"
+        "You are a Kolibri agent working under Codex review.\n\n"
+        f"Agent backend: {manifest.get('agent_backend', DEFAULT_AGENT_BACKEND)}\n"
         f"Agent role: {manifest.get('agent_role', 'unspecified')}\n"
         f"Server: {manifest['server']}\n"
         f"Mode: {manifest['mode']}\n"
         f"Worktree: {manifest['worktree']}\n"
         f"Allowed paths:\n{format_bullets(list(manifest['allowed_paths']))}\n\n"
+        f"Budget:\n{budget_text}\n\n"
         f"Objective:\n{contract['objective']}\n\n"
         f"Context:\n{contract['context']}\n\n"
         f"Task prompt:\n{manifest['prompt']}\n\n"
@@ -274,6 +279,10 @@ def validate_manifest(manifest: dict[str, Any], agents: dict[str, Any]) -> list[
     if manifest.get("allow_unsafe_permissions") is True:
         errors.append("allow_unsafe_permissions must remain false for production tasks")
 
+    backend = manifest.get("agent_backend", DEFAULT_AGENT_BACKEND)
+    if backend not in {"mimo", "openclaw"}:
+        errors.append("agent_backend must be one of: mimo, openclaw")
+
     try:
         validate_allowed_paths(manifest["allowed_paths"])
     except RunnerError as exc:
@@ -301,6 +310,7 @@ def manifest_from_args(args: argparse.Namespace) -> dict[str, Any]:
     return {
         "task_id": normalize_task_id(args.task_id),
         "agent_role": args.task_type or "custom",
+        "agent_backend": args.agent_backend,
         "server": server,
         "mode": args.mode,
         "prompt": prompt,
@@ -318,6 +328,7 @@ def manifest_from_args(args: argparse.Namespace) -> dict[str, Any]:
             "format": "structured_result",
             "requires_summary": True,
         },
+        "openclaw_agent": args.openclaw_agent,
         "allow_unsafe_permissions": False,
     }
 
@@ -340,11 +351,56 @@ def server_config(agents: dict[str, Any], server: str) -> dict[str, Any]:
     return config
 
 
+def build_agent_argv(binary: str, manifest: dict[str, Any]) -> list[str]:
+    backend = manifest.get("agent_backend", DEFAULT_AGENT_BACKEND)
+    if backend == "mimo":
+        return [
+            binary,
+            "run",
+            "--format",
+            "json",
+            "--dir",
+            str(manifest["worktree"]),
+            "--model",
+            manifest.get("model", DEFAULT_MODEL),
+            prompt_for_agent(manifest),
+        ]
+    if backend == "openclaw":
+        args = [
+            binary,
+            "agent",
+            "--agent",
+            manifest.get("openclaw_agent") or "kolibri-frontend",
+            "--message",
+            prompt_for_agent(manifest),
+            "--model",
+            manifest.get("model", "xiaomi-token-plan/mimo-v2.5-pro"),
+            "--local",
+            "--json",
+        ]
+        return args
+    raise RunnerError(f"Unsupported agent backend: {backend}")
+
+
+def backend_binary(args: argparse.Namespace, manifest: dict[str, Any], config: dict[str, Any] | None = None) -> str:
+    backend = manifest.get("agent_backend", DEFAULT_AGENT_BACKEND)
+    config = config or {}
+    if backend == "mimo":
+        return getattr(args, "mimo_bin", None) or config.get("mimo_bin") or os.environ.get("KOLIBRI_MIMO_BIN", "mimo")
+    if backend == "openclaw":
+        return (
+            getattr(args, "openclaw_bin", None)
+            or config.get("openclaw_bin")
+            or os.environ.get("KOLIBRI_OPENCLAW_BIN", "openclaw")
+        )
+    raise RunnerError(f"Unsupported agent backend: {backend}")
+
+
 def build_mimo_argv(
     mimo_bin: str,
     manifest: dict[str, Any],
 ) -> list[str]:
-    args = [
+    return [
         mimo_bin,
         "run",
         "--format",
@@ -353,9 +409,8 @@ def build_mimo_argv(
         str(manifest["worktree"]),
         "--model",
         manifest.get("model", DEFAULT_MODEL),
+        prompt_for_agent(manifest),
     ]
-    args.append(prompt_for_agent(manifest))
-    return args
 
 
 def summarize_output(stdout: str, stderr: str) -> str:
@@ -473,9 +528,8 @@ def run_local(args: argparse.Namespace) -> int:
     if not worktree.exists():
         raise RunnerError(f"Local worktree does not exist: {worktree}")
 
-    mimo_bin = args.mimo_bin or os.environ.get("KOLIBRI_MIMO_BIN", "mimo")
     manifest["worktree"] = str(worktree)
-    argv = build_mimo_argv(mimo_bin, manifest)
+    argv = build_agent_argv(backend_binary(args, manifest), manifest)
     started_at = utc_now()
     try:
         proc = subprocess.run(
@@ -506,7 +560,7 @@ def run_local(args: argparse.Namespace) -> int:
             "task_id": manifest["task_id"],
             "server": "local",
             "status": "timeout",
-            "summary": "Mimo task timed out",
+            "summary": "Agent task timed out",
             "stdout": exc.stdout or "",
             "stderr": exc.stderr or "",
             "changed_files": changed_files_for(str(worktree)),
@@ -531,6 +585,8 @@ def run_local(args: argparse.Namespace) -> int:
 
 REMOTE_LAUNCHER = r"""
 import json
+import os
+import re
 import shlex
 import subprocess
 import sys
@@ -538,20 +594,65 @@ from datetime import datetime, timezone
 
 payload = json.load(sys.stdin)
 started_at = datetime.now(timezone.utc).isoformat()
-argv = [
-    payload["mimo_bin"],
-    "run",
-    "--format",
-    "json",
-    "--dir",
-    payload["worktree"],
-    "--model",
-    payload["model"],
-    payload["prompt"],
-]
+
+
+SAFE_ENV_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
+
+
+def load_runtime_env(payload):
+    env = os.environ.copy()
+    for env_file in payload.get("runtime_env_files", []):
+        with open(env_file, "r", encoding="utf-8") as handle:
+            for raw_line in handle:
+                line = raw_line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if line.startswith("export "):
+                    line = line[len("export "):].strip()
+                if "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = value.strip()
+                if not SAFE_ENV_NAME_RE.fullmatch(key):
+                    continue
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+                    value = value[1:-1]
+                env[key] = value
+    return env
+
+
+runtime_env = load_runtime_env(payload)
+if payload.get("agent_backend", "mimo") == "openclaw":
+    argv = [
+        payload["agent_bin"],
+        "agent",
+        "--agent",
+        payload.get("openclaw_agent") or "kolibri-frontend",
+        "--message",
+        payload["prompt"],
+        "--model",
+        payload["model"],
+        "--local",
+        "--json",
+    ]
+else:
+    argv = [
+        payload["agent_bin"],
+        "run",
+        "--format",
+        "json",
+        "--dir",
+        payload["worktree"],
+        "--model",
+        payload["model"],
+        payload["prompt"],
+    ]
 try:
     proc = subprocess.run(
         argv,
+        cwd=payload["worktree"],
+        env=runtime_env,
         capture_output=True,
         text=True,
         timeout=payload["timeout_seconds"],
@@ -595,12 +696,12 @@ except FileNotFoundError:
         "task_id": payload["task_id"],
         "server": payload["server"],
         "status": "failed",
-        "summary": "Mimo binary not found",
+        "summary": "Agent binary not found",
         "stdout": "",
-        "stderr": "Mimo binary not found: " + payload["mimo_bin"],
+        "stderr": "Agent binary not found: " + payload["agent_bin"],
         "changed_files": [],
         "checks": [],
-        "risks": ["mimo_binary_not_found"],
+        "risks": ["agent_binary_not_found"],
         "artifacts": [],
         "started_at": started_at,
         "completed_at": datetime.now(timezone.utc).isoformat(),
@@ -613,6 +714,7 @@ for check in payload.get("required_checks", []):
         check_proc = subprocess.run(
             shlex.split(check),
             cwd=payload["worktree"],
+            env=runtime_env,
             shell=False,
             capture_output=True,
             text=True,
@@ -675,12 +777,15 @@ def run_ssh(args: argparse.Namespace) -> int:
     payload = {
         "task_id": manifest["task_id"],
         "server": server,
-        "mimo_bin": config.get("mimo_bin", "mimo"),
+        "agent_backend": manifest.get("agent_backend", DEFAULT_AGENT_BACKEND),
+        "agent_bin": backend_binary(args, manifest, config),
+        "openclaw_agent": manifest.get("openclaw_agent") or config.get("openclaw_agent") or "kolibri-frontend",
         "worktree": manifest["worktree"],
         "model": manifest.get("model", DEFAULT_MODEL),
         "prompt": prompt_for_agent(manifest),
         "timeout_seconds": manifest["timeout_seconds"],
         "required_checks": manifest.get("required_checks") or [],
+        "runtime_env_files": config.get("runtime_env_files") or [],
     }
 
     ssh_cmd = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10"]
@@ -828,7 +933,7 @@ def report(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Safe Kolibri Mimo task runner")
+    parser = argparse.ArgumentParser(description="Safe Kolibri Mimo/OpenClaw task runner")
     parser.add_argument("--agents-file", default=str(DEFAULT_AGENTS_FILE))
     parser.add_argument("--log-dir", default=str(DEFAULT_LOG_DIR))
     sub = parser.add_subparsers(dest="command", required=True)
@@ -839,6 +944,8 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("--prompt")
         command.add_argument("--task-id")
         command.add_argument("--task-type")
+        command.add_argument("--agent-backend", choices=["mimo", "openclaw"], default=DEFAULT_AGENT_BACKEND)
+        command.add_argument("--openclaw-agent", default="kolibri-frontend")
         command.add_argument("--mode", default="read_only")
         command.add_argument("--worktree", default=str(PROJECT_DIR))
         command.add_argument("--allowed-path", action="append")
@@ -849,13 +956,16 @@ def build_parser() -> argparse.ArgumentParser:
     add_task_args(validate_p)
     validate_p.set_defaults(func=validate_command)
 
-    local_p = sub.add_parser("run-local", help="Run Mimo locally through argv")
+    local_p = sub.add_parser("run-local", help="Run an agent locally through argv")
     add_task_args(local_p)
     local_p.add_argument("--mimo-bin")
+    local_p.add_argument("--openclaw-bin")
     local_p.set_defaults(func=run_local)
 
-    ssh_p = sub.add_parser("run-ssh", help="Run Mimo on a remote server through SSH stdin")
+    ssh_p = sub.add_parser("run-ssh", help="Run an agent on a remote server through SSH stdin")
     add_task_args(ssh_p)
+    ssh_p.add_argument("--mimo-bin")
+    ssh_p.add_argument("--openclaw-bin")
     ssh_p.set_defaults(func=run_ssh)
 
     collect_p = sub.add_parser("collect", help="Collect task run logs")

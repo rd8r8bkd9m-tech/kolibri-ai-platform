@@ -1,0 +1,71 @@
+{
+  "task_id": "frontend-ux-audit-openclaw-hk",
+  "agent_role": "Frontend/Design Lead",
+  "agent_backend": "openclaw",
+  "openclaw_agent": "kolibri-frontend-hk",
+  "server": "hostvds-agent-10",
+  "mode": "read_only",
+  "model": "xiaomi-token-plan/mimo-v2.5-pro",
+  "budget": {
+    "max_usd": 2,
+    "max_tokens": 250000,
+    "max_runtime_seconds": 900,
+    "billing_note": "Run from HK/China edge only; stop before broad redesign or paid exploratory loops."
+  },
+  "prompt": "Audit the current Kolibri frontend from the HK OpenClaw node as an Agent Ops SaaS product. Do not modify files. Focus on whether Overview, Agents, Tasks, Servers, Reports, Chat, Docs, Search, offline states, task structured results, and server risk surfaces are clear enough for daily operator use. Return evidence-backed findings and a minimal patch backlog.",
+  "worktree": "/opt/kolibri-ai/agent-worktrees/frontend-ux-audit-openclaw-hk-hostvds-agent-10",
+  "allowed_paths": [
+    "/opt/kolibri-ai/agent-worktrees/frontend-ux-audit-openclaw-hk-hostvds-agent-10",
+    "/opt/kolibri-ai/frontend",
+    "/opt/kolibri-ai/docs",
+    "/opt/kolibri-ai/reports",
+    "/opt/kolibri-ai/artifacts/browser-qa"
+  ],
+  "quality_contract": {
+    "objective": "Create a read-only HK OpenClaw UX audit for the Kolibri Agent Ops frontend.",
+    "context": "The user wants MiMo Claw/OpenClaw agents to execute frontend quality tasks while Codex issues tasks and reviews outputs.",
+    "scope": [
+      "Inspect the current frontend implementation and orchestration manifests.",
+      "Assess Agent Ops SaaS clarity, density, state handling, and operator workflows.",
+      "Return a minimal, prioritized patch backlog for Codex review."
+    ],
+    "out_of_scope": [
+      "Do not edit files, install packages, deploy, restart services, or change server/account state.",
+      "Do not read secrets, auth files, .env files, .ssh, or .mimocode.",
+      "Do not run browser automation or paid loops beyond the declared budget."
+    ],
+    "acceptance_criteria": [
+      "Return no more than eight prioritized findings.",
+      "Every finding references an observed screen, file, or manifest surface.",
+      "Return blockers separately from polish recommendations."
+    ],
+    "verification_steps": [
+      "Inspect allowed frontend and ops files only.",
+      "Run no mutation commands.",
+      "Report if required context is missing instead of guessing."
+    ],
+    "deliverables": [
+      "Structured result with status, summary, changed_files, checks, risks, and artifacts.",
+      "Prioritized UX findings.",
+      "Minimal controlled mutation recommendation."
+    ],
+    "stop_conditions": [
+      "Stop if credentials, tokens, private keys, or auth file contents are required.",
+      "Stop if evidence requires writing outside allowed_paths."
+    ]
+  },
+  "required_checks": [],
+  "timeout_seconds": 900,
+  "secrets_policy": {
+    "allow_env_files": false,
+    "allow_auth_files": false,
+    "redact_logs": true
+  },
+  "expected_output": {
+    "format": "structured_result",
+    "requires_summary": true,
+    "requires_changed_files": true,
+    "requires_risks": true
+  },
+  "allow_unsafe_permissions": false
+}

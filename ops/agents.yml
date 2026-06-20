@@ -237,28 +237,33 @@
     },
     "hostvds-agent-02": {
       "enabled": true,
-      "role": "frontend-design-node",
+      "role": "frontend-claw-ui-agent",
       "deputy": "Frontend/Design Lead",
-      "specialization": "eslint-browser-qa-ui-polish",
+      "specialization": "agent-ops-saas-ui-openclaw-draft-patches-browser-qa-polish",
       "provider_name": "kolibri-frontend-design",
       "region": "Riga 2 (eu-north1)",
       "plan": "Burstable-2",
       "ssh_alias": "root@213.232.204.223",
       "public_ip": "213.232.204.223",
       "vpn_ip": "",
+      "agent_backends": ["mimo", "openclaw"],
       "mimo_bin": "/root/.mimocode/bin/mimo",
+      "openclaw_bin": "openclaw",
+      "openclaw_agent": "kolibri-frontend",
       "remote_worktree_root": "/opt/kolibri-ai/agent-worktrees",
       "allowed_paths": [
         "/opt/kolibri-ai/agent-worktrees",
         "/opt/kolibri-ai/frontend",
-        "/opt/kolibri-ai/docs/design",
-        "/opt/kolibri-ai/reports"
+        "/opt/kolibri-ai/docs",
+        "/opt/kolibri-ai/reports",
+        "/opt/kolibri-ai/artifacts"
       ],
       "health_gates": {
         "min_disk_free_gb": 3,
         "max_ram_percent": 92,
         "requires_vpn": false,
         "requires_mimo": true,
+        "requires_openclaw": true,
         "requires_ssh_key": true
       }
     },
@@ -458,7 +463,7 @@
       "enabled": true,
       "role": "asia-edge-load-benchmark-node",
       "deputy": "Performance/Asia Edge Lead",
-      "specialization": "asia-edge-smoke-api-load-resource-profiling-cost-control",
+      "specialization": "asia-edge-smoke-api-load-resource-profiling-cost-control-openclaw-frontend-audit",
       "provider_name": "kolibri-hk-edge-load",
       "region": "Hong Kong (asia-east1)",
       "plan": "Highload-2",
@@ -468,19 +473,29 @@
       "ram": "7.8GB",
       "cpu": "2 vCPU",
       "disk": "47GB",
+      "agent_backends": ["mimo", "openclaw"],
       "mimo_bin": "/root/.mimocode/bin/mimo",
+      "openclaw_bin": "openclaw",
+      "openclaw_agent": "kolibri-frontend-hk",
+      "runtime_env_files": [
+        "/root/.openclaw/kolibri-xiaomi-token-plan.env"
+      ],
       "remote_worktree_root": "/opt/kolibri-ai/agent-worktrees",
       "allowed_paths": [
         "/opt/kolibri-ai/agent-worktrees",
+        "/opt/kolibri-ai/frontend",
+        "/opt/kolibri-ai/docs",
         "/opt/kolibri-ai/load",
         "/opt/kolibri-ai/smoke",
-        "/opt/kolibri-ai/reports"
+        "/opt/kolibri-ai/reports",
+        "/opt/kolibri-ai/artifacts"
       ],
       "health_gates": {
         "min_disk_free_gb": 5,
         "max_ram_percent": 90,
         "requires_vpn": false,
         "requires_mimo": true,
+        "requires_openclaw": true,
         "requires_ssh_key": true,
         "cost_review_note": "Created as Highload-2 instead of the requested Burstable-2; keep only if the higher hourly cost is intentional."
       }
