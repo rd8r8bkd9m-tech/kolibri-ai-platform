@@ -1,11 +1,12 @@
 {
   "state": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/.factory/runs/agent_factory_state.json",
-  "generated_at": "2026-06-20T15:20:29.285907+00:00",
+  "generated_at": "2026-06-20T16:26:16.400932+00:00",
   "counts": {
     "queued": 18,
     "dispatch_failed": 3,
     "failed": 4,
-    "completed": 2
+    "completed": 3,
+    "timeout": 1
   },
   "by_server": {
     "home": {
@@ -48,7 +49,9 @@
       "dispatch_failed": 1
     },
     "hostvds-agent-04": {
-      "queued": 1
+      "queued": 1,
+      "timeout": 1,
+      "completed": 1
     },
     "hostvds-agent-05": {
       "queued": 1
@@ -114,6 +117,12 @@
       "server": "hostvds-agent-02",
       "status": "failed",
       "summary": "\u2800"
+    },
+    {
+      "task_id": "canary8-hostvds-agent-04-1781972478",
+      "server": "hostvds-agent-04",
+      "status": "timeout",
+      "summary": "Agent task timed out"
     }
   ],
   "next_actions": [

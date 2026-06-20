@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-06-20T13:51:36.985516+00:00",
-  "updated_at": "2026-06-20T15:19:23.947822+00:00",
+  "updated_at": "2026-06-20T16:25:49.095323+00:00",
   "tasks": {
     "bootstrap-home-1781963502": {
       "id": "bootstrap-home-1781963502",
@@ -616,6 +616,110 @@
         "started_at": "2026-06-20T15:06:52.790651+00:00",
         "completed_at": "2026-06-20T15:07:56.498037+00:00"
       }
+    },
+    "canary8-hostvds-agent-04-1781972478": {
+      "id": "canary8-hostvds-agent-04-1781972478",
+      "wave": "canary8",
+      "server": "hostvds-agent-04",
+      "mode": "read_only",
+      "backend": "mimo",
+      "prompt": "CANARY8 HOSTVDS-AGENT-04. Read-only QA/browser worker audit. Verify repo HEAD, .factory files, command -v mimo, mimo version, git status, browser QA prerequisites, and blockers. Do not deploy, restart services, read secrets, or mutate code. Return only JSON with status, summary, changed_files, checks, risks, artifacts, next_actions.",
+      "status": "timeout",
+      "priority": 300,
+      "created_at": "2026-06-20T16:21:18.479152+00:00",
+      "updated_at": "2026-06-20T16:24:43.320377+00:00",
+      "timeout_seconds": 180,
+      "remote": {
+        "status": "running",
+        "pid": "14245",
+        "remote_dir": "/opt/kolibri-ai/agent-runs/factory-canary8-hostvds-agent-04-1781972478/hostvds-agent-04",
+        "result_path": "/opt/kolibri-ai/agent-runs/factory-canary8-hostvds-agent-04-1781972478/hostvds-agent-04/result.json",
+        "stdout_path": "/opt/kolibri-ai/agent-runs/factory-canary8-hostvds-agent-04-1781972478/hostvds-agent-04/stdout.log",
+        "stderr_path": "/opt/kolibri-ai/agent-runs/factory-canary8-hostvds-agent-04-1781972478/hostvds-agent-04/stderr.log",
+        "worktree": "/opt/kolibri-ai/agent-worktrees/canary8-hostvds-agent-04-1781972478",
+        "started_at": "2026-06-20T16:21:26.928053+00:00"
+      },
+      "result": {
+        "task_id": "canary8-hostvds-agent-04-1781972478",
+        "server": "hostvds-agent-04",
+        "status": "timeout",
+        "summary": "Agent task timed out",
+        "stdout": "AD (not on any branch)\\\",\\n          \\\"mimo_path\\\": \\\"/usr/local/bin/mimo (symlink -> /root/.mimocode/bin/mimo)\\\",\\n          \\\"mimo_version\\\": \\\"0.1.1\\\",\\n          \\\"mimo_binary_size\\\": \\\"125171880 bytes (119 MB)\\\",\\n          \\\"openclaw_available\\\": true,\\n          \\\"openclaw_path\\\": \\\"/usr/bin/openclaw\\\",\\n          \\\"openclaw_version\\\": \\\"OpenClaw 2026.6.8 (844f405)\\\",\\n          \\\"python_version\\\": \\\"3.12.3\\\",\\n          \\\"node_version\\\": \\\"v24.17.0\\\",\\n          \\\"git_version\\\": \\\"2.43.0\\\",\\n          \\\"factory_config\\\": \\\"present (.factory/config.yaml, mode=bootstrap, run_id=factory-bootstrap-20260620)\\\",\\n          \\\"factory_server_inventory\\\": \\\"present (.factory/server_inventory.json, 19 servers registered)\\\",\\n          \\\"this_server_inventory_entry\\\": {\\n            \\\"id\\\": \\\"hostvds-agent-02\\\",\\n            \\\"role\\\": \\\"frontend-claw-ui-agent\\\",\\n            \\\"ssh_alias\\\": \\\"root@213.232.204.223\\\",\\n            \\\"region\\\": \\\"Riga 2 (eu-north1)\\\",\\n            \\\"plan\\\": \\\"Burstable-2\\\",\\n            \\\"inventory_mimo_status\\\": \\\"missing_or_not_on_path\\\",\\n            \\\"actual_mimo_status\\\": \\\"ok \\\\u2014 PATH fix resolved the issue\\\"\\n          },\\n          \\\"path_fix_verified\\\": true,\\n          \\\"inventory_stale\\\": true,\\n          \\\"notes\\\": [\\n            \\\"server_inventory.json records mimo_status as 'missing_or_not_on_path' for hostvds-agent-02, but mimo now resolves at /usr/local/bin/mimo -> /root/.mimocode/bin/mimo. Inventory needs update.\\\",\\n            \\\"Detached HEAD \\\\u2014 worktree is not on a named branch. This is normal for a worktree checkout but means no branch tracking is active.\\\"\\n          ]\\n        },\\n        \\\"risks\\\": [\\n          \\\"server_inventory.json is stale for this host (mimo_status still reads 'missing_or_not_on_path') \\\\u2014 should be updated by Codex in next inventory refresh\\\",\\n          \\\"Detached HEAD state: worktree is not tracking a branch; pushes and branch-aware operations will need explicit branch checkout first\\\",\\n          \\\"No .factory/runs/ directory with active run state files \\\\u2014 factory bootstrap run state not yet written to this worktree\\\"\\n        ],\\n        \\\"artifacts\\\": [],\\n        \\\"next_actions\\\": [\\n          \\\"Codex should update server_inventory.json entry for hostvds-agent-02: set mimo_status to 'ok' to reflect PATH fix\\\",\\n          \\\"Codex should confirm this worktree should track a named branch (currently detached HEAD)\\\",\\n          \\\"This worker is ready for dispatched read-only tasks; no blockers remain on this host\\\"\\n        ],\\n        \\\"started_at\\\": \\\"2026-06-20T15:06:52.790651+00:00\\\",\\n        \\\"completed_at\\\": \\\"2026-06-20T15:07:56.498037+00:00\\\"\\n      }\\n    }\\n  },\\n  \\\"events\\\": [\\n    {\\n      \\\"at\\\": \\\"2026-06-20T13:51:42.957737+00:00\\\",\\n      \\\"kind\\\": \\\"enqueue\\\",\\n      \\\"count\\\": 19,\\n      \\\"wave\\\": \\\"bootstrap\\\"\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T13:54:37.788362+00:00\\\",\\n      \\\"kind\\\": \\\"dispatch_interrupted\\\",\\n      \\\"completed\\\": 0,\\n      \\\"requested\\\": 1\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T13:55:47.670214+00:00\\\",\\n      \\\"kind\\\": \\\"dispatch_one\\\",\\n      \\\"task_id\\\": \\\"bootstrap-hostvds-highload-1781963502\\\",\\n      \\\"server\\\": \\\"hostvds-highload\\\",\\n      \\\"status\\\": \\\"dispatch_failed\\\"\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T13:55:47.675030+00:00\\\",\\n      \\\"kind\\\": \\\"dispatch\\\",\\n      \\\"count\\\": 1\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:14:44.772972+00:00\\\",\\n      \\\"kind\\\": \\\"enqueue\\\",\\n      \\\"count\\\": 1,\\n      \\\"wave\\\": \\\"canary\\\"\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:14:44.868309+00:00\\\",\\n      \\\"kind\\\": \\\"enqueue\\\",\\n      \\\"count\\\": 1,\\n      \\\"wave\\\": \\\"canary\\\"\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:15:47.596620+00:00\\\",\\n      \\\"kind\\\": \\\"dispatch_one\\\",\\n      \\\"task_id\\\": \\\"canary-main-1781964884\\\",\\n      \\\"server\\\": \\\"main\\\",\\n      \\\"status\\\": \\\"running\\\"\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:15:47.599851+00:00\\\",\\n      \\\"kind\\\": \\\"dispatch\\\",\\n      \\\"count\\\": 1\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:16:40.516940+00:00\\\",\\n      \\\"kind\\\": \\\"dispatch_one\\\",\\n      \\\"task_id\\\": \\\"canary-home-1781964884\\\",\\n      \\\"server\\\": \\\"home\\\",\\n      \\\"status\\\": \\\"running\\\"\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:16:40.520822+00:00\\\",\\n      \\\"kind\\\": \\\"dispatch\\\",\\n      \\\"count\\\": 1\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:17:01.649549+00:00\\\",\\n      \\\"kind\\\": \\\"collect\\\",\\n      \\\"count\\\": 1\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:17:22.632026+00:00\\\",\\n      \\\"kind\\\": \\\"collect\\\",\\n      \\\"count\\\": 1\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:18:23.592226+00:00\\\",\\n      \\\"kind\\\": \\\"collect\\\",\\n      \\\"count\\\": 1\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:20:41.707018+00:00\\\",\\n      \\\"kind\\\": \\\"collect\\\",\\n      \\\"count\\\": 1\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:22:21.609594+00:00\\\",\\n      \\\"kind\\\": \\\"collect\\\",\\n      \\\"count\\\": 1\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:24:24.542453+00:00\\\",\\n      \\\"kind\\\": \\\"collect\\\",\\n      \\\"count\\\": 1\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:28:04.526888+00:00\\\",\\n      \\\"kind\\\": \\\"collect\\\",\\n      \\\"count\\\": 1\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:29:23.814349+00:00\\\",\\n      \\\"kind\\\": \\\"enqueue\\\",\\n      \\\"count\\\": 1,\\n      \\\"wave\\\": \\\"canary2\\\"\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:29:50.482161+00:00\\\",\\n      \\\"kind\\\": \\\"dispatch_one\\\",\\n      \\\"task_id\\\": \\\"canary2-home-1781965763\\\",\\n      \\\"server\\\": \\\"home\\\",\\n      \\\"status\\\": \\\"dispatch_failed\\\"\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:29:50.486588+00:00\\\",\\n      \\\"kind\\\": \\\"dispatch\\\",\\n      \\\"count\\\": 1\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:30:51.481367+00:00\\\",\\n      \\\"kind\\\": \\\"dispatch_one\\\",\\n      \\\"task_id\\\": \\\"canary2-home-1781965763\\\",\\n      \\\"server\\\": \\\"home\\\",\\n      \\\"status\\\": \\\"dispatch_failed\\\"\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:30:51.490628+00:00\\\",\\n      \\\"kind\\\": \\\"dispatch\\\",\\n      \\\"count\\\": 1\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:31:20.520551+00:00\\\",\\n      \\\"kind\\\": \\\"dispatch_one\\\",\\n      \\\"task_id\\\": \\\"canary2-home-1781965763\\\",\\n      \\\"server\\\": \\\"home\\\",\\n      \\\"status\\\": \\\"dispatch_failed\\\"\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:31:20.524946+00:00\\\",\\n      \\\"kind\\\": \\\"dispatch\\\",\\n      \\\"count\\\": 1\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:34:24.752028+00:00\\\",\\n      \\\"kind\\\": \\\"collect\\\",\\n      \\\"count\\\": 0\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:39:24.824693+00:00\\\",\\n      \\\"kind\\\": \\\"collect\\\",\\n      \\\"count\\\": 0\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:39:38.734025+00:00\\\",\\n      \\\"kind\\\": \\\"enqueue\\\",\\n      \\\"count\\\": 1,\\n      \\\"wave\\\": \\\"canary3\\\"\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:39:53.388088+00:00\\\",\\n      \\\"kind\\\": \\\"dispatch_one\\\",\\n      \\\"task_id\\\": \\\"canary3-hostvds-agent-03-1781966378\\\",\\n      \\\"server\\\": \\\"hostvds-agent-03\\\",\\n      \\\"status\\\": \\\"dispatch_failed\\\"\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:39:53.393830+00:00\\\",\\n      \\\"kind\\\": \\\"dispatch\\\",\\n      \\\"count\\\": 1\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:40:42.463950+00:00\\\",\\n      \\\"kind\\\": \\\"dispatch_one\\\",\\n      \\\"task_id\\\": \\\"canary3-hostvds-agent-03-1781966378\\\",\\n      \\\"server\\\": \\\"hostvds-agent-03\\\",\\n      \\\"status\\\": \\\"dispatch_failed\\\"\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:40:42.468053+00:00\\\",\\n      \\\"kind\\\": \\\"dispatch\\\",\\n      \\\"count\\\": 1\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:44:23.528058+00:00\\\",\\n      \\\"kind\\\": \\\"collect\\\",\\n      \\\"count\\\": 0\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:49:23.576181+00:00\\\",\\n      \\\"kind\\\": \\\"collect\\\",\\n      \\\"count\\\": 0\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:50:19.266440+00:00\\\",\\n      \\\"kind\\\": \\\"enqueue\\\",\\n      \\\"count\\\": 1,\\n      \\\"wave\\\": \\\"canary4\\\"\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:51:03.758974+00:00\\\",\\n      \\\"kind\\\": \\\"dispatch_one\\\",\\n      \\\"task_id\\\": \\\"canary4-hostvds-agent-02-1781967019\\\",\\n      \\\"server\\\": \\\"hostvds-agent-02\\\",\\n      \\\"status\\\": \\\"dispatch_failed\\\"\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:51:03.762242+00:00\\\",\\n      \\\"kind\\\": \\\"dispatch\\\",\\n      \\\"count\\\": 1\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:54:23.722402+00:00\\\",\\n      \\\"kind\\\": \\\"collect\\\",\\n      \\\"count\\\": 0\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:57:17.038886+00:00\\\",\\n      \\\"kind\\\": \\\"dispatch_one\\\",\\n      \\\"task_id\\\": \\\"canary4-hostvds-agent-02-1781967019\\\",\\n      \\\"server\\\": \\\"hostvds-agent-02\\\",\\n      \\\"status\\\": \\\"running\\\"\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:57:17.043356+00:00\\\",\\n      \\\"kind\\\": \\\"dispatch\\\",\\n      \\\"count\\\": 1\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:57:46.926146+00:00\\\",\\n      \\\"kind\\\": \\\"collect\\\",\\n      \\\"count\\\": 1\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:58:44.424421+00:00\\\",\\n      \\\"kind\\\": \\\"enqueue\\\",\\n      \\\"count\\\": 1,\\n      \\\"wave\\\": \\\"canary5\\\"\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:59:49.098127+00:00\\\",\\n      \\\"kind\\\": \\\"dispatch_one\\\",\\n      \\\"task_id\\\": \\\"canary5-hostvds-agent-02-1781967524\\\",\\n      \\\"server\\\": \\\"hostvds-agent-02\\\",\\n      \\\"status\\\": \\\"dispatch_failed\\\"\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T14:59:49.101623+00:00\\\",\\n      \\\"kind\\\": \\\"dispatch\\\",\\n      \\\"count\\\": 1\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T15:01:33.090716+00:00\\\",\\n      \\\"kind\\\": \\\"dispatch_one\\\",\\n      \\\"task_id\\\": \\\"canary5-hostvds-agent-02-1781967524\\\",\\n      \\\"server\\\": \\\"hostvds-agent-02\\\",\\n      \\\"status\\\": \\\"running\\\"\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T15:01:33.092907+00:00\\\",\\n      \\\"kind\\\": \\\"dispatch\\\",\\n      \\\"count\\\": 1\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T15:01:51.114640+00:00\\\",\\n      \\\"kind\\\": \\\"collect\\\",\\n      \\\"count\\\": 1\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T15:03:05.337082+00:00\\\",\\n      \\\"kind\\\": \\\"enqueue\\\",\\n      \\\"count\\\": 1,\\n      \\\"wave\\\": \\\"canary6\\\"\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T15:03:30.042085+00:00\\\",\\n      \\\"kind\\\": \\\"dispatch_one\\\",\\n      \\\"task_id\\\": \\\"canary6-hostvds-agent-02-1781967785\\\",\\n      \\\"server\\\": \\\"hostvds-agent-02\\\",\\n      \\\"status\\\": \\\"running\\\"\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T15:03:30.043972+00:00\\\",\\n      \\\"kind\\\": \\\"dispatch\\\",\\n      \\\"count\\\": 1\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T15:04:00.012752+00:00\\\",\\n      \\\"kind\\\": \\\"collect\\\",\\n      \\\"count\\\": 1\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T15:04:23.762862+00:00\\\",\\n      \\\"kind\\\": \\\"collect\\\",\\n      \\\"count\\\": 0\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T15:05:31.908517+00:00\\\",\\n      \\\"kind\\\": \\\"collect\\\",\\n      \\\"count\\\": 1\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T15:06:34.373491+00:00\\\",\\n      \\\"kind\\\": \\\"enqueue\\\",\\n      \\\"count\\\": 1,\\n      \\\"wave\\\": \\\"canary7\\\"\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T15:06:48.989936+00:00\\\",\\n      \\\"kind\\\": \\\"dispatch_one\\\",\\n      \\\"task_id\\\": \\\"canary7-hostvds-agent-02-1781967994\\\",\\n      \\\"server\\\": \\\"hostvds-agent-02\\\",\\n      \\\"status\\\": \\\"running\\\"\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T15:06:48.994294+00:00\\\",\\n      \\\"kind\\\": \\\"dispatch\\\",\\n      \\\"count\\\": 1\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T15:07:57.885521+00:00\\\",\\n      \\\"kind\\\": \\\"collect\\\",\\n      \\\"count\\\": 1\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T15:09:23.836351+00:00\\\",\\n      \\\"kind\\\": \\\"collect\\\",\\n      \\\"count\\\": 0\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T15:14:23.893698+00:00\\\",\\n      \\\"kind\\\": \\\"collect\\\",\\n      \\\"count\\\": 0\\n    },\\n    {\\n      \\\"at\\\": \\\"2026-06-20T15:19:23.947801+00:00\\\",\\n      \\\"kind\\\": \\\"collect\\\",\\n      \\\"count\\\": 0\\n    }\\n  ],\\n  \\\"runs\\\": {}\\n}\",\"exit\":0,\"description\":\"Read factory state\",\"truncated\":true,\"outputPath\":\"/root/.local/share/mimocode/tool-output/tool_ee5d6ea200014tRorcrC9IKuw4\"},\"title\":\"Read factory state\",\"time\":{\"start\":1781972527577,\"end\":1781972527663}},\"id\":\"prt_ee5d6e693001BszMZrhAPkyhtg\",\"sessionID\":\"ses_11a298be2ffe75g0MefMSM6MWK\",\"messageID\":\"msg_ee5d6d4e8001Escfg7imw3kvfJ\"}}\n",
+        "stderr": "\u001b[93m\u001b[1m! \u001b[0mpermission requested: external_directory (/proc/*, /etc/*); auto-rejecting\n",
+        "changed_files": [],
+        "checks": [],
+        "risks": [
+          "timeout"
+        ],
+        "artifacts": [],
+        "started_at": "2026-06-20T16:21:30.750026+00:00",
+        "completed_at": "2026-06-20T16:24:30.977094+00:00"
+      }
+    },
+    "canary9-hostvds-agent-04-1781972693": {
+      "id": "canary9-hostvds-agent-04-1781972693",
+      "wave": "canary9",
+      "server": "hostvds-agent-04",
+      "mode": "read_only",
+      "backend": "mimo",
+      "prompt": "CANARY9 HOSTVDS-AGENT-04. Ultra-short smoke. Run only minimal read-only checks mentally/tool-light: repo HEAD, command -v mimo, mimo version, git status. Do not inspect large files. Do not deploy, read secrets, or mutate code. Return only compact JSON: {\"status\":\"completed\",\"summary\":\"...\",\"changed_files\":[],\"checks\":[...],\"risks\":[...],\"artifacts\":[],\"next_actions\":[...]}",
+      "status": "completed",
+      "priority": 310,
+      "created_at": "2026-06-20T16:24:53.065978+00:00",
+      "updated_at": "2026-06-20T16:25:49.095228+00:00",
+      "timeout_seconds": 90,
+      "remote": {
+        "status": "running",
+        "pid": "14410",
+        "remote_dir": "/opt/kolibri-ai/agent-runs/factory-canary9-hostvds-agent-04-1781972693/hostvds-agent-04",
+        "result_path": "/opt/kolibri-ai/agent-runs/factory-canary9-hostvds-agent-04-1781972693/hostvds-agent-04/result.json",
+        "stdout_path": "/opt/kolibri-ai/agent-runs/factory-canary9-hostvds-agent-04-1781972693/hostvds-agent-04/stdout.log",
+        "stderr_path": "/opt/kolibri-ai/agent-runs/factory-canary9-hostvds-agent-04-1781972693/hostvds-agent-04/stderr.log",
+        "worktree": "/opt/kolibri-ai/agent-worktrees/canary9-hostvds-agent-04-1781972693",
+        "started_at": "2026-06-20T16:24:58.669838+00:00"
+      },
+      "result": {
+        "task_id": "canary9-hostvds-agent-04-1781972693",
+        "server": "hostvds-agent-04",
+        "status": "completed",
+        "summary": "Ultra-short smoke: repo HEAD reachable, mimo binary present at /usr/local/bin/mimo, working tree clean. mimo 'version' subcommand not recognized (treats arg as directory path).",
+        "returncode": 0,
+        "stdout": "{\"type\":\"step_start\",\"timestamp\":1781972715311,\"sessionID\":\"ses_11a264fd6ffeWcjCGtfWUQiUrO\",\"part\":{\"id\":\"prt_ee5d9c722001zFXDLwaGhCTOAl\",\"messageID\":\"msg_ee5d9b986001PJViNB8fLCiOSe\",\"sessionID\":\"ses_11a264fd6ffeWcjCGtfWUQiUrO\",\"snapshot\":\"d205817c2e32a73eec1b96493d73f1e9c01bb873\",\"type\":\"step-start\"}}\n{\"type\":\"tool_use\",\"timestamp\":1781972716822,\"sessionID\":\"ses_11a264fd6ffeWcjCGtfWUQiUrO\",\"part\":{\"type\":\"tool\",\"tool\":\"bash\",\"callID\":\"call_c02d83d760be4476a0da42ac\",\"state\":{\"status\":\"completed\",\"input\":{\"command\":\"git rev-parse HEAD\",\"description\":\"Get repo HEAD commit\"},\"output\":\"579952090a6c58cf314411b8b84ecade8687269b\\n\",\"metadata\":{\"output\":\"579952090a6c58cf314411b8b84ecade8687269b\\n\",\"exit\":0,\"description\":\"Get repo HEAD commit\",\"truncated\":false},\"title\":\"Get repo HEAD commit\",\"time\":{\"start\":1781972716768,\"end\":1781972716804}},\"id\":\"prt_ee5d9c9fb001Q0eRtd71hNbj6r\",\"sessionID\":\"ses_11a264fd6ffeWcjCGtfWUQiUrO\",\"messageID\":\"msg_ee5d9b986001PJViNB8fLCiOSe\"}}\n{\"type\":\"tool_use\",\"timestamp\":1781972716854,\"sessionID\":\"ses_11a264fd6ffeWcjCGtfWUQiUrO\",\"part\":{\"type\":\"tool\",\"tool\":\"bash\",\"callID\":\"call_3c3797516c64433d89413e3c\",\"state\":{\"status\":\"completed\",\"input\":{\"command\":\"command -v mimo\",\"description\":\"Check mimo command availability\"},\"output\":\"/usr/local/bin/mimo\\n\",\"metadata\":{\"output\":\"/usr/local/bin/mimo\\n\",\"exit\":0,\"description\":\"Check mimo command availability\",\"truncated\":false},\"title\":\"Check mimo command availability\",\"time\":{\"start\":1781972716826,\"end\":1781972716846}},\"id\":\"prt_ee5d9ca9b001J1PyJvIG2CRwC7\",\"sessionID\":\"ses_11a264fd6ffeWcjCGtfWUQiUrO\",\"messageID\":\"msg_ee5d9b986001PJViNB8fLCiOSe\"}}\n{\"type\":\"tool_use\",\"timestamp\":1781972717274,\"sessionID\":\"ses_11a264fd6ffeWcjCGtfWUQiUrO\",\"part\":{\"type\":\"tool\",\"tool\":\"bash\",\"callID\":\"call_03bd55b7460145448dfd9ab5\",\"state\":{\"status\":\"completed\",\"input\":{\"command\":\"git status --short\",\"description\":\"Check git status\"},\"output\":\"(no output)\",\"metadata\":{\"output\":\"(no output)\",\"exit\":0,\"description\":\"Check git status\",\"truncated\":false},\"title\":\"Check git status\",\"time\":{\"start\":1781972716998,\"end\":1781972717247}},\"id\":\"prt_ee5d9cd7c001bX9Ca4tAT216nI\",\"sessionID\":\"ses_11a264fd6ffeWcjCGtfWUQiUrO\",\"messageID\":\"msg_ee5d9b986001PJViNB8fLCiOSe\"}}\n{\"type\":\"tool_use\",\"timestamp\":1781972723576,\"sessionID\":\"ses_11a264fd6ffeWcjCGtfWUQiUrO\",\"part\":{\"type\":\"tool\",\"tool\":\"bash\",\"callID\":\"call_df6a9b5a744143f68a440814\",\"state\":{\"status\":\"completed\",\"input\":{\"command\":\"mimo version 2>&1 || echo \\\"mimo version failed\\\"\",\"description\":\"Get mimo version\"},\"output\":\"\\u001b[91m\\u001b[1mError: \\u001b[0mFailed to change directory to /opt/kolibri-ai/agent-worktrees/canary9-hostvds-agent-04-1781972693/version\\n\",\"metadata\":{\"output\":\"\\u001b[91m\\u001b[1mError: \\u001b[0mFailed to change directory to /opt/kolibri-ai/agent-worktrees/canary9-hostvds-agent-04-1781972693/version\\n\",\"exit\":0,\"description\":\"Get mimo version\",\"truncated\":false},\"title\":\"Get mimo version\",\"time\":{\"start\":1781972723493,\"end\":1781972723555}},\"id\":\"prt_ee5d9cbd6001ie7mGPx1DHCP5z\",\"sessionID\":\"ses_11a264fd6ffeWcjCGtfWUQiUrO\",\"messageID\":\"msg_ee5d9b986001PJViNB8fLCiOSe\"}}\n{\"type\":\"step_finish\",\"timestamp\":1781972723713,\"sessionID\":\"ses_11a264fd6ffeWcjCGtfWUQiUrO\",\"part\":{\"id\":\"prt_ee5d9e77400143LdS23fVtreuZ\",\"reason\":\"tool-calls\",\"snapshot\":\"d205817c2e32a73eec1b96493d73f1e9c01bb873\",\"messageID\":\"msg_ee5d9b986001PJViNB8fLCiOSe\",\"sessionID\":\"ses_11a264fd6ffeWcjCGtfWUQiUrO\",\"type\":\"step-finish\",\"tokens\":{\"total\":21192,\"input\":18937,\"output\":153,\"reasoning\":54,\"cache\":{\"write\":0,\"read\":2048}},\"cost\":0}}\n{\"type\":\"step_start\",\"timestamp\":1781972726275,\"sessionID\":\"ses_11a264fd6ffeWcjCGtfWUQiUrO\",\"part\":{\"id\":\"prt_ee5d9f1f4001TPiZFx1EPhCuJB\",\"messageID\":\"msg_ee5d9e882001eZb5zPMr4SyEl2\",\"sessionID\":\"ses_11a264fd6ffeWcjCGtfWUQiUrO\",\"snapshot\":\"d205817c2e32a73eec1b96493d73f1e9c01bb873\",\"type\":\"step-start\"}}\n{\"type\":\"text\",\"timestamp\":1781972730031,\"sessionID\":\"ses_11a264fd6ffeWcjCGtfWUQiUrO\",\"part\":{\"id\":\"prt_ee5d9f6a9001MQ4R7IwscMJTgS\",\"messageID\":\"msg_ee5d9e882001eZb5zPMr4SyEl2\",\"sessionID\":\"ses_11a264fd6ffeWcjCGtfWUQiUrO\",\"type\":\"text\",\"text\":\"```json\\n{\\n  \\\"status\\\": \\\"completed\\\",\\n  \\\"summary\\\": \\\"Ultra-short smoke: repo HEAD reachable, mimo binary present at /usr/local/bin/mimo, working tree clean. mimo 'version' subcommand not recognized (treats arg as directory path).\\\",\\n  \\\"changed_files\\\": [],\\n  \\\"checks\\\": [\\n    {\\\"name\\\": \\\"repo_head\\\", \\\"result\\\": \\\"pass\\\", \\\"detail\\\": \\\"579952090a6c58cf314411b8b84ecade8687269b\\\"},\\n    {\\\"name\\\": \\\"mimo_binary\\\", \\\"result\\\": \\\"pass\\\", \\\"detail\\\": \\\"/usr/local/bin/mimo\\\"},\\n    {\\\"name\\\": \\\"mimo_version\\\", \\\"result\\\": \\\"warn\\\", \\\"detail\\\": \\\"'mimo version' not a recognized subcommand (tries cd into arg). Binary exists but no version flag.\\\"},\\n    {\\\"name\\\": \\\"git_status\\\", \\\"result\\\": \\\"pass\\\", \\\"detail\\\": \\\"Clean working tree, no uncommitted changes.\\\"}\\n  ],\\n  \\\"risks\\\": [\\n    \\\"mimo CLI lacks a 'version' subcommand; task-envelope or runner scripts that invoke 'mimo version' will fail.\\\"\\n  ],\\n  \\\"artifacts\\\": [],\\n  \\\"next_actions\\\": [\\n    \\\"Confirm correct mimo CLI version-check invocation (e.g. 'mimo --version' or 'mimo help') and update any callers.\\\",\\n    \\\"Proceed with full read-only preflight if further smoke checks are needed.\\\"\\n  ]\\n}\\n```\",\"time\":{\"start\":1781972727465,\"end\":1781972730022}}}\n{\"type\":\"step_finish\",\"timestamp\":1781972730175,\"sessionID\":\"ses_11a264fd6ffeWcjCGtfWUQiUrO\",\"part\":{\"id\":\"prt_ee5da00b0001NO46hYXdK16Sls\",\"reason\":\"stop\",\"snapshot\":\"d205817c2e32a73eec1b96493d73f1e9c01bb873\",\"messageID\":\"msg_ee5d9e882001eZb5zPMr4SyEl2\",\"sessionID\":\"ses_11a264fd6ffeWcjCGtfWUQiUrO\",\"type\":\"step-finish\",\"tokens\":{\"total\":21758,\"input\":386,\"output\":323,\"reasoning\":121,\"cache\":{\"write\":0,\"read\":20928}},\"cost\":0}}\n",
+        "stderr": "",
+        "changed_files": [],
+        "checks": [
+          {
+            "name": "repo_head",
+            "result": "pass",
+            "detail": "579952090a6c58cf314411b8b84ecade8687269b"
+          },
+          {
+            "name": "mimo_binary",
+            "result": "pass",
+            "detail": "/usr/local/bin/mimo"
+          },
+          {
+            "name": "mimo_version",
+            "result": "warn",
+            "detail": "'mimo version' not a recognized subcommand (tries cd into arg). Binary exists but no version flag."
+          },
+          {
+            "name": "git_status",
+            "result": "pass",
+            "detail": "Clean working tree, no uncommitted changes."
+          }
+        ],
+        "risks": [
+          "mimo CLI lacks a 'version' subcommand; task-envelope or runner scripts that invoke 'mimo version' will fail."
+        ],
+        "artifacts": [],
+        "next_actions": [
+          "Confirm correct mimo CLI version-check invocation (e.g. 'mimo --version' or 'mimo help') and update any callers.",
+          "Proceed with full read-only preflight if further smoke checks are needed."
+        ],
+        "started_at": "2026-06-20T16:25:02.770102+00:00",
+        "completed_at": "2026-06-20T16:25:30.501932+00:00"
+      }
     }
   },
   "events": [
@@ -951,6 +1055,122 @@
       "at": "2026-06-20T15:19:23.947801+00:00",
       "kind": "collect",
       "count": 0
+    },
+    {
+      "at": "2026-06-20T15:24:24.048963+00:00",
+      "kind": "collect",
+      "count": 0
+    },
+    {
+      "at": "2026-06-20T15:29:24.071493+00:00",
+      "kind": "collect",
+      "count": 0
+    },
+    {
+      "at": "2026-06-20T15:34:23.997250+00:00",
+      "kind": "collect",
+      "count": 0
+    },
+    {
+      "at": "2026-06-20T15:39:24.003403+00:00",
+      "kind": "collect",
+      "count": 0
+    },
+    {
+      "at": "2026-06-20T15:44:24.090625+00:00",
+      "kind": "collect",
+      "count": 0
+    },
+    {
+      "at": "2026-06-20T15:49:24.136406+00:00",
+      "kind": "collect",
+      "count": 0
+    },
+    {
+      "at": "2026-06-20T15:54:24.207586+00:00",
+      "kind": "collect",
+      "count": 0
+    },
+    {
+      "at": "2026-06-20T15:59:24.278535+00:00",
+      "kind": "collect",
+      "count": 0
+    },
+    {
+      "at": "2026-06-20T16:04:24.282072+00:00",
+      "kind": "collect",
+      "count": 0
+    },
+    {
+      "at": "2026-06-20T16:09:24.369631+00:00",
+      "kind": "collect",
+      "count": 0
+    },
+    {
+      "at": "2026-06-20T16:14:24.492573+00:00",
+      "kind": "collect",
+      "count": 0
+    },
+    {
+      "at": "2026-06-20T16:19:24.629069+00:00",
+      "kind": "collect",
+      "count": 0
+    },
+    {
+      "at": "2026-06-20T16:21:18.479157+00:00",
+      "kind": "enqueue",
+      "count": 1,
+      "wave": "canary8"
+    },
+    {
+      "at": "2026-06-20T16:21:26.928470+00:00",
+      "kind": "dispatch_one",
+      "task_id": "canary8-hostvds-agent-04-1781972478",
+      "server": "hostvds-agent-04",
+      "status": "running"
+    },
+    {
+      "at": "2026-06-20T16:21:26.930798+00:00",
+      "kind": "dispatch",
+      "count": 1
+    },
+    {
+      "at": "2026-06-20T16:22:43.859610+00:00",
+      "kind": "collect",
+      "count": 1
+    },
+    {
+      "at": "2026-06-20T16:24:24.729983+00:00",
+      "kind": "collect",
+      "count": 0
+    },
+    {
+      "at": "2026-06-20T16:24:43.320484+00:00",
+      "kind": "collect",
+      "count": 1
+    },
+    {
+      "at": "2026-06-20T16:24:53.065984+00:00",
+      "kind": "enqueue",
+      "count": 1,
+      "wave": "canary9"
+    },
+    {
+      "at": "2026-06-20T16:24:58.670194+00:00",
+      "kind": "dispatch_one",
+      "task_id": "canary9-hostvds-agent-04-1781972693",
+      "server": "hostvds-agent-04",
+      "status": "running"
+    },
+    {
+      "at": "2026-06-20T16:24:58.674847+00:00",
+      "kind": "dispatch",
+      "count": 1
+    },
+    {
+      "at": "2026-06-20T16:25:49.095304+00:00",
+      "kind": "collect",
+      "count": 1
     }
   ],
   "runs": {}
