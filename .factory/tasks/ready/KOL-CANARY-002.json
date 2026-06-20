@@ -1,0 +1,34 @@
+{
+  "factory_run_id": "factory-bootstrap-20260620",
+  "task_id": "KOL-CANARY-002",
+  "server_id": "home",
+  "agent_role": "ML_ENGINEER",
+  "objective": "Read-only audit of FormulaLM Proof v1 readiness: locate estimate inputs, logits dependencies, Qwen runtime requirements, leakage risks, and evaluator blockers. Do not train.",
+  "repository": "/srv/kolibri/repo",
+  "base_commit": "1dee7b16c5c0bb8bd2163720915146d5b120c297",
+  "branch": "factory/KOL-CANARY-002-formulalm-proof-readiness",
+  "allowed_paths": ["/srv/kolibri/repo","/srv/kolibri/runs","/opt/kolibri-ai/training"],
+  "protected_paths": [".env",".ssh",".mimocode","auth.json","tokens","secrets","vpn"],
+  "input_artifacts": ["ops/formulalm/worker_prompt.md","AGENTS.md"],
+  "output_artifacts": [".factory/tasks/review/KOL-CANARY-002.result.json"],
+  "acceptance_criteria": [
+    "Return a structured result envelope.",
+    "Do not train or mutate datasets.",
+    "Identify exact data manifest/split/logit extraction blockers.",
+    "Propose the first two implementation tasks for Proof v1."
+  ],
+  "required_tests": [
+    "test -f AGENTS.md",
+    "test -d ops/formulalm"
+  ],
+  "resource_limits": {
+    "max_wall_seconds": 900,
+    "max_cpu_percent": 100,
+    "max_ram_mb": 2048,
+    "max_disk_mb": 512
+  },
+  "security_rules": ["No secrets.","No dataset mutation.","No external upload.","No training."],
+  "report_path": ".factory/tasks/review/KOL-CANARY-002.result.json",
+  "seed": null,
+  "dry_run": true
+}

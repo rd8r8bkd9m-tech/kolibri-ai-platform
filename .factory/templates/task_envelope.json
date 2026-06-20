@@ -1,0 +1,26 @@
+{
+  "factory_run_id": "factory-bootstrap-20260620",
+  "task_id": "KOL-TEMPLATE-001",
+  "server_id": "hostvds-agent-01",
+  "agent_role": "BACKEND_ENGINEER",
+  "objective": "Read-only audit objective goes here.",
+  "repository": "/srv/kolibri/repo",
+  "base_commit": "1dee7b16c5c0bb8bd2163720915146d5b120c297",
+  "branch": "factory/KOL-TEMPLATE-001-readonly-audit",
+  "allowed_paths": ["/srv/kolibri/repo"],
+  "protected_paths": [".env",".ssh",".mimocode","auth.json","tokens","secrets"],
+  "input_artifacts": [],
+  "output_artifacts": ["result.json"],
+  "acceptance_criteria": ["Return a structured result with zero source diff."],
+  "required_tests": ["git status --short"],
+  "resource_limits": {
+    "max_wall_seconds": 900,
+    "max_cpu_percent": 100,
+    "max_ram_mb": 1024,
+    "max_disk_mb": 256
+  },
+  "security_rules": ["Do not read or log secrets.","Do not deploy.","Do not mutate production."],
+  "report_path": ".factory/tasks/review/KOL-TEMPLATE-001.result.json",
+  "seed": null,
+  "dry_run": true
+}

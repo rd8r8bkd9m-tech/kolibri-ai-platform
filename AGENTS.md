@@ -5,6 +5,32 @@ MiMo Code and other remote agents are bounded executors. They may inspect,
 prepare, and implement scoped tasks, but merge, deploy, scaling, and release
 decisions require Codex review.
 
+The permanent control plane lives in `.factory/`. Chat memory is not the source
+of truth for agent state, server roles, task decisions, incidents, or run
+artifacts.
+
+## Factory Operating Rules
+
+- Build and maintain Factory v1 before scaling product development.
+- Inventory first: repo state, server registry, available commands, active runs,
+  and blockers must be recorded before dispatch.
+- One task gets one `TASK_ENVELOPE`, one branch `factory/<task-id>-<slug>`, one
+  allowed path set, and one structured `RESULT_ENVELOPE`.
+- Do not run two tasks that mutate the same files unless an integration plan is
+  recorded in `.factory/memory/decisions.md`.
+- A task can move only through:
+  `BACKLOG -> READY -> DISPATCHED -> RUNNING -> REVIEW -> MERGED -> DEPLOYED`,
+  or to `BLOCKED`, `FAILED`, `STALE`, `CANCELLED`, `ROLLED_BACK`.
+- Critical implementation and review must be done by different roles.
+- MiMo/OpenClaw workers do not merge, deploy, restart production, mutate source
+  datasets, or read secrets.
+- Codex accepts worker output only with commit SHA or explicit zero-diff proof,
+  tests/checks, artifact hashes, risks, and a recommended next action.
+- Production deploy, paid scaling, firewall/SSH/IAM changes, destructive
+  deletion, and external disclosure require human approval.
+- Full logs belong under `.factory/logs/`; user reports show conclusions and
+  links, not raw log dumps.
+
 ## Objectives
 
 ### Track A: Agent Platform Hardening

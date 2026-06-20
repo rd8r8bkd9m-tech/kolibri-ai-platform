@@ -1,0 +1,27 @@
+version: 1
+factory_run_id: factory-bootstrap-20260620
+mode: bootstrap
+timezone: Europe/Moscow
+state_file: .factory/runs/agent_factory_state.json
+legacy_state_file: logs/agent-factory/state.json
+server_registry: ops/agents.yml
+max_parallel_initial: 2
+max_parallel_after_canary: 4
+requires_human_approval:
+  - production_deploy
+  - paid_scaling
+  - firewall_ssh_iam_change
+  - destructive_delete
+  - external_private_data_disclosure
+default_task_timeout_seconds: 900
+protected_paths:
+  - .env
+  - .ssh
+  - .mimocode
+  - auth.json
+  - secrets
+  - tokens
+  - vpn
+report_times_msk:
+  - "10:00"
+  - "18:00"

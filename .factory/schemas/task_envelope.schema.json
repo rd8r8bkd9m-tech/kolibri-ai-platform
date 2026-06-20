@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kolibriai.local/factory/task_envelope.schema.json",
+  "title": "Kolibri Factory TASK_ENVELOPE",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["factory_run_id","task_id","server_id","agent_role","objective","repository","base_commit","branch","allowed_paths","protected_paths","input_artifacts","output_artifacts","acceptance_criteria","required_tests","resource_limits","security_rules","report_path"],
+  "properties": {
+    "factory_run_id": {"type":"string","minLength":1},
+    "task_id": {"type":"string","pattern":"^[A-Z0-9][A-Z0-9_-]*$"},
+    "server_id": {"type":"string","minLength":1},
+    "agent_role": {"type":"string","minLength":1},
+    "objective": {"type":"string","minLength":1},
+    "repository": {"type":"string","minLength":1},
+    "base_commit": {"type":"string","minLength":7},
+    "branch": {"type":"string","pattern":"^factory/[A-Za-z0-9._-]+$"},
+    "allowed_paths": {"type":"array","items":{"type":"string"},"minItems":1},
+    "protected_paths": {"type":"array","items":{"type":"string"}},
+    "input_artifacts": {"type":"array","items":{"type":"string"}},
+    "output_artifacts": {"type":"array","items":{"type":"string"}},
+    "acceptance_criteria": {"type":"array","items":{"type":"string"},"minItems":1},
+    "required_tests": {"type":"array","items":{"type":"string"}},
+    "resource_limits": {
+      "type":"object",
+      "additionalProperties": false,
+      "required":["max_wall_seconds","max_cpu_percent","max_ram_mb","max_disk_mb"],
+      "properties": {
+        "max_wall_seconds": {"type":"integer","minimum":1},
+        "max_cpu_percent": {"type":"integer","minimum":1},
+        "max_ram_mb": {"type":"integer","minimum":1},
+        "max_disk_mb": {"type":"integer","minimum":1}
+      }
+    },
+    "security_rules": {"type":"array","items":{"type":"string"},"minItems":1},
+    "report_path": {"type":"string","minLength":1},
+    "seed": {"type":["integer","null"]},
+    "dry_run": {"type":"boolean"}
+  }
+}

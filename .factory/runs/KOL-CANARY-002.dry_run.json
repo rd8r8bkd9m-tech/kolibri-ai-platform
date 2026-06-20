@@ -1,0 +1,10 @@
+{
+  "dispatched": false,
+  "dry_run": true,
+  "task_id": "KOL-CANARY-002",
+  "server_id": "home",
+  "agent_role": "ML_ENGINEER",
+  "task_sha256": "b5cbdaed451554beacf3fd82a7a6d46fcd0e3ec2b6fa9db419b8d2b4aadb92d3",
+  "checked_at": "2026-06-20T14:08:13.877063+00:00",
+  "next_action": "ready for Codex review before live SSH dispatch"
+}

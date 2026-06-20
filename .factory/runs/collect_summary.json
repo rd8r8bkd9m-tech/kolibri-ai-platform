@@ -1,0 +1,17 @@
+{
+  "collected_at": "2026-06-20T13:55:47.675049+00:00",
+  "legacy_state": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/logs/agent-factory/state.json",
+  "legacy_exists": true,
+  "task_files": {
+    "ready": 2,
+    "running": 0,
+    "review": 0,
+    "blocked": 0,
+    "completed": 0,
+    "failed": 0
+  },
+  "legacy_counts": {
+    "queued": 18,
+    "dispatch_failed": 1
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "task_id": "KOL-TEMPLATE-001",
+  "server_id": "hostvds-agent-01",
+  "status": "completed",
+  "summary": "Dry-run result envelope example.",
+  "base_commit": "1dee7b16c5c0bb8bd2163720915146d5b120c297",
+  "result_commit": null,
+  "changed_files": [],
+  "tests": [
+    {
+      "command": "dry-run",
+      "status": "passed",
+      "details": "No SSH or source mutation performed."
+    }
+  ],
+  "metrics": {},
+  "artifacts": [],
+  "warnings": [],
+  "errors": [],
+  "recommended_next_action": "Use this as schema validation fixture only."
+}

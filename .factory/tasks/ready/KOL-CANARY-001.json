@@ -1,0 +1,34 @@
+{
+  "factory_run_id": "factory-bootstrap-20260620",
+  "task_id": "KOL-CANARY-001",
+  "server_id": "hostvds-agent-03",
+  "agent_role": "INFRA_ENGINEER",
+  "objective": "Read-only audit of Factory v1 readiness: verify repo state, factory files, legacy logs, and list blockers before any broad MiMo fanout.",
+  "repository": "/srv/kolibri/repo",
+  "base_commit": "1dee7b16c5c0bb8bd2163720915146d5b120c297",
+  "branch": "factory/KOL-CANARY-001-factory-readonly-audit",
+  "allowed_paths": ["/srv/kolibri/repo",".factory","logs/agent-factory","logs/agent-runs"],
+  "protected_paths": [".env",".ssh",".mimocode","auth.json","tokens","secrets","vpn"],
+  "input_artifacts": [".factory/README.md",".factory/server_inventory.json",".factory/backlog/prioritized.json"],
+  "output_artifacts": [".factory/tasks/review/KOL-CANARY-001.result.json"],
+  "acceptance_criteria": [
+    "Return a structured result envelope.",
+    "Do not mutate source code.",
+    "List blockers for safe 2-server canary execution.",
+    "Confirm whether task schemas and policies are present."
+  ],
+  "required_tests": [
+    "python3 -m json.tool .factory/server_inventory.json",
+    "python3 .factory/scripts/factory_status.py"
+  ],
+  "resource_limits": {
+    "max_wall_seconds": 900,
+    "max_cpu_percent": 100,
+    "max_ram_mb": 1024,
+    "max_disk_mb": 256
+  },
+  "security_rules": ["No secrets.","No production mutation.","No broad process kill.","No deploy."],
+  "report_path": ".factory/tasks/review/KOL-CANARY-001.result.json",
+  "seed": null,
+  "dry_run": true
+}

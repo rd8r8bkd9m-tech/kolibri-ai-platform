@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "chief": {
+    "id": "codex-chief",
+    "role": "chief-orchestrator-reviewer-release-manager",
+    "responsibilities": ["strategy", "task decomposition", "worker prompts", "review", "merge gate", "deploy gate", "reports"]
+  },
+  "roles": [
+    {"role":"ARCHITECTURE_DEPUTY","servers":["main"],"focus":"architecture, product coherence, backend/frontend/infra risks"},
+    {"role":"BACKEND_ENGINEER","servers":["hostvds-agent-01","main"],"focus":"FastAPI, providers, pipeline, API contracts"},
+    {"role":"FRONTEND_DESIGN_ENGINEER","servers":["hostvds-agent-02","hostvds-agent-10"],"focus":"React UX, responsive QA, OpenClaw UI tasks"},
+    {"role":"ML_ENGINEER","servers":["home","hostvds-agent-07"],"focus":"FormulaLM, logits, tokenizer, evals"},
+    {"role":"DATA_ENGINEER","servers":["kolibri","hostvds-agent-08"],"focus":"estimate manifests, dedupe, split integrity"},
+    {"role":"INFRA_ENGINEER","servers":["hostvds-agent-03","qjns","hostvds-highload","hostvds-paris-highload"],"focus":"servers, systemd, network, CI runners"},
+    {"role":"TEST_ENGINEER","servers":["hostvds-agent-04","reserve242"],"focus":"unit, integration, browser, regression, load tests"},
+    {"role":"SECURITY_REVIEWER","servers":["hostvds-agent-05","reserve242"],"focus":"secrets, injection, permissions"},
+    {"role":"RELEASE_MANAGER","servers":["main","hostvds-agent-09"],"focus":"staging, smoke, rollback, release notes"},
+    {"role":"INCIDENT_AGENT","servers":["9fts"],"focus":"degraded node recovery, evidence collection"}
+  ],
+  "critical_task_rule": "executor_role and reviewer_role must differ"
+}

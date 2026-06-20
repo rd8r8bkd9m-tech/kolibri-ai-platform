@@ -1,0 +1,80 @@
+{
+  "state": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/.factory/runs/agent_factory_state.json",
+  "generated_at": "2026-06-20T14:10:32.907607+00:00",
+  "counts": {
+    "queued": 18,
+    "dispatch_failed": 1
+  },
+  "by_server": {
+    "home": {
+      "queued": 1
+    },
+    "main": {
+      "queued": 1
+    },
+    "uiap": {
+      "queued": 1
+    },
+    "qjns": {
+      "queued": 1
+    },
+    "9fts": {
+      "queued": 1
+    },
+    "kolibri": {
+      "queued": 1
+    },
+    "reserve242": {
+      "queued": 1
+    },
+    "hostvds-highload": {
+      "dispatch_failed": 1
+    },
+    "hostvds-agent-01": {
+      "queued": 1
+    },
+    "hostvds-agent-02": {
+      "queued": 1
+    },
+    "hostvds-agent-03": {
+      "queued": 1
+    },
+    "hostvds-agent-04": {
+      "queued": 1
+    },
+    "hostvds-agent-05": {
+      "queued": 1
+    },
+    "hostvds-agent-06": {
+      "queued": 1
+    },
+    "hostvds-agent-07": {
+      "queued": 1
+    },
+    "hostvds-agent-08": {
+      "queued": 1
+    },
+    "hostvds-agent-09": {
+      "queued": 1
+    },
+    "hostvds-agent-10": {
+      "queued": 1
+    },
+    "hostvds-paris-highload": {
+      "queued": 1
+    }
+  },
+  "blockers": [
+    {
+      "task_id": "bootstrap-hostvds-highload-1781963502",
+      "server": "hostvds-highload",
+      "status": "dispatch_failed",
+      "summary": ""
+    }
+  ],
+  "next_actions": [
+    "Fix Mimo auth/bootstrap on servers reporting 403 before assigning product mutations.",
+    "Keep product tasks read-only until one server completes a controlled mutation with diff and tests.",
+    "Use dispatch/collect/report loop under systemd or nohup for continuous operation."
+  ]
+}

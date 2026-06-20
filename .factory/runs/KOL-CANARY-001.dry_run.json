@@ -1,0 +1,10 @@
+{
+  "dispatched": false,
+  "dry_run": true,
+  "task_id": "KOL-CANARY-001",
+  "server_id": "hostvds-agent-03",
+  "agent_role": "INFRA_ENGINEER",
+  "task_sha256": "1390283bdb0eb1df3fb7576a8a68a787b8503cec2a02f70ad36a1805bcd8c948",
+  "checked_at": "2026-06-20T14:08:13.877273+00:00",
+  "next_action": "ready for Codex review before live SSH dispatch"
+}

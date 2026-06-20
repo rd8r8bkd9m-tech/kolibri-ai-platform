@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kolibriai.local/factory/status.schema.json",
+  "title": "Kolibri Factory Agent Status",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["task_id","server_id","state","heartbeat_at","progress","pid_file"],
+  "properties": {
+    "task_id": {"type":"string"},
+    "server_id": {"type":"string"},
+    "state": {"enum":["DISPATCHED","RUNNING","STALE","REVIEW","BLOCKED","FAILED","CANCELLED","COMPLETED"]},
+    "heartbeat_at": {"type":"string"},
+    "progress": {"type":"string"},
+    "pid_file": {"type":["string","null"]},
+    "current_step": {"type":["string","null"]},
+    "artifact_count": {"type":"integer","minimum":0}
+  }
+}

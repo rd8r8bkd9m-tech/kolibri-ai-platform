@@ -1,0 +1,21 @@
+[Unit]
+Description=Kolibri Codex-controlled agent factory
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/srv/kolibri/repo
+ExecStart=/usr/bin/python3 /srv/kolibri/repo/scripts/agent_factory.py loop --interval 300 --limit 2 --max-workers 1
+Restart=always
+RestartSec=30
+User=ladik
+Group=ladik
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/srv/kolibri/repo/.factory /srv/kolibri/repo/logs /srv/kolibri/repo/.git /srv/kolibri/agent-worktrees /home/ladik/agent-runs /opt/kolibri-ai/agent-runs
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kolibriai.local/factory/result_envelope.schema.json",
+  "title": "Kolibri Factory RESULT_ENVELOPE",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["task_id","server_id","status","summary","base_commit","result_commit","changed_files","tests","metrics","artifacts","warnings","errors","recommended_next_action"],
+  "properties": {
+    "task_id": {"type":"string","minLength":1},
+    "server_id": {"type":"string","minLength":1},
+    "status": {"enum":["completed","blocked","failed"]},
+    "summary": {"type":"string"},
+    "base_commit": {"type":"string"},
+    "result_commit": {"type":["string","null"]},
+    "changed_files": {"type":"array","items":{"type":"string"}},
+    "tests": {
+      "type":"array",
+      "items": {
+        "type":"object",
+        "additionalProperties": false,
+        "required":["command","status","details"],
+        "properties": {
+          "command": {"type":"string"},
+          "status": {"enum":["passed","failed","not_run"]},
+          "details": {"type":"string"}
+        }
+      }
+    },
+    "metrics": {"type":"object"},
+    "artifacts": {
+      "type":"array",
+      "items": {
+        "type":"object",
+        "additionalProperties": false,
+        "required":["path","sha256","size_bytes"],
+        "properties": {
+          "path": {"type":"string"},
+          "sha256": {"type":"string"},
+          "size_bytes": {"type":"integer","minimum":0}
+        }
+      }
+    },
+    "warnings": {"type":"array","items":{"type":"string"}},
+    "errors": {"type":"array","items":{"type":"string"}},
+    "recommended_next_action": {"type":"string"}
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kolibriai.local/factory/factory_state.schema.json",
+  "title": "Kolibri Factory State",
+  "type": "object",
+  "required": ["version","updated_at","tasks","events"],
+  "properties": {
+    "version": {"type":"integer"},
+    "updated_at": {"type":"string"},
+    "tasks": {"type":"object"},
+    "events": {"type":"array"}
+  }
+}
