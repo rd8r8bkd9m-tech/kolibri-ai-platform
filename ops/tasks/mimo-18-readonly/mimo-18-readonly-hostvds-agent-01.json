@@ -1,0 +1,58 @@
+{
+  "task_id": "mimo-18-readonly-hostvds-agent-01",
+  "agent_role": "Backend Lead",
+  "server": "hostvds-agent-01",
+  "mode": "read_only",
+  "prompt": "Review backend lead readiness. Inspect only the prepared snapshot. Focus on backend API contracts, RAG routing, auth-safe boundaries, and narrow tests needed before backend mutation work. Do not modify files or contact services. Return exactly these structured result fields: status, summary, changed_files, checks, risks, artifacts.",
+  "worktree": "/opt/kolibri-ai/agent-worktrees/mimo-18-readonly-hostvds-agent-01",
+  "allowed_paths": [
+    "/opt/kolibri-ai/agent-worktrees/mimo-18-readonly-hostvds-agent-01"
+  ],
+  "quality_contract": {
+    "objective": "Produce a short read-only backend-lead-node readiness review for the planned 18-VPS Mimo experiment.",
+    "context": "This manifest targets hostvds-agent-01 (backend-lead-node) after Codex prepares a sanitized read-only worktree snapshot. It is validation material only until lead Codex explicitly launches agents.",
+    "scope": [
+      "Inspect only files inside the prepared worktree snapshot.",
+      "Map findings to this server role and keep the report short enough for lead Codex review.",
+      "Return evidence-backed blockers, checks, and next actions for a future controlled task."
+    ],
+    "out_of_scope": [
+      "Do not modify files, deploy, install packages, restart services, or change server state.",
+      "Do not read secrets, auth files, .env files, .ssh, .mimocode, private keys, or credential stores.",
+      "Do not contact production services, external APIs, browsers, package registries, or other VPS hosts."
+    ],
+    "acceptance_criteria": [
+      "The final response includes status, summary, changed_files, checks, risks, and artifacts.",
+      "changed_files is an empty list because this is a read-only task.",
+      "Every blocker or recommendation names the file, command, or missing evidence that supports it."
+    ],
+    "verification_steps": [
+      "Confirm the task is running inside the prepared read-only worktree.",
+      "Inspect role-relevant files available in the snapshot without running networked commands.",
+      "Report checks that should be run later instead of running expensive, mutating, or networked checks now."
+    ],
+    "deliverables": [
+      "Structured result with status, summary, changed_files, checks, risks, and artifacts.",
+      "Role-specific readiness decision: ready, degraded, or blocked.",
+      "One next action for lead Codex review."
+    ],
+    "stop_conditions": [
+      "Stop if the task requires secrets, credentials, private keys, auth files, or environment dumps.",
+      "Stop if the task requires writing files, contacting a network service, deployment, or changing server state."
+    ]
+  },
+  "required_checks": [],
+  "timeout_seconds": 300,
+  "secrets_policy": {
+    "allow_env_files": false,
+    "allow_auth_files": false,
+    "redact_logs": true
+  },
+  "expected_output": {
+    "format": "structured_result",
+    "requires_summary": true,
+    "requires_changed_files": true,
+    "requires_risks": true
+  },
+  "allow_unsafe_permissions": false
+}
