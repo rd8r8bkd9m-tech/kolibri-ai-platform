@@ -421,6 +421,79 @@ def summarize_output(stdout: str, stderr: str) -> str:
     return first_line[:240] if first_line else "No output"
 
 
+def json_from_markdown_block(text: str) -> dict[str, Any] | None:
+    match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, flags=re.S)
+    if not match:
+        return None
+    try:
+        data = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def extract_agent_result(stdout: str, stderr: str) -> dict[str, Any] | None:
+    """Extract the final structured result from agent output.
+
+    MiMo/OpenClaw JSON mode often emits newline-delimited event objects. The
+    final answer is usually inside a `text` event, sometimes wrapped in a
+    markdown JSON block. Keep raw stdout for audit, but surface the structured
+    payload so reports can stay concise and machine-readable.
+    """
+
+    candidates: list[dict[str, Any]] = []
+    for line in (stdout or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        part = event.get("part")
+        if isinstance(part, dict) and part.get("type") == "text":
+            text = str(part.get("text") or "")
+            block = json_from_markdown_block(text)
+            if block:
+                candidates.append(block)
+            else:
+                try:
+                    data = json.loads(text)
+                except json.JSONDecodeError:
+                    data = None
+                if isinstance(data, dict):
+                    candidates.append(data)
+        elif {"status", "summary", "changed_files", "checks", "risks", "artifacts"}.issubset(event):
+            candidates.append(event)
+
+    if candidates:
+        return candidates[-1]
+
+    text = (stdout or stderr or "").strip()
+    block = json_from_markdown_block(text)
+    if block:
+        return block
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def apply_agent_result(result: dict[str, Any], agent_result: dict[str, Any] | None) -> None:
+    if not agent_result:
+        return
+    result["agent_result"] = agent_result
+    for key in ("summary", "changed_files", "checks", "risks", "artifacts"):
+        if key in agent_result:
+            result[key] = agent_result[key]
+    agent_status = agent_result.get("status")
+    if isinstance(agent_status, str) and agent_status in {"completed", "failed", "blocked", "degraded"}:
+        result["agent_status"] = agent_status
+
+
 def changed_files_for(worktree: str) -> list[str]:
     path = resolve_local_path(worktree)
     if not (path / ".git").exists() and not path_is_within(path, PROJECT_DIR):
@@ -555,6 +628,7 @@ def run_local(args: argparse.Namespace) -> int:
             "started_at": started_at,
             "completed_at": utc_now(),
         }
+        apply_agent_result(result, extract_agent_result(proc.stdout, proc.stderr))
     except subprocess.TimeoutExpired as exc:
         result = {
             "task_id": manifest["task_id"],
@@ -836,6 +910,8 @@ def run_ssh(args: argparse.Namespace) -> int:
                     "started_at": utc_now(),
                     "completed_at": utc_now(),
                 }
+            else:
+                apply_agent_result(result, extract_agent_result(str(result.get("stdout") or ""), str(result.get("stderr") or "")))
         else:
             result = {
                 "task_id": manifest["task_id"],
