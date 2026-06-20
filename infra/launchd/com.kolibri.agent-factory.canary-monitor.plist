@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.kolibri.agent-factory.canary-monitor</string>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/kolibri/Documents/Codex/kolibri-ai-platform</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/python3</string>
+    <string>-u</string>
+    <string>scripts/agent_factory.py</string>
+    <string>loop</string>
+    <string>--interval</string>
+    <string>300</string>
+    <string>--limit</string>
+    <string>0</string>
+    <string>--max-workers</string>
+    <string>1</string>
+    <string>--server</string>
+    <string>home</string>
+    <string>--server</string>
+    <string>main</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/kolibri/Documents/Codex/kolibri-ai-platform/.factory/logs/canary-monitor.launchd.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/Users/kolibri/Documents/Codex/kolibri-ai-platform/.factory/logs/canary-monitor.launchd.err</string>
+</dict>
+</plist>

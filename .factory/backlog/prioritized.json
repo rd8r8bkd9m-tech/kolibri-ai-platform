@@ -2,7 +2,7 @@
   "version": 1,
   "updated_at": "2026-06-20T17:10:00+03:00",
   "items": [
-    {"id":"KOL-CANARY-001","priority":10,"state":"READY","title":"Factory bootstrap read-only audit","owner_role":"INFRA_ENGINEER","conflicts_with":[]},
+    {"id":"KOL-CANARY-001","priority":10,"state":"READY","title":"Factory bootstrap read-only OpenClaw audit","owner_role":"FRONTEND_DESIGN_ENGINEER","conflicts_with":[]},
     {"id":"KOL-CANARY-002","priority":20,"state":"READY","title":"FormulaLM Proof v1 readiness audit","owner_role":"ML_ENGINEER","conflicts_with":[]},
     {"id":"KOL-0001","priority":100,"state":"BACKLOG","title":"Provider cache isolation for FormulaLM/local/MiMo","owner_role":"BACKEND_ENGINEER","conflicts_with":["backend/main.py","backend/providers.py"]},
     {"id":"KOL-0002","priority":110,"state":"BACKLOG","title":"Main/Home backend proxy and cluster failover contract","owner_role":"INFRA_ENGINEER","conflicts_with":["backend/public_proxy.py","infra","nginx"]},

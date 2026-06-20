@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-06-20T13:51:36.985516+00:00",
-  "updated_at": "2026-06-20T14:08:49.263519+00:00",
+  "updated_at": "2026-06-20T14:24:24.543547+00:00",
   "tasks": {
     "bootstrap-home-1781963502": {
       "id": "bootstrap-home-1781963502",
@@ -291,6 +291,84 @@
       "timeout_seconds": 900,
       "remote": {},
       "result": null
+    },
+    "canary-main-1781964884": {
+      "id": "canary-main-1781964884",
+      "wave": "canary",
+      "server": "main",
+      "mode": "read_only",
+      "backend": "mimo",
+      "prompt": "CANARY KOL-CANARY-001. Read-only Factory v1 audit from main gateway. Verify Mimo availability, deployed path assumptions, and blockers for broad fanout. Do not deploy, restart services, edit production, read secrets, or mutate code. Return structured JSON result with status, summary, changed_files, checks, risks, artifacts, next_actions.",
+      "status": "failed",
+      "priority": 200,
+      "created_at": "2026-06-20T14:14:44.772966+00:00",
+      "updated_at": "2026-06-20T14:18:23.592123+00:00",
+      "timeout_seconds": 900,
+      "remote": {
+        "status": "running",
+        "pid": "311268",
+        "remote_dir": "/opt/kolibri-ai/agent-runs/factory-canary-main-1781964884/main",
+        "result_path": "/opt/kolibri-ai/agent-runs/factory-canary-main-1781964884/main/result.json",
+        "stdout_path": "/opt/kolibri-ai/agent-runs/factory-canary-main-1781964884/main/stdout.log",
+        "stderr_path": "/opt/kolibri-ai/agent-runs/factory-canary-main-1781964884/main/stderr.log",
+        "worktree": "/opt/kolibri-ai/agent-worktrees/canary-main-1781964884",
+        "started_at": "2026-06-20T14:15:47.595545+00:00"
+      },
+      "result": {
+        "task_id": "canary-main-1781964884",
+        "server": "main",
+        "status": "failed",
+        "summary": "\u9519\u8bef\uff1a \u672a\u77e5\u547d\u4ee4\uff1amimo run You are a bounded Kolibri development worker. Codex is the reviewer and release manager.",
+        "returncode": 1,
+        "stdout": "",
+        "stderr": "\n\u9519\u8bef\uff1a \u672a\u77e5\u547d\u4ee4\uff1amimo run You are a bounded Kolibri development worker. Codex is the reviewer and release manager.\nReturn a single structured JSON object with: status, summary, changed_files, checks, risks, artifacts, next_actions.\nDo not read .env, auth files, private keys, .ssh, .mimocode, tokens, passwords, or browser profiles.\nDo not deploy, push, restart production services, or modify files unless task mode is controlled_mutation.\nTask mode: read_only.\nServer role: api-gateway-release / Release Lead.\nAllowed paths:\n- /opt/kolibri-ai/agent-worktrees\n- /opt/kolibri-ai/backend\n- /opt/kolibri-ai/frontend\n\nTask:\nCANARY KOL-CANARY-001. Read-only Factory v1 audit from main gateway. Verify Mimo availability, deployed path assumptions, and blockers for broad fanout. Do not deploy, restart services, edit production, read secrets, or mutate code. Return structured JSON result with status, summary, changed_files, checks, risks, artifacts, next_actions.\n\n\n\u8fd0\u884c mimo --help \u67e5\u770b\u53ef\u7528\u547d\u4ee4\u3002\n",
+        "changed_files": [],
+        "checks": [],
+        "risks": [
+          "agent_returncode_nonzero"
+        ],
+        "artifacts": [],
+        "started_at": "2026-06-20T14:15:49.882844+00:00",
+        "completed_at": "2026-06-20T14:15:50.495977+00:00"
+      },
+      "collect_errors": [
+        {
+          "at": "2026-06-20T14:18:00+00:00",
+          "status": "collect_failed",
+          "summary": "SSH collect timeout; restored to running"
+        }
+      ]
+    },
+    "canary-home-1781964884": {
+      "id": "canary-home-1781964884",
+      "wave": "canary",
+      "server": "home",
+      "mode": "read_only",
+      "backend": "mimo",
+      "prompt": "CANARY KOL-CANARY-002. Read-only FormulaLM Proof v1 readiness audit on home. Locate estimate/logits/pipeline blockers, repo state, and next two safe tasks. Do not train, mutate datasets, read secrets, or deploy. Return structured JSON result with status, summary, changed_files, checks, risks, artifacts, next_actions.",
+      "status": "running",
+      "priority": 200,
+      "created_at": "2026-06-20T14:14:44.868304+00:00",
+      "updated_at": "2026-06-20T14:22:21.609316+00:00",
+      "timeout_seconds": 900,
+      "remote": {
+        "status": "running",
+        "pid": "3581539",
+        "remote_dir": "/home/ladik/agent-runs/factory-canary-home-1781964884/home",
+        "result_path": "/home/ladik/agent-runs/factory-canary-home-1781964884/home/result.json",
+        "stdout_path": "/home/ladik/agent-runs/factory-canary-home-1781964884/home/stdout.log",
+        "stderr_path": "/home/ladik/agent-runs/factory-canary-home-1781964884/home/stderr.log",
+        "worktree": "/srv/kolibri/repo",
+        "started_at": "2026-06-20T14:16:40.514298+00:00"
+      },
+      "result": null,
+      "collect_errors": [
+        {
+          "at": "2026-06-20T14:22:21.608360+00:00",
+          "status": "collect_failed",
+          "stderr": "Connection to 178.207.11.90 port 2222 timed out\n"
+        }
+      ]
     }
   },
   "events": [
@@ -316,6 +394,72 @@
     {
       "at": "2026-06-20T13:55:47.675030+00:00",
       "kind": "dispatch",
+      "count": 1
+    },
+    {
+      "at": "2026-06-20T14:14:44.772972+00:00",
+      "kind": "enqueue",
+      "count": 1,
+      "wave": "canary"
+    },
+    {
+      "at": "2026-06-20T14:14:44.868309+00:00",
+      "kind": "enqueue",
+      "count": 1,
+      "wave": "canary"
+    },
+    {
+      "at": "2026-06-20T14:15:47.596620+00:00",
+      "kind": "dispatch_one",
+      "task_id": "canary-main-1781964884",
+      "server": "main",
+      "status": "running"
+    },
+    {
+      "at": "2026-06-20T14:15:47.599851+00:00",
+      "kind": "dispatch",
+      "count": 1
+    },
+    {
+      "at": "2026-06-20T14:16:40.516940+00:00",
+      "kind": "dispatch_one",
+      "task_id": "canary-home-1781964884",
+      "server": "home",
+      "status": "running"
+    },
+    {
+      "at": "2026-06-20T14:16:40.520822+00:00",
+      "kind": "dispatch",
+      "count": 1
+    },
+    {
+      "at": "2026-06-20T14:17:01.649549+00:00",
+      "kind": "collect",
+      "count": 1
+    },
+    {
+      "at": "2026-06-20T14:17:22.632026+00:00",
+      "kind": "collect",
+      "count": 1
+    },
+    {
+      "at": "2026-06-20T14:18:23.592226+00:00",
+      "kind": "collect",
+      "count": 1
+    },
+    {
+      "at": "2026-06-20T14:20:41.707018+00:00",
+      "kind": "collect",
+      "count": 1
+    },
+    {
+      "at": "2026-06-20T14:22:21.609594+00:00",
+      "kind": "collect",
+      "count": 1
+    },
+    {
+      "at": "2026-06-20T14:24:24.542453+00:00",
+      "kind": "collect",
       "count": 1
     }
   ],

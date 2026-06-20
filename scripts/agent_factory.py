@@ -56,12 +56,10 @@ worktree.mkdir(parents=True, exist_ok=True)
 argv = [
     payload["agent_bin"],
     "run",
-    "--format",
-    "json",
-    "--dir",
-    str(worktree),
     "--model",
     payload["model"],
+    "--trust",
+    "--never-ask",
     payload["prompt"],
 ]
 
@@ -340,10 +338,19 @@ def dispatch_one(task: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
     stdout_path = f"{remote_dir}/stdout.log"
     stderr_path = f"{remote_dir}/stderr.log"
     worktree = worktree_for(server, cfg, task["id"])
+    agent_bin = cfg.get("mimo_bin") or "mimo"
+    help_cmd = f"{shlex.quote(agent_bin)} --help | grep -E 'mimo run|run mimocode|run \\[message' >/dev/null"
+    proc = run_limited(ssh_base(cfg) + [help_cmd], timeout=30)
+    if proc.returncode != 0:
+        return {
+            "status": "dispatch_failed",
+            "summary": "agent binary is not compatible with Mimocode run CLI",
+            "stderr": proc.stderr[-2000:],
+        }
     payload = {
         "task_id": task["id"],
         "server": server,
-        "agent_bin": cfg.get("mimo_bin") or "mimo",
+        "agent_bin": agent_bin,
         "worktree": worktree,
         "model": cfg.get("model") or load_agents().get("defaults", {}).get("model", "mimo/mimo-auto"),
         "prompt": prompt_for_task(task, cfg),
@@ -461,7 +468,13 @@ def cmd_collect(args: argparse.Namespace) -> int:
         if task.get("status") == "dispatch_failed":
             continue
         collected = collect_one(task, server_cfg(agents, task["server"]))
-        if collected["status"] != "running":
+        if collected["status"] in {"collect_failed", "missing_remote_result_path"}:
+            task.setdefault("collect_errors", []).append({"at": utc_now(), **collected})
+            task["collect_errors"] = task["collect_errors"][-5:]
+            if task.get("status") == "collect_failed":
+                task["status"] = "running"
+            task["updated_at"] = utc_now()
+        elif collected["status"] != "running":
             task["status"] = collected["status"]
             task["result"] = collected.get("result") or collected
             task["updated_at"] = utc_now()

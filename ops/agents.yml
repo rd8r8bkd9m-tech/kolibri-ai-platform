@@ -56,7 +56,7 @@
       "access_status": "ssh_key_ok",
       "ssh_alias": "kolibri-main",
       "vpn_ip": "10.99.0.2",
-      "mimo_bin": "/root/.mimocode/bin/mimo",
+      "mimo_bin": "/usr/bin/mimo",
       "remote_worktree_root": "/opt/kolibri-ai/agent-worktrees",
       "allowed_paths": [
         "/opt/kolibri-ai/agent-worktrees",
