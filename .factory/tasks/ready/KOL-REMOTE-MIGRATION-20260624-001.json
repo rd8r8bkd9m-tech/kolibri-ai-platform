@@ -1,0 +1,62 @@
+{
+  "factory_run_id": "launch-20260624T212027Z",
+  "application_id": "kolibri-ai-platform",
+  "task_id": "KOL-REMOTE-MIGRATION-20260624-001",
+  "server_id": "kolibri",
+  "agent_role": "INFRA_ENGINEER",
+  "objective": "Move authoritative development bootstrap to Primary 78.17.4.108 and Home standby without exposing secrets; create remote directories, transfer source with excludes, verify key-only SSH, and record health evidence.",
+  "repository": "/Users/kolibri/Documents/Codex/kolibri-ai-platform",
+  "base_commit": "48bed8dcb21c",
+  "branch": "factory/KOL-REMOTE-MIGRATION-20260624-001-primary-bootstrap",
+  "allowed_paths": [
+    ".factory",
+    "docs",
+    "infra",
+    "ops",
+    "scripts"
+  ],
+  "protected_paths": [
+    ".env",
+    ".ssh",
+    ".mimocode",
+    "auth.json",
+    "secrets",
+    "tokens",
+    "vpn"
+  ],
+  "input_artifacts": [
+    ".factory/MASTER_DIRECTIVE.md",
+    ".factory/LAUNCH_PROMPT.txt",
+    "ops/agents.yml"
+  ],
+  "output_artifacts": [
+    ".factory/runs/launch-20260624T212027Z/remote_inventory.json",
+    ".factory/runs/launch-20260624T212027Z/source_sync.json",
+    ".factory/runs/launch-20260624T212027Z/healthchecks.json"
+  ],
+  "acceptance_criteria": [
+    "Primary and Home BatchMode SSH probes are recorded.",
+    "Remote development directories exist on Primary without copying protected files.",
+    "A remote checkout or source mirror is available for agent work.",
+    "Unavailable nodes are marked BLOCKED or QUARANTINED without stopping other tracks."
+  ],
+  "required_tests": [
+    "ssh -o BatchMode=yes root@78.17.4.108 echo PRIMARY_OK",
+    "ssh -p 2222 -o BatchMode=yes ladik@178.207.11.90 echo HOME_OK"
+  ],
+  "resource_limits": {
+    "max_wall_seconds": 3600,
+    "max_cpu_percent": 80,
+    "max_ram_mb": 1024,
+    "max_disk_mb": 2048
+  },
+  "security_rules": [
+    "Do not read or log secrets.",
+    "Use key-only SSH after bootstrap.",
+    "Do not deploy or restart production services.",
+    "No destructive delete or --delete rsync in this task."
+  ],
+  "report_path": ".factory/runs/launch-20260624T212027Z/KOL-REMOTE-MIGRATION-20260624-001.result.json",
+  "seed": null,
+  "dry_run": false
+}

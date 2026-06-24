@@ -1,0 +1,29 @@
+{
+  "run_id": "launch-20260624T212027Z",
+  "blockers": [
+    {
+      "id": "HOME-ROOT-KEY-001",
+      "severity": "medium",
+      "state": "WAITING_HUMAN",
+      "summary": "Home root key-only SSH is blocked; user-level ladik key-only SSH works.",
+      "evidence": "ssh -p 2222 root@178.207.11.90 returned Permission denied (publickey,password).",
+      "next_action": "Install Codex public key for root on Home or grant sudo without password through an out-of-band secure session."
+    },
+    {
+      "id": "GITHUB-PRIMARY-AUTH-001",
+      "severity": "medium",
+      "state": "MITIGATED",
+      "summary": "Primary cannot clone private GitHub repo over HTTPS without credentials.",
+      "evidence": "git clone on Primary returned could not read Username for https://github.com.",
+      "next_action": "Use sanitized rsync mirror for bootstrap; configure deploy key later without logging secrets."
+    },
+    {
+      "id": "FLEET-COUNT-001",
+      "severity": "low",
+      "state": "OPEN",
+      "summary": "Directive says 20 servers, current registry has 19.",
+      "evidence": "factory_status.py reports servers.total=19 and ops/agents.yml contains 19 server entries.",
+      "next_action": "Identify and register the missing twentieth node or update the directive evidence."
+    }
+  ]
+}

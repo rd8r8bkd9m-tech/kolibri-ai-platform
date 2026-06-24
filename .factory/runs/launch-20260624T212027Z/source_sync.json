@@ -1,0 +1,45 @@
+{
+  "run_id": "launch-20260624T212027Z",
+  "task_id": "KOL-REMOTE-MIGRATION-20260624-001",
+  "target": "root@78.17.4.108:/opt/kolibri/repo",
+  "method": "rsync",
+  "state": "completed",
+  "dry_run_completed": true,
+  "real_sync_completed": true,
+  "stats": {
+    "files": 45504,
+    "files_transferred": 42145,
+    "total_file_size_bytes": 971871060,
+    "sent_bytes": 512336841,
+    "received_bytes": 947364
+  },
+  "excludes": [
+    ".env",
+    ".ssh",
+    ".mimocode",
+    ".qwen",
+    "auth.json",
+    "*token*",
+    "*secret*",
+    ".venv",
+    "node_modules",
+    ".ruff_cache",
+    ".pytest_cache",
+    ".playwright-mcp",
+    "tmp",
+    "output",
+    "release-bundles",
+    "backend/data",
+    ".factory/logs",
+    ".factory/runs/**/*.log",
+    ".factory/runs/**/*.pid"
+  ],
+  "security_remediation": {
+    "protected_remote_paths_found": [
+      "/opt/kolibri/repo/.env",
+      "/opt/kolibri/repo/.mimocode"
+    ],
+    "action": "removed exact protected remote copies without reading contents",
+    "post_check": "PROTECTED_REMOTE_CLEAN"
+  }
+}

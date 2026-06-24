@@ -1,0 +1,52 @@
+{
+  "run_id": "launch-20260624T212027Z",
+  "status": "running",
+  "current_phase": "Phase0 + Phase1 + vertical-slice",
+  "branch": "factory/kolibri-managed-ai-system-v1",
+  "base_commit": "48bed8dcb21c",
+  "created_task_ids": [
+    "KOL-REMOTE-MIGRATION-20260624-001",
+    "KOL-V3-E2E-KIMI-PDF-20260624-001",
+    "KOL-FACTORY-REGISTRY-20260624-001",
+    "KOL-TELEGRAM-STATUS-20260624-001"
+  ],
+  "running_processes": [
+    {
+      "name": "frontend-v3",
+      "url": "http://127.0.0.1:5179",
+      "status": "listening"
+    },
+    {
+      "name": "backend-main",
+      "url": "http://127.0.0.1:8000",
+      "status": "listening"
+    }
+  ],
+  "assigned_nodes": [
+    {
+      "node": "kolibri",
+      "assignment": "Primary remote development mirror and future control leader bootstrap",
+      "status": "healthy"
+    },
+    {
+      "node": "home",
+      "assignment": "standby/compute node in user-level mode",
+      "status": "degraded"
+    },
+    {
+      "node": "local",
+      "assignment": "current orchestration console and v3 smoke runner",
+      "status": "healthy"
+    }
+  ],
+  "blockers": [
+    "HOME-ROOT-KEY-001",
+    "FLEET-COUNT-001"
+  ],
+  "latest_evidence": [
+    ".factory/runs/launch-20260624T212027Z/source_sync.json",
+    ".factory/runs/launch-20260624T212027Z/healthchecks.json",
+    ".factory/runs/launch-20260624T212027Z/conflict_report.md",
+    ".factory/runs/launch-20260624T212027Z/remote_daemon.json"
+  ]
+}

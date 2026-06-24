@@ -1,0 +1,61 @@
+{
+  "factory_run_id": "launch-20260624T212027Z",
+  "application_id": "kolibri-frontend-v3",
+  "task_id": "KOL-V3-E2E-KIMI-PDF-20260624-001",
+  "server_id": "local",
+  "agent_role": "BACKEND_ENGINEER",
+  "objective": "Keep the existing Kolibri v3 SPA/PWA working and prove a real Kimi-backed estimate-to-PDF vertical slice with CanvasManifest interpretation, deterministic recalculation, and downloadable PDF artifact.",
+  "repository": "/Users/kolibri/Documents/Codex/kolibri-ai-platform",
+  "base_commit": "48bed8dcb21c",
+  "branch": "factory/KOL-V3-E2E-KIMI-PDF-20260624-001",
+  "allowed_paths": [
+    "apps/frontend-v3",
+    "backend",
+    "scripts",
+    ".factory",
+    "docs"
+  ],
+  "protected_paths": [
+    ".env",
+    ".ssh",
+    ".mimocode",
+    "auth.json",
+    "secrets",
+    "tokens",
+    "vpn"
+  ],
+  "input_artifacts": [
+    ".factory/MASTER_DIRECTIVE.md",
+    "docs/MASTER_PROMPT_KOLIBRI_AI_v3.md"
+  ],
+  "output_artifacts": [
+    ".factory/runs/launch-20260624T212027Z/kimi_canvas_smoke.json",
+    ".factory/runs/launch-20260624T212027Z/pdf_artifact.json",
+    ".factory/runs/launch-20260624T212027Z/browser_smoke.json"
+  ],
+  "acceptance_criteria": [
+    "Kimi returns a non-fallback CanvasManifest through the backend.",
+    "The v3 SPA shows the user question and assistant result without duplicate answers.",
+    "PDF export is produced by controlled backend renderer, not raw model JSON.",
+    "Frontend build/lint and targeted backend tests pass."
+  ],
+  "required_tests": [
+    "npm --prefix apps/frontend-v3 run lint",
+    "npm --prefix apps/frontend-v3 run build",
+    "python -m pytest backend/test_canvas_api.py"
+  ],
+  "resource_limits": {
+    "max_wall_seconds": 3600,
+    "max_cpu_percent": 90,
+    "max_ram_mb": 4096,
+    "max_disk_mb": 2048
+  },
+  "security_rules": [
+    "Do not expose provider credentials.",
+    "Do not hardcode estimates as product truth.",
+    "All arithmetic must be deterministic code."
+  ],
+  "report_path": ".factory/runs/launch-20260624T212027Z/KOL-V3-E2E-KIMI-PDF-20260624-001.result.json",
+  "seed": null,
+  "dry_run": false
+}

@@ -1,0 +1,33 @@
+{
+  "run_id": "launch-20260624T212027Z",
+  "tasks": [
+    {
+      "task_id": "KOL-REMOTE-MIGRATION-20260624-001",
+      "state": "RUNNING",
+      "owner": "Codex",
+      "node": "kolibri",
+      "evidence_path": ".factory/runs/launch-20260624T212027Z/source_sync.json"
+    },
+    {
+      "task_id": "KOL-V3-E2E-KIMI-PDF-20260624-001",
+      "state": "RUNNING",
+      "owner": "Codex",
+      "node": "local",
+      "evidence_path": ".factory/runs/launch-20260624T212027Z/kimi_canvas_smoke.json"
+    },
+    {
+      "task_id": "KOL-FACTORY-REGISTRY-20260624-001",
+      "state": "RUNNING",
+      "owner": "Codex",
+      "node": "local",
+      "evidence_path": ".factory/runs/launch-20260624T212027Z/status.json"
+    },
+    {
+      "task_id": "KOL-TELEGRAM-STATUS-20260624-001",
+      "state": "WAITING_HUMAN",
+      "owner": "Codex",
+      "node": "home",
+      "evidence_path": ".factory/runs/launch-20260624T212027Z/telegram_status_loop.json"
+    }
+  ]
+}
