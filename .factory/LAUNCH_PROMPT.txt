@@ -1,0 +1,21 @@
+Прочитай и исполни `.factory/MASTER_DIRECTIVE.md` как главный действующий приказ владельца проекта «Колибри».
+
+Начинай немедленно и работай непрерывно. Не создавай ещё один общий план вместо выполнения.
+
+Параллельно запусти:
+
+1. Phase 0 — полный аудит и упорядочивание репозитория, инструкций, веток, сервисов и артефактов без потери истории.
+2. Phase 1 — перенос authoritative development на Primary `78.17.4.108` и Home `178.207.11.90:2222`, key-only SSH, backup, remote checkout, remote Codex/control services, MacBook-independent execution.
+3. Vertical slice — реальная цепочка: команда → workflow → удалённый агент → отдельный worktree → изменение → тесты → commit → GitHub PR → независимое review → staging → healthcheck → отчёт.
+4. Factory foundation — registry nodes/agents/tasks, leases, heartbeat, retries, cancellation, audit, bounded concurrency, Telegram intake, dashboards.
+5. Product foundation — сохранить и улучшить существующий SPA/PWA Колибри, сметы, документы, библиотеку и тихое меню птички; не заменять рабочее приложение пустым scaffold.
+
+Используй существующие рабочие компоненты и инструкции проекта, но сведи их к единой канонической структуре. Архивируй противоречивые и устаревшие инструкции, не удаляя доказательную историю.
+
+Если password-only SSH требует ввода, открой интерактивный credential checkpoint, чтобы владелец ввёл пароль непосредственно в TTY, установи публичный ключ, проверь `BatchMode=yes` и продолжай автоматически.
+
+Если один сервер недоступен, переведи его в QUARANTINED, восстанови leases на здоровых узлах, создай repair task и продолжай работу. Не останавливай всю фабрику.
+
+Отчитывайся только в формате MASTER_DIRECTIVE и прикладывай evidence: commit SHA, PR URL, тесты, service status, deployment URL, метрики и артефакты.
+
+Первый ответ должен показать фактические запущенные действия и их task IDs, а не повторять план.

@@ -1,0 +1,60 @@
+{
+  "factory_run_id": "launch-20260624T212027Z",
+  "application_id": "kolibri-ai-platform",
+  "task_id": "KOL-FACTORY-REGISTRY-20260624-001",
+  "server_id": "local",
+  "agent_role": "ARCHITECTURE_DEPUTY",
+  "objective": "Create the canonical launch run records for nodes, agents, task states, leases, and status loop using the new MASTER_DIRECTIVE as source of truth.",
+  "repository": "/Users/kolibri/Documents/Codex/kolibri-ai-platform",
+  "base_commit": "48bed8dcb21c",
+  "branch": "factory/KOL-FACTORY-REGISTRY-20260624-001",
+  "allowed_paths": [
+    ".factory",
+    "ops",
+    "scripts",
+    "docs"
+  ],
+  "protected_paths": [
+    ".env",
+    ".ssh",
+    ".mimocode",
+    "auth.json",
+    "secrets",
+    "tokens",
+    "vpn"
+  ],
+  "input_artifacts": [
+    ".factory/MASTER_DIRECTIVE.md",
+    ".factory/LAUNCH_PROMPT.txt",
+    ".factory/agents/registry.json",
+    "ops/agents.yml"
+  ],
+  "output_artifacts": [
+    ".factory/runs/launch-20260624T212027Z/status.json",
+    ".factory/runs/launch-20260624T212027Z/node_registry.json",
+    ".factory/runs/launch-20260624T212027Z/task_registry.json"
+  ],
+  "acceptance_criteria": [
+    "Launch task IDs are visible in .factory/tasks/ready.",
+    "Node health states are recorded.",
+    "Running local processes are recorded.",
+    "Conflict and blocker records are explicit."
+  ],
+  "required_tests": [
+    "python3 .factory/scripts/factory_status.py"
+  ],
+  "resource_limits": {
+    "max_wall_seconds": 1800,
+    "max_cpu_percent": 50,
+    "max_ram_mb": 1024,
+    "max_disk_mb": 512
+  },
+  "security_rules": [
+    "Do not read or log secrets.",
+    "Do not mutate production.",
+    "Do not dispatch overlapping mutation tasks."
+  ],
+  "report_path": ".factory/runs/launch-20260624T212027Z/KOL-FACTORY-REGISTRY-20260624-001.result.json",
+  "seed": null,
+  "dry_run": false
+}

@@ -1,0 +1,60 @@
+{
+  "factory_run_id": "launch-20260624T212027Z",
+  "application_id": "kolibri-ai-platform",
+  "task_id": "KOL-TELEGRAM-STATUS-20260624-001",
+  "server_id": "home",
+  "agent_role": "INCIDENT_AGENT",
+  "objective": "Prepare Telegram intake and continuous status loop without exposing bot tokens; verify scripts, systemd templates, and safe owner allowlist requirements.",
+  "repository": "/Users/kolibri/Documents/Codex/kolibri-ai-platform",
+  "base_commit": "48bed8dcb21c",
+  "branch": "factory/KOL-TELEGRAM-STATUS-20260624-001",
+  "allowed_paths": [
+    ".factory",
+    "scripts",
+    "infra/systemd",
+    "docs",
+    "ops"
+  ],
+  "protected_paths": [
+    ".env",
+    ".ssh",
+    ".mimocode",
+    "auth.json",
+    "secrets",
+    "tokens",
+    "vpn"
+  ],
+  "input_artifacts": [
+    "scripts/telegram_task_gateway.py",
+    "scripts/telegram_task_processor.py",
+    "ops/telegram.example.env",
+    "infra/systemd/kolibri-telegram-gateway.service",
+    "infra/systemd/kolibri-telegram-processor.service"
+  ],
+  "output_artifacts": [
+    ".factory/runs/launch-20260624T212027Z/telegram_status_loop.json"
+  ],
+  "acceptance_criteria": [
+    "Telegram scripts and service templates are inventoried.",
+    "No token is read, logged, or committed.",
+    "Missing secret/config is reported as WAITING_HUMAN rather than failure.",
+    "Status loop can publish local factory state when configured."
+  ],
+  "required_tests": [
+    "python3 -m py_compile scripts/telegram_task_gateway.py scripts/telegram_task_processor.py"
+  ],
+  "resource_limits": {
+    "max_wall_seconds": 1800,
+    "max_cpu_percent": 50,
+    "max_ram_mb": 1024,
+    "max_disk_mb": 512
+  },
+  "security_rules": [
+    "Do not read Telegram bot token values.",
+    "Do not expose unrestricted shell through Telegram.",
+    "Owner allowlist required before service activation."
+  ],
+  "report_path": ".factory/runs/launch-20260624T212027Z/KOL-TELEGRAM-STATUS-20260624-001.result.json",
+  "seed": null,
+  "dry_run": false
+}

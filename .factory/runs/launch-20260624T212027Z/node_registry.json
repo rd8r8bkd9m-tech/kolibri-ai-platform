@@ -1,0 +1,29 @@
+{
+  "run_id": "launch-20260624T212027Z",
+  "nodes": [
+    {
+      "id": "kolibri",
+      "role": "worker-backup-node / Primary remote development target",
+      "address": "78.17.4.108",
+      "ssh": "key-only root OK",
+      "state": "HEALTHY",
+      "evidence": "PRIMARY_OK, hostname kolibri, Ubuntu Linux, /opt/kolibri prepared"
+    },
+    {
+      "id": "home",
+      "role": "training-hub / standby control participant",
+      "address": "178.207.11.90:2222",
+      "ssh": "key-only ladik OK; root key-only blocked",
+      "state": "DEGRADED",
+      "evidence": "HOME_OK, hostname plastilin; /home/ladik/kolibri-cloud prepared"
+    },
+    {
+      "id": "local",
+      "role": "thin client and current orchestration console",
+      "address": "127.0.0.1",
+      "ssh": "not applicable",
+      "state": "HEALTHY",
+      "evidence": "frontend v3 listening on 127.0.0.1:5179; backend listening on 127.0.0.1:8000"
+    }
+  ]
+}

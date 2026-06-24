@@ -9,6 +9,21 @@ The permanent control plane lives in `.factory/`. Chat memory is not the source
 of truth for agent state, server roles, task decisions, incidents, or run
 artifacts.
 
+The primary permanent project directive is:
+
+```text
+.factory/MASTER_DIRECTIVE.md
+```
+
+Codex must read it fully before any work. The current launch directive is:
+
+```text
+.factory/LAUNCH_PROMPT.txt
+```
+
+Historical instructions do not override `MASTER_DIRECTIVE.md`. When instructions
+conflict, the conflict must be archived and included in a conflict report.
+
 ## Factory Operating Rules
 
 - Build and maintain Factory v1 before scaling product development.

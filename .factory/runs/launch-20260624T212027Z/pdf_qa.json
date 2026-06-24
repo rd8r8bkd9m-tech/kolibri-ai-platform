@@ -1,0 +1,30 @@
+{
+  "run_id": "launch-20260624T212027Z",
+  "task_id": "KOL-V3-E2E-KIMI-PDF-20260624-001",
+  "pdf": "backend/data/documents/estimate_СМТ-028.pdf",
+  "download_url": "/api/documents/file/estimate_%D0%A1%D0%9C%D0%A2-028.pdf",
+  "rendered_pages": [
+    "tmp/pdfs/kolibri-launch-estimate-028-1.png",
+    "tmp/pdfs/kolibri-launch-estimate-028-2.png"
+  ],
+  "pdfinfo": {
+    "pages": 2,
+    "page_size": "A4",
+    "file_size_bytes": 82440,
+    "encrypted": false,
+    "producer": "ReportLab PDF Library"
+  },
+  "visual_qa": {
+    "status": "passed_with_minor_risk",
+    "passed": [
+      "table readable",
+      "Russian glyphs render correctly",
+      "totals visible",
+      "assumptions and warnings visible",
+      "no tofu squares observed"
+    ],
+    "risks": [
+      "page 2 starts with a repeated table header before the grand total; template pagination should be polished"
+    ]
+  }
+}

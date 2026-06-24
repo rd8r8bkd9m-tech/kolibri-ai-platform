@@ -1,0 +1,15 @@
+{
+  "run_id": "launch-20260624T212027Z",
+  "task_id": "KOL-TELEGRAM-STATUS-20260624-001",
+  "state": "WAITING_HUMAN",
+  "scripts": [
+    "scripts/telegram_task_gateway.py",
+    "scripts/telegram_task_processor.py"
+  ],
+  "systemd_templates": [
+    "infra/systemd/kolibri-telegram-gateway.service",
+    "infra/systemd/kolibri-telegram-processor.service"
+  ],
+  "blocker": "Telegram bot token and owner allowlist must be configured out of band; token values must not be read or logged.",
+  "next_safe_check": "python3 -m py_compile scripts/telegram_task_gateway.py scripts/telegram_task_processor.py"
+}

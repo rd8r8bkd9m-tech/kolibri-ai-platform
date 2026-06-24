@@ -1,0 +1,41 @@
+{
+  "run_id": "launch-20260624T212027Z",
+  "checks": [
+    {
+      "id": "primary-key-only-ssh",
+      "target": "root@78.17.4.108",
+      "status": "passed",
+      "evidence": "PRIMARY_OK; hostname kolibri"
+    },
+    {
+      "id": "home-user-key-only-ssh",
+      "target": "ladik@178.207.11.90:2222",
+      "status": "passed",
+      "evidence": "HOME_OK; hostname plastilin"
+    },
+    {
+      "id": "home-root-key-only-ssh",
+      "target": "root@178.207.11.90:2222",
+      "status": "blocked",
+      "evidence": "Permission denied (publickey,password)"
+    },
+    {
+      "id": "primary-remote-checkout",
+      "target": "/opt/kolibri/repo",
+      "status": "passed",
+      "evidence": "branch factory/kolibri-managed-ai-system-v1; HEAD 48bed8dcb21c; MASTER/LAUNCH SHA-256 match"
+    },
+    {
+      "id": "local-frontend-v3",
+      "target": "127.0.0.1:5179",
+      "status": "passed",
+      "evidence": "node process listening"
+    },
+    {
+      "id": "local-backend",
+      "target": "127.0.0.1:8000",
+      "status": "passed",
+      "evidence": "uvicorn process listening; /api/release/readiness returned runtime=main, kimi=configured, documents=ready"
+    }
+  ]
+}
