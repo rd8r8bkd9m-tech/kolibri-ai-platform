@@ -1,34 +1,252 @@
 import os
 import json
-import tempfile
+import re
+import sqlite3
+import unicodedata
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, Dict, Any
+from urllib.parse import quote
+from xml.sax.saxutils import escape
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.platypus import (
-    SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak,
-    HRFlowable, KeepTogether,
+    SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable,
+    KeepTogether,
 )
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.pdfgen import canvas as pdfcanvas
 
 from docx import Document
-from docx.shared import Inches, Pt, Cm
+from docx.shared import Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
 
-from config import DATA_DIR
+from config import DATA_DIR, DB_PATH
+from estimates import normalize_estimate
 
 
 DOCS_DIR = DATA_DIR / "documents"
 DOCS_DIR.mkdir(parents=True, exist_ok=True)
 
 COUNTER_PATH = DOCS_DIR / "_counters.json"
+DOCUMENT_INDEX_PATH = DOCS_DIR / "_documents.json"
+
+
+def _safe_text(value: Any, default: str = "") -> str:
+    if value is None:
+        return default
+    return escape(_strip_unsupported_pdf_symbols(str(value)))
+
+
+def _strip_unsupported_pdf_symbols(value: str) -> str:
+    cleaned = []
+    for char in value:
+        if char in {"\ufe0e", "\ufe0f", "⚠", "✅", "❗", "❌", "☑", "☐", "□"}:
+            continue
+        category = unicodedata.category(char)
+        if category in {"Cc", "Cf", "Co", "Cs"}:
+            if char in {"\n", "\t"}:
+                cleaned.append(" ")
+            continue
+        if category == "So":
+            continue
+        cleaned.append(char)
+    return re.sub(r"\s+", " ", "".join(cleaned)).strip()
+
+
+def _money(value: Any) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _document_meta(payload: dict | None, prefix: str, stem: str, ext: str = "pdf") -> tuple[str, datetime, str]:
+    meta = payload if isinstance(payload, dict) else {}
+    doc_number = meta.get("number") or meta.get("doc_number") or _next_doc_number(prefix)
+    raw_date = meta.get("date")
+    if raw_date:
+        try:
+            doc_date = datetime.fromisoformat(str(raw_date).replace("Z", "+00:00"))
+        except ValueError:
+            doc_date = datetime.now()
+    else:
+        doc_date = datetime.now()
+    filename = meta.get("filename") or f"{stem}_{str(doc_number).replace('/', '-')}.{ext}"
+    return str(doc_number), doc_date, filename
+
+
+def _load_document_index() -> dict:
+    try:
+        if DOCUMENT_INDEX_PATH.exists():
+            data = json.loads(DOCUMENT_INDEX_PATH.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+    except Exception:
+        pass
+    return {}
+
+
+def _save_document_index(index: dict) -> None:
+    try:
+        DOCUMENT_INDEX_PATH.write_text(json.dumps(index, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _extract_estimate_title(payload: Any) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    root = payload.get("смета") if isinstance(payload.get("смета"), dict) else payload
+    estimate_meta = root.get("estimate") if isinstance(root.get("estimate"), dict) else {}
+    for value in (
+        estimate_meta.get("title"),
+        root.get("title"),
+        root.get("проект"),
+        root.get("name"),
+        root.get("название"),
+    ):
+        if value:
+            return str(value).strip()
+    obj = root.get("object") if isinstance(root.get("object"), dict) else root.get("объект") if isinstance(root.get("объект"), dict) else {}
+    if isinstance(obj, dict) and obj.get("name"):
+        return f"Смета: {obj['name']}"
+    return ""
+
+
+def _extract_json_payload(text: str) -> dict | None:
+    value = str(text or "").strip()
+    if not value:
+        return None
+    candidates = [value]
+    start = value.find("{")
+    end = value.rfind("}")
+    if start != -1 and end > start:
+        candidates.append(value[start:end + 1])
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            continue
+    return None
+
+
+def _estimate_title_from_messages(created_ts: float) -> str:
+    payload = _estimate_payload_from_messages(created_ts)
+    return _extract_estimate_title(payload) if payload else ""
+
+
+def _estimate_payload_from_messages(created_ts: float) -> dict | None:
+    try:
+        if not DB_PATH.exists():
+            return None
+        with sqlite3.connect(DB_PATH) as conn:
+            rows = conn.execute(
+                """
+                SELECT content, created_at
+                FROM messages
+                WHERE role = 'assistant'
+                  AND content LIKE '%{%'
+                  AND created_at <= ?
+                ORDER BY created_at DESC
+                LIMIT 40
+                """,
+                (created_ts + 5,),
+            ).fetchall()
+    except Exception:
+        return None
+
+    for content, _created_at in rows:
+        payload = _extract_json_payload(content)
+        if payload:
+            return payload
+    return None
+
+
+def _fallback_document_title(filename: str) -> str:
+    stem = Path(filename).stem
+    if stem.startswith("estimate_"):
+        number = stem.replace("estimate_", "").replace("-", "/")
+        return f"Смета {number}".strip()
+    if stem.startswith("kp_"):
+        return "Коммерческое предложение"
+    if stem.startswith("act_"):
+        return "Акт выполненных работ"
+    if stem.startswith("invoice_"):
+        return "Счёт на оплату"
+    return re.sub(r"[_-]+", " ", stem).strip().capitalize() or filename
+
+
+def _document_number_from_filename(filename: str) -> str:
+    stem = Path(filename).stem
+    if "_" not in stem:
+        return ""
+    return stem.split("_", 1)[1].replace("-", "/")
+
+
+def _document_type(filename: str) -> str:
+    stem = Path(filename).stem.lower()
+    if stem.startswith("estimate_"):
+        return "estimate"
+    if stem.startswith("kp_"):
+        return "commercial_offer"
+    if stem.startswith("act_"):
+        return "act"
+    if stem.startswith("invoice_"):
+        return "invoice"
+    return "document"
+
+
+def _record_document(path: str, *, kind: str, title: str, doc_number: str, doc_date: datetime, estimate: dict | None = None) -> None:
+    file_path = Path(path)
+    index = _load_document_index()
+    totals = estimate.get("totals", {}) if isinstance(estimate, dict) else {}
+    index[file_path.name] = {
+        "filename": file_path.name,
+        "title": title or _fallback_document_title(file_path.name),
+        "type": kind,
+        "estimate": estimate if isinstance(estimate, dict) and kind == "estimate" else None,
+        "document_number": doc_number,
+        "document_date": doc_date.isoformat(),
+        "created_at": datetime.fromtimestamp(file_path.stat().st_ctime).isoformat() if file_path.exists() else datetime.now().isoformat(),
+        "total": totals.get("grand_total") if isinstance(totals, dict) else None,
+        "items_count": len(estimate.get("items", [])) if isinstance(estimate, dict) else None,
+        "sections_count": len(estimate.get("sections", [])) if isinstance(estimate, dict) else None,
+}
+    _save_document_index(index)
+
+
+def get_document_estimate(filename: str) -> dict | None:
+    if "/" in filename or ".." in filename:
+        return None
+    file_path = DOCS_DIR / filename
+    if not file_path.exists():
+        return None
+
+    index = _load_document_index()
+    meta = index.get(file_path.name, {}) if isinstance(index.get(file_path.name), dict) else {}
+    raw_estimate = meta.get("estimate") if isinstance(meta.get("estimate"), dict) else None
+    if not raw_estimate:
+        raw_estimate = _estimate_payload_from_messages(file_path.stat().st_ctime)
+
+    estimate = normalize_estimate(raw_estimate or {})
+    fallback_title = meta.get("title") or _estimate_title_from_messages(file_path.stat().st_ctime) or _fallback_document_title(file_path.name)
+    if fallback_title and estimate.get("title") in ("", "Смета"):
+        estimate["title"] = fallback_title
+        estimate.setdefault("estimate", {})["title"] = fallback_title
+    estimate["source_document"] = {
+        "filename": file_path.name,
+        "url": f"/api/documents/file/{quote(file_path.name)}",
+        "document_number": meta.get("document_number") or _document_number_from_filename(file_path.name),
+        "created_at": meta.get("created_at") or datetime.fromtimestamp(file_path.stat().st_ctime).isoformat(),
+    }
+    return estimate
 
 
 # ---------------------------------------------------------------------------
@@ -153,7 +371,7 @@ def _make_styles():
 # Page template with header + footer + page numbers
 # ---------------------------------------------------------------------------
 
-def _make_page_template(doc_title: str, doc_number: str, company: dict = None):
+def _make_page_template(doc_title: str, doc_number: str, company: dict = None, doc_date: datetime | None = None):
     def _on_page(canvas, doc):
         canvas.saveState()
         w, h = A4
@@ -179,7 +397,7 @@ def _make_page_template(doc_title: str, doc_number: str, company: dict = None):
         # Footer text
         canvas.setFont(FONT_NAME, 7)
         canvas.setFillColor(COL_GREY)
-        canvas.drawString(20 * mm, 10 * mm, datetime.now().strftime("%d.%m.%Y"))
+        canvas.drawString(20 * mm, 10 * mm, (doc_date or datetime.now()).strftime("%d.%m.%Y"))
         canvas.drawRightString(w - 20 * mm, 10 * mm, f"Стр. {doc.page}")
 
         # Company footer details
@@ -204,9 +422,8 @@ def _make_page_template(doc_title: str, doc_number: str, company: dict = None):
 # Shared table builder
 # ---------------------------------------------------------------------------
 
-def _build_items_table(items: list, totals: dict, st: dict, show_sections: bool = False):
-    col_widths = [25, 175, 38, 45, 62, 72]
-    total_w = sum(col_widths)
+def _build_items_table(items: list, totals: dict, st: dict, show_sections: bool = False, sections: list | None = None):
+    col_widths = [25, 165, 38, 45, 82, 90]
 
     # Header row
     header = [
@@ -221,16 +438,23 @@ def _build_items_table(items: list, totals: dict, st: dict, show_sections: bool 
     row_types = ["header"]  # track row types for styling
 
     if show_sections:
-        works = [i for i in items if i.get("section") == "Работы"]
-        mats = [i for i in items if i.get("section") == "Материалы"]
-        other = [i for i in items if i.get("section") not in ("Работы", "Материалы")]
         groups = []
-        if works:
-            groups.append(("РАБОТЫ", works))
-        if mats:
-            groups.append(("МАТЕРИАЛЫ", mats))
-        if other:
-            groups.append(("ПРОЧЕЕ", other))
+        seen_item_ids = set()
+        for section in sorted(sections or [], key=lambda item: item.get("number", 0)):
+            section_id = section.get("id")
+            section_items = [item for item in items if item.get("section_id") == section_id]
+            if not section_items:
+                continue
+            seen_item_ids.update(id(item) for item in section_items)
+            groups.append((_safe_text(section.get("name", "Раздел")), section_items))
+        orphan_items = [item for item in items if id(item) not in seen_item_ids]
+        if orphan_items:
+            by_type = [
+                ("Работы", [i for i in orphan_items if i.get("type") == "work"]),
+                ("Материалы", [i for i in orphan_items if i.get("type") == "material"]),
+                ("Услуги", [i for i in orphan_items if i.get("type") == "service"]),
+            ]
+            groups.extend((name, group_items) for name, group_items in by_type if group_items)
         if not groups:
             groups = [("", items)]
     else:
@@ -249,38 +473,44 @@ def _build_items_table(items: list, totals: dict, st: dict, show_sections: bool 
             idx += 1
             data.append([
                 Paragraph(str(idx), st["cell"]),
-                Paragraph(item.get("name", ""), st["cell"]),
-                Paragraph(item.get("unit", ""), st["cell"]),
-                Paragraph(str(item.get("quantity", 0)), st["cell"]),
-                Paragraph(f"{item.get('unit_price', 0):,.2f}", st["cell"]),
-                Paragraph(f"{item.get('total', 0):,.2f}", st["cell_bold"]),
+                Paragraph(_safe_text(item.get("name", "")), st["cell"]),
+                Paragraph(_safe_text(item.get("unit", "")), st["cell"]),
+                Paragraph(_safe_text(item.get("quantity", 0)), st["cell"]),
+                Paragraph(f"{_money(item.get('unit_price')):,.2f}", st["cell"]),
+                Paragraph(f"{_money(item.get('total')):,.2f}", st["cell_bold"]),
             ])
             row_types.append("item")
 
     # Totals rows
-    works_total = totals.get("works", 0)
-    mats_total = totals.get("materials", 0)
-    delivery = totals.get("delivery", 0)
-    discount = totals.get("discount", 0)
-    grand = totals.get("grand_total", 0)
+    works_total = _money(totals.get("works", totals.get("works_total", 0)))
+    mats_total = _money(totals.get("materials", totals.get("materials_total", 0)))
+    services_total = _money(totals.get("services", totals.get("services_total", 0)))
+    delivery = _money(totals.get("delivery", 0))
+    discount = _money(totals.get("discount", 0))
+    grand = _money(totals.get("grand_total", 0))
 
+    totals_data = []
+    totals_row_types = []
     if show_sections:
         if works_total > 0:
-            data.append(["", "", "", "", Paragraph("Работы:", st["total_label"]), Paragraph(f"{works_total:,.2f}", st["total_value"])])
-            row_types.append("subtotal")
+            totals_data.append(["", "", "", "", Paragraph("Работы:", st["total_label"]), Paragraph(f"{works_total:,.2f}", st["total_value"])])
+            totals_row_types.append("subtotal")
         if mats_total > 0:
-            data.append(["", "", "", "", Paragraph("Материалы:", st["total_label"]), Paragraph(f"{mats_total:,.2f}", st["total_value"])])
-            row_types.append("subtotal")
+            totals_data.append(["", "", "", "", Paragraph("Материалы:", st["total_label"]), Paragraph(f"{mats_total:,.2f}", st["total_value"])])
+            totals_row_types.append("subtotal")
+        if services_total > 0:
+            totals_data.append(["", "", "", "", Paragraph("Услуги:", st["total_label"]), Paragraph(f"{services_total:,.2f}", st["total_value"])])
+            totals_row_types.append("subtotal")
     if delivery > 0:
-        data.append(["", "", "", "", Paragraph("Доставка:", st["total_label"]), Paragraph(f"{delivery:,.2f}", st["total_value"])])
-        row_types.append("subtotal")
+        totals_data.append(["", "", "", "", Paragraph("Доставка:", st["total_label"]), Paragraph(f"{delivery:,.2f}", st["total_value"])])
+        totals_row_types.append("subtotal")
     if discount > 0:
-        data.append(["", "", "", "", Paragraph("Скидка:", st["total_label"]), Paragraph(f"-{discount:,.2f}", st["total_value"])])
-        row_types.append("subtotal")
+        totals_data.append(["", "", "", "", Paragraph("Скидка:", st["total_label"]), Paragraph(f"-{discount:,.2f}", st["total_value"])])
+        totals_row_types.append("subtotal")
 
     # Grand total
-    data.append(["", "", "", "", Paragraph("ИТОГО:", st["grand_label"]), Paragraph(f"{grand:,.2f} руб.", st["grand_value"])])
-    row_types.append("grand")
+    totals_data.append(["", "", "", "", Paragraph("ИТОГО:", st["grand_label"]), Paragraph(f"{grand:,.2f} руб.", st["grand_value"])])
+    totals_row_types.append("grand")
 
     table = Table(data, colWidths=col_widths, repeatRows=1)
 
@@ -309,15 +539,31 @@ def _build_items_table(items: list, totals: dict, st: dict, show_sections: bool 
             item_row_idx += 1
         elif rtype == "section":
             style_cmds.append(("BACKGROUND", (0, i), (-1, i), colors.HexColor("#edf2f7")))
-            style_cmds.append(("SPAN", (0, i), (0, i)))
-        elif rtype == "grand":
-            style_cmds.append(("LINEABOVE", (0, i), (-1, i), 2, COL_ACCENT))
-            style_cmds.append(("BACKGROUND", (4, i), (-1, i), colors.HexColor("#ebf8ff")))
-            style_cmds.append(("TOPPADDING", (0, i), (-1, i), 8))
-            style_cmds.append(("BOTTOMPADDING", (0, i), (-1, i), 8))
+            style_cmds.append(("SPAN", (0, i), (-1, i)))
 
     table.setStyle(TableStyle(style_cmds))
-    return table
+
+    totals_table = Table(totals_data, colWidths=col_widths, repeatRows=0)
+    totals_style_cmds = [
+        ("FONTNAME", (0, 0), (-1, -1), FONT_NAME),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("ALIGN", (3, 0), (-1, -1), "RIGHT"),
+        ("GRID", (0, 0), (-1, -1), 0.5, COL_BORDER),
+    ]
+    for i, rtype in enumerate(totals_row_types):
+        if rtype == "grand":
+            totals_style_cmds.append(("LINEABOVE", (0, i), (-1, i), 2, COL_ACCENT))
+            totals_style_cmds.append(("BACKGROUND", (4, i), (-1, i), colors.HexColor("#ebf8ff")))
+            totals_style_cmds.append(("TOPPADDING", (0, i), (-1, i), 8))
+            totals_style_cmds.append(("BOTTOMPADDING", (0, i), (-1, i), 8))
+    totals_table.setStyle(TableStyle(totals_style_cmds))
+
+    return [table, KeepTogether([totals_table])]
 
 
 # ---------------------------------------------------------------------------
@@ -352,11 +598,37 @@ def _company_header_block(company: dict, st: dict) -> list:
 def _client_block(client: dict, st: dict) -> list:
     elements = []
     if client.get("name"):
-        elements.append(Paragraph(f"<b>Заказчик:</b> {client['name']}", st["normal"]))
+        elements.append(Paragraph(f"<b>Заказчик:</b> {_safe_text(client['name'])}", st["normal"]))
     if client.get("phone"):
-        elements.append(Paragraph(f"<b>Телефон:</b> {client['phone']}", st["normal"]))
+        elements.append(Paragraph(f"<b>Телефон:</b> {_safe_text(client['phone'])}", st["normal"]))
     if client.get("address"):
-        elements.append(Paragraph(f"<b>Адрес:</b> {client['address']}", st["normal"]))
+        elements.append(Paragraph(f"<b>Адрес:</b> {_safe_text(client['address'])}", st["normal"]))
+    return elements
+
+
+def _canonical_estimate(payload: dict) -> dict:
+    if isinstance(payload, dict) and isinstance(payload.get("estimate"), dict) and not any(
+        key in payload for key in ("items", "sections", "client", "object", "смета")
+    ):
+        payload = payload["estimate"]
+    return normalize_estimate(payload if isinstance(payload, dict) else {})
+
+
+def _object_block(obj: dict, estimate: dict, st: dict) -> list:
+    elements = []
+    parts = []
+    if obj.get("name"):
+        parts.append(_safe_text(obj["name"]))
+    if obj.get("type") and obj.get("type") != obj.get("name"):
+        parts.append(_safe_text(obj["type"]))
+    if obj.get("area"):
+        parts.append(f"{_safe_text(obj['area'])} м²")
+    if parts:
+        elements.append(Paragraph(f"<b>Объект:</b> {', '.join(parts)}", st["normal"]))
+    if obj.get("address"):
+        elements.append(Paragraph(f"<b>Адрес объекта:</b> {_safe_text(obj['address'])}", st["normal"]))
+    if estimate.get("region"):
+        elements.append(Paragraph(f"<b>Регион:</b> {_safe_text(estimate['region'])}", st["normal"]))
     return elements
 
 
@@ -364,14 +636,14 @@ def _client_block(client: dict, st: dict) -> list:
 # Estimate PDF
 # ---------------------------------------------------------------------------
 
-def generate_estimate_pdf(estimate: dict, company: dict = None, output_path: Optional[str] = None) -> str:
+def generate_estimate_pdf(estimate: dict, company: dict = None, output_path: Optional[str] = None, document: dict = None) -> str:
+    estimate = _canonical_estimate(estimate)
+    doc_number, doc_date, filename = _document_meta(document, "СМТ", "estimate")
     if not output_path:
-        filename = f"estimate_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
         output_path = str(DOCS_DIR / filename)
 
-    doc_number = _next_doc_number("СМТ")
     st = _make_styles()
-    on_page = _make_page_template("СМЕТА", doc_number, company)
+    on_page = _make_page_template("СМЕТА", doc_number, company, doc_date)
 
     doc = SimpleDocTemplate(
         output_path, pagesize=A4,
@@ -382,8 +654,8 @@ def generate_estimate_pdf(estimate: dict, company: dict = None, output_path: Opt
     elements = []
 
     # Title
-    elements.append(Paragraph(estimate.get("title", "Смета"), st["title"]))
-    elements.append(Paragraph(f"№ {doc_number} от {datetime.now().strftime('%d.%m.%Y')}", st["small"]))
+    elements.append(Paragraph(_safe_text(estimate.get("title", "Смета")), st["title"]))
+    elements.append(Paragraph(f"№ {_safe_text(doc_number)} от {doc_date.strftime('%d.%m.%Y')}", st["small"]))
     elements.append(Spacer(1, 4 * mm))
     elements.append(HRFlowable(width="100%", thickness=1, color=COL_LIGHT_GREY))
     elements.append(Spacer(1, 4 * mm))
@@ -399,9 +671,10 @@ def generate_estimate_pdf(estimate: dict, company: dict = None, output_path: Opt
 
     # Object info
     obj = estimate.get("object", {})
-    if obj.get("type"):
+    object_elements = _object_block(obj, estimate, st)
+    if object_elements:
         elements.append(Spacer(1, 2 * mm))
-        elements.append(Paragraph(f"<b>Объект:</b> {obj['type']}, площадь: {obj.get('area', 0)} м²", st["normal"]))
+        elements.extend(object_elements)
 
     elements.append(Spacer(1, 6 * mm))
 
@@ -409,7 +682,7 @@ def generate_estimate_pdf(estimate: dict, company: dict = None, output_path: Opt
     items = estimate.get("items", [])
     totals = estimate.get("totals", {})
     if items:
-        elements.append(_build_items_table(items, totals, st, show_sections=True))
+        elements.extend(_build_items_table(items, totals, st, show_sections=True, sections=estimate.get("sections", [])))
         elements.append(Spacer(1, 6 * mm))
 
     # Assumptions
@@ -417,7 +690,14 @@ def generate_estimate_pdf(estimate: dict, company: dict = None, output_path: Opt
     if assumptions:
         elements.append(Paragraph("<b>Допущения:</b>", st["bold"]))
         for a in assumptions:
-            elements.append(Paragraph(f"&bull; {a}", st["small"]))
+            elements.append(Paragraph(f"&bull; {_safe_text(a)}", st["small"]))
+        elements.append(Spacer(1, 3 * mm))
+
+    questions = estimate.get("questions", [])
+    if questions:
+        elements.append(Paragraph("<b>Вопросы:</b>", st["bold"]))
+        for q in questions:
+            elements.append(Paragraph(f"&bull; {_safe_text(q)}", st["small"]))
         elements.append(Spacer(1, 3 * mm))
 
     # Warnings
@@ -425,15 +705,25 @@ def generate_estimate_pdf(estimate: dict, company: dict = None, output_path: Opt
     if warnings:
         elements.append(Paragraph("<b>Примечания:</b>", st["bold"]))
         for w in warnings:
-            elements.append(Paragraph(f"&bull; {w}", st["small"]))
+            elements.append(Paragraph(f"&bull; {_safe_text(w)}", st["small"]))
 
     # Footer
     elements.append(Spacer(1, 8 * mm))
     elements.append(HRFlowable(width="100%", thickness=0.5, color=COL_LIGHT_GREY))
     elements.append(Spacer(1, 3 * mm))
-    elements.append(Paragraph(f"Версия: v{estimate.get('version', 1)}", st["small"]))
+    versions = estimate.get("versions") or []
+    version = versions[-1].get("number") if versions and isinstance(versions[-1], dict) else estimate.get("version", 1)
+    elements.append(Paragraph(f"Версия: v{_safe_text(version)}", st["small"]))
 
     doc.build(elements, onFirstPage=on_page, onLaterPages=on_page)
+    _record_document(
+        output_path,
+        kind="estimate",
+        title=estimate.get("title", "Смета"),
+        doc_number=doc_number,
+        doc_date=doc_date,
+        estimate=estimate,
+    )
     return output_path
 
 
@@ -442,6 +732,7 @@ def generate_estimate_pdf(estimate: dict, company: dict = None, output_path: Opt
 # ---------------------------------------------------------------------------
 
 def generate_commercial_offer_pdf(estimate: dict, company: dict = None, output_path: Optional[str] = None) -> str:
+    estimate = _canonical_estimate(estimate)
     if not output_path:
         filename = f"kp_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
         output_path = str(DOCS_DIR / filename)
@@ -481,14 +772,14 @@ def generate_commercial_offer_pdf(estimate: dict, company: dict = None, output_p
     elements.append(Spacer(1, 6 * mm))
 
     # Subject
-    elements.append(Paragraph(f"Предмет: {estimate.get('title', 'Строительные работы')}", st["subtitle"]))
+    elements.append(Paragraph(f"Предмет: {_safe_text(estimate.get('title', 'Строительные работы'))}", st["subtitle"]))
     elements.append(Spacer(1, 4 * mm))
 
     # Items
     items = estimate.get("items", [])
     totals = estimate.get("totals", {})
     if items:
-        elements.append(_build_items_table(items, totals, st, show_sections=True))
+        elements.extend(_build_items_table(items, totals, st, show_sections=True, sections=estimate.get("sections", [])))
         elements.append(Spacer(1, 8 * mm))
 
     # Terms
@@ -512,6 +803,7 @@ def generate_commercial_offer_pdf(estimate: dict, company: dict = None, output_p
 # ---------------------------------------------------------------------------
 
 def generate_act_pdf(estimate: dict, company: dict = None, output_path: Optional[str] = None) -> str:
+    estimate = _canonical_estimate(estimate)
     if not output_path:
         filename = f"act_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
         output_path = str(DOCS_DIR / filename)
@@ -558,10 +850,10 @@ def generate_act_pdf(estimate: dict, company: dict = None, output_path: Optional
     # Items
     items = estimate.get("items", [])
     totals = estimate.get("totals", {})
-    grand = totals.get("grand_total", sum(it.get("total", 0) for it in items))
+    grand = _money(totals.get("grand_total", sum(_money(it.get("total")) for it in items)))
 
     if items:
-        elements.append(_build_items_table(items, totals, st, show_sections=False))
+        elements.extend(_build_items_table(items, totals, st, show_sections=False))
         elements.append(Spacer(1, 6 * mm))
 
     # Summary
@@ -606,6 +898,7 @@ def generate_act_pdf(estimate: dict, company: dict = None, output_path: Optional
 # ---------------------------------------------------------------------------
 
 def generate_invoice_pdf(estimate: dict, company: dict = None, output_path: Optional[str] = None) -> str:
+    estimate = _canonical_estimate(estimate)
     if not output_path:
         filename = f"invoice_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
         output_path = str(DOCS_DIR / filename)
@@ -626,7 +919,7 @@ def generate_invoice_pdf(estimate: dict, company: dict = None, output_path: Opti
     now = datetime.now()
     client = estimate.get("client", {})
     totals = estimate.get("totals", {})
-    grand = totals.get("grand_total", 0)
+    grand = _money(totals.get("grand_total", 0))
 
     elements = []
 
@@ -663,7 +956,7 @@ def generate_invoice_pdf(estimate: dict, company: dict = None, output_path: Opti
     # Items
     items = estimate.get("items", [])
     if items:
-        elements.append(_build_items_table(items, totals, st, show_sections=False))
+        elements.extend(_build_items_table(items, totals, st, show_sections=False))
         elements.append(Spacer(1, 6 * mm))
 
     # Payment total
@@ -704,19 +997,19 @@ def generate_invoice_pdf(estimate: dict, company: dict = None, output_path: Opti
 # Estimate DOCX
 # ---------------------------------------------------------------------------
 
-def generate_estimate_docx(estimate: dict, company: dict = None, output_path: Optional[str] = None) -> str:
+def generate_estimate_docx(estimate: dict, company: dict = None, output_path: Optional[str] = None, document: dict = None) -> str:
+    estimate = _canonical_estimate(estimate)
+    doc_number, doc_date, filename = _document_meta(document, "СМТ", "estimate", "docx")
     if not output_path:
-        filename = f"estimate_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
         output_path = str(DOCS_DIR / filename)
 
-    doc_number = _next_doc_number("СМТ")
     doc = Document()
 
     # Title
     title = doc.add_heading(estimate.get("title", "Смета"), level=0)
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-    doc.add_paragraph(f"№ {doc_number} от {datetime.now().strftime('%d.%m.%Y')}")
+    doc.add_paragraph(f"№ {doc_number} от {doc_date.strftime('%d.%m.%Y')}")
 
     # Company
     if company and company.get("name"):
@@ -739,8 +1032,14 @@ def generate_estimate_docx(estimate: dict, company: dict = None, output_path: Op
         doc.add_paragraph(f"Адрес: {client['address']}")
 
     obj = estimate.get("object", {})
-    if obj.get("type"):
-        doc.add_paragraph(f"Объект: {obj['type']}, площадь: {obj.get('area', 0)} м²")
+    if obj.get("name") or obj.get("type"):
+        object_title = obj.get("name") or obj.get("type")
+        area = f", площадь: {obj.get('area', 0)} м²" if obj.get("area") else ""
+        doc.add_paragraph(f"Объект: {object_title}{area}")
+    if obj.get("address"):
+        doc.add_paragraph(f"Адрес объекта: {obj['address']}")
+    if estimate.get("region"):
+        doc.add_paragraph(f"Регион: {estimate['region']}")
 
     doc.add_paragraph()
 
@@ -760,14 +1059,31 @@ def generate_estimate_docx(estimate: dict, company: dict = None, output_path: Op
                     run.font.bold = True
                     run.font.size = Pt(9)
 
-        for idx, item in enumerate(items, 1):
-            row = table.add_row()
-            row.cells[0].text = str(idx)
-            row.cells[1].text = item.get("name", "")
-            row.cells[2].text = item.get("unit", "")
-            row.cells[3].text = str(item.get("quantity", 0))
-            row.cells[4].text = f"{item.get('unit_price', 0):,.2f}"
-            row.cells[5].text = f"{item.get('total', 0):,.2f}"
+        idx = 0
+        grouped = []
+        seen = set()
+        for section in sorted(estimate.get("sections", []), key=lambda item: item.get("number", 0)):
+            section_items = [item for item in items if item.get("section_id") == section.get("id")]
+            if section_items:
+                seen.update(id(item) for item in section_items)
+                grouped.append((section.get("name", "Раздел"), section_items))
+        orphans = [item for item in items if id(item) not in seen]
+        if orphans:
+            grouped.append(("", orphans))
+        for section_name, section_items in grouped or [("", items)]:
+            if section_name:
+                row = table.add_row()
+                row.cells[0].text = str(section_name)
+                row.cells[0].merge(row.cells[5])
+            for item in section_items:
+                idx += 1
+                row = table.add_row()
+                row.cells[0].text = str(idx)
+                row.cells[1].text = item.get("name", "")
+                row.cells[2].text = item.get("unit", "")
+                row.cells[3].text = str(item.get("quantity", 0))
+                row.cells[4].text = f"{_money(item.get('unit_price')):,.2f}"
+                row.cells[5].text = f"{_money(item.get('total')):,.2f}"
 
     # Totals
     totals = estimate.get("totals", {})
@@ -776,6 +1092,8 @@ def generate_estimate_docx(estimate: dict, company: dict = None, output_path: Op
         doc.add_paragraph(f"Работы: {totals['works']:,.2f} руб.")
     if totals.get("materials", 0) > 0:
         doc.add_paragraph(f"Материалы: {totals['materials']:,.2f} руб.")
+    if totals.get("services", 0) > 0:
+        doc.add_paragraph(f"Услуги: {totals['services']:,.2f} руб.")
     if totals.get("delivery", 0) > 0:
         doc.add_paragraph(f"Доставка: {totals['delivery']:,.2f} руб.")
     if totals.get("discount", 0) > 0:
@@ -790,7 +1108,35 @@ def generate_estimate_docx(estimate: dict, company: dict = None, output_path: Op
     doc.add_paragraph(f"Версия: v{estimate.get('version', 1)}")
 
     doc.save(output_path)
+    _record_document(
+        output_path,
+        kind="estimate",
+        title=estimate.get("title", "Смета"),
+        doc_number=doc_number,
+        doc_date=doc_date,
+        estimate=estimate,
+    )
     return output_path
+
+
+def generate_document_pack(estimate: dict, company: dict = None, document: dict = None) -> list[dict[str, str]]:
+    """Create the user-facing estimate document pack from one canonical estimate."""
+    pack = [
+        ("estimate_pdf", generate_estimate_pdf(estimate, company=company, document=document)),
+        ("estimate_docx", generate_estimate_docx(estimate, company=company, document=document)),
+        ("commercial_offer", generate_commercial_offer_pdf(estimate, company=company)),
+        ("act", generate_act_pdf(estimate, company=company)),
+        ("invoice", generate_invoice_pdf(estimate, company=company)),
+    ]
+    return [
+        {
+            "kind": kind,
+            "filename": Path(path).name,
+            "path": path,
+            "url": f"/api/documents/file/{quote(Path(path).name)}",
+        }
+        for kind, path in pack
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -798,13 +1144,35 @@ def generate_estimate_docx(estimate: dict, company: dict = None, output_path: Op
 # ---------------------------------------------------------------------------
 
 def list_documents() -> list:
+    index = _load_document_index()
     docs = []
     for f in DOCS_DIR.iterdir():
         if f.suffix in (".pdf", ".docx"):
+            stat = f.stat()
+            created_at = datetime.fromtimestamp(stat.st_ctime).isoformat()
+            meta = index.get(f.name, {}) if isinstance(index.get(f.name), dict) else {}
+            doc_type = meta.get("type") or _document_type(f.name)
+            title = meta.get("title") or ""
+            if not title and doc_type == "estimate":
+                title = _estimate_title_from_messages(stat.st_ctime)
+            if not title:
+                title = _fallback_document_title(f.name)
             docs.append({
                 "filename": f.name,
+                "name": title,
+                "title": title,
+                "type": doc_type,
+                "kind": doc_type,
+                "has_estimate_preview": doc_type == "estimate",
+                "url": f"/api/documents/file/{quote(f.name)}",
                 "path": str(f),
-                "size": f.stat().st_size,
-                "created": datetime.fromtimestamp(f.stat().st_ctime).isoformat(),
+                "size": stat.st_size,
+                "created": created_at,
+                "created_at": meta.get("created_at") or created_at,
+                "document_number": meta.get("document_number") or _document_number_from_filename(f.name),
+                "document_date": meta.get("document_date"),
+                "total": meta.get("total"),
+                "items_count": meta.get("items_count"),
+                "sections_count": meta.get("sections_count"),
             })
     return sorted(docs, key=lambda x: x["created"], reverse=True)
