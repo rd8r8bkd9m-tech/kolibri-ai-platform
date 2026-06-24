@@ -46,6 +46,7 @@
   "latest_evidence": [
     ".factory/runs/launch-20260624T212027Z/source_sync.json",
     ".factory/runs/launch-20260624T212027Z/healthchecks.json",
-    ".factory/runs/launch-20260624T212027Z/conflict_report.md"
+    ".factory/runs/launch-20260624T212027Z/conflict_report.md",
+    ".factory/runs/launch-20260624T212027Z/remote_daemon.json"
   ]
 }

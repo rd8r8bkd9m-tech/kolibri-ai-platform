@@ -36,6 +36,12 @@
       "target": "127.0.0.1:8000",
       "status": "passed",
       "evidence": "uvicorn process listening; /api/release/readiness returned runtime=main, kimi=configured, documents=ready"
+    },
+    {
+      "id": "primary-factory-daemon",
+      "target": "78.17.4.108:/opt/kolibri/repo/.factory/runs/status/factory-daemon.json",
+      "status": "passed",
+      "evidence": "PID 91946 running monitor-only factory_daemon.py; heartbeat 2026-06-24T21:46:02.156747+00:00"
     }
   ]
 }

@@ -1,0 +1,21 @@
+{
+  "run_id": "launch-20260624T212027Z",
+  "task_id": "KOL-REMOTE-MIGRATION-20260624-001",
+  "node": "kolibri",
+  "host": "78.17.4.108",
+  "service": "factory_daemon.py",
+  "mode": "monitor_only_no_dispatch",
+  "pid": 91946,
+  "state": "RUNNING",
+  "heartbeat_at": "2026-06-24T21:46:02.156747+00:00",
+  "command": "python3 .factory/scripts/factory_daemon.py --interval-seconds 30 --report-hours 3",
+  "logs": {
+    "stdout": "/opt/kolibri/control-plane/logs/factory-daemon.out.log",
+    "stderr": "/opt/kolibri/control-plane/logs/factory-daemon.err.log"
+  },
+  "safety": {
+    "dispatch_ready": false,
+    "production_deploy": false,
+    "secrets_read": false
+  }
+}
