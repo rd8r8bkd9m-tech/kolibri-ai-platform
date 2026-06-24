@@ -1,0 +1,21 @@
+{
+  "name": "Kolibri AI v3",
+  "short_name": "Kolibri",
+  "description": "Kolibri AI: live canvas shell for AI-generated workflows.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#071216",
+  "theme_color": "#071216",
+  "lang": "ru",
+  "categories": ["business", "productivity", "utilities"],
+  "icons": [
+    {
+      "src": "/kolibri-mascot.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
