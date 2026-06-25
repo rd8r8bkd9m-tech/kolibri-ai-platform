@@ -201,3 +201,61 @@ def test_work_task_envelope_carries_conversation_context():
     context = {"memory": {"recent_messages": [{"role": "owner", "text": "Запусти вебприложение"}]}}
     envelope = gateway.build_task_envelope(message, message["text"], context)
     assert envelope["conversation_context"] == context
+
+
+
+def test_realtime_reply_links_followup_to_last_work_request():
+    gateway = load_gateway()
+    memory = gateway.empty_memory()
+    gateway.record_work_task(memory, "Запусти вебприложение", "TG-1", "queued", "2026-06-25T14:00:01+00:00")
+    reply = gateway.build_realtime_owner_reply("Ссылку не забудь прислать", {"memory": gateway.memory_snapshot(memory)})
+    assert "Запусти вебприложение" in reply
+    assert "Ссылку пришлю" in reply
+    assert "уточ" not in reply.lower()
+
+
+def test_realtime_status_reply_uses_factory_context():
+    gateway = load_gateway()
+    memory = gateway.empty_memory()
+    gateway.record_work_task(memory, "Запусти вебприложение", "TG-1", "running", "2026-06-25T14:00:01+00:00")
+    snapshot = {
+        "memory": gateway.memory_snapshot(memory),
+        "queue_length": 1,
+        "active_tasks": [{"state": "running", "kind": "deploy"}],
+        "team": [{"name": "Инженер", "health": "online"}, {"name": "Ревьюер", "health": "online"}],
+    }
+    reply = gateway.build_realtime_owner_reply("Какие задачи выполняешь?", snapshot)
+    assert "В активной работе 1 задач" in reply
+    assert "Очередь: 1" in reply
+    assert "Инженер" in reply
+    assert "Запусти вебприложение" in reply
+
+
+def test_submit_chat_task_replies_immediately_without_factory_queue(tmp_path):
+    gateway = load_gateway()
+
+    class Telegram:
+        def __init__(self):
+            self.messages = []
+
+        def send_message(self, chat_id, text):
+            self.messages.append((chat_id, text))
+
+    class Factory:
+        def create_task(self, envelope):
+            raise AssertionError("chat must not enqueue a factory task")
+
+        def nodes(self):
+            return {"nodes": [{"node_id": "9fts", "health": "online", "capabilities": ["implementation"]}]}
+
+        def get_tasks(self):
+            return {"tasks": [], "queue": []}
+
+    telegram = Telegram()
+    state = gateway.StateStore(tmp_path / "state.json")
+    app = gateway.Gateway(telegram, Factory(), {100}, state, 1)
+    message = {"message_id": 55, "chat": {"id": 100, "type": "private"}, "from": {"id": 100}, "text": "Что выполняешь?"}
+    app.submit_chat_task(message, message["text"])
+    assert telegram.messages
+    assert "Я на связи" in telegram.messages[0][1]
+    assert state.data["memory"]["recent_messages"][-1]["role"] == "orchestrator"

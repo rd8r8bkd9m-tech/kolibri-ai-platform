@@ -301,6 +301,90 @@ def build_chat_envelope(message: dict[str, Any], text: str, snapshot: dict[str, 
     }
 
 
+def has_any(text: str, words: tuple[str, ...]) -> bool:
+    lowered = text.lower()
+    return any(word in lowered for word in words)
+
+
+def describe_task_state(state: str | None) -> str:
+    return {
+        "queued": "в очереди",
+        "leased": "назначена исполнителю",
+        "running": "в работе",
+        "waiting_review": "ожидает независимую проверку",
+        "review": "на независимой проверке",
+        "completed": "готова",
+        "failed": "требует моего разбора",
+        "dead_letter": "требует моего разбора",
+        "cancelled": "отменена",
+    }.get(state or "", "под контролем")
+
+
+def summarize_team(snapshot: dict[str, Any]) -> str:
+    team = snapshot.get("team") or []
+    online = [member.get("name") for member in team if member.get("health") == "online" and member.get("name")]
+    if online:
+        return ", ".join(online[:4])
+    nodes = snapshot.get("nodes") or []
+    online_nodes = [node.get("node_id") for node in nodes if node.get("health") == "online" and node.get("node_id")]
+    return ", ".join(online_nodes[:4]) or "состав уточняю"
+
+
+def last_work_line(memory: dict[str, Any]) -> str:
+    last = memory.get("last_work_request") or {}
+    text = (last.get("text") or "").strip()
+    state = describe_task_state(last.get("state"))
+    if text:
+        return f"Последняя задача: {text}. Сейчас она {state}."
+    return "Последней рабочей задачи в памяти пока нет."
+
+
+def first_known_url(memory: dict[str, Any]) -> str | None:
+    for item in reversed(memory.get("known_results") or []):
+        url = item.get("url")
+        if url:
+            return str(url)
+    return None
+
+
+def build_realtime_owner_reply(text: str, snapshot: dict[str, Any]) -> str:
+    memory = snapshot.get("memory") or {}
+    lowered = text.lower().strip()
+    queue_length = snapshot.get("queue_length", 0)
+    active_tasks = snapshot.get("active_tasks") or []
+    team = summarize_team(snapshot)
+    last = memory.get("last_work_request") or {}
+    last_text = (last.get("text") or "").strip()
+    last_state = describe_task_state(last.get("state"))
+
+    if lowered in CHAT_GREETINGS:
+        return "Привет. Я на связи. Контекст разработки держу, фабрику мониторю, можешь писать обычным языком."
+
+    if has_any(text, ("ссыл", "url", "линк", "link")):
+        url = first_known_url(memory)
+        if url:
+            return f"Помню. Вот ссылка на последний известный результат: {url}"
+        if last_text:
+            return f"Помню про задачу: {last_text}. Ссылку пришлю сразу, как появится рабочий preview или staging. Сейчас задача {last_state}."
+        return "Помню, что нужна ссылка. Сейчас у меня нет готового preview или staging URL, поэтому держу это как открытое ожидание."
+
+    if has_any(text, ("что делаешь", "какие задачи", "статус", "что сделано", "работает", "не завис", "монитор", "кто делает", "что выполня")):
+        if active_tasks:
+            task_count = len(active_tasks)
+            active_line = f"В активной работе {task_count} задач."
+        else:
+            active_line = "Активных задач прямо сейчас не вижу."
+        return f"Я на связи и мониторю фабрику. {active_line} Очередь: {queue_length}. Команда онлайн: {team}. {last_work_line(memory)}"
+
+    if has_any(text, ("контекст", "помнишь", "память", "знаешь")):
+        return f"Да, контекст держу на удаленном сервере. {last_work_line(memory)} Открытые ожидания тоже помню, включая ссылку или preview, если ты их просил."
+
+    if "?" in text:
+        return f"Отвечаю сразу из контекста фабрики. Команда онлайн: {team}. {last_work_line(memory)} Если нужен запуск или изменение, я приму задачу и назначу исполнителя."
+
+    return "Понял. Я на связи, держу контекст разработки и продолжаю мониторить фабрику."
+
+
 def help_text() -> str:
     return (
         "Kolibri Factory\n"
@@ -384,10 +468,7 @@ class Gateway:
         self.remember_orchestrator_message(reply)
 
     def submit_chat_task(self, message: dict[str, Any], text: str) -> None:
-        envelope = build_chat_envelope(message, text, self.conversation_snapshot())
-        task = self.factory.create_task(envelope)
-        self.track(message["chat"]["id"], task["task_id"], task["state"], mode="chat")
-        reply = "Я здесь. Смотрю контекст разработки и отвечаю."
+        reply = build_realtime_owner_reply(text, self.conversation_snapshot())
         self.telegram.send_message(message["chat"]["id"], reply)
         self.remember_orchestrator_message(reply)
 
@@ -454,8 +535,7 @@ class Gateway:
                 reply = format_transition(label, task, mode)
                 self.telegram.send_message(int(record["chat_id"]), reply)
                 record_task_transition(self.memory(), task, label, utc_now())
-                if mode == "chat":
-                    record_orchestrator_message(self.memory(), reply, utc_now())
+                record_orchestrator_message(self.memory(), reply, utc_now())
                 self.state.data["tracked"][task_id]["last_state"] = label
                 self.state.save()
 
