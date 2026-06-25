@@ -90,6 +90,11 @@ def task_id_from_message(message: dict[str, Any]) -> str:
     return f"TG-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{message['message_id']}-{suffix}"
 
 
+def chat_task_id_from_message(message: dict[str, Any]) -> str:
+    suffix = safe_task_suffix(message.get("text", "chat"))
+    return f"TGCHAT-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{message['message_id']}-{suffix}"
+
+
 def wants_factory_task(text: str) -> bool:
     lowered = text.strip().lower()
     if not lowered:
@@ -97,13 +102,6 @@ def wants_factory_task(text: str) -> bool:
     if lowered in CHAT_GREETINGS:
         return False
     return any(word in lowered for word in TASK_INTENT_WORDS)
-
-
-def chat_reply(text: str) -> str:
-    lowered = text.strip().lower()
-    if lowered in CHAT_GREETINGS:
-        return "Привет. Я на связи. Можем спокойно обсудить идею, а когда нужно будет что-то сделать, я создам задачу для фабрики."
-    return "Я понял. Пока просто общаемся; задачу для фабрики создам, когда в сообщении будет явная просьба что-то сделать или проверить."
 
 
 def json_request(method: str, url: str, body: dict[str, Any] | None = None, timeout: int = 35) -> Any:
@@ -196,6 +194,26 @@ def build_task_envelope(message: dict[str, Any], text: str) -> dict[str, Any]:
     }
 
 
+def build_chat_envelope(message: dict[str, Any], text: str) -> dict[str, Any]:
+    task_id = chat_task_id_from_message(message)
+    return {
+        "task_id": task_id,
+        "idempotency_key": f"telegram-chat:{message['chat']['id']}:{message['message_id']}",
+        "kind": "telegram_chat_response",
+        "target_node": "9fts",
+        "required_capability": "implementation",
+        "max_retries": 1,
+        "message": text,
+        "source": {
+            "kind": "telegram",
+            "message_id": message["message_id"],
+            "chat_id": message["chat"]["id"],
+            "user_id": message["from"]["id"],
+            "accepted_at": utc_now(),
+        },
+    }
+
+
 def help_text() -> str:
     return (
         "Kolibri Factory\n"
@@ -243,8 +261,8 @@ class Gateway:
         if chat_id:
             self.telegram.send_message(chat_id, "Доступ запрещен.")
 
-    def track(self, chat_id: int, task_id: str, state: str) -> None:
-        self.state.data.setdefault("tracked", {})[task_id] = {"chat_id": chat_id, "last_state": state}
+    def track(self, chat_id: int, task_id: str, state: str, mode: str = "task") -> None:
+        self.state.data.setdefault("tracked", {})[task_id] = {"chat_id": chat_id, "last_state": state, "mode": mode}
         self.state.save()
 
     def submit_text_task(self, message: dict[str, Any], text: str) -> None:
@@ -254,7 +272,22 @@ class Gateway:
         self.telegram.send_message(
             message["chat"]["id"],
             "\n".join([
-                "QUEUED",
+                "Центральный оркестратор принял задачу.",
+                f"task_id: {task['task_id']}",
+                "node: 9fts",
+                "agent: agent-host-9fts",
+                f"status: {task['state']}",
+            ]),
+        )
+
+    def submit_chat_task(self, message: dict[str, Any], text: str) -> None:
+        envelope = build_chat_envelope(message, text)
+        task = self.factory.create_task(envelope)
+        self.track(message["chat"]["id"], task["task_id"], task["state"], mode="chat")
+        self.telegram.send_message(
+            message["chat"]["id"],
+            "\n".join([
+                "Центральный оркестратор передал сообщение живому агенту.",
                 f"task_id: {task['task_id']}",
                 "node: 9fts",
                 "agent: agent-host-9fts",
@@ -309,7 +342,7 @@ class Gateway:
         elif wants_factory_task(text):
             self.submit_text_task(message, text)
         else:
-            self.telegram.send_message(message["chat"]["id"], chat_reply(text))
+            self.submit_chat_task(message, text)
 
     def poll_task_transitions(self) -> None:
         tracked = dict(self.state.data.get("tracked", {}))
@@ -318,7 +351,8 @@ class Gateway:
             state = task.get("state")
             label = SIGNIFICANT_STATES.get(state)
             if label and label != record.get("last_state"):
-                self.telegram.send_message(int(record["chat_id"]), format_transition(label, task))
+                mode = record.get("mode", "task")
+                self.telegram.send_message(int(record["chat_id"]), format_transition(label, task, mode))
                 self.state.data["tracked"][task_id]["last_state"] = label
                 self.state.save()
 
@@ -360,7 +394,24 @@ def format_task_status(task: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def format_transition(label: str, task: dict[str, Any]) -> str:
+def format_transition(label: str, task: dict[str, Any], mode: str = "task") -> str:
+    result = task.get("result") or {}
+    if mode == "chat" and label == "COMPLETED":
+        return "\n".join([
+            "Ответ агента:",
+            result.get("response", "Агент завершил задачу, но ответ не записан."),
+            "",
+            f"task_id: {task.get('task_id')}",
+            f"node: {result.get('node_id') or '-'}",
+            f"agent: {result.get('agent_id') or '-'}",
+            f"artifact: {result.get('result_path') or task.get('result_reference') or '-'}",
+        ])
+    if mode == "chat" and label == "FAILED":
+        return "\n".join([
+            "Живой агент сейчас не смог ответить.",
+            f"task_id: {task.get('task_id')}",
+            f"error: {task.get('error') or result.get('error') or '-'}",
+        ])
     return f"{label}\n{format_task_status(task)}"
 
 
