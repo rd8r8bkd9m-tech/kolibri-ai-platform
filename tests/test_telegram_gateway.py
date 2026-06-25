@@ -52,7 +52,16 @@ def test_cyrillic_text_keeps_objective_but_uses_ascii_identifiers():
 def test_greeting_is_chat_not_factory_task():
     gateway = load_gateway()
     assert gateway.wants_factory_task("привет") is False
-    assert "на связи" in gateway.chat_reply("привет")
+    message = {
+        "message_id": 44,
+        "chat": {"id": 100, "type": "private"},
+        "from": {"id": 100},
+        "text": "привет",
+    }
+    envelope = gateway.build_chat_envelope(message, message["text"])
+    assert envelope["kind"] == "telegram_chat_response"
+    assert envelope["target_node"] == "9fts"
+    assert envelope["source"]["message_id"] == 44
 
 
 def test_plain_language_work_request_creates_factory_task():

@@ -223,6 +223,69 @@ class AgentHost:
         result["result_path"] = str(result_path)
         return result
 
+    def run_telegram_chat_response(self, task: dict[str, Any]) -> dict[str, Any]:
+        envelope = task.get("envelope", {})
+        message = (envelope.get("message") or "").strip()
+        if not message:
+            raise RuntimeError("telegram chat task missing message")
+        worktree, artifact_dir, logs = self.prepare_dirs(task)
+        worktree.mkdir(parents=True, exist_ok=True)
+        stdout_path = Path(logs["stdout"])
+        stderr_path = Path(logs["stderr"])
+        self.task_heartbeat(task, worktree, None, logs)
+        prompt = (
+            "Ты живой агент Kolibri, отвечающий владельцу в Telegram через центрального оркестратора. "
+            "Отвечай по-русски, понятно и по-человечески. Не притворяйся, что выполнил работу, если это просто разговор. "
+            "Если пользователь явно просит разработку, скажи, что оркестратор должен оформить это как factory task. "
+            f"Сообщение владельца: {message}"
+        )
+        mimo = shutil.which("mimo")
+        if not mimo:
+            raise RuntimeError("mimo executable is not available on this node")
+        self.run_command(
+            [mimo, "run", "--format", "json", "--title", f"telegram-chat-{task['task_id']}", prompt],
+            worktree,
+            stdout_path,
+            stderr_path,
+            task,
+            None,
+            logs,
+        )
+        response_parts = []
+        for line in stdout_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            line = line.strip()
+            if not line.startswith("{"):
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            part = event.get("part") or {}
+            if part.get("type") == "text" and part.get("text"):
+                response_parts.append(part["text"])
+        response_text = "".join(response_parts).strip()
+        if not response_text:
+            raise RuntimeError("mimo completed without text response")
+        result = {
+            "node_id": self.node_id,
+            "hostname": self.hostname,
+            "task_id": task["task_id"],
+            "agent_id": self.agent_id,
+            "attempt_id": task.get("attempt_id"),
+            "pid": self.pid,
+            "heartbeat_at": utc_now(),
+            "worktree": str(worktree),
+            "branch": None,
+            "log_paths": logs,
+            "result_path": str(artifact_dir / "result.json"),
+            "status": "completed",
+            "kind": "telegram_chat_response",
+            "response": response_text,
+        }
+        result_path = self.write_result(artifact_dir, result)
+        result["result_path"] = str(result_path)
+        return result
+
     def run_impl_factory_smoke(self, task: dict[str, Any]) -> dict[str, Any]:
         envelope = task.get("envelope", {})
         branch = envelope.get("branch", f"agent/{task['task_id']}/impl/factory-smoke")
@@ -584,6 +647,8 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 result = self.run_impl_factory_smoke(task)
             elif kind == "impl_retry_error_clearance":
                 result = self.run_impl_retry_error_clearance(task)
+            elif kind == "telegram_chat_response":
+                result = self.run_telegram_chat_response(task)
             elif kind == "review_pr":
                 result = self.run_review_pr(task)
             elif kind == "read_only_probe":
