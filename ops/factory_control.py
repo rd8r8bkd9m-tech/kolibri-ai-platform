@@ -199,7 +199,7 @@ def requeue_expired_leases() -> None:
     current = now_ts()
     for task_id in all_task_ids():
         task = load_task(task_id)
-        if not task or task.get("state") not in {STATE_LEASED, STATE_RUNNING, STATE_WAITING_REVIEW, STATE_REVIEW}:
+        if not task or task.get("state") not in {STATE_LEASED, STATE_RUNNING, STATE_REVIEW}:
             continue
         lease_until = float(task.get("lease_until") or 0)
         if lease_until >= current:
