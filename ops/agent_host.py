@@ -227,7 +227,7 @@ class AgentHost:
         envelope = task.get("envelope", {})
         branch = envelope.get("branch", f"agent/{task['task_id']}/impl/factory-smoke")
         base_ref = envelope.get("base_ref", "origin/main")
-        smoke_path = envelope.get("smoke_path", "tests/test_factory_smoke.py")
+        smoke_path = envelope.get("smoke_path", "tests/test_factory_runtime_contracts.py")
         worktree, artifact_dir, logs = self.prepare_dirs(task)
         worktree.parent.mkdir(parents=True, exist_ok=True)
         stdout_path = Path(logs["stdout"])
@@ -242,10 +242,39 @@ class AgentHost:
         test_file = worktree / smoke_path
         test_file.parent.mkdir(parents=True, exist_ok=True)
         test_file.write_text(
-            "def test_factory_smoke_marker():\n"
-            "    assert 'kolibri-factory-mvp' == 'kolibri-factory-mvp'\n",
+            "import importlib.util\n"
+            "import time\n"
+            "from pathlib import Path\n\n"
+            "ROOT = Path(__file__).resolve().parents[1]\n\n"
+            "def load_control():\n"
+            "    spec = importlib.util.spec_from_file_location('factory_control', ROOT / 'ops' / 'factory_control.py')\n"
+            "    module = importlib.util.module_from_spec(spec)\n"
+            "    assert spec.loader is not None\n"
+            "    spec.loader.exec_module(module)\n"
+            "    return module\n\n"
+            "def test_task_envelope_schema_and_idempotency_key():\n"
+            "    control = load_control()\n"
+            "    task = control.normalize_task({'task_id': 'SCHEMA-1', 'idempotency_key': 'idem-1', 'kind': 'read_only_probe'})\n"
+            "    for key in ['task_id', 'idempotency_key', 'kind', 'state', 'attempt', 'lease_owner', 'lease_until', 'result_reference', 'error_type']:\n"
+            "        assert key in task\n"
+            "    assert task['idempotency_key'] == 'idem-1'\n"
+            "    assert task['state'] == 'queued'\n\n"
+            "def test_heartbeat_payload_schema():\n"
+            "    payload = {'node_id': '9fts', 'agent_id': 'agent-host-9fts', 'pid': 123, 'capabilities': ['implementation'], 'active_task': None}\n"
+            "    assert {'node_id', 'agent_id', 'pid', 'capabilities'} <= set(payload)\n"
+            "    assert isinstance(payload['capabilities'], list)\n\n"
+            "def test_result_envelope_schema():\n"
+            "    result = {'node_id': '9fts', 'agent_id': 'agent-host-9fts', 'task_id': 'SCHEMA-1', 'status': 'completed', 'result_path': '/tmp/result.json'}\n"
+            "    assert {'node_id', 'agent_id', 'task_id', 'status', 'result_path'} <= set(result)\n\n"
+            "def test_lease_expiry_calculation():\n"
+            "    control = load_control()\n"
+            "    lease_until = time.time() + control.LEASE_DURATION\n"
+            "    assert lease_until > time.time()\n"
+            "    assert control.LEASE_DURATION >= 60\n",
             encoding="utf-8",
         )
+        if shutil.which("mimo"):
+            self.run_command(["mimo", "--version"], worktree, stdout_path, stderr_path, task, branch, logs)
         self.run_command([
             "python3", "-c",
             "import compileall,pathlib,sys; paths=[p for p in ('backend','infra','scripts','ops') if pathlib.Path(p).exists()]; sys.exit(0 if compileall.compile_dir('.', quiet=1, maxlevels=0) and all(compileall.compile_dir(p, quiet=1) for p in paths) else 1)",
@@ -253,24 +282,11 @@ class AgentHost:
         venv_dir = artifact_dir / "venv"
         self.run_command(["python3", "-m", "venv", str(venv_dir)], worktree, stdout_path, stderr_path, task, branch, logs)
         self.run_command([str(venv_dir / "bin" / "python"), "-m", "pip", "install", "--upgrade", "pip", "pytest"], worktree, stdout_path, stderr_path, task, branch, logs)
-        self.run_command([str(venv_dir / "bin" / "python"), "-m", "pytest", "-q", "tests/test_factory_smoke.py"], worktree, stdout_path, stderr_path, task, branch, logs)
+        self.run_command([str(venv_dir / "bin" / "python"), "-m", "pytest", "-q", smoke_path], worktree, stdout_path, stderr_path, task, branch, logs)
         self.run_command(["git", "add", smoke_path], worktree, stdout_path, stderr_path, task, branch, logs)
         self.run_command(["git", "commit", "-m", "test: add factory smoke"], worktree, stdout_path, stderr_path, task, branch, logs)
         commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(worktree), text=True).strip()
         self.run_command(["git", "push", "-u", "origin", branch], worktree, stdout_path, stderr_path, task, branch, logs, git_env)
-
-        pr_url = None
-        if shutil.which("gh"):
-            self.run_command([
-                "gh", "pr", "create",
-                "--base", envelope.get("base_branch", "main"),
-                "--head", branch,
-                "--title", envelope.get("pr_title", "Factory MVP: smoke-тест"),
-                "--body", envelope.get("pr_body", "Добавляет smoke-тест Factory MVP, созданный постоянным удалённым Agent Host."),
-            ], worktree, stdout_path, stderr_path, task, branch, logs, git_env)
-            pr_url = subprocess.check_output(["gh", "pr", "view", "--json", "url", "-q", ".url"], cwd=str(worktree), text=True).strip()
-        else:
-            raise RuntimeError("github_cli_missing: gh is required on remote node to create the PR without exposing local credentials")
 
         result = {
             "node_id": self.node_id,
@@ -283,12 +299,13 @@ class AgentHost:
             "worktree": str(worktree),
             "branch": branch,
             "commit": commit,
-            "pull_request_url": pr_url,
+            "pull_request_url": None,
+            "needs_central_pr": True,
             "log_paths": logs,
             "result_path": str(artifact_dir / "result.json"),
             "status": "completed",
             "changed_files": [smoke_path],
-            "checks": ["python3 -m compileall -q backend infra scripts ops", "python3 -m pytest -q tests/test_factory_smoke.py"],
+            "checks": ["mimo --version", "python3 compileall existing runtime paths", f"pytest -q {smoke_path}"],
         }
         result_path = self.write_result(artifact_dir, result)
         result["result_path"] = str(result_path)
@@ -298,6 +315,7 @@ class AgentHost:
         envelope = task.get("envelope", {})
         branch = envelope.get("branch")
         pr_url = envelope.get("pull_request_url")
+        base_ref = envelope.get("base_ref", "origin/main")
         if not branch:
             raise RuntimeError("review task missing branch")
         worktree, artifact_dir, logs = self.prepare_dirs(task)
@@ -307,10 +325,16 @@ class AgentHost:
         self.task_heartbeat(task, worktree, branch, logs)
         git_env = {"GIT_TERMINAL_PROMPT": "0"}
         self.run_command(["git", "clone", self.repo_url, str(worktree)], worktree.parent, stdout_path, stderr_path, task, branch, logs, git_env)
+        if base_ref.startswith("origin/"):
+            self.run_command(["git", "fetch", "origin", base_ref.removeprefix("origin/")], worktree, stdout_path, stderr_path, task, branch, logs, git_env)
         self.run_command(["git", "fetch", "origin", branch], worktree, stdout_path, stderr_path, task, branch, logs, git_env)
         self.run_command(["git", "checkout", "-B", f"review/{task['task_id']}", "FETCH_HEAD"], worktree, stdout_path, stderr_path, task, branch, logs, git_env)
-        diff_files = subprocess.check_output(["git", "diff", "--name-only", "origin/main...HEAD"], cwd=str(worktree), text=True).splitlines()
+        diff_files = subprocess.check_output(["git", "diff", "--name-only", f"{base_ref}...HEAD"], cwd=str(worktree), text=True).splitlines()
         blocked = [path for path in diff_files if path.startswith(".env") or path.endswith(".key") or path.endswith(".pem")]
+        for changed in diff_files:
+            path = worktree / changed
+            if path.is_file() and "|| true" in path.read_text(encoding="utf-8", errors="ignore"):
+                blocked.append(f"dangerous_or_true:{changed}")
         status = "CHANGES_REQUESTED" if blocked else "APPROVED"
         self.run_command([
             "python3", "-c",

@@ -30,6 +30,7 @@ MAX_RETRIES = int(os.environ.get("FACTORY_MAX_RETRIES", "3"))
 STATE_QUEUED = "queued"
 STATE_LEASED = "leased"
 STATE_RUNNING = "running"
+STATE_WAITING_REVIEW = "waiting_review"
 STATE_REVIEW = "review"
 STATE_COMPLETED = "completed"
 STATE_FAILED = "failed"
@@ -198,7 +199,7 @@ def requeue_expired_leases() -> None:
     current = now_ts()
     for task_id in all_task_ids():
         task = load_task(task_id)
-        if not task or task.get("state") not in {STATE_LEASED, STATE_RUNNING, STATE_REVIEW}:
+        if not task or task.get("state") not in {STATE_LEASED, STATE_RUNNING, STATE_WAITING_REVIEW, STATE_REVIEW}:
             continue
         lease_until = float(task.get("lease_until") or 0)
         if lease_until >= current:
@@ -415,13 +416,35 @@ class Handler(BaseHTTPRequestHandler):
                     response(self, 404, {"error": "task_not_found", "task_id": task_id})
                     return
                 result = body.get("result", body)
-                task["state"] = STATE_COMPLETED
+                needs_review = task.get("envelope", {}).get("create_review_on_complete")
+                has_pr = bool(result.get("pull_request_url") or result.get("pr_url"))
+                task["state"] = STATE_COMPLETED if (not needs_review or has_pr) else STATE_WAITING_REVIEW
                 task["result"] = result
                 task["result_reference"] = body.get("result_reference") or result.get("result_path")
                 task["heartbeat_at"] = utc_now()
                 task["lease_until"] = None
                 save_task(task)
-                review_task = create_review_task(task, result)
+                review_task = create_review_task(task, result) if has_pr else None
+                response(self, 200, {"task": task, "review_task": review_task})
+                return
+            if path.startswith("/v1/tasks/") and path.endswith("/annotate"):
+                task_id = path.split("/")[3]
+                task = load_task(task_id)
+                if not task:
+                    response(self, 404, {"error": "task_not_found", "task_id": task_id})
+                    return
+                result = task.get("result") or {}
+                result.update(body.get("result", body))
+                task["result"] = result
+                task["result_reference"] = body.get("result_reference") or result.get("result_path") or task.get("result_reference")
+                task["heartbeat_at"] = utc_now()
+                review_task = None
+                if task.get("state") == STATE_WAITING_REVIEW and (result.get("pull_request_url") or result.get("pr_url")):
+                    task["state"] = STATE_COMPLETED
+                    save_task(task)
+                    review_task = create_review_task(task, result)
+                else:
+                    save_task(task)
                 response(self, 200, {"task": task, "review_task": review_task})
                 return
             if path.startswith("/v1/tasks/") and path.endswith("/fail"):
