@@ -313,6 +313,207 @@ class AgentHost:
         result["result_path"] = str(result_path)
         return result
 
+    def run_impl_retry_error_clearance(self, task: dict[str, Any]) -> dict[str, Any]:
+        envelope = task.get("envelope", {})
+        branch = envelope.get("branch", f"agent/{task['task_id']}/impl/retry-error-clearance")
+        base_ref = envelope.get("base_ref", "origin/main")
+        worktree, artifact_dir, logs = self.prepare_dirs(task)
+        worktree.parent.mkdir(parents=True, exist_ok=True)
+        stdout_path = Path(logs["stdout"])
+        stderr_path = Path(logs["stderr"])
+        self.task_heartbeat(task, worktree, branch, logs)
+
+        git_env = {"GIT_TERMINAL_PROMPT": "0"}
+        self.run_command(["git", "clone", self.repo_url, str(worktree)], worktree.parent, stdout_path, stderr_path, task, branch, logs, git_env)
+        self.run_command(["git", "fetch", "origin"], worktree, stdout_path, stderr_path, task, branch, logs, git_env)
+        self.run_command(["git", "checkout", "-B", branch, base_ref], worktree, stdout_path, stderr_path, task, branch, logs, git_env)
+        self.run_command(["git", "config", "user.name", "Kolibri Factory Agent"], worktree, stdout_path, stderr_path, task, branch, logs)
+        self.run_command(["git", "config", "user.email", "factory-agent@users.noreply.github.com"], worktree, stdout_path, stderr_path, task, branch, logs)
+
+        patcher = artifact_dir / "apply_retry_error_clearance.py"
+        patcher.write_text(
+            r"""
+from pathlib import Path
+
+control_path = Path("ops/factory_control.py")
+text = control_path.read_text(encoding="utf-8")
+
+if "def append_attempt_history(" not in text:
+    marker = "\ndef create_review_task(source_task: dict[str, Any], result: dict[str, Any]) -> dict[str, Any] | None:\n"
+    helper = '''
+def append_attempt_history(task: dict[str, Any], status: str, error_type: str | None, error: str | None, result_reference: str | None) -> None:
+    attempt = {
+        "attempt": task.get("attempt"),
+        "attempt_id": task.get("attempt_id"),
+        "status": status,
+        "error_type": error_type,
+        "error": error,
+        "result_reference": result_reference,
+        "recorded_at": utc_now(),
+    }
+    history = task.setdefault("attempt_history", [])
+    attempt_id = attempt.get("attempt_id")
+    if attempt_id:
+        history[:] = [item for item in history if item.get("attempt_id") != attempt_id]
+    history.append(attempt)
+
+
+def apply_task_completion(task: dict[str, Any], body: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], bool]:
+    result = body.get("result", body)
+    needs_review = task.get("envelope", {}).get("create_review_on_complete")
+    has_pr = bool(result.get("pull_request_url") or result.get("pr_url"))
+    task["state"] = STATE_COMPLETED if (not needs_review or has_pr) else STATE_WAITING_REVIEW
+    task["result"] = result
+    task["result_reference"] = body.get("result_reference") or result.get("result_path")
+    task["heartbeat_at"] = utc_now()
+    task["lease_until"] = None
+    task["error_type"] = None
+    task["error"] = None
+    append_attempt_history(task, "completed", None, None, task.get("result_reference"))
+    return task, result, has_pr
+
+'''
+    if marker not in text:
+        raise SystemExit("create_review_task marker not found")
+    text = text.replace(marker, "\n" + helper + marker.lstrip("\n"), 1)
+
+old_complete = '''                result = body.get("result", body)
+                needs_review = task.get("envelope", {}).get("create_review_on_complete")
+                has_pr = bool(result.get("pull_request_url") or result.get("pr_url"))
+                task["state"] = STATE_COMPLETED if (not needs_review or has_pr) else STATE_WAITING_REVIEW
+                task["result"] = result
+                task["result_reference"] = body.get("result_reference") or result.get("result_path")
+                task["heartbeat_at"] = utc_now()
+                task["lease_until"] = None
+                save_task(task)
+                review_task = create_review_task(task, result) if has_pr else None
+'''
+new_complete = '''                task, result, has_pr = apply_task_completion(task, body)
+                save_task(task)
+                review_task = create_review_task(task, result) if has_pr else None
+'''
+if old_complete in text:
+    text = text.replace(old_complete, new_complete, 1)
+elif "apply_task_completion(task, body)" not in text:
+    raise SystemExit("complete block marker not found")
+
+old_fail = '''                task["error_type"] = body.get("error_type", "runtime_error")
+                task["error"] = body.get("error")
+                task["result"] = body.get("result")
+                task["result_reference"] = body.get("result_reference")
+                task["lease_until"] = None
+'''
+new_fail = '''                task["error_type"] = body.get("error_type", "runtime_error")
+                task["error"] = body.get("error")
+                task["result"] = body.get("result")
+                task["result_reference"] = body.get("result_reference")
+                task["lease_until"] = None
+                append_attempt_history(task, "failed", task.get("error_type"), task.get("error"), task.get("result_reference"))
+'''
+if old_fail in text:
+    text = text.replace(old_fail, new_fail, 1)
+elif 'append_attempt_history(task, "failed"' not in text:
+    raise SystemExit("fail block marker not found")
+
+control_path.write_text(text, encoding="utf-8")
+
+test_path = Path("tests/test_factory_retry_error_clearance.py")
+test_path.write_text('''import importlib.util
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def load_control():
+    spec = importlib.util.spec_from_file_location("factory_control", ROOT / "ops" / "factory_control.py")
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
+    control = load_control()
+    task = control.normalize_task({
+        "task_id": "RETRY-CLEAR-1",
+        "idempotency_key": "retry-clear-1",
+        "kind": "read_only_probe",
+        "max_retries": 2,
+    })
+    task["attempt"] = 1
+    task["attempt_id"] = "RETRY-CLEAR-1-attempt-1"
+    task["state"] = control.STATE_RUNNING
+    task["error_type"] = "runtime_error"
+    task["error"] = "first attempt failed"
+    task["result_reference"] = "/tmp/attempt-1/result.json"
+    control.append_attempt_history(task, "failed", task["error_type"], task["error"], task["result_reference"])
+
+    task["attempt"] = 2
+    task["attempt_id"] = "RETRY-CLEAR-1-attempt-2"
+    task["state"] = control.STATE_RUNNING
+    task, result, has_pr = control.apply_task_completion(task, {
+        "result": {"status": "completed", "result_path": "/tmp/attempt-2/result.json"},
+        "result_reference": "/tmp/attempt-2/result.json",
+    })
+
+    assert has_pr is False
+    assert result["status"] == "completed"
+    assert task["state"] == control.STATE_COMPLETED
+    assert task["error_type"] is None
+    assert task["error"] is None
+    assert task["result_reference"] == "/tmp/attempt-2/result.json"
+    assert task["attempt_history"][0]["attempt_id"] == "RETRY-CLEAR-1-attempt-1"
+    assert task["attempt_history"][0]["error"] == "first attempt failed"
+    assert task["attempt_history"][1]["attempt_id"] == "RETRY-CLEAR-1-attempt-2"
+    assert task["attempt_history"][1]["error"] is None
+''', encoding="utf-8")
+""",
+            encoding="utf-8",
+        )
+        self.run_command(["python3", str(patcher)], worktree, stdout_path, stderr_path, task, branch, logs)
+        if shutil.which("mimo"):
+            self.run_command(["mimo", "--version"], worktree, stdout_path, stderr_path, task, branch, logs)
+        self.run_command([
+            "python3", "-c",
+            "import compileall,pathlib,sys; paths=[p for p in ('backend','infra','scripts','ops') if pathlib.Path(p).exists()]; sys.exit(0 if compileall.compile_dir('.', quiet=1, maxlevels=0) and all(compileall.compile_dir(p, quiet=1) for p in paths) else 1)",
+        ], worktree, stdout_path, stderr_path, task, branch, logs)
+        venv_dir = artifact_dir / "venv"
+        self.run_command(["python3", "-m", "venv", str(venv_dir)], worktree, stdout_path, stderr_path, task, branch, logs)
+        self.run_command([str(venv_dir / "bin" / "python"), "-m", "pip", "install", "--upgrade", "pip", "pytest"], worktree, stdout_path, stderr_path, task, branch, logs)
+        self.run_command([str(venv_dir / "bin" / "python"), "-m", "pytest", "-q", "tests/test_factory_runtime.py", "tests/test_factory_retry_error_clearance.py"], worktree, stdout_path, stderr_path, task, branch, logs)
+        self.run_command(["git", "add", "ops/factory_control.py", "tests/test_factory_retry_error_clearance.py"], worktree, stdout_path, stderr_path, task, branch, logs)
+        self.run_command(["git", "commit", "-m", "factory: clear stale retry error on success"], worktree, stdout_path, stderr_path, task, branch, logs)
+        commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(worktree), text=True).strip()
+        self.run_command(["git", "push", "-u", "origin", branch], worktree, stdout_path, stderr_path, task, branch, logs, git_env)
+
+        result = {
+            "node_id": self.node_id,
+            "hostname": self.hostname,
+            "task_id": task["task_id"],
+            "agent_id": self.agent_id,
+            "attempt_id": task.get("attempt_id"),
+            "pid": self.pid,
+            "heartbeat_at": utc_now(),
+            "worktree": str(worktree),
+            "branch": branch,
+            "commit": commit,
+            "pull_request_url": None,
+            "needs_central_pr": True,
+            "log_paths": logs,
+            "result_path": str(artifact_dir / "result.json"),
+            "status": "completed",
+            "changed_files": ["ops/factory_control.py", "tests/test_factory_retry_error_clearance.py"],
+            "checks": [
+                "mimo --version",
+                "python3 compileall existing runtime paths",
+                "pytest -q tests/test_factory_runtime.py tests/test_factory_retry_error_clearance.py",
+            ],
+        }
+        result_path = self.write_result(artifact_dir, result)
+        result["result_path"] = str(result_path)
+        return result
+
     def run_review_pr(self, task: dict[str, Any]) -> dict[str, Any]:
         envelope = task.get("envelope", {})
         branch = envelope.get("branch")
@@ -381,6 +582,8 @@ class AgentHost:
             kind = task.get("kind")
             if kind == "impl_factory_smoke":
                 result = self.run_impl_factory_smoke(task)
+            elif kind == "impl_retry_error_clearance":
+                result = self.run_impl_retry_error_clearance(task)
             elif kind == "review_pr":
                 result = self.run_review_pr(task)
             elif kind == "read_only_probe":
