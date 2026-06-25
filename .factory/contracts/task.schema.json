@@ -1,0 +1,111 @@
+{
+  "$id": "https://kolibri.internal/schemas/task.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "acceptance_criteria": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "artifacts": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "assigned_agent": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "assigned_node": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "attempts": {
+      "items": {
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "budget": {
+      "type": "object"
+    },
+    "dependencies": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "evidence": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "heartbeat": {
+      "type": "object"
+    },
+    "idempotency_key": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "lease": {
+      "type": "object"
+    },
+    "objective": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "parent_task_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "recursion_depth": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "required_capabilities": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "root_task_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "state": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "task_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "task_type": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "root_task_id",
+    "task_id",
+    "dependencies",
+    "objective",
+    "acceptance_criteria",
+    "task_type",
+    "required_capabilities",
+    "state",
+    "attempts"
+  ],
+  "title": "task",
+  "type": "object"
+}

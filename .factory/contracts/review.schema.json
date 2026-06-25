@@ -1,0 +1,36 @@
+{
+  "$id": "https://kolibri.internal/schemas/review.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "created_at": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "result": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "review_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "reviewer_agent_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "task_id": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "review_id",
+    "task_id",
+    "reviewer_agent_id",
+    "result",
+    "created_at"
+  ],
+  "title": "review",
+  "type": "object"
+}

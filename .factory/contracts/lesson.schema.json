@@ -1,0 +1,43 @@
+{
+  "$id": "https://kolibri.internal/schemas/lesson.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "created_at": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "evidence": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "lesson_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "state": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "summary": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "task_id": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "lesson_id",
+    "task_id",
+    "state",
+    "summary",
+    "evidence",
+    "created_at"
+  ],
+  "title": "lesson",
+  "type": "object"
+}

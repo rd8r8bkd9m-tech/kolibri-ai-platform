@@ -1,0 +1,45 @@
+{
+  "$id": "https://kolibri.internal/schemas/node.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "capabilities": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "health": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "heartbeat_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "hostname": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "internal_ip": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "node_id": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "node_id",
+    "hostname",
+    "health",
+    "capabilities"
+  ],
+  "title": "node",
+  "type": "object"
+}

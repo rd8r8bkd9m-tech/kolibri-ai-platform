@@ -1,0 +1,36 @@
+{
+  "$id": "https://kolibri.internal/schemas/proposal.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "author_agent_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "created_at": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "proposal_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "summary": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "task_id": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "proposal_id",
+    "task_id",
+    "author_agent_id",
+    "summary",
+    "created_at"
+  ],
+  "title": "proposal",
+  "type": "object"
+}

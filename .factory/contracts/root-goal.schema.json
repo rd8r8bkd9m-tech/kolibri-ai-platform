@@ -1,0 +1,75 @@
+{
+  "$id": "https://kolibri.internal/schemas/root-goal.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "acceptance_criteria": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "budgets": {
+      "type": "object"
+    },
+    "current_phase": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "deadline": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "directive_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "evidence": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "final_result": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "objective": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "owner_controls": {
+      "type": "object"
+    },
+    "priority": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "root_goal_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "task_graph": {
+      "items": {
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "root_goal_id",
+    "directive_id",
+    "objective",
+    "acceptance_criteria",
+    "priority",
+    "current_phase",
+    "task_graph",
+    "evidence"
+  ],
+  "title": "root-goal",
+  "type": "object"
+}

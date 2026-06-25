@@ -1,0 +1,35 @@
+{
+  "$id": "https://kolibri.internal/schemas/artifact.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "artifact_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "created_at": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "kind": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "sha256": {
+      "type": "string"
+    },
+    "uri": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "artifact_id",
+    "sha256",
+    "uri",
+    "kind",
+    "created_at"
+  ],
+  "title": "artifact",
+  "type": "object"
+}

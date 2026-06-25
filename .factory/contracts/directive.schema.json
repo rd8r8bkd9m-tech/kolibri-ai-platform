@@ -1,0 +1,137 @@
+{
+  "$id": "https://kolibri.internal/schemas/directive.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "acceptance_criteria": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "artifact_refs": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "budgets": {
+      "type": "object"
+    },
+    "conflicts": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "constraints": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "created_root_goals": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "current_status": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "dependencies": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "directive_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "evidence_refs": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "execution_policy": {
+      "type": "object"
+    },
+    "language": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "mode": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "objectives": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "owner_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "priority": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "raw_text": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "received_at": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "risk_level": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "sha256": {
+      "pattern": "^[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "source": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "supersedes": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "directive_id",
+    "source",
+    "owner_id",
+    "raw_text",
+    "language",
+    "received_at",
+    "sha256",
+    "priority",
+    "mode",
+    "dependencies",
+    "supersedes",
+    "conflicts",
+    "objectives",
+    "constraints",
+    "acceptance_criteria",
+    "budgets",
+    "risk_level",
+    "execution_policy",
+    "created_root_goals",
+    "current_status",
+    "evidence_refs",
+    "artifact_refs"
+  ],
+  "title": "directive",
+  "type": "object"
+}
