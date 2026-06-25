@@ -112,7 +112,8 @@ jobs:
 
       - name: JavaScript and TypeScript checks skipped
         if: ${{ hashFiles('frontend/package.json') == '' }}
-        run: echo "::notice::skipped frontend checks: frontend/package.json is absent"
+        run: |
+          echo "::notice::skipped frontend checks: frontend/package.json is absent"
 
       - name: JSON and YAML validation
         shell: bash
