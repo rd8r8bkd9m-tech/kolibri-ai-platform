@@ -1,0 +1,22 @@
+[Unit]
+Description=Kolibri Telegram Factory Gateway
+After=network-online.target kolibri-factory-control.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kolibri
+Group=kolibri
+EnvironmentFile=/etc/kolibri/telegram.env
+Environment=KOLIBRI_FACTORY_CONTROL_URL=http://10.99.0.2:9101
+Environment=TELEGRAM_GATEWAY_STATE=/var/lib/kolibri-telegram-gateway/state.json
+WorkingDirectory=/opt/kolibri-ai-platform
+ExecStart=/usr/local/bin/kolibri-telegram-gateway
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

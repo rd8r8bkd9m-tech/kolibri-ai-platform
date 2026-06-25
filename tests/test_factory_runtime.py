@@ -49,5 +49,6 @@ def test_control_plane_states_are_declared():
 def test_agent_host_supports_required_task_kinds():
     agent = (ROOT / "ops" / "agent_host.py").read_text(encoding="utf-8")
     assert "impl_factory_smoke" in agent
+    assert "impl_retry_error_clearance" in agent
     assert "review_pr" in agent
     assert "read_only_probe" in agent
