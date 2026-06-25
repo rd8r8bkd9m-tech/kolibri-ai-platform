@@ -63,6 +63,48 @@ Every remote task must produce a structured execution record containing:
 Workers do not merge, deploy to production, or mutate shared state unless the
 task envelope explicitly allows that scope and Codex records the action.
 
+## Git Integration Contract
+
+The project owner is the Product Owner, Vision Owner, and Final Design
+Authority. The owner must not be required to manually manage branches,
+worktrees, rebases, merge conflicts, or cleanup. Codex must hide Git mechanics
+behind task IDs and product-level statuses.
+
+- `main` is always protected and must remain working.
+- Direct commits to `main` are forbidden.
+- One implementation task maps to one short-lived branch.
+- One task has one responsible agent.
+- One branch has one local worktree on one node.
+- Every change goes through a pull request.
+- Every pull request is updated against the latest `main`.
+- Merges run through a sequential merge queue.
+- After merge, the branch and worktree are cleaned up automatically.
+- Production releases are made only from version tags.
+- Unfinished features are hidden behind feature flags.
+- UI changes require screenshots and visual regression.
+- Design system changes require a separate explicit scope.
+- Changes with no user-visible effect may be accepted automatically after all
+  gates pass.
+- Product, UX, calculation, and data changes require an owner decision.
+
+User-facing task reports must show:
+
+- goal
+- task ID
+- status
+- preview
+- tests
+- risks
+- accepted decision
+- production result
+
+Do not make the owner choose Git operations. During parallel work, Codex must
+detect file overlap, serialize conflicting tasks, run only independent changes
+in parallel, and never use a shared writable worktree.
+
+The current approved interface is the design baseline. Any unplanned visual
+difference blocks merge.
+
 ## Reporting Format
 
 Every orchestration report must use this shape:
