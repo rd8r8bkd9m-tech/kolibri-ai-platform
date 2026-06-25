@@ -225,10 +225,26 @@ def test_realtime_status_reply_uses_factory_context():
         "team": [{"name": "Инженер", "health": "online"}, {"name": "Ревьюер", "health": "online"}],
     }
     reply = gateway.build_realtime_owner_reply("Какие задачи выполняешь?", snapshot)
-    assert "В активной работе 1 задач" in reply
-    assert "Очередь: 1" in reply
+    assert "Сейчас в работе 1 задач" in reply
+    assert "Очередь" not in reply
     assert "Инженер" in reply
     assert "Запусти вебприложение" in reply
+
+
+def test_realtime_dev_server_question_returns_ready_preview_url():
+    gateway = load_gateway()
+    memory = gateway.empty_memory()
+    gateway.record_work_task(memory, "Запустить веб-приложение/dev server", "TG-1", "completed", "2026-06-25T14:00:01+00:00")
+    memory["known_results"].append({"kind": "preview_url", "url": "http://104.253.43.117/_kolibri_preview_/"})
+    snapshot = {
+        "memory": gateway.memory_snapshot(memory),
+        "active_tasks": [],
+        "team": [{"name": "Инженер", "health": "online"}, {"name": "Ревьюер", "health": "online"}],
+    }
+    reply = gateway.build_realtime_owner_reply("Дев сервер запущен?", snapshot)
+    assert reply == "Да, запущено. Веб-приложение доступно здесь: http://104.253.43.117/_kolibri_preview_/"
+    for forbidden in ["task_id", "node:", "agent:", "artifact:", "Очередь", "/var/lib"]:
+        assert forbidden not in reply
 
 
 def test_submit_chat_task_replies_immediately_without_factory_queue(tmp_path):
