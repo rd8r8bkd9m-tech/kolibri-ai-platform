@@ -147,3 +147,57 @@ def test_chat_transition_polishes_brand_typo():
     message = gateway.format_transition("COMPLETED", task, mode="chat")
     assert message == "Привет! Я Kolibri, ваш оркестратор."
     assert "node:" not in message
+
+
+
+def test_state_store_initializes_persistent_memory(tmp_path):
+    gateway = load_gateway()
+    store = gateway.StateStore(tmp_path / "state.json")
+    assert store.data["memory"]["project"]["owner_interface"].startswith("Владелец пишет")
+    assert store.data["memory"]["recent_messages"] == []
+
+
+def test_owner_followup_memory_remembers_webapp_link_context():
+    gateway = load_gateway()
+    memory = gateway.empty_memory()
+    gateway.record_owner_message(memory, "Запусти вебприложение", "task", "2026-06-25T14:00:00+00:00")
+    gateway.record_work_task(memory, "Запусти вебприложение", "TG-1", "queued", "2026-06-25T14:00:01+00:00")
+    gateway.record_owner_message(memory, "Ссылку не забудь прислать", "chat", "2026-06-25T14:01:00+00:00")
+    snapshot = gateway.memory_snapshot(memory)
+    assert snapshot["last_work_request"]["text"] == "Запусти вебприложение"
+    expectation_text = " ".join(item["text"] for item in snapshot["open_expectations"])
+    assert "ссыл" in expectation_text
+    assert "preview" in expectation_text
+
+
+def test_chat_envelope_carries_development_memory_snapshot():
+    gateway = load_gateway()
+    message = {
+        "message_id": 46,
+        "chat": {"id": 100, "type": "private"},
+        "from": {"id": 100},
+        "text": "ссылку не забудь",
+    }
+    snapshot = {
+        "memory": {
+            "last_work_request": {"text": "Запусти вебприложение", "state": "queued"},
+            "recent_messages": [{"role": "owner", "text": "Запусти вебприложение"}],
+            "open_expectations": [{"kind": "link", "text": "не забыть прислать ссылку"}],
+        }
+    }
+    envelope = gateway.build_chat_envelope(message, message["text"], snapshot)
+    assert envelope["factory_snapshot"]["memory"]["last_work_request"]["text"] == "Запусти вебприложение"
+    assert envelope["factory_snapshot"]["memory"]["open_expectations"][0]["kind"] == "link"
+
+
+def test_work_task_envelope_carries_conversation_context():
+    gateway = load_gateway()
+    message = {
+        "message_id": 47,
+        "chat": {"id": 100, "type": "private"},
+        "from": {"id": 100},
+        "text": "Запусти вебприложение",
+    }
+    context = {"memory": {"recent_messages": [{"role": "owner", "text": "Запусти вебприложение"}]}}
+    envelope = gateway.build_task_envelope(message, message["text"], context)
+    assert envelope["conversation_context"] == context
