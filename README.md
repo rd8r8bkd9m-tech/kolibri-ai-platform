@@ -96,4 +96,4 @@ kolibri-ai-platform/
 
 ## Лицензия
 
-Proprietary — Xiaomi Kolibri AI Project
+Kolibri AI Platform
