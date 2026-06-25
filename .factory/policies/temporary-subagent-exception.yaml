@@ -1,0 +1,26 @@
+temporary_subagent_exception:
+  id: KOL-TEMP-SUBAGENTS-UNLOCK-001
+  enabled: true
+  reason: "Factory bootstrap acceleration"
+  allowed_until:
+    - generic_remote_implementation_runner_pass
+    - remote_review_runner_pass
+    - live_telegram_control_pass
+  allowed_uses:
+    - analysis
+    - inventory
+    - code_generation
+    - tests
+    - review
+    - synthesis
+    - bootstrap
+    - repair
+  forbidden:
+    - direct_main_commit
+    - secret_exposure
+    - destructive_unscoped_delete
+    - production_deploy_without_gates
+    - permanent_remote_agent_replacement
+  artifact_required: true
+  artifact_path: ".factory/subagents/"
+  owner_approved: true

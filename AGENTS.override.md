@@ -105,6 +105,35 @@ in parallel, and never use a shared writable worktree.
 The current approved interface is the design baseline. Any unplanned visual
 difference blocks merge.
 
+## TEMPORARY SUBAGENT EXCEPTION
+
+Owner temporarily allows internal Codex subagents for factory bootstrap,
+infrastructure repair, code generation, tests, review, and synthesis until the
+remote generic implementation runner and live Telegram control pass.
+
+This exception does not allow:
+
+- direct commits to main;
+- production deployment without gates;
+- secret exposure;
+- destructive operations without backup;
+- permanent replacement of real remote agents.
+
+All subagent outputs must be saved under:
+
+```text
+.factory/subagents/<run_id>/
+```
+
+The exception expires automatically after:
+
+- generic remote implementation runner PASS;
+- remote review runner PASS;
+- live Telegram control PASS.
+
+After expiration, internal Codex subagents are again forbidden for
+implementation tasks.
+
 ## Reporting Format
 
 Every orchestration report must use this shape:
