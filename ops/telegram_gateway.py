@@ -21,6 +21,15 @@ CURRENT_DIR = Path(__file__).resolve().parent
 if str(CURRENT_DIR) not in sys.path:
     sys.path.insert(0, str(CURRENT_DIR))
 from orchestrator_roster import ORCHESTRATOR_CARD, node_card
+from orchestrator_memory import (
+    empty_memory,
+    ensure_memory,
+    memory_snapshot,
+    record_orchestrator_message,
+    record_owner_message,
+    record_task_transition,
+    record_work_task,
+)
 
 
 STOP = False
@@ -244,7 +253,7 @@ def compact_factory_snapshot(factory: FactoryClient) -> dict[str, Any]:
     return snapshot
 
 
-def build_task_envelope(message: dict[str, Any], text: str) -> dict[str, Any]:
+def build_task_envelope(message: dict[str, Any], text: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
     task_id = task_id_from_message(message)
     branch_slug = safe_task_suffix(text)
     return {
@@ -260,6 +269,7 @@ def build_task_envelope(message: dict[str, Any], text: str) -> dict[str, Any]:
         "base_ref": "origin/main",
         "max_retries": 3,
         "objective": text,
+        "conversation_context": context or {},
         "source": {
             "kind": "telegram",
             "message_id": message["message_id"],
@@ -313,8 +323,13 @@ class StateStore:
 
     def load(self) -> dict[str, Any]:
         if not self.path.exists():
-            return {"offset": None, "tracked": {}}
-        return json.loads(self.path.read_text(encoding="utf-8"))
+            data = {"offset": None, "tracked": {}, "memory": empty_memory()}
+        else:
+            data = json.loads(self.path.read_text(encoding="utf-8"))
+        data.setdefault("offset", None)
+        data.setdefault("tracked", {})
+        ensure_memory(data)
+        return data
 
     def save(self) -> None:
         self.path.write_text(json.dumps(self.data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -342,23 +357,39 @@ class Gateway:
         self.state.data.setdefault("tracked", {})[task_id] = {"chat_id": chat_id, "last_state": state, "mode": mode}
         self.state.save()
 
+    def memory(self) -> dict[str, Any]:
+        return ensure_memory(self.state.data)
+
+    def conversation_snapshot(self) -> dict[str, Any]:
+        snapshot = compact_factory_snapshot(self.factory)
+        snapshot["memory"] = memory_snapshot(self.memory())
+        return snapshot
+
+    def remember_owner_message(self, text: str, intent: str) -> None:
+        record_owner_message(self.memory(), text, intent, utc_now())
+        self.state.save()
+
+    def remember_orchestrator_message(self, text: str) -> None:
+        record_orchestrator_message(self.memory(), text, utc_now())
+        self.state.save()
+
     def submit_text_task(self, message: dict[str, Any], text: str) -> None:
-        envelope = build_task_envelope(message, text)
+        envelope = build_task_envelope(message, text, self.conversation_snapshot())
         task = self.factory.create_task(envelope)
         self.track(message["chat"]["id"], task["task_id"], task["state"])
-        self.telegram.send_message(
-            message["chat"]["id"],
-            "Принял задачу в работу. Я сам выберу подходящего исполнителя и вернусь с важным результатом.",
-        )
+        record_work_task(self.memory(), text, task["task_id"], task["state"], utc_now())
+        self.state.save()
+        reply = "Принял задачу в работу. Я сам выберу подходящего исполнителя и вернусь с важным результатом."
+        self.telegram.send_message(message["chat"]["id"], reply)
+        self.remember_orchestrator_message(reply)
 
     def submit_chat_task(self, message: dict[str, Any], text: str) -> None:
-        envelope = build_chat_envelope(message, text, compact_factory_snapshot(self.factory))
+        envelope = build_chat_envelope(message, text, self.conversation_snapshot())
         task = self.factory.create_task(envelope)
         self.track(message["chat"]["id"], task["task_id"], task["state"], mode="chat")
-        self.telegram.send_message(
-            message["chat"]["id"],
-            "Я здесь. Смотрю контекст фабрики и отвечаю.",
-        )
+        reply = "Я здесь. Смотрю контекст разработки и отвечаю."
+        self.telegram.send_message(message["chat"]["id"], reply)
+        self.remember_orchestrator_message(reply)
 
     def handle_command(self, message: dict[str, Any], text: str) -> None:
         chat_id = message["chat"]["id"]
@@ -403,10 +434,13 @@ class Gateway:
         if not text:
             return
         if text.startswith("/"):
+            self.remember_owner_message(text, "command")
             self.handle_command(message, text)
         elif wants_factory_task(text):
+            self.remember_owner_message(text, "task")
             self.submit_text_task(message, text)
         else:
+            self.remember_owner_message(text, "chat")
             self.submit_chat_task(message, text)
 
     def poll_task_transitions(self) -> None:
@@ -417,7 +451,11 @@ class Gateway:
             label = SIGNIFICANT_STATES.get(state)
             if label and label != record.get("last_state"):
                 mode = record.get("mode", "task")
-                self.telegram.send_message(int(record["chat_id"]), format_transition(label, task, mode))
+                reply = format_transition(label, task, mode)
+                self.telegram.send_message(int(record["chat_id"]), reply)
+                record_task_transition(self.memory(), task, label, utc_now())
+                if mode == "chat":
+                    record_orchestrator_message(self.memory(), reply, utc_now())
                 self.state.data["tracked"][task_id]["last_state"] = label
                 self.state.save()
 

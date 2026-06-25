@@ -54,6 +54,9 @@ def test_agent_host_supports_required_task_kinds():
     assert "orchestrator_chat_response" in agent
     assert "review_pr" in agent
     assert "read_only_probe" in agent
+    memory = (ROOT / "ops" / "orchestrator_memory.py").read_text(encoding="utf-8")
+    assert "last_work_request" in memory
+    assert "open_expectations" in memory
 
 
 
