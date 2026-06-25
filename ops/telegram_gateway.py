@@ -29,6 +29,36 @@ SIGNIFICANT_STATES = {
     "cancelled": "CANCELLED",
     "dead_letter": "FAILED",
 }
+TASK_INTENT_WORDS = {
+    "исправь",
+    "почини",
+    "сделай",
+    "добавь",
+    "создай",
+    "проверь",
+    "запусти",
+    "обнови",
+    "измени",
+    "убери",
+    "настрой",
+    "разверни",
+    "deploy",
+    "fix",
+    "add",
+    "create",
+    "run",
+    "update",
+}
+CHAT_GREETINGS = {
+    "привет",
+    "здравствуй",
+    "здравствуйте",
+    "добрый день",
+    "доброе утро",
+    "добрый вечер",
+    "hello",
+    "hi",
+}
 
 
 def utc_now() -> str:
@@ -58,6 +88,22 @@ def safe_task_suffix(text: str) -> str:
 def task_id_from_message(message: dict[str, Any]) -> str:
     suffix = safe_task_suffix(message.get("text", "task"))
     return f"TG-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{message['message_id']}-{suffix}"
+
+
+def wants_factory_task(text: str) -> bool:
+    lowered = text.strip().lower()
+    if not lowered:
+        return False
+    if lowered in CHAT_GREETINGS:
+        return False
+    return any(word in lowered for word in TASK_INTENT_WORDS)
+
+
+def chat_reply(text: str) -> str:
+    lowered = text.strip().lower()
+    if lowered in CHAT_GREETINGS:
+        return "Привет. Я на связи. Можем спокойно обсудить идею, а когда нужно будет что-то сделать, я создам задачу для фабрики."
+    return "Я понял. Пока просто общаемся; задачу для фабрики создам, когда в сообщении будет явная просьба что-то сделать или проверить."
 
 
 def json_request(method: str, url: str, body: dict[str, Any] | None = None, timeout: int = 35) -> Any:
@@ -260,8 +306,10 @@ class Gateway:
             return
         if text.startswith("/"):
             self.handle_command(message, text)
-        else:
+        elif wants_factory_task(text):
             self.submit_text_task(message, text)
+        else:
+            self.telegram.send_message(message["chat"]["id"], chat_reply(text))
 
     def poll_task_transitions(self) -> None:
         tracked = dict(self.state.data.get("tracked", {}))
