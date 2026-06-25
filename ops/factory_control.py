@@ -236,6 +236,38 @@ def create_task(envelope: dict[str, Any]) -> dict[str, Any]:
     return task
 
 
+
+def append_attempt_history(task: dict[str, Any], status: str, error_type: str | None, error: str | None, result_reference: str | None) -> None:
+    attempt = {
+        "attempt": task.get("attempt"),
+        "attempt_id": task.get("attempt_id"),
+        "status": status,
+        "error_type": error_type,
+        "error": error,
+        "result_reference": result_reference,
+        "recorded_at": utc_now(),
+    }
+    history = task.setdefault("attempt_history", [])
+    attempt_id = attempt.get("attempt_id")
+    if attempt_id:
+        history[:] = [item for item in history if item.get("attempt_id") != attempt_id]
+    history.append(attempt)
+
+
+def apply_task_completion(task: dict[str, Any], body: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], bool]:
+    result = body.get("result", body)
+    needs_review = task.get("envelope", {}).get("create_review_on_complete")
+    has_pr = bool(result.get("pull_request_url") or result.get("pr_url"))
+    task["state"] = STATE_COMPLETED if (not needs_review or has_pr) else STATE_WAITING_REVIEW
+    task["result"] = result
+    task["result_reference"] = body.get("result_reference") or result.get("result_path")
+    task["heartbeat_at"] = utc_now()
+    task["lease_until"] = None
+    task["error_type"] = None
+    task["error"] = None
+    append_attempt_history(task, "completed", None, None, task.get("result_reference"))
+    return task, result, has_pr
+
 def create_review_task(source_task: dict[str, Any], result: dict[str, Any]) -> dict[str, Any] | None:
     envelope = source_task.get("envelope", {})
     if not envelope.get("create_review_on_complete"):
@@ -415,14 +447,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not task:
                     response(self, 404, {"error": "task_not_found", "task_id": task_id})
                     return
-                result = body.get("result", body)
-                needs_review = task.get("envelope", {}).get("create_review_on_complete")
-                has_pr = bool(result.get("pull_request_url") or result.get("pr_url"))
-                task["state"] = STATE_COMPLETED if (not needs_review or has_pr) else STATE_WAITING_REVIEW
-                task["result"] = result
-                task["result_reference"] = body.get("result_reference") or result.get("result_path")
-                task["heartbeat_at"] = utc_now()
-                task["lease_until"] = None
+                task, result, has_pr = apply_task_completion(task, body)
                 save_task(task)
                 review_task = create_review_task(task, result) if has_pr else None
                 response(self, 200, {"task": task, "review_task": review_task})
@@ -458,6 +483,7 @@ class Handler(BaseHTTPRequestHandler):
                 task["result"] = body.get("result")
                 task["result_reference"] = body.get("result_reference")
                 task["lease_until"] = None
+                append_attempt_history(task, "failed", task.get("error_type"), task.get("error"), task.get("result_reference"))
                 if int(task.get("attempt", 0)) < int(task.get("max_retries", MAX_RETRIES)) and body.get("retry", True):
                     task["state"] = STATE_RETRY
                     save_task(task)
