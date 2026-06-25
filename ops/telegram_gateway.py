@@ -350,39 +350,53 @@ def first_known_url(memory: dict[str, Any]) -> str | None:
 def build_realtime_owner_reply(text: str, snapshot: dict[str, Any]) -> str:
     memory = snapshot.get("memory") or {}
     lowered = text.lower().strip()
-    queue_length = snapshot.get("queue_length", 0)
     active_tasks = snapshot.get("active_tasks") or []
     team = summarize_team(snapshot)
     last = memory.get("last_work_request") or {}
     last_text = (last.get("text") or "").strip()
-    last_state = describe_task_state(last.get("state"))
+    last_state = last.get("state")
+    last_state_text = describe_task_state(last_state)
+    url = first_known_url(memory)
 
     if lowered in CHAT_GREETINGS:
-        return "Привет. Я на связи. Контекст разработки держу, фабрику мониторю, можешь писать обычным языком."
+        return "Привет. Я на связи. Пиши обычным языком: я отвечаю сам, держу контекст разработки и слежу за фабрикой."
 
     if has_any(text, ("ссыл", "url", "линк", "link")):
-        url = first_known_url(memory)
         if url:
-            return f"Помню. Вот ссылка на последний известный результат: {url}"
+            return f"Да, помню. Вот ссылка: {url}"
         if last_text:
-            return f"Помню про задачу: {last_text}. Ссылку пришлю сразу, как появится рабочий preview или staging. Сейчас задача {last_state}."
-        return "Помню, что нужна ссылка. Сейчас у меня нет готового preview или staging URL, поэтому держу это как открытое ожидание."
+            return f"Помню про задачу: {last_text}. Ссылку пришлю, когда появится рабочий preview или staging. Сейчас задача {last_state_text}."
+        return "Помню, что нужна ссылка. Готового preview или staging URL пока нет, я держу это ожидание открытым."
 
-    if has_any(text, ("что делаешь", "какие задачи", "статус", "что сделано", "работает", "не завис", "монитор", "кто делает", "что выполня")):
+    asks_running_result = has_any(text, ("запущ", "работает", "готов", "дев", "dev", "сервер", "preview", "веб"))
+    if asks_running_result and (url or last_text):
+        if url and last_state == "completed":
+            return f"Да, запущено. Веб-приложение доступно здесь: {url}"
+        if url:
+            return f"Есть рабочая ссылка: {url}. По последней задаче статус: {last_state_text}."
+        return f"По последней задаче: {last_text}. Сейчас она {last_state_text}."
+
+    if has_any(text, ("что делаешь", "какие задачи", "статус", "что сделано", "не завис", "монитор", "кто делает", "что выполня")):
         if active_tasks:
             task_count = len(active_tasks)
-            active_line = f"В активной работе {task_count} задач."
+            prefix = f"Я на связи. Сейчас в работе {task_count} задач."
         else:
-            active_line = "Активных задач прямо сейчас не вижу."
-        return f"Я на связи и мониторю фабрику. {active_line} Очередь: {queue_length}. Команда онлайн: {team}. {last_work_line(memory)}"
+            prefix = "Я на связи. Сейчас активных задач не вижу."
+        if url and last_state == "completed":
+            return f"{prefix} Последний результат готов: {url}"
+        return f"{prefix} Команда на связи: {team}. {last_work_line(memory)}"
 
     if has_any(text, ("контекст", "помнишь", "память", "знаешь")):
-        return f"Да, контекст держу на удаленном сервере. {last_work_line(memory)} Открытые ожидания тоже помню, включая ссылку или preview, если ты их просил."
+        if url:
+            return f"Да, контекст держу на удаленном сервере. Помню последний результат: {url}"
+        return f"Да, контекст держу на удаленном сервере. {last_work_line(memory)}"
 
     if "?" in text:
-        return f"Отвечаю сразу из контекста фабрики. Команда онлайн: {team}. {last_work_line(memory)} Если нужен запуск или изменение, я приму задачу и назначу исполнителя."
+        if url and last_state == "completed":
+            return f"Да. Последний готовый результат здесь: {url}"
+        return f"Отвечаю сразу. Команда на связи: {team}. {last_work_line(memory)}"
 
-    return "Понял. Я на связи, держу контекст разработки и продолжаю мониторить фабрику."
+    return "Понял. Я на связи и держу контекст. Если это задача, назначу исполнителя и буду вести результат."
 
 
 def help_text() -> str:
