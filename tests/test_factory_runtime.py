@@ -51,5 +51,17 @@ def test_agent_host_supports_required_task_kinds():
     assert "impl_factory_smoke" in agent
     assert "impl_retry_error_clearance" in agent
     assert "telegram_chat_response" in agent
+    assert "orchestrator_chat_response" in agent
     assert "review_pr" in agent
     assert "read_only_probe" in agent
+
+
+
+def test_orchestrator_roster_has_human_role_cards():
+    roster = load_module(ROOT / "ops" / "orchestrator_roster.py")
+    assert roster.ORCHESTRATOR_CARD["name"] == "Директор"
+    engineer = roster.node_card({"node_id": "9fts", "health": "online", "capabilities": ["implementation"]})
+    reviewer = roster.node_card({"node_id": "new", "health": "online", "capabilities": ["review"]})
+    assert engineer["name"] == "Инженер"
+    assert reviewer["name"] == "Ревьюер"
+    assert engineer["health"] == "online"
