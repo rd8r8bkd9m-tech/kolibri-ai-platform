@@ -1,0 +1,15 @@
+[Unit]
+Description=Kolibri Factory Control Plane sidecar
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/kolibri-factory-control.env
+ExecStart=/usr/local/bin/kolibri-factory-control
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=multi-user.target
