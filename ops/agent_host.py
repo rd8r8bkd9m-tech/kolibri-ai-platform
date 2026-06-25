@@ -238,6 +238,8 @@ class AgentHost:
         self.run_command(["git", "clone", self.repo_url, str(worktree)], worktree.parent, stdout_path, stderr_path, task, branch, logs, git_env)
         self.run_command(["git", "fetch", "origin"], worktree, stdout_path, stderr_path, task, branch, logs, git_env)
         self.run_command(["git", "checkout", "-B", branch, base_ref], worktree, stdout_path, stderr_path, task, branch, logs, git_env)
+        self.run_command(["git", "config", "user.name", "Kolibri Factory Agent"], worktree, stdout_path, stderr_path, task, branch, logs)
+        self.run_command(["git", "config", "user.email", "factory-agent@users.noreply.github.com"], worktree, stdout_path, stderr_path, task, branch, logs)
 
         test_file = worktree / smoke_path
         test_file.parent.mkdir(parents=True, exist_ok=True)
@@ -284,7 +286,7 @@ class AgentHost:
         self.run_command([str(venv_dir / "bin" / "python"), "-m", "pip", "install", "--upgrade", "pip", "pytest"], worktree, stdout_path, stderr_path, task, branch, logs)
         self.run_command([str(venv_dir / "bin" / "python"), "-m", "pytest", "-q", smoke_path], worktree, stdout_path, stderr_path, task, branch, logs)
         self.run_command(["git", "add", smoke_path], worktree, stdout_path, stderr_path, task, branch, logs)
-        self.run_command(["git", "commit", "-m", "test: add factory smoke"], worktree, stdout_path, stderr_path, task, branch, logs)
+        self.run_command(["git", "commit", "-m", "test: add factory runtime contracts"], worktree, stdout_path, stderr_path, task, branch, logs)
         commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(worktree), text=True).strip()
         self.run_command(["git", "push", "-u", "origin", branch], worktree, stdout_path, stderr_path, task, branch, logs, git_env)
 
