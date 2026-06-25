@@ -1,0 +1,159 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  printf 'usage: %s --node-id ID --ssh DEST [--proxy-jump HOST] --agent-id ID --task-id ID --worktree PATH --branch NAME --heartbeat PATH --log PATH --result PATH --script FILE [--record FILE]\n' "$0" >&2
+}
+
+node_id=
+ssh_dest=
+proxy_jump=
+agent_id=
+task_id=
+worktree=
+branch=
+heartbeat=
+log_path=
+result_path=
+script_path=
+record_path=
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --node-id) node_id=${2:?}; shift 2 ;;
+    --ssh) ssh_dest=${2:?}; shift 2 ;;
+    --proxy-jump) proxy_jump=${2:?}; shift 2 ;;
+    --agent-id) agent_id=${2:?}; shift 2 ;;
+    --task-id) task_id=${2:?}; shift 2 ;;
+    --worktree) worktree=${2:?}; shift 2 ;;
+    --branch) branch=${2:?}; shift 2 ;;
+    --heartbeat) heartbeat=${2:?}; shift 2 ;;
+    --log) log_path=${2:?}; shift 2 ;;
+    --result) result_path=${2:?}; shift 2 ;;
+    --script) script_path=${2:?}; shift 2 ;;
+    --record) record_path=${2:?}; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage; exit 64 ;;
+  esac
+done
+
+for value in "$node_id" "$ssh_dest" "$agent_id" "$task_id" "$worktree" "$branch" "$heartbeat" "$log_path" "$result_path" "$script_path"; do
+  if [ -z "$value" ]; then
+    usage
+    exit 64
+  fi
+done
+
+if [ ! -f "$script_path" ]; then
+  printf 'script not found: %s\n' "$script_path" >&2
+  exit 66
+fi
+
+safe_id=$(printf '%s-%s' "$task_id" "$agent_id" | tr -cs 'A-Za-z0-9_.-' '-')
+remote_script="/tmp/kolibri-dispatch-${safe_id}.sh"
+heartbeat_dir=$(dirname "$heartbeat")
+log_dir=$(dirname "$log_path")
+result_dir=$(dirname "$result_path")
+worktree_parent=$(dirname "$worktree")
+
+ssh_opts=(
+  -o BatchMode=yes
+  -o PasswordAuthentication=no
+  -o KbdInteractiveAuthentication=no
+  -o PreferredAuthentications=publickey
+  -o ConnectTimeout=15
+  -o StrictHostKeyChecking=accept-new
+)
+scp_opts=(
+  -o BatchMode=yes
+  -o PasswordAuthentication=no
+  -o KbdInteractiveAuthentication=no
+  -o PreferredAuthentications=publickey
+  -o ConnectTimeout=15
+  -o StrictHostKeyChecking=accept-new
+)
+
+if [ -n "$proxy_jump" ]; then
+  ssh_opts=(-J "$proxy_jump" "${ssh_opts[@]}")
+  scp_opts=(-o "ProxyJump=$proxy_jump" "${scp_opts[@]}")
+fi
+
+quote() {
+  printf '%q' "$1"
+}
+
+mkdir_cmd=$(
+  printf 'mkdir -p %s %s %s %s && rm -f %s\n' \
+    "$(quote "$heartbeat_dir")" \
+    "$(quote "$log_dir")" \
+    "$(quote "$result_dir")" \
+    "$(quote "$worktree_parent")" \
+    "$(quote "$remote_script")"
+)
+ssh "${ssh_opts[@]}" "$ssh_dest" "$mkdir_cmd"
+scp "${scp_opts[@]}" "$script_path" "${ssh_dest}:${remote_script}" >/dev/null
+
+launch_cmd=$(
+  printf 'chmod 700 %s && nohup env NODE_ID=%s AGENT_ID=%s TASK_ID=%s WORKTREE=%s BRANCH=%s HEARTBEAT_PATH=%s LOG_PATH=%s RESULT_PATH=%s bash %s >>%s 2>&1 < /dev/null & printf "%%s\n" "$!"\n' \
+    "$(quote "$remote_script")" \
+    "$(quote "$node_id")" \
+    "$(quote "$agent_id")" \
+    "$(quote "$task_id")" \
+    "$(quote "$worktree")" \
+    "$(quote "$branch")" \
+    "$(quote "$heartbeat")" \
+    "$(quote "$log_path")" \
+    "$(quote "$result_path")" \
+    "$(quote "$remote_script")" \
+    "$(quote "$log_path")"
+)
+
+pid=$(ssh "${ssh_opts[@]}" "$ssh_dest" "$launch_cmd" | tr -dc '0-9')
+if [ -z "$pid" ]; then
+  printf 'remote launch did not return a PID\n' >&2
+  exit 70
+fi
+
+if [ -n "$record_path" ]; then
+  mkdir -p "$(dirname "$record_path")"
+  export KD_NODE_ID="$node_id"
+  export KD_SSH_DEST="$ssh_dest"
+  export KD_PROXY_JUMP="$proxy_jump"
+  export KD_AGENT_ID="$agent_id"
+  export KD_TASK_ID="$task_id"
+  export KD_PID="$pid"
+  export KD_WORKTREE="$worktree"
+  export KD_BRANCH="$branch"
+  export KD_HEARTBEAT="$heartbeat"
+  export KD_LOG_PATH="$log_path"
+  export KD_RESULT_PATH="$result_path"
+  export KD_SCRIPT_PATH="$script_path"
+  python3 - "$record_path" <<PY
+import json
+import os
+import sys
+from datetime import datetime, timezone
+
+record = {
+    "node_id": os.environ["KD_NODE_ID"],
+    "ssh": os.environ["KD_SSH_DEST"],
+    "proxy_jump": os.environ["KD_PROXY_JUMP"],
+    "agent_id": os.environ["KD_AGENT_ID"],
+    "task_id": os.environ["KD_TASK_ID"],
+    "pid": os.environ["KD_PID"],
+    "worktree": os.environ["KD_WORKTREE"],
+    "branch": os.environ["KD_BRANCH"],
+    "heartbeat": os.environ["KD_HEARTBEAT"],
+    "log_path": os.environ["KD_LOG_PATH"],
+    "result_path": os.environ["KD_RESULT_PATH"],
+    "local_script": os.environ["KD_SCRIPT_PATH"],
+    "started_at": datetime.now(timezone.utc).isoformat(),
+}
+
+with open(sys.argv[1], "w", encoding="utf-8") as f:
+    json.dump(record, f, indent=2)
+    f.write("\\n")
+PY
+fi
+
+printf '%s\n' "$pid"
