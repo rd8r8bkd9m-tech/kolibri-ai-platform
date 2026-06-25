@@ -234,9 +234,13 @@ class AgentHost:
         stderr_path = Path(logs["stderr"])
         self.task_heartbeat(task, worktree, None, logs)
         prompt = (
-            "Ты живой агент Kolibri, отвечающий владельцу в Telegram через центрального оркестратора. "
-            "Отвечай по-русски, понятно и по-человечески. Не притворяйся, что выполнил работу, если это просто разговор. "
-            "Если пользователь явно просит разработку, скажи, что оркестратор должен оформить это как factory task. "
+            "Ты — центральный оркестратор Kolibri. Владелец общается с тобой, а не с отдельным сервером или worker. "
+            "Отвечай от первого лица как оркестратор: я вижу систему, я выбираю исполнителей, я контролирую PR, CI, review и deployment. "
+            "Используй снимок фабрики ниже как текущий контекст. Если данных не хватает, честно скажи, что проверишь. "
+            "Стиль: коротко, спокойно, премиально, по-русски, без эмодзи, markdown и служебных идентификаторов. "
+            "Не раскрывай task_id, node, agent, worktree, пути, логи или артефакты, если владелец прямо не просит технические доказательства. "
+            "Если это обычный разговор, отвечай естественно. Если это просьба о разработке, скажи, что ты принял задачу и сам назначишь исполнителя. "
+            f"Снимок фабрики JSON: {json.dumps(envelope.get('factory_snapshot') or {}, ensure_ascii=False, sort_keys=True)}\n"
             f"Сообщение владельца: {message}"
         )
         mimo = shutil.which("mimo")
@@ -279,7 +283,7 @@ class AgentHost:
             "log_paths": logs,
             "result_path": str(artifact_dir / "result.json"),
             "status": "completed",
-            "kind": "telegram_chat_response",
+            "kind": envelope.get("kind", "orchestrator_chat_response"),
             "response": response_text,
         }
         result_path = self.write_result(artifact_dir, result)
@@ -647,7 +651,7 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 result = self.run_impl_factory_smoke(task)
             elif kind == "impl_retry_error_clearance":
                 result = self.run_impl_retry_error_clearance(task)
-            elif kind == "telegram_chat_response":
+            elif kind in {"telegram_chat_response", "orchestrator_chat_response"}:
                 result = self.run_telegram_chat_response(task)
             elif kind == "review_pr":
                 result = self.run_review_pr(task)

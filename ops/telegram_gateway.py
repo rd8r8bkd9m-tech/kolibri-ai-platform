@@ -9,12 +9,18 @@ import os
 import signal
 import sys
 import time
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+CURRENT_DIR = Path(__file__).resolve().parent
+if str(CURRENT_DIR) not in sys.path:
+    sys.path.insert(0, str(CURRENT_DIR))
+from orchestrator_roster import ORCHESTRATOR_CARD, node_card
 
 
 STOP = False
@@ -59,6 +65,20 @@ CHAT_GREETINGS = {
     "hello",
     "hi",
 }
+TERMINAL_TASK_STATES = {"completed", "failed", "cancelled", "dead_letter"}
+OWNER_MESSAGE_FORBIDDEN_MARKERS = (
+    "task_id",
+    "node:",
+    "agent:",
+    "artifact:",
+    "worktree",
+    "result_path",
+    "log_path",
+    "/var/lib",
+    "/tmp/",
+    "TGCHAT-",
+    "TG-202",
+)
 
 
 def utc_now() -> str:
@@ -168,6 +188,56 @@ class FactoryClient:
         return json_request("GET", f"{self.control_url}/v1/nodes")
 
 
+def compact_factory_snapshot(factory: FactoryClient) -> dict[str, Any]:
+    snapshot: dict[str, Any] = {
+        "captured_at": utc_now(),
+        "orchestrator": ORCHESTRATOR_CARD,
+        "team": [],
+        "nodes": [],
+        "task_counts": {},
+        "queue_length": 0,
+        "active_tasks": [],
+        "warnings": [],
+    }
+    try:
+        nodes = factory.nodes().get("nodes", [])
+        snapshot["nodes"] = [
+            {
+                "node_id": node.get("node_id"),
+                "health": node.get("health"),
+                "capabilities": node.get("capabilities", []),
+                "draining": bool(node.get("draining")),
+                "heartbeat_at": node.get("heartbeat_at"),
+            }
+            for node in nodes
+        ]
+        snapshot["team"] = [node_card(node) for node in nodes]
+    except Exception as exc:
+        snapshot["warnings"].append(f"nodes_unavailable:{type(exc).__name__}")
+    try:
+        payload = factory.get_tasks()
+        tasks = payload.get("tasks", [])
+        snapshot["queue_length"] = len(payload.get("queue", []))
+        counts: dict[str, int] = {}
+        active = []
+        for task in tasks:
+            state = str(task.get("state") or "unknown")
+            counts[state] = counts.get(state, 0) + 1
+            if state not in TERMINAL_TASK_STATES:
+                envelope = task.get("envelope") or {}
+                active.append({
+                    "state": state,
+                    "kind": task.get("kind") or envelope.get("kind"),
+                    "target_node": envelope.get("target_node"),
+                    "review_node": envelope.get("review_node"),
+                })
+        snapshot["task_counts"] = counts
+        snapshot["active_tasks"] = active[:8]
+    except Exception as exc:
+        snapshot["warnings"].append(f"tasks_unavailable:{type(exc).__name__}")
+    return snapshot
+
+
 def build_task_envelope(message: dict[str, Any], text: str) -> dict[str, Any]:
     task_id = task_id_from_message(message)
     branch_slug = safe_task_suffix(text)
@@ -194,16 +264,17 @@ def build_task_envelope(message: dict[str, Any], text: str) -> dict[str, Any]:
     }
 
 
-def build_chat_envelope(message: dict[str, Any], text: str) -> dict[str, Any]:
+def build_chat_envelope(message: dict[str, Any], text: str, snapshot: dict[str, Any] | None = None) -> dict[str, Any]:
     task_id = chat_task_id_from_message(message)
     return {
         "task_id": task_id,
         "idempotency_key": f"telegram-chat:{message['chat']['id']}:{message['message_id']}",
-        "kind": "telegram_chat_response",
+        "kind": "orchestrator_chat_response",
         "target_node": "9fts",
         "required_capability": "implementation",
         "max_retries": 1,
         "message": text,
+        "factory_snapshot": snapshot or {},
         "source": {
             "kind": "telegram",
             "message_id": message["message_id"],
@@ -271,28 +342,16 @@ class Gateway:
         self.track(message["chat"]["id"], task["task_id"], task["state"])
         self.telegram.send_message(
             message["chat"]["id"],
-            "\n".join([
-                "Центральный оркестратор принял задачу.",
-                f"task_id: {task['task_id']}",
-                "node: 9fts",
-                "agent: agent-host-9fts",
-                f"status: {task['state']}",
-            ]),
+            "Принял задачу в работу. Я сам выберу подходящего исполнителя и вернусь с важным результатом.",
         )
 
     def submit_chat_task(self, message: dict[str, Any], text: str) -> None:
-        envelope = build_chat_envelope(message, text)
+        envelope = build_chat_envelope(message, text, compact_factory_snapshot(self.factory))
         task = self.factory.create_task(envelope)
         self.track(message["chat"]["id"], task["task_id"], task["state"], mode="chat")
         self.telegram.send_message(
             message["chat"]["id"],
-            "\n".join([
-                "Центральный оркестратор передал сообщение живому агенту.",
-                f"task_id: {task['task_id']}",
-                "node: 9fts",
-                "agent: agent-host-9fts",
-                f"status: {task['state']}",
-            ]),
+            "Я здесь. Смотрю контекст фабрики и отвечаю.",
         )
 
     def handle_command(self, message: dict[str, Any], text: str) -> None:
@@ -376,43 +435,58 @@ class Gateway:
 
 
 def format_node(node: dict[str, Any]) -> str:
-    return f"{node.get('node_id')}: {node.get('hostname')} pid={node.get('pid')} health={node.get('health')}"
+    card = node_card(node)
+    return f"{card['name']} — {card['role']}\nСостояние: {card['health']}\nЗадача: {card['responsibility']}"
+
+
+def human_task_state(state: str | None) -> str:
+    return {
+        "queued": "Задача в очереди.",
+        "leased": "Удаленный исполнитель начал работу.",
+        "running": "Удаленный исполнитель работает.",
+        "waiting_review": "Изменение готово и передано на независимую проверку.",
+        "review": "Идет независимая проверка.",
+        "completed": "Готово. Я проверяю результат и следующий безопасный шаг.",
+        "failed": "Есть технический сбой. Я зафиксировал его и продолжу разбор.",
+        "cancelled": "Задача отменена.",
+        "dead_letter": "Есть технический сбой. Я зафиксировал его и продолжу разбор.",
+    }.get(state or "", "Статус обновился.")
 
 
 def format_task_status(task: dict[str, Any]) -> str:
     result = task.get("result") or {}
-    lines = [
-        f"task_id: {task.get('task_id')}",
-        f"status: {task.get('state')}",
-        f"node: {result.get('node_id') or task.get('lease_owner') or '-'}",
-        f"agent: {result.get('agent_id') or '-'}",
-    ]
-    if result.get("commit"):
-        lines.append(f"commit: {result['commit']}")
-    if result.get("pull_request_url") or result.get("pr_url"):
-        lines.append(f"PR: {result.get('pull_request_url') or result.get('pr_url')}")
+    lines = [human_task_state(task.get("state"))]
+    pr_url = result.get("pull_request_url") or result.get("pr_url")
+    if pr_url:
+        lines.append(f"PR готов: {pr_url}")
     return "\n".join(lines)
+
+
+def clean_agent_response(text: str | None) -> str:
+    clean_chars = []
+    for ch in text or "":
+        if unicodedata.category(ch) in {"So", "Sk"}:
+            continue
+        clean_chars.append(ch)
+    lines = []
+    for line in "".join(clean_chars).splitlines():
+        stripped = " ".join(line.strip().split())
+        lowered = stripped.lower()
+        if any(marker.lower() in lowered for marker in OWNER_MESSAGE_FORBIDDEN_MARKERS):
+            continue
+        if stripped:
+            lines.append(stripped)
+    cleaned = "\n".join(lines).strip()
+    return cleaned or "Я завершил ответ, но текст не записался. Разберу это отдельно."
 
 
 def format_transition(label: str, task: dict[str, Any], mode: str = "task") -> str:
     result = task.get("result") or {}
     if mode == "chat" and label == "COMPLETED":
-        return "\n".join([
-            "Ответ агента:",
-            result.get("response", "Агент завершил задачу, но ответ не записан."),
-            "",
-            f"task_id: {task.get('task_id')}",
-            f"node: {result.get('node_id') or '-'}",
-            f"agent: {result.get('agent_id') or '-'}",
-            f"artifact: {result.get('result_path') or task.get('result_reference') or '-'}",
-        ])
+        return clean_agent_response(result.get("response"))
     if mode == "chat" and label == "FAILED":
-        return "\n".join([
-            "Живой агент сейчас не смог ответить.",
-            f"task_id: {task.get('task_id')}",
-            f"error: {task.get('error') or result.get('error') or '-'}",
-        ])
-    return f"{label}\n{format_task_status(task)}"
+        return "Сейчас не смог подготовить ответ. Я зафиксировал сбой и продолжу восстановление."
+    return format_task_status(task)
 
 
 def handle_stop(signum: int, frame: Any) -> None:
