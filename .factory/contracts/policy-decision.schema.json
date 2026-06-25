@@ -1,0 +1,41 @@
+{
+  "$id": "https://kolibri.internal/schemas/policy-decision.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "decision_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "policy_version": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "reason": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "result": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "timestamp": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "trace_id": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "decision_id",
+    "policy_version",
+    "result",
+    "reason",
+    "timestamp",
+    "trace_id"
+  ],
+  "title": "policy-decision",
+  "type": "object"
+}

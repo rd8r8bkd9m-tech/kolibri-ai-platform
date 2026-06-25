@@ -1,0 +1,23 @@
+{
+  "generated_at": "2026-06-25T17:47:19.985973+00:00",
+  "items": [
+    {
+      "activation_status": "active",
+      "assigned_directive_id": "AGENTS",
+      "classification": "ACTIVE",
+      "conflicts": [],
+      "current_replacement": null,
+      "original_sha256": "896c5a976180c2fd6711b01cf64726bc228db8a6deaaf77c6d21d619aeb9efd8",
+      "source_file": "AGENTS.md"
+    },
+    {
+      "activation_status": "active",
+      "assigned_directive_id": "AGENTS-OVERRIDE",
+      "classification": "ACTIVE",
+      "conflicts": [],
+      "current_replacement": null,
+      "original_sha256": "f20ab380756773d4adfcf0df478c61b07bb9391860f47027d4b03069a73667fb",
+      "source_file": "AGENTS.override.md"
+    }
+  ]
+}

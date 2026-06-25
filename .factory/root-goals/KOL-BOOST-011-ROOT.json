@@ -1,0 +1,71 @@
+{
+  "acceptance_criteria": [
+    "every new owner instruction is automatically persisted;",
+    "every instruction is compiled to validated machine-readable contracts;",
+    "every compiled contract creates traceable RootGoals and tasks;",
+    "all old active directives are migrated and classified;",
+    "the Knowledge Brain is operational;",
+    "agents retrieve verified relevant knowledge;",
+    "NATS event layer is operational;",
+    "Temporal canary survives restart and network failure;",
+    "Nomad schedules a real remote task;",
+    "OPA blocks an unauthorized action;",
+    "OpenTelemetry shows an end-to-end trace;",
+    "ordinary Factory tasks no longer use SSH;",
+    "the 15-minute reconciler works;",
+    "Telegram receives directive acceptance and completion;",
+    "existing Factory tasks continue;",
+    "existing Mini App work continues;",
+    "lost tasks = 0;",
+    "duplicate effects = 0;",
+    "rollback has been tested."
+  ],
+  "budgets": {
+    "max_active_children": 10,
+    "max_children_per_task": 20,
+    "max_depth": 5,
+    "max_retries": 3
+  },
+  "current_phase": "directive schemas and compiler foundation",
+  "deadline": null,
+  "directive_id": "KOL-BOOST-011",
+  "evidence": [],
+  "final_result": null,
+  "objective": "Machine-readable central brain for Kolibri owner instructions.",
+  "owner_controls": {
+    "owner_final_authority": true
+  },
+  "priority": "P0",
+  "root_goal_id": "KOL-BOOST-011-ROOT",
+  "task_graph": [
+    {
+      "acceptance_criteria": [
+        "schemas exist",
+        "raw directive persists immutably",
+        "compiler validates and activates directives",
+        "tests pass"
+      ],
+      "artifacts": [],
+      "assigned_agent": null,
+      "assigned_node": "main",
+      "attempts": [],
+      "budget": {},
+      "dependencies": [],
+      "evidence": [],
+      "heartbeat": {},
+      "idempotency_key": "KOL-BOOST-011-COMPILER-FOUNDATION",
+      "lease": {},
+      "objective": "Create directive schemas, ledger, and directive compiler service foundation.",
+      "parent_task_id": null,
+      "recursion_depth": 0,
+      "required_capabilities": [
+        "backend",
+        "orchestrator"
+      ],
+      "root_task_id": "KOL-BOOST-011-ROOT",
+      "state": "completed",
+      "task_id": "KOL-BOOST-011-COMPILER-FOUNDATION",
+      "task_type": "implementation"
+    }
+  ]
+}

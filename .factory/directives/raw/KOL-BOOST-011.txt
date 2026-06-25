@@ -1,0 +1,954 @@
+DIRECTIVE_ID: KOL-BOOST-011
+TITLE: Machine-Readable Kolibri Brain
+PRIORITY: P0
+MODE: APPLY_IMMEDIATELY_NO_WAIT
+
+This directive extends all previously received owner directives.
+
+Do not stop, pause, cancel, or duplicate existing work.
+
+Continue:
+
+- remote factory operation;
+- network convergence;
+- node repairs;
+- Telegram Mini App;
+- client application development;
+- active pull requests;
+- current root workflows.
+
+Do not use internal Codex subagents as production workers.
+
+All implementation must be performed by real remote agents through the
+existing Kolibri Factory Control Plane.
+
+======================================================================
+1. PRIMARY OBJECTIVE
+======================================================================
+
+Build a machine-readable central brain for Kolibri.
+
+Every owner instruction received through:
+
+- Codex App;
+- Telegram;
+- Kolibri Web UI;
+- Control API;
+- future ChatGPT integration;
+
+must be automatically converted from natural language into a validated,
+versioned, machine-readable execution contract.
+
+Required pipeline:
+
+owner natural-language instruction
+→ immutable raw directive
+→ structured directive
+→ schema validation
+→ dependency detection
+→ conflict detection
+→ policy evaluation
+→ root goal
+→ task graph
+→ scheduling
+→ execution
+→ evidence
+→ verified lesson
+→ shared knowledge
+
+The owner must not manually create YAML, JSON, branches, servers, or task
+dependencies.
+
+The system must translate owner intent into machine-readable structures
+automatically.
+
+======================================================================
+2. DO NOT BUILD A SINGLE FRAGILE BRAIN CONTAINER
+======================================================================
+
+“Kolibri Brain” is one logical service, but it must not be one physical
+single point of failure.
+
+Deploy the brain as cooperating services:
+
+- kolibri-directive-compiler;
+- kolibri-brain-api;
+- kolibri-workflow-service;
+- kolibri-knowledge-service;
+- kolibri-policy-service;
+- kolibri-artifact-service;
+- kolibri-event-service;
+- kolibri-reconciler;
+- kolibri-observability.
+
+Primary runs the active Control Plane.
+
+Home runs:
+
+- active compute;
+- knowledge replica;
+- artifact replica;
+- standby Control Plane.
+
+A third stable node acts as consensus/witness where required.
+
+Do not introduce a hypervisor as a mandatory dependency.
+
+Use:
+
+- OCI containers;
+- systemd;
+- Nomad scheduling;
+- isolated workspaces;
+- resource limits.
+
+Use virtual machines only for tasks requiring stronger isolation than
+containers can provide.
+
+======================================================================
+3. DIRECTIVE STORAGE
+======================================================================
+
+Create:
+
+.factory/directives/
+  raw/
+  compiled/
+  active/
+  superseded/
+  failed/
+
+.factory/contracts/
+  directive.schema.json
+  root-goal.schema.json
+  task.schema.json
+  task-attempt.schema.json
+  node.schema.json
+  agent.schema.json
+  policy-decision.schema.json
+  proposal.schema.json
+  review.schema.json
+  vote.schema.json
+  artifact.schema.json
+  lesson.schema.json
+  evidence.schema.json
+
+.factory/memory/
+  directive-ledger.jsonl
+  decision-ledger.jsonl
+  conflict-ledger.jsonl
+  lesson-ledger.jsonl
+
+Every directive must store:
+
+- directive_id;
+- source;
+- owner_id;
+- raw_text;
+- language;
+- received_at;
+- sha256;
+- priority;
+- mode;
+- dependencies;
+- supersedes;
+- conflicts;
+- objectives;
+- constraints;
+- acceptance_criteria;
+- budgets;
+- risk_level;
+- execution_policy;
+- created_root_goals;
+- current_status;
+- evidence_refs;
+- artifact_refs.
+
+The raw owner text is immutable.
+
+Never overwrite an old directive.
+
+A corrected directive creates a new version and marks the old version
+superseded.
+
+======================================================================
+4. DIRECTIVE COMPILER
+======================================================================
+
+Create service:
+
+kolibri-directive-compiler.service
+
+API:
+
+POST /v1/directives
+GET  /v1/directives
+GET  /v1/directives/{directive_id}
+POST /v1/directives/{directive_id}/compile
+POST /v1/directives/{directive_id}/activate
+POST /v1/directives/{directive_id}/pause
+POST /v1/directives/{directive_id}/supersede
+GET  /v1/directives/{directive_id}/evidence
+
+Compilation stages:
+
+1. Save raw instruction.
+2. Detect language.
+3. Extract owner intent.
+4. Identify objectives.
+5. Identify constraints.
+6. Identify acceptance criteria.
+7. Identify required capabilities.
+8. Identify dependencies.
+9. Identify conflicts with active directives.
+10. Select execution mode:
+    - SIMPLE;
+    - MEDIUM;
+    - COUNCIL.
+11. Estimate task count and resources.
+12. Apply policy.
+13. Generate RootGoal.
+14. Generate initial task DAG.
+15. Validate every document against JSON Schema.
+16. Calculate SHA-256.
+17. Store compiled contract.
+18. Register it in Control Plane.
+19. Emit an event.
+20. Start execution immediately.
+
+The language model may propose structured output, but unvalidated output must
+never enter execution.
+
+Required validation:
+
+- JSON Schema;
+- semantic validators;
+- budget validator;
+- recursion validator;
+- permission validator;
+- dependency validator;
+- conflict validator;
+- duplicate detector.
+
+Invalid directives must not silently disappear.
+
+They receive:
+
+- INVALID;
+- NEEDS_REPAIR;
+- or BLOCKED;
+
+with an exact reason.
+
+======================================================================
+5. AUTOMATIC CONVERSION OF EXISTING INSTRUCTIONS
+======================================================================
+
+Discover all existing instructions from:
+
+- AGENTS.md;
+- AGENTS.override.md;
+- MASTER_DIRECTIVE.md;
+- .factory/directives;
+- .factory/policies;
+- .factory/orders;
+- .factory/root-goals;
+- docs/runbooks;
+- active task artifacts;
+- owner directives in the current project history.
+
+Convert all active instructions into machine-readable contracts.
+
+Do not treat every old document as active.
+
+Classify each as:
+
+- ACTIVE;
+- SUPERSEDED;
+- HISTORICAL;
+- CONFLICTING;
+- INFORMATIONAL;
+- INVALID.
+
+Build:
+
+.factory/manifests/directive-migration.json
+
+For every migrated directive record:
+
+- source file;
+- original SHA-256;
+- assigned directive ID;
+- classification;
+- current replacement;
+- conflicts;
+- activation status.
+
+Do not delete historical instructions.
+
+======================================================================
+6. ROOT GOALS AND TASK GRAPH
+======================================================================
+
+Every activated directive creates one or more RootGoals.
+
+RootGoal must contain:
+
+- root_goal_id;
+- directive_id;
+- objective;
+- acceptance criteria;
+- priority;
+- current phase;
+- task graph;
+- budgets;
+- deadline;
+- owner controls;
+- evidence;
+- final result.
+
+Tasks form a directed acyclic graph.
+
+Every task contains:
+
+- root_task_id;
+- task_id;
+- parent_task_id;
+- dependencies;
+- objective;
+- acceptance criteria;
+- task_type;
+- required capabilities;
+- assigned agent;
+- assigned node;
+- budget;
+- recursion depth;
+- idempotency key;
+- lease;
+- heartbeat;
+- state;
+- attempts;
+- artifacts;
+- evidence.
+
+Default recursion limits:
+
+max_depth: 5
+max_children_per_task: 20
+max_active_children: 10
+max_retries: 3
+
+The compiler may create additional tasks during execution when:
+
+- a bug is discovered;
+- a test fails;
+- a dependency is missing;
+- a reviewer requests changes;
+- a node fails;
+- research identifies a required compatibility task.
+
+All generated tasks must preserve root_goal_id and provenance.
+
+======================================================================
+7. CENTRAL KNOWLEDGE BRAIN
+======================================================================
+
+Create:
+
+kolibri-knowledge-service.service
+
+Use:
+
+- PostgreSQL for structured records;
+- JSONB for versioned flexible documents;
+- pgvector for semantic retrieval;
+- MinIO/S3-compatible storage for large artifacts.
+
+Store structured knowledge:
+
+- directives;
+- tasks;
+- task attempts;
+- agents;
+- nodes;
+- decisions;
+- reviews;
+- votes;
+- test reports;
+- incidents;
+- performance benchmarks;
+- user feedback;
+- architecture decisions;
+- verified lessons;
+- rejected approaches;
+- official research sources.
+
+Large artifacts remain in object storage:
+
+- source archives;
+- build outputs;
+- screenshots;
+- PDFs;
+- documents;
+- datasets;
+- FormulaLM bundles;
+- logs;
+- trace exports;
+- release packages.
+
+PostgreSQL stores artifact metadata and SHA-256 references.
+
+Create internal endpoints:
+
+brain.kolibri.internal
+knowledge.kolibri.internal
+artifacts.kolibri.internal
+
+Agents must retrieve relevant VERIFIED knowledge before starting a task.
+
+Unreviewed notes must not be treated as verified truth.
+
+======================================================================
+8. KNOWLEDGE STATUS
+======================================================================
+
+Every knowledge item has a state:
+
+DRAFT
+OBSERVED
+REVIEWED
+VERIFIED
+REJECTED
+SUPERSEDED
+REVOKED
+
+Knowledge becomes VERIFIED only after:
+
+- source provenance;
+- evidence;
+- independent review;
+- passing tests where applicable;
+- reproducibility;
+- versioning.
+
+Every completed task generates a lesson artifact:
+
+- task objective;
+- implementation summary;
+- selected approach;
+- rejected alternatives;
+- evidence;
+- test results;
+- failures;
+- regression tests;
+- reusable patterns;
+- limitations;
+- source commits;
+- PR;
+- artifact hashes.
+
+Agents may use VERIFIED knowledge automatically.
+
+Agents may use DRAFT knowledge only as a hypothesis requiring verification.
+
+======================================================================
+9. EVENT AND MESSAGE LAYER
+======================================================================
+
+Introduce NATS JetStream as the persistent event and communication layer.
+
+Do not immediately remove the existing Redis queue.
+
+Migration mode:
+
+- existing Redis remains operational;
+- NATS receives mirrored events;
+- verify correctness;
+- move selected low-risk task classes;
+- perform failure tests;
+- migrate only after PASS;
+- maintain rollback.
+
+Create streams:
+
+KOLIBRI_DIRECTIVES
+KOLIBRI_GOALS
+KOLIBRI_TASKS
+KOLIBRI_RESULTS
+KOLIBRI_REVIEWS
+KOLIBRI_EVENTS
+KOLIBRI_INCIDENTS
+KOLIBRI_LESSONS
+
+Use durable pull consumers.
+
+Every event includes:
+
+- event_id;
+- event_type;
+- trace_id;
+- directive_id;
+- root_goal_id;
+- task_id;
+- attempt_id;
+- agent_id;
+- node_id;
+- timestamp;
+- schema_version;
+- payload_ref;
+- idempotency_key.
+
+Configure:
+
+- explicit acknowledgements;
+- retry policy;
+- dead-letter handling;
+- retention limits;
+- stream size limits;
+- replication factor appropriate to node health.
+
+Do not allow streams or logs to grow without limits.
+
+======================================================================
+10. DURABLE WORKFLOW LAYER
+======================================================================
+
+Introduce Temporal incrementally.
+
+Do not replace the currently working Factory Runtime in one destructive
+migration.
+
+Use Temporal first for new RootGoals and long-running orchestration:
+
+- directive execution;
+- recursive task trees;
+- swarm councils;
+- review cycles;
+- staging and release;
+- node repair;
+- disaster recovery;
+- periodic reconciliation.
+
+Existing task execution may continue through the current Control Plane until
+Temporal canary passes.
+
+Migration:
+
+1. Start Temporal side-by-side.
+2. Implement one canary RootGoal.
+3. Test process restart.
+4. Test server restart.
+5. Test network interruption.
+6. Test worker recovery.
+7. Verify zero lost tasks.
+8. Verify zero duplicate effects.
+9. Migrate additional workflows gradually.
+
+Temporal must store IDs and references.
+
+Do not store large PDFs, source archives, or model files directly in workflow
+history.
+
+======================================================================
+11. SCHEDULER AND CONTAINER EXECUTION
+======================================================================
+
+Introduce Nomad as the distributed workload scheduler.
+
+Do not require the owner to select nodes manually.
+
+Nomad server nodes:
+
+- Primary;
+- Home;
+- one stable witness.
+
+All healthy servers are Nomad clients.
+
+Schedule:
+
+- Agent Hosts;
+- isolated task executors;
+- browser tests;
+- builds;
+- model workers;
+- FormulaLM jobs;
+- PDF generation;
+- research workers;
+- repair workers.
+
+Each job declares:
+
+- CPU;
+- RAM;
+- disk;
+- GPU;
+- network;
+- models;
+- tools;
+- capabilities;
+- priority;
+- deadline;
+- node constraints;
+- max runtime;
+- retry policy.
+
+Use OCI containers where appropriate.
+
+Use local isolated worktrees for code tasks.
+
+Do not place active multi-writer Git worktrees on shared network storage.
+
+======================================================================
+12. NO ROUTINE SSH EXECUTION
+======================================================================
+
+After bootstrap, ordinary Factory operation must not use SSH.
+
+Workers must:
+
+1. start as persistent services;
+2. connect outbound to the Control Plane/event layer;
+3. register capabilities;
+4. receive tasks from the queue;
+5. upload results to artifact storage;
+6. update task state;
+7. maintain heartbeat.
+
+SSH is permitted only for:
+
+- initial provisioning;
+- repair;
+- emergency break-glass access;
+- recovery of a completely disconnected node.
+
+Create OPA policy:
+
+routine_task_execution_via_ssh = deny
+
+Before any routine SSH action, the system must prove:
+
+- node agent unavailable;
+- internal network unavailable;
+- repair task exists;
+- break-glass reason recorded.
+
+Remove public SSH addresses from normal Agent Host configuration.
+
+======================================================================
+13. POLICY ENGINE
+======================================================================
+
+Create:
+
+kolibri-policy-service.service
+
+Use OPA policies for:
+
+- who may create tasks;
+- which agents may use tools;
+- filesystem access;
+- network access;
+- model access;
+- secret access;
+- node placement;
+- staging deployment;
+- production deployment;
+- destructive actions;
+- budget changes;
+- recursive task limits;
+- swarm mode selection;
+- public SSH fallback.
+
+Default policy:
+
+deny unless explicitly allowed.
+
+Policy decisions must be stored with:
+
+- input;
+- policy version;
+- result;
+- reason;
+- timestamp;
+- trace_id.
+
+Never store secrets in policy decision logs.
+
+======================================================================
+14. FULL OBSERVABILITY
+======================================================================
+
+Instrument all services with OpenTelemetry.
+
+Every operation must include:
+
+- trace_id;
+- span_id;
+- directive_id;
+- root_goal_id;
+- task_id;
+- attempt_id;
+- agent_id;
+- node_id;
+- model;
+- tool;
+- tokens;
+- cost;
+- latency;
+- state;
+- artifact refs.
+
+Collect:
+
+- traces;
+- metrics;
+- structured logs.
+
+Provide dashboards for:
+
+- directive compilation;
+- active root goals;
+- task queue;
+- agents;
+- nodes;
+- failures;
+- retries;
+- leases;
+- swarm voting;
+- knowledge ingestion;
+- deployment;
+- cost;
+- network;
+- disk.
+
+No claim may be displayed without evidence.
+
+======================================================================
+15. 15-MINUTE AUTONOMIC RECONCILIATION
+======================================================================
+
+Create:
+
+kolibri-reconciler.service
+kolibri-reconciler.timer
+
+Interval:
+
+15 minutes
+
+Every cycle checks:
+
+- active directives;
+- directive conflicts;
+- root goals;
+- blocked tasks;
+- stale leases;
+- agent heartbeats;
+- node health;
+- network connectivity;
+- disk and inode usage;
+- service health;
+- pull requests;
+- CI;
+- staging;
+- production;
+- backups;
+- artifacts;
+- knowledge ingestion;
+- unresolved incidents;
+- budget use.
+
+The reconciler may automatically:
+
+- retry safe tasks;
+- release stale leases;
+- drain unhealthy nodes;
+- quarantine critical nodes;
+- create repair tasks;
+- restart Kolibri services;
+- clean expired safe artifacts;
+- resume paused workflows after allowed recovery;
+- update Telegram status.
+
+It must not automatically:
+
+- delete user data;
+- format disks;
+- publish secrets;
+- purchase resources;
+- make irreversible migrations without rollback.
+
+Every reconciliation cycle creates a signed report artifact.
+
+======================================================================
+16. TELEGRAM NOTIFICATIONS
+======================================================================
+
+Do not wait for owner acknowledgement after accepting a directive.
+
+Immediately send asynchronously:
+
+DIRECTIVE_ACCEPTED
+ID: <directive_id>
+COMPILED: true/false
+ROOT_GOALS: <ids>
+TASKS_CREATED: <count>
+STATUS: executing
+BLOCKERS: <only concrete blockers>
+
+Continue execution immediately.
+
+Send additional Telegram messages only for:
+
+- remote handoff ready;
+- major phase completed;
+- owner decision required;
+- critical incident;
+- task completed;
+- deployment completed;
+- STOP/START status.
+
+Do not send raw heartbeat noise.
+
+======================================================================
+17. MIGRATION SAFETY
+======================================================================
+
+Do not replace all existing infrastructure at once.
+
+Use side-by-side canaries.
+
+Required migration order:
+
+1. Directive schemas and compiler.
+2. Directive ledger.
+3. PostgreSQL/pgvector knowledge service.
+4. Artifact service.
+5. NATS event mirroring.
+6. Temporal canary workflow.
+7. Nomad canary task executor.
+8. OPA policy canary.
+9. OpenTelemetry instrumentation.
+10. Gradual workload migration.
+11. Routine SSH removal.
+12. HA and failover tests.
+
+Every stage requires:
+
+- backup;
+- test;
+- canary;
+- evidence;
+- rollback;
+- zero lost tasks;
+- zero duplicate effects.
+
+Existing Telegram Mini App and client application work must continue during
+migration.
+
+======================================================================
+18. ACCEPTANCE CRITERIA
+======================================================================
+
+PASS only when:
+
+- every new owner instruction is automatically persisted;
+- every instruction is compiled to validated machine-readable contracts;
+- every compiled contract creates traceable RootGoals and tasks;
+- all old active directives are migrated and classified;
+- the Knowledge Brain is operational;
+- agents retrieve verified relevant knowledge;
+- NATS event layer is operational;
+- Temporal canary survives restart and network failure;
+- Nomad schedules a real remote task;
+- OPA blocks an unauthorized action;
+- OpenTelemetry shows an end-to-end trace;
+- ordinary Factory tasks no longer use SSH;
+- the 15-minute reconciler works;
+- Telegram receives directive acceptance and completion;
+- existing Factory tasks continue;
+- existing Mini App work continues;
+- lost tasks = 0;
+- duplicate effects = 0;
+- rollback has been tested.
+
+======================================================================
+19. REPORT
+======================================================================
+
+STATUS:
+CURRENT_PHASE:
+
+DIRECTIVE_COMPILER:
+- service:
+- PID/container:
+- endpoint:
+- schemas:
+- compiled directives:
+- failures:
+
+KNOWLEDGE_BRAIN:
+- PostgreSQL:
+- pgvector:
+- verified lessons:
+- artifact service:
+- replication:
+
+EVENT_LAYER:
+- NATS:
+- streams:
+- consumers:
+- replication:
+
+WORKFLOW_LAYER:
+- Temporal:
+- canary workflow:
+- restart test:
+- network failure test:
+
+SCHEDULER:
+- Nomad servers:
+- Nomad clients:
+- canary job:
+- result:
+
+POLICY:
+- OPA:
+- policy version:
+- denied action test:
+
+OBSERVABILITY:
+- OpenTelemetry:
+- trace example:
+- dashboard:
+
+SSH_REMOVAL:
+- routine task SSH count:
+- remaining SSH use:
+- break-glass policy:
+
+RECONCILER:
+- service:
+- timer:
+- last run:
+- actions:
+- report artifact:
+
+DIRECTIVE_MIGRATION:
+- active:
+- superseded:
+- historical:
+- conflicts:
+
+LOST_TASKS:
+DUPLICATE_EFFECTS:
+
+FAILURES:
+BLOCKERS:
+NEXT_EXECUTING:
+
+Do not stop after writing architecture documents.
+
+Start by creating the schemas, directive ledger, and directive compiler,
+then continue through the migration order without waiting for owner responses.

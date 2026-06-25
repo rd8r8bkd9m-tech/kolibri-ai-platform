@@ -1,0 +1,37 @@
+{
+  "$id": "https://kolibri.internal/schemas/evidence.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "created_at": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "evidence_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "kind": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "refs": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "summary": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "evidence_id",
+    "kind",
+    "summary",
+    "created_at"
+  ],
+  "title": "evidence",
+  "type": "object"
+}

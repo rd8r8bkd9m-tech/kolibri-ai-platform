@@ -1,0 +1,46 @@
+{
+  "$id": "https://kolibri.internal/schemas/agent.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "agent_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "capabilities": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "heartbeat_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "node_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "pid": {
+      "type": [
+        "string",
+        "integer",
+        "null"
+      ]
+    },
+    "state": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "agent_id",
+    "node_id",
+    "capabilities",
+    "state"
+  ],
+  "title": "agent",
+  "type": "object"
+}

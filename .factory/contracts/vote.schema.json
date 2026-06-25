@@ -1,0 +1,36 @@
+{
+  "$id": "https://kolibri.internal/schemas/vote.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "agent_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "created_at": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "decision": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "proposal_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "vote_id": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "vote_id",
+    "proposal_id",
+    "agent_id",
+    "decision",
+    "created_at"
+  ],
+  "title": "vote",
+  "type": "object"
+}

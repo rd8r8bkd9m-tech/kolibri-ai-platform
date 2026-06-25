@@ -1,0 +1,15 @@
+[Unit]
+Description=Kolibri Directive Compiler
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/kolibri-ai-platform
+Environment=KOLIBRI_FACTORY_ROOT=/opt/kolibri-ai-platform
+ExecStart=/usr/bin/python3 -m uvicorn backend.directive_compiler_service:app --host 10.99.0.2 --port 9110
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

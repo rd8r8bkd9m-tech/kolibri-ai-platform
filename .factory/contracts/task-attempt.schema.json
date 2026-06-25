@@ -1,0 +1,66 @@
+{
+  "$id": "https://kolibri.internal/schemas/task-attempt.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "agent_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "artifacts": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "attempt_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "checks": {
+      "items": {
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "finished_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "node_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "pid": {
+      "type": [
+        "string",
+        "integer",
+        "null"
+      ]
+    },
+    "started_at": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "state": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "task_id": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "attempt_id",
+    "task_id",
+    "agent_id",
+    "node_id",
+    "state",
+    "started_at"
+  ],
+  "title": "task-attempt",
+  "type": "object"
+}
