@@ -1,0 +1,239 @@
+#!/usr/bin/env python3
+"""Kolibri dispatcher CLI.
+
+Subcommands operate against the persistent Factory Control Plane. If invoked
+with the legacy option-based arguments, this script keeps the previous one-shot
+SSH launch behavior for compatibility.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+import urllib.error
+import urllib.request
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+
+DEFAULT_CONTROL_URL = os.environ.get("KOLIBRI_FACTORY_CONTROL_URL", "http://10.99.0.2:9101")
+DEFAULT_NODES = {
+    "9fts": {"ssh": "root@94.183.235.154", "proxy_jump": "kolibri-home"},
+    "new": {"ssh": "root@109.248.161.39", "proxy_jump": "kolibri-home"},
+}
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def print_json(value: Any) -> None:
+    print(json.dumps(value, indent=2, sort_keys=True))
+
+
+def http_json(method: str, url: str, body: dict[str, Any] | None = None, ok_empty: bool = False) -> Any:
+    data = None if body is None else json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(url, data=data, method=method, headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            if resp.status == 204:
+                return None if ok_empty else {}
+            payload = resp.read().decode("utf-8")
+            return json.loads(payload) if payload else {}
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", "replace")
+        raise SystemExit(f"{method} {url} failed: HTTP {exc.code}: {detail}") from exc
+
+
+def run_capture(command: list[str], timeout: int = 20) -> dict[str, Any]:
+    try:
+        proc = subprocess.run(command, text=True, capture_output=True, timeout=timeout, check=False)
+        return {"ok": proc.returncode == 0, "returncode": proc.returncode, "stdout": proc.stdout.strip(), "stderr": proc.stderr.strip()}
+    except Exception as exc:
+        return {"ok": False, "returncode": None, "stdout": "", "stderr": str(exc)}
+
+
+def ssh_command(node: dict[str, str], remote: str) -> list[str]:
+    command = [
+        "ssh",
+        "-o", "BatchMode=yes",
+        "-o", "PasswordAuthentication=no",
+        "-o", "KbdInteractiveAuthentication=no",
+        "-o", "PreferredAuthentications=publickey",
+        "-o", "ConnectTimeout=15",
+        "-o", "StrictHostKeyChecking=accept-new",
+    ]
+    if node.get("proxy_jump"):
+        command.extend(["-J", node["proxy_jump"]])
+    command.extend([node["ssh"], remote])
+    return command
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    checks = {
+        "repository": run_capture(["git", "rev-parse", "--show-toplevel"]),
+        "github_auth": run_capture(["gh", "auth", "status"]),
+        "control_plane": None,
+        "nodes": {},
+        "binaries": {},
+    }
+    try:
+        checks["control_plane"] = http_json("GET", f"{args.control_url}/health")
+    except Exception as exc:
+        checks["control_plane"] = {"ok": False, "error": str(exc)}
+    for binary in ["git", "python3", "ssh", "scp"]:
+        checks["binaries"][binary] = run_capture(["command", "-v", binary]) if False else run_capture(["sh", "-c", f"command -v {binary}"])
+    for node_id, node in DEFAULT_NODES.items():
+        checks["nodes"][node_id] = run_capture(ssh_command(node, "hostname; python3 --version; git --version"), timeout=30)
+    print_json(checks)
+    control_ok = isinstance(checks["control_plane"], dict) and checks["control_plane"].get("status") == "ok"
+    return 0 if checks["repository"]["ok"] and control_ok else 1
+
+
+def cmd_nodes(args: argparse.Namespace) -> int:
+    print_json(http_json("GET", f"{args.control_url}/v1/nodes"))
+    return 0
+
+
+def load_envelope(path: str | None) -> dict[str, Any]:
+    if path:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    return json.load(sys.stdin)
+
+
+def cmd_submit(args: argparse.Namespace) -> int:
+    envelope = load_envelope(args.file)
+    task = http_json("POST", f"{args.control_url}/v1/tasks", envelope)
+    print_json(task)
+    return 0
+
+
+def cmd_status(args: argparse.Namespace) -> int:
+    if args.task_id:
+        print_json(http_json("GET", f"{args.control_url}/v1/tasks/{args.task_id}"))
+    else:
+        print_json(http_json("GET", f"{args.control_url}/v1/tasks"))
+    return 0
+
+
+def cmd_collect(args: argparse.Namespace) -> int:
+    task = http_json("GET", f"{args.control_url}/v1/tasks/{args.task_id}")
+    print_json({"task_id": args.task_id, "state": task.get("state"), "result_reference": task.get("result_reference"), "result": task.get("result")})
+    return 0
+
+
+def cmd_cancel(args: argparse.Namespace) -> int:
+    print_json(http_json("POST", f"{args.control_url}/v1/tasks/{args.task_id}/cancel", {"reason": args.reason}))
+    return 0
+
+
+def cmd_drain(args: argparse.Namespace) -> int:
+    if args.enable == args.disable:
+        raise SystemExit("choose exactly one of --enable or --disable")
+    print_json(http_json("POST", f"{args.control_url}/v1/nodes/{args.node_id}/drain", {"drain": args.enable}))
+    return 0
+
+
+def legacy_mode(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--node-id", required=True)
+    parser.add_argument("--ssh", required=True, dest="ssh_dest")
+    parser.add_argument("--proxy-jump", default="")
+    parser.add_argument("--agent-id", required=True)
+    parser.add_argument("--task-id", required=True)
+    parser.add_argument("--worktree", required=True)
+    parser.add_argument("--branch", required=True)
+    parser.add_argument("--heartbeat", required=True)
+    parser.add_argument("--log", required=True, dest="log_path")
+    parser.add_argument("--result", required=True, dest="result_path")
+    parser.add_argument("--script", required=True, dest="script_path")
+    parser.add_argument("--record", default="")
+    args = parser.parse_args(argv)
+    script_path = Path(args.script_path)
+    if not script_path.is_file():
+        raise SystemExit(f"script not found: {script_path}")
+    safe_id = "".join(ch if ch.isalnum() or ch in "_.-" else "-" for ch in f"{args.task_id}-{args.agent_id}")
+    remote_script = f"/tmp/kolibri-dispatch-{safe_id}.sh"
+    ssh_opts = [
+        "-o", "BatchMode=yes",
+        "-o", "PasswordAuthentication=no",
+        "-o", "KbdInteractiveAuthentication=no",
+        "-o", "PreferredAuthentications=publickey",
+        "-o", "ConnectTimeout=15",
+        "-o", "StrictHostKeyChecking=accept-new",
+    ]
+    scp_opts = ssh_opts.copy()
+    if args.proxy_jump:
+        ssh_opts = ["-J", args.proxy_jump] + ssh_opts
+        scp_opts = ["-o", f"ProxyJump={args.proxy_jump}"] + scp_opts
+    def q(value: str) -> str:
+        return subprocess.check_output(["printf", "%q", value], text=True)
+    mkdir_cmd = (
+        f"mkdir -p {q(str(Path(args.heartbeat).parent))} {q(str(Path(args.log_path).parent))} "
+        f"{q(str(Path(args.result_path).parent))} {q(str(Path(args.worktree).parent))} && rm -f {q(remote_script)}"
+    )
+    subprocess.run(["ssh", *ssh_opts, args.ssh_dest, mkdir_cmd], check=True)
+    subprocess.run(["scp", *scp_opts, str(script_path), f"{args.ssh_dest}:{remote_script}"], check=True, stdout=subprocess.DEVNULL)
+    launch_cmd = (
+        f"chmod 700 {q(remote_script)} && nohup env "
+        f"NODE_ID={q(args.node_id)} AGENT_ID={q(args.agent_id)} TASK_ID={q(args.task_id)} "
+        f"WORKTREE={q(args.worktree)} BRANCH={q(args.branch)} HEARTBEAT_PATH={q(args.heartbeat)} "
+        f"LOG_PATH={q(args.log_path)} RESULT_PATH={q(args.result_path)} "
+        f"bash {q(remote_script)} >>{q(args.log_path)} 2>&1 < /dev/null & printf \"%s\\n\" \"$!\""
+    )
+    pid = subprocess.check_output(["ssh", *ssh_opts, args.ssh_dest, launch_cmd], text=True).strip()
+    if args.record:
+        record_path = Path(args.record)
+        record_path.parent.mkdir(parents=True, exist_ok=True)
+        record = vars(args) | {"pid": pid, "started_at": utc_now(), "remote_script": remote_script}
+        record_path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(pid)
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    commands = {"doctor", "nodes", "submit", "status", "collect", "cancel", "drain"}
+    command_positions = [idx for idx, value in enumerate(argv) if value in commands]
+    if not argv or not command_positions:
+        return legacy_mode(argv)
+    if "--control-url" in argv[1:]:
+        idx = argv.index("--control-url")
+        if idx + 1 >= len(argv):
+            raise SystemExit("--control-url requires a value")
+        pair = argv[idx:idx + 2]
+        del argv[idx:idx + 2]
+        argv = pair + argv
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--control-url", default=DEFAULT_CONTROL_URL)
+    sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("doctor").set_defaults(func=cmd_doctor)
+    sub.add_parser("nodes").set_defaults(func=cmd_nodes)
+    submit = sub.add_parser("submit")
+    submit.add_argument("--file")
+    submit.set_defaults(func=cmd_submit)
+    status = sub.add_parser("status")
+    status.add_argument("task_id", nargs="?")
+    status.set_defaults(func=cmd_status)
+    collect = sub.add_parser("collect")
+    collect.add_argument("task_id")
+    collect.set_defaults(func=cmd_collect)
+    cancel = sub.add_parser("cancel")
+    cancel.add_argument("task_id")
+    cancel.add_argument("--reason", default="cancelled by dispatcher")
+    cancel.set_defaults(func=cmd_cancel)
+    drain = sub.add_parser("drain")
+    drain.add_argument("node_id")
+    drain.add_argument("--enable", action="store_true")
+    drain.add_argument("--disable", action="store_true")
+    drain.set_defaults(func=cmd_drain)
+    args = parser.parse_args(argv)
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
