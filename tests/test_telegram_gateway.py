@@ -135,3 +135,15 @@ def test_compact_factory_snapshot_has_director_and_team_cards():
     assert snapshot["team"][0]["name"] == "Инженер"
     assert snapshot["queue_length"] == 1
     assert snapshot["task_counts"]["running"] == 1
+
+
+
+def test_chat_transition_polishes_brand_typo():
+    gateway = load_gateway()
+    task = {
+        "state": "completed",
+        "result": {"response": "Привет! 👋 Я Kolibi, ваш оркестратор.\nnode: 9fts"},
+    }
+    message = gateway.format_transition("COMPLETED", task, mode="chat")
+    assert message == "Привет! Я Kolibri, ваш оркестратор."
+    assert "node:" not in message

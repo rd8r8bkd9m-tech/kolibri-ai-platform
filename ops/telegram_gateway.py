@@ -79,6 +79,12 @@ OWNER_MESSAGE_FORBIDDEN_MARKERS = (
     "TGCHAT-",
     "TG-202",
 )
+OWNER_RESPONSE_REPLACEMENTS = {
+    "Kolibi": "Kolibri",
+    "kolibi": "Kolibri",
+    "Колиби": "Колибри",
+    "колиби": "Колибри",
+}
 
 
 def utc_now() -> str:
@@ -477,6 +483,8 @@ def clean_agent_response(text: str | None) -> str:
         if stripped:
             lines.append(stripped)
     cleaned = "\n".join(lines).strip()
+    for wrong, right in OWNER_RESPONSE_REPLACEMENTS.items():
+        cleaned = cleaned.replace(wrong, right)
     return cleaned or "Я завершил ответ, но текст не записался. Разберу это отдельно."
 
 
