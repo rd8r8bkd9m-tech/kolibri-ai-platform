@@ -33,3 +33,17 @@ def test_plain_text_message_builds_structured_factory_task():
     assert envelope["create_review_on_complete"] is True
     assert envelope["source"]["message_id"] == 42
     assert "TELEGRAM_BOT_TOKEN" not in envelope
+
+
+def test_cyrillic_text_keeps_objective_but_uses_ascii_identifiers():
+    gateway = load_gateway()
+    message = {
+        "message_id": 43,
+        "chat": {"id": 100, "type": "private"},
+        "from": {"id": 100},
+        "text": "Исправь ошибку retry",
+    }
+    envelope = gateway.build_task_envelope(message, message["text"])
+    assert envelope["objective"] == "Исправь ошибку retry"
+    assert envelope["task_id"].isascii()
+    assert envelope["branch"].isascii()

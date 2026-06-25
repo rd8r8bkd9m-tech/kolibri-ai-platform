@@ -47,7 +47,7 @@ def parse_owner_ids(value: str) -> set[int]:
 def safe_task_suffix(text: str) -> str:
     allowed = []
     for ch in text.lower():
-        if ch.isalnum():
+        if ch.isascii() and ch.isalnum():
             allowed.append(ch)
         elif ch in {" ", "-", "_"}:
             allowed.append("-")
@@ -111,13 +111,14 @@ class FactoryClient:
         return json_request("POST", f"{self.control_url}/v1/tasks", envelope)
 
     def get_task(self, task_id: str) -> dict[str, Any]:
-        return json_request("GET", f"{self.control_url}/v1/tasks/{task_id}")
+        return json_request("GET", f"{self.control_url}/v1/tasks/{urllib.parse.quote(task_id, safe='')}")
 
     def get_tasks(self) -> dict[str, Any]:
         return json_request("GET", f"{self.control_url}/v1/tasks")
 
     def cancel_task(self, task_id: str) -> dict[str, Any]:
-        return json_request("POST", f"{self.control_url}/v1/tasks/{task_id}/cancel", {"reason": "telegram cancel"})
+        quoted = urllib.parse.quote(task_id, safe="")
+        return json_request("POST", f"{self.control_url}/v1/tasks/{quoted}/cancel", {"reason": "telegram cancel"})
 
     def nodes(self) -> dict[str, Any]:
         return json_request("GET", f"{self.control_url}/v1/nodes")
