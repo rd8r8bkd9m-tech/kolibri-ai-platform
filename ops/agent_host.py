@@ -265,8 +265,8 @@ class AgentHost:
                 "gh", "pr", "create",
                 "--base", envelope.get("base_branch", "main"),
                 "--head", branch,
-                "--title", envelope.get("pr_title", "Factory MVP smoke test"),
-                "--body", envelope.get("pr_body", "Adds the Factory MVP smoke test from a persistent remote agent."),
+                "--title", envelope.get("pr_title", "Factory MVP: smoke-тест"),
+                "--body", envelope.get("pr_body", "Добавляет smoke-тест Factory MVP, созданный постоянным удалённым Agent Host."),
             ], worktree, stdout_path, stderr_path, task, branch, logs, git_env)
             pr_url = subprocess.check_output(["gh", "pr", "view", "--json", "url", "-q", ".url"], cwd=str(worktree), text=True).strip()
         else:
