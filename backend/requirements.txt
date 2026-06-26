@@ -8,3 +8,4 @@ python-dotenv==1.0.1
 pydantic==2.9.0
 edge-tts==6.1.12
 gtts==2.5.0
+reportlab==4.2.2
