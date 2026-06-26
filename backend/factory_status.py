@@ -9,6 +9,14 @@ import httpx
 CONTROL_PLANE_URL = os.getenv("KOLIBRI_FACTORY_CONTROL_URL", "http://control.kolibri.internal:9101")
 
 
+def _control_plane_v1_url(path: str) -> str:
+    base = CONTROL_PLANE_URL.rstrip("/")
+    suffix = path if path.startswith("/") else f"/{path}"
+    if base.endswith("/v1"):
+        return f"{base}{suffix}"
+    return f"{base}/v1{suffix}"
+
+
 def _parse_mem_kb(value: Any) -> int:
     if value is None:
         return 0
@@ -138,7 +146,11 @@ def build_factory_status(nodes_payload: Any, tasks_payload: Any | None = None, h
         "free_ram_gb": _gb_from_kb(available_ram_kb),
         "total_ram_gb": _gb_from_kb(total_ram_kb),
         "avg_cpu_percent": round(sum(cpu_values) / len(cpu_values), 1) if cpu_values else 0,
-        "queue_size": sum(task_states.get(state, 0) for state in ("queued", "leased", "running")),
+        "queue_size": (
+            sum(task_states.get(state, 0) for state in ("queued", "leased", "running"))
+            if task_states
+            else int((health_payload or {}).get("queue") or 0)
+        ),
         "task_states": task_states,
         "nodes": nodes,
         "node_list": node_list,
@@ -146,14 +158,19 @@ def build_factory_status(nodes_payload: Any, tasks_payload: Any | None = None, h
 
 
 async def fetch_factory_status() -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=8.0) as client:
-        health_response = await client.get(f"{CONTROL_PLANE_URL}/health")
-        nodes_response = await client.get(f"{CONTROL_PLANE_URL}/v1/nodes")
+    async with httpx.AsyncClient(timeout=httpx.Timeout(4.0, connect=2.0)) as client:
+        health_response = await client.get(_control_plane_v1_url("/health"))
+        nodes_response = await client.get(_control_plane_v1_url("/nodes"))
         health_response.raise_for_status()
         nodes_response.raise_for_status()
-        try:
-            tasks_response = await client.get(f"{CONTROL_PLANE_URL}/v1/tasks")
-            tasks_payload: Any = tasks_response.json() if tasks_response.status_code == 200 else {"tasks": []}
-        except Exception:
-            tasks_payload = {"tasks": []}
+
+    tasks_payload: Any = {"tasks": []}
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(1.5, connect=1.0)) as client:
+            tasks_response = await client.get(_control_plane_v1_url("/tasks"))
+            if tasks_response.status_code == 200:
+                tasks_payload = tasks_response.json()
+    except Exception:
+        tasks_payload = {"tasks": []}
+
     return build_factory_status(nodes_response.json(), tasks_payload, health_response.json())
