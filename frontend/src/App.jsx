@@ -5,9 +5,9 @@ import remarkGfm from "remark-gfm"
 import "./App.css"
 import { KolibriBird } from "./components/KolibriBird"
 
-const API_BASE = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
-  ? `http://${window.location.hostname}:8000`
-  : ""
+const IS_LOCAL = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+const API_BASE = IS_LOCAL ? `http://${window.location.hostname}:8000` : ""
+const WS_HOST = IS_LOCAL ? `${window.location.hostname}:8000` : window.location.host
 
 class ErrorBoundary extends Component {
   constructor(props) { super(props); this.state = { error: null } }
@@ -215,7 +215,7 @@ export default function App() {
   const connectWS = useCallback(() => {
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:"
     let socket
-    try { socket = new WebSocket(`${proto}//${window.location.hostname}:8000/ws/chat`) } catch { return }
+    try { socket = new WebSocket(`${proto}//${WS_HOST}/ws/chat`) } catch { return }
     socket.onopen = () => setConnected(true)
     socket.onclose = () => { setConnected(false); setTimeout(connectWS, 3000) }
     socket.onmessage = (e) => {
