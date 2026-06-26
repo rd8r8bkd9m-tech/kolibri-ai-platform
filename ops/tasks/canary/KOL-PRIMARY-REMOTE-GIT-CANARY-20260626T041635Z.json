@@ -1,0 +1,8 @@
+{
+  "task_id": "KOL-PRIMARY-REMOTE-GIT-CANARY-20260626T041635Z",
+  "node_id": "primary-candidate",
+  "purpose": "primary remote git canary",
+  "created_at": 1782447406.4623048,
+  "branch": "factory/primary-remote-git-canary-20260626t041635z",
+  "worktree": "/var/lib/kolibri-agent/worktrees/KOL-PRIMARY-REMOTE-GIT-CANARY-20260626T041635Z/repo"
+}
