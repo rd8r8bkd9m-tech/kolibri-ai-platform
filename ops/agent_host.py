@@ -586,6 +586,46 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
         result["result_path"] = str(result_path)
         return result
 
+    def run_generic_command_task(self, task: dict[str, Any]) -> dict[str, Any]:
+        envelope = task.get("envelope", {})
+        runner = envelope.get("runner") or task.get("runner") or {}
+        if not isinstance(runner, dict) or runner.get("type") != "command":
+            raise RuntimeError("generic runner requires runner.type=command")
+        command = runner.get("command")
+        if not isinstance(command, list) or not command or not all(isinstance(item, str) for item in command):
+            raise RuntimeError("generic command runner requires an argv list")
+        executable = Path(command[0]).name
+        if executable in {"sh", "bash", "zsh", "fish", "dash", "ksh"}:
+            raise RuntimeError("shell runners are not allowed")
+        worktree, artifact_dir, logs = self.prepare_dirs(task)
+        worktree.mkdir(parents=True, exist_ok=True)
+        stdout_path = Path(logs["stdout"])
+        stderr_path = Path(logs["stderr"])
+        branch = envelope.get("branch") or task.get("branch")
+        self.task_heartbeat(task, worktree, branch, logs)
+        self.run_command(command, worktree, stdout_path, stderr_path, task, branch, logs, {"GIT_TERMINAL_PROMPT": "0"})
+        result = {
+            "node_id": self.node_id,
+            "hostname": self.hostname,
+            "task_id": task["task_id"],
+            "agent_id": self.agent_id,
+            "attempt_id": task.get("attempt_id"),
+            "pid": self.pid,
+            "heartbeat_at": utc_now(),
+            "worktree": str(worktree),
+            "branch": branch,
+            "log_paths": logs,
+            "result_path": str(artifact_dir / "result.json"),
+            "status": "completed",
+            "changed_files": [],
+            "checks": [{"name": "generic_command", "status": "passed"}],
+            "risks": [],
+            "recommended_next_action": "review_result",
+        }
+        result_path = self.write_result(artifact_dir, result)
+        result["result_path"] = str(result_path)
+        return result
+
     def run_review_pr(self, task: dict[str, Any]) -> dict[str, Any]:
         envelope = task.get("envelope", {})
         branch = envelope.get("branch")
@@ -660,6 +700,8 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 result = self.run_telegram_chat_response(task)
             elif kind == "review_pr":
                 result = self.run_review_pr(task)
+            elif kind in {"implementation", "generic_implementation", "runtime_repair", "product_implementation"}:
+                result = self.run_generic_command_task(task)
             elif kind == "read_only_probe":
                 result = self.run_read_only_probe(task)
             else:
