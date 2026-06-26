@@ -68,6 +68,8 @@ function ClusterView({ status, onRefresh }) {
     </div>
   )
   
+  const nodeEntries = Array.isArray(status.nodes) ? status.nodes.map(node => [node.node_id || node.id || node.hostname, node]) : Object.entries(status.nodes || {})
+
   const NodeIcon = ({ role }) => {
     const paths = {
       training: "M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2zM22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z",
@@ -110,7 +112,7 @@ function ClusterView({ status, onRefresh }) {
       </div>
       
       <div className="doc-list">
-        {Object.entries(status.nodes || {}).map(([name, node], i) => (
+        {nodeEntries.map(([name, node], i) => (
           <motion.div key={name} className="doc-item node-card"
             initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}
             transition={{ delay: 0.3 + i * 0.06, type: "spring", stiffness: 150 }}
@@ -123,14 +125,14 @@ function ClusterView({ status, onRefresh }) {
             </div>
             <div className="doc-info">
               <div className="doc-name" style={{ textTransform: "capitalize" }}>{name}</div>
-              <div className="doc-meta">{node.role} · {node.ip}</div>
+              <div className="doc-meta">{node.role} · {node.hostname || node.ip || node.agent_id || "internal"}</div>
             </div>
             <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: "13px", fontWeight: "600" }}>CPU {node.cpu}%</div>
+              <div style={{ fontSize: "13px", fontWeight: "600" }}>CPU {node.cpu == null ? "n/a" : node.cpu}</div>
               <div className="ram-bar">
-                <div className="ram-bar-fill" style={{ width: `${Math.min(100, (parseFloat(node.ram) / 16) * 100)}%` }} />
+                <div className="ram-bar-fill" style={{ width: `${node.ram_total_gb ? Math.min(100, ((node.ram_total_gb - node.ram_available_gb) / node.ram_total_gb) * 100) : Math.min(100, (parseFloat(node.ram || 0) / 16) * 100)}%` }} />
               </div>
-              <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>{node.ram}</div>
+              <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>{node.ram || `${node.ram_available_gb || 0}/${node.ram_total_gb || 0} GB`}</div>
             </div>
           </motion.div>
         ))}
@@ -182,7 +184,7 @@ export default function App() {
 
   const fetchCluster = async () => {
     try {
-      const r = await fetch(`${API_BASE}/cluster/status`)
+      const r = await fetch(`${API_BASE}/api/factory/status`)
       setClusterStatus(await r.json())
     } catch {}
   }
@@ -268,7 +270,7 @@ export default function App() {
     { icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>, title: "Чат с AI", desc: "Задайте вопрос", color: "blue", prompt: "" },
     { icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>, title: "Смета", desc: "AI-генерация сметы", color: "purple", prompt: "Создай строительную смету для " },
     { icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 002 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0022 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>, title: "Документы", desc: "Пакет документов", color: "green", prompt: "Создай полный пакет документов для " },
-    { icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>, title: "Поиск", desc: "База знаний", color: "orange", prompt: "" },
+    { id: "search", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>, title: "Поиск", desc: "База знаний", color: "orange", prompt: "" },
   ]
 
   const birdState = loading ? "thinking" : connected ? "idle" : "error"
@@ -334,7 +336,7 @@ export default function App() {
               <motion.div className={`connection-dot ${connected ? "connected" : ""}`}
                 animate={connected ? { scale: [1, 1.3, 1] } : {}}
                 transition={{ duration: 2, repeat: Infinity }} />
-              {connected ? "Подключено к AI" : "Отключено"}
+              {connected ? "Фабрика онлайн" : "Связь с фабрикой потеряна"}
             </div>
           </div>
         </aside>
@@ -385,7 +387,7 @@ export default function App() {
                           transition={{ delay: 0.3 }}>Kolibri AI</motion.h1>
                         <motion.p className="welcome-subtitle" initial={{ opacity: 0 }} animate={{ opacity: 1 }}
                           transition={{ delay: 0.4 }}>
-                          AI-ассистент на базе 5 серверов · {clusterStatus ? `${clusterStatus.total_ram_gb} GB RAM` : "..."}
+                          Фабрика Колибри · {clusterStatus ? `${clusterStatus.online_nodes}/${clusterStatus.total_nodes} узлов · ${clusterStatus.total_ram_gb} GB RAM` : "загрузка"}
                         </motion.p>
                         <div className="quick-actions">
                           {quickActions.map((a, i) => (

@@ -20,6 +20,7 @@ from providers import AIProviderManager
 from tts import TTSEngine
 from stt import STTEngine
 from websearch import WebSearchEngine
+from factory_status import fetch_factory_status
 
 DB_PATH = Path("/opt/kolibri-ai/data/kolibri.db")
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -302,6 +303,35 @@ async def pipeline_endpoint(request: PipelineRequest, req: Request):
 @app.get("/api/pipeline/health")
 async def pipeline_health_endpoint():
     return await pipeline_health()
+
+
+@app.get("/api/factory/status")
+async def api_factory_status():
+    try:
+        return await fetch_factory_status()
+    except Exception as exc:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "degraded",
+                "source": "control-plane",
+                "error": str(exc),
+                "total_nodes": 0,
+                "online_nodes": 0,
+                "free_ram_gb": 0,
+                "total_ram_gb": 0,
+                "avg_cpu_percent": 0,
+                "queue_size": 0,
+                "nodes": {},
+                "node_list": [],
+                "control_plane": {"status": "unavailable"},
+            },
+        )
+
+
+@app.get("/cluster/status")
+async def cluster_status():
+    return await api_factory_status()
 
 app.include_router(v1_router)
 
