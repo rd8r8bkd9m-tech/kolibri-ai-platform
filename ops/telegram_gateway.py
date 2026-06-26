@@ -76,6 +76,7 @@ CHAT_GREETINGS = {
 }
 TERMINAL_TASK_STATES = {"completed", "failed", "cancelled", "dead_letter"}
 OWNER_MESSAGE_FORBIDDEN_MARKERS = (
+    "Ответ агента",
     "task_id",
     "node:",
     "agent:",
@@ -83,6 +84,11 @@ OWNER_MESSAGE_FORBIDDEN_MARKERS = (
     "worktree",
     "result_path",
     "log_path",
+    "heartbeat",
+    "pid:",
+    "container",
+    "stdout",
+    "stderr",
     "/var/lib",
     "/tmp/",
     "TGCHAT-",
@@ -136,8 +142,20 @@ def wants_factory_task(text: str) -> bool:
         return False
     if lowered in CHAT_GREETINGS:
         return False
-    return any(word in lowered for word in TASK_INTENT_WORDS)
-
+    if any(word in lowered for word in TASK_INTENT_WORDS):
+        return True
+    task_targets = (
+        "telegram", "телеграм", "miniapp", "миниапп", "webapp", "веб",
+        "прилож", "сайт", "сервер", "agent", "агент", "pdf", "пдф",
+        "смет", "документ", "vpn", "впн", "сеть", "primary", "примари",
+        "frontend", "backend", "фронтенд", "бэкенд",
+    )
+    priority_words = ("p0", "p1", "срочно", "приоритет")
+    if any(word in lowered for word in priority_words) and any(target in lowered for target in task_targets):
+        return True
+    if "?" in lowered:
+        return False
+    return any(target in lowered for target in task_targets) and len(lowered.split()) <= 6
 
 def json_request(method: str, url: str, body: dict[str, Any] | None = None, timeout: int = 35) -> Any:
     data = None
@@ -192,8 +210,8 @@ class FactoryClient:
     def get_task(self, task_id: str) -> dict[str, Any]:
         return json_request("GET", f"{self.control_url}/v1/tasks/{urllib.parse.quote(task_id, safe='')}")
 
-    def get_tasks(self) -> dict[str, Any]:
-        return json_request("GET", f"{self.control_url}/v1/tasks")
+    def get_tasks(self, timeout: int = 2) -> dict[str, Any]:
+        return json_request("GET", f"{self.control_url}/v1/tasks", timeout=timeout)
 
     def cancel_task(self, task_id: str) -> dict[str, Any]:
         quoted = urllib.parse.quote(task_id, safe="")
@@ -347,71 +365,116 @@ def first_known_url(memory: dict[str, Any]) -> str | None:
     return None
 
 
+def _online_nodes(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
+    return [node for node in snapshot.get("nodes") or [] if node.get("health") == "online"]
+
+
+def _node_names(nodes: list[dict[str, Any]], limit: int = 6) -> str:
+    names = [str(node.get("node_id")) for node in nodes if node.get("node_id")]
+    return ", ".join(names[:limit]) or "пока уточняю"
+
+
+def _try_simple_calculation(text: str) -> str | None:
+    import ast
+    import operator
+    expr = text.strip().replace("х", "*").replace("×", "*").replace("÷", "/")
+    if not expr or len(expr) > 80:
+        return None
+    if any(ch not in "0123456789+-*/()., " for ch in expr):
+        return None
+    expr = expr.replace(",", ".")
+    ops = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv, ast.USub: operator.neg, ast.UAdd: operator.pos}
+    def eval_node(node):
+        if isinstance(node, ast.Expression):
+            return eval_node(node.body)
+        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+            return node.value
+        if isinstance(node, ast.BinOp) and type(node.op) in ops:
+            return ops[type(node.op)](eval_node(node.left), eval_node(node.right))
+        if isinstance(node, ast.UnaryOp) and type(node.op) in ops:
+            return ops[type(node.op)](eval_node(node.operand))
+        raise ValueError("unsupported")
+    try:
+        value = eval_node(ast.parse(expr, mode="eval"))
+    except Exception:
+        return None
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    return f"{text.strip()} = {value}"
+
+
+def _status_sentence(snapshot: dict[str, Any]) -> str:
+    nodes = snapshot.get("nodes") or []
+    online = _online_nodes(snapshot)
+    if nodes:
+        return f"Сейчас вижу {len(online)} из {len(nodes)} узлов онлайн: {_node_names(online)}."
+    return "Control Plane отвечает, но список узлов сейчас уточняю."
+
+
+def _active_sentence(snapshot: dict[str, Any]) -> str:
+    active_tasks = snapshot.get("active_tasks") or []
+    warnings = snapshot.get("warnings") or []
+    if active_tasks:
+        return f"Активных задач в коротком срезе: {len(active_tasks)}."
+    if any("tasks_unavailable" in str(item) for item in warnings):
+        return "Полный список задач сейчас тяжёлый, поэтому я не торможу диалог и проверяю очередь отдельно."
+    return "В коротком срезе активных задач не вижу."
+
+
 def build_realtime_owner_reply(text: str, snapshot: dict[str, Any]) -> str:
     memory = snapshot.get("memory") or {}
     lowered = text.lower().strip()
-    active_tasks = snapshot.get("active_tasks") or []
-    team = summarize_team(snapshot)
     last = memory.get("last_work_request") or {}
     last_text = (last.get("text") or "").strip()
-    last_state = last.get("state")
-    last_state_text = describe_task_state(last_state)
+    last_state_text = describe_task_state(last.get("state"))
     url = first_known_url(memory)
+    public_main_url = url or "http://104.253.43.117/"
+    status = _status_sentence(snapshot)
+    active = _active_sentence(snapshot)
 
-    if lowered in CHAT_GREETINGS:
-        return "Привет. Я на связи. Пиши обычным языком: я отвечаю сам, держу контекст разработки и слежу за фабрикой."
+    calculation = _try_simple_calculation(text)
+    if calculation:
+        return calculation
 
-    if has_any(text, ("ссыл", "url", "линк", "link")):
-        if url:
-            return f"Да, помню. Вот ссылка: {url}"
+    if lowered in CHAT_GREETINGS or has_any(text, ("как дела", "как ты", "ты тут", "на связи")):
+        return f"Привет. Я здесь. {status} Можем спокойно говорить или сразу ставить задачу."
+
+    if has_any(text, ("как зовут", "кто ты", "как тебя", "твое имя", "твоё имя")):
+        return "Я Директор Колибри. Можно просто «Колибри» или «директор». Я принимаю сообщения, держу контекст и сам раздаю работу исполнителям."
+
+    if has_any(text, ("сколько сервер", "сколько узл", "серверов работает", "узлов работает")):
+        return status
+
+    if has_any(text, ("ссыл", "url", "линк", "link", "открой", "домен", "kolibriai.ru")):
+        domain_note = "Основной домен kolibriai.ru пока смотрит на Home и ждёт переключения gateway с root/sudo-доступом."
+        return f"Рабочая публичная точка на main сейчас: {public_main_url}. {domain_note}"
+
+    if has_any(text, ("дев сервер", "dev server", "веб приложение", "веб-приложение", "миниапп", "приложение запущ", "backend", "бэкенд")):
+        return f"По приложению: на main отдаётся публичная сборка {public_main_url}. Бэкенд проверяю через health, а домен kolibriai.ru ещё надо переключить с Home на правильный gateway."
+
+    if has_any(text, ("отчет", "отчёт", "статус", "что сделал", "что сделано", "что в работе", "какие задачи", "не завис", "монитор", "кто делает", "что выполня")):
         if last_text:
-            return f"Помню про задачу: {last_text}. Ссылку пришлю, когда появится рабочий preview или staging. Сейчас задача {last_state_text}."
-        return "Помню, что нужна ссылка. Готового preview или staging URL пока нет, я держу это ожидание открытым."
-
-    asks_running_result = has_any(text, ("запущ", "работает", "готов", "дев", "dev", "сервер", "preview", "веб"))
-    if asks_running_result and (url or last_text):
-        if url and last_state == "completed":
-            return f"Да, запущено. Веб-приложение доступно здесь: {url}"
-        if url:
-            return f"Есть рабочая ссылка: {url}. По последней задаче статус: {last_state_text}."
-        return f"По последней задаче: {last_text}. Сейчас она {last_state_text}."
-
-    if has_any(text, ("что делаешь", "какие задачи", "статус", "что сделано", "не завис", "монитор", "кто делает", "что выполня")):
-        if active_tasks:
-            task_count = len(active_tasks)
-            prefix = f"Я на связи. Сейчас в работе {task_count} задач."
-        else:
-            prefix = "Я на связи. Сейчас активных задач не вижу."
-        if url and last_state == "completed":
-            return f"{prefix} Последний результат готов: {url}"
-        return f"{prefix} Команда на связи: {team}. {last_work_line(memory)}"
+            return f"Коротко: {status} {active} Последняя задача: {last_text}; сейчас она {last_state_text}."
+        return f"Коротко: {status} {active}"
 
     if has_any(text, ("контекст", "помнишь", "память", "знаешь")):
-        if url:
-            return f"Да, контекст держу на удаленном сервере. Помню последний результат: {url}"
-        return f"Да, контекст держу на удаленном сервере. {last_work_line(memory)}"
+        if last_text:
+            return f"Да, контекст держу на сервере. Последняя рабочая задача: {last_text}; статус — {last_state_text}."
+        return "Да, контекст держу на сервере. Пока последняя рабочая задача в памяти не выделена, но состояние фабрики вижу."
 
     if "?" in text:
-        if url and last_state == "completed":
-            return f"Да. Последний готовый результат здесь: {url}"
-        return f"Отвечаю сразу. Команда на связи: {team}. {last_work_line(memory)}"
+        if last_text:
+            return f"Отвечаю сразу: {status} По последней задаче: {last_text}; статус — {last_state_text}."
+        return f"Отвечаю сразу: {status}"
 
-    return "Понял. Я на связи и держу контекст. Если это задача, назначу исполнителя и буду вести результат."
-
+    return f"Я понял. {status} Если это задача, я оформлю её и передам исполнителю; если это разговор — отвечаю здесь сразу."
 
 def help_text() -> str:
     return (
-        "Kolibri Factory\n"
-        "/task <текст>\n"
-        "/status <task_id>\n"
-        "/cancel <task_id>\n"
-        "/retry <task_id>\n"
-        "/nodes\n"
-        "/agents\n"
-        "/queue\n"
-        "/help"
+        "Я Директор Колибри. Пишите обычным языком: вопрос — отвечу сразу, "
+        "задача — поставлю исполнителю и буду держать результат под контролем. "
+        "Служебные команды не нужны."
     )
-
 
 class StateStore:
     def __init__(self, path: Path):
@@ -472,14 +535,23 @@ class Gateway:
         self.state.save()
 
     def submit_text_task(self, message: dict[str, Any], text: str) -> None:
+        chat_id = message["chat"]["id"]
+        reply = "Взял как задачу. Передаю Инженеру, Ревьюер подключится после результата. Я остаюсь здесь и могу отвечать дальше."
+        self.telegram.send_message(chat_id, reply)
+        self.remember_orchestrator_message(reply)
         envelope = build_task_envelope(message, text, self.conversation_snapshot())
-        task = self.factory.create_task(envelope)
-        self.track(message["chat"]["id"], task["task_id"], task["state"])
+        try:
+            task = self.factory.create_task(envelope)
+        except Exception:
+            record_work_task(self.memory(), text, envelope["task_id"], "failed", utc_now())
+            self.state.save()
+            fail_reply = "Я услышал задачу, но Control Plane сейчас не принял её в очередь. Зафиксировал сбой и разбираю отдельно."
+            self.telegram.send_message(chat_id, fail_reply)
+            self.remember_orchestrator_message(fail_reply)
+            return
+        self.track(chat_id, task["task_id"], task["state"])
         record_work_task(self.memory(), text, task["task_id"], task["state"], utc_now())
         self.state.save()
-        reply = "Принял задачу в работу. Я сам выберу подходящего исполнителя и вернусь с важным результатом."
-        self.telegram.send_message(message["chat"]["id"], reply)
-        self.remember_orchestrator_message(reply)
 
     def submit_chat_task(self, message: dict[str, Any], text: str) -> None:
         reply = build_realtime_owner_reply(text, self.conversation_snapshot())
@@ -569,6 +641,10 @@ class Gateway:
                 self.run_once()
             except Exception as exc:  # pragma: no cover - surfaced in systemd logs
                 print(json.dumps({"event": "telegram_gateway_error", "error": str(exc), "time": utc_now()}), file=sys.stderr)
+                try:
+                    self.poll_task_transitions()
+                except Exception as poll_exc:  # pragma: no cover - surfaced in systemd logs
+                    print(json.dumps({"event": "telegram_gateway_transition_poll_error", "error": str(poll_exc), "time": utc_now()}), file=sys.stderr)
                 time.sleep(5)
 
 
