@@ -557,3 +557,43 @@ body {
 .kolibri-avatar__mark--error { fill: #ff2f3f; }
 .kolibri-avatar__book path { fill: #1865c9; stroke: #ffffff; stroke-linejoin: round; stroke-width: 1.5; }
 .kolibri-avatar__sparkles { fill: none; stroke: #f6c76e; stroke-linecap: round; stroke-width: 2.6; }
+
+
+/* Kolibri mobile composer safe-area guard */
+.chat-stage {
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr) auto;
+  padding-bottom: max(14px, calc(14px + var(--safe-bottom)));
+}
+
+.chat-scroll {
+  overscroll-behavior: contain;
+  scroll-padding-bottom: calc(156px + var(--safe-bottom));
+}
+
+.composer {
+  width: min(100%, 920px);
+  margin-inline: auto;
+  position: sticky;
+  bottom: max(10px, var(--safe-bottom));
+}
+
+@media (max-width: 760px) {
+  .chat-stage {
+    padding-bottom: max(12px, calc(12px + var(--safe-bottom)));
+  }
+
+  .message-stack {
+    padding-bottom: calc(156px + var(--safe-bottom));
+  }
+
+  .composer {
+    bottom: max(12px, var(--safe-bottom));
+  }
+
+  .composer-suggestions button span {
+    max-width: 92px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
