@@ -163,6 +163,24 @@ export default function App() {
   const fileInputRef = useRef(null)
 
   useEffect(() => {
+    const syncViewportHeight = () => {
+      const height = window.visualViewport?.height || window.innerHeight
+      document.documentElement.style.setProperty("--kolibri-viewport-height", `${height}px`)
+    }
+
+    syncViewportHeight()
+    window.addEventListener("resize", syncViewportHeight)
+    window.visualViewport?.addEventListener("resize", syncViewportHeight)
+    window.visualViewport?.addEventListener("scroll", syncViewportHeight)
+
+    return () => {
+      window.removeEventListener("resize", syncViewportHeight)
+      window.visualViewport?.removeEventListener("resize", syncViewportHeight)
+      window.visualViewport?.removeEventListener("scroll", syncViewportHeight)
+    }
+  }, [])
+
+  useEffect(() => {
     const root = document.documentElement
     root.classList.remove("theme-dark", "theme-light")
     root.classList.add(theme === "dark" ? "theme-dark" : "theme-light")
@@ -246,7 +264,7 @@ export default function App() {
         const r = await fetch(`${API_BASE}/api/chat`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: newMsgs, provider: selectedProvider }) })
         const d = await r.json()
         setMessages([...newMsgs, { role: "assistant", content: d.response, provider: d.provider, timestamp: Date.now() }])
-      } catch { setMessages([...newMsgs, { role: "assistant", content: "Ошибка подключения к серверу.", timestamp: Date.now() }]) }
+      } catch { setMessages([...newMsgs, { role: "assistant", content: "Не смог ответить прямо сейчас. Проверяю соединение и вернусь с результатом.", timestamp: Date.now() }]) }
       setLoading(false)
     }
   }
