@@ -6,7 +6,7 @@ from typing import Any
 
 import httpx
 
-CONTROL_PLANE_URL = os.environ.get("KOLIBRI_FACTORY_CONTROL_URL", "http://control.kolibri.internal:9101")
+CONTROL_PLANE_URL = os.getenv("KOLIBRI_FACTORY_CONTROL_URL", "http://control.kolibri.internal:9101")
 
 
 def _parse_mem_kb(value: Any) -> int:
