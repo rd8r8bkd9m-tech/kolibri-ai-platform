@@ -1,0 +1,37 @@
+{
+  "id": "kimi-agent-kolibrifin",
+  "title": "Kimi Agent КолибриФин",
+  "source_package": "Kimi_Agent_КолибриФин",
+  "package_sha256": "25345bad8696b152fa340e5dd4e9bd940b7795702003ab675610af917cc6213a",
+  "imported_at_utc": "2026-06-26T15:59:49Z",
+  "components": {
+    "backend": {
+      "path": "source/kolibri-backend",
+      "language": "python",
+      "entrypoint": "app/main.py"
+    },
+    "frontend": {
+      "path": "source/kolibri-v2",
+      "language": "typescript/react",
+      "entrypoint": "src/main.tsx"
+    },
+    "static_build": {
+      "path": "source/kolibri-web",
+      "type": "static-web"
+    },
+    "design_artifacts": {
+      "path": "source",
+      "patterns": [
+        "*.png",
+        "plan*.md",
+        "research_analysis.md"
+      ]
+    }
+  },
+  "checks": [
+    "python compile backend app",
+    "frontend package.json validation",
+    "integration smoke manifest test"
+  ],
+  "mimo_auto_status": "blocked: provider not logged in / mimo-free bootstrap 403 illegal_access on main"
+}
