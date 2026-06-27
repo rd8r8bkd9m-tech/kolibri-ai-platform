@@ -166,3 +166,18 @@ def test_telegram_chat_runner_error_does_not_expose_owner_prompt_in_failure_payl
     assert owner_message not in result_path.read_text(encoding="utf-8")
     stdout_path = tmp_path / "artifacts" / "TGCHAT-ERR" / "TGCHAT-ERR-attempt-1" / "stdout.log"
     assert owner_message not in stdout_path.read_text(encoding="utf-8")
+
+def test_parse_codex_agent_message_jsonl(tmp_path):
+    agent_host = load_agent_host()
+    stdout = tmp_path / "stdout.log"
+    stdout.write_text(
+        '$ codex exec --json <prompt>\n'
+        + json.dumps({"type": "thread.started", "thread_id": "t1"}, ensure_ascii=False)
+        + "\n"
+        + json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": "Живой ответ директора."}}, ensure_ascii=False)
+        + "\n",
+        encoding="utf-8",
+    )
+
+    assert agent_host.AgentHost.parse_json_text_response(stdout) == "Живой ответ директора."
+
