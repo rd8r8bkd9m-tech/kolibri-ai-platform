@@ -38,6 +38,27 @@ STATE_CANCELLED = "cancelled"
 STATE_RETRY = "retry_scheduled"
 STATE_DEAD = "dead_letter"
 TERMINAL_STATES = {STATE_COMPLETED, STATE_FAILED, STATE_CANCELLED, STATE_DEAD}
+STATE_ACTIVE = "active"
+
+GENERIC_IMPLEMENTATION_KIND = "generic_implementation"
+ROOT_GOAL_RECORD_TYPE = "RootGoal"
+ROOT_GOAL_KIND = "root_goal"
+GENERIC_IMPLEMENTATION_FIELDS = (
+    "task_id",
+    "root_goal_id",
+    "repository",
+    "base_ref",
+    "base_commit",
+    "branch",
+    "objective",
+    "allowed_paths",
+    "protected_paths",
+    "required_tests",
+    "acceptance_criteria",
+    "model_policy",
+    "limits",
+    "idempotency_key",
+)
 
 
 def utc_now() -> str:
@@ -122,6 +143,10 @@ def task_key(task_id: str) -> str:
     return key(f"task:{task_id}")
 
 
+def root_goal_key(root_goal_id: str) -> str:
+    return key(f"root_goal:{root_goal_id}")
+
+
 def node_key(node_id: str) -> str:
     return key(f"node:{node_id}")
 
@@ -135,6 +160,11 @@ def all_task_ids() -> list[str]:
     return sorted(values)
 
 
+def all_root_goal_ids() -> list[str]:
+    values = redis.command("SMEMBERS", key("root_goal_ids")) or []
+    return sorted(values)
+
+
 def queue_ids() -> list[str]:
     return redis.command("LRANGE", key("queue"), 0, -1) or []
 
@@ -143,10 +173,20 @@ def load_task(task_id: str) -> dict[str, Any] | None:
     return get_json(task_key(task_id))
 
 
+def load_root_goal(root_goal_id: str) -> dict[str, Any] | None:
+    return get_json(root_goal_key(root_goal_id))
+
+
 def save_task(task: dict[str, Any]) -> None:
     task["updated_at"] = utc_now()
     set_json(task_key(task["task_id"]), task)
     redis.command("SADD", key("task_ids"), task["task_id"])
+
+
+def save_root_goal(root_goal: dict[str, Any]) -> None:
+    root_goal["updated_at"] = utc_now()
+    set_json(root_goal_key(root_goal["root_goal_id"]), root_goal)
+    redis.command("SADD", key("root_goal_ids"), root_goal["root_goal_id"])
 
 
 def enqueue(task_id: str) -> None:
@@ -157,9 +197,72 @@ def remove_from_queue(task_id: str) -> None:
     redis.command("LREM", key("queue"), 0, task_id)
 
 
+def list_field(value: Any) -> list[Any]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    return [value]
+
+
+def dict_field(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def is_root_goal_envelope(envelope: dict[str, Any]) -> bool:
+    return envelope.get("record_type") == ROOT_GOAL_RECORD_TYPE or envelope.get("kind") in {
+        ROOT_GOAL_RECORD_TYPE,
+        ROOT_GOAL_KIND,
+    }
+
+
+def normalize_root_goal(envelope: dict[str, Any]) -> dict[str, Any]:
+    root_goal_id = envelope.get("root_goal_id") or envelope.get("task_id") or f"KOL-ROOT-{uuid.uuid4().hex[:12]}"
+    created = utc_now()
+    return {
+        "record_type": ROOT_GOAL_RECORD_TYPE,
+        "kind": ROOT_GOAL_KIND,
+        "root_goal_id": root_goal_id,
+        "task_id": envelope.get("task_id"),
+        "idempotency_key": envelope.get("idempotency_key") or root_goal_id,
+        "state": envelope.get("state") or STATE_ACTIVE,
+        "objective": envelope.get("objective", ""),
+        "created_at": created,
+        "updated_at": created,
+        "lease_owner": None,
+        "lease_until": None,
+        "envelope": envelope,
+    }
+
+
+def normalize_generic_implementation_envelope(envelope: dict[str, Any], task_id: str) -> dict[str, Any]:
+    normalized = {field: envelope.get(field) for field in GENERIC_IMPLEMENTATION_FIELDS}
+    normalized["task_id"] = task_id
+    normalized["kind"] = GENERIC_IMPLEMENTATION_KIND
+    normalized["idempotency_key"] = envelope.get("idempotency_key") or task_id
+    normalized["repository"] = envelope.get("repository")
+    normalized["base_ref"] = envelope.get("base_ref") or "origin/main"
+    normalized["base_commit"] = envelope.get("base_commit")
+    normalized["branch"] = envelope.get("branch") or f"agent/{task_id}/generic-implementation"
+    normalized["objective"] = envelope.get("objective") or ""
+    normalized["allowed_paths"] = [str(item) for item in list_field(envelope.get("allowed_paths"))]
+    normalized["protected_paths"] = [str(item) for item in list_field(envelope.get("protected_paths"))]
+    normalized["required_tests"] = list_field(envelope.get("required_tests"))
+    normalized["acceptance_criteria"] = [str(item) for item in list_field(envelope.get("acceptance_criteria"))]
+    normalized["model_policy"] = dict_field(envelope.get("model_policy"))
+    normalized["limits"] = dict_field(envelope.get("limits"))
+    normalized["required_capability"] = envelope.get("required_capability") or GENERIC_IMPLEMENTATION_KIND
+    for key_name, value in envelope.items():
+        if key_name not in normalized:
+            normalized[key_name] = value
+    return normalized
+
+
 def normalize_task(envelope: dict[str, Any]) -> dict[str, Any]:
     task_id = envelope.get("task_id") or f"KOL-TASK-{uuid.uuid4().hex[:12]}"
     created = utc_now()
+    if envelope.get("kind") == GENERIC_IMPLEMENTATION_KIND:
+        envelope = normalize_generic_implementation_envelope(envelope, task_id)
     return {
         "task_id": task_id,
         "idempotency_key": envelope.get("idempotency_key") or task_id,
@@ -181,7 +284,13 @@ def normalize_task(envelope: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def is_leaseable_task(task: dict[str, Any]) -> bool:
+    return task.get("record_type") != ROOT_GOAL_RECORD_TYPE and task.get("kind") != ROOT_GOAL_KIND
+
+
 def compatible(task: dict[str, Any], node_id: str, capabilities: list[str]) -> bool:
+    if not is_leaseable_task(task):
+        return False
     envelope = task.get("envelope", {})
     target_node = envelope.get("target_node") or envelope.get("required_node")
     if target_node and target_node != node_id:
@@ -199,7 +308,7 @@ def requeue_expired_leases() -> None:
     current = now_ts()
     for task_id in all_task_ids():
         task = load_task(task_id)
-        if not task or task.get("state") not in {STATE_LEASED, STATE_RUNNING, STATE_REVIEW}:
+        if not task or not is_leaseable_task(task) or task.get("state") not in {STATE_LEASED, STATE_RUNNING, STATE_REVIEW}:
             continue
         lease_until = float(task.get("lease_until") or 0)
         if lease_until >= current:
@@ -223,6 +332,8 @@ def requeue_expired_leases() -> None:
 
 
 def create_task(envelope: dict[str, Any]) -> dict[str, Any]:
+    if is_root_goal_envelope(envelope):
+        return create_root_goal(envelope)
     task = normalize_task(envelope)
     idem_key = key(f"idempotency:{task['idempotency_key']}")
     existing = redis.command("GET", idem_key)
@@ -234,6 +345,19 @@ def create_task(envelope: dict[str, Any]) -> dict[str, Any]:
     redis.command("SET", idem_key, task["task_id"])
     enqueue(task["task_id"])
     return task
+
+
+def create_root_goal(envelope: dict[str, Any]) -> dict[str, Any]:
+    root_goal = normalize_root_goal(envelope)
+    idem_key = key(f"idempotency:{root_goal['idempotency_key']}")
+    existing = redis.command("GET", idem_key)
+    if existing:
+        existing_record = load_root_goal(existing)
+        if existing_record:
+            return existing_record
+    save_root_goal(root_goal)
+    redis.command("SET", idem_key, root_goal["root_goal_id"])
+    return root_goal
 
 
 def create_review_task(source_task: dict[str, Any], result: dict[str, Any]) -> dict[str, Any] | None:
@@ -307,6 +431,18 @@ class Handler(BaseHTTPRequestHandler):
                 tasks = [task for task in tasks if task and (wanted is None or task.get("state") == wanted)]
                 response(self, 200, {"tasks": tasks, "queue": queue_ids()})
                 return
+            if path == "/v1/root-goals":
+                root_goals = [load_root_goal(root_goal_id) for root_goal_id in all_root_goal_ids()]
+                response(self, 200, {"root_goals": [record for record in root_goals if record]})
+                return
+            if path.startswith("/v1/root-goals/"):
+                root_goal_id = path.split("/", 3)[3]
+                root_goal = load_root_goal(root_goal_id)
+                if not root_goal:
+                    response(self, 404, {"error": "root_goal_not_found", "root_goal_id": root_goal_id})
+                    return
+                response(self, 200, root_goal)
+                return
             if path.startswith("/v1/tasks/"):
                 task_id = path.split("/", 3)[3]
                 task = load_task(task_id)
@@ -375,7 +511,7 @@ class Handler(BaseHTTPRequestHandler):
                 agent_id = body.get("agent_id", node_id)
                 for task_id in queue_ids():
                     task = load_task(task_id)
-                    if not task or task.get("state") not in {STATE_QUEUED, STATE_REVIEW}:
+                    if not task or not is_leaseable_task(task) or task.get("state") not in {STATE_QUEUED, STATE_REVIEW}:
                         remove_from_queue(task_id)
                         continue
                     if not compatible(task, node_id, capabilities):

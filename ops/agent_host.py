@@ -4,16 +4,19 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import hashlib
 import json
 import os
 import platform
+import shlex
 import shutil
 import signal
 import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,6 +24,17 @@ from typing import Any
 
 
 STOP = False
+GENERIC_IMPLEMENTATION_KIND = "generic_implementation"
+DEFAULT_GENERIC_PROTECTED_PATHS = (
+    ".env",
+    ".env.*",
+    "**/.env",
+    "**/.env.*",
+    "**/*.key",
+    "**/*.pem",
+    "**/*secret*",
+    "**/*token*",
+)
 
 
 def utc_now() -> str:
@@ -65,6 +79,145 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def list_field(value: Any) -> list[Any]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    return [value]
+
+
+def dict_field(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def redact_arg(arg: str) -> str:
+    if "://" in arg:
+        parsed = urllib.parse.urlsplit(arg)
+        if "@" in parsed.netloc:
+            host = parsed.netloc.rsplit("@", 1)[1]
+            return urllib.parse.urlunsplit((parsed.scheme, f"<redacted>@{host}", parsed.path, parsed.query, parsed.fragment))
+    if len(arg) > 240:
+        return "<redacted-long-arg>"
+    return arg
+
+
+def display_command(command: list[str]) -> str:
+    return " ".join(shlex.quote(redact_arg(str(arg))) for arg in command)
+
+
+def safe_path_items(name: str, values: Any) -> list[str]:
+    paths = []
+    for value in list_field(values):
+        item = str(value).strip().replace("\\", "/")
+        if not item:
+            continue
+        if item.startswith("/") or item == ".." or item.startswith("../") or "/../" in item:
+            raise RuntimeError(f"{name} contains unsafe path: {item}")
+        paths.append(item.rstrip("/") or ".")
+    return paths
+
+
+def policy_matches(path: str, policy: str) -> bool:
+    normalized_path = path.strip("/").replace("\\", "/")
+    normalized_policy = policy.strip("/").replace("\\", "/")
+    if normalized_policy in {".", "*", "**"}:
+        return True
+    if fnmatch.fnmatch(normalized_path, normalized_policy):
+        return True
+    if normalized_policy.endswith("/**") and normalized_path.startswith(normalized_policy[:-3].rstrip("/") + "/"):
+        return True
+    return normalized_path == normalized_policy or normalized_path.startswith(normalized_policy + "/")
+
+
+def normalize_path_policy(envelope: dict[str, Any]) -> tuple[list[str], list[str]]:
+    allowed_paths = safe_path_items("allowed_paths", envelope.get("allowed_paths"))
+    protected_paths = list(DEFAULT_GENERIC_PROTECTED_PATHS)
+    protected_paths.extend(safe_path_items("protected_paths", envelope.get("protected_paths")))
+    return allowed_paths, protected_paths
+
+
+def validate_changed_paths(changed_files: list[str], allowed_paths: list[str], protected_paths: list[str]) -> None:
+    protected = [path for path in changed_files if any(policy_matches(path, item) for item in protected_paths)]
+    outside = [
+        path
+        for path in changed_files
+        if allowed_paths and not any(policy_matches(path, item) for item in allowed_paths)
+    ]
+    if protected or outside:
+        details = {"protected": protected, "outside_allowed_paths": outside}
+        raise RuntimeError(f"generic implementation path policy violation: {json.dumps(details, sort_keys=True)}")
+
+
+def normalize_generic_envelope(envelope: dict[str, Any], task_id: str, default_repo: str) -> dict[str, Any]:
+    model_policy = dict_field(envelope.get("model_policy"))
+    return {
+        **envelope,
+        "kind": GENERIC_IMPLEMENTATION_KIND,
+        "task_id": task_id,
+        "root_goal_id": envelope.get("root_goal_id"),
+        "repository": envelope.get("repository") or default_repo,
+        "base_ref": envelope.get("base_ref") or "origin/main",
+        "base_commit": envelope.get("base_commit"),
+        "branch": envelope.get("branch") or f"agent/{task_id}/generic-implementation",
+        "objective": envelope.get("objective") or "",
+        "allowed_paths": safe_path_items("allowed_paths", envelope.get("allowed_paths")),
+        "protected_paths": safe_path_items("protected_paths", envelope.get("protected_paths")),
+        "required_tests": list_field(envelope.get("required_tests")),
+        "acceptance_criteria": [str(item) for item in list_field(envelope.get("acceptance_criteria"))],
+        "model_policy": model_policy,
+        "limits": dict_field(envelope.get("limits")),
+        "idempotency_key": envelope.get("idempotency_key") or task_id,
+    }
+
+
+def build_generic_prompt(envelope: dict[str, Any]) -> str:
+    prompt_envelope = dict(envelope)
+    prompt_envelope["repository"] = redact_arg(str(prompt_envelope.get("repository") or ""))
+    return (
+        "You are running a Kolibri generic implementation task on the remote Primary server.\n"
+        "Use only the checked-out repository. Do not print secrets, tokens, or this prompt.\n"
+        "Respect allowed_paths and protected_paths. Run the required tests before finishing.\n"
+        "Task envelope JSON:\n"
+        f"{json.dumps(prompt_envelope, ensure_ascii=False, indent=2, sort_keys=True)}\n"
+    )
+
+
+def build_generic_model_invocation(envelope: dict[str, Any]) -> tuple[list[str], str, str]:
+    model_policy = dict_field(envelope.get("model_policy"))
+    runner = str(model_policy.get("runner") or model_policy.get("provider") or "codex").lower()
+    executable = model_policy.get("executable") or shutil.which(runner)
+    if not executable:
+        raise RuntimeError(f"{runner} executable is not available on this node")
+    task_id = envelope.get("task_id") or "generic-implementation"
+    if runner == "mimo":
+        command = [str(executable), "run", "--format", "json", "--title", f"generic-{task_id}", "-"]
+    else:
+        command = [str(executable), "exec", "--skip-git-repo-check", "--sandbox", "danger-full-access", "-"]
+        runner = "codex"
+    return command, build_generic_prompt(envelope), runner
+
+
+def normalize_test_command(test: Any) -> list[str]:
+    if isinstance(test, dict):
+        test = test.get("command")
+    if isinstance(test, list):
+        return [str(part) for part in test]
+    if isinstance(test, str):
+        return shlex.split(test)
+    raise RuntimeError(f"unsupported required_tests entry: {test!r}")
+
+
+def git_changed_files(worktree: Path) -> list[str]:
+    tracked = subprocess.check_output(["git", "diff", "--name-only", "HEAD"], cwd=str(worktree), text=True).splitlines()
+    untracked = subprocess.check_output(
+        ["git", "ls-files", "--others", "--exclude-standard"],
+        cwd=str(worktree),
+        text=True,
+    ).splitlines()
+    return sorted({path for path in tracked + untracked if path})
 
 
 class AgentHost:
@@ -140,25 +293,77 @@ class AgentHost:
         branch: str | None,
         logs: dict[str, str],
         env: dict[str, str] | None = None,
+        timeout_seconds: int | None = None,
     ) -> None:
         merged_env = os.environ.copy()
         if env:
             merged_env.update(env)
         with stdout_path.open("ab") as stdout, stderr_path.open("ab") as stderr:
-            stdout.write(f"\n$ {' '.join(command)}\n".encode("utf-8"))
+            stdout.write(f"\n$ {display_command(command)}\n".encode("utf-8"))
             stdout.flush()
             proc = subprocess.Popen(command, cwd=str(cwd), stdout=stdout, stderr=stderr, env=merged_env)
             last_refresh = 0.0
+            deadline = time.time() + timeout_seconds if timeout_seconds else None
             while proc.poll() is None:
                 if STOP:
                     proc.terminate()
                     raise RuntimeError("agent host received SIGTERM")
+                if deadline and time.time() >= deadline:
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                    raise RuntimeError(f"command timed out after {timeout_seconds}s: {display_command(command)}")
                 if time.time() - last_refresh >= self.lease_refresh:
                     self.task_heartbeat(task, cwd, branch, logs, proc.pid)
                     last_refresh = time.time()
                 time.sleep(2)
             if proc.returncode != 0:
-                raise RuntimeError(f"command failed with rc={proc.returncode}: {' '.join(command)}")
+                raise RuntimeError(f"command failed with rc={proc.returncode}: {display_command(command)}")
+
+    def run_command_input(
+        self,
+        command: list[str],
+        stdin_text: str,
+        cwd: Path,
+        stdout_path: Path,
+        stderr_path: Path,
+        task: dict[str, Any],
+        branch: str | None,
+        logs: dict[str, str],
+        env: dict[str, str] | None = None,
+        timeout_seconds: int | None = None,
+    ) -> None:
+        merged_env = os.environ.copy()
+        if env:
+            merged_env.update(env)
+        with stdout_path.open("ab") as stdout, stderr_path.open("ab") as stderr:
+            stdout.write(f"\n$ {display_command(command)} < stdin\n".encode("utf-8"))
+            stdout.flush()
+            proc = subprocess.Popen(command, cwd=str(cwd), stdin=subprocess.PIPE, stdout=stdout, stderr=stderr, env=merged_env)
+            if proc.stdin:
+                proc.stdin.write(stdin_text.encode("utf-8"))
+                proc.stdin.close()
+            last_refresh = 0.0
+            deadline = time.time() + timeout_seconds if timeout_seconds else None
+            while proc.poll() is None:
+                if STOP:
+                    proc.terminate()
+                    raise RuntimeError("agent host received SIGTERM")
+                if deadline and time.time() >= deadline:
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                    raise RuntimeError(f"command timed out after {timeout_seconds}s: {display_command(command)}")
+                if time.time() - last_refresh >= self.lease_refresh:
+                    self.task_heartbeat(task, cwd, branch, logs, proc.pid)
+                    last_refresh = time.time()
+                time.sleep(2)
+            if proc.returncode != 0:
+                raise RuntimeError(f"command failed with rc={proc.returncode}: {display_command(command)}")
 
     def write_result(self, artifact_dir: Path, result: dict[str, Any]) -> Path:
         result_path = artifact_dir / "result.json"
@@ -586,6 +791,96 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
         result["result_path"] = str(result_path)
         return result
 
+    def run_generic_implementation(self, task: dict[str, Any]) -> dict[str, Any]:
+        envelope = normalize_generic_envelope(task.get("envelope", {}), task["task_id"], self.repo_url)
+        if not str(envelope.get("objective") or "").strip():
+            raise RuntimeError("generic implementation task missing objective")
+        branch = envelope["branch"]
+        base_ref = envelope["base_ref"]
+        base_commit = envelope.get("base_commit")
+        repository = envelope["repository"]
+        allowed_paths, protected_paths = normalize_path_policy(envelope)
+        limits = envelope.get("limits") or {}
+        command_timeout = int(limits.get("command_timeout_seconds") or 900)
+        model_timeout = int(limits.get("model_timeout_seconds") or 3600)
+        test_timeout = int(limits.get("test_timeout_seconds") or command_timeout)
+
+        worktree, artifact_dir, logs = self.prepare_dirs(task)
+        worktree.parent.mkdir(parents=True, exist_ok=True)
+        stdout_path = Path(logs["stdout"])
+        stderr_path = Path(logs["stderr"])
+        self.task_heartbeat(task, worktree, branch, logs)
+
+        git_env = {"GIT_TERMINAL_PROMPT": "0"}
+        self.run_command(["git", "clone", repository, str(worktree)], worktree.parent, stdout_path, stderr_path, task, branch, logs, git_env, command_timeout)
+        self.run_command(["git", "fetch", "origin"], worktree, stdout_path, stderr_path, task, branch, logs, git_env, command_timeout)
+        checkout_target = str(base_commit or base_ref)
+        self.run_command(["git", "checkout", "-B", branch, checkout_target], worktree, stdout_path, stderr_path, task, branch, logs, git_env, command_timeout)
+        if base_commit:
+            checked_out = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(worktree), text=True).strip()
+            if checked_out != base_commit:
+                raise RuntimeError(f"base_commit mismatch: expected {base_commit}, checked out {checked_out}")
+        self.run_command(["git", "config", "user.name", "Kolibri Factory Agent"], worktree, stdout_path, stderr_path, task, branch, logs, timeout_seconds=command_timeout)
+        self.run_command(["git", "config", "user.email", "factory-agent@users.noreply.github.com"], worktree, stdout_path, stderr_path, task, branch, logs, timeout_seconds=command_timeout)
+
+        model_command, prompt, model_runner = build_generic_model_invocation(envelope)
+        self.run_command_input(model_command, prompt, worktree, stdout_path, stderr_path, task, branch, logs, timeout_seconds=model_timeout)
+
+        changed_files = git_changed_files(worktree)
+        if not changed_files:
+            raise RuntimeError("generic implementation produced no changes")
+        validate_changed_paths(changed_files, allowed_paths, protected_paths)
+
+        checks = []
+        for required_test in envelope.get("required_tests", []):
+            test_command = normalize_test_command(required_test)
+            if not test_command:
+                continue
+            self.run_command(test_command, worktree, stdout_path, stderr_path, task, branch, logs, timeout_seconds=test_timeout)
+            checks.append(display_command(test_command))
+
+        changed_files = git_changed_files(worktree)
+        validate_changed_paths(changed_files, allowed_paths, protected_paths)
+        self.run_command(["git", "add", "--", *changed_files], worktree, stdout_path, stderr_path, task, branch, logs, timeout_seconds=command_timeout)
+        self.run_command(["git", "commit", "-m", f"factory: generic implementation {task['task_id']}"], worktree, stdout_path, stderr_path, task, branch, logs, timeout_seconds=command_timeout)
+        commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(worktree), text=True).strip()
+
+        push_blocker = None
+        try:
+            self.run_command(["git", "push", "-u", "origin", branch], worktree, stdout_path, stderr_path, task, branch, logs, git_env, command_timeout)
+        except Exception as exc:
+            push_blocker = str(exc)
+
+        result = {
+            "node_id": self.node_id,
+            "hostname": self.hostname,
+            "task_id": task["task_id"],
+            "root_goal_id": envelope.get("root_goal_id"),
+            "agent_id": self.agent_id,
+            "attempt_id": task.get("attempt_id"),
+            "pid": self.pid,
+            "heartbeat_at": utc_now(),
+            "worktree": str(worktree),
+            "branch": branch,
+            "base_ref": base_ref,
+            "base_commit": base_commit,
+            "commit": commit,
+            "pull_request_url": None,
+            "needs_central_pr": push_blocker is None,
+            "push_blocker": push_blocker,
+            "log_paths": logs,
+            "result_path": str(artifact_dir / "result.json"),
+            "status": "blocked" if push_blocker else "completed",
+            "kind": GENERIC_IMPLEMENTATION_KIND,
+            "model_runner": model_runner,
+            "changed_files": changed_files,
+            "checks": checks,
+            "acceptance_criteria": envelope.get("acceptance_criteria", []),
+        }
+        result_path = self.write_result(artifact_dir, result)
+        result["result_path"] = str(result_path)
+        return result
+
     def run_review_pr(self, task: dict[str, Any]) -> dict[str, Any]:
         envelope = task.get("envelope", {})
         branch = envelope.get("branch")
@@ -656,6 +951,8 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 result = self.run_impl_factory_smoke(task)
             elif kind == "impl_retry_error_clearance":
                 result = self.run_impl_retry_error_clearance(task)
+            elif kind == GENERIC_IMPLEMENTATION_KIND:
+                result = self.run_generic_implementation(task)
             elif kind in {"telegram_chat_response", "orchestrator_chat_response"}:
                 result = self.run_telegram_chat_response(task)
             elif kind == "review_pr":
