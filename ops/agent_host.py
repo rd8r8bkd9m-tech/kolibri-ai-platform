@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
+import mimetypes
 import os
 import platform
 import shutil
@@ -21,6 +23,7 @@ from typing import Any
 
 
 STOP = False
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 
 
 def utc_now() -> str:
@@ -69,7 +72,11 @@ def sha256_file(path: Path) -> str:
 
 class AgentHost:
     def __init__(self, args: argparse.Namespace):
-        self.control_url = args.control_url.rstrip("/")
+        control_urls_arg = getattr(args, "control_urls", None) or args.control_url
+        self.control_urls = [url.strip().rstrip("/") for url in control_urls_arg.split(",") if url.strip()]
+        if not self.control_urls:
+            self.control_urls = [args.control_url.rstrip("/")]
+        self.control_url = self.control_urls[0]
         self.node_id = args.node_id
         self.agent_id = args.agent_id or f"{args.node_id}-agent-host"
         self.capabilities = [item for item in args.capabilities.split(",") if item]
@@ -85,10 +92,27 @@ class AgentHost:
         self.artifact_root.mkdir(parents=True, exist_ok=True)
 
     def post(self, path: str, body: dict[str, Any]) -> Any:
-        return request("POST", f"{self.control_url}{path}", body)
+        return self._request_with_failover("POST", path, body)
 
     def get(self, path: str) -> Any:
-        return request("GET", f"{self.control_url}{path}")
+        return self._request_with_failover("GET", path)
+
+    def _ordered_control_urls(self) -> list[str]:
+        urls = [self.control_url]
+        urls.extend(url for url in self.control_urls if url != self.control_url)
+        return urls
+
+    def _request_with_failover(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
+        last_exc: Exception | None = None
+        for control_url in self._ordered_control_urls():
+            try:
+                result = request(method, f"{control_url}{path}", body)
+                self.control_url = control_url
+                return result
+            except Exception as exc:
+                last_exc = exc
+        assert last_exc is not None
+        raise last_exc
 
     def register(self) -> None:
         body = {
@@ -291,6 +315,135 @@ class AgentHost:
             "kind": envelope.get("kind", "orchestrator_chat_response"),
             "response": response_text,
         }
+        result_path = self.write_result(artifact_dir, result)
+        result["result_path"] = str(result_path)
+        return result
+
+    def generated_image_path(self, artifact_dir: Path, preferred: Path) -> Path:
+        if preferred.exists() and preferred.is_file():
+            return preferred
+        candidates = [path for path in sorted(artifact_dir.rglob("*")) if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS]
+        if not candidates:
+            raise RuntimeError("image generator completed without an image file")
+        return candidates[0]
+
+    def image_output_path(self, artifact_dir: Path) -> Path:
+        output_format = os.environ.get("KOLIBRI_IMAGE_OUTPUT_FORMAT", "png").strip().lower().lstrip(".")
+        if output_format == "jpeg":
+            suffix = "jpg"
+        elif output_format not in {"png", "jpg", "webp"}:
+            suffix = "png"
+        else:
+            suffix = output_format
+        return artifact_dir / f"telegram-image.{suffix}"
+
+    def image_b64_for_result(self, image_path: Path) -> str | None:
+        max_bytes = int(os.environ.get("KOLIBRI_IMAGE_RESULT_EMBED_MAX_BYTES", str(8 * 1024 * 1024)))
+        if image_path.stat().st_size > max_bytes:
+            return None
+        return base64.b64encode(image_path.read_bytes()).decode("ascii")
+
+    def run_configured_image_generator(
+        self,
+        prompt: str,
+        output_path: Path,
+        worktree: Path,
+        artifact_dir: Path,
+        stdout_path: Path,
+        stderr_path: Path,
+        task: dict[str, Any],
+        logs: dict[str, str],
+    ) -> Path:
+        command = os.environ.get("KOLIBRI_IMAGE_GENERATOR_CMD")
+        if not command:
+            return self.run_openai_image_generation(prompt, output_path)
+        env = {
+            "KOLIBRI_IMAGE_PROMPT": prompt,
+            "KOLIBRI_IMAGE_OUTPUT_DIR": str(artifact_dir),
+            "KOLIBRI_IMAGE_OUTPUT_PATH": str(output_path),
+            "KOLIBRI_IMAGE_SIZE": os.environ.get("KOLIBRI_IMAGE_SIZE", "1024x1024"),
+            "KOLIBRI_TASK_ID": task["task_id"],
+        }
+        self.run_command(["/bin/sh", "-lc", command], worktree, stdout_path, stderr_path, task, None, logs, env)
+        return self.generated_image_path(artifact_dir, output_path)
+
+    def run_openai_image_generation(self, prompt: str, output_path: Path) -> Path:
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            raise RuntimeError("image generator is not configured: set KOLIBRI_IMAGE_GENERATOR_CMD or OPENAI_API_KEY")
+        endpoint = os.environ.get("KOLIBRI_IMAGE_API_URL", "https://api.openai.com/v1/images/generations")
+        body: dict[str, Any] = {
+            "model": os.environ.get("KOLIBRI_IMAGE_MODEL", "gpt-image-1"),
+            "prompt": prompt,
+            "size": os.environ.get("KOLIBRI_IMAGE_SIZE", "1024x1024"),
+            "n": 1,
+        }
+        for env_name, field_name in (
+            ("KOLIBRI_IMAGE_QUALITY", "quality"),
+            ("KOLIBRI_IMAGE_BACKGROUND", "background"),
+            ("KOLIBRI_IMAGE_OUTPUT_FORMAT", "output_format"),
+        ):
+            value = os.environ.get(env_name)
+            if value:
+                body[field_name] = value
+        req = urllib.request.Request(
+            endpoint,
+            data=json.dumps(body).encode("utf-8"),
+            method="POST",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=int(os.environ.get("KOLIBRI_IMAGE_API_TIMEOUT", "180"))) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+        items = payload.get("data") or []
+        if not items:
+            raise RuntimeError("image API returned no images")
+        item = items[0]
+        if item.get("b64_json"):
+            output_path.write_bytes(base64.b64decode(item["b64_json"]))
+            return output_path
+        if item.get("url"):
+            with urllib.request.urlopen(item["url"], timeout=120) as image_resp:
+                output_path.write_bytes(image_resp.read())
+            return output_path
+        raise RuntimeError("image API returned no usable image payload")
+
+    def run_telegram_image_generation(self, task: dict[str, Any]) -> dict[str, Any]:
+        envelope = task.get("envelope", {})
+        prompt = (envelope.get("prompt") or envelope.get("message") or envelope.get("objective") or "").strip()
+        if not prompt:
+            raise RuntimeError("telegram image task missing prompt")
+        worktree, artifact_dir, logs = self.prepare_dirs(task)
+        worktree.mkdir(parents=True, exist_ok=True)
+        stdout_path = Path(logs["stdout"])
+        stderr_path = Path(logs["stderr"])
+        self.task_heartbeat(task, worktree, None, logs)
+        output_path = self.image_output_path(artifact_dir)
+        image_path = self.run_configured_image_generator(prompt, output_path, worktree, artifact_dir, stdout_path, stderr_path, task, logs)
+        mime_type = mimetypes.guess_type(image_path.name)[0] or "image/png"
+        caption = (envelope.get("caption") or "Готово.").strip()
+        result = {
+            "node_id": self.node_id,
+            "hostname": self.hostname,
+            "task_id": task["task_id"],
+            "agent_id": self.agent_id,
+            "attempt_id": task.get("attempt_id"),
+            "pid": self.pid,
+            "heartbeat_at": utc_now(),
+            "worktree": str(worktree),
+            "branch": None,
+            "log_paths": logs,
+            "result_path": str(artifact_dir / "result.json"),
+            "status": "completed",
+            "kind": envelope.get("kind", "telegram_image_generation"),
+            "prompt": prompt,
+            "caption": caption,
+            "response": caption,
+            "image_path": str(image_path),
+            "image_mime_type": mime_type,
+        }
+        embedded = self.image_b64_for_result(image_path)
+        if embedded:
+            result["image_b64"] = embedded
         result_path = self.write_result(artifact_dir, result)
         result["result_path"] = str(result_path)
         return result
@@ -658,6 +811,8 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 result = self.run_impl_retry_error_clearance(task)
             elif kind in {"telegram_chat_response", "orchestrator_chat_response"}:
                 result = self.run_telegram_chat_response(task)
+            elif kind == "telegram_image_generation":
+                result = self.run_telegram_image_generation(task)
             elif kind == "review_pr":
                 result = self.run_review_pr(task)
             elif kind == "read_only_probe":
@@ -693,7 +848,12 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
             if time.time() - last_node_heartbeat >= self.heartbeat_interval:
                 self.node_heartbeat()
                 last_node_heartbeat = time.time()
-            task = self.lease()
+            try:
+                task = self.lease()
+            except Exception as exc:
+                print(f"{utc_now()} lease_failed {exc}", flush=True)
+                time.sleep(5)
+                continue
             if task:
                 self.node_heartbeat(active_task=task["task_id"])
                 self.run_task(task)
@@ -710,6 +870,7 @@ def handle_stop(signum: int, frame: Any) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--control-url", default=os.environ.get("KOLIBRI_FACTORY_CONTROL_URL", "http://10.99.0.2:9101"))
+    parser.add_argument("--control-urls", default=os.environ.get("KOLIBRI_FACTORY_CONTROL_URLS") or os.environ.get("KOLIBRI_FACTORY_CONTROL_URL", "http://10.99.0.2:9101"))
     parser.add_argument("--node-id", default=os.environ.get("KOLIBRI_NODE_ID", platform.node()))
     parser.add_argument("--agent-id", default=os.environ.get("KOLIBRI_AGENT_ID"))
     parser.add_argument("--capabilities", default=os.environ.get("KOLIBRI_AGENT_CAPABILITIES", "read_only_probe"))
