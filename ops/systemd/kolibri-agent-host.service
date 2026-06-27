@@ -6,7 +6,9 @@ Wants=network-online.target
 [Service]
 Type=simple
 EnvironmentFile=/etc/kolibri-agent-host.env
-ExecStart=/usr/local/bin/kolibri-agent-host
+Environment=KOLIBRI_FACTORY_CONTROL_URLS=http://10.99.0.2:9101,http://10.99.0.10:9101,http://10.99.0.1:9101
+Environment=KOLIBRI_AI_RUNNER=codex
+ExecStart=/usr/local/bin/kolibri-agent-host --control-urls ${KOLIBRI_FACTORY_CONTROL_URLS}
 Restart=always
 RestartSec=5
 KillSignal=SIGTERM

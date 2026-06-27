@@ -23,6 +23,7 @@ def test_control_plane_states_are_declared():
     control = load_module(ROOT / "ops" / "factory_control.py")
     assert {
         control.STATE_QUEUED,
+        control.STATE_SPOOLED,
         control.STATE_LEASED,
         control.STATE_RUNNING,
         control.STATE_WAITING_REVIEW,
@@ -34,6 +35,7 @@ def test_control_plane_states_are_declared():
         control.STATE_DEAD,
     } == {
         "queued",
+        "spooled",
         "leased",
         "running",
         "waiting_review",
@@ -50,13 +52,25 @@ def test_agent_host_supports_required_task_kinds():
     agent = (ROOT / "ops" / "agent_host.py").read_text(encoding="utf-8")
     assert "impl_factory_smoke" in agent
     assert "impl_retry_error_clearance" in agent
-    assert "telegram_chat_response" in agent
-    assert "orchestrator_chat_response" in agent
+    assert "owner_remote_task" in agent
+    assert "root_goal" in agent
     assert "review_pr" in agent
     assert "read_only_probe" in agent
     memory = (ROOT / "ops" / "orchestrator_memory.py").read_text(encoding="utf-8")
     assert "last_work_request" in memory
     assert "open_expectations" in memory
+
+
+def test_agent_host_extracts_owner_visible_codex_response():
+    agent = load_module(ROOT / "ops" / "agent_host.py")
+    prompt = "Рабочая директория: /var/lib/kolibri-agent/repo\nЗадача владельца: проверить\n"
+    raw = (
+        "$ /usr/local/bin/codex exec --sandbox danger-full-access "
+        + prompt
+        + "Готово: задача выполнена без служебного вывода.\n"
+        + "task_id: TG-1\n"
+    )
+    assert agent.extract_codex_response(raw, prompt) == "Готово: задача выполнена без служебного вывода."
 
 
 

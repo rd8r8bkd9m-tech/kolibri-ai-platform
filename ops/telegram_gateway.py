@@ -4,8 +4,11 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import json
+import operator
 import os
+import re
 import signal
 import sys
 import time
@@ -64,6 +67,9 @@ TASK_INTENT_WORDS = {
     "run",
     "update",
 }
+OWNER_REMOTE_TARGET_NODE = os.environ.get("KOLIBRI_OWNER_TARGET_NODE", "primary-candidate")
+OWNER_REMOTE_PROJECT_PATH = os.environ.get("KOLIBRI_OWNER_PROJECT_PATH", "/var/lib/kolibri-agent/repo")
+OWNER_REMOTE_RUNNER = os.environ.get("KOLIBRI_OWNER_RUNNER", "codex")
 CHAT_GREETINGS = {
     "привет",
     "здравствуй",
@@ -74,31 +80,74 @@ CHAT_GREETINGS = {
     "hello",
     "hi",
 }
+TASK_TARGETS = (
+    "telegram", "телеграм", "miniapp", "миниапп", "webapp", "веб",
+    "прилож", "сайт", "сервер", "agent", "агент", "pdf", "пдф",
+    "смет", "документ", "vpn", "впн", "сеть", "primary", "примари",
+    "frontend", "backend", "фронтенд", "бэкенд",
+)
+PRIORITY_WORDS = ("p0", "p1", "срочно", "приоритет")
 TERMINAL_TASK_STATES = {"completed", "failed", "cancelled", "dead_letter"}
 OWNER_MESSAGE_FORBIDDEN_MARKERS = (
     "Ответ агента",
+    "$ /usr/local/bin/codex exec",
+    "$ codex exec",
+    "$ /usr/local/bin/mimo run",
+    "$ mimo run",
+    "codex exec",
+    "mimo run",
     "task_id",
+    "node_id",
+    "agent_id",
+    "attempt_id",
     "node:",
     "agent:",
     "artifact:",
+    "artifact",
     "worktree",
     "result_path",
+    "result_reference",
     "log_path",
+    "log_paths",
     "heartbeat",
     "pid:",
     "container",
     "stdout",
     "stderr",
+    "lease_owner",
+    "prompt",
+    "instructions",
+    "снимок фабрики json",
+    "сообщение владельца:",
+    "задача владельца:",
+    "рабочая директория:",
+    "правила:",
+    "ты — удалённый исполнитель",
     "/var/lib",
+    "/usr/local/bin",
     "/tmp/",
+    "/home/",
+    "/root/",
+    "/etc/",
     "TGCHAT-",
     "TG-202",
 )
+OWNER_SERVICE_PATH_RE = re.compile(r"(^|\s)/(?:var/lib|tmp|usr/local/bin|home|root|etc)(?:/|\s|$)")
 OWNER_RESPONSE_REPLACEMENTS = {
     "Kolibi": "Kolibri",
     "kolibi": "Kolibri",
     "Колиби": "Колибри",
     "колиби": "Колибри",
+}
+ARITHMETIC_BIN_OPS = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+}
+ARITHMETIC_UNARY_OPS = {
+    ast.UAdd: operator.pos,
+    ast.USub: operator.neg,
 }
 
 
@@ -131,31 +180,62 @@ def task_id_from_message(message: dict[str, Any]) -> str:
     return f"TG-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{message['message_id']}-{suffix}"
 
 
-def chat_task_id_from_message(message: dict[str, Any]) -> str:
-    suffix = safe_task_suffix(message.get("text", "chat"))
-    return f"TGCHAT-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{message['message_id']}-{suffix}"
+def eval_arithmetic(node: ast.AST) -> float:
+    if isinstance(node, ast.Expression):
+        return eval_arithmetic(node.body)
+    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)) and not isinstance(node.value, bool):
+        return float(node.value)
+    if isinstance(node, ast.UnaryOp) and type(node.op) in ARITHMETIC_UNARY_OPS:
+        return float(ARITHMETIC_UNARY_OPS[type(node.op)](eval_arithmetic(node.operand)))
+    if isinstance(node, ast.BinOp) and type(node.op) in ARITHMETIC_BIN_OPS:
+        left = eval_arithmetic(node.left)
+        right = eval_arithmetic(node.right)
+        if isinstance(node.op, ast.Div) and right == 0:
+            raise ValueError("division by zero")
+        return float(ARITHMETIC_BIN_OPS[type(node.op)](left, right))
+    raise ValueError("unsupported arithmetic")
+
+
+def try_simple_math_reply(text: str) -> str | None:
+    expression = text.strip().replace(",", ".")
+    if not expression or len(expression) > 80:
+        return None
+    if not re.fullmatch(r"[0-9\s+\-*/().]+", expression):
+        return None
+    if not any(op in expression for op in "+-*/"):
+        return None
+    try:
+        value = eval_arithmetic(ast.parse(expression, mode="eval"))
+    except (SyntaxError, ValueError, OverflowError):
+        return None
+    if value.is_integer():
+        return str(int(value))
+    return f"{value:.10g}"
+
+
+def classify_owner_message(text: str) -> str:
+    lowered = text.strip().lower()
+    if not lowered:
+        return "chat"
+    if try_simple_math_reply(lowered) is not None:
+        return "chat"
+    if lowered in CHAT_GREETINGS:
+        return "chat"
+    if lowered.startswith(("почему ", "зачем ", "как ", "что ", "где ", "когда ")):
+        return "chat"
+    if any(word in lowered for word in TASK_INTENT_WORDS):
+        return "task"
+    if any(word in lowered for word in PRIORITY_WORDS) and any(target in lowered for target in TASK_TARGETS):
+        return "task"
+    if "?" in lowered:
+        return "chat"
+    if any(target in lowered for target in TASK_TARGETS) and len(lowered.split()) <= 6:
+        return "task"
+    return "chat"
 
 
 def wants_factory_task(text: str) -> bool:
-    lowered = text.strip().lower()
-    if not lowered:
-        return False
-    if lowered in CHAT_GREETINGS:
-        return False
-    if any(word in lowered for word in TASK_INTENT_WORDS):
-        return True
-    task_targets = (
-        "telegram", "телеграм", "miniapp", "миниапп", "webapp", "веб",
-        "прилож", "сайт", "сервер", "agent", "агент", "pdf", "пдф",
-        "смет", "документ", "vpn", "впн", "сеть", "primary", "примари",
-        "frontend", "backend", "фронтенд", "бэкенд",
-    )
-    priority_words = ("p0", "p1", "срочно", "приоритет")
-    if any(word in lowered for word in priority_words) and any(target in lowered for target in task_targets):
-        return True
-    if "?" in lowered:
-        return False
-    return any(target in lowered for target in task_targets) and len(lowered.split()) <= 6
+    return classify_owner_message(text) == "task"
 
 def json_request(method: str, url: str, body: dict[str, Any] | None = None, timeout: int = 35) -> Any:
     data = None
@@ -273,42 +353,17 @@ def compact_factory_snapshot(factory: FactoryClient) -> dict[str, Any]:
 
 def build_task_envelope(message: dict[str, Any], text: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
     task_id = task_id_from_message(message)
-    branch_slug = safe_task_suffix(text)
     return {
         "task_id": task_id,
         "idempotency_key": f"telegram:{message['chat']['id']}:{message['message_id']}",
-        "kind": "impl_retry_error_clearance",
-        "target_node": "9fts",
+        "kind": "owner_remote_task",
+        "target_node": OWNER_REMOTE_TARGET_NODE,
         "required_capability": "implementation",
-        "review_node": "new",
-        "create_review_on_complete": True,
-        "branch": f"agent/{task_id}/impl/{branch_slug}",
-        "base_branch": "main",
-        "base_ref": "origin/main",
-        "max_retries": 3,
+        "runner": OWNER_REMOTE_RUNNER,
+        "project_path": OWNER_REMOTE_PROJECT_PATH,
+        "max_retries": 1,
         "objective": text,
         "conversation_context": context or {},
-        "source": {
-            "kind": "telegram",
-            "message_id": message["message_id"],
-            "chat_id": message["chat"]["id"],
-            "user_id": message["from"]["id"],
-            "accepted_at": utc_now(),
-        },
-    }
-
-
-def build_chat_envelope(message: dict[str, Any], text: str, snapshot: dict[str, Any] | None = None) -> dict[str, Any]:
-    task_id = chat_task_id_from_message(message)
-    return {
-        "task_id": task_id,
-        "idempotency_key": f"telegram-chat:{message['chat']['id']}:{message['message_id']}",
-        "kind": "orchestrator_chat_response",
-        "target_node": "9fts",
-        "required_capability": "implementation",
-        "max_retries": 1,
-        "message": text,
-        "factory_snapshot": snapshot or {},
         "source": {
             "kind": "telegram",
             "message_id": message["message_id"],
@@ -426,18 +481,27 @@ def build_realtime_owner_reply(text: str, snapshot: dict[str, Any]) -> str:
     lowered = text.lower().strip()
     last = memory.get("last_work_request") or {}
     last_text = (last.get("text") or "").strip()
-    last_state_text = describe_task_state(last.get("state"))
+    last_state = last.get("state")
+    last_state_text = describe_task_state(last_state)
     url = first_known_url(memory)
     public_main_url = url or "http://104.253.43.117/"
     status = _status_sentence(snapshot)
     active = _active_sentence(snapshot)
+    math_reply = try_simple_math_reply(text)
 
-    calculation = _try_simple_calculation(text)
-    if calculation:
-        return calculation
+    if math_reply is not None:
+        return math_reply
 
-    if lowered in CHAT_GREETINGS or has_any(text, ("как дела", "как ты", "ты тут", "на связи")):
-        return f"Привет. Я здесь. {status} Можем спокойно говорить или сразу ставить задачу."
+    if lowered in CHAT_GREETINGS:
+        return "Привет. Что разбираем?"
+
+    if has_any(text, ("почему", "не получилось", "сломалось", "ошибка", "упало", "сбой")):
+        if last_text:
+            return f"По последней задаче: {last_text}. Сейчас она {last_state_text}. Если причина уже есть в результате, пришлю её без служебных логов."
+        return "Пока не вижу последнюю рабочую задачу в памяти. Могу разобрать причину, если напишешь, что именно не получилось."
+
+    if has_any(text, ("как дела", "как ты", "ты тут", "на связи")):
+        return f"Я здесь. {status} Можем спокойно говорить или сразу ставить задачу."
 
     if has_any(text, ("как зовут", "кто ты", "как тебя", "твое имя", "твоё имя")):
         return "Я Директор Колибри. Можно просто «Колибри» или «директор». Я принимаю сообщения, держу контекст и сам раздаю работу исполнителям."
@@ -450,6 +514,8 @@ def build_realtime_owner_reply(text: str, snapshot: dict[str, Any]) -> str:
         return f"Рабочая публичная точка на main сейчас: {public_main_url}. {domain_note}"
 
     if has_any(text, ("дев сервер", "dev server", "веб приложение", "веб-приложение", "миниапп", "приложение запущ", "backend", "бэкенд")):
+        if url and last_state == "completed":
+            return f"Да, запущено. Веб-приложение доступно здесь: {url}"
         return f"По приложению: на main отдаётся публичная сборка {public_main_url}. Бэкенд проверяю через health, а домен kolibriai.ru ещё надо переключить с Home на правильный gateway."
 
     if has_any(text, ("отчет", "отчёт", "статус", "что сделал", "что сделано", "что в работе", "какие задачи", "не завис", "монитор", "кто делает", "что выполня")):
@@ -467,7 +533,7 @@ def build_realtime_owner_reply(text: str, snapshot: dict[str, Any]) -> str:
             return f"Отвечаю сразу: {status} По последней задаче: {last_text}; статус — {last_state_text}."
         return f"Отвечаю сразу: {status}"
 
-    return f"Я понял. {status} Если это задача, я оформлю её и передам исполнителю; если это разговор — отвечаю здесь сразу."
+    return f"Вижу. {status} В очередь это не ставлю: похоже на разговор, а не на рабочую команду."
 
 def help_text() -> str:
     return (
@@ -536,7 +602,7 @@ class Gateway:
 
     def submit_text_task(self, message: dict[str, Any], text: str) -> None:
         chat_id = message["chat"]["id"]
-        reply = "Взял как задачу. Передаю Инженеру, Ревьюер подключится после результата. Я остаюсь здесь и могу отвечать дальше."
+        reply = "Взял как задачу. Передаю на Primary Codex через Control Plane и вернусь с результатом."
         self.telegram.send_message(chat_id, reply)
         self.remember_orchestrator_message(reply)
         envelope = build_task_envelope(message, text, self.conversation_snapshot())
@@ -688,6 +754,10 @@ def clean_agent_response(text: str | None) -> str:
         lowered = stripped.lower()
         if any(marker.lower() in lowered for marker in OWNER_MESSAGE_FORBIDDEN_MARKERS):
             continue
+        if stripped.startswith("- "):
+            continue
+        if OWNER_SERVICE_PATH_RE.search(stripped):
+            continue
         if stripped:
             lines.append(stripped)
     cleaned = "\n".join(lines).strip()
@@ -702,6 +772,8 @@ def format_transition(label: str, task: dict[str, Any], mode: str = "task") -> s
         return clean_agent_response(result.get("response"))
     if mode == "chat" and label == "FAILED":
         return "Сейчас не смог подготовить ответ. Я зафиксировал сбой и продолжу восстановление."
+    if mode == "task" and label == "COMPLETED" and result.get("response"):
+        return clean_agent_response(result.get("response"))
     return format_task_status(task)
 
 
