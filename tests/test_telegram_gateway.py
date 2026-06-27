@@ -107,6 +107,59 @@ def test_task_transition_is_human_readable_without_internal_metadata():
         assert forbidden not in message
 
 
+def test_owner_remote_task_completion_returns_clean_url_result():
+    gateway = load_gateway()
+    task = {
+        "state": "completed",
+        "envelope": {"kind": "owner_remote_task"},
+        "result": {
+            "response": (
+                "Проект запущен.\n"
+                "Frontend: `http://178.207.11.90:8180`\n"
+                "Backend API: `http://178.207.11.90:8000/docs`\n"
+                "Секреты: JWT_SECRET_KEY и TELEGRAM_BOT_TOKEN доступны.\n"
+                "result_path: /var/lib/kolibri-agent/result.json\n"
+                "PostgreSQL Healthy"
+            )
+        },
+    }
+    message = gateway.format_task_status(task)
+    assert "http://178.207.11.90:8180" in message
+    assert "http://178.207.11.90:8000/docs" in message
+    assert "Проверки живые" in message
+    for forbidden in ["SECRET", "TOKEN", "result_path", "/var/lib"]:
+        assert forbidden not in message
+
+
+def test_gateway_auto_tracks_fresh_owner_tasks_for_common_chat(tmp_path):
+    gateway = load_gateway()
+
+    class Telegram:
+        def send_message(self, chat_id, text):
+            pass
+
+    class Factory:
+        def get_tasks(self):
+            return {
+                "tasks": [
+                    {
+                        "task_id": "KOL-OWNER-1",
+                        "state": "running",
+                        "created_at": "2026-06-27T09:10:54+00:00",
+                        "envelope": {"kind": "owner_remote_task"},
+                    }
+                ]
+            }
+
+    state = gateway.StateStore(tmp_path / "state.json")
+    state.data["owner_chat_id"] = 100
+    state.data["common_chat_since"] = "2026-06-27T09:00:00+00:00"
+    app = gateway.Gateway(Telegram(), Factory(), {100}, state, 1)
+    app.auto_track_owner_tasks()
+    assert state.data["tracked"]["KOL-OWNER-1"]["chat_id"] == 100
+    assert state.data["tracked"]["KOL-OWNER-1"]["last_state"] == "WATCHING"
+
+
 def test_orchestrator_chat_envelope_carries_factory_snapshot():
     gateway = load_gateway()
     message = {

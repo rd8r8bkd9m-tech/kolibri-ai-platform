@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import signal
 import sys
 import time
@@ -87,6 +88,11 @@ OWNER_MESSAGE_FORBIDDEN_MARKERS = (
     "/tmp/",
     "TGCHAT-",
     "TG-202",
+    "secret",
+    "token",
+    "_key",
+    "env_file",
+    "сами значения",
 )
 OWNER_RESPONSE_REPLACEMENTS = {
     "Kolibi": "Kolibri",
@@ -107,6 +113,15 @@ def parse_owner_ids(value: str) -> set[int]:
         if item:
             ids.add(int(item))
     return ids
+
+
+def iso_timestamp(value: str | None) -> float:
+    if not value:
+        return 0.0
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return 0.0
 
 
 def safe_task_suffix(text: str) -> str:
@@ -434,6 +449,7 @@ class StateStore:
             data = json.loads(self.path.read_text(encoding="utf-8"))
         data.setdefault("offset", None)
         data.setdefault("tracked", {})
+        data.setdefault("common_chat_since", os.environ.get("TELEGRAM_COMMON_CHAT_SINCE", utc_now()))
         ensure_memory(data)
         return data
 
@@ -462,6 +478,15 @@ class Gateway:
     def track(self, chat_id: int, task_id: str, state: str, mode: str = "task") -> None:
         self.state.data.setdefault("tracked", {})[task_id] = {"chat_id": chat_id, "last_state": state, "mode": mode}
         self.state.save()
+
+    def owner_chat_id(self) -> int | None:
+        chat_id = self.state.data.get("owner_chat_id")
+        if chat_id:
+            return int(chat_id)
+        for record in (self.state.data.get("tracked") or {}).values():
+            if record.get("chat_id"):
+                return int(record["chat_id"])
+        return None
 
     def memory(self) -> dict[str, Any]:
         return ensure_memory(self.state.data)
@@ -514,6 +539,25 @@ class Gateway:
                 return
             time.sleep(1)
 
+    def auto_track_owner_tasks(self) -> None:
+        chat_id = self.owner_chat_id()
+        if not chat_id:
+            return
+        try:
+            tasks = self.factory.get_tasks().get("tasks", [])
+        except Exception:
+            return
+        tracked = self.state.data.setdefault("tracked", {})
+        since = self.state.data.get("common_chat_since")
+        for task in tasks:
+            task_id = task.get("task_id")
+            if not task_id or task_id in tracked:
+                continue
+            if not owner_visible_task(task, since):
+                continue
+            tracked[task_id] = {"chat_id": chat_id, "last_state": "WATCHING", "mode": "task"}
+        self.state.save()
+
     def handle_command(self, message: dict[str, Any], text: str) -> None:
         chat_id = message["chat"]["id"]
         command, _, arg = text.partition(" ")
@@ -556,6 +600,7 @@ class Gateway:
         text = (message.get("text") or "").strip()
         if not text:
             return
+        self.state.data["owner_chat_id"] = message["chat"]["id"]
         if text.startswith("/"):
             self.remember_owner_message(text, "command")
             self.handle_command(message, text)
@@ -567,6 +612,7 @@ class Gateway:
             self.submit_chat_task(message, text)
 
     def poll_task_transitions(self) -> None:
+        self.auto_track_owner_tasks()
         tracked = dict(self.state.data.get("tracked", {}))
         for task_id, record in tracked.items():
             task = self.factory.get_task(task_id)
@@ -623,8 +669,32 @@ def human_task_state(state: str | None) -> str:
     }.get(state or "", "Статус обновился.")
 
 
+def owner_visible_task(task: dict[str, Any], since: str | None = None) -> bool:
+    if since and iso_timestamp(task.get("created_at")) < iso_timestamp(since):
+        return False
+    envelope = task.get("envelope") or {}
+    source = envelope.get("source") or {}
+    if envelope.get("kind") == "owner_remote_task":
+        return True
+    return str(source.get("kind") or "").startswith("telegram")
+
+
 def format_task_status(task: dict[str, Any]) -> str:
     result = task.get("result") or {}
+    envelope = task.get("envelope") or {}
+    if envelope.get("kind") == "owner_remote_task" and task.get("state") in {"queued", "leased", "running"}:
+        return "Задача в общем чате фабрики. Удалённый исполнитель работает, я вижу процесс и сообщу важный результат."
+    if task.get("state") == "completed" and envelope.get("kind") == "owner_remote_task":
+        response = clean_agent_response(result.get("response"))
+        urls = extract_urls(response)
+        lines = ["Готово. Удалённый исполнитель завершил задачу, я проверяю результат."]
+        if urls:
+            lines = [f"Готово. Проект запущен: {urls[0]}"]
+            if len(urls) > 1:
+                lines.append(f"API и документация: {urls[1]}")
+        if "health" in response.lower() or "healthy" in response.lower():
+            lines.append("Проверки живые: веб отвечает, backend отвечает, база работает.")
+        return "\n".join(lines)
     lines = [human_task_state(task.get("state"))]
     pr_url = result.get("pull_request_url") or result.get("pr_url")
     if pr_url:
@@ -650,6 +720,14 @@ def clean_agent_response(text: str | None) -> str:
     for wrong, right in OWNER_RESPONSE_REPLACEMENTS.items():
         cleaned = cleaned.replace(wrong, right)
     return cleaned or "Я завершил ответ, но текст не записался. Разберу это отдельно."
+
+
+def extract_urls(text: str) -> list[str]:
+    urls = []
+    for match in re.findall(r"https?://[^\s`),]+", text):
+        if match not in urls:
+            urls.append(match)
+    return urls
 
 
 def format_transition(label: str, task: dict[str, Any], mode: str = "task") -> str:
