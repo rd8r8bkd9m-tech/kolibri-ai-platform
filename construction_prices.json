@@ -1,0 +1,996 @@
+[
+  {
+    "name": "Штукатурка гипсовая для внутр.работ KNAUF Ротбанд универс. 5кг",
+    "price": 255,
+    "unit": "шт",
+    "code": "1001172682",
+    "category": "shtukaturka-gipsovaya"
+  },
+  {
+    "name": "Штукатурка гипсовая для внутр.работ FORMAN 10 пластичная ручн. 5кг",
+    "price": 181,
+    "unit": "шт",
+    "code": "1001089366",
+    "category": "shtukaturka-gipsovaya"
+  },
+  {
+    "name": "Штукатурка гипсовая BERGAUF Bau Putz Gips трещиностойкая 30 кг",
+    "price": 580,
+    "unit": "шт",
+    "code": "1001581637",
+    "category": "shtukaturka-gipsovaya"
+  },
+  {
+    "name": "Штукатурка гипсовая ВОЛМА Слой 30кг",
+    "price": 549,
+    "unit": "шт",
+    "code": "1000720861",
+    "category": "shtukaturka-gipsovaya"
+  },
+  {
+    "name": "Штукатурка гипсовая ВОЛМА Гипс-Актив Экстра для машинного нанесения 30 кг",
+    "price": 589,
+    "unit": "шт",
+    "code": "1001556495",
+    "category": "shtukaturka-gipsovaya"
+  },
+  {
+    "name": "Штукатурка гипсовая для внутр.работ КРЕПС ГШ белая ручн. машинн. 30кг",
+    "price": 508,
+    "unit": "шт",
+    "code": "1001507009",
+    "category": "shtukaturka-gipsovaya"
+  },
+  {
+    "name": "Штукатурка гипсовая для внутр.работ FORMAN 10 пластичная ручн. 30кг",
+    "price": 579,
+    "unit": "шт",
+    "code": "1001259399",
+    "category": "shtukaturka-gipsovaya"
+  },
+  {
+    "name": "Штукатурка гипсовая для внутр.работ KNAUF Ротбанд универс. 10кг",
+    "price": 390,
+    "unit": "шт",
+    "code": "9011800179",
+    "category": "shtukaturka-gipsovaya"
+  },
+  {
+    "name": "Штукатурка гипсовая для внутр.работ KNAUF Ротбанд универс. ручн. 30кг",
+    "price": 700,
+    "unit": "шт",
+    "code": "9011800178",
+    "category": "shtukaturka-gipsovaya"
+  },
+  {
+    "name": "Штукатурка гипсовая для внутр.работ KNAUF МП-75 машинн. универс. 30кг",
+    "price": 646,
+    "unit": "шт",
+    "code": "1000920967",
+    "category": "shtukaturka-gipsovaya"
+  },
+  {
+    "name": "Штукатурка цементная PLITONIT T1+ (МаксиСлой) 25кг",
+    "price": 422,
+    "unit": "шт",
+    "code": "1001584396",
+    "category": "shtukaturka-tsementnaya"
+  },
+  {
+    "name": "Штукатурка цементная 2в1 шпатлевка ремонтная ЦЕРЕЗИТ CT 29 5кг",
+    "price": 322,
+    "unit": "шт",
+    "code": "1001188691",
+    "category": "shtukaturka-tsementnaya"
+  },
+  {
+    "name": "Штукатурка цементная BERGAUF Bau Putz Zement для внутренних и наружных работ 25кг",
+    "price": 428,
+    "unit": "шт",
+    "code": "1001581638",
+    "category": "shtukaturka-tsementnaya"
+  },
+  {
+    "name": "Штукатурка цементная для внутр. и наруж.работ КРЕПС Экстра-Лайт универс. 25кг",
+    "price": 481,
+    "unit": "шт",
+    "code": "1001079420",
+    "category": "shtukaturka-tsementnaya"
+  },
+  {
+    "name": "Штукатурка цементная для наруж.работ ОСНОВИТ Техно PC21 M трещиностойкая 25кг",
+    "price": 606,
+    "unit": "шт",
+    "code": "1001324171",
+    "category": "shtukaturka-tsementnaya"
+  },
+  {
+    "name": "Штукатурка цементная для внутр. и наруж.работ KNAUF Unterputz 25кг",
+    "price": 479,
+    "unit": "шт",
+    "code": "1000308887",
+    "category": "shtukaturka-tsementnaya"
+  },
+  {
+    "name": "Штукатурка цементная для внутр. и наруж.работ VETONIT TT40 универс. 25кг",
+    "price": 619,
+    "unit": "шт",
+    "code": "1001194144",
+    "category": "shtukaturka-tsementnaya"
+  },
+  {
+    "name": "Штукатурка цементная для внутр. и наруж.работ КРЕПС ЦШ ручн. машинн. 25кг",
+    "price": 485,
+    "unit": "шт",
+    "code": "1000970897",
+    "category": "shtukaturka-tsementnaya"
+  },
+  {
+    "name": "Шпатлевка-замазка для заделки швов по монтажной пене Flastic 1,4 кг, арт. 083-1",
+    "price": 440,
+    "unit": "шт",
+    "code": "1001611352",
+    "category": "shpatlevki-gotovye"
+  },
+  {
+    "name": "Шпатлевка-замазка для заделки глубоких выбоин и трещин Plastix 1,4 кг, арт. 082-1",
+    "price": 479,
+    "unit": "шт",
+    "code": "1001611351",
+    "category": "shpatlevki-gotovye"
+  },
+  {
+    "name": "Шпатлевка готовая финишная DANOGIPS SuperFinish 17л/28кг, арт.ODA96",
+    "price": 2808,
+    "unit": "шт",
+    "code": "1001610157",
+    "category": "shpatlevki-gotovye"
+  },
+  {
+    "name": "Шпатлевка акриловая ЛАКРА фасадная атмосферостойкая 1,5кг, арт.9593091",
+    "price": 299,
+    "unit": "шт",
+    "code": "1001588746",
+    "category": "shpatlevki-gotovye"
+  },
+  {
+    "name": "Шпатлевка акриловая ЛАКРА универсальная для внутренних и наружных работ 3кг, арт.0008034",
+    "price": 515,
+    "unit": "шт",
+    "code": "1001481418",
+    "category": "shpatlevki-gotovye"
+  },
+  {
+    "name": "Шпатлевка акриловая ЛАКРА универсальная для внутренних и наружных работ 1,5кг, арт.0008033",
+    "price": 241,
+    "unit": "шт",
+    "code": "1001481417",
+    "category": "shpatlevki-gotovye"
+  },
+  {
+    "name": "Шпатлевка готовая VGT для заделки трещин 0,33кг, арт.ЭК000137631",
+    "price": 159,
+    "unit": "шт",
+    "code": "1001364046",
+    "category": "shpatlevki-gotovye"
+  },
+  {
+    "name": "Шпатлевка акриловая PARADE Professional S21 финишная супербелая 1,5кг, арт.0006169",
+    "price": 349,
+    "unit": "шт",
+    "code": "1001329135",
+    "category": "shpatlevki-gotovye"
+  },
+  {
+    "name": "Шпатлевка акриловая PARADE Professional S20 базовая 1,5кг, арт.0006167",
+    "price": 323,
+    "unit": "шт",
+    "code": "1001329134",
+    "category": "shpatlevki-gotovye"
+  },
+  {
+    "name": "Шпаклевка готовая KNAUF Ротбанд Паста Профи 5кг, арт.тов-156117",
+    "price": 763,
+    "unit": "шт",
+    "code": "1001083672",
+    "category": "shpatlevki-gotovye"
+  },
+  {
+    "name": "Шпатлевка готовая NEOMID безусадочная 1,4кг, арт.Н-Шпат-пена/1,4",
+    "price": 485,
+    "unit": "шт",
+    "code": "1001041311",
+    "category": "shpatlevki-gotovye"
+  },
+  {
+    "name": "Шпатлевка готовая NEOMID универсальная 1,4кг, арт.Н-Шпат-трещ/1,4",
+    "price": 487,
+    "unit": "шт",
+    "code": "1001041309",
+    "category": "shpatlevki-gotovye"
+  },
+  {
+    "name": "Шпатлевка латексная ЛАКРА для внутренних работ 1,5кг, арт.0008040",
+    "price": 195,
+    "unit": "шт",
+    "code": "1000847377",
+    "category": "shpatlevki-gotovye"
+  },
+  {
+    "name": "Шпатлевка акриловая ЛАКРА фасадная атмосферостойкая 9кг, арт.9593093",
+    "price": 1475,
+    "unit": "шт",
+    "code": "1001588748",
+    "category": "shpatlevki-gotovye"
+  },
+  {
+    "name": "Шпатлевка акриловая ЛАКРА фасадная атмосферостойкая 3кг, арт.9593092",
+    "price": 529,
+    "unit": "шт",
+    "code": "1001588747",
+    "category": "shpatlevki-gotovye"
+  },
+  {
+    "name": "Шпатлевка латексная ЛАКРА для внутренних работ 16кг, арт.0008043",
+    "price": 1385,
+    "unit": "шт",
+    "code": "1001491806",
+    "category": "shpatlevki-gotovye"
+  },
+  {
+    "name": "Шпатлевка акриловая ЛАКРА универсальная для внутренних и наружных работ 9кг, арт.0008035",
+    "price": 1267,
+    "unit": "шт",
+    "code": "1001481419",
+    "category": "shpatlevki-gotovye"
+  },
+  {
+    "name": "Шпатлевка готовая NEOMID для плит OSB белый 7кг, арт.Н-ШпатлOSB-7",
+    "price": 2085,
+    "unit": "шт",
+    "code": "1001537971",
+    "category": "shpatlevki-gotovye"
+  },
+  {
+    "name": "Шпатлевка готовая NEOMID для плит OSB белый 1,3кг, арт.Н-ШпатлOSB-1,3",
+    "price": 460,
+    "unit": "шт",
+    "code": "1001537970",
+    "category": "shpatlevki-gotovye"
+  },
+  {
+    "name": "Шпатлевка готовая ОСНОВИТ Элисилк РА39W суперфинишная 28кг, арт.77635",
+    "price": 2918,
+    "unit": "шт",
+    "code": "1001499635",
+    "category": "shpatlevki-gotovye"
+  },
+  {
+    "name": "Шпатлевка готовая ОСНОВИТ Элисилк РА39W суперфинишная 1кг, арт.86654",
+    "price": 305,
+    "unit": "шт",
+    "code": "1001324182",
+    "category": "shpatlevki-gotovye"
+  },
+  {
+    "name": "Шпатлевка готовая TIKKIVALA Euro Filler влагостойкая 10л, арт.700012221",
+    "price": 3199,
+    "unit": "шт",
+    "code": "1001475928",
+    "category": "shpatlevki-gotovye"
+  },
+  {
+    "name": "Шпатлевка готовая TIKKIVALA Euro Filler влагостойкая 5л, арт.700012220",
+    "price": 1699,
+    "unit": "шт",
+    "code": "1001359060",
+    "category": "shpatlevki-gotovye"
+  },
+  {
+    "name": "Шпатлевка готовая TIKKIVALA Euro Filler влагостойкая 2,5л, арт.700012219",
+    "price": 1079,
+    "unit": "шт",
+    "code": "1001359059",
+    "category": "shpatlevki-gotovye"
+  },
+  {
+    "name": "Шпатлевка готовая ВЕТОНИТ LR Pasta Бриллиант суперфинишная 18кг, тов-213789",
+    "price": 1617,
+    "unit": "шт",
+    "code": "1001474310",
+    "category": "shpatlevki-gotovye"
+  },
+  {
+    "name": "Шпатлевка готовая ВЕТОНИТ LR Pasta Бриллиант суперфинишная 5кг, тов-213790",
+    "price": 922,
+    "unit": "шт",
+    "code": "1001474257",
+    "category": "shpatlevki-gotovye"
+  },
+  {
+    "name": "Шпатлевка эпоксидная ЭДП быстрого отверждения 0,25кг, арт.ЭК000132482",
+    "price": 268,
+    "unit": "шт",
+    "code": "1001320098",
+    "category": "shpatlevki-gotovye"
+  },
+  {
+    "name": "Шпатлевка готовая LUXIUM Bindo Filler финишная 5кг, арт.50035265",
+    "price": 1245,
+    "unit": "шт",
+    "code": "1001263329",
+    "category": "shpatlevki-gotovye"
+  },
+  {
+    "name": "Шпатлевка готовая ТЕКС Профи Финишная 5кг, арт.700001307",
+    "price": 679,
+    "unit": "шт",
+    "code": "9010800080",
+    "category": "shpatlevki-gotovye"
+  },
+  {
+    "name": "Шпатлевка готовая ТЕКС Профи Финишная 16кг, арт.700001305",
+    "price": 1749,
+    "unit": "шт",
+    "code": "1000046653",
+    "category": "shpatlevki-gotovye"
+  },
+  {
+    "name": "Шпатлевка гипсовая для внутр.работ KNAUF Fugen универс. 5кг",
+    "price": 263,
+    "unit": "шт",
+    "code": "1001331142",
+    "category": "shpatlevki-suhie-gipsovye"
+  },
+  {
+    "name": "Шпатлевка гипсовая BERGAUF Finish Gips финишная 18кг",
+    "price": 569,
+    "unit": "шт",
+    "code": "1001581639",
+    "category": "shpatlevki-suhie-gipsovye"
+  },
+  {
+    "name": "Шпатлевка гипсовая ВОЛМА Шов 20кг",
+    "price": 581,
+    "unit": "шт",
+    "code": "1001390217",
+    "category": "shpatlevki-suhie-gipsovye"
+  },
+  {
+    "name": "Шпатлевка гипсо-полимерная для внутр.работ FORMAN 25 финишная 20кг",
+    "price": 619,
+    "unit": "шт",
+    "code": "1001089364",
+    "category": "shpatlevki-suhie-gipsovye"
+  },
+  {
+    "name": "Цемент Цемрос ЦЕМ I 42.5H 50кг",
+    "price": 659,
+    "unit": "шт",
+    "code": "1001358713",
+    "category": "tsement"
+  },
+  {
+    "name": "Цемент Цемрос ЦЕМ I 42.5H 25кг",
+    "price": 339,
+    "unit": "шт",
+    "code": "1001040133",
+    "category": "tsement"
+  },
+  {
+    "name": "Цемент Цемрос ЦЕМ II/А-Ш 42,5Н 50кг",
+    "price": 789,
+    "unit": "шт",
+    "code": "1001577050",
+    "category": "tsement"
+  },
+  {
+    "name": "Смесь универсальная М-150 OBERN 5кг",
+    "price": 193,
+    "unit": "шт",
+    "code": "1001570626",
+    "category": "smesi-tsementno-peschanye"
+  },
+  {
+    "name": "Смесь цементно-песчаная для внутр.работ MIX MASTER Универсал 300 25кг",
+    "price": 274,
+    "unit": "шт",
+    "code": "1001107023",
+    "category": "smesi-tsementno-peschanye"
+  },
+  {
+    "name": "Смесь цементно-песчаная для внутр.работ MIX MASTER Оптима 150 25кг",
+    "price": 231,
+    "unit": "шт",
+    "code": "1001107022",
+    "category": "smesi-tsementno-peschanye"
+  },
+  {
+    "name": "Смесь ремонтная PLITONIT РемСостав универс. повыш.прочн. водонепр. 4кг",
+    "price": 399,
+    "unit": "шт",
+    "code": "1001270179",
+    "category": "smesi-remontnye"
+  },
+  {
+    "name": "Смесь ремонтная для внутр. и наруж.работ КРЕПС Ремсостав быстротвердеющая 5кг",
+    "price": 318,
+    "unit": "шт",
+    "code": "1000266509",
+    "category": "smesi-remontnye"
+  },
+  {
+    "name": "Смесь ремонтная ОСНОВИТ Хардскрин RC10 R водонепроницаемая 2кг",
+    "price": 404,
+    "unit": "шт",
+    "code": "1001405255",
+    "category": "smesi-remontnye"
+  },
+  {
+    "name": "Смесь ремонтная PLITONIT РемСостав универс. повыш.прочн. водонепр. 25кг",
+    "price": 1794,
+    "unit": "шт",
+    "code": "1001270178",
+    "category": "smesi-remontnye"
+  },
+  {
+    "name": "Ровнитель LITOKOL Нивелир С50/Nivelir S50 20кг",
+    "price": 550,
+    "unit": "шт",
+    "code": "1001607039",
+    "category": "smesi-dlya-vyravnivaniya-polov-tsementnye"
+  },
+  {
+    "name": "Выравниватель для пола ЦЕРЕЗИТ СN 175 25кг",
+    "price": 810,
+    "unit": "шт",
+    "code": "1000972957",
+    "category": "smesi-dlya-vyravnivaniya-polov-tsementnye"
+  },
+  {
+    "name": "Ровнитель для внутр.работ PLITONIT Суперфиниш 20кг",
+    "price": 998,
+    "unit": "шт",
+    "code": "1001569300",
+    "category": "smesi-dlya-vyravnivaniya-polov-tsementnye"
+  },
+  {
+    "name": "Ровнитель для внутр.работ KESTO Opti Floor ручн. машинн. самовыравн. 25кг",
+    "price": 1289,
+    "unit": "шт",
+    "code": "1001512635",
+    "category": "smesi-dlya-vyravnivaniya-polov-tsementnye"
+  },
+  {
+    "name": "Ровнитель для внутр.работ KESTO Multi Floor самовыравн. быстротвердеющий 20кг",
+    "price": 654,
+    "unit": "шт",
+    "code": "1001501135",
+    "category": "smesi-dlya-vyravnivaniya-polov-tsementnye"
+  },
+  {
+    "name": "Стяжка базовая для внутр. и наруж.работ ОСНОВИТ Стартолайн FC40 армир. 25кг",
+    "price": 586,
+    "unit": "шт",
+    "code": "1001499630",
+    "category": "smesi-dlya-vyravnivaniya-polov-tsementnye"
+  },
+  {
+    "name": "Ровнитель для внутр.работ ОСНОВИТ Скорлайн FK48R универс. быстротвердеющий 20кг",
+    "price": 606,
+    "unit": "шт",
+    "code": "1001324170",
+    "category": "smesi-dlya-vyravnivaniya-polov-tsementnye"
+  },
+  {
+    "name": "Ровнитель для внутр.работ VETONIT 4100 высокопрочный ручн. машинн. 20кг",
+    "price": 1346,
+    "unit": "шт",
+    "code": "1001277573",
+    "category": "smesi-dlya-vyravnivaniya-polov-tsementnye"
+  },
+  {
+    "name": "Ровнитель для внутр.работ КРЕПС БМП 2в1 самовыравн. ручн. машинн. 20кг",
+    "price": 545,
+    "unit": "шт",
+    "code": "1001219665",
+    "category": "smesi-dlya-vyravnivaniya-polov-tsementnye"
+  },
+  {
+    "name": "Ровнитель для внутр. и наруж.работ VETONIT 5700 базовый 25кг",
+    "price": 719,
+    "unit": "шт",
+    "code": "1000856593",
+    "category": "smesi-dlya-vyravnivaniya-polov-tsementnye"
+  },
+  {
+    "name": "Ровнитель для внутр.работ VETONIT Fast 4000 3в1: стяжка, финиш, ремонт 20кг",
+    "price": 695,
+    "unit": "шт",
+    "code": "1001194486",
+    "category": "smesi-dlya-vyravnivaniya-polov-tsementnye"
+  },
+  {
+    "name": "Ровнитель для внутр.работ VETONIT 3000 суперфинишный ручной 20кг",
+    "price": 1354,
+    "unit": "шт",
+    "code": "1001111656",
+    "category": "smesi-dlya-vyravnivaniya-polov-tsementnye"
+  },
+  {
+    "name": "Ровнитель для внутр.работ PLITONIT Универсал универсальный 20кг",
+    "price": 510,
+    "unit": "шт",
+    "code": "1000932757",
+    "category": "smesi-dlya-vyravnivaniya-polov-tsementnye"
+  },
+  {
+    "name": "Ровнитель для внутр. и наруж.работ PLITONIT P1 Про базовый высокопрочный 25кг",
+    "price": 578,
+    "unit": "шт",
+    "code": "9011800192",
+    "category": "smesi-dlya-vyravnivaniya-polov-tsementnye"
+  },
+  {
+    "name": "Ровнитель для внутр.работ КРЕПС РВ ручной 25кг",
+    "price": 541,
+    "unit": "шт",
+    "code": "1000027396",
+    "category": "smesi-dlya-vyravnivaniya-polov-tsementnye"
+  },
+  {
+    "name": "Пол наливной FORMAN 33 морозостойкий финишный 20 кг",
+    "price": 460,
+    "unit": "шт",
+    "code": "1001596330",
+    "category": "smesi-dlya-vyravnivaniya-polov-gipsovye"
+  },
+  {
+    "name": "Ровнитель KNAUF Титалин самовыравнивающийся быстротвердеющий 20кг",
+    "price": 628,
+    "unit": "шт",
+    "code": "1001572233",
+    "category": "smesi-dlya-vyravnivaniya-polov-gipsovye"
+  },
+  {
+    "name": "Ровнитель LITOKOL Литолив С50/Litoliv S50 20кг",
+    "price": 549,
+    "unit": "шт",
+    "code": "1001480093",
+    "category": "smesi-dlya-vyravnivaniya-polov-gipsovye"
+  },
+  {
+    "name": "Ровнитель ВОЛМА Нивелир Экспресс самовыравнивающийся 25кг",
+    "price": 565,
+    "unit": "шт",
+    "code": "1001537457",
+    "category": "smesi-dlya-vyravnivaniya-polov-gipsovye"
+  },
+  {
+    "name": "Ровнитель для внутр.работ PLITONIT Финиш быстротвердеющий 20кг",
+    "price": 924,
+    "unit": "шт",
+    "code": "1001266824",
+    "category": "smesi-dlya-vyravnivaniya-polov-gipsovye"
+  },
+  {
+    "name": "Ровнитель для внутр.работ FORMAN 31 базовый безусадочный 20кг",
+    "price": 439,
+    "unit": "шт",
+    "code": "1001506072",
+    "category": "smesi-dlya-vyravnivaniya-polov-gipsovye"
+  },
+  {
+    "name": "Ровнитель для внутр. и наруж.работ FORMAN 35 финишный быстротвердеющий 20кг",
+    "price": 749,
+    "unit": "шт",
+    "code": "1001089365",
+    "category": "smesi-dlya-vyravnivaniya-polov-gipsovye"
+  },
+  {
+    "name": "Алебастр OBERN 5кг",
+    "price": 257,
+    "unit": "шт",
+    "code": "1001570620",
+    "category": "gips-stroitelnyy"
+  },
+  {
+    "name": "Алебастр OBERN 1кг",
+    "price": 135,
+    "unit": "шт",
+    "code": "1001570619",
+    "category": "gips-stroitelnyy"
+  },
+  {
+    "name": "Гипс строительный для внутр.работ ОСНОВИТ Хардскрин RG10 R быстротвердеющий 5кг",
+    "price": 339,
+    "unit": "шт",
+    "code": "1001324178",
+    "category": "gips-stroitelnyy"
+  },
+  {
+    "name": "Алебастр для внутр.работ FORMAN СГК Г-4 Б II 5кг",
+    "price": 139,
+    "unit": "шт",
+    "code": "1001089368",
+    "category": "gips-stroitelnyy"
+  },
+  {
+    "name": "Гипс OBERN белый 5кг",
+    "price": 251,
+    "unit": "шт",
+    "code": "1001570622",
+    "category": "gips-stroitelnyy"
+  },
+  {
+    "name": "Гипс OBERN белый 3кг",
+    "price": 216,
+    "unit": "шт",
+    "code": "1001570621",
+    "category": "gips-stroitelnyy"
+  },
+  {
+    "name": "Гипс строительный для внутр.работ FORMAN Г-5 Б II 5кг",
+    "price": 139,
+    "unit": "шт",
+    "code": "1001316523",
+    "category": "gips-stroitelnyy"
+  },
+  {
+    "name": "Грунтовка TIKKIVALA Otex Primer белая 0,9л, арт. 700014242",
+    "price": 2518,
+    "unit": "шт",
+    "code": "1001611357",
+    "category": "gruntovka"
+  },
+  {
+    "name": "Грунт акриловый PROFILUX PL-16A  для внутренних работ 1л, арт. Н0000000904",
+    "price": 175,
+    "unit": "шт",
+    "code": "1001608334",
+    "category": "gruntovka"
+  },
+  {
+    "name": "Грунтовка акриловая BITUMAST для внутренних и наружных работ 5л, арт.4607952905191",
+    "price": 449,
+    "unit": "шт",
+    "code": "1001608250",
+    "category": "gruntovka"
+  },
+  {
+    "name": "Грунтовка акриловая BITUMAST для внутренних и наружных работ 1л, арт.4607952905184",
+    "price": 200,
+    "unit": "шт",
+    "code": "1001608249",
+    "category": "gruntovka"
+  },
+  {
+    "name": "Грунтовка ЭКСПЕРТ глубокого проникновения 0,9кг, арт.23567",
+    "price": 149,
+    "unit": "шт",
+    "code": "1001607401",
+    "category": "gruntovka"
+  },
+  {
+    "name": "Грунтовка глубокого проникновения ЦЕРЕЗИТ СТ 17 Transparent 10л, арт.3040024",
+    "price": 1434,
+    "unit": "шт",
+    "code": "1001597071",
+    "category": "gruntovka"
+  },
+  {
+    "name": "Грунтовка глубокого проникновения ЦЕРЕЗИТ СТ 17 Transparent 5л, арт.3040023",
+    "price": 858,
+    "unit": "шт",
+    "code": "1001597070",
+    "category": "gruntovka"
+  },
+  {
+    "name": "Грунт акриловый под обои ЭКСПЕРТ высокоукрывистый 2,5кг, арт. 30667",
+    "price": 440,
+    "unit": "шт",
+    "code": "1001577304",
+    "category": "gruntovka"
+  },
+  {
+    "name": "Грунтовка в/д  AQUASTRONG для любых поверхностей 1,0 кг белая, арт. 4607130865767",
+    "price": 975,
+    "unit": "шт",
+    "code": "1001576776",
+    "category": "gruntovka"
+  },
+  {
+    "name": "Грунтовка KLEO PRIMER глубокого проникновения 10л, арт.085 PRIMER 100",
+    "price": 1450,
+    "unit": "шт",
+    "code": "1001576310",
+    "category": "gruntovka"
+  },
+  {
+    "name": "Грунтовка TALATU Talaalmi акрилатная глубокого проникновения 1 л, арт.S1200000901",
+    "price": 436,
+    "unit": "шт",
+    "code": "1001571626",
+    "category": "gruntovka"
+  },
+  {
+    "name": "Грунт адгезионный TINTURIA для мебели и декора 0,75кг белый, арт.028819862",
+    "price": 844,
+    "unit": "шт",
+    "code": "1001570856",
+    "category": "gruntovka"
+  },
+  {
+    "name": "Грунт адгезионный TINTURIA для мебели и декора 0,35кг белый, арт.03878665",
+    "price": 424,
+    "unit": "шт",
+    "code": "1001570855",
+    "category": "gruntovka"
+  },
+  {
+    "name": "Грунтовка KLEO PRIMER глубокого проникновения 5л, арт.085 PRIMER 50",
+    "price": 800,
+    "unit": "шт",
+    "code": "1001570714",
+    "category": "gruntovka"
+  },
+  {
+    "name": "Грунтовка KLEO PRIMER глубокого проникновения 1л, арт.085 PRIMER 10",
+    "price": 240,
+    "unit": "шт",
+    "code": "1001570713",
+    "category": "gruntovka"
+  },
+  {
+    "name": "Грунтовка KLEO HIDE укрывающая под обои 3кг, арт.085 KLEO HIDE 20",
+    "price": 710,
+    "unit": "шт",
+    "code": "1001570712",
+    "category": "gruntovka"
+  },
+  {
+    "name": "Грунт PLITONIT Грунт Глубокого проникновения 5л, арт. Н010916",
+    "price": 750,
+    "unit": "шт",
+    "code": "1001568013",
+    "category": "gruntovka"
+  },
+  {
+    "name": "Грунт PLITONIT Грунт Глубокого проникновения 10л, арт. Н010886",
+    "price": 869,
+    "unit": "шт",
+    "code": "1001568012",
+    "category": "gruntovka"
+  },
+  {
+    "name": "Грунт влагоизолятор ESKARO Aquastop Prof концентрат 0,5л, арт.EAG005",
+    "price": 329,
+    "unit": "шт",
+    "code": "1001551690",
+    "category": "gruntovka"
+  },
+  {
+    "name": "Грунт акриловый OLIMP изолирующий 1л, арт.19499",
+    "price": 509,
+    "unit": "шт",
+    "code": "1001545623",
+    "category": "gruntovka"
+  },
+  {
+    "name": "Грунтовка по старой краске NEOMID 5кг, арт.Н-Г/СТ-5/ГОТ",
+    "price": 1049,
+    "unit": "шт",
+    "code": "1001537972",
+    "category": "gruntovka"
+  },
+  {
+    "name": "Грунт акриловый NEOMID для плит OSB белый 1кг, арт.Н-ГрунтOSB-1",
+    "price": 309,
+    "unit": "шт",
+    "code": "1001537969",
+    "category": "gruntovka"
+  },
+  {
+    "name": "Грунтовка универсальная ЭКСПЕРТ 10кг канистра, арт.25819",
+    "price": 499,
+    "unit": "шт",
+    "code": "1001535716",
+    "category": "gruntovka"
+  },
+  {
+    "name": "Грунтовка универсальная ЭКСПЕРТ 5кг канистра, арт.26494",
+    "price": 310,
+    "unit": "шт",
+    "code": "1001535715",
+    "category": "gruntovka"
+  },
+  {
+    "name": "Грунт в/д KUBE MultiGrund кроющий 1л белый, арт.5419",
+    "price": 1689,
+    "unit": "шт",
+    "code": "1001533430",
+    "category": "gruntovka"
+  },
+  {
+    "name": "Грунт акриловый Plitonit универсальный Грунт-1 концентрат 3л, арт.1031",
+    "price": 1402,
+    "unit": "шт",
+    "code": "1001519158",
+    "category": "gruntovka"
+  },
+  {
+    "name": "Грунт акриловый Plitonit универсальный Грунт-1 концентрат 10л, арт.1032",
+    "price": 3763,
+    "unit": "шт",
+    "code": "1001519157",
+    "category": "gruntovka"
+  },
+  {
+    "name": "Грунт акриловый Plitonit Упрочняющий PROFI концентрат 10л, арт.Н009457",
+    "price": 2397,
+    "unit": "шт",
+    "code": "1001511573",
+    "category": "gruntovka"
+  },
+  {
+    "name": "Грунт акриловый Plitonit Упрочняющий PROFI 3л, арт.Н009458",
+    "price": 777,
+    "unit": "шт",
+    "code": "1001507835",
+    "category": "gruntovka"
+  },
+  {
+    "name": "Грунт КРЕПС концентрат 5л, арт.грунтконц.5",
+    "price": 1379,
+    "unit": "шт",
+    "code": "1001507826",
+    "category": "gruntovka"
+  },
+  {
+    "name": "Гипсокартон KNAUF 2000х1200х12,5мм",
+    "price": 478,
+    "unit": "шт",
+    "code": "1001326351",
+    "category": "gipsokarton"
+  },
+  {
+    "name": "Гипсокартон KNAUF малоформатный водостойкий 1500х600х12,5мм",
+    "price": 247,
+    "unit": "шт",
+    "code": "1000982801",
+    "category": "gipsokarton"
+  },
+  {
+    "name": "Гипсокартон KNAUF стандартный 2500х1200х12,5мм",
+    "price": 550,
+    "unit": "шт",
+    "code": "1000543675",
+    "category": "gipsokarton"
+  },
+  {
+    "name": "Аквапанель внутренняя KNAUF 1200x900x12,5мм",
+    "price": 1346,
+    "unit": "шт",
+    "code": "1000974203",
+    "category": "gipsokarton"
+  },
+  {
+    "name": "Гипсокартон KNAUF Сапфир звукоизоляционный влаго-огнестойкий ударопрочный 2000х1200х12,5мм",
+    "price": 938,
+    "unit": "шт",
+    "code": "1001576673",
+    "category": "gipsokarton"
+  },
+  {
+    "name": "Гипсокартон KNAUF влагостойкий 2000х1200х12,5мм",
+    "price": 604,
+    "unit": "шт",
+    "code": "1001326352",
+    "category": "gipsokarton"
+  },
+  {
+    "name": "Гипсокартон KNAUF влагостойкий 3000х1200х12,5мм",
+    "price": 863,
+    "unit": "шт",
+    "code": "1001318315",
+    "category": "gipsokarton"
+  },
+  {
+    "name": "Гипсокартон KNAUF 3000х1200х12,5мм",
+    "price": 705,
+    "unit": "шт",
+    "code": "1001318314",
+    "category": "gipsokarton"
+  },
+  {
+    "name": "Лист гипсоволокнистый KNAUF ПК влагостойкий 1200х1200х10мм",
+    "price": 512,
+    "unit": "шт",
+    "code": "1001187282",
+    "category": "gipsokarton"
+  },
+  {
+    "name": "Элемент пола KNAUF 1200х600х20мм",
+    "price": 677,
+    "unit": "шт",
+    "code": "1001187281",
+    "category": "gipsokarton"
+  },
+  {
+    "name": "Гипсокартон KNAUF ремонтный 2500х1200х6,5мм",
+    "price": 693,
+    "unit": "шт",
+    "code": "1001063091",
+    "category": "gipsokarton"
+  },
+  {
+    "name": "Гипсокартон ВОЛМА влагостойкий 3000х1200х12,5мм",
+    "price": 697,
+    "unit": "шт",
+    "code": "1000900676",
+    "category": "gipsokarton"
+  },
+  {
+    "name": "Гипсокартон ВОЛМА стандартный 3000х1200х12,5мм",
+    "price": 520,
+    "unit": "шт",
+    "code": "1000900675",
+    "category": "gipsokarton"
+  },
+  {
+    "name": "Гипсокартон ВОЛМА влагостойкий 2500х1200х12,5мм",
+    "price": 665,
+    "unit": "шт",
+    "code": "1000900674",
+    "category": "gipsokarton"
+  },
+  {
+    "name": "Гипсокартон ВОЛМА стандартный 2500х1200х12,5мм",
+    "price": 402,
+    "unit": "шт",
+    "code": "1000900673",
+    "category": "gipsokarton"
+  },
+  {
+    "name": "Гипсокартон ВОЛМА влагостойкий 2500х1200х9,5мм",
+    "price": 507,
+    "unit": "шт",
+    "code": "1000900672",
+    "category": "gipsokarton"
+  },
+  {
+    "name": "Гипсокартон ВОЛМА стандартный 2500х1200х9,5мм",
+    "price": 540,
+    "unit": "шт",
+    "code": "1000900671",
+    "category": "gipsokarton"
+  },
+  {
+    "name": "Гипсокартон KNAUF малоформатный  кромка ПЛУК 1500х600х12,5мм",
+    "price": 214,
+    "unit": "шт",
+    "code": "1000771749",
+    "category": "gipsokarton"
+  },
+  {
+    "name": "Гипсокартон KNAUF влагостойкий 2500х1200х9,5мм",
+    "price": 697,
+    "unit": "шт",
+    "code": "1000633429",
+    "category": "gipsokarton"
+  },
+  {
+    "name": "Гипсокартон KNAUF стандартный 2500х1200х9,5мм",
+    "price": 553,
+    "unit": "шт",
+    "code": "1000633428",
+    "category": "gipsokarton"
+  },
+  {
+    "name": "Гипсокартон KNAUF влагостойкий 2500х1200х12,5мм",
+    "price": 688,
+    "unit": "шт",
+    "code": "1000543679",
+    "category": "gipsokarton"
+  }
+]

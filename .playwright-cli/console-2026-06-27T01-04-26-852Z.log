@@ -1,0 +1,121 @@
+[    4414ms] [LOG] {category_id: 39010, category_name: Строительные смеси, category_hierarchy_ids: Array(1), page_type: category, category_product_ids: Array(4)} @ https://www.maxidom.ru/catalog/stroitelnye-smesi/:20488
+[    5566ms] [ERROR] Failed to load resource: net::ERR_NAME_NOT_RESOLVED @ https://tms-st.cdn.ngenix.net/maxidom/tgContainer-min.js:0
+[   12869ms] [LOG] null @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12870ms] [LOG] fetching /ajax/apiJson/v1/user_favorites/?action=list @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:6
+[   12871ms] [LOG] fetching /ajax/apiJson/v1/compare/?action=list @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:6
+[   12871ms] [LOG] fetching /ajax/apiJson/v1/discount/?get_action=Y @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:6
+[   12871ms] [LOG] fetching /ajax/apiJson/v1/cart/?action=list @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:6
+[   12942ms] [LOG] Prop favorite changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12943ms] [LOG] Prop compare changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12959ms] [LOG] Prop favorite changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12959ms] [LOG] Prop compare changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12960ms] [LOG] Prop favorite changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12960ms] [LOG] Prop compare changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12961ms] [LOG] Prop favorite changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12961ms] [LOG] Prop compare changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12962ms] [LOG] Prop favorite changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12962ms] [LOG] Prop compare changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12963ms] [LOG] Prop favorite changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12963ms] [LOG] Prop compare changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12963ms] [LOG] Prop favorite changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12963ms] [LOG] Prop compare changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12964ms] [LOG] Prop favorite changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12964ms] [LOG] Prop compare changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12965ms] [LOG] Prop favorite changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12965ms] [LOG] Prop compare changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12966ms] [LOG] Prop favorite changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12966ms] [LOG] Prop compare changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12966ms] [LOG] Prop favorite changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12967ms] [LOG] Prop compare changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12967ms] [LOG] Prop favorite changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12967ms] [LOG] Prop compare changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12968ms] [LOG] Prop favorite changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12968ms] [LOG] Prop compare changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12968ms] [LOG] Prop favorite changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12968ms] [LOG] Prop compare changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12969ms] [LOG] Prop favorite changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12969ms] [LOG] Prop compare changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12969ms] [LOG] Prop favorite changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12969ms] [LOG] Prop compare changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12970ms] [LOG] Prop favorite changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12970ms] [LOG] Prop compare changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12970ms] [LOG] Prop favorite changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12970ms] [LOG] Prop compare changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12971ms] [LOG] Prop favorite changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12971ms] [LOG] Prop compare changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12971ms] [LOG] Prop favorite changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12972ms] [LOG] Prop compare changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12972ms] [LOG] Prop favorite changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12972ms] [LOG] Prop compare changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12973ms] [LOG] Prop favorite changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12973ms] [LOG] Prop compare changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12973ms] [LOG] Prop favorite changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12973ms] [LOG] Prop compare changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12974ms] [LOG] Prop favorite changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12974ms] [LOG] Prop compare changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12974ms] [LOG] Prop favorite changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12974ms] [LOG] Prop compare changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12975ms] [LOG] Prop favorite changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12975ms] [LOG] Prop compare changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12975ms] [LOG] Prop favorite changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12975ms] [LOG] Prop compare changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12976ms] [LOG] Prop favorite changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12976ms] [LOG] Prop compare changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12977ms] [LOG] Prop favorite changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12977ms] [LOG] Prop compare changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12977ms] [LOG] Prop favorite changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12978ms] [LOG] Prop compare changed:  false  | was:  undefined @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   12984ms] [LOG] Запрос данных журнала @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   13011ms] [WARNING] Vue не создан, нет id комплектов @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   13013ms] [LOG] @@ null @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   13013ms] [LOG] @ RichContent script @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   13014ms] [LOG] maxidomCardApp init start @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   13014ms] [LOG] blog_0lvl_1lvl: null @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   13014ms] [WARNING] Vue не создан, нет id solutionsGallery @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   13136ms] [LOG] setSessionRepresentation: Санкт-Петербург @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   13235ms] [LOG] 1****1 @ https://www.maxidom.ru/bitrix/cache/js/s1/maxi2020/page_f36f2e9f23326e3a4c2385d5c384c759/page_f36f2e9f23326e3a4c2385d5c384c759.js?175922532241471:695
+[   13236ms] [LOG] __cache__ /ajax/apiJson/v1/compare/?action=list Ждем 1 секунду @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:6
+[   13237ms] [LOG] __cache__ /ajax/apiJson/v1/user_favorites/?action=list Ждем 1 секунду @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:6
+[   13247ms] [VERBOSE] [DOM] Input elements should have autocomplete attributes (suggested: "current-password"): (More info: https://goo.gl/9p2vKq) %o @ https://www.maxidom.ru/catalog/stroitelnye-smesi/:0
+[   13248ms] [VERBOSE] [DOM] Input elements should have autocomplete attributes (suggested: "current-password"): (More info: https://goo.gl/9p2vKq) %o @ https://www.maxidom.ru/catalog/stroitelnye-smesi/:0
+[   13248ms] [VERBOSE] [DOM] Input elements should have autocomplete attributes (suggested: "current-password"): (More info: https://goo.gl/9p2vKq) %o @ https://www.maxidom.ru/catalog/stroitelnye-smesi/:0
+[   13260ms] [INFO] Download the Vue Devtools extension for a better development experience:
+https://github.com/vuejs/vue-devtools @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:6
+[   13260ms] [INFO] You are running Vue in development mode.
+Make sure to turn on production mode when deploying for production.
+See more tips at https://vuejs.org/guide/deployment.html @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:6
+[   13304ms] [LOG] dataLayerAuth не инициализирован, авторизуйтесь для инициализации @ https://www.maxidom.ru/bitrix/cache/js/s1/maxi2020/template_19b6e048aba7bf8c6fde2291defddd11/template_19b6e048aba7bf8c6fde2291defddd11.js?177559788940187:861
+[   13315ms] [LOG] Test phonemask @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:61
+[   13315ms] [LOG] @ start @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   13315ms] [LOG] {selector: .login_form} @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   14237ms] [LOG] __cache__ /ajax/apiJson/v1/compare/?action=list Ждем 1 секунду @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:6
+[   14238ms] [LOG] __cache__ /ajax/apiJson/v1/user_favorites/?action=list Ждем 1 секунду @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:6
+[   14543ms] [LOG] __cache__ /ajax/apiJson/v1/cart/?action=list Ждем 1 секунду @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:6
+[   14734ms] [LOG] Избранное: вернувшиеся данные [] @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:6
+[   14738ms] [LOG] Избранное: subscriber event 0 @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   14738ms] [LOG] favorites: render @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   14739ms] [LOG] Сравнение: вернувшиеся данные [] @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:6
+[   14739ms] [LOG] Сравнение: subscriber event 0 @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   14739ms] [LOG] compares: render @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   14742ms] [LOG] Глобальная акция: вернувшиеся данные {STATUS: N} @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   14743ms] [LOG] Корзина: вернувшиеся данные {COUNT: 0, ITEMS: Array(0)} @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:6
+[   14743ms] [LOG] cart: render @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   14743ms] [LOG] marketing advcake @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:6
+[   15238ms] [LOG] __cache__ /ajax/apiJson/v1/compare/?action=list есть данные в кеше [] @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:6
+[   15238ms] [LOG] Сравнение: вернувшиеся данные [] @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:6
+[   15239ms] [LOG] Сравнение: subscriber event 0 @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   15239ms] [LOG] Сравнение: инициализировано для состояния @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   15239ms] [LOG] __cache__ /ajax/apiJson/v1/user_favorites/?action=list есть данные в кеше [] @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:6
+[   15239ms] [LOG] Избранное: вернувшиеся данные [] @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:6
+[   15239ms] [LOG] Избранное: subscriber event 0 @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   15239ms] [LOG] Избранное: инициализировано для состояния @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   15544ms] [LOG] __cache__ /ajax/apiJson/v1/cart/?action=list есть данные в кеше {COUNT: 0, ITEMS: Array(0)} @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:6
+[   15544ms] [LOG] Корзина: вернувшиеся данные {COUNT: 0, ITEMS: Array(0)} @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:6
+[   15572ms] [LOG] __cache__ /ajax/apiJson/v1/cart/?action=list есть данные в кеше {COUNT: 0, ITEMS: Array(0)} @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:6
+[   15572ms] [LOG] Корзина: вернувшиеся данные {COUNT: 0, ITEMS: Array(0)} @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:6
+[   15575ms] [LOG] __cache__ /ajax/apiJson/v1/compare/?action=list есть данные в кеше [] @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:6
+[   15576ms] [LOG] __cache__ /ajax/apiJson/v1/user_favorites/?action=list есть данные в кеше [] @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:6
+[   15584ms] [LOG] Сравнение: вернувшиеся данные [] @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:6
+[   15585ms] [LOG] Сравнение: subscriber event 0 @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67
+[   15585ms] [LOG] Избранное: вернувшиеся данные [] @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:6
+[   15585ms] [LOG] Избранное: subscriber event 0 @ https://www.maxidom.ru/local/templates/maxi2020/main.js?0f6945f4:67

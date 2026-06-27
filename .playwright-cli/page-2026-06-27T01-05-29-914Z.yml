@@ -1,0 +1,21 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - link "Yandex" [ref=e3] [cursor=pointer]:
+      - /url: https://www.ya.ru
+    - generic [ref=e4]: "403"
+  - generic [ref=e5]:
+    - heading "Доступ к сервису временно запрещён" [level=1] [ref=e6]
+    - heading "Почему это произошло?" [level=2] [ref=e7]
+    - paragraph [ref=e8]:
+      - text: С вашего IP-адреса одновременно поступает очень много запросов.
+      - text: Такое поведение показалось подозрительным, поэтому мы временно закрыли доступ к сайту.
+      - text: Возможно, на вашем устройстве есть программы, которые отправляют запросы без вашего ведома.
+    - heading "Что мне делать?" [level=2] [ref=e9]
+    - paragraph [ref=e10]:
+      - text: Напишите в службу поддержки через
+      - link "форму обратной связи" [ref=e11] [cursor=pointer]:
+        - /url: https://yandex.ru/support/smart-captcha/about-403.html?form-unique_key=8942584102037680870&form-fb-hint=2.9
+      - text: .
+      - text: Подробно опишите ситуацию — поможем разобраться, что случилось, и подскажем, как действовать дальше.
+    - paragraph [ref=e12]: "8942584102037680870"
+  - generic [ref=e13]: © Yandex

@@ -1,0 +1,44 @@
+version: "3.9"
+
+services:
+  backend:
+    build: ./kolibri-backend
+    container_name: kolibri-api
+    environment:
+      - DATABASE_URL=postgresql://kolibri:kolibri@postgres:5432/kolibri
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build: ./kolibri-v2
+    container_name: kolibri-web
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: kolibri-db
+    environment:
+      POSTGRES_USER: kolibri
+      POSTGRES_PASSWORD: kolibri
+      POSTGRES_DB: kolibri
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kolibri"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  pgdata:

@@ -1,0 +1,597 @@
+[
+  {
+    "code": "CABLE-VVGNG-LS-1.5x3",
+    "name": "Кабель ВВГнг-LS 3×1,5 мм²",
+    "unit": "м",
+    "price_rub": 42,
+    "source": "Leroy Merlin / TDM avg 2025-2026"
+  },
+  {
+    "code": "CABLE-VVGNG-LS-2.5x3",
+    "name": "Кабель ВВГнг-LS 3×2,5 мм²",
+    "unit": "м",
+    "price_rub": 62,
+    "source": "Leroy Merlin / TDM avg 2025-2026"
+  },
+  {
+    "code": "CABLE-VVGNG-LS-4x3",
+    "name": "Кабель ВВГнг-LS 3×4 мм²",
+    "unit": "м",
+    "price_rub": 95,
+    "source": "Leroy Merlin / TDM avg 2025-2026"
+  },
+  {
+    "code": "CABLE-VVGNG-LS-6x3",
+    "name": "Кабель ВВГнг-LS 3×6 мм²",
+    "unit": "м",
+    "price_rub": 138,
+    "source": "Leroy Merlin / TDM avg 2025-2026"
+  },
+  {
+    "code": "CABLE-VVGNG-LS-10x3",
+    "name": "Кабель ВВГнг-LS 3×10 мм²",
+    "unit": "м",
+    "price_rub": 225,
+    "source": "Leroy Merlin / TDM avg 2025-2026"
+  },
+  {
+    "code": "CABLE-VVGNG-LS-16x3",
+    "name": "Кабель ВВГнг-LS 3×16 мм²",
+    "unit": "м",
+    "price_rub": 360,
+    "source": "Leroy Merlin / TDM avg 2025-2026"
+  },
+  {
+    "code": "CABLE-VVGNG-LS-1.5x5",
+    "name": "Кабель ВВГнг-LS 5×1,5 мм²",
+    "unit": "м",
+    "price_rub": 68,
+    "source": "Leroy Merlin / TDM avg 2025-2026"
+  },
+  {
+    "code": "CABLE-VVGNG-LS-2.5x5",
+    "name": "Кабель ВВГнг-LS 5×2,5 мм²",
+    "unit": "м",
+    "price_rub": 102,
+    "source": "Leroy Merlin / TDM avg 2025-2026"
+  },
+  {
+    "code": "CABLE-VVGNG-LS-4x5",
+    "name": "Кабель ВВГнг-LS 5×4 мм²",
+    "unit": "м",
+    "price_rub": 158,
+    "source": "Leroy Merlin / TDM avg 2025-2026"
+  },
+  {
+    "code": "CABLE-VVGNG-LS-6x5",
+    "name": "Кабель ВВГнг-LS 5×6 мм²",
+    "unit": "м",
+    "price_rub": 230,
+    "source": "Leroy Merlin / TDM avg 2025-2026"
+  },
+  {
+    "code": "AUTO-IEK-6A",
+    "name": "Автоматический выключатель IEK ВА47-29 1P 6А (C)",
+    "unit": "шт",
+    "price_rub": 145,
+    "source": "IEK / TDM avg 2025-2026"
+  },
+  {
+    "code": "AUTO-IEK-10A",
+    "name": "Автоматический выключатель IEK ВА47-29 1P 10А (C)",
+    "unit": "шт",
+    "price_rub": 145,
+    "source": "IEK / TDM avg 2025-2026"
+  },
+  {
+    "code": "AUTO-IEK-16A",
+    "name": "Автоматический выключатель IEK ВА47-29 1P 16А (C)",
+    "unit": "шт",
+    "price_rub": 145,
+    "source": "IEK / TDM avg 2025-2026"
+  },
+  {
+    "code": "AUTO-IEK-25A",
+    "name": "Автоматический выключатель IEK ВА47-29 1P 25А (C)",
+    "unit": "шт",
+    "price_rub": 155,
+    "source": "IEK / TDM avg 2025-2026"
+  },
+  {
+    "code": "AUTO-IEK-32A",
+    "name": "Автоматический выключатель IEK ВА47-29 1P 32А (C)",
+    "unit": "шт",
+    "price_rub": 165,
+    "source": "IEK / TDM avg 2025-2026"
+  },
+  {
+    "code": "AUTO-IEK-40A",
+    "name": "Автоматический выключатель IEK ВА47-29 2P 40А (C)",
+    "unit": "шт",
+    "price_rub": 350,
+    "source": "IEK / TDM avg 2025-2026"
+  },
+  {
+    "code": "AUTO-IEK-50A",
+    "name": "Автоматический выключатель IEK ВА47-29 2P 50А (C)",
+    "unit": "шт",
+    "price_rub": 380,
+    "source": "IEK / TDM avg 2025-2026"
+  },
+  {
+    "code": "AUTO-IEK-63A",
+    "name": "Автоматический выключатель IEK ВА47-29 2P 63А (C)",
+    "unit": "шт",
+    "price_rub": 420,
+    "source": "IEK / TDM avg 2025-2026"
+  },
+  {
+    "code": "AUTO-ABB-16A",
+    "name": "Автоматический выключатель ABB SH201L 1P 16А (C)",
+    "unit": "шт",
+    "price_rub": 520,
+    "source": "ABB / Leroy Merlin avg 2025-2026"
+  },
+  {
+    "code": "AUTO-ABB-25A",
+    "name": "Автоматический выключатель ABB SH201L 1P 25А (C)",
+    "unit": "шт",
+    "price_rub": 540,
+    "source": "ABB / Leroy Merlin avg 2025-2026"
+  },
+  {
+    "code": "UZO-IEK-2P-25A-30mA",
+    "name": "УЗО IEK ВД1-63 2P 25А 30мА (тип AC)",
+    "unit": "шт",
+    "price_rub": 1450,
+    "source": "IEK / TDM avg 2025-2026"
+  },
+  {
+    "code": "UZO-IEK-2P-40A-30mA",
+    "name": "УЗО IEK ВД1-63 2P 40А 30мА (тип AC)",
+    "unit": "шт",
+    "price_rub": 1650,
+    "source": "IEK / TDM avg 2025-2026"
+  },
+  {
+    "code": "UZO-IEK-2P-63A-30mA",
+    "name": "УЗО IEK ВД1-63 2P 63А 30мА (тип AC)",
+    "unit": "шт",
+    "price_rub": 1850,
+    "source": "IEK / TDM avg 2025-2026"
+  },
+  {
+    "code": "UZO-ABB-2P-25A-30mA",
+    "name": "УЗО ABB FH202 AC-25/0.03 2P 25А 30мА",
+    "unit": "шт",
+    "price_rub": 3200,
+    "source": "ABB / Leroy Merlin avg 2025-2026"
+  },
+  {
+    "code": "DIFAUTO-IEK-2P-16A-30mA",
+    "name": "Дифавтомат IEK ВАД2 2P 16А 30мА (C)",
+    "unit": "шт",
+    "price_rub": 2250,
+    "source": "IEK / TDM avg 2025-2026"
+  },
+  {
+    "code": "DIFAUTO-IEK-2P-25A-30mA",
+    "name": "Дифавтомат IEK ВАД2 2P 25А 30мА (C)",
+    "unit": "шт",
+    "price_rub": 2400,
+    "source": "IEK / TDM avg 2025-2026"
+  },
+  {
+    "code": "DIFAUTO-IEK-2P-32A-30mA",
+    "name": "Дифавтомат IEK ВАД2 2P 32А 30мА (C)",
+    "unit": "шт",
+    "price_rub": 2550,
+    "source": "IEK / TDM avg 2025-2026"
+  },
+  {
+    "code": "DIFAUTO-ABB-2P-16A-30mA",
+    "name": "Дифавтомат ABB DS201 AC-16/0.03 2P 16А 30мА",
+    "unit": "шт",
+    "price_rub": 5800,
+    "source": "ABB / Leroy Merlin avg 2025-2026"
+  },
+  {
+    "code": "SCHITOK-IEK-12MOD",
+    "name": "Щиток встраиваемый IEK ЯПРк-12-32 на 12 модулей",
+    "unit": "шт",
+    "price_rub": 750,
+    "source": "IEK / TDM avg 2025-2026"
+  },
+  {
+    "code": "SCHITOK-IEK-24MOD",
+    "name": "Щиток встраиваемый IEK ЯПРк-24-32 на 24 модуля",
+    "unit": "шт",
+    "price_rub": 1150,
+    "source": "IEK / TDM avg 2025-2026"
+  },
+  {
+    "code": "SCHITOK-IEK-36MOD",
+    "name": "Щиток встраиваемый IEK ЯПРк-36-32 на 36 модулей",
+    "unit": "шт",
+    "price_rub": 1650,
+    "source": "IEK / TDM avg 2025-2026"
+  },
+  {
+    "code": "SCHITOK-ABB-24MOD",
+    "name": "Щиток навесной ABB Mistral 41 24 модуля IP40",
+    "unit": "шт",
+    "price_rub": 3200,
+    "source": "ABB / Leroy Merlin avg 2025-2026"
+  },
+  {
+    "code": "ROZETKA-LEGRAND-VAL",
+    "name": "Розетка Legrand Valena 2P+E с заземлением",
+    "unit": "шт",
+    "price_rub": 380,
+    "source": "Legrand / Leroy Merlin avg 2025-2026"
+  },
+  {
+    "code": "ROZETKA-LEGRAND-VAL-ZAKL",
+    "name": "Розетка Legrand Valena 2P+E с крышкой (влагозащ.)",
+    "unit": "шт",
+    "price_rub": 520,
+    "source": "Legrand / Leroy Merlin avg 2025-2026"
+  },
+  {
+    "code": "ROZETKA-IEK-BRAZ",
+    "name": "Розетка IEK Брауз 2P+E с заземлением",
+    "unit": "шт",
+    "price_rub": 125,
+    "source": "IEK / TDM avg 2025-2026"
+  },
+  {
+    "code": "ROZETKA-ABB-ZENIT",
+    "name": "Розетка ABB Zenit 2P+E с заземлением",
+    "unit": "шт",
+    "price_rub": 290,
+    "source": "ABB / Leroy Merlin avg 2025-2026"
+  },
+  {
+    "code": "ROZETKA-DOUBLE-LEGRAND",
+    "name": "Розетка двойная Legrand Valena 2×(2P+E)",
+    "unit": "шт",
+    "price_rub": 620,
+    "source": "Legrand / Leroy Merlin avg 2025-2026"
+  },
+  {
+    "code": "VYKL-LEGRAND-VAL-1K",
+    "name": "Выключатель Legrand Valena 1-клавишный",
+    "unit": "шт",
+    "price_rub": 320,
+    "source": "Legrand / Leroy Merlin avg 2025-2026"
+  },
+  {
+    "code": "VYKL-LEGRAND-VAL-2K",
+    "name": "Выключатель Legrand Valena 2-клавишный",
+    "unit": "шт",
+    "price_rub": 420,
+    "source": "Legrand / Leroy Merlin avg 2025-2026"
+  },
+  {
+    "code": "VYKL-IEK-BRAZ-1K",
+    "name": "Выключатель IEK Брауз 1-клавишный",
+    "unit": "шт",
+    "price_rub": 85,
+    "source": "IEK / TDM avg 2025-2026"
+  },
+  {
+    "code": "VYKL-IEK-BRAZ-2K",
+    "name": "Выключатель IEK Брауз 2-клавишный",
+    "unit": "шт",
+    "price_rub": 110,
+    "source": "IEK / TDM avg 2025-2026"
+  },
+  {
+    "code": "VYKL-ABB-ZENIT-1K",
+    "name": "Выключатель ABB Zenit 1-клавишный",
+    "unit": "шт",
+    "price_rub": 250,
+    "source": "ABB / Leroy Merlin avg 2025-2026"
+  },
+  {
+    "code": "VYKL-PROHODNOY-LEGRAND",
+    "name": "Выключатель проходной Legrand Valena 1-клав.",
+    "unit": "шт",
+    "price_rub": 480,
+    "source": "Legrand / Leroy Merlin avg 2025-2026"
+  },
+  {
+    "code": "KABEL-KANAL-40x16",
+    "name": "Кабель-канал 40×16 мм, белый, 2м",
+    "unit": "шт",
+    "price_rub": 85,
+    "source": "IEK / Leroy Merlin avg 2025-2026"
+  },
+  {
+    "code": "KABEL-KANAL-60x40",
+    "name": "Кабель-канал 60×40 мм, белый, 2м",
+    "unit": "шт",
+    "price_rub": 145,
+    "source": "IEK / Leroy Merlin avg 2025-2026"
+  },
+  {
+    "code": "KABEL-KANAL-100x60",
+    "name": "Кабель-канал 100×60 мм, белый, 2м",
+    "unit": "шт",
+    "price_rub": 250,
+    "source": "IEK / Leroy Merlin avg 2025-2026"
+  },
+  {
+    "code": "KABEL-KANAL-PARQUET",
+    "name": "Кабель-канал напольный (плинтусный) 50×15 мм, 2м",
+    "unit": "шт",
+    "price_rub": 165,
+    "source": "IEK / Leroy Merlin avg 2025-2026"
+  },
+  {
+    "code": "GOFRA-16MM",
+    "name": "Гофротруба ПВХ Ø16 мм, 100м бухта",
+    "unit": "бухта",
+    "price_rub": 580,
+    "source": "IEK / TDM avg 2025-2026"
+  },
+  {
+    "code": "GOFRA-20MM",
+    "name": "Гофротруба ПВХ Ø20 мм, 100м бухта",
+    "unit": "бухта",
+    "price_rub": 780,
+    "source": "IEK / TDM avg 2025-2026"
+  },
+  {
+    "code": "GOFRA-25MM",
+    "name": "Гофротруба ПВХ Ø25 мм, 50м бухта",
+    "unit": "бухта",
+    "price_rub": 650,
+    "source": "IEK / TDM avg 2025-2026"
+  },
+  {
+    "code": "GOFRA-32MM",
+    "name": "Гофротруба ПВХ Ø32 мм, 50м бухта",
+    "unit": "бухта",
+    "price_rub": 920,
+    "source": "IEK / TDM avg 2025-2026"
+  },
+  {
+    "code": "GOFRA-METAL-16MM",
+    "name": "Гофротруба металлическая (металлорукав) Ø16 мм, 50м",
+    "unit": "бухта",
+    "price_rub": 1850,
+    "source": "IEK / TDM avg 2025-2026"
+  },
+  {
+    "code": "GOFRA-METAL-20MM",
+    "name": "Гофротруба металлическая (металлорукав) Ø20 мм, 50м",
+    "unit": "бухта",
+    "price_rub": 2400,
+    "source": "IEK / TDM avg 2025-2026"
+  },
+  {
+    "code": "SVETILNIK-LED-PANEL-600",
+    "name": "Светодиодная панель 600×600 мм, 40Вт, 4000K",
+    "unit": "шт",
+    "price_rub": 1850,
+    "source": "IEK / Leroy Merlin avg 2025-2026"
+  },
+  {
+    "code": "SVETILNIK-LED-DOWNLIGHT",
+    "name": "Светильник LED встраиваемый (даунлайт) 12Вт, 4000K",
+    "unit": "шт",
+    "price_rub": 420,
+    "source": "IEK / Leroy Merlin avg 2025-2026"
+  },
+  {
+    "code": "SVETILNIK-LED-ARROW",
+    "name": "Светильник LED трековый (спот) 15Вт, 4000K",
+    "unit": "шт",
+    "price_rub": 850,
+    "source": "IEK / Leroy Merlin avg 2025-2026"
+  },
+  {
+    "code": "SVETILNIK-LED-LINE",
+    "name": "Светильник LED линейный 1200мм, 36Вт, 4000K",
+    "unit": "шт",
+    "price_rub": 1250,
+    "source": "IEK / Leroy Merlin avg 2025-2026"
+  },
+  {
+    "code": "KOROBKA-40-ROUND",
+    "name": "Коробка распаечная (подрозетник) Ø68 мм, глубокая",
+    "unit": "шт",
+    "price_rub": 28,
+    "source": "IEK / Leroy Merlin avg 2025-2026"
+  },
+  {
+    "code": "KOROBKA-40-SQUARE",
+    "name": "Коробка распаечная 100×100×50 мм",
+    "unit": "шт",
+    "price_rub": 45,
+    "source": "IEK / Leroy Merlin avg 2025-2026"
+  },
+  {
+    "code": "KOROBKA-MONTAG-80x80",
+    "name": "Коробка монтажная 80×80×40 мм с крышкой",
+    "unit": "шт",
+    "price_rub": 55,
+    "source": "IEK / TDM avg 2025-2026"
+  },
+  {
+    "code": "KOROBKA-MONTAG-100x100",
+    "name": "Коробка монтажная 100×100×55 мм с крышкой",
+    "unit": "шт",
+    "price_rub": 75,
+    "source": "IEK / TDM avg 2025-2026"
+  },
+  {
+    "code": "TRUBA-PND-16",
+    "name": "Труба ПНД электротехническая Ø16 мм, 100м бухта",
+    "unit": "бухта",
+    "price_rub": 650,
+    "source": "IEK / TDM avg 2025-2026"
+  },
+  {
+    "code": "TRUBA-PND-20",
+    "name": "Труба ПНД электротехническая Ø20 мм, 100м бухта",
+    "unit": "бухта",
+    "price_rub": 850,
+    "source": "IEK / TDM avg 2025-2026"
+  },
+  {
+    "code": "TRUBA-PND-25",
+    "name": "Труба ПНД электротехническая Ø25 мм, 50м бухта",
+    "unit": "бухта",
+    "price_rub": 720,
+    "source": "IEK / TDM avg 2025-2026"
+  },
+  {
+    "code": "TRUBA-PND-32",
+    "name": "Труба ПНД электротехническая Ø32 мм, 50м бухта",
+    "unit": "бухта",
+    "price_rub": 980,
+    "source": "IEK / TDM avg 2025-2026"
+  },
+  {
+    "code": "TRUBA-PND-40",
+    "name": "Труба ПНД электротехническая Ø40 мм, 50м бухта",
+    "unit": "бухта",
+    "price_rub": 1350,
+    "source": "IEK / TDM avg 2025-2026"
+  },
+  {
+    "code": "AVTOMAT-LEGRAND-1P-16A",
+    "name": "Автомат Legrand DX3 1P 16А (C)",
+    "unit": "шт",
+    "price_rub": 380,
+    "source": "Legrand / Leroy Merlin avg 2025-2026"
+  },
+  {
+    "code": "AVTOMAT-LEGRAND-1P-25A",
+    "name": "Автомат Legrand DX3 1P 25А (C)",
+    "unit": "шт",
+    "price_rub": 400,
+    "source": "Legrand / Leroy Merlin avg 2025-2026"
+  },
+  {
+    "code": "UZO-LEGRAND-2P-40A-30mA",
+    "name": "УЗО Legrand DX3 2P 40А 30мА (тип A)",
+    "unit": "шт",
+    "price_rub": 3800,
+    "source": "Legrand / Leroy Merlin avg 2025-2026"
+  },
+  {
+    "code": "DIFAUTO-LEGRAND-2P-16A",
+    "name": "Дифавтомат Legrand DX3 2P 16А 30мА (A)",
+    "unit": "шт",
+    "price_rub": 5200,
+    "source": "Legrand / Leroy Merlin avg 2025-2026"
+  },
+  {
+    "code": "SCHITOK-LEGRAND-36MOD",
+    "name": "Щиток встраиваемый Legrand Plexo 36 модулей IP40",
+    "unit": "шт",
+    "price_rub": 2800,
+    "source": "Legrand / Leroy Merlin avg 2025-2026"
+  },
+  {
+    "code": "GOFRA-16MM-1M",
+    "name": "Гофротруба ПВХ Ø16 мм, за метр",
+    "unit": "м",
+    "price_rub": 7,
+    "source": "IEK / TDM avg 2025-2026"
+  },
+  {
+    "code": "GOFRA-20MM-1M",
+    "name": "Гофротруба ПВХ Ø20 мм, за метр",
+    "unit": "м",
+    "price_rub": 9,
+    "source": "IEK / TDM avg 2025-2026"
+  },
+  {
+    "code": "KABEL-KANAL-25x16",
+    "name": "Кабель-канал 25×16 мм, белый, 2м",
+    "unit": "шт",
+    "price_rub": 55,
+    "source": "IEK / Leroy Merlin avg 2025-2026"
+  },
+  {
+    "code": "AVTOMAT-SCHNEIDER-1P-16A",
+    "name": "Автомат Schneider Electric Easy9 1P 16А (C)",
+    "unit": "шт",
+    "price_rub": 280,
+    "source": "Schneider / Leroy Merlin avg 2025-2026"
+  },
+  {
+    "code": "AVTOMAT-SCHNEIDER-1P-25A",
+    "name": "Автомат Schneider Electric Easy9 1P 25А (C)",
+    "unit": "шт",
+    "price_rub": 290,
+    "source": "Schneider / Leroy Merlin avg 2025-2026"
+  },
+  {
+    "code": "UZO-SCHNEIDER-2P-25A-30mA",
+    "name": "УЗО Schneider Electric Easy9 2P 25А 30мА",
+    "unit": "шт",
+    "price_rub": 2200,
+    "source": "Schneider / Leroy Merlin avg 2025-2026"
+  },
+  {
+    "code": "ROZETKA-SCHNEIDER-SEDNA",
+    "name": "Розетка Schneider Electric Sedna 2P+E с заземлением",
+    "unit": "шт",
+    "price_rub": 250,
+    "source": "Schneider / Leroy Merlin avg 2025-2026"
+  },
+  {
+    "code": "VYKL-SCHNEIDER-SEDNA-1K",
+    "name": "Выключатель Schneider Electric Sedna 1-клавишный",
+    "unit": "шт",
+    "price_rub": 220,
+    "source": "Schneider / Leroy Merlin avg 2025-2026"
+  },
+  {
+    "code": "ROZETKA-BLOK-3",
+    "name": "Блок розеток 3 шт. в рамке (поставляется по шт.)",
+    "unit": "шт",
+    "price_rub": 350,
+    "source": "Legrand / Leroy Merlin avg 2025-2026"
+  },
+  {
+    "code": "RAMKA-LEGRAND-2",
+    "name": "Рамка Legrand Valena 2 поста",
+    "unit": "шт",
+    "price_rub": 180,
+    "source": "Legrand / Leroy Merlin avg 2025-2026"
+  },
+  {
+    "code": "RAMKA-LEGRAND-3",
+    "name": "Рамка Legrand Valena 3 поста",
+    "unit": "шт",
+    "price_rub": 250,
+    "source": "Legrand / Leroy Merlin avg 2025-2026"
+  },
+  {
+    "code": "SHINA-PE-N-100A",
+    "name": "Шина PE+N для щитка, 12 отв., 100А",
+    "unit": "шт",
+    "price_rub": 180,
+    "source": "IEK / TDM avg 2025-2026"
+  },
+  {
+    "code": "DIN-REYKA-35MM",
+    "name": "DIN-рейка 35×7.5 мм, 1м",
+    "unit": "шт",
+    "price_rub": 45,
+    "source": "IEK / TDM avg 2025-2026"
+  },
+  {
+    "code": "SOYUZ-KLEMMA-10",
+    "name": "Клеммная колодка 10 мм², 12 отверстий",
+    "unit": "шт",
+    "price_rub": 85,
+    "source": "IEK / TDM avg 2025-2026"
+  }
+]

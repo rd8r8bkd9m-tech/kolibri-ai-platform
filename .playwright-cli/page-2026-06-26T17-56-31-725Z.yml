@@ -1,0 +1,91 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - img "Колибри" [ref=e6]
+      - generic [ref=e7]: Колибри
+    - link "Новый чат" [ref=e9] [cursor=pointer]:
+      - /url: "#/"
+      - img [ref=e10]
+      - generic [ref=e11]: Новый чат
+    - button "Поиск Ctrl K" [ref=e13] [cursor=pointer]:
+      - img [ref=e14]
+      - generic [ref=e17]: Поиск
+      - generic [ref=e18]: Ctrl K
+    - navigation [ref=e19]:
+      - link "Чат" [ref=e20] [cursor=pointer]:
+        - /url: "#/chat"
+        - img [ref=e21]
+        - generic [ref=e23]: Чат
+      - link "Библиотека" [ref=e24] [cursor=pointer]:
+        - /url: "#/library"
+        - img [ref=e25]
+        - generic [ref=e27]: Библиотека
+      - link "Приложения" [ref=e28] [cursor=pointer]:
+        - /url: "#/apps"
+        - img [ref=e29]
+        - generic [ref=e34]: Приложения
+      - link "Сметы" [ref=e35] [cursor=pointer]:
+        - /url: "#/estimates"
+        - img [ref=e36]
+        - generic [ref=e38]: Сметы
+      - link "Документы" [ref=e39] [cursor=pointer]:
+        - /url: "#/documents"
+        - img [ref=e40]
+        - generic [ref=e43]: Документы
+      - link "Агенты" [ref=e44] [cursor=pointer]:
+        - /url: "#/agents"
+        - img [ref=e45]
+        - generic [ref=e48]: Агенты
+      - link "Серверы" [ref=e49] [cursor=pointer]:
+        - /url: "#/servers"
+        - img [ref=e50]
+        - generic [ref=e53]: Серверы
+      - generic [ref=e54]: Недавние
+      - button "Смета на электромонтаж" [ref=e55] [cursor=pointer]:
+        - img [ref=e56]
+        - generic [ref=e59]: Смета на электромонтаж
+      - button "Договор подряда №45" [ref=e60] [cursor=pointer]:
+        - img [ref=e61]
+        - generic [ref=e64]: Договор подряда №45
+      - button "Анализ продаж Q4" [ref=e65] [cursor=pointer]:
+        - img [ref=e66]
+        - generic [ref=e69]: Анализ продаж Q4
+      - button "React компоненты" [ref=e70] [cursor=pointer]:
+        - img [ref=e71]
+        - generic [ref=e74]: React компоненты
+      - button "Прайс-лист материалов" [ref=e75] [cursor=pointer]:
+        - img [ref=e76]
+        - generic [ref=e79]: Прайс-лист материалов
+    - generic [ref=e80]:
+      - link "Настройки" [ref=e81] [cursor=pointer]:
+        - /url: "#/settings"
+        - img [ref=e82]
+        - generic [ref=e85]: Настройки
+      - button "Помощь" [ref=e86] [cursor=pointer]:
+        - img [ref=e87]
+        - generic [ref=e90]: Помощь
+      - link "Войти" [ref=e91] [cursor=pointer]:
+        - /url: "#/login"
+        - img [ref=e92]
+        - generic [ref=e95]: Войти
+  - main [ref=e96]:
+    - generic [ref=e97]:
+      - generic [ref=e99]:
+        - paragraph [ref=e100]: Начните новый разговор
+        - generic [ref=e101]:
+          - button "Создать смету на электромонтаж дома 120 м²" [ref=e102] [cursor=pointer]
+          - button "Написать договор подряда" [ref=e103] [cursor=pointer]
+          - button "Проанализировать продажи за квартал" [ref=e104] [cursor=pointer]
+          - button "Сгенерировать техническое задание" [ref=e105] [cursor=pointer]
+      - generic [ref=e107]:
+        - generic [ref=e108]:
+          - textbox "Спросите Колибри..." [ref=e109]
+          - generic [ref=e110]:
+            - generic [ref=e111]:
+              - button [ref=e112] [cursor=pointer]:
+                - img [ref=e113]
+              - button [ref=e115] [cursor=pointer]:
+                - img [ref=e116]
+            - button [disabled] [ref=e119]:
+              - img [ref=e120]
+        - paragraph [ref=e122]: AI может ошибаться. Проверяйте важную информацию.

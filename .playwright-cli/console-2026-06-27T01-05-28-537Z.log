@@ -1,0 +1,5 @@
+[     255ms] [ERROR] Failed to load resource: the server responded with a status of 403 () @ https://market.yandex.ru/search?text=%D1%86%D0%B5%D0%BC%D0%B5%D0%BD%D1%82+50+%D0%BA%D0%B3&lr=213:0
+[     324ms] [ERROR] Failed to load resource: the server responded with a status of 403 () @ https://market.yandex.ru/captcha_smart_qrcode.min.js:0
+[     536ms] ReferenceError: QRCode is not defined
+    at https://market.yandex.ru/search?text=%D1%86%D0%B5%D0%BC%D0%B5%D0%BD%D1%82+50+%D0%BA%D0%B3&lr=213:39:17
+[    1420ms] [ERROR] Failed to load resource: the server responded with a status of 403 () @ https://market.yandex.ru/favicon.ico:0

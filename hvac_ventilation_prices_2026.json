@@ -1,0 +1,506 @@
+[
+  {
+    "code": "HVAC-SPLIT-09",
+    "name": "Кондиционер сплит-система 9000 BTU (2.5 кВт)",
+    "unit": "шт.",
+    "price_rub": 28000,
+    "category": "Кондиционеры",
+    "note": "Бюджетный сегмент: Ballu, Oasis, Aeronik. Средний сегмент: Haier, Gree — 35 000–42 000 ₽",
+    "source": "market.yandex.ru, citilink.ru — Москва, июнь 2025"
+  },
+  {
+    "code": "HVAC-SPLIT-12",
+    "name": "Кондиционер сплит-система 12000 BTU (3.5 кВт)",
+    "unit": "шт.",
+    "price_rub": 34000,
+    "category": "Кондиционеры",
+    "note": "Бюджетный сегмент. Средний сегмент: 42 000–52 000 ₽",
+    "source": "market.yandex.ru — Москва, июнь 2025"
+  },
+  {
+    "code": "HVAC-SPLIT-18",
+    "name": "Кондиционер сплит-система 18000 BTU (5.0 кВт)",
+    "unit": "шт.",
+    "price_rub": 45000,
+    "category": "Кондиционеры",
+    "note": "Бюджетный сегмент. Средний сегмент: 55 000–70 000 ₽",
+    "source": "market.yandex.ru — Москва, июнь 2025"
+  },
+  {
+    "code": "HVAC-SPLIT-24",
+    "name": "Кондиционер сплит-система 24000 BTU (7.0 кВт)",
+    "unit": "шт.",
+    "price_rub": 58000,
+    "category": "Кондиционеры",
+    "note": "Бюджетный сегмент. Средний сегмент: 70 000–95 000 ₽",
+    "source": "market.yandex.ru — Москва, июнь 2025"
+  },
+  {
+    "code": "HVAC-VENT-DUCT",
+    "name": "Установка приточная канальная (бризер/рекуператор)",
+    "unit": "шт.",
+    "price_rub": 65000,
+    "category": "Вентиляция",
+    "note": "Бризеры: 35 000–65 000 ₽. Канальные установки: 80 000–180 000 ₽. Рекуператоры: 50 000–120 000 ₽",
+    "source": "market.yandex.ru, climat-tech.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-VENT-ROOF",
+    "name": "Вентилятор крышной центробежный",
+    "unit": "шт.",
+    "price_rub": 95000,
+    "category": "Вентиляция",
+    "note": "Диапазон: 60 000–250 000 ₽ в зависимости от производительности",
+    "source": "ventpartner.ru, climat-tech.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-VENT-AXIAL",
+    "name": "Вентилятор осевой канальный (100–150 мм)",
+    "unit": "шт.",
+    "price_rub": 4500,
+    "category": "Вентиляция",
+    "note": "Бытовые: 2 500–6 000 ₽. Промышленные: 8 000–25 000 ₽",
+    "source": "market.yandex.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-VENT-BOX",
+    "name": "Воздуховод оцинкованный прямоугольный 200×100 мм",
+    "unit": "п.м.",
+    "price_rub": 350,
+    "category": "Вентиляция",
+    "note": "Диаметр 100–200 мм круглый: 150–400 ₽/п.м.",
+    "source": "ventpartner.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-VENT-FLEX",
+    "name": "Воздуховод гофрированный алюминиевый 100 мм",
+    "unit": "п.м.",
+    "price_rub": 180,
+    "category": "Вентиляция",
+    "note": "150 мм: 250 ₽/п.м. 200 мм: 350 ₽/п.м.",
+    "source": "market.yandex.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-VENT-GRILLE",
+    "name": "Вентиляционная решетка настенная 150×150 мм",
+    "unit": "шт.",
+    "price_rub": 450,
+    "category": "Вентиляция",
+    "note": "С обратным клапаном: 600–900 ₽",
+    "source": "market.yandex.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-WARM-ELEC",
+    "name": "Теплый пол электрический (греющий кабель)",
+    "unit": "м²",
+    "price_rub": 2200,
+    "category": "Теплые полы",
+    "note": "Бюджетный (кабель): 1 200–2 000 ₽/м². Мат: 2 500–4 000 ₽/м². Инфракрасная пленка: 800–1 500 ₽/м²",
+    "source": "market.yandex.ru, teplolux.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-WARM-WATER",
+    "name": "Теплый пол водяной (труба + коллекторная группа)",
+    "unit": "м²",
+    "price_rub": 1500,
+    "category": "Теплые полы",
+    "note": "Труба PE-Xa/PE-RT: 80–200 ₽/п.м. Коллектор: 3 000–12 000 ₽. Утеплитель с бобышками: 250–500 ₽/м²",
+    "source": "market.yandex.ru, santehnika-online.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-WARM-MAT",
+    "name": "Теплый пол электрический (греющий мат)",
+    "unit": "м²",
+    "price_rub": 3200,
+    "category": "Теплые полы",
+    "note": "Диапазон: 2 500–5 000 ₽/м² в зависимости от мощности",
+    "source": "market.yandex.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-WARM-FILM",
+    "name": "Теплый пол инфракрасный пленочный",
+    "unit": "м²",
+    "price_rub": 1100,
+    "category": "Теплые полы",
+    "note": "Диапазон: 600–2 000 ₽/м²",
+    "source": "market.yandex.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-RAD-ALU",
+    "name": "Радиатор алюминиевый (1 секция, межосевое 500 мм)",
+    "unit": "секция",
+    "price_rub": 550,
+    "category": "Радиаторы отопления",
+    "note": "Rifar, Global, Sira. Бюджетные: 350–500 ₽/сек. Премиум: 700–1 000 ₽/сек",
+    "source": "market.yandex.ru, leroymerlin.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-RAD-BIM",
+    "name": "Радиатор биметаллический (1 секция, межосевое 500 мм)",
+    "unit": "секция",
+    "price_rub": 750,
+    "category": "Радиаторы отопления",
+    "note": "Rifar, Global, Sira. Бюджетные: 500–650 ₽/сек. Премиум: 900–1 400 ₽/сек",
+    "source": "market.yandex.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-RAD-ALU-500",
+    "name": "Радиатор алюминиевый 10 секций (500 мм межосевое)",
+    "unit": "шт.",
+    "price_rub": 5500,
+    "category": "Радиаторы отопления",
+    "note": "Rifar Alum 500 10 секций. Аналоги: Global, Sira — 4 500–7 000 ₽",
+    "source": "market.yandex.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-RAD-BIM-500",
+    "name": "Радиатор биметаллический 10 секций (500 мм межосевое)",
+    "unit": "шт.",
+    "price_rub": 7500,
+    "category": "Радиаторы отопления",
+    "note": "Rifar Base 500 10 секций. Аналоги: Global, Sira — 6 000–10 000 ₽",
+    "source": "market.yandex.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-RAD-STEEL",
+    "name": "Радиатор стальной панельный 500×1000 мм (тип 22)",
+    "unit": "шт.",
+    "price_rub": 6500,
+    "category": "Радиаторы отопления",
+    "note": "Kermi, Purmo, Lidea. Бюджетные: 4 000–5 500 ₽",
+    "source": "market.yandex.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-BOILER-GAS-WALL",
+    "name": "Котел газовый настенный двухконтурный 24 кВт",
+    "unit": "шт.",
+    "price_rub": 42000,
+    "category": "Котлы",
+    "note": "Baxi, Vaillant, Viessmann. Бюджетный (Navien, Daewoo): 25 000–35 000 ₽. Премиум: 55 000–85 000 ₽",
+    "source": "market.yandex.ru, kotlomarket.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-BOILER-GAS-FLOOR",
+    "name": "Котел газовый напольный одноконтурный 30 кВт",
+    "unit": "шт.",
+    "price_rub": 55000,
+    "category": "Котлы",
+    "note": "Диапазон: 35 000–120 000 ₽. Чугунные дороже стальных на 30–50%",
+    "source": "market.yandex.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-BOILER-GAS-COND",
+    "name": "Котел газовый конденсационный настенный 24 кВт",
+    "unit": "шт.",
+    "price_rub": 72000,
+    "category": "Котлы",
+    "note": "Vaillant, Viessmann, Baxi. Диапазон: 55 000–120 000 ₽",
+    "source": "market.yandex.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-BOILER-ELEC",
+    "name": "Котел электрический настенный 6 кВт",
+    "unit": "шт.",
+    "price_rub": 18000,
+    "category": "Котлы",
+    "note": "9 кВт: 22 000 ₽. 12 кВт: 28 000 ₽. 15 кВт: 32 000 ₽. 24 кВт: 40 000–55 000 ₽. Protherm, Vaillant, EVAN",
+    "source": "market.yandex.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-BOILER-ELEC-12",
+    "name": "Котел электрический настенный 12 кВт",
+    "unit": "шт.",
+    "price_rub": 28000,
+    "category": "Котлы",
+    "note": "Protherm, Vaillant, EVAN, RusNIT",
+    "source": "market.yandex.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-PIPE-METAL",
+    "name": "Труба полипропиленовая для отопления PN25 (20 мм)",
+    "unit": "п.м.",
+    "price_rub": 85,
+    "category": "Трубы отопления",
+    "note": "Армированная стекловолокном. 25 мм: 110 ₽. 32 мм: 160 ₽. Металлопластик: 120–300 ₽/п.м.",
+    "source": "market.yandex.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-PIPE-PEX",
+    "name": "Труба металлопластиковая для отопления 16 мм",
+    "unit": "п.м.",
+    "price_rub": 120,
+    "category": "Трубы отопления",
+    "note": "20 мм: 180 ₽/п.м. 26 мм: 280 ₽/п.м. Rehau, Valtec, Tece",
+    "source": "market.yandex.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-PIPE-STEEL",
+    "name": "Труба стальная для отопления ДУ 20 (3/4 дюйма)",
+    "unit": "п.м.",
+    "price_rub": 180,
+    "category": "Трубы отопления",
+    "note": "ДУ 25: 250 ₽/п.м. ДУ 32: 350 ₽/п.м. Электросварная, черная",
+    "source": "market.yandex.ru, metallotorg.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-PIPE-PEX-EVOH",
+    "name": "Труба из сшитого полиэтилена PE-Xa 16 мм (Evoh)",
+    "unit": "п.м.",
+    "price_rub": 160,
+    "category": "Трубы отопления",
+    "note": "20 мм: 230 ₽/п.м. Rehau, Uponor, Tece",
+    "source": "market.yandex.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-TANK",
+    "name": "Расширительный бак для отопления 24 л",
+    "unit": "шт.",
+    "price_rub": 3500,
+    "category": "Расширительные баки",
+    "note": "50 л: 5 500 ₽. 80 л: 7 500 ₽. 100 л: 9 000 ₽. Wester, Reflex, Zilmet",
+    "source": "market.yandex.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-TANK-50",
+    "name": "Расширительный бак для отопления 50 л",
+    "unit": "шт.",
+    "price_rub": 5500,
+    "category": "Расширительные баки",
+    "note": "Wester, Reflex, Zilmet, Flamco",
+    "source": "market.yandex.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-TANK-DHW",
+    "name": "Расширительный бак для ГВС (красный) 24 л",
+    "unit": "шт.",
+    "price_rub": 3800,
+    "category": "Расширительные баки",
+    "note": "50 л: 6 000 ₽. 80 л: 8 500 ₽",
+    "source": "market.yandex.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-MANIFOLD-2",
+    "name": "Коллектор отопления 2 выхода (нержавеющая сталь)",
+    "unit": "шт.",
+    "price_rub": 3500,
+    "category": "Коллекторы",
+    "note": "3 выхода: 4 500 ₽. 4 выхода: 5 500 ₽. 6 выходов: 7 500 ₽. 8 выходов: 9 500 ₽. Valtec, Tece, Rehau",
+    "source": "market.yandex.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-MANIFOLD-4",
+    "name": "Коллектор отопления 4 выхода (нержавеющая сталь)",
+    "unit": "шт.",
+    "price_rub": 5500,
+    "category": "Коллекторы",
+    "note": "Valtec, Tece, Rehau, Watts",
+    "source": "market.yandex.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-MANIFOLD-6",
+    "name": "Коллектор отопления 6 выходов (нержавеющая сталь)",
+    "unit": "шт.",
+    "price_rub": 7500,
+    "category": "Коллекторы",
+    "note": "С расходомерами: +2 000–4 000 ₽",
+    "source": "market.yandex.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-MANIFOLD-CABINET",
+    "name": "Шкаф коллекторный настенный 600×450×120 мм",
+    "unit": "шт.",
+    "price_rub": 3200,
+    "category": "Коллекторы",
+    "note": "Встраиваемый: 4 000–6 000 ₽",
+    "source": "market.yandex.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-FIT-PP",
+    "name": "Фитинг полипропиленовый (муфта, тройник, уголок)",
+    "unit": "шт.",
+    "price_rub": 45,
+    "category": "Фитинги для отопления",
+    "note": "Диапазон: 25–120 ₽ в зависимости от типа и диаметра. PP-R PN25",
+    "source": "market.yandex.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-FIT-MP",
+    "name": "Фитинг металлопластиковый (пресс, 16 мм)",
+    "unit": "шт.",
+    "price_rub": 180,
+    "category": "Фитинги для отопления",
+    "note": "20 мм: 250 ₽. Обжимной (цанга): 120–200 ₽. Valtec, Uponor",
+    "source": "market.yandex.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-FIT-STEEL",
+    "name": "Фитинг стальной (муфта, тройник, уголок) ДУ 20",
+    "unit": "шт.",
+    "price_rub": 120,
+    "category": "Фитинги для отопления",
+    "note": "ДУ 25: 160 ₽. ДУ 32: 250 ₽. Черные, оцинкованные +30%",
+    "source": "market.yandex.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-FIT-PRESS",
+    "name": "Фитинг прессовый для PEX трубы 16 мм",
+    "unit": "шт.",
+    "price_rub": 220,
+    "category": "Фитинги для отопления",
+    "note": "20 мм: 300 ₽. 26 мм: 450 ₽. Rehau, Uponor, Tece",
+    "source": "market.yandex.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-FIT-BALL",
+    "name": "Кран шаровой для отопления 1/2 дюйма",
+    "unit": "шт.",
+    "price_rub": 350,
+    "category": "Фитинги для отопления",
+    "note": "3/4: 500 ₽. 1 дюйм: 750 ₽. Bugatti, Danfoss, Itap",
+    "source": "market.yandex.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-FIT-THERMO",
+    "name": "Термоголовка для радиатора (RTD-N)",
+    "unit": "шт.",
+    "price_rub": 900,
+    "category": "Фитинги для отопления",
+    "note": "Danfoss, Herz, Oventrop. Электронная: 2 500–4 000 ₽",
+    "source": "market.yandex.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-FIT-CIRC",
+    "name": "Насос циркуляционный для отопления (25-40)",
+    "unit": "шт.",
+    "price_rub": 6500,
+    "category": "Фитинги для отопления",
+    "note": "Grundfos, Wilo, DAB. 25-60: 8 000 ₽. 32-60: 10 000 ₽",
+    "source": "market.yandex.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-LABOR-AC-INSTALL",
+    "name": "Монтаж кондиционера (сплит-системы) стандартный",
+    "unit": "услуга",
+    "price_rub": 8000,
+    "category": "Монтажные работы",
+    "note": "До 3 м трассы. С увеличением трассы: +1 500 ₽/п.м. Мульти-сплит: 12 000–18 000 ₽. Высотные работы: +50%",
+    "source": "remstroymoskva.ru, youdo.com — Москва, 2025"
+  },
+  {
+    "code": "HVAC-LABOR-AC-SERVICE",
+    "name": "Обслуживание кондиционера (чистка, заправка)",
+    "unit": "услуга",
+    "price_rub": 3500,
+    "category": "Монтажные работы",
+    "note": "Чистка: 2 500 ₽. Заправка фреоном: 2 000–4 000 ₽. Комплекс: 4 000–6 000 ₽",
+    "source": "youdo.com, profi.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-LABOR-HEAT-RAD",
+    "name": "Монтаж радиатора отопления (замена/установка)",
+    "unit": "шт.",
+    "price_rub": 4500,
+    "category": "Монтажные работы",
+    "note": "Демонтаж старого: +1 500 ₽. Установка на новое место с подводкой: 6 000–10 000 ₽",
+    "source": "youdo.com, profi.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-LABOR-HEAT-BOILER",
+    "name": "Монтаж котла отопления (газового настенного)",
+    "unit": "услуга",
+    "price_rub": 18000,
+    "category": "Монтажные работы",
+    "note": "Напольный: 25 000–35 000 ₽. Электрический: 12 000–15 000 ₽. С обвязкой: +10 000–15 000 ₽",
+    "source": "youdo.com, profi.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-LABOR-HEAT-FLOOR",
+    "name": "Монтаж водяного теплого пола (укладка + стяжка)",
+    "unit": "м²",
+    "price_rub": 850,
+    "category": "Монтажные работы",
+    "note": "Без стяжки: 350–500 ₽/м². Электрический: 500–800 ₽/м²",
+    "source": "youdo.com, profi.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-LABOR-HEAT-PIPE",
+    "name": "Монтаж труб отопления (полипропилен/металлопластик)",
+    "unit": "п.м.",
+    "price_rub": 250,
+    "category": "Монтажные работы",
+    "note": "Скрытая прокладка (штробление): 400–600 ₽/п.м. Стальные трубы (сварка): 350–500 ₽/п.м.",
+    "source": "youdo.com — Москва, 2025"
+  },
+  {
+    "code": "HVAC-LABOR-VENT-DUCT",
+    "name": "Монтаж системы вентиляции (канальная)",
+    "unit": "услуга",
+    "price_rub": 35000,
+    "category": "Монтажные работы",
+    "note": "Квартира (2–3 комнаты): 25 000–45 000 ₽. Частный дом: 50 000–120 000 ₽. За точку притока/вытяжки: 3 000–5 000 ₽",
+    "source": "youdo.com, profi.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-LABOR-VENT-ROOF",
+    "name": "Монтаж крышного вентилятора",
+    "unit": "услуга",
+    "price_rub": 25000,
+    "category": "Монтажные работы",
+    "note": "С проходкой кровли: 30 000–45 000 ₽",
+    "source": "youdo.com — Москва, 2025"
+  },
+  {
+    "code": "HVAC-LABOR-VENT-RECOVERY",
+    "name": "Монтаж приточно-вытяжной установки с рекуперацией",
+    "unit": "услуга",
+    "price_rub": 45000,
+    "category": "Монтажные работы",
+    "note": "Бризер: 5 000–8 000 ₽. Канальная установка: 35 000–60 000 ₽",
+    "source": "youdo.com, profi.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-LABOR-VENT-PROJ",
+    "name": "Проектирование системы вентиляции (квартира)",
+    "unit": "услуга",
+    "price_rub": 15000,
+    "category": "Монтажные работы",
+    "note": "Частный дом: 20 000–35 000 ₽. Коммерческий объект: от 50 000 ₽",
+    "source": "youdo.com — Москва, 2025"
+  },
+  {
+    "code": "HVAC-THERMOSTAT-ROOM",
+    "name": "Термостат комнатный механический",
+    "unit": "шт.",
+    "price_rub": 1200,
+    "category": "Фитинги для отопления",
+    "note": "Программируемый: 3 000–5 000 ₽. С Wi-Fi: 4 000–8 000 ₽. Danfoss, Siemens",
+    "source": "market.yandex.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-VALVE-BALANCE",
+    "name": "Кран балансировочный для отопления 1/2\"",
+    "unit": "шт.",
+    "price_rub": 1800,
+    "category": "Фитинги для отопления",
+    "note": "3/4: 2 200 ₽. Danfoss, Watts, Oventrop",
+    "source": "market.yandex.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-VALVE-SAFETY",
+    "name": "Клапан предохранительный для отопления 3 бар",
+    "unit": "шт.",
+    "price_rub": 650,
+    "category": "Фитинги для отопления",
+    "note": "Danfoss, Watts, Caleffi",
+    "source": "market.yandex.ru — Москва, 2025"
+  },
+  {
+    "code": "HVAC-GRP-STIR",
+    "name": "Группа безопасности котла (манометр + клапан + воздухоотводчик)",
+    "unit": "шт.",
+    "price_rub": 2800,
+    "category": "Фитинги для отопления",
+    "note": "Valtec, Watts, TIM",
+    "source": "market.yandex.ru — Москва, 2025"
+  }
+]

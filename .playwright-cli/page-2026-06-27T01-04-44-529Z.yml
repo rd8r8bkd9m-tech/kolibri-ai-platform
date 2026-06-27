@@ -1,0 +1,1531 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e4]:
+      - generic [ref=e7]:
+        - button "Flocktory widget Санкт-Петербург" [ref=e10] [cursor=pointer]:
+          - iframe [ref=e13]:
+            - main [ref=f5e2]:
+              - heading "Ваш город Санкт-Петербург?" [level=2] [ref=f5e3]
+              - generic [ref=f5e4]:
+                - button "Да" [ref=f5e5] [cursor=pointer]
+                - button "Выбрать другой" [ref=f5e6] [cursor=pointer]
+              - button "Закрыть" [ref=f5e7] [cursor=pointer]
+          - img [ref=e14]
+          - text: Санкт-Петербург
+        - generic [ref=e15]:
+          - link "Магазины" [ref=e16] [cursor=pointer]:
+            - /url: /shops/
+          - link "Услуги" [ref=e17] [cursor=pointer]:
+            - /url: /services/
+          - link "Акции" [ref=e18] [cursor=pointer]:
+            - /url: /offers/
+          - link "Доставка" [ref=e19] [cursor=pointer]:
+            - /url: /payment/
+          - link "Программа лояльности" [ref=e20] [cursor=pointer]:
+            - /url: /loyal/
+          - link "Для юр.лиц" [ref=e21] [cursor=pointer]:
+            - /url: /about/dlya_yuridicheskikh_lits/
+          - link "Максипро" [ref=e22] [cursor=pointer]:
+            - /url: /advantages/programma-dlya-professionalov/
+          - link "Каталог" [ref=e23] [cursor=pointer]:
+            - /url: /catalog/
+        - link "8 (812) 324-55-55" [ref=e24] [cursor=pointer]:
+          - /url: tel:+7(812)324-55-55
+      - generic [ref=e27]:
+        - link [ref=e29] [cursor=pointer]:
+          - /url: /
+          - img [ref=e30]
+        - link "Каталог" [ref=e41] [cursor=pointer]:
+          - /url: "#"
+        - generic [ref=e43]:
+          - searchbox "К" [ref=e45]
+          - generic [ref=e46]:
+            - button [ref=e47] [cursor=pointer]:
+              - img [ref=e48]
+            - button [ref=e50] [cursor=pointer]
+        - generic [ref=e51]:
+          - generic [ref=e53]:
+            - link [ref=e54] [cursor=pointer]:
+              - /url: javascript:void(0)
+              - img [ref=e55]
+            - link "Войти" [ref=e57] [cursor=pointer]:
+              - /url: javascript:void(0)
+          - generic [ref=e59]:
+            - link "0" [ref=e60] [cursor=pointer]:
+              - /url: /catalog/compare/
+              - img [ref=e61]
+              - generic [ref=e63]: "0"
+            - link "Сравнение" [ref=e65] [cursor=pointer]:
+              - /url: /catalog/compare/
+          - generic [ref=e67]:
+            - generic [ref=e68]: "0"
+            - link [ref=e69] [cursor=pointer]:
+              - /url: /personal/cart2/
+              - img [ref=e70]
+            - link "Корзина" [ref=e75] [cursor=pointer]:
+              - /url: /personal/cart2/
+  - main [ref=e76]:
+    - generic [ref=e77]:
+      - navigation "breadcrumb" [ref=e79]:
+        - list [ref=e80]:
+          - listitem [ref=e81]:
+            - link "Главная" [ref=e82] [cursor=pointer]:
+              - /url: /
+            - text: /
+          - listitem [ref=e83]:
+            - link "Каталог" [ref=e84] [cursor=pointer]:
+              - /url: /catalog/
+            - text: /
+          - listitem [ref=e85]:
+            - link "Строительные материалы" [ref=e86] [cursor=pointer]:
+              - /url: /catalog/stroitelnye-materialy/
+            - text: /
+          - listitem [ref=e87]: Строительные смеси
+      - generic [ref=e88]:
+        - link [ref=e89] [cursor=pointer]:
+          - /url: /catalog/stroitelnye-materialy/
+        - generic [ref=e90]:
+          - heading "Строительные смеси" [level=1] [ref=e91]
+          - superscript [ref=e92]: "139"
+    - generic [ref=e94]:
+      - generic [ref=e95]:
+        - complementary [ref=e96]:
+          - navigation [ref=e97]:
+            - list [ref=e98]:
+              - listitem [ref=e99]:
+                - link "Штукатурка гипсовая" [ref=e100] [cursor=pointer]:
+                  - /url: /catalog/shtukaturka-gipsovaya/
+              - listitem [ref=e101]:
+                - link "Штукатурка цементная" [ref=e102] [cursor=pointer]:
+                  - /url: /catalog/shtukaturka-tsementnaya/
+              - listitem [ref=e103]:
+                - link "Шпатлевки готовые" [ref=e104] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-gotovye/
+              - listitem [ref=e105]:
+                - link "Шпатлевки тонированные" [ref=e106] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-tonirovannye/
+              - listitem [ref=e107]:
+                - link "Шпатлевки сухие гипсовые" [ref=e108] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-suhie-gipsovye/
+              - listitem [ref=e109]:
+                - link "Шпатлевки сухие цементные" [ref=e110] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-suhie-tsementnye/
+              - listitem [ref=e111]:
+                - link "Шпатлевки сухие полимерные" [ref=e112] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-suhie-polimernye/
+              - listitem [ref=e113]:
+                - link "Гипс строительный" [ref=e114] [cursor=pointer]:
+                  - /url: /catalog/gips-stroitelnyy/
+              - listitem [ref=e115]:
+                - link "Песок строительный" [ref=e116] [cursor=pointer]:
+                  - /url: /catalog/pesok-stroitelnyy/
+              - listitem [ref=e117]:
+                - link "Цемент" [ref=e118] [cursor=pointer]:
+                  - /url: /catalog/tsement/
+              - listitem [ref=e119]:
+                - link "Смеси цементно-песчаные" [ref=e120] [cursor=pointer]:
+                  - /url: /catalog/smesi-tsementno-peschanye/
+              - listitem [ref=e121]:
+                - link "Смеси ремонтные" [ref=e122] [cursor=pointer]:
+                  - /url: /catalog/smesi-remontnye/
+              - listitem [ref=e123]:
+                - link "Добавки к смесям сухим специальные" [ref=e124] [cursor=pointer]:
+                  - /url: /catalog/dobavki-k-smesyam-suhim-spetsialnye/
+              - listitem [ref=e125]:
+                - link "Смеси для выравнивания полов цементные" [ref=e126] [cursor=pointer]:
+                  - /url: /catalog/smesi-dlya-vyravnivaniya-polov-tsementnye/
+              - listitem [ref=e127]:
+                - link "Смеси для выравнивания полов гипсовые" [ref=e128] [cursor=pointer]:
+                  - /url: /catalog/smesi-dlya-vyravnivaniya-polov-gipsovye/
+              - listitem [ref=e129]:
+                - link "Смеси для выравнивания полов специальные" [ref=e130] [cursor=pointer]:
+                  - /url: /catalog/smesi-dlya-vyravnivaniya-polov-spetsialnye/
+              - listitem [ref=e131]:
+                - link "Смеси для гидроизоляции полов" [ref=e132] [cursor=pointer]:
+                  - /url: /catalog/smesi-dlya-gidroizolyatsii-polov/
+              - listitem [ref=e133]:
+                - link "Смеси монтажные" [ref=e134] [cursor=pointer]:
+                  - /url: /catalog/smesi-montazhnye/
+              - listitem [ref=e135]:
+                - link "Смеси огнеупорные для кладки печей, каминов, дымоходов" [ref=e136] [cursor=pointer]:
+                  - /url: /catalog/smesi-ogneupornye-dlya-kladki-pechey-kaminov-dymohodov/
+          - generic [ref=e138]:
+            - generic [ref=e139] [cursor=pointer]:
+              - text: Выбор магазина
+              - img [ref=e140]
+            - generic [ref=e141] [cursor=pointer]:
+              - text: Выбрать на карте
+              - img [ref=e142]
+            - generic [ref=e145] [cursor=pointer]: Выбрать магазин
+          - generic [ref=e147]:
+            - generic [ref=e148] [cursor=pointer]: Цена, ₽
+            - generic [ref=e152]:
+              - slider [ref=e154]
+              - slider [ref=e156]
+            - generic [ref=e158]:
+              - generic [ref=e159]:
+                - text: от
+                - textbox [ref=e160]: "99"
+              - generic [ref=e161]:
+                - text: до
+                - textbox [ref=e162]: "7640"
+          - generic [ref=e165] [cursor=pointer]:
+            - generic [ref=e166]: Тип товара
+            - img [ref=e167]
+          - generic [ref=e170] [cursor=pointer]:
+            - generic [ref=e171]: Марка
+            - img [ref=e172]
+          - generic [ref=e175] [cursor=pointer]:
+            - generic [ref=e176]: Страна-производитель
+            - img [ref=e177]
+          - button "Очистить" [ref=e179] [cursor=pointer]
+          - generic [ref=e181]:
+            - heading "Какой фильтр необходимо добавить?" [level=4] [ref=e182]
+            - generic [ref=e183]:
+              - textbox "Нам будет приятно, если вы поделитесь" [ref=e184]
+              - button "Отправить" [ref=e185] [cursor=pointer]
+        - generic [ref=e186]:
+          - generic [ref=e190] [cursor=pointer]: По популярности
+          - generic [ref=e194]:
+            - link "Краска СПб РФ" [ref=e197] [cursor=pointer]:
+              - /url: https://www.maxidom.ru/catalog/stock/lakokrasochnye_materialy/
+              - img "Краска СПб РФ" [ref=e198]
+            - text: next prev
+          - generic [ref=e200]:
+            - article [ref=e202]:
+              - generic [ref=e205]:
+                - link "шпатлевка-замазка для заделки швов по монтажной пене Flastic 1,4 кг, арт. 083-1 - фото в каталоге Максидом" [ref=e206] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-gotovye/1001611352/
+                  - img "шпатлевка-замазка для заделки швов по монтажной пене Flastic 1,4 кг, арт. 083-1 - фото в каталоге Максидом" [ref=e207]
+                - link "шпатлевка-замазка для заделки швов по монтажной пене Flastic 1,4 кг, арт. 083-1 - фото в каталоге Максидом" [ref=e208] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-gotovye/1001611352/
+                  - img "шпатлевка-замазка для заделки швов по монтажной пене Flastic 1,4 кг, арт. 083-1 - фото в каталоге Максидом" [ref=e209]
+                - link "шпатлевка-замазка для заделки швов по монтажной пене Flastic 1,4 кг, арт. 083-1 - фото в каталоге Максидом" [ref=e210] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-gotovye/1001611352/
+                  - img "шпатлевка-замазка для заделки швов по монтажной пене Flastic 1,4 кг, арт. 083-1 - фото в каталоге Максидом" [ref=e211]
+              - link "Новинка" [ref=e215] [cursor=pointer]:
+                - /url: /catalog/new/index.php?FILTER_TYPE=PROPERTY_REP_ACTION_NEW
+              - generic [ref=e216]:
+                - link "шпатлевка-замазка для заделки швов по монтажной пене Flastic 1,4 кг, арт. 083-1" [ref=e217] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-gotovye/1001611352/
+                  - generic [ref=e218]: шпатлевка-замазка для заделки швов по монтажной пене Flastic 1,4 кг, арт. 083-1
+                - generic [ref=e219]:
+                  - list [ref=e221]:
+                    - listitem [ref=e222]: "Вид смеси:"
+                    - listitem [ref=e223]: "Вес:"
+                    - listitem [ref=e224]: "Объем:"
+                    - listitem [ref=e225]: "Тип поверхности:"
+                    - listitem [ref=e226]: "Цвет:"
+                  - generic [ref=e228]:
+                    - text: "Код:"
+                    - generic [ref=e229]: "1001611352"
+                  - generic [ref=e233]: В наличии
+              - generic [ref=e234]:
+                - generic [ref=e236]: 440 ₽/шт.
+                - generic [ref=e238] [cursor=pointer]: В корзину
+            - article [ref=e240]:
+              - generic [ref=e243]:
+                - link "шпатлевка-замазка для заделки глубоких выбоин и трещин Plastix 1,4 кг, арт. 082-1 - фото в каталоге Максидом" [ref=e244] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-gotovye/1001611351/
+                  - img "шпатлевка-замазка для заделки глубоких выбоин и трещин Plastix 1,4 кг, арт. 082-1 - фото в каталоге Максидом" [ref=e245]
+                - link "шпатлевка-замазка для заделки глубоких выбоин и трещин Plastix 1,4 кг, арт. 082-1 - фото в каталоге Максидом" [ref=e246] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-gotovye/1001611351/
+                  - img "шпатлевка-замазка для заделки глубоких выбоин и трещин Plastix 1,4 кг, арт. 082-1 - фото в каталоге Максидом" [ref=e247]
+                - link "шпатлевка-замазка для заделки глубоких выбоин и трещин Plastix 1,4 кг, арт. 082-1 - фото в каталоге Максидом" [ref=e248] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-gotovye/1001611351/
+                  - img "шпатлевка-замазка для заделки глубоких выбоин и трещин Plastix 1,4 кг, арт. 082-1 - фото в каталоге Максидом" [ref=e249]
+              - link "Новинка" [ref=e253] [cursor=pointer]:
+                - /url: /catalog/new/index.php?FILTER_TYPE=PROPERTY_REP_ACTION_NEW
+              - generic [ref=e254]:
+                - link "шпатлевка-замазка для заделки глубоких выбоин и трещин Plastix 1,4 кг, арт. 082-1" [ref=e255] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-gotovye/1001611351/
+                  - generic [ref=e256]: шпатлевка-замазка для заделки глубоких выбоин и трещин Plastix 1,4 кг, арт. 082-1
+                - generic [ref=e257]:
+                  - list [ref=e259]:
+                    - listitem [ref=e260]: "Вид смеси:"
+                    - listitem [ref=e261]: "Вес:"
+                    - listitem [ref=e262]: "Объем:"
+                    - listitem [ref=e263]: "Тип поверхности:"
+                    - listitem [ref=e264]: "Цвет:"
+                  - generic [ref=e266]:
+                    - text: "Код:"
+                    - generic [ref=e267]: "1001611351"
+                  - generic [ref=e271]: В наличии
+              - generic [ref=e272]:
+                - generic [ref=e274]: 479 ₽/шт.
+                - generic [ref=e276] [cursor=pointer]: В корзину
+            - article [ref=e278]:
+              - generic [ref=e281]:
+                - link "шпатлевка готовая финишная DANOGIPS SuperFinish 17л/28кг, арт.ODA96 - фото в каталоге Максидом" [ref=e282] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-gotovye/1001610157/
+                  - img "шпатлевка готовая финишная DANOGIPS SuperFinish 17л/28кг, арт.ODA96 - фото в каталоге Максидом" [ref=e283]
+                - link "шпатлевка готовая финишная DANOGIPS SuperFinish 17л/28кг, арт.ODA96 - фото в каталоге Максидом" [ref=e284] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-gotovye/1001610157/
+                  - img "шпатлевка готовая финишная DANOGIPS SuperFinish 17л/28кг, арт.ODA96 - фото в каталоге Максидом" [ref=e285]
+                - link "шпатлевка готовая финишная DANOGIPS SuperFinish 17л/28кг, арт.ODA96 - фото в каталоге Максидом" [ref=e286] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-gotovye/1001610157/
+                  - img "шпатлевка готовая финишная DANOGIPS SuperFinish 17л/28кг, арт.ODA96 - фото в каталоге Максидом" [ref=e287]
+              - link "Новинка" [ref=e291] [cursor=pointer]:
+                - /url: /catalog/new/index.php?FILTER_TYPE=PROPERTY_REP_ACTION_NEW
+              - generic [ref=e292]:
+                - link "шпатлевка готовая финишная DANOGIPS SuperFinish 17л/28кг, арт.ODA96" [ref=e293] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-gotovye/1001610157/
+                  - generic [ref=e294]: шпатлевка готовая финишная DANOGIPS SuperFinish 17л/28кг, арт.ODA96
+                - generic [ref=e295]:
+                  - list [ref=e297]:
+                    - listitem [ref=e298]: "Вид смеси:"
+                    - listitem [ref=e299]: "Вес:"
+                    - listitem [ref=e300]: "Объем:"
+                    - listitem [ref=e301]: "Тип поверхности:"
+                    - listitem [ref=e302]: "Цвет:"
+                  - generic [ref=e304]:
+                    - text: "Код:"
+                    - generic [ref=e305]: "1001610157"
+                  - generic [ref=e309]: В наличии
+              - generic [ref=e310]:
+                - generic [ref=e312]: 2 808 ₽/шт.
+                - generic [ref=e314] [cursor=pointer]: В корзину
+            - article [ref=e316]:
+              - generic [ref=e319]:
+                - link [ref=e320] [cursor=pointer]:
+                  - /url: /catalog/smesi-dlya-vyravnivaniya-polov-tsementnye/1001607039/
+                  - img [ref=e321]
+                - link "ровнитель LITOKOL Нивелир С50/Nivelir S50 20кг - фото в каталоге Максидом" [ref=e322] [cursor=pointer]:
+                  - /url: /catalog/smesi-dlya-vyravnivaniya-polov-tsementnye/1001607039/
+                  - img "ровнитель LITOKOL Нивелир С50/Nivelir S50 20кг - фото в каталоге Максидом" [ref=e323]
+                - link [ref=e324] [cursor=pointer]:
+                  - /url: /catalog/smesi-dlya-vyravnivaniya-polov-tsementnye/1001607039/
+                  - img [ref=e325]
+                - link "ровнитель LITOKOL Нивелир С50/Nivelir S50 20кг - фото в каталоге Максидом" [ref=e326] [cursor=pointer]:
+                  - /url: /catalog/smesi-dlya-vyravnivaniya-polov-tsementnye/1001607039/
+                  - img "ровнитель LITOKOL Нивелир С50/Nivelir S50 20кг - фото в каталоге Максидом" [ref=e327]
+              - generic [ref=e331]:
+                - link "ровнитель LITOKOL Нивелир С50/Nivelir S50 20кг" [ref=e332] [cursor=pointer]:
+                  - /url: /catalog/smesi-dlya-vyravnivaniya-polov-tsementnye/1001607039/
+                  - generic [ref=e333]: ровнитель LITOKOL Нивелир С50/Nivelir S50 20кг
+                - generic [ref=e334]:
+                  - list [ref=e336]:
+                    - listitem [ref=e337]: "Коллекция:"
+                    - listitem [ref=e338]: "Вес:"
+                    - listitem [ref=e339]: "Основа смеси:"
+                    - listitem [ref=e340]: "Толщина слоя:"
+                    - listitem [ref=e341]: "Применение:"
+                  - generic [ref=e343]:
+                    - text: "Код:"
+                    - generic [ref=e344]: "1001607039"
+                  - generic [ref=e348]: В наличии
+              - generic [ref=e349]:
+                - generic [ref=e351]: 550 ₽/шт.
+                - generic [ref=e353] [cursor=pointer]: В корзину
+            - article [ref=e355]:
+              - generic [ref=e358]:
+                - link [ref=e359] [cursor=pointer]:
+                  - /url: /catalog/gips-stroitelnyy/1001570620/
+                  - img [ref=e360]
+                - link "алебастр OBERN 5кг - фото в каталоге Максидом" [ref=e361] [cursor=pointer]:
+                  - /url: /catalog/gips-stroitelnyy/1001570620/
+                  - img "алебастр OBERN 5кг - фото в каталоге Максидом" [ref=e362]
+                - link [ref=e363] [cursor=pointer]:
+                  - /url: /catalog/gips-stroitelnyy/1001570620/
+                  - img [ref=e364]
+                - link "алебастр OBERN 5кг - фото в каталоге Максидом" [ref=e365] [cursor=pointer]:
+                  - /url: /catalog/gips-stroitelnyy/1001570620/
+                  - img "алебастр OBERN 5кг - фото в каталоге Максидом" [ref=e366]
+              - generic [ref=e370]:
+                - link "алебастр OBERN 5кг" [ref=e371] [cursor=pointer]:
+                  - /url: /catalog/gips-stroitelnyy/1001570620/
+                  - generic [ref=e372]: алебастр OBERN 5кг
+                - generic [ref=e373]:
+                  - list [ref=e375]:
+                    - listitem "5" [ref=e376]: "Вес: 5"
+                    - listitem "для внутренних работ" [ref=e377]: "Применение: для внутренних работ"
+                  - generic [ref=e379]:
+                    - text: "Код:"
+                    - generic [ref=e380]: "1001570620"
+                  - generic [ref=e384]: В наличии
+              - generic [ref=e385]:
+                - generic [ref=e387]: 257 ₽/шт.
+                - generic [ref=e389] [cursor=pointer]: В корзину
+            - article [ref=e391]:
+              - generic [ref=e394]:
+                - link [ref=e395] [cursor=pointer]:
+                  - /url: /catalog/gips-stroitelnyy/1001570619/
+                  - img [ref=e396]
+                - link "алебастр OBERN 1кг - фото в каталоге Максидом" [ref=e397] [cursor=pointer]:
+                  - /url: /catalog/gips-stroitelnyy/1001570619/
+                  - img "алебастр OBERN 1кг - фото в каталоге Максидом" [ref=e398]
+                - link [ref=e399] [cursor=pointer]:
+                  - /url: /catalog/gips-stroitelnyy/1001570619/
+                  - img [ref=e400]
+                - link "алебастр OBERN 1кг - фото в каталоге Максидом" [ref=e401] [cursor=pointer]:
+                  - /url: /catalog/gips-stroitelnyy/1001570619/
+                  - img "алебастр OBERN 1кг - фото в каталоге Максидом" [ref=e402]
+              - generic [ref=e406]:
+                - link "алебастр OBERN 1кг" [ref=e407] [cursor=pointer]:
+                  - /url: /catalog/gips-stroitelnyy/1001570619/
+                  - generic [ref=e408]: алебастр OBERN 1кг
+                - generic [ref=e409]:
+                  - list [ref=e411]:
+                    - listitem "1" [ref=e412]: "Вес: 1"
+                    - listitem "для внутренних работ" [ref=e413]: "Применение: для внутренних работ"
+                  - generic [ref=e415]:
+                    - text: "Код:"
+                    - generic [ref=e416]: "1001570619"
+                  - generic [ref=e420]: В наличии
+              - generic [ref=e421]:
+                - generic [ref=e423]: 135 ₽/шт.
+                - generic [ref=e425] [cursor=pointer]: В корзину
+            - article [ref=e427]:
+              - generic [ref=e430]:
+                - link [ref=e431] [cursor=pointer]:
+                  - /url: /catalog/smesi-tsementno-peschanye/1001570626/
+                  - img [ref=e432]
+                - link "смесь универсальная М-150 OBERN 5кг - фото в каталоге Максидом" [ref=e433] [cursor=pointer]:
+                  - /url: /catalog/smesi-tsementno-peschanye/1001570626/
+                  - img "смесь универсальная М-150 OBERN 5кг - фото в каталоге Максидом" [ref=e434]
+                - link [ref=e435] [cursor=pointer]:
+                  - /url: /catalog/smesi-tsementno-peschanye/1001570626/
+                  - img [ref=e436]
+                - link "смесь универсальная М-150 OBERN 5кг - фото в каталоге Максидом" [ref=e437] [cursor=pointer]:
+                  - /url: /catalog/smesi-tsementno-peschanye/1001570626/
+                  - img "смесь универсальная М-150 OBERN 5кг - фото в каталоге Максидом" [ref=e438]
+              - generic [ref=e442]:
+                - link "смесь универсальная М-150 OBERN 5кг" [ref=e443] [cursor=pointer]:
+                  - /url: /catalog/smesi-tsementno-peschanye/1001570626/
+                  - generic [ref=e444]: смесь универсальная М-150 OBERN 5кг
+                - generic [ref=e445]:
+                  - list [ref=e447]:
+                    - listitem "М150" [ref=e448]: "Марка прочности: М150"
+                    - listitem "5" [ref=e449]: "Вес: 5"
+                    - listitem "50" [ref=e450]: "Толщина слоя: 50"
+                    - listitem "для наружных и внутренних работ" [ref=e451]: "Применение: для наружных и внутренних работ"
+                  - generic [ref=e453]:
+                    - text: "Код:"
+                    - generic [ref=e454]: "1001570626"
+                  - generic [ref=e458]: В наличии
+              - generic [ref=e459]:
+                - generic [ref=e461]: 193 ₽/шт.
+                - generic [ref=e463] [cursor=pointer]: В корзину
+            - article [ref=e465]:
+              - generic [ref=e468]:
+                - link [ref=e469] [cursor=pointer]:
+                  - /url: /catalog/shtukaturka-tsementnaya/1001584396/
+                  - img [ref=e470]
+                - link "штукатурка цементная PLITONIT T1+ (МаксиСлой) 25кг - фото в каталоге Максидом" [ref=e471] [cursor=pointer]:
+                  - /url: /catalog/shtukaturka-tsementnaya/1001584396/
+                  - img "штукатурка цементная PLITONIT T1+ (МаксиСлой) 25кг - фото в каталоге Максидом" [ref=e472]
+                - link [ref=e473] [cursor=pointer]:
+                  - /url: /catalog/shtukaturka-tsementnaya/1001584396/
+                  - img [ref=e474]
+                - link "штукатурка цементная PLITONIT T1+ (МаксиСлой) 25кг - фото в каталоге Максидом" [ref=e475] [cursor=pointer]:
+                  - /url: /catalog/shtukaturka-tsementnaya/1001584396/
+                  - img "штукатурка цементная PLITONIT T1+ (МаксиСлой) 25кг - фото в каталоге Максидом" [ref=e476]
+              - generic [ref=e480]:
+                - link "штукатурка цементная PLITONIT T1+ (МаксиСлой) 25кг" [ref=e481] [cursor=pointer]:
+                  - /url: /catalog/shtukaturka-tsementnaya/1001584396/
+                  - generic [ref=e482]: штукатурка цементная PLITONIT T1+ (МаксиСлой) 25кг
+                - generic [ref=e483]:
+                  - list [ref=e485]:
+                    - listitem [ref=e486]: "Коллекция:"
+                    - listitem [ref=e487]: "Вес:"
+                    - listitem [ref=e488]: "Основа смеси:"
+                    - listitem [ref=e489]: "Толщина слоя:"
+                    - listitem [ref=e490]: "Применение:"
+                  - generic [ref=e492]:
+                    - text: "Код:"
+                    - generic [ref=e493]: "1001584396"
+                  - generic [ref=e497]: В наличии
+              - generic [ref=e498]:
+                - generic [ref=e500]: 422 ₽/шт.
+                - generic [ref=e502] [cursor=pointer]: В корзину
+            - article [ref=e504]:
+              - generic [ref=e507]:
+                - link [ref=e508] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-gotovye/1001588746/
+                  - img [ref=e509]
+                - link "шпатлевка акриловая ЛАКРА фасадная атмосферостойкая 1,5кг, арт.9593091 - фото в каталоге Максидом" [ref=e510] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-gotovye/1001588746/
+                  - img "шпатлевка акриловая ЛАКРА фасадная атмосферостойкая 1,5кг, арт.9593091 - фото в каталоге Максидом" [ref=e511]
+                - link [ref=e512] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-gotovye/1001588746/
+                  - img [ref=e513]
+                - link "шпатлевка акриловая ЛАКРА фасадная атмосферостойкая 1,5кг, арт.9593091 - фото в каталоге Максидом" [ref=e514] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-gotovye/1001588746/
+                  - img "шпатлевка акриловая ЛАКРА фасадная атмосферостойкая 1,5кг, арт.9593091 - фото в каталоге Максидом" [ref=e515]
+              - generic [ref=e519]:
+                - link "шпатлевка акриловая ЛАКРА фасадная атмосферостойкая 1,5кг, арт.9593091" [ref=e520] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-gotovye/1001588746/
+                  - generic [ref=e521]: шпатлевка акриловая ЛАКРА фасадная атмосферостойкая 1,5кг, арт.9593091
+                - generic [ref=e522]:
+                  - list [ref=e524]:
+                    - listitem [ref=e525]: "Вид смеси:"
+                    - listitem [ref=e526]: "Вес:"
+                    - listitem [ref=e527]: "Объем:"
+                    - listitem [ref=e528]: "Тип поверхности:"
+                    - listitem [ref=e529]: "Цвет:"
+                  - generic [ref=e531]:
+                    - text: "Код:"
+                    - generic [ref=e532]: "1001588746"
+                  - generic [ref=e536]: В наличии
+              - generic [ref=e537]:
+                - generic [ref=e539]: 299 ₽/шт.
+                - generic [ref=e541] [cursor=pointer]: В корзину
+            - article [ref=e543]:
+              - generic [ref=e546]:
+                - link [ref=e547] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-gotovye/1001481418/
+                  - img [ref=e548]
+                - link "шпатлевка акриловая ЛАКРА универсальная для внутренних и наружных работ 3кг, арт.0008034 - фото в каталоге Максидом" [ref=e549] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-gotovye/1001481418/
+                  - img "шпатлевка акриловая ЛАКРА универсальная для внутренних и наружных работ 3кг, арт.0008034 - фото в каталоге Максидом" [ref=e550]
+                - link [ref=e551] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-gotovye/1001481418/
+                  - img [ref=e552]
+                - link "шпатлевка акриловая ЛАКРА универсальная для внутренних и наружных работ 3кг, арт.0008034 - фото в каталоге Максидом" [ref=e553] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-gotovye/1001481418/
+                  - img "шпатлевка акриловая ЛАКРА универсальная для внутренних и наружных работ 3кг, арт.0008034 - фото в каталоге Максидом" [ref=e554]
+              - generic [ref=e558]:
+                - link "шпатлевка акриловая ЛАКРА универсальная для внутренних и наружных работ 3кг, арт.0008034" [ref=e559] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-gotovye/1001481418/
+                  - generic [ref=e560]: шпатлевка акриловая ЛАКРА универсальная для внутренних и наружных работ 3кг, арт.0008034
+                - generic [ref=e561]:
+                  - list [ref=e563]:
+                    - listitem [ref=e564]: "Вид смеси:"
+                    - listitem [ref=e565]: "Вес:"
+                    - listitem [ref=e566]: "Объем:"
+                    - listitem [ref=e567]: "Тип поверхности:"
+                    - listitem [ref=e568]: "Цвет:"
+                  - generic [ref=e570]:
+                    - text: "Код:"
+                    - generic [ref=e571]: "1001481418"
+                  - generic [ref=e575]: В наличии
+              - generic [ref=e576]:
+                - generic [ref=e578]: 515 ₽/шт.
+                - generic [ref=e580] [cursor=pointer]: В корзину
+            - article [ref=e582]:
+              - generic [ref=e585]:
+                - link [ref=e586] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-gotovye/1001481417/
+                  - img [ref=e587]
+                - link "шпатлевка акриловая ЛАКРА универсальная для внутренних и наружных работ 1,5кг, арт.0008033 - фото в каталоге Максидом" [ref=e588] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-gotovye/1001481417/
+                  - img "шпатлевка акриловая ЛАКРА универсальная для внутренних и наружных работ 1,5кг, арт.0008033 - фото в каталоге Максидом" [ref=e589]
+                - link [ref=e590] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-gotovye/1001481417/
+                  - img [ref=e591]
+                - link "шпатлевка акриловая ЛАКРА универсальная для внутренних и наружных работ 1,5кг, арт.0008033 - фото в каталоге Максидом" [ref=e592] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-gotovye/1001481417/
+                  - img "шпатлевка акриловая ЛАКРА универсальная для внутренних и наружных работ 1,5кг, арт.0008033 - фото в каталоге Максидом" [ref=e593]
+              - generic [ref=e597]:
+                - link "шпатлевка акриловая ЛАКРА универсальная для внутренних и наружных работ 1,5кг, арт.0008033" [ref=e598] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-gotovye/1001481417/
+                  - generic [ref=e599]: шпатлевка акриловая ЛАКРА универсальная для внутренних и наружных работ 1,5кг, арт.0008033
+                - generic [ref=e600]:
+                  - list [ref=e602]:
+                    - listitem [ref=e603]: "Вид смеси:"
+                    - listitem [ref=e604]: "Вес:"
+                    - listitem [ref=e605]: "Объем:"
+                    - listitem [ref=e606]: "Тип поверхности:"
+                    - listitem [ref=e607]: "Цвет:"
+                  - generic [ref=e609]:
+                    - text: "Код:"
+                    - generic [ref=e610]: "1001481417"
+                  - generic [ref=e614]: В наличии
+              - generic [ref=e615]:
+                - generic [ref=e617]: 241 ₽/шт.
+                - generic [ref=e619] [cursor=pointer]: В корзину
+            - article [ref=e621]:
+              - generic [ref=e624]:
+                - link "цемент Цемрос ЦЕМ I 42.5H 50кг - фото в каталоге Максидом" [ref=e625] [cursor=pointer]:
+                  - /url: /catalog/tsement/1001358713/
+                  - img "цемент Цемрос ЦЕМ I 42.5H 50кг - фото в каталоге Максидом" [ref=e626]
+                - link "цемент Цемрос ЦЕМ I 42.5H 50кг - фото в каталоге Максидом" [ref=e627] [cursor=pointer]:
+                  - /url: /catalog/tsement/1001358713/
+                  - img "цемент Цемрос ЦЕМ I 42.5H 50кг - фото в каталоге Максидом" [ref=e628]
+                - link "цемент Цемрос ЦЕМ I 42.5H 50кг - фото в каталоге Максидом" [ref=e629] [cursor=pointer]:
+                  - /url: /catalog/tsement/1001358713/
+                  - img "цемент Цемрос ЦЕМ I 42.5H 50кг - фото в каталоге Максидом" [ref=e630]
+              - generic [ref=e633]:
+                - link "цемент Цемрос ЦЕМ I 42.5H 50кг" [ref=e634] [cursor=pointer]:
+                  - /url: /catalog/tsement/1001358713/
+                  - generic [ref=e635]: цемент Цемрос ЦЕМ I 42.5H 50кг
+                - generic [ref=e636]:
+                  - list [ref=e638]:
+                    - listitem [ref=e639]: "Вес:"
+                    - listitem [ref=e640]: "Применение:"
+                  - generic [ref=e642]:
+                    - text: "Код:"
+                    - generic [ref=e643]: "1001358713"
+                  - generic [ref=e647]: В наличии
+              - generic [ref=e648]:
+                - generic [ref=e650]: 659 ₽/шт.
+                - generic [ref=e652] [cursor=pointer]: В корзину
+            - article [ref=e654]:
+              - generic [ref=e657]:
+                - link "цемент Цемрос ЦЕМ I 42.5H 25кг - фото в каталоге Максидом" [ref=e658] [cursor=pointer]:
+                  - /url: /catalog/tsement/1001040133/
+                  - img "цемент Цемрос ЦЕМ I 42.5H 25кг - фото в каталоге Максидом" [ref=e659]
+                - link "цемент Цемрос ЦЕМ I 42.5H 25кг - фото в каталоге Максидом" [ref=e660] [cursor=pointer]:
+                  - /url: /catalog/tsement/1001040133/
+                  - img "цемент Цемрос ЦЕМ I 42.5H 25кг - фото в каталоге Максидом" [ref=e661]
+                - link "цемент Цемрос ЦЕМ I 42.5H 25кг - фото в каталоге Максидом" [ref=e662] [cursor=pointer]:
+                  - /url: /catalog/tsement/1001040133/
+                  - img "цемент Цемрос ЦЕМ I 42.5H 25кг - фото в каталоге Максидом" [ref=e663]
+              - link "Новинка" [ref=e667] [cursor=pointer]:
+                - /url: /catalog/new/index.php?FILTER_TYPE=PROPERTY_REP_ACTION_NEW
+              - generic [ref=e668]:
+                - link "цемент Цемрос ЦЕМ I 42.5H 25кг" [ref=e669] [cursor=pointer]:
+                  - /url: /catalog/tsement/1001040133/
+                  - generic [ref=e670]: цемент Цемрос ЦЕМ I 42.5H 25кг
+                - generic [ref=e671]:
+                  - list [ref=e673]:
+                    - listitem [ref=e674]: "Вес:"
+                    - listitem [ref=e675]: "Применение:"
+                  - generic [ref=e677]:
+                    - text: "Код:"
+                    - generic [ref=e678]: "1001040133"
+                  - generic [ref=e682]: В наличии
+              - generic [ref=e683]:
+                - generic [ref=e685]: 339 ₽/шт.
+                - generic [ref=e687] [cursor=pointer]: В корзину
+            - article [ref=e689]:
+              - generic [ref=e692]:
+                - link "гипс строительный для внутр.работ ОСНОВИТ Хардскрин RG10 R быстротвердеющий 5кг - фото в каталоге Максидом" [ref=e693] [cursor=pointer]:
+                  - /url: /catalog/gips-stroitelnyy/1001324178/
+                  - img "гипс строительный для внутр.работ ОСНОВИТ Хардскрин RG10 R быстротвердеющий 5кг - фото в каталоге Максидом" [ref=e694]
+                - link "гипс строительный для внутр.работ ОСНОВИТ Хардскрин RG10 R быстротвердеющий 5кг - фото в каталоге Максидом" [ref=e695] [cursor=pointer]:
+                  - /url: /catalog/gips-stroitelnyy/1001324178/
+                  - img "гипс строительный для внутр.работ ОСНОВИТ Хардскрин RG10 R быстротвердеющий 5кг - фото в каталоге Максидом" [ref=e696]
+                - link "гипс строительный для внутр.работ ОСНОВИТ Хардскрин RG10 R быстротвердеющий 5кг - фото в каталоге Максидом" [ref=e697] [cursor=pointer]:
+                  - /url: /catalog/gips-stroitelnyy/1001324178/
+                  - img "гипс строительный для внутр.работ ОСНОВИТ Хардскрин RG10 R быстротвердеющий 5кг - фото в каталоге Максидом" [ref=e698]
+              - generic [ref=e701]:
+                - link "гипс строительный для внутр.работ ОСНОВИТ Хардскрин RG10 R быстротвердеющий 5кг" [ref=e702] [cursor=pointer]:
+                  - /url: /catalog/gips-stroitelnyy/1001324178/
+                  - generic [ref=e703]: гипс строительный для внутр.работ ОСНОВИТ Хардскрин RG10 R быстротвердеющий 5кг
+                - generic [ref=e704]:
+                  - list [ref=e706]:
+                    - listitem [ref=e707]: "Вес:"
+                    - listitem [ref=e708]: "Применение:"
+                  - generic [ref=e710]:
+                    - text: "Код:"
+                    - generic [ref=e711]: "1001324178"
+                  - generic [ref=e715]: В наличии
+              - generic [ref=e716]:
+                - generic [ref=e718]: 339 ₽/шт.
+                - generic [ref=e720] [cursor=pointer]: В корзину
+            - article [ref=e722]:
+              - generic [ref=e725]:
+                - link "алебастр для внутр.работ FORMAN СГК Г-4 Б II 5кг - фото в каталоге Максидом" [ref=e726] [cursor=pointer]:
+                  - /url: /catalog/gips-stroitelnyy/1001089368/
+                  - img "алебастр для внутр.работ FORMAN СГК Г-4 Б II 5кг - фото в каталоге Максидом" [ref=e727]
+                - link "алебастр для внутр.работ FORMAN СГК Г-4 Б II 5кг - фото в каталоге Максидом" [ref=e728] [cursor=pointer]:
+                  - /url: /catalog/gips-stroitelnyy/1001089368/
+                  - img "алебастр для внутр.работ FORMAN СГК Г-4 Б II 5кг - фото в каталоге Максидом" [ref=e729]
+                - link "алебастр для внутр.работ FORMAN СГК Г-4 Б II 5кг - фото в каталоге Максидом" [ref=e730] [cursor=pointer]:
+                  - /url: /catalog/gips-stroitelnyy/1001089368/
+                  - img "алебастр для внутр.работ FORMAN СГК Г-4 Б II 5кг - фото в каталоге Максидом" [ref=e731]
+              - generic [ref=e734]:
+                - link "алебастр для внутр.работ FORMAN СГК Г-4 Б II 5кг" [ref=e735] [cursor=pointer]:
+                  - /url: /catalog/gips-stroitelnyy/1001089368/
+                  - generic [ref=e736]: алебастр для внутр.работ FORMAN СГК Г-4 Б II 5кг
+                - generic [ref=e737]:
+                  - list [ref=e739]:
+                    - listitem [ref=e740]: "Вес:"
+                    - listitem [ref=e741]: "Применение:"
+                  - generic [ref=e743]:
+                    - text: "Код:"
+                    - generic [ref=e744]: "1001089368"
+                  - generic [ref=e748]: В наличии
+              - generic [ref=e749]:
+                - generic [ref=e751]: 139 ₽/шт.
+                - generic [ref=e753] [cursor=pointer]: В корзину
+            - article [ref=e755]:
+              - generic [ref=e758]:
+                - link "шпатлевка полимерная для внутр.работ VETONIT LR+ финишная ручн. 20кг - фото в каталоге Максидом" [ref=e759] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-suhie-polimernye/1001308081/
+                  - img "шпатлевка полимерная для внутр.работ VETONIT LR+ финишная ручн. 20кг - фото в каталоге Максидом" [ref=e760]
+                - link "шпатлевка полимерная для внутр.работ VETONIT LR+ финишная ручн. 20кг - фото в каталоге Максидом" [ref=e761] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-suhie-polimernye/1001308081/
+                  - img "шпатлевка полимерная для внутр.работ VETONIT LR+ финишная ручн. 20кг - фото в каталоге Максидом" [ref=e762]
+                - link "шпатлевка полимерная для внутр.работ VETONIT LR+ финишная ручн. 20кг - фото в каталоге Максидом" [ref=e763] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-suhie-polimernye/1001308081/
+                  - img "шпатлевка полимерная для внутр.работ VETONIT LR+ финишная ручн. 20кг - фото в каталоге Максидом" [ref=e764]
+              - link "Хит" [ref=e768] [cursor=pointer]:
+                - /url: /catalog/hit/index.php?FILTER_TYPE=PROPERTY_REP_ACTION_FIRST
+              - generic [ref=e769]:
+                - link "шпатлевка полимерная для внутр.работ VETONIT LR+ финишная ручн. 20кг" [ref=e770] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-suhie-polimernye/1001308081/
+                  - generic [ref=e771]: шпатлевка полимерная для внутр.работ VETONIT LR+ финишная ручн. 20кг
+                - generic [ref=e772]:
+                  - list [ref=e774]:
+                    - listitem [ref=e775]: "Коллекция:"
+                    - listitem [ref=e776]: "Вес:"
+                    - listitem [ref=e777]: "Основа смеси:"
+                    - listitem [ref=e778]: "Толщина слоя:"
+                    - listitem [ref=e779]: "Применение:"
+                  - generic [ref=e781]:
+                    - text: "Код:"
+                    - generic [ref=e782]: "1001308081"
+                  - generic [ref=e786]: В наличии
+              - generic [ref=e787]:
+                - generic [ref=e789]: 1 145 ₽/шт.
+                - generic [ref=e791] [cursor=pointer]: В корзину
+            - article [ref=e793]:
+              - generic [ref=e796]:
+                - link "шпатлевка полимерная для внутр.работ VETONIT LR+ финишная ручн. машинн. 5кг - фото в каталоге Максидом" [ref=e797] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-suhie-polimernye/1001083670/
+                  - img "шпатлевка полимерная для внутр.работ VETONIT LR+ финишная ручн. машинн. 5кг - фото в каталоге Максидом" [ref=e798]
+                - link "шпатлевка полимерная для внутр.работ VETONIT LR+ финишная ручн. машинн. 5кг - фото в каталоге Максидом" [ref=e799] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-suhie-polimernye/1001083670/
+                  - img "шпатлевка полимерная для внутр.работ VETONIT LR+ финишная ручн. машинн. 5кг - фото в каталоге Максидом" [ref=e800]
+                - link "шпатлевка полимерная для внутр.работ VETONIT LR+ финишная ручн. машинн. 5кг - фото в каталоге Максидом" [ref=e801] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-suhie-polimernye/1001083670/
+                  - img "шпатлевка полимерная для внутр.работ VETONIT LR+ финишная ручн. машинн. 5кг - фото в каталоге Максидом" [ref=e802]
+              - generic [ref=e805]:
+                - link "шпатлевка полимерная для внутр.работ VETONIT LR+ финишная ручн. машинн. 5кг" [ref=e806] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-suhie-polimernye/1001083670/
+                  - generic [ref=e807]: шпатлевка полимерная для внутр.работ VETONIT LR+ финишная ручн. машинн. 5кг
+                - generic [ref=e808]:
+                  - list [ref=e810]:
+                    - listitem [ref=e811]: "Коллекция:"
+                    - listitem [ref=e812]: "Вес:"
+                    - listitem [ref=e813]: "Основа смеси:"
+                    - listitem [ref=e814]: "Толщина слоя:"
+                    - listitem [ref=e815]: "Применение:"
+                  - generic [ref=e817]:
+                    - text: "Код:"
+                    - generic [ref=e818]: "1001083670"
+                  - generic [ref=e822]: В наличии
+              - generic [ref=e823]:
+                - generic [ref=e825]: 642 ₽/шт.
+                - generic [ref=e827] [cursor=pointer]: В корзину
+            - article [ref=e829]:
+              - generic [ref=e832]:
+                - link "шпатлевка полимерная для внутр.работ VETONIT KR финишная ручн. машинн. 20кг - фото в каталоге Максидом" [ref=e833] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-suhie-polimernye/1001079422/
+                  - img "шпатлевка полимерная для внутр.работ VETONIT KR финишная ручн. машинн. 20кг - фото в каталоге Максидом" [ref=e834]
+                - link "шпатлевка полимерная для внутр.работ VETONIT KR финишная ручн. машинн. 20кг - фото в каталоге Максидом" [ref=e835] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-suhie-polimernye/1001079422/
+                  - img "шпатлевка полимерная для внутр.работ VETONIT KR финишная ручн. машинн. 20кг - фото в каталоге Максидом" [ref=e836]
+                - link "шпатлевка полимерная для внутр.работ VETONIT KR финишная ручн. машинн. 20кг - фото в каталоге Максидом" [ref=e837] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-suhie-polimernye/1001079422/
+                  - img "шпатлевка полимерная для внутр.работ VETONIT KR финишная ручн. машинн. 20кг - фото в каталоге Максидом" [ref=e838]
+              - generic [ref=e841]:
+                - link "шпатлевка полимерная для внутр.работ VETONIT KR финишная ручн. машинн. 20кг" [ref=e842] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-suhie-polimernye/1001079422/
+                  - generic [ref=e843]: шпатлевка полимерная для внутр.работ VETONIT KR финишная ручн. машинн. 20кг
+                - generic [ref=e844]:
+                  - list [ref=e846]:
+                    - listitem [ref=e847]: "Коллекция:"
+                    - listitem [ref=e848]: "Вес:"
+                    - listitem [ref=e849]: "Основа смеси:"
+                    - listitem [ref=e850]: "Толщина слоя:"
+                    - listitem [ref=e851]: "Применение:"
+                  - generic [ref=e853]:
+                    - text: "Код:"
+                    - generic [ref=e854]: "1001079422"
+                  - generic [ref=e858]: В наличии
+              - generic [ref=e859]:
+                - generic [ref=e861]: 901 ₽/шт.
+                - generic [ref=e863] [cursor=pointer]: В корзину
+            - article [ref=e865]:
+              - generic [ref=e868]:
+                - link "шпатлевка гипсовая для внутр.работ KNAUF Fugen универс. 5кг - фото в каталоге Максидом" [ref=e869] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-suhie-gipsovye/1001331142/
+                  - img "шпатлевка гипсовая для внутр.работ KNAUF Fugen универс. 5кг - фото в каталоге Максидом" [ref=e870]
+                - link "шпатлевка гипсовая для внутр.работ KNAUF Fugen универс. 5кг - фото в каталоге Максидом" [ref=e871] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-suhie-gipsovye/1001331142/
+                  - img "шпатлевка гипсовая для внутр.работ KNAUF Fugen универс. 5кг - фото в каталоге Максидом" [ref=e872]
+                - link "шпатлевка гипсовая для внутр.работ KNAUF Fugen универс. 5кг - фото в каталоге Максидом" [ref=e873] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-suhie-gipsovye/1001331142/
+                  - img "шпатлевка гипсовая для внутр.работ KNAUF Fugen универс. 5кг - фото в каталоге Максидом" [ref=e874]
+              - generic [ref=e877]:
+                - link "шпатлевка гипсовая для внутр.работ KNAUF Fugen универс. 5кг" [ref=e878] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-suhie-gipsovye/1001331142/
+                  - generic [ref=e879]: шпатлевка гипсовая для внутр.работ KNAUF Fugen универс. 5кг
+                - generic [ref=e880]:
+                  - list [ref=e882]:
+                    - listitem [ref=e883]: "Коллекция:"
+                    - listitem [ref=e884]: "Вес:"
+                    - listitem [ref=e885]: "Основа смеси:"
+                    - listitem [ref=e886]: "Толщина слоя:"
+                    - listitem [ref=e887]: "Применение:"
+                  - generic [ref=e889]:
+                    - text: "Код:"
+                    - generic [ref=e890]: "1001331142"
+                  - generic [ref=e894]: В наличии
+              - generic [ref=e895]:
+                - generic [ref=e897]: 263 ₽/шт.
+                - generic [ref=e899] [cursor=pointer]: В корзину
+            - article [ref=e901]:
+              - generic [ref=e904]:
+                - link "штукатурка гипсовая для внутр.работ KNAUF Ротбанд универс. 5кг - фото в каталоге Максидом" [ref=e905] [cursor=pointer]:
+                  - /url: /catalog/shtukaturka-gipsovaya/1001172682/
+                  - img "штукатурка гипсовая для внутр.работ KNAUF Ротбанд универс. 5кг - фото в каталоге Максидом" [ref=e906]
+                - link "штукатурка гипсовая для внутр.работ KNAUF Ротбанд универс. 5кг - фото в каталоге Максидом" [ref=e907] [cursor=pointer]:
+                  - /url: /catalog/shtukaturka-gipsovaya/1001172682/
+                  - img "штукатурка гипсовая для внутр.работ KNAUF Ротбанд универс. 5кг - фото в каталоге Максидом" [ref=e908]
+                - link "штукатурка гипсовая для внутр.работ KNAUF Ротбанд универс. 5кг - фото в каталоге Максидом" [ref=e909] [cursor=pointer]:
+                  - /url: /catalog/shtukaturka-gipsovaya/1001172682/
+                  - img "штукатурка гипсовая для внутр.работ KNAUF Ротбанд универс. 5кг - фото в каталоге Максидом" [ref=e910]
+              - generic [ref=e913]:
+                - link "штукатурка гипсовая для внутр.работ KNAUF Ротбанд универс. 5кг" [ref=e914] [cursor=pointer]:
+                  - /url: /catalog/shtukaturka-gipsovaya/1001172682/
+                  - generic [ref=e915]: штукатурка гипсовая для внутр.работ KNAUF Ротбанд универс. 5кг
+                - generic [ref=e916]:
+                  - list [ref=e918]:
+                    - listitem [ref=e919]: "Коллекция:"
+                    - listitem [ref=e920]: "Вес:"
+                    - listitem [ref=e921]: "Основа смеси:"
+                    - listitem [ref=e922]: "Толщина слоя:"
+                    - listitem [ref=e923]: "Применение:"
+                  - generic [ref=e925]:
+                    - text: "Код:"
+                    - generic [ref=e926]: "1001172682"
+                  - generic [ref=e930]: В наличии
+              - generic [ref=e931]:
+                - generic [ref=e933]: 255 ₽/шт.
+                - generic [ref=e935] [cursor=pointer]: В корзину
+            - article [ref=e937]:
+              - generic [ref=e940]:
+                - link "штукатурка гипсовая для внутр.работ FORMAN 10 пластичная ручн. 5кг - фото в каталоге Максидом" [ref=e941] [cursor=pointer]:
+                  - /url: /catalog/shtukaturka-gipsovaya/1001089366/
+                  - img "штукатурка гипсовая для внутр.работ FORMAN 10 пластичная ручн. 5кг - фото в каталоге Максидом" [ref=e942]
+                - link "штукатурка гипсовая для внутр.работ FORMAN 10 пластичная ручн. 5кг - фото в каталоге Максидом" [ref=e943] [cursor=pointer]:
+                  - /url: /catalog/shtukaturka-gipsovaya/1001089366/
+                  - img "штукатурка гипсовая для внутр.работ FORMAN 10 пластичная ручн. 5кг - фото в каталоге Максидом" [ref=e944]
+                - link "штукатурка гипсовая для внутр.работ FORMAN 10 пластичная ручн. 5кг - фото в каталоге Максидом" [ref=e945] [cursor=pointer]:
+                  - /url: /catalog/shtukaturka-gipsovaya/1001089366/
+                  - img "штукатурка гипсовая для внутр.работ FORMAN 10 пластичная ручн. 5кг - фото в каталоге Максидом" [ref=e946]
+              - generic [ref=e949]:
+                - link "штукатурка гипсовая для внутр.работ FORMAN 10 пластичная ручн. 5кг" [ref=e950] [cursor=pointer]:
+                  - /url: /catalog/shtukaturka-gipsovaya/1001089366/
+                  - generic [ref=e951]: штукатурка гипсовая для внутр.работ FORMAN 10 пластичная ручн. 5кг
+                - generic [ref=e952]:
+                  - list [ref=e954]:
+                    - listitem [ref=e955]: "Коллекция:"
+                    - listitem [ref=e956]: "Вес:"
+                    - listitem [ref=e957]: "Основа смеси:"
+                    - listitem [ref=e958]: "Толщина слоя:"
+                    - listitem [ref=e959]: "Применение:"
+                  - generic [ref=e961]:
+                    - text: "Код:"
+                    - generic [ref=e962]: "1001089366"
+                  - generic [ref=e966]: В наличии
+              - generic [ref=e967]:
+                - generic [ref=e969]: 181 ₽/шт.
+                - generic [ref=e971] [cursor=pointer]: В корзину
+            - article [ref=e973]:
+              - generic [ref=e976]:
+                - link [ref=e977] [cursor=pointer]:
+                  - /url: /catalog/smesi-remontnye/1001270179/
+                  - img [ref=e978]
+                - link "смесь ремонтная PLITONIT РемСостав универс. повыш.прочн. водонепр. 4кг - фото в каталоге Максидом" [ref=e979] [cursor=pointer]:
+                  - /url: /catalog/smesi-remontnye/1001270179/
+                  - img "смесь ремонтная PLITONIT РемСостав универс. повыш.прочн. водонепр. 4кг - фото в каталоге Максидом" [ref=e980]
+                - link [ref=e981] [cursor=pointer]:
+                  - /url: /catalog/smesi-remontnye/1001270179/
+                  - img [ref=e982]
+                - link "смесь ремонтная PLITONIT РемСостав универс. повыш.прочн. водонепр. 4кг - фото в каталоге Максидом" [ref=e983] [cursor=pointer]:
+                  - /url: /catalog/smesi-remontnye/1001270179/
+                  - img "смесь ремонтная PLITONIT РемСостав универс. повыш.прочн. водонепр. 4кг - фото в каталоге Максидом" [ref=e984]
+              - generic [ref=e988]:
+                - link "смесь ремонтная PLITONIT РемСостав универс. повыш.прочн. водонепр. 4кг" [ref=e989] [cursor=pointer]:
+                  - /url: /catalog/smesi-remontnye/1001270179/
+                  - generic [ref=e990]: смесь ремонтная PLITONIT РемСостав универс. повыш.прочн. водонепр. 4кг
+                - generic [ref=e991]:
+                  - list [ref=e993]:
+                    - listitem [ref=e994]: "Вес:"
+                    - listitem [ref=e995]: "Основа смеси:"
+                    - listitem [ref=e996]: "Толщина слоя:"
+                    - listitem [ref=e997]: "Применение:"
+                  - generic [ref=e999]:
+                    - text: "Код:"
+                    - generic [ref=e1000]: "1001270179"
+                  - generic [ref=e1004]: В наличии
+              - generic [ref=e1005]:
+                - generic [ref=e1007]: 399 ₽/шт.
+                - generic [ref=e1009] [cursor=pointer]: В корзину
+            - article [ref=e1011]:
+              - generic [ref=e1014]:
+                - link "смесь ремонтная для внутр. и наруж.работ КРЕПС Ремсостав быстротвердеющая 5кг - фото в каталоге Максидом" [ref=e1015] [cursor=pointer]:
+                  - /url: /catalog/smesi-remontnye/1000266509/
+                  - img "смесь ремонтная для внутр. и наруж.работ КРЕПС Ремсостав быстротвердеющая 5кг - фото в каталоге Максидом" [ref=e1016]
+                - link "смесь ремонтная для внутр. и наруж.работ КРЕПС Ремсостав быстротвердеющая 5кг - фото в каталоге Максидом" [ref=e1017] [cursor=pointer]:
+                  - /url: /catalog/smesi-remontnye/1000266509/
+                  - img "смесь ремонтная для внутр. и наруж.работ КРЕПС Ремсостав быстротвердеющая 5кг - фото в каталоге Максидом" [ref=e1018]
+                - link "смесь ремонтная для внутр. и наруж.работ КРЕПС Ремсостав быстротвердеющая 5кг - фото в каталоге Максидом" [ref=e1019] [cursor=pointer]:
+                  - /url: /catalog/smesi-remontnye/1000266509/
+                  - img "смесь ремонтная для внутр. и наруж.работ КРЕПС Ремсостав быстротвердеющая 5кг - фото в каталоге Максидом" [ref=e1020]
+              - link "Хит" [ref=e1024] [cursor=pointer]:
+                - /url: /catalog/hit/index.php?FILTER_TYPE=PROPERTY_REP_ACTION_FIRST
+              - generic [ref=e1025]:
+                - link "смесь ремонтная для внутр. и наруж.работ КРЕПС Ремсостав быстротвердеющая 5кг" [ref=e1026] [cursor=pointer]:
+                  - /url: /catalog/smesi-remontnye/1000266509/
+                  - generic [ref=e1027]: смесь ремонтная для внутр. и наруж.работ КРЕПС Ремсостав быстротвердеющая 5кг
+                - generic [ref=e1028]:
+                  - list [ref=e1030]:
+                    - listitem [ref=e1031]: "Вес:"
+                    - listitem [ref=e1032]: "Основа смеси:"
+                    - listitem [ref=e1033]: "Толщина слоя:"
+                    - listitem [ref=e1034]: "Применение:"
+                  - generic [ref=e1036]:
+                    - text: "Код:"
+                    - generic [ref=e1037]: "1000266509"
+                  - generic [ref=e1041]: В наличии
+              - generic [ref=e1042]:
+                - generic [ref=e1044]: 318 ₽/шт.
+                - generic [ref=e1046] [cursor=pointer]: В корзину
+            - article [ref=e1048]:
+              - generic [ref=e1051]:
+                - link "смесь цементно-песчаная для внутр.работ MIX MASTER Универсал 300 25кг - фото в каталоге Максидом" [ref=e1052] [cursor=pointer]:
+                  - /url: /catalog/smesi-tsementno-peschanye/1001107023/
+                  - img "смесь цементно-песчаная для внутр.работ MIX MASTER Универсал 300 25кг - фото в каталоге Максидом" [ref=e1053]
+                - link "смесь цементно-песчаная для внутр.работ MIX MASTER Универсал 300 25кг - фото в каталоге Максидом" [ref=e1054] [cursor=pointer]:
+                  - /url: /catalog/smesi-tsementno-peschanye/1001107023/
+                  - img "смесь цементно-песчаная для внутр.работ MIX MASTER Универсал 300 25кг - фото в каталоге Максидом" [ref=e1055]
+                - link "смесь цементно-песчаная для внутр.работ MIX MASTER Универсал 300 25кг - фото в каталоге Максидом" [ref=e1056] [cursor=pointer]:
+                  - /url: /catalog/smesi-tsementno-peschanye/1001107023/
+                  - img "смесь цементно-песчаная для внутр.работ MIX MASTER Универсал 300 25кг - фото в каталоге Максидом" [ref=e1057]
+              - link "Хит" [ref=e1061] [cursor=pointer]:
+                - /url: /catalog/hit/index.php?FILTER_TYPE=PROPERTY_REP_ACTION_FIRST
+              - generic [ref=e1062]:
+                - link "смесь цементно-песчаная для внутр.работ MIX MASTER Универсал 300 25кг" [ref=e1063] [cursor=pointer]:
+                  - /url: /catalog/smesi-tsementno-peschanye/1001107023/
+                  - generic [ref=e1064]: смесь цементно-песчаная для внутр.работ MIX MASTER Универсал 300 25кг
+                - generic [ref=e1065]:
+                  - list [ref=e1067]:
+                    - listitem [ref=e1068]: "Марка прочности:"
+                    - listitem [ref=e1069]: "Вес:"
+                    - listitem [ref=e1070]: "Толщина слоя:"
+                    - listitem [ref=e1071]: "Применение:"
+                  - generic [ref=e1073]:
+                    - text: "Код:"
+                    - generic [ref=e1074]: "1001107023"
+                  - generic [ref=e1078]: В наличии
+              - generic [ref=e1079]:
+                - generic [ref=e1081]: 274 ₽/шт.
+                - generic [ref=e1083] [cursor=pointer]: В корзину
+            - article [ref=e1085]:
+              - generic [ref=e1088]:
+                - link "смесь цементно-песчаная для внутр.работ MIX MASTER Оптима 150 25кг - фото в каталоге Максидом" [ref=e1089] [cursor=pointer]:
+                  - /url: /catalog/smesi-tsementno-peschanye/1001107022/
+                  - img "смесь цементно-песчаная для внутр.работ MIX MASTER Оптима 150 25кг - фото в каталоге Максидом" [ref=e1090]
+                - link "смесь цементно-песчаная для внутр.работ MIX MASTER Оптима 150 25кг - фото в каталоге Максидом" [ref=e1091] [cursor=pointer]:
+                  - /url: /catalog/smesi-tsementno-peschanye/1001107022/
+                  - img "смесь цементно-песчаная для внутр.работ MIX MASTER Оптима 150 25кг - фото в каталоге Максидом" [ref=e1092]
+                - link "смесь цементно-песчаная для внутр.работ MIX MASTER Оптима 150 25кг - фото в каталоге Максидом" [ref=e1093] [cursor=pointer]:
+                  - /url: /catalog/smesi-tsementno-peschanye/1001107022/
+                  - img "смесь цементно-песчаная для внутр.работ MIX MASTER Оптима 150 25кг - фото в каталоге Максидом" [ref=e1094]
+              - generic [ref=e1097]:
+                - link "смесь цементно-песчаная для внутр.работ MIX MASTER Оптима 150 25кг" [ref=e1098] [cursor=pointer]:
+                  - /url: /catalog/smesi-tsementno-peschanye/1001107022/
+                  - generic [ref=e1099]: смесь цементно-песчаная для внутр.работ MIX MASTER Оптима 150 25кг
+                - generic [ref=e1100]:
+                  - list [ref=e1102]:
+                    - listitem [ref=e1103]: "Марка прочности:"
+                    - listitem [ref=e1104]: "Вес:"
+                    - listitem [ref=e1105]: "Толщина слоя:"
+                    - listitem [ref=e1106]: "Применение:"
+                  - generic [ref=e1108]:
+                    - text: "Код:"
+                    - generic [ref=e1109]: "1001107022"
+                  - generic [ref=e1113]: В наличии
+              - generic [ref=e1114]:
+                - generic [ref=e1116]: 231 ₽/шт.
+                - generic [ref=e1118] [cursor=pointer]: В корзину
+            - article [ref=e1120]:
+              - generic [ref=e1123]:
+                - link [ref=e1124] [cursor=pointer]:
+                  - /url: /catalog/shtukaturka-tsementnaya/1001188691/
+                  - img [ref=e1125]
+                - link "штукатурка цементная 2в1 шпатлевка ремонтная ЦЕРЕЗИТ CT 29 5кг - фото в каталоге Максидом" [ref=e1126] [cursor=pointer]:
+                  - /url: /catalog/shtukaturka-tsementnaya/1001188691/
+                  - img "штукатурка цементная 2в1 шпатлевка ремонтная ЦЕРЕЗИТ CT 29 5кг - фото в каталоге Максидом" [ref=e1127]
+                - link [ref=e1128] [cursor=pointer]:
+                  - /url: /catalog/shtukaturka-tsementnaya/1001188691/
+                  - img [ref=e1129]
+                - link "штукатурка цементная 2в1 шпатлевка ремонтная ЦЕРЕЗИТ CT 29 5кг - фото в каталоге Максидом" [ref=e1130] [cursor=pointer]:
+                  - /url: /catalog/shtukaturka-tsementnaya/1001188691/
+                  - img "штукатурка цементная 2в1 шпатлевка ремонтная ЦЕРЕЗИТ CT 29 5кг - фото в каталоге Максидом" [ref=e1131]
+              - generic [ref=e1135]:
+                - link "штукатурка цементная 2в1 шпатлевка ремонтная ЦЕРЕЗИТ CT 29 5кг" [ref=e1136] [cursor=pointer]:
+                  - /url: /catalog/shtukaturka-tsementnaya/1001188691/
+                  - generic [ref=e1137]: штукатурка цементная 2в1 шпатлевка ремонтная ЦЕРЕЗИТ CT 29 5кг
+                - generic [ref=e1138]:
+                  - list [ref=e1140]:
+                    - listitem [ref=e1141]: "Коллекция:"
+                    - listitem [ref=e1142]: "Вес:"
+                    - listitem [ref=e1143]: "Основа смеси:"
+                    - listitem [ref=e1144]: "Толщина слоя:"
+                    - listitem [ref=e1145]: "Применение:"
+                  - generic [ref=e1147]:
+                    - text: "Код:"
+                    - generic [ref=e1148]: "1001188691"
+                  - generic [ref=e1152]: В наличии
+              - generic [ref=e1153]:
+                - generic [ref=e1155]: 322 ₽/шт.
+                - generic [ref=e1157] [cursor=pointer]: В корзину
+            - article [ref=e1159]:
+              - generic [ref=e1162]:
+                - link [ref=e1163] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-tonirovannye/1001285075/
+                  - img [ref=e1164]
+                - link "шпатлевка акриловая ЛАКРА по дереву белая 0,6кг, арт.0008056 - фото в каталоге Максидом" [ref=e1165] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-tonirovannye/1001285075/
+                  - img "шпатлевка акриловая ЛАКРА по дереву белая 0,6кг, арт.0008056 - фото в каталоге Максидом" [ref=e1166]
+                - link [ref=e1167] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-tonirovannye/1001285075/
+                  - img [ref=e1168]
+                - link "шпатлевка акриловая ЛАКРА по дереву белая 0,6кг, арт.0008056 - фото в каталоге Максидом" [ref=e1169] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-tonirovannye/1001285075/
+                  - img "шпатлевка акриловая ЛАКРА по дереву белая 0,6кг, арт.0008056 - фото в каталоге Максидом" [ref=e1170]
+              - generic [ref=e1174]:
+                - link "шпатлевка акриловая ЛАКРА по дереву белая 0,6кг, арт.0008056" [ref=e1175] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-tonirovannye/1001285075/
+                  - generic [ref=e1176]: шпатлевка акриловая ЛАКРА по дереву белая 0,6кг, арт.0008056
+                - generic [ref=e1177]:
+                  - list [ref=e1179]:
+                    - listitem [ref=e1180]: "Вид смеси:"
+                    - listitem [ref=e1181]: "Вес:"
+                    - listitem [ref=e1182]: "Тип поверхности:"
+                    - listitem [ref=e1183]: "Цвет:"
+                  - generic [ref=e1185]:
+                    - text: "Код:"
+                    - generic [ref=e1186]: "1001285075"
+                  - generic [ref=e1190]: В наличии
+              - generic [ref=e1191]:
+                - generic [ref=e1193]: 260 ₽/шт.
+                - generic [ref=e1195] [cursor=pointer]: В корзину
+            - article [ref=e1197]:
+              - generic [ref=e1200]:
+                - link [ref=e1201] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-tonirovannye/1000847306/
+                  - img [ref=e1202]
+                - link "шпатлевка акриловая ЛАКРА по дереву бук 0,6кг, арт.0008060 - фото в каталоге Максидом" [ref=e1203] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-tonirovannye/1000847306/
+                  - img "шпатлевка акриловая ЛАКРА по дереву бук 0,6кг, арт.0008060 - фото в каталоге Максидом" [ref=e1204]
+                - link [ref=e1205] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-tonirovannye/1000847306/
+                  - img [ref=e1206]
+                - link "шпатлевка акриловая ЛАКРА по дереву бук 0,6кг, арт.0008060 - фото в каталоге Максидом" [ref=e1207] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-tonirovannye/1000847306/
+                  - img "шпатлевка акриловая ЛАКРА по дереву бук 0,6кг, арт.0008060 - фото в каталоге Максидом" [ref=e1208]
+              - generic [ref=e1212]:
+                - link "шпатлевка акриловая ЛАКРА по дереву бук 0,6кг, арт.0008060" [ref=e1213] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-tonirovannye/1000847306/
+                  - generic [ref=e1214]: шпатлевка акриловая ЛАКРА по дереву бук 0,6кг, арт.0008060
+                - generic [ref=e1215]:
+                  - list [ref=e1217]:
+                    - listitem [ref=e1218]: "Вид смеси:"
+                    - listitem [ref=e1219]: "Вес:"
+                    - listitem [ref=e1220]: "Тип поверхности:"
+                    - listitem [ref=e1221]: "Цвет:"
+                  - generic [ref=e1223]:
+                    - text: "Код:"
+                    - generic [ref=e1224]: "1000847306"
+                  - generic [ref=e1228]: В наличии
+              - generic [ref=e1229]:
+                - generic [ref=e1231]: 219 ₽/шт.
+                - generic [ref=e1233] [cursor=pointer]: В корзину
+            - article [ref=e1235]:
+              - generic [ref=e1238]:
+                - link "шпатлевка по дереву ТЕКС 0,25кг дуб, арт.700001381 - фото в каталоге Максидом" [ref=e1239] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-tonirovannye/1000372877/
+                  - img "шпатлевка по дереву ТЕКС 0,25кг дуб, арт.700001381 - фото в каталоге Максидом" [ref=e1240]
+                - link "шпатлевка по дереву ТЕКС 0,25кг дуб, арт.700001381 - фото в каталоге Максидом" [ref=e1241] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-tonirovannye/1000372877/
+                  - img "шпатлевка по дереву ТЕКС 0,25кг дуб, арт.700001381 - фото в каталоге Максидом" [ref=e1242]
+                - link "шпатлевка по дереву ТЕКС 0,25кг дуб, арт.700001381 - фото в каталоге Максидом" [ref=e1243] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-tonirovannye/1000372877/
+                  - img "шпатлевка по дереву ТЕКС 0,25кг дуб, арт.700001381 - фото в каталоге Максидом" [ref=e1244]
+              - generic [ref=e1247]:
+                - link "шпатлевка по дереву ТЕКС 0,25кг дуб, арт.700001381" [ref=e1248] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-tonirovannye/1000372877/
+                  - generic [ref=e1249]: шпатлевка по дереву ТЕКС 0,25кг дуб, арт.700001381
+                - generic [ref=e1250]:
+                  - list [ref=e1252]:
+                    - listitem [ref=e1253]: "Вид смеси:"
+                    - listitem [ref=e1254]: "Вес:"
+                    - listitem [ref=e1255]: "Тип поверхности:"
+                    - listitem [ref=e1256]: "Цвет:"
+                  - generic [ref=e1258]:
+                    - text: "Код:"
+                    - generic [ref=e1259]: "1000372877"
+                  - generic [ref=e1263]: В наличии
+              - generic [ref=e1264]:
+                - generic [ref=e1266]: 99 ₽/шт.
+                - generic [ref=e1268] [cursor=pointer]: В корзину
+            - article [ref=e1270]:
+              - generic [ref=e1273]:
+                - link "шпатлевка готовая VGT для заделки трещин 0,33кг, арт.ЭК000137631 - фото в каталоге Максидом" [ref=e1274] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-gotovye/1001364046/
+                  - img "шпатлевка готовая VGT для заделки трещин 0,33кг, арт.ЭК000137631 - фото в каталоге Максидом" [ref=e1275]
+                - link "шпатлевка готовая VGT для заделки трещин 0,33кг, арт.ЭК000137631 - фото в каталоге Максидом" [ref=e1276] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-gotovye/1001364046/
+                  - img "шпатлевка готовая VGT для заделки трещин 0,33кг, арт.ЭК000137631 - фото в каталоге Максидом" [ref=e1277]
+                - link "шпатлевка готовая VGT для заделки трещин 0,33кг, арт.ЭК000137631 - фото в каталоге Максидом" [ref=e1278] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-gotovye/1001364046/
+                  - img "шпатлевка готовая VGT для заделки трещин 0,33кг, арт.ЭК000137631 - фото в каталоге Максидом" [ref=e1279]
+              - generic [ref=e1282]:
+                - link "шпатлевка готовая VGT для заделки трещин 0,33кг, арт.ЭК000137631" [ref=e1283] [cursor=pointer]:
+                  - /url: /catalog/shpatlevki-gotovye/1001364046/
+                  - generic [ref=e1284]: шпатлевка готовая VGT для заделки трещин 0,33кг, арт.ЭК000137631
+                - generic [ref=e1285]:
+                  - list [ref=e1287]:
+                    - listitem [ref=e1288]: "Вид смеси:"
+                    - listitem [ref=e1289]: "Вес:"
+                    - listitem [ref=e1290]: "Объем:"
+                    - listitem [ref=e1291]: "Тип поверхности:"
+                    - listitem [ref=e1292]: "Цвет:"
+                  - generic [ref=e1294]:
+                    - text: "Код:"
+                    - generic [ref=e1295]: "1001364046"
+                  - generic [ref=e1299]: В наличии
+              - generic [ref=e1300]:
+                - generic [ref=e1302]: 159 ₽/шт.
+                - generic [ref=e1304] [cursor=pointer]: В корзину
+          - generic [ref=e1305]:
+            - generic [ref=e1307] [cursor=pointer]: Показать ещё 30
+            - complementary [ref=e1310]:
+              - generic [ref=e1311]:
+                - list [ref=e1313]:
+                  - listitem [ref=e1314]:
+                    - link "1" [ref=e1315]:
+                      - /url: "#"
+                  - listitem [ref=e1316]:
+                    - link "2" [ref=e1317] [cursor=pointer]:
+                      - /url: /catalog/stroitelnye-smesi/?amount=30&PAGEN_2=2
+                  - listitem [ref=e1318]: ...
+                  - listitem [ref=e1319]:
+                    - link "5" [ref=e1320] [cursor=pointer]:
+                      - /url: /catalog/stroitelnye-smesi/?amount=30&PAGEN_2=5
+                - link "Дальше" [ref=e1321] [cursor=pointer]:
+                  - /url: /catalog/stroitelnye-smesi/?amount=30&PAGEN_2=2
+                  - generic [ref=e1322]: Дальше
+              - generic [ref=e1324]:
+                - text: Перейти на страницу
+                - spinbutton [ref=e1325]
+              - combobox [ref=e1328]:
+                - option "Показывать по 30" [selected]
+                - option "Показывать по 60"
+                - option "Показывать по 90"
+      - generic [ref=e1331]:
+        - generic [ref=e1333]: Популярные товары
+        - generic [ref=e1335]:
+          - generic [ref=e1337]:
+            - link "Go to slide 1" [ref=e1339] [cursor=pointer]:
+              - /url: https://www.maxidom.ru/catalog/shtukaturka-gipsovaya/9011800178/
+              - generic [ref=e1341]:
+                - img [ref=e1344]
+                - img [ref=e1347]
+                - img [ref=e1350]
+              - button "Go to slide 1" [ref=e1352]
+            - link "Штукатурка гипсовая для внутр.работ KNAUF Ротбанд универс. ручн. 30кг" [ref=e1354] [cursor=pointer]:
+              - /url: https://www.maxidom.ru/catalog/shtukaturka-gipsovaya/9011800178/
+            - generic [ref=e1355]: "Код: 9011800178"
+            - generic [ref=e1356]:
+              - generic [ref=e1358]:
+                - generic [ref=e1359]: "700"
+                - generic [ref=e1360]: ₽/шт
+              - navigation [ref=e1361]
+            - img [ref=e1364] [cursor=pointer]
+          - generic [ref=e1368]:
+            - link "Хит" [ref=e1370] [cursor=pointer]:
+              - /url: /catalog/hit/index.php?FILTER_TYPE=PROPERTY_REP_ACTION_FIRST
+            - link "Go to slide 1" [ref=e1372] [cursor=pointer]:
+              - /url: https://www.maxidom.ru/catalog/shpatlevki-suhie-polimernye/1001308081/
+              - generic [ref=e1374]:
+                - img [ref=e1377]
+                - img [ref=e1380]
+                - img [ref=e1383]
+              - button "Go to slide 1" [ref=e1385]
+            - link "Шпатлевка полимерная для внутр.работ VETONIT LR+ финишная ручн. 20кг" [ref=e1387] [cursor=pointer]:
+              - /url: https://www.maxidom.ru/catalog/shpatlevki-suhie-polimernye/1001308081/
+            - generic [ref=e1388]: "Код: 1001308081"
+            - generic [ref=e1389]:
+              - generic [ref=e1391]:
+                - generic [ref=e1392]: 1 145
+                - generic [ref=e1393]: ₽/шт
+              - navigation [ref=e1394]
+            - img [ref=e1397] [cursor=pointer]
+          - generic [ref=e1401]:
+            - link "Хит" [ref=e1403] [cursor=pointer]:
+              - /url: /catalog/hit/index.php?FILTER_TYPE=PROPERTY_REP_ACTION_FIRST
+            - link "Go to slide 1" [ref=e1405] [cursor=pointer]:
+              - /url: https://www.maxidom.ru/catalog/shpatlevki-gotovye/1001083671/
+              - generic [ref=e1407]:
+                - img [ref=e1410]
+                - img [ref=e1413]
+                - img [ref=e1416]
+              - button "Go to slide 1" [ref=e1418]
+            - link "Шпаклевка готовая KNAUF Ротбанд Паста Профи 18кг, арт.тов-156116" [ref=e1420] [cursor=pointer]:
+              - /url: https://www.maxidom.ru/catalog/shpatlevki-gotovye/1001083671/
+            - generic [ref=e1421]: "Код: 1001083671"
+            - generic [ref=e1422]:
+              - generic [ref=e1424]:
+                - generic [ref=e1425]: 1 583
+                - generic [ref=e1426]: ₽/шт
+              - navigation [ref=e1427]
+            - img [ref=e1430] [cursor=pointer]
+          - generic [ref=e1434]:
+            - link "Go to slide 1" [ref=e1436] [cursor=pointer]:
+              - /url: https://www.maxidom.ru/catalog/shtukaturka-tsementnaya/1001194144/
+              - generic [ref=e1438]:
+                - img [ref=e1441]
+                - img [ref=e1444]
+                - img [ref=e1447]
+              - button "Go to slide 1" [ref=e1449]
+            - link "Штукатурка цементная для внутр. и наруж.работ VETONIT TT40 универс. 25кг" [ref=e1451] [cursor=pointer]:
+              - /url: https://www.maxidom.ru/catalog/shtukaturka-tsementnaya/1001194144/
+            - generic [ref=e1452]: "Код: 1001194144"
+            - generic [ref=e1453]:
+              - generic [ref=e1455]:
+                - generic [ref=e1456]: "619"
+                - generic [ref=e1457]: ₽/шт
+              - navigation [ref=e1458]
+            - img [ref=e1461] [cursor=pointer]
+          - generic [ref=e1465]:
+            - link "Go to slide 1" [ref=e1467] [cursor=pointer]:
+              - /url: https://www.maxidom.ru/catalog/tsement/1001358713/
+              - generic [ref=e1469]:
+                - img [ref=e1472]
+                - img [ref=e1475]
+                - img [ref=e1478]
+              - button "Go to slide 1" [ref=e1480]
+            - link "Цемент Цемрос ЦЕМ I 42.5H 50кг" [ref=e1482] [cursor=pointer]:
+              - /url: https://www.maxidom.ru/catalog/tsement/1001358713/
+            - generic [ref=e1483]: "Код: 1001358713"
+            - generic [ref=e1484]:
+              - generic [ref=e1486]:
+                - generic [ref=e1487]: "659"
+                - generic [ref=e1488]: ₽/шт
+              - navigation [ref=e1489]
+            - img [ref=e1492] [cursor=pointer]
+          - generic [ref=e1496]:
+            - link "Go to slide 1" [ref=e1498] [cursor=pointer]:
+              - /url: https://www.maxidom.ru/catalog/shpatlevki-suhie-gipsovye/1001390217/
+              - generic [ref=e1500]:
+                - img [ref=e1503]
+                - img [ref=e1506]
+                - img [ref=e1509]
+              - button "Go to slide 1" [ref=e1511]
+            - link "Шпатлевка гипсовая ВОЛМА Шов 20кг" [ref=e1513] [cursor=pointer]:
+              - /url: https://www.maxidom.ru/catalog/shpatlevki-suhie-gipsovye/1001390217/
+            - generic [ref=e1514]: "Код: 1001390217"
+            - generic [ref=e1515]:
+              - generic [ref=e1517]:
+                - generic [ref=e1518]: "581"
+                - generic [ref=e1519]: ₽/шт
+              - navigation [ref=e1520]
+            - img [ref=e1523] [cursor=pointer]
+          - generic [ref=e1527]:
+            - link "Go to slide 1" [ref=e1529] [cursor=pointer]:
+              - /url: https://www.maxidom.ru/catalog/shpatlevki-suhie-tsementnye/1001194485/
+              - generic [ref=e1531]:
+                - img [ref=e1534]
+                - img [ref=e1537]
+                - img [ref=e1540]
+              - button "Go to slide 1" [ref=e1542]
+            - link "Шпатлевка цементная VETONIT VH белая финишн. влагост. 20кг" [ref=e1544] [cursor=pointer]:
+              - /url: https://www.maxidom.ru/catalog/shpatlevki-suhie-tsementnye/1001194485/
+            - generic [ref=e1545]: "Код: 1001194485"
+            - generic [ref=e1546]:
+              - generic [ref=e1548]:
+                - generic [ref=e1549]: "927"
+                - generic [ref=e1550]: ₽/шт
+              - navigation [ref=e1551]
+            - img [ref=e1554] [cursor=pointer]
+          - generic [ref=e1558]:
+            - link "Суперцена" [ref=e1560] [cursor=pointer]:
+              - /url: /catalog/hot/index.php?FILTER_TYPE=PROPERTY_REP_ACTION_R
+            - link "Go to slide 1" [ref=e1562] [cursor=pointer]:
+              - /url: https://www.maxidom.ru/catalog/smesi-dlya-vyravnivaniya-polov-tsementnye/1000932757/
+              - generic [ref=e1564]:
+                - img [ref=e1567]
+                - img [ref=e1570]
+                - img [ref=e1573]
+              - button "Go to slide 1" [ref=e1575]
+            - link "Ровнитель для внутр.работ PLITONIT Универсал универсальный 20кг" [ref=e1577] [cursor=pointer]:
+              - /url: https://www.maxidom.ru/catalog/smesi-dlya-vyravnivaniya-polov-tsementnye/1000932757/
+            - generic [ref=e1578]: "Код: 1000932757"
+            - generic [ref=e1579]:
+              - generic [ref=e1580]:
+                - generic [ref=e1581]:
+                  - generic [ref=e1582]:
+                    - text: "567"
+                    - generic [ref=e1583]: ₽
+                  - generic [ref=e1584]: "-10%"
+                - generic [ref=e1585]:
+                  - generic [ref=e1586]: "510"
+                  - generic [ref=e1587]: ₽/шт
+              - navigation [ref=e1588]
+            - img [ref=e1591] [cursor=pointer]
+          - generic [ref=e1595]:
+            - link "Хит" [ref=e1597] [cursor=pointer]:
+              - /url: /catalog/hit/index.php?FILTER_TYPE=PROPERTY_REP_ACTION_FIRST
+            - link "Go to slide 1" [ref=e1599] [cursor=pointer]:
+              - /url: https://www.maxidom.ru/catalog/shtukaturka-gipsovaya/9011800179/
+              - generic [ref=e1601]:
+                - img [ref=e1604]
+                - img [ref=e1607]
+                - img [ref=e1610]
+              - button "Go to slide 1" [ref=e1612]
+            - link "Штукатурка гипсовая для внутр.работ KNAUF Ротбанд универс. 10кг" [ref=e1614] [cursor=pointer]:
+              - /url: https://www.maxidom.ru/catalog/shtukaturka-gipsovaya/9011800179/
+            - generic [ref=e1615]: "Код: 9011800179"
+            - generic [ref=e1616]:
+              - generic [ref=e1618]:
+                - generic [ref=e1619]: "390"
+                - generic [ref=e1620]: ₽/шт
+              - navigation [ref=e1621]
+            - img [ref=e1624] [cursor=pointer]
+          - generic [ref=e1628]:
+            - link "Go to slide 1 Go to slide 2 Go to slide 3" [ref=e1630] [cursor=pointer]:
+              - /url: https://www.maxidom.ru/catalog/smesi-dlya-vyravnivaniya-polov-gipsovye/1001596330/
+              - generic [ref=e1632]:
+                - img [ref=e1635]
+                - img [ref=e1638]
+                - img [ref=e1641]
+                - img [ref=e1644]
+                - img [ref=e1647]
+              - generic [ref=e1648]:
+                - button "Go to slide 1" [ref=e1649]
+                - button "Go to slide 2" [ref=e1650]
+                - button "Go to slide 3" [ref=e1651]
+            - link "Пол наливной FORMAN 33 морозостойкий финишный 20 кг" [ref=e1653] [cursor=pointer]:
+              - /url: https://www.maxidom.ru/catalog/smesi-dlya-vyravnivaniya-polov-gipsovye/1001596330/
+            - generic [ref=e1654]: "Код: 1001596330"
+            - generic [ref=e1655]:
+              - generic [ref=e1657]:
+                - generic [ref=e1658]: "460"
+                - generic [ref=e1659]: ₽/шт
+              - navigation [ref=e1660]
+            - img [ref=e1663] [cursor=pointer]
+          - generic [ref=e1667]:
+            - link "Go to slide 1 Go to slide 2 Go to slide 3 Go to slide 4 Go to slide 5 Go to slide 6" [ref=e1669] [cursor=pointer]:
+              - /url: https://www.maxidom.ru/catalog/smesi-dlya-gidroizolyatsii-polov/1001270170/
+              - generic [ref=e1671]:
+                - img [ref=e1674]
+                - img [ref=e1677]
+                - img [ref=e1680]
+                - img [ref=e1683]
+                - img [ref=e1686]
+                - img [ref=e1689]
+                - img [ref=e1692]
+                - img [ref=e1695]
+              - generic [ref=e1696]:
+                - button "Go to slide 1" [ref=e1697]
+                - button "Go to slide 2" [ref=e1698]
+                - button "Go to slide 3" [ref=e1699]
+                - button "Go to slide 4" [ref=e1700]
+                - button "Go to slide 5" [ref=e1701]
+                - button "Go to slide 6" [ref=e1702]
+            - link "Гидроизоляция полимер-цементная для внутр.работ PLITONIT ГидроСлой 20кг" [ref=e1704] [cursor=pointer]:
+              - /url: https://www.maxidom.ru/catalog/smesi-dlya-gidroizolyatsii-polov/1001270170/
+            - generic [ref=e1705]: "Код: 1001270170"
+            - generic [ref=e1706]:
+              - generic [ref=e1708]:
+                - generic [ref=e1709]: 1 352
+                - generic [ref=e1710]: ₽/шт
+              - navigation [ref=e1711]
+            - img [ref=e1714] [cursor=pointer]
+          - generic [ref=e1718]:
+            - link "Go to slide 1" [ref=e1720] [cursor=pointer]:
+              - /url: https://www.maxidom.ru/catalog/shpatlevki-gotovye/1001083672/
+              - generic [ref=e1722]:
+                - img [ref=e1725]
+                - img [ref=e1728]
+                - img [ref=e1731]
+              - button "Go to slide 1" [ref=e1733]
+            - link "Шпаклевка готовая KNAUF Ротбанд Паста Профи 5кг, арт.тов-156117" [ref=e1735] [cursor=pointer]:
+              - /url: https://www.maxidom.ru/catalog/shpatlevki-gotovye/1001083672/
+            - generic [ref=e1736]: "Код: 1001083672"
+            - generic [ref=e1737]:
+              - generic [ref=e1739]:
+                - generic [ref=e1740]: "763"
+                - generic [ref=e1741]: ₽/шт
+              - navigation [ref=e1742]
+            - img [ref=e1745] [cursor=pointer]
+        - button "Next slide" [ref=e1748] [cursor=pointer]:
+          - img [ref=e1749]
+      - generic [ref=e1752]:
+        - generic [ref=e1753]: Журнал
+        - generic [ref=e1754]:
+          - generic [ref=e1755] [cursor=pointer]: Все статьи
+          - generic [ref=e1756] [cursor=pointer]: Обзор
+          - generic [ref=e1757] [cursor=pointer]: Как выбрать
+          - generic [ref=e1758] [cursor=pointer]: Полезные советы
+          - link "Читать все статьи" [ref=e1760] [cursor=pointer]:
+            - /url: /blog
+        - generic [ref=e1763]:
+          - link "Эко-материалы в интерьере и где они действительно уместны Обзор Эко-материалы в интерьере и где они действительно уместны" [ref=e1765] [cursor=pointer]:
+            - /url: /blog/obzor/eko-materialy-v-interere-i-gde-oni-deystvitelno-umestny/
+            - img "Эко-материалы в интерьере и где они действительно уместны" [ref=e1766]
+            - generic [ref=e1767]:
+              - generic [ref=e1768]: Обзор
+              - paragraph [ref=e1769]: Эко-материалы в интерьере и где они действительно уместны
+          - 'link "Как выбрать прораба или бригаду: чек-лист для заказчика Полезные советы Как выбрать прораба или бригаду: чек-лист для заказчика" [ref=e1771] [cursor=pointer]':
+            - /url: /blog/poleznye-sovety/kak-vybrat-proraba-ili-brigadu-chek-list-dlya-zakazchika/
+            - 'img "Как выбрать прораба или бригаду: чек-лист для заказчика" [ref=e1772]'
+            - generic [ref=e1773]:
+              - generic [ref=e1774]: Полезные советы
+              - paragraph [ref=e1775]: "Как выбрать прораба или бригаду: чек-лист для заказчика"
+          - link "Как составить смету на ремонт и не выйти за бюджет Полезные советы Как составить смету на ремонт и не выйти за бюджет" [ref=e1777] [cursor=pointer]:
+            - /url: /blog/poleznye-sovety/kak-sostavit-smetu-na-remont-i-ne-vyyti-za-byudzhet/
+            - img "Как составить смету на ремонт и не выйти за бюджет" [ref=e1778]
+            - generic [ref=e1779]:
+              - generic [ref=e1780]: Полезные советы
+              - paragraph [ref=e1781]: Как составить смету на ремонт и не выйти за бюджет
+          - link "Как штукатурить дверные откосы своими руками Полезные советы Как штукатурить дверные откосы своими руками" [ref=e1783] [cursor=pointer]:
+            - /url: /blog/poleznye-sovety/kak-shtukaturit-dvernye-otkosy-svoimi-rukami/
+            - img "Как штукатурить дверные откосы своими руками" [ref=e1784]
+            - generic [ref=e1785]:
+              - generic [ref=e1786]: Полезные советы
+              - paragraph [ref=e1787]: Как штукатурить дверные откосы своими руками
+          - 'link "Сарай для инвентаря: строим сами Полезные советы Сарай для инвентаря: строим сами" [ref=e1789] [cursor=pointer]':
+            - /url: /blog/poleznye-sovety/saray-dlya-inventarya-stroim-sami/
+            - 'img "Сарай для инвентаря: строим сами" [ref=e1790]'
+            - generic [ref=e1791]:
+              - generic [ref=e1792]: Полезные советы
+              - paragraph [ref=e1793]: "Сарай для инвентаря: строим сами"
+          - 'link "Декоративная штукатурка: отличие от обычной, виды, технология нанесения Полезные советы Декоративная штукатурка: отличие от обычной, виды, технология нанесения" [ref=e1795] [cursor=pointer]':
+            - /url: /blog/poleznye-sovety/dekorativnaya-shtukaturka-otlichie-ot-obychnoy-vidy-tekhnologiya-naneseniya/
+            - 'img "Декоративная штукатурка: отличие от обычной, виды, технология нанесения" [ref=e1796]'
+            - generic [ref=e1797]:
+              - generic [ref=e1798]: Полезные советы
+              - paragraph [ref=e1799]: "Декоративная штукатурка: отличие от обычной, виды, технология нанесения"
+          - link "Обзор фасадных штукатурок Обзор Обзор фасадных штукатурок" [ref=e1801] [cursor=pointer]:
+            - /url: /blog/obzor/obzor-fasadnykh-shtukaturok/
+            - img "Обзор фасадных штукатурок" [ref=e1802]
+            - generic [ref=e1803]:
+              - generic [ref=e1804]: Обзор
+              - paragraph [ref=e1805]: Обзор фасадных штукатурок
+  - generic [ref=e1807]:
+    - generic [ref=e1808]:
+      - text: Для корректной работы сайта мы используем файлы
+      - link "Cookie" [ref=e1809] [cursor=pointer]:
+        - /url: https://www.maxidom.ru/politika/
+      - text: и Метрические системы. Оставаясь на сайте Вы даете согласие на их использование.
+    - button "Принять" [ref=e1810] [cursor=pointer]
+  - generic [ref=e1811]:
+    - generic [ref=e1812]:
+      - img "banner" [ref=e1814]
+      - generic [ref=e1815]:
+        - generic [ref=e1816]: Подпишитесь на рассылку и узнавайте первыми о наших самых выгодных предложениях!
+        - generic [ref=e1817]:
+          - text: Нажимая на кнопку, я принимаю
+          - link "политику в отношении персональных данных" [ref=e1818] [cursor=pointer]:
+            - /url: https://www.maxidom.ru/politika/
+          - text: и соглашаюсь получать сообщения
+      - generic [ref=e1820]:
+        - textbox "Введите почту" [ref=e1821]
+        - button "Submit" [ref=e1822] [cursor=pointer]:
+          - img "Submit" [ref=e1823]
+    - generic [ref=e1825]:
+      - generic [ref=e1826]:
+        - generic [ref=e1827]:
+          - list [ref=e1828]:
+            - listitem [ref=e1829]:
+              - link "Адреса магазинов" [ref=e1830] [cursor=pointer]:
+                - /url: /shops/
+            - listitem [ref=e1831]:
+              - link "Контакты" [ref=e1832] [cursor=pointer]:
+                - /url: /about/contacts/
+            - listitem [ref=e1833]:
+              - link "О компании" [ref=e1834] [cursor=pointer]:
+                - /url: /about/
+            - listitem [ref=e1835]:
+              - link "Соискателям" [ref=e1836] [cursor=pointer]:
+                - /url: https://career.maxidom.ru
+            - listitem [ref=e1837]:
+              - link "Партнерам" [ref=e1838] [cursor=pointer]:
+                - /url: /partners/
+            - listitem [ref=e1839]:
+              - link "Журнал" [ref=e1840] [cursor=pointer]:
+                - /url: /blog/
+            - listitem [ref=e1841]:
+              - link "Активация карты" [ref=e1842] [cursor=pointer]:
+                - /url: /loyal/card/
+          - list [ref=e1843]:
+            - listitem [ref=e1844]:
+              - link "Акции" [ref=e1845] [cursor=pointer]:
+                - /url: /offers/
+            - listitem [ref=e1846]:
+              - link "Новости" [ref=e1847] [cursor=pointer]:
+                - /url: /news/
+            - listitem [ref=e1848]:
+              - link "Услуги" [ref=e1849] [cursor=pointer]:
+                - /url: /services/
+            - listitem [ref=e1850]:
+              - link "Доставка и оплата" [ref=e1851] [cursor=pointer]:
+                - /url: /payment/
+            - listitem [ref=e1852]:
+              - link "Программа лояльности" [ref=e1853] [cursor=pointer]:
+                - /url: /loyal/
+            - listitem [ref=e1854]:
+              - link "Помощь" [ref=e1855] [cursor=pointer]:
+                - /url: /help/
+            - listitem [ref=e1856]:
+              - link "Партнёрская программа" [ref=e1857] [cursor=pointer]:
+                - /url: https://advcake.ru/lp/maxidom/
+        - generic [ref=e1858]:
+          - generic [ref=e1859]: Copyright © Maxidom. 2013-2026
+          - link "Использование товарных рекомендаций на сайте" [ref=e1861] [cursor=pointer]:
+            - /url: /recomendations/
+          - generic [ref=e1862]:
+            - link "Политика в отношении персональных данных" [ref=e1863] [cursor=pointer]:
+              - /url: /politika/
+            - link "English" [ref=e1864] [cursor=pointer]:
+              - /url: /en/
+      - generic [ref=e1865]:
+        - generic [ref=e1866]:
+          - link "8 (812) 324-55-55" [ref=e1868] [cursor=pointer]:
+            - /url: "tel: +7(812)324-55-55"
+          - generic [ref=e1869]:
+            - link [ref=e1870] [cursor=pointer]:
+              - /url: https://max.ru/club22549103
+              - img [ref=e1871]
+            - link [ref=e1874] [cursor=pointer]:
+              - /url: https://vk.com/maxidom
+              - img [ref=e1875]
+            - link [ref=e1877] [cursor=pointer]:
+              - /url: https://www.odnoklassniki.ru/maxidom
+              - img [ref=e1878]
+            - link [ref=e1882] [cursor=pointer]:
+              - /url: https://t.me/maxidom
+              - img [ref=e1883]
+        - link "Оставьте отзыв" [ref=e1885] [cursor=pointer]:
+          - /url: /help/?open=Y
+          - img [ref=e1886]
+          - generic [ref=e1888]: Оставьте отзыв
+        - generic [ref=e1889]:
+          - generic [ref=e1890]:
+            - img [ref=e1891]
+            - img [ref=e1897]
+            - img [ref=e1899]
+          - link "Логотип плати частями" [ref=e1906] [cursor=pointer]:
+            - /url: /help/oplata-v-rassrochku/
+            - img "Логотип плати частями" [ref=e1907]
+        - generic [ref=e1908]:
+          - heading "Скачайте наше бесплатное мобильное приложение:" [level=5] [ref=e1909]
+          - generic [ref=e1910]:
+            - img [ref=e1912]
+            - generic [ref=e1913]:
+              - link "Google play" [ref=e1914] [cursor=pointer]:
+                - /url: https://redirect.appmetrica.yandex.com/serve/893772992755044470
+                - img "Google play" [ref=e1916]
+              - link "Apple store" [ref=e1917] [cursor=pointer]:
+                - /url: https://redirect.appmetrica.yandex.com/serve/1182003398250112852
+                - img "Apple store" [ref=e1919]
+              - link "Huawei store" [ref=e1920] [cursor=pointer]:
+                - /url: https://redirect.appmetrica.yandex.com/serve/1109945806443563455
+                - img "Huawei store" [ref=e1922]
+              - link "RuStore" [ref=e1923] [cursor=pointer]:
+                - /url: https://redirect.appmetrica.yandex.com/serve/749657837159901904
+                - img "RuStore" [ref=e1925]
+        - paragraph [ref=e1927]: Чтобы сообщить об ошибке, выделите текст и нажмите "Ctrl+Enter"
+  - img [ref=e1928]
+  - iframe [ref=e1929]:
+    
