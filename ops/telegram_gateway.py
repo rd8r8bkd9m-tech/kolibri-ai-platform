@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
+import mimetypes
 import os
 import re
 import signal
@@ -65,6 +67,29 @@ TASK_INTENT_WORDS = {
     "run",
     "update",
 }
+IMAGE_INTENT_WORDS = (
+    "нарисуй",
+    "рисуй",
+    "сгенерируй картинку",
+    "сгенерируй изображение",
+    "сделай картинку",
+    "сделай изображение",
+    "создай картинку",
+    "создай изображение",
+    "картинку",
+    "картинка",
+    "изображение",
+    "иллюстрацию",
+    "иллюстрация",
+    "лого",
+    "логотип",
+    "маскот",
+    "птичку",
+    "image",
+    "picture",
+    "generate image",
+    "draw",
+)
 CHAT_GREETINGS = {
     "привет",
     "здравствуй",
@@ -170,6 +195,18 @@ def chat_task_id_from_message(message: dict[str, Any]) -> str:
     return f"TGCHAT-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{message['message_id']}-{suffix}"
 
 
+def image_task_id_from_message(message: dict[str, Any]) -> str:
+    suffix = safe_task_suffix(message.get("text", "image"))
+    return f"TGIMG-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{message['message_id']}-{suffix}"
+
+
+def wants_image_generation(text: str) -> bool:
+    lowered = text.strip().lower()
+    if not lowered:
+        return False
+    return any(marker in lowered for marker in IMAGE_INTENT_WORDS)
+
+
 def wants_factory_task(text: str) -> bool:
     lowered = text.strip().lower()
     if not lowered:
@@ -242,6 +279,46 @@ class TelegramClient:
             raise RuntimeError(f"telegram {method} failed")
         return response
 
+    def call_multipart(
+        self,
+        method: str,
+        fields: dict[str, Any],
+        files: dict[str, tuple[str, bytes, str]],
+        timeout: int = 60,
+    ) -> dict[str, Any]:
+        boundary = f"kolibri-{int(time.time() * 1000)}"
+        chunks: list[bytes] = []
+        for name, value in fields.items():
+            if value is None:
+                continue
+            chunks.append(f"--{boundary}\r\n".encode("utf-8"))
+            chunks.append(f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode("utf-8"))
+            chunks.append(str(value).encode("utf-8"))
+            chunks.append(b"\r\n")
+        for name, (filename, content, content_type) in files.items():
+            chunks.append(f"--{boundary}\r\n".encode("utf-8"))
+            chunks.append(
+                (
+                    f'Content-Disposition: form-data; name="{name}"; filename="{filename}"\r\n'
+                    f"Content-Type: {content_type}\r\n\r\n"
+                ).encode("utf-8")
+            )
+            chunks.append(content)
+            chunks.append(b"\r\n")
+        chunks.append(f"--{boundary}--\r\n".encode("utf-8"))
+        data = b"".join(chunks)
+        req = urllib.request.Request(
+            f"{self.base_url}/{method}",
+            data=data,
+            method="POST",
+            headers={"Content-Type": f"multipart/form-data; boundary={boundary}", "Content-Length": str(len(data))},
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            response = json.loads(resp.read().decode("utf-8"))
+        if not response.get("ok"):
+            raise RuntimeError(f"telegram {method} failed")
+        return response
+
     def get_updates(self, offset: int | None, timeout: int) -> list[dict[str, Any]]:
         payload: dict[str, Any] = {"timeout": timeout, "allowed_updates": json.dumps(["message"])}
         if offset is not None:
@@ -250,6 +327,31 @@ class TelegramClient:
 
     def send_message(self, chat_id: int, text: str) -> dict[str, Any]:
         response = self.call("sendMessage", {"chat_id": chat_id, "text": text[:3900], "disable_web_page_preview": True})
+        return response.get("result") or {}
+
+    def send_photo(self, chat_id: int, photo: str | bytes | Path, caption: str | None = None, mime_type: str | None = None) -> dict[str, Any]:
+        fields: dict[str, Any] = {"chat_id": chat_id}
+        if caption:
+            fields["caption"] = caption[:1024]
+        if isinstance(photo, bytes):
+            content_type = mime_type or "image/png"
+            response = self.call_multipart(
+                "sendPhoto",
+                fields,
+                {"photo": ("image.png", photo, content_type)},
+            )
+            return response.get("result") or {}
+        if isinstance(photo, Path):
+            content = photo.read_bytes()
+            content_type = mime_type or mimetypes.guess_type(photo.name)[0] or "application/octet-stream"
+            response = self.call_multipart(
+                "sendPhoto",
+                fields,
+                {"photo": (photo.name, content, content_type)},
+            )
+            return response.get("result") or {}
+        fields["photo"] = photo
+        response = self.call("sendPhoto", fields, timeout=60)
         return response.get("result") or {}
 
     def edit_message(self, chat_id: int, message_id: int, text: str) -> dict[str, Any]:
@@ -405,6 +507,42 @@ def build_chat_envelope(message: dict[str, Any], text: str, snapshot: dict[str, 
         },
     }
     target_node = os.environ.get("TELEGRAM_CHAT_NODE", "primary-candidate")
+    if target_node:
+        envelope["target_node"] = target_node
+    return envelope
+
+
+def build_image_envelope(message: dict[str, Any], text: str, snapshot: dict[str, Any] | None = None) -> dict[str, Any]:
+    task_id = image_task_id_from_message(message)
+    context = snapshot or {}
+    prompt = (
+        "Сгенерируй изображение по запросу владельца. "
+        "Нужно вернуть структурированный результат для Telegram: image_url или image_b64/image_path, "
+        "image_mime_type и короткую подпись caption по-русски. "
+        "Не раскрывай секреты, пути, task_id, node, agent и служебные детали владельцу. "
+        f"Контекст фабрики: {json.dumps(context, ensure_ascii=False, sort_keys=True)}\n"
+        f"Запрос владельца: {text}"
+    )
+    envelope = {
+        "task_id": task_id,
+        "idempotency_key": f"telegram-image:{message['chat']['id']}:{message['message_id']}",
+        "kind": os.environ.get("TELEGRAM_IMAGE_KIND", "telegram_image_generation"),
+        "required_capability": os.environ.get("TELEGRAM_IMAGE_CAPABILITY", "generic_implementation"),
+        "max_retries": int(os.environ.get("TELEGRAM_IMAGE_MAX_RETRIES", "1")),
+        "message": text,
+        "prompt": text,
+        "objective": prompt,
+        "runner": os.environ.get("TELEGRAM_IMAGE_RUNNER", "image"),
+        "factory_snapshot": context,
+        "source": {
+            "kind": "telegram",
+            "message_id": message["message_id"],
+            "chat_id": message["chat"]["id"],
+            "user_id": message["from"]["id"],
+            "accepted_at": utc_now(),
+        },
+    }
+    target_node = os.environ.get("TELEGRAM_IMAGE_NODE", os.environ.get("TELEGRAM_CHAT_NODE", "primary-candidate"))
     if target_node:
         envelope["target_node"] = target_node
     return envelope
@@ -637,6 +775,20 @@ class Gateway:
             return int(sent["message_id"])
         return message_id
 
+    def send_image_result(self, chat_id: int, task: dict[str, Any]) -> str:
+        delivery = image_delivery_from_task(task)
+        caption = clean_image_caption(delivery.get("caption"))
+        photo = delivery.get("photo")
+        mime_type = delivery.get("mime_type")
+        if isinstance(photo, str) and photo.startswith("/"):
+            photo_obj: str | bytes | Path = Path(photo)
+        else:
+            photo_obj = photo
+        if not photo_obj:
+            raise RuntimeError("image task completed without deliverable image")
+        self.telegram.send_photo(chat_id, photo_obj, caption=caption, mime_type=mime_type)
+        return caption or "Готово, отправил изображение."
+
     def submit_text_task(self, message: dict[str, Any], text: str) -> None:
         snapshot = self.conversation_snapshot()
         envelope = build_task_envelope(message, text, snapshot)
@@ -654,6 +806,26 @@ class Gateway:
         self.state.save()
         reply = build_task_ack_reply(text, snapshot, task)
         self.telegram.send_message(message["chat"]["id"], reply)
+        self.remember_orchestrator_message(reply)
+
+    def submit_image_task(self, message: dict[str, Any], text: str) -> None:
+        chat_id = message["chat"]["id"]
+        snapshot = self.conversation_snapshot()
+        envelope = build_image_envelope(message, text, snapshot)
+        try:
+            task = self.factory.create_task(envelope)
+        except Exception:
+            record_work_task(self.memory(), text, envelope["task_id"], "failed", utc_now())
+            self.state.save()
+            reply = "Я понял запрос на изображение, но фабрика сейчас не приняла задачу. Зафиксировал сбой и разберу отдельно."
+            self.telegram.send_message(chat_id, reply)
+            self.remember_orchestrator_message(reply)
+            return
+        self.track(chat_id, task["task_id"], task["state"], mode="image")
+        record_work_task(self.memory(), text, task["task_id"], task["state"], utc_now())
+        self.state.save()
+        reply = "Принял. Запускаю генерацию изображения и пришлю сюда готовую картинку."
+        self.telegram.send_message(chat_id, reply)
         self.remember_orchestrator_message(reply)
 
     def submit_chat_task(self, message: dict[str, Any], text: str) -> None:
@@ -749,6 +921,9 @@ class Gateway:
         if text.startswith("/"):
             self.remember_owner_message(text, "command")
             self.handle_command(message, text)
+        elif wants_image_generation(text):
+            self.remember_owner_message(text, "image")
+            self.submit_image_task(message, text)
         elif wants_factory_task(text):
             self.remember_owner_message(text, "task")
             self.submit_text_task(message, text)
@@ -792,6 +967,29 @@ class Gateway:
                 mode = record.get("mode", "task")
                 if mode == "chat" and label not in {"COMPLETED", "FAILED"}:
                     self.state.data["tracked"][task_id]["last_state"] = label
+                    self.state.save()
+                    continue
+                if mode == "image" and label not in {"COMPLETED", "FAILED"}:
+                    self.state.data["tracked"][task_id]["last_state"] = label
+                    self.state.save()
+                    continue
+                if mode == "image" and label == "COMPLETED":
+                    try:
+                        reply = self.send_image_result(int(record["chat_id"]), task)
+                    except Exception:
+                        reply = "Картинка сгенерирована, но Telegram не смог её принять. Я зафиксировал сбой доставки."
+                        self.telegram.send_message(int(record["chat_id"]), reply)
+                    record_task_transition(self.memory(), task, label, utc_now())
+                    record_orchestrator_message(self.memory(), reply, utc_now())
+                    self.state.data["tracked"].pop(task_id, None)
+                    self.state.save()
+                    continue
+                if mode == "image" and label == "FAILED":
+                    reply = "Сейчас не смог сгенерировать изображение. Я зафиксировал сбой и продолжу восстановление."
+                    self.telegram.send_message(int(record["chat_id"]), reply)
+                    record_task_transition(self.memory(), task, label, utc_now())
+                    record_orchestrator_message(self.memory(), reply, utc_now())
+                    self.state.data["tracked"].pop(task_id, None)
                     self.state.save()
                     continue
                 reply = format_transition(label, task, mode)
@@ -909,12 +1107,68 @@ def extract_urls(text: str) -> list[str]:
     return urls
 
 
+def _first_value(data: dict[str, Any], keys: tuple[str, ...]) -> Any:
+    for key in keys:
+        value = data.get(key)
+        if value:
+            return value
+    return None
+
+
+def clean_image_caption(text: str | None) -> str:
+    caption = clean_agent_response(text)
+    if caption == "Я завершил ответ, но текст не записался. Разберу это отдельно.":
+        return "Готово."
+    return caption[:1024]
+
+
+def decode_image_b64(value: str) -> tuple[bytes, str | None]:
+    mime_type = None
+    payload = value.strip()
+    if payload.startswith("data:") and ";base64," in payload:
+        header, payload = payload.split(";base64,", 1)
+        mime_type = header.removeprefix("data:") or None
+    return base64.b64decode(payload), mime_type
+
+
+def image_delivery_from_task(task: dict[str, Any]) -> dict[str, Any]:
+    result = task.get("result") or {}
+    image_data = result
+    images = result.get("images")
+    if isinstance(images, list) and images:
+        first = images[0]
+        if isinstance(first, dict):
+            image_data = {**result, **first}
+        elif isinstance(first, str):
+            image_data = {**result, "image_url": first}
+    mime_type = _first_value(image_data, ("image_mime_type", "mime_type", "content_type"))
+    caption = _first_value(image_data, ("caption", "message", "response"))
+    b64_value = _first_value(image_data, ("image_b64", "image_base64", "photo_b64", "b64_json"))
+    if isinstance(b64_value, str):
+        photo, detected_mime = decode_image_b64(b64_value)
+        return {"photo": photo, "mime_type": mime_type or detected_mime or "image/png", "caption": caption}
+    photo_url = _first_value(image_data, ("image_url", "photo_url", "url"))
+    if isinstance(photo_url, str) and photo_url.startswith(("http://", "https://")):
+        return {"photo": photo_url, "mime_type": mime_type, "caption": caption}
+    image_path = _first_value(image_data, ("image_path", "photo_path", "artifact_path"))
+    if isinstance(image_path, str):
+        return {"photo": image_path, "mime_type": mime_type, "caption": caption}
+    return {"photo": None, "mime_type": mime_type, "caption": caption}
+
+
 def format_transition(label: str, task: dict[str, Any], mode: str = "task") -> str:
     result = task.get("result") or {}
     if mode == "chat" and label == "COMPLETED":
         return clean_agent_response(result.get("response") or result.get("partial_response"))
+    if mode == "image" and label == "COMPLETED":
+        delivery = image_delivery_from_task(task)
+        if delivery.get("photo"):
+            return clean_image_caption(delivery.get("caption")) or "Готово, отправил изображение."
+        return "Картинка сгенерирована, но я не получил файл для отправки в Telegram."
     if mode == "chat" and label == "FAILED":
         return "Сейчас не смог подготовить ответ. Я зафиксировал сбой и продолжу восстановление."
+    if mode == "image" and label == "FAILED":
+        return "Сейчас не смог сгенерировать изображение. Я зафиксировал сбой и продолжу восстановление."
     return format_task_status(task)
 
 

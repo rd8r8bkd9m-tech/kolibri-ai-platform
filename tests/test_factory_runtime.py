@@ -52,6 +52,7 @@ def test_agent_host_supports_required_task_kinds():
     assert "impl_retry_error_clearance" in agent
     assert "telegram_chat_response" in agent
     assert "orchestrator_chat_response" in agent
+    assert "telegram_image_generation" in agent
     assert "review_pr" in agent
     assert "read_only_probe" in agent
     memory = (ROOT / "ops" / "orchestrator_memory.py").read_text(encoding="utf-8")
