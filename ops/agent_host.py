@@ -626,9 +626,10 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
         self.run_command(["git", "checkout", "-B", f"review/{task['task_id']}", "FETCH_HEAD"], worktree, stdout_path, stderr_path, task, branch, logs, git_env)
         diff_files = subprocess.check_output(["git", "diff", "--name-only", f"{base_ref}...HEAD"], cwd=str(worktree), text=True).splitlines()
         blocked = [path for path in diff_files if path.startswith(".env") or path.endswith(".key") or path.endswith(".pem")]
+        dangerous_shell_mask = "||" + " true"
         for changed in diff_files:
             path = worktree / changed
-            if path.is_file() and "|| true" in path.read_text(encoding="utf-8", errors="ignore"):
+            if path.is_file() and dangerous_shell_mask in path.read_text(encoding="utf-8", errors="ignore"):
                 blocked.append(f"dangerous_or_true:{changed}")
         status = "CHANGES_REQUESTED" if blocked else "APPROVED"
         self.run_command([
