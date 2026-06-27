@@ -242,7 +242,7 @@ class AgentHost:
                     final_messages.append(text)
 
             item = event.get("item") or {}
-            if isinstance(item, dict) and item.get("type") in {"message", "assistant_message"}:
+            if isinstance(item, dict) and item.get("type") in {"message", "assistant_message", "agent_message"}:
                 item_text = item.get("message") or item.get("text") or cls._content_text(item.get("content"))
                 if item_text:
                     final_messages.append(item_text)
