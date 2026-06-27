@@ -304,7 +304,7 @@ def build_chat_envelope(message: dict[str, Any], text: str, snapshot: dict[str, 
         "task_id": task_id,
         "idempotency_key": f"telegram-chat:{message['chat']['id']}:{message['message_id']}",
         "kind": "orchestrator_chat_response",
-        "target_node": "9fts",
+        "target_node": "primary-candidate",
         "required_capability": "implementation",
         "max_retries": 1,
         "message": text,
@@ -554,8 +554,12 @@ class Gateway:
         self.state.save()
 
     def submit_chat_task(self, message: dict[str, Any], text: str) -> None:
-        reply = build_realtime_owner_reply(text, self.conversation_snapshot())
-        self.telegram.send_message(message["chat"]["id"], reply)
+        chat_id = message["chat"]["id"]
+        envelope = build_chat_envelope(message, text, self.conversation_snapshot())
+        task = self.factory.create_task(envelope)
+        self.track(chat_id, task["task_id"], task["state"], mode="chat")
+        reply = "Я смотрю контекст и отвечу здесь следующим сообщением."
+        self.telegram.send_message(chat_id, reply)
         self.remember_orchestrator_message(reply)
 
     def handle_command(self, message: dict[str, Any], text: str) -> None:

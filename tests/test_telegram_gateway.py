@@ -93,3 +93,42 @@ def test_gateway_source_has_no_old_templates_or_owner_visible_dump():
     assert "Привет. Я на связи. Пиши обычным языком" not in source
     assert "Понял. Я на связи и держу контекст" not in source
     assert "Ответ агента:" not in source
+
+def test_submit_chat_task_enqueues_remote_orchestrator_response_and_tracks_chat(tmp_path):
+    gateway = load_gateway()
+
+    class Telegram:
+        def __init__(self):
+            self.messages = []
+
+        def send_message(self, chat_id, text):
+            self.messages.append((chat_id, text))
+
+    class Factory:
+        def __init__(self):
+            self.envelopes = []
+
+        def create_task(self, envelope):
+            self.envelopes.append(envelope)
+            return {"task_id": envelope["task_id"], "state": "queued"}
+
+        def nodes(self):
+            return {"nodes": [{"node_id": "primary-candidate", "health": "online", "capabilities": ["implementation"]}]}
+
+        def get_tasks(self):
+            return {"tasks": [], "queue": []}
+
+    telegram = Telegram()
+    factory = Factory()
+    state = gateway.StateStore(tmp_path / "state.json")
+    app = gateway.Gateway(telegram, factory, {100}, state, 1)
+    message = {"message_id": 55, "chat": {"id": 100, "type": "private"}, "from": {"id": 100}, "text": "Что выполняешь?"}
+    app.submit_chat_task(message, message["text"])
+    assert factory.envelopes
+    assert factory.envelopes[0]["kind"] == "orchestrator_chat_response"
+    assert factory.envelopes[0]["target_node"] == "primary-candidate"
+    task_id = factory.envelopes[0]["task_id"]
+    assert state.data["tracked"][task_id]["mode"] == "chat"
+    assert telegram.messages == [(100, "Я смотрю контекст и отвечу здесь следующим сообщением.")]
+    assert state.data["memory"]["recent_messages"][-1]["role"] == "orchestrator"
+
