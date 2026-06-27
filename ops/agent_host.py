@@ -164,12 +164,14 @@ class AgentHost:
         branch: str | None,
         logs: dict[str, str],
         env: dict[str, str] | None = None,
+        command_label: str | None = None,
     ) -> None:
         merged_env = os.environ.copy()
         if env:
             merged_env.update(env)
+        display_command = command_label or " ".join(command)
         with stdout_path.open("ab") as stdout, stderr_path.open("ab") as stderr:
-            stdout.write(f"\n$ {' '.join(command)}\n".encode("utf-8"))
+            stdout.write(f"\n$ {display_command}\n".encode("utf-8"))
             stdout.flush()
             proc = subprocess.Popen(command, cwd=str(cwd), stdout=stdout, stderr=stderr, env=merged_env)
             last_refresh = 0.0
@@ -182,7 +184,101 @@ class AgentHost:
                     last_refresh = time.time()
                 time.sleep(2)
             if proc.returncode != 0:
-                raise RuntimeError(f"command failed with rc={proc.returncode}: {' '.join(command)}")
+                raise RuntimeError(f"command failed with rc={proc.returncode}: {display_command}")
+
+    @staticmethod
+    def _content_text(content: Any) -> str:
+        if isinstance(content, str):
+            return content
+        if isinstance(content, dict):
+            text = content.get("text")
+            return text if isinstance(text, str) else ""
+        if isinstance(content, list):
+            parts = []
+            for item in content:
+                if isinstance(item, str):
+                    parts.append(item)
+                elif isinstance(item, dict):
+                    text = item.get("text")
+                    if isinstance(text, str) and item.get("type") in {None, "text", "output_text"}:
+                        parts.append(text)
+            return "".join(parts)
+        return ""
+
+    @classmethod
+    def parse_json_text_response(cls, stdout_path: Path) -> str:
+        final_messages = []
+        text_parts = []
+        deltas = []
+        for line in stdout_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            line = line.strip()
+            if not line.startswith("{"):
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            part = event.get("part") or {}
+            if isinstance(part, dict) and part.get("type") == "text" and part.get("text"):
+                text_parts.append(part["text"])
+
+            msg = event.get("msg") or {}
+            if isinstance(msg, dict):
+                msg_type = str(msg.get("type") or "")
+                text = msg.get("message") or msg.get("text") or cls._content_text(msg.get("content"))
+                if text:
+                    if "delta" in msg_type:
+                        deltas.append(text)
+                    else:
+                        final_messages.append(text)
+
+            event_type = str(event.get("type") or "")
+            text = event.get("message") or event.get("text") or cls._content_text(event.get("content"))
+            if text:
+                if "delta" in event_type:
+                    deltas.append(text)
+                elif event_type in {"agent_message", "assistant_message", "message"}:
+                    final_messages.append(text)
+
+            item = event.get("item") or {}
+            if isinstance(item, dict) and item.get("type") in {"message", "assistant_message"}:
+                item_text = item.get("message") or item.get("text") or cls._content_text(item.get("content"))
+                if item_text:
+                    final_messages.append(item_text)
+
+        for parts in (final_messages, text_parts, deltas):
+            response_text = "".join(parts).strip()
+            if response_text:
+                return response_text
+        return ""
+
+    def run_json_text_command(
+        self,
+        command: list[str],
+        command_label: str,
+        empty_response_label: str,
+        worktree: Path,
+        stdout_path: Path,
+        stderr_path: Path,
+        task: dict[str, Any],
+        branch: str | None,
+        logs: dict[str, str],
+    ) -> str:
+        self.run_command(
+            command,
+            worktree,
+            stdout_path,
+            stderr_path,
+            task,
+            branch,
+            logs,
+            command_label=command_label,
+        )
+        response_text = self.parse_json_text_response(stdout_path)
+        if not response_text:
+            raise RuntimeError(f"{empty_response_label} completed without text response")
+        return response_text
 
     def write_result(self, artifact_dir: Path, result: dict[str, Any]) -> Path:
         result_path = artifact_dir / "result.json"
@@ -272,33 +368,44 @@ class AgentHost:
             f"Снимок фабрики JSON: {json.dumps(envelope.get('factory_snapshot') or {}, ensure_ascii=False, sort_keys=True)}\n"
             f"Сообщение владельца: {message}"
         )
-        mimo = shutil.which("mimo")
-        if not mimo:
-            raise RuntimeError("mimo executable is not available on this node")
-        self.run_command(
-            [mimo, "run", "--format", "json", "--title", f"telegram-chat-{task['task_id']}", prompt],
-            worktree,
-            stdout_path,
-            stderr_path,
-            task,
-            None,
-            logs,
-        )
-        response_parts = []
-        for line in stdout_path.read_text(encoding="utf-8", errors="ignore").splitlines():
-            line = line.strip()
-            if not line.startswith("{"):
-                continue
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            part = event.get("part") or {}
-            if part.get("type") == "text" and part.get("text"):
-                response_parts.append(part["text"])
-        response_text = "".join(response_parts).strip()
-        if not response_text:
-            raise RuntimeError("mimo completed without text response")
+        runner = str(
+            os.environ.get("KOLIBRI_TELEGRAM_RUNNER")
+            or os.environ.get("KOLIBRI_AI_RUNNER")
+            or envelope.get("runner")
+            or "mimo"
+        ).strip().lower()
+        if runner == "codex":
+            codex = shutil.which("codex")
+            if not codex:
+                raise RuntimeError("codex executable is not available on this node")
+            response_text = self.run_json_text_command(
+                [codex, "exec", "--json", "--skip-git-repo-check", "--sandbox", "danger-full-access", prompt],
+                f"{codex} exec --json --skip-git-repo-check --sandbox danger-full-access <prompt>",
+                "codex",
+                worktree,
+                stdout_path,
+                stderr_path,
+                task,
+                None,
+                logs,
+            )
+        elif runner == "mimo":
+            mimo = shutil.which("mimo")
+            if not mimo:
+                raise RuntimeError("mimo executable is not available on this node")
+            response_text = self.run_json_text_command(
+                [mimo, "run", "--format", "json", "--title", f"telegram-chat-{task['task_id']}", prompt],
+                f"{mimo} run --format json --title telegram-chat-{task['task_id']} <prompt>",
+                "mimo",
+                worktree,
+                stdout_path,
+                stderr_path,
+                task,
+                None,
+                logs,
+            )
+        else:
+            raise RuntimeError(f"unsupported telegram runner: {runner}")
         result = {
             "node_id": self.node_id,
             "hostname": self.hostname,

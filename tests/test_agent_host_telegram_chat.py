@@ -16,8 +16,43 @@ def load_agent_host():
     return module
 
 
+def make_args(tmp_path):
+    return argparse.Namespace(
+        control_url="http://127.0.0.1:9101",
+        node_id="primary-candidate",
+        agent_id="agent-host-primary",
+        capabilities="generic_implementation",
+        repo_url="https://example.invalid/repo.git",
+        work_root=str(tmp_path / "work"),
+        artifact_root=str(tmp_path / "artifacts"),
+        heartbeat_interval=10,
+        lease_refresh=20,
+        max_inflight=1,
+    )
+
+
+def make_chat_task(task_id, message):
+    return {
+        "task_id": task_id,
+        "kind": "telegram_chat_response",
+        "attempt": 1,
+        "attempt_id": f"{task_id}-attempt-1",
+        "envelope": {
+            "kind": "telegram_chat_response",
+            "message": message,
+            "factory_snapshot": {
+                "memory": {
+                    "recent_messages": [{"role": "owner", "text": message}],
+                    "last_work_request": {"text": "Сделай живой Telegram-диалог", "state": "running"},
+                }
+            },
+        },
+    }
+
+
 def test_telegram_chat_prompt_does_not_include_fixed_greeting_template(tmp_path, monkeypatch):
     agent_host = load_agent_host()
+    monkeypatch.setenv("KOLIBRI_TELEGRAM_RUNNER", "mimo")
     monkeypatch.setattr(agent_host.shutil, "which", lambda name: "/usr/bin/mimo" if name == "mimo" else None)
 
     class Host(agent_host.AgentHost):
@@ -31,12 +66,12 @@ def test_telegram_chat_prompt_does_not_include_fixed_greeting_template(tmp_path,
             self.posts.append((path, body))
             return body
 
-        def run_command(self, command, cwd, stdout_path, stderr_path, task, branch, logs, env=None):
+        def run_command(self, command, cwd, stdout_path, stderr_path, task, branch, logs, env=None, command_label=None):
             del cwd, task, branch, logs, env
-            self.commands.append(command)
+            self.commands.append((command, command_label))
             event = {"part": {"type": "text", "text": "Здравствуйте. Вижу контекст и отвечаю по делу."}}
             stdout_path.write_text(
-                f"$ {' '.join(command)}\n"
+                f"$ {command_label}\n"
                 + json.dumps(event, ensure_ascii=False)
                 + "\n",
                 encoding="utf-8",
@@ -44,43 +79,90 @@ def test_telegram_chat_prompt_does_not_include_fixed_greeting_template(tmp_path,
             stderr_path.write_text("", encoding="utf-8")
             self.last_logs = (stdout_path, stderr_path)
 
-    args = argparse.Namespace(
-        control_url="http://127.0.0.1:9101",
-        node_id="primary-candidate",
-        agent_id="agent-host-primary",
-        capabilities="generic_implementation",
-        repo_url="https://example.invalid/repo.git",
-        work_root=str(tmp_path / "work"),
-        artifact_root=str(tmp_path / "artifacts"),
-        heartbeat_interval=10,
-        lease_refresh=20,
-        max_inflight=1,
-    )
-    host = Host(args)
-    task = {
-        "task_id": "TGCHAT-1",
-        "attempt": 1,
-        "attempt_id": "TGCHAT-1-attempt-1",
-        "envelope": {
-            "kind": "telegram_chat_response",
-            "message": "Привет",
-            "factory_snapshot": {
-                "memory": {
-                    "recent_messages": [{"role": "owner", "text": "Привет"}],
-                    "last_work_request": {"text": "Сделай живой Telegram-диалог", "state": "running"},
-                }
-            },
-        },
-    }
+    host = Host(make_args(tmp_path))
+    task = make_chat_task("TGCHAT-1", "Привет")
 
     result = host.run_telegram_chat_response(task)
 
     assert result["kind"] == "telegram_chat_response"
     assert result["response"] == "Здравствуйте. Вижу контекст и отвечаю по делу."
-    prompt = host.commands[0][-1]
+    prompt = host.commands[0][0][-1]
     assert "каждый ответ должен быть заново сгенерирован" in prompt
     assert FORBIDDEN_GREETING_TEMPLATE not in prompt
     assert host.last_logs is not None
     stdout_path, stderr_path = host.last_logs
     assert FORBIDDEN_GREETING_TEMPLATE not in stdout_path.read_text(encoding="utf-8")
     assert FORBIDDEN_GREETING_TEMPLATE not in stderr_path.read_text(encoding="utf-8")
+
+
+def test_telegram_chat_uses_codex_when_ai_runner_is_codex(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.delenv("KOLIBRI_TELEGRAM_RUNNER", raising=False)
+    monkeypatch.setenv("KOLIBRI_AI_RUNNER", "codex")
+    monkeypatch.setattr(agent_host.shutil, "which", lambda name: f"/usr/bin/{name}" if name in {"codex", "mimo"} else None)
+
+    class Host(agent_host.AgentHost):
+        def __init__(self, args):
+            super().__init__(args)
+            self.posts = []
+            self.commands = []
+
+        def post(self, path, body):
+            self.posts.append((path, body))
+            return body
+
+        def run_command(self, command, cwd, stdout_path, stderr_path, task, branch, logs, env=None, command_label=None):
+            del cwd, task, branch, logs, env
+            self.commands.append((command, command_label))
+            event = {"msg": {"type": "agent_message", "message": "Принял задачу."}}
+            stdout_path.write_text(json.dumps(event, ensure_ascii=False) + "\n", encoding="utf-8")
+            stderr_path.write_text("", encoding="utf-8")
+
+    host = Host(make_args(tmp_path))
+    result = host.run_telegram_chat_response(make_chat_task("TGCHAT-CODEX", "Проверь статус"))
+
+    assert result["response"] == "Принял задачу."
+    command, command_label = host.commands[0]
+    assert command[:5] == ["/usr/bin/codex", "exec", "--json", "--skip-git-repo-check", "--sandbox"]
+    assert "danger-full-access" in command
+    assert command[-1].endswith("Сообщение владельца: Проверь статус")
+    assert "/usr/bin/mimo" not in command
+    assert command_label == "/usr/bin/codex exec --json --skip-git-repo-check --sandbox danger-full-access <prompt>"
+
+
+def test_telegram_chat_runner_error_does_not_expose_owner_prompt_in_failure_payload(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.delenv("KOLIBRI_TELEGRAM_RUNNER", raising=False)
+    monkeypatch.setenv("KOLIBRI_AI_RUNNER", "codex")
+    monkeypatch.setattr(agent_host.shutil, "which", lambda name: "/usr/bin/codex" if name == "codex" else None)
+    owner_message = "не показывай это сообщение владельца в технической ошибке"
+
+    class Host(agent_host.AgentHost):
+        def __init__(self, args):
+            super().__init__(args)
+            self.posts = []
+
+        def post(self, path, body):
+            self.posts.append((path, body))
+            return body
+
+        def run_command(self, command, cwd, stdout_path, stderr_path, task, branch, logs, env=None, command_label=None):
+            del command, cwd, task, branch, logs, env
+            stdout_path.write_text(f"$ {command_label}\n", encoding="utf-8")
+            stderr_path.write_text("Network request failed\n", encoding="utf-8")
+            raise RuntimeError(f"command failed with rc=6: {command_label}")
+
+    host = Host(make_args(tmp_path))
+    host.run_task(make_chat_task("TGCHAT-ERR", owner_message))
+
+    fail_posts = [(path, body) for path, body in host.posts if path.endswith("/fail")]
+    assert len(fail_posts) == 1
+    _, fail_body = fail_posts[0]
+    service_payload = json.dumps(fail_body, ensure_ascii=False)
+    assert owner_message not in service_payload
+    assert "Сообщение владельца" not in service_payload
+    assert "<prompt>" in service_payload
+    result_path = Path(fail_body["result_reference"])
+    assert owner_message not in result_path.read_text(encoding="utf-8")
+    stdout_path = tmp_path / "artifacts" / "TGCHAT-ERR" / "TGCHAT-ERR-attempt-1" / "stdout.log"
+    assert owner_message not in stdout_path.read_text(encoding="utf-8")
