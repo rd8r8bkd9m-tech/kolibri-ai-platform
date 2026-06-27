@@ -18,6 +18,26 @@ def test_parse_owner_ids_accepts_commas_and_semicolons():
     assert gateway.parse_owner_ids("1, 2;3") == {1, 2, 3}
 
 
+def test_factory_client_fails_over_between_control_plane_urls(monkeypatch):
+    gateway = load_gateway()
+    calls = []
+
+    def fake_request(method, url, body=None, timeout=35):
+        calls.append((method, url, body, timeout))
+        if url.startswith("http://down"):
+            raise RuntimeError("down")
+        return {"status": "ok"}
+
+    monkeypatch.setattr(gateway, "json_request", fake_request)
+    client = gateway.FactoryClient("http://down:9101", "http://down:9101,http://alive:9101")
+    assert client.nodes() == {"status": "ok"}
+    assert calls[0][1] == "http://down:9101/v1/nodes"
+    assert calls[1][1] == "http://alive:9101/v1/nodes"
+    assert client.control_url == "http://alive:9101"
+    client.get_tasks()
+    assert calls[-1][1] == "http://alive:9101/v1/tasks"
+
+
 def test_plain_text_message_builds_structured_factory_task():
     gateway = load_gateway()
     message = {
@@ -74,6 +94,25 @@ def test_plain_language_work_request_creates_factory_task():
     assert gateway.wants_factory_task("телеграм p0") is True
     assert gateway.wants_factory_task("миниапп") is True
     assert gateway.wants_factory_task("Сколько серверов работает?") is False
+
+
+def test_image_request_builds_telegram_image_task():
+    gateway = load_gateway()
+    message = {
+        "message_id": 58,
+        "chat": {"id": 100, "type": "private"},
+        "from": {"id": 100},
+        "text": "Нарисуй живую птичку Колибри",
+    }
+    assert gateway.wants_image_generation(message["text"]) is True
+    envelope = gateway.build_image_envelope(message, message["text"], {"nodes": []})
+    assert envelope["kind"] == "telegram_image_generation"
+    assert envelope["required_capability"] == "generic_implementation"
+    assert envelope["target_node"] == "primary-candidate"
+    assert envelope["message"] == message["text"]
+    assert envelope["prompt"] == message["text"]
+    assert envelope["task_id"].startswith("TGIMG-")
+    assert "image_url" in envelope["objective"]
 
 
 def test_explicit_telegram_node_env_pins_task(monkeypatch):
@@ -408,6 +447,93 @@ def test_submit_text_task_control_plane_failure_is_human(tmp_path):
     app.submit_text_task(message, message["text"])
     assert telegram.messages == [(100, "Я услышал задачу, но Control Plane сейчас не принял её в очередь. Зафиксировал сбой и разбираю отдельно.")]
     assert state.data["memory"]["last_work_request"]["state"] == "failed"
+
+
+def test_submit_image_task_queues_remote_generation(tmp_path):
+    gateway = load_gateway()
+
+    class Telegram:
+        def __init__(self):
+            self.messages = []
+
+        def send_message(self, chat_id, text):
+            self.messages.append((chat_id, text))
+
+    class Factory:
+        def __init__(self):
+            self.envelopes = []
+
+        def create_task(self, envelope):
+            self.envelopes.append(envelope)
+            return {"task_id": envelope["task_id"], "state": "queued"}
+
+        def nodes(self):
+            return {"nodes": []}
+
+        def get_tasks(self):
+            return {"tasks": [], "queue": []}
+
+    telegram = Telegram()
+    factory = Factory()
+    state = gateway.StateStore(tmp_path / "state.json")
+    app = gateway.Gateway(telegram, factory, {100}, state, 1)
+    message = {"message_id": 59, "chat": {"id": 100, "type": "private"}, "from": {"id": 100}, "text": "Сгенерируй картинку премиального миниаппа"}
+    app.submit_image_task(message, message["text"])
+    assert factory.envelopes[0]["kind"] == "telegram_image_generation"
+    assert state.data["tracked"][factory.envelopes[0]["task_id"]]["mode"] == "image"
+    assert telegram.messages == [(100, "Принял. Запускаю генерацию изображения и пришлю сюда готовую картинку.")]
+
+
+def test_image_task_completion_sends_photo_and_cleans_caption(tmp_path):
+    gateway = load_gateway()
+    tiny_png_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+
+    class Telegram:
+        def __init__(self):
+            self.messages = []
+            self.photos = []
+
+        def send_message(self, chat_id, text):
+            self.messages.append((chat_id, text))
+
+        def send_photo(self, chat_id, photo, caption=None, mime_type=None):
+            self.photos.append((chat_id, photo, caption, mime_type))
+
+    class Factory:
+        def __init__(self, task):
+            self.task = task
+
+        def get_tasks(self):
+            return {"tasks": [], "queue": []}
+
+        def get_task(self, task_id):
+            assert task_id == self.task["task_id"]
+            return self.task
+
+    task = {
+        "task_id": "TGIMG-202606280001-59-image",
+        "state": "completed",
+        "envelope": {"kind": "telegram_image_generation"},
+        "result": {
+            "image_b64": tiny_png_b64,
+            "image_mime_type": "image/png",
+            "caption": "Готово.\nnode: primary-candidate\nartifact: /var/lib/kolibri-agent/image.png",
+        },
+    }
+    telegram = Telegram()
+    state = gateway.StateStore(tmp_path / "state.json")
+    state.data["owner_chat_id"] = 100
+    state.data["tracked"][task["task_id"]] = {"chat_id": 100, "last_state": "RUNNING", "mode": "image"}
+    app = gateway.Gateway(telegram, Factory(task), {100}, state, 1)
+    app.poll_task_transitions()
+    assert len(telegram.photos) == 1
+    chat_id, photo, caption, mime_type = telegram.photos[0]
+    assert chat_id == 100
+    assert isinstance(photo, bytes)
+    assert caption == "Готово."
+    assert mime_type == "image/png"
+    assert telegram.messages == []
+    assert task["task_id"] not in state.data["tracked"]
 
 
 def test_submit_chat_task_uses_remote_orchestrator_and_hides_intermediate_states(tmp_path, monkeypatch):
