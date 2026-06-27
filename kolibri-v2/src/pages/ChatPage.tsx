@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router'
 import { Paperclip, ArrowUp, Mic, User, ChevronDown, ChevronUp, Plus } from 'lucide-react'
 import { chat, estimates, documents, type ChatAction } from '@/lib/api'
 import StatusBird, { type BirdState } from '@/components/StatusBird'
-import AnimatedMascot from '@/components/AnimatedMascot'
+import CartoonMascot from '@/components/CartoonMascot'
 
 function ReasoningBlock({ text }: { text: string }) {
   const [open, setOpen] = useState(false)
@@ -137,7 +137,7 @@ export default function ChatPage() {
       <div className="flex-1 overflow-y-auto">
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full px-4">
-            <AnimatedMascot state="idle" size={48} className="mb-4 opacity-75" />
+            <CartoonMascot state="idle" size={48} className="mb-4 opacity-75" />
             <p className="text-[15px] text-[var(--text-secondary)] mb-6">Начните новый разговор</p>
             <div className="flex flex-wrap justify-center gap-2 max-w-[500px]">
               {WELCOME_SUGGESTIONS.map((s) => (
@@ -173,7 +173,7 @@ export default function ChatPage() {
                       <User size={14} strokeWidth={2} className="text-[var(--text-secondary)]" />
                     </div>
                   ) : (
-                    <AnimatedMascot state="ready" size={28} />
+                    <CartoonMascot state="ready" size={28} />
                   )}
                 </div>
                 <div className="flex-1 min-w-0">

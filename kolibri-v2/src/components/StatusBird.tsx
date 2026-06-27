@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils'
-import AnimatedMascot, { type MascotState } from './AnimatedMascot'
+import CartoonMascot, { type MascotState } from './CartoonMascot'
 
 export type BirdState = MascotState
 
@@ -37,7 +37,7 @@ export default function StatusBird({ state, size = 'md', showLabel = false, clas
           cfg.ring,
         )}
       >
-        <AnimatedMascot
+        <CartoonMascot
           state={state}
           size={mascotSize[size]}
           className={cn('transition-all duration-300', cfg.color)}
