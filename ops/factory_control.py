@@ -17,6 +17,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -26,8 +27,13 @@ REDIS_HOST = os.environ.get("FACTORY_REDIS_HOST", "127.0.0.1")
 REDIS_PORT = int(os.environ.get("FACTORY_REDIS_PORT", "6379"))
 LEASE_DURATION = int(os.environ.get("FACTORY_LEASE_DURATION", "60"))
 MAX_RETRIES = int(os.environ.get("FACTORY_MAX_RETRIES", "3"))
+SPOOL_DIR = Path(os.environ.get("FACTORY_SPOOL_DIR", "/var/lib/kolibri-factory-control/spool"))
+REQUEUE_INTERVAL = int(os.environ.get("FACTORY_REQUEUE_INTERVAL", "30"))
+REQUEUE_SCAN_LIMIT = int(os.environ.get("FACTORY_REQUEUE_SCAN_LIMIT", "500"))
+LAST_REQUEUE = 0.0
 
 STATE_QUEUED = "queued"
+STATE_SPOOLED = "spooled"
 STATE_LEASED = "leased"
 STATE_RUNNING = "running"
 STATE_WAITING_REVIEW = "waiting_review"
@@ -181,6 +187,56 @@ def normalize_task(envelope: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def spool_path(task_id: str) -> Path:
+    safe = "".join(ch if ch.isalnum() or ch in "_.-" else "-" for ch in task_id)
+    return SPOOL_DIR / "queued" / f"{safe}.json"
+
+
+def spool_task(envelope: dict[str, Any], error: Exception | None = None) -> dict[str, Any]:
+    task = normalize_task(envelope)
+    task["state"] = STATE_SPOOLED
+    task["spooled_at"] = utc_now()
+    task["error_type"] = type(error).__name__ if error else None
+    task["error"] = str(error)[:500] if error else None
+    path = spool_path(task["task_id"])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        return json.loads(path.read_text(encoding="utf-8"))
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(task, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp.replace(path)
+    return task
+
+
+def load_spooled_task(task_id: str) -> dict[str, Any] | None:
+    path = spool_path(task_id)
+    if not path.exists():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def spooled_tasks() -> list[dict[str, Any]]:
+    queued = SPOOL_DIR / "queued"
+    if not queued.exists():
+        return []
+    tasks = []
+    for path in sorted(queued.glob("*.json")):
+        try:
+            tasks.append(json.loads(path.read_text(encoding="utf-8")))
+        except (OSError, json.JSONDecodeError):
+            continue
+    return tasks
+
+
+def replay_spooled_tasks(limit: int = 100) -> int:
+    replayed = 0
+    for task in spooled_tasks()[:limit]:
+        create_task(task.get("envelope", {}))
+        spool_path(task["task_id"]).unlink(missing_ok=True)
+        replayed += 1
+    return replayed
+
+
 def compatible(task: dict[str, Any], node_id: str, capabilities: list[str]) -> bool:
     envelope = task.get("envelope", {})
     target_node = envelope.get("target_node") or envelope.get("required_node")
@@ -195,9 +251,13 @@ def compatible(task: dict[str, Any], node_id: str, capabilities: list[str]) -> b
     return True
 
 
-def requeue_expired_leases() -> None:
+def requeue_expired_leases(force: bool = False) -> None:
+    global LAST_REQUEUE
     current = now_ts()
-    for task_id in all_task_ids():
+    if not force and current - LAST_REQUEUE < REQUEUE_INTERVAL:
+        return
+    LAST_REQUEUE = current
+    for task_id in all_task_ids()[:REQUEUE_SCAN_LIMIT]:
         task = load_task(task_id)
         if not task or task.get("state") not in {STATE_LEASED, STATE_RUNNING, STATE_REVIEW}:
             continue
@@ -289,8 +349,27 @@ class Handler(BaseHTTPRequestHandler):
         path = parsed.path.rstrip("/") or "/"
         try:
             if path in {"/health", "/v1/health"}:
-                pong = redis.command("PING")
-                response(self, 200, {"status": "ok", "redis": pong, "queue_backend": "redis", "time": utc_now()})
+                try:
+                    pong = redis.command("PING")
+                    replayed = replay_spooled_tasks()
+                    response(self, 200, {
+                        "status": "ok",
+                        "redis": pong,
+                        "queue_backend": "redis",
+                        "spool_count": len(spooled_tasks()),
+                        "spool_replayed": replayed,
+                        "time": utc_now(),
+                    })
+                except Exception as exc:
+                    response(self, 200, {
+                        "status": "degraded",
+                        "redis": "unavailable",
+                        "queue_backend": "local_spool",
+                        "spool_count": len(spooled_tasks()),
+                        "error_type": type(exc).__name__,
+                        "error": str(exc)[:500],
+                        "time": utc_now(),
+                    })
                 return
             if path == "/v1/nodes":
                 nodes = []
@@ -303,13 +382,31 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/v1/tasks":
                 query = parse_qs(parsed.query)
                 wanted = query.get("state", [None])[0]
-                tasks = [load_task(task_id) for task_id in all_task_ids()]
-                tasks = [task for task in tasks if task and (wanted is None or task.get("state") == wanted)]
-                response(self, 200, {"tasks": tasks, "queue": queue_ids()})
+                try:
+                    replay_spooled_tasks()
+                    tasks = [load_task(task_id) for task_id in all_task_ids()]
+                    tasks = [task for task in tasks if task and (wanted is None or task.get("state") == wanted)]
+                    response(self, 200, {"tasks": tasks, "queue": queue_ids(), "spool_count": len(spooled_tasks())})
+                except Exception as exc:
+                    tasks = spooled_tasks()
+                    tasks = [task for task in tasks if wanted is None or task.get("state") == wanted]
+                    response(self, 200, {
+                        "status": "degraded",
+                        "tasks": tasks,
+                        "queue": [],
+                        "spool_count": len(spooled_tasks()),
+                        "error_type": type(exc).__name__,
+                        "error": str(exc)[:500],
+                    })
                 return
             if path.startswith("/v1/tasks/"):
                 task_id = path.split("/", 3)[3]
-                task = load_task(task_id)
+                try:
+                    task = load_task(task_id)
+                except Exception:
+                    task = load_spooled_task(task_id)
+                if not task:
+                    task = load_spooled_task(task_id)
                 if not task:
                     response(self, 404, {"error": "task_not_found", "task_id": task_id})
                     return
@@ -362,8 +459,18 @@ class Handler(BaseHTTPRequestHandler):
                 response(self, 200, {"node_id": node_id, "draining": drain})
                 return
             if path == "/v1/tasks":
-                task = create_task(body)
-                response(self, 201, task)
+                try:
+                    replay_spooled_tasks()
+                    task = create_task(body)
+                    response(self, 201, task)
+                except Exception as exc:
+                    task = spool_task(body, exc)
+                    response(self, 202, {
+                        **task,
+                        "accepted": True,
+                        "queue_backend": "local_spool",
+                        "message": "task accepted into local spool and will be replayed when Redis is available",
+                    })
                 return
             if path == "/v1/tasks/lease":
                 requeue_expired_leases()

@@ -69,7 +69,10 @@ def sha256_file(path: Path) -> str:
 
 class AgentHost:
     def __init__(self, args: argparse.Namespace):
-        self.control_url = args.control_url.rstrip("/")
+        self.control_urls = [url.rstrip("/") for url in args.control_urls.split(",") if url.strip()]
+        if not self.control_urls:
+            self.control_urls = [args.control_url.rstrip("/")]
+        self.control_url = self.control_urls[0]
         self.node_id = args.node_id
         self.agent_id = args.agent_id or f"{args.node_id}-agent-host"
         self.capabilities = [item for item in args.capabilities.split(",") if item]
@@ -85,10 +88,27 @@ class AgentHost:
         self.artifact_root.mkdir(parents=True, exist_ok=True)
 
     def post(self, path: str, body: dict[str, Any]) -> Any:
-        return request("POST", f"{self.control_url}{path}", body)
+        return self._request_with_failover("POST", path, body)
 
     def get(self, path: str) -> Any:
-        return request("GET", f"{self.control_url}{path}")
+        return self._request_with_failover("GET", path)
+
+    def _ordered_control_urls(self) -> list[str]:
+        urls = [self.control_url]
+        urls.extend(url for url in self.control_urls if url != self.control_url)
+        return urls
+
+    def _request_with_failover(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
+        last_exc: Exception | None = None
+        for control_url in self._ordered_control_urls():
+            try:
+                result = request(method, f"{control_url}{path}", body)
+                self.control_url = control_url
+                return result
+            except Exception as exc:
+                last_exc = exc
+        assert last_exc is not None
+        raise last_exc
 
     def register(self) -> None:
         body = {
@@ -693,7 +713,12 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
             if time.time() - last_node_heartbeat >= self.heartbeat_interval:
                 self.node_heartbeat()
                 last_node_heartbeat = time.time()
-            task = self.lease()
+            try:
+                task = self.lease()
+            except Exception as exc:
+                print(f"{utc_now()} lease_failed {exc}", flush=True)
+                time.sleep(5)
+                continue
             if task:
                 self.node_heartbeat(active_task=task["task_id"])
                 self.run_task(task)
@@ -710,6 +735,7 @@ def handle_stop(signum: int, frame: Any) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--control-url", default=os.environ.get("KOLIBRI_FACTORY_CONTROL_URL", "http://10.99.0.2:9101"))
+    parser.add_argument("--control-urls", default=os.environ.get("KOLIBRI_FACTORY_CONTROL_URLS") or os.environ.get("KOLIBRI_FACTORY_CONTROL_URL", "http://10.99.0.2:9101"))
     parser.add_argument("--node-id", default=os.environ.get("KOLIBRI_NODE_ID", platform.node()))
     parser.add_argument("--agent-id", default=os.environ.get("KOLIBRI_AGENT_ID"))
     parser.add_argument("--capabilities", default=os.environ.get("KOLIBRI_AGENT_CAPABILITIES", "read_only_probe"))
