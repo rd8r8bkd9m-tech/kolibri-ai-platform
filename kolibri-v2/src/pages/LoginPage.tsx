@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { auth, setAuthToken, type AuthUser } from '@/lib/api'
+import AnimatedMascot from '@/components/AnimatedMascot'
 
 interface LoginPageProps {
   onLogin: (user: AuthUser) => void
@@ -37,7 +38,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
     <div className="flex items-center justify-center min-h-[100dvh] px-4 bg-[var(--bg-primary)]">
       <div className="w-full max-w-[380px]">
         <div className="text-center mb-8">
-          <img src="/kolibri-bird.png" alt="Колибри" className="w-16 h-16 mx-auto mb-4 object-contain" />
+          <AnimatedMascot state="ready" size={64} className="mx-auto mb-4" />
           <h1 className="text-[22px] font-semibold text-[var(--text-primary)]">Колибри</h1>
           <p className="text-[14px] text-[var(--text-secondary)] mt-1">
             {mode === 'login' ? 'Войдите в аккаунт' : 'Создайте аккаунт'}

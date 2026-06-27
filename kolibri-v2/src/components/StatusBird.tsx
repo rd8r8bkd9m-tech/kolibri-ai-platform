@@ -1,18 +1,7 @@
 import { cn } from '@/lib/utils'
+import AnimatedMascot, { type MascotState } from './AnimatedMascot'
 
-export type BirdState = 'idle' | 'thinking' | 'ready' | 'success' | 'warning' | 'error' | 'writing' | 'learning' | 'sleeping'
-
-const stateConfig: Record<BirdState, { color: string; ring: string; animation: string; label: string }> = {
-  idle:     { color: 'text-[var(--text-tertiary)]',     ring: 'ring-[var(--border-subtle)]', animation: '',                    label: 'Ожидание' },
-  thinking: { color: 'text-[var(--accent-teal)]',       ring: 'ring-[var(--accent-teal)]/30', animation: 'animate-spin-slow',  label: 'Думаю...' },
-  ready:    { color: 'text-[var(--accent-teal)]',       ring: 'ring-[var(--accent-teal)]/20', animation: 'animate-pulse',      label: 'Готов' },
-  success:  { color: 'text-emerald-500',                ring: 'ring-emerald-500/20',          animation: 'animate-bounce-once',label: 'Готово' },
-  warning:  { color: 'text-amber-500',                  ring: 'ring-amber-500/20',            animation: 'animate-shake',      label: 'Внимание' },
-  error:    { color: 'text-red-500',                     ring: 'ring-red-500/20',              animation: 'animate-shake',      label: 'Ошибка' },
-  writing:  { color: 'text-[var(--accent-lavender)]',   ring: 'ring-[var(--accent-lavender)]/20', animation: 'animate-pulse',  label: 'Пишу...' },
-  learning: { color: 'text-[var(--status-info)]',       ring: 'ring-[var(--status-info)]/20', animation: 'animate-pulse',       label: 'Учусь...' },
-  sleeping: { color: 'text-gray-400',                   ring: 'ring-gray-300/20',             animation: '',                    label: 'Сплю' },
-}
+export type BirdState = MascotState
 
 interface StatusBirdProps {
   state: BirdState
@@ -21,10 +10,23 @@ interface StatusBirdProps {
   className?: string
 }
 
+const stateConfig: Record<BirdState, { color: string; ring: string; label: string }> = {
+  idle:     { color: 'text-[var(--text-tertiary)]',     ring: 'ring-[var(--border-subtle)]', label: 'Ожидание' },
+  thinking: { color: 'text-[var(--accent-teal)]',       ring: 'ring-[var(--accent-teal)]/30', label: 'Думаю...' },
+  ready:    { color: 'text-[var(--accent-teal)]',       ring: 'ring-[var(--accent-teal)]/20', label: 'Готов' },
+  success:  { color: 'text-emerald-500',                ring: 'ring-emerald-500/20',          label: 'Готово' },
+  warning:  { color: 'text-amber-500',                  ring: 'ring-amber-500/20',            label: 'Внимание' },
+  error:    { color: 'text-red-500',                     ring: 'ring-red-500/20',              label: 'Ошибка' },
+  writing:  { color: 'text-[var(--accent-lavender)]',   ring: 'ring-[var(--accent-lavender)]/20', label: 'Пишу...' },
+  learning: { color: 'text-[var(--status-info)]',       ring: 'ring-[var(--status-info)]/20', label: 'Учусь...' },
+  sleeping: { color: 'text-gray-400',                   ring: 'ring-gray-300/20',             label: 'Сплю' },
+}
+
+const sizeMap = { sm: 'w-8 h-8', md: 'w-12 h-12', lg: 'w-20 h-20' }
+const mascotSize = { sm: 28, md: 40, lg: 64 }
+
 export default function StatusBird({ state, size = 'md', showLabel = false, className }: StatusBirdProps) {
   const cfg = stateConfig[state]
-  const sizeMap = { sm: 'w-8 h-8', md: 'w-12 h-12', lg: 'w-20 h-20' }
-  const imgSize = { sm: 'w-5 h-5', md: 'w-8 h-8', lg: 'w-14 h-14' }
 
   return (
     <div className={cn('flex flex-col items-center gap-1', className)}>
@@ -33,14 +35,12 @@ export default function StatusBird({ state, size = 'md', showLabel = false, clas
           'relative flex items-center justify-center rounded-full ring-2 transition-all duration-300',
           sizeMap[size],
           cfg.ring,
-          cfg.animation,
         )}
       >
-        <img
-          src="/kolibri-bird.png"
-          alt="Колибри"
-          className={cn('object-contain transition-all duration-300', imgSize[size], cfg.color)}
-          style={state === 'sleeping' ? { opacity: 0.4, filter: 'grayscale(0.8)' } : state === 'idle' ? { opacity: 0.6 } : {}}
+        <AnimatedMascot
+          state={state}
+          size={mascotSize[size]}
+          className={cn('transition-all duration-300', cfg.color)}
         />
         {state === 'thinking' && (
           <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-[var(--accent-teal)] rounded-full animate-ping" />

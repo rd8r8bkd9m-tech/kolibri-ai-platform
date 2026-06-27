@@ -22,6 +22,7 @@ import {
 import type { AuthUser } from '@/lib/api'
 import { library, type LibraryItem } from '@/lib/api'
 import SearchModal from './SearchModal'
+import AnimatedMascot from './AnimatedMascot'
 
 interface LayoutProps {
   user?: AuthUser | null
@@ -84,7 +85,7 @@ export default function Layout({ user, onLogout }: LayoutProps) {
         <aside className="hidden md:flex flex-col w-[var(--sidebar-width)] h-full border-r border-[var(--border-subtle)] bg-[var(--bg-secondary)] flex-shrink-0">
           {/* Logo */}
           <div className="flex items-center gap-3 px-4 h-14 flex-shrink-0">
-            <img src="/kolibri-bird.png" alt="Колибри" className="w-7 h-7 object-contain" />
+            <AnimatedMascot state="idle" size={28} />
             <span className="font-semibold text-[15px] text-[var(--text-primary)] tracking-tight">Колибри</span>
           </div>
 
@@ -202,7 +203,7 @@ export default function Layout({ user, onLogout }: LayoutProps) {
           >
             <Menu size={20} strokeWidth={1.8} />
           </button>
-          <img src="/kolibri-bird.png" alt="" className="w-6 h-6 object-contain" />
+                  <AnimatedMascot state="idle" size={24} />
           <span className="font-medium text-[14px]">Колибри</span>
         </header>
       )}
@@ -219,7 +220,7 @@ export default function Layout({ user, onLogout }: LayoutProps) {
           >
               <div className="flex items-center justify-between px-4 h-12 border-b border-[var(--border-subtle)] flex-shrink-0">
                 <div className="flex items-center gap-2.5">
-                  <img src="/kolibri-bird.png" alt="" className="w-6 h-6 object-contain" />
+          <AnimatedMascot state="idle" size={24} />
                   <span className="font-semibold text-[14px]">Колибри</span>
                 </div>
                 <button onClick={() => setMobileMenuOpen(false)} className="w-8 h-8 flex items-center justify-center rounded-[var(--radius-md)] hover:bg-[var(--bg-hover)]">
