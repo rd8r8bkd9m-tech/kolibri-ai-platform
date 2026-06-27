@@ -259,19 +259,24 @@ def compact_factory_snapshot(factory: FactoryClient) -> dict[str, Any]:
 def build_task_envelope(message: dict[str, Any], text: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
     task_id = task_id_from_message(message)
     branch_slug = safe_task_suffix(text)
+    project_path = os.environ.get("TELEGRAM_OWNER_PROJECT_PATH")
+    lowered = text.lower()
+    if not project_path and ("kimi" in lowered or "кими" in lowered or "колибрифин" in lowered):
+        project_path = "/home/ladik/kolibri-projects/kimi_agent_kolibrifin"
     return {
         "task_id": task_id,
         "idempotency_key": f"telegram:{message['chat']['id']}:{message['message_id']}",
-        "kind": "impl_retry_error_clearance",
-        "target_node": "9fts",
-        "required_capability": "implementation",
+        "kind": os.environ.get("TELEGRAM_TASK_KIND", "owner_remote_task"),
+        "target_node": os.environ.get("TELEGRAM_TASK_NODE", "home-live"),
+        "required_capability": os.environ.get("TELEGRAM_TASK_CAPABILITY", "generic_implementation"),
         "review_node": "new",
-        "create_review_on_complete": True,
+        "create_review_on_complete": False,
         "branch": f"agent/{task_id}/impl/{branch_slug}",
         "base_branch": "main",
         "base_ref": "origin/main",
-        "max_retries": 3,
+        "max_retries": int(os.environ.get("TELEGRAM_TASK_MAX_RETRIES", "1")),
         "objective": text,
+        "project_path": project_path,
         "conversation_context": context or {},
         "source": {
             "kind": "telegram",

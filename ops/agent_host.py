@@ -315,6 +315,86 @@ class AgentHost:
         result["result_path"] = str(result_path)
         return result
 
+    def run_owner_remote_task(self, task: dict[str, Any]) -> dict[str, Any]:
+        envelope = task.get("envelope", {})
+        objective = (envelope.get("objective") or "").strip()
+        if not objective:
+            raise RuntimeError("owner remote task missing objective")
+        project_path = envelope.get("project_path") or os.environ.get("KOLIBRI_OWNER_PROJECT_PATH")
+        cwd = Path(project_path).expanduser() if project_path else None
+        if cwd and not cwd.exists():
+            raise RuntimeError(f"project path does not exist: {cwd}")
+        worktree, artifact_dir, logs = self.prepare_dirs(task)
+        worktree.mkdir(parents=True, exist_ok=True)
+        stdout_path = Path(logs["stdout"])
+        stderr_path = Path(logs["stderr"])
+        branch = envelope.get("branch")
+        run_cwd = cwd or worktree
+        self.task_heartbeat(task, run_cwd, branch, logs)
+
+        prompt = (
+            "Ты — удалённый исполнитель фабрики Kolibri. Задача пришла от владельца через Telegram и должна "
+            "выполняться на удалённом сервере, не на MacBook. Работай автономно, но аккуратно.\n"
+            "Правила:\n"
+            "- не печатай значения секретов и не коммить секретные файлы;\n"
+            "- используй существующий проект и его локальные файлы как источник правды;\n"
+            "- если нужно поднять dev/staging, запускай реальные процессы на удалённом сервере и проверь health;\n"
+            "- если нужен другой сервер, зафиксируй это как действие/блокер, не симулируй успех;\n"
+            "- в финале дай короткий человеческий результат, URL если он реально доступен, и конкретные блокеры.\n"
+            f"Рабочая директория: {run_cwd}\n"
+            f"Задача владельца: {objective}\n"
+        )
+        mimo = shutil.which("mimo")
+        if not mimo:
+            raise RuntimeError("mimo executable is not available on this node")
+        command = [
+            mimo,
+            "run",
+            "--format",
+            "json",
+            "--title",
+            f"owner-task-{task['task_id']}",
+            "--dir",
+            str(run_cwd),
+            "--dangerously-skip-permissions",
+            prompt,
+        ]
+        self.run_command(command, run_cwd, stdout_path, stderr_path, task, branch, logs)
+
+        response_parts = []
+        for line in stdout_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            line = line.strip()
+            if not line.startswith("{"):
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            part = event.get("part") or {}
+            if part.get("type") == "text" and part.get("text"):
+                response_parts.append(part["text"])
+        response_text = "".join(response_parts).strip()
+        result = {
+            "node_id": self.node_id,
+            "hostname": self.hostname,
+            "task_id": task["task_id"],
+            "agent_id": self.agent_id,
+            "attempt_id": task.get("attempt_id"),
+            "pid": self.pid,
+            "heartbeat_at": utc_now(),
+            "worktree": str(run_cwd),
+            "branch": branch,
+            "log_paths": logs,
+            "result_path": str(artifact_dir / "result.json"),
+            "status": "completed",
+            "kind": envelope.get("kind", "owner_remote_task"),
+            "objective": objective,
+            "response": response_text,
+        }
+        result_path = self.write_result(artifact_dir, result)
+        result["result_path"] = str(result_path)
+        return result
+
     def run_impl_factory_smoke(self, task: dict[str, Any]) -> dict[str, Any]:
         envelope = task.get("envelope", {})
         branch = envelope.get("branch", f"agent/{task['task_id']}/impl/factory-smoke")
@@ -687,6 +767,8 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 result = self.run_impl_factory_smoke(task)
             elif kind == "impl_retry_error_clearance":
                 result = self.run_impl_retry_error_clearance(task)
+            elif kind == "owner_remote_task":
+                result = self.run_owner_remote_task(task)
             elif kind in {"telegram_chat_response", "orchestrator_chat_response"}:
                 result = self.run_telegram_chat_response(task)
             elif kind == "review_pr":

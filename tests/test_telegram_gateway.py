@@ -27,10 +27,11 @@ def test_plain_text_message_builds_structured_factory_task():
         "text": "Исправь отображение ошибки после успешного retry",
     }
     envelope = gateway.build_task_envelope(message, message["text"])
-    assert envelope["kind"] == "impl_retry_error_clearance"
-    assert envelope["target_node"] == "9fts"
+    assert envelope["kind"] == "owner_remote_task"
+    assert envelope["target_node"] == "home-live"
+    assert envelope["required_capability"] == "generic_implementation"
     assert envelope["review_node"] == "new"
-    assert envelope["create_review_on_complete"] is True
+    assert envelope["create_review_on_complete"] is False
     assert envelope["source"]["message_id"] == 42
     assert "TELEGRAM_BOT_TOKEN" not in envelope
 
@@ -202,6 +203,19 @@ def test_work_task_envelope_carries_conversation_context():
     context = {"memory": {"recent_messages": [{"role": "owner", "text": "Запусти вебприложение"}]}}
     envelope = gateway.build_task_envelope(message, message["text"], context)
     assert envelope["conversation_context"] == context
+
+
+def test_kimi_owner_task_points_to_remote_project_path():
+    gateway = load_gateway()
+    message = {
+        "message_id": 48,
+        "chat": {"id": 100, "type": "private"},
+        "from": {"id": 100},
+        "text": "Перенеси Kimi_Agent_КолибриФин и запусти dev сервер",
+    }
+    envelope = gateway.build_task_envelope(message, message["text"])
+    assert envelope["kind"] == "owner_remote_task"
+    assert envelope["project_path"] == "/home/ladik/kolibri-projects/kimi_agent_kolibrifin"
 
 
 
