@@ -181,6 +181,9 @@ class TelegramClient:
     def send_message(self, chat_id: int, text: str) -> None:
         self.call("sendMessage", {"chat_id": chat_id, "text": text[:3900], "disable_web_page_preview": True})
 
+    def send_action(self, chat_id: int, action: str = "typing") -> None:
+        self.call("sendChatAction", {"chat_id": chat_id, "action": action}, timeout=10)
+
 
 class FactoryClient:
     def __init__(self, control_url: str):
@@ -286,8 +289,8 @@ def build_chat_envelope(message: dict[str, Any], text: str, snapshot: dict[str, 
         "task_id": task_id,
         "idempotency_key": f"telegram-chat:{message['chat']['id']}:{message['message_id']}",
         "kind": "orchestrator_chat_response",
-        "target_node": "9fts",
-        "required_capability": "implementation",
+        "target_node": os.environ.get("TELEGRAM_CHAT_NODE", "home-live"),
+        "required_capability": os.environ.get("TELEGRAM_CHAT_CAPABILITY", "generic_implementation"),
         "max_retries": 1,
         "message": text,
         "factory_snapshot": snapshot or {},
@@ -482,9 +485,29 @@ class Gateway:
         self.remember_orchestrator_message(reply)
 
     def submit_chat_task(self, message: dict[str, Any], text: str) -> None:
-        reply = build_realtime_owner_reply(text, self.conversation_snapshot())
-        self.telegram.send_message(message["chat"]["id"], reply)
-        self.remember_orchestrator_message(reply)
+        chat_id = message["chat"]["id"]
+        task = self.factory.create_task(build_chat_envelope(message, text, self.conversation_snapshot()))
+        initial_label = SIGNIFICANT_STATES.get(task.get("state"), task.get("state"))
+        self.track(chat_id, task["task_id"], initial_label or "queued", mode="chat")
+
+        wait_seconds = int(os.environ.get("TELEGRAM_CHAT_WAIT_SECONDS", "25"))
+        deadline = time.time() + max(0, wait_seconds)
+        last_action = 0.0
+        while time.time() < deadline:
+            now = time.time()
+            if now - last_action >= 4:
+                self.telegram.send_action(chat_id)
+                last_action = now
+            current = self.factory.get_task(task["task_id"])
+            state = current.get("state")
+            if state in TERMINAL_TASK_STATES:
+                reply = format_transition(SIGNIFICANT_STATES.get(state, state), current, mode="chat")
+                self.telegram.send_message(chat_id, reply)
+                self.remember_orchestrator_message(reply)
+                self.state.data.setdefault("tracked", {}).pop(task["task_id"], None)
+                self.state.save()
+                return
+            time.sleep(1)
 
     def handle_command(self, message: dict[str, Any], text: str) -> None:
         chat_id = message["chat"]["id"]
@@ -546,6 +569,10 @@ class Gateway:
             label = SIGNIFICANT_STATES.get(state)
             if label and label != record.get("last_state"):
                 mode = record.get("mode", "task")
+                if mode == "chat" and label not in {"COMPLETED", "FAILED"}:
+                    self.state.data["tracked"][task_id]["last_state"] = label
+                    self.state.save()
+                    continue
                 reply = format_transition(label, task, mode)
                 self.telegram.send_message(int(record["chat_id"]), reply)
                 record_task_transition(self.memory(), task, label, utc_now())
