@@ -638,7 +638,17 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
         if (worktree / "tests").exists():
             venv_dir = artifact_dir / "venv"
             self.run_command(["python3", "-m", "venv", str(venv_dir)], worktree, stdout_path, stderr_path, task, branch, logs)
-            self.run_command([str(venv_dir / "bin" / "python"), "-m", "pip", "install", "--upgrade", "pip", "pytest"], worktree, stdout_path, stderr_path, task, branch, logs)
+            self.run_command([str(venv_dir / "bin" / "python"), "-m", "pip", "install", "--upgrade", "pip"], worktree, stdout_path, stderr_path, task, branch, logs)
+            if (worktree / "backend" / "requirements.txt").is_file():
+                self.run_command([
+                    str(venv_dir / "bin" / "python"),
+                    "-m",
+                    "pip",
+                    "install",
+                    "-r",
+                    "backend/requirements.txt",
+                ], worktree, stdout_path, stderr_path, task, branch, logs)
+            self.run_command([str(venv_dir / "bin" / "python"), "-m", "pip", "install", "pytest"], worktree, stdout_path, stderr_path, task, branch, logs)
             self.run_command([str(venv_dir / "bin" / "python"), "-m", "pytest", "-q"], worktree, stdout_path, stderr_path, task, branch, logs)
         github_review = "skipped: gh unavailable"
         if shutil.which("gh"):
