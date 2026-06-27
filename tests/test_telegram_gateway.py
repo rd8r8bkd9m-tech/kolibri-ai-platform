@@ -60,7 +60,8 @@ def test_greeting_is_chat_not_factory_task():
     }
     envelope = gateway.build_chat_envelope(message, message["text"])
     assert envelope["kind"] == "orchestrator_chat_response"
-    assert envelope["target_node"] == "9fts"
+    assert envelope["target_node"] == "home-live"
+    assert envelope["required_capability"] == "generic_implementation"
     assert envelope["source"]["message_id"] == 44
 
 
@@ -247,31 +248,57 @@ def test_realtime_dev_server_question_returns_ready_preview_url():
         assert forbidden not in reply
 
 
-def test_submit_chat_task_replies_immediately_without_factory_queue(tmp_path):
+def test_submit_chat_task_uses_remote_orchestrator_and_hides_intermediate_states(tmp_path, monkeypatch):
     gateway = load_gateway()
+    monkeypatch.setenv("TELEGRAM_CHAT_WAIT_SECONDS", "2")
 
     class Telegram:
         def __init__(self):
             self.messages = []
+            self.actions = []
 
         def send_message(self, chat_id, text):
             self.messages.append((chat_id, text))
 
+        def send_action(self, chat_id, action="typing"):
+            self.actions.append((chat_id, action))
+
     class Factory:
+        def __init__(self):
+            self.envelopes = []
+            self.task_id = None
+
         def create_task(self, envelope):
-            raise AssertionError("chat must not enqueue a factory task")
+            self.envelopes.append(envelope)
+            self.task_id = envelope["task_id"]
+            return {"task_id": self.task_id, "state": "queued"}
+
+        def get_task(self, task_id):
+            assert task_id == self.task_id
+            return {
+                "task_id": task_id,
+                "state": "completed",
+                "result": {
+                    "response": "Смотрю состояние фабрики.\nnode: home-live\nworktree: /var/lib/kolibri-agent/repo"
+                },
+            }
 
         def nodes(self):
-            return {"nodes": [{"node_id": "9fts", "health": "online", "capabilities": ["implementation"]}]}
+            return {"nodes": [{"node_id": "home-live", "health": "online", "capabilities": ["generic_implementation"]}]}
 
         def get_tasks(self):
             return {"tasks": [], "queue": []}
 
     telegram = Telegram()
+    factory = Factory()
     state = gateway.StateStore(tmp_path / "state.json")
-    app = gateway.Gateway(telegram, Factory(), {100}, state, 1)
+    app = gateway.Gateway(telegram, factory, {100}, state, 1)
     message = {"message_id": 55, "chat": {"id": 100, "type": "private"}, "from": {"id": 100}, "text": "Что выполняешь?"}
     app.submit_chat_task(message, message["text"])
+    assert factory.envelopes
+    assert factory.envelopes[0]["kind"] == "orchestrator_chat_response"
+    assert factory.envelopes[0]["target_node"] == "home-live"
+    assert telegram.actions == [(100, "typing")]
     assert telegram.messages
-    assert "Я на связи" in telegram.messages[0][1]
+    assert telegram.messages[0][1] == "Смотрю состояние фабрики."
     assert state.data["memory"]["recent_messages"][-1]["role"] == "orchestrator"
