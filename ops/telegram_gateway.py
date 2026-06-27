@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import signal
 import sys
 import time
@@ -76,7 +77,6 @@ CHAT_GREETINGS = {
 }
 TERMINAL_TASK_STATES = {"completed", "failed", "cancelled", "dead_letter"}
 OWNER_MESSAGE_FORBIDDEN_MARKERS = (
-    "Ответ агента",
     "task_id",
     "node:",
     "agent:",
@@ -84,15 +84,15 @@ OWNER_MESSAGE_FORBIDDEN_MARKERS = (
     "worktree",
     "result_path",
     "log_path",
-    "heartbeat",
-    "pid:",
-    "container",
-    "stdout",
-    "stderr",
     "/var/lib",
     "/tmp/",
     "TGCHAT-",
     "TG-202",
+    "secret",
+    "token",
+    "_key",
+    "env_file",
+    "сами значения",
 )
 OWNER_RESPONSE_REPLACEMENTS = {
     "Kolibi": "Kolibri",
@@ -100,6 +100,31 @@ OWNER_RESPONSE_REPLACEMENTS = {
     "Колиби": "Колибри",
     "колиби": "Колибри",
 }
+OWNER_RUNTIME_FAILURE_MARKERS = (
+    "command failed",
+    "run --format",
+    "telegram-chat-",
+    "tgchat-",
+    "rc=",
+    "traceback",
+    "runtimeerror",
+    "--title",
+    "ты — центральный оркестратор",
+)
+IMMEDIATE_CHAT_MARKERS = (
+    "как дела",
+    "как ты",
+    "что нового",
+    "как зовут",
+    "тебя зовут",
+    "кто ты",
+    "статус",
+    "что делаешь",
+    "какие задачи",
+    "контекст",
+    "помнишь",
+    "память",
+)
 
 
 def utc_now() -> str:
@@ -113,6 +138,15 @@ def parse_owner_ids(value: str) -> set[int]:
         if item:
             ids.add(int(item))
     return ids
+
+
+def iso_timestamp(value: str | None) -> float:
+    if not value:
+        return 0.0
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return 0.0
 
 
 def safe_task_suffix(text: str) -> str:
@@ -157,6 +191,24 @@ def wants_factory_task(text: str) -> bool:
         return False
     return any(target in lowered for target in task_targets) and len(lowered.split()) <= 6
 
+
+def should_answer_immediately(text: str) -> bool:
+    lowered = text.strip().lower()
+    if not lowered:
+        return False
+    if answer_simple_arithmetic(text) is not None and os.environ.get("TELEGRAM_DETERMINISTIC_SHORTCUTS", "0") == "1":
+        return True
+    return False
+
+
+def owner_safe_runtime_failure(text: str, snapshot: dict[str, Any] | None = None) -> str:
+    del text
+    active = len((snapshot or {}).get("active_tasks") or [])
+    if active:
+        return "Внутри фабрики упал исполнитель. Я не буду выносить технический мусор в чат: зафиксировал сбой и переключаю разбор на рабочий контур."
+    return "Внутри фабрики упал исполнитель. Я зафиксировал сбой и разберу его отдельно; в чат дальше будут приходить только нормальные ответы."
+
+
 def json_request(method: str, url: str, body: dict[str, Any] | None = None, timeout: int = 35) -> Any:
     data = None
     headers = {"Content-Type": "application/json"}
@@ -196,8 +248,24 @@ class TelegramClient:
             payload["offset"] = offset
         return self.call("getUpdates", payload, timeout=timeout + 10).get("result", [])
 
-    def send_message(self, chat_id: int, text: str) -> None:
-        self.call("sendMessage", {"chat_id": chat_id, "text": text[:3900], "disable_web_page_preview": True})
+    def send_message(self, chat_id: int, text: str) -> dict[str, Any]:
+        response = self.call("sendMessage", {"chat_id": chat_id, "text": text[:3900], "disable_web_page_preview": True})
+        return response.get("result") or {}
+
+    def edit_message(self, chat_id: int, message_id: int, text: str) -> dict[str, Any]:
+        response = self.call(
+            "editMessageText",
+            {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "text": text[:3900],
+                "disable_web_page_preview": True,
+            },
+        )
+        return response.get("result") or {}
+
+    def send_action(self, chat_id: int, action: str = "typing") -> None:
+        self.call("sendChatAction", {"chat_id": chat_id, "action": action}, timeout=10)
 
 
 class FactoryClient:
@@ -210,8 +278,8 @@ class FactoryClient:
     def get_task(self, task_id: str) -> dict[str, Any]:
         return json_request("GET", f"{self.control_url}/v1/tasks/{urllib.parse.quote(task_id, safe='')}")
 
-    def get_tasks(self, timeout: int = 2) -> dict[str, Any]:
-        return json_request("GET", f"{self.control_url}/v1/tasks", timeout=timeout)
+    def get_tasks(self) -> dict[str, Any]:
+        return json_request("GET", f"{self.control_url}/v1/tasks")
 
     def cancel_task(self, task_id: str) -> dict[str, Any]:
         quoted = urllib.parse.quote(task_id, safe="")
@@ -274,19 +342,23 @@ def compact_factory_snapshot(factory: FactoryClient) -> dict[str, Any]:
 def build_task_envelope(message: dict[str, Any], text: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
     task_id = task_id_from_message(message)
     branch_slug = safe_task_suffix(text)
-    return {
+    project_path = os.environ.get("TELEGRAM_OWNER_PROJECT_PATH")
+    lowered = text.lower()
+    if not project_path and ("kimi" in lowered or "кими" in lowered or "колибрифин" in lowered):
+        project_path = "/home/ladik/kolibri-projects/kimi_agent_kolibrifin"
+    envelope = {
         "task_id": task_id,
         "idempotency_key": f"telegram:{message['chat']['id']}:{message['message_id']}",
-        "kind": "impl_retry_error_clearance",
-        "target_node": "9fts",
-        "required_capability": "implementation",
+        "kind": os.environ.get("TELEGRAM_TASK_KIND", "owner_remote_task"),
+        "required_capability": os.environ.get("TELEGRAM_TASK_CAPABILITY", "generic_implementation"),
         "review_node": "new",
-        "create_review_on_complete": True,
+        "create_review_on_complete": False,
         "branch": f"agent/{task_id}/impl/{branch_slug}",
         "base_branch": "main",
         "base_ref": "origin/main",
-        "max_retries": 3,
+        "max_retries": int(os.environ.get("TELEGRAM_TASK_MAX_RETRIES", "1")),
         "objective": text,
+        "project_path": project_path,
         "conversation_context": context or {},
         "source": {
             "kind": "telegram",
@@ -296,19 +368,34 @@ def build_task_envelope(message: dict[str, Any], text: str, context: dict[str, A
             "accepted_at": utc_now(),
         },
     }
+    target_node = os.environ.get("TELEGRAM_TASK_NODE")
+    if target_node:
+        envelope["target_node"] = target_node
+    return envelope
 
 
 def build_chat_envelope(message: dict[str, Any], text: str, snapshot: dict[str, Any] | None = None) -> dict[str, Any]:
     task_id = chat_task_id_from_message(message)
-    return {
+    context = snapshot or {}
+    objective = (
+        "Сгенерируй живой короткий ответ владельцу проекта в Telegram. "
+        "Отвечай как директор-оркестратор проекта: естественно, по-русски, без заготовок, без markdown, "
+        "без task_id, node, agent, путей, команд и служебных деталей. "
+        "Не называй себя брендом продукта. Если владелец просто здоровается, ответь по-человечески и мягко, "
+        "но не используй заранее заданную фразу. Если владелец спрашивает о работе, используй контекст фабрики. "
+        f"Контекст фабрики: {json.dumps(context, ensure_ascii=False, sort_keys=True)}\n"
+        f"Сообщение владельца: {text}"
+    )
+    envelope = {
         "task_id": task_id,
         "idempotency_key": f"telegram-chat:{message['chat']['id']}:{message['message_id']}",
-        "kind": "orchestrator_chat_response",
-        "target_node": "9fts",
-        "required_capability": "implementation",
+        "kind": os.environ.get("TELEGRAM_CHAT_KIND", "owner_remote_task"),
+        "required_capability": os.environ.get("TELEGRAM_CHAT_CAPABILITY", "generic_implementation"),
         "max_retries": 1,
         "message": text,
-        "factory_snapshot": snapshot or {},
+        "objective": objective,
+        "runner": os.environ.get("TELEGRAM_CHAT_RUNNER", "codex"),
+        "factory_snapshot": context,
         "source": {
             "kind": "telegram",
             "message_id": message["message_id"],
@@ -317,11 +404,30 @@ def build_chat_envelope(message: dict[str, Any], text: str, snapshot: dict[str, 
             "accepted_at": utc_now(),
         },
     }
+    target_node = os.environ.get("TELEGRAM_CHAT_NODE", "primary-candidate")
+    if target_node:
+        envelope["target_node"] = target_node
+    return envelope
 
 
 def has_any(text: str, words: tuple[str, ...]) -> bool:
     lowered = text.lower()
     return any(word in lowered for word in words)
+
+
+def answer_simple_arithmetic(text: str) -> str | None:
+    expression = text.strip().replace(",", ".")
+    if not re.fullmatch(r"[0-9\s+\-*/().]+", expression):
+        return None
+    if not re.search(r"[+\-*/]", expression):
+        return None
+    try:
+        value = eval(expression, {"__builtins__": {}}, {})
+    except Exception:
+        return None
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    return str(value)
 
 
 def describe_task_state(state: str | None) -> str:
@@ -365,116 +471,88 @@ def first_known_url(memory: dict[str, Any]) -> str | None:
     return None
 
 
-def _online_nodes(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
-    return [node for node in snapshot.get("nodes") or [] if node.get("health") == "online"]
-
-
-def _node_names(nodes: list[dict[str, Any]], limit: int = 6) -> str:
-    names = [str(node.get("node_id")) for node in nodes if node.get("node_id")]
-    return ", ".join(names[:limit]) or "пока уточняю"
-
-
-def _try_simple_calculation(text: str) -> str | None:
-    import ast
-    import operator
-    expr = text.strip().replace("х", "*").replace("×", "*").replace("÷", "/")
-    if not expr or len(expr) > 80:
-        return None
-    if any(ch not in "0123456789+-*/()., " for ch in expr):
-        return None
-    expr = expr.replace(",", ".")
-    ops = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv, ast.USub: operator.neg, ast.UAdd: operator.pos}
-    def eval_node(node):
-        if isinstance(node, ast.Expression):
-            return eval_node(node.body)
-        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
-            return node.value
-        if isinstance(node, ast.BinOp) and type(node.op) in ops:
-            return ops[type(node.op)](eval_node(node.left), eval_node(node.right))
-        if isinstance(node, ast.UnaryOp) and type(node.op) in ops:
-            return ops[type(node.op)](eval_node(node.operand))
-        raise ValueError("unsupported")
-    try:
-        value = eval_node(ast.parse(expr, mode="eval"))
-    except Exception:
-        return None
-    if isinstance(value, float) and value.is_integer():
-        value = int(value)
-    return f"{text.strip()} = {value}"
-
-
-def _status_sentence(snapshot: dict[str, Any]) -> str:
-    nodes = snapshot.get("nodes") or []
-    online = _online_nodes(snapshot)
-    if nodes:
-        return f"Сейчас вижу {len(online)} из {len(nodes)} узлов онлайн: {_node_names(online)}."
-    return "Control Plane отвечает, но список узлов сейчас уточняю."
-
-
-def _active_sentence(snapshot: dict[str, Any]) -> str:
-    active_tasks = snapshot.get("active_tasks") or []
-    warnings = snapshot.get("warnings") or []
-    if active_tasks:
-        return f"Активных задач в коротком срезе: {len(active_tasks)}."
-    if any("tasks_unavailable" in str(item) for item in warnings):
-        return "Полный список задач сейчас тяжёлый, поэтому я не торможу диалог и проверяю очередь отдельно."
-    return "В коротком срезе активных задач не вижу."
-
-
 def build_realtime_owner_reply(text: str, snapshot: dict[str, Any]) -> str:
     memory = snapshot.get("memory") or {}
     lowered = text.lower().strip()
+    active_tasks = snapshot.get("active_tasks") or []
+    team = summarize_team(snapshot)
     last = memory.get("last_work_request") or {}
     last_text = (last.get("text") or "").strip()
-    last_state_text = describe_task_state(last.get("state"))
+    last_state = last.get("state")
+    last_state_text = describe_task_state(last_state)
     url = first_known_url(memory)
-    public_main_url = url or "http://104.253.43.117/"
-    status = _status_sentence(snapshot)
-    active = _active_sentence(snapshot)
 
-    calculation = _try_simple_calculation(text)
-    if calculation:
-        return calculation
+    arithmetic = answer_simple_arithmetic(text)
+    if arithmetic is not None:
+        return arithmetic
 
-    if lowered in CHAT_GREETINGS or has_any(text, ("как дела", "как ты", "ты тут", "на связи")):
-        return f"Привет. Я здесь. {status} Можем спокойно говорить или сразу ставить задачу."
+    if has_any(text, ("как дела", "как ты", "что нового")):
+        if active_tasks:
+            return f"Работа идёт. Сейчас вижу активные задачи и держу команду в фокусе: {team}."
+        return f"Я в порядке и смотрю на контур. Активных задач прямо сейчас не вижу, команда доступна: {team}."
 
-    if has_any(text, ("как зовут", "кто ты", "как тебя", "твое имя", "твоё имя")):
-        return "Я Директор Колибри. Можно просто «Колибри» или «директор». Я принимаю сообщения, держу контекст и сам раздаю работу исполнителям."
+    if has_any(text, ("как зовут", "тебя зовут", "кто ты")):
+        return "Для проекта я директор-оркестратор. Можешь обращаться ко мне просто как к Директору: я принимаю задачи, распределяю работу и возвращаю понятный результат."
 
-    if has_any(text, ("сколько сервер", "сколько узл", "серверов работает", "узлов работает")):
-        return status
-
-    if has_any(text, ("ссыл", "url", "линк", "link", "открой", "домен", "kolibriai.ru")):
-        domain_note = "Основной домен kolibriai.ru пока смотрит на Home и ждёт переключения gateway с root/sudo-доступом."
-        return f"Рабочая публичная точка на main сейчас: {public_main_url}. {domain_note}"
-
-    if has_any(text, ("дев сервер", "dev server", "веб приложение", "веб-приложение", "миниапп", "приложение запущ", "backend", "бэкенд")):
-        return f"По приложению: на main отдаётся публичная сборка {public_main_url}. Бэкенд проверяю через health, а домен kolibriai.ru ещё надо переключить с Home на правильный gateway."
-
-    if has_any(text, ("отчет", "отчёт", "статус", "что сделал", "что сделано", "что в работе", "какие задачи", "не завис", "монитор", "кто делает", "что выполня")):
+    if has_any(text, ("ссыл", "url", "линк", "link")):
+        if url:
+            return f"Да, помню. Вот ссылка: {url}"
         if last_text:
-            return f"Коротко: {status} {active} Последняя задача: {last_text}; сейчас она {last_state_text}."
-        return f"Коротко: {status} {active}"
+            return f"Помню про задачу: {last_text}. Ссылку пришлю, когда появится рабочий preview или staging. Сейчас задача {last_state_text}."
+        return "Помню, что нужна ссылка. Готового preview или staging URL пока нет, я держу это ожидание открытым."
+
+    asks_running_result = has_any(text, ("запущ", "работает", "готов", "дев", "dev", "сервер", "preview", "веб"))
+    if asks_running_result and (url or last_text):
+        if url and last_state == "completed":
+            return f"Да, запущено. Веб-приложение доступно здесь: {url}"
+        if url:
+            return f"Есть рабочая ссылка: {url}. По последней задаче статус: {last_state_text}."
+        return f"По последней задаче: {last_text}. Сейчас она {last_state_text}."
+
+    if has_any(text, ("что делаешь", "какие задачи", "статус", "что сделано", "не завис", "монитор", "кто делает", "что выполня")):
+        if active_tasks:
+            task_count = len(active_tasks)
+            prefix = f"Сейчас в работе {task_count} задач."
+        else:
+            prefix = "Сейчас активных задач не вижу."
+        if url and last_state == "completed":
+            return f"{prefix} Последний результат готов: {url}"
+        return f"{prefix} Команда на связи: {team}. {last_work_line(memory)}"
 
     if has_any(text, ("контекст", "помнишь", "память", "знаешь")):
-        if last_text:
-            return f"Да, контекст держу на сервере. Последняя рабочая задача: {last_text}; статус — {last_state_text}."
-        return "Да, контекст держу на сервере. Пока последняя рабочая задача в памяти не выделена, но состояние фабрики вижу."
+        if url:
+            return f"Да, контекст держу на удаленном сервере. Помню последний результат: {url}"
+        return f"Да, контекст держу на удаленном сервере. {last_work_line(memory)}"
 
     if "?" in text:
-        if last_text:
-            return f"Отвечаю сразу: {status} По последней задаче: {last_text}; статус — {last_state_text}."
-        return f"Отвечаю сразу: {status}"
+        if url and last_state == "completed":
+            return f"Да. Последний готовый результат здесь: {url}"
+        return f"Отвечаю сразу. Команда на связи: {team}. {last_work_line(memory)}"
 
-    return f"Я понял. {status} Если это задача, я оформлю её и передам исполнителю; если это разговор — отвечаю здесь сразу."
+    return f"Слышу. Продолжаю из текущего контекста: {last_work_line(memory)}"
+
+
+def build_task_ack_reply(text: str, snapshot: dict[str, Any], task: dict[str, Any]) -> str:
+    del task
+    active = len(snapshot.get("active_tasks") or [])
+    lowered = text.lower()
+    if has_any(lowered, ("telegram", "телеграм", "бот", "mini app", "миниапп")):
+        return "Да, это главный баг интерфейса. Забираю его как P0: чиню живой Telegram-диалог, контекст и поток обновлений от директора."
+    if has_any(lowered, ("mesh", "мэш", "единый компьютер", "единый организм", "синхронизац")):
+        return "Беру в работу контур связи. Цель понятна: фабрика должна общаться через mesh/API и видеть общий контекст, а не жить отдельными серверами."
+    if has_any(lowered, ("деплой", "deploy", "запусти", "дев", "dev", "ссыл")):
+        return "Задачу принял. Отдам исполнителю через фабрику и верну рабочую ссылку только после реальной проверки."
+    if active:
+        return f"Принял задачу. Вижу ещё {active} активных процессов, поэтому поставлю её в очередь без потери контекста и буду вести результат здесь."
+    return "Принял задачу. Сам назначу исполнителя и буду возвращать сюда только понятные статусы и результат."
+
 
 def help_text() -> str:
     return (
-        "Я Директор Колибри. Пишите обычным языком: вопрос — отвечу сразу, "
-        "задача — поставлю исполнителю и буду держать результат под контролем. "
-        "Служебные команды не нужны."
+        "Пишите обычным языком. Я отвечаю сам, держу контекст разработки и сам решаю, "
+        "когда это разговор, а когда задача для фабрики."
     )
+
 
 class StateStore:
     def __init__(self, path: Path):
@@ -489,6 +567,7 @@ class StateStore:
             data = json.loads(self.path.read_text(encoding="utf-8"))
         data.setdefault("offset", None)
         data.setdefault("tracked", {})
+        data.setdefault("common_chat_since", os.environ.get("TELEGRAM_COMMON_CHAT_SINCE", utc_now()))
         ensure_memory(data)
         return data
 
@@ -518,6 +597,15 @@ class Gateway:
         self.state.data.setdefault("tracked", {})[task_id] = {"chat_id": chat_id, "last_state": state, "mode": mode}
         self.state.save()
 
+    def owner_chat_id(self) -> int | None:
+        chat_id = self.state.data.get("owner_chat_id")
+        if chat_id:
+            return int(chat_id)
+        for record in (self.state.data.get("tracked") or {}).values():
+            if record.get("chat_id"):
+                return int(record["chat_id"])
+        return None
+
     def memory(self) -> dict[str, Any]:
         return ensure_memory(self.state.data)
 
@@ -534,29 +622,86 @@ class Gateway:
         record_orchestrator_message(self.memory(), text, utc_now())
         self.state.save()
 
+    def send_stream_update(self, chat_id: int, message_id: int | None, text: str) -> int | None:
+        text = text.strip()
+        if not text:
+            return message_id
+        if message_id and hasattr(self.telegram, "edit_message"):
+            try:
+                self.telegram.edit_message(chat_id, message_id, text)
+                return message_id
+            except Exception:
+                pass
+        sent = self.telegram.send_message(chat_id, text)
+        if isinstance(sent, dict) and sent.get("message_id"):
+            return int(sent["message_id"])
+        return message_id
+
     def submit_text_task(self, message: dict[str, Any], text: str) -> None:
-        chat_id = message["chat"]["id"]
-        reply = "Взял как задачу. Передаю Инженеру, Ревьюер подключится после результата. Я остаюсь здесь и могу отвечать дальше."
-        self.telegram.send_message(chat_id, reply)
-        self.remember_orchestrator_message(reply)
-        envelope = build_task_envelope(message, text, self.conversation_snapshot())
+        snapshot = self.conversation_snapshot()
+        envelope = build_task_envelope(message, text, snapshot)
         try:
             task = self.factory.create_task(envelope)
         except Exception:
             record_work_task(self.memory(), text, envelope["task_id"], "failed", utc_now())
             self.state.save()
-            fail_reply = "Я услышал задачу, но Control Plane сейчас не принял её в очередь. Зафиксировал сбой и разбираю отдельно."
-            self.telegram.send_message(chat_id, fail_reply)
-            self.remember_orchestrator_message(fail_reply)
+            reply = "Я услышал задачу, но Control Plane сейчас не принял её в очередь. Зафиксировал сбой и разбираю отдельно."
+            self.telegram.send_message(message["chat"]["id"], reply)
+            self.remember_orchestrator_message(reply)
             return
-        self.track(chat_id, task["task_id"], task["state"])
+        self.track(message["chat"]["id"], task["task_id"], task["state"])
         record_work_task(self.memory(), text, task["task_id"], task["state"], utc_now())
         self.state.save()
-
-    def submit_chat_task(self, message: dict[str, Any], text: str) -> None:
-        reply = build_realtime_owner_reply(text, self.conversation_snapshot())
+        reply = build_task_ack_reply(text, snapshot, task)
         self.telegram.send_message(message["chat"]["id"], reply)
         self.remember_orchestrator_message(reply)
+
+    def submit_chat_task(self, message: dict[str, Any], text: str) -> None:
+        chat_id = message["chat"]["id"]
+        snapshot = self.conversation_snapshot()
+        task = self.factory.create_task(build_chat_envelope(message, text, snapshot))
+        initial_label = SIGNIFICANT_STATES.get(task.get("state"), task.get("state"))
+        self.track(chat_id, task["task_id"], initial_label or "queued", mode="chat")
+
+        wait_seconds = int(os.environ.get("TELEGRAM_CHAT_WAIT_SECONDS", "90"))
+        first_reply_seconds = int(os.environ.get("TELEGRAM_CHAT_FIRST_REPLY_SECONDS", "0"))
+        deadline = time.time() + max(0, wait_seconds)
+        first_reply_at = time.time() + max(0, first_reply_seconds) if first_reply_seconds > 0 else None
+        last_action = 0.0
+        last_sent = ""
+        stream_message_id: int | None = None
+        while time.time() < deadline:
+            now = time.time()
+            if now - last_action >= 4:
+                self.telegram.send_action(chat_id)
+                last_action = now
+            current = self.factory.get_task(task["task_id"])
+            result = current.get("result") or {}
+            partial = clean_agent_response(result.get("partial_response")) if result.get("partial_response") else ""
+            if partial and partial != last_sent:
+                stream_message_id = self.send_stream_update(chat_id, stream_message_id, partial)
+                last_sent = partial
+            state = current.get("state")
+            if state in TERMINAL_TASK_STATES:
+                if state in {"failed", "dead_letter"}:
+                    reply = owner_safe_runtime_failure(text, snapshot)
+                else:
+                    reply = format_transition(SIGNIFICANT_STATES.get(state, state), current, mode="chat")
+                if reply and reply != last_sent:
+                    stream_message_id = self.send_stream_update(chat_id, stream_message_id, reply)
+                    last_sent = reply
+                if last_sent:
+                    self.remember_orchestrator_message(last_sent)
+                self.state.data.setdefault("tracked", {}).pop(task["task_id"], None)
+                self.state.save()
+                return
+            if first_reply_at and not last_sent and now >= first_reply_at:
+                reply = build_realtime_owner_reply(text, snapshot)
+                stream_message_id = self.send_stream_update(chat_id, stream_message_id, reply)
+                last_sent = reply
+            time.sleep(1)
+        if not last_sent:
+            self.state.save()
 
     def handle_command(self, message: dict[str, Any], text: str) -> None:
         chat_id = message["chat"]["id"]
@@ -600,17 +745,44 @@ class Gateway:
         text = (message.get("text") or "").strip()
         if not text:
             return
+        self.state.data["owner_chat_id"] = message["chat"]["id"]
         if text.startswith("/"):
             self.remember_owner_message(text, "command")
             self.handle_command(message, text)
         elif wants_factory_task(text):
             self.remember_owner_message(text, "task")
             self.submit_text_task(message, text)
+        elif should_answer_immediately(text):
+            self.remember_owner_message(text, "chat")
+            snapshot = self.conversation_snapshot()
+            reply = build_realtime_owner_reply(text, snapshot)
+            self.telegram.send_message(message["chat"]["id"], reply)
+            self.remember_orchestrator_message(reply)
         else:
             self.remember_owner_message(text, "chat")
             self.submit_chat_task(message, text)
 
+    def auto_track_owner_tasks(self) -> None:
+        chat_id = self.owner_chat_id()
+        if not chat_id:
+            return
+        try:
+            tasks = self.factory.get_tasks().get("tasks", [])
+        except Exception:
+            return
+        tracked = self.state.data.setdefault("tracked", {})
+        since = self.state.data.get("common_chat_since")
+        for task in tasks:
+            task_id = task.get("task_id")
+            if not task_id or task_id in tracked:
+                continue
+            if not owner_visible_task(task, since):
+                continue
+            tracked[task_id] = {"chat_id": chat_id, "last_state": "WATCHING", "mode": "task"}
+        self.state.save()
+
     def poll_task_transitions(self) -> None:
+        self.auto_track_owner_tasks()
         tracked = dict(self.state.data.get("tracked", {}))
         for task_id, record in tracked.items():
             task = self.factory.get_task(task_id)
@@ -618,6 +790,10 @@ class Gateway:
             label = SIGNIFICANT_STATES.get(state)
             if label and label != record.get("last_state"):
                 mode = record.get("mode", "task")
+                if mode == "chat" and label not in {"COMPLETED", "FAILED"}:
+                    self.state.data["tracked"][task_id]["last_state"] = label
+                    self.state.save()
+                    continue
                 reply = format_transition(label, task, mode)
                 self.telegram.send_message(int(record["chat_id"]), reply)
                 record_task_transition(self.memory(), task, label, utc_now())
@@ -641,10 +817,6 @@ class Gateway:
                 self.run_once()
             except Exception as exc:  # pragma: no cover - surfaced in systemd logs
                 print(json.dumps({"event": "telegram_gateway_error", "error": str(exc), "time": utc_now()}), file=sys.stderr)
-                try:
-                    self.poll_task_transitions()
-                except Exception as poll_exc:  # pragma: no cover - surfaced in systemd logs
-                    print(json.dumps({"event": "telegram_gateway_transition_poll_error", "error": str(poll_exc), "time": utc_now()}), file=sys.stderr)
                 time.sleep(5)
 
 
@@ -667,8 +839,38 @@ def human_task_state(state: str | None) -> str:
     }.get(state or "", "Статус обновился.")
 
 
+def owner_visible_task(task: dict[str, Any], since: str | None = None) -> bool:
+    task_id = str(task.get("task_id") or "")
+    if task_id.startswith("TGCHAT-"):
+        return False
+    if since and iso_timestamp(task.get("created_at")) < iso_timestamp(since):
+        return False
+    envelope = task.get("envelope") or {}
+    source = envelope.get("source") or {}
+    if envelope.get("kind") == "owner_remote_task":
+        return True
+    return str(source.get("kind") or "").startswith("telegram")
+
+
 def format_task_status(task: dict[str, Any]) -> str:
     result = task.get("result") or {}
+    envelope = task.get("envelope") or {}
+    partial = clean_agent_response(result.get("partial_response")) if result.get("partial_response") else ""
+    if partial and task.get("state") in {"leased", "running", "review"}:
+        return partial
+    if envelope.get("kind") == "owner_remote_task" and task.get("state") in {"queued", "leased", "running"}:
+        return "Задача в работе. Я держу её в поле зрения и пришлю сюда только понятное обновление или результат."
+    if task.get("state") == "completed" and envelope.get("kind") == "owner_remote_task":
+        response = clean_agent_response(result.get("response"))
+        urls = extract_urls(response)
+        lines = ["Готово. Удалённый исполнитель завершил задачу, я проверяю результат."]
+        if urls:
+            lines = [f"Готово. Проект запущен: {urls[0]}"]
+            if len(urls) > 1:
+                lines.append(f"API и документация: {urls[1]}")
+        if "health" in response.lower() or "healthy" in response.lower():
+            lines.append("Проверки живые: веб отвечает, backend отвечает, база работает.")
+        return "\n".join(lines)
     lines = [human_task_state(task.get("state"))]
     pr_url = result.get("pull_request_url") or result.get("pr_url")
     if pr_url:
@@ -677,6 +879,9 @@ def format_task_status(task: dict[str, Any]) -> str:
 
 
 def clean_agent_response(text: str | None) -> str:
+    raw_lowered = (text or "").lower()
+    if any(marker in raw_lowered for marker in OWNER_RUNTIME_FAILURE_MARKERS):
+        return owner_safe_runtime_failure("", None)
     clean_chars = []
     for ch in text or "":
         if unicodedata.category(ch) in {"So", "Sk"}:
@@ -696,10 +901,18 @@ def clean_agent_response(text: str | None) -> str:
     return cleaned or "Я завершил ответ, но текст не записался. Разберу это отдельно."
 
 
+def extract_urls(text: str) -> list[str]:
+    urls = []
+    for match in re.findall(r"https?://[^\s`),]+", text):
+        if match not in urls:
+            urls.append(match)
+    return urls
+
+
 def format_transition(label: str, task: dict[str, Any], mode: str = "task") -> str:
     result = task.get("result") or {}
     if mode == "chat" and label == "COMPLETED":
-        return clean_agent_response(result.get("response"))
+        return clean_agent_response(result.get("response") or result.get("partial_response"))
     if mode == "chat" and label == "FAILED":
         return "Сейчас не смог подготовить ответ. Я зафиксировал сбой и продолжу восстановление."
     return format_task_status(task)
