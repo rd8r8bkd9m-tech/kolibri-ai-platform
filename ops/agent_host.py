@@ -758,6 +758,95 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
         result["result_path"] = str(result_path)
         return result
 
+    def run_root_goal(self, task: dict[str, Any]) -> dict[str, Any]:
+        envelope = task.get("envelope", {})
+        objective = (envelope.get("objective") or task.get("objective") or "").strip()
+        if not objective:
+            raise RuntimeError("root_goal task missing objective")
+        project_path = envelope.get("project_path") or os.environ.get("KOLIBRI_OWNER_PROJECT_PATH")
+        cwd = Path(project_path).expanduser() if project_path else None
+        if cwd and not cwd.exists():
+            raise RuntimeError(f"project path does not exist: {cwd}")
+        worktree, artifact_dir, logs = self.prepare_dirs(task)
+        worktree.mkdir(parents=True, exist_ok=True)
+        stdout_path = Path(logs["stdout"])
+        stderr_path = Path(logs["stderr"])
+        branch = envelope.get("branch")
+        run_cwd = cwd or worktree
+        self.task_heartbeat(task, run_cwd, branch, logs)
+
+        context_parts = []
+        if envelope.get("context"):
+            context_parts.append(f"Контекст: {envelope['context']}")
+        if envelope.get("acceptance_criteria"):
+            context_parts.append(f"Критерии приёмки: {envelope['acceptance_criteria']}")
+        context_block = "\n".join(context_parts)
+
+        prompt = (
+            "Ты — удалённый исполнитель фабрики Kolibri. Твоя задача — реализовать корневую цель (root_goal). "
+            "Работай автономно на удалённом сервере.\n"
+            "Правила:\n"
+            "- не печатай значения секретов и не коммить секретные файлы;\n"
+            "- используй существующий проект и его локальные файлы как источник правды;\n"
+            "- если нужно поднять dev/staging, запускай реальные процессы и проверяй health;\n"
+            "- если нужен другой сервер, зафиксируй это как действие/блокер, не симулируй успех;\n"
+            "- в финале дай короткий человеческий результат, URL если он доступен, и конкретные блокеры.\n"
+            f"Рабочая директория: {run_cwd}\n"
+            f"Цель: {objective}\n"
+            f"{context_block}\n" if context_block else ""
+            f"Сгенерируй план, выполни его пошагово, и предоставь итоговый результат.\n"
+        )
+        mimo = shutil.which("mimo")
+        if not mimo:
+            raise RuntimeError("mimo executable is not available on this node")
+        command = [
+            mimo,
+            "run",
+            "--format",
+            "json",
+            "--title",
+            f"root-goal-{task['task_id']}",
+            "--dir",
+            str(run_cwd),
+            "--dangerously-skip-permissions",
+            prompt,
+        ]
+        self.run_command(command, run_cwd, stdout_path, stderr_path, task, branch, logs)
+
+        response_parts = []
+        for line in stdout_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            line = line.strip()
+            if not line.startswith("{"):
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            part = event.get("part") or {}
+            if part.get("type") == "text" and part.get("text"):
+                response_parts.append(part["text"])
+        response_text = "".join(response_parts).strip()
+        result = {
+            "node_id": self.node_id,
+            "hostname": self.hostname,
+            "task_id": task["task_id"],
+            "agent_id": self.agent_id,
+            "attempt_id": task.get("attempt_id"),
+            "pid": self.pid,
+            "heartbeat_at": utc_now(),
+            "worktree": str(run_cwd),
+            "branch": branch,
+            "log_paths": logs,
+            "result_path": str(artifact_dir / "result.json"),
+            "status": "completed",
+            "kind": "root_goal",
+            "objective": objective,
+            "response": response_text,
+        }
+        result_path = self.write_result(artifact_dir, result)
+        result["result_path"] = str(result_path)
+        return result
+
     def run_task(self, task: dict[str, Any]) -> None:
         result_path = None
         result = None
@@ -775,6 +864,8 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 result = self.run_review_pr(task)
             elif kind == "read_only_probe":
                 result = self.run_read_only_probe(task)
+            elif kind == "root_goal":
+                result = self.run_root_goal(task)
             else:
                 raise RuntimeError(f"unsupported task kind: {kind}")
             result_path = Path(result["result_path"])

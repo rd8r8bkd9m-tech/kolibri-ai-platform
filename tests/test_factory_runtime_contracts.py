@@ -33,3 +33,29 @@ def test_lease_expiry_calculation():
     lease_until = time.time() + control.LEASE_DURATION
     assert lease_until > time.time()
     assert control.LEASE_DURATION >= 60
+
+
+def test_root_goal_task_kind_normalize():
+    control = load_control()
+    task = control.normalize_task({
+        'task_id': 'ROOT-1',
+        'idempotency_key': 'root-idem-1',
+        'kind': 'root_goal',
+        'envelope': {'objective': 'Добавить dark mode'}
+    })
+    assert task['kind'] == 'root_goal'
+    assert task['state'] == 'queued'
+
+
+def test_root_goal_task_schema():
+    task = {
+        'node_id': '9fts',
+        'agent_id': 'agent-host-9fts',
+        'task_id': 'ROOT-1',
+        'status': 'completed',
+        'kind': 'root_goal',
+        'objective': 'Добавить dark mode',
+        'result_path': '/tmp/result.json',
+    }
+    assert task['kind'] == 'root_goal'
+    assert 'objective' in task
