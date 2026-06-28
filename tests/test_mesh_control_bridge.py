@@ -7,7 +7,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def load_bridge():
+def load_bridge(tmp_path, monkeypatch):
+    monkeypatch.setenv("KOLIBRI_MESH_BRIDGE_STATE", str(tmp_path / "state.json"))
+    monkeypatch.setenv("KOLIBRI_MESH_BRIDGE_LOG", str(tmp_path / "bridge.jsonl"))
     spec = importlib.util.spec_from_file_location("mesh_control_bridge", ROOT / "ops" / "mesh_control_bridge.py")
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
@@ -15,8 +17,8 @@ def load_bridge():
     return module
 
 
-def test_create_task_from_mesh_message_builds_control_plane_envelope(monkeypatch):
-    bridge = load_bridge()
+def test_create_task_from_mesh_message_builds_control_plane_envelope(tmp_path, monkeypatch):
+    bridge = load_bridge(tmp_path, monkeypatch)
     captured = {}
 
     def fake_post(path, payload):
@@ -47,8 +49,8 @@ def test_create_task_from_mesh_message_builds_control_plane_envelope(monkeypatch
     assert "result_path" in captured["payload"]["evidence_required"]
 
 
-def test_chat_only_message_is_ignored_without_creating_task(monkeypatch):
-    bridge = load_bridge()
+def test_chat_only_message_is_ignored_without_creating_task(tmp_path, monkeypatch):
+    bridge = load_bridge(tmp_path, monkeypatch)
 
     def fail_post(*_args, **_kwargs):
         raise AssertionError("chat-only messages must not create control-plane tasks")
@@ -63,8 +65,8 @@ def test_chat_only_message_is_ignored_without_creating_task(monkeypatch):
     assert result == {"chat_only": True, "status": "ignored"}
 
 
-def test_sync_mesh_nodes_registers_shadow_nodes(monkeypatch):
-    bridge = load_bridge()
+def test_sync_mesh_nodes_registers_shadow_nodes(tmp_path, monkeypatch):
+    bridge = load_bridge(tmp_path, monkeypatch)
     posts = []
 
     def fake_request(method, url, payload=None, timeout=8):
