@@ -21,6 +21,7 @@ Last verified: 2026-06-28.
 | Task transport | Control Plane API and Redis queue |
 | Worker runtime | `kolibri-agent-host` systemd services on remote nodes |
 | Mesh transport | Internal `10.99.0.0/24` network and mesh agents |
+| Filesystem view | Mesh/API namespace `/kolibri` from Control Plane `/v1/filesystem` |
 | Local MacBook role | Thin client only; no long-running factory runtime |
 | Deprecated path | Direct `/api/exec`, `/task/execute`, shell-based remote exec |
 
@@ -215,6 +216,76 @@ Current mesh contract:
 - node state flows into Control Plane;
 - no `/api/exec` or `/task/execute` execution endpoints;
 - Agent Hosts execute typed tasks after leasing from Control Plane.
+
+## Unified Filesystem Namespace
+
+Kolibri uses a unified filesystem namespace over mesh/API. This is not a shared
+writable root disk. It is an indexed map of remote roots published by each
+Agent Host and served by the Control Plane.
+
+API surfaces:
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /v1/filesystem` | canonical Control Plane namespace |
+| `GET /filesystem` | mesh API view of the same namespace |
+| `GET /mesh/filesystem` | explicit mesh-scoped alias |
+
+Namespace shape:
+
+```text
+/kolibri
+└── nodes
+    ├── primary-candidate
+    │   ├── worktrees
+    │   ├── artifacts
+    │   └── runtime-repo
+    ├── main
+    │   ├── worktrees
+    │   └── artifacts
+    └── 9fts
+        ├── worktrees
+        └── artifacts
+    └── macbook
+        ├── root
+        ├── home
+        └── project
+```
+
+Each node heartbeat can publish:
+
+- `worktrees`: per-task writable worktrees;
+- `artifacts`: logs and structured task results;
+- `runtime-repo`: local runtime repository mirror, when present;
+- `owner-project`: configured owner workspace, when present;
+- extra roots from `KOLIBRI_FILE_ROOTS`.
+
+Write rule:
+
+One task writes one local worktree. Shared roots are visible through the
+namespace but require a later lease/audit layer before cross-node writes are
+allowed. This keeps the system feeling like one computer without turning all
+servers into one unsafe writable disk.
+
+MacBook visibility:
+
+The MacBook stays a thin client. When the owner wants Primary to see the local
+filesystem, the MacBook publishes a read-only namespace heartbeat:
+
+```bash
+python3 ops/macbook_filesystem_publisher.py --once
+```
+
+After that, Primary and mesh clients can see:
+
+```text
+/kolibri/nodes/macbook/root
+/kolibri/nodes/macbook/home
+/kolibri/nodes/macbook/project
+```
+
+If the MacBook is closed, the last heartbeat becomes stale and the remote
+factory continues on server-owned worktrees.
 
 ## Development And Deployment
 

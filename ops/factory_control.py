@@ -31,6 +31,8 @@ SPOOL_DIR = Path(os.environ.get("FACTORY_SPOOL_DIR", "/var/lib/kolibri-factory-c
 REQUEUE_INTERVAL = int(os.environ.get("FACTORY_REQUEUE_INTERVAL", "30"))
 REQUEUE_SCAN_LIMIT = int(os.environ.get("FACTORY_REQUEUE_SCAN_LIMIT", "500"))
 LAST_REQUEUE = 0.0
+FILESYSTEM_MODE = "mesh_api_namespace"
+FILESYSTEM_WRITE_POLICY = "node-local writes only; no shared writable root disk; shared roots require leases"
 
 STATE_QUEUED = "queued"
 STATE_SPOOLED = "spooled"
@@ -134,6 +136,15 @@ def node_key(node_id: str) -> str:
 
 def drain_key(node_id: str) -> str:
     return key(f"drain:{node_id}")
+
+
+def namespace_segment(value: str, fallback: str) -> str:
+    safe = "".join(ch if ch.isalnum() or ch in "_.-" else "-" for ch in str(value).strip())
+    return safe or fallback
+
+
+def filesystem_namespace_prefix(node_id: str) -> str:
+    return f"/kolibri/nodes/{namespace_segment(node_id, 'node')}"
 
 
 def all_task_ids() -> list[str]:
@@ -322,6 +333,87 @@ def create_review_task(source_task: dict[str, Any], result: dict[str, Any]) -> d
     return review
 
 
+def normalize_filesystem_manifest(node_id: str, raw: Any) -> dict[str, Any]:
+    filesystem = raw if isinstance(raw, dict) else {}
+    prefix = filesystem_namespace_prefix(node_id)
+    roots = []
+    raw_roots = filesystem.get("roots") if isinstance(filesystem.get("roots"), list) else []
+    for index, root in enumerate(raw_roots, start=1):
+        if not isinstance(root, dict):
+            continue
+        name = namespace_segment(str(root.get("name") or f"root-{index}"), f"root-{index}")
+        entry: dict[str, Any] = {
+            "name": name,
+            "namespace": f"{prefix}/{name}",
+            "path": root.get("path") if isinstance(root.get("path"), str) else None,
+            "purpose": root.get("purpose") if isinstance(root.get("purpose"), str) else None,
+            "exists": bool(root.get("exists")),
+            "writable": bool(root.get("writable")),
+        }
+        disk = root.get("disk")
+        if isinstance(disk, dict):
+            entry["disk"] = {
+                metric: disk.get(metric)
+                for metric in ("total", "used", "free")
+                if isinstance(disk.get(metric), int)
+            }
+        roots.append(entry)
+    return {
+        "namespace_prefix": prefix,
+        "mode": FILESYSTEM_MODE,
+        "write_policy": FILESYSTEM_WRITE_POLICY,
+        "roots": roots,
+    }
+
+
+def build_filesystem_namespace() -> dict[str, Any]:
+    nodes = []
+    roots = []
+    for node_id in sorted(redis.command("SMEMBERS", key("node_ids")) or []):
+        node = get_json(node_key(node_id), {})
+        filesystem = normalize_filesystem_manifest(node_id, node.get("filesystem"))
+        prefix = filesystem["namespace_prefix"]
+        node_roots = []
+        for root in filesystem["roots"]:
+            entry = {
+                "node_id": node_id,
+                "hostname": node.get("hostname"),
+                "agent_id": node.get("agent_id"),
+                "root": root["name"],
+                "namespace": root["namespace"],
+                "path": root.get("path"),
+                "purpose": root.get("purpose"),
+                "exists": bool(root.get("exists")),
+                "writable": bool(root.get("writable")),
+            }
+            if "disk" in root:
+                entry["disk"] = root["disk"]
+            node_roots.append(entry)
+            roots.append(entry)
+        nodes.append({
+            "node_id": node_id,
+            "hostname": node.get("hostname"),
+            "agent_id": node.get("agent_id"),
+            "health": node.get("health"),
+            "heartbeat_at": node.get("heartbeat_at"),
+            "draining": bool(redis.command("GET", drain_key(node_id))),
+            "namespace_prefix": prefix,
+            "mode": filesystem["mode"],
+            "write_policy": filesystem["write_policy"],
+            "roots": node_roots,
+        })
+    return {
+        "namespace": "/kolibri",
+        "transport": "mesh-api/control-plane",
+        "mode": FILESYSTEM_MODE,
+        "write_policy": FILESYSTEM_WRITE_POLICY,
+        "nodes": nodes,
+        "roots": roots,
+        "root_count": len(roots),
+        "generated_at": utc_now(),
+    }
+
+
 def response(handler: BaseHTTPRequestHandler, status: int, body: Any) -> None:
     payload = json.dumps(body, indent=2, sort_keys=True).encode("utf-8")
     handler.send_response(status)
@@ -378,6 +470,9 @@ class Handler(BaseHTTPRequestHandler):
                     node["draining"] = bool(redis.command("GET", drain_key(node_id)))
                     nodes.append(node)
                 response(self, 200, {"nodes": nodes})
+                return
+            if path == "/v1/filesystem":
+                response(self, 200, build_filesystem_namespace())
                 return
             if path == "/v1/tasks":
                 query = parse_qs(parsed.query)
@@ -448,6 +543,7 @@ class Handler(BaseHTTPRequestHandler):
                     "ram": body.get("ram"),
                     "disk": body.get("disk"),
                     "agent_id": body.get("agent_id"),
+                    "filesystem": normalize_filesystem_manifest(node_id, body.get("filesystem")),
                 }
                 set_json(node_key(node_id), node)
                 redis.command("SADD", key("node_ids"), node_id)
@@ -456,7 +552,9 @@ class Handler(BaseHTTPRequestHandler):
             if path.startswith("/v1/nodes/") and path.endswith("/heartbeat"):
                 node_id = path.split("/")[3]
                 node = get_json(node_key(node_id), {"node_id": node_id})
+                filesystem = body.get("filesystem", node.get("filesystem"))
                 node.update(body)
+                node["filesystem"] = normalize_filesystem_manifest(node_id, filesystem)
                 node["health"] = "online"
                 node["heartbeat_at"] = utc_now()
                 set_json(node_key(node_id), node)

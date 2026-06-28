@@ -519,6 +519,23 @@ async def submit_control_plane_task(
         return {"status": "error", "transport": "control-plane", "node": NODE_NAME, "error": str(e)}
 
 
+async def get_control_plane_filesystem() -> Any:
+    try:
+        async with httpx.AsyncClient(timeout=CONTROL_PLANE_HTTP_TIMEOUT) as client:
+            response = await client.get(f"{CONTROL_PLANE_URL}/v1/filesystem")
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=e.response.status_code,
+            detail="control plane filesystem request failed",
+        ) from e
+    except ValueError as e:
+        raise HTTPException(status_code=502, detail="control plane filesystem response is not JSON") from e
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"control plane filesystem unavailable: {e}") from e
+
+
 def get_system_load() -> dict:
     cpu = psutil.cpu_percent(interval=0.1)
     mem = psutil.virtual_memory()
@@ -708,6 +725,20 @@ async def list_nodes():
 @app.get("/nodes/online")
 async def list_online():
     return {"nodes": resources.get_online_nodes()}
+
+
+# ── Unified Filesystem Namespace ───────────────────────────────────
+
+@app.get("/filesystem")
+async def filesystem_namespace():
+    """Return the factory filesystem namespace through mesh API."""
+    return await get_control_plane_filesystem()
+
+
+@app.get("/mesh/filesystem")
+async def mesh_filesystem_namespace():
+    """Alias for clients that call mesh-scoped endpoints explicitly."""
+    return await get_control_plane_filesystem()
 
 
 # ── Unified Compute ────────────────────────────────────────────────

@@ -23,6 +23,8 @@ from typing import Any
 
 
 STOP = False
+FILESYSTEM_MODE = "mesh_api_namespace"
+FILESYSTEM_WRITE_POLICY = "node-local writes only; no shared writable root disk; shared roots require leases"
 
 
 def utc_now() -> str:
@@ -59,6 +61,54 @@ def machine_stats() -> dict[str, Any]:
         "ram": ram,
         "disk": {"total": disk.total, "used": disk.used, "free": disk.free},
     }
+
+
+def namespace_segment(value: str, fallback: str) -> str:
+    safe = "".join(ch if ch.isalnum() or ch in "_.-" else "-" for ch in value.strip())
+    return safe or fallback
+
+
+def filesystem_root(name: str, path: Path, purpose: str, writable: bool) -> dict[str, Any]:
+    safe_name = namespace_segment(name, "root")
+    resolved = path.expanduser()
+    exists = resolved.exists()
+    item: dict[str, Any] = {
+        "name": safe_name,
+        "path": str(resolved),
+        "purpose": purpose,
+        "exists": exists,
+        "writable": writable,
+    }
+    if exists:
+        try:
+            usage = shutil.disk_usage(str(resolved if resolved.is_dir() else resolved.parent))
+            item["disk"] = {"total": usage.total, "used": usage.used, "free": usage.free}
+        except OSError:
+            item["disk"] = None
+    return item
+
+
+def parse_extra_filesystem_roots(value: str) -> list[dict[str, str]]:
+    roots = []
+    for index, raw_item in enumerate(value.split(","), start=1):
+        item = raw_item.strip()
+        if not item:
+            continue
+        name = f"extra-{index}"
+        mode = "read_only"
+        path = item
+        if "=" in item:
+            name, path = item.split("=", 1)
+        if ":" in path:
+            path, mode = path.rsplit(":", 1)
+        if not path.strip():
+            continue
+        roots.append({
+            "name": namespace_segment(name, f"extra-{index}"),
+            "path": path.strip(),
+            "mode": mode.strip(),
+        })
+    return roots
 
 
 def sha256_file(path: Path) -> str:
@@ -99,6 +149,30 @@ class AgentHost:
         self.work_root.mkdir(parents=True, exist_ok=True)
         self.artifact_root.mkdir(parents=True, exist_ok=True)
 
+    def filesystem_manifest(self) -> dict[str, Any]:
+        namespace_prefix = f"/kolibri/nodes/{namespace_segment(self.node_id, 'node')}"
+        roots = [
+            filesystem_root("worktrees", self.work_root, "per-task writable worktrees", True),
+            filesystem_root("artifacts", self.artifact_root, "task logs and structured results", True),
+        ]
+        runtime_repo = Path(os.environ.get("KOLIBRI_RUNTIME_REPO", "/var/lib/kolibri-agent/runtime-repo"))
+        if runtime_repo.exists():
+            roots.append(filesystem_root("runtime-repo", runtime_repo, "local runtime repository mirror", True))
+        owner_project = os.environ.get("KOLIBRI_OWNER_PROJECT_PATH")
+        if owner_project:
+            roots.append(filesystem_root("owner-project", Path(owner_project), "owner project workspace", True))
+        for extra in parse_extra_filesystem_roots(os.environ.get("KOLIBRI_FILE_ROOTS", "")):
+            writable = extra.get("mode") in {"rw", "write", "writable", "read_write"}
+            roots.append(filesystem_root(extra["name"], Path(extra["path"]), "configured remote file root", writable))
+        for root in roots:
+            root["namespace"] = f"{namespace_prefix}/{root['name']}"
+        return {
+            "namespace_prefix": namespace_prefix,
+            "mode": FILESYSTEM_MODE,
+            "write_policy": FILESYSTEM_WRITE_POLICY,
+            "roots": roots,
+        }
+
     def post(self, path: str, body: dict[str, Any]) -> Any:
         return self._request_with_failover("POST", path, body)
 
@@ -129,6 +203,7 @@ class AgentHost:
             "agent_id": self.agent_id,
             "pid": self.pid,
             "capabilities": self.capabilities,
+            "filesystem": self.filesystem_manifest(),
             **machine_stats(),
         }
         self.post("/v1/nodes/register", body)
@@ -141,6 +216,7 @@ class AgentHost:
             "pid": self.pid,
             "capabilities": self.capabilities,
             "active_task": active_task,
+            "filesystem": self.filesystem_manifest(),
             **machine_stats(),
         }
         self.post(f"/v1/nodes/{self.node_id}/heartbeat", body)
