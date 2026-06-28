@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import os
 import platform
+import py_compile
 import shutil
 import signal
 import subprocess
@@ -65,6 +67,16 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def text_from_json_event(event: dict[str, Any]) -> str:
+    part = event.get("part") or {}
+    if part.get("type") == "text" and part.get("text"):
+        return str(part["text"])
+    item = event.get("item") or {}
+    if item.get("type") in {"agent_message", "message"} and item.get("text"):
+        return str(item["text"])
+    return ""
 
 
 class AgentHost:
@@ -133,7 +145,16 @@ class AgentHost:
         }
         self.post(f"/v1/nodes/{self.node_id}/heartbeat", body)
 
-    def task_heartbeat(self, task: dict[str, Any], worktree: Path, branch: str | None, logs: dict[str, str], pid: int | None = None) -> dict[str, Any]:
+    def task_heartbeat(
+        self,
+        task: dict[str, Any],
+        worktree: Path,
+        branch: str | None,
+        logs: dict[str, str],
+        pid: int | None = None,
+        progress: dict[str, Any] | None = None,
+        partial_response: str | None = None,
+    ) -> dict[str, Any]:
         body = {
             "state": "running",
             "pid": pid or self.pid,
@@ -141,6 +162,10 @@ class AgentHost:
             "branch": branch,
             "log_paths": logs,
         }
+        if progress:
+            body["progress"] = progress
+        if partial_response is not None:
+            body["partial_response"] = partial_response
         return self.post(f"/v1/tasks/{task['task_id']}/heartbeat", body)
 
     def lease(self) -> dict[str, Any] | None:
@@ -179,6 +204,126 @@ class AgentHost:
                 time.sleep(2)
             if proc.returncode != 0:
                 raise RuntimeError(f"command failed with rc={proc.returncode}: {' '.join(command)}")
+
+    def run_json_text_command(
+        self,
+        command: list[str],
+        cwd: Path,
+        stdout_path: Path,
+        stderr_path: Path,
+        task: dict[str, Any],
+        branch: str | None,
+        logs: dict[str, str],
+        env: dict[str, str] | None = None,
+    ) -> str:
+        merged_env = os.environ.copy()
+        if env:
+            merged_env.update(env)
+        response_parts: list[str] = []
+        last_refresh = 0.0
+        last_stream = 0.0
+        last_partial = ""
+
+        with stdout_path.open("ab") as stdout_log, stderr_path.open("ab") as stderr:
+            command_label = command[:-1] + ["[prompt]"] if command else command
+            stdout_log.write(f"\n$ {' '.join(command_label)}\n".encode("utf-8"))
+            stdout_log.flush()
+            proc = subprocess.Popen(
+                command,
+                cwd=str(cwd),
+                stdout=subprocess.PIPE,
+                stderr=stderr,
+                env=merged_env,
+                text=True,
+                bufsize=1,
+            )
+            assert proc.stdout is not None
+            while True:
+                line = proc.stdout.readline()
+                if line:
+                    stdout_log.write(line.encode("utf-8", errors="replace"))
+                    stdout_log.flush()
+                    stripped = line.strip()
+                    if stripped.startswith("{"):
+                        try:
+                            event = json.loads(stripped)
+                        except json.JSONDecodeError:
+                            event = {}
+                        text = text_from_json_event(event)
+                        if text:
+                            response_parts.append(text)
+                            partial = "".join(response_parts).strip()
+                            if partial and partial != last_partial and time.time() - last_stream >= 1.0:
+                                self.task_heartbeat(
+                                    task,
+                                    cwd,
+                                    branch,
+                                    logs,
+                                    proc.pid,
+                                    progress={"phase": "answering", "chars": len(partial)},
+                                    partial_response=partial,
+                                )
+                                last_partial = partial
+                                last_stream = time.time()
+
+                if proc.poll() is not None:
+                    remainder = proc.stdout.read()
+                    if remainder:
+                        stdout_log.write(remainder.encode("utf-8", errors="replace"))
+                        stdout_log.flush()
+                        for extra_line in remainder.splitlines():
+                            stripped = extra_line.strip()
+                            if not stripped.startswith("{"):
+                                continue
+                            try:
+                                event = json.loads(stripped)
+                            except json.JSONDecodeError:
+                                continue
+                            text = text_from_json_event(event)
+                            if text:
+                                response_parts.append(text)
+                    break
+
+                if STOP:
+                    proc.terminate()
+                    raise RuntimeError("agent host received SIGTERM")
+                if time.time() - last_refresh >= self.lease_refresh:
+                    self.task_heartbeat(task, cwd, branch, logs, proc.pid, progress={"phase": "running"})
+                    last_refresh = time.time()
+                time.sleep(0.1)
+
+            if proc.returncode != 0:
+                raise RuntimeError(f"command failed with rc={proc.returncode}: {' '.join(command_label)}")
+
+        response_text = "".join(response_parts).strip()
+        if response_text:
+            self.task_heartbeat(
+                task,
+                cwd,
+                branch,
+                logs,
+                proc.pid,
+                progress={"phase": "finalizing", "chars": len(response_text)},
+                partial_response=response_text,
+            )
+        return response_text
+
+    def build_text_runner_command(
+        self,
+        runner: str,
+        prompt: str,
+        cwd: Path,
+        title: str,
+    ) -> list[str]:
+        normalized = runner.strip().lower()
+        if normalized == "codex":
+            raise RuntimeError("codex CLI runner is disabled in server runtime; use a Control Plane agent or API-backed runner")
+        if normalized == "mimo":
+            mimo = shutil.which("mimo")
+            if not mimo:
+                raise RuntimeError("mimo executable is not available on this node")
+            return [mimo, "run", "--format", "json", "--title", title, prompt]
+        raise RuntimeError(f"unsupported text runner: {runner}")
 
     def write_result(self, artifact_dir: Path, result: dict[str, Any]) -> Path:
         result_path = artifact_dir / "result.json"
@@ -243,6 +388,118 @@ class AgentHost:
         result["result_path"] = str(result_path)
         return result
 
+    def probe_http_status(self, url: str, method: str = "GET", body: dict[str, Any] | None = None) -> dict[str, Any]:
+        data = None if body is None else json.dumps(body).encode("utf-8")
+        req = urllib.request.Request(url, data=data, method=method, headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                payload = resp.read(512).decode("utf-8", "replace")
+                return {"status_code": resp.status, "body": payload}
+        except urllib.error.HTTPError as exc:
+            payload = exc.read(512).decode("utf-8", "replace")
+            return {"status_code": exc.code, "body": payload}
+        except Exception as exc:
+            return {"status_code": None, "error": f"{type(exc).__name__}: {exc}"}
+
+    def run_runtime_exec_hardening_probe(self, task: dict[str, Any]) -> dict[str, Any]:
+        envelope = task.get("envelope", {})
+        project_path = Path(envelope.get("project_path") or os.environ.get("KOLIBRI_OWNER_PROJECT_PATH") or os.getcwd()).expanduser()
+        worktree, artifact_dir, logs = self.prepare_dirs(task)
+        worktree.mkdir(parents=True, exist_ok=True)
+        self.task_heartbeat(task, project_path, None, logs, progress={"phase": "runtime_hardening_probe"})
+
+        checked_files = [
+            "backend/providers.py",
+            "infra/network/api.py",
+            "infra/network/organism.py",
+            "ops/telegram_gateway.py",
+            "ops/factory_control.py",
+        ]
+        compile_files = [*checked_files, "ops/agent_host.py"]
+        forbidden = [
+            "/api" + "/exec",
+            "/task" + "/execute",
+            "shell" + "=True",
+            "os." + "system",
+            "child_" + "process",
+            "exec" + "Sync",
+            "exec" + "File",
+            "dangerously-" + "skip-permissions",
+            "codex" + " exec",
+        ]
+        file_results = []
+        blocked_markers: list[dict[str, str]] = []
+        compile_results = []
+        for relative in compile_files:
+            path = project_path / relative
+            if path.is_file():
+                try:
+                    py_compile.compile(str(path), doraise=True)
+                    compile_results.append({"path": relative, "ok": True})
+                except Exception as exc:
+                    compile_results.append({"path": relative, "ok": False, "error": str(exc)})
+
+        for relative in checked_files:
+            path = project_path / relative
+            item = {"path": relative, "exists": path.is_file()}
+            if path.is_file():
+                text = path.read_text(encoding="utf-8", errors="ignore")
+                hits = [marker for marker in forbidden if marker in text]
+                item["forbidden_hits"] = hits
+                for marker in hits:
+                    blocked_markers.append({"path": relative, "marker": marker})
+            file_results.append(item)
+
+        codex_runner_disabled = False
+        codex_runner_error = ""
+        try:
+            self.build_text_runner_command("codex", "probe", project_path, "runtime-hardening-probe")
+        except RuntimeError as exc:
+            codex_runner_disabled = "disabled" in str(exc).lower()
+            codex_runner_error = str(exc)
+
+        control_health = self.probe_http_status(f"{self.control_url}/health")
+        coordinator = str(envelope.get("coordinator_url") or os.environ.get("COORDINATOR_URL") or "").rstrip("/")
+        coordinator_probes = {}
+        if coordinator:
+            for endpoint in ["/api" + "/exec", "/task" + "/execute"]:
+                coordinator_probes[endpoint] = self.probe_http_status(f"{coordinator}{endpoint}", method="POST", body={})
+
+        endpoint_blocked = all(
+            probe.get("status_code") in {404, 405, 410}
+            for probe in coordinator_probes.values()
+        ) if coordinator_probes else True
+        compile_ok = all(item.get("ok") for item in compile_results)
+        status = "completed" if not blocked_markers and codex_runner_disabled and endpoint_blocked and compile_ok else "failed"
+        result = {
+            "node_id": self.node_id,
+            "hostname": self.hostname,
+            "task_id": task["task_id"],
+            "agent_id": self.agent_id,
+            "attempt_id": task.get("attempt_id"),
+            "pid": self.pid,
+            "heartbeat_at": utc_now(),
+            "worktree": str(project_path),
+            "branch": envelope.get("branch"),
+            "log_paths": logs,
+            "result_path": str(artifact_dir / "result.json"),
+            "status": status,
+            "kind": "runtime_exec_hardening_probe",
+            "control_plane": control_health,
+            "coordinator": coordinator or None,
+            "coordinator_probes": coordinator_probes,
+            "codex_runner_disabled": codex_runner_disabled,
+            "codex_runner_error": codex_runner_error,
+            "file_results": file_results,
+            "compile_results": compile_results,
+            "blocked_markers": blocked_markers,
+        }
+        result_path = self.write_result(artifact_dir, result)
+        result["result_path"] = str(result_path)
+        if status != "completed":
+            raise RuntimeError("runtime exec hardening probe failed; see result.json")
+        return result
+
     def run_telegram_chat_response(self, task: dict[str, Any]) -> dict[str, Any]:
         envelope = task.get("envelope", {})
         message = (envelope.get("message") or "").strip()
@@ -268,11 +525,10 @@ class AgentHost:
             f"Снимок фабрики JSON: {json.dumps(envelope.get('factory_snapshot') or {}, ensure_ascii=False, sort_keys=True)}\n"
             f"Сообщение владельца: {message}"
         )
-        mimo = shutil.which("mimo")
-        if not mimo:
-            raise RuntimeError("mimo executable is not available on this node")
-        self.run_command(
-            [mimo, "run", "--format", "json", "--title", f"telegram-chat-{task['task_id']}", prompt],
+        runner = str(envelope.get("runner") or os.environ.get("KOLIBRI_TELEGRAM_CHAT_RUNNER") or "mimo")
+        command = self.build_text_runner_command(runner, prompt, worktree, f"telegram-chat-{task['task_id']}")
+        response_text = self.run_json_text_command(
+            command,
             worktree,
             stdout_path,
             stderr_path,
@@ -280,21 +536,8 @@ class AgentHost:
             None,
             logs,
         )
-        response_parts = []
-        for line in stdout_path.read_text(encoding="utf-8", errors="ignore").splitlines():
-            line = line.strip()
-            if not line.startswith("{"):
-                continue
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            part = event.get("part") or {}
-            if part.get("type") == "text" and part.get("text"):
-                response_parts.append(part["text"])
-        response_text = "".join(response_parts).strip()
         if not response_text:
-            raise RuntimeError("mimo completed without text response")
+            raise RuntimeError(f"{runner} completed without text response")
         result = {
             "node_id": self.node_id,
             "hostname": self.hostname,
@@ -344,36 +587,25 @@ class AgentHost:
             f"Рабочая директория: {run_cwd}\n"
             f"Задача владельца: {objective}\n"
         )
-        mimo = shutil.which("mimo")
-        if not mimo:
-            raise RuntimeError("mimo executable is not available on this node")
-        command = [
-            mimo,
-            "run",
-            "--format",
-            "json",
-            "--title",
-            f"owner-task-{task['task_id']}",
-            "--dir",
-            str(run_cwd),
-            "--dangerously-skip-permissions",
-            prompt,
-        ]
-        self.run_command(command, run_cwd, stdout_path, stderr_path, task, branch, logs)
-
-        response_parts = []
-        for line in stdout_path.read_text(encoding="utf-8", errors="ignore").splitlines():
-            line = line.strip()
-            if not line.startswith("{"):
-                continue
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            part = event.get("part") or {}
-            if part.get("type") == "text" and part.get("text"):
-                response_parts.append(part["text"])
-        response_text = "".join(response_parts).strip()
+        runner = str(envelope.get("runner") or os.environ.get("KOLIBRI_OWNER_TASK_RUNNER") or "mimo")
+        if runner.strip().lower() == "mimo":
+            mimo = shutil.which("mimo")
+            if not mimo:
+                raise RuntimeError("mimo executable is not available on this node")
+            command = [
+                mimo,
+                "run",
+                "--format",
+                "json",
+                "--title",
+                f"owner-task-{task['task_id']}",
+                "--dir",
+                str(run_cwd),
+                prompt,
+            ]
+        else:
+            command = self.build_text_runner_command(runner, prompt, run_cwd, f"owner-task-{task['task_id']}")
+        response_text = self.run_json_text_command(command, run_cwd, stdout_path, stderr_path, task, branch, logs)
         result = {
             "node_id": self.node_id,
             "hostname": self.hostname,
@@ -390,6 +622,100 @@ class AgentHost:
             "kind": envelope.get("kind", "owner_remote_task"),
             "objective": objective,
             "response": response_text,
+        }
+        result_path = self.write_result(artifact_dir, result)
+        result["result_path"] = str(result_path)
+        return result
+
+    def openai_api_key(self) -> str:
+        for name in ("OPENAI_API_KEY", "KOLIBRI_OPENAI_API_KEY"):
+            value = os.environ.get(name)
+            if value:
+                return value.strip()
+        for path in (
+            Path("/etc/kolibri/openai.env"),
+            Path("/root/.config/kolibri/openai.env"),
+            Path("/var/lib/kolibri-agent/.env"),
+        ):
+            if not path.is_file():
+                continue
+            for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+                if not line or line.lstrip().startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                if key.strip() in {"OPENAI_API_KEY", "KOLIBRI_OPENAI_API_KEY"}:
+                    return value.strip().strip('"').strip("'")
+        return ""
+
+    def generate_image_with_openai(self, prompt: str, output_path: Path) -> Path:
+        api_key = self.openai_api_key()
+        if not api_key:
+            raise RuntimeError("OPENAI_API_KEY is not configured on this remote node")
+        payload = {
+            "model": os.environ.get("KOLIBRI_IMAGE_MODEL", "gpt-4.1-mini"),
+            "input": prompt,
+            "tools": [{"type": "image_generation"}],
+        }
+        req = urllib.request.Request(
+            "https://api.openai.com/v1/responses",
+            data=json.dumps(payload).encode("utf-8"),
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=180) as resp:
+            response = json.loads(resp.read().decode("utf-8"))
+        image_base64 = None
+        for item in response.get("output", []):
+            if item.get("type") == "image_generation_call":
+                image_base64 = item.get("result")
+                break
+        if not image_base64:
+            raise RuntimeError("OpenAI image generation completed without image data")
+        output_path.write_bytes(base64.b64decode(image_base64))
+        return output_path
+
+    def run_owner_image_task(self, task: dict[str, Any]) -> dict[str, Any]:
+        envelope = task.get("envelope", {})
+        objective = (envelope.get("objective") or "").strip()
+        if not objective:
+            raise RuntimeError("owner image task missing objective")
+        worktree, artifact_dir, logs = self.prepare_dirs(task)
+        worktree.mkdir(parents=True, exist_ok=True)
+        image_path = artifact_dir / "telegram-image.png"
+        self.task_heartbeat(task, worktree, None, logs, progress={"phase": "image_generation"})
+        try:
+            self.generate_image_with_openai(objective, image_path)
+            response = "Готово, отправляю картинку."
+            status = "completed"
+            error = None
+        except Exception as exc:
+            response = (
+                "Картинку пока не сгенерировал: на этом удалённом узле не подключен рабочий ключ генерации изображений. "
+                "Я не буду выдавать текст за картинку."
+            )
+            status = "blocked"
+            error = str(exc)
+        result = {
+            "node_id": self.node_id,
+            "hostname": self.hostname,
+            "task_id": task["task_id"],
+            "agent_id": self.agent_id,
+            "attempt_id": task.get("attempt_id"),
+            "pid": self.pid,
+            "heartbeat_at": utc_now(),
+            "worktree": str(worktree),
+            "branch": None,
+            "log_paths": logs,
+            "result_path": str(artifact_dir / "result.json"),
+            "status": status,
+            "kind": envelope.get("kind", "owner_image_task"),
+            "objective": objective,
+            "response": response,
+            "image_path": str(image_path) if image_path.is_file() else None,
+            "error": error,
         }
         result_path = self.write_result(artifact_dir, result)
         result["result_path"] = str(result_path)
@@ -858,6 +1184,8 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 result = self.run_impl_retry_error_clearance(task)
             elif kind == "owner_remote_task":
                 result = self.run_owner_remote_task(task)
+            elif kind == "owner_image_task":
+                result = self.run_owner_image_task(task)
             elif kind in {"telegram_chat_response", "orchestrator_chat_response"}:
                 result = self.run_telegram_chat_response(task)
             elif kind == "review_pr":
@@ -866,6 +1194,8 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 result = self.run_read_only_probe(task)
             elif kind == "root_goal":
                 result = self.run_root_goal(task)
+            elif kind == "runtime_exec_hardening_probe":
+                result = self.run_runtime_exec_hardening_probe(task)
             else:
                 raise RuntimeError(f"unsupported task kind: {kind}")
             result_path = Path(result["result_path"])

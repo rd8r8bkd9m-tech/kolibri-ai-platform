@@ -383,12 +383,26 @@ class Handler(BaseHTTPRequestHandler):
                 query = parse_qs(parsed.query)
                 wanted = query.get("state", [None])[0]
                 try:
+                    limit = int(query.get("limit", ["0"])[0] or "0")
+                except ValueError:
+                    limit = 0
+                try:
                     replay_spooled_tasks()
-                    tasks = [load_task(task_id) for task_id in all_task_ids()]
+                    task_ids = all_task_ids()
+                    if limit > 0:
+                        task_ids = task_ids[-limit:]
+                    tasks = [load_task(task_id) for task_id in task_ids]
                     tasks = [task for task in tasks if task and (wanted is None or task.get("state") == wanted)]
-                    response(self, 200, {"tasks": tasks, "queue": queue_ids(), "spool_count": len(spooled_tasks())})
+                    queue = queue_ids()
+                    response(self, 200, {
+                        "tasks": tasks,
+                        "queue": queue[:limit] if limit > 0 else queue,
+                        "spool_count": len(spooled_tasks()),
+                    })
                 except Exception as exc:
                     tasks = spooled_tasks()
+                    if limit > 0:
+                        tasks = tasks[-limit:]
                     tasks = [task for task in tasks if wanted is None or task.get("state") == wanted]
                     response(self, 200, {
                         "status": "degraded",
@@ -513,6 +527,16 @@ class Handler(BaseHTTPRequestHandler):
                     task["worktree"] = body.get("worktree", task.get("worktree"))
                     task["branch"] = body.get("branch", task.get("branch"))
                     task["log_paths"] = body.get("log_paths", task.get("log_paths"))
+                    progress = body.get("progress") or {}
+                    partial_response = body.get("partial_response")
+                    if progress or partial_response is not None:
+                        result = task.get("result") if isinstance(task.get("result"), dict) else {}
+                        if progress:
+                            result["progress"] = progress
+                        if partial_response is not None:
+                            result["partial_response"] = partial_response
+                        result["stream_updated_at"] = utc_now()
+                        task["result"] = result
                     save_task(task)
                 response(self, 200, task)
                 return

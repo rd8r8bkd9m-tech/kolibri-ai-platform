@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import mimetypes
 import os
 import re
 import signal
@@ -100,6 +101,43 @@ OWNER_RESPONSE_REPLACEMENTS = {
     "Колиби": "Колибри",
     "колиби": "Колибри",
 }
+OWNER_RUNTIME_FAILURE_MARKERS = (
+    "command failed",
+    "run --format",
+    "telegram-chat-",
+    "tgchat-",
+    "rc=",
+    "traceback",
+    "runtimeerror",
+    "--title",
+    "ты — центральный оркестратор",
+)
+IMMEDIATE_CHAT_MARKERS = (
+    "как дела",
+    "как ты",
+    "что нового",
+    "как зовут",
+    "тебя зовут",
+    "кто ты",
+    "статус",
+    "что делаешь",
+    "какие задачи",
+    "контекст",
+    "помнишь",
+    "память",
+)
+IMAGE_INTENT_MARKERS = (
+    "картин",
+    "изображ",
+    "фото",
+    "логотип",
+    "лого",
+    "нарисуй",
+    "сгенерируй",
+    "визуал",
+)
+IMAGE_RESULT_KEYS = ("image_path", "photo_path", "media_path", "image_url", "photo_url", "media_url")
+IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".gif")
 
 
 def utc_now() -> str:
@@ -154,6 +192,28 @@ def wants_factory_task(text: str) -> bool:
     return any(word in lowered for word in TASK_INTENT_WORDS)
 
 
+def wants_image_generation(text: str) -> bool:
+    lowered = text.strip().lower()
+    return any(marker in lowered for marker in IMAGE_INTENT_MARKERS)
+
+
+def should_answer_immediately(text: str) -> bool:
+    lowered = text.strip().lower()
+    if not lowered:
+        return False
+    if answer_simple_arithmetic(text) is not None and os.environ.get("TELEGRAM_DETERMINISTIC_SHORTCUTS", "0") == "1":
+        return True
+    return False
+
+
+def owner_safe_runtime_failure(text: str, snapshot: dict[str, Any] | None = None) -> str:
+    del text
+    active = len((snapshot or {}).get("active_tasks") or [])
+    if active:
+        return "Внутри фабрики упал исполнитель. Я не буду выносить технический мусор в чат: зафиксировал сбой и переключаю разбор на рабочий контур."
+    return "Внутри фабрики упал исполнитель. Я зафиксировал сбой и разберу его отдельно; в чат дальше будут приходить только нормальные ответы."
+
+
 def json_request(method: str, url: str, body: dict[str, Any] | None = None, timeout: int = 35) -> Any:
     data = None
     headers = {"Content-Type": "application/json"}
@@ -193,8 +253,65 @@ class TelegramClient:
             payload["offset"] = offset
         return self.call("getUpdates", payload, timeout=timeout + 10).get("result", [])
 
-    def send_message(self, chat_id: int, text: str) -> None:
-        self.call("sendMessage", {"chat_id": chat_id, "text": text[:3900], "disable_web_page_preview": True})
+    def send_message(self, chat_id: int, text: str) -> dict[str, Any]:
+        response = self.call("sendMessage", {"chat_id": chat_id, "text": text[:3900], "disable_web_page_preview": True})
+        return response.get("result") or {}
+
+    def send_photo(self, chat_id: int | str, photo: str, caption: str | None = None) -> dict[str, Any]:
+        if photo.startswith(("http://", "https://")):
+            payload: dict[str, Any] = {"chat_id": chat_id, "photo": photo}
+            if caption:
+                payload["caption"] = caption[:1000]
+            response = self.call("sendPhoto", payload, timeout=60)
+            return response.get("result") or {}
+
+        path = Path(photo)
+        if not path.is_file():
+            raise FileNotFoundError(f"photo file not found: {path}")
+        boundary = f"----kolibri-{int(time.time() * 1000)}"
+        body = bytearray()
+        fields = {"chat_id": str(chat_id)}
+        if caption:
+            fields["caption"] = caption[:1000]
+        for key, value in fields.items():
+            body.extend(f"--{boundary}\r\n".encode("utf-8"))
+            body.extend(f'Content-Disposition: form-data; name="{key}"\r\n\r\n'.encode("utf-8"))
+            body.extend(str(value).encode("utf-8"))
+            body.extend(b"\r\n")
+        content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        body.extend(f"--{boundary}\r\n".encode("utf-8"))
+        body.extend(
+            (
+                f'Content-Disposition: form-data; name="photo"; filename="{path.name}"\r\n'
+                f"Content-Type: {content_type}\r\n\r\n"
+            ).encode("utf-8")
+        )
+        body.extend(path.read_bytes())
+        body.extend(b"\r\n")
+        body.extend(f"--{boundary}--\r\n".encode("utf-8"))
+        req = urllib.request.Request(
+            f"{self.base_url}/sendPhoto",
+            data=bytes(body),
+            method="POST",
+            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+        )
+        with urllib.request.urlopen(req, timeout=90) as resp:
+            response = json.loads(resp.read().decode("utf-8"))
+        if not response.get("ok"):
+            raise RuntimeError("telegram sendPhoto failed")
+        return response.get("result") or {}
+
+    def edit_message(self, chat_id: int, message_id: int, text: str) -> dict[str, Any]:
+        response = self.call(
+            "editMessageText",
+            {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "text": text[:3900],
+                "disable_web_page_preview": True,
+            },
+        )
+        return response.get("result") or {}
 
     def send_action(self, chat_id: int, action: str = "typing") -> None:
         self.call("sendChatAction", {"chat_id": chat_id, "action": action}, timeout=10)
@@ -203,22 +320,25 @@ class TelegramClient:
 class FactoryClient:
     def __init__(self, control_url: str):
         self.control_url = control_url.rstrip("/")
+        self.timeout = int(os.environ.get("TELEGRAM_FACTORY_TIMEOUT", "12"))
+        self.snapshot_timeout = int(os.environ.get("TELEGRAM_FACTORY_SNAPSHOT_TIMEOUT", "8"))
+        self.snapshot_task_limit = int(os.environ.get("TELEGRAM_FACTORY_SNAPSHOT_TASK_LIMIT", "80"))
 
     def create_task(self, envelope: dict[str, Any]) -> dict[str, Any]:
-        return json_request("POST", f"{self.control_url}/v1/tasks", envelope)
+        return json_request("POST", f"{self.control_url}/v1/tasks", envelope, timeout=self.timeout)
 
     def get_task(self, task_id: str) -> dict[str, Any]:
-        return json_request("GET", f"{self.control_url}/v1/tasks/{urllib.parse.quote(task_id, safe='')}")
+        return json_request("GET", f"{self.control_url}/v1/tasks/{urllib.parse.quote(task_id, safe='')}", timeout=self.timeout)
 
     def get_tasks(self) -> dict[str, Any]:
-        return json_request("GET", f"{self.control_url}/v1/tasks")
+        return json_request("GET", f"{self.control_url}/v1/tasks?limit={self.snapshot_task_limit}", timeout=self.snapshot_timeout)
 
     def cancel_task(self, task_id: str) -> dict[str, Any]:
         quoted = urllib.parse.quote(task_id, safe="")
-        return json_request("POST", f"{self.control_url}/v1/tasks/{quoted}/cancel", {"reason": "telegram cancel"})
+        return json_request("POST", f"{self.control_url}/v1/tasks/{quoted}/cancel", {"reason": "telegram cancel"}, timeout=self.timeout)
 
     def nodes(self) -> dict[str, Any]:
-        return json_request("GET", f"{self.control_url}/v1/nodes")
+        return json_request("GET", f"{self.control_url}/v1/nodes", timeout=self.snapshot_timeout)
 
 
 def compact_factory_snapshot(factory: FactoryClient) -> dict[str, Any]:
@@ -278,11 +398,11 @@ def build_task_envelope(message: dict[str, Any], text: str, context: dict[str, A
     lowered = text.lower()
     if not project_path and ("kimi" in lowered or "кими" in lowered or "колибрифин" in lowered):
         project_path = "/home/ladik/kolibri-projects/kimi_agent_kolibrifin"
-    return {
+    is_image_task = wants_image_generation(text)
+    envelope = {
         "task_id": task_id,
         "idempotency_key": f"telegram:{message['chat']['id']}:{message['message_id']}",
-        "kind": os.environ.get("TELEGRAM_TASK_KIND", "owner_remote_task"),
-        "target_node": os.environ.get("TELEGRAM_TASK_NODE", "home-live"),
+        "kind": os.environ.get("TELEGRAM_TASK_KIND", "owner_image_task" if is_image_task else "owner_remote_task"),
         "required_capability": os.environ.get("TELEGRAM_TASK_CAPABILITY", "generic_implementation"),
         "review_node": "new",
         "create_review_on_complete": False,
@@ -301,19 +421,39 @@ def build_task_envelope(message: dict[str, Any], text: str, context: dict[str, A
             "accepted_at": utc_now(),
         },
     }
+    if is_image_task:
+        envelope["media_intent"] = "image"
+        envelope["runner"] = os.environ.get("TELEGRAM_IMAGE_RUNNER", "openai-image")
+    target_node = os.environ.get("TELEGRAM_TASK_NODE")
+    if is_image_task and not target_node:
+        target_node = os.environ.get("TELEGRAM_IMAGE_NODE", "primary-candidate")
+    if target_node:
+        envelope["target_node"] = target_node
+    return envelope
 
 
 def build_chat_envelope(message: dict[str, Any], text: str, snapshot: dict[str, Any] | None = None) -> dict[str, Any]:
     task_id = chat_task_id_from_message(message)
-    return {
+    context = snapshot or {}
+    objective = (
+        "Сгенерируй живой короткий ответ владельцу проекта в Telegram. "
+        "Отвечай как директор-оркестратор проекта: естественно, по-русски, без заготовок, без markdown, "
+        "без task_id, node, agent, путей, команд и служебных деталей. "
+        "Не называй себя брендом продукта. Если владелец просто здоровается, ответь по-человечески и мягко, "
+        "но не используй заранее заданную фразу. Если владелец спрашивает о работе, используй контекст фабрики. "
+        f"Контекст фабрики: {json.dumps(context, ensure_ascii=False, sort_keys=True)}\n"
+        f"Сообщение владельца: {text}"
+    )
+    envelope = {
         "task_id": task_id,
         "idempotency_key": f"telegram-chat:{message['chat']['id']}:{message['message_id']}",
-        "kind": "orchestrator_chat_response",
-        "target_node": os.environ.get("TELEGRAM_CHAT_NODE", "home-live"),
+        "kind": os.environ.get("TELEGRAM_CHAT_KIND", "orchestrator_chat_response"),
         "required_capability": os.environ.get("TELEGRAM_CHAT_CAPABILITY", "generic_implementation"),
         "max_retries": 1,
         "message": text,
-        "factory_snapshot": snapshot or {},
+        "objective": objective,
+        "runner": os.environ.get("TELEGRAM_CHAT_RUNNER", "mimo"),
+        "factory_snapshot": context,
         "source": {
             "kind": "telegram",
             "message_id": message["message_id"],
@@ -322,11 +462,30 @@ def build_chat_envelope(message: dict[str, Any], text: str, snapshot: dict[str, 
             "accepted_at": utc_now(),
         },
     }
+    target_node = os.environ.get("TELEGRAM_CHAT_NODE", "primary-candidate")
+    if target_node:
+        envelope["target_node"] = target_node
+    return envelope
 
 
 def has_any(text: str, words: tuple[str, ...]) -> bool:
     lowered = text.lower()
     return any(word in lowered for word in words)
+
+
+def answer_simple_arithmetic(text: str) -> str | None:
+    expression = text.strip().replace(",", ".")
+    if not re.fullmatch(r"[0-9\s+\-*/().]+", expression):
+        return None
+    if not re.search(r"[+\-*/]", expression):
+        return None
+    try:
+        value = eval(expression, {"__builtins__": {}}, {})
+    except Exception:
+        return None
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    return str(value)
 
 
 def describe_task_state(state: str | None) -> str:
@@ -381,8 +540,17 @@ def build_realtime_owner_reply(text: str, snapshot: dict[str, Any]) -> str:
     last_state_text = describe_task_state(last_state)
     url = first_known_url(memory)
 
-    if lowered in CHAT_GREETINGS:
-        return "Привет. Я на связи. Пиши обычным языком: я отвечаю сам, держу контекст разработки и слежу за фабрикой."
+    arithmetic = answer_simple_arithmetic(text)
+    if arithmetic is not None:
+        return arithmetic
+
+    if has_any(text, ("как дела", "как ты", "что нового")):
+        if active_tasks:
+            return f"Работа идёт. Сейчас вижу активные задачи и держу команду в фокусе: {team}."
+        return f"Я в порядке и смотрю на контур. Активных задач прямо сейчас не вижу, команда доступна: {team}."
+
+    if has_any(text, ("как зовут", "тебя зовут", "кто ты")):
+        return "Для проекта я директор-оркестратор. Можешь обращаться ко мне просто как к Директору: я принимаю задачи, распределяю работу и возвращаю понятный результат."
 
     if has_any(text, ("ссыл", "url", "линк", "link")):
         if url:
@@ -402,9 +570,9 @@ def build_realtime_owner_reply(text: str, snapshot: dict[str, Any]) -> str:
     if has_any(text, ("что делаешь", "какие задачи", "статус", "что сделано", "не завис", "монитор", "кто делает", "что выполня")):
         if active_tasks:
             task_count = len(active_tasks)
-            prefix = f"Я на связи. Сейчас в работе {task_count} задач."
+            prefix = f"Сейчас в работе {task_count} задач."
         else:
-            prefix = "Я на связи. Сейчас активных задач не вижу."
+            prefix = "Сейчас активных задач не вижу."
         if url and last_state == "completed":
             return f"{prefix} Последний результат готов: {url}"
         return f"{prefix} Команда на связи: {team}. {last_work_line(memory)}"
@@ -419,7 +587,24 @@ def build_realtime_owner_reply(text: str, snapshot: dict[str, Any]) -> str:
             return f"Да. Последний готовый результат здесь: {url}"
         return f"Отвечаю сразу. Команда на связи: {team}. {last_work_line(memory)}"
 
-    return "Понял. Я на связи и держу контекст. Если это задача, назначу исполнителя и буду вести результат."
+    return f"Слышу. Продолжаю из текущего контекста: {last_work_line(memory)}"
+
+
+def build_task_ack_reply(text: str, snapshot: dict[str, Any], task: dict[str, Any]) -> str:
+    del task
+    active = len(snapshot.get("active_tasks") or [])
+    lowered = text.lower()
+    if wants_image_generation(text):
+        return "Принял. Это должна быть настоящая картинка в чате, не текстовое обещание. Отправлю файл, а если генератор на сервере не подключен — скажу конкретный блокер."
+    if has_any(lowered, ("telegram", "телеграм", "бот", "mini app", "миниапп")):
+        return "Да, это главный баг интерфейса. Забираю его как P0: чиню живой Telegram-диалог, контекст и поток обновлений от директора."
+    if has_any(lowered, ("mesh", "мэш", "единый компьютер", "единый организм", "синхронизац")):
+        return "Беру в работу контур связи. Цель понятна: фабрика должна общаться через mesh/API и видеть общий контекст, а не жить отдельными серверами."
+    if has_any(lowered, ("деплой", "deploy", "запусти", "дев", "dev", "ссыл")):
+        return "Задачу принял. Отдам исполнителю через фабрику и верну рабочую ссылку только после реальной проверки."
+    if active:
+        return f"Принял задачу. Вижу ещё {active} активных процессов, поэтому поставлю её в очередь без потери контекста и буду вести результат здесь."
+    return "Принял задачу. Сам назначу исполнителя и буду возвращать сюда только понятные статусы и результат."
 
 
 def help_text() -> str:
@@ -504,40 +689,136 @@ class Gateway:
         record_orchestrator_message(self.memory(), text, utc_now())
         self.state.save()
 
+    def send_stream_update(self, chat_id: int, message_id: int | None, text: str) -> int | None:
+        text = text.strip()
+        if not text:
+            return message_id
+        if message_id and hasattr(self.telegram, "edit_message"):
+            try:
+                self.telegram.edit_message(chat_id, message_id, text)
+                return message_id
+            except Exception:
+                pass
+        sent = self.telegram.send_message(chat_id, text)
+        if isinstance(sent, dict) and sent.get("message_id"):
+            return int(sent["message_id"])
+        return message_id
+
+    def remember_chat_identity(self, message: dict[str, Any]) -> None:
+        user = message.get("from") or {}
+        chat = message.get("chat") or {}
+        username = (user.get("username") or chat.get("username") or "").strip()
+        if not username:
+            return
+        key = username.lower().lstrip("@")
+        self.state.data.setdefault("telegram_users", {})[key] = {
+            "chat_id": chat.get("id"),
+            "username": username,
+            "first_name": user.get("first_name"),
+            "last_name": user.get("last_name"),
+            "updated_at": utc_now(),
+        }
+        self.state.save()
+
+    def resolve_chat_ref(self, value: int | str) -> int | str:
+        if isinstance(value, int):
+            return value
+        raw = str(value).strip()
+        if raw.startswith("@"):
+            user = self.state.data.get("telegram_users", {}).get(raw.lower().lstrip("@"))
+            if user and user.get("chat_id"):
+                return int(user["chat_id"])
+            return raw
+        if raw.isdigit() or (raw.startswith("-") and raw[1:].isdigit()):
+            return int(raw)
+        user = self.state.data.get("telegram_users", {}).get(raw.lower())
+        if user and user.get("chat_id"):
+            return int(user["chat_id"])
+        return raw
+
+    def send_result_media(self, chat_id: int | str, task: dict[str, Any]) -> bool:
+        result = task.get("result") or {}
+        image_ref = result_image_ref(result)
+        if not image_ref:
+            return False
+        caption = clean_agent_response(result.get("response") or result.get("caption") or "")
+        target = self.resolve_chat_ref(chat_id)
+        try:
+            self.telegram.send_photo(target, image_ref, caption or None)
+            if caption:
+                self.remember_orchestrator_message(caption)
+            return True
+        except Exception:
+            self.telegram.send_message(
+                target,
+                "Картинка уже создана, но Telegram не принял отправку файла. Я зафиксировал сбой отправки и проверяю media-шлюз.",
+            )
+            return True
+
     def submit_text_task(self, message: dict[str, Any], text: str) -> None:
-        envelope = build_task_envelope(message, text, self.conversation_snapshot())
+        snapshot = self.conversation_snapshot()
+        envelope = build_task_envelope(message, text, snapshot)
         task = self.factory.create_task(envelope)
         self.track(message["chat"]["id"], task["task_id"], task["state"])
         record_work_task(self.memory(), text, task["task_id"], task["state"], utc_now())
         self.state.save()
-        reply = "Принял задачу в работу. Я сам выберу подходящего исполнителя и вернусь с важным результатом."
-        self.telegram.send_message(message["chat"]["id"], reply)
-        self.remember_orchestrator_message(reply)
+        ack_prompt = (
+            f"Владелец дал рабочую задачу: {text}\n"
+            "Я уже поставил её в фабрику. Ответь владельцу как директор проекта: коротко, живо, "
+            "без служебных идентификаторов и без обещаний, которые не подтверждены состоянием фабрики."
+        )
+        self.submit_chat_task(message, ack_prompt)
 
     def submit_chat_task(self, message: dict[str, Any], text: str) -> None:
         chat_id = message["chat"]["id"]
-        task = self.factory.create_task(build_chat_envelope(message, text, self.conversation_snapshot()))
+        snapshot = self.conversation_snapshot()
+        task = self.factory.create_task(build_chat_envelope(message, text, snapshot))
         initial_label = SIGNIFICANT_STATES.get(task.get("state"), task.get("state"))
         self.track(chat_id, task["task_id"], initial_label or "queued", mode="chat")
 
-        wait_seconds = int(os.environ.get("TELEGRAM_CHAT_WAIT_SECONDS", "25"))
+        wait_seconds = int(os.environ.get("TELEGRAM_CHAT_WAIT_SECONDS", "90"))
+        first_reply_seconds = int(os.environ.get("TELEGRAM_CHAT_FIRST_REPLY_SECONDS", "0"))
         deadline = time.time() + max(0, wait_seconds)
+        first_reply_at = time.time() + max(0, first_reply_seconds) if first_reply_seconds > 0 else None
         last_action = 0.0
+        last_sent = ""
+        stream_message_id: int | None = None
         while time.time() < deadline:
             now = time.time()
             if now - last_action >= 4:
                 self.telegram.send_action(chat_id)
                 last_action = now
             current = self.factory.get_task(task["task_id"])
+            result = current.get("result") or {}
+            partial = clean_agent_response(result.get("partial_response")) if result.get("partial_response") else ""
+            if partial and partial != last_sent:
+                stream_message_id = self.send_stream_update(chat_id, stream_message_id, partial)
+                last_sent = partial
             state = current.get("state")
             if state in TERMINAL_TASK_STATES:
-                reply = format_transition(SIGNIFICANT_STATES.get(state, state), current, mode="chat")
-                self.telegram.send_message(chat_id, reply)
-                self.remember_orchestrator_message(reply)
+                if state in {"failed", "dead_letter"}:
+                    reply = owner_safe_runtime_failure(text, snapshot)
+                else:
+                    if self.send_result_media(chat_id, current):
+                        self.state.data.setdefault("tracked", {}).pop(task["task_id"], None)
+                        self.state.save()
+                        return
+                    reply = format_transition(SIGNIFICANT_STATES.get(state, state), current, mode="chat")
+                if reply and reply != last_sent:
+                    stream_message_id = self.send_stream_update(chat_id, stream_message_id, reply)
+                    last_sent = reply
+                if last_sent:
+                    self.remember_orchestrator_message(last_sent)
                 self.state.data.setdefault("tracked", {}).pop(task["task_id"], None)
                 self.state.save()
                 return
+            if first_reply_at and not last_sent and now >= first_reply_at:
+                reply = build_realtime_owner_reply(text, snapshot)
+                stream_message_id = self.send_stream_update(chat_id, stream_message_id, reply)
+                last_sent = reply
             time.sleep(1)
+        if not last_sent:
+            self.state.save()
 
     def auto_track_owner_tasks(self) -> None:
         chat_id = self.owner_chat_id()
@@ -601,6 +882,7 @@ class Gateway:
         if not text:
             return
         self.state.data["owner_chat_id"] = message["chat"]["id"]
+        self.remember_chat_identity(message)
         if text.startswith("/"):
             self.remember_owner_message(text, "command")
             self.handle_command(message, text)
@@ -610,6 +892,25 @@ class Gateway:
         else:
             self.remember_owner_message(text, "chat")
             self.submit_chat_task(message, text)
+
+    def auto_track_owner_tasks(self) -> None:
+        chat_id = self.owner_chat_id()
+        if not chat_id:
+            return
+        try:
+            tasks = self.factory.get_tasks().get("tasks", [])
+        except Exception:
+            return
+        tracked = self.state.data.setdefault("tracked", {})
+        since = self.state.data.get("common_chat_since")
+        for task in tasks:
+            task_id = task.get("task_id")
+            if not task_id or task_id in tracked:
+                continue
+            if not owner_visible_task(task, since):
+                continue
+            tracked[task_id] = {"chat_id": chat_id, "last_state": "WATCHING", "mode": "task"}
+        self.state.save()
 
     def poll_task_transitions(self) -> None:
         self.auto_track_owner_tasks()
@@ -624,7 +925,19 @@ class Gateway:
                     self.state.data["tracked"][task_id]["last_state"] = label
                     self.state.save()
                     continue
-                reply = format_transition(label, task, mode)
+                if label == "COMPLETED" and self.send_result_media(int(record["chat_id"]), task):
+                    self.state.data["tracked"][task_id]["last_state"] = label
+                    self.state.save()
+                    continue
+                if mode == "task" and label not in {"COMPLETED", "FAILED"}:
+                    status_reply = format_task_status(task)
+                    if status_reply == human_task_state(task.get("state")) or "Задача в работе" in status_reply:
+                        self.state.data["tracked"][task_id]["last_state"] = label
+                        self.state.save()
+                        continue
+                    reply = status_reply
+                else:
+                    reply = format_transition(label, task, mode)
                 self.telegram.send_message(int(record["chat_id"]), reply)
                 record_task_transition(self.memory(), task, label, utc_now())
                 record_orchestrator_message(self.memory(), reply, utc_now())
@@ -670,11 +983,14 @@ def human_task_state(state: str | None) -> str:
 
 
 def owner_visible_task(task: dict[str, Any], since: str | None = None) -> bool:
+    task_id = str(task.get("task_id") or "")
+    if task_id.startswith("TGCHAT-"):
+        return False
     if since and iso_timestamp(task.get("created_at")) < iso_timestamp(since):
         return False
     envelope = task.get("envelope") or {}
     source = envelope.get("source") or {}
-    if envelope.get("kind") == "owner_remote_task":
+    if envelope.get("kind") in {"owner_remote_task", "owner_image_task"}:
         return True
     return str(source.get("kind") or "").startswith("telegram")
 
@@ -682,8 +998,16 @@ def owner_visible_task(task: dict[str, Any], since: str | None = None) -> bool:
 def format_task_status(task: dict[str, Any]) -> str:
     result = task.get("result") or {}
     envelope = task.get("envelope") or {}
-    if envelope.get("kind") == "owner_remote_task" and task.get("state") in {"queued", "leased", "running"}:
-        return "Задача в общем чате фабрики. Удалённый исполнитель работает, я вижу процесс и сообщу важный результат."
+    partial = clean_agent_response(result.get("partial_response")) if result.get("partial_response") else ""
+    if partial and task.get("state") in {"leased", "running", "review"}:
+        return partial
+    if envelope.get("kind") in {"owner_remote_task", "owner_image_task"} and task.get("state") in {"queued", "leased", "running"}:
+        return human_task_state(task.get("state"))
+    if task.get("state") == "completed" and envelope.get("kind") == "owner_image_task":
+        response = clean_agent_response(result.get("response"))
+        if result_image_ref(result):
+            return response or "Картинка готова."
+        return response or "Картинку пока не удалось сгенерировать. Я зафиксировал блокер и продолжу разбор."
     if task.get("state") == "completed" and envelope.get("kind") == "owner_remote_task":
         response = clean_agent_response(result.get("response"))
         urls = extract_urls(response)
@@ -703,6 +1027,9 @@ def format_task_status(task: dict[str, Any]) -> str:
 
 
 def clean_agent_response(text: str | None) -> str:
+    raw_lowered = (text or "").lower()
+    if any(marker in raw_lowered for marker in OWNER_RUNTIME_FAILURE_MARKERS):
+        return owner_safe_runtime_failure("", None)
     clean_chars = []
     for ch in text or "":
         if unicodedata.category(ch) in {"So", "Sk"}:
@@ -722,6 +1049,27 @@ def clean_agent_response(text: str | None) -> str:
     return cleaned or "Я завершил ответ, но текст не записался. Разберу это отдельно."
 
 
+def looks_like_image_ref(value: str) -> bool:
+    lowered = value.lower().split("?", 1)[0]
+    return lowered.endswith(IMAGE_EXTENSIONS)
+
+
+def result_image_ref(result: dict[str, Any]) -> str | None:
+    for key in IMAGE_RESULT_KEYS:
+        value = result.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    for item in result.get("artifacts") or []:
+        if isinstance(item, dict):
+            value = item.get("path") or item.get("url")
+            if isinstance(value, str) and looks_like_image_ref(value):
+                return value
+    for url in extract_urls(str(result.get("response") or "")):
+        if looks_like_image_ref(url):
+            return url
+    return None
+
+
 def extract_urls(text: str) -> list[str]:
     urls = []
     for match in re.findall(r"https?://[^\s`),]+", text):
@@ -733,7 +1081,7 @@ def extract_urls(text: str) -> list[str]:
 def format_transition(label: str, task: dict[str, Any], mode: str = "task") -> str:
     result = task.get("result") or {}
     if mode == "chat" and label == "COMPLETED":
-        return clean_agent_response(result.get("response"))
+        return clean_agent_response(result.get("response") or result.get("partial_response"))
     if mode == "chat" and label == "FAILED":
         return "Сейчас не смог подготовить ответ. Я зафиксировал сбой и продолжу восстановление."
     return format_task_status(task)

@@ -9,18 +9,18 @@ Components:
 """
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 import httpx
 import asyncio
 import json
 import os
-import subprocess
 import socket
 import time
 import uuid
 import pickle
 import hashlib
 import psutil
+import urllib.parse
 from datetime import datetime
 from typing import Optional, Any
 from contextlib import asynccontextmanager
@@ -35,6 +35,34 @@ GATEWAY_IP = os.environ.get("KOLIBRI_GATEWAY", "10.99.0.2")
 REDIS_HOST = os.environ.get("KOLIBRI_REDIS", "10.99.0.1")
 REDIS_PORT = int(os.environ.get("KOLIBRI_REDIS_PORT", "6379"))
 VPN_SUBNET = "10.99.0.0/24"
+CONTROL_PLANE_URL = os.environ.get(
+    "KOLIBRI_CONTROL_PLANE_URL",
+    os.environ.get("KOLIBRI_FACTORY_CONTROL_URL", "http://10.99.0.2:9101"),
+).rstrip("/")
+CONTROL_PLANE_HTTP_TIMEOUT = float(os.environ.get("KOLIBRI_CONTROL_PLANE_HTTP_TIMEOUT", "20"))
+CONTROL_PLANE_POLL_INTERVAL = float(os.environ.get("KOLIBRI_CONTROL_PLANE_POLL_INTERVAL", "0.5"))
+
+
+class ComputeRequest(BaseModel):
+    type: str = Field(default="general", min_length=1, max_length=64)
+    prompt: Any = None
+    payload: Any = None
+    target: str = Field(default="auto", min_length=1, max_length=128)
+    wait: bool = True
+    timeout: int = Field(default=300, ge=1, le=1800)
+    idempotency_key: Optional[str] = Field(default=None, max_length=256)
+
+
+class JobSubmitRequest(BaseModel):
+    type: str = Field(default="general", min_length=1, max_length=64)
+    payload: dict = Field(default_factory=dict)
+    target: str = Field(default="auto", min_length=1, max_length=128)
+    timeout: int = Field(default=300, ge=1, le=1800)
+    retries: int = Field(default=3, ge=0, le=10)
+
+
+class BroadcastRequest(BaseModel):
+    message: str = Field(default="", max_length=4096)
 
 # ── Redis Client (simple, no deps) ─────────────────────────────────
 
@@ -376,8 +404,8 @@ async def job_processor_loop():
         try:
             job = queue.process_next()
             if job:
-                result = await execute_job(job)
-                if result.get("status") == "completed":
+                result = await delegate_job_to_control_plane(job)
+                if result.get("status") in {"completed", "submitted"}:
                     queue.complete(job["id"], result)
                 else:
                     queue.fail(job["id"], result.get("error", "unknown"), retry=job["attempts"] < job["retries"])
@@ -386,61 +414,109 @@ async def job_processor_loop():
         await asyncio.sleep(0.5)
 
 
-async def execute_job(job: dict) -> dict:
+async def delegate_job_to_control_plane(job: dict) -> dict:
     task_type = job.get("type", "general")
     payload = json.loads(job.get("payload", "{}"))
     target = job.get("target", "auto")
-
-    if target == "local" or target == NODE_NAME:
-        return await run_locally(task_type, payload)
-
-    if target == "auto":
-        best = resources.select_best(task_type)
-        if best and best != NODE_NAME:
-            return await dispatch_to(best, task_type, payload)
-        return await run_locally(task_type, payload)
-
-    return await dispatch_to(target, task_type, payload)
+    timeout = int(job.get("timeout", 300))
+    return await submit_control_plane_task(task_type, payload, target, timeout, wait=False, idempotency_key=job.get("id"))
 
 
-async def dispatch_to(node: str, task_type: str, payload: dict) -> dict:
-    nodes = resources.get_online_nodes()
-    if node not in nodes:
-        return {"status": "error", "error": f"Node {node} offline"}
-
-    info = nodes[node]["info"]
-    ip = info.get("ip")
-    port = info.get("port", 9001)
-
-    try:
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            r = await client.post(
-                f"http://{ip}:{port}/task/execute",
-                json={"payload": json.dumps(payload), "type": task_type}
-            )
-            return r.json()
-    except Exception as e:
-        return {"status": "error", "error": str(e)}
+def request_token(explicit: str | None = None) -> str:
+    raw = explicit or uuid.uuid4().hex
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
-async def run_locally(task_type: str, payload: dict) -> dict:
-    mimo_path = "/root/.mimocode/bin/mimo" if NODE_NAME != "home" else "/usr/local/bin/mimo"
+def build_control_plane_envelope(
+    task_type: str,
+    payload: dict,
+    target: str,
+    timeout: int,
+    idempotency_key: str | None = None,
+) -> dict:
     prompt = payload.get("prompt", payload.get("payload", ""))
-
-    cmd = f"{mimo_path} run --dangerously-skip-permissions --model mimo/mimo-auto '{prompt}'"
-
-    try:
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=300)
-        return {
-            "status": "completed",
+    if not isinstance(prompt, str):
+        prompt = json.dumps(prompt, ensure_ascii=False)
+    token = request_token(idempotency_key)
+    task_id = f"MESH-{NODE_NAME}-{datetime.now().strftime('%Y%m%d%H%M%S')}-{token}"
+    envelope = {
+        "task_id": task_id,
+        "idempotency_key": f"mesh:{NODE_NAME}:{token}",
+        "kind": "owner_remote_task",
+        "required_capability": "generic_implementation",
+        "max_retries": 1,
+        "objective": prompt,
+        "mesh": {
+            "task_type": task_type,
+            "source_node": NODE_NAME,
+            "requested_target": target,
+            "timeout": timeout,
+        },
+        "source": {
+            "kind": "mesh-api",
             "node": NODE_NAME,
-            "output": result.stdout,
-            "error": result.stderr,
-        }
-    except subprocess.TimeoutExpired:
-        return {"status": "error", "error": "timeout"}
+            "accepted_at": datetime.now().isoformat(),
+        },
+    }
+    if target not in {"", "auto"}:
+        envelope["target_node"] = NODE_NAME if target == "local" else target
+    return envelope
+
+
+async def submit_control_plane_task(
+    task_type: str,
+    payload: dict,
+    target: str,
+    timeout: int,
+    wait: bool,
+    idempotency_key: str | None = None,
+) -> dict:
+    envelope = build_control_plane_envelope(task_type, payload, target, timeout, idempotency_key)
+    try:
+        async with httpx.AsyncClient(timeout=CONTROL_PLANE_HTTP_TIMEOUT) as client:
+            created = await client.post(f"{CONTROL_PLANE_URL}/v1/tasks", json=envelope)
+            created.raise_for_status()
+            task = created.json()
+            task_id = task.get("task_id") or envelope["task_id"]
+            if not wait:
+                return {
+                    "status": "submitted",
+                    "transport": "control-plane",
+                    "node": NODE_NAME,
+                    "control_plane_task_id": task_id,
+                }
+
+            deadline = time.time() + timeout
+            quoted_task_id = urllib.parse.quote(task_id, safe="")
+            while time.time() < deadline:
+                current = await client.get(f"{CONTROL_PLANE_URL}/v1/tasks/{quoted_task_id}")
+                current.raise_for_status()
+                state = current.json()
+                if state.get("state") == "completed":
+                    return {
+                        "status": "completed",
+                        "transport": "control-plane",
+                        "node": NODE_NAME,
+                        "control_plane_task_id": task_id,
+                        "result": state.get("result"),
+                    }
+                if state.get("state") in {"failed", "dead_letter", "cancelled"}:
+                    return {
+                        "status": "failed",
+                        "transport": "control-plane",
+                        "node": NODE_NAME,
+                        "control_plane_task_id": task_id,
+                        "error": state.get("error") or state.get("error_type") or state.get("state"),
+                    }
+                await asyncio.sleep(CONTROL_PLANE_POLL_INTERVAL)
+            return {
+                "status": "timeout",
+                "transport": "control-plane",
+                "node": NODE_NAME,
+                "control_plane_task_id": task_id,
+            }
     except Exception as e:
-        return {"status": "error", "error": str(e)}
+        return {"status": "error", "transport": "control-plane", "node": NODE_NAME, "error": str(e)}
 
 
 def get_system_load() -> dict:
@@ -523,14 +599,8 @@ async def cluster_status():
 # ── Job Queue ───────────────────────────────────────────────────────
 
 @app.post("/job/submit")
-async def submit_job(job: dict):
-    task_type = job.get("type", "general")
-    payload = job.get("payload", {})
-    target = job.get("target", "auto")
-    timeout = job.get("timeout", 300)
-    retries = job.get("retries", 3)
-
-    job_id = queue.submit(task_type, payload, target, timeout, retries)
+async def submit_job(job: JobSubmitRequest):
+    job_id = queue.submit(job.type, job.payload, job.target, job.timeout, job.retries)
     return {"job_id": job_id, "status": "submitted"}
 
 
@@ -643,71 +713,34 @@ async def list_online():
 # ── Unified Compute ────────────────────────────────────────────────
 
 @app.post("/compute")
-async def compute(task: dict):
-    """Unified compute endpoint — submit any task, auto-routed to best node."""
-    task_type = task.get("type", "general")
-    prompt = task.get("prompt", task.get("payload", ""))
-    target = task.get("target", "auto")
-    wait = task.get("wait", True)
-    timeout = task.get("timeout", 300)
+async def compute(task: ComputeRequest):
+    """Submit compute work to the Factory Control Plane."""
+    prompt = task.prompt if task.prompt is not None else task.payload
 
-    job_id = queue.submit(task_type, {"prompt": prompt}, target, timeout)
-
-    if wait:
-        result = await wait_job(job_id, timeout)
-        return {"job_id": job_id, **result}
-    else:
-        return {"job_id": job_id, "status": "submitted"}
-
-
-@app.post("/task/execute")
-async def execute_task(task: dict):
-    """Execute task directly on this node."""
-    payload = task.get("payload", "")
-    task_type = task.get("type", "general")
-
-    mimo_path = "/root/.mimocode/bin/mimo" if NODE_NAME != "home" else "/usr/local/bin/mimo"
-    cmd = f"{mimo_path} run --dangerously-skip-permissions --model mimo/mimo-auto '{payload}'"
-
-    try:
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=300)
-        return {
-            "status": "completed",
-            "node": NODE_NAME,
-            "output": result.stdout,
-            "error": result.stderr,
-        }
-    except subprocess.TimeoutExpired:
-        return {"status": "timeout", "node": NODE_NAME}
-    except Exception as e:
-        return {"status": "error", "node": NODE_NAME, "error": str(e)}
+    return await submit_control_plane_task(
+        task.type,
+        {"prompt": prompt},
+        task.target,
+        task.timeout,
+        wait=task.wait,
+        idempotency_key=task.idempotency_key,
+    )
 
 
 # ── Broadcast ───────────────────────────────────────────────────────
 
 @app.post("/broadcast")
-async def broadcast(data: dict):
-    """Send message to all nodes."""
-    message = data.get("message", "")
-    results = {}
+async def broadcast(data: BroadcastRequest):
+    """Publish a cluster message without remote command execution."""
     online = resources.get_online_nodes()
-
-    for name, node in online.items():
-        if name == NODE_NAME:
-            results[name] = "self"
-            continue
-        info = node["info"]
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                await client.post(
-                    f"http://{info['ip']}:{info['port']}/task/execute",
-                    json={"payload": f"echo: {message}", "type": "broadcast"}
-                )
-                results[name] = "sent"
-        except:
-            results[name] = "failed"
-
-    return {"results": results}
+    event_id = f"broadcast:{datetime.now().strftime('%Y%m%d%H%M%S')}:{uuid.uuid4().hex[:8]}"
+    resources.set_state(event_id, json.dumps({
+        "message": data.message,
+        "source_node": NODE_NAME,
+        "recipients": sorted(online.keys()),
+        "created_at": datetime.now().isoformat(),
+    }, ensure_ascii=False))
+    return {"status": "published", "event_id": event_id, "recipients": sorted(online.keys())}
 
 
 # ── Entry point ─────────────────────────────────────────────────────

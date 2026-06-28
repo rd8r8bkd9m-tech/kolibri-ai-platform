@@ -1,5 +1,6 @@
 import importlib.util
 from pathlib import Path
+from types import SimpleNamespace
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -56,6 +57,7 @@ def test_agent_host_supports_required_task_kinds():
     assert "review_pr" in agent
     assert "read_only_probe" in agent
     assert "root_goal" in agent
+    assert "runtime_exec_hardening_probe" in agent
     memory = (ROOT / "ops" / "orchestrator_memory.py").read_text(encoding="utf-8")
     assert "last_work_request" in memory
     assert "open_expectations" in memory
@@ -70,3 +72,35 @@ def test_orchestrator_roster_has_human_role_cards():
     assert engineer["name"] == "Инженер"
     assert reviewer["name"] == "Ревьюер"
     assert engineer["health"] == "online"
+
+
+def test_agent_host_extracts_agent_message_jsonl():
+    agent = load_module(ROOT / "ops" / "agent_host.py")
+    assert agent.text_from_json_event({
+        "type": "item.completed",
+        "item": {"type": "agent_message", "text": "живой ответ"},
+    }) == "живой ответ"
+
+
+def test_agent_host_disables_codex_cli_runner(monkeypatch, tmp_path):
+    agent = load_module(ROOT / "ops" / "agent_host.py")
+    host = agent.AgentHost(SimpleNamespace(
+        control_urls="http://127.0.0.1:9101",
+        control_url="http://127.0.0.1:9101",
+        node_id="primary-candidate",
+        agent_id="agent-host-primary",
+        capabilities="generic_implementation",
+        repo_url="https://example.invalid/repo.git",
+        work_root=str(tmp_path / "work"),
+        artifact_root=str(tmp_path / "artifacts"),
+        poll_interval=1,
+        heartbeat_interval=1,
+        lease_refresh=1,
+        max_inflight=1,
+    ))
+    try:
+        host.build_text_runner_command("codex", "ответь живо", tmp_path, "telegram-chat-test")
+    except RuntimeError as exc:
+        assert "disabled" in str(exc)
+    else:
+        raise AssertionError("codex CLI runner must stay disabled in server runtime")
