@@ -504,6 +504,8 @@ def build_chat_envelope(message: dict[str, Any], text: str, snapshot: dict[str, 
         "без task_id, node, agent, путей, команд и служебных деталей. "
         "Не называй себя брендом продукта. Если владелец просто здоровается, ответь по-человечески и мягко, "
         "но не используй заранее заданную фразу. Если владелец спрашивает о работе, используй контекст фабрики. "
+        "Если владелец просит статусы, отвечай информативно по-русски: что уже сделано, сколько исполнителей онлайн, "
+        "сколько задач выполнено, сколько сейчас в работе и сколько ждет в очереди. "
         f"Контекст фабрики: {json.dumps(context, ensure_ascii=False, sort_keys=True)}\n"
         f"Сообщение владельца: {text}"
     )
@@ -611,6 +613,25 @@ def summarize_team(snapshot: dict[str, Any]) -> str:
     return ", ".join(online_nodes[:4]) or "состав уточняю"
 
 
+def count_online_workers(snapshot: dict[str, Any]) -> int:
+    team = snapshot.get("team") or []
+    if team:
+        return sum(1 for member in team if member.get("health") == "online" and not member.get("draining"))
+    nodes = snapshot.get("nodes") or []
+    return sum(1 for node in nodes if node.get("health") == "online" and not node.get("draining"))
+
+
+def task_state_count(snapshot: dict[str, Any], states: tuple[str, ...]) -> int:
+    counts = snapshot.get("task_counts") or {}
+    total = 0
+    for state in states:
+        try:
+            total += int(counts.get(state) or 0)
+        except (TypeError, ValueError):
+            continue
+    return total
+
+
 def last_work_line(memory: dict[str, Any]) -> str:
     last = memory.get("last_work_request") or {}
     text = (last.get("text") or "").strip()
@@ -626,6 +647,40 @@ def first_known_url(memory: dict[str, Any]) -> str | None:
         if url:
             return str(url)
     return None
+
+
+def latest_done_line(memory: dict[str, Any]) -> str:
+    known = memory.get("known_results") or []
+    for item in reversed(known):
+        url = item.get("url")
+        description = (item.get("description") or item.get("kind") or "последний результат").strip()
+        if url:
+            return f"Из готового: {description}: {url}."
+    return "Из готового держу в памяти последние закрытые результаты; новой ссылки по текущей задаче пока нет."
+
+
+def build_informative_status_reply(snapshot: dict[str, Any], memory: dict[str, Any]) -> str:
+    online_workers = count_online_workers(snapshot)
+    active_tasks = snapshot.get("active_tasks") or []
+    in_work = task_state_count(snapshot, ("leased", "running", "review", "waiting_review"))
+    if not in_work:
+        in_work = sum(
+            1 for task in active_tasks
+            if task.get("state") in {"leased", "running", "review", "waiting_review"}
+        )
+    completed = task_state_count(snapshot, ("completed",))
+    queued = task_state_count(snapshot, ("queued",))
+    queue_length = snapshot.get("queue_length")
+    if not queued and isinstance(queue_length, int):
+        queued = queue_length
+    last_line = last_work_line(memory)
+    done_line = latest_done_line(memory)
+    return (
+        "Принял. Дальше буду присылать статусы подробнее и только по-русски: "
+        f"что сделано, кто работает и где узкое место. Сейчас вижу онлайн исполнителей: {online_workers}; "
+        f"в работе: {in_work}; выполнено по видимой очереди: {completed}; ожидает в очереди: {queued}. "
+        f"{done_line} {last_line}"
+    )
 
 
 def build_realtime_owner_reply(text: str, snapshot: dict[str, Any]) -> str:
@@ -665,6 +720,9 @@ def build_realtime_owner_reply(text: str, snapshot: dict[str, Any]) -> str:
         if url:
             return f"Есть рабочая ссылка: {url}. По последней задаче статус: {last_state_text}."
         return f"По последней задаче: {last_text}. Сейчас она {last_state_text}."
+
+    if has_any(text, ("информатив", "сколько агентов", "сколько выполн", "сколько ещё", "сколько еще", "все на русском", "статусы подробнее")):
+        return build_informative_status_reply(snapshot, memory)
 
     if has_any(text, ("что делаешь", "какие задачи", "статус", "что сделано", "не завис", "монитор", "кто делает", "что выполня")):
         if active_tasks:

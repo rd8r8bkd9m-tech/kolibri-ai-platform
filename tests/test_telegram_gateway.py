@@ -358,6 +358,37 @@ def test_realtime_status_reply_uses_factory_context():
     assert "Запусти вебприложение" in reply
 
 
+def test_realtime_informative_status_request_returns_russian_metrics():
+    gateway = load_gateway()
+    memory = gateway.empty_memory()
+    gateway.record_work_task(memory, "Запусти разработку телеграм мини-приложение", "TG-1", "queued", "2026-06-29T22:29:57+00:00")
+    memory["known_results"].append({"kind": "main_url", "description": "основной dev-server", "url": "http://104.253.43.117/"})
+    snapshot = {
+        "memory": gateway.memory_snapshot(memory),
+        "queue_length": 4,
+        "task_counts": {"queued": 4, "running": 2, "completed": 3},
+        "active_tasks": [{"state": "running", "kind": "generic_implementation"}, {"state": "running", "kind": "review"}],
+        "team": [
+            {"name": "Инженер", "health": "online", "draining": False},
+            {"name": "Ревьюер", "health": "online", "draining": False},
+            {"name": "Резерв", "health": "stale", "draining": False},
+        ],
+    }
+    reply = gateway.build_realtime_owner_reply(
+        "Я хочу видеть в этих сообщениях более информативную информацию от тебя что было сделано сколько агентов работают над задачами сколько выполнено сколько ещё в работе все на русском языке присылать",
+        snapshot,
+    )
+    assert "только по-русски" in reply
+    assert "онлайн исполнителей: 2" in reply
+    assert "в работе: 2" in reply
+    assert "выполнено по видимой очереди: 3" in reply
+    assert "ожидает в очереди: 4" in reply
+    assert "http://104.253.43.117/" in reply
+    assert "телеграм мини-приложение" in reply
+    for forbidden in ["task_id", "node:", "agent:", "artifact:", "/var/lib"]:
+        assert forbidden not in reply
+
+
 def test_realtime_dev_server_question_returns_ready_preview_url():
     gateway = load_gateway()
     memory = gateway.empty_memory()
