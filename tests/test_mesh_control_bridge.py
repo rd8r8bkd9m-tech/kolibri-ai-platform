@@ -71,8 +71,11 @@ def test_sync_mesh_nodes_registers_shadow_nodes(tmp_path, monkeypatch):
 
     def fake_request(method, url, payload=None, timeout=8):
         assert method == "GET"
+        if url.endswith("/v1/nodes"):
+            return {"nodes": [{"node_id": "primary-candidate", "pid": 123}]}
         assert url.endswith("/api/nodes")
         return [
+            {"id": "primary", "name": "primary", "ip": "10.99.0.10", "role": "agent", "status": "online", "last_seen": "now"},
             {"id": "home", "name": "home", "ip": "10.99.0.1", "role": "agent", "status": "online", "last_seen": "now"},
             {"id": "cold", "name": "cold", "ip": "10.99.0.99", "role": "agent", "status": "offline", "last_seen": "old"},
         ]
@@ -85,7 +88,8 @@ def test_sync_mesh_nodes_registers_shadow_nodes(tmp_path, monkeypatch):
     monkeypatch.setattr(bridge, "post_control", fake_post)
 
     state = {}
-    assert bridge.sync_mesh_nodes(state) == 2
+    assert bridge.sync_mesh_nodes(state) == 3
+    assert state["mesh_nodes"]["primary"]["canonical_node_id"] == "primary-candidate"
     assert state["mesh_nodes"]["home"]["status"] == "online"
     assert posts[0][0] == "/v1/nodes/register"
     assert posts[0][1]["node_id"] == "mesh-home"

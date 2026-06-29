@@ -15,6 +15,9 @@ STATE_PATH = Path(os.environ.get('KOLIBRI_MESH_BRIDGE_STATE', '/var/lib/kolibri-
 LOG_PATH = Path(os.environ.get('KOLIBRI_MESH_BRIDGE_LOG', '/var/log/kolibri/mesh-control-bridge.jsonl'))
 DEFAULT_EXECUTOR = os.environ.get('KOLIBRI_MESH_DEFAULT_EXECUTOR', 'home-live')
 POLL_SECONDS = float(os.environ.get('KOLIBRI_MESH_BRIDGE_POLL_SECONDS', '5'))
+MESH_NODE_ALIASES = {
+    'primary': 'primary-candidate',
+}
 
 STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
 LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -61,21 +64,42 @@ def post_control(path, payload):
     return request_json('POST', CONTROL + path, payload, timeout=12)
 
 
+def control_node_ids():
+    try:
+        data = request_json('GET', CONTROL + '/v1/nodes', timeout=8) or {}
+    except Exception as exc:
+        log('control_nodes_lookup_failed', error=repr(exc))
+        return set()
+    ids = set()
+    for node in data.get('nodes') or []:
+        node_id = str(node.get('node_id') or '').strip()
+        if not node_id:
+            continue
+        if node.get('pid'):
+            ids.add(node_id)
+    return ids
+
+
 def sync_mesh_nodes(state):
     nodes = request_json('GET', MESH_COORD + '/api/nodes', timeout=8) or []
+    real_agent_nodes = control_node_ids()
     active = {}
     for node in nodes:
         node_id = str(node.get('id') or '').strip()
         if not node_id:
             continue
+        canonical_node_id = MESH_NODE_ALIASES.get(node_id, node_id)
         shadow_id = 'mesh-' + node_id
         active[node_id] = {
             'node_id': node_id,
+            'canonical_node_id': canonical_node_id,
             'ip': node.get('ip'),
             'status': node.get('status'),
             'last_seen': node.get('last_seen'),
             'role': node.get('role'),
         }
+        if canonical_node_id in real_agent_nodes:
+            continue
         payload = {
             'node_id': shadow_id,
             'agent_id': f'mesh-{node_id}',

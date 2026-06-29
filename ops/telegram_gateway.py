@@ -102,6 +102,11 @@ CHAT_GREETINGS = {
 }
 TERMINAL_TASK_STATES = {"completed", "failed", "cancelled", "dead_letter"}
 OWNER_MESSAGE_FORBIDDEN_MARKERS = (
+    "$ /usr/local/bin/codex exec",
+    "codex exec",
+    "prompt:",
+    "instructions:",
+    "instruction:",
     "task_id",
     "node:",
     "agent:",
@@ -110,6 +115,7 @@ OWNER_MESSAGE_FORBIDDEN_MARKERS = (
     "result_path",
     "log_path",
     "/var/lib",
+    "/usr/local/bin",
     "/tmp/",
     "TGCHAT-",
     "TG-202",
@@ -213,6 +219,8 @@ def wants_factory_task(text: str) -> bool:
         return False
     if lowered in CHAT_GREETINGS:
         return False
+    if "?" in lowered:
+        return False
     if any(word in lowered for word in TASK_INTENT_WORDS):
         return True
     task_targets = (
@@ -224,16 +232,20 @@ def wants_factory_task(text: str) -> bool:
     priority_words = ("p0", "p1", "срочно", "приоритет")
     if any(word in lowered for word in priority_words) and any(target in lowered for target in task_targets):
         return True
-    if "?" in lowered:
-        return False
-    return any(target in lowered for target in task_targets) and len(lowered.split()) <= 6
+    return False
 
 
 def should_answer_immediately(text: str) -> bool:
     lowered = text.strip().lower()
     if not lowered:
         return False
-    if answer_simple_arithmetic(text) is not None and os.environ.get("TELEGRAM_DETERMINISTIC_SHORTCUTS", "0") == "1":
+    if answer_simple_arithmetic(text) is not None:
+        return True
+    if lowered in CHAT_GREETINGS:
+        return True
+    if "?" in lowered:
+        return True
+    if any(marker in lowered for marker in IMMEDIATE_CHAT_MARKERS):
         return True
     return False
 
@@ -480,6 +492,7 @@ def build_task_envelope(message: dict[str, Any], text: str, context: dict[str, A
         "max_retries": int(os.environ.get("TELEGRAM_TASK_MAX_RETRIES", "1")),
         "objective": text,
         "project_path": project_path,
+        "runner": os.environ.get("TELEGRAM_TASK_RUNNER", "codex"),
         "conversation_context": context or {},
         "source": {
             "kind": "telegram",
@@ -642,6 +655,14 @@ def build_realtime_owner_reply(text: str, snapshot: dict[str, Any]) -> str:
     arithmetic = answer_simple_arithmetic(text)
     if arithmetic is not None:
         return arithmetic
+
+    if lowered in CHAT_GREETINGS:
+        return "Привет. Слушаю."
+
+    if has_any(text, ("почему не получилось", "почему не вышло", "что сломалось", "в чем причина", "в чём причина")):
+        if last_text:
+            return f"Сейчас смотрю причину по последней задаче: {last_text}. Она {last_state_text}; технический мусор в чат не понесу."
+        return "Сейчас смотрю причину. Рабочей задачи в памяти не вижу, поэтому сначала проверю состояние фабрики и верну понятную диагностику."
 
     if has_any(text, ("как дела", "как ты", "что нового")):
         if active_tasks:
@@ -954,7 +975,10 @@ class Gateway:
             self.remember_orchestrator_message(reply)
         else:
             self.remember_owner_message(text, "chat")
-            self.submit_chat_task(message, text)
+            snapshot = self.conversation_snapshot()
+            reply = build_realtime_owner_reply(text, snapshot)
+            self.telegram.send_message(message["chat"]["id"], reply)
+            self.remember_orchestrator_message(reply)
 
     def auto_track_owner_tasks(self) -> None:
         chat_id = self.owner_chat_id()

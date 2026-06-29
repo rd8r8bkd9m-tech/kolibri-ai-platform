@@ -50,6 +50,7 @@ def test_plain_text_message_builds_structured_factory_task():
     assert envelope["kind"] == "owner_remote_task"
     assert "target_node" not in envelope
     assert envelope["required_capability"] == "generic_implementation"
+    assert envelope["runner"] == "codex"
     assert envelope["review_node"] == "new"
     assert envelope["create_review_on_complete"] is False
     assert envelope["source"]["message_id"] == 42
@@ -70,30 +71,48 @@ def test_cyrillic_text_keeps_objective_but_uses_ascii_identifiers():
     assert envelope["branch"].isascii()
 
 
-def test_greeting_is_chat_not_factory_task():
+def test_greeting_is_chat_not_factory_task(tmp_path):
     gateway = load_gateway()
     assert gateway.wants_factory_task("привет") is False
+    assert gateway.should_answer_immediately("привет") is True
     message = {
         "message_id": 44,
         "chat": {"id": 100, "type": "private"},
         "from": {"id": 100},
         "text": "привет",
     }
-    envelope = gateway.build_chat_envelope(message, message["text"])
-    assert envelope["kind"] == "owner_remote_task"
-    assert envelope["runner"] == "codex"
-    assert envelope["target_node"] == "primary-candidate"
-    assert envelope["required_capability"] == "generic_implementation"
-    assert "без заготовок" in envelope["objective"]
-    assert envelope["source"]["message_id"] == 44
+
+    class Telegram:
+        def __init__(self):
+            self.messages = []
+
+        def send_message(self, chat_id, text):
+            self.messages.append((chat_id, text))
+
+    class Factory:
+        def create_task(self, envelope):
+            raise AssertionError("plain greeting must not create a Control Plane task")
+
+        def nodes(self):
+            return {"nodes": []}
+
+        def get_tasks(self):
+            return {"tasks": [], "queue": []}
+
+    state = gateway.StateStore(tmp_path / "state.json")
+    app = gateway.Gateway(Telegram(), Factory(), {100}, state, 1)
+    app.handle_message(message)
+    assert app.telegram.messages == [(100, "Привет. Слушаю.")]
 
 
 def test_plain_language_work_request_creates_factory_task():
     gateway = load_gateway()
     assert gateway.wants_factory_task("Исправь дефект Factory Runtime") is True
     assert gateway.wants_factory_task("телеграм p0") is True
-    assert gateway.wants_factory_task("миниапп") is True
+    assert gateway.wants_factory_task("миниапп") is False
     assert gateway.wants_factory_task("Сколько серверов работает?") is False
+    assert gateway.wants_factory_task("почему не получилось?") is False
+    assert gateway.wants_factory_task("почини Telegram") is True
 
 
 def test_image_request_builds_telegram_image_task():
@@ -228,7 +247,7 @@ def test_orchestrator_chat_envelope_carries_factory_snapshot():
     }
     snapshot = {"nodes": [{"node_id": "9fts", "health": "online"}], "task_counts": {"completed": 3}}
     envelope = gateway.build_chat_envelope(message, message["text"], snapshot)
-    assert envelope["kind"] == "owner_remote_task"
+    assert envelope["task_id"].startswith("TGCHAT-")
     assert envelope["factory_snapshot"] == snapshot
     assert envelope["message"] == "фабрика уже работает?"
     assert "фабрика уже работает?" in envelope["objective"]
@@ -378,6 +397,70 @@ def test_realtime_reply_answers_simple_arithmetic():
     gateway = load_gateway()
     reply = gateway.build_realtime_owner_reply("2+4", {"memory": gateway.memory_snapshot(gateway.empty_memory())})
     assert reply == "6"
+    assert gateway.should_answer_immediately("2+4") is True
+
+
+def test_plain_chat_handle_message_does_not_create_control_plane_task(tmp_path):
+    gateway = load_gateway()
+
+    class Telegram:
+        def __init__(self):
+            self.messages = []
+
+        def send_message(self, chat_id, text):
+            self.messages.append((chat_id, text))
+
+    class Factory:
+        def __init__(self):
+            self.created = []
+
+        def create_task(self, envelope):
+            self.created.append(envelope)
+            raise AssertionError("plain chat must not create Control Plane task")
+
+        def nodes(self):
+            return {"nodes": []}
+
+        def get_tasks(self):
+            return {"tasks": [], "queue": []}
+
+    factory = Factory()
+    telegram = Telegram()
+    state = gateway.StateStore(tmp_path / "state.json")
+    app = gateway.Gateway(telegram, factory, {100}, state, 1)
+    message = {"message_id": 60, "chat": {"id": 100, "type": "private"}, "from": {"id": 100}, "text": "2+4"}
+    app.handle_message(message)
+    assert factory.created == []
+    assert telegram.messages == [(100, "6")]
+
+
+def test_diagnostic_question_does_not_create_tgchat_task(tmp_path):
+    gateway = load_gateway()
+
+    class Telegram:
+        def __init__(self):
+            self.messages = []
+
+        def send_message(self, chat_id, text):
+            self.messages.append((chat_id, text))
+
+    class Factory:
+        def create_task(self, envelope):
+            raise AssertionError(f"unexpected task: {envelope}")
+
+        def nodes(self):
+            return {"nodes": []}
+
+        def get_tasks(self):
+            return {"tasks": [], "queue": []}
+
+    state = gateway.StateStore(tmp_path / "state.json")
+    gateway.record_work_task(state.data["memory"], "Почини Telegram", "TG-1", "failed", "2026-06-29T10:00:00+00:00")
+    app = gateway.Gateway(Telegram(), Factory(), {100}, state, 1)
+    message = {"message_id": 61, "chat": {"id": 100, "type": "private"}, "from": {"id": 100}, "text": "почему не получилось?"}
+    app.handle_message(message)
+    assert "Почини Telegram" in app.telegram.messages[0][1]
+    assert "TGCHAT" not in app.telegram.messages[0][1]
 
 
 def test_submit_text_task_ack_is_human_without_service_template(tmp_path):
@@ -536,7 +619,7 @@ def test_image_task_completion_sends_photo_and_cleans_caption(tmp_path):
     assert task["task_id"] not in state.data["tracked"]
 
 
-def test_submit_chat_task_uses_remote_orchestrator_and_hides_intermediate_states(tmp_path, monkeypatch):
+def test_handle_chat_question_uses_local_director_without_remote_task(tmp_path, monkeypatch):
     gateway = load_gateway()
     monkeypatch.setenv("TELEGRAM_CHAT_WAIT_SECONDS", "2")
 
@@ -554,22 +637,13 @@ def test_submit_chat_task_uses_remote_orchestrator_and_hides_intermediate_states
     class Factory:
         def __init__(self):
             self.envelopes = []
-            self.task_id = None
 
         def create_task(self, envelope):
             self.envelopes.append(envelope)
-            self.task_id = envelope["task_id"]
-            return {"task_id": self.task_id, "state": "queued"}
+            raise AssertionError("chat question must not create a remote task")
 
         def get_task(self, task_id):
-            assert task_id == self.task_id
-            return {
-                "task_id": task_id,
-                "state": "completed",
-                "result": {
-                    "response": "Смотрю состояние фабрики.\nnode: home-live\nworktree: /var/lib/kolibri-agent/repo"
-                },
-            }
+            raise AssertionError(f"unexpected task lookup: {task_id}")
 
         def nodes(self):
             return {"nodes": [{"node_id": "home-live", "health": "online", "capabilities": ["generic_implementation"]}]}
@@ -582,18 +656,15 @@ def test_submit_chat_task_uses_remote_orchestrator_and_hides_intermediate_states
     state = gateway.StateStore(tmp_path / "state.json")
     app = gateway.Gateway(telegram, factory, {100}, state, 1)
     message = {"message_id": 55, "chat": {"id": 100, "type": "private"}, "from": {"id": 100}, "text": "Что выполняешь?"}
-    app.submit_chat_task(message, message["text"])
-    assert factory.envelopes
-    assert factory.envelopes[0]["kind"] == "owner_remote_task"
-    assert factory.envelopes[0]["runner"] == "codex"
-    assert factory.envelopes[0]["target_node"] == "primary-candidate"
-    assert telegram.actions == [(100, "typing")]
+    app.handle_message(message)
+    assert factory.envelopes == []
+    assert telegram.actions == []
     assert telegram.messages
-    assert telegram.messages[0][1] == "Смотрю состояние фабрики."
+    assert "Сейчас активных задач" in telegram.messages[0][1]
     assert state.data["memory"]["recent_messages"][-1]["role"] == "orchestrator"
 
 
-def test_submit_chat_task_streams_partial_response_with_edit(tmp_path, monkeypatch):
+def test_handle_plain_chat_does_not_stream_remote_partial_response(tmp_path, monkeypatch):
     gateway = load_gateway()
     monkeypatch.setenv("TELEGRAM_CHAT_WAIT_SECONDS", "4")
     monkeypatch.setenv("TELEGRAM_CHAT_FIRST_REPLY_SECONDS", "0")
@@ -619,19 +690,14 @@ def test_submit_chat_task_streams_partial_response_with_edit(tmp_path, monkeypat
 
     class Factory:
         def __init__(self):
-            self.task_id = None
-            self.calls = 0
+            self.created = []
 
         def create_task(self, envelope):
-            self.task_id = envelope["task_id"]
-            return {"task_id": self.task_id, "state": "queued"}
+            self.created.append(envelope)
+            raise AssertionError("plain chat must not create a remote task")
 
         def get_task(self, task_id):
-            assert task_id == self.task_id
-            self.calls += 1
-            if self.calls == 1:
-                return {"task_id": task_id, "state": "running", "result": {"partial_response": "Думаю над ответом."}}
-            return {"task_id": task_id, "state": "completed", "result": {"response": "Ответ готов.\nnode: home"}}
+            raise AssertionError(f"unexpected task lookup: {task_id}")
 
         def nodes(self):
             return {"nodes": []}
@@ -640,10 +706,13 @@ def test_submit_chat_task_streams_partial_response_with_edit(tmp_path, monkeypat
             return {"tasks": [], "queue": []}
 
     telegram = Telegram()
+    factory = Factory()
     state = gateway.StateStore(tmp_path / "state.json")
-    app = gateway.Gateway(telegram, Factory(), {100}, state, 1)
+    app = gateway.Gateway(telegram, factory, {100}, state, 1)
     message = {"message_id": 56, "chat": {"id": 100, "type": "private"}, "from": {"id": 100}, "text": "Что происходит?"}
-    app.submit_chat_task(message, message["text"])
+    app.handle_message(message)
 
-    assert telegram.messages == [(100, "Думаю над ответом.")]
-    assert telegram.edits == [(100, 11, "Ответ готов.")]
+    assert factory.created == []
+    assert telegram.messages
+    assert telegram.edits == []
+    assert telegram.actions == []
