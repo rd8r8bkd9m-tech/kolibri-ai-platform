@@ -1,33 +1,33 @@
 # Secondary Control Plane Watchdog
 
-- Last checked (UTC): 2026-06-29T12:29:04Z
+- Last checked (UTC): 2026-06-29T13:28:44Z
 - Status: OK
 - Control Plane health: `/health`, `/v1/nodes`, and `/v1/tasks?summary=1&compact=1` returned `HTTP 200`
 - Redis: `PONG`
-- Last successful check (UTC): 2026-06-29T12:29:04Z
+- Last successful check (UTC): 2026-06-29T13:28:44Z
 
 ## Heartbeat
 
-Secondary Control Plane responded normally on this run. `/health` reported `status=ok` with Redis `PONG`, `/v1/nodes` returned 5 registered nodes with 4 fresh canonical non-draining nodes, and `/v1/tasks?summary=1&compact=1` returned a compact queue summary with 2 queued probe tasks and 0 active tasks.
+Secondary Control Plane responded normally on this run. `/health` reported `status=ok` with Redis `PONG`, `/v1/nodes` returned 21 registered nodes with 20 fresh non-draining nodes, and `/v1/tasks?summary=1&compact=1` returned 2 queued tasks with 0 active tasks and 0 expired leases.
 
-- Probe timestamps: `/health` at `2026-06-29T12:29:04.161786+00:00`, `/v1/nodes` at `2026-06-29T12:29:04Z`, `/v1/tasks?summary=1&compact=1` at `2026-06-29T12:29:04Z`
-- Node note: `main`, `new`, `primary-candidate`, and `qjns` are fresh and online; `primary-candidate` is actively running `KOL-GOMESH-HOME-MIKROTIK-RECOVERY-20260629`; `smoke-primary` remains stale, not draining, with `heartbeat_age_seconds` about 6480.1 seconds in this snapshot
-- Queue note: queued tasks remain `KOL-SUPER-ESTIMATOR-001-REMOTE-STATUS-9FTS` and `KOL-UIAP-KNOWLEDGE-REMOTE-STATUS-001`; there are no active lease-backed runs in the compact summary
+- Probe timestamps: `/health` at `2026-06-29T13:28:44.422705+00:00`; `/v1/nodes` completed in the same check window with `primary-candidate` heartbeat at `2026-06-29T13:28:47.185593+00:00`; `/v1/tasks?summary=1&compact=1` matched a 2-task queue snapshot from the same run
+- Node note: fresh online nodes include `main`, `new`, `qjns`, `primary-candidate`, and 16 mesh nodes; `smoke-primary` remains long-stale and non-draining, but it is the only stale registration in this snapshot
+- Queue note: queued tasks are `KOL-SUPER-ESTIMATOR-001-REMOTE-STATUS-9FTS` and `KOL-UIAP-KNOWLEDGE-REMOTE-STATUS-001`
 
 ## Impact
 
-No immediate operator action is required from this watchdog run. The secondary contour is serving its read-only API, Redis health is observable, and queue visibility is intact. The only watch item in this snapshot is the stale `smoke-primary` registration, which does not currently block the read-only API.
+No immediate operator action is required for the secondary contour. The read-only API is available, Redis health is observable, and queue visibility is intact. The only watch item from this run is the long-stale `smoke-primary` registration, while the standby-capable `primary-candidate` node is fresh again.
 
 ## Last Successful Check
 
-The latest successful watchdog verification is `2026-06-29T12:29:04Z`, when `/health`, `/v1/nodes`, and `/v1/tasks?summary=1&compact=1` all completed with `HTTP 200` and `/health` reported Redis `PONG`.
+The latest successful watchdog verification is `2026-06-29T13:28:44Z`, when `/health`, `/v1/nodes`, and `/v1/tasks?summary=1&compact=1` all completed with `HTTP 200` and `/health` reported Redis `PONG`.
 
 ## Issue Handling
 
-`gh` is available in this execution environment, but no GitHub issue was created or updated in this run because the control plane remained healthy and Redis returned `PONG`. No secrets were printed, no SSH was used, and no destructive restart was attempted.
+`gh` is available and authenticated in this environment, but no GitHub issue was created or updated in this run because the Control Plane remained reachable and Redis did not regress from `PONG`. No secrets were printed, no SSH was used, and no destructive restart was attempted.
 
 ## Safe Follow-up Steps
 
-1. Keep watching the stale `smoke-primary` registration and confirm whether it should resume heartbeats or be retired from the registry.
-2. Re-run the same three read-only probes on the next watchdog interval and compare fresh node counts plus queue length.
-3. If `/health` stops returning Redis `PONG` or the API becomes unavailable again, replace the heartbeat section with an incident update that includes timestamps, impact, the last successful check, and safe recovery steps before considering any restart.
+1. Re-check whether `primary-candidate` resumes fresh heartbeats while `KOL-FORMULALM-SCIENTIFIC-RD-20260629` is still attached; if it stays stale across the next interval, treat that as a separate availability risk for the standby path.
+2. Keep watching the long-stale `smoke-primary` registration and confirm whether it should resume heartbeats or be retired from the registry.
+3. If `/health` stops returning Redis `PONG` or the API becomes unavailable, replace this heartbeat with an incident update that includes timestamps, impact, the last successful check, safe recovery steps, and a linked GitHub issue labeled `P0` and `factory`.
