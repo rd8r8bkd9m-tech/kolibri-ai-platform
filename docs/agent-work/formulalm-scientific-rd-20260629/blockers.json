@@ -1,0 +1,82 @@
+{
+  "category": "missing_model_runtime",
+  "first_seen_at": "2026-06-29T13:25:19.262430+00:00",
+  "mac_execution": "not_attempted",
+  "message": "Ollama runtime did not respond before benchmark start: <urlopen error [Errno 111] Connection refused>",
+  "node_id": "kolibri",
+  "preflight": {
+    "artifact_dir": "docs/agent-work/formulalm-scientific-rd-20260629",
+    "cpu_ram_disk": {
+      "cpu_count": 8,
+      "disk": {
+        "free_bytes": 79640977408,
+        "path": "docs/agent-work/formulalm-scientific-rd-20260629",
+        "total_bytes": 105590231040,
+        "used_bytes": 20565127168
+      },
+      "loadavg": [
+        4.515625,
+        4.64208984375,
+        4.64208984375
+      ],
+      "memory": {
+        "mem_available": "MemAvailable:   10450684 kB",
+        "mem_total": "MemTotal:       12247028 kB"
+      }
+    },
+    "dataset_version": "formulalm-estimate-ru-2026q2-v1",
+    "hostname": "kolibri",
+    "model": "qwen2.5-coder:3b",
+    "model_candidates": [
+      {
+        "model": "qwen2.5-coder:3b",
+        "source": "cli_argument"
+      }
+    ],
+    "node_id": "kolibri",
+    "ollama_url": "http://127.0.0.1:11434",
+    "platform": "Linux-6.8.0-36-generic-x86_64-with-glibc2.39",
+    "platform_system": "Linux",
+    "pricebook_version": "kolibri-ru-2026q2-v1",
+    "python_version": "3.12.3",
+    "remote_guard": {
+      "mac_execution_allowed": false,
+      "mode": "execute_preflight_then_run_or_block",
+      "status": "preflight_recorded"
+    },
+    "repo_commit": "ba5fd317a992a288062c8df331e8001ec3029740",
+    "runtime_candidates": [
+      {
+        "available": false,
+        "name": "ollama",
+        "path": null,
+        "version": null
+      },
+      {
+        "available": false,
+        "name": "llama-cli",
+        "path": null,
+        "version": null
+      },
+      {
+        "available": false,
+        "name": "llama.cpp",
+        "path": null,
+        "version": null
+      },
+      {
+        "available": false,
+        "name": "vllm",
+        "path": null,
+        "version": null
+      }
+    ],
+    "task_id": "KOL-FORMULALM-SCIENTIFIC-RD-20260629",
+    "time": "2026-06-29T13:25:19.202319+00:00",
+    "uname": "Linux kolibri 6.8.0-36-generic #36-Ubuntu SMP PREEMPT_DYNAMIC Mon Jun 10 10:49:14 UTC 2024 x86_64 x86_64 x86_64 GNU/Linux"
+  },
+  "safe_next_action": "Fix the remote runtime or resubmit through Control Plane after the blocker is gone.",
+  "severity": "P1",
+  "status": "blocked",
+  "task_id": "KOL-FORMULALM-SCIENTIFIC-RD-20260629"
+}
