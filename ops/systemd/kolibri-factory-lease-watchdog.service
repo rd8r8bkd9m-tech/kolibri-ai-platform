@@ -1,0 +1,13 @@
+[Unit]
+Description=Kolibri Factory lease and stuck-task watchdog
+After=network-online.target kolibri-factory-control.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=KOLIBRI_FACTORY_CONTROL_URL=http://10.99.0.2:9101
+Environment=KOLIBRI_FACTORY_WATCHDOG_LIMIT=50
+Environment=KOLIBRI_FACTORY_WATCHDOG_STALE_AFTER=3600
+Environment=KOLIBRI_FACTORY_WATCHDOG_TIMEOUT=20
+ExecStart=/usr/local/bin/kolibri-factory-lease-watchdog
+Nice=5
