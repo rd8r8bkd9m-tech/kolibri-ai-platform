@@ -361,6 +361,14 @@ def task_state_key(state: str) -> str:
     return key(f"task_state:{state}")
 
 
+def task_error_type_key(error_type: str) -> str:
+    return key(f"task_error_type:{error_type or 'none'}")
+
+
+def task_error_type_index_key() -> str:
+    return key("task_error_type_index")
+
+
 def task_active_key() -> str:
     return key("task_active_ids")
 
@@ -389,6 +397,12 @@ def all_task_ids() -> list[str]:
 def indexed_task_ids_for_state(state: str) -> list[str]:
     ensure_task_indexes()
     values = redis.command("SMEMBERS", task_state_key(state)) or []
+    return sorted(values)
+
+
+def indexed_task_ids_for_error_type(error_type: str) -> list[str]:
+    ensure_task_indexes()
+    values = redis.command("SMEMBERS", task_error_type_key(error_type)) or []
     return sorted(values)
 
 
@@ -454,16 +468,30 @@ def index_task_state(task_id: str, state: str | None, previous_state: str | None
         redis.command("SREM", task_active_key(), task_id)
 
 
+def index_task_error_type(task_id: str, error_type: str | None, previous_error_type: str | None = None) -> None:
+    previous = str(previous_error_type or "")
+    current = str(error_type or "")
+    if previous and previous != current:
+        redis.command("SREM", task_error_type_key(previous), task_id)
+    if current:
+        redis.command("SADD", task_error_type_key(current), task_id)
+        redis.command("SADD", task_error_type_index_key(), current)
+
+
 def rebuild_task_indexes(limit: int | None = None) -> dict[str, Any]:
     for state in KNOWN_TASK_STATES:
         redis.command("DEL", task_state_key(state))
     redis.command("DEL", task_state_key("unknown"))
+    for error_type in redis.command("SMEMBERS", task_error_type_index_key()) or []:
+        redis.command("DEL", task_error_type_key(error_type))
+    redis.command("DEL", task_error_type_index_key())
     redis.command("DEL", task_active_key())
     task_ids = all_task_ids()
     if limit is not None:
         task_ids = task_ids[: max(0, int(limit))]
     counts: dict[str, int] = {}
     state_groups: dict[str, list[str]] = {}
+    error_groups: dict[str, list[str]] = {}
     active_ids: list[str] = []
     indexed = 0
     missing = 0
@@ -475,6 +503,9 @@ def rebuild_task_indexes(limit: int | None = None) -> dict[str, Any]:
         state_groups.setdefault(state, []).append(task_id)
         if state in ACTIVE_TASK_STATES:
             active_ids.append(task_id)
+        error_type = str(task.get("error_type") or "")
+        if error_type:
+            error_groups.setdefault(error_type, []).append(task_id)
         counts[state] = counts.get(state, 0) + 1
         indexed += 1
     for state, ids in state_groups.items():
@@ -482,6 +513,11 @@ def rebuild_task_indexes(limit: int | None = None) -> dict[str, Any]:
             redis.command("SADD", task_state_key(state), *ids)
     if active_ids:
         redis.command("SADD", task_active_key(), *active_ids)
+    for error_type, ids in error_groups.items():
+        if ids:
+            redis.command("SADD", task_error_type_key(error_type), *ids)
+    if error_groups:
+        redis.command("SADD", task_error_type_index_key(), *sorted(error_groups))
     if limit is None:
         redis.command("SET", task_index_ready_key(), utc_now())
     return {
@@ -502,10 +538,12 @@ def ensure_task_indexes() -> None:
 def save_task(task: dict[str, Any]) -> None:
     existing = load_task(task["task_id"]) or {}
     previous_state = existing.get("state")
+    previous_error_type = existing.get("error_type")
     task["updated_at"] = utc_now()
     set_json(task_key(task["task_id"]), task)
     redis.command("SADD", key("task_ids"), task["task_id"])
     index_task_state(task["task_id"], str(task.get("state") or "unknown"), str(previous_state or ""))
+    index_task_error_type(task["task_id"], str(task.get("error_type") or ""), str(previous_error_type or ""))
 
 
 def enqueue(task_id: str) -> None:
@@ -581,6 +619,8 @@ def compact_task(task: dict[str, Any]) -> dict[str, Any]:
         "lease_owner": task.get("lease_owner"),
         "lease_until": task.get("lease_until"),
         "error_type": task.get("error_type"),
+        "error": str(task.get("error") or "")[:240],
+        "result_reference": task.get("result_reference"),
         "created_at": task.get("created_at"),
         "updated_at": task.get("updated_at"),
     }
@@ -729,6 +769,23 @@ def compact_task_listing(wanted: str | None, limit: int) -> dict[str, Any]:
         "queue_length": q_len,
         "queue": q_prefix,
         "tasks": tasks,
+    }
+
+
+def failure_task_listing(error_type: str, limit: int) -> dict[str, Any]:
+    task_ids = indexed_task_ids_for_error_type(error_type)
+    tasks = []
+    for task_id, task in zip(task_ids, load_tasks(task_ids)):
+        if task:
+            tasks.append(compact_task(task))
+    tasks.sort(key=lambda item: str(item.get("updated_at") or item.get("created_at") or ""), reverse=True)
+    returned = tasks[:limit]
+    return {
+        "error_type": error_type,
+        "total": len(tasks),
+        "returned": len(returned),
+        "truncated": len(tasks) > len(returned),
+        "tasks": returned,
     }
 
 
@@ -1060,6 +1117,12 @@ class Handler(BaseHTTPRequestHandler):
                         "limits": meta,
                     },
                 )
+                return
+            if path == "/v1/tasks/failures":
+                query = parse_qs(parsed.query)
+                error_type = query.get("error_type", ["deliverable_gate_failed"])[0] or "deliverable_gate_failed"
+                limit = bounded_limit(query.get("limit", [None])[0], default=50)
+                response(self, 200, failure_task_listing(error_type, limit))
                 return
             if path == "/v1/agent-messages":
                 query = parse_qs(parsed.query)

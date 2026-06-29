@@ -3,7 +3,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
-from factory_status import build_factory_status, load_watchdog_status
+from factory_status import build_factory_status, load_watchdog_status, merge_tasks_by_id, summarize_factory_failures
 
 
 def test_build_factory_status_normalizes_control_plane_nodes():
@@ -38,7 +38,26 @@ def test_build_factory_status_normalizes_control_plane_nodes():
         "latest_summary": {"status": "ok", "stuck": 0},
         "telegram": {"status": "skipped", "reason": "no_action"},
     }
-    result = build_factory_status(payload, {"tasks": [{"state": "queued"}, {"state": "running"}]}, {"status": "ok", "queue_backend": "redis"}, watchdog)
+    result = build_factory_status(
+        payload,
+        {
+            "tasks": [
+                {"state": "queued"},
+                {"state": "running"},
+                {
+                    "task_id": "KOL-GATE-1",
+                    "kind": "generic_implementation",
+                    "state": "failed",
+                    "error_type": "deliverable_gate_failed",
+                    "error": "deliverable_gate_failed:missing_code_delta",
+                    "updated_at": "2026-06-29T08:10:48+00:00",
+                    "result_reference": "/tmp/result.json",
+                },
+            ]
+        },
+        {"status": "ok", "queue_backend": "redis"},
+        watchdog,
+    )
 
     assert result["status"] == "online"
     assert result["total_nodes"] == 35
@@ -57,6 +76,51 @@ def test_build_factory_status_normalizes_control_plane_nodes():
     assert result["control_plane"]["status"] == "ok"
     assert result["watchdog"]["rollup"]["runs_total"] == 4
     assert result["watchdog"]["rollup"]["totals"]["stuck"] == 1
+    assert result["factory_failures"]["deliverable_gate_failed"] == 1
+    assert result["factory_failures"]["needs_attention"] is True
+    assert result["factory_failures"]["deliverable_gate_recent"][0]["task_id"] == "KOL-GATE-1"
+
+
+def test_summarize_factory_failures_tracks_deliverable_gate_recent():
+    summary = summarize_factory_failures(
+        [
+            {
+                "task_id": "OLDER",
+                "kind": "generic_implementation",
+                "state": "failed",
+                "error_type": "deliverable_gate_failed",
+                "updated_at": "2026-06-29T08:00:00+00:00",
+            },
+            {
+                "task_id": "NEWER",
+                "kind": "owner_remote_task",
+                "state": "failed",
+                "error_type": "deliverable_gate_failed",
+                "updated_at": "2026-06-29T08:10:00+00:00",
+                "result": {"result_path": "/tmp/newer.json"},
+            },
+            {"task_id": "OTHER", "state": "dead_letter", "error_type": "runtime_error"},
+        ]
+    )
+
+    assert summary["failed_total"] == 3
+    assert summary["deliverable_gate_failed"] == 2
+    assert summary["error_types"]["runtime_error"] == 1
+    assert summary["needs_attention"] is True
+    assert [item["task_id"] for item in summary["deliverable_gate_recent"]] == ["NEWER", "OLDER"]
+    assert summary["deliverable_gate_recent"][0]["result_reference"] == "/tmp/newer.json"
+
+
+def test_merge_tasks_by_id_keeps_failed_state_sample_visible():
+    merged = merge_tasks_by_id(
+        [{"task_id": "ACTIVE", "state": "running"}, {"task_id": "FAILED", "state": "running"}],
+        [{"task_id": "FAILED", "state": "failed", "error_type": "deliverable_gate_failed"}],
+    )
+
+    by_id = {task["task_id"]: task for task in merged}
+    assert by_id["ACTIVE"]["state"] == "running"
+    assert by_id["FAILED"]["state"] == "failed"
+    assert by_id["FAILED"]["error_type"] == "deliverable_gate_failed"
 
 
 def test_load_watchdog_status_reads_rollup_and_latest(tmp_path):
@@ -111,3 +175,6 @@ def test_frontend_surfaces_control_plane_node_summary():
     assert "Автолечение leases" in cluster_panel_source
     assert "runs_total" in helper_source
     assert "actions_total" in helper_source
+    assert "getFactoryFailureSummary(status)" in cluster_panel_source
+    assert "Контроль deliverables" in cluster_panel_source
+    assert "deliverable_gate_failed" in helper_source

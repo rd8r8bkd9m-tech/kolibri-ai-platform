@@ -169,6 +169,62 @@ def test_compact_task_listing_bounds_payload_and_exposes_queue_and_leases(monkey
     assert listing["summary"]["active_total"] == 1
 
 
+def test_compact_task_exposes_failure_evidence_without_full_payload():
+    control = load_control()
+    task = {
+        "task_id": "FAILED-COMPACT",
+        "kind": "generic_implementation",
+        "state": control.STATE_FAILED,
+        "error_type": "deliverable_gate_failed",
+        "error": "deliverable_gate_failed:missing_code_delta,missing_checks",
+        "result_reference": "/tmp/result.json",
+        "result": {"large": "x" * 1000},
+        "envelope": {"goal": "large"},
+    }
+
+    compact = control.compact_task(task)
+
+    assert compact["error_type"] == "deliverable_gate_failed"
+    assert compact["error"] == "deliverable_gate_failed:missing_code_delta,missing_checks"
+    assert compact["result_reference"] == "/tmp/result.json"
+    assert "result" not in compact
+    assert "envelope" not in compact
+
+
+def test_failure_task_listing_uses_error_type_index(monkeypatch):
+    control = load_control()
+    tasks = {
+        "FAILED-OLDER": {
+            "task_id": "FAILED-OLDER",
+            "kind": "generic_implementation",
+            "state": control.STATE_FAILED,
+            "error_type": "deliverable_gate_failed",
+            "updated_at": "2026-06-29T08:00:00+00:00",
+            "result_reference": "/tmp/older.json",
+        },
+        "FAILED-NEWER": {
+            "task_id": "FAILED-NEWER",
+            "kind": "generic_implementation",
+            "state": control.STATE_FAILED,
+            "error_type": "deliverable_gate_failed",
+            "updated_at": "2026-06-29T08:10:00+00:00",
+            "result_reference": "/tmp/newer.json",
+        },
+    }
+
+    monkeypatch.setattr(control, "indexed_task_ids_for_error_type", lambda error_type: list(tasks))
+    monkeypatch.setattr(control, "load_tasks", lambda task_ids: [tasks[task_id] for task_id in task_ids])
+
+    listing = control.failure_task_listing("deliverable_gate_failed", 1)
+
+    assert listing["error_type"] == "deliverable_gate_failed"
+    assert listing["total"] == 2
+    assert listing["returned"] == 1
+    assert listing["truncated"] is True
+    assert listing["tasks"][0]["task_id"] == "FAILED-NEWER"
+    assert listing["tasks"][0]["result_reference"] == "/tmp/newer.json"
+
+
 def test_state_filtered_task_sample_uses_state_index_without_full_task_scan(monkeypatch):
     control = load_control()
     tasks = {

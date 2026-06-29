@@ -66,6 +66,28 @@ export function getWatchdogSummary(status) {
   }
 }
 
+export function getFactoryFailureSummary(status) {
+  const failures = status?.factory_failures || {}
+  const recent = Array.isArray(failures.deliverable_gate_recent)
+    ? failures.deliverable_gate_recent.slice(0, 3).map(item => ({
+        taskId: item.task_id || "unknown",
+        state: item.state || "unknown",
+        kind: item.kind || "unknown",
+        updatedAt: item.updated_at || "",
+        error: item.error || "",
+        resultReference: item.result_reference || "",
+      }))
+    : []
+
+  return {
+    failedTotal: failures.failed_total ?? 0,
+    deliverableGateFailed: failures.deliverable_gate_failed ?? 0,
+    needsAttention: Boolean(failures.needs_attention),
+    errorTypes: failures.error_types || {},
+    recent,
+  }
+}
+
 export function formatClusterSignal(status) {
   if (!status) return "статус фабрики загружается"
   const { freshNodes, canonicalNodes, registeredNodes } = getNodeSummary(status)

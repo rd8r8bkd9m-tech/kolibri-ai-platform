@@ -1,5 +1,5 @@
 import { Skeleton } from "../ui/Skeleton"
-import { getFactoryHealth, getFactoryIssue, getNodeSummary, getWatchdogSummary } from "../../lib/factoryStatus"
+import { getFactoryFailureSummary, getFactoryHealth, getFactoryIssue, getNodeSummary, getWatchdogSummary } from "../../lib/factoryStatus"
 
 function NodeIcon({ role }) {
   const paths = {
@@ -38,6 +38,7 @@ export function ClusterPanel({ status, onRefresh }) {
     duplicateNodes,
   } = getNodeSummary(status)
   const watchdog = getWatchdogSummary(status)
+  const failures = getFactoryFailureSummary(status)
   const factoryHealth = getFactoryHealth(status)
   const factoryIssue = getFactoryIssue(status)
   const sortedNodes = [...nodes].sort(([, a], [, b]) => {
@@ -92,6 +93,31 @@ export function ClusterPanel({ status, onRefresh }) {
             <div key={item.label} className="stat-card">
               <div className="stat-value" style={{ color: item.color }}>{item.value}</div>
               <div className="stat-label">{item.label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className={`cluster-health cluster-health--${failures.needsAttention ? "degraded" : "online"}`}>
+        <span className={`status-dot status-dot--${failures.needsAttention ? "degraded" : "online"}`} />
+        <div>
+          <strong>Контроль deliverables</strong>
+          <span>
+            {failures.deliverableGateFailed
+              ? `${failures.deliverableGateFailed} задач отклонены без diff/checks · всего failed ${failures.failedTotal}`
+              : `пустые completed не найдены · всего failed ${failures.failedTotal}`}
+          </span>
+        </div>
+      </div>
+      {failures.recent.length > 0 && (
+        <div className="deliverable-failures">
+          <div className="deliverable-failures-head">Последние deliverable gate failures</div>
+          {failures.recent.map(item => (
+            <div key={`${item.taskId}-${item.updatedAt}`} className="deliverable-failure-row">
+              <div>
+                <strong>{item.taskId}</strong>
+                <span>{item.kind} · {item.state}</span>
+              </div>
+              <span>{item.error || item.updatedAt || "без деталей"}</span>
             </div>
           ))}
         </div>

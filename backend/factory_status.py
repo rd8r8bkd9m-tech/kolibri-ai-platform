@@ -139,6 +139,55 @@ def _extract_tasks(tasks_payload: Any) -> list[dict[str, Any]]:
     return []
 
 
+def merge_tasks_by_id(*groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    merged: dict[str, dict[str, Any]] = {}
+    for tasks in groups:
+        for task in tasks:
+            if not isinstance(task, dict):
+                continue
+            merged[_task_identifier(task)] = task
+    return list(merged.values())
+
+
+def _task_identifier(task: dict[str, Any]) -> str:
+    return str(task.get("task_id") or task.get("id") or task.get("name") or "unknown")
+
+
+def summarize_factory_failures(tasks: list[dict[str, Any]]) -> dict[str, Any]:
+    error_types: dict[str, int] = {}
+    deliverable_gate_recent: list[dict[str, Any]] = []
+    failed_total = 0
+    for task in tasks:
+        state = str(task.get("state") or "")
+        error_type = str(task.get("error_type") or "")
+        if state in {"failed", "dead_letter"}:
+            failed_total += 1
+        if error_type:
+            error_types[error_type] = error_types.get(error_type, 0) + 1
+        if error_type == "deliverable_gate_failed":
+            envelope = task.get("envelope") if isinstance(task.get("envelope"), dict) else {}
+            result = task.get("result") if isinstance(task.get("result"), dict) else {}
+            deliverable_gate_recent.append(
+                {
+                    "task_id": _task_identifier(task),
+                    "state": state or "unknown",
+                    "kind": task.get("kind") or envelope.get("kind") or "unknown",
+                    "updated_at": task.get("updated_at") or task.get("heartbeat_at") or task.get("created_at"),
+                    "error": str(task.get("error") or "")[:240],
+                    "result_reference": task.get("result_reference") or result.get("result_path"),
+                }
+            )
+    deliverable_gate_recent.sort(key=lambda item: str(item.get("updated_at") or ""), reverse=True)
+    deliverable_gate_total = error_types.get("deliverable_gate_failed", 0)
+    return {
+        "failed_total": failed_total,
+        "error_types": error_types,
+        "deliverable_gate_failed": deliverable_gate_total,
+        "deliverable_gate_recent": deliverable_gate_recent[:5],
+        "needs_attention": deliverable_gate_total > 0,
+    }
+
+
 def _read_json_file(path: Path) -> dict[str, Any] | None:
     try:
         value = path.read_text(encoding="utf-8")
@@ -202,6 +251,7 @@ def build_factory_status(
     for task in tasks:
         state = str(task.get("state") or "unknown")
         task_states[state] = task_states.get(state, 0) + 1
+    factory_failures = summarize_factory_failures(tasks)
     return {
         "status": "online" if fresh_nodes else "degraded",
         "source": "control-plane",
@@ -240,6 +290,7 @@ def build_factory_status(
             else int((health_payload or {}).get("queue") or 0)
         ),
         "task_states": task_states,
+        "factory_failures": factory_failures,
         "watchdog": watchdog_payload or load_watchdog_status(),
         "nodes": nodes,
         "node_list": node_list,
@@ -280,6 +331,13 @@ def build_degraded_factory_status(error: str, control_plane_url: str | None = No
         "avg_cpu_percent": 0,
         "queue_size": 0,
         "task_states": {},
+        "factory_failures": {
+            "failed_total": 0,
+            "error_types": {},
+            "deliverable_gate_failed": 0,
+            "deliverable_gate_recent": [],
+            "needs_attention": False,
+        },
         "watchdog": load_watchdog_status(),
         "nodes": {},
         "node_list": [],
@@ -314,10 +372,23 @@ async def fetch_factory_status() -> dict[str, Any]:
     tasks_payload: Any = {"tasks": []}
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(1.5, connect=1.0), trust_env=False) as client:
-            tasks_response = await client.get(_control_plane_v1_url("/tasks", selected_url))
+            tasks_response = await client.get(_control_plane_v1_url("/tasks?summary=1&compact=1&limit=500", selected_url))
             if tasks_response.status_code == 200:
                 tasks_payload = tasks_response.json()
     except Exception:
         tasks_payload = {"tasks": []}
+
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(3.0, connect=1.0), trust_env=False) as client:
+            failed_response = await client.get(_control_plane_v1_url("/tasks/failures?error_type=deliverable_gate_failed&limit=100", selected_url))
+            if failed_response.status_code == 200:
+                tasks_payload = {
+                    "tasks": merge_tasks_by_id(
+                        _extract_tasks(tasks_payload),
+                        _extract_tasks(failed_response.json()),
+                    )
+                }
+    except Exception:
+        pass
 
     return build_factory_status(nodes_payload, tasks_payload, health_payload)

@@ -966,6 +966,40 @@ body {
   border-color: rgba(239, 68, 68, 0.28);
   background: rgba(239, 68, 68, 0.07);
 }
+.deliverable-failures {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid rgba(239, 68, 68, 0.22);
+  border-radius: var(--radius-sm);
+  background: rgba(239, 68, 68, 0.06);
+}
+.deliverable-failures-head {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.deliverable-failure-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 3px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.35;
+}
+.deliverable-failure-row strong,
+.deliverable-failure-row span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.deliverable-failure-row strong {
+  color: var(--text-primary);
+  font-size: 12px;
+}
+.deliverable-failure-row span {
+  color: var(--text-muted);
+}
 .cluster-empty {
   border: 1px dashed var(--border-strong);
   border-radius: var(--radius-sm);
