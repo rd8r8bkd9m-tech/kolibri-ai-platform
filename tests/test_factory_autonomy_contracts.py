@@ -1,5 +1,6 @@
 import argparse
 import importlib.util
+import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -245,3 +246,138 @@ def test_agent_host_register_heartbeat_and_lease_include_permissions_payloads(tm
     for body in (register_body, heartbeat_body, lease_body):
         assert set(body["permissions"]) == {"read_repo", "write_worktree"}
         assert set(body["permission_packs"]) == {"full_autonomy", "implementation"}
+
+
+def test_generic_runner_falls_back_to_codex_when_mimo_returns_empty_text(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setattr(agent_host.shutil, "which", lambda name: f"/usr/bin/{name}" if name in {"mimo", "codex"} else None)
+
+    class Host(agent_host.AgentHost):
+        def __init__(self, args):
+            super().__init__(args)
+            self.posts = []
+            self.commands = []
+
+        def post(self, path, body):
+            self.posts.append((path, body))
+            return body
+
+        def run_command(self, command, cwd, stdout_path, stderr_path, task, branch, logs, env=None, command_label=None):
+            del cwd, task, branch, logs, env
+            self.commands.append((command, command_label))
+            if command[0] == "/usr/bin/mimo":
+                stdout_path.write_text("$ mimo\n", encoding="utf-8")
+                stderr_path.write_text("", encoding="utf-8")
+                return
+            with stdout_path.open("a", encoding="utf-8") as stdout:
+                stdout.write(json.dumps({"msg": {"type": "agent_message", "message": "Codex fallback completed."}}) + "\n")
+            stderr_path.write_text("", encoding="utf-8")
+
+    args = argparse.Namespace(
+        control_url="http://127.0.0.1:9101",
+        control_urls="http://127.0.0.1:9101",
+        node_id="node-a",
+        agent_id="agent-node-a",
+        capabilities="generic_implementation",
+        permissions="read_repo,write_worktree",
+        permission_packs="full_autonomy",
+        repo_url="https://example.invalid/repo.git",
+        work_root=str(tmp_path / "work"),
+        artifact_root=str(tmp_path / "artifacts"),
+        heartbeat_interval=10,
+        lease_refresh=20,
+        max_inflight=1,
+    )
+    host = Host(args)
+    stdout_path = tmp_path / "stdout.log"
+    stderr_path = tmp_path / "stderr.log"
+
+    response = host.run_generic_ai_runner(
+        "mimo",
+        "do work",
+        tmp_path,
+        stdout_path,
+        stderr_path,
+        {"task_id": "AUTO-FALLBACK"},
+        "agent/AUTO-FALLBACK/generic",
+        {"stdout": str(stdout_path), "stderr": str(stderr_path)},
+    )
+
+    assert response == "Codex fallback completed."
+    assert [command[0][0] for command in host.commands] == ["/usr/bin/mimo", "/usr/bin/codex"]
+    assert "retrying with codex fallback" in stdout_path.read_text(encoding="utf-8")
+
+
+def test_agent_host_failure_payload_marks_empty_runner_response(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setattr(agent_host.shutil, "which", lambda name: "/usr/bin/mimo" if name == "mimo" else None)
+
+    class Host(agent_host.AgentHost):
+        def __init__(self, args):
+            super().__init__(args)
+            self.posts = []
+
+        def post(self, path, body):
+            self.posts.append((path, body))
+            return body
+
+        def run_command(self, command, cwd, stdout_path, stderr_path, task, branch, logs, env=None, command_label=None):
+            del command, cwd, task, branch, logs, env
+            stdout_path.write_text(f"$ {command_label}\n", encoding="utf-8")
+            stderr_path.write_text("runner exited with no text\n", encoding="utf-8")
+
+        def run_generic_implementation(self, task):
+            worktree, artifact_dir, logs = self.prepare_dirs(task)
+            stdout_path = Path(logs["stdout"])
+            stderr_path = Path(logs["stderr"])
+            self.run_json_text_command(
+                ["/usr/bin/mimo", "run", "--format", "json", "<prompt>"],
+                "/usr/bin/mimo run --format json <prompt>",
+                "mimo",
+                worktree,
+                stdout_path,
+                stderr_path,
+                task,
+                None,
+                logs,
+            )
+
+    args = argparse.Namespace(
+        control_url="http://127.0.0.1:9101",
+        control_urls="http://127.0.0.1:9101",
+        node_id="node-a",
+        agent_id="agent-node-a",
+        capabilities="generic_implementation",
+        permissions="read_repo,write_worktree",
+        permission_packs="full_autonomy",
+        repo_url="https://example.invalid/repo.git",
+        work_root=str(tmp_path / "work"),
+        artifact_root=str(tmp_path / "artifacts"),
+        heartbeat_interval=10,
+        lease_refresh=20,
+        max_inflight=1,
+    )
+    host = Host(args)
+    task = {
+        "task_id": "AUTO-EMPTY",
+        "kind": "generic_implementation",
+        "attempt": 1,
+        "attempt_id": "AUTO-EMPTY-attempt-1",
+        "max_retries": 2,
+        "envelope": {"kind": "generic_implementation"},
+    }
+
+    host.run_task(task)
+
+    fail_posts = [(path, body) for path, body in host.posts if path.endswith("/fail")]
+    assert len(fail_posts) == 1
+    _, fail_body = fail_posts[0]
+    assert fail_body["error_type"] == "runner_empty_response"
+    assert fail_body["retry"] is True
+    assert fail_body["result"]["error_type"] == "runner_empty_response"
+    assert "stdout_tail" in fail_body["result"]
+    assert "stderr_tail" in fail_body["result"]
+    result_path = Path(fail_body["result_reference"])
+    written = json.loads(result_path.read_text(encoding="utf-8"))
+    assert written["error_type"] == "runner_empty_response"
+    assert written["stderr_tail"] == "runner exited with no text\n"

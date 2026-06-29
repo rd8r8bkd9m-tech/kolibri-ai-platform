@@ -30,6 +30,7 @@ DEFAULT_AGENT_CAPABILITIES = (
 )
 RUNTIME_KIND_COMPAT = {
     "remote_implementation_runner_ready": "generic_implementation",
+    "product_implementation": "generic_implementation",
 }
 PERMISSION_PACKS = {
     "read_only": {"read_repo", "read_system", "write_artifacts"},
@@ -50,6 +51,14 @@ PERMISSION_PACKS = {
         "write_worktree",
     },
 }
+
+
+class RunnerEmptyResponseError(RuntimeError):
+    """Raised when an AI runner exits successfully but emits no parseable text."""
+
+
+class RunnerUnavailableError(RuntimeError):
+    """Raised when the requested AI runner binary is unavailable on a node."""
 
 
 def utc_now() -> str:
@@ -141,6 +150,22 @@ def git_remote_branch_matches(worktree: Path, branch: str, commit: str) -> bool:
         return False
     output = git_output(["ls-remote", "--heads", "origin", branch], worktree)
     return any(line.split()[0] == commit for line in output.splitlines() if line.split())
+
+
+def tail_text(path: Path, limit: int = 4000) -> str:
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    return text[-limit:]
+
+
+def classify_runner_exception(exc: Exception) -> str:
+    if isinstance(exc, RunnerEmptyResponseError):
+        return "runner_empty_response"
+    if isinstance(exc, RunnerUnavailableError):
+        return "runner_unavailable"
+    return "runtime_error"
 
 
 class AgentHost:
@@ -382,7 +407,7 @@ class AgentHost:
         )
         response_text = self.parse_json_text_response(stdout_path)
         if not response_text:
-            raise RuntimeError(f"{empty_response_label} completed without text response")
+            raise RunnerEmptyResponseError(f"{empty_response_label} completed without text response")
         return response_text
 
     def write_result(self, artifact_dir: Path, result: dict[str, Any]) -> Path:
@@ -734,7 +759,7 @@ class AgentHost:
         if runner == "codex":
             codex = shutil.which("codex")
             if not codex:
-                raise RuntimeError("codex executable is not available on this node")
+                raise RunnerUnavailableError("codex executable is not available on this node")
             return self.run_json_text_command(
                 [codex, "exec", "--json", "--skip-git-repo-check", "--sandbox", "danger-full-access", prompt],
                 f"{codex} exec --json --skip-git-repo-check --sandbox danger-full-access <prompt>",
@@ -749,18 +774,36 @@ class AgentHost:
         if runner == "mimo":
             mimo = shutil.which("mimo")
             if not mimo:
-                raise RuntimeError("mimo executable is not available on this node")
-            return self.run_json_text_command(
-                [mimo, "run", "--format", "json", "--title", f"factory-{task['task_id']}", prompt],
-                f"{mimo} run --format json --title factory-{task['task_id']} <prompt>",
-                "mimo",
-                worktree,
-                stdout_path,
-                stderr_path,
-                task,
-                branch,
-                logs,
-            )
+                raise RunnerUnavailableError("mimo executable is not available on this node")
+            try:
+                return self.run_json_text_command(
+                    [mimo, "run", "--format", "json", "--title", f"factory-{task['task_id']}", prompt],
+                    f"{mimo} run --format json --title factory-{task['task_id']} <prompt>",
+                    "mimo",
+                    worktree,
+                    stdout_path,
+                    stderr_path,
+                    task,
+                    branch,
+                    logs,
+                )
+            except RunnerEmptyResponseError:
+                codex = shutil.which("codex")
+                if not codex:
+                    raise
+                with stdout_path.open("ab") as stdout:
+                    stdout.write(b"\n# mimo produced no parseable text; retrying with codex fallback\n")
+                return self.run_json_text_command(
+                    [codex, "exec", "--json", "--skip-git-repo-check", "--sandbox", "danger-full-access", prompt],
+                    f"{codex} exec --json --skip-git-repo-check --sandbox danger-full-access <prompt>",
+                    "codex fallback after mimo empty response",
+                    worktree,
+                    stdout_path,
+                    stderr_path,
+                    task,
+                    branch,
+                    logs,
+                )
         raise RuntimeError(f"unsupported generic runner: {runner}")
 
     def run_verification_commands(
@@ -1261,6 +1304,9 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
             attempt_id = task.get("attempt_id") or f"{task_id}-attempt-{task.get('attempt', 1)}"
             artifact_dir = self.artifact_root / task_id / attempt_id
             artifact_dir.mkdir(parents=True, exist_ok=True)
+            stdout_path = artifact_dir / "stdout.log"
+            stderr_path = artifact_dir / "stderr.log"
+            error_type = classify_runner_exception(exc)
             result = {
                 "node_id": self.node_id,
                 "hostname": self.hostname,
@@ -1269,12 +1315,16 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 "attempt_id": attempt_id,
                 "pid": self.pid,
                 "status": "failed",
+                "error_type": error_type,
                 "error": str(exc),
+                "log_paths": {"stdout": str(stdout_path), "stderr": str(stderr_path)},
+                "stdout_tail": tail_text(stdout_path),
+                "stderr_tail": tail_text(stderr_path),
                 "completed_at": utc_now(),
             }
             result_path = self.write_result(artifact_dir, result)
             retry = int(task.get("attempt", 0)) < int(task.get("max_retries", 3))
-            self.fail(task, "runtime_error", str(exc), result, result_path, retry=retry)
+            self.fail(task, error_type, str(exc), result, result_path, retry=retry)
             self.publish_agent_message(
                 "task_failed",
                 str(exc),

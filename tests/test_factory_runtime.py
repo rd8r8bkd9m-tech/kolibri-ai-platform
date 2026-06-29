@@ -50,6 +50,7 @@ def test_agent_host_supports_required_task_kinds():
     agent = (ROOT / "ops" / "agent_host.py").read_text(encoding="utf-8")
     assert "impl_factory_smoke" in agent
     assert "impl_retry_error_clearance" in agent
+    assert '"product_implementation": "generic_implementation"' in agent
     assert "telegram_chat_response" in agent
     assert "orchestrator_chat_response" in agent
     assert "telegram_image_generation" in agent
