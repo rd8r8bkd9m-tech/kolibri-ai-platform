@@ -38,8 +38,11 @@ mkdir -p /tmp/kolibri-factory-integration
 
 git status --short --branch > /tmp/kolibri-factory-integration/status.before.txt
 git diff -- frontend > /tmp/kolibri-factory-integration/local-frontend.before.patch
+git diff --cached -- frontend > /tmp/kolibri-factory-integration/local-frontend.cached.before.patch
 git diff --name-status -- frontend > /tmp/kolibri-factory-integration/local-frontend.files.txt
+git diff --cached --name-status -- frontend > /tmp/kolibri-factory-integration/local-frontend.cached.files.txt
 git diff --stat -- frontend > /tmp/kolibri-factory-integration/local-frontend.stat.txt
+git diff --cached --stat -- frontend > /tmp/kolibri-factory-integration/local-frontend.cached.stat.txt
 ```
 
 Если есть untracked frontend-файлы, отдельно записать список:
@@ -74,7 +77,9 @@ git diff --name-status origin/main..."${RESULT_REF}"
 git diff --stat origin/main..."${RESULT_REF}"
 git diff --name-status origin/main..."${RESULT_REF}"
 git diff -- frontend
+git diff --cached -- frontend
 git diff --name-status -- frontend
+git diff --cached --name-status -- frontend
 git diff --name-status origin/main..."${RESULT_REF}" -- frontend
 ```
 
@@ -82,7 +87,7 @@ git diff --name-status origin/main..."${RESULT_REF}" -- frontend
 
 ```bash
 comm -12 \
-  <(git diff --name-only -- frontend | sort) \
+  <({ git diff --name-only -- frontend; git diff --cached --name-only -- frontend; } | sort -u) \
   <(git diff --name-only origin/main..."${RESULT_REF}" -- frontend | sort)
 ```
 

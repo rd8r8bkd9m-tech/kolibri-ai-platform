@@ -86,7 +86,10 @@ else
 fi
 
 section "Frontend local changes"
+say "unstaged:"
 git diff --name-status -- frontend || true
+say "staged:"
+git diff --cached --name-status -- frontend || true
 UNTRACKED_FRONTEND="$(git ls-files --others --exclude-standard frontend 2>/dev/null || true)"
 if [ -n "${UNTRACKED_FRONTEND}" ]; then
   say "untracked frontend files:"
@@ -101,7 +104,9 @@ say "# 2. Snapshot local frontend changes without staging:"
 say "mkdir -p /tmp/kolibri-factory-integration"
 say "git status --short --branch > /tmp/kolibri-factory-integration/status.before.txt"
 say "git diff -- frontend > /tmp/kolibri-factory-integration/local-frontend.before.patch"
+say "git diff --cached -- frontend > /tmp/kolibri-factory-integration/local-frontend.cached.before.patch"
 say "git diff --name-status -- frontend > /tmp/kolibri-factory-integration/local-frontend.files.txt"
+say "git diff --cached --name-status -- frontend > /tmp/kolibri-factory-integration/local-frontend.cached.files.txt"
 
 if [ "${REMOTE_FOUND}" -eq 1 ]; then
   say "# 3. Fetch only the result branch into a remote-tracking ref:"
@@ -126,7 +131,7 @@ else
 fi
 
 section "Safety"
-say "This script did not fetch, merge, cherry-pick, checkout, reset, stage, commit, push, deploy, or contact live services."
+say "This script did not fetch, merge, cherry-pick, checkout, reset, stage, commit, push, deploy, or contact live app/control services."
 
 if [ "${REMOTE_FOUND}" -eq 1 ]; then
   exit 0
