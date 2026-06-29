@@ -618,7 +618,28 @@ Escalation:
 7. Считать `Control Plane state` источником факта, а GitHub Project - экраном
    синхронизации.
 
-## 7. Минимальный формат отчета automation
+## 7. Политика завершения automation
+
+Все automations из этого пакета подчиняются машинной политике
+`automation_execution_policy` из `docs/project-policy.md`: каждый запуск обязан
+пройти `analyze -> execute -> verify -> report`. Аналитический результат без
+исполнения является `incomplete`, если он не содержит готовый Control Plane
+handoff: task envelope или точный submission pattern, acceptance criteria,
+required evidence, verification commands и owner-visible status target.
+
+Минимальные доказательства завершения:
+
+- changed file или artifact/result reference;
+- команды или проверки с результатом;
+- report в GitHub/Control Plane/docs;
+- owner-visible status в GitHub Project, issue/PR/comment, Telegram report или
+  Control Plane `result_reference`.
+
+FormulaLM/Qwen/LLM/model experiments запрещено запускать на Mac. Такие задачи
+передаются только удалённому Linux executor через Control Plane; при отсутствии
+runtime/model/preflight automation возвращает blocker artifact.
+
+## 8. Минимальный формат отчета automation
 
 ```markdown
 Automation: kolibri-...
@@ -640,7 +661,7 @@ Next:
 - next check at ...
 ```
 
-## 8. Решения, требующие подтверждения Владислава
+## 9. Решения, требующие подтверждения Владислава
 
 - Production failover switch Control Plane.
 - Restart/rollback Control Plane, Redis, Agent Host fleet or billing services.
@@ -651,4 +672,3 @@ Next:
 - FormulaLM nightly/heavy benchmark or any local Mac model benchmark.
 - Adding more than 6 active subagents or changing replacement backlog policy.
 - Publishing raw logs, private investor/customer data or node-local paths.
-

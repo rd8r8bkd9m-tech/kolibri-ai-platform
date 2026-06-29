@@ -329,6 +329,152 @@ FormulaLM — отдельное R&D-направление.
 - living character R&D task.
 
 Каждая automation должна иметь понятную цель, проверку и артефакт.
+Любая automation проходит один обязательный контур:
+`analyze -> execute -> verify -> report`.
+
+### 15.1 Машиночитаемая политика исполнения automation
+
+```yaml
+automation_execution_policy:
+  id: kolibri_automation_execution_policy
+  version: "2026-06-29"
+  language: ru
+  applies_to:
+    - scheduled_automation
+    - control_plane_task
+    - agent_work_handoff
+    - github_ci_auto_fix
+    - documentation_steward
+  required_flow:
+    ordered_steps:
+      - analyze
+      - execute
+      - verify
+      - report
+    rule_ru: "Automation не может завершиться после одного анализа."
+  completion_gate:
+    complete_requires_all:
+      - analysis_recorded
+      - execution_completed_or_handoff_submitted
+      - verification_completed_or_blocker_recorded
+      - report_published
+      - owner_visible_status_updated
+    analysis_only:
+      terminal_status: false
+      status_ru: "incomplete"
+      allowed_only_with_execution_handoff: true
+      handoff_requires_all:
+        - control_plane_task_envelope_or_submission_pattern
+        - execution_owner_or_required_capability
+        - acceptance_criteria
+        - required_evidence
+        - verification_commands
+        - result_reference_target
+        - owner_visible_status_target
+  required_evidence:
+    changed_file_or_artifact:
+      required: true
+      examples:
+        - "changed_files"
+        - "docs/agent-work/<task>-result.md"
+        - "artifact_dir/result.json"
+    commands_or_checks:
+      required: true
+      examples:
+        - "git diff --check"
+        - "python -m pytest <focused-test>"
+        - "python -m json.tool <envelope>.json"
+    report:
+      required: true
+      examples:
+        - "PR body"
+        - "issue/comment"
+        - "docs/agent-work/<task>-report.md"
+        - "Control Plane result payload"
+    owner_visible_status:
+      required: true
+      allowed_targets:
+        - "GitHub Project"
+        - "GitHub issue"
+        - "GitHub PR"
+        - "Control Plane result_reference"
+        - "Telegram owner report"
+  formula_lm_and_model_guard:
+    mac_formula_lm_or_llm_experiments: forbidden
+    allowed_on_mac:
+      - "prepare_envelope"
+      - "read_docs"
+      - "light_unit_or_contract_tests"
+      - "collect_remote_status"
+    remote_required_for:
+      - "FormulaLM"
+      - "Qwen"
+      - "LLM benchmark"
+      - "model inference"
+      - "training_or_fine_tuning"
+  failure_policy:
+    missing_evidence_status: blocked_or_incomplete
+    fabricated_result: forbidden
+    blocker_requires:
+      - exact_reason
+      - checks_attempted
+      - next_required_owner_or_infra_action
+      - result_reference
+```
+
+### 15.2 Execution handoff через Control Plane
+
+Если automation выполнила только анализ, она обязана передать исполнение через
+Control Plane. Минимальный handoff считается достаточным только если в нём есть
+конкретная задача, критерии приёмки, ожидаемые доказательства и место, где
+владелец увидит статус.
+
+Шаблон task envelope:
+
+```json
+{
+  "task_id": "KOL-EXECUTION-HANDOFF-YYYYMMDD",
+  "kind": "remote_implementation",
+  "required_capability": "generic_implementation",
+  "role_slot": "autonomous_engineer",
+  "goal": "Выполнить конкретное изменение из analysis artifact. Сначала прочитать source_doc, затем реализовать, проверить и опубликовать report. Не запускать FormulaLM/LLM/model experiments на Mac.",
+  "source": {
+    "source_doc": "docs/agent-work/<analysis-artifact>.md",
+    "policy": "docs/project-policy.md#151-машиночитаемая-политика-исполнения-automation"
+  },
+  "acceptance": [
+    "Есть изменённый файл или артефакт результата",
+    "Есть список команд/проверок с результатами",
+    "Есть report для owner/GitHub/Control Plane",
+    "Owner-visible статус обновлён или указан точный blocker",
+    "Если исполнение невозможно, возвращён blocker с result_reference и next action"
+  ],
+  "verification_commands": [
+    "git diff --check",
+    "python -m json.tool ops/envelopes/KOL-EXECUTION-HANDOFF-YYYYMMDD.json"
+  ],
+  "expected_evidence": {
+    "changed_files": ["docs/agent-work/<result-artifact>.md"],
+    "checks": ["<exact command>: <ok|failed|skipped with reason>"],
+    "report": "docs/agent-work/<execution-report>.md",
+    "owner_visible_status": "GitHub PR/comment, GitHub Project item или Control Plane result_reference"
+  },
+  "safety": {
+    "no_secrets_in_output": true,
+    "no_formula_lm_or_llm_on_mac": true,
+    "control_plane_only": true
+  }
+}
+```
+
+Паттерн отправки:
+
+```bash
+python -m json.tool ops/envelopes/KOL-EXECUTION-HANDOFF-YYYYMMDD.json
+ops/kolibri-dispatch submit \
+  --file ops/envelopes/KOL-EXECUTION-HANDOFF-YYYYMMDD.json \
+  --control-url "${KOLIBRI_FACTORY_CONTROL_URL:-http://10.99.0.2:9101}"
+```
 
 ## 16. Блокеры
 
