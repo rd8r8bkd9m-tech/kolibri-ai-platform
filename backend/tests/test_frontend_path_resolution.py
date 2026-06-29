@@ -1,5 +1,6 @@
 import importlib.util
 from pathlib import Path
+import shutil
 import sys
 from fastapi.testclient import TestClient
 
@@ -20,11 +21,21 @@ def load_main():
 
 def test_resolve_frontend_path_prefers_repo_dist_when_opt_is_missing(monkeypatch):
     monkeypatch.delenv("KOLIBRI_FRONTEND_DIST", raising=False)
-    module = load_main()
-    resolved = module.resolve_frontend_path()
-    assert resolved is not None
-    assert resolved == ROOT / "frontend" / "dist"
-    assert resolved.exists()
+    repo_dist = ROOT / "frontend" / "dist"
+    created = False
+    if not repo_dist.exists():
+        (repo_dist / "assets").mkdir(parents=True)
+        (repo_dist / "index.html").write_text("<!doctype html><html><body>ok</body></html>", encoding="utf-8")
+        created = True
+    try:
+        module = load_main()
+        resolved = module.resolve_frontend_path()
+        assert resolved is not None
+        assert resolved == repo_dist
+        assert resolved.exists()
+    finally:
+        if created:
+            shutil.rmtree(repo_dist)
 
 
 def test_resolve_frontend_path_honors_explicit_env(monkeypatch, tmp_path):
