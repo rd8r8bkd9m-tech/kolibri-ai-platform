@@ -268,6 +268,7 @@ def test_state_store_initializes_persistent_memory(tmp_path):
     gateway = load_gateway()
     store = gateway.StateStore(tmp_path / "state.json")
     assert store.data["memory"]["project"]["owner_interface"].startswith("Владелец пишет")
+    assert store.data["memory"]["project"]["creator"] == "Создатель проекта и директорской линии оркестрации: Владислав Кочуров."
     assert store.data["memory"]["recent_messages"] == []
 
 

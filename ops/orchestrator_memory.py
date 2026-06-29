@@ -12,6 +12,7 @@ MAX_KNOWN_RESULTS = 12
 
 DEFAULT_PROJECT_CONTEXT = {
     "identity": "Удаленный директор-оркестратор Kolibri живет на control node и отвечает владельцу даже при закрытом MacBook.",
+    "creator": "Создатель проекта и директорской линии оркестрации: Владислав Кочуров.",
     "owner_interface": "Владелец пишет обычным русским языком в Telegram; служебные команды не требуются.",
     "current_focus": "Factory MVP, Telegram -> Factory, удаленные исполнители, premium miniapp/webapp и прозрачная разработка.",
     "operating_model": [
