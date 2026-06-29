@@ -1,0 +1,7 @@
+{
+  "created_at": "2026-06-29T14:19:39Z",
+  "delivery": "fallback_agent_message",
+  "reason": "Telegram runtime credentials are not available to this worker and secrets must not be printed.",
+  "task_id": "KOL-HOME-CLUSTER-20260629-141939-ORCHESTRATOR-DELIVERABLE-RETRY",
+  "text": "Kolibri orchestrator accepted KOL-HOME-CLUSTER-20260629-141939-ORCHESTRATOR-DELIVERABLE-RETRY. I created the home-cluster execution coordination artifact, kept deploy/restart out of scope, and will report changed files, checks, blockers, and commit evidence in the Control Plane result."
+}

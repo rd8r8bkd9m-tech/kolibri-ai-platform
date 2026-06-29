@@ -1,0 +1,46 @@
+{
+  "changed_files": [
+    "docs/agent-work/generated/home-cluster-execution-20260629T141939Z/kol-home-cluster-20260629-141939-orchestrator.md",
+    "docs/agent-work/generated/home-cluster-execution-20260629T141939Z/agent-message.json",
+    "docs/agent-work/generated/home-cluster-execution-20260629T141939Z/result.json"
+  ],
+  "checks": [
+    {
+      "command": "test -s docs/agent-work/generated/home-cluster-execution-20260629T141939Z/kol-home-cluster-20260629-141939-orchestrator.md",
+      "status": "passed"
+    },
+    {
+      "command": "python3 -m json.tool docs/agent-work/generated/home-cluster-execution-20260629T141939Z/agent-message.json",
+      "status": "passed"
+    },
+    {
+      "command": "python3 -m json.tool docs/agent-work/generated/home-cluster-execution-20260629T141939Z/result.json",
+      "status": "passed"
+    },
+    {
+      "command": "python3 -m pytest tests/test_factory_runtime_contracts.py tests/test_factory_runtime_queue_contracts.py",
+      "status": "blocked",
+      "stderr": "/usr/bin/python3: No module named pytest"
+    },
+    {
+      "command": "python3 -m compileall ops/factory_control.py ops/agent_host.py",
+      "status": "passed"
+    },
+    {
+      "command": "git diff --check",
+      "status": "passed"
+    }
+  ],
+  "commit": "reported in Control Plane result after final commit",
+  "control_plane": {
+    "completion_status": "pending",
+    "task_id": "KOL-HOME-CLUSTER-20260629-141939-ORCHESTRATOR-DELIVERABLE-RETRY"
+  },
+  "no_deploy_or_restart": true,
+  "pr_url": null,
+  "result_reference": "docs/agent-work/generated/home-cluster-execution-20260629T141939Z/kol-home-cluster-20260629-141939-orchestrator.md",
+  "telegram_report": {
+    "fallback_agent_message": "docs/agent-work/generated/home-cluster-execution-20260629T141939Z/agent-message.json",
+    "sent": false
+  }
+}
