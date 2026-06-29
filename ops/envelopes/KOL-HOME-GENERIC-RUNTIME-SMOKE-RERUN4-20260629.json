@@ -1,0 +1,39 @@
+{
+  "task_id": "KOL-HOME-GENERIC-RUNTIME-SMOKE-RERUN4-20260629",
+  "idempotency_key": "home:generic-runtime-smoke-rerun4:2026-06-29",
+  "kind": "generic_implementation",
+  "required_capability": "generic_implementation",
+  "permission_pack": "implementation",
+  "target_node": "home",
+  "runner": "codex",
+  "branch": "agent/KOL-HOME-GENERIC-RUNTIME-SMOKE-RERUN4-20260629/result-capture",
+  "base_ref": "origin/codex/factory-autonomy-pwa-billing",
+  "commit_message": "factory: prove agent host result capture",
+  "role_slot": "home_result_capture_engineer",
+  "role_goal": "prove that the live Agent Host returns runner-created commit metadata to Control Plane after result capture rollout",
+  "goal": "Create a concise evidence artifact for the Agent Host result capture fix. Work only inside docs/agent-work. Add docs/agent-work/home-result-capture-rerun4-20260629.md with: task id, node id home, runner codex, branch name, proof that this is a generic_implementation task, proof that the artifact was created by the remote runner, checks run, commit/push expectation, and remaining blockers for scaling the factory beyond the current fresh generic_implementation capacity. Do not touch application code, do not run FormulaLM, do not run model benchmarks, do not deploy, do not mutate Control Plane queue state, and do not edit unrelated files.",
+  "acceptance": [
+    "Creates docs/agent-work/home-result-capture-rerun4-20260629.md",
+    "Leaves a non-empty git diff before commit",
+    "Runs python3 -m compileall -q ops tests or records a concrete blocker if unavailable",
+    "Commits and pushes branch agent/KOL-HOME-GENERIC-RUNTIME-SMOKE-RERUN4-20260629/result-capture",
+    "Control Plane result includes changed_files with docs/agent-work/home-result-capture-rerun4-20260629.md",
+    "Control Plane result includes a non-empty commit value and pushed=true",
+    "No FormulaLM, LLM benchmark, app QA, production deploy, queue surgery, direct Redis/spool edit, service restart during lease, or Mac compute is performed"
+  ],
+  "verification_commands": [
+    "test -s docs/agent-work/home-result-capture-rerun4-20260629.md",
+    "python3 -m compileall -q ops tests"
+  ],
+  "max_retries": 1,
+  "create_review_on_complete": true,
+  "source": {
+    "kind": "manual_control_plane",
+    "repo": "kolibri-ai-platform",
+    "requested_by": "main_codex_result_capture_rollout",
+    "requested_at": "2026-06-29T09:42:00+03:00",
+    "previous_task_id": "KOL-HOME-GENERIC-RUNTIME-SMOKE-RERUN3-20260629",
+    "previous_gap": "RERUN3 completed and pushed a remote branch, but the old live Agent Host returned commit=null, pushed=false, and changed_files=[] because it only inspected uncommitted worktree status after the runner finished.",
+    "fix_applied": "Agent Host now records base_commit, detects base..HEAD diff paths, verifies remote branch match, and reports runner-created commit metadata even when the runner committed before Agent Host post-processing."
+  }
+}

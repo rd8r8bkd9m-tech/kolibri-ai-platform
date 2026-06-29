@@ -187,6 +187,90 @@ def decorate_node(node: dict[str, Any], current: datetime | None = None) -> dict
     return decorated
 
 
+def summarize_nodes(nodes: list[dict[str, Any]]) -> dict[str, Any]:
+    node_ids = {str(node.get("node_id") or "") for node in nodes if node.get("node_id")}
+    parent: dict[str, str] = {}
+
+    def find(name: str) -> str:
+        parent.setdefault(name, name)
+        if parent[name] != name:
+            parent[name] = find(parent[name])
+        return parent[name]
+
+    def union(left: str, right: str) -> None:
+        left_root = find(left)
+        right_root = find(right)
+        if left_root != right_root:
+            parent[right_root] = left_root
+
+    for node in nodes:
+        node_id = str(node.get("node_id") or "")
+        if node_id:
+            find(node_id)
+
+    hostname_groups: dict[str, list[str]] = {}
+    mesh_shadow_duplicates: list[dict[str, str]] = []
+    for node in nodes:
+        node_id = str(node.get("node_id") or "")
+        hostname = str(node.get("hostname") or "").strip()
+        if hostname:
+            hostname_groups.setdefault(hostname, []).append(node_id)
+        if node_id.startswith("mesh-"):
+            base_id = node_id.removeprefix("mesh-")
+            if base_id in node_ids:
+                union(base_id, node_id)
+                mesh_shadow_duplicates.append({"node_id": node_id, "shadows": base_id})
+
+    duplicate_hostname_groups = {
+        hostname: ids
+        for hostname, ids in hostname_groups.items()
+        if hostname and len([node_id for node_id in ids if node_id]) > 1
+    }
+    for ids in duplicate_hostname_groups.values():
+        real_ids = [node_id for node_id in ids if node_id]
+        for node_id in real_ids[1:]:
+            union(real_ids[0], node_id)
+
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for node in nodes:
+        node_id = str(node.get("node_id") or "")
+        if not node_id:
+            continue
+        groups.setdefault(find(node_id), []).append(node)
+
+    def node_score(node: dict[str, Any]) -> tuple[int, int, int, str]:
+        node_id = str(node.get("node_id") or "")
+        return (
+            int(bool(node.get("fresh") and not node.get("draining"))),
+            int(bool(node.get("fresh"))),
+            int(not node_id.startswith("mesh-")),
+            str(node.get("heartbeat_at") or ""),
+        )
+
+    canonical_nodes = [max(group, key=node_score) for group in groups.values()]
+    fresh_canonical_nodes = [
+        node for node in canonical_nodes if node.get("fresh") and not node.get("draining")
+    ]
+    fresh_canonical_generic_implementation_nodes = [
+        node
+        for node in fresh_canonical_nodes
+        if "generic_implementation" in parse_list(node.get("capabilities"))
+    ]
+
+    return {
+        "registered_nodes": len(nodes),
+        "canonical_nodes": len(canonical_nodes),
+        "fresh_nodes": sum(1 for node in nodes if node.get("fresh")),
+        "fresh_non_draining_nodes": sum(1 for node in nodes if node.get("fresh") and not node.get("draining")),
+        "fresh_canonical_nodes": len(fresh_canonical_nodes),
+        "fresh_canonical_generic_implementation_nodes": len(fresh_canonical_generic_implementation_nodes),
+        "mesh_shadow_duplicates": len(mesh_shadow_duplicates),
+        "mesh_shadow_duplicate_nodes": mesh_shadow_duplicates,
+        "duplicate_hostname_groups": len(duplicate_hostname_groups),
+        "duplicate_hostnames": duplicate_hostname_groups,
+    }
+
+
 class RedisError(RuntimeError):
     pass
 
@@ -666,7 +750,7 @@ class Handler(BaseHTTPRequestHandler):
                     node = get_json(node_key(node_id), {})
                     node["draining"] = bool(redis.command("GET", drain_key(node_id)))
                     nodes.append(decorate_node(node, current))
-                response(self, 200, {"nodes": nodes})
+                response(self, 200, {"nodes": nodes, "summary": summarize_nodes(nodes)})
                 return
             if path == "/v1/tasks":
                 query = parse_qs(parsed.query)

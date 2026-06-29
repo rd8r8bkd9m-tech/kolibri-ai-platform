@@ -93,6 +93,76 @@ def test_decorate_node_marks_stale_heartbeats_without_downgrading_fresh_nodes():
     assert fresh["health"] == "online"
 
 
+def test_summarize_nodes_deduplicates_mesh_shadows_and_hostname_twins():
+    control = load_control()
+    nodes = [
+        {
+            "node_id": "home",
+            "hostname": "plastilin",
+            "fresh": True,
+            "draining": False,
+            "capabilities": ["generic_implementation"],
+            "heartbeat_at": "2026-06-29T06:00:00+00:00",
+        },
+        {
+            "node_id": "home-live",
+            "hostname": "plastilin",
+            "fresh": True,
+            "draining": True,
+            "capabilities": ["generic_implementation"],
+            "heartbeat_at": "2026-06-29T06:01:00+00:00",
+        },
+        {
+            "node_id": "mesh-home",
+            "hostname": "home",
+            "fresh": False,
+            "draining": False,
+            "capabilities": ["mesh_node"],
+            "heartbeat_at": "2026-06-29T05:00:00+00:00",
+        },
+        {
+            "node_id": "server-kfrm",
+            "hostname": "server-kfrm",
+            "fresh": False,
+            "draining": False,
+            "capabilities": ["generic_implementation"],
+            "heartbeat_at": "2026-06-29T05:00:00+00:00",
+        },
+        {
+            "node_id": "mesh-server-kfrm",
+            "hostname": "server-kfrm",
+            "fresh": False,
+            "draining": False,
+            "capabilities": ["mesh_node"],
+            "heartbeat_at": "2026-06-29T05:01:00+00:00",
+        },
+        {
+            "node_id": "new",
+            "hostname": "kolibri-worker-backup",
+            "fresh": True,
+            "draining": False,
+            "capabilities": ["review"],
+            "heartbeat_at": "2026-06-29T06:02:00+00:00",
+        },
+    ]
+
+    summary = control.summarize_nodes(nodes)
+
+    assert summary["registered_nodes"] == 6
+    assert summary["canonical_nodes"] == 3
+    assert summary["fresh_nodes"] == 3
+    assert summary["fresh_non_draining_nodes"] == 2
+    assert summary["fresh_canonical_nodes"] == 2
+    assert summary["fresh_canonical_generic_implementation_nodes"] == 1
+    assert summary["mesh_shadow_duplicates"] == 2
+    assert summary["duplicate_hostname_groups"] == 2
+    assert summary["duplicate_hostnames"]["plastilin"] == ["home", "home-live"]
+    assert summary["mesh_shadow_duplicate_nodes"] == [
+        {"node_id": "mesh-home", "shadows": "home"},
+        {"node_id": "mesh-server-kfrm", "shadows": "server-kfrm"},
+    ]
+
+
 def test_summarize_tasks_counts_states_without_full_task_payloads():
     control = load_control()
     noisy_payload = {"prompt": "x" * 1000, "private": True}
