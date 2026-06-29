@@ -615,14 +615,17 @@ the generated apply/rollback commands, and writes both JSON and Markdown:
 /opt/kolibri/repo/.run/gomesh-supervised-rollout-packet-latest.md
 ```
 
-Latest packets generated on 2026-06-29:
+Latest packets generated on 2026-06-29T08:55Z:
 
 ```text
-stable-canaries evidence_dir = /opt/kolibri/repo/.run/gomesh-supervised-rollout-packet-20260629T083856Z
-LAN evidence_dir = /opt/kolibri/repo/.run/gomesh-supervised-rollout-packet-20260629T083857Z
+stable-canaries evidence_dir = /opt/kolibri/repo/.run/gomesh-supervised-rollout-packet-20260629T085535Z
+LAN evidence_dir = /opt/kolibri/repo/.run/gomesh-supervised-rollout-packet-20260629T085534Z
 live_changes_made_by_packet = false
 ready_for_supervised_window_packet = true
 RouterOS live config verified = true
+selector history = 65 samples over 310.87 minutes, 0 would_switch decisions
+current endpoint = 78.17.4.108:29445
+current health = ok
 domain check = ok
 ```
 
@@ -648,9 +651,12 @@ python3 /opt/kolibri/repo/scripts/kolibri_gomesh_post_rollout_verify.py --scope 
 Current pre-rollout verifier behavior:
 
 ```text
+stable-canaries evidence_dir = /opt/kolibri/repo/.run/gomesh-post-rollout-verify-20260629T085425Z
 stable-canaries verdict = PASS
+LAN evidence_dir = /opt/kolibri/repo/.run/gomesh-post-rollout-verify-20260629T085426Z
 LAN verdict = ROLLBACK_REQUIRED
 LAN blocker = RouterOS live state does not match expected scope
+LAN scope mismatch = LAN route and LAN DNS redirects are observed disabled
 ```
 
 This is intentional before LAN apply. During the supervised LAN window the LAN
@@ -1104,7 +1110,7 @@ countries = FI, FR, LV
 target checks = ok: YouTube 200, Xiaomi MiMo 200, Yandex Music 200
 canary routes = ok: LGwebOSTV and GalaxyGalina through kgmhome0/table 1099
 selector snapshot timer = active
-selector history = 31 samples over 140.37 minutes, 0 would_switch decisions
+selector history = 65 samples over 310.87 minutes, 0 would_switch decisions
 service route policy = ok
 service route actions = route_affected_clients_via_mesh: 1, route_via_mesh: 1, keep_direct: 1
 apply lock present = false
