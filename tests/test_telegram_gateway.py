@@ -358,6 +358,32 @@ def test_realtime_status_reply_uses_factory_context():
     assert "Запусти вебприложение" in reply
 
 
+def test_realtime_short_status_reports_factory_load_without_metadata():
+    gateway = load_gateway()
+    memory = gateway.empty_memory()
+    gateway.record_work_task(memory, "Приступай к логотипу", "TGIMG-1", "failed", "2026-06-29T18:13:57+00:00")
+    snapshot = {
+        "memory": gateway.memory_snapshot(memory),
+        "queue_length": 200,
+        "active_tasks": [{"state": "queued"} for _ in range(8)],
+        "nodes": (
+            [{"node_id": f"online-{idx}", "health": "online"} for idx in range(20)]
+            + [{"node_id": "stale-1", "health": "stale"}, {"node_id": "stale-2", "health": "stale"}]
+        ),
+    }
+
+    reply = gateway.build_realtime_owner_reply("Статус", snapshot)
+
+    assert "онлайн 20 узлов" in reply
+    assert "2 давно не отвечают" in reply
+    assert "200 задач" in reply
+    assert "Свежие 8 пока ждут исполнителя" in reply
+    assert "Приступай к логотипу" in reply
+    assert "не имитирую готовность" in reply
+    for forbidden in ["task_id", "node:", "agent:", "artifact:", "/var/lib", "TGIMG"]:
+        assert forbidden not in reply
+
+
 def test_realtime_dev_server_question_returns_ready_preview_url():
     gateway = load_gateway()
     memory = gateway.empty_memory()

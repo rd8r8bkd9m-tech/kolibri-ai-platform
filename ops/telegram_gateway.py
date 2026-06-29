@@ -611,6 +611,44 @@ def summarize_team(snapshot: dict[str, Any]) -> str:
     return ", ".join(online_nodes[:4]) or "состав уточняю"
 
 
+def summarize_factory_status(snapshot: dict[str, Any], memory: dict[str, Any]) -> str:
+    nodes = snapshot.get("nodes") or []
+    online_nodes = [node for node in nodes if node.get("health") == "online"]
+    stale_nodes = [node for node in nodes if node.get("health") == "stale"]
+    active_tasks = snapshot.get("active_tasks") or []
+    queue_length = snapshot.get("queue_length")
+    last = memory.get("last_work_request") or {}
+    last_text = (last.get("text") or "").strip()
+    last_state = last.get("state")
+
+    parts = []
+    if nodes:
+        node_line = f"Фабрика на связи: онлайн {len(online_nodes)} узлов"
+        if stale_nodes:
+            node_line += f", {len(stale_nodes)} давно не отвечают"
+        parts.append(node_line + ".")
+
+    if isinstance(queue_length, int):
+        queue_line = f"Очередь сейчас большая: {queue_length} задач."
+        if active_tasks:
+            queued_fresh = sum(1 for task in active_tasks if task.get("state") == "queued")
+            if queued_fresh == len(active_tasks):
+                queue_line += f" Свежие {len(active_tasks)} пока ждут исполнителя."
+            else:
+                queue_line += f" Свежих в фокусе: {len(active_tasks)}."
+        parts.append(queue_line)
+    elif active_tasks:
+        parts.append(f"В фокусе {len(active_tasks)} задач.")
+
+    if last_text:
+        if last_state in {"failed", "dead_letter"}:
+            parts.append(f"По последнему запросу не имитирую готовность: «{last_text}» упал, беру это в разбор и доведу до видимого результата.")
+        else:
+            parts.append(f"Последний запрос: «{last_text}», сейчас он {describe_task_state(last_state)}.")
+
+    return " ".join(parts) or "Фабрика на связи. Готового нового результата пока не вижу, но контекст держу."
+
+
 def last_work_line(memory: dict[str, Any]) -> str:
     last = memory.get("last_work_request") or {}
     text = (last.get("text") or "").strip()
@@ -647,6 +685,9 @@ def build_realtime_owner_reply(text: str, snapshot: dict[str, Any]) -> str:
         if active_tasks:
             return f"Работа идёт. Сейчас вижу активные задачи и держу команду в фокусе: {team}."
         return f"Я в порядке и смотрю на контур. Активных задач прямо сейчас не вижу, команда доступна: {team}."
+
+    if lowered in {"статус", "status"}:
+        return summarize_factory_status(snapshot, memory)
 
     if has_any(text, ("как зовут", "тебя зовут", "кто ты")):
         return "Для проекта я директор-оркестратор. Можешь обращаться ко мне просто как к Директору: я принимаю задачи, распределяю работу и возвращаю понятный результат."
