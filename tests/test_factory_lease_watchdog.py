@@ -80,3 +80,74 @@ def test_write_reports_creates_latest_json_and_markdown(tmp_path):
     assert "# Kolibri Factory Lease Watchdog" in md_path.read_text(encoding="utf-8")
     assert json.loads((tmp_path / "latest.json").read_text(encoding="utf-8"))["summary"]["status"] == "ok"
     assert "Task total" in (tmp_path / "latest.md").read_text(encoding="utf-8")
+
+
+def test_should_notify_only_on_action_or_problem():
+    watchdog = load_watchdog()
+
+    assert watchdog.should_notify({"status": "ok", "expired": 0, "stuck": 0, "requeued_stuck": 0}) is False
+    assert watchdog.should_notify({"status": "degraded", "expired": 0, "stuck": 0}) is True
+    assert watchdog.should_notify({"status": "ok", "expired": 1, "stuck": 0}) is True
+    assert watchdog.should_notify({"status": "ok", "expired": 0, "dead_lettered_stuck": 1}) is True
+
+
+def test_maybe_send_telegram_report_skips_clean_report(tmp_path, monkeypatch):
+    watchdog = load_watchdog()
+    report = {"summary": {"status": "ok", "expired": 0, "stuck": 0, "requeued_expired": 0, "requeued_stuck": 0}}
+    md = tmp_path / "report.md"
+    md.write_text("# clean\n", encoding="utf-8")
+    sent = []
+    monkeypatch.setattr(watchdog, "send_telegram_message", lambda *args, **kwargs: sent.append(args) or {})
+
+    result = watchdog.maybe_send_telegram_report(
+        report,
+        md,
+        token="token",
+        chat_id=123,
+        state_path=tmp_path / "missing.json",
+        title="Watchdog",
+        timeout=1,
+    )
+
+    assert result == {"status": "skipped", "reason": "no_action"}
+    assert sent == []
+
+
+def test_maybe_send_telegram_report_sends_action_report_and_sanitizes(tmp_path, monkeypatch):
+    watchdog = load_watchdog()
+    report = {"summary": {"status": "ok", "expired": 0, "stuck": 1, "requeued_expired": 0, "requeued_stuck": 1}}
+    md = tmp_path / "report.md"
+    md.write_text("token=SECRET\nnormal line\n", encoding="utf-8")
+    messages = []
+
+    def fake_send(token, chat_id, text, timeout=35):
+        messages.append({"token": token, "chat_id": chat_id, "text": text, "timeout": timeout})
+        return {}
+
+    monkeypatch.setattr(watchdog, "send_telegram_message", fake_send)
+
+    result = watchdog.maybe_send_telegram_report(
+        report,
+        md,
+        token="telegram-token",
+        chat_id=123,
+        state_path=tmp_path / "missing.json",
+        title="Watchdog",
+        timeout=2,
+    )
+
+    assert result["status"] == "sent"
+    assert result["chat_id"] == 123
+    assert messages
+    assert "SECRET" not in messages[0]["text"]
+    assert "token=[REDACTED]" in messages[0]["text"]
+
+
+def test_owner_chat_id_from_state_reads_owner_or_tracked(tmp_path):
+    watchdog = load_watchdog()
+    state = tmp_path / "state.json"
+    state.write_text(json.dumps({"owner_chat_id": 111, "tracked": {"x": {"chat_id": 222}}}), encoding="utf-8")
+    assert watchdog.owner_chat_id_from_state(state) == 111
+
+    state.write_text(json.dumps({"tracked": {"x": {"chat_id": 222}}}), encoding="utf-8")
+    assert watchdog.owner_chat_id_from_state(state) == 222
