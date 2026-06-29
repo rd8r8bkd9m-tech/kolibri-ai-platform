@@ -55,6 +55,11 @@ def test_agent_host_supports_required_task_kinds():
     assert "telegram_image_generation" in agent
     assert "review_pr" in agent
     assert "read_only_probe" in agent
+    assert "telegram_owner_system_prompt.md" in agent
+    owner_prompt = (ROOT / "ops" / "telegram_owner_system_prompt.md").read_text(encoding="utf-8")
+    assert "Kolibri_AI_bot" in owner_prompt
+    assert "https://kolibriai.ru" in owner_prompt
+    assert "factory_snapshot" in owner_prompt
     memory = (ROOT / "ops" / "orchestrator_memory.py").read_text(encoding="utf-8")
     assert "last_work_request" in memory
     assert "open_expectations" in memory

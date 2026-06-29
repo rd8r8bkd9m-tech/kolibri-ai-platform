@@ -80,11 +80,13 @@ def test_greeting_is_chat_not_factory_task():
         "text": "привет",
     }
     envelope = gateway.build_chat_envelope(message, message["text"])
-    assert envelope["kind"] == "owner_remote_task"
+    assert envelope["kind"] == "orchestrator_chat_response"
     assert envelope["runner"] == "codex"
-    assert envelope["target_node"] == "primary-candidate"
-    assert envelope["required_capability"] == "generic_implementation"
+    assert "target_node" not in envelope
+    assert envelope["required_capability"] == "implementation"
+    assert envelope["system_prompt_ref"] == "ops/telegram_owner_system_prompt.md"
     assert "без заготовок" in envelope["objective"]
+    assert "ops/telegram_owner_system_prompt.md" in envelope["objective"]
     assert envelope["source"]["message_id"] == 44
 
 
@@ -228,7 +230,9 @@ def test_orchestrator_chat_envelope_carries_factory_snapshot():
     }
     snapshot = {"nodes": [{"node_id": "9fts", "health": "online"}], "task_counts": {"completed": 3}}
     envelope = gateway.build_chat_envelope(message, message["text"], snapshot)
-    assert envelope["kind"] == "owner_remote_task"
+    assert envelope["kind"] == "orchestrator_chat_response"
+    assert envelope["required_capability"] == "implementation"
+    assert envelope["system_prompt_ref"] == "ops/telegram_owner_system_prompt.md"
     assert envelope["factory_snapshot"] == snapshot
     assert envelope["message"] == "фабрика уже работает?"
     assert "фабрика уже работает?" in envelope["objective"]
@@ -807,9 +811,10 @@ def test_submit_chat_task_uses_remote_orchestrator_and_hides_intermediate_states
     message = {"message_id": 55, "chat": {"id": 100, "type": "private"}, "from": {"id": 100}, "text": "Что выполняешь?"}
     app.submit_chat_task(message, message["text"])
     assert factory.envelopes
-    assert factory.envelopes[0]["kind"] == "owner_remote_task"
+    assert factory.envelopes[0]["kind"] == "orchestrator_chat_response"
     assert factory.envelopes[0]["runner"] == "codex"
-    assert factory.envelopes[0]["target_node"] == "primary-candidate"
+    assert "target_node" not in factory.envelopes[0]
+    assert factory.envelopes[0]["system_prompt_ref"] == "ops/telegram_owner_system_prompt.md"
     assert telegram.actions == [(100, "typing")]
     assert telegram.messages
     assert telegram.messages[0][1] == "Смотрю состояние фабрики."

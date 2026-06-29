@@ -87,12 +87,26 @@ def test_telegram_chat_prompt_does_not_include_fixed_greeting_template(tmp_path,
     assert result["kind"] == "telegram_chat_response"
     assert result["response"] == "Здравствуйте. Вижу контекст и отвечаю по делу."
     prompt = host.commands[0][0][-1]
-    assert "каждый ответ должен быть заново сгенерирован" in prompt
+    assert "Владелец пишет тебе в Telegram как хозяин фабрики" in prompt
+    assert "https://kolibriai.ru" in prompt
+    assert "Сгенерируй один свежий ответ владельцу для Telegram" in prompt
+    assert "Не используй заготовку" in prompt
     assert FORBIDDEN_GREETING_TEMPLATE not in prompt
     assert host.last_logs is not None
     stdout_path, stderr_path = host.last_logs
     assert FORBIDDEN_GREETING_TEMPLATE not in stdout_path.read_text(encoding="utf-8")
     assert FORBIDDEN_GREETING_TEMPLATE not in stderr_path.read_text(encoding="utf-8")
+
+
+def test_owner_system_prompt_covers_telegram_miniapp_and_followups():
+    agent_host = load_agent_host()
+    prompt = agent_host.load_owner_system_prompt()
+    assert "Kolibri_AI_bot" in prompt
+    assert "https://kolibriai.ru" in prompt
+    assert "Codex" in prompt
+    assert "factory_snapshot" in prompt
+    assert "memory" in prompt
+    assert "Je pense que ça" in prompt
 
 
 def test_telegram_chat_uses_codex_when_ai_runner_is_codex(tmp_path, monkeypatch):
@@ -180,4 +194,3 @@ def test_parse_codex_agent_message_jsonl(tmp_path):
     )
 
     assert agent_host.AgentHost.parse_json_text_response(stdout) == "Живой ответ директора."
-

@@ -24,6 +24,7 @@ from typing import Any
 
 STOP = False
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+DEFAULT_OWNER_SYSTEM_PROMPT_PATH = Path(__file__).with_name("telegram_owner_system_prompt.md")
 
 
 def utc_now() -> str:
@@ -68,6 +69,33 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def load_owner_system_prompt() -> str:
+    prompt_path = Path(os.environ.get("KOLIBRI_OWNER_SYSTEM_PROMPT", str(DEFAULT_OWNER_SYSTEM_PROMPT_PATH)))
+    try:
+        return prompt_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return (
+            "Ты — директор-оркестратор Kolibri для владельца. Отвечай живым человеческим языком, "
+            "используй factory_snapshot и memory, принимай задачи в фабрику, возвращай статусы и ссылки, "
+            "не раскрывай секреты и не выдумывай состояние системы."
+        )
+
+
+def build_owner_director_prompt(message: str, snapshot: dict[str, Any]) -> str:
+    system_prompt = load_owner_system_prompt()
+    snapshot_json = json.dumps(snapshot or {}, ensure_ascii=False, sort_keys=True)
+    return (
+        f"{system_prompt}\n\n"
+        "## Текущий снимок фабрики JSON\n"
+        f"{snapshot_json}\n\n"
+        "## Инструкция на этот ответ\n"
+        "Сгенерируй один свежий ответ владельцу для Telegram. Не используй заготовку. "
+        "Если это задача, подтверди принятие и объясни ближайший контрольный шаг. "
+        "Если это статус или продолжение, восстанови контекст из memory и ответь конкретно.\n\n"
+        f"Сообщение владельца: {message}"
+    )
 
 
 class AgentHost:
@@ -353,21 +381,7 @@ class AgentHost:
         stdout_path = Path(logs["stdout"])
         stderr_path = Path(logs["stderr"])
         self.task_heartbeat(task, worktree, None, logs)
-        prompt = (
-            "Ты — центральный оркестратор Kolibri. Владелец общается с тобой, а не с отдельным сервером или worker. "
-            "Отвечай от первого лица как оркестратор: я вижу систему, я выбираю исполнителей, я контролирую PR, CI, review и deployment. "
-            "Используй снимок фабрики ниже как текущий контекст. В нем есть memory: проектная память, недавний диалог, последняя рабочая задача, ожидания владельца и известные ссылки. "
-            "Если владелец пишет продолжение без объекта, например 'ссылку не забудь', восстанови смысл из memory.last_work_request и memory.recent_messages. "
-            "Не проси уточнить, если связь очевидна; подтверди, что помнишь предыдущую задачу и пришлешь ссылку, когда результат будет готов. "
-            "Если данных не хватает, честно скажи, что проверишь. "
-            "Стиль: коротко, спокойно, премиально, по-русски, без эмодзи, markdown и служебных идентификаторов. "
-            "Не раскрывай task_id, node, agent, worktree, пути, логи или артефакты, если владелец прямо не просит технические доказательства. "
-            "Не называй себя брендом Kolibri и не используй фразу 'я Kolibri'. Ты директор-оркестратор проекта, а не название продукта. "
-            "Если владелец здоровается, обработай приветствие естественно: каждый ответ должен быть заново сгенерирован по текущему сообщению и снимку фабрики, без заранее заданной фразы. "
-            "Если это обычный разговор, отвечай естественно. Если это просьба о разработке, скажи, что ты принял задачу и сам назначишь исполнителя. "
-            f"Снимок фабрики JSON: {json.dumps(envelope.get('factory_snapshot') or {}, ensure_ascii=False, sort_keys=True)}\n"
-            f"Сообщение владельца: {message}"
-        )
+        prompt = build_owner_director_prompt(message, envelope.get("factory_snapshot") or {})
         runner = str(
             os.environ.get("KOLIBRI_TELEGRAM_RUNNER")
             or os.environ.get("KOLIBRI_AI_RUNNER")

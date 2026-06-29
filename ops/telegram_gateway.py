@@ -539,24 +539,24 @@ def build_chat_envelope(message: dict[str, Any], text: str, snapshot: dict[str, 
     task_id = chat_task_id_from_message(message)
     context = snapshot or {}
     objective = (
-        "Сгенерируй живой короткий ответ владельцу проекта в Telegram. "
-        "Отвечай как директор-оркестратор проекта: естественно, по-русски, без заготовок, без markdown, "
-        "без task_id, node, agent, путей, команд и служебных деталей. "
-        "Не называй себя брендом продукта. Если владелец просто здоровается, ответь по-человечески и мягко, "
-        "но не используй заранее заданную фразу. Если владелец спрашивает о работе, используй контекст фабрики. "
+        "Сгенерируй живой короткий ответ владельцу проекта в Telegram по системному промпту директора "
+        "из ops/telegram_owner_system_prompt.md. Отвечай как директор-оркестратор проекта: естественно, "
+        "по-русски, без заготовок, без markdown, без task_id, node, agent, путей, команд и служебных деталей. "
+        "Используй контекст фабрики, память, последнюю задачу, ожидания и известные ссылки. "
         f"Контекст фабрики: {json.dumps(context, ensure_ascii=False, sort_keys=True)}\n"
         f"Сообщение владельца: {text}"
     )
     envelope = {
         "task_id": task_id,
         "idempotency_key": f"telegram-chat:{message['chat']['id']}:{message['message_id']}",
-        "kind": os.environ.get("TELEGRAM_CHAT_KIND", "owner_remote_task"),
-        "required_capability": os.environ.get("TELEGRAM_CHAT_CAPABILITY", "generic_implementation"),
+        "kind": os.environ.get("TELEGRAM_CHAT_KIND", "orchestrator_chat_response"),
+        "required_capability": os.environ.get("TELEGRAM_CHAT_CAPABILITY", "implementation"),
         "max_retries": 1,
         "message": text,
         "objective": objective,
         "runner": os.environ.get("TELEGRAM_CHAT_RUNNER", "codex"),
         "factory_snapshot": context,
+        "system_prompt_ref": "ops/telegram_owner_system_prompt.md",
         "source": {
             "kind": "telegram",
             "message_id": message["message_id"],
@@ -565,7 +565,7 @@ def build_chat_envelope(message: dict[str, Any], text: str, snapshot: dict[str, 
             "accepted_at": utc_now(),
         },
     }
-    target_node = os.environ.get("TELEGRAM_CHAT_NODE", "primary-candidate")
+    target_node = os.environ.get("TELEGRAM_CHAT_NODE", "").strip()
     if target_node:
         envelope["target_node"] = target_node
     return envelope
