@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import os
+import json
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import httpx
 
 CONTROL_PLANE_URL = os.getenv("KOLIBRI_FACTORY_CONTROL_URL", "http://control.kolibri.internal:9101")
 CONTROL_PLANE_FALLBACK_URLS = ("http://10.99.0.2:9101", "http://127.0.0.1:9101")
+WATCHDOG_REPORT_DIR = Path(os.getenv("KOLIBRI_FACTORY_WATCHDOG_REPORT_DIR", "/var/lib/kolibri-factory-control/watchdog"))
 
 
 def _configured_control_plane_urls() -> list[str]:
@@ -136,7 +139,49 @@ def _extract_tasks(tasks_payload: Any) -> list[dict[str, Any]]:
     return []
 
 
-def build_factory_status(nodes_payload: Any, tasks_payload: Any | None = None, health_payload: dict[str, Any] | None = None) -> dict[str, Any]:
+def _read_json_file(path: Path) -> dict[str, Any] | None:
+    try:
+        value = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def load_watchdog_status(report_dir: Path | None = None) -> dict[str, Any]:
+    root = report_dir or WATCHDOG_REPORT_DIR
+    rollup = _read_json_file(root / "summary.json") or {}
+    latest = _read_json_file(root / "latest.json") or {}
+    latest_summary = latest.get("summary") if isinstance(latest.get("summary"), dict) else {}
+    telegram = latest.get("telegram") if isinstance(latest.get("telegram"), dict) else {}
+    return {
+        "available": bool(rollup or latest),
+        "report_dir": str(root),
+        "latest_report": latest.get("report_paths") if isinstance(latest.get("report_paths"), dict) else None,
+        "latest_summary": latest_summary,
+        "telegram": telegram,
+        "rollup": {
+            "runs_total": int(rollup.get("runs_total") or 0),
+            "runs_ok": int(rollup.get("runs_ok") or 0),
+            "runs_degraded": int(rollup.get("runs_degraded") or 0),
+            "runs_failed": int(rollup.get("runs_failed") or 0),
+            "actions_total": int(rollup.get("actions_total") or 0),
+            "totals": rollup.get("totals") if isinstance(rollup.get("totals"), dict) else {},
+            "recent_actions": rollup.get("recent_actions") if isinstance(rollup.get("recent_actions"), list) else [],
+            "updated_at": rollup.get("updated_at"),
+        },
+    }
+
+
+def build_factory_status(
+    nodes_payload: Any,
+    tasks_payload: Any | None = None,
+    health_payload: dict[str, Any] | None = None,
+    watchdog_payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     raw_nodes = nodes_payload.get("nodes", []) if isinstance(nodes_payload, dict) else nodes_payload if isinstance(nodes_payload, list) else []
     raw_summary = nodes_payload.get("summary", {}) if isinstance(nodes_payload, dict) else {}
     summary = raw_summary if isinstance(raw_summary, dict) else {}
@@ -195,6 +240,7 @@ def build_factory_status(nodes_payload: Any, tasks_payload: Any | None = None, h
             else int((health_payload or {}).get("queue") or 0)
         ),
         "task_states": task_states,
+        "watchdog": watchdog_payload or load_watchdog_status(),
         "nodes": nodes,
         "node_list": node_list,
     }
@@ -234,6 +280,7 @@ def build_degraded_factory_status(error: str, control_plane_url: str | None = No
         "avg_cpu_percent": 0,
         "queue_size": 0,
         "task_states": {},
+        "watchdog": load_watchdog_status(),
         "nodes": {},
         "node_list": [],
     }

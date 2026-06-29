@@ -3,7 +3,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
-from factory_status import build_factory_status
+from factory_status import build_factory_status, load_watchdog_status
 
 
 def test_build_factory_status_normalizes_control_plane_nodes():
@@ -32,7 +32,13 @@ def test_build_factory_status_normalizes_control_plane_nodes():
             {"node_id": "new", "health": "offline", "draining": True, "capabilities": ["review"], "ram": {}, "disk": {}},
         ]
     }
-    result = build_factory_status(payload, {"tasks": [{"state": "queued"}, {"state": "running"}]}, {"status": "ok", "queue_backend": "redis"})
+    watchdog = {
+        "available": True,
+        "rollup": {"runs_total": 4, "actions_total": 1, "totals": {"stuck": 1}},
+        "latest_summary": {"status": "ok", "stuck": 0},
+        "telegram": {"status": "skipped", "reason": "no_action"},
+    }
+    result = build_factory_status(payload, {"tasks": [{"state": "queued"}, {"state": "running"}]}, {"status": "ok", "queue_backend": "redis"}, watchdog)
 
     assert result["status"] == "online"
     assert result["total_nodes"] == 35
@@ -49,6 +55,37 @@ def test_build_factory_status_normalizes_control_plane_nodes():
     assert result["nodes"]["primary-candidate"]["role"] == "Директор"
     assert result["nodes"]["primary-candidate"]["ram_total_gb"] > 0
     assert result["control_plane"]["status"] == "ok"
+    assert result["watchdog"]["rollup"]["runs_total"] == 4
+    assert result["watchdog"]["rollup"]["totals"]["stuck"] == 1
+
+
+def test_load_watchdog_status_reads_rollup_and_latest(tmp_path):
+    (tmp_path / "summary.json").write_text(
+        '{"runs_total": 3, "runs_ok": 2, "runs_degraded": 1, "actions_total": 5, "totals": {"expired": 2}, "recent_actions": [{"at": "now"}], "updated_at": "2026-06-29T07:50:00+00:00"}',
+        encoding="utf-8",
+    )
+    (tmp_path / "latest.json").write_text(
+        '{"summary": {"status": "ok", "task_total": 693}, "telegram": {"status": "skipped", "reason": "no_action"}, "report_paths": {"markdown": "/tmp/latest.md"}}',
+        encoding="utf-8",
+    )
+
+    status = load_watchdog_status(tmp_path)
+
+    assert status["available"] is True
+    assert status["rollup"]["runs_total"] == 3
+    assert status["rollup"]["runs_degraded"] == 1
+    assert status["rollup"]["actions_total"] == 5
+    assert status["rollup"]["totals"]["expired"] == 2
+    assert status["latest_summary"]["task_total"] == 693
+    assert status["telegram"]["reason"] == "no_action"
+
+
+def test_load_watchdog_status_is_safe_when_files_are_missing(tmp_path):
+    status = load_watchdog_status(tmp_path)
+
+    assert status["available"] is False
+    assert status["rollup"]["runs_total"] == 0
+    assert status["latest_summary"] == {}
 
 
 def test_frontend_uses_live_factory_status_endpoint():
@@ -70,3 +107,7 @@ def test_frontend_surfaces_control_plane_node_summary():
     assert "fresh_non_draining_nodes" in helper_source
     assert "fresh_canonical_generic_implementation_nodes" in helper_source
     assert "mesh shadow duplicates" in cluster_panel_source
+    assert "getWatchdogSummary(status)" in cluster_panel_source
+    assert "Автолечение leases" in cluster_panel_source
+    assert "runs_total" in helper_source
+    assert "actions_total" in helper_source

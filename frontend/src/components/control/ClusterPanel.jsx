@@ -1,5 +1,5 @@
 import { Skeleton } from "../ui/Skeleton"
-import { getFactoryHealth, getFactoryIssue, getNodeSummary } from "../../lib/factoryStatus"
+import { getFactoryHealth, getFactoryIssue, getNodeSummary, getWatchdogSummary } from "../../lib/factoryStatus"
 
 function NodeIcon({ role }) {
   const paths = {
@@ -37,6 +37,7 @@ export function ClusterPanel({ status, onRefresh }) {
     meshShadowDuplicates,
     duplicateNodes,
   } = getNodeSummary(status)
+  const watchdog = getWatchdogSummary(status)
   const factoryHealth = getFactoryHealth(status)
   const factoryIssue = getFactoryIssue(status)
   const sortedNodes = [...nodes].sort(([, a], [, b]) => {
@@ -65,6 +66,34 @@ export function ClusterPanel({ status, onRefresh }) {
       {factoryIssue && (
         <div className="cluster-warning cluster-warning--error">
           {factoryIssue}
+        </div>
+      )}
+      <div className={`cluster-health cluster-health--${watchdog.status === "ok" ? "online" : "degraded"}`}>
+        <span className={`status-dot status-dot--${watchdog.status === "ok" ? "online" : "degraded"}`} />
+        <div>
+          <strong>Автолечение leases</strong>
+          <span>
+            {watchdog.available
+              ? `${watchdog.runsTotal} запусков · ${watchdog.actionsTotal} действий · Telegram ${watchdog.telegramStatus}${watchdog.telegramReason ? `/${watchdog.telegramReason}` : ""}`
+              : "watchdog summary не найден"}
+          </span>
+        </div>
+      </div>
+      {watchdog.available && (
+        <div className="cluster-stats compact watchdog-stats">
+          {[
+            { label: "Runs", value: watchdog.runsTotal, color: "var(--text-primary)" },
+            { label: "Actions", value: watchdog.actionsTotal, color: watchdog.actionsTotal ? "var(--warning)" : "var(--success)" },
+            { label: "Expired", value: watchdog.expiredTotal, color: watchdog.expiredTotal ? "var(--warning)" : "var(--text-muted)" },
+            { label: "Stuck", value: watchdog.stuckTotal, color: watchdog.stuckTotal ? "var(--error)" : "var(--text-muted)" },
+            { label: "Requeue", value: watchdog.requeuedTotal, color: watchdog.requeuedTotal ? "var(--accent)" : "var(--text-muted)" },
+            { label: "Dead", value: watchdog.deadLetteredTotal, color: watchdog.deadLetteredTotal ? "var(--error)" : "var(--text-muted)" },
+          ].map(item => (
+            <div key={item.label} className="stat-card">
+              <div className="stat-value" style={{ color: item.color }}>{item.value}</div>
+              <div className="stat-label">{item.label}</div>
+            </div>
+          ))}
         </div>
       )}
       <div className="cluster-stats compact">

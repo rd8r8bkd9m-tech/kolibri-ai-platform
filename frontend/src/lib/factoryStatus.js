@@ -39,6 +39,33 @@ export function getFactoryIssue(status) {
   return ""
 }
 
+export function getWatchdogSummary(status) {
+  const watchdog = status?.watchdog || {}
+  const rollup = watchdog.rollup || {}
+  const latest = watchdog.latest_summary || {}
+  const totals = rollup.totals || {}
+  const telegram = watchdog.telegram || {}
+
+  return {
+    available: Boolean(watchdog.available),
+    status: latest.status || "unknown",
+    runsTotal: rollup.runs_total ?? 0,
+    runsOk: rollup.runs_ok ?? 0,
+    runsDegraded: rollup.runs_degraded ?? 0,
+    actionsTotal: rollup.actions_total ?? 0,
+    expiredTotal: totals.expired ?? 0,
+    stuckTotal: totals.stuck ?? 0,
+    requeuedTotal: (totals.requeued_expired ?? 0) + (totals.requeued_stuck ?? 0),
+    deadLetteredTotal: (totals.dead_lettered_expired ?? 0) + (totals.dead_lettered_stuck ?? 0),
+    latestExpired: latest.expired ?? 0,
+    latestStuck: latest.stuck ?? 0,
+    latestLeaseIndexTotal: latest.lease_index_total ?? 0,
+    telegramStatus: telegram.status || "unknown",
+    telegramReason: telegram.reason || "",
+    updatedAt: rollup.updated_at || "",
+  }
+}
+
 export function formatClusterSignal(status) {
   if (!status) return "статус фабрики загружается"
   const { freshNodes, canonicalNodes, registeredNodes } = getNodeSummary(status)
