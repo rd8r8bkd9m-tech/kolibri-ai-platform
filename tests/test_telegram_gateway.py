@@ -358,6 +358,55 @@ def test_realtime_status_reply_uses_factory_context():
     assert "Запусти вебприложение" in reply
 
 
+def test_agent_count_complaint_is_realtime_status_not_new_task(tmp_path):
+    gateway = load_gateway()
+
+    class Telegram:
+        def __init__(self):
+            self.messages = []
+
+        def send_message(self, chat_id, text):
+            self.messages.append((chat_id, text))
+
+    class Factory:
+        def create_task(self, envelope):
+            raise AssertionError("agent status complaint must not create a new task")
+
+        def nodes(self):
+            return {
+                "nodes": [
+                    {"node_id": "primary", "health": "online"},
+                    {"node_id": "reviewer", "health": "online"},
+                    {"node_id": "cold", "health": "offline"},
+                ]
+            }
+
+        def get_tasks(self):
+            return {
+                "tasks": [
+                    {"state": "running", "envelope": {"kind": "owner_remote_task"}},
+                    {"state": "queued", "envelope": {"kind": "owner_remote_task"}},
+                ],
+                "queue": ["queued-task"],
+            }
+
+    telegram = Telegram()
+    state = gateway.StateStore(tmp_path / "state.json")
+    app = gateway.Gateway(telegram, Factory(), {100}, state, 1)
+    message = {
+        "message_id": 61,
+        "chat": {"id": 100, "type": "private"},
+        "from": {"id": 100},
+        "text": "Почему ты до сих пор не запустил агентов и сколько агентов запущено?",
+    }
+    app.handle_message(message)
+    assert telegram.messages
+    reply = telegram.messages[0][1]
+    assert "Вижу 2 из 3 удалённых исполнителей онлайн" in reply
+    assert "Активных задач: 2, в очереди: 1" in reply
+    assert "task_id" not in reply
+
+
 def test_realtime_dev_server_question_returns_ready_preview_url():
     gateway = load_gateway()
     memory = gateway.empty_memory()

@@ -229,13 +229,28 @@ def wants_factory_task(text: str) -> bool:
     return any(target in lowered for target in task_targets) and len(lowered.split()) <= 6
 
 
+def wants_factory_status_reply(text: str) -> bool:
+    lowered = text.strip().lower()
+    if not lowered:
+        return False
+    factory_terms = (
+        "агент", "agent", "исполнитель", "сервер", "server", "фабрик",
+        "factory", "control plane", "контур", "очеред", "задач", "task",
+    )
+    inquiry_terms = (
+        "сколько", "статус", "status", "кто", "что делает", "что выполня",
+        "запущ", "работает", "активн", "почему", "?",
+    )
+    return any(term in lowered for term in factory_terms) and any(term in lowered for term in inquiry_terms)
+
+
 def should_answer_immediately(text: str) -> bool:
     lowered = text.strip().lower()
     if not lowered:
         return False
     if answer_simple_arithmetic(text) is not None and os.environ.get("TELEGRAM_DETERMINISTIC_SHORTCUTS", "0") == "1":
         return True
-    return False
+    return wants_factory_status_reply(text)
 
 
 def owner_safe_runtime_failure(text: str, snapshot: dict[str, Any] | None = None) -> str:
@@ -632,6 +647,8 @@ def build_realtime_owner_reply(text: str, snapshot: dict[str, Any]) -> str:
     memory = snapshot.get("memory") or {}
     lowered = text.lower().strip()
     active_tasks = snapshot.get("active_tasks") or []
+    nodes = snapshot.get("nodes") or []
+    queue_length = int(snapshot.get("queue_length") or 0)
     team = summarize_team(snapshot)
     last = memory.get("last_work_request") or {}
     last_text = (last.get("text") or "").strip()
@@ -657,6 +674,21 @@ def build_realtime_owner_reply(text: str, snapshot: dict[str, Any]) -> str:
         if last_text:
             return f"Помню про задачу: {last_text}. Ссылку пришлю, когда появится рабочий preview или staging. Сейчас задача {last_state_text}."
         return "Помню, что нужна ссылка. Готового preview или staging URL пока нет, я держу это ожидание открытым."
+
+    if wants_factory_status_reply(text):
+        online_nodes = [
+            node for node in nodes
+            if str(node.get("health") or node.get("status") or "").lower() in {"online", "ok", "healthy", "ready"}
+        ]
+        total_nodes = len(nodes)
+        online_count = len(online_nodes) if nodes else 0
+        active_count = len(active_tasks)
+        if total_nodes:
+            prefix = f"Вижу {online_count} из {total_nodes} удалённых исполнителей онлайн."
+        else:
+            prefix = "Список удалённых исполнителей сейчас уточняю через Control Plane."
+        work = f"Активных задач: {active_count}, в очереди: {queue_length}."
+        return f"{prefix} {work} Команда на связи: {team}. {last_work_line(memory)}"
 
     asks_running_result = has_any(text, ("запущ", "работает", "готов", "дев", "dev", "сервер", "preview", "веб"))
     if asks_running_result and (url or last_text):
@@ -943,6 +975,12 @@ class Gateway:
         elif wants_image_generation(text):
             self.remember_owner_message(text, "image")
             self.submit_image_task(message, text)
+        elif wants_factory_status_reply(text):
+            self.remember_owner_message(text, "chat")
+            snapshot = self.conversation_snapshot()
+            reply = build_realtime_owner_reply(text, snapshot)
+            self.telegram.send_message(message["chat"]["id"], reply)
+            self.remember_orchestrator_message(reply)
         elif wants_factory_task(text):
             self.remember_owner_message(text, "task")
             self.submit_text_task(message, text)
