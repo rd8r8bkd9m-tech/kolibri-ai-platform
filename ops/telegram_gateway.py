@@ -786,7 +786,9 @@ class Gateway:
         while time.time() < deadline:
             now = time.time()
             if now - last_action >= 4:
-                self.telegram.send_action(chat_id)
+                send_action = getattr(self.telegram, "send_action", None)
+                if callable(send_action):
+                    send_action(chat_id)
                 last_action = now
             current = self.factory.get_task(task["task_id"])
             result = current.get("result") or {}
