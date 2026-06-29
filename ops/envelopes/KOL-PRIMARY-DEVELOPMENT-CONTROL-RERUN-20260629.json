@@ -1,0 +1,68 @@
+{
+  "task_id": "KOL-PRIMARY-DEVELOPMENT-CONTROL-RERUN-20260629",
+  "idempotency_key": "primary-development-control-rerun:2026-06-29",
+  "kind": "generic_implementation",
+  "required_capability": "generic_implementation",
+  "permission_pack": "full_autonomy",
+  "runner": "codex",
+  "target_node": "primary-candidate",
+  "branch": "agent/KOL-PRIMARY-DEVELOPMENT-CONTROL-RERUN-20260629/primary-control",
+  "base_ref": "origin/codex/factory-autonomy-pwa-billing",
+  "goal": "Ты удаленный Оператор primary-разработки. Это rerun после runtime recovery: предыдущая попытка KOL-PRIMARY-DEVELOPMENT-CONTROL-20260629 упала на старом primary agent-host с unsupported task kind: generic_implementation. Сейчас agent-host на primary обновлен. Возьми под контроль разработку на primary-candidate: проверь текущую PR-ветку, состояние PR #46, CI, main sync и live Control Plane. После анализа сразу исполни: создай или обнови docs/agent-work/primary-development-control-20260629.md, подготовь машинные поручения с русскими ролями для main, primary-candidate, qjns, new и 9fts, и если Control Plane доступен, отправь безопасные follow-up задачи через /v1/tasks или ops/kolibri-dispatch. Не оставляй analysis-only результат. Не запускай FormulaLM/model benchmark на Mac или control surface; FormulaLM допускается только как remote guarded task with preflight/blocker artifacts.",
+  "role_slot": "Оператор primary-разработки",
+  "role_goal": "контролировать ветку, PR, CI и серверные поручения как исполнимый remote lead",
+  "execution_policy": {
+    "language": "ru",
+    "loop": "analyze_execute_verify_report",
+    "analysis_only_is_incomplete": true,
+    "agent_names_must_be_russian": true
+  },
+  "server_assignments": [
+    {
+      "node_id": "main",
+      "role": "Координатор очереди и Telegram",
+      "task": "Проверить single Telegram long-polling owner, Control Plane health, queued/read-only debt and stale leases."
+    },
+    {
+      "node_id": "primary-candidate",
+      "role": "Оператор primary-разработки",
+      "task": "Вести PR #46 branch control, GitHub/CI evidence, merge blockers and follow-up task dispatch."
+    },
+    {
+      "node_id": "qjns",
+      "role": "Инженер runtime qjns",
+      "task": "Проверить bootstrap blockers for git/node/npm/codex/Mimo and return exact install or blocker steps."
+    },
+    {
+      "node_id": "new",
+      "role": "Ревизор результатов",
+      "task": "Проверить свежие отчеты агентов, PWA/QA blockers and PR-ready summary."
+    },
+    {
+      "node_id": "9fts",
+      "role": "Разбор зависших Telegram задач",
+      "task": "Найти stale Mimo/Telegram task, не убивая процессы без evidence; вернуть safe recovery task."
+    }
+  ],
+  "acceptance": [
+    "Creates docs/agent-work/primary-development-control-20260629.md in Russian",
+    "Records origin/main, PR branch, PR #46/CI evidence or explicit blocker when GitHub access is unavailable",
+    "Lists concrete machine tasks for main, primary-candidate, qjns, new and 9fts with Russian role names",
+    "Submits at least one safe follow-up task through Control Plane or writes a blocker explaining why submission was unsafe",
+    "Does not run FormulaLM/model benchmark outside a remote guarded task",
+    "Runs git diff --check for changed files and returns commands/checks",
+    "Returns result_reference and changed files"
+  ],
+  "verification_commands": [
+    "git status --short",
+    "git diff --check -- docs/agent-work/primary-development-control-20260629.md",
+    "python3 -m compileall -q ops/agent_host.py ops/factory_control.py"
+  ],
+  "max_retries": 1,
+  "source": {
+    "kind": "owner_directive",
+    "requested_at": "2026-06-29T12:08:00Z",
+    "directive": "primary development control rerun after primary agent-host generic_implementation recovery",
+    "previous_failed_task": "KOL-PRIMARY-DEVELOPMENT-CONTROL-20260629"
+  }
+}
