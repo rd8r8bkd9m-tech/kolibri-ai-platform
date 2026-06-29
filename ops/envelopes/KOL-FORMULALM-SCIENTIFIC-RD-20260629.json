@@ -1,0 +1,103 @@
+{
+  "task_id": "KOL-FORMULALM-SCIENTIFIC-RD-20260629",
+  "idempotency_key": "formulalm:scientific-rd:remote-primary:2026-06-29:v1",
+  "kind": "generic_implementation",
+  "required_capability": "generic_implementation",
+  "permission_pack": "full_autonomy",
+  "runner": "codex",
+  "target_node": "primary-candidate",
+  "branch": "agent/KOL-FORMULALM-SCIENTIFIC-RD-20260629/scientific-rd",
+  "base_ref": "origin/codex/factory-autonomy-pwa-billing",
+  "role_slot": "Исследователь FormulaLM",
+  "role_goal": "Запустить удаленную научную разработку FormulaLM/Qwen: воспроизводимый benchmark, улучшение harness, артефакты, отчет и следующий план экспериментов.",
+  "goal": "Исполни remote-only научную разработку FormulaLM/Qwen. Не запускай FormulaLM, Qwen, QW 2.5, Ollama, llama.cpp, vLLM или любые model benchmark на Mac/Darwin. Работай только как lease-владелец на remote Linux node через Control Plane. Прочитай docs/formulalm.md, docs/agent-work/formulalm-remote-rd-pack.md и scripts/formulalm_benchmark.py. Сначала запиши preflight artifact до любого model call: task_id, node_id, hostname, uname, platform.system, repo commit, CPU/RAM/disk, runtime candidates, model candidates, dataset version, pricebook version, artifact_dir. Если OS Darwin или runtime/model недоступны, не имитируй успех: запиши blockers.json и Markdown blocker report. Если remote runtime готов, запусти научную программу: 1) smoke benchmark 5 cases x 2 repeats; 2) pilot benchmark 20 cases x 5 repeats или максимально доступный dataset; 3) six-hour run только если lease/runtime безопасны. Baseline и FormulaLM должны использовать одну модель, один dataset и одинаковые generation settings. Если scripts/formulalm_benchmark.py не покрывает метрики H1-H5, доработай harness и тесты: unique_output_hashes_per_case, parse_error_rate, runtime_error_rate, formula_consistency_rate, latency p50/p95, blocked_reason_count. Сохрани все результаты в docs/agent-work/formulalm-scientific-rd-20260629/ и итоговый отчет docs/agent-work/formulalm-scientific-rd-20260629.md. Коммить и пушь ветку агента. Верни result_reference, changed_files, checks, commit, pushed=true и verdict: proven, inconclusive или blocked.",
+  "remote_guard": {
+    "mode": "execute_preflight_then_run_or_block",
+    "mac_policy": "Mac is control/editing surface only; model calls on Darwin are forbidden.",
+    "darwin_action": "write preflight.json and blockers.json, then stop before any model call",
+    "linux_action": "run benchmark only after runtime, model, dataset and pricebook checks pass",
+    "analysis_only_is_incomplete": true,
+    "required_outputs": [
+      "preflight.json",
+      "blockers.json or formulalm-benchmark.json",
+      "blocker report or formulalm-benchmark.md",
+      "docs/agent-work/formulalm-scientific-rd-20260629.md"
+    ]
+  },
+  "execution_flow": [
+    "lease_received",
+    "preflight_recorded",
+    "guard_checked",
+    "harness_gap_fixed_or_declared_ready",
+    "smoke_benchmark_started_or_blocked",
+    "pilot_or_six_hour_benchmark_started_when_safe",
+    "artifacts_written",
+    "commit_pushed",
+    "result_reference_returned"
+  ],
+  "input_files": [
+    "docs/formulalm.md",
+    "docs/agent-work/formulalm-remote-rd-pack.md",
+    "scripts/formulalm_benchmark.py",
+    "backend/estimate_engine.py"
+  ],
+  "output_files": [
+    "docs/agent-work/formulalm-scientific-rd-20260629.md",
+    "docs/agent-work/formulalm-scientific-rd-20260629/preflight.json",
+    "docs/agent-work/formulalm-scientific-rd-20260629/formulalm-benchmark.json",
+    "docs/agent-work/formulalm-scientific-rd-20260629/formulalm-benchmark.md",
+    "docs/agent-work/formulalm-scientific-rd-20260629/blockers.json"
+  ],
+  "research_program": {
+    "dataset_version": "formulalm-estimate-ru-2026q2-v1",
+    "pricebook_version": "kolibri-ru-2026q2-v1",
+    "model_family": "Qwen/QW 2.5 compatible remote runtime",
+    "minimum_smoke": {
+      "cases": 5,
+      "repeats": 2
+    },
+    "pilot": {
+      "cases": 20,
+      "repeats": 5
+    },
+    "six_hour": {
+      "duration_seconds": 21600,
+      "run_only_when_safe": true
+    },
+    "hypotheses": [
+      "H1 valid_json_rate improves by at least 5 percentage points",
+      "H2 exact_total_rate reaches at least 0.98 and improves baseline by at least 0.10",
+      "H3 unique_output_hashes_per_case is at most 2 and at least 50 percent lower than baseline",
+      "H4 formula_consistency_rate is at least 0.99",
+      "H5 manual_fix_count is at least 30 percent lower after QA review"
+    ]
+  },
+  "acceptance": [
+    "No model experiment runs on macOS or the owner's Mac",
+    "Remote preflight artifact is written before any model call",
+    "If runtime/model/dataset is missing, task returns blocker artifact instead of synthetic success",
+    "If runtime is ready, benchmark compares baseline and FormulaLM with the same model, dataset and generation settings",
+    "Harness gaps for H1-H5 metrics are fixed or explicitly recorded as blockers with a next patch",
+    "Artifacts include JSON and Markdown reports under docs/agent-work/formulalm-scientific-rd-20260629/",
+    "Final report contains verdict proven, inconclusive or blocked with evidence",
+    "Agent commits and pushes its branch, and Control Plane result includes changed_files, checks, commit and result_reference"
+  ],
+  "verification_commands": [
+    "python3 -m py_compile scripts/formulalm_benchmark.py backend/estimate_engine.py",
+    "test -s docs/agent-work/formulalm-scientific-rd-20260629.md",
+    "test -s docs/agent-work/formulalm-scientific-rd-20260629/preflight.json",
+    "test -s docs/agent-work/formulalm-scientific-rd-20260629/formulalm-benchmark.json || test -s docs/agent-work/formulalm-scientific-rd-20260629/blockers.json"
+  ],
+  "max_retries": 1,
+  "source": {
+    "kind": "manual_control_plane",
+    "requested_by": "owner",
+    "requested_at": "2026-06-29T16:16:51+03:00",
+    "rule": "remote-only scientific development; Mac is control/editing surface only",
+    "source_docs": [
+      "docs/formulalm.md",
+      "docs/agent-work/formulalm-remote-rd-pack.md"
+    ],
+    "prepared_by": "Codex control-plane operator"
+  }
+}
