@@ -9,6 +9,94 @@ const IS_LOCAL = window.location.hostname === "localhost" || window.location.hos
 const API_BASE = IS_LOCAL ? `http://${window.location.hostname}:8000` : ""
 const WS_HOST = IS_LOCAL ? `${window.location.hostname}:8000` : window.location.host
 
+function getTelegramWebApp() {
+  return window.Telegram?.WebApp || null
+}
+
+function formatTelegramName(user) {
+  if (!user) return "Гость"
+  return [user.first_name, user.last_name].filter(Boolean).join(" ") || user.username || `ID ${user.id}`
+}
+
+function useTelegramWebApp(activeTab, setActiveTab, startTask) {
+  const [telegram, setTelegram] = useState(() => {
+    const webApp = getTelegramWebApp()
+    return {
+      webApp,
+      isTelegram: Boolean(webApp?.initData),
+      user: webApp?.initDataUnsafe?.user || null,
+      colorScheme: webApp?.colorScheme || "dark",
+      platform: webApp?.platform || "web",
+      viewportHeight: webApp?.viewportHeight || window.innerHeight,
+    }
+  })
+
+  useEffect(() => {
+    const webApp = getTelegramWebApp()
+    if (!webApp) return
+
+    const applyViewport = () => {
+      document.documentElement.style.setProperty("--tg-viewport-height", `${webApp.viewportHeight || window.innerHeight}px`)
+      setTelegram(prev => ({
+        ...prev,
+        webApp,
+        isTelegram: Boolean(webApp.initData),
+        user: webApp.initDataUnsafe?.user || null,
+        colorScheme: webApp.colorScheme || prev.colorScheme,
+        platform: webApp.platform || prev.platform,
+        viewportHeight: webApp.viewportHeight || window.innerHeight,
+      }))
+    }
+
+    webApp.ready()
+    webApp.expand()
+    webApp.setHeaderColor?.("secondary_bg_color")
+    webApp.setBackgroundColor?.(webApp.themeParams?.bg_color || "#0a0a0f")
+    webApp.onEvent?.("viewportChanged", applyViewport)
+    webApp.onEvent?.("themeChanged", applyViewport)
+    applyViewport()
+
+    return () => {
+      webApp.offEvent?.("viewportChanged", applyViewport)
+      webApp.offEvent?.("themeChanged", applyViewport)
+      webApp.MainButton?.hide()
+      webApp.BackButton?.hide()
+    }
+  }, [])
+
+  useEffect(() => {
+    const webApp = telegram.webApp
+    if (!webApp) return
+
+    const handleMainButton = () => startTask("Создай задачу для фабрики Kolibri: ")
+    const handleBackButton = () => setActiveTab("chat")
+
+    if (activeTab === "miniapp") {
+      webApp.MainButton?.setText("Запустить задачу")
+      webApp.MainButton?.show()
+      webApp.MainButton?.onClick(handleMainButton)
+      webApp.BackButton?.hide()
+    } else {
+      webApp.MainButton?.offClick(handleMainButton)
+      webApp.MainButton?.hide()
+      if (activeTab !== "chat") {
+        webApp.BackButton?.show()
+        webApp.BackButton?.onClick(handleBackButton)
+      } else {
+        webApp.BackButton?.offClick(handleBackButton)
+        webApp.BackButton?.hide()
+      }
+    }
+
+    return () => {
+      webApp.MainButton?.offClick(handleMainButton)
+      webApp.BackButton?.offClick(handleBackButton)
+    }
+  }, [activeTab, setActiveTab, startTask, telegram.webApp])
+
+  return telegram
+}
+
 class ErrorBoundary extends Component {
   constructor(props) { super(props); this.state = { error: null } }
   static getDerivedStateFromError(error) { return { error } }
@@ -141,6 +229,78 @@ function ClusterView({ status, onRefresh }) {
   )
 }
 
+function MiniAppView({ telegram, clusterStatus, connected, onStartTask, onOpenCluster }) {
+  const userName = formatTelegramName(telegram.user)
+  const taskTemplates = [
+    {
+      title: "Задача агенту",
+      desc: "Передать поручение в фабрику",
+      prompt: "Создай задачу для агента Kolibri: ",
+      icon: <path d="M12 2a2 2 0 100 4 2 2 0 000-4zM6 11h12a2 2 0 012 2v7a2 2 0 01-2 2H6a2 2 0 01-2-2v-7a2 2 0 012-2z" />,
+    },
+    {
+      title: "Смета",
+      desc: "Быстрый черновик сметы",
+      prompt: "Создай строительную смету для ",
+      icon: <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6M8 13h8M8 17h8" />,
+    },
+    {
+      title: "Документы",
+      desc: "Сформировать пакет",
+      prompt: "Создай полный пакет документов для ",
+      icon: <path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 002 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0022 16zM3.27 6.96 12 12.01l8.73-5.05M12 22.08V12" />,
+    },
+  ]
+
+  return (
+    <motion.div key="miniapp" className="miniapp-panel" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+      <section className="miniapp-hero">
+        <div className="miniapp-identity">
+          <KolibriBird size={64} state={connected ? "happy" : "error"} />
+          <div>
+            <h1>Kolibri Mini App</h1>
+            <p>{telegram.isTelegram ? `Telegram · ${telegram.platform}` : "Web preview · Telegram SDK не активен"}</p>
+          </div>
+        </div>
+        <div className={`miniapp-status ${connected ? "online" : "offline"}`}>
+          <span className="pulse-dot" />
+          {connected ? "Фабрика онлайн" : "Нет связи"}
+        </div>
+      </section>
+
+      <section className="miniapp-grid">
+        <div className="miniapp-card">
+          <span className="miniapp-label">Пользователь</span>
+          <strong>{userName}</strong>
+          <span>{telegram.user?.username ? `@${telegram.user.username}` : telegram.isTelegram ? `ID ${telegram.user?.id}` : "Откройте из Telegram для initData"}</span>
+        </div>
+        <button className="miniapp-card miniapp-card-button" onClick={onOpenCluster}>
+          <span className="miniapp-label">Кластер</span>
+          <strong>{clusterStatus ? `${clusterStatus.online_nodes}/${clusterStatus.total_nodes} узлов` : "Загрузка"}</strong>
+          <span>{clusterStatus ? `${clusterStatus.free_ram_gb} GB RAM свободно` : "Проверяем статус"}</span>
+        </button>
+      </section>
+
+      <section className="miniapp-actions" aria-label="Быстрые действия">
+        {taskTemplates.map(template => (
+          <motion.button key={template.title} className="miniapp-action" onClick={() => onStartTask(template.prompt)}
+            whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+            <span className="miniapp-action-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                {template.icon}
+              </svg>
+            </span>
+            <span>
+              <strong>{template.title}</strong>
+              <small>{template.desc}</small>
+            </span>
+          </motion.button>
+        ))}
+      </section>
+    </motion.div>
+  )
+}
+
 export default function App() {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState("")
@@ -150,7 +310,7 @@ export default function App() {
   const [providers, setProviders] = useState([])
   const [selectedProvider, setSelectedProvider] = useState("mimo")
   const [sidebar, setSidebar] = useState(false)
-  const [theme, setTheme] = useState(() => localStorage.getItem("kolibri-theme") || "dark")
+  const [theme, setTheme] = useState(() => localStorage.getItem("kolibri-theme") || (getTelegramWebApp()?.colorScheme === "light" ? "light" : "dark"))
   const [activeTab, setActiveTab] = useState("chat")
   const [documents, setDocuments] = useState([])
   const [docLoading, setDocLoading] = useState(false)
@@ -163,6 +323,13 @@ export default function App() {
   const messagesEnd = useRef(null)
   const inputRef = useRef(null)
   const fileInputRef = useRef(null)
+  const startMiniAppTask = useCallback((prompt) => {
+    setInput(prompt)
+    setActiveTab("chat")
+    setSidebar(false)
+    requestAnimationFrame(() => inputRef.current?.focus())
+  }, [])
+  const telegram = useTelegramWebApp(activeTab, setActiveTab, startMiniAppTask)
 
   useEffect(() => {
     const root = document.documentElement
@@ -298,6 +465,7 @@ export default function App() {
 
           <nav className="sidebar-nav">
             {[
+              { id: "miniapp", label: "Mini App", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/><path d="M8 6h8"/></svg> },
               { id: "chat", label: "Чат", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg> },
               { id: "documents", label: "Документы", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg> },
               { id: "search", label: "Поиск", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> },
@@ -350,7 +518,7 @@ export default function App() {
                 </svg>
               </button>
               <div>
-                <div className="header-title">Kolibri AI</div>
+                <div className="header-title">{activeTab === "miniapp" ? "Kolibri Mini App" : "Kolibri AI"}</div>
                 <div className="header-subtitle">
                   {clusterStatus ? (
                     <span className="header-cluster">
@@ -373,6 +541,16 @@ export default function App() {
 
           <div className="chat-container">
             <AnimatePresence mode="wait">
+              {activeTab === "miniapp" && (
+                <MiniAppView
+                  telegram={telegram}
+                  clusterStatus={clusterStatus}
+                  connected={connected}
+                  onStartTask={startMiniAppTask}
+                  onOpenCluster={() => setActiveTab("cluster")}
+                />
+              )}
+
               {activeTab === "chat" && (
                 <motion.div key="chat" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
                   transition={{ duration: 0.2 }} style={{ display: "flex", flexDirection: "column", flex: 1 }}>
