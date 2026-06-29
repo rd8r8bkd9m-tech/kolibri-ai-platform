@@ -1,0 +1,46 @@
+{
+  "task_id": "KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629",
+  "idempotency_key": "p0:app-queue-unblock:verify-self-contained-deps:2026-06-29",
+  "kind": "generic_implementation",
+  "required_capability": "implementation",
+  "target_node": "main",
+  "permission_pack": "implementation",
+  "runner": "codex",
+  "branch": "agent/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629/app-verify",
+  "base_ref": "origin/codex/factory-autonomy-pwa-billing",
+  "commit_message": "factory: verify p0 app unblock on remote runner",
+  "goal": "Machine execution task. Verify the already-pushed PR branch after the P0 app/factory rollout. Do not redo broad product work. Inspect the current app/factory status, confirm the frontend contains the Фабрика Колибри title, chat-first /app route, right-bottom Control entrypoint, /api/factory/status primary path, and /cluster/status read-only fallback. If a small bug blocks verification, patch it minimally. If production deploy credentials are absent, write a blocker artifact instead of deploying. Do not cancel, requeue, drain, restart, mutate Control Plane queues, or run FormulaLM/LLM/model benchmarks on Mac.",
+  "role_slot": "p0_app_verify_executor",
+  "role_goal": "turn the previous failed P0 task into a completed remote factory result with self-contained verification dependencies",
+  "acceptance": [
+    "Runs on fresh node main with required_capability=implementation",
+    "Does not depend on frontend/node_modules left behind by the Codex runner",
+    "Runs npm install or npm ci before lint/build verification",
+    "Verifies Фабрика Колибри is present in frontend/src/App.jsx",
+    "Verifies /api/factory/status primary path and /cluster/status fallback are present",
+    "Verifies right-bottom Control entrypoint is present",
+    "Runs frontend lint, build, and mobile layout guard",
+    "Runs Python compile checks for backend ops tests",
+    "Creates a result artifact with deploy blocker if production deploy is not authorized",
+    "Does not run FormulaLM/LLM/model benchmarks on Mac",
+    "Does not mutate Control Plane queue state"
+  ],
+  "verification_commands": [
+    "npm --prefix frontend install --no-package-lock",
+    "npm --prefix frontend run lint --if-present",
+    "npm --prefix frontend run build",
+    "npm --prefix frontend run test:mobile-layout",
+    "python3 -m compileall -q backend ops tests"
+  ],
+  "max_retries": 1,
+  "create_review_on_complete": true,
+  "review_node": "new",
+  "source": {
+    "kind": "manual_control_plane_verify_rerun",
+    "requested_by": "main_codex_runtime_repair",
+    "requested_at": "2026-06-29T08:35:00+03:00",
+    "previous_task_id": "KOL-P0-APP-QUEUE-UNBLOCK-RERUN-20260629",
+    "previous_failure": "agent-host verification ran npm lint after frontend/node_modules was removed; eslint was not found",
+    "fix": "Make verification_commands install frontend dependencies before lint/build."
+  }
+}

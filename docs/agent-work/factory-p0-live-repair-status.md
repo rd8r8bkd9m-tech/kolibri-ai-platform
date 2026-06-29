@@ -20,8 +20,15 @@
 - Перед заменой создан backup установленного agent host.
 - `kolibri-agent-host.service` перезапущен и остался `active`.
 - Повторная задача
-  `KOL-P0-APP-QUEUE-UNBLOCK-RERUN-20260629` принята Control Plane, взята
-  `main:agent-host-main` и находится в `running` с живым heartbeat.
+  `KOL-P0-APP-QUEUE-UNBLOCK-RERUN-20260629` была принята Control Plane,
+  взята `main:agent-host-main` и выполнила кодовую часть, но завершилась
+  `failed` на post-run verification: `npm --prefix frontend run lint
+  --if-present` вернул `rc=127`, потому что `eslint` не был доступен после
+  cleanup `frontend/node_modules`.
+- Создана следующая самодостаточная задача
+  `KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629`: ее verification commands сначала
+  выполняют `npm --prefix frontend install --no-package-lock`, затем lint,
+  build, mobile layout guard и Python compile.
 - Обновлен `/usr/local/bin/kolibri-factory-control` на Control Plane.
 - Перед заменой создан backup установленного Control Plane binary.
 - `kolibri-factory-control.service` перезапущен и остался `active`.
@@ -46,9 +53,9 @@ GET /v1/agent-messages?target=all&limit=5
 status=200, messages=[]
 
 GET /v1/tasks/KOL-P0-APP-QUEUE-UNBLOCK-RERUN-20260629
-state=running
+state=failed
 lease_owner=main:agent-host-main
-error=null
+error=command failed with rc=127: npm --prefix frontend run lint --if-present
 ```
 
 Локальные проверки:
@@ -68,11 +75,12 @@ git diff --check
   достигнуты.
 - Очередь содержит 71 task, сейчас нужен controlled drain/recovery, а не
   массовый запуск без наблюдаемости.
-- P0 app unblock task еще выполняется; результат надо забрать после completion.
+- P0 app unblock rerun пока не дал completed-result; отправлена новая verify
+  task с самодостаточной установкой frontend dependencies.
 
 ## Следующий шаг
 
-1. Дождаться результата `KOL-P0-APP-QUEUE-UNBLOCK-RERUN-20260629`.
+1. Дождаться результата `KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629`.
 2. Восстановить `server-kfrm` через безопасный runtime rollout.
 3. После fresh heartbeat на `server-kfrm` повторно отправить тяжелые QA/app
    задачи именно на него.
