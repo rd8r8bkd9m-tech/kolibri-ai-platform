@@ -374,6 +374,34 @@ def test_realtime_dev_server_question_returns_ready_preview_url():
         assert forbidden not in reply
 
 
+def test_realtime_home_task_question_answers_without_claiming_assignment():
+    gateway = load_gateway()
+    memory = gateway.empty_memory()
+    gateway.record_work_task(
+        memory,
+        "Запустить агента на home так, чтобы работу было видно на экране",
+        "TG-1",
+        "completed",
+        "2026-06-29T12:36:02+00:00",
+    )
+    snapshot = {
+        "memory": gateway.memory_snapshot(memory),
+        "active_tasks": [
+            {"kind": "read_only_probe", "state": "queued", "target_node": "9fts"},
+            {"kind": "read_only_probe", "state": "queued", "target_node": "uiap"},
+        ],
+        "team": [{"name": "Инженер", "health": "online"}, {"name": "Ревьюер", "health": "online"}],
+    }
+
+    reply = gateway.build_realtime_owner_reply("Задачи поставлены для home?", snapshot)
+
+    assert "Пока именно на home реальную задачу не вижу" in reply
+    assert "короткие проверки в очереди: 2" in reply
+    assert "без имитации" in reply
+    for forbidden in ["task_id", "node:", "agent:", "artifact:", "/var/lib", "9fts", "uiap"]:
+        assert forbidden not in reply
+
+
 def test_realtime_reply_answers_simple_arithmetic():
     gateway = load_gateway()
     reply = gateway.build_realtime_owner_reply("2+4", {"memory": gateway.memory_snapshot(gateway.empty_memory())})

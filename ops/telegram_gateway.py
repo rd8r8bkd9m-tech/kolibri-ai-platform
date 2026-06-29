@@ -620,6 +620,14 @@ def last_work_line(memory: dict[str, Any]) -> str:
     return "Последней рабочей задачи в памяти пока нет."
 
 
+def task_targets_home(task: dict[str, Any]) -> bool:
+    target = str(task.get("target_node") or task.get("target") or "").lower()
+    if "home" in target:
+        return True
+    objective = str(task.get("objective") or task.get("message") or task.get("task") or "").lower()
+    return "home" in objective
+
+
 def first_known_url(memory: dict[str, Any]) -> str | None:
     for item in reversed(memory.get("known_results") or []):
         url = item.get("url")
@@ -665,6 +673,17 @@ def build_realtime_owner_reply(text: str, snapshot: dict[str, Any]) -> str:
         if url:
             return f"Есть рабочая ссылка: {url}. По последней задаче статус: {last_state_text}."
         return f"По последней задаче: {last_text}. Сейчас она {last_state_text}."
+
+    asks_home_tasks = "home" in lowered and has_any(lowered, ("задач", "постав", "назнач", "запущ", "работ"))
+    if asks_home_tasks:
+        home_tasks = [task for task in active_tasks if task_targets_home(task)]
+        if home_tasks:
+            task_count = len(home_tasks)
+            return f"Да, для home уже есть {task_count} активных задач. Держу запуск под контролем и напишу, когда будет видно реальную работу на экране."
+        if active_tasks:
+            task_count = len(active_tasks)
+            return f"Пока именно на home реальную задачу не вижу. Сейчас вижу короткие проверки в очереди: {task_count}. После них отдам home нормальную рабочую задачу без имитации."
+        return "Пока именно на home активной задачи не вижу. Узел держу в фокусе и следующим шагом поставлю туда реальную работу, а не пустую проверку."
 
     if has_any(text, ("что делаешь", "какие задачи", "статус", "что сделано", "не завис", "монитор", "кто делает", "что выполня")):
         if active_tasks:
