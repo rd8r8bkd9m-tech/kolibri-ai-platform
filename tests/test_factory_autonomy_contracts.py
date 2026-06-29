@@ -273,6 +273,34 @@ def test_agent_host_register_heartbeat_and_lease_include_permissions_payloads(tm
         assert set(body["permission_packs"]) == {"full_autonomy", "implementation"}
 
 
+def test_agent_host_machine_stats_reports_hardware_corrupted(monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setattr(agent_host.shutil, "disk_usage", lambda path: argparse.Namespace(total=100, used=40, free=60))
+    monkeypatch.setattr(agent_host.os, "cpu_count", lambda: 8)
+
+    def fake_read_text(self, encoding="utf-8"):
+        assert str(self) == "/proc/meminfo"
+        assert encoding == "utf-8"
+        return (
+            "MemTotal:       32768000 kB\n"
+            "MemAvailable:  24000000 kB\n"
+            "HardwareCorrupted:        52 kB\n"
+            "SwapTotal:             0 kB\n"
+        )
+
+    monkeypatch.setattr(agent_host.Path, "read_text", fake_read_text)
+
+    stats = agent_host.machine_stats()
+
+    assert stats["cpu"] == 8
+    assert stats["disk"] == {"total": 100, "used": 40, "free": 60}
+    assert stats["ram"] == {
+        "MemTotal": "32768000 kB",
+        "MemAvailable": "24000000 kB",
+        "HardwareCorrupted": "52 kB",
+    }
+
+
 def test_agent_host_visible_mimo_session_runner_builds_openvt_artifact(tmp_path, monkeypatch):
     agent_host = load_agent_host()
     project = tmp_path / "repo"

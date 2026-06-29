@@ -28,6 +28,8 @@ def test_run_watchdog_calls_reap_and_sweep_without_rebuild_by_default(monkeypatc
             return {"task_total": 10, "lease_index_total": 1, "stuck": 0, "requeued_total": 0, "dead_lettered_total": 0, "stale_after_seconds": 3600}
         if path == "/v1/tasks/failures?error_type=deliverable_gate_failed&limit=50":
             return {"error_type": "deliverable_gate_failed", "total": 0, "tasks": []}
+        if path == "/v1/nodes":
+            return {"nodes": []}
         raise AssertionError(path)
 
     monkeypatch.setattr(watchdog, "call_control", fake_call)
@@ -39,6 +41,7 @@ def test_run_watchdog_calls_reap_and_sweep_without_rebuild_by_default(monkeypatc
         "/v1/tasks/reap-expired",
         "/v1/tasks/sweep-stuck",
         "/v1/tasks/failures?error_type=deliverable_gate_failed&limit=50",
+        "/v1/nodes",
     ]
     assert calls[1][2] == {"limit": 50}
     assert calls[2][2] == {"limit": 50, "stale_after_seconds": 3600}
@@ -64,6 +67,8 @@ def test_run_watchdog_can_rebuild_indexes_first(monkeypatch):
             return {"task_total": 690, "lease_index_total": 1, "stuck": 0, "requeued_total": 0, "dead_lettered_total": 0, "stale_after_seconds": 3600}
         if path == "/v1/tasks/failures?error_type=deliverable_gate_failed&limit=20":
             return {"error_type": "deliverable_gate_failed", "total": 0, "tasks": []}
+        if path == "/v1/nodes":
+            return {"nodes": []}
         raise AssertionError(path)
 
     monkeypatch.setattr(watchdog, "call_control", fake_call)
@@ -76,6 +81,7 @@ def test_run_watchdog_can_rebuild_indexes_first(monkeypatch):
         "/v1/tasks/reap-expired",
         "/v1/tasks/sweep-stuck",
         "/v1/tasks/failures?error_type=deliverable_gate_failed&limit=20",
+        "/v1/nodes",
     ]
     assert report["summary"]["rebuild_indexed"] == 690
 
@@ -96,6 +102,8 @@ def test_run_watchdog_reports_deliverable_gate_failures(tmp_path, monkeypatch):
                 "total": 1,
                 "tasks": [{"task_id": "KOL-GATE-1", "error": "missing_checks"}],
             }
+        if path == "/v1/nodes":
+            return {"nodes": []}
         raise AssertionError(path)
 
     monkeypatch.setattr(watchdog, "call_control", fake_call)
@@ -107,6 +115,62 @@ def test_run_watchdog_reports_deliverable_gate_failures(tmp_path, monkeypatch):
     assert report["summary"]["deliverable_gate_recent"][0]["task_id"] == "KOL-GATE-1"
     watchdog.update_rollup(report, tmp_path)
     assert watchdog.should_notify(report["summary"]) is True
+
+
+def test_run_watchdog_reports_node_hardware_corruption(tmp_path, monkeypatch):
+    watchdog = load_watchdog()
+
+    def fake_call(control_url, method, path, body=None, timeout=20):
+        if path == "/v1/health":
+            return {"status": "ok", "redis": "PONG", "queue_backend": "redis"}
+        if path == "/v1/tasks/reap-expired":
+            return {"task_total": 10, "lease_index_total": 0, "expired": 0, "requeued_total": 0, "dead_lettered_total": 0}
+        if path == "/v1/tasks/sweep-stuck":
+            return {"task_total": 10, "lease_index_total": 0, "stuck": 0, "requeued_total": 0, "dead_lettered_total": 0, "stale_after_seconds": 3600}
+        if path == "/v1/tasks/failures?error_type=deliverable_gate_failed&limit=5":
+            return {"error_type": "deliverable_gate_failed", "total": 0, "tasks": []}
+        if path == "/v1/nodes":
+            return {
+                "nodes": [
+                    {
+                        "node_id": "home",
+                        "hostname": "plastilin",
+                        "fresh": True,
+                        "ram": {"MemTotal": "32768000 kB", "HardwareCorrupted": "52 kB"},
+                    },
+                    {
+                        "node_id": "main",
+                        "hostname": "kolibri-main-api",
+                        "fresh": False,
+                        "ram": {"HardwareCorrupted": "0 kB"},
+                    },
+                ]
+            }
+        raise AssertionError(path)
+
+    monkeypatch.setattr(watchdog, "call_control", fake_call)
+
+    report = watchdog.run_watchdog("http://control:9101", limit=5, stale_after_seconds=3600, timeout=7)
+
+    assert report["summary"]["status"] == "degraded"
+    assert report["summary"]["node_inventory_status"] == "ok"
+    assert report["summary"]["node_total"] == 2
+    assert report["summary"]["node_fresh"] == 1
+    assert report["summary"]["node_stale"] == 1
+    assert report["summary"]["hardware_corrupted_total_kb"] == 52
+    assert report["summary"]["hardware_corrupted_nodes"] == [
+        {
+            "node_id": "home",
+            "hostname": "plastilin",
+            "hardware_corrupted_kb": 52,
+            "fresh": True,
+        }
+    ]
+    assert watchdog.should_notify(report["summary"]) is True
+    _, md_path = watchdog.write_reports(report, tmp_path)
+    markdown = md_path.read_text(encoding="utf-8")
+    assert "Hardware corrupted memory total" in markdown
+    assert "Hardware Corruption Signals" in markdown
 
 
 def test_write_reports_creates_latest_json_and_markdown(tmp_path):
@@ -187,6 +251,7 @@ def test_should_notify_only_on_action_or_problem():
     assert watchdog.should_notify({"status": "ok", "expired": 0, "dead_lettered_stuck": 1}) is True
     assert watchdog.should_notify({"status": "ok", "expired": 0, "stuck": 0, "deliverable_gate_new": 1}) is True
     assert watchdog.should_notify({"status": "ok", "expired": 0, "stuck": 0, "deliverable_retry_failed": 1}) is True
+    assert watchdog.should_notify({"status": "ok", "expired": 0, "stuck": 0, "hardware_corrupted_total_kb": 52}) is True
 
 
 def test_build_deliverable_retry_envelope_requires_evidence_contract(monkeypatch):

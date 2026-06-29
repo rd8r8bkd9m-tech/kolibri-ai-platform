@@ -106,7 +106,7 @@ def machine_stats() -> dict[str, Any]:
         meminfo = Path("/proc/meminfo").read_text(encoding="utf-8")
         for line in meminfo.splitlines():
             name, value = line.split(":", 1)
-            if name in {"MemTotal", "MemAvailable"}:
+            if name in {"MemTotal", "MemAvailable", "HardwareCorrupted"}:
                 ram[name] = value.strip()
     except OSError:
         pass

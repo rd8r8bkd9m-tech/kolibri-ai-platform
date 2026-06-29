@@ -51,16 +51,69 @@ def fetch_task(control_url: str, task_id: str, timeout: int) -> dict[str, Any]:
     return call_control(control_url, "GET", f"/v1/tasks/{quote_task_id(task_id)}", timeout=timeout)
 
 
+def parse_memory_kb(value: Any) -> int:
+    if value is None:
+        return 0
+    if isinstance(value, (int, float)):
+        return max(0, int(value))
+    text = str(value).strip()
+    if not text:
+        return 0
+    match = re.search(r"(\d+)", text)
+    return int(match.group(1)) if match else 0
+
+
+def summarize_nodes(nodes_payload: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(nodes_payload, dict):
+        return {
+            "node_inventory_status": "unavailable",
+            "node_total": 0,
+            "node_fresh": 0,
+            "node_stale": 0,
+            "hardware_corrupted_total_kb": 0,
+            "hardware_corrupted_nodes": [],
+        }
+    nodes = nodes_payload.get("nodes") if isinstance(nodes_payload.get("nodes"), list) else []
+    hardware_nodes = []
+    hardware_total = 0
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        ram = node.get("ram") if isinstance(node.get("ram"), dict) else {}
+        corrupted_kb = parse_memory_kb(ram.get("HardwareCorrupted"))
+        if corrupted_kb > 0:
+            hardware_total += corrupted_kb
+            hardware_nodes.append(
+                {
+                    "node_id": node.get("node_id"),
+                    "hostname": node.get("hostname"),
+                    "hardware_corrupted_kb": corrupted_kb,
+                    "fresh": bool(node.get("fresh")),
+                }
+            )
+    return {
+        "node_inventory_status": "ok",
+        "node_total": len(nodes),
+        "node_fresh": sum(1 for node in nodes if isinstance(node, dict) and node.get("fresh")),
+        "node_stale": sum(1 for node in nodes if isinstance(node, dict) and not node.get("fresh")),
+        "hardware_corrupted_total_kb": hardware_total,
+        "hardware_corrupted_nodes": hardware_nodes,
+    }
+
+
 def build_summary(
     health: dict[str, Any],
     rebuild: dict[str, Any] | None,
     reap: dict[str, Any],
     sweep: dict[str, Any],
     deliverable_failures: dict[str, Any] | None = None,
+    nodes_payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     failures = deliverable_failures or {}
+    node_summary = summarize_nodes(nodes_payload)
+    is_ok = health.get("status") == "ok" and int_value(node_summary.get("hardware_corrupted_total_kb")) == 0
     return {
-        "status": "ok" if health.get("status") == "ok" else "degraded",
+        "status": "ok" if is_ok else "degraded",
         "redis": health.get("redis"),
         "queue_backend": health.get("queue_backend"),
         "rebuild_indexed": None if rebuild is None else rebuild.get("indexed"),
@@ -76,6 +129,7 @@ def build_summary(
         "deliverable_gate_status": "ok" if deliverable_failures is not None else "unavailable",
         "deliverable_gate_failed": int_value(failures.get("total")),
         "deliverable_gate_recent": failures.get("tasks") if isinstance(failures.get("tasks"), list) else [],
+        **node_summary,
     }
 
 
@@ -91,6 +145,7 @@ def should_notify(summary: dict[str, Any]) -> bool:
         "dead_lettered_stuck",
         "deliverable_gate_new",
         "deliverable_retry_failed",
+        "hardware_corrupted_total_kb",
     ):
         try:
             if int(summary.get(key) or 0) > 0:
@@ -131,6 +186,10 @@ def run_watchdog(
         )
     except (OSError, urllib.error.URLError, TimeoutError):
         deliverable_failures = None
+    try:
+        nodes_payload = call_control(control_url, "GET", "/v1/nodes", timeout=timeout)
+    except (OSError, urllib.error.URLError, TimeoutError):
+        nodes_payload = None
     finished_at = utc_now()
     report = {
         "event": "factory_lease_watchdog",
@@ -144,8 +203,9 @@ def run_watchdog(
         "reap_expired": reap,
         "sweep_stuck": sweep,
         "deliverable_failures": deliverable_failures,
+        "nodes": nodes_payload,
     }
-    report["summary"] = build_summary(health, rebuild, reap, sweep, deliverable_failures)
+    report["summary"] = build_summary(health, rebuild, reap, sweep, deliverable_failures, nodes_payload)
     return report
 
 
@@ -172,12 +232,30 @@ def markdown_report(report: dict[str, Any]) -> str:
         f"- Deliverable retry created: `{summary.get('deliverable_retry_created')}`",
         f"- Deliverable retry failed: `{summary.get('deliverable_retry_failed')}`",
         f"- Stale threshold seconds: `{summary.get('stale_after_seconds')}`",
+        f"- Node inventory: `{summary.get('node_inventory_status')}`",
+        f"- Nodes total: `{summary.get('node_total')}`",
+        f"- Nodes fresh: `{summary.get('node_fresh')}`",
+        f"- Nodes stale: `{summary.get('node_stale')}`",
+        f"- Hardware corrupted memory total: `{summary.get('hardware_corrupted_total_kb')}` kB",
         "",
         "```json",
         json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True),
         "```",
         "",
     ]
+    hardware_nodes = summary.get("hardware_corrupted_nodes") or []
+    if hardware_nodes:
+        lines.extend(["## Hardware Corruption Signals", ""])
+        for node in hardware_nodes:
+            if not isinstance(node, dict):
+                continue
+            lines.append(
+                "- "
+                f"`{node.get('node_id')}` host=`{node.get('hostname')}` "
+                f"fresh=`{node.get('fresh')}` "
+                f"HardwareCorrupted=`{node.get('hardware_corrupted_kb')}` kB"
+            )
+        lines.append("")
     return "\n".join(lines)
 
 
