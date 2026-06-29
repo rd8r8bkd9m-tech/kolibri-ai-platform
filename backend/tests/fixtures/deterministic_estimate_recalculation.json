@@ -1,0 +1,133 @@
+{
+  "fixture_id": "deterministic-estimate-recalculation-20260629T141939Z",
+  "estimate": {
+    "estimate_id": "EST-FIXTURE-MIMO-001",
+    "title": "Смета для deterministic recalculation fixture",
+    "client_name": "Fixture Client",
+    "object_address": "Fixture address",
+    "currency": "RUB",
+    "overhead_rate": "7.00",
+    "tax_rate": "0.00",
+    "sections": [
+      {
+        "title": "Подготовка",
+        "items": [
+          {
+            "name": "Защита поверхностей и подготовка",
+            "unit": "м2",
+            "quantity": "12.50",
+            "labor_unit_price": "180.00",
+            "material_unit_price": "45.00",
+            "provenance": {
+              "source": "fixture",
+              "label": "Pinned deterministic fixture",
+              "captured_at": "2026-06-29T14:19:39+00:00",
+              "confidence": "1.00"
+            }
+          },
+          {
+            "name": "Демонтажные работы",
+            "unit": "м2",
+            "quantity": "12.50",
+            "labor_unit_price": "320.00",
+            "material_unit_price": "0.00",
+            "provenance": {
+              "source": "fixture",
+              "label": "Pinned deterministic fixture",
+              "captured_at": "2026-06-29T14:19:39+00:00",
+              "confidence": "1.00"
+            }
+          }
+        ]
+      },
+      {
+        "title": "Отделка",
+        "items": [
+          {
+            "name": "Выравнивание стен",
+            "unit": "м2",
+            "quantity": "12.50",
+            "labor_unit_price": "520.00",
+            "material_unit_price": "210.00",
+            "provenance": {
+              "source": "fixture",
+              "label": "Pinned deterministic fixture",
+              "captured_at": "2026-06-29T14:19:39+00:00",
+              "confidence": "1.00"
+            }
+          },
+          {
+            "name": "Финишная отделка",
+            "unit": "м2",
+            "quantity": "12.50",
+            "labor_unit_price": "680.00",
+            "material_unit_price": "360.00",
+            "provenance": {
+              "source": "fixture",
+              "label": "Pinned deterministic fixture",
+              "captured_at": "2026-06-29T14:19:39+00:00",
+              "confidence": "1.00"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "expected": {
+    "totals": {
+      "labor": "21250.00",
+      "materials": "7687.50",
+      "subtotal": "28937.50",
+      "overhead": "2025.63",
+      "tax": "0.00",
+      "grand_total": "30963.13"
+    },
+    "audit_lines": [
+      {
+        "section": "Подготовка",
+        "item": "Защита поверхностей и подготовка",
+        "quantity": "12.50",
+        "labor_unit_price": "180.00",
+        "material_unit_price": "45.00",
+        "labor_total": "2250.00",
+        "material_total": "562.50",
+        "line_total": "2812.50",
+        "source": "fixture"
+      },
+      {
+        "section": "Подготовка",
+        "item": "Демонтажные работы",
+        "quantity": "12.50",
+        "labor_unit_price": "320.00",
+        "material_unit_price": "0.00",
+        "labor_total": "4000.00",
+        "material_total": "0.00",
+        "line_total": "4000.00",
+        "source": "fixture"
+      },
+      {
+        "section": "Отделка",
+        "item": "Выравнивание стен",
+        "quantity": "12.50",
+        "labor_unit_price": "520.00",
+        "material_unit_price": "210.00",
+        "labor_total": "6500.00",
+        "material_total": "2625.00",
+        "line_total": "9125.00",
+        "source": "fixture"
+      },
+      {
+        "section": "Отделка",
+        "item": "Финишная отделка",
+        "quantity": "12.50",
+        "labor_unit_price": "680.00",
+        "material_unit_price": "360.00",
+        "labor_total": "8500.00",
+        "material_total": "4500.00",
+        "line_total": "13000.00",
+        "source": "fixture"
+      }
+    ],
+    "fingerprint": "c79a8d50a8bf1196a9d12e35b63ff25b6291ea9114801bfec604f6a23892e0ef"
+  }
+}

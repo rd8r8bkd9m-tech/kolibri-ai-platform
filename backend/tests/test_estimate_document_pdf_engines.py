@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 from decimal import Decimal
 from pathlib import Path
@@ -11,6 +12,8 @@ if str(BACKEND_DIR) not in sys.path:
 from document_engine import DocumentType, create_business_document, create_document_pack
 from estimate_engine import Estimate, EstimateItem, EstimateSection, create_estimate_from_prompt, normalize_estimate_payload, recalculate_estimate
 from pdf_engine import generate_business_document_pdf, generate_estimate_pdf
+
+FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 
 
 def test_estimate_recalculation_is_deterministic_and_audited():
@@ -28,6 +31,16 @@ def test_estimate_recalculation_is_deterministic_and_audited():
     assert calculated.totals.grand_total == Decimal("11000.00")
     assert calculated.calculation_audit[-1]["kind"] == "totals"
     assert len(calculated.calculation_audit[-1]["fingerprint"]) == 64
+
+
+def test_estimate_recalculation_matches_pinned_fixture():
+    fixture = json.loads((FIXTURES_DIR / "deterministic_estimate_recalculation.json").read_text(encoding="utf-8"))
+
+    calculated = normalize_estimate_payload(fixture["estimate"])
+
+    assert calculated.totals.model_dump(mode="json") == fixture["expected"]["totals"]
+    assert calculated.calculation_audit[:-1] == fixture["expected"]["audit_lines"]
+    assert calculated.calculation_audit[-1]["fingerprint"] == fixture["expected"]["fingerprint"]
 
 
 def test_prompt_estimate_and_payload_normalization():
