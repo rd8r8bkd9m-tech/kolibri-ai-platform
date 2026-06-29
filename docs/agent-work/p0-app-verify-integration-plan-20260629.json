@@ -1,0 +1,180 @@
+{
+  "task_id": "KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629",
+  "role_ru": "Интегратор результата P0-ветки приложения",
+  "objective": "Подготовить машинный review результата remote branch и список интеграционных команд без выполнения опасных merge-операций.",
+  "review_timestamp_local": "2026-06-29",
+  "verdict": "READY_FOR_REVIEW",
+  "remote": {
+    "name": "origin",
+    "branch": "agent/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629/app-verify",
+    "ref": "refs/heads/agent/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629/app-verify",
+    "available": true,
+    "expected_commit": "0e7dc0011063740375ce21153aa72abaca197c2b",
+    "observed_commit": "0e7dc0011063740375ce21153aa72abaca197c2b",
+    "commit_matches_expected": true
+  },
+  "local_context": {
+    "head": "4fd32d3d514f122dc04a4b4b0c7c28f775f0f4d5",
+    "merge_base": "a009c067fa33670b8aa2837befd0562d1e248805",
+    "current_branch": "codex/factory-autonomy-pwa-billing",
+    "dirty_worktree_observed": true,
+    "dirty_worktree_note": "Existing modifications and untracked files were present outside this task write_scope; they were not reverted or modified."
+  },
+  "commands_executed": [
+    {
+      "command": "git status --short --branch",
+      "category": "read_only",
+      "result": "completed"
+    },
+    {
+      "command": "git ls-remote origin agent/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629/app-verify",
+      "category": "remote_read",
+      "result": "0e7dc0011063740375ce21153aa72abaca197c2b refs/heads/agent/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629/app-verify"
+    },
+    {
+      "command": "git fetch origin agent/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629/app-verify",
+      "category": "remote_read",
+      "result": "completed"
+    },
+    {
+      "command": "git diff --name-status HEAD..origin/agent/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629/app-verify",
+      "category": "read_only",
+      "result": "completed"
+    },
+    {
+      "command": "git diff --check HEAD..origin/agent/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629/app-verify",
+      "category": "read_only",
+      "result": "clean"
+    }
+  ],
+  "commands_not_executed": [
+    "git merge",
+    "git rebase",
+    "git cherry-pick",
+    "deploy scripts",
+    "Control Plane queue mutation commands"
+  ],
+  "changed_files_head_to_remote": [
+    {
+      "status": "M",
+      "path": "docs/agent-work/factory-p0-live-repair-status.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/agent-work/p0-app-queue-unblock-verify-result.md"
+    },
+    {
+      "status": "D",
+      "path": "docs/agent-work/telegram-factory-status-letter-20260629.md"
+    },
+    {
+      "status": "M",
+      "path": "frontend/src/App.jsx"
+    },
+    {
+      "status": "D",
+      "path": "ops/envelopes/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629.json"
+    },
+    {
+      "status": "M",
+      "path": "tests/test_factory_status.py"
+    }
+  ],
+  "changed_files_merge_base_to_remote": [
+    {
+      "status": "A",
+      "path": "docs/agent-work/p0-app-queue-unblock-verify-result.md"
+    },
+    {
+      "status": "M",
+      "path": "frontend/src/App.jsx"
+    },
+    {
+      "status": "M",
+      "path": "tests/test_factory_status.py"
+    }
+  ],
+  "changed_files_merge_base_to_head": [
+    {
+      "status": "M",
+      "path": "docs/agent-work/factory-p0-live-repair-status.md"
+    },
+    {
+      "status": "A",
+      "path": "docs/agent-work/telegram-factory-status-letter-20260629.md"
+    },
+    {
+      "status": "A",
+      "path": "ops/envelopes/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629.json"
+    }
+  ],
+  "machine_review": {
+    "summary": [
+      "frontend/src/App.jsx adds FACTORY_STATUS_ENDPOINTS and falls back from /api/factory/status to /cluster/status.",
+      "tests/test_factory_status.py now requires /cluster/status in frontend source.",
+      "docs/agent-work/p0-app-queue-unblock-verify-result.md records remote verification and a production deploy blocker."
+    ],
+    "risks": [
+      "Fallback catches all failures; executor should confirm this is desired for auth/network errors, not only route absence.",
+      "The focused test is a source-string contract and does not exercise runtime fetch fallback behavior.",
+      "Integration must preserve local post-base artifacts unless explicitly superseded by owner decision."
+    ],
+    "diff_check": "clean"
+  },
+  "review_commands": [
+    "git fetch origin agent/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629/app-verify",
+    "git rev-parse origin/agent/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629/app-verify",
+    "git merge-base HEAD origin/agent/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629/app-verify",
+    "git diff --name-status HEAD..origin/agent/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629/app-verify",
+    "git diff --stat HEAD..origin/agent/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629/app-verify",
+    "git diff --check HEAD..origin/agent/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629/app-verify",
+    "git diff a009c067fa33670b8aa2837befd0562d1e248805..origin/agent/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629/app-verify -- frontend/src/App.jsx tests/test_factory_status.py docs/agent-work/p0-app-queue-unblock-verify-result.md"
+  ],
+  "test_commands": [
+    "git worktree add /tmp/kolibri-p0-app-verify-review origin/agent/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629/app-verify",
+    "cd /tmp/kolibri-p0-app-verify-review",
+    "npm --prefix frontend ci",
+    "npm --prefix frontend run lint",
+    "npm --prefix frontend run build",
+    "npm --prefix frontend run test:mobile-layout",
+    "python3 -m compileall backend ops tests backend/tests",
+    "python3 -m pytest tests/test_factory_status.py",
+    "cd -",
+    "git worktree remove /tmp/kolibri-p0-app-verify-review"
+  ],
+  "safe_integration_commands_for_main_executor": {
+    "dry_run_disposable_worktree": [
+      "git fetch origin agent/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629/app-verify",
+      "git worktree add /tmp/kolibri-p0-app-verify-merge-check HEAD",
+      "cd /tmp/kolibri-p0-app-verify-merge-check",
+      "git merge --no-commit --no-ff origin/agent/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629/app-verify",
+      "git status --short",
+      "npm --prefix frontend ci",
+      "npm --prefix frontend run lint",
+      "npm --prefix frontend run build",
+      "npm --prefix frontend run test:mobile-layout",
+      "python3 -m compileall backend ops tests backend/tests",
+      "python3 -m pytest tests/test_factory_status.py",
+      "git merge --abort",
+      "cd -",
+      "git worktree remove /tmp/kolibri-p0-app-verify-merge-check"
+    ],
+    "real_integration_after_owner_approval": [
+      "git fetch origin agent/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629/app-verify",
+      "git status --short --branch",
+      "git merge --no-ff origin/agent/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629/app-verify",
+      "npm --prefix frontend ci",
+      "npm --prefix frontend run lint",
+      "npm --prefix frontend run build",
+      "npm --prefix frontend run test:mobile-layout",
+      "python3 -m compileall backend ops tests backend/tests",
+      "python3 -m pytest tests/test_factory_status.py"
+    ]
+  },
+  "acceptance": {
+    "json_valid": true,
+    "markdown_contains_verdict_and_commands": true,
+    "code_changed": false,
+    "write_scope_only": true
+  }
+}

@@ -1,0 +1,110 @@
+{
+  "task_id": "KOL-SERVER-KFRM-HEARTBEAT-RECOVERY-20260629",
+  "idempotency_key": "server-kfrm:heartbeat-recovery-envelope:2026-06-29",
+  "kind": "generic_implementation",
+  "required_capability": "orchestrator",
+  "target_node": "home",
+  "allowed_nodes": [
+    "home"
+  ],
+  "excluded_nodes": [
+    "server-kfrm",
+    "mesh-server-kfrm",
+    "highload",
+    "primary-candidate",
+    "qjns",
+    "uiap"
+  ],
+  "permission_pack": "operator_coordinated_recovery",
+  "runner": "codex",
+  "role_slot": "server_kfrm_heartbeat_recovery_sre",
+  "role_goal": "restore server-kfrm Agent Host heartbeat through an approved operator channel, then verify read-only probe evidence",
+  "goal": "Coordinate a remote-first recovery envelope for server-kfrm from the fresh SRE/control node home, not from stale server-kfrm. Start with read-only Control Plane checks for /health, /v1/nodes, and /v1/tasks/KOL-SERVER-KFRM-PROBE-20260629. Use the approved operator channel to request or perform the Agent Host recovery on host server-kfrm only if explicit operator approval is present in the task context. After the Agent Host is restored, verify that node_id server-kfrm reports fresh=true and health=online, then allow the existing read-only probe KOL-SERVER-KFRM-PROBE-20260629 to lease and complete on server-kfrm. Do not duplicate-submit the probe if it already exists. Do not run FormulaLM, app QA, Mac compute, queue surgery, broad workload drains, direct Redis/spool edits, SSH product-path work, or manual Control Plane lease edits. Return an artifact report with the preflight snapshot, approved operator action reference, fresh heartbeat evidence, probe state/result_reference, stop-gate decisions, and rollback notes.",
+  "operator_approval_required_for_live_mutations": true,
+  "approved_operator_channel_required": true,
+  "recovery_target": {
+    "host": "server-kfrm",
+    "executor_node_id": "server-kfrm",
+    "agent_id": "agent-host-server-kfrm",
+    "probe_task_id": "KOL-SERVER-KFRM-PROBE-20260629",
+    "probe_envelope": "ops/envelopes/KOL-SERVER-KFRM-PROBE-20260629.json"
+  },
+  "read_only_preflight": [
+    "GET /health",
+    "GET /v1/nodes",
+    "GET /v1/tasks/KOL-SERVER-KFRM-PROBE-20260629",
+    "GET /v1/filesystem when available"
+  ],
+  "execution_sequence": [
+    "Confirm this task is leased by target_node home and not by server-kfrm or mesh-server-kfrm.",
+    "Record read-only Control Plane snapshot before any operator action.",
+    "Confirm KOL-SERVER-KFRM-PROBE-20260629 exists and do not create a duplicate task.",
+    "If explicit operator approval is missing, stop with a blocker artifact and exact approval request.",
+    "Through the approved operator channel, restore or bootstrap Agent Host on host server-kfrm so node_id server-kfrm resumes heartbeat.",
+    "Verify server-kfrm fresh=true, health=online, draining=false, active_task is safe, and capabilities include read_only_probe and generic_implementation.",
+    "Let the existing read-only probe lease on server-kfrm and complete with node-local artifact evidence.",
+    "Collect the probe task status/result_reference and write a concise artifact report."
+  ],
+  "stop_gates": [
+    "Stop if the task is not leased by allowed_nodes=[home].",
+    "Stop if server-kfrm or mesh-server-kfrm attempts to execute this orchestration task.",
+    "Stop if Control Plane /health is not ok.",
+    "Stop if executor node server-kfrm cannot be distinguished from mesh-server-kfrm.",
+    "Stop if KOL-SERVER-KFRM-PROBE-20260629 is absent, retargeted away from server-kfrm, or has a mismatched idempotency key.",
+    "Stop if explicit operator approval for live Agent Host recovery is absent.",
+    "Stop if the only available path requires unapproved SSH/SCP, direct Redis/spool edits, manual lease edits, queue surgery, cancel, retry, requeue, drain, un-drain, deploy, or broad workload mutation.",
+    "Stop if FormulaLM, LLM benchmark, app QA, product QA, browser QA, or Mac compute is requested before fresh heartbeat and completed read-only probe.",
+    "Stop if fresh heartbeat appears only on mesh-server-kfrm and not on executor node_id server-kfrm.",
+    "Stop if the probe leases on any node other than server-kfrm.",
+    "Stop if the result artifact would expose secrets, auth files, raw private logs, or unapproved local paths."
+  ],
+  "prohibited_actions": [
+    "run FormulaLM or LLM benchmarks",
+    "run app QA, product QA, browser QA, or heavy build workloads",
+    "use Mac/local compute as a substitute for server-kfrm recovery",
+    "perform queue surgery, direct Redis edits, spool edits, manual lease edits, cancel, retry, requeue, drain, or un-drain",
+    "duplicate-submit KOL-SERVER-KFRM-PROBE-20260629",
+    "target this orchestration task at stale server-kfrm or mesh-server-kfrm",
+    "publish secrets, auth material, raw private logs, or unapproved node-local paths"
+  ],
+  "acceptance": [
+    "Task is leased by allowed SRE/control node home, not stale server-kfrm or mesh-server-kfrm.",
+    "Artifact report includes preflight Control Plane snapshot and confirms executor server-kfrm is distinct from mesh-server-kfrm.",
+    "Agent Host recovery is performed only through an approved operator channel with explicit approval recorded in the report.",
+    "server-kfrm reports fresh=true and health=online after recovery, with heartbeat_at newer than the preflight snapshot.",
+    "Existing read-only probe KOL-SERVER-KFRM-PROBE-20260629 completes with lease_owner/server evidence for server-kfrm.",
+    "Probe result_reference or artifact reference is recorded.",
+    "No FormulaLM, app QA, Mac compute, queue surgery, SSH product-path work, direct Redis/spool edits, duplicate probe submit, or broad workload mutation is performed.",
+    "Rollback/stop-gate notes are included even if recovery stops before mutation."
+  ],
+  "artifact_report": {
+    "required": true,
+    "suggested_path": "docs/agent-work/server-kfrm-heartbeat-recovery-result-20260629.md",
+    "must_include": [
+      "task_id and lease_owner",
+      "preflight timestamps",
+      "operator approval reference or missing-approval blocker",
+      "server-kfrm heartbeat_at/fresh/health before and after",
+      "probe task state, lease_owner, result_reference",
+      "stop gates evaluated",
+      "rollback notes"
+    ]
+  },
+  "verification_commands": [
+    "python3 -m json.tool ops/envelopes/KOL-SERVER-KFRM-HEARTBEAT-RECOVERY-20260629.json >/dev/null"
+  ],
+  "max_retries": 0,
+  "create_review_on_complete": false,
+  "source": {
+    "kind": "manual_control_plane_proposal",
+    "requested_by": "server-kfrm-heartbeat-recovery-envelope-engineer",
+    "requested_at": "2026-06-29T00:00:00+03:00",
+    "repo": "kolibri-ai-platform",
+    "source_docs": [
+      "docs/agent-work/server-kfrm-runtime-recovery-result-20260629.json",
+      "docs/agent-work/server-kfrm-submission-guard.md",
+      "docs/agent-work/server-capacity-sre-report.md"
+    ],
+    "routing_rationale": "home is documented as fresh, non-draining, and SRE/control capable; server-kfrm and mesh-server-kfrm are stale and must not execute this orchestration envelope."
+  }
+}

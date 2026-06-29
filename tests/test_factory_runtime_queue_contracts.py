@@ -11,6 +11,13 @@ def load_control():
     spec.loader.exec_module(module)
     return module
 
+def load_agent_host():
+    spec = importlib.util.spec_from_file_location('agent_host', ROOT / 'ops' / 'agent_host.py')
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
 def test_task_envelope_schema_and_idempotency_key():
     control = load_control()
     task = control.normalize_task({'task_id': 'SCHEMA-1', 'idempotency_key': 'idem-1', 'kind': 'read_only_probe'})
@@ -90,3 +97,40 @@ def test_compact_task_listing_bounds_payload_and_exposes_queue_and_leases(monkey
     assert listing["summary"]["states"][control.STATE_RUNNING] == 1
     assert listing["summary"]["expired_lease_total"] == 1
     assert listing["summary"]["active_total"] == 1
+
+
+def test_legacy_remote_implementation_capability_can_route_to_supported_runner():
+    control = load_control()
+    task = control.normalize_task(
+        {
+            "task_id": "LEGACY-REMOTE-IMPL",
+            "kind": "generic_implementation",
+            "required_capability": "remote_implementation_runner_ready",
+            "permission_pack": "implementation",
+        }
+    )
+
+    implementation_permissions = ["git_push", "network", "read_repo", "run_tests", "write_artifacts", "write_worktree"]
+
+    assert control.compatible(task, "main", ["implementation"], permissions=implementation_permissions) is True
+    assert control.compatible(task, "review", ["review"], permissions=implementation_permissions) is False
+    assert control.compact_task(task)["runner_kind"] == "generic_implementation"
+
+
+def test_legacy_remote_implementation_kind_is_classified_without_queue_mutation():
+    control = load_control()
+    agent_host = load_agent_host()
+    task = control.normalize_task(
+        {
+            "task_id": "LEGACY-KIND",
+            "kind": "remote_implementation_runner_ready",
+            "required_capability": "implementation",
+            "permission_pack": "implementation",
+        }
+    )
+
+    assert task["kind"] == "remote_implementation_runner_ready"
+    assert task["state"] == control.STATE_QUEUED
+    assert control.runtime_runner_kind(task) == "generic_implementation"
+    assert agent_host.RUNTIME_KIND_COMPAT["remote_implementation_runner_ready"] == "generic_implementation"
+    assert "remote_implementation_runner_ready" in agent_host.DEFAULT_AGENT_CAPABILITIES

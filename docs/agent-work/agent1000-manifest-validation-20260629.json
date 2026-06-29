@@ -1,0 +1,112 @@
+{
+  "validation_id": "agent1000-manifest-validation-20260629",
+  "validated_at": "2026-06-29",
+  "validator_role": "Валидатор манифеста 1000 агентов",
+  "source_manifest": "ops/agent1000_manifest.json",
+  "reference_doc": "docs/agent-work/agent1000-remote-cluster-manifest.md",
+  "verdict": "FAIL",
+  "summary": "JSON синтаксически валиден и описывает remote-only цель на 1000 агентов, но не является полностью машинно применимым манифестом быстрого масштабирования без исправлений.",
+  "checks": [
+    {
+      "id": "json_syntax",
+      "status": "PASS",
+      "evidence": "python3 -m json.tool ops/agent1000_manifest.json завершился с кодом 0"
+    },
+    {
+      "id": "required_field_target_agents",
+      "status": "PASS",
+      "evidence": "target_agents = 1000"
+    },
+    {
+      "id": "required_field_remote_only",
+      "status": "PASS",
+      "evidence": "remote_only = true"
+    },
+    {
+      "id": "required_field_batches",
+      "status": "FAIL",
+      "evidence": "Поле batches отсутствует; есть только capacity_batches"
+    },
+    {
+      "id": "required_field_roles",
+      "status": "PASS",
+      "evidence": "roles содержит 24 роли, сумма agents по roles = 1000"
+    },
+    {
+      "id": "required_field_safety_limits",
+      "status": "FAIL",
+      "evidence": "Поле safety_limits отсутствует"
+    },
+    {
+      "id": "required_field_no_mac_experiments",
+      "status": "FAIL",
+      "evidence": "Поле no_mac_experiments отсутствует; близкие запреты есть в execution_invariants, но нет требуемого машинного ключа"
+    },
+    {
+      "id": "executable_tasks",
+      "status": "FAIL",
+      "evidence": "В манифесте нет task_templates, task_envelopes, commands, queue routes или lease payload schemas; roles/goals/purpose описывают намерения, но не задают исполнимые единицы работы"
+    },
+    {
+      "id": "remote_only_safety",
+      "status": "PASS",
+      "evidence": "remote_only=true и execution_invariants запрещают локальный Mac/model work"
+    },
+    {
+      "id": "allocation_consistency",
+      "status": "WARN",
+      "evidence": "roles суммируются в 1000, но объект pools явно определяет только mimo/codex/formulalm на 375 агентов; остальные pool names появляются только внутри roles"
+    }
+  ],
+  "machine_fix_list": [
+    {
+      "priority": "P0",
+      "field": "batches",
+      "action": "Добавить top-level поле batches или переименовать capacity_batches в batches с сохранением массива batch objects.",
+      "acceptance": "Машинный валидатор находит manifest.batches как непустой массив, а scheduling_policy.batch_order ссылается только на существующие batches[*].id."
+    },
+    {
+      "priority": "P0",
+      "field": "safety_limits",
+      "action": "Добавить top-level объект safety_limits с числовыми лимитами и hard-stop правилами: max_total_agents, max_agents_per_node_class, max_concurrent_leases, heartbeat_timeout_seconds, stale_after_seconds, max_dead_letter_rate, require_secret_redaction, forbid_darwin_model_work.",
+      "acceptance": "Все лимиты имеют машинные типы boolean/number/object, без необходимости парсить текстовые blocker_policy строки."
+    },
+    {
+      "priority": "P0",
+      "field": "no_mac_experiments",
+      "action": "Добавить top-level boolean no_mac_experiments: true и связать его с execution_invariants.no_mac_execution_for_model_work.",
+      "acceptance": "Автоматический preflight может проверить manifest.no_mac_experiments is true до постановки задач в очередь."
+    },
+    {
+      "priority": "P0",
+      "field": "task_templates",
+      "action": "Добавить исполнимые шаблоны задач для каждого типа work lane: role_id, capability, ingress, lease_payload_schema, allowed_node_classes, artifact_contract, success_condition, blocker_condition.",
+      "acceptance": "По каждому шаблону можно построить envelope для POST /v1/tasks или ops/kolibri-dispatch submit без чтения prose-документа."
+    },
+    {
+      "priority": "P1",
+      "field": "roles[*]",
+      "action": "Дополнить каждую роль ссылкой на task_template_ids и заменить чисто описательное goal на машинные allowed_actions/success_artifacts.",
+      "acceptance": "У каждой роли есть минимум один task_template_id, а сумма roles[*].agents остается равной target_agents."
+    },
+    {
+      "priority": "P1",
+      "field": "pools",
+      "action": "Явно определить все pools, которые используются в roles: quality, sre, platform, mesh, product, commerce, docs, domain, data, security, design, business, ops, release.",
+      "acceptance": "Сумма pools[*].agents равна target_agents или каждый roles[*].pool ссылается на существующий pool object с согласованной квотой."
+    },
+    {
+      "priority": "P1",
+      "field": "blocker_policy",
+      "action": "Продублировать текстовые blocker rules в машинном формате: id, condition, action, severity, owner_role_id.",
+      "acceptance": "Оркестратор может вычислить stop/pause/dead_letter/blocker_artifact без NLP-разбора строк."
+    },
+    {
+      "priority": "P2",
+      "field": "schema_version",
+      "action": "Добавить ссылку на JSON Schema или embedded schema_contract для required fields и типов.",
+      "acceptance": "Манифест можно валидировать командой schema-aware валидатора до запуска batch_0_contract."
+    }
+  ],
+  "non_mutation_statement": "ops/agent1000_manifest.json не изменялся этим валидатором."
+}

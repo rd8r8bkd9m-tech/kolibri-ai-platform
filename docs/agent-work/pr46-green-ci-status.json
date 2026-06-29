@@ -1,0 +1,88 @@
+{
+  "document": "pr46-green-ci-status",
+  "checked_at": "2026-06-29T08:38:36+03:00",
+  "checked_at_timezone": "Europe/Moscow",
+  "pr": {
+    "number": 46,
+    "title": "[codex] Factory autonomy, PWA billing, remote FormulaLM",
+    "url": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/46",
+    "state": "OPEN",
+    "is_draft": true,
+    "head_sha": "a009c067fa33670b8aa2837befd0562d1e248805"
+  },
+  "ci": {
+    "source_command": "gh pr view 46 --json number,title,state,isDraft,headRefOid,statusCheckRollup,url",
+    "all_success": true,
+    "status": "green",
+    "check_runs": [
+      {
+        "workflow_name": "Kolibri CI",
+        "name": "ci",
+        "status": "COMPLETED",
+        "conclusion": "SUCCESS",
+        "started_at": "2026-06-29T05:34:28Z",
+        "completed_at": "2026-06-29T05:35:08Z",
+        "details_url": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/actions/runs/28350902421/job/83983374369"
+      },
+      {
+        "workflow_name": "Kolibri CI",
+        "name": "ci",
+        "status": "COMPLETED",
+        "conclusion": "SUCCESS",
+        "started_at": "2026-06-29T05:34:25Z",
+        "completed_at": "2026-06-29T05:34:53Z",
+        "details_url": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/actions/runs/28350900987/job/83983370597"
+      }
+    ]
+  },
+  "release_status": {
+    "release_done": false,
+    "owner_handoff_ready": false,
+    "summary": "PR #46 GitHub CI is green for head a009c067fa33670b8aa2837befd0562d1e248805, but the wider P0 release is not marked done."
+  },
+  "remaining_blockers": [
+    {
+      "id": "pr46_draft_review_path",
+      "status": "open",
+      "description": "PR #46 is still draft; owner/review path and explicit merge readiness are not recorded here."
+    },
+    {
+      "id": "product_qa_e2e",
+      "status": "open",
+      "description": "Independent product QA evidence remains required: desktop/mobile screenshots, console/network pass, PWA install/offline shell, and deployed app proof."
+    },
+    {
+      "id": "server_kfrm_fresh_probe",
+      "status": "open",
+      "description": "server-kfrm still needs fresh heartbeat, completed read-only probe, and node-local artifact evidence before heavy remote runs."
+    },
+    {
+      "id": "billing_sandbox_e2e",
+      "status": "open",
+      "description": "T-Bank sandbox end-to-end evidence is still required: checkout, signed notification, recurring charge, RebillId, admin token, and fiscalization decision."
+    },
+    {
+      "id": "telegram_live_smoke",
+      "status": "open",
+      "description": "Telegram reports still need a live safe delivery smoke through the gateway with owner chat id and no secret/internal path leakage."
+    },
+    {
+      "id": "deterministic_estimates_p0_contract",
+      "status": "open",
+      "description": "Deterministic estimates still need the P0 API, manifest, validation, publish, revision, and benchmark contract closed beyond the golden local test."
+    }
+  ],
+  "commands_run": [
+    "gh pr view 46 --json number,title,state,isDraft,headRefOid,statusCheckRollup,url > /tmp/pr46.json",
+    "date '+%Y-%m-%d %H:%M:%S %Z %z'",
+    "python3 -m json.tool docs/agent-work/pr46-green-ci-status.json >/dev/null",
+    "git diff --check -- docs/agent-work/pr46-green-ci-status.json docs/agent-work/pr46-green-ci-status.md"
+  ],
+  "forbidden_actions_not_performed": [
+    "gh_pr_edit",
+    "gh_issue_create",
+    "git_push",
+    "stage_commit_push",
+    "run_formulalm_or_llm_on_mac"
+  ]
+}

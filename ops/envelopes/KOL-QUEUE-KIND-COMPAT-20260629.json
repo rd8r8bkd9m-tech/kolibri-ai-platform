@@ -1,0 +1,38 @@
+{
+  "task_id": "KOL-QUEUE-KIND-COMPAT-20260629",
+  "idempotency_key": "queue-kind-compat:2026-06-29",
+  "kind": "generic_implementation",
+  "required_capability": "implementation",
+  "target_node": "main",
+  "permission_pack": "implementation",
+  "runner": "codex",
+  "branch": "agent/KOL-QUEUE-KIND-COMPAT-20260629/runtime-kind-compat",
+  "base_ref": "origin/main",
+  "goal": "Implement and verify a small runtime queue compatibility patch so old queued tasks that require remote_implementation_runner_ready can be leased by supported implementation/generic_implementation runners, and legacy remote_implementation_runner_ready task kinds are classified into the generic_implementation runner path. Do not submit tasks, cancel, requeue, drain, restart live nodes, SSH, edit Redis/spool queue state, or run FormulaLM/LLM benchmarks on a Mac. If live deployment or operator action is needed, return a blocker artifact instead of mutating runtime state.",
+  "role_slot": "queue_kind_compat_executor",
+  "role_goal": "prepare a reviewable compatibility migration patch without queue surgery",
+  "acceptance": [
+    "Old queued envelopes requiring remote_implementation_runner_ready are classified as compatible with implementation or generic_implementation capabilities",
+    "Legacy remote_implementation_runner_ready task kind maps to the supported generic_implementation runner path",
+    "No queue surgery is performed: no cancel, requeue, drain, restart, direct Redis/spool edits, or live task submit",
+    "Envelope remains safe to submit after human review",
+    "No FormulaLM or LLM benchmark runs are performed on a Mac",
+    "Contract tests and syntax checks pass for ops/factory_control.py, ops/agent_host.py, and tests/test_factory_runtime_queue_contracts.py"
+  ],
+  "verification_commands": [
+    "python3 -m json.tool ops/envelopes/KOL-QUEUE-KIND-COMPAT-20260629.json >/dev/null",
+    "python3 -m py_compile ops/factory_control.py ops/agent_host.py tests/test_factory_runtime_queue_contracts.py",
+    "python3 -m pytest -q tests/test_factory_runtime_queue_contracts.py",
+    "git diff --check -- ops/factory_control.py ops/agent_host.py ops/envelopes/KOL-QUEUE-KIND-COMPAT-20260629.json tests/test_factory_runtime_queue_contracts.py docs/agent-work/queue-kind-compat-execution.md"
+  ],
+  "max_retries": 1,
+  "create_review_on_complete": true,
+  "review_node": "new",
+  "source": {
+    "kind": "manual_control_plane_proposal",
+    "requested_by": "queue_kind_compat_executor",
+    "requested_at": "2026-06-29T00:00:00+03:00",
+    "report": "docs/agent-work/queue-kind-compat-execution.md",
+    "safety_note": "Prepared locally only; no Control Plane submission or live queue mutation was performed."
+  }
+}

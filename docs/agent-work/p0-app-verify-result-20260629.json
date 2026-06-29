@@ -1,0 +1,65 @@
+{
+  "task_id": "KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629",
+  "control_plane": "http://10.99.0.2:9101",
+  "retrieved_via": "GET /v1/tasks/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629",
+  "retrieved_http_status": 200,
+  "retrieved_at_control_plane_date": "2026-06-29T05:49:57Z",
+  "queue_state": "waiting_review",
+  "execution_status": "completed",
+  "attempt": 1,
+  "attempt_id": "KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629-attempt-1",
+  "lease_owner": "main:agent-host-main",
+  "lease_until": null,
+  "heartbeat_at": "2026-06-29T05:43:37.175418+00:00",
+  "updated_at": "2026-06-29T05:43:37.175455+00:00",
+  "error_type": null,
+  "error_summary": null,
+  "result_summary": {
+    "agent_id": "agent-host-main",
+    "node_id": "main",
+    "hostname": "kolibri-main-api",
+    "runner": "codex",
+    "branch": "agent/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629/app-verify",
+    "commit": "0e7dc0011063740375ce21153aa72abaca197c2b",
+    "pushed": true,
+    "needs_central_pr": true,
+    "changed_files": [
+      "frontend/src/App.jsx",
+      "tests/test_factory_status.py",
+      "docs/agent-work/p0-app-queue-unblock-verify-result.md"
+    ],
+    "completed_checks": [
+      "npm --prefix frontend install --no-package-lock",
+      "npm --prefix frontend run lint --if-present",
+      "npm --prefix frontend run build",
+      "npm --prefix frontend run test:mobile-layout",
+      "python3 -m compileall -q backend ops tests"
+    ],
+    "observed_evidence": [
+      "Attempt history status is completed.",
+      "Result status is completed.",
+      "Frontend title check passed for \u0424\u0430\u0431\u0440\u0438\u043a\u0430 \u041a\u043e\u043b\u0438\u0431\u0440\u0438.",
+      "Primary /api/factory/status and fallback /cluster/status paths are present.",
+      "Right-bottom Control entrypoint is present.",
+      "No FormulaLM/LLM/model benchmarks were run.",
+      "No Control Plane queue state was mutated."
+    ],
+    "not_completed_or_blocked_items": [
+      "Production deploy was not performed because explicit deploy authorization or deploy credentials were absent.",
+      "python3 -m pytest tests/test_factory_status.py was not run because pytest is not installed on the node."
+    ]
+  },
+  "artifacts": {
+    "result_reference": "/var/lib/kolibri-agent/artifacts/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629-attempt-1/result.json",
+    "stdout_log": "/var/lib/kolibri-agent/artifacts/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629-attempt-1/stdout.log",
+    "stderr_log": "/var/lib/kolibri-agent/artifacts/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629-attempt-1/stderr.log",
+    "worktree": "/var/lib/kolibri-agent/worktrees/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629-attempt-1/repo",
+    "reported_result_artifact": "docs/agent-work/p0-app-queue-unblock-verify-result.md"
+  },
+  "next_machine_action": {
+    "type": "factory_follow_up",
+    "reason": "Queue state is waiting_review while result.status is completed and needs_central_pr is true.",
+    "action": "Create central review or pull request for branch agent/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629/app-verify at commit 0e7dc0011063740375ce21153aa72abaca197c2b, then resolve the waiting_review state.",
+    "requires_queue_mutation_from_this_report": false
+  }
+}

@@ -1,0 +1,609 @@
+{
+  "version": "2026-06-29.agent1000.remote-cluster.v1",
+  "name": "kolibri-agent1000-remote-cluster",
+  "target_agents": 1000,
+  "remote_only": true,
+  "no_mac_experiments": true,
+  "created_at": "2026-06-29",
+  "owner_surface": "mac_control_surface_only",
+  "control_plane_contract": {
+    "task_ingress": "POST /v1/tasks",
+    "dispatcher": "ops/kolibri-dispatch submit --file <envelope.json>",
+    "node_registration": "/v1/nodes/register",
+    "heartbeat": "/v1/nodes/<node_id>/heartbeat",
+    "lease_path": "/v1/tasks/lease",
+    "artifact_policy": "node-local worktrees and artifacts referenced by manifests",
+    "forbidden_paths": [
+      "shared writable root disk",
+      "ad hoc ssh execution",
+      "local Mac model execution"
+    ]
+  },
+  "execution_invariants": {
+    "no_mac_execution_for_model_work": true,
+    "no_local_1000_agent_spawn": true,
+    "model_work_requires_remote_linux_node": true,
+    "formula_lm_requires_remote_preflight": true,
+    "control_plane_does_not_read_node_local_files": true,
+    "workers_must_hold_active_lease": true,
+    "results_must_include_manifest_reference": true,
+    "raw_logs_require_secret_redaction": true
+  },
+  "capacity_model": {
+    "agents_per_standard_node": 20,
+    "agents_per_large_node": 100,
+    "target_utilization": 0.8,
+    "minimum_ready_pool": 6,
+    "lease_duration_seconds": 60,
+    "heartbeat_interval_seconds": 10,
+    "lease_refresh_seconds": 20,
+    "stale_after_seconds": 120,
+    "restart_jitter_seconds": 60,
+    "estimated_nodes": {
+      "all_standard_nodes": 50,
+      "mixed_large_and_standard_nodes": {
+        "large_nodes": 8,
+        "standard_nodes": 10
+      }
+    }
+  },
+  "safety_limits": {
+    "max_total_agents": 1000,
+    "max_concurrent_leases": 800,
+    "max_agents_per_node_class": {
+      "control": 0,
+      "standard_linux_worker": 20,
+      "large_linux_worker": 100
+    },
+    "heartbeat_interval_seconds": 10,
+    "heartbeat_timeout_seconds": 60,
+    "stale_after_seconds": 120,
+    "max_idle_without_diff_seconds": 600,
+    "max_task_time_seconds": 1800,
+    "max_retries": 2,
+    "max_dead_letter_rate": 0.02,
+    "require_secret_redaction": true,
+    "forbid_darwin_model_work": true,
+    "require_git_diff_before_completion": true,
+    "require_artifact_before_completion": true
+  },
+  "batches": [
+    {
+      "id": "batch_0_contract",
+      "target_agents": 25,
+      "purpose": "schema, lease, artifact, and status contract validation",
+      "entry_gate": "local JSON/docs validation only",
+      "exit_gate": "all role cards render and no remote work is submitted"
+    },
+    {
+      "id": "batch_1_probe",
+      "target_agents": 100,
+      "purpose": "remote read-only probes and runner readiness",
+      "entry_gate": "Control Plane health ok and fresh node heartbeat",
+      "exit_gate": "probe artifacts exist for every selected node"
+    },
+    {
+      "id": "batch_2_functional",
+      "target_agents": 250,
+      "purpose": "parallel implementation, review, docs, QA, and orchestration lanes",
+      "entry_gate": "ready pool >= 6, stale ready nodes == 0",
+      "exit_gate": "queued/running/dead_letter rates remain within SRE thresholds"
+    },
+    {
+      "id": "batch_3_heavy_remote",
+      "target_agents": 500,
+      "purpose": "remote Linux build, QA, and FormulaLM preflight capacity",
+      "entry_gate": "large runners fresh, non-draining, and artifact paths verified",
+      "exit_gate": "no workload executes on Darwin or owner Mac"
+    },
+    {
+      "id": "batch_4_full_cluster",
+      "target_agents": 1000,
+      "purpose": "full remote cluster target with reserve capacity and supervision",
+      "entry_gate": "previous batch stable for one lease window plus jitter",
+      "exit_gate": "1000 remote agents accounted for by role, pool, node class, and artifacts"
+    }
+  ],
+  "task_templates": [
+    {
+      "id": "remote_implementation_patch",
+      "kind": "generic_implementation",
+      "required_capability": "generic_implementation",
+      "permission_pack": "implementation",
+      "ingress": "ops/kolibri-dispatch submit --file <envelope.json>",
+      "allowed_node_classes": [
+        "standard_linux_worker",
+        "large_linux_worker"
+      ],
+      "lease_payload_schema": {
+        "task_id": "string",
+        "kind": "generic_implementation",
+        "goal": "string",
+        "acceptance": [
+          "string"
+        ],
+        "verification_commands": [
+          "string"
+        ],
+        "source": {
+          "kind": "manual_control_plane",
+          "repo": "kolibri-ai-platform"
+        }
+      },
+      "required_artifacts": [
+        "git diff",
+        "test result",
+        "commit hash",
+        "markdown report"
+      ],
+      "success_condition": "completed or waiting_review with result_reference, changed files, verification result, and no secret exposure",
+      "blocker_condition": "no diff, failed tests after retry, stale heartbeat, missing artifact, or Darwin runtime for model work"
+    },
+    {
+      "id": "remote_read_only_probe",
+      "kind": "read_only_probe",
+      "required_capability": "read_only_probe",
+      "permission_pack": "read_only",
+      "ingress": "ops/kolibri-dispatch submit --file <envelope.json>",
+      "allowed_node_classes": [
+        "standard_linux_worker",
+        "large_linux_worker"
+      ],
+      "lease_payload_schema": {
+        "task_id": "string",
+        "kind": "read_only_probe",
+        "goal": "string",
+        "acceptance": [
+          "string"
+        ],
+        "source": {
+          "kind": "manual_control_plane",
+          "repo": "kolibri-ai-platform"
+        }
+      },
+      "required_artifacts": [
+        "node heartbeat snapshot",
+        "capability snapshot",
+        "artifact manifest"
+      ],
+      "success_condition": "fresh heartbeat, non-draining node, probe artifact, and no queue mutation",
+      "blocker_condition": "stale heartbeat, missing capability, missing artifact, or Control Plane health not ok"
+    },
+    {
+      "id": "remote_review_gate",
+      "kind": "review_pr",
+      "required_capability": "review",
+      "permission_pack": "review",
+      "ingress": "ops/kolibri-dispatch submit --file <envelope.json>",
+      "allowed_node_classes": [
+        "standard_linux_worker",
+        "large_linux_worker"
+      ],
+      "lease_payload_schema": {
+        "task_id": "string",
+        "kind": "review_pr",
+        "goal": "string",
+        "acceptance": [
+          "string"
+        ],
+        "source": {
+          "kind": "manual_control_plane",
+          "repo": "kolibri-ai-platform"
+        }
+      },
+      "required_artifacts": [
+        "review verdict",
+        "test evidence",
+        "blocker list"
+      ],
+      "success_condition": "review verdict is pass or blocked with concrete remediation task",
+      "blocker_condition": "branch unavailable, tests unavailable, secret exposure, or unresolved P0 finding"
+    }
+  ],
+  "pools": {
+    "mimo": {
+      "defined": true,
+      "agents": 40,
+      "role_ids": [
+        "mimo_meta_orchestrator"
+      ],
+      "responsibilities": [
+        "split owner intent into task envelopes",
+        "watch capacity batches",
+        "route blockers to owner-facing channels",
+        "coordinate cross-role artifact handoff"
+      ],
+      "constraints": [
+        "does not execute model workloads locally",
+        "does not bypass Control Plane leases"
+      ]
+    },
+    "codex": {
+      "defined": true,
+      "agents": 300,
+      "role_ids": [
+        "codex_implementation_engineer",
+        "codex_reviewer"
+      ],
+      "responsibilities": [
+        "repo implementation",
+        "tests and contract checks",
+        "code review",
+        "documentation patches"
+      ],
+      "constraints": [
+        "uses remote node-local worktrees for leased work",
+        "reports artifacts through manifest references"
+      ]
+    },
+    "formulalm": {
+      "defined": true,
+      "agents": 35,
+      "role_ids": [
+        "formulalm_remote_researcher"
+      ],
+      "responsibilities": [
+        "remote-only benchmark design",
+        "preflight validation",
+        "deterministic estimate metrics"
+      ],
+      "constraints": [
+        "Darwin preflight blocks execution",
+        "model runtime never starts on owner Mac"
+      ]
+    }
+  },
+  "roles": [
+    {
+      "id": "mimo_meta_orchestrator",
+      "agents": 40,
+      "pool": "mimo",
+      "required_capabilities": [
+        "orchestrator",
+        "read_only_probe"
+      ],
+      "goal": "coordinate the 1000-agent remote cluster through task envelopes, leases, and artifact handoff"
+    },
+    {
+      "id": "codex_implementation_engineer",
+      "agents": 200,
+      "pool": "codex",
+      "required_capabilities": [
+        "generic_implementation"
+      ],
+      "goal": "implement scoped repo changes in remote node-local worktrees under lease discipline"
+    },
+    {
+      "id": "codex_reviewer",
+      "agents": 100,
+      "pool": "codex",
+      "required_capabilities": [
+        "review",
+        "generic_review"
+      ],
+      "goal": "review changes, verify tests, and surface blockers before owner handoff"
+    },
+    {
+      "id": "qa_e2e_runner",
+      "agents": 70,
+      "pool": "quality",
+      "required_capabilities": [
+        "qa",
+        "generic_implementation"
+      ],
+      "goal": "run remote browser, API, and product QA checks with artifact evidence"
+    },
+    {
+      "id": "factory_sre",
+      "agents": 55,
+      "pool": "sre",
+      "required_capabilities": [
+        "read_only_probe",
+        "coordinator"
+      ],
+      "goal": "keep Control Plane, Agent Host, queues, leases, node freshness, and capacity batches healthy"
+    },
+    {
+      "id": "control_plane_api_engineer",
+      "agents": 40,
+      "pool": "platform",
+      "required_capabilities": [
+        "generic_implementation",
+        "review"
+      ],
+      "goal": "evolve Control Plane task, node, heartbeat, filesystem, and status contracts"
+    },
+    {
+      "id": "agent_host_runtime_engineer",
+      "agents": 45,
+      "pool": "platform",
+      "required_capabilities": [
+        "generic_implementation",
+        "read_only_probe"
+      ],
+      "goal": "maintain remote Agent Host runtime, lease refresh, worktree isolation, and artifact publishing"
+    },
+    {
+      "id": "mesh_bridge_operator",
+      "agents": 30,
+      "pool": "mesh",
+      "required_capabilities": [
+        "mesh_node",
+        "read_only_probe"
+      ],
+      "goal": "operate mesh ingress and bridge paths without treating mesh presence as compute capacity"
+    },
+    {
+      "id": "frontend_spa_engineer",
+      "agents": 65,
+      "pool": "product",
+      "required_capabilities": [
+        "generic_implementation",
+        "qa"
+      ],
+      "goal": "build and verify the Kolibri SPA/PWA user experience on remote runners"
+    },
+    {
+      "id": "mobile_pwa_gomesh_integrator",
+      "agents": 35,
+      "pool": "product",
+      "required_capabilities": [
+        "generic_implementation",
+        "review"
+      ],
+      "goal": "connect installable mobile PWA flows with GoMesh-facing contracts"
+    },
+    {
+      "id": "billing_tbank_engineer",
+      "agents": 25,
+      "pool": "commerce",
+      "required_capabilities": [
+        "generic_implementation",
+        "review"
+      ],
+      "goal": "implement and review billing, subscription, checkout, and notification workflows"
+    },
+    {
+      "id": "docs_steward",
+      "agents": 35,
+      "pool": "docs",
+      "required_capabilities": [
+        "review",
+        "read_only_probe"
+      ],
+      "goal": "maintain Russian and English docs, runbooks, reports, diagrams, and release notes"
+    },
+    {
+      "id": "estimate_methodologist",
+      "agents": 45,
+      "pool": "domain",
+      "required_capabilities": [
+        "generic_implementation",
+        "review"
+      ],
+      "goal": "make construction estimates deterministic, auditable, editable, and pricebook-versioned"
+    },
+    {
+      "id": "formulalm_remote_researcher",
+      "agents": 35,
+      "pool": "formulalm",
+      "required_capabilities": [
+        "generic_implementation",
+        "read_only_probe"
+      ],
+      "goal": "design and run FormulaLM comparisons only on approved remote Linux nodes"
+    },
+    {
+      "id": "data_eval_engineer",
+      "agents": 25,
+      "pool": "data",
+      "required_capabilities": [
+        "generic_implementation",
+        "review"
+      ],
+      "goal": "prepare evaluation datasets, metrics, manifests, and redacted result summaries"
+    },
+    {
+      "id": "security_reviewer",
+      "agents": 25,
+      "pool": "security",
+      "required_capabilities": [
+        "security",
+        "review"
+      ],
+      "goal": "review secrets exposure, auth boundaries, redaction, dependency risk, and deployment safety"
+    },
+    {
+      "id": "product_designer",
+      "agents": 35,
+      "pool": "design",
+      "required_capabilities": [
+        "review",
+        "generic_implementation"
+      ],
+      "goal": "audit and improve product flows, responsive layout, theme quality, and design consistency"
+    },
+    {
+      "id": "living_bird_motion_director",
+      "agents": 20,
+      "pool": "design",
+      "required_capabilities": [
+        "generic_implementation",
+        "review"
+      ],
+      "goal": "design stateful motion and product-state reactions for the Kolibri living character"
+    },
+    {
+      "id": "investor_sales_operator",
+      "agents": 20,
+      "pool": "business",
+      "required_capabilities": [
+        "review",
+        "read_only_probe"
+      ],
+      "goal": "prepare outreach, investor/client artifacts, vertical lists, and owner-facing summaries"
+    },
+    {
+      "id": "github_project_operator",
+      "agents": 15,
+      "pool": "ops",
+      "required_capabilities": [
+        "review",
+        "read_only_probe"
+      ],
+      "goal": "sync GitHub project state, issues, PRs, and factory task status"
+    },
+    {
+      "id": "release_manager",
+      "agents": 15,
+      "pool": "release",
+      "required_capabilities": [
+        "qa",
+        "review"
+      ],
+      "goal": "gate release readiness with QA evidence, status reports, and rollback notes"
+    },
+    {
+      "id": "observability_engineer",
+      "agents": 10,
+      "pool": "sre",
+      "required_capabilities": [
+        "read_only_probe",
+        "generic_implementation"
+      ],
+      "goal": "maintain health dashboards, compact status payloads, logs, metrics, and alert summaries"
+    },
+    {
+      "id": "capacity_planner",
+      "agents": 10,
+      "pool": "sre",
+      "required_capabilities": [
+        "read_only_probe",
+        "review"
+      ],
+      "goal": "plan node classes, readiness gates, reserve capacity, and scale-up/scale-down batches"
+    },
+    {
+      "id": "artifact_curator",
+      "agents": 5,
+      "pool": "docs",
+      "required_capabilities": [
+        "review",
+        "read_only_probe"
+      ],
+      "goal": "normalize artifact manifests, evidence indexes, summaries, and handoff bundles"
+    }
+  ],
+  "scheduling_policy": {
+    "batch_order": [
+      "batch_0_contract",
+      "batch_1_probe",
+      "batch_2_functional",
+      "batch_3_heavy_remote",
+      "batch_4_full_cluster"
+    ],
+    "lease_required": true,
+    "capability_match_required": true,
+    "fresh_heartbeat_required": true,
+    "draining_nodes_allowed": false,
+    "dead_letter_nodes_allowed_for_new_work": false,
+    "duplicate_task_ids_allowed": false,
+    "formula_lm_runs_after_release_qa": true
+  },
+  "role_task_template_defaults": {
+    "mimo_meta_orchestrator": [
+      "remote_implementation_patch",
+      "remote_read_only_probe"
+    ],
+    "codex_implementation_engineer": [
+      "remote_implementation_patch"
+    ],
+    "codex_reviewer": [
+      "remote_review_gate"
+    ],
+    "default": [
+      "remote_implementation_patch",
+      "remote_review_gate"
+    ]
+  },
+  "node_classes": [
+    {
+      "id": "control",
+      "agents_per_node": 0,
+      "purpose": "Control Plane, owner status, orchestration, and read-only routing",
+      "may_run_model_work": false
+    },
+    {
+      "id": "standard_linux_worker",
+      "agents_per_node": 20,
+      "purpose": "implementation, review, docs, product QA, and medium builds",
+      "may_run_model_work": false
+    },
+    {
+      "id": "large_linux_worker",
+      "agents_per_node": 100,
+      "purpose": "heavy builds, E2E QA, controlled FormulaLM benchmark candidates",
+      "may_run_model_work": true,
+      "preflight_required": [
+        "platform.system != Darwin",
+        "fresh heartbeat",
+        "non-draining",
+        "artifact directory writable",
+        "runtime version recorded"
+      ]
+    }
+  ],
+  "acceptance": {
+    "target_agents_1000": true,
+    "remote_only_true": true,
+    "no_mac_experiments_true": true,
+    "roles_at_least_20": true,
+    "batches_defined": true,
+    "mimo_and_codex_pools_defined": true,
+    "no_mac_execution_for_model_work": true
+  },
+  "blocker_rules": [
+    {
+      "id": "control_plane_unhealthy",
+      "condition": "health.status != ok",
+      "action": "pause_current_batch_and_publish_p0_blocker",
+      "severity": "P0",
+      "owner_role_id": "factory_sre"
+    },
+    {
+      "id": "node_not_fresh",
+      "condition": "node.health == stale or node.draining == true",
+      "action": "exclude_node_until_read_only_probe_passes",
+      "severity": "P0",
+      "owner_role_id": "factory_sre"
+    },
+    {
+      "id": "darwin_model_runtime",
+      "condition": "platform.system == Darwin and task.requires_model_work == true",
+      "action": "write_blocker_artifact_and_exit_without_running_workload",
+      "severity": "P0",
+      "owner_role_id": "formulalm_remote_researcher"
+    },
+    {
+      "id": "missing_artifact_manifest",
+      "condition": "result_reference == null or artifact_manifest == null",
+      "action": "do_not_mark_complete_and_retry_once",
+      "severity": "P1",
+      "owner_role_id": "artifact_curator"
+    },
+    {
+      "id": "dead_letter_growth",
+      "condition": "dead_letter_rate > safety_limits.max_dead_letter_rate",
+      "action": "pause_scale_up_and_route_to_factory_sre",
+      "severity": "P0",
+      "owner_role_id": "factory_sre"
+    }
+  ],
+  "blocker_policy": [
+    "If Control Plane health is not ok, stop at the current batch and publish a P0 blocker.",
+    "If a selected node is stale or draining, exclude it until a read-only probe passes.",
+    "If platform.system is Darwin for model or FormulaLM work, write a blocker artifact and exit without running the workload.",
+    "If artifact manifest publishing fails, do not mark the task complete.",
+    "If dead_letter grows during a batch, pause scale-up and route to factory_sre."
+  ]
+}

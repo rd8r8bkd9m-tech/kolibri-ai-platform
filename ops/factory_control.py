@@ -44,6 +44,12 @@ STATE_RETRY = "retry_scheduled"
 STATE_DEAD = "dead_letter"
 TERMINAL_STATES = {STATE_COMPLETED, STATE_FAILED, STATE_CANCELLED, STATE_DEAD}
 AUTONOMOUS_TASK_KINDS = {"owner_remote_task", "generic_implementation"}
+RUNTIME_CAPABILITY_COMPAT = {
+    "remote_implementation_runner_ready": {"implementation", "generic_implementation"},
+}
+RUNTIME_KIND_COMPAT = {
+    "remote_implementation_runner_ready": "generic_implementation",
+}
 PERMISSION_PACKS = {
     "read_only": {"read_repo", "read_system", "write_artifacts"},
     "ai_chat": {"ai_runner", "write_artifacts"},
@@ -129,6 +135,21 @@ def granted_permissions(task: dict[str, Any], capabilities: list[str], permissio
     if "*" in node_permissions:
         return sorted(required)
     return sorted(required & node_permissions)
+
+
+def compatible_capability(required: Any, capabilities: list[str]) -> bool:
+    required_name = str(required or "").strip()
+    if not required_name:
+        return True
+    available = set(parse_list(capabilities))
+    if required_name in available:
+        return True
+    return bool(RUNTIME_CAPABILITY_COMPAT.get(required_name, set()) & available)
+
+
+def runtime_runner_kind(task_or_envelope: dict[str, Any]) -> str:
+    kind = str(task_or_envelope.get("kind") or "read_only_probe")
+    return RUNTIME_KIND_COMPAT.get(kind, kind)
 
 
 def parse_iso_ts(value: Any) -> datetime | None:
@@ -325,7 +346,7 @@ def compatible(task: dict[str, Any], node_id: str, capabilities: list[str], perm
     if allowed and node_id not in allowed:
         return False
     required = envelope.get("required_capability")
-    if required and required not in capabilities:
+    if required and not compatible_capability(required, capabilities):
         return False
     required_permissions = set(parse_list(task.get("required_permissions")) or task_required_permissions(envelope))
     node_permissions = available_permissions(capabilities, permissions)
@@ -339,6 +360,7 @@ def compact_task(task: dict[str, Any]) -> dict[str, Any]:
     return {
         "task_id": task.get("task_id"),
         "kind": task.get("kind"),
+        "runner_kind": runtime_runner_kind(task),
         "state": task.get("state"),
         "target_node": envelope.get("target_node") or envelope.get("required_node"),
         "required_capability": envelope.get("required_capability"),

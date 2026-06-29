@@ -24,7 +24,13 @@ from typing import Any
 
 STOP = False
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
-DEFAULT_AGENT_CAPABILITIES = "read_only_probe,generic_implementation,review,image_generation,mesh_node"
+DEFAULT_AGENT_CAPABILITIES = (
+    "read_only_probe,generic_implementation,implementation,"
+    "remote_implementation_runner_ready,review,image_generation,mesh_node"
+)
+RUNTIME_KIND_COMPAT = {
+    "remote_implementation_runner_ready": "generic_implementation",
+}
 PERMISSION_PACKS = {
     "read_only": {"read_repo", "read_system", "write_artifacts"},
     "ai_chat": {"ai_runner", "write_artifacts"},
@@ -1181,20 +1187,21 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
         result = None
         try:
             kind = task.get("kind")
+            runner_kind = RUNTIME_KIND_COMPAT.get(str(kind), kind)
             self.publish_agent_message("task_started", f"started {kind}", task, topic=str(kind))
-            if kind == "impl_factory_smoke":
+            if runner_kind == "impl_factory_smoke":
                 result = self.run_impl_factory_smoke(task)
-            elif kind == "impl_retry_error_clearance":
+            elif runner_kind == "impl_retry_error_clearance":
                 result = self.run_impl_retry_error_clearance(task)
-            elif kind in {"telegram_chat_response", "orchestrator_chat_response"}:
+            elif runner_kind in {"telegram_chat_response", "orchestrator_chat_response"}:
                 result = self.run_telegram_chat_response(task)
-            elif kind == "telegram_image_generation":
+            elif runner_kind == "telegram_image_generation":
                 result = self.run_telegram_image_generation(task)
-            elif kind in {"owner_remote_task", "generic_implementation"}:
+            elif runner_kind in {"owner_remote_task", "generic_implementation"}:
                 result = self.run_generic_implementation(task)
-            elif kind == "review_pr":
+            elif runner_kind == "review_pr":
                 result = self.run_review_pr(task)
-            elif kind == "read_only_probe":
+            elif runner_kind == "read_only_probe":
                 result = self.run_read_only_probe(task)
             else:
                 raise RuntimeError(f"unsupported task kind: {kind}")

@@ -1,0 +1,62 @@
+{
+  "task_id": "KOL-P0-APP-VERIFY-REVIEW-20260629",
+  "idempotency_key": "p0:app-verify:review-waiting-review:2026-06-29",
+  "kind": "generic_implementation",
+  "required_capability": "generic_implementation",
+  "target_node": "main",
+  "permission_pack": "implementation",
+  "runner": "codex",
+  "branch": "agent/KOL-P0-APP-VERIFY-REVIEW-20260629/review",
+  "base_ref": "origin/codex/factory-autonomy-pwa-billing",
+  "commit_message": "factory: review p0 app verification result",
+  "goal": "Machine review task for the completed P0 app verification result that is waiting_review. Review the changes in branch agent/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629/app-verify at commit 0e7dc0011063740375ce21153aa72abaca197c2b against origin/codex/factory-autonomy-pwa-billing. Inspect the changed files and result artifact, run the required tests and checks, and create a concise review report under docs/agent-work plus a central PR or PR-ready report for the reviewed branch if one does not already exist. Do not merge to main, do not mark the PR ready for review unless explicitly authorized by an owner, do not deploy, do not mutate Control Plane queue state, and do not run FormulaLM/LLM/model benchmarks on Mac.",
+  "role_slot": "p0_app_verify_reviewer",
+  "role_goal": "turn the completed waiting_review P0 verification result into a reviewed artifact and PR-ready handoff without manual observation",
+  "acceptance": [
+    "Confirms source task KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629 is completed and waiting_review from docs/agent-work/p0-app-verify-result-20260629.json",
+    "Safely verifies remote branch agent/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629/app-verify still points to commit 0e7dc0011063740375ce21153aa72abaca197c2b before reviewing",
+    "Reviews changed files frontend/src/App.jsx, tests/test_factory_status.py, and docs/agent-work/p0-app-queue-unblock-verify-result.md against origin/codex/factory-autonomy-pwa-billing",
+    "Runs frontend dependency install, lint if present, build, mobile layout guard, and Python compile checks",
+    "Attempts python3 -m pytest tests/test_factory_status.py when pytest is available; records an explicit blocker if pytest is unavailable",
+    "Creates a review report artifact under docs/agent-work describing findings, checks run, blockers, and PR status",
+    "Creates or updates a central PR or PR-ready handoff for the reviewed branch without merging to main",
+    "Does not mutate Control Plane queue state, drain/requeue/cancel tasks, deploy production, or run FormulaLM/LLM/model benchmarks on Mac"
+  ],
+  "verification_commands": [
+    "python3 -m json.tool ops/envelopes/KOL-P0-APP-VERIFY-REVIEW-20260629.json >/dev/null",
+    "git fetch origin 'refs/heads/agent/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629/app-verify:refs/remotes/origin/agent/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629/app-verify'",
+    "test \"$(git rev-parse origin/agent/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629/app-verify)\" = \"0e7dc0011063740375ce21153aa72abaca197c2b\"",
+    "npm --prefix frontend install --no-package-lock",
+    "npm --prefix frontend run lint --if-present",
+    "npm --prefix frontend run build",
+    "npm --prefix frontend run test:mobile-layout",
+    "python3 -m compileall -q backend ops tests"
+  ],
+  "max_retries": 1,
+  "create_review_on_complete": false,
+  "review_node": "new",
+  "source": {
+    "kind": "completed_waiting_review_p0_result",
+    "requested_by": "main_codex_review_flow_envelope",
+    "requested_at": "2026-06-29T09:00:00+03:00",
+    "result_file": "docs/agent-work/p0-app-verify-result-20260629.json",
+    "ci_status_file": "docs/agent-work/pr46-ci-current-status.json",
+    "source_task_id": "KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629",
+    "source_queue_state": "waiting_review",
+    "source_execution_status": "completed",
+    "review_branch": "agent/KOL-P0-APP-QUEUE-UNBLOCK-VERIFY-20260629/app-verify",
+    "review_commit": "0e7dc0011063740375ce21153aa72abaca197c2b",
+    "base_ref": "origin/codex/factory-autonomy-pwa-billing",
+    "needs_central_pr": true,
+    "related_pr": {
+      "number": 46,
+      "url": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/46",
+      "state": "OPEN",
+      "isDraft": true,
+      "headRefName": "codex/factory-autonomy-pwa-billing",
+      "headRefOid": "4fd32d3d514f122dc04a4b4b0c7c28f775f0f4d5",
+      "checks_overall": "success"
+    },
+    "safety_note": "This envelope starts review and PR handoff only; it must not merge to main or mutate live queue state."
+  }
+}
