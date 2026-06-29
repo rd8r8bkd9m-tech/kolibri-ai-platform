@@ -17,8 +17,9 @@ from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
+from storage_paths import data_path
 
-DB_PATH = Path(os.getenv("KOLIBRI_DB_PATH", "/opt/kolibri-ai/data/kolibri.db"))
+DB_PATH = Path(os.getenv("KOLIBRI_DB_PATH", str(data_path("kolibri.db"))))
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 TBANK_API_URL = os.getenv("TBANK_API_URL", "https://securepay.tinkoff.ru/v2").rstrip("/")

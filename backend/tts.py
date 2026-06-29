@@ -3,7 +3,10 @@ import tempfile
 import asyncio
 from pathlib import Path
 
-TTS_DIR = Path("/opt/kolibri-ai/data/tts")
+from storage_paths import data_path
+
+
+TTS_DIR = Path(os.getenv("KOLIBRI_TTS_DIR", str(data_path("tts"))))
 TTS_DIR.mkdir(parents=True, exist_ok=True)
 
 

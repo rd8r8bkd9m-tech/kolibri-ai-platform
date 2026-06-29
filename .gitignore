@@ -12,3 +12,4 @@ venv/
 data/
 *.log
 .DS_Store
+output/playwright/

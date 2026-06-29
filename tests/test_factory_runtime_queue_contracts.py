@@ -100,6 +100,104 @@ def test_compact_task_listing_bounds_payload_and_exposes_queue_and_leases(monkey
     assert listing["summary"]["active_total"] == 1
 
 
+def test_requeue_expired_leases_returns_stuck_tasks_to_queue(monkeypatch):
+    control = load_control()
+    current = time.time()
+    tasks = {
+        "TASK-EXPIRED": {
+            "task_id": "TASK-EXPIRED",
+            "kind": "generic_implementation",
+            "state": control.STATE_RUNNING,
+            "attempt": 1,
+            "max_retries": 2,
+            "lease_owner": "home:agent-host-home",
+            "lease_until": current - 10,
+            "result_reference": "/tmp/result.json",
+            "envelope": {"task_id": "TASK-EXPIRED"},
+        },
+        "TASK-LIVE": {
+            "task_id": "TASK-LIVE",
+            "kind": "generic_implementation",
+            "state": control.STATE_RUNNING,
+            "attempt": 1,
+            "max_retries": 2,
+            "lease_owner": "home:agent-host-home",
+            "lease_until": current + 30,
+            "envelope": {"task_id": "TASK-LIVE"},
+        },
+    }
+    saved = []
+    removed = []
+    enqueued = []
+
+    monkeypatch.setattr(control, "now_ts", lambda: current)
+    monkeypatch.setattr(control, "all_task_ids", lambda: list(tasks))
+    monkeypatch.setattr(control, "load_task", lambda task_id: tasks[task_id])
+    monkeypatch.setattr(control, "save_task", lambda task: saved.append((task["task_id"], task["state"])) or tasks.__setitem__(task["task_id"], dict(task)))
+    monkeypatch.setattr(control, "remove_from_queue", lambda task_id: removed.append(task_id))
+    monkeypatch.setattr(control, "enqueue", lambda task_id: enqueued.append(task_id))
+
+    summary = control.requeue_expired_leases()
+
+    assert summary["checked"] == 2
+    assert summary["expired"] == 1
+    assert summary["requeued"] == ["TASK-EXPIRED"]
+    assert summary["dead_lettered"] == []
+    assert tasks["TASK-EXPIRED"]["state"] == control.STATE_QUEUED
+    assert tasks["TASK-EXPIRED"]["lease_owner"] is None
+    assert tasks["TASK-EXPIRED"]["lease_until"] is None
+    assert tasks["TASK-EXPIRED"]["error_type"] == "lease_expired"
+    assert tasks["TASK-EXPIRED"]["attempt_history"][-1]["status"] == "lease_expired"
+    assert removed == ["TASK-EXPIRED"]
+    assert enqueued == ["TASK-EXPIRED"]
+    assert (("TASK-EXPIRED", control.STATE_RETRY) in saved)
+    assert (("TASK-EXPIRED", control.STATE_QUEUED) in saved)
+
+
+def test_requeue_expired_leases_dead_letters_exhausted_tasks(monkeypatch):
+    control = load_control()
+    current = time.time()
+    tasks = {
+        "TASK-EXHAUSTED": {
+            "task_id": "TASK-EXHAUSTED",
+            "kind": "generic_implementation",
+            "state": control.STATE_REVIEW,
+            "attempt": 2,
+            "max_retries": 2,
+            "lease_owner": "home:agent-host-home",
+            "lease_until": current - 10,
+            "envelope": {"task_id": "TASK-EXHAUSTED"},
+        },
+    }
+    saved = []
+    dead = []
+
+    class FakeRedis:
+        def command(self, command, redis_key, task_id):
+            assert command == "RPUSH"
+            assert redis_key == control.key("dead_letter")
+            dead.append(task_id)
+
+    monkeypatch.setattr(control, "now_ts", lambda: current)
+    monkeypatch.setattr(control, "all_task_ids", lambda: list(tasks))
+    monkeypatch.setattr(control, "load_task", lambda task_id: tasks[task_id])
+    monkeypatch.setattr(control, "save_task", lambda task: saved.append((task["task_id"], task["state"])) or tasks.__setitem__(task["task_id"], dict(task)))
+    monkeypatch.setattr(control, "redis", FakeRedis())
+
+    summary = control.requeue_expired_leases()
+
+    assert summary["checked"] == 1
+    assert summary["expired"] == 1
+    assert summary["requeued"] == []
+    assert summary["dead_lettered"] == ["TASK-EXHAUSTED"]
+    assert tasks["TASK-EXHAUSTED"]["state"] == control.STATE_DEAD
+    assert tasks["TASK-EXHAUSTED"]["lease_owner"] is None
+    assert tasks["TASK-EXHAUSTED"]["lease_until"] is None
+    assert tasks["TASK-EXHAUSTED"]["attempt_history"][-1]["status"] == "dead_letter"
+    assert dead == ["TASK-EXHAUSTED"]
+    assert saved == [("TASK-EXHAUSTED", control.STATE_DEAD)]
+
+
 def test_legacy_remote_implementation_capability_can_route_to_supported_runner():
     control = load_control()
     task = control.normalize_task(

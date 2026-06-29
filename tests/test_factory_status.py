@@ -8,6 +8,15 @@ from factory_status import build_factory_status
 
 def test_build_factory_status_normalizes_control_plane_nodes():
     payload = {
+        "summary": {
+            "registered_nodes": 35,
+            "canonical_nodes": 21,
+            "fresh_nodes": 6,
+            "fresh_non_draining_nodes": 3,
+            "fresh_canonical_nodes": 3,
+            "fresh_canonical_generic_implementation_nodes": 1,
+            "mesh_shadow_duplicates": 13,
+        },
         "nodes": [
             {
                 "node_id": "primary-candidate",
@@ -20,14 +29,22 @@ def test_build_factory_status_normalizes_control_plane_nodes():
                 "ram": {"MemTotal": "12247028 kB", "MemAvailable": "11510364 kB"},
                 "disk": {"free": 94581936128, "total": 105590231040},
             },
-            {"node_id": "new", "health": "offline", "capabilities": ["review"], "ram": {}, "disk": {}},
+            {"node_id": "new", "health": "offline", "draining": True, "capabilities": ["review"], "ram": {}, "disk": {}},
         ]
     }
     result = build_factory_status(payload, {"tasks": [{"state": "queued"}, {"state": "running"}]}, {"status": "ok", "queue_backend": "redis"})
 
     assert result["status"] == "online"
-    assert result["total_nodes"] == 2
-    assert result["online_nodes"] == 1
+    assert result["total_nodes"] == 35
+    assert result["online_nodes"] == 6
+    assert result["canonical_nodes"] == 21
+    assert result["fresh_non_draining_nodes"] == 3
+    assert result["ready_generic_implementation_nodes"] == 1
+    assert result["stale_nodes"] == 29
+    assert result["draining_nodes"] == 1
+    assert result["mesh_shadow_duplicates"] == 13
+    assert result["duplicate_nodes"] == 14
+    assert result["node_summary"]["mesh_shadow_duplicates"] == 13
     assert result["queue_size"] == 2
     assert result["nodes"]["primary-candidate"]["role"] == "Директор"
     assert result["nodes"]["primary-candidate"]["ram_total_gb"] > 0
@@ -41,3 +58,15 @@ def test_frontend_uses_live_factory_status_endpoint():
     assert "/cluster/status" not in app_source
     assert "на базе 5 серверов" not in app_source
     assert "Фабрика Колибри" in app_source
+
+
+def test_frontend_surfaces_control_plane_node_summary():
+    cluster_panel_source = (Path(__file__).resolve().parents[1] / "frontend" / "src" / "components" / "control" / "ClusterPanel.jsx").read_text(encoding="utf-8")
+    helper_source = (Path(__file__).resolve().parents[1] / "frontend" / "src" / "lib" / "factoryStatus.js").read_text(encoding="utf-8")
+
+    assert "getNodeSummary(status)" in cluster_panel_source
+    assert "registered_nodes" in helper_source
+    assert "canonical_nodes" in helper_source
+    assert "fresh_non_draining_nodes" in helper_source
+    assert "fresh_canonical_generic_implementation_nodes" in helper_source
+    assert "mesh shadow duplicates" in cluster_panel_source

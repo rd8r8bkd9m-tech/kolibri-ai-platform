@@ -20,10 +20,11 @@ from providers import AIProviderManager
 from tts import TTSEngine
 from stt import STTEngine
 from websearch import WebSearchEngine
-from factory_status import fetch_factory_status
+from factory_status import build_degraded_factory_status, fetch_factory_status
 from billing import router as billing_router
+from storage_paths import data_path
 
-DB_PATH = Path("/opt/kolibri-ai/data/kolibri.db")
+DB_PATH = Path(os.getenv("KOLIBRI_DB_PATH", str(data_path("kolibri.db"))))
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 def init_db():
@@ -313,20 +314,7 @@ async def api_factory_status():
     except Exception as exc:
         return JSONResponse(
             status_code=503,
-            content={
-                "status": "degraded",
-                "source": "control-plane",
-                "error": str(exc),
-                "total_nodes": 0,
-                "online_nodes": 0,
-                "free_ram_gb": 0,
-                "total_ram_gb": 0,
-                "avg_cpu_percent": 0,
-                "queue_size": 0,
-                "nodes": {},
-                "node_list": [],
-                "control_plane": {"status": "unavailable"},
-            },
+            content=build_degraded_factory_status(str(exc)),
         )
 
 
@@ -395,4 +383,3 @@ if frontend_path.exists():
         if file_path.exists() and file_path.is_file():
             return FileResponse(str(file_path))
         return FileResponse(str(frontend_path / "index.html"))
-

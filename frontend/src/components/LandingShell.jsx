@@ -1,6 +1,7 @@
 import { AppHeader } from "./AppHeader"
 import { ChatWorkspace } from "./chat/ChatWorkspace"
 import { LivingKolibri } from "./LivingKolibri"
+import { formatClusterSignal } from "../lib/factoryStatus"
 
 const workflowSteps = [
   { label: "Чат", text: "Формулируете задачу по смете, КП или договору." },
@@ -17,8 +18,7 @@ const capabilityItems = [
 ]
 
 function getClusterSignal(clusterStatus) {
-  if (!clusterStatus) return "статус фабрики загружается"
-  return `${clusterStatus.online_nodes ?? 0} узлов · ${clusterStatus.free_ram_gb ?? "-"} GB RAM`
+  return formatClusterSignal(clusterStatus)
 }
 
 export function LandingShell({

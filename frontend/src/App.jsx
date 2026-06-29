@@ -41,6 +41,7 @@ export default function App() {
   const fileInputRef = useRef(null)
   const wsRef = useRef(null)
   const reconnectTimer = useRef(null)
+  const reconnectAttempts = useRef(0)
   const { theme, setTheme, resolvedTheme } = useThemeMode()
   const pwaStatus = usePwaStatus()
   const isLanding = routePath === "/" || routePath === ""
@@ -88,10 +89,15 @@ export default function App() {
     } catch {
       return
     }
-    socket.onopen = () => setConnected(true)
+    socket.onopen = () => {
+      reconnectAttempts.current = 0
+      setConnected(true)
+    }
     socket.onclose = () => {
       setConnected(false)
-      reconnectTimer.current = setTimeout(connectWS, 3000)
+      reconnectAttempts.current += 1
+      const delay = reconnectAttempts.current > 2 ? 30000 : 3000
+      reconnectTimer.current = setTimeout(connectWS, delay)
     }
     socket.onmessage = (event) => {
       const data = JSON.parse(event.data)

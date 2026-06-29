@@ -614,31 +614,61 @@ def load_agent_messages(target: str, limit: int = 50) -> list[dict[str, Any]]:
     return messages
 
 
-def requeue_expired_leases() -> None:
+def requeue_expired_leases(limit: int | None = None) -> dict[str, Any]:
     current = now_ts()
-    for task_id in all_task_ids():
+    task_ids = all_task_ids()
+    if limit is not None:
+        limit = max(0, int(limit))
+        selected_task_ids = task_ids[:limit]
+    else:
+        selected_task_ids = task_ids
+    summary: dict[str, Any] = {
+        "task_total": len(task_ids),
+        "scan_limit": limit,
+        "scan_truncated": limit is not None and len(task_ids) > limit,
+        "checked": 0,
+        "expired": 0,
+        "requeued": [],
+        "dead_lettered": [],
+        "skipped": [],
+    }
+    for task_id in selected_task_ids:
         task = load_task(task_id)
         if not task or task.get("state") not in {STATE_LEASED, STATE_RUNNING, STATE_REVIEW}:
             continue
-        lease_until = float(task.get("lease_until") or 0)
+        summary["checked"] += 1
+        try:
+            lease_until = float(task.get("lease_until") or 0)
+        except (TypeError, ValueError):
+            summary["skipped"].append({"task_id": task_id, "reason": "invalid_lease_until"})
+            continue
         if lease_until >= current:
             continue
+        summary["expired"] += 1
+        task["lease_owner"] = None
+        task["lease_until"] = None
+        task["error_type"] = "lease_expired"
         if int(task.get("attempt", 0)) < int(task.get("max_retries", MAX_RETRIES)):
             task["state"] = STATE_RETRY
-            task["lease_owner"] = None
-            task["lease_until"] = None
-            task["error_type"] = "lease_expired"
             task["error"] = "lease expired before task completion"
+            append_attempt_history(task, "lease_expired", task.get("error_type"), task.get("error"), task.get("result_reference"))
             save_task(task)
             task["state"] = STATE_QUEUED
             save_task(task)
+            remove_from_queue(task_id)
             enqueue(task_id)
+            summary["requeued"].append(task_id)
         else:
             task["state"] = STATE_DEAD
-            task["error_type"] = "lease_expired"
             task["error"] = "lease expired and retry budget exhausted"
+            append_attempt_history(task, "dead_letter", task.get("error_type"), task.get("error"), task.get("result_reference"))
             save_task(task)
             redis.command("RPUSH", key("dead_letter"), task_id)
+            summary["dead_lettered"].append(task_id)
+    summary["requeued_total"] = len(summary["requeued"])
+    summary["dead_lettered_total"] = len(summary["dead_lettered"])
+    summary["skipped_total"] = len(summary["skipped"])
+    return summary
 
 
 def create_task(envelope: dict[str, Any]) -> dict[str, Any]:
@@ -847,6 +877,10 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/v1/tasks":
                 task = create_task(body)
                 response(self, 201, task)
+                return
+            if path == "/v1/tasks/reap-expired":
+                limit = body.get("limit")
+                response(self, 200, requeue_expired_leases(int(limit) if limit is not None else None))
                 return
             if path == "/v1/agent-messages":
                 message = publish_agent_message(normalize_agent_message(body))

@@ -1,4 +1,5 @@
 import { Skeleton } from "../ui/Skeleton"
+import { getFactoryHealth, getFactoryIssue, getNodeSummary } from "../../lib/factoryStatus"
 
 function NodeIcon({ role }) {
   const paths = {
@@ -25,6 +26,24 @@ export function ClusterPanel({ status, onRefresh }) {
   const nodes = Array.isArray(status.nodes)
     ? status.nodes.map(node => [node.node_id || node.id || node.hostname, node])
     : Object.entries(status.nodes || {})
+  const {
+    registeredNodes,
+    canonicalNodes,
+    freshNodes,
+    freshNonDrainingNodes,
+    readyGenericNodes,
+    staleNodes,
+    drainingNodes,
+    meshShadowDuplicates,
+    duplicateNodes,
+  } = getNodeSummary(status)
+  const factoryHealth = getFactoryHealth(status)
+  const factoryIssue = getFactoryIssue(status)
+  const sortedNodes = [...nodes].sort(([, a], [, b]) => {
+    const aOnline = a.status === "online" ? 0 : 1
+    const bOnline = b.status === "online" ? 0 : 1
+    return aOnline - bOnline || String(a.name || a.node_id).localeCompare(String(b.name || b.node_id))
+  })
 
   return (
     <div className="control-section">
@@ -36,11 +55,27 @@ export function ClusterPanel({ status, onRefresh }) {
           </svg>
         </button>
       </div>
+      <div className={`cluster-health cluster-health--${factoryHealth.state}`}>
+        <span className={`status-dot status-dot--${factoryHealth.state}`} />
+        <div>
+          <strong>{factoryHealth.label}</strong>
+          <span>{status.control_plane?.url || "control-plane URL не задан"}</span>
+        </div>
+      </div>
+      {factoryIssue && (
+        <div className="cluster-warning cluster-warning--error">
+          {factoryIssue}
+        </div>
+      )}
       <div className="cluster-stats compact">
         {[
-          { label: "Онлайн", value: `${status.online_nodes}/${status.total_nodes}`, color: "var(--accent)" },
-          { label: "RAM", value: `${status.free_ram_gb} GB`, color: "var(--success)" },
-          { label: "CPU", value: `${status.avg_cpu_percent}%`, color: "var(--text-primary)" },
+          { label: "Fresh", value: freshNodes, color: "var(--success)" },
+          { label: "Готовы", value: freshNonDrainingNodes, color: "var(--success)" },
+          { label: "Канон.", value: canonicalNodes, color: "var(--text-primary)" },
+          { label: "Generic", value: readyGenericNodes, color: "var(--accent)" },
+          { label: "Stale", value: staleNodes, color: "var(--warning)" },
+          { label: "Draining", value: drainingNodes, color: "var(--warning)" },
+          { label: "Дубли", value: duplicateNodes || meshShadowDuplicates, color: "var(--error)" },
           { label: "Очередь", value: status.queue_size || 0, color: "var(--warning)" },
         ].map(item => (
           <div key={item.label} className="stat-card">
@@ -49,8 +84,19 @@ export function ClusterPanel({ status, onRefresh }) {
           </div>
         ))}
       </div>
+      {registeredNodes !== canonicalNodes && (
+        <div className="cluster-warning">
+          {registeredNodes} registered может не совпадать с физическими серверами: Control Plane учитывает mesh shadow duplicates и hostname-дубли отдельно от канонических узлов.
+        </div>
+      )}
+      {nodes.length === 0 && (
+        <div className="doc-empty compact cluster-empty">
+          <p>Узлы не загрузились</p>
+          <span className="doc-empty-hint">Проверьте доступность Control Plane и обновите статус.</span>
+        </div>
+      )}
       <div className="doc-list">
-        {nodes.map(([name, node]) => (
+        {sortedNodes.map(([name, node]) => (
           <div key={name} className="doc-item node-card">
             <div className="doc-icon" style={{
               background: node.status === "online" ? "rgba(16,185,129,0.1)" : "rgba(239,68,68,0.1)",
@@ -61,13 +107,17 @@ export function ClusterPanel({ status, onRefresh }) {
             <div className="doc-info">
               <div className="doc-name" style={{ textTransform: "capitalize" }}>{name}</div>
               <div className="doc-meta">{node.role} · {node.hostname || node.ip || node.agent_id || "internal"}</div>
+              <div className="node-tags">
+                {(node.capabilities || []).slice(0, 3).map(capability => <span key={capability}>{capability}</span>)}
+              </div>
             </div>
-            <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: "13px", fontWeight: "600" }}>CPU {node.cpu == null ? "n/a" : node.cpu}</div>
+            <div className="node-metrics">
+              <span className={`node-status node-status--${node.status === "online" ? "online" : "offline"}`}>{node.status || "unknown"}</span>
+              <div className="node-cpu">CPU {node.cpu == null ? "n/a" : node.cpu}</div>
               <div className="ram-bar">
                 <div className="ram-bar-fill" style={{ width: `${node.ram_total_gb ? Math.min(100, ((node.ram_total_gb - node.ram_available_gb) / node.ram_total_gb) * 100) : Math.min(100, (parseFloat(node.ram || 0) / 16) * 100)}%` }} />
               </div>
-              <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>{node.ram || `${node.ram_available_gb || 0}/${node.ram_total_gb || 0} GB`}</div>
+              <div className="node-ram">{node.ram || `${node.ram_available_gb || 0}/${node.ram_total_gb || 0} GB`}</div>
             </div>
           </div>
         ))}

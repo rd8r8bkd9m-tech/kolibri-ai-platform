@@ -7,10 +7,28 @@ from typing import Any
 import httpx
 
 CONTROL_PLANE_URL = os.getenv("KOLIBRI_FACTORY_CONTROL_URL", "http://control.kolibri.internal:9101")
+CONTROL_PLANE_FALLBACK_URLS = ("http://10.99.0.2:9101", "http://127.0.0.1:9101")
 
 
-def _control_plane_v1_url(path: str) -> str:
-    base = CONTROL_PLANE_URL.rstrip("/")
+def _configured_control_plane_urls() -> list[str]:
+    raw_urls = os.getenv("KOLIBRI_FACTORY_CONTROL_URLS")
+    configured_primary = os.getenv("KOLIBRI_FACTORY_CONTROL_URL")
+    if raw_urls:
+        candidates = raw_urls.split(",")
+    elif configured_primary:
+        candidates = [configured_primary, *CONTROL_PLANE_FALLBACK_URLS, CONTROL_PLANE_URL]
+    else:
+        candidates = [*CONTROL_PLANE_FALLBACK_URLS, CONTROL_PLANE_URL]
+    urls: list[str] = []
+    for candidate in candidates:
+        url = candidate.strip().rstrip("/")
+        if url and url not in urls:
+            urls.append(url)
+    return urls or [CONTROL_PLANE_URL]
+
+
+def _control_plane_v1_url(path: str, base_url: str | None = None) -> str:
+    base = (base_url or CONTROL_PLANE_URL).rstrip("/")
     suffix = path if path.startswith("/") else f"/{path}"
     if base.endswith("/v1"):
         return f"{base}{suffix}"
@@ -120,9 +138,17 @@ def _extract_tasks(tasks_payload: Any) -> list[dict[str, Any]]:
 
 def build_factory_status(nodes_payload: Any, tasks_payload: Any | None = None, health_payload: dict[str, Any] | None = None) -> dict[str, Any]:
     raw_nodes = nodes_payload.get("nodes", []) if isinstance(nodes_payload, dict) else nodes_payload if isinstance(nodes_payload, list) else []
+    raw_summary = nodes_payload.get("summary", {}) if isinstance(nodes_payload, dict) else {}
+    summary = raw_summary if isinstance(raw_summary, dict) else {}
     node_list = [_node_card(node) for node in raw_nodes if isinstance(node, dict)]
     nodes = {node["node_id"]: node for node in node_list}
     online_nodes = [node for node in node_list if node.get("status") == "online"]
+    fresh_nodes = int(summary.get("fresh_nodes", len(online_nodes)) or 0)
+    fresh_non_draining_nodes = int(summary.get("fresh_non_draining_nodes", fresh_nodes) or 0)
+    registered_nodes = int(summary.get("registered_nodes", len(node_list)) or 0)
+    canonical_nodes = int(summary.get("canonical_nodes", len(node_list)) or 0)
+    draining_nodes = sum(1 for node in raw_nodes if isinstance(node, dict) and node.get("draining"))
+    mesh_shadow_duplicates = int(summary.get("mesh_shadow_duplicates", 0) or 0)
     total_ram_kb = sum(_parse_mem_kb((node.get("ram") or {}).get("MemTotal")) for node in raw_nodes if isinstance(node, dict))
     available_ram_kb = sum(_parse_mem_kb((node.get("ram") or {}).get("MemAvailable")) for node in raw_nodes if isinstance(node, dict))
     cpu_values = [node.get("cpu") for node in raw_nodes if isinstance(node, dict) and isinstance(node.get("cpu"), (int, float))]
@@ -132,17 +158,34 @@ def build_factory_status(nodes_payload: Any, tasks_payload: Any | None = None, h
         state = str(task.get("state") or "unknown")
         task_states[state] = task_states.get(state, 0) + 1
     return {
-        "status": "online" if online_nodes else "degraded",
+        "status": "online" if fresh_nodes else "degraded",
         "source": "control-plane",
         "generated_at": (health_payload or {}).get("time") or datetime.now(timezone.utc).isoformat(),
         "control_plane": {
-            "url": CONTROL_PLANE_URL,
+            "url": (health_payload or {}).get("url") or CONTROL_PLANE_URL,
             "status": (health_payload or {}).get("status", "unknown"),
             "queue_backend": (health_payload or {}).get("queue_backend"),
             "redis": (health_payload or {}).get("redis"),
         },
-        "total_nodes": len(node_list),
-        "online_nodes": len(online_nodes),
+        "node_summary": {
+            **summary,
+            "registered_nodes": registered_nodes,
+            "canonical_nodes": canonical_nodes,
+            "fresh_nodes": fresh_nodes,
+            "fresh_non_draining_nodes": fresh_non_draining_nodes,
+            "stale_nodes": max(registered_nodes - fresh_nodes, 0),
+            "draining_nodes": draining_nodes,
+            "duplicate_nodes": max(registered_nodes - canonical_nodes, mesh_shadow_duplicates),
+        },
+        "total_nodes": registered_nodes,
+        "online_nodes": fresh_nodes,
+        "canonical_nodes": canonical_nodes,
+        "fresh_non_draining_nodes": fresh_non_draining_nodes,
+        "ready_generic_implementation_nodes": int(summary.get("fresh_canonical_generic_implementation_nodes", 0) or 0),
+        "stale_nodes": max(registered_nodes - fresh_nodes, 0),
+        "draining_nodes": draining_nodes,
+        "mesh_shadow_duplicates": mesh_shadow_duplicates,
+        "duplicate_nodes": max(registered_nodes - canonical_nodes, mesh_shadow_duplicates),
         "free_ram_gb": _gb_from_kb(available_ram_kb),
         "total_ram_gb": _gb_from_kb(total_ram_kb),
         "avg_cpu_percent": round(sum(cpu_values) / len(cpu_values), 1) if cpu_values else 0,
@@ -157,20 +200,77 @@ def build_factory_status(nodes_payload: Any, tasks_payload: Any | None = None, h
     }
 
 
+def build_degraded_factory_status(error: str, control_plane_url: str | None = None) -> dict[str, Any]:
+    return {
+        "status": "degraded",
+        "source": "control-plane",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "error": error,
+        "control_plane": {
+            "url": control_plane_url or CONTROL_PLANE_URL,
+            "status": "unavailable",
+        },
+        "node_summary": {
+            "registered_nodes": 0,
+            "canonical_nodes": 0,
+            "fresh_nodes": 0,
+            "fresh_non_draining_nodes": 0,
+            "stale_nodes": 0,
+            "draining_nodes": 0,
+            "duplicate_nodes": 0,
+            "mesh_shadow_duplicates": 0,
+        },
+        "total_nodes": 0,
+        "online_nodes": 0,
+        "canonical_nodes": 0,
+        "fresh_non_draining_nodes": 0,
+        "ready_generic_implementation_nodes": 0,
+        "stale_nodes": 0,
+        "draining_nodes": 0,
+        "mesh_shadow_duplicates": 0,
+        "duplicate_nodes": 0,
+        "free_ram_gb": 0,
+        "total_ram_gb": 0,
+        "avg_cpu_percent": 0,
+        "queue_size": 0,
+        "task_states": {},
+        "nodes": {},
+        "node_list": [],
+    }
+
+
 async def fetch_factory_status() -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=httpx.Timeout(4.0, connect=2.0)) as client:
-        health_response = await client.get(_control_plane_v1_url("/health"))
-        nodes_response = await client.get(_control_plane_v1_url("/nodes"))
-        health_response.raise_for_status()
-        nodes_response.raise_for_status()
+    selected_url: str | None = None
+    last_exc: Exception | None = None
+    health_payload: dict[str, Any] | None = None
+    nodes_payload: Any = None
+
+    for control_url in _configured_control_plane_urls():
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(12.0, connect=2.0), trust_env=False) as client:
+                health_response = await client.get(_control_plane_v1_url("/health", control_url))
+                nodes_response = await client.get(_control_plane_v1_url("/nodes", control_url))
+                health_response.raise_for_status()
+                nodes_response.raise_for_status()
+            selected_url = control_url
+            health_payload = health_response.json()
+            health_payload["url"] = control_url
+            nodes_payload = nodes_response.json()
+            break
+        except Exception as exc:
+            last_exc = exc
+
+    if selected_url is None or health_payload is None:
+        assert last_exc is not None
+        raise last_exc
 
     tasks_payload: Any = {"tasks": []}
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(1.5, connect=1.0)) as client:
-            tasks_response = await client.get(_control_plane_v1_url("/tasks"))
+        async with httpx.AsyncClient(timeout=httpx.Timeout(1.5, connect=1.0), trust_env=False) as client:
+            tasks_response = await client.get(_control_plane_v1_url("/tasks", selected_url))
             if tasks_response.status_code == 200:
                 tasks_payload = tasks_response.json()
     except Exception:
         tasks_payload = {"tasks": []}
 
-    return build_factory_status(nodes_response.json(), tasks_payload, health_response.json())
+    return build_factory_status(nodes_payload, tasks_payload, health_payload)

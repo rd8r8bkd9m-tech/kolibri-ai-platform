@@ -1,6 +1,9 @@
 import { LivingKolibri } from "./LivingKolibri"
+import { formatClusterSignal, getFactoryHealth } from "../lib/factoryStatus"
 
 export function AppHeader({ productTitle = "Kolibri AI", birdState, clusterStatus, providers, selectedProvider, onProviderChange, onOpenSettings }) {
+  const factoryHealth = getFactoryHealth(clusterStatus)
+
   return (
     <header className="header chat-header">
       <div className="header-left">
@@ -10,8 +13,8 @@ export function AppHeader({ productTitle = "Kolibri AI", birdState, clusterStatu
           <div className="header-subtitle">
             {clusterStatus ? (
               <span className="header-cluster">
-                <span className="pulse-dot" />
-                {clusterStatus.online_nodes} узлов · {clusterStatus.free_ram_gb} GB RAM
+                <span className={`status-dot status-dot--${factoryHealth.state}`} />
+                {formatClusterSignal(clusterStatus)}
               </span>
             ) : "Загрузка..."}
           </div>
