@@ -137,6 +137,7 @@ OWNER_RUNTIME_FAILURE_MARKERS = (
     "ты — центральный оркестратор",
 )
 REPORT_CHUNK_LIMIT = 3600
+TELEGRAM_MESSAGE_LIMIT = 4096
 REPORT_SECRET_LINE_MARKERS = (
     "-----begin",
     "private key",
@@ -151,6 +152,14 @@ REPORT_SECRET_VALUE_PATTERN = re.compile(
 REPORT_PRIVATE_PATH_PATTERN = re.compile(
     r"(?<![\w.-])(?:/var/lib/kolibri-agent|/run/secrets|/etc/kolibri|/tmp)/[^\s`)]+"
 )
+HTML_ESCAPE_TABLE = {
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+    "’": "&#39;",
+}
 IMMEDIATE_CHAT_MARKERS = (
     "как дела",
     "как ты",
@@ -292,6 +301,139 @@ def sanitize_report_text(text: str) -> str:
         line = REPORT_PRIVATE_PATH_PATTERN.sub("[внутренний путь скрыт]", line)
         sanitized_lines.append(line.rstrip())
     return "\n".join(sanitized_lines).strip()
+
+
+def escape_telegram_html(value: Any) -> str:
+    text = "" if value is None else str(value)
+    return "".join(HTML_ESCAPE_TABLE.get(ch, ch) for ch in text)
+
+
+def _event_value(event: dict[str, Any], *keys: str, default: str = "—") -> str:
+    for key in keys:
+        value = event.get(key)
+        if value is not None and value != "":
+            return str(value)
+    return default
+
+
+def _template_lines(title: str, rows: list[tuple[str, Any]]) -> str:
+    lines = [f"<b>{escape_telegram_html(title)}</b>"]
+    for label, value in rows:
+        if value is None or value == "":
+            continue
+        lines.append(f"{escape_telegram_html(label)}: {escape_telegram_html(value)}")
+    return "\n".join(lines).strip()
+
+
+def _summarize_counts(counts: dict[str, Any] | None) -> str:
+    if not isinstance(counts, dict) or not counts:
+        return "нет данных"
+    return ", ".join(f"{key}={value}" for key, value in sorted(counts.items()))
+
+
+def formatTelegramMessage(event: Any) -> str:
+    if not isinstance(event, dict):
+        return escape_telegram_html(event)
+    event_type = str(event.get("type") or event.get("event") or "TEXT").upper()
+    if event_type == "TEXT":
+        return escape_telegram_html(event.get("text") or event.get("message") or "")
+    if event_type == "TASK_STARTED":
+        return _template_lines(
+            "🚀 Колибри: задача запущена",
+            [
+                ("Task", _event_value(event, "task_id", "task")),
+                ("Статус", _event_value(event, "status", "state", default="RUNNING")),
+                ("Узел", _event_value(event, "node_id", "node")),
+                ("Агент", _event_value(event, "agent_id", "agent")),
+                ("Следующий шаг", _event_value(event, "next_step", default="выполняю проверку")),
+            ],
+        )
+    if event_type == "TASK_PROGRESS":
+        return _template_lines(
+            "🔧 Колибри: задача в работе",
+            [
+                ("Task", _event_value(event, "task_id", "task")),
+                ("Статус", _event_value(event, "status", "state", default="RUNNING")),
+                ("Узел", _event_value(event, "node_id", "node")),
+                ("Агент", _event_value(event, "agent_id", "agent")),
+                ("Прогресс", _event_value(event, "progress", "message", default="исполнитель работает")),
+                ("Следующий шаг", _event_value(event, "next_step", default="жду следующее обновление")),
+            ],
+        )
+    if event_type == "TASK_DONE":
+        return _template_lines(
+            "✅ Колибри: задача готова",
+            [
+                ("Task", _event_value(event, "task_id", "task")),
+                ("Статус", _event_value(event, "status", "state", default="DONE")),
+                ("Результат", _event_value(event, "result", "summary", "message", default="результат зафиксирован")),
+                ("PR", event.get("pr_url") or event.get("pull_request_url")),
+                ("Отчёт", event.get("report_url") or event.get("artifact_url")),
+                ("Следующий шаг", _event_value(event, "next_step", default="проверяю качество")),
+            ],
+        )
+    if event_type == "TASK_FAILED":
+        return _template_lines(
+            "❌ Колибри: задача упала",
+            [
+                ("Task", _event_value(event, "task_id", "task")),
+                ("Статус", _event_value(event, "status", "state", default="FAILED")),
+                ("Причина", _event_value(event, "reason", "summary", "message", default="технический сбой")),
+                ("Следующий шаг", _event_value(event, "next_step", default="перезапускаю или передаю на разбор")),
+                ("Полный отчёт", event.get("report_url") or event.get("artifact_url")),
+            ],
+        )
+    if event_type == "BLOCKER":
+        return _template_lines(
+            "⛔ Колибри: нужен вход владельца",
+            [
+                ("Task", _event_value(event, "task_id", "task")),
+                ("Блокер", _event_value(event, "blocker", "reason", "message", default="не хватает данных")),
+                ("Нужно от вас", _event_value(event, "ask", "next_step", default="дать недостающие вводные")),
+                ("Полный отчёт", event.get("report_url") or event.get("artifact_url")),
+            ],
+        )
+    if event_type == "FACTORY_STATUS":
+        counts = event.get("counts") or event.get("task_counts")
+        return _template_lines(
+            "📊 Колибри: статус фабрики",
+            [
+                ("Статус", _event_value(event, "status", default="ONLINE")),
+                ("Узлы", _event_value(event, "nodes", "node_count", default="—")),
+                ("Работает", _event_value(event, "online", "fresh", default="—")),
+                ("Очередь", _event_value(event, "queue", "queue_length", default="—")),
+                ("Задачи", _summarize_counts(counts if isinstance(counts, dict) else None)),
+                ("Следующий шаг", _event_value(event, "next_step", default="держу мониторинг включенным")),
+            ],
+        )
+    if event_type == "PR_CREATED":
+        return _template_lines(
+            "🔀 Колибри: PR создан",
+            [
+                ("PR", _event_value(event, "pr_url", "url")),
+                ("Ветка", _event_value(event, "branch", default="—")),
+                ("Статус", _event_value(event, "status", default="OPEN")),
+                ("Следующий шаг", _event_value(event, "next_step", default="жду CI и ревью")),
+            ],
+        )
+    if event_type == "CI_RESULT":
+        return _template_lines(
+            "🧪 Колибри: результат CI",
+            [
+                ("Статус", _event_value(event, "status", "conclusion", default="UNKNOWN")),
+                ("Проверки", _event_value(event, "checks", "summary", default="—")),
+                ("PR", event.get("pr_url") or event.get("url")),
+                ("Следующий шаг", _event_value(event, "next_step", default="исправляю красные проверки")),
+            ],
+        )
+    return _template_lines(
+        "Колибри: событие",
+        [
+            ("Тип", event_type),
+            ("Сообщение", _event_value(event, "message", "summary", default="событие зафиксировано")),
+            ("Полный отчёт", event.get("report_url") or event.get("artifact_url")),
+        ],
+    )
 
 
 def split_telegram_text(text: str, limit: int = REPORT_CHUNK_LIMIT) -> list[str]:
@@ -444,9 +586,21 @@ class TelegramClient:
             payload["offset"] = offset
         return self.call("getUpdates", payload, timeout=timeout + 10).get("result", [])
 
-    def send_message(self, chat_id: int, text: str) -> dict[str, Any]:
-        response = self.call("sendMessage", {"chat_id": chat_id, "text": text[:3900], "disable_web_page_preview": True})
-        return response.get("result") or {}
+    def send_message(self, chat_id: int, text: str | dict[str, Any]) -> dict[str, Any]:
+        html = formatTelegramMessage(text)
+        result: dict[str, Any] = {}
+        for part in split_telegram_text(html, TELEGRAM_MESSAGE_LIMIT):
+            response = self.call(
+                "sendMessage",
+                {
+                    "chat_id": chat_id,
+                    "text": part,
+                    "parse_mode": "HTML",
+                    "disable_web_page_preview": True,
+                },
+            )
+            result = response.get("result") or {}
+        return result
 
     def send_text_document(self, chat_id: int, title: str, text: str) -> int:
         parts = split_telegram_text(text, REPORT_CHUNK_LIMIT)
@@ -489,7 +643,8 @@ class TelegramClient:
             {
                 "chat_id": chat_id,
                 "message_id": message_id,
-                "text": text[:3900],
+                "text": formatTelegramMessage({"type": "TEXT", "text": text})[:TELEGRAM_MESSAGE_LIMIT],
+                "parse_mode": "HTML",
                 "disable_web_page_preview": True,
             },
         )

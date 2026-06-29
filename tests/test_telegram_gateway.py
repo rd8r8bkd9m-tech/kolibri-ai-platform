@@ -85,6 +85,107 @@ def test_split_telegram_text_keeps_parts_under_limit_without_empty_chunks():
     assert "".join(parts).replace("\n", "") == ("A" * 15) + ("B" * 37)
 
 
+def test_format_telegram_message_escapes_html_and_uses_readable_template():
+    gateway = load_gateway()
+
+    message = gateway.formatTelegramMessage(
+        {
+            "type": "TASK_STARTED",
+            "task_id": "KOL-1",
+            "status": "RUNNING",
+            "node_id": "kb-worker-0001",
+            "agent_id": "estimator-agent-04",
+            "next_step": "проверяю 2 < 3 & \"кавычки\" ’апостроф’",
+        }
+    )
+
+    assert "<b>🚀 Колибри: задача запущена</b>" in message
+    assert "Task: KOL-1" in message
+    assert "Статус: RUNNING" in message
+    assert "Узел: kb-worker-0001" in message
+    assert "Агент: estimator-agent-04" in message
+    assert "&lt;" in message
+    assert "&amp;" in message
+    assert "&quot;кавычки&quot;" in message
+    assert "&#39;апостроф&#39;" in message
+
+
+def test_all_status_events_have_readable_templates():
+    gateway = load_gateway()
+    event_types = [
+        "TASK_STARTED",
+        "TASK_PROGRESS",
+        "TASK_DONE",
+        "TASK_FAILED",
+        "BLOCKER",
+        "FACTORY_STATUS",
+        "PR_CREATED",
+        "CI_RESULT",
+    ]
+
+    for event_type in event_types:
+        text = gateway.formatTelegramMessage(
+            {
+                "type": event_type,
+                "task_id": "KOL-42",
+                "status": "RUNNING",
+                "message": "human update",
+                "counts": {"running": 2},
+                "pr_url": "https://github.com/example/repo/pull/1",
+            }
+        )
+        assert "Колибри" in text
+        assert "{" not in text
+        assert "}" not in text
+        assert "human update" in text or event_type in {"TASK_STARTED", "FACTORY_STATUS", "PR_CREATED", "CI_RESULT"}
+
+
+def test_telegram_client_send_message_uses_html_parse_mode_and_never_sends_raw_json():
+    gateway = load_gateway()
+
+    class Telegram(gateway.TelegramClient):
+        def __init__(self):
+            self.calls = []
+
+        def call(self, method, payload=None, timeout=35):
+            self.calls.append((method, payload, timeout))
+            return {"ok": True, "result": {"message_id": len(self.calls)}}
+
+    telegram = Telegram()
+    result = telegram.send_message(
+        100,
+        {"type": "TASK_FAILED", "task_id": "KOL-RAW", "reason": {"error": "<boom>", "raw": True}},
+    )
+
+    assert result == {"message_id": 1}
+    assert telegram.calls[0][0] == "sendMessage"
+    payload = telegram.calls[0][1]
+    assert payload["parse_mode"] == "HTML"
+    assert payload["disable_web_page_preview"] is True
+    assert '"type":' not in payload["text"]
+    assert "{\"" not in payload["text"]
+    assert "&lt;boom&gt;" in payload["text"]
+
+
+def test_telegram_client_splits_long_html_messages_under_telegram_limit():
+    gateway = load_gateway()
+
+    class Telegram(gateway.TelegramClient):
+        def __init__(self):
+            self.calls = []
+
+        def call(self, method, payload=None, timeout=35):
+            self.calls.append((method, payload, timeout))
+            return {"ok": True, "result": {"message_id": len(self.calls)}}
+
+    telegram = Telegram()
+    telegram.send_message(100, "A" * 9000)
+
+    assert len(telegram.calls) == 3
+    assert all(call[1]["parse_mode"] == "HTML" for call in telegram.calls)
+    assert all(len(call[1]["text"]) <= gateway.TELEGRAM_MESSAGE_LIMIT for call in telegram.calls)
+
+
 def test_send_report_letter_requires_owner_chat_id(tmp_path):
     gateway = load_gateway()
     report = tmp_path / "status.md"
