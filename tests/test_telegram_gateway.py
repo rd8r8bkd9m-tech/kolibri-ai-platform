@@ -167,6 +167,43 @@ def test_telegram_client_send_message_uses_html_parse_mode_and_never_sends_raw_j
     assert "&lt;boom&gt;" in payload["text"]
 
 
+def test_format_telegram_message_flattens_nested_values_without_raw_dicts():
+    gateway = load_gateway()
+
+    message = gateway.formatTelegramMessage(
+        {
+            "type": "TASK_FAILED",
+            "task_id": "KOL-NESTED",
+            "reason": {"error": "<boom>", "retry": True, "codes": ["missing_checks", "missing_diff"]},
+        }
+    )
+
+    assert "{'error'" not in message
+    assert "}" not in message
+    assert "error: &lt;boom&gt;" in message
+    assert "retry: да" in message
+    assert "missing_checks; missing_diff" in message
+
+
+def test_readable_report_body_removes_raw_json_blocks_from_telegram_document():
+    gateway = load_gateway()
+
+    body, removed = gateway.readable_report_body(
+        "# Report\n\n"
+        "- Status: ok\n\n"
+        "```json\n"
+        "{\"secret\":\"raw\", \"tasks\":[1,2,3]}\n"
+        "```\n\n"
+        "Done\n"
+    )
+
+    assert removed == 1
+    assert "Status: ok" in body
+    assert "Done" in body
+    assert "{\"secret\"" not in body
+    assert "tasks" not in body
+
+
 def test_telegram_client_splits_long_html_messages_under_telegram_limit():
     gateway = load_gateway()
 

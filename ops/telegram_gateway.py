@@ -308,11 +308,29 @@ def escape_telegram_html(value: Any) -> str:
     return "".join(HTML_ESCAPE_TABLE.get(ch, ch) for ch in text)
 
 
+def readable_event_value(value: Any) -> str:
+    if value is None or value == "":
+        return "—"
+    if isinstance(value, dict):
+        parts = []
+        for key, item in sorted(value.items()):
+            if item is None or item == "":
+                continue
+            parts.append(f"{key}: {readable_event_value(item)}")
+        return "; ".join(parts) or "—"
+    if isinstance(value, list):
+        parts = [readable_event_value(item) for item in value if item is not None and item != ""]
+        return "; ".join(parts) or "—"
+    if isinstance(value, bool):
+        return "да" if value else "нет"
+    return str(value)
+
+
 def _event_value(event: dict[str, Any], *keys: str, default: str = "—") -> str:
     for key in keys:
         value = event.get(key)
         if value is not None and value != "":
-            return str(value)
+            return readable_event_value(value)
     return default
 
 
@@ -328,7 +346,17 @@ def _template_lines(title: str, rows: list[tuple[str, Any]]) -> str:
 def _summarize_counts(counts: dict[str, Any] | None) -> str:
     if not isinstance(counts, dict) or not counts:
         return "нет данных"
-    return ", ".join(f"{key}={value}" for key, value in sorted(counts.items()))
+    return ", ".join(f"{key}={readable_event_value(value)}" for key, value in sorted(counts.items()))
+
+
+def compact_event_details(event: dict[str, Any], skip_keys: set[str] | None = None) -> str:
+    skip = {"type", "event", "raw", "payload", "json", *(skip_keys or set())}
+    details = []
+    for key, value in sorted(event.items()):
+        if key in skip or value is None or value == "":
+            continue
+        details.append(f"{key}: {readable_event_value(value)}")
+    return "\n".join(details[:12]) or "событие зафиксировано"
 
 
 def formatTelegramMessage(event: Any) -> str:
@@ -430,7 +458,7 @@ def formatTelegramMessage(event: Any) -> str:
         "Колибри: событие",
         [
             ("Тип", event_type),
-            ("Сообщение", _event_value(event, "message", "summary", default="событие зафиксировано")),
+            ("Сообщение", _event_value(event, "message", "summary", default=compact_event_details(event))),
             ("Полный отчёт", event.get("report_url") or event.get("artifact_url")),
         ],
     )
@@ -480,7 +508,7 @@ def build_report_letter(
     summary: str | None = None,
 ) -> str:
     raw = report_path.read_text(encoding="utf-8")
-    safe_body = sanitize_report_text(raw)
+    safe_body, removed_json_blocks = readable_report_body(raw)
     report_title = (title or report_title_from_path(report_path)).strip()
     lines = [
         f"Тема: {report_title}",
@@ -491,7 +519,28 @@ def build_report_letter(
     if summary:
         lines.extend(["", "Кратко:", sanitize_report_text(summary)])
     lines.extend(["", "Документ:", safe_body])
+    if removed_json_blocks:
+        lines.extend(["", "Полный JSON:", f"сохранён в артефакте отчёта `{report_path.name}`; в Telegram не отправляю сырой JSON."])
     return "\n".join(lines).strip()
+
+
+def readable_report_body(raw: str) -> tuple[str, int]:
+    lines: list[str] = []
+    in_json_block = False
+    removed_json_blocks = 0
+    for line in raw.splitlines():
+        marker = line.strip().lower()
+        if marker.startswith("```json"):
+            in_json_block = True
+            removed_json_blocks += 1
+            continue
+        if in_json_block:
+            if marker.startswith("```"):
+                in_json_block = False
+            continue
+        lines.append(line)
+    body = sanitize_report_text("\n".join(lines))
+    return body.strip() or "Краткий отчёт пустой; полный файл сохранён в артефактах.", removed_json_blocks
 
 
 def state_owner_chat_id(state: "StateStore") -> int | None:

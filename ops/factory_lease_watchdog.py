@@ -43,6 +43,14 @@ def call_control(control_url: str, method: str, path: str, body: dict[str, Any] 
     return http_json(method, f"{control_url.rstrip('/')}{suffix}", body=body, timeout=timeout)
 
 
+def quote_task_id(task_id: str) -> str:
+    return urllib.parse.quote(str(task_id), safe="")
+
+
+def fetch_task(control_url: str, task_id: str, timeout: int) -> dict[str, Any]:
+    return call_control(control_url, "GET", f"/v1/tasks/{quote_task_id(task_id)}", timeout=timeout)
+
+
 def build_summary(
     health: dict[str, Any],
     rebuild: dict[str, Any] | None,
@@ -82,6 +90,7 @@ def should_notify(summary: dict[str, Any]) -> bool:
         "requeued_stuck",
         "dead_lettered_stuck",
         "deliverable_gate_new",
+        "deliverable_retry_failed",
     ):
         try:
             if int(summary.get(key) or 0) > 0:
@@ -159,6 +168,9 @@ def markdown_report(report: dict[str, Any]) -> str:
         f"- Requeued stuck: `{summary.get('requeued_stuck')}`",
         f"- Dead-lettered stuck: `{summary.get('dead_lettered_stuck')}`",
         f"- Deliverable gate failures: `{summary.get('deliverable_gate_failed')}`",
+        f"- New deliverable gate failures: `{summary.get('deliverable_gate_new')}`",
+        f"- Deliverable retry created: `{summary.get('deliverable_retry_created')}`",
+        f"- Deliverable retry failed: `{summary.get('deliverable_retry_failed')}`",
         f"- Stale threshold seconds: `{summary.get('stale_after_seconds')}`",
         "",
         "```json",
@@ -179,6 +191,42 @@ def sanitize_report_text(text: str) -> str:
             continue
         redacted_lines.append(secret_pattern.sub(r"\1\2[REDACTED]", line))
     return "\n".join(redacted_lines)
+
+
+def readable_report_text(text: str) -> str:
+    lines: list[str] = []
+    in_json_block = False
+    removed_json_blocks = 0
+    for line in text.splitlines():
+        marker = line.strip().lower()
+        if marker.startswith("```json"):
+            in_json_block = True
+            removed_json_blocks += 1
+            continue
+        if in_json_block:
+            if marker.startswith("```"):
+                in_json_block = False
+            continue
+        lines.append(line)
+    readable = sanitize_report_text("\n".join(lines)).strip()
+    if removed_json_blocks:
+        readable = (
+            f"{readable}\n\n"
+            "Полный JSON: сохранён в артефакте watchdog-отчёта; в Telegram не отправляю сырой JSON."
+        ).strip()
+    return readable or "Краткий отчёт пустой; полный JSON сохранён в артефактах."
+
+
+def escape_telegram_html(value: Any) -> str:
+    text = "" if value is None else str(value)
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#39;")
+        .replace("’", "&#39;")
+    )
 
 
 def split_telegram_text(text: str, limit: int = REPORT_CHUNK_LIMIT) -> list[str]:
@@ -217,7 +265,15 @@ def owner_chat_id_from_state(state_path: Path) -> int | None:
 
 
 def send_telegram_message(token: str, chat_id: int, text: str, timeout: int = 35) -> dict[str, Any]:
-    payload = urllib.parse.urlencode({"chat_id": chat_id, "text": text[:3900], "disable_web_page_preview": True}).encode("utf-8")
+    html_text = escape_telegram_html(text)
+    payload = urllib.parse.urlencode(
+        {
+            "chat_id": chat_id,
+            "text": html_text[:4096],
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True,
+        }
+    ).encode("utf-8")
     request = urllib.request.Request(f"https://api.telegram.org/bot{token}/sendMessage", data=payload, method="POST")
     with urllib.request.urlopen(request, timeout=timeout) as response:
         result = json.loads(response.read().decode("utf-8"))
@@ -244,7 +300,7 @@ def maybe_send_telegram_report(
     target_chat_id = chat_id or owner_chat_id_from_state(state_path)
     if not target_chat_id:
         return {"status": "skipped", "reason": "missing_chat_id"}
-    body = sanitize_report_text(markdown_path.read_text(encoding="utf-8"))
+    body = readable_report_text(markdown_path.read_text(encoding="utf-8"))
     prefix = "\n".join(
         [
             f"Тема: {title}",
@@ -327,6 +383,94 @@ def deliverable_gate_task_ids(summary: dict[str, Any]) -> list[str]:
         if isinstance(item, dict) and item.get("task_id"):
             ids.append(str(item["task_id"]))
     return ids
+
+
+def normalize_acceptance(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    return []
+
+
+def build_deliverable_retry_envelope(source_task: dict[str, Any], now: str | None = None) -> dict[str, Any]:
+    source_task_id = str(source_task.get("task_id") or "").strip()
+    if not source_task_id:
+        raise ValueError("source task_id is required")
+    source_envelope = source_task.get("envelope") if isinstance(source_task.get("envelope"), dict) else {}
+    envelope = dict(source_envelope)
+    envelope["task_id"] = f"{source_task_id}-DELIVERABLE-RETRY"
+    envelope["idempotency_key"] = f"deliverable-retry:{source_task_id}"
+    envelope["kind"] = envelope.get("kind") or source_task.get("kind") or "generic_implementation"
+    envelope["source_task_id"] = source_task_id
+    envelope["retry_reason"] = "deliverable_gate_failed"
+    envelope["required_capability"] = envelope.get("required_capability") or "generic_implementation"
+    envelope["max_retries"] = max(1, int_value(envelope.get("max_retries")) or 1)
+    target_node = str(envelope.get("target_node") or envelope.get("required_node") or "")
+    if target_node.startswith("__"):
+        envelope.pop("target_node", None)
+        envelope.pop("required_node", None)
+
+    original_objective = (
+        envelope.get("objective")
+        or envelope.get("goal")
+        or envelope.get("message")
+        or source_task.get("error")
+        or f"Исправить deliverable gate для {source_task_id}"
+    )
+    envelope["objective"] = (
+        f"{original_objective}\n\n"
+        f"Retry source task: {source_task_id}. Previous completion was rejected by deliverable gate. "
+        "Execute the task fully: create a real code/doc/artifact delta, run relevant checks, commit and push the branch, "
+        "then return result_reference, changed_files, checks, and commit/PR evidence."
+    )
+    acceptance = normalize_acceptance(envelope.get("acceptance") or envelope.get("acceptance_criteria"))
+    required_items = [
+        "Produce a non-empty git diff or explicit artifact/code delta.",
+        "Run relevant tests/checks and include commands in result.checks.",
+        "Commit and push the branch, or include a PR URL.",
+        "Return result_reference, changed_files, checks, and commit/PR evidence.",
+    ]
+    seen = {item.casefold() for item in acceptance}
+    for item in required_items:
+        if item.casefold() not in seen:
+            acceptance.append(item)
+            seen.add(item.casefold())
+    envelope["acceptance"] = acceptance
+    envelope["source"] = {
+        "kind": "watchdog_deliverable_retry",
+        "source_task_id": source_task_id,
+        "created_at": now or utc_now(),
+    }
+    envelope.setdefault("create_review_on_complete", False)
+    return envelope
+
+
+def create_deliverable_retry_tasks(report: dict[str, Any], control_url: str, timeout: int) -> dict[str, Any]:
+    summary = report.setdefault("summary", {})
+    task_ids = [str(item) for item in (summary.get("deliverable_gate_new_task_ids") or []) if str(item).strip()]
+    created: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
+    for task_id in task_ids:
+        try:
+            source_task = fetch_task(control_url, task_id, timeout=timeout)
+            retry_envelope = build_deliverable_retry_envelope(source_task)
+            retry_task = call_control(control_url, "POST", "/v1/tasks", retry_envelope, timeout=timeout)
+            created.append(
+                {
+                    "source_task_id": task_id,
+                    "task_id": retry_task.get("task_id"),
+                    "state": retry_task.get("state"),
+                    "idempotency_key": retry_task.get("idempotency_key"),
+                }
+            )
+        except Exception as exc:  # pragma: no cover - exact network failures are environment-specific
+            failed.append({"source_task_id": task_id, "error": str(exc)})
+    result = {"created": created, "failed": failed}
+    report["deliverable_retries"] = result
+    summary["deliverable_retry_created"] = len(created)
+    summary["deliverable_retry_failed"] = len(failed)
+    return result
 
 
 def update_rollup(report: dict[str, Any], report_dir: Path) -> dict[str, Any]:
@@ -421,6 +565,13 @@ def write_reports(report: dict[str, Any], report_dir: Path) -> tuple[Path, Path]
     return json_path, md_path
 
 
+def refresh_report_files(report: dict[str, Any], json_path: Path, md_path: Path, report_dir: Path) -> None:
+    json_path.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    md_path.write_text(markdown_report(report), encoding="utf-8")
+    (report_dir / "latest.json").write_text(json_path.read_text(encoding="utf-8"), encoding="utf-8")
+    (report_dir / "latest.md").write_text(md_path.read_text(encoding="utf-8"), encoding="utf-8")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--control-url", default=DEFAULT_CONTROL_URL)
@@ -433,6 +584,7 @@ def main() -> int:
     parser.add_argument("--telegram-state-file", type=Path, default=DEFAULT_TELEGRAM_STATE)
     parser.add_argument("--telegram-chat-id", type=int, default=int(os.environ["TELEGRAM_REPORT_CHAT_ID"]) if os.environ.get("TELEGRAM_REPORT_CHAT_ID") else None)
     parser.add_argument("--telegram-title", default=os.environ.get("KOLIBRI_FACTORY_WATCHDOG_TELEGRAM_TITLE", "Kolibri Factory Lease Watchdog"))
+    parser.add_argument("--disable-deliverable-retry", action="store_true")
     parser.add_argument("--no-write", action="store_true")
     args = parser.parse_args()
 
@@ -471,6 +623,9 @@ def main() -> int:
     if not args.no_write:
         json_path, md_path = write_reports(report, args.report_dir)
         report["report_paths"] = {"json": str(json_path), "markdown": str(md_path)}
+        if not args.disable_deliverable_retry:
+            create_deliverable_retry_tasks(report, args.control_url, timeout=max(1, args.timeout))
+            refresh_report_files(report, json_path, md_path, args.report_dir)
         if args.telegram_on_action:
             report["telegram"] = maybe_send_telegram_report(
                 report,
@@ -481,8 +636,7 @@ def main() -> int:
                 title=args.telegram_title,
                 timeout=max(1, args.timeout),
             )
-            json_path.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-            (args.report_dir / "latest.json").write_text(json_path.read_text(encoding="utf-8"), encoding="utf-8")
+            refresh_report_files(report, json_path, md_path, args.report_dir)
     print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
     return 0 if report["summary"]["status"] == "ok" else 1
 

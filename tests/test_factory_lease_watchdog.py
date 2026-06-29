@@ -186,6 +186,107 @@ def test_should_notify_only_on_action_or_problem():
     assert watchdog.should_notify({"status": "ok", "expired": 1, "stuck": 0}) is True
     assert watchdog.should_notify({"status": "ok", "expired": 0, "dead_lettered_stuck": 1}) is True
     assert watchdog.should_notify({"status": "ok", "expired": 0, "stuck": 0, "deliverable_gate_new": 1}) is True
+    assert watchdog.should_notify({"status": "ok", "expired": 0, "stuck": 0, "deliverable_retry_failed": 1}) is True
+
+
+def test_build_deliverable_retry_envelope_requires_evidence_contract(monkeypatch):
+    watchdog = load_watchdog()
+    monkeypatch.setattr(watchdog, "utc_now", lambda: "2026-06-29T08:20:00+00:00")
+
+    envelope = watchdog.build_deliverable_retry_envelope(
+        {
+            "task_id": "KOL-GATE-1",
+            "kind": "generic_implementation",
+            "error": "deliverable_gate_failed:missing_checks",
+            "envelope": {
+                "objective": "Исправить Telegram формат",
+                "target_node": "__no_such_node__",
+                "acceptance": ["Use HTML parse_mode."],
+            },
+        }
+    )
+
+    assert envelope["task_id"] == "KOL-GATE-1-DELIVERABLE-RETRY"
+    assert envelope["idempotency_key"] == "deliverable-retry:KOL-GATE-1"
+    assert envelope["source_task_id"] == "KOL-GATE-1"
+    assert envelope["retry_reason"] == "deliverable_gate_failed"
+    assert envelope["source"]["kind"] == "watchdog_deliverable_retry"
+    assert "target_node" not in envelope
+    assert "Retry source task: KOL-GATE-1" in envelope["objective"]
+    assert any("changed_files" in item for item in envelope["acceptance"])
+    assert any("checks" in item for item in envelope["acceptance"])
+    assert any("Commit and push" in item for item in envelope["acceptance"])
+
+
+def test_create_deliverable_retry_tasks_uses_new_gate_ids(monkeypatch):
+    watchdog = load_watchdog()
+    calls = []
+
+    def fake_call(control_url, method, path, body=None, timeout=20):
+        calls.append((method, path, body, timeout))
+        if method == "GET" and path == "/v1/tasks/KOL-GATE-1":
+            return {
+                "task_id": "KOL-GATE-1",
+                "kind": "generic_implementation",
+                "envelope": {"objective": "Fix deliverables", "target_node": "__no_such_node__"},
+            }
+        if method == "POST" and path == "/v1/tasks":
+            assert body["task_id"] == "KOL-GATE-1-DELIVERABLE-RETRY"
+            assert body["idempotency_key"] == "deliverable-retry:KOL-GATE-1"
+            assert "target_node" not in body
+            return {"task_id": body["task_id"], "state": "queued", "idempotency_key": body["idempotency_key"]}
+        raise AssertionError(path)
+
+    monkeypatch.setattr(watchdog, "call_control", fake_call)
+    report = {"summary": {"deliverable_gate_new_task_ids": ["KOL-GATE-1"]}}
+
+    retries = watchdog.create_deliverable_retry_tasks(report, "http://control:9101", timeout=3)
+
+    assert retries["created"] == [
+        {
+            "source_task_id": "KOL-GATE-1",
+            "task_id": "KOL-GATE-1-DELIVERABLE-RETRY",
+            "state": "queued",
+            "idempotency_key": "deliverable-retry:KOL-GATE-1",
+        }
+    ]
+    assert retries["failed"] == []
+    assert report["summary"]["deliverable_retry_created"] == 1
+    assert report["summary"]["deliverable_retry_failed"] == 0
+    assert [call[0:2] for call in calls] == [("GET", "/v1/tasks/KOL-GATE-1"), ("POST", "/v1/tasks")]
+
+
+def test_readable_watchdog_report_removes_json_and_send_message_uses_html(monkeypatch):
+    watchdog = load_watchdog()
+    captured = {}
+
+    def fake_urlopen(request, timeout=35):
+        captured["data"] = request.data.decode("utf-8")
+
+        class Response:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return None
+
+            def read(self):
+                return b'{"ok":true,"result":{"message_id":1}}'
+
+        return Response()
+
+    monkeypatch.setattr(watchdog.urllib.request, "urlopen", fake_urlopen)
+    readable = watchdog.readable_report_text("# R\n\n```json\n{\"raw\":true}\n```\n\n2 < 3 & ok")
+    result = watchdog.send_telegram_message("token", 100, readable)
+
+    assert result == {"message_id": 1}
+    payload = watchdog.urllib.parse.parse_qs(captured["data"])
+    assert payload["parse_mode"] == ["HTML"]
+    assert "{\"raw\"" not in payload["text"][0]
+    assert "&lt;" in payload["text"][0]
+    assert "&amp;" in payload["text"][0]
 
 
 def test_maybe_send_telegram_report_skips_clean_report(tmp_path, monkeypatch):
