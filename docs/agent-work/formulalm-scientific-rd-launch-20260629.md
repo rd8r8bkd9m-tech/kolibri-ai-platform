@@ -57,6 +57,9 @@ Mac используется только как поверхность упра
 - Submitted at: 2026-06-29 16:18 MSK
 - Commit with envelope: `ba5fd317`
 - State after submission: `queued`
+- State after final check: `running`
+- Running since check: 2026-06-29 16:21 MSK
+- Lease owner: `primary-candidate:agent-host-primary`
 - Required capability: `generic_implementation`
 - Required permission pack: `full_autonomy`
 - Required permissions:
@@ -64,11 +67,9 @@ Mac используется только как поверхность упра
   `run_tests`, `shell`, `spawn_subagents`, `write_artifacts`,
   `write_worktree`
 
-Причина, почему задача еще не получила lease: целевой сильный узел
-`primary-candidate` в момент проверки занят task
-`TGCHAT-20260629131804-4876-home`. Это живой Telegram-task со state `running`,
-lease owner `primary-candidate:agent-host-primary`. FormulaLM R&D остается в
-очереди на этот узел, чтобы не перебивать активную работу владельца.
+Первичная причина ожидания: целевой сильный узел `primary-candidate` был занят
+task `TGCHAT-20260629131804-4876-home`. Этот Telegram-task завершился, после
+чего FormulaLM R&D получил lease и перешел в `running`.
 
 ## Проверка локального пакета
 
