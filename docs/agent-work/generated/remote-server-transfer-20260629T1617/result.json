@@ -1,0 +1,29 @@
+{
+  "artifact_dir": "docs/agent-work/generated/remote-server-transfer-20260629T1617/",
+  "changed_files": [
+    "docs/agent-work/generated/remote-server-transfer-20260629T1617/primary-result-collector.md",
+    "docs/agent-work/generated/remote-server-transfer-20260629T1617/result.json",
+    "docs/agent-work/generated/remote-server-transfer-20260629T1617/artifact-manifest.json"
+  ],
+  "collected_primary_results": [
+    {
+      "task_id": "KOL-REMOTE-SERVER-TASK-20260629T1603-001-PRIMARY-CI-PR",
+      "branch": "origin/codex/kol-remote-server-task-20260629t1603-001-primary-ci-pr",
+      "commit": "0f65c870941205e1e57d32add31d75839618f0f2",
+      "result_reference": "docs/agent-work/generated/remote-server-transfer-20260629T1603/ci-pr-readiness-primary.md",
+      "status": "completed"
+    },
+    {
+      "task_id": "KOL-REMOTE-SERVER-TASK-20260629T1603-004-PRIMARY-FORMULALM",
+      "branch": "origin/codex/kol-remote-server-task-20260629t1603-004-primary-formulalm",
+      "commit": "b114f517b334124e5de8b4a2c805bc1e67de05dc",
+      "result_reference": "docs/agent-work/generated/remote-server-transfer-20260629T1603/result.json",
+      "status": "completed"
+    }
+  ],
+  "collector_report": "docs/agent-work/generated/remote-server-transfer-20260629T1617/primary-result-collector.md",
+  "head_commit": "6d0317c52a9694448ee2c352dc196ce7a27b9487",
+  "integration_status": "completed",
+  "result_reference": "docs/agent-work/generated/remote-server-transfer-20260629T1617/result.json",
+  "task_id": "KOL-REMOTE-SERVER-TASK-20260629T1617-004-PRIMARY-RESULT-COLLECTOR"
+}

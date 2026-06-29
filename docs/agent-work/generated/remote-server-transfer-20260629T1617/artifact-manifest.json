@@ -1,0 +1,14 @@
+[
+  {
+    "path": "docs/agent-work/generated/remote-server-transfer-20260629T1617/primary-result-collector.md",
+    "role": "collector_report"
+  },
+  {
+    "path": "docs/agent-work/generated/remote-server-transfer-20260629T1617/result.json",
+    "role": "control_plane_result_reference"
+  },
+  {
+    "path": "docs/agent-work/generated/remote-server-transfer-20260629T1617/artifact-manifest.json",
+    "role": "artifact_manifest"
+  }
+]
