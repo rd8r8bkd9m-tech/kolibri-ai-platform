@@ -12,6 +12,7 @@ import { useThemeMode } from "./hooks/useThemeMode"
 import { controlPlugins, getControlPlugin } from "./plugins/controlPlugins"
 
 const PRODUCT_TITLE = "Фабрика Колибри"
+const FACTORY_STATUS_ENDPOINTS = ["/api/factory/status", "/cluster/status"]
 
 export default function App() {
   const [messages, setMessages] = useState([])
@@ -46,12 +47,17 @@ export default function App() {
   const isLanding = routePath === "/" || routePath === ""
 
   const fetchCluster = useCallback(async () => {
-    try {
-      const response = await fetch(`${API_BASE}/api/factory/status`)
-      setClusterStatus(await response.json())
-    } catch {
-      setClusterStatus(null)
+    for (const endpoint of FACTORY_STATUS_ENDPOINTS) {
+      try {
+        const response = await fetch(`${API_BASE}${endpoint}`)
+        if (!response.ok) throw new Error(`Factory status returned ${response.status}`)
+        setClusterStatus(await response.json())
+        return
+      } catch {
+        // Try the read-only cluster alias if the primary status route is unavailable.
+      }
     }
+    setClusterStatus(null)
   }, [])
 
   const fetchDocuments = useCallback(async () => {

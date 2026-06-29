@@ -38,6 +38,6 @@ def test_frontend_uses_live_factory_status_endpoint():
     app_source = (Path(__file__).resolve().parents[1] / "frontend" / "src" / "App.jsx").read_text(encoding="utf-8")
 
     assert "/api/factory/status" in app_source
-    assert "/cluster/status" not in app_source
+    assert "/cluster/status" in app_source
     assert "на базе 5 серверов" not in app_source
     assert "Фабрика Колибри" in app_source
