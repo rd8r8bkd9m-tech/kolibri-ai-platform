@@ -76,10 +76,56 @@ def test_write_reports_creates_latest_json_and_markdown(tmp_path):
 
     json_path, md_path = watchdog.write_reports(report, tmp_path)
 
-    assert json.loads(json_path.read_text(encoding="utf-8"))["event"] == "factory_lease_watchdog"
+    written = json.loads(json_path.read_text(encoding="utf-8"))
+    assert written["event"] == "factory_lease_watchdog"
+    assert written["rollup"]["runs_total"] == 1
     assert "# Kolibri Factory Lease Watchdog" in md_path.read_text(encoding="utf-8")
     assert json.loads((tmp_path / "latest.json").read_text(encoding="utf-8"))["summary"]["status"] == "ok"
     assert "Task total" in (tmp_path / "latest.md").read_text(encoding="utf-8")
+    assert json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))["runs_total"] == 1
+    assert "Runs total" in (tmp_path / "latest-summary.md").read_text(encoding="utf-8")
+
+
+def test_update_rollup_accumulates_actions_and_recent_events(tmp_path):
+    watchdog = load_watchdog()
+    first = {
+        "finished_at": "2026-06-29T07:40:00+00:00",
+        "summary": {
+            "status": "ok",
+            "expired": 1,
+            "stuck": 0,
+            "requeued_expired": 1,
+            "requeued_stuck": 0,
+            "dead_lettered_expired": 0,
+            "dead_lettered_stuck": 0,
+        },
+    }
+    second = {
+        "finished_at": "2026-06-29T07:45:00+00:00",
+        "summary": {
+            "status": "degraded",
+            "expired": 0,
+            "stuck": 2,
+            "requeued_expired": 0,
+            "requeued_stuck": 1,
+            "dead_lettered_expired": 0,
+            "dead_lettered_stuck": 1,
+        },
+    }
+
+    watchdog.update_rollup(first, tmp_path)
+    rollup = watchdog.update_rollup(second, tmp_path)
+
+    assert rollup["runs_total"] == 2
+    assert rollup["runs_ok"] == 1
+    assert rollup["runs_degraded"] == 1
+    assert rollup["actions_total"] == 6
+    assert rollup["totals"]["expired"] == 1
+    assert rollup["totals"]["stuck"] == 2
+    assert rollup["totals"]["requeued_expired"] == 1
+    assert rollup["totals"]["requeued_stuck"] == 1
+    assert rollup["totals"]["dead_lettered_stuck"] == 1
+    assert rollup["recent_actions"][0]["at"] == "2026-06-29T07:45:00+00:00"
 
 
 def test_should_notify_only_on_action_or_problem():

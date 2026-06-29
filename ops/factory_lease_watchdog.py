@@ -239,11 +239,137 @@ def maybe_send_telegram_report(
     return {"status": "sent", "chat_id": int(target_chat_id), "parts": len(parts), "title": title}
 
 
+def int_value(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def action_totals(summary: dict[str, Any]) -> dict[str, int]:
+    return {
+        "expired": int_value(summary.get("expired")),
+        "stuck": int_value(summary.get("stuck")),
+        "requeued_expired": int_value(summary.get("requeued_expired")),
+        "requeued_stuck": int_value(summary.get("requeued_stuck")),
+        "dead_lettered_expired": int_value(summary.get("dead_lettered_expired")),
+        "dead_lettered_stuck": int_value(summary.get("dead_lettered_stuck")),
+    }
+
+
+def empty_rollup(now: str) -> dict[str, Any]:
+    return {
+        "event": "factory_lease_watchdog_rollup",
+        "created_at": now,
+        "updated_at": now,
+        "runs_total": 0,
+        "runs_ok": 0,
+        "runs_degraded": 0,
+        "runs_failed": 0,
+        "actions_total": 0,
+        "totals": {
+            "expired": 0,
+            "stuck": 0,
+            "requeued_expired": 0,
+            "requeued_stuck": 0,
+            "dead_lettered_expired": 0,
+            "dead_lettered_stuck": 0,
+        },
+        "last_summary": {},
+        "recent_actions": [],
+    }
+
+
+def load_rollup(report_dir: Path, now: str) -> dict[str, Any]:
+    path = report_dir / "summary.json"
+    try:
+        rollup = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return empty_rollup(now)
+    base = empty_rollup(now)
+    base.update(rollup if isinstance(rollup, dict) else {})
+    totals = base.setdefault("totals", {})
+    for key in empty_rollup(now)["totals"]:
+        totals[key] = int_value(totals.get(key))
+    base.setdefault("recent_actions", [])
+    return base
+
+
+def update_rollup(report: dict[str, Any], report_dir: Path) -> dict[str, Any]:
+    now = utc_now()
+    report_dir.mkdir(parents=True, exist_ok=True)
+    summary = report.get("summary") or {}
+    rollup = load_rollup(report_dir, now)
+    rollup["updated_at"] = now
+    rollup["runs_total"] = int_value(rollup.get("runs_total")) + 1
+    status = str(summary.get("status") or "failed")
+    if status == "ok":
+        rollup["runs_ok"] = int_value(rollup.get("runs_ok")) + 1
+    elif status == "degraded":
+        rollup["runs_degraded"] = int_value(rollup.get("runs_degraded")) + 1
+    else:
+        rollup["runs_failed"] = int_value(rollup.get("runs_failed")) + 1
+    totals = rollup.setdefault("totals", {})
+    current_actions = action_totals(summary)
+    action_count = sum(current_actions.values())
+    rollup["actions_total"] = int_value(rollup.get("actions_total")) + action_count
+    for key, value in current_actions.items():
+        totals[key] = int_value(totals.get(key)) + value
+    rollup["last_summary"] = summary
+    if action_count or status != "ok":
+        recent = list(rollup.get("recent_actions") or [])
+        recent.insert(
+            0,
+            {
+                "at": report.get("finished_at") or now,
+                "status": status,
+                "summary": summary,
+                "actions": current_actions,
+            },
+        )
+        rollup["recent_actions"] = recent[:20]
+    (report_dir / "summary.json").write_text(json.dumps(rollup, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    (report_dir / "latest-summary.md").write_text(markdown_rollup(rollup), encoding="utf-8")
+    return rollup
+
+
+def markdown_rollup(rollup: dict[str, Any]) -> str:
+    totals = rollup.get("totals") or {}
+    lines = [
+        "# Kolibri Factory Lease Watchdog Summary",
+        "",
+        f"- Created: `{rollup.get('created_at')}`",
+        f"- Updated: `{rollup.get('updated_at')}`",
+        f"- Runs total: `{rollup.get('runs_total')}`",
+        f"- Runs ok: `{rollup.get('runs_ok')}`",
+        f"- Runs degraded: `{rollup.get('runs_degraded')}`",
+        f"- Runs failed: `{rollup.get('runs_failed')}`",
+        f"- Actions total: `{rollup.get('actions_total')}`",
+        f"- Expired leases: `{totals.get('expired')}`",
+        f"- Stuck tasks: `{totals.get('stuck')}`",
+        f"- Requeued expired: `{totals.get('requeued_expired')}`",
+        f"- Requeued stuck: `{totals.get('requeued_stuck')}`",
+        f"- Dead-lettered expired: `{totals.get('dead_lettered_expired')}`",
+        f"- Dead-lettered stuck: `{totals.get('dead_lettered_stuck')}`",
+        "",
+    ]
+    recent = rollup.get("recent_actions") or []
+    if recent:
+        lines.extend(["## Recent Actions", ""])
+        for item in recent[:10]:
+            actions = item.get("actions") or {}
+            active = ", ".join(f"{key}={value}" for key, value in actions.items() if int_value(value))
+            lines.append(f"- `{item.get('at')}` status=`{item.get('status')}` {active or 'problem'}")
+        lines.append("")
+    return "\n".join(lines)
+
+
 def write_reports(report: dict[str, Any], report_dir: Path) -> tuple[Path, Path]:
     report_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     json_path = report_dir / f"factory-lease-watchdog-{stamp}.json"
     md_path = report_dir / f"factory-lease-watchdog-{stamp}.md"
+    report["rollup"] = update_rollup(report, report_dir)
     json_path.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     md_path.write_text(markdown_report(report), encoding="utf-8")
     latest_json = report_dir / "latest.json"
