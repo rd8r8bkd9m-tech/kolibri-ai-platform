@@ -10,6 +10,7 @@ import json
 import mimetypes
 import os
 import platform
+import shlex
 import shutil
 import signal
 import subprocess
@@ -24,6 +25,7 @@ from typing import Any
 
 STOP = False
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+TRUTHY = {"1", "true", "yes", "on"}
 
 
 def utc_now() -> str:
@@ -68,6 +70,14 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    return str(value).strip().lower() in TRUTHY
 
 
 class AgentHost:
@@ -279,6 +289,112 @@ class AgentHost:
         if not response_text:
             raise RuntimeError(f"{empty_response_label} completed without text response")
         return response_text
+
+    def owner_task_worktree(self, task: dict[str, Any], prepared_worktree: Path, stdout_path: Path, stderr_path: Path, branch: str | None, logs: dict[str, str]) -> Path:
+        envelope = task.get("envelope", {})
+        project_path = (envelope.get("project_path") or "").strip()
+        if project_path:
+            candidate = Path(project_path).expanduser()
+            if candidate.is_dir():
+                return candidate
+
+        prepared_worktree.parent.mkdir(parents=True, exist_ok=True)
+        git_env = {"GIT_TERMINAL_PROMPT": "0"}
+        base_ref = envelope.get("base_ref", "origin/main")
+        self.run_command(["git", "clone", self.repo_url, str(prepared_worktree)], prepared_worktree.parent, stdout_path, stderr_path, task, branch, logs, git_env)
+        self.run_command(["git", "fetch", "origin"], prepared_worktree, stdout_path, stderr_path, task, branch, logs, git_env)
+        if branch:
+            self.run_command(["git", "checkout", "-B", branch, base_ref], prepared_worktree, stdout_path, stderr_path, task, branch, logs, git_env)
+        return prepared_worktree
+
+    def owner_runner_command(self, envelope: dict[str, Any], task_id: str, json_output: bool) -> tuple[list[str], str]:
+        objective = (envelope.get("objective") or envelope.get("message") or "").strip()
+        if not objective:
+            raise RuntimeError("owner remote task missing objective")
+        runner = str(
+            os.environ.get("KOLIBRI_OWNER_TASK_RUNNER")
+            or envelope.get("runner")
+            or "mimo"
+        ).strip().lower()
+        title = str(envelope.get("title") or f"owner-task-{task_id}")
+        if runner == "codex":
+            codex = shutil.which("codex")
+            if not codex:
+                raise RuntimeError("codex executable is not available on this node")
+            command = [codex, "exec", "--skip-git-repo-check", "--sandbox", "danger-full-access"]
+            if json_output:
+                command.append("--json")
+            command.append(objective)
+            label = f"{codex} exec --skip-git-repo-check --sandbox danger-full-access {'--json ' if json_output else ''}<objective>"
+            return command, label
+        if runner == "mimo":
+            mimo = shutil.which("mimo")
+            if not mimo:
+                raise RuntimeError("mimo executable is not available on this node")
+            command = [mimo, "run", "--title", title]
+            if json_output:
+                command.extend(["--format", "json"])
+            command.append(objective)
+            label = f"{mimo} run {'--format json ' if json_output else ''}--title {title} <objective>"
+            return command, label
+        raise RuntimeError(f"unsupported owner task runner: {runner}")
+
+    def visible_screen_requested(self, envelope: dict[str, Any]) -> bool:
+        return truthy(envelope.get("visible_on_screen")) or truthy(envelope.get("screen_agent")) or truthy(os.environ.get("KOLIBRI_VISIBLE_AGENT_ENABLED"))
+
+    def launch_visible_agent(
+        self,
+        command: list[str],
+        cwd: Path,
+        artifact_dir: Path,
+        stdout_path: Path,
+        stderr_path: Path,
+        task: dict[str, Any],
+        branch: str | None,
+        logs: dict[str, str],
+    ) -> dict[str, str]:
+        launch_script = artifact_dir / "visible-agent.command"
+        objective_path = artifact_dir / "visible-agent-objective.txt"
+        marker = artifact_dir / "visible-agent-launch.json"
+        objective_path.write_text(command[-1], encoding="utf-8")
+        objective_path.chmod(0o600)
+        command_prefix = " ".join(shlex.quote(part) for part in command[:-1])
+        launch_script.write_text(
+            "#!/bin/sh\n"
+            "set -eu\n"
+            f"cd {shlex.quote(str(cwd))}\n"
+            f"export KOLIBRI_TASK_ID={shlex.quote(task['task_id'])}\n"
+            f"export KOLIBRI_AGENT_ID={shlex.quote(self.agent_id)}\n"
+            f"export KOLIBRI_NODE_ID={shlex.quote(self.node_id)}\n"
+            f"export KOLIBRI_VISIBLE_AGENT_OBJECTIVE={shlex.quote(str(objective_path))}\n"
+            f"exec {command_prefix} \"$(cat \"$KOLIBRI_VISIBLE_AGENT_OBJECTIVE\")\"\n",
+            encoding="utf-8",
+        )
+        launch_script.chmod(0o700)
+        custom_launcher = os.environ.get("KOLIBRI_VISIBLE_AGENT_LAUNCHER_CMD")
+        env = {
+            "KOLIBRI_VISIBLE_AGENT_SCRIPT": str(launch_script),
+            "KOLIBRI_VISIBLE_AGENT_MARKER": str(marker),
+            "KOLIBRI_VISIBLE_AGENT_CWD": str(cwd),
+        }
+        if custom_launcher:
+            self.run_command(["/bin/sh", "-lc", custom_launcher], cwd, stdout_path, stderr_path, task, branch, logs, env, command_label="KOLIBRI_VISIBLE_AGENT_LAUNCHER_CMD")
+            launcher = "custom"
+        elif platform.system() == "Darwin" and shutil.which("osascript"):
+            osa = shutil.which("osascript") or "osascript"
+            self.run_command([
+                osa,
+                "-e",
+                f'tell application "Terminal" to do script {json.dumps(str(launch_script))}',
+                "-e",
+                'tell application "Terminal" to activate',
+            ], cwd, stdout_path, stderr_path, task, branch, logs, command_label="osascript Terminal.app visible agent launcher")
+            launcher = "terminal.app"
+        else:
+            raise RuntimeError("visible screen launch requires macOS Terminal.app or KOLIBRI_VISIBLE_AGENT_LAUNCHER_CMD")
+        if not marker.exists():
+            marker.write_text(json.dumps({"status": "launched", "launcher": launcher, "script": str(launch_script)}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        return {"launcher": launcher, "launch_script": str(launch_script), "launch_marker": str(marker), "objective_path": str(objective_path)}
 
     def write_result(self, artifact_dir: Path, result: dict[str, Any]) -> Path:
         result_path = artifact_dir / "result.json"
@@ -551,6 +667,62 @@ class AgentHost:
         embedded = self.image_b64_for_result(image_path)
         if embedded:
             result["image_b64"] = embedded
+        result_path = self.write_result(artifact_dir, result)
+        result["result_path"] = str(result_path)
+        return result
+
+    def run_owner_remote_task(self, task: dict[str, Any]) -> dict[str, Any]:
+        envelope = task.get("envelope", {})
+        branch = envelope.get("branch")
+        worktree, artifact_dir, logs = self.prepare_dirs(task)
+        stdout_path = Path(logs["stdout"])
+        stderr_path = Path(logs["stderr"])
+        self.task_heartbeat(task, worktree, branch, logs)
+        cwd = self.owner_task_worktree(task, worktree, stdout_path, stderr_path, branch, logs)
+        self.task_heartbeat(task, cwd, branch, logs)
+
+        visible = self.visible_screen_requested(envelope)
+        command, command_label = self.owner_runner_command(envelope, task["task_id"], json_output=not visible)
+        response_text = ""
+        launch: dict[str, str] | None = None
+        status = "completed"
+        if visible:
+            launch = self.launch_visible_agent(command, cwd, artifact_dir, stdout_path, stderr_path, task, branch, logs)
+            response_text = "Запустил видимого агента на домашнем экране."
+            status = "launched"
+        else:
+            response_text = self.run_json_text_command(
+                command,
+                command_label,
+                "owner remote task runner",
+                cwd,
+                stdout_path,
+                stderr_path,
+                task,
+                branch,
+                logs,
+            )
+
+        result = {
+            "node_id": self.node_id,
+            "hostname": self.hostname,
+            "task_id": task["task_id"],
+            "agent_id": self.agent_id,
+            "attempt_id": task.get("attempt_id"),
+            "pid": self.pid,
+            "heartbeat_at": utc_now(),
+            "worktree": str(cwd),
+            "branch": branch,
+            "log_paths": logs,
+            "result_path": str(artifact_dir / "result.json"),
+            "status": status,
+            "kind": "owner_remote_task",
+            "runner": envelope.get("runner") or os.environ.get("KOLIBRI_OWNER_TASK_RUNNER") or "mimo",
+            "visible_on_screen": visible,
+            "response": response_text,
+        }
+        if launch:
+            result.update(launch)
         result_path = self.write_result(artifact_dir, result)
         result["result_path"] = str(result_path)
         return result
@@ -918,6 +1090,8 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 result = self.run_impl_retry_error_clearance(task)
             elif kind in {"telegram_chat_response", "orchestrator_chat_response"}:
                 result = self.run_telegram_chat_response(task)
+            elif kind == "owner_remote_task":
+                result = self.run_owner_remote_task(task)
             elif kind == "telegram_image_generation":
                 result = self.run_telegram_image_generation(task)
             elif kind == "review_pr":

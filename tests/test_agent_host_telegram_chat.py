@@ -130,6 +130,57 @@ def test_telegram_chat_uses_codex_when_ai_runner_is_codex(tmp_path, monkeypatch)
     assert command_label == "/usr/bin/codex exec --json --skip-git-repo-check --sandbox danger-full-access <prompt>"
 
 
+def test_owner_remote_task_can_launch_visible_home_screen_agent(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.setattr(agent_host.shutil, "which", lambda name: "/usr/local/bin/mimo" if name == "mimo" else None)
+    monkeypatch.setenv(
+        "KOLIBRI_VISIBLE_AGENT_LAUNCHER_CMD",
+        "printf '{\"status\":\"launched\"}\\n' > \"$KOLIBRI_VISIBLE_AGENT_MARKER\"",
+    )
+
+    class Host(agent_host.AgentHost):
+        def __init__(self, args):
+            super().__init__(args)
+            self.posts = []
+
+        def post(self, path, body):
+            self.posts.append((path, body))
+            return body
+
+    host = Host(make_args(tmp_path))
+    objective = "Сделай задачу разработки с полными правами, но не печатай этот текст в лог."
+    task = {
+        "task_id": "HOME-SCREEN-1",
+        "kind": "owner_remote_task",
+        "attempt": 1,
+        "attempt_id": "HOME-SCREEN-1-attempt-1",
+        "envelope": {
+            "kind": "owner_remote_task",
+            "objective": objective,
+            "project_path": str(project),
+            "runner": "mimo",
+            "visible_on_screen": True,
+        },
+    }
+
+    result = host.run_owner_remote_task(task)
+
+    assert result["status"] == "launched"
+    assert result["visible_on_screen"] is True
+    assert result["launcher"] == "custom"
+    assert result["worktree"] == str(project)
+    assert Path(result["launch_script"]).is_file()
+    assert Path(result["launch_marker"]).read_text(encoding="utf-8").strip() == '{"status":"launched"}'
+    assert Path(result["objective_path"]).read_text(encoding="utf-8") == objective
+    assert oct(Path(result["objective_path"]).stat().st_mode & 0o777) == "0o600"
+    launch_script = Path(result["launch_script"]).read_text(encoding="utf-8")
+    stdout = Path(result["log_paths"]["stdout"]).read_text(encoding="utf-8")
+    assert objective not in launch_script
+    assert objective not in stdout
+
+
 def test_telegram_chat_runner_error_does_not_expose_owner_prompt_in_failure_payload(tmp_path, monkeypatch):
     agent_host = load_agent_host()
     monkeypatch.delenv("KOLIBRI_TELEGRAM_RUNNER", raising=False)
@@ -180,4 +231,3 @@ def test_parse_codex_agent_message_jsonl(tmp_path):
     )
 
     assert agent_host.AgentHost.parse_json_text_response(stdout) == "Живой ответ директора."
-

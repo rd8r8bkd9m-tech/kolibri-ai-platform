@@ -489,9 +489,18 @@ def build_task_envelope(message: dict[str, Any], text: str, context: dict[str, A
             "accepted_at": utc_now(),
         },
     }
+    if os.environ.get("TELEGRAM_HOME_SCREEN_AGENT", "").strip().lower() in {"1", "true", "yes", "on"}:
+        envelope["target_node"] = os.environ.get("TELEGRAM_HOME_SCREEN_NODE", "home-live")
+        envelope["runner"] = os.environ.get("TELEGRAM_HOME_SCREEN_RUNNER", "mimo")
+        envelope["visible_on_screen"] = True
+        envelope["screen_agent"] = True
     target_node = os.environ.get("TELEGRAM_TASK_NODE")
     if target_node:
         envelope["target_node"] = target_node
+    if os.environ.get("TELEGRAM_TASK_VISIBLE_ON_SCREEN", "").strip().lower() in {"1", "true", "yes", "on"}:
+        envelope["visible_on_screen"] = True
+        envelope["screen_agent"] = True
+        envelope["runner"] = os.environ.get("TELEGRAM_TASK_RUNNER", envelope.get("runner", "mimo"))
     return envelope
 
 

@@ -129,6 +129,23 @@ def test_explicit_telegram_node_env_pins_task(monkeypatch):
     assert gateway.build_chat_envelope(message, "как дела?")["target_node"] == "primary-candidate"
 
 
+def test_home_screen_agent_env_marks_owner_task_for_visible_mimo(monkeypatch):
+    gateway = load_gateway()
+    monkeypatch.setenv("TELEGRAM_HOME_SCREEN_AGENT", "1")
+    message = {
+        "message_id": 445,
+        "chat": {"id": 100, "type": "private"},
+        "from": {"id": 100},
+        "text": "Запусти агента на home прямо на экране",
+    }
+    envelope = gateway.build_task_envelope(message, message["text"])
+    assert envelope["kind"] == "owner_remote_task"
+    assert envelope["target_node"] == "home-live"
+    assert envelope["runner"] == "mimo"
+    assert envelope["visible_on_screen"] is True
+    assert envelope["screen_agent"] is True
+
+
 
 def test_chat_transition_hides_factory_metadata():
     gateway = load_gateway()
