@@ -9,10 +9,12 @@
   --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
   --scrollbar-thumb: #333;
   --scrollbar-track: transparent;
+  --app-height: 100svh;
 }
 
 html, body, #root {
-  height: 100%;
+  min-height: var(--app-height);
+  height: var(--app-height);
   overflow: hidden;
 }
 
@@ -20,6 +22,7 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overscroll-behavior: none;
 }
 
 ::-webkit-scrollbar {

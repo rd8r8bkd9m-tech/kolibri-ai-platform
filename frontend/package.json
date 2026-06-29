@@ -8,7 +8,9 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test:mobile-layout": "node tests/mobile_layout_guard.mjs"
+    "test:mobile-layout": "node tests/mobile_layout_guard.mjs",
+    "test:telegram-webapp": "node tests/telegram_webapp_guard.mjs",
+    "test:api-origin": "node tests/api_origin_guard.mjs"
   },
   "dependencies": {
     "clsx": "^2.1.1",

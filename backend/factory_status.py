@@ -6,7 +6,10 @@ from typing import Any
 
 import httpx
 
-CONTROL_PLANE_URL = os.getenv("KOLIBRI_FACTORY_CONTROL_URL", "http://control.kolibri.internal:9101")
+CONTROL_PLANE_URL = os.getenv("KOLIBRI_FACTORY_CONTROL_URL", "http://10.99.0.2:9101")
+CONTROL_PLANE_TIMEOUT = float(os.getenv("KOLIBRI_FACTORY_STATUS_TIMEOUT", "10"))
+CONTROL_PLANE_CONNECT_TIMEOUT = float(os.getenv("KOLIBRI_FACTORY_STATUS_CONNECT_TIMEOUT", "3"))
+CONTROL_PLANE_TASK_TIMEOUT = float(os.getenv("KOLIBRI_FACTORY_STATUS_TASK_TIMEOUT", "6"))
 
 
 def _control_plane_v1_url(path: str) -> str:
@@ -158,7 +161,10 @@ def build_factory_status(nodes_payload: Any, tasks_payload: Any | None = None, h
 
 
 async def fetch_factory_status() -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=httpx.Timeout(4.0, connect=2.0)) as client:
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(CONTROL_PLANE_TIMEOUT, connect=CONTROL_PLANE_CONNECT_TIMEOUT),
+        trust_env=False,
+    ) as client:
         health_response = await client.get(_control_plane_v1_url("/health"))
         nodes_response = await client.get(_control_plane_v1_url("/nodes"))
         health_response.raise_for_status()
@@ -166,8 +172,11 @@ async def fetch_factory_status() -> dict[str, Any]:
 
     tasks_payload: Any = {"tasks": []}
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(1.5, connect=1.0)) as client:
-            tasks_response = await client.get(_control_plane_v1_url("/tasks"))
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(CONTROL_PLANE_TASK_TIMEOUT, connect=CONTROL_PLANE_CONNECT_TIMEOUT),
+            trust_env=False,
+        ) as client:
+            tasks_response = await client.get(_control_plane_v1_url("/tasks?summary=1&compact=1"))
             if tasks_response.status_code == 200:
                 tasks_payload = tasks_response.json()
     except Exception:

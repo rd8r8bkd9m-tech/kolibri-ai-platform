@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import re
 from typing import Any
 
 
 MAX_RECENT_MESSAGES = 16
 MAX_EXPECTATIONS = 12
 MAX_KNOWN_RESULTS = 12
+URL_RE = re.compile(r"https?://[^\s`),]+")
 
 DEFAULT_PROJECT_CONTEXT = {
     "identity": "Удаленный директор-оркестратор Kolibri живет на control node и отвечает владельцу даже при закрытом MacBook.",
@@ -140,8 +142,19 @@ def record_task_transition(memory: dict[str, Any], task: dict[str, Any], label: 
         value = result.get(key)
         if value:
             urls.append({"kind": key, "url": value, "task_id": task_id, "captured_at": at})
-    if urls:
-        memory.setdefault("known_results", []).extend(urls)
+    response = str(result.get("response") or "")
+    for value in URL_RE.findall(response):
+        urls.append({"kind": "response_url", "url": value, "task_id": task_id, "captured_at": at})
+    unique_urls = []
+    seen = set()
+    for item in urls:
+        url = item.get("url")
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        unique_urls.append(item)
+    if unique_urls:
+        memory.setdefault("known_results", []).extend(unique_urls)
         memory["known_results"] = _trim(memory["known_results"], MAX_KNOWN_RESULTS)
 
 

@@ -4,18 +4,18 @@
   --font-ui: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
 
-  --bg-primary: #f0f4f8;
-  --bg-secondary: #ffffff;
+  --bg-primary: var(--tg-bg-color, #f0f4f8);
+  --bg-secondary: var(--tg-secondary-bg-color, #ffffff);
   --bg-glass: rgba(255, 255, 255, 0.72);
   --bg-glass-hover: rgba(255, 255, 255, 0.85);
   --bg-input: rgba(255, 255, 255, 0.9);
 
-  --text-primary: #0f172a;
-  --text-secondary: #475569;
-  --text-muted: #94a3b8;
+  --text-primary: var(--tg-text-color, #0f172a);
+  --text-secondary: var(--tg-hint-color, #475569);
+  --text-muted: var(--tg-hint-color, #94a3b8);
   --text-inverse: #ffffff;
 
-  --accent: #0ea5e9;
+  --accent: var(--tg-button-color, #0ea5e9);
   --accent-hover: #0284c7;
   --accent-glow: rgba(14, 165, 233, 0.25);
   --accent-soft: rgba(14, 165, 233, 0.08);
@@ -51,18 +51,18 @@
 }
 
 .theme-dark {
-  --bg-primary: #0a0a0f;
-  --bg-secondary: #111118;
+  --bg-primary: var(--tg-bg-color, #0a0a0f);
+  --bg-secondary: var(--tg-secondary-bg-color, #111118);
   --bg-glass: rgba(17, 17, 24, 0.8);
   --bg-glass-hover: rgba(22, 22, 30, 0.9);
   --bg-input: rgba(22, 22, 30, 0.9);
 
-  --text-primary: #f1f5f9;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
+  --text-primary: var(--tg-text-color, #f1f5f9);
+  --text-secondary: var(--tg-hint-color, #94a3b8);
+  --text-muted: var(--tg-hint-color, #64748b);
   --text-inverse: #0f172a;
 
-  --accent: #38bdf8;
+  --accent: var(--tg-button-color, #38bdf8);
   --accent-hover: #7dd3fc;
   --accent-glow: rgba(56, 189, 248, 0.2);
   --accent-soft: rgba(56, 189, 248, 0.08);
@@ -79,7 +79,7 @@
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
-html, body, #root { width: 100%; height: 100%; min-height: 100svh; }
+html, body, #root { width: 100%; height: var(--app-height, 100svh); min-height: var(--app-height, 100svh); }
 
 body {
   background: var(--bg-primary);
@@ -94,8 +94,8 @@ body {
 
 .app {
   display: flex;
-  min-height: 100svh;
-  height: 100svh;
+  min-height: var(--app-height, 100svh);
+  height: var(--app-height, 100svh);
   background: var(--bg-primary);
   position: relative;
 }
@@ -483,7 +483,7 @@ body {
   .sidebar-overlay.open { opacity: 1; pointer-events: auto; }
 
   .app { flex-direction: column; }
-  .main-content { width: 100%; min-height: 100svh; height: 100svh; display: flex; flex-direction: column; }
+  .main-content { width: 100%; min-height: var(--app-height, 100svh); height: var(--app-height, 100svh); display: flex; flex-direction: column; }
   .chat-container { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
   .messages { flex: 1; overflow-y: auto; padding-bottom: 8px; }
   .input-area { padding: 12px 16px calc(var(--composer-bottom-gap-mobile) + var(--safe-bottom)); flex-shrink: 0; position: sticky; bottom: 0; z-index: 10; }
@@ -564,15 +564,15 @@ body {
 .kolibri-avatar__sparkles { fill: none; stroke: #f6c76e; stroke-linecap: round; stroke-width: 2.6; }
 
 @supports (height: 100svh) {
-  .app { height: 100svh; }
-  @media (max-width: 768px) { .main-content { height: 100svh; } }
+  .app { height: var(--app-height, 100svh); }
+  @media (max-width: 768px) { .main-content { height: var(--app-height, 100svh); } }
 }
 
 
 @supports (height: 100dvh) {
-  html, body, #root { min-height: 100dvh; }
-  .app { min-height: 100dvh; height: 100dvh; }
+  html, body, #root { min-height: var(--app-height, 100dvh); }
+  .app { min-height: var(--app-height, 100dvh); height: var(--app-height, 100dvh); }
   @media (max-width: 768px) {
-    .main-content { min-height: 100dvh; height: 100dvh; }
+    .main-content { min-height: var(--app-height, 100dvh); height: var(--app-height, 100dvh); }
   }
 }

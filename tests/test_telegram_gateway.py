@@ -374,6 +374,22 @@ def test_realtime_dev_server_question_returns_ready_preview_url():
         assert forbidden not in reply
 
 
+def test_record_task_transition_extracts_preview_url_from_response_text():
+    gateway = load_gateway()
+    memory = gateway.empty_memory()
+    task = {
+        "task_id": "TG-2",
+        "state": "completed",
+        "result": {
+            "response": "Готово. Открывай миниапп: https://miniapp.example/app и health: https://miniapp.example/health"
+        },
+    }
+    gateway.record_task_transition(memory, task, "COMPLETED", "2026-06-29T05:00:00+00:00")
+    urls = [item["url"] for item in memory["known_results"]]
+    assert "https://miniapp.example/app" in urls
+    assert "https://miniapp.example/health" in urls
+
+
 def test_realtime_reply_answers_simple_arithmetic():
     gateway = load_gateway()
     reply = gateway.build_realtime_owner_reply("2+4", {"memory": gateway.memory_snapshot(gateway.empty_memory())})
@@ -420,6 +436,114 @@ def test_help_text_uses_plain_language_not_service_commands():
     assert "task_id" not in text.lower()
 
 
+def test_start_returns_owner_home_reply_and_optional_miniapp_button(tmp_path):
+    gateway = load_gateway()
+
+    class Telegram:
+        def __init__(self):
+            self.messages = []
+
+        def send_message(self, chat_id, text, reply_markup=None):
+            self.messages.append((chat_id, text, reply_markup))
+
+    class Factory:
+        def nodes(self):
+            return {"nodes": [{"node_id": "n1", "health": "online", "capabilities": ["generic_implementation"]}]}
+
+        def get_tasks(self):
+            return {"tasks": [{"state": "running", "envelope": {"kind": "owner_remote_task"}}], "queue": ["q1"]}
+
+    telegram = Telegram()
+    state = gateway.StateStore(tmp_path / "state.json")
+    state.data["memory"]["known_results"].append({"kind": "preview_url", "url": "https://miniapp.example/app"})
+    app = gateway.Gateway(telegram, Factory(), {100}, state, 1)
+    message = {"message_id": 70, "chat": {"id": 100, "type": "private"}, "from": {"id": 100}, "text": "/start"}
+    app.handle_message(message)
+    assert "Пиши мне задачи обычным языком" in telegram.messages[0][1]
+    assert telegram.messages[0][2] == {"inline_keyboard": [[{"text": "Открыть миниапп", "web_app": {"url": "https://miniapp.example/app"}}]]}
+
+
+def test_gateway_configures_chat_menu_button_from_env(tmp_path, monkeypatch):
+    gateway = load_gateway()
+    monkeypatch.setenv("TELEGRAM_MINIAPP_URL", "https://miniapp.example/app")
+    monkeypatch.setenv("TELEGRAM_MINIAPP_BUTTON_TEXT", "Открыть приложение")
+
+    class Telegram:
+        def __init__(self):
+            self.calls = []
+
+        def set_chat_menu_button(self, text, url):
+            self.calls.append((text, url))
+
+    class Factory:
+        def nodes(self):
+            return {"nodes": []}
+
+        def get_tasks(self):
+            return {"tasks": [], "queue": []}
+
+    telegram = Telegram()
+    state = gateway.StateStore(tmp_path / "state.json")
+    gateway.Gateway(telegram, Factory(), {100}, state, 1)
+    assert telegram.calls == [("Открыть приложение", "https://miniapp.example/app")]
+
+
+def test_miniapp_url_defaults_to_kolibriai_domain(monkeypatch):
+    gateway = load_gateway()
+    monkeypatch.delenv("TELEGRAM_MINIAPP_URL", raising=False)
+    monkeypatch.delenv("KOLIBRI_MINIAPP_URL", raising=False)
+    monkeypatch.delenv("TELEGRAM_MINIAPP_DEFAULT_URL", raising=False)
+
+    assert gateway.preferred_miniapp_url(gateway.empty_memory()) == "https://kolibriai.ru"
+
+
+def test_plain_http_miniapp_env_is_reported_not_used(monkeypatch):
+    gateway = load_gateway()
+    monkeypatch.setenv("TELEGRAM_MINIAPP_URL", "http://178.207.11.90:8180")
+    monkeypatch.setenv("TELEGRAM_MINIAPP_DEFAULT_URL", "http://invalid.local")
+    memory = gateway.empty_memory()
+
+    assert gateway.preferred_miniapp_url(memory) is None
+    reply, markup = gateway.miniapp_reply(memory)
+    assert "HTTPS" in reply
+    assert markup is None
+
+
+def test_miniapp_command_returns_default_kolibriai_webapp_button(tmp_path, monkeypatch):
+    gateway = load_gateway()
+    monkeypatch.delenv("TELEGRAM_MINIAPP_URL", raising=False)
+    monkeypatch.delenv("KOLIBRI_MINIAPP_URL", raising=False)
+    monkeypatch.delenv("TELEGRAM_MINIAPP_DEFAULT_URL", raising=False)
+
+    class Telegram:
+        def __init__(self):
+            self.messages = []
+
+        def send_message(self, chat_id, text, reply_markup=None):
+            self.messages.append((chat_id, text, reply_markup))
+
+    class Factory:
+        def nodes(self):
+            return {"nodes": []}
+
+        def get_tasks(self):
+            return {"tasks": [], "queue": []}
+
+    telegram = Telegram()
+    state = gateway.StateStore(tmp_path / "state.json")
+    app = gateway.Gateway(telegram, Factory(), {100}, state, 1)
+    message = {"message_id": 76, "chat": {"id": 100, "type": "private"}, "from": {"id": 100}, "text": "/miniapp"}
+    app.handle_message(message)
+
+    assert telegram.messages == [
+        (
+            100,
+            "Miniapp готов к открытию: https://kolibriai.ru",
+            {"inline_keyboard": [[{"text": "Открыть миниапп", "web_app": {"url": "https://kolibriai.ru"}}]]},
+        )
+    ]
+
+
 def test_submit_text_task_control_plane_failure_is_human(tmp_path):
     gateway = load_gateway()
 
@@ -447,6 +571,105 @@ def test_submit_text_task_control_plane_failure_is_human(tmp_path):
     app.submit_text_task(message, message["text"])
     assert telegram.messages == [(100, "Я услышал задачу, но Control Plane сейчас не принял её в очередь. Зафиксировал сбой и разбираю отдельно.")]
     assert state.data["memory"]["last_work_request"]["state"] == "failed"
+
+
+def test_miniapp_command_returns_launch_button_from_memory(tmp_path):
+    gateway = load_gateway()
+
+    class Telegram:
+        def __init__(self):
+            self.messages = []
+
+        def send_message(self, chat_id, text, reply_markup=None):
+            self.messages.append((chat_id, text, reply_markup))
+
+    class Factory:
+        def nodes(self):
+            return {"nodes": []}
+
+        def get_tasks(self):
+            return {"tasks": [], "queue": []}
+
+    telegram = Telegram()
+    state = gateway.StateStore(tmp_path / "state.json")
+    state.data["memory"]["known_results"].append({"kind": "preview_url", "url": "https://miniapp.example/app"})
+    app = gateway.Gateway(telegram, Factory(), {100}, state, 1)
+    message = {"message_id": 77, "chat": {"id": 100, "type": "private"}, "from": {"id": 100}, "text": "/miniapp"}
+    app.handle_message(message)
+    assert telegram.messages == [
+        (
+            100,
+            "Miniapp готов к открытию: https://miniapp.example/app",
+            {"inline_keyboard": [[{"text": "Открыть миниапп", "web_app": {"url": "https://miniapp.example/app"}}]]},
+        )
+    ]
+
+
+def test_open_miniapp_text_request_returns_launch_button(tmp_path):
+    gateway = load_gateway()
+
+    class Telegram:
+        def __init__(self):
+            self.messages = []
+
+        def send_message(self, chat_id, text, reply_markup=None):
+            self.messages.append((chat_id, text, reply_markup))
+
+    class Factory:
+        def nodes(self):
+            return {"nodes": []}
+
+        def get_tasks(self):
+            return {"tasks": [], "queue": []}
+
+    telegram = Telegram()
+    state = gateway.StateStore(tmp_path / "state.json")
+    state.data["memory"]["known_results"].append({"kind": "preview_url", "url": "https://miniapp.example/app"})
+    app = gateway.Gateway(telegram, Factory(), {100}, state, 1)
+    message = {"message_id": 78, "chat": {"id": 100, "type": "private"}, "from": {"id": 100}, "text": "Открой миниапп"}
+    app.handle_message(message)
+    assert telegram.messages == [
+        (
+            100,
+            "Miniapp готов к открытию: https://miniapp.example/app",
+            {"inline_keyboard": [[{"text": "Открыть миниапп", "web_app": {"url": "https://miniapp.example/app"}}]]},
+        )
+    ]
+
+
+def test_fix_miniapp_request_still_creates_owner_task_not_open_shortcut(tmp_path):
+    gateway = load_gateway()
+
+    class Telegram:
+        def __init__(self):
+            self.messages = []
+
+        def send_message(self, chat_id, text, reply_markup=None):
+            self.messages.append((chat_id, text, reply_markup))
+
+    class Factory:
+        def __init__(self):
+            self.envelopes = []
+
+        def create_task(self, envelope):
+            self.envelopes.append(envelope)
+            return {"task_id": envelope["task_id"], "state": "queued"}
+
+        def nodes(self):
+            return {"nodes": []}
+
+        def get_tasks(self):
+            return {"tasks": [], "queue": []}
+
+    telegram = Telegram()
+    factory = Factory()
+    state = gateway.StateStore(tmp_path / "state.json")
+    app = gateway.Gateway(telegram, factory, {100}, state, 1)
+    message = {"message_id": 79, "chat": {"id": 100, "type": "private"}, "from": {"id": 100}, "text": "Почини телеграм бот миниапп"}
+    app.handle_message(message)
+    assert factory.envelopes
+    assert factory.envelopes[0]["kind"] == "owner_remote_task"
+    assert "Miniapp готов к открытию" not in telegram.messages[0][1]
 
 
 def test_submit_image_task_queues_remote_generation(tmp_path):
@@ -647,3 +870,44 @@ def test_submit_chat_task_streams_partial_response_with_edit(tmp_path, monkeypat
 
     assert telegram.messages == [(100, "Думаю над ответом.")]
     assert telegram.edits == [(100, 11, "Ответ готов.")]
+
+
+def test_poll_task_transition_sends_webapp_button_for_https_result(tmp_path):
+    gateway = load_gateway()
+
+    class Telegram:
+        def __init__(self):
+            self.messages = []
+
+        def send_message(self, chat_id, text, reply_markup=None):
+            self.messages.append((chat_id, text, reply_markup))
+
+    class Factory:
+        def get_tasks(self):
+            return {"tasks": [], "queue": []}
+
+        def get_task(self, task_id):
+            return {
+                "task_id": task_id,
+                "state": "completed",
+                "envelope": {"kind": "owner_remote_task"},
+                "result": {
+                    "response": "Готово. Проект запущен: https://miniapp.example/app",
+                    "preview_url": "https://miniapp.example/app",
+                },
+            }
+
+    telegram = Telegram()
+    state = gateway.StateStore(tmp_path / "state.json")
+    state.data["owner_chat_id"] = 100
+    state.data["tracked"]["TG-3"] = {"chat_id": 100, "last_state": "RUNNING", "mode": "task"}
+    app = gateway.Gateway(telegram, Factory(), {100}, state, 1)
+    app.poll_task_transitions()
+
+    assert telegram.messages == [
+        (
+            100,
+            "Готово. Проект запущен: https://miniapp.example/app",
+            {"inline_keyboard": [[{"text": "Открыть миниапп", "web_app": {"url": "https://miniapp.example/app"}}]]},
+        )
+    ]

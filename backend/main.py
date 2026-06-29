@@ -22,7 +22,8 @@ from stt import STTEngine
 from websearch import WebSearchEngine
 from factory_status import fetch_factory_status
 
-DB_PATH = Path("/opt/kolibri-ai/data/kolibri.db")
+DATA_DIR = Path(os.environ.get("KOLIBRI_DATA_DIR") or (Path(__file__).resolve().parents[1] / "data"))
+DB_PATH = DATA_DIR / "kolibri.db"
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 def init_db():
@@ -345,6 +346,12 @@ PROXY_ROUTES = {
 @app.api_route("/{prefix}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
 async def proxy_handler(prefix: str, path: str, request: Request):
     req_path = f"/{prefix}/{path}"
+    if req_path.startswith("/assets/"):
+        frontend_root = resolve_frontend_path()
+        if frontend_root:
+            asset_path = frontend_root / req_path.lstrip("/")
+            if asset_path.exists() and asset_path.is_file():
+                return FileResponse(str(asset_path))
     upstream = None
     matched_prefix = None
 
@@ -383,9 +390,26 @@ async def proxy_handler(prefix: str, path: str, request: Request):
         headers={k: v for k, v in resp.headers.items() if k.lower() not in ("transfer-encoding", "content-encoding", "content-length")},
     )
 
-frontend_path = Path("/opt/kolibri-ai/frontend/dist")
-if frontend_path.exists():
-    app.mount("/assets", StaticFiles(directory=str(frontend_path / "assets")), name="assets")
+def resolve_frontend_path() -> Path | None:
+    candidates: list[Path] = []
+    explicit = os.environ.get("KOLIBRI_FRONTEND_DIST")
+    if explicit:
+        candidates.append(Path(explicit))
+    candidates.extend([
+        Path("/opt/kolibri-ai/frontend/dist"),
+        Path(__file__).resolve().parents[1] / "frontend" / "dist",
+    ])
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+frontend_path = resolve_frontend_path()
+if frontend_path and frontend_path.exists():
+    assets_path = frontend_path / "assets"
+    if assets_path.exists():
+        app.mount("/assets", StaticFiles(directory=str(assets_path)), name="assets")
 
     @app.get("/{full_path:path}")
     async def serve_frontend(full_path: str):
@@ -393,5 +417,3 @@ if frontend_path.exists():
         if file_path.exists() and file_path.is_file():
             return FileResponse(str(file_path))
         return FileResponse(str(frontend_path / "index.html"))
-
-

@@ -4,10 +4,16 @@ import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import "./App.css"
 import { KolibriBird } from "./components/KolibriBird"
+import { bootstrapTelegramWebApp, getTelegramWebApp, isTelegramMiniAppContext } from "./lib/telegram"
 
-const IS_LOCAL = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
-const API_BASE = IS_LOCAL ? `http://${window.location.hostname}:8000` : ""
-const WS_HOST = IS_LOCAL ? `${window.location.hostname}:8000` : window.location.host
+const API_BASE = (import.meta.env.VITE_API_BASE || "").replace(/\/$/, "")
+const WS_BASE = (import.meta.env.VITE_WS_BASE || "").replace(/\/$/, "")
+
+function webSocketUrl(path) {
+  if (WS_BASE) return `${WS_BASE}${path}`
+  const proto = window.location.protocol === "https:" ? "wss:" : "ws:"
+  return `${proto}//${window.location.host}${path}`
+}
 
 class ErrorBoundary extends Component {
   constructor(props) { super(props); this.state = { error: null } }
@@ -142,27 +148,43 @@ function ClusterView({ status, onRefresh }) {
 }
 
 export default function App() {
+  const isTelegramMiniapp = isTelegramMiniAppContext()
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState("")
   const [loading, setLoading] = useState(false)
   const [ws, setWs] = useState(null)
   const [connected, setConnected] = useState(false)
+  const [transportMode, setTransportMode] = useState("offline")
   const [providers, setProviders] = useState([])
   const [selectedProvider, setSelectedProvider] = useState("mimo")
   const [sidebar, setSidebar] = useState(false)
-  const [theme, setTheme] = useState(() => localStorage.getItem("kolibri-theme") || "dark")
+  const [theme, setTheme] = useState(() => {
+    const telegramTheme = getTelegramWebApp()?.colorScheme
+    if (telegramTheme === "light" || telegramTheme === "dark") {
+      return telegramTheme
+    }
+    return localStorage.getItem("kolibri-theme") || "dark"
+  })
   const [activeTab, setActiveTab] = useState("chat")
   const [documents, setDocuments] = useState([])
   const [docLoading, setDocLoading] = useState(false)
   const [docError, setDocError] = useState("")
   const [uploading, setUploading] = useState(false)
   const [clusterStatus, setClusterStatus] = useState(null)
+  const [clusterUnavailable, setClusterUnavailable] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [searchResults, setSearchResults] = useState([])
   const [searchLoading, setSearchLoading] = useState(false)
   const messagesEnd = useRef(null)
   const inputRef = useRef(null)
   const fileInputRef = useRef(null)
+  const wsRetryRef = useRef(null)
+
+  useEffect(() => {
+    return bootstrapTelegramWebApp((nextTheme) => {
+      setTheme((current) => current === nextTheme ? current : nextTheme)
+    })
+  }, [])
 
   useEffect(() => {
     const root = document.documentElement
@@ -173,20 +195,34 @@ export default function App() {
   }, [theme])
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/providers`).then(r => r.json()).then(setProviders).catch(() => {})
-    connectWS()
+    probeHttpConnection()
+    if (!isTelegramMiniapp) connectWS()
     fetchCluster()
     const ci = setInterval(fetchCluster, 15000)
-    return () => { if (ws) ws.close(); clearInterval(ci) }
+    return () => {
+      if (wsRetryRef.current) clearTimeout(wsRetryRef.current)
+      if (ws) ws.close()
+      clearInterval(ci)
+    }
   }, [])
 
   useEffect(() => { messagesEnd.current?.scrollIntoView({ behavior: "smooth" }) }, [messages])
 
+  useEffect(() => {
+    if (isTelegramMiniapp && activeTab !== "chat") {
+      setActiveTab("chat")
+    }
+  }, [activeTab, isTelegramMiniapp])
+
   const fetchCluster = async () => {
     try {
       const r = await fetch(`${API_BASE}/api/factory/status`)
+      if (!r.ok) throw new Error("factory status unavailable")
+      setClusterUnavailable(false)
       setClusterStatus(await r.json())
-    } catch {}
+    } catch {
+      setClusterUnavailable(true)
+    }
   }
 
   const fetchDocuments = async () => {
@@ -201,6 +237,22 @@ export default function App() {
 
   useEffect(() => { if (activeTab === "documents") fetchDocuments() }, [activeTab])
 
+  const probeHttpConnection = useCallback(async () => {
+    try {
+      const r = await fetch(`${API_BASE}/api/providers`)
+      if (!r.ok) throw new Error("providers unavailable")
+      const data = await r.json()
+      setProviders(data)
+      setConnected(true)
+      setTransportMode((current) => current === "ws" ? current : "http")
+      return true
+    } catch {
+      setConnected(false)
+      setTransportMode("offline")
+      return false
+    }
+  }, [])
+
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0]; if (!file) return
     setUploading(true)
@@ -213,11 +265,20 @@ export default function App() {
   }
 
   const connectWS = useCallback(() => {
-    const proto = window.location.protocol === "https:" ? "wss:" : "ws:"
     let socket
-    try { socket = new WebSocket(`${proto}//${WS_HOST}/ws/chat`) } catch { return }
-    socket.onopen = () => setConnected(true)
-    socket.onclose = () => { setConnected(false); setTimeout(connectWS, 3000) }
+    try { socket = new WebSocket(webSocketUrl("/ws/chat")) } catch { return }
+    socket.onopen = () => {
+      setConnected(true)
+      setTransportMode("ws")
+    }
+    socket.onerror = () => {
+      try { socket.close() } catch {}
+    }
+    socket.onclose = async () => {
+      const httpOk = await probeHttpConnection()
+      if (wsRetryRef.current) clearTimeout(wsRetryRef.current)
+      wsRetryRef.current = setTimeout(connectWS, httpOk ? 15000 : 3000)
+    }
     socket.onmessage = (e) => {
       const data = JSON.parse(e.data)
       setMessages(prev => {
@@ -233,7 +294,7 @@ export default function App() {
       setLoading(false)
     }
     setWs(socket)
-  }, [])
+  }, [probeHttpConnection])
 
   const sendMessage = async () => {
     if (!input.trim() || loading) return
@@ -266,21 +327,47 @@ export default function App() {
 
   const handleKeyDown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage() } }
 
-  const quickActions = [
+  const quickActions = isTelegramMiniapp ? [
+    { icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>, title: "Новая задача", desc: "Поставить задачу фабрике", color: "blue", prompt: "" },
+    { icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>, title: "Статус задач", desc: "Что сейчас в работе", color: "green", prompt: "Какие задачи сейчас в работе и что уже выполнено?" },
+    { icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>, title: "Последняя ссылка", desc: "Получить рабочий результат", color: "orange", prompt: "Пришли последнюю рабочую ссылку и текущий статус." },
+  ] : [
     { icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>, title: "Чат с AI", desc: "Задайте вопрос", color: "blue", prompt: "" },
     { icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>, title: "Смета", desc: "AI-генерация сметы", color: "purple", prompt: "Создай строительную смету для " },
     { icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 002 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0022 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>, title: "Документы", desc: "Пакет документов", color: "green", prompt: "Создай полный пакет документов для " },
     { id: "search", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>, title: "Поиск", desc: "База знаний", color: "orange", prompt: "" },
   ]
 
+  const navItems = isTelegramMiniapp ? [] : [
+    { id: "chat", label: "Чат", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg> },
+    { id: "documents", label: "Документы", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg> },
+    { id: "search", label: "Поиск", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> },
+    { id: "cluster", label: "Сеть", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="2" width="6" height="6" rx="1"/><rect x="16" y="2" width="6" height="6" rx="1"/><rect x="9" y="16" width="6" height="6" rx="1"/><path d="M5 8v3a2 2 0 002 2h10a2 2 0 002-2V8"/></svg> },
+  ]
+
   const birdState = loading ? "thinking" : connected ? "idle" : "error"
+  const connectionLabel = transportMode === "ws"
+    ? "Фабрика онлайн"
+    : transportMode === "http"
+      ? "Фабрика онлайн (HTTP)"
+      : "Связь с фабрикой потеряна"
+  const clusterLabel = clusterStatus
+    ? `${clusterStatus.online_nodes}/${clusterStatus.total_nodes} узлов · ${clusterStatus.free_ram_gb} GB RAM`
+    : clusterUnavailable
+      ? "Мониторинг фабрики временно недоступен"
+      : "Загрузка..."
+  const ownerWelcomeLabel = clusterStatus
+    ? `Ставьте задачи фабрике обычным языком. Сейчас ${clusterStatus.online_nodes}/${clusterStatus.total_nodes} узлов онлайн.`
+    : clusterUnavailable
+      ? "Ставьте задачи фабрике обычным языком. Чат работает, но мониторинг фабрики сейчас недоступен."
+      : "Ставьте задачи фабрике обычным языком. Получаю текущее состояние фабрики."
 
   return (
     <ErrorBoundary>
-      <div className="app">
-        <div className={`sidebar-overlay ${sidebar ? "open" : ""}`} onClick={() => setSidebar(false)} />
+      <div className={`app${isTelegramMiniapp ? " telegram-miniapp" : ""}`}>
+        {!isTelegramMiniapp && <div className={`sidebar-overlay ${sidebar ? "open" : ""}`} onClick={() => setSidebar(false)} />}
 
-        <aside className={`sidebar ${sidebar ? "open" : ""}`}>
+        {!isTelegramMiniapp && <aside className={`sidebar ${sidebar ? "open" : ""}`}>
           <div className="sidebar-header">
             <div className="sidebar-logo">
               <KolibriBird size={36} state={birdState} />
@@ -297,12 +384,7 @@ export default function App() {
           </div>
 
           <nav className="sidebar-nav">
-            {[
-              { id: "chat", label: "Чат", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg> },
-              { id: "documents", label: "Документы", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg> },
-              { id: "search", label: "Поиск", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> },
-              { id: "cluster", label: "Сеть", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="2" width="6" height="6" rx="1"/><rect x="16" y="2" width="6" height="6" rx="1"/><rect x="9" y="16" width="6" height="6" rx="1"/><path d="M5 8v3a2 2 0 002 2h10a2 2 0 002-2V8"/></svg> },
-            ].map(item => (
+            {navItems.map(item => (
               <motion.button key={item.id} className={`sidebar-nav-item ${activeTab === item.id ? "active" : ""}`}
                 onClick={() => { setActiveTab(item.id); setSidebar(false) }}
                 whileHover={{ x: 2 }} whileTap={{ scale: 0.98 }}>
@@ -336,28 +418,28 @@ export default function App() {
               <motion.div className={`connection-dot ${connected ? "connected" : ""}`}
                 animate={connected ? { scale: [1, 1.3, 1] } : {}}
                 transition={{ duration: 2, repeat: Infinity }} />
-              {connected ? "Фабрика онлайн" : "Связь с фабрикой потеряна"}
+              {connectionLabel}
             </div>
           </div>
-        </aside>
+        </aside>}
 
         <div className="main-content">
           <header className="header">
             <div className="header-left">
-              <button className="header-btn mobile-menu" onClick={() => setSidebar(!sidebar)}>
+              {!isTelegramMiniapp && <button className="header-btn mobile-menu" onClick={() => setSidebar(!sidebar)}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
                 </svg>
-              </button>
+              </button>}
               <div>
-                <div className="header-title">Kolibri AI</div>
+                <div className="header-title">{isTelegramMiniapp ? "Kolibri Director" : "Kolibri AI"}</div>
                 <div className="header-subtitle">
                   {clusterStatus ? (
                     <span className="header-cluster">
                       <span className="pulse-dot" />
-                      {clusterStatus.online_nodes} узлов · {clusterStatus.free_ram_gb} GB RAM
+                      {clusterLabel}
                     </span>
-                  ) : "Загрузка..."}
+                  ) : clusterLabel}
                 </div>
               </div>
             </div>
@@ -384,10 +466,12 @@ export default function App() {
                           <KolibriBird size={90} state="idle" />
                         </motion.div>
                         <motion.h1 className="welcome-title" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: 0.3 }}>Kolibri AI</motion.h1>
+                          transition={{ delay: 0.3 }}>{isTelegramMiniapp ? "Панель владельца" : "Kolibri AI"}</motion.h1>
                         <motion.p className="welcome-subtitle" initial={{ opacity: 0 }} animate={{ opacity: 1 }}
                           transition={{ delay: 0.4 }}>
-                          Фабрика Колибри · {clusterStatus ? `${clusterStatus.online_nodes}/${clusterStatus.total_nodes} узлов · ${clusterStatus.total_ram_gb} GB RAM` : "загрузка"}
+                          {isTelegramMiniapp
+                            ? ownerWelcomeLabel
+                            : `Фабрика Колибри · ${clusterStatus ? `${clusterStatus.online_nodes}/${clusterStatus.total_nodes} узлов · ${clusterStatus.total_ram_gb} GB RAM` : clusterUnavailable ? "мониторинг временно недоступен" : "загрузка"}`}
                         </motion.p>
                         <div className="quick-actions">
                           {quickActions.map((a, i) => (
@@ -446,7 +530,7 @@ export default function App() {
                   <div className="input-area">
                     <div className="input-wrapper">
                       <textarea ref={inputRef} value={input} onChange={e => setInput(e.target.value)} onKeyDown={handleKeyDown}
-                        placeholder="Спросите что угодно..." rows={1} disabled={loading}
+                        placeholder={isTelegramMiniapp ? "Поставьте задачу фабрике или спросите статус..." : "Спросите что угодно..."} rows={1} disabled={loading}
                         onInput={e => { e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px" }} />
                       <motion.button onClick={sendMessage} disabled={loading || !input.trim()} className="send-btn"
                         whileHover={{ scale: 1.08 }} whileTap={{ scale: 0.92 }}>
@@ -464,7 +548,7 @@ export default function App() {
                 </motion.div>
               )}
 
-              {activeTab === "documents" && (
+              {!isTelegramMiniapp && activeTab === "documents" && (
                 <motion.div key="docs" className="documents-panel" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
                   <div className="documents-header">
                     <h2>Документы</h2>
@@ -507,9 +591,9 @@ export default function App() {
                 </motion.div>
               )}
 
-              {activeTab === "cluster" && <ClusterView status={clusterStatus} onRefresh={fetchCluster} />}
+              {!isTelegramMiniapp && activeTab === "cluster" && <ClusterView status={clusterStatus} onRefresh={fetchCluster} />}
 
-              {activeTab === "search" && (
+              {!isTelegramMiniapp && activeTab === "search" && (
                 <motion.div key="search" className="documents-panel" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
                   <div className="documents-header"><h2>Поиск</h2></div>
                   <div style={{ marginBottom: "20px" }}>

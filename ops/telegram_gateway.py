@@ -36,6 +36,7 @@ from orchestrator_memory import (
 
 
 STOP = False
+CANONICAL_MINIAPP_URL = "https://kolibriai.ru"
 SIGNIFICANT_STATES = {
     "queued": "QUEUED",
     "leased": "RUNNING",
@@ -238,6 +239,25 @@ def should_answer_immediately(text: str) -> bool:
     return False
 
 
+def wants_open_miniapp(text: str) -> bool:
+    lowered = text.strip().lower()
+    if not lowered:
+        return False
+    open_markers = (
+        "открой миниапп",
+        "открыть миниапп",
+        "покажи миниапп",
+        "дай миниапп",
+        "дай ссылку на миниапп",
+        "открой приложение",
+        "открыть приложение",
+        "покажи приложение",
+        "open miniapp",
+        "open webapp",
+    )
+    return any(marker in lowered for marker in open_markers)
+
+
 def owner_safe_runtime_failure(text: str, snapshot: dict[str, Any] | None = None) -> str:
     del text
     active = len((snapshot or {}).get("active_tasks") or [])
@@ -325,8 +345,11 @@ class TelegramClient:
             payload["offset"] = offset
         return self.call("getUpdates", payload, timeout=timeout + 10).get("result", [])
 
-    def send_message(self, chat_id: int, text: str) -> dict[str, Any]:
-        response = self.call("sendMessage", {"chat_id": chat_id, "text": text[:3900], "disable_web_page_preview": True})
+    def send_message(self, chat_id: int, text: str, reply_markup: dict[str, Any] | None = None) -> dict[str, Any]:
+        payload: dict[str, Any] = {"chat_id": chat_id, "text": text[:3900], "disable_web_page_preview": True}
+        if reply_markup:
+            payload["reply_markup"] = json.dumps(reply_markup, ensure_ascii=False, separators=(",", ":"))
+        response = self.call("sendMessage", payload)
         return response.get("result") or {}
 
     def send_photo(self, chat_id: int, photo: str | bytes | Path, caption: str | None = None, mime_type: str | None = None) -> dict[str, Any]:
@@ -354,20 +377,37 @@ class TelegramClient:
         response = self.call("sendPhoto", fields, timeout=60)
         return response.get("result") or {}
 
-    def edit_message(self, chat_id: int, message_id: int, text: str) -> dict[str, Any]:
-        response = self.call(
-            "editMessageText",
-            {
-                "chat_id": chat_id,
-                "message_id": message_id,
-                "text": text[:3900],
-                "disable_web_page_preview": True,
-            },
-        )
+    def edit_message(self, chat_id: int, message_id: int, text: str, reply_markup: dict[str, Any] | None = None) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": text[:3900],
+            "disable_web_page_preview": True,
+        }
+        if reply_markup:
+            payload["reply_markup"] = json.dumps(reply_markup, ensure_ascii=False, separators=(",", ":"))
+        response = self.call("editMessageText", payload)
         return response.get("result") or {}
 
     def send_action(self, chat_id: int, action: str = "typing") -> None:
         self.call("sendChatAction", {"chat_id": chat_id, "action": action}, timeout=10)
+
+    def set_chat_menu_button(self, text: str, url: str) -> None:
+        self.call(
+            "setChatMenuButton",
+            {
+                "menu_button": json.dumps(
+                    {
+                        "type": "web_app",
+                        "text": text[:64],
+                        "web_app": {"url": url},
+                    },
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+            },
+            timeout=15,
+        )
 
 
 class FactoryClient:
@@ -620,11 +660,33 @@ def last_work_line(memory: dict[str, Any]) -> str:
     return "Последней рабочей задачи в памяти пока нет."
 
 
+def is_http_url(value: str | None) -> bool:
+    return bool(value and value.startswith(("http://", "https://")))
+
+
+def is_https_url(value: str | None) -> bool:
+    return bool(value and value.startswith("https://"))
+
+
 def first_known_url(memory: dict[str, Any]) -> str | None:
     for item in reversed(memory.get("known_results") or []):
         url = item.get("url")
         if url:
             return str(url)
+    return None
+
+
+def first_known_miniapp_url(memory: dict[str, Any]) -> str | None:
+    known_results = list(memory.get("known_results") or [])
+    preferred_kinds = {"miniapp_url", "webapp_url", "preview_url", "staging_url", "response_url"}
+    for item in reversed(known_results):
+        url = str(item.get("url") or "")
+        if item.get("kind") in preferred_kinds and is_https_url(url):
+            return url
+    for item in reversed(known_results):
+        url = str(item.get("url") or "")
+        if is_https_url(url):
+            return url
     return None
 
 
@@ -689,6 +751,60 @@ def build_realtime_owner_reply(text: str, snapshot: dict[str, Any]) -> str:
     return f"Слышу. Продолжаю из текущего контекста: {last_work_line(memory)}"
 
 
+def preferred_miniapp_url(memory: dict[str, Any] | None = None) -> str | None:
+    explicit = (os.environ.get("TELEGRAM_MINIAPP_URL") or os.environ.get("KOLIBRI_MINIAPP_URL") or "").strip()
+    if is_https_url(explicit):
+        return explicit
+    if memory:
+        known = first_known_miniapp_url(memory)
+        if known:
+            return known
+    default_url = (os.environ.get("TELEGRAM_MINIAPP_DEFAULT_URL") or CANONICAL_MINIAPP_URL).strip()
+    return default_url if is_https_url(default_url) else None
+
+
+def miniapp_config_problem() -> str | None:
+    explicit = (os.environ.get("TELEGRAM_MINIAPP_URL") or os.environ.get("KOLIBRI_MINIAPP_URL") or "").strip()
+    if explicit and not is_https_url(explicit):
+        return "Miniapp URL должен быть HTTPS, иначе Telegram не откроет WebApp-кнопку."
+    default_url = (os.environ.get("TELEGRAM_MINIAPP_DEFAULT_URL") or CANONICAL_MINIAPP_URL).strip()
+    if default_url and not is_https_url(default_url):
+        return "Канонический miniapp URL настроен не как HTTPS."
+    return None
+
+
+def miniapp_reply(memory: dict[str, Any]) -> tuple[str, dict[str, Any] | None]:
+    url = preferred_miniapp_url(memory)
+    problem = miniapp_config_problem()
+    if not url:
+        return (
+            problem or "Рабочей HTTPS miniapp-ссылки сейчас нет. Telegram WebApp требует HTTPS; сначала подниму домен и верну кнопку открытия сюда.",
+            None,
+        )
+    text = f"Miniapp готов к открытию: {url}"
+    if problem:
+        text = f"{text}\nВажно: {problem}"
+    markup = {"inline_keyboard": [[{"text": "Открыть миниапп", "web_app": {"url": url}}]]}
+    return text, markup
+
+
+def owner_home_reply(snapshot: dict[str, Any]) -> tuple[str, dict[str, Any] | None]:
+    memory = snapshot.get("memory") or {}
+    active_tasks = snapshot.get("active_tasks") or []
+    queue_length = snapshot.get("queue_length") or 0
+    team = summarize_team(snapshot)
+    url = preferred_miniapp_url(memory)
+    lines = [
+        "Пиши мне задачи обычным языком. Я сам ставлю их в фабрику, слежу за исполнением и возвращаю сюда статус, ссылки и результат.",
+        f"Сейчас: {len(active_tasks)} активных задач, очередь {queue_length}, команда {team}.",
+    ]
+    if url:
+        lines.append(f"Последний рабочий интерфейс: {url}")
+    text = "\n".join(lines)
+    markup = launch_button_markup({"result": {"webapp_url": url}}) if url else None
+    return text, markup
+
+
 def build_task_ack_reply(text: str, snapshot: dict[str, Any], task: dict[str, Any]) -> str:
     del task
     active = len(snapshot.get("active_tasks") or [])
@@ -739,6 +855,17 @@ class Gateway:
         self.owner_ids = owner_ids
         self.state = state
         self.poll_timeout = poll_timeout
+        self.configure_menu_button()
+
+    def configure_menu_button(self) -> None:
+        url = preferred_miniapp_url(self.memory())
+        if not url or not url.startswith("https://") or not hasattr(self.telegram, "set_chat_menu_button"):
+            return
+        text = os.environ.get("TELEGRAM_MINIAPP_BUTTON_TEXT", "Открыть Kolibri").strip() or "Открыть Kolibri"
+        try:
+            self.telegram.set_chat_menu_button(text, url)
+        except Exception:
+            pass
 
     def authorized(self, message: dict[str, Any]) -> bool:
         user = message.get("from") or {}
@@ -900,7 +1027,13 @@ class Gateway:
         command = command.split("@", 1)[0]
         arg = arg.strip()
         if command in {"/start", "/help"}:
-            self.telegram.send_message(chat_id, help_text())
+            reply, markup = owner_home_reply(self.conversation_snapshot())
+            self.telegram.send_message(chat_id, reply, reply_markup=markup)
+            self.remember_orchestrator_message(reply)
+        elif command in {"/miniapp", "/app"}:
+            reply, markup = miniapp_reply(self.memory())
+            self.telegram.send_message(chat_id, reply, reply_markup=markup)
+            self.remember_orchestrator_message(reply)
         elif command == "/task" and arg:
             self.submit_text_task(message, arg)
         elif command == "/status" and arg:
@@ -940,6 +1073,11 @@ class Gateway:
         if text.startswith("/"):
             self.remember_owner_message(text, "command")
             self.handle_command(message, text)
+        elif wants_open_miniapp(text):
+            self.remember_owner_message(text, "chat")
+            reply, markup = miniapp_reply(self.memory())
+            self.telegram.send_message(message["chat"]["id"], reply, reply_markup=markup)
+            self.remember_orchestrator_message(reply)
         elif wants_image_generation(text):
             self.remember_owner_message(text, "image")
             self.submit_image_task(message, text)
@@ -1012,9 +1150,12 @@ class Gateway:
                     self.state.save()
                     continue
                 reply = format_transition(label, task, mode)
-                self.telegram.send_message(int(record["chat_id"]), reply)
+                markup = launch_button_markup(task, preferred_miniapp_url(self.memory())) if label == "COMPLETED" else None
+                self.telegram.send_message(int(record["chat_id"]), reply, reply_markup=markup)
                 record_task_transition(self.memory(), task, label, utc_now())
                 record_orchestrator_message(self.memory(), reply, utc_now())
+                if label == "COMPLETED":
+                    self.configure_menu_button()
                 self.state.data["tracked"][task_id]["last_state"] = label
                 self.state.save()
 
@@ -1124,6 +1265,36 @@ def extract_urls(text: str) -> list[str]:
         if match not in urls:
             urls.append(match)
     return urls
+
+
+def task_result_urls(task: dict[str, Any]) -> list[str]:
+    result = task.get("result") or {}
+    urls: list[str] = []
+    for key in ("miniapp_url", "webapp_url", "preview_url", "staging_url", "health_url", "url"):
+        value = result.get(key)
+        if isinstance(value, str) and value.startswith(("http://", "https://")) and value not in urls:
+            urls.append(value)
+    response = result.get("response")
+    if isinstance(response, str):
+        for value in extract_urls(response):
+            if value not in urls:
+                urls.append(value)
+    return urls
+
+
+def launch_button_markup(task: dict[str, Any], fallback_url: str | None = None) -> dict[str, Any] | None:
+    urls = task_result_urls(task)
+    if not urls:
+        url = fallback_url
+    else:
+        url = next((item for item in urls if is_https_url(item)), urls[0])
+    if is_https_url(url):
+        button = {"text": "Открыть миниапп", "web_app": {"url": url}}
+    elif is_http_url(url):
+        button = {"text": "Открыть ссылку", "url": url}
+    else:
+        return None
+    return {"inline_keyboard": [[button]]}
 
 
 def _first_value(data: dict[str, Any], keys: tuple[str, ...]) -> Any:
