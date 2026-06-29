@@ -25,6 +25,7 @@ NAMESPACE = os.environ.get("FACTORY_NAMESPACE", "kolibri_factory")
 REDIS_HOST = os.environ.get("FACTORY_REDIS_HOST", "127.0.0.1")
 REDIS_PORT = int(os.environ.get("FACTORY_REDIS_PORT", "6379"))
 LEASE_DURATION = int(os.environ.get("FACTORY_LEASE_DURATION", "60"))
+TASK_HEARTBEAT_STALE_AFTER = int(os.environ.get("FACTORY_TASK_HEARTBEAT_STALE_AFTER", str(LEASE_DURATION * 2)))
 MAX_RETRIES = int(os.environ.get("FACTORY_MAX_RETRIES", "3"))
 NODE_STALE_AFTER = int(os.environ.get("FACTORY_NODE_STALE_AFTER", "120"))
 DEFAULT_TASK_LIST_LIMIT = int(os.environ.get("FACTORY_DEFAULT_TASK_LIST_LIMIT", "200"))
@@ -829,6 +830,66 @@ def requeue_expired_leases(limit: int | None = None) -> dict[str, Any]:
     return summary
 
 
+def sweep_stuck_tasks(limit: int | None = None, stale_after: int | None = None) -> dict[str, Any]:
+    threshold = max(1, int(stale_after if stale_after is not None else TASK_HEARTBEAT_STALE_AFTER))
+    task_total = len(all_task_ids())
+    task_ids = leased_task_ids()
+    if limit is not None:
+        limit = max(0, int(limit))
+        selected_task_ids = task_ids[:limit]
+    else:
+        selected_task_ids = task_ids
+    summary: dict[str, Any] = {
+        "task_total": task_total,
+        "lease_index_total": len(task_ids),
+        "scan_limit": limit,
+        "stale_after_seconds": threshold,
+        "scan_truncated": limit is not None and len(task_ids) > limit,
+        "checked": 0,
+        "stuck": 0,
+        "requeued": [],
+        "dead_lettered": [],
+        "skipped": [],
+    }
+    current = datetime.now(timezone.utc)
+    for task_id in selected_task_ids:
+        task = load_task(task_id)
+        if not task or task.get("state") not in LEASED_TASK_STATES:
+            continue
+        summary["checked"] += 1
+        age = heartbeat_age_seconds(task.get("heartbeat_at"), current)
+        if age is None:
+            summary["skipped"].append({"task_id": task_id, "reason": "missing_or_invalid_heartbeat"})
+            continue
+        if age <= threshold:
+            continue
+        summary["stuck"] += 1
+        task["lease_owner"] = None
+        task["lease_until"] = None
+        task["error_type"] = "stuck_no_heartbeat"
+        if int(task.get("attempt", 0)) < int(task.get("max_retries", MAX_RETRIES)):
+            task["state"] = STATE_RETRY
+            task["error"] = f"task heartbeat stale for {int(age)}s"
+            append_attempt_history(task, "stuck_no_heartbeat", task.get("error_type"), task.get("error"), task.get("result_reference"))
+            save_task(task)
+            task["state"] = STATE_QUEUED
+            save_task(task)
+            remove_from_queue(task_id)
+            enqueue(task_id)
+            summary["requeued"].append({"task_id": task_id, "heartbeat_age_seconds": int(age)})
+        else:
+            task["state"] = STATE_DEAD
+            task["error"] = f"task heartbeat stale for {int(age)}s and retry budget exhausted"
+            append_attempt_history(task, "dead_letter_stuck", task.get("error_type"), task.get("error"), task.get("result_reference"))
+            save_task(task)
+            redis.command("RPUSH", key("dead_letter"), task_id)
+            summary["dead_lettered"].append({"task_id": task_id, "heartbeat_age_seconds": int(age)})
+    summary["requeued_total"] = len(summary["requeued"])
+    summary["dead_lettered_total"] = len(summary["dead_lettered"])
+    summary["skipped_total"] = len(summary["skipped"])
+    return summary
+
+
 def create_task(envelope: dict[str, Any]) -> dict[str, Any]:
     task = normalize_task(envelope)
     idem_key = key(f"idempotency:{task['idempotency_key']}")
@@ -1040,6 +1101,18 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/v1/tasks/reap-expired":
                 limit = body.get("limit")
                 response(self, 200, requeue_expired_leases(int(limit) if limit is not None else None))
+                return
+            if path == "/v1/tasks/sweep-stuck":
+                limit = body.get("limit")
+                stale_after = body.get("stale_after_seconds")
+                response(
+                    self,
+                    200,
+                    sweep_stuck_tasks(
+                        int(limit) if limit is not None else None,
+                        int(stale_after) if stale_after is not None else None,
+                    ),
+                )
                 return
             if path == "/v1/tasks/rebuild-indexes":
                 limit = body.get("limit")

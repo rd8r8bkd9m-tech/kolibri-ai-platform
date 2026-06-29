@@ -157,6 +157,14 @@ def cmd_reap_expired(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_sweep_stuck(args: argparse.Namespace) -> int:
+    body = {"limit": args.limit}
+    if args.stale_after_seconds is not None:
+        body["stale_after_seconds"] = args.stale_after_seconds
+    print_json(http_json("POST", f"{args.control_url}/v1/tasks/sweep-stuck", body, timeout=args.timeout))
+    return 0
+
+
 def cmd_rebuild_indexes(args: argparse.Namespace) -> int:
     body = {"limit": args.limit} if args.limit is not None else {}
     print_json(http_json("POST", f"{args.control_url}/v1/tasks/rebuild-indexes", body, timeout=args.timeout))
@@ -222,7 +230,7 @@ def legacy_mode(argv: list[str]) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    commands = {"doctor", "nodes", "submit", "status", "collect", "cancel", "drain", "reap-expired", "rebuild-indexes"}
+    commands = {"doctor", "nodes", "submit", "status", "collect", "cancel", "drain", "reap-expired", "sweep-stuck", "rebuild-indexes"}
     command_positions = [idx for idx, value in enumerate(argv) if value in commands]
     if not argv or not command_positions:
         return legacy_mode(argv)
@@ -264,6 +272,11 @@ def main(argv: list[str] | None = None) -> int:
     reap.add_argument("--limit", type=int, default=200)
     reap.add_argument("--timeout", type=int, default=60)
     reap.set_defaults(func=cmd_reap_expired)
+    sweep = sub.add_parser("sweep-stuck")
+    sweep.add_argument("--limit", type=int, default=200)
+    sweep.add_argument("--stale-after-seconds", type=int)
+    sweep.add_argument("--timeout", type=int, default=60)
+    sweep.set_defaults(func=cmd_sweep_stuck)
     rebuild = sub.add_parser("rebuild-indexes")
     rebuild.add_argument("--limit", type=int)
     rebuild.add_argument("--timeout", type=int, default=60)

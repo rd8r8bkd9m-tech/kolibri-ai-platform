@@ -15,7 +15,7 @@ def load_module(path):
 
 def test_dispatcher_exposes_required_commands():
     dispatch = (ROOT / "ops" / "kolibri-dispatch").read_text(encoding="utf-8")
-    for command in ["doctor", "nodes", "submit", "status", "collect", "cancel", "drain", "reap-expired", "rebuild-indexes"]:
+    for command in ["doctor", "nodes", "submit", "status", "collect", "cancel", "drain", "reap-expired", "sweep-stuck", "rebuild-indexes"]:
         assert f'"{command}"' in dispatch
 
 

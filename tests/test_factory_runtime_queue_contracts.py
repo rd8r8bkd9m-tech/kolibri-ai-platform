@@ -252,6 +252,119 @@ def test_requeue_expired_leases_dead_letters_exhausted_tasks(monkeypatch):
     assert saved == [("TASK-EXHAUSTED", control.STATE_DEAD)]
 
 
+def test_sweep_stuck_tasks_requeues_stale_heartbeat_with_live_lease(monkeypatch):
+    control = load_control()
+    current = control.datetime.fromisoformat("2026-06-29T07:30:00+00:00")
+    stale_heartbeat = "2026-06-29T07:20:00+00:00"
+    tasks = {
+        "TASK-STUCK": {
+            "task_id": "TASK-STUCK",
+            "kind": "generic_implementation",
+            "state": control.STATE_RUNNING,
+            "attempt": 1,
+            "max_retries": 2,
+            "lease_owner": "main:agent-host-main",
+            "lease_until": current.timestamp() + 600,
+            "heartbeat_at": stale_heartbeat,
+            "result_reference": "/tmp/result.json",
+            "envelope": {"task_id": "TASK-STUCK"},
+        },
+        "TASK-FRESH": {
+            "task_id": "TASK-FRESH",
+            "kind": "generic_implementation",
+            "state": control.STATE_RUNNING,
+            "attempt": 1,
+            "max_retries": 2,
+            "lease_owner": "main:agent-host-main",
+            "lease_until": current.timestamp() + 600,
+            "heartbeat_at": current.isoformat(),
+            "envelope": {"task_id": "TASK-FRESH"},
+        },
+    }
+    saved = []
+    removed = []
+    enqueued = []
+
+    class FixedDateTime(control.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return current if tz else current.replace(tzinfo=None)
+
+    monkeypatch.setattr(control, "datetime", FixedDateTime)
+    monkeypatch.setattr(control, "all_task_ids", lambda: list(tasks))
+    monkeypatch.setattr(control, "leased_task_ids", lambda: list(tasks))
+    monkeypatch.setattr(control, "load_task", lambda task_id: tasks[task_id])
+    monkeypatch.setattr(control, "save_task", lambda task: saved.append((task["task_id"], task["state"])) or tasks.__setitem__(task["task_id"], dict(task)))
+    monkeypatch.setattr(control, "remove_from_queue", lambda task_id: removed.append(task_id))
+    monkeypatch.setattr(control, "enqueue", lambda task_id: enqueued.append(task_id))
+
+    summary = control.sweep_stuck_tasks(limit=10, stale_after=120)
+
+    assert summary["checked"] == 2
+    assert summary["stuck"] == 1
+    assert summary["requeued"][0]["task_id"] == "TASK-STUCK"
+    assert summary["dead_lettered"] == []
+    assert tasks["TASK-STUCK"]["state"] == control.STATE_QUEUED
+    assert tasks["TASK-STUCK"]["lease_owner"] is None
+    assert tasks["TASK-STUCK"]["lease_until"] is None
+    assert tasks["TASK-STUCK"]["error_type"] == "stuck_no_heartbeat"
+    assert tasks["TASK-STUCK"]["attempt_history"][-1]["status"] == "stuck_no_heartbeat"
+    assert removed == ["TASK-STUCK"]
+    assert enqueued == ["TASK-STUCK"]
+
+
+def test_sweep_stuck_tasks_dead_letters_when_retry_budget_exhausted(monkeypatch):
+    control = load_control()
+    current = control.datetime.fromisoformat("2026-06-29T07:30:00+00:00")
+    tasks = {
+        "TASK-STUCK-DEAD": {
+            "task_id": "TASK-STUCK-DEAD",
+            "kind": "generic_implementation",
+            "state": control.STATE_REVIEW,
+            "attempt": 2,
+            "max_retries": 2,
+            "lease_owner": "new:agent-host-new",
+            "lease_until": current.timestamp() + 600,
+            "heartbeat_at": "2026-06-29T07:00:00+00:00",
+            "envelope": {"task_id": "TASK-STUCK-DEAD"},
+        },
+    }
+    saved = []
+    dead = []
+
+    class FixedDateTime(control.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return current if tz else current.replace(tzinfo=None)
+
+    class FakeRedis:
+        def command(self, command, redis_key, task_id):
+            assert command == "RPUSH"
+            assert redis_key == control.key("dead_letter")
+            dead.append(task_id)
+
+    monkeypatch.setattr(control, "datetime", FixedDateTime)
+    monkeypatch.setattr(control, "all_task_ids", lambda: list(tasks))
+    monkeypatch.setattr(control, "leased_task_ids", lambda: list(tasks))
+    monkeypatch.setattr(control, "load_task", lambda task_id: tasks[task_id])
+    monkeypatch.setattr(control, "save_task", lambda task: saved.append((task["task_id"], task["state"])) or tasks.__setitem__(task["task_id"], dict(task)))
+    monkeypatch.setattr(control, "redis", FakeRedis())
+
+    summary = control.sweep_stuck_tasks(limit=10, stale_after=120)
+
+    assert summary["checked"] == 1
+    assert summary["stuck"] == 1
+    assert summary["requeued"] == []
+    assert summary["dead_lettered"][0]["task_id"] == "TASK-STUCK-DEAD"
+    assert tasks["TASK-STUCK-DEAD"]["state"] == control.STATE_DEAD
+    assert tasks["TASK-STUCK-DEAD"]["lease_owner"] is None
+    assert tasks["TASK-STUCK-DEAD"]["lease_until"] is None
+    assert tasks["TASK-STUCK-DEAD"]["error_type"] == "stuck_no_heartbeat"
+    assert tasks["TASK-STUCK-DEAD"]["attempt_history"][-1]["status"] == "dead_letter_stuck"
+    assert dead == ["TASK-STUCK-DEAD"]
+    assert saved == [("TASK-STUCK-DEAD", control.STATE_DEAD)]
+
+
 def test_legacy_remote_implementation_capability_can_route_to_supported_runner():
     control = load_control()
     task = control.normalize_task(
