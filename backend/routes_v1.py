@@ -1,6 +1,15 @@
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 import json
+
+from estimate_engine import (
+    EstimateApiResponse,
+    EstimateEditRequest,
+    EstimateGenerateRequest,
+    create_estimate_api_from_prompt,
+    edit_estimate_api,
+    estimate_contract_schema,
+)
 
 router = APIRouter()
 
@@ -16,6 +25,26 @@ async def get_models():
 @router.get("/api/v1/model/stats")
 async def get_model_stats():
     return {"status": "ok", "models": ["mimo-auto"], "active": "mimo-auto"}
+
+
+@router.get("/api/v1/estimate/schema")
+async def get_estimate_schema():
+    return estimate_contract_schema()
+
+
+@router.post("/api/v1/estimate/generate", response_model=EstimateApiResponse)
+async def generate_estimate(request: EstimateGenerateRequest):
+    return create_estimate_api_from_prompt(request)
+
+
+@router.post("/api/v1/estimate/edit", response_model=EstimateApiResponse)
+async def edit_estimate(request: EstimateEditRequest):
+    try:
+        return edit_estimate_api(request)
+    except ValueError as exc:
+        status_code = 409 if "base_canonical_hash" in str(exc) else 422
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
 
 @router.post("/api/v1/ai/chat")
 async def chat(request: Request):
