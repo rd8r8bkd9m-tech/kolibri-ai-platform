@@ -1,0 +1,38 @@
+{
+  "task_id": "KOL-HOME-GENERIC-RUNTIME-SMOKE-RERUN2-20260629",
+  "idempotency_key": "home:generic-runtime-smoke-rerun2:2026-06-29",
+  "kind": "generic_implementation",
+  "required_capability": "generic_implementation",
+  "permission_pack": "implementation",
+  "target_node": "home",
+  "runner": "codex",
+  "branch": "agent/KOL-HOME-GENERIC-RUNTIME-SMOKE-RERUN2-20260629/runtime-smoke",
+  "base_ref": "origin/codex/factory-autonomy-pwa-billing",
+  "commit_message": "factory: prove home generic runtime parity",
+  "role_slot": "home_runtime_parity_engineer",
+  "role_goal": "prove that home can clone, execute generic_implementation, verify, commit, and push after Agent Host, Git auth, and instrumentation rollout",
+  "goal": "Create a concise runtime parity evidence artifact for node home. Work only inside docs/agent-work. Add docs/agent-work/home-generic-runtime-smoke-rerun2-20260629.md with: task id, node id home, expected capabilities generic_implementation/implementation/remote_implementation_runner_ready/review, proof that this task ran through generic_implementation rather than read_only_probe, proof that Git SSH repo access worked after KOLIBRI_REPO_URL rollout, checks run, and remaining blockers for 80% factory utilization. Do not touch application code, do not run FormulaLM, do not run model benchmarks, do not deploy, do not mutate Control Plane queue state, and do not edit unrelated files.",
+  "acceptance": [
+    "Creates docs/agent-work/home-generic-runtime-smoke-rerun2-20260629.md",
+    "Leaves a non-empty git diff before commit",
+    "Runs python3 -m compileall -q ops tests or records a concrete blocker if unavailable",
+    "Commits and pushes branch agent/KOL-HOME-GENERIC-RUNTIME-SMOKE-RERUN2-20260629/runtime-smoke",
+    "Result includes changed_files, checks, commit, pushed=true, node_id=home, and runner=codex",
+    "No FormulaLM, LLM benchmark, app QA, production deploy, queue surgery, direct Redis/spool edit, service restart during lease, or Mac compute is performed"
+  ],
+  "verification_commands": [
+    "test -s docs/agent-work/home-generic-runtime-smoke-rerun2-20260629.md",
+    "python3 -m compileall -q ops tests"
+  ],
+  "max_retries": 1,
+  "create_review_on_complete": true,
+  "source": {
+    "kind": "manual_control_plane",
+    "repo": "kolibri-ai-platform",
+    "requested_by": "main_codex_runtime_parity_rollout",
+    "requested_at": "2026-06-29T09:22:00+03:00",
+    "previous_task_id": "KOL-HOME-GENERIC-RUNTIME-SMOKE-RERUN-20260629",
+    "previous_failure": "lease expired because Agent Host was restarted during instrumentation rollout after the task had already leased",
+    "fix_applied": "home now has current Agent Host, generic capabilities, deploy SSH repo access, KOLIBRI_REPO_URL, and task_leased/task_run_dispatch instrumentation; read_only probe KOL-HOME-READONLY-RUNTIME-PROBE-20260629 completed."
+  }
+}

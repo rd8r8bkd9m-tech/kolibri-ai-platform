@@ -1,0 +1,38 @@
+{
+  "task_id": "KOL-HOME-GENERIC-RUNTIME-SMOKE-RERUN3-20260629",
+  "idempotency_key": "home:generic-runtime-smoke-rerun3:2026-06-29",
+  "kind": "generic_implementation",
+  "required_capability": "generic_implementation",
+  "permission_pack": "implementation",
+  "target_node": "home",
+  "runner": "codex",
+  "branch": "agent/KOL-HOME-GENERIC-RUNTIME-SMOKE-RERUN3-20260629/runtime-smoke",
+  "base_ref": "origin/codex/factory-autonomy-pwa-billing",
+  "commit_message": "factory: prove home generic runtime parity",
+  "role_slot": "home_runtime_parity_engineer",
+  "role_goal": "prove that home can clone, run Codex, verify, commit, and push after Agent Host, Git auth, Codex auth, and instrumentation rollout",
+  "goal": "Create a concise runtime parity evidence artifact for node home. Work only inside docs/agent-work. Add docs/agent-work/home-generic-runtime-smoke-rerun3-20260629.md with: task id, node id home, expected capabilities generic_implementation/implementation/remote_implementation_runner_ready/review, proof that this task ran through generic_implementation rather than read_only_probe, proof that Git SSH repo access and Codex auth worked, checks run, and remaining blockers for 80% factory utilization. Do not touch application code, do not run FormulaLM, do not run model benchmarks, do not deploy, do not mutate Control Plane queue state, and do not edit unrelated files.",
+  "acceptance": [
+    "Creates docs/agent-work/home-generic-runtime-smoke-rerun3-20260629.md",
+    "Leaves a non-empty git diff before commit",
+    "Runs python3 -m compileall -q ops tests or records a concrete blocker if unavailable",
+    "Commits and pushes branch agent/KOL-HOME-GENERIC-RUNTIME-SMOKE-RERUN3-20260629/runtime-smoke",
+    "Result includes changed_files, checks, commit, pushed=true, node_id=home, and runner=codex",
+    "No FormulaLM, LLM benchmark, app QA, production deploy, queue surgery, direct Redis/spool edit, service restart during lease, or Mac compute is performed"
+  ],
+  "verification_commands": [
+    "test -s docs/agent-work/home-generic-runtime-smoke-rerun3-20260629.md",
+    "python3 -m compileall -q ops tests"
+  ],
+  "max_retries": 1,
+  "create_review_on_complete": true,
+  "source": {
+    "kind": "manual_control_plane",
+    "repo": "kolibri-ai-platform",
+    "requested_by": "main_codex_runtime_parity_rollout",
+    "requested_at": "2026-06-29T09:25:00+03:00",
+    "previous_task_id": "KOL-HOME-GENERIC-RUNTIME-SMOKE-RERUN2-20260629",
+    "previous_failure": "generic pipeline reached codex exec but failed with 401 Missing bearer/basic auth",
+    "fix_applied": "home now has Git deploy SSH access, KOLIBRI_REPO_URL, current Agent Host, instrumentation, and copied root Codex auth/config validated by CODEX_AUTH_OK smoke."
+  }
+}

@@ -1188,7 +1188,8 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
         try:
             kind = task.get("kind")
             runner_kind = RUNTIME_KIND_COMPAT.get(str(kind), kind)
-            self.publish_agent_message("task_started", f"started {kind}", task, topic=str(kind))
+            print(f"{utc_now()} task_run_dispatch task_id={task.get('task_id')} kind={kind} runner_kind={runner_kind}", flush=True)
+            self.publish_agent_message("task_started", f"started {kind} runner_kind={runner_kind}", task, topic=str(kind))
             if runner_kind == "impl_factory_smoke":
                 result = self.run_impl_factory_smoke(task)
             elif runner_kind == "impl_retry_error_clearance":
@@ -1255,6 +1256,17 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 time.sleep(5)
                 continue
             if task:
+                print(
+                    f"{utc_now()} task_leased task_id={task.get('task_id')} "
+                    f"kind={task.get('kind')} attempt={task.get('attempt')} lease_owner={task.get('lease_owner')}",
+                    flush=True,
+                )
+                self.publish_agent_message(
+                    "task_leased",
+                    f"leased {task.get('kind')} attempt={task.get('attempt')}",
+                    task,
+                    topic=str(task.get("kind")),
+                )
                 self.node_heartbeat(active_task=task["task_id"])
                 self.run_task(task)
                 self.node_heartbeat()

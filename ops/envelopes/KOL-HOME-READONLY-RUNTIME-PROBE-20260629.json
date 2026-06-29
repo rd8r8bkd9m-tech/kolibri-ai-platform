@@ -1,0 +1,23 @@
+{
+  "task_id": "KOL-HOME-READONLY-RUNTIME-PROBE-20260629",
+  "idempotency_key": "home:read-only-runtime-probe:2026-06-29",
+  "kind": "read_only_probe",
+  "required_capability": "read_only_probe",
+  "permission_pack": "read_only",
+  "target_node": "home",
+  "goal": "Verify that node home can lease and execute a lightweight read_only_probe after Agent Host runtime and systemd profile rollout. Produce node-local artifact evidence and do not mutate repository, queue state, deployment, FormulaLM, or application code.",
+  "acceptance": [
+    "Task is leased by home:agent-host-home",
+    "Task completes with result_reference under /var/lib/kolibri-agent/artifacts",
+    "Result includes node_id=home, hostname=plastilin, capabilities, permissions, disk, ram, and status=completed",
+    "No Git clone, Codex runner, FormulaLM, app QA, production deploy, queue surgery, or Mac compute is performed"
+  ],
+  "max_retries": 1,
+  "source": {
+    "kind": "manual_control_plane",
+    "repo": "kolibri-ai-platform",
+    "requested_by": "main_codex_runtime_loop_diagnosis",
+    "requested_at": "2026-06-29T09:20:00+03:00",
+    "reason": "KOL-HOME-GENERIC-RUNTIME-SMOKE-RERUN-20260629 leased on home but expired without node-local artifacts; this probe isolates the Agent Host run_task loop from generic Git/Codex execution."
+  }
+}
