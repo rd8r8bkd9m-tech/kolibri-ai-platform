@@ -374,6 +374,27 @@ def test_realtime_dev_server_question_returns_ready_preview_url():
         assert forbidden not in reply
 
 
+def test_realtime_development_process_question_gets_direct_factory_answer():
+    gateway = load_gateway()
+    snapshot = {
+        "memory": gateway.memory_snapshot(gateway.empty_memory()),
+        "active_tasks": [{"kind": "generic_implementation", "state": "queued"} for _ in range(8)],
+        "team": [{"name": "Исполнитель", "health": "online"}, {"name": "Ревьюер", "health": "online"}],
+    }
+    text = "Ещё хотел бы узнать как ведётся разработка приложения Kolibri ai.ru?"
+
+    assert gateway.should_answer_immediately(text) is True
+    reply = gateway.build_realtime_owner_reply(text, snapshot)
+
+    assert reply == (
+        "Разработка идёт через фабрику: ты формулируешь цель, я раскладываю её на задачи, "
+        "назначаю исполнителей, отдельно держу проверку и возвращаю сюда только понятный статус, "
+        "ссылку или готовый результат. Сейчас очередь плотная: 8 свежих задач ждут старта, команда на связи."
+    )
+    for forbidden in ["task_id", "node:", "agent:", "artifact:", "/var/lib", "TGCHAT"]:
+        assert forbidden not in reply
+
+
 def test_realtime_reply_answers_simple_arithmetic():
     gateway = load_gateway()
     reply = gateway.build_realtime_owner_reply("2+4", {"memory": gateway.memory_snapshot(gateway.empty_memory())})

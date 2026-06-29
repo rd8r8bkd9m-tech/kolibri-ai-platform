@@ -152,6 +152,13 @@ IMMEDIATE_CHAT_MARKERS = (
 )
 
 
+def asks_development_process(text: str) -> bool:
+    lowered = text.lower()
+    if not has_any(lowered, ("как вед", "как идет", "как идёт", "как устро", "как разраб", "разработка", "разрабатывается")):
+        return False
+    return has_any(lowered, ("kolibri", "колибри", "прилож", "ai.ru", "ai ru", "проект"))
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -234,6 +241,8 @@ def should_answer_immediately(text: str) -> bool:
     if not lowered:
         return False
     if answer_simple_arithmetic(text) is not None and os.environ.get("TELEGRAM_DETERMINISTIC_SHORTCUTS", "0") == "1":
+        return True
+    if asks_development_process(text):
         return True
     return False
 
@@ -650,6 +659,14 @@ def build_realtime_owner_reply(text: str, snapshot: dict[str, Any]) -> str:
 
     if has_any(text, ("как зовут", "тебя зовут", "кто ты")):
         return "Для проекта я директор-оркестратор. Можешь обращаться ко мне просто как к Директору: я принимаю задачи, распределяю работу и возвращаю понятный результат."
+
+    if asks_development_process(text):
+        task_count = len(active_tasks)
+        if task_count:
+            queue_line = f"Сейчас очередь плотная: {task_count} свежих задач ждут старта, команда на связи."
+        else:
+            queue_line = "Сейчас активного выполнения не вижу, команда на связи."
+        return f"Разработка идёт через фабрику: ты формулируешь цель, я раскладываю её на задачи, назначаю исполнителей, отдельно держу проверку и возвращаю сюда только понятный статус, ссылку или готовый результат. {queue_line}"
 
     if has_any(text, ("ссыл", "url", "линк", "link")):
         if url:
