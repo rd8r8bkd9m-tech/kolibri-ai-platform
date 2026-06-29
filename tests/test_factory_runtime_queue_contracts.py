@@ -36,6 +36,75 @@ def test_result_envelope_schema():
     result = {'node_id': '9fts', 'agent_id': 'agent-host-9fts', 'task_id': 'SCHEMA-1', 'status': 'completed', 'result_path': '/tmp/result.json'}
     assert {'node_id', 'agent_id', 'task_id', 'status', 'result_path'} <= set(result)
 
+def test_autonomous_completion_requires_result_delta_and_checks():
+    control = load_control()
+    task = control.normalize_task({'task_id': 'AUTO-GATE-1', 'kind': 'generic_implementation'})
+    body = {
+        'result': {
+            'status': 'completed',
+            'result_path': '/tmp/result.json',
+            'response': 'Я подумал, но ничего не изменил.',
+        },
+        'result_reference': '/tmp/result.json',
+    }
+
+    failures = control.validate_deliverable_evidence(task, body['result'], body['result_reference'])
+
+    assert failures == ['missing_code_delta', 'missing_checks']
+    try:
+        control.apply_task_completion(task, body)
+    except ValueError as exc:
+        assert 'deliverable_gate_failed:missing_code_delta,missing_checks' in str(exc)
+    else:
+        raise AssertionError('autonomous completion without deliverables was accepted')
+    assert task['state'] == control.STATE_QUEUED
+
+def test_autonomous_completion_accepts_commit_changed_files_and_checks():
+    control = load_control()
+    task = control.normalize_task({'task_id': 'AUTO-GATE-2', 'kind': 'owner_remote_task'})
+    body = {
+        'result': {
+            'status': 'completed',
+            'result_path': '/tmp/result.json',
+            'commit': 'abc123',
+            'changed_files': ['backend/api.py', 'tests/test_api.py'],
+            'checks': ['pytest -q tests/test_api.py'],
+        },
+        'result_reference': '/tmp/result.json',
+    }
+
+    completed, result, has_pr = control.apply_task_completion(task, body)
+
+    assert completed['state'] == control.STATE_COMPLETED
+    assert result['commit'] == 'abc123'
+    assert has_pr is False
+    assert completed['attempt_history'][-1]['status'] == 'completed'
+
+def test_read_only_completion_does_not_require_code_delta():
+    control = load_control()
+    task = control.normalize_task({'task_id': 'READ-GATE-1', 'kind': 'read_only_probe'})
+    body = {'result': {'status': 'completed', 'result_path': '/tmp/result.json'}, 'result_reference': '/tmp/result.json'}
+
+    completed, result, _ = control.apply_task_completion(task, body)
+
+    assert completed['state'] == control.STATE_COMPLETED
+    assert result['status'] == 'completed'
+
+def test_telegram_chat_completion_is_not_treated_as_engineering_deliverable():
+    control = load_control()
+    task = control.normalize_task({
+        'task_id': 'TGCHAT-GATE-1',
+        'kind': 'owner_remote_task',
+        'idempotency_key': 'telegram-chat:100:1',
+        'runner': 'codex',
+    })
+    body = {'result': {'status': 'completed', 'result_path': '/tmp/result.json', 'response': 'Живой ответ.'}, 'result_reference': '/tmp/result.json'}
+
+    completed, result, _ = control.apply_task_completion(task, body)
+
+    assert completed['state'] == control.STATE_COMPLETED
+    assert result['response'] == 'Живой ответ.'
+
 def test_lease_expiry_calculation():
     control = load_control()
     lease_until = time.time() + control.LEASE_DURATION

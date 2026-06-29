@@ -65,6 +65,7 @@ RUNTIME_CAPABILITY_COMPAT = {
 RUNTIME_KIND_COMPAT = {
     "remote_implementation_runner_ready": "generic_implementation",
 }
+DELIVERABLE_REQUIRED_KINDS = AUTONOMOUS_TASK_KINDS | {"remote_implementation_runner_ready"}
 PERMISSION_PACKS = {
     "read_only": {"read_repo", "read_system", "write_artifacts"},
     "ai_chat": {"ai_runner", "write_artifacts"},
@@ -921,13 +922,43 @@ def append_attempt_history(task: dict[str, Any], status: str, error_type: str | 
     history.append(attempt)
 
 
+def task_requires_deliverable_evidence(task: dict[str, Any]) -> bool:
+    envelope = task.get("envelope", {})
+    if str(envelope.get("idempotency_key") or "").startswith("telegram-chat:"):
+        return False
+    kind = str(task.get("kind") or envelope.get("kind") or "")
+    return kind in DELIVERABLE_REQUIRED_KINDS or RUNTIME_KIND_COMPAT.get(kind) in AUTONOMOUS_TASK_KINDS
+
+
+def validate_deliverable_evidence(task: dict[str, Any], result: dict[str, Any], result_reference: str | None) -> list[str]:
+    if not task_requires_deliverable_evidence(task):
+        return []
+    failures = []
+    changed_files = result.get("changed_files")
+    checks = result.get("checks")
+    has_changed_files = isinstance(changed_files, list) and any(str(path).strip() for path in changed_files)
+    has_code_reference = bool(result.get("commit") or result.get("pull_request_url") or result.get("pr_url"))
+    has_checks = isinstance(checks, list) and any(str(check).strip() for check in checks)
+    if not result_reference:
+        failures.append("missing_result_reference")
+    if not (has_changed_files or has_code_reference):
+        failures.append("missing_code_delta")
+    if not has_checks:
+        failures.append("missing_checks")
+    return failures
+
+
 def apply_task_completion(task: dict[str, Any], body: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], bool]:
     result = body.get("result", body)
+    result_reference = body.get("result_reference") or result.get("result_path")
+    deliverable_failures = validate_deliverable_evidence(task, result, result_reference)
+    if deliverable_failures:
+        raise ValueError("deliverable_gate_failed:" + ",".join(deliverable_failures))
     needs_review = task.get("envelope", {}).get("create_review_on_complete")
     has_pr = bool(result.get("pull_request_url") or result.get("pr_url"))
     task["state"] = STATE_COMPLETED if (not needs_review or has_pr) else STATE_WAITING_REVIEW
     task["result"] = result
-    task["result_reference"] = body.get("result_reference") or result.get("result_path")
+    task["result_reference"] = result_reference
     task["heartbeat_at"] = utc_now()
     task["lease_until"] = None
     task["error_type"] = None
@@ -1174,7 +1205,20 @@ class Handler(BaseHTTPRequestHandler):
                 if not task:
                     response(self, 404, {"error": "task_not_found", "task_id": task_id})
                     return
-                task, result, has_pr = apply_task_completion(task, body)
+                try:
+                    task, result, has_pr = apply_task_completion(task, body)
+                except ValueError as exc:
+                    task["state"] = STATE_FAILED
+                    task["heartbeat_at"] = utc_now()
+                    task["lease_until"] = None
+                    task["error_type"] = "deliverable_gate_failed"
+                    task["error"] = str(exc)
+                    task["result"] = body.get("result", body)
+                    task["result_reference"] = body.get("result_reference") or (task.get("result") or {}).get("result_path")
+                    append_attempt_history(task, "failed_deliverable_gate", task["error_type"], task["error"], task.get("result_reference"))
+                    save_task(task)
+                    response(self, 422, {"error": "deliverable_gate_failed", "detail": str(exc), "task": task})
+                    return
                 save_task(task)
                 review_task = create_review_task(task, result) if has_pr else None
                 response(self, 200, {"task": task, "review_task": review_task})
