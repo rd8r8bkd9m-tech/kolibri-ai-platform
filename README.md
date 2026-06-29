@@ -1,53 +1,57 @@
 # Kolibri AI Platform
 
-Собственная AI-платформа на 5 серверах с WireGuard mesh сетью.
+Kolibri AI Platform — русскоязычная AI-платформа и фабрика автономных
+агентов. Главное правило проекта: мы создаём искусственный интеллект, а не
+набор разрозненных скриптов или интерфейсов.
+
+Цель продукта — платформа венчурного масштаба: SPA/PWA для пользователей,
+Control Plane для серверов, агентная фабрика, детерминированный сметчик,
+FormulaLM R&D, мобильный слой GoMesh и GitHub-контур, где видна работа всех
+агентов.
+
+## Что строим
+
+- AI-фабрика, которая распределяет задачи между серверами и агентами.
+- SPA/PWA с общением через чат и кнопку Control в правом нижнем углу.
+- Светлая, системная и адаптивная тема интерфейса.
+- Подписки и платежный контур T-Банк.
+- Детерминированные строительные сметы с повторяемым результатом для
+  одинаковых вводных.
+- FormulaLM как отдельное направление R&D, тестируемое только на удалённых
+  серверах.
+- GitHub Project как операционный центр разработки, отчётов агентов, CI и
+  инвесторского трека.
 
 ## Архитектура
 
-```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   Home      │     │    Main     │     │    UIAP     │
-│ 10.99.0.1   │────▶│ 10.99.0.2   │────▶│ 10.99.0.3   │
-│ Training    │     │ API Gateway │     │  RAG Engine │
-│ Redis       │     │ Frontend    │     │ ChromaDB    │
-└─────────────┘     └──────┬──────┘     └─────────────┘
-                           │
-                    ┌──────┴──────┐
-                    │             │
-              ┌─────▼─────┐ ┌────▼──────┐
-              │   QJNS    │ │   9FTS    │
-              │ 10.99.0.4 │ │ 10.99.0.5 │
-              │   Agent   │ │ Inference │
-              │ MiMo CLI  │ │ TinyLlama │
-              └───────────┘ └───────────┘
+```mermaid
+flowchart LR
+    Owner["Владелец"] --> Chat["Telegram / чат / SPA"]
+    Chat --> CP["Control Plane"]
+    CP --> Queue["Очередь задач"]
+    Queue --> Agents["Удалённые агенты"]
+    Agents --> Feed["Inter-agent API"]
+    Feed --> Agents
+    Agents --> GH["GitHub Project / PR / CI"]
+    GH --> CP
+    CP --> Product["SPA/PWA + Backend"]
+    Product --> Users["Клиенты и подписки"]
+    Product --> Estimates["Сметы"]
+    Agents --> Formula["FormulaLM R&D"]
 ```
 
-## Серверы
+## Документация
 
-| Сервер | IP | Роль | Порт |
-|--------|-----|------|------|
-| Home | 178.207.11.90 | Training Hub, Redis | 2222 |
-| Main | 104.253.43.117 | API Gateway, Frontend | 80, 8000 |
-| UIAP | 31.57.26.151 | RAG Engine | 8002 |
-| QJNS | 217.60.63.97 | Agent Executor | 8003 |
-| 9FTS | 94.183.235.154 | Inference | 8001 |
-
-## Стек
-
-- **Frontend**: React 19, Vite, Framer Motion, Tailwind CSS
-- **Backend**: FastAPI, SQLite, httpx
-- **RAG**: ChromaDB, sentence-transformers
-- **Inference**: TinyLlama-1.1B (Q4_K_M), llama.cpp
-- **Network**: WireGuard mesh (10.99.0.0/24)
-- **Orchestration**: Kolibri Organism v3 (Redis State Store, Job Queue)
+- [Главная документация](docs/README.md)
+- [Фабрика агентов](docs/factory.md)
+- [GitHub Project и CI](docs/github-ci.md)
+- [Инвесторы и венчурная цель](docs/investors.md)
+- [FormulaLM](docs/formulalm.md)
+- [Мобильная стратегия и GoMesh](docs/mobile-gomesh.md)
 
 ## Быстрый старт
 
 ```bash
-# Клонировать
-git clone https://github.com/YOUR_USER/kolibri-ai-platform.git
-cd kolibri-ai-platform
-
 # Backend
 cd backend
 pip install -r requirements.txt
@@ -59,41 +63,28 @@ npm install
 npm run dev
 ```
 
-## Деплой
+## Правила работы
 
-```bash
-# На каждый сервер
-./scripts/deploy.sh main    # API Gateway + Frontend
-./scripts/deploy.sh uiap    # RAG Engine
-./scripts/deploy.sh qjns    # Agent
-./scripts/deploy.sh 9fts    # Inference
-./scripts/deploy.sh home    # Training
-```
+- Вся документация и операционные отчёты ведутся на русском языке.
+- Mac используется только как управляющая и редакторская поверхность.
+- Эксперименты с моделями и FormulaLM выполняются только на удалённых серверах.
+- Фабрика работает на целевой нагрузке 80%, оставляя 20% резерва.
+- Каждый агент докладывает статус через inter-agent API, GitHub issues/PR и
+  GitHub Project после включения нужного OAuth scope.
+- Упавшие проверки GitHub не игнорируются: они мониторятся и исправляются.
 
-## API Endpoints
+## Репозиторий
 
-| Endpoint | Описание |
-|----------|----------|
-| `POST /api/chat` | Чат с AI |
-| `POST /api/pipeline` | Unified pipeline (RAG + Agent + Inference) |
-| `GET /api/pipeline/health` | Health check всех сервисов |
-| `POST /rag/search` | Поиск по базе знаний |
-| `POST /inference/generate` | Генерация текста |
-| `GET /cluster/status` | Статус кластера |
-
-## Структура
-
-```
+```text
 kolibri-ai-platform/
-├── backend/          # FastAPI backend (Main)
-├── frontend/         # React frontend
-├── infra/
-│   ├── network/      # WireGuard, Kolibri Organism, Nginx
-│   └── inference/    # Inference server (9FTS)
-├── scripts/          # Deploy & training scripts
-└── docs/             # Документация
+├── backend/      # FastAPI backend, сметы, платежи, API
+├── frontend/     # React SPA/PWA
+├── ops/          # Control Plane, agent host, bootstrap серверов
+├── docs/         # Русская документация и схемы
+├── scripts/      # Утилиты, бенчмарки, деплой
+└── .github/      # CI и шаблоны отчётов
 ```
 
 ## Лицензия
 
-Kolibri AI Platform
+Kolibri AI Platform.

@@ -27,6 +27,18 @@ TBANK_PASSWORD = os.getenv("TBANK_PASSWORD", "")
 PUBLIC_URL = os.getenv("KOLIBRI_PUBLIC_URL", os.getenv("PUBLIC_URL", "")).rstrip("/")
 BILLING_ADMIN_TOKEN = os.getenv("KOLIBRI_BILLING_ADMIN_TOKEN", "")
 
+PRIMARY_OPERATION_INITIATOR_TYPE = "1"
+RECURRING_OPERATION_INITIATOR_TYPE = "R"
+PAID_NOTIFICATION_STATUSES = {"AUTHORIZED", "CONFIRMED", "COMPLETED"}
+FAILED_NOTIFICATION_STATUSES = {
+    "REJECTED",
+    "CANCELED",
+    "DEADLINE_EXPIRED",
+    "ATTEMPTS_EXPIRED",
+    "REVERSED",
+    "REFUNDED",
+}
+
 
 @dataclass(frozen=True)
 class Plan:
@@ -227,6 +239,70 @@ def insert_event(
         conn.commit()
 
 
+def find_subscription_for_order(order_id: str) -> tuple[sqlite3.Row | None, str | None]:
+    with sqlite3.connect(str(DB_PATH)) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM billing_subscriptions WHERE order_id = ?",
+            (order_id,),
+        ).fetchone()
+        if row:
+            return row, "subscription"
+        row = conn.execute(
+            """SELECT s.*
+               FROM billing_subscriptions s
+               JOIN billing_events e ON e.subscription_id = s.id
+               WHERE e.order_id = ?
+               ORDER BY e.created_at DESC, e.id DESC
+               LIMIT 1""",
+            (order_id,),
+        ).fetchone()
+        if row:
+            return row, "event"
+    return None, None
+
+
+def successful_notification_already_processed(order_id: str, payment_id: str) -> bool:
+    with sqlite3.connect(str(DB_PATH)) as conn:
+        row = conn.execute(
+            """SELECT 1
+               FROM billing_events
+               WHERE order_id = ?
+                 AND payment_id = ?
+                 AND event_type = 'tbank_notification'
+                 AND status IN ('AUTHORIZED', 'CONFIRMED', 'COMPLETED')
+               LIMIT 1""",
+            (order_id, payment_id),
+        ).fetchone()
+    return row is not None
+
+
+def validate_notification_terminal(payload: dict[str, Any]) -> None:
+    terminal_key = str(payload.get("TerminalKey") or "")
+    if not terminal_key:
+        raise HTTPException(status_code=400, detail="Missing TerminalKey")
+    if TBANK_TERMINAL_KEY and terminal_key != TBANK_TERMINAL_KEY:
+        raise HTTPException(status_code=400, detail="Unexpected TerminalKey")
+
+
+def validate_successful_notification(
+    payload: dict[str, Any],
+    subscription: sqlite3.Row | None,
+) -> None:
+    if subscription is None:
+        raise HTTPException(status_code=400, detail="Unknown OrderId")
+    if not str(payload.get("PaymentId") or ""):
+        raise HTTPException(status_code=400, detail="Missing PaymentId")
+    if payload.get("Amount") is None:
+        raise HTTPException(status_code=400, detail="Missing Amount")
+    try:
+        amount_kopeks = int(str(payload.get("Amount")))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid Amount") from exc
+    if amount_kopeks != int(subscription["amount_kopeks"]):
+        raise HTTPException(status_code=400, detail="Unexpected Amount")
+
+
 def store_lead(data: CheckoutRequest, plan: Plan) -> None:
     payload = data.model_dump()
     payload["plan_name"] = plan.name
@@ -279,31 +355,53 @@ def create_pending_subscription(data: CheckoutRequest, plan: Plan, order_id: str
     return subscription_id
 
 
-def activate_subscription(order_id: str, payment_id: str, rebill_id: str | None, status: str, payload: dict[str, Any]) -> None:
+def activate_subscription(
+    order_id: str,
+    payment_id: str,
+    rebill_id: str | None,
+    status: str,
+    payload: dict[str, Any],
+    subscription: sqlite3.Row | None = None,
+    match_source: str | None = None,
+) -> None:
     now = time.time()
     period_end = datetime.now(timezone.utc) + timedelta(days=30)
+    already_processed = successful_notification_already_processed(order_id, payment_id)
+    if subscription is None:
+        subscription, match_source = find_subscription_for_order(order_id)
+    subscription_id = subscription["id"] if subscription else None
+    should_extend_period = bool(
+        subscription_id
+        and not already_processed
+        and (match_source == "event" or str(subscription["status"]) != "active")
+    )
     with sqlite3.connect(str(DB_PATH)) as conn:
-        cur = conn.execute("SELECT id FROM billing_subscriptions WHERE order_id = ?", (order_id,))
-        row = cur.fetchone()
-        subscription_id = row[0] if row else None
         if subscription_id:
-            conn.execute(
-                """UPDATE billing_subscriptions
-                   SET status = ?, payment_id = ?, rebill_id = COALESCE(?, rebill_id),
-                       current_period_start = ?, current_period_end = ?, next_charge_at = ?,
-                       updated_at = ?
-                   WHERE id = ?""",
-                (
-                    "active",
-                    payment_id,
-                    rebill_id,
-                    now,
-                    period_end.timestamp(),
-                    period_end.timestamp(),
-                    now,
-                    subscription_id,
-                ),
-            )
+            if should_extend_period:
+                conn.execute(
+                    """UPDATE billing_subscriptions
+                       SET status = ?, payment_id = ?, rebill_id = COALESCE(?, rebill_id),
+                           current_period_start = ?, current_period_end = ?, next_charge_at = ?,
+                           updated_at = ?
+                       WHERE id = ?""",
+                    (
+                        "active",
+                        payment_id,
+                        rebill_id,
+                        now,
+                        period_end.timestamp(),
+                        period_end.timestamp(),
+                        now,
+                        subscription_id,
+                    ),
+                )
+            else:
+                conn.execute(
+                    """UPDATE billing_subscriptions
+                       SET status = ?, payment_id = ?, rebill_id = COALESCE(?, rebill_id), updated_at = ?
+                       WHERE id = ?""",
+                    ("active", payment_id, rebill_id, now, subscription_id),
+                )
         conn.commit()
     insert_event(
         subscription_id=subscription_id,
@@ -317,10 +415,9 @@ def activate_subscription(order_id: str, payment_id: str, rebill_id: str | None,
 
 def update_failed_subscription(order_id: str, payment_id: str | None, status: str, payload: dict[str, Any]) -> None:
     now = time.time()
+    subscription, _ = find_subscription_for_order(order_id)
+    subscription_id = subscription["id"] if subscription else None
     with sqlite3.connect(str(DB_PATH)) as conn:
-        cur = conn.execute("SELECT id FROM billing_subscriptions WHERE order_id = ?", (order_id,))
-        row = cur.fetchone()
-        subscription_id = row[0] if row else None
         if subscription_id:
             conn.execute(
                 """UPDATE billing_subscriptions
@@ -359,6 +456,7 @@ async def init_tbank_subscription(data: CheckoutRequest, plan: Plan, request: Re
         "Recurrent": "Y",
         "PayType": "O",
         "Language": "ru",
+        "DATA": {"OperationInitiatorType": PRIMARY_OPERATION_INITIATOR_TYPE},
         "NotificationURL": f"{base_url}/api/billing/tbank/notification",
         "SuccessURL": f"{base_url}/?payment=success&order={order_id}",
         "FailURL": f"{base_url}/?payment=fail&order={order_id}",
@@ -398,6 +496,7 @@ async def charge_subscription(row: sqlite3.Row) -> dict[str, Any]:
         "Description": f"Kolibri AI {row['plan_name']} продление",
         "CustomerKey": row["customer_key"],
         "PayType": "O",
+        "DATA": {"OperationInitiatorType": RECURRING_OPERATION_INITIATOR_TYPE},
     }
     init_result = await tbank_post("Init", init_payload)
     payment_id = str(init_result.get("PaymentId") or "")
@@ -456,15 +555,7 @@ async def create_checkout(data: CheckoutRequest, request: Request):
     return await init_tbank_subscription(data, plan, request)
 
 
-@router.post("/tbank/notification", response_class=PlainTextResponse)
-async def tbank_notification(request: Request):
-    content_type = request.headers.get("content-type", "")
-    if "application/json" in content_type:
-        payload = await request.json()
-    else:
-        form = await request.form()
-        payload = dict(form)
-
+def process_tbank_notification_payload(payload: dict[str, Any]) -> str:
     if not verify_tbank_token(payload):
         raise HTTPException(status_code=400, detail="Invalid T-Bank token")
 
@@ -476,9 +567,21 @@ async def tbank_notification(request: Request):
     if not order_id:
         raise HTTPException(status_code=400, detail="Missing OrderId")
 
-    if status in {"AUTHORIZED", "CONFIRMED", "COMPLETED"} and str(payload.get("Success", "")).lower() == "true":
-        activate_subscription(order_id, payment_id, str(rebill_id) if rebill_id else None, status, payload)
-    elif status in {"REJECTED", "CANCELED", "DEADLINE_EXPIRED", "ATTEMPTS_EXPIRED", "REVERSED", "REFUNDED"}:
+    validate_notification_terminal(payload)
+
+    if status in PAID_NOTIFICATION_STATUSES and str(payload.get("Success", "")).lower() == "true":
+        subscription, match_source = find_subscription_for_order(order_id)
+        validate_successful_notification(payload, subscription)
+        activate_subscription(
+            order_id,
+            payment_id,
+            str(rebill_id) if rebill_id else None,
+            status,
+            payload,
+            subscription=subscription,
+            match_source=match_source,
+        )
+    elif status in FAILED_NOTIFICATION_STATUSES:
         update_failed_subscription(order_id, payment_id or None, status, payload)
     else:
         insert_event(
@@ -490,6 +593,17 @@ async def tbank_notification(request: Request):
             payload=payload,
         )
     return "OK"
+
+
+@router.post("/tbank/notification", response_class=PlainTextResponse)
+async def tbank_notification(request: Request):
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type:
+        payload = await request.json()
+    else:
+        form = await request.form()
+        payload = dict(form)
+    return process_tbank_notification_payload(payload)
 
 
 @router.post("/tbank/charge-due")

@@ -15,7 +15,8 @@
     "requires_artifacts": true,
     "requires_verification": true,
     "requires_result_summary": true,
-    "missing_data_channel": "telegram_owner"
+    "missing_data_channel": "telegram_owner",
+    "completed_subagent_policy": "close_after_artifact_handoff"
   },
   "role_slots": [
     {
@@ -57,6 +58,18 @@
     {
       "id": "sales_operator",
       "goal": "prepare vertical-specific client lists, offers, subscriptions, and outreach artifacts"
+    },
+    {
+      "id": "docs_steward",
+      "goal": "maintain Russian developer documentation, API reference, quickstarts, runbooks, project reports, diagrams, and release notes"
+    },
+    {
+      "id": "premium_ui_director",
+      "goal": "raise SPA/PWA, landing, motion, typography, responsive layout, and visual polish to premium product standard"
+    },
+    {
+      "id": "living_character_director",
+      "goal": "design and implement the Kolibri living bird character with state machine behavior, personality, and product-state reactions"
     },
     {
       "id": "reviewer",

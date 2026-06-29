@@ -5,6 +5,9 @@ export function ControlFab({ open, onClick }) {
     <motion.button
       className={`control-fab ${open ? "open" : ""}`}
       onClick={onClick}
+      type="button"
+      aria-label={open ? "Закрыть Контрол" : "Открыть Контрол"}
+      aria-pressed={open}
       whileHover={{ scale: 1.04 }}
       whileTap={{ scale: 0.96 }}
     >

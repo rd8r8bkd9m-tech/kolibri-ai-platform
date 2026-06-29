@@ -1,0 +1,39 @@
+{
+  "task_id": "KOL-P0-APP-QUEUE-UNBLOCK-20260629",
+  "idempotency_key": "p0:app-queue-unblock:2026-06-29",
+  "kind": "generic_implementation",
+  "required_capability": "implementation",
+  "target_node": "main",
+  "permission_pack": "implementation",
+  "runner": "codex",
+  "branch": "agent/KOL-P0-APP-QUEUE-UNBLOCK-20260629/app-unblock",
+  "base_ref": "origin/main",
+  "goal": "P0: recover the owner-facing Kolibri app path without touching existing queued or stale-running tasks. Diagnose the live SPA/PWA, Telegram Mini App path, and primary domain/app URL state from the repository and safe HTTP checks. Fix the minimal app/runtime issue needed for the owner-facing application to work, preserve the chat-first /app surface and right-bottom Control entrypoint, and return an owner-safe status with evidence. Do not cancel, requeue, drain, restart, or mutate other Control Plane tasks. If the required runner or deployment credentials are unavailable on the node, produce a blocker artifact instead of claiming completion.",
+  "role_slot": "p0_app_queue_unblocker",
+  "role_goal": "restore owner-facing app execution on a fresh implementation node while preserving queue safety",
+  "acceptance": [
+    "Runs on fresh node main with required_capability=implementation, not on stale 9fts or primary-candidate",
+    "Does not cancel, requeue, drain, restart, or mutate other Control Plane tasks",
+    "Identifies whether the current owner app incident is frontend, Telegram Mini App, domain/dev-server, Control Plane status, or deployment related",
+    "Implements only the minimal safe repository change needed for the app path, or returns a clear blocker artifact if external deployment/runtime access is missing",
+    "Preserves /app as chat-first and keeps the Control entrypoint owner-safe",
+    "Records exact commands, HTTP checks, changed files, risks, and rollback notes",
+    "Creates a review-ready branch and routes review to node new"
+  ],
+  "verification_commands": [
+    "npm --prefix frontend run lint --if-present",
+    "npm --prefix frontend run build",
+    "python3 -m compileall -q backend ops"
+  ],
+  "max_retries": 1,
+  "create_review_on_complete": true,
+  "review_node": "new",
+  "source": {
+    "kind": "manual_control_plane_proposal",
+    "requested_by": "control_plane_queue_unblocker",
+    "requested_at": "2026-06-29T07:35:00+03:00",
+    "report": "docs/agent-work/control-plane-queue-unblock-report.md",
+    "not_submitted": true,
+    "diagnosis": "Owner app task TG-20260629003017-4711-up-telegram is stale-running on 9fts; app/product queued tasks are blocked on unavailable remote_implementation_runner_ready. Fresh non-draining implementation node observed: main; fresh review node observed: new."
+  }
+}

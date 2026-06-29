@@ -1,0 +1,74 @@
+{
+  "task_id": "KOL-DESKTOP-CONTROL-APP-MVP-20260629",
+  "idempotency_key": "desktop-control-app:mvp:v1:2026-06-29",
+  "kind": "generic_implementation",
+  "required_capability": "generic_implementation",
+  "permission_pack": "full_autonomy",
+  "runner": "codex",
+  "branch": "agent/KOL-DESKTOP-CONTROL-APP-MVP-20260629/desktop-control-app",
+  "base_ref": "origin/main",
+  "goal": "Read docs/desktop-control-app.md and docs/agent-work/desktop-control-app-mvp.md, then implement a review-ready MVP desktop control app for Kolibri on an Ubuntu factory node. The app must feel like the current Codex-like Kolibri chat: chat-first workspace, bottom composer, right-bottom Control entry point, dense operator panels and Russian owner-facing language. Reuse the existing React/Vite frontend where practical, keep /app web/PWA build working, and add the smallest production-safe desktop shell or desktop mode. Control the factory only through Control Plane and GitHub/CI contracts: health, nodes, tasks, task detail, submit task envelope, cancel, annotate, drain/undrain and agent messages. Do not use ad hoc SSH as the product control path, do not read node-local artifacts directly, do not call worker-only lease/heartbeat/complete/fail endpoints as owner actions, and do not expose secrets. Include offline/degraded mode, GitHub/CI/Project integration or exact authenticated blocker, Ubuntu QA evidence, screenshots, changed files, verification commands, security notes and follow-up tasks.",
+  "role_slot": "desktop_control_app_builder",
+  "role_goal": "build the Ubuntu MVP desktop control surface that lets Владислав operate the Kolibri factory safely from a Codex-like chat UI",
+  "role_catalog": [
+    {
+      "role": "desktop_control_app_builder",
+      "source_docs": [
+        "docs/desktop-control-app.md",
+        "docs/agent-work/desktop-control-app-mvp.md"
+      ],
+      "must_cover": [
+        "Codex-like chat-first desktop UX",
+        "Control Plane health, nodes, tasks, task detail, submit, cancel, annotate, drain and agent messages",
+        "task envelope builder with validation",
+        "node capacity and lease visibility",
+        "artifact/result review surface",
+        "GitHub PR, CI and Project visibility or Project sync pending blocker",
+        "offline and degraded mode with stale-cache labels",
+        "security redaction and destructive-action confirmation",
+        "Ubuntu 22.04 or 24.04 QA evidence"
+      ],
+      "runtime_constraints": [
+        "Ubuntu factory node implementation and QA",
+        "preserve existing web/PWA frontend build",
+        "Control Plane remains source of truth",
+        "no direct node-local filesystem reads from the desktop app",
+        "no secrets in diff, logs, screenshots or result payloads"
+      ]
+    }
+  ],
+  "acceptance": [
+    "Desktop app or desktop mode launches on Ubuntu; if packaging is blocked, result includes exact blocker, missing dependency and working dev shell evidence",
+    "Existing frontend web/PWA build still succeeds",
+    "First screen is a Codex-like chat workspace with bottom composer and right-bottom Control entry point",
+    "Control Panel shows Control Plane health, nodes, task summary, task detail and agent messages, with explicit degraded/offline states",
+    "Task Composer validates required envelope fields and can submit a task through POST /v1/tasks",
+    "Task Detail shows lifecycle state, attempt, lease owner, heartbeat, acceptance, result reference and safe artifact summary",
+    "Cancel and drain/undrain actions require confirmation and use Control Plane endpoints, not SSH",
+    "GitHub/CI/Project information is visible from task/result context, or the result reports Project sync: pending with the exact auth/scope blocker",
+    "Offline/degraded mode uses timestamped stale cache and never auto-replays destructive actions without fresh confirmation",
+    "Security redaction covers tokens, env files, private keys, cookies, auth cache and local paths in owner-facing summaries",
+    "Ubuntu QA report includes commands, versions, screenshots or documented tooling blockers, package artifact/checksum if built, and follow-up risks"
+  ],
+  "verification_commands": [
+    "npm --prefix frontend run lint --if-present",
+    "npm --prefix frontend run build",
+    "npm --prefix frontend run test:mobile-layout --if-present",
+    "npm --prefix frontend run build:desktop --if-present",
+    "npm --prefix frontend run package:linux --if-present",
+    "python3 -m compileall -q backend ops tests",
+    "python3 -m pytest backend/tests tests",
+    "python3 -m json.tool ops/envelopes/KOL-DESKTOP-CONTROL-APP-MVP-20260629.json"
+  ],
+  "max_retries": 2,
+  "source": {
+    "kind": "manual_control_plane",
+    "requested_by": "Владислав",
+    "requested_at": "2026-06-29T00:00:00+03:00",
+    "source_docs": [
+      "docs/desktop-control-app.md",
+      "docs/agent-work/desktop-control-app-mvp.md"
+    ],
+    "prepared_by": "desktop_control_app_mvp_architect"
+  }
+}

@@ -1,15 +1,15 @@
 {
-  "name": "Kolibri AI",
-  "short_name": "Kolibri",
-  "description": "Kolibri AI platform",
+  "name": "Фабрика Колибри",
+  "short_name": "Колибри",
+  "description": "Chat-first SPA/PWA для смет, документов, подписок и агентной фабрики.",
   "lang": "ru",
   "dir": "ltr",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "theme_color": "#0d141d",
-  "background_color": "#0d141d",
+  "theme_color": "#f0f4f8",
+  "background_color": "#f0f4f8",
   "icons": [
     {
       "src": "/icons/icon-192.png",

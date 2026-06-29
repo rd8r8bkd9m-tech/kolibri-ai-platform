@@ -1,18 +1,34 @@
 {
   "task_id": "KOL-FORMULALM-REMOTE-BENCH-6H-20260629",
+  "idempotency_key": "formulalm:remote-bench:6h:v2:2026-06-29",
   "kind": "generic_implementation",
   "required_capability": "generic_implementation",
   "permission_pack": "full_autonomy",
   "runner": "codex",
   "target_node": "server-kfrm",
-  "goal": "Run the FormulaLM benchmark only on a remote Linux factory server. Do not run model experiments on the owner's Mac. First verify remote runtime prerequisites: OS is not Darwin, Ollama or equivalent model runtime is available, a Qwen/QW 2.5-compatible model is installed or a documented remote model endpoint is configured, and enough disk/RAM are available. Then run scripts/formulalm_benchmark.py for 6 hours or the maximum safe duration allowed by the node lease policy, writing artifacts under the task artifact directory. Compare baseline local Qwen/QW 2.5 output against the FormulaLM deterministic overlay/kernel. Return JSON/Markdown metrics, blocker list, exact commands, model/runtime version, and recommendation. If prerequisites are missing, do not fake results; return a blocker artifact.",
+  "branch": "agent/KOL-FORMULALM-REMOTE-BENCH-6H-20260629/formulalm-bench",
+  "base_ref": "origin/main",
+  "goal": "Read docs/agent-work/formulalm-remote-rd-pack.md and run the FormulaLM benchmark only on a remote Linux factory server. Do not run model experiments on the owner's Mac. First write preflight artifacts proving OS is not Darwin and recording hostname, node id, task id, repo commit, runtime/model id, runtime version, disk/RAM and artifact directory. Verify Ollama, llama.cpp, vLLM or an equivalent documented remote model endpoint is available, a Qwen/QW 2.5-compatible model is configured, dataset formulalm-estimate-ru-2026q2-v1 is available, and pricebook kolibri-ru-2026q2-v1 is used. Then run scripts/formulalm_benchmark.py for 6 hours or the maximum safe duration allowed by node lease policy, writing artifacts under the task artifact directory. Compare baseline remote model output against the same remote model plus FormulaLM deterministic overlay/kernel using identical settings. Return formulalm-benchmark.json, formulalm-benchmark.md, preflight.json, blockers.json if any, exact commands, model/runtime version, metrics and recommendation. If prerequisites are missing, do not fake results; complete or fail with a blocker artifact.",
   "role_slot": "formulalm_researcher",
   "role_goal": "prove or falsify FormulaLM improvement with remote-only reproducible benchmarks",
+  "role_catalog": [
+    {
+      "role": "formulalm_researcher",
+      "source_doc": "docs/agent-work/formulalm-remote-rd-pack.md",
+      "dataset": "formulalm-estimate-ru-2026q2-v1",
+      "pricebook": "kolibri-ru-2026q2-v1",
+      "remote_only": true,
+      "target_node": "server-kfrm"
+    }
+  ],
   "acceptance": [
     "No experiment runs on macOS or the owner's Mac",
-    "Remote server prerequisites are recorded before the benchmark starts",
+    "Remote preflight artifact is recorded before benchmark execution and proves OS is not Darwin",
+    "Dataset version formulalm-estimate-ru-2026q2-v1 and pricebook version kolibri-ru-2026q2-v1 are recorded",
+    "Baseline and FormulaLM use the same remote model/runtime/settings",
     "Benchmark artifacts include formulalm-benchmark.json and formulalm-benchmark.md",
-    "Metrics compare baseline versus FormulaLM for deterministic estimate tasks",
+    "Artifacts also include preflight.json and blockers.json when blockers occur",
+    "Metrics compare baseline versus FormulaLM for deterministic estimate tasks using the documented H1-H5 decision rules",
     "Report clearly separates proven improvements from inconclusive or blocked results"
   ],
   "verification_commands": [
@@ -24,6 +40,11 @@
     "kind": "manual_control_plane",
     "requested_by": "owner",
     "requested_at": "2026-06-29T00:00:00+03:00",
-    "rule": "remote-only; Mac is control/editing surface only"
+    "rule": "remote-only; Mac is control/editing surface only",
+    "source_docs": [
+      "docs/agent-work/formulalm-remote-rd-pack.md",
+      "docs/formulalm.md"
+    ],
+    "prepared_by": "control_plane_envelope_integrator"
   }
 }

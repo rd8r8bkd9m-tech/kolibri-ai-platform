@@ -33,3 +33,60 @@ def test_lease_expiry_calculation():
     lease_until = time.time() + control.LEASE_DURATION
     assert lease_until > time.time()
     assert control.LEASE_DURATION >= 60
+
+
+def test_compact_task_listing_bounds_payload_and_exposes_queue_and_leases(monkeypatch):
+    control = load_control()
+    current = time.time()
+    noisy_payload = {"prompt": "x" * 10000, "result_blob": "y" * 10000}
+    tasks = {
+        "TASK-QUEUED": {
+            "task_id": "TASK-QUEUED",
+            "kind": "generic_implementation",
+            "state": control.STATE_QUEUED,
+            "created_at": "2026-06-29T00:00:00+00:00",
+            "updated_at": "2026-06-29T00:00:00+00:00",
+            "envelope": noisy_payload,
+            "result": noisy_payload,
+        },
+        "TASK-RUNNING": {
+            "task_id": "TASK-RUNNING",
+            "kind": "generic_implementation",
+            "state": control.STATE_RUNNING,
+            "lease_owner": "node-a:agent-a",
+            "lease_until": current - 5,
+            "created_at": "2026-06-29T00:01:00+00:00",
+            "updated_at": "2026-06-29T00:01:00+00:00",
+            "envelope": {"target_node": "node-a", **noisy_payload},
+            "result": noisy_payload,
+        },
+        "TASK-DONE": {
+            "task_id": "TASK-DONE",
+            "kind": "read_only_probe",
+            "state": control.STATE_COMPLETED,
+            "created_at": "2026-06-29T00:02:00+00:00",
+            "updated_at": "2026-06-29T00:02:00+00:00",
+            "envelope": noisy_payload,
+            "result": noisy_payload,
+        },
+    }
+
+    monkeypatch.setattr(control, "all_task_ids", lambda: list(tasks))
+    monkeypatch.setattr(control, "load_task", lambda task_id: tasks[task_id])
+    monkeypatch.setattr(control, "queue_length", lambda: 3)
+    monkeypatch.setattr(control, "queue_prefix", lambda limit: ["TASK-QUEUED", "TASK-RUNNING"][:limit])
+
+    listing = control.compact_task_listing(wanted=None, limit=2)
+
+    assert len(listing["tasks"]) == 2
+    assert "envelope" not in listing["tasks"][0]
+    assert "result" not in listing["tasks"][0]
+    assert listing["queue_length"] == 3
+    assert listing["summary"]["queue_total"] == 3
+    assert listing["summary"]["queue_returned"] == 2
+    assert listing["summary"]["queue_truncated"] is True
+    assert listing["summary"]["tasks_returned"] == 2
+    assert listing["summary"]["tasks_truncated"] is True
+    assert listing["summary"]["states"][control.STATE_RUNNING] == 1
+    assert listing["summary"]["expired_lease_total"] == 1
+    assert listing["summary"]["active_total"] == 1

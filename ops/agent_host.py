@@ -191,6 +191,29 @@ class AgentHost:
         }
         return self.post(f"/v1/tasks/{task['task_id']}/heartbeat", body)
 
+    def publish_agent_message(
+        self,
+        kind: str,
+        body: str,
+        task: dict[str, Any] | None = None,
+        recipients: list[str] | None = None,
+        artifacts: list[dict[str, Any]] | None = None,
+        topic: str | None = None,
+    ) -> None:
+        payload = {
+            "sender": self.node_id,
+            "recipients": recipients or ["all"],
+            "kind": kind,
+            "topic": topic,
+            "task_id": task.get("task_id") if task else None,
+            "body": body,
+            "artifacts": artifacts or [],
+        }
+        try:
+            self.post("/v1/agent-messages", payload)
+        except Exception as exc:
+            print(f"{utc_now()} agent_message_failed {exc}", flush=True)
+
     def lease(self) -> dict[str, Any] | None:
         return self.post("/v1/tasks/lease", {
             "node_id": self.node_id,
@@ -1158,6 +1181,7 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
         result = None
         try:
             kind = task.get("kind")
+            self.publish_agent_message("task_started", f"started {kind}", task, topic=str(kind))
             if kind == "impl_factory_smoke":
                 result = self.run_impl_factory_smoke(task)
             elif kind == "impl_retry_error_clearance":
@@ -1176,6 +1200,13 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 raise RuntimeError(f"unsupported task kind: {kind}")
             result_path = Path(result["result_path"])
             self.complete(task, result, result_path)
+            self.publish_agent_message(
+                "task_completed",
+                f"completed {kind}",
+                task,
+                artifacts=[{"result_path": str(result_path), "branch": result.get("branch"), "commit": result.get("commit")}],
+                topic=str(kind),
+            )
         except Exception as exc:
             task_id = task["task_id"]
             attempt_id = task.get("attempt_id") or f"{task_id}-attempt-{task.get('attempt', 1)}"
@@ -1195,6 +1226,13 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
             result_path = self.write_result(artifact_dir, result)
             retry = int(task.get("attempt", 0)) < int(task.get("max_retries", 3))
             self.fail(task, "runtime_error", str(exc), result, result_path, retry=retry)
+            self.publish_agent_message(
+                "task_failed",
+                str(exc),
+                task,
+                artifacts=[{"result_path": str(result_path)}],
+                topic=str(task.get("kind")),
+            )
 
     def loop(self) -> None:
         self.register()

@@ -27,6 +27,10 @@ REDIS_PORT = int(os.environ.get("FACTORY_REDIS_PORT", "6379"))
 LEASE_DURATION = int(os.environ.get("FACTORY_LEASE_DURATION", "60"))
 MAX_RETRIES = int(os.environ.get("FACTORY_MAX_RETRIES", "3"))
 NODE_STALE_AFTER = int(os.environ.get("FACTORY_NODE_STALE_AFTER", "120"))
+DEFAULT_TASK_LIST_LIMIT = int(os.environ.get("FACTORY_DEFAULT_TASK_LIST_LIMIT", "200"))
+MAX_TASK_LIST_LIMIT = int(os.environ.get("FACTORY_MAX_TASK_LIST_LIMIT", "500"))
+MAX_TASK_SUMMARY_SCAN = int(os.environ.get("FACTORY_MAX_TASK_SUMMARY_SCAN", "2000"))
+LEASE_EXPIRING_SOON_SECONDS = int(os.environ.get("FACTORY_LEASE_EXPIRING_SOON_SECONDS", "30"))
 
 STATE_QUEUED = "queued"
 STATE_LEASED = "leased"
@@ -240,6 +244,10 @@ def drain_key(node_id: str) -> str:
     return key(f"drain:{node_id}")
 
 
+def agent_feed_key(target: str) -> str:
+    return key(f"agent_feed:{target}")
+
+
 def all_task_ids() -> list[str]:
     values = redis.command("SMEMBERS", key("task_ids")) or []
     return sorted(values)
@@ -247,6 +255,16 @@ def all_task_ids() -> list[str]:
 
 def queue_ids() -> list[str]:
     return redis.command("LRANGE", key("queue"), 0, -1) or []
+
+
+def queue_length() -> int:
+    return int(redis.command("LLEN", key("queue")) or 0)
+
+
+def queue_prefix(limit: int) -> list[str]:
+    if limit <= 0:
+        return []
+    return redis.command("LRANGE", key("queue"), 0, limit - 1) or []
 
 
 def load_task(task_id: str) -> dict[str, Any] | None:
@@ -338,9 +356,25 @@ def compact_task(task: dict[str, Any]) -> dict[str, Any]:
 
 def summarize_tasks(tasks: list[dict[str, Any]]) -> dict[str, Any]:
     counts: dict[str, int] = {}
+    active_total = 0
+    expired_lease_total = 0
+    lease_expiring_soon_total = 0
+    current = now_ts()
     for task in tasks:
         state = str(task.get("state") or "unknown")
         counts[state] = counts.get(state, 0) + 1
+        if state in {STATE_LEASED, STATE_RUNNING, STATE_REVIEW, STATE_WAITING_REVIEW}:
+            active_total += 1
+        lease_until = task.get("lease_until")
+        if state in {STATE_LEASED, STATE_RUNNING, STATE_REVIEW} and lease_until:
+            try:
+                lease_remaining = float(lease_until) - current
+            except (TypeError, ValueError):
+                continue
+            if lease_remaining < 0:
+                expired_lease_total += 1
+            elif lease_remaining <= LEASE_EXPIRING_SOON_SECONDS:
+                lease_expiring_soon_total += 1
     active = [
         compact_task(task)
         for task in tasks
@@ -350,20 +384,128 @@ def summarize_tasks(tasks: list[dict[str, Any]]) -> dict[str, Any]:
         "total": len(tasks),
         "states": counts,
         "active": active,
+        "active_total": active_total,
+        "expired_lease_total": expired_lease_total,
+        "lease_expiring_soon_total": lease_expiring_soon_total,
+    }
+
+
+def bounded_limit(raw: str | None, default: int = DEFAULT_TASK_LIST_LIMIT) -> int:
+    if raw is None or raw == "":
+        return min(default, MAX_TASK_LIST_LIMIT)
+    try:
+        value = int(raw)
+    except ValueError:
+        return min(default, MAX_TASK_LIST_LIMIT)
+    return max(0, min(value, MAX_TASK_LIST_LIMIT))
+
+
+def task_sample(
+    wanted: str | None = None,
+    limit: int = DEFAULT_TASK_LIST_LIMIT,
+    compact: bool = False,
+    scan_limit: int | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    tasks = []
+    seen = 0
+    matched = 0
+    for task_id in all_task_ids():
+        if scan_limit is not None and seen >= scan_limit:
+            break
+        seen += 1
+        task = load_task(task_id)
+        if not task or (wanted is not None and task.get("state") != wanted):
+            continue
+        matched += 1
+        tasks.append(compact_task(task) if compact else task)
+    tasks.sort(key=lambda item: str(item.get("updated_at") or item.get("created_at") or ""), reverse=True)
+    return tasks[:limit], {
+        "tasks_scanned": seen,
+        "tasks_matched": matched,
+        "tasks_returned": min(len(tasks), limit),
+        "tasks_truncated": len(tasks) > limit,
+        "scan_truncated": scan_limit is not None and seen >= scan_limit,
     }
 
 
 def limited_tasks(wanted: str | None = None, limit: int | None = None, compact: bool = False) -> list[dict[str, Any]]:
+    sample, _meta = task_sample(
+        wanted=wanted,
+        limit=limit if limit is not None else DEFAULT_TASK_LIST_LIMIT,
+        compact=compact,
+    )
+    return sample
+
+
+def compact_task_listing(wanted: str | None, limit: int) -> dict[str, Any]:
+    q_len = queue_length()
+    q_prefix = queue_prefix(limit)
     tasks = []
-    for task_id in all_task_ids():
+    for task_id in q_prefix:
         task = load_task(task_id)
         if not task or (wanted is not None and task.get("state") != wanted):
             continue
-        tasks.append(compact_task(task) if compact else task)
-    tasks.sort(key=lambda item: str(item.get("updated_at") or item.get("created_at") or ""), reverse=True)
-    if limit is not None:
-        return tasks[:limit]
-    return tasks
+        tasks.append(compact_task(task))
+    summary = summarize_tasks(tasks)
+    summary.update({
+        "tasks_scanned": len(q_prefix),
+        "tasks_matched": len(tasks),
+        "scan_truncated": q_len > len(q_prefix),
+    })
+    summary["tasks_returned"] = len(tasks)
+    summary["tasks_truncated"] = q_len > len(q_prefix)
+    summary["queue_total"] = q_len
+    summary["queue_returned"] = len(q_prefix)
+    summary["queue_truncated"] = q_len > len(q_prefix)
+    summary["limit"] = limit
+    summary["max_limit"] = MAX_TASK_LIST_LIMIT
+    summary["summary_scope"] = "queue_prefix"
+    return {
+        "summary": summary,
+        "queue_length": q_len,
+        "queue": q_prefix,
+        "tasks": tasks,
+    }
+
+
+def normalize_agent_message(body: dict[str, Any]) -> dict[str, Any]:
+    created = utc_now()
+    message_id = body.get("message_id") or f"MSG-{uuid.uuid4().hex[:16]}"
+    sender = str(body.get("sender") or body.get("from") or "unknown")
+    recipients = parse_list(body.get("recipients") or body.get("to") or "all")
+    if not recipients:
+        recipients = ["all"]
+    return {
+        "message_id": message_id,
+        "sender": sender,
+        "recipients": recipients,
+        "kind": body.get("kind", "status"),
+        "topic": body.get("topic"),
+        "task_id": body.get("task_id"),
+        "body": body.get("body", body.get("message", "")),
+        "artifacts": body.get("artifacts", []),
+        "created_at": created,
+    }
+
+
+def publish_agent_message(message: dict[str, Any]) -> dict[str, Any]:
+    targets = sorted(set(["all", *parse_list(message.get("recipients"))]))
+    payload = json.dumps(message, sort_keys=True, separators=(",", ":"))
+    for target in targets:
+        redis.command("LPUSH", agent_feed_key(target), payload)
+        redis.command("LTRIM", agent_feed_key(target), 0, 499)
+    return message
+
+
+def load_agent_messages(target: str, limit: int = 50) -> list[dict[str, Any]]:
+    raw_items = redis.command("LRANGE", agent_feed_key(target), 0, max(0, limit - 1)) or []
+    messages = []
+    for raw in raw_items:
+        try:
+            messages.append(json.loads(raw))
+        except json.JSONDecodeError:
+            continue
+    return messages
 
 
 def requeue_expired_leases() -> None:
@@ -509,13 +651,34 @@ class Handler(BaseHTTPRequestHandler):
                 wanted = query.get("state", [None])[0]
                 summary = query.get("summary", ["0"])[0].lower() in {"1", "true", "yes"}
                 compact = query.get("compact", ["0"])[0].lower() in {"1", "true", "yes"}
-                limit_value = query.get("limit", [None])[0]
-                limit = int(limit_value) if limit_value else None
-                tasks = limited_tasks(wanted=wanted, limit=limit, compact=compact)
-                if summary:
-                    response(self, 200, {"summary": summarize_tasks(tasks), "queue_length": len(queue_ids())})
+                limit = bounded_limit(query.get("limit", [None])[0])
+                if summary and compact:
+                    response(self, 200, compact_task_listing(wanted, limit))
                     return
-                response(self, 200, {"tasks": tasks, "queue": queue_ids()})
+                tasks, meta = task_sample(wanted=wanted, limit=limit, compact=compact)
+                if summary:
+                    payload = {"summary": summarize_tasks(tasks), "queue_length": queue_length(), "limits": meta}
+                    response(self, 200, payload)
+                    return
+                q_len = queue_length()
+                q_prefix = queue_prefix(limit)
+                response(
+                    self,
+                    200,
+                    {
+                        "tasks": tasks,
+                        "queue": q_prefix,
+                        "queue_length": q_len,
+                        "queue_truncated": q_len > len(q_prefix),
+                        "limits": meta,
+                    },
+                )
+                return
+            if path == "/v1/agent-messages":
+                query = parse_qs(parsed.query)
+                target = query.get("target", ["all"])[0]
+                limit = int(query.get("limit", ["50"])[0])
+                response(self, 200, {"target": target, "messages": load_agent_messages(target, limit)})
                 return
             if path.startswith("/v1/tasks/"):
                 task_id = path.split("/", 3)[3]
@@ -578,6 +741,10 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/v1/tasks":
                 task = create_task(body)
                 response(self, 201, task)
+                return
+            if path == "/v1/agent-messages":
+                message = publish_agent_message(normalize_agent_message(body))
+                response(self, 201, message)
                 return
             if path == "/v1/tasks/lease":
                 requeue_expired_leases()

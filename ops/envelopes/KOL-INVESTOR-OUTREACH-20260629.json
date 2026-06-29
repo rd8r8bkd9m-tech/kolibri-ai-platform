@@ -1,0 +1,55 @@
+{
+  "task_id": "KOL-INVESTOR-OUTREACH-20260629",
+  "idempotency_key": "investor-outreach:first-wave:v1:2026-06-29",
+  "kind": "generic_implementation",
+  "required_capability": "generic_implementation",
+  "permission_pack": "full_autonomy",
+  "runner": "codex",
+  "branch": "agent/KOL-INVESTOR-OUTREACH-20260629/investor-outreach",
+  "base_ref": "origin/main",
+  "goal": "Read docs/agent-work/investor-outreach-pack.md and prepare safe first-wave investor, strategic partner and early customer outreach artifacts. Do not send emails, do not contact anyone externally, do not invent contacts, do not guess emails, do not add investment terms, valuation, revenue, traction or model-performance claims without evidence. Keep investor, customer and strategic-partner messaging separate. Produce or refine a GitHub-visible artifact with RU/EN one-pager, first-wave CRM schema, segmentation, evidence checklist, follow-up templates, compliance caveats and a Project update template. Claims must tie back to repository docs, demo evidence, tests or Control Plane artifacts.",
+  "role_slot": "investor_sales_operator",
+  "role_goal": "prepare evidence-backed outreach assets without external sending or unsupported fundraising claims",
+  "role_catalog": [
+    {
+      "role": "investor_sales_operator",
+      "source_doc": "docs/agent-work/investor-outreach-pack.md",
+      "must_cover": [
+        "RU and EN one-pager framing",
+        "Wave 0 manual validation and Wave 1 segmentation",
+        "CRM schema with source and opt-out fields",
+        "minimum safe evidence pack",
+        "compliance caveats and marketing-claim guardrails"
+      ],
+      "forbidden": [
+        "invented contacts or guessed emails",
+        "external email sending",
+        "investment terms or valuation claims",
+        "FormulaLM superiority claims without benchmark evidence"
+      ]
+    }
+  ],
+  "acceptance": [
+    "No external outreach is sent and no real or guessed contact list is generated",
+    "Investor, customer and strategic partner messages have separate positioning and one clear ask each",
+    "Every proposed CRM row/field requires a source, status, opt-out handling and minimal private notes",
+    "Evidence checklist excludes secrets, private server addresses, raw customer documents and unsupported claims",
+    "FormulaLM is framed as R&D unless remote benchmark artifacts prove a narrower claim",
+    "Result includes GitHub Project/issue-ready update text with Investor/docs visibility and next report"
+  ],
+  "verification_commands": [
+    "python3 -m compileall -q ops backend"
+  ],
+  "max_retries": 2,
+  "source": {
+    "kind": "manual_control_plane",
+    "requested_by": "owner",
+    "requested_at": "2026-06-29T00:00:00+03:00",
+    "source_docs": [
+      "docs/agent-work/investor-outreach-pack.md",
+      "docs/investors.md",
+      "docs/formulalm.md"
+    ],
+    "prepared_by": "control_plane_envelope_integrator"
+  }
+}

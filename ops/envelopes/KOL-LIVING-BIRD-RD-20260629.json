@@ -1,0 +1,56 @@
+{
+  "task_id": "KOL-LIVING-BIRD-RD-20260629",
+  "idempotency_key": "living-bird:rd:v1:2026-06-29",
+  "kind": "generic_implementation",
+  "required_capability": "generic_implementation",
+  "permission_pack": "full_autonomy",
+  "runner": "codex",
+  "branch": "agent/KOL-LIVING-BIRD-RD-20260629/living-bird-rd",
+  "base_ref": "origin/main",
+  "goal": "Read docs/agent-work/living-bird-rive-spec.md and perform the next safe R&D slice for the Kolibri living bird. The bird is a product state indicator, not decoration. If the Rive asset is absent, do not fake Rive completion: implement or specify the LivingKolibri contract/controller/SVG fallback path, preserve the current SVG components, keep no code path dependent on Rive being present, and produce a Rive handoff/QA matrix for the asset team. Feature flags must include livingKolibriRive for Rive and keep Pixi behind a separate experimental flag if mentioned. Respect reduced motion, accessibility, performance budgets and no customer data in animation assets.",
+  "role_slot": "living_character_director",
+  "role_goal": "turn the living bird specification into an incremental Rive/SVG-compatible product character path",
+  "role_catalog": [
+    {
+      "role": "living_character_director",
+      "source_doc": "docs/agent-work/living-bird-rive-spec.md",
+      "must_cover": [
+        "LivingKolibri props and state contract",
+        "state priority/controller behavior",
+        "SVG fallback coverage for every canonical state",
+        "Rive artboard/state machine/View Model handoff",
+        "reduced motion, visibility pause and performance budgets"
+      ],
+      "non_goals": [
+        "full pet gameplay",
+        "mandatory Rive dependency",
+        "multiple canvas instances in message lists"
+      ]
+    }
+  ],
+  "acceptance": [
+    "Current SVG bird/avatar path remains a production fallback and covers every canonical state or maps safely to idle",
+    "Rive integration is gated behind livingKolibriRive and load/error fallback cannot break the UI",
+    "State changes from app/factory/billing/network events are specified or implemented through a deterministic controller contract",
+    "Reduced motion, keyboard/accessibility labels, visibility/offscreen pause and performance constraints are covered",
+    "If the .riv asset is missing, result is an honest Rive handoff artifact rather than claimed runtime completion",
+    "Result includes QA matrix for states, task transitions, offline/online restore, reduced motion and mobile performance"
+  ],
+  "verification_commands": [
+    "npm --prefix frontend run lint --if-present",
+    "npm --prefix frontend run build",
+    "npm --prefix frontend run test:mobile-layout --if-present"
+  ],
+  "max_retries": 2,
+  "source": {
+    "kind": "manual_control_plane",
+    "requested_by": "owner",
+    "requested_at": "2026-06-29T00:00:00+03:00",
+    "source_docs": [
+      "docs/agent-work/living-bird-rive-spec.md",
+      "docs/living-bird.md",
+      "docs/project-policy.md"
+    ],
+    "prepared_by": "control_plane_envelope_integrator"
+  }
+}

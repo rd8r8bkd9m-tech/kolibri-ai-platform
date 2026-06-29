@@ -1,0 +1,62 @@
+{
+  "task_id": "KOL-SERVER-KFRM-RUNTIME-RECOVERY-20260629",
+  "idempotency_key": "server-kfrm:runtime-recovery-rollout:2026-06-29",
+  "kind": "generic_implementation",
+  "required_capability": "generic_implementation",
+  "permission_pack": "full_autonomy",
+  "runner": "codex",
+  "role_slot": "factory_sre",
+  "role_goal": "coordinate a safe Control Plane rollout to recover server-kfrm Agent Host without heavy workloads",
+  "goal": "Using docs/agent-work/server-kfrm-runtime-recovery.md and docs/agent-work/server-kfrm-rollout-envelope-plan.md, coordinate the server-kfrm recovery gates. Start with read-only Control Plane snapshot, verify idempotency for KOL-SERVER-KFRM-PROBE-20260629, prepare the exact operator actions for Agent Host bootstrap/rollout, and stop before any live mutation unless explicit operator approval is present in the task context. Do not run FormulaLM, LLM benchmarks, app QA, deploy scripts, SSH product paths, cancel/retry/requeue, or queue surgery. Return a concise status artifact with current gate, blockers, and the next safe operator decision.",
+  "operator_approval_required_for_live_mutations": true,
+  "live_mutation_stop_gates": [
+    "submit",
+    "cancel",
+    "retry",
+    "requeue",
+    "drain",
+    "un-drain",
+    "bootstrap",
+    "restart",
+    "deploy",
+    "direct Redis or spool edits",
+    "queue surgery"
+  ],
+  "prohibited_actions": [
+    "run FormulaLM on Mac or any control surface",
+    "run LLM benchmarks on Mac or any control surface",
+    "run app QA before fresh heartbeat and completed read-only probe",
+    "use SSH or SCP as the product control path",
+    "duplicate-submit KOL-SERVER-KFRM-PROBE-20260629",
+    "cancel, retry, requeue, drain, un-drain, bootstrap, restart, or deploy without explicit operator approval"
+  ],
+  "acceptance": [
+    "Read-only snapshot covers /health, nodes, targeted status for KOL-SERVER-KFRM-PROBE-20260629, targeted collect when terminal/running, and /v1/filesystem when available",
+    "Report distinguishes executor server-kfrm from mesh-server-kfrm",
+    "Report includes heartbeat_at, heartbeat_age_seconds, fresh, health, draining, active_task, active_task_state, capabilities, lease_owner, lease_until, result_reference, and spool/Redis health",
+    "No duplicate submit is performed for KOL-SERVER-KFRM-PROBE-20260629 if the task already exists in queued, leased, running, completed, failed, cancelled, or dead_letter state",
+    "No SSH, SCP, direct Redis/spool edits, deploy script, FormulaLM, LLM benchmark, app QA, cancel, retry, drain, un-drain, or bootstrap/restart is performed without explicit operator approval",
+    "If server-kfrm is stale, the result states that Control Plane cannot self-heal that node through a targeted lease until Agent Host heartbeat is restored",
+    "If operator approval is absent, task exits with blocker artifact and exact next safe decision request",
+    "If operator approval is present and recovery is executed, success is claimed only after fresh heartbeat and completed read-only probe leased by server-kfrm with node-local artifact",
+    "Result payload contains no secrets, auth files, raw private logs, or owner-facing local artifact paths beyond approved Control Plane references"
+  ],
+  "verification_commands": [
+    "python3 -m json.tool ops/envelopes/KOL-SERVER-KFRM-RUNTIME-RECOVERY-20260629.json >/dev/null",
+    "python3 -m compileall -q ops/agent_host.py ops/factory_control.py"
+  ],
+  "max_retries": 1,
+  "create_review_on_complete": true,
+  "review_node": "new",
+  "source": {
+    "kind": "manual_control_plane",
+    "requested_by": "server-kfrm-rollout-planner",
+    "requested_at": "2026-06-29T00:00:00+03:00",
+    "repo": "kolibri-ai-platform",
+    "supported_kind_evidence": "ops/agent_host.py supports generic_implementation and ops/factory_control.py treats generic_implementation as an autonomous task kind.",
+    "source_docs": [
+      "docs/agent-work/server-kfrm-runtime-recovery.md",
+      "docs/agent-work/server-kfrm-rollout-envelope-plan.md"
+    ]
+  }
+}

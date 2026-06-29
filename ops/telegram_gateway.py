@@ -136,6 +136,21 @@ OWNER_RUNTIME_FAILURE_MARKERS = (
     "--title",
     "ты — центральный оркестратор",
 )
+REPORT_CHUNK_LIMIT = 3600
+REPORT_SECRET_LINE_MARKERS = (
+    "-----begin",
+    "private key",
+    "authorization:",
+    "cookie:",
+    "set-cookie:",
+)
+REPORT_SECRET_VALUE_PATTERN = re.compile(
+    r"(?i)\b(token|secret|password|passwd|api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret)"
+    r"(\s*[:=]\s*)([\"']?)([^\s`'\";]+)([\"']?)"
+)
+REPORT_PRIVATE_PATH_PATTERN = re.compile(
+    r"(?<![\w.-])(?:/var/lib/kolibri-agent|/run/secrets|/etc/kolibri|/tmp)/[^\s`)]+"
+)
 IMMEDIATE_CHAT_MARKERS = (
     "как дела",
     "как ты",
@@ -263,6 +278,110 @@ def json_request(method: str, url: str, body: dict[str, Any] | None = None, time
         raise RuntimeError(f"{method} {url} failed: HTTP {exc.code}: {detail}") from exc
 
 
+def sanitize_report_text(text: str) -> str:
+    sanitized_lines = []
+    for line in text.splitlines():
+        lowered = line.lower()
+        if any(marker in lowered for marker in REPORT_SECRET_LINE_MARKERS):
+            sanitized_lines.append("[строка скрыта: секретный материал]")
+            continue
+        line = REPORT_SECRET_VALUE_PATTERN.sub(
+            lambda match: f"{match.group(1)}{match.group(2)}{match.group(3)}[скрыто]{match.group(5)}",
+            line,
+        )
+        line = REPORT_PRIVATE_PATH_PATTERN.sub("[внутренний путь скрыт]", line)
+        sanitized_lines.append(line.rstrip())
+    return "\n".join(sanitized_lines).strip()
+
+
+def split_telegram_text(text: str, limit: int = REPORT_CHUNK_LIMIT) -> list[str]:
+    normalized = text.strip() or "Пустой отчёт."
+    parts: list[str] = []
+    current = ""
+    for paragraph in normalized.split("\n\n"):
+        paragraph = paragraph.strip()
+        if not paragraph:
+            continue
+        candidate = f"{current}\n\n{paragraph}".strip() if current else paragraph
+        if len(candidate) <= limit:
+            current = candidate
+            continue
+        if current:
+            parts.append(current)
+            current = ""
+        while len(paragraph) > limit:
+            split_at = paragraph.rfind("\n", 0, limit)
+            if split_at < limit // 2:
+                split_at = paragraph.rfind(" ", 0, limit)
+            if split_at < limit // 2:
+                split_at = limit
+            parts.append(paragraph[:split_at].strip())
+            paragraph = paragraph[split_at:].strip()
+        if paragraph:
+            current = paragraph
+    if current:
+        parts.append(current)
+    return parts or ["Пустой отчёт."]
+
+
+def report_title_from_path(path: Path) -> str:
+    title = path.stem.replace("-", " ").replace("_", " ").strip()
+    return title[:1].upper() + title[1:] if title else "Отчёт Kolibri"
+
+
+def build_report_letter(
+    report_path: Path,
+    *,
+    title: str | None = None,
+    agent: str | None = None,
+    status: str | None = None,
+    summary: str | None = None,
+) -> str:
+    raw = report_path.read_text(encoding="utf-8")
+    safe_body = sanitize_report_text(raw)
+    report_title = (title or report_title_from_path(report_path)).strip()
+    lines = [
+        f"Тема: {report_title}",
+        f"Дата: {utc_now()}",
+        f"Ответственный: {(agent or 'Kolibri automation').strip()}",
+        f"Статус: {(status or 'отчёт').strip()}",
+    ]
+    if summary:
+        lines.extend(["", "Кратко:", sanitize_report_text(summary)])
+    lines.extend(["", "Документ:", safe_body])
+    return "\n".join(lines).strip()
+
+
+def state_owner_chat_id(state: "StateStore") -> int | None:
+    chat_id = state.data.get("owner_chat_id")
+    if chat_id:
+        return int(chat_id)
+    for record in (state.data.get("tracked") or {}).values():
+        if record.get("chat_id"):
+            return int(record["chat_id"])
+    return None
+
+
+def send_report_letter(
+    telegram: "TelegramClient",
+    state: "StateStore",
+    report_path: Path,
+    *,
+    chat_id: int | None = None,
+    title: str | None = None,
+    agent: str | None = None,
+    status: str | None = None,
+    summary: str | None = None,
+) -> dict[str, Any]:
+    target_chat_id = chat_id or state_owner_chat_id(state)
+    if not target_chat_id:
+        raise RuntimeError("owner chat id is unavailable; set TELEGRAM_REPORT_CHAT_ID or let the owner write the bot first")
+    letter = build_report_letter(report_path, title=title, agent=agent, status=status, summary=summary)
+    safe_title = (title or report_title_from_path(report_path)).strip()
+    sent_parts = telegram.send_text_document(int(target_chat_id), safe_title, letter)
+    return {"chat_id": int(target_chat_id), "parts": sent_parts, "title": safe_title}
+
+
 class TelegramClient:
     def __init__(self, token: str, api_base: str = "https://api.telegram.org"):
         if not token:
@@ -328,6 +447,16 @@ class TelegramClient:
     def send_message(self, chat_id: int, text: str) -> dict[str, Any]:
         response = self.call("sendMessage", {"chat_id": chat_id, "text": text[:3900], "disable_web_page_preview": True})
         return response.get("result") or {}
+
+    def send_text_document(self, chat_id: int, title: str, text: str) -> int:
+        parts = split_telegram_text(text, REPORT_CHUNK_LIMIT)
+        for index, part in enumerate(parts, start=1):
+            if len(parts) > 1:
+                prefix = f"{title} ({index}/{len(parts)})\n\n"
+                self.send_message(chat_id, prefix + part)
+            else:
+                self.send_message(chat_id, part)
+        return len(parts)
 
     def send_photo(self, chat_id: int, photo: str | bytes | Path, caption: str | None = None, mime_type: str | None = None) -> dict[str, Any]:
         fields: dict[str, Any] = {"chat_id": chat_id}
@@ -1203,14 +1332,35 @@ def main() -> int:
     parser.add_argument("--control-urls", default=os.environ.get("KOLIBRI_FACTORY_CONTROL_URLS") or os.environ.get("KOLIBRI_FACTORY_CONTROL_URL", "http://10.99.0.2:9101"))
     parser.add_argument("--state-file", default=os.environ.get("TELEGRAM_GATEWAY_STATE", "/var/lib/kolibri-telegram-gateway/state.json"))
     parser.add_argument("--poll-timeout", type=int, default=int(os.environ.get("TELEGRAM_POLL_TIMEOUT", "25")))
+    parser.add_argument("--send-report", help="Send a Markdown/text report file to the owner as a Telegram letter, then exit.")
+    parser.add_argument("--report-chat-id", type=int, default=int(os.environ["TELEGRAM_REPORT_CHAT_ID"]) if os.environ.get("TELEGRAM_REPORT_CHAT_ID") else None)
+    parser.add_argument("--report-title", default=os.environ.get("TELEGRAM_REPORT_TITLE"))
+    parser.add_argument("--report-agent", default=os.environ.get("TELEGRAM_REPORT_AGENT"))
+    parser.add_argument("--report-status", default=os.environ.get("TELEGRAM_REPORT_STATUS"))
+    parser.add_argument("--report-summary", default=os.environ.get("TELEGRAM_REPORT_SUMMARY"))
     args = parser.parse_args()
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-    owner_ids = parse_owner_ids(os.environ.get("TELEGRAM_OWNER_IDS", ""))
+    owner_ids = parse_owner_ids(os.environ.get("TELEGRAM_OWNER_IDS", "")) if os.environ.get("TELEGRAM_OWNER_IDS") else set()
+    state = StateStore(Path(args.state_file))
+    telegram = TelegramClient(token)
+    if args.send_report:
+        result = send_report_letter(
+            telegram,
+            state,
+            Path(args.send_report),
+            chat_id=args.report_chat_id,
+            title=args.report_title,
+            agent=args.report_agent,
+            status=args.report_status,
+            summary=args.report_summary,
+        )
+        print(json.dumps({"event": "telegram_report_sent", **result}, ensure_ascii=False, sort_keys=True))
+        return 0
     if not owner_ids:
         raise SystemExit("TELEGRAM_OWNER_IDS is required")
     signal.signal(signal.SIGTERM, handle_stop)
     signal.signal(signal.SIGINT, handle_stop)
-    gateway = Gateway(TelegramClient(token), FactoryClient(args.control_url, args.control_urls), owner_ids, StateStore(Path(args.state_file)), args.poll_timeout)
+    gateway = Gateway(telegram, FactoryClient(args.control_url, args.control_urls), owner_ids, state, args.poll_timeout)
     gateway.run()
     return 0
 

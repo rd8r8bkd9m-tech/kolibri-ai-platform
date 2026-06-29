@@ -1,0 +1,326 @@
+{
+  "generated_at": "2026-06-29",
+  "role": "executor_qa_evidence_json",
+  "source_markdown": "docs/agent-work/qa-evidence-index.md",
+  "overall_release_status": "NO-GO",
+  "scope": "desk-review of local and factory QA evidence recorded under docs/agent-work",
+  "constraints": {
+    "heavy_tests_run": false,
+    "formulalm_llm_run_on_mac": false,
+    "ssh_used": false,
+    "control_plane_mutated": false,
+    "stage_commit_push": false
+  },
+  "checks": [
+    {
+      "name": "Release local P0 slice billing tests",
+      "command": "PYTHONDONTWRITEBYTECODE=1 /tmp/kolibri-ci-triage-312-venv/bin/python -m pytest -q backend/tests/test_billing.py",
+      "status": "passed",
+      "artifact": ["docs/agent-work/release-status-20260629.md", "docs/agent-work/tbank-payments-engineer-report.md"],
+      "blocker": "Only mock/unit coverage; real T-Bank sandbox checkout, notification, and Charge flow not verified."
+    },
+    {
+      "name": "Deterministic estimates PDF golden path",
+      "command": "PYTHONDONTWRITEBYTECODE=1 /tmp/kolibri-ci-triage-312-venv/bin/python -m pytest -q backend/tests/test_estimate_document_pdf_engines.py",
+      "status": "passed",
+      "artifact": ["docs/agent-work/release-status-20260629.md"],
+      "blocker": "Golden path does not close the full P0 API, manifest, and benchmark contract."
+    },
+    {
+      "name": "Factory status frontend guard",
+      "command": "PYTHONDONTWRITEBYTECODE=1 /tmp/kolibri-ci-triage-312-venv/bin/python -m pytest -q tests/test_factory_status.py::test_frontend_uses_live_factory_status_endpoint",
+      "status": "passed",
+      "artifact": ["docs/agent-work/release-status-20260629.md", "docs/agent-work/ci-failure-triage.md", "docs/agent-work/pr46-ci-next-report.md"],
+      "blocker": "Fix is local or unpublished in evidence; GitHub CI on the published PR head remained red."
+    },
+    {
+      "name": "Telegram gateway tests",
+      "command": "PYTHONDONTWRITEBYTECODE=1 /tmp/kolibri-ci-triage-312-venv/bin/python -m pytest -q tests/test_telegram_gateway.py",
+      "status": "passed",
+      "artifact": ["docs/agent-work/release-status-20260629.md"],
+      "blocker": "Live Telegram delivery smoke was not executed."
+    },
+    {
+      "name": "Telegram report CLI dry harness",
+      "command": "python3 -m py_compile ops/telegram_gateway.py; manual harness without network",
+      "status": "passed",
+      "artifact": ["docs/agent-work/telegram-reporting-final-check.md"],
+      "blocker": "System Python had no pytest; real Telegram send was not performed."
+    },
+    {
+      "name": "Frontend build",
+      "command": "npm --prefix frontend run build",
+      "status": "passed",
+      "artifact": ["docs/agent-work/release-status-20260629.md", "docs/agent-work/pr46-ci-next-report.md", "docs/agent-work/ux-chat-first-review.md", "docs/agent-work/pwa-mobile-design-qa.md"],
+      "blocker": "Build evidence does not replace browser, mobile, console, or install evidence."
+    },
+    {
+      "name": "Frontend lint",
+      "command": "npm run lint",
+      "status": "warning",
+      "artifact": ["docs/agent-work/pr46-ci-next-report.md", "docs/agent-work/ux-chat-first-review.md", "docs/agent-work/frontend-lint-readiness.md"],
+      "blocker": "Lint passed with warnings: service worker unused error, useMemo deps, and Fast Refresh export warning."
+    },
+    {
+      "name": "Mobile layout guard",
+      "command": "npm --prefix frontend run test:mobile-layout --if-present",
+      "status": "passed",
+      "artifact": ["docs/agent-work/release-status-20260629.md", "docs/agent-work/pr46-ci-next-report.md", "docs/agent-work/pwa-mobile-design-qa.md", "docs/agent-work/ux-chat-first-review.md"],
+      "blocker": "Regex/CSS guard missed viewport overflow visible in screenshots."
+    },
+    {
+      "name": "PR 46 full local pytest",
+      "command": "/tmp/kolibri-pr46-ci-venv/bin/python -m pytest -q",
+      "status": "passed",
+      "artifact": ["docs/agent-work/pr46-ci-next-report.md"],
+      "blocker": "Local result was not published to PR CI."
+    },
+    {
+      "name": "PR 46 compile",
+      "command": "/opt/homebrew/bin/python3.12 -m compileall -q backend infra scripts",
+      "status": "passed",
+      "artifact": ["docs/agent-work/pr46-ci-next-report.md"],
+      "blocker": "Does not cover ops files changed later unless rerun for that scope."
+    },
+    {
+      "name": "CI tail guards local reproduction",
+      "command": "tracked JSON/YAML validation, secret scan, production secret path guard, backend smoke, frontend smoke",
+      "status": "passed",
+      "artifact": ["docs/agent-work/pr46-ci-next-report.md"],
+      "blocker": "Local reproduction only; Actions on PR remained red at the old SHA."
+    },
+    {
+      "name": "Workspace JSON validation",
+      "command": "Validate 21 workspace JSON files excluding node_modules/.git/dist",
+      "status": "passed",
+      "artifact": ["docs/agent-work/pr46-ci-next-report.md"],
+      "blocker": "JSON parse validation does not imply envelope semantic acceptance."
+    },
+    {
+      "name": "Envelope JSON validation",
+      "command": "for f in ops/envelopes/*.json; do python3 -m json.tool \"$f\" >/dev/null; done",
+      "status": "passed",
+      "artifact": ["docs/agent-work/control-plane-envelope-report.md"],
+      "blocker": "Envelopes were prepared locally; most were not submitted or executed."
+    },
+    {
+      "name": "Control Plane API P0 syntax and harness",
+      "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile ops/factory_control.py ops/agent_host.py; one-off compact listing harness",
+      "status": "passed",
+      "artifact": ["docs/agent-work/control-plane-api-p0-report.md"],
+      "blocker": "Pytest was blocked in system Python; bounded scan totals may be partial."
+    },
+    {
+      "name": "Factory P0 rollout local checks",
+      "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m py_compile ops/factory_control.py tests/test_factory_runtime_queue_contracts.py; /tmp/kolibri-p0-venv/bin/python -m pytest -q tests/test_factory_runtime_queue_contracts.py; git diff --check",
+      "status": "passed",
+      "artifact": ["docs/agent-work/factory-p0-live-repair-status.md"],
+      "blocker": "Queue visibility improved, but backlog remains and server-kfrm is stale."
+    },
+    {
+      "name": "PWA static guards",
+      "command": "Manifest JSON guard, icon file checks, service-worker/static guards",
+      "status": "passed",
+      "artifact": ["docs/agent-work/pwa-mobile-design-qa.md"],
+      "blocker": "Real Android/iOS install and offline evidence is absent; local preview disables SW registration."
+    },
+    {
+      "name": "API documentation review",
+      "command": "Read-only rg/sed code and doc review",
+      "status": "passed",
+      "artifact": ["docs/agent-work/api-documentation-report.md"],
+      "blocker": "Some endpoints are documented as roadmap/placeholders rather than live API."
+    },
+    {
+      "name": "Docs integration review",
+      "command": "Markdown inventory and inventory/GitHub API searches",
+      "status": "passed",
+      "artifact": ["docs/agent-work/docs-integration-report.md"],
+      "blocker": "Documentation integration is not product/runtime evidence."
+    },
+    {
+      "name": "Control Plane health",
+      "command": "curl http://10.99.0.2:9101/health and curl -fsS --max-time ... /health",
+      "status": "passed",
+      "artifact": ["docs/agent-work/release-status-20260629.md", "docs/agent-work/ubuntu-qa-runner-report.md", "docs/agent-work/control-plane-queue-unblock-report.md", "docs/agent-work/server-kfrm-queue-watch.md"],
+      "blocker": "Health does not prove runners are fresh or tasks are progressing."
+    },
+    {
+      "name": "Targeted server-kfrm probe status",
+      "command": "ops/kolibri-dispatch status KOL-SERVER-KFRM-PROBE-20260629 --full; GET /v1/tasks/KOL-SERVER-KFRM-PROBE-20260629",
+      "status": "blocked",
+      "artifact": ["docs/agent-work/release-status-20260629.md", "docs/agent-work/server-kfrm-queue-watch.md", "docs/agent-work/server-kfrm-blocker-summary.md", "docs/agent-work/ubuntu-qa-runner-report.md"],
+      "blocker": "Task queued with no lease and no result; server-kfrm heartbeat stale."
+    },
+    {
+      "name": "Product QA envelope status",
+      "command": "ops/kolibri-dispatch status KOL-PRODUCT-QA-E2E-20260629 --full",
+      "status": "blocked",
+      "artifact": ["docs/agent-work/release-status-20260629.md", "docs/agent-work/ubuntu-qa-runner-report.md"],
+      "blocker": "Task queued; no fresh non-draining generic_implementation runner at snapshot."
+    },
+    {
+      "name": "P0 app queue unblock status",
+      "command": "ops/kolibri-dispatch status KOL-P0-APP-QUEUE-UNBLOCK-20260629 --full",
+      "status": "blocked",
+      "artifact": ["docs/agent-work/release-status-20260629.md", "docs/agent-work/factory-p0-live-repair-status.md"],
+      "blocker": "Release snapshot had 404 task_not_found; later rerun was running and needs final result collection."
+    },
+    {
+      "name": "Queue summary before P0 fix",
+      "command": "GET /v1/tasks?summary=1&compact=1 and variants with limit/state",
+      "status": "blocked",
+      "artifact": ["docs/agent-work/control-plane-queue-unblock-report.md", "docs/agent-work/ubuntu-qa-runner-report.md"],
+      "blocker": "Broad task listing produced huge payloads, timeouts, or misleading counts."
+    },
+    {
+      "name": "Queue summary after P0 rollout",
+      "command": "GET /v1/tasks?summary=1&compact=1&limit=5",
+      "status": "passed",
+      "artifact": ["docs/agent-work/factory-p0-live-repair-status.md"],
+      "blocker": "Queue still large and needs controlled drain/recovery."
+    },
+    {
+      "name": "Agent messages endpoint",
+      "command": "GET /v1/agent-messages?target=all&limit=5",
+      "status": "passed",
+      "artifact": ["docs/agent-work/factory-p0-live-repair-status.md"],
+      "blocker": "Endpoint smoke only; full owner/report workflow not proven."
+    },
+    {
+      "name": "Node inventory filesystem",
+      "command": "GET /v1/nodes and GET /v1/filesystem",
+      "status": "passed",
+      "artifact": ["docs/agent-work/ubuntu-qa-runner-report.md", "docs/agent-work/server-capacity-sre-report.md", "docs/agent-work/server-kfrm-queue-watch.md"],
+      "blocker": "OS must still be proven inside lease with uname."
+    },
+    {
+      "name": "Runner capacity",
+      "command": "Manual freshness matrix from /health and /v1/nodes",
+      "status": "blocked",
+      "artifact": ["docs/agent-work/ubuntu-qa-runner-report.md", "docs/agent-work/server-capacity-sre-report.md"],
+      "blocker": "No fresh non-draining generic_implementation runner for heavy QA."
+    },
+    {
+      "name": "GitHub Project and PR read-only inspection",
+      "command": "gh auth status; gh project view/field-list/item-list; gh pr view; gh pr checks; gh run view --log-failed",
+      "status": "warning",
+      "artifact": ["docs/agent-work/github-project-sync-report.md", "docs/agent-work/github-project-operator-report.md", "docs/agent-work/ci-failure-triage.md"],
+      "blocker": "Read-only inspection succeeded, but PR/project statuses still need sync after approved commit/push."
+    },
+    {
+      "name": "PR 46 GitHub checks",
+      "command": "gh pr checks 46",
+      "status": "blocked",
+      "artifact": ["docs/agent-work/ci-failure-triage.md", "docs/agent-work/pr46-ci-next-report.md", "docs/agent-work/release-status-20260629.md"],
+      "blocker": "Two failed Kolibri CI / ci checks on head eadc04a; local fix must be committed/pushed and rerun."
+    },
+    {
+      "name": "Dev visual preview",
+      "command": "http://127.0.0.1:5173/, /app, manifest",
+      "status": "warning",
+      "artifact": ["docs/agent-work/visual-preview-live-report.md"],
+      "blocker": "Dev routes returned 200, but backend 8000 and production preview 4173 were unavailable in that report."
+    },
+    {
+      "name": "Browser preview protocol",
+      "command": "npm --prefix frontend ci; npm --prefix frontend run dev -- --host 127.0.0.1 --port 5173; backend uvicorn; build/preview commands",
+      "status": "blocked",
+      "artifact": ["docs/agent-work/browser-preview-qa.md"],
+      "blocker": "Protocol only; screenshots, console, and network evidence are not attached."
+    },
+    {
+      "name": "PWA production-like preview",
+      "command": "npm --prefix frontend run preview -- --host 127.0.0.1 --port 4173; curl -I for /, /app, manifest, SW",
+      "status": "warning",
+      "artifact": ["docs/agent-work/pwa-mobile-design-qa.md"],
+      "blocker": "Localhost preview is not sufficient install/offline evidence because SW registration is disabled on local hosts."
+    },
+    {
+      "name": "PWA screenshots",
+      "command": "Playwright screenshots to /tmp/kolibri-pwa-mobile-design-qa-20260629/",
+      "status": "warning",
+      "artifact": ["docs/agent-work/pwa-mobile-design-qa.md"],
+      "blocker": "Screenshots show landing starts below hero; Control Panel open state missing."
+    },
+    {
+      "name": "UX screenshots",
+      "command": "Chrome headless screenshots to /tmp/kolibri-ux-chat-first-review/*.png",
+      "status": "blocked",
+      "artifact": ["docs/agent-work/ux-chat-first-review.md"],
+      "blocker": "Screenshots reveal P0 issues: mobile horizontal overflow and landing auto-scroll."
+    },
+    {
+      "name": "Console and network checks",
+      "command": "DevTools console/network checklist",
+      "status": "blocked",
+      "artifact": ["docs/agent-work/visual-preview-live-report.md", "docs/agent-work/browser-preview-qa.md", "docs/agent-work/product-qa-pack.md"],
+      "blocker": "No full console/network pass with backend and production preview evidence."
+    },
+    {
+      "name": "Android and iOS install offline",
+      "command": "Real device install, standalone launch, offline reload, safe-area checks",
+      "status": "blocked",
+      "artifact": ["docs/agent-work/pwa-mobile-design-qa.md", "docs/agent-work/product-qa-pack.md"],
+      "blocker": "Required release sign-off evidence needs HTTPS/non-local preview or devices."
+    },
+    {
+      "name": "Ubuntu QA lease",
+      "command": "uname -a; test \"$(uname -s)\" != \"Darwin\"; npm --prefix frontend ci/lint/build/test:mobile-layout; python3 -m compileall -q backend ops tests; python3 -m pytest backend/tests tests; focused pytest list; optional Playwright screenshots",
+      "status": "blocked",
+      "artifact": ["docs/agent-work/ubuntu-qa-runner-report.md", "docs/agent-work/server-kfrm-app-run-plan.md"],
+      "blocker": "Must run inside Ubuntu factory lease, not on Mac; blocked by runner capacity."
+    },
+    {
+      "name": "server-kfrm app run",
+      "command": "Read-only gate via Control Plane, then node-local build/test/smoke on server-kfrm",
+      "status": "blocked",
+      "artifact": ["docs/agent-work/server-kfrm-app-run-plan.md", "docs/agent-work/server-kfrm-queue-watch.md"],
+      "blocker": "Needs fresh heartbeat and completed read-only probe with node-local artifact."
+    },
+    {
+      "name": "FormulaLM 6h benchmark",
+      "command": "ops/kolibri-dispatch submit --file ops/envelopes/KOL-FORMULALM-REMOTE-BENCH-6H-20260629.json only after gates",
+      "status": "blocked",
+      "artifact": ["docs/agent-work/formulalm-remote-rd-pack.md", "docs/agent-work/ubuntu-qa-runner-report.md", "docs/agent-work/control-plane-envelope-report.md"],
+      "blocker": "Remote-only workload; do not run on Mac; wait for server-kfrm probe and clear release QA capacity."
+    },
+    {
+      "name": "Product QA E2E",
+      "command": "Envelope KOL-PRODUCT-QA-E2E-20260629",
+      "status": "blocked",
+      "artifact": ["docs/agent-work/product-qa-pack.md", "docs/agent-work/ubuntu-qa-runner-report.md", "docs/agent-work/release-status-20260629.md"],
+      "blocker": "Already queued live; do not resubmit. Needs independent QA result, screenshots, console/network, and GO/NO-GO decision."
+    },
+    {
+      "name": "T-Bank sandbox",
+      "command": "/api/billing/plans, checkout, signed notification, recurring charge-due, negative notifications",
+      "status": "blocked",
+      "artifact": ["docs/agent-work/tbank-payments-engineer-report.md", "docs/agent-work/tbank-subscription-readiness.md", "docs/agent-work/tbank-billing-ops.md"],
+      "blocker": "Requires sandbox secrets, public HTTPS callback, separate DB, and fiscalization decision."
+    },
+    {
+      "name": "Telegram live delivery",
+      "command": "Gateway --send-report with real owner chat id/token",
+      "status": "blocked",
+      "artifact": ["docs/agent-work/telegram-reporting-final-check.md", "docs/agent-work/telegram-reporting-plan.md", "docs/agent-work/telegram-document-report-review.md"],
+      "blocker": "Needs safe production smoke without leaking tokens or paths."
+    }
+  ],
+  "acceptance_status": {
+    "json_exists": true,
+    "json_root_has_checks_array": true,
+    "each_check_has_name_command_status_artifact_blocker": true,
+    "statuses_are_passed_blocked_failed_warning": true,
+    "heavy_tests_not_run": true,
+    "formulalm_llm_not_run_on_mac": true
+  },
+  "blockers": [
+    "GitHub CI on PR #46 remained red on the published head in the reviewed evidence.",
+    "server-kfrm heartbeat stale and targeted probe queued without node-local artifact.",
+    "Product QA E2E envelope queued without completed independent result.",
+    "Browser, console/network, PWA install/offline, and mobile visual evidence incomplete.",
+    "T-Bank sandbox acceptance and Telegram live delivery smoke not run.",
+    "FormulaLM remains remote-only and was not run on Mac."
+  ]
+}

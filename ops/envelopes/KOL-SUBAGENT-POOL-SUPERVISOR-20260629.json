@@ -1,0 +1,54 @@
+{
+  "task_id": "KOL-SUBAGENT-POOL-SUPERVISOR-20260629",
+  "idempotency_key": "subagent-pool-supervisor:v1:2026-06-29",
+  "kind": "generic_implementation",
+  "required_capability": "generic_implementation",
+  "permission_pack": "full_autonomy",
+  "runner": "codex",
+  "branch": "agent/KOL-SUBAGENT-POOL-SUPERVISOR-20260629/subagent-pool",
+  "base_ref": "origin/main",
+  "goal": "Read docs/subagent-pool.md and current docs/agent-work packages, then prepare a supervisor report for the owner/main agent. Do not spawn, close, hand off or dispatch agents/tasks yourself from this task. The report must preserve target_active_subagents = 6, completed_subagent_policy = close_after_artifact_handoff, replacement backlog order and the rule that results are recorded before any completed agent is closed. Identify which agent-work packages already produced artifacts, which replacement roles are next, which Control Plane envelopes are ready to submit, and what blockers require owner/main-agent action. Do not run FormulaLM or model benchmarks on Mac.",
+  "role_slot": "subagent_pool_supervisor",
+  "role_goal": "maintain the six-active-subagent operating model by reporting safe replacements and blockers without directly launching work",
+  "role_catalog": [
+    {
+      "role": "subagent_pool_supervisor",
+      "source_doc": "docs/subagent-pool.md",
+      "target_active_subagents": 6,
+      "replacement_backlog": [
+        "docs_steward",
+        "premium_ui_director",
+        "living_character_director",
+        "investor_sales_operator",
+        "github_profile_curator",
+        "factory_runtime_sre",
+        "qa_lead",
+        "estimate_methodologist",
+        "formulalm_researcher",
+        "mobile_gomesh_integrator"
+      ]
+    }
+  ],
+  "acceptance": [
+    "Supervisor result reports current artifact coverage from docs/agent-work without discarding completed-agent output",
+    "Replacement plan keeps target_active_subagents at 6 and respects the documented backlog order unless a blocker is justified",
+    "No agents are spawned, closed or messaged by this task; actions are left as recommendations for the main agent",
+    "Ready Control Plane envelopes are listed with submission order and blockers",
+    "FormulaLM/model work is explicitly remote-only and not assigned to Mac execution",
+    "Result includes owner-facing summary and GitHub/Control Plane follow-up notes"
+  ],
+  "verification_commands": [
+    "python3 -m compileall -q ops backend"
+  ],
+  "max_retries": 1,
+  "source": {
+    "kind": "manual_control_plane",
+    "requested_by": "owner",
+    "requested_at": "2026-06-29T00:00:00+03:00",
+    "source_docs": [
+      "docs/subagent-pool.md",
+      "docs/agent-work"
+    ],
+    "prepared_by": "control_plane_envelope_integrator"
+  }
+}

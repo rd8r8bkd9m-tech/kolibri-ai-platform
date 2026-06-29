@@ -1,26 +1,56 @@
 {
   "task_id": "KOL-PRODUCT-QA-E2E-20260629",
+  "idempotency_key": "product-qa:e2e-release:v2:2026-06-29",
   "kind": "generic_implementation",
   "required_capability": "generic_implementation",
   "permission_pack": "full_autonomy",
   "runner": "codex",
-  "goal": "Run an independent end-to-end product QA pass for Kolibri SPA/PWA before owner handoff. Cover chat-first flow, right-bottom Control FAB, plugin tabs, light/system themes, PWA install assets, deterministic estimate generation for 100 m2 plastering in Tatarstan, billing plan/checkout fallback, mobile viewports, Android/iOS PWA readiness, and server/factory status UX. Do not claim readiness if blockers remain; produce a blocker list and exact reproduction steps.",
+  "branch": "agent/KOL-PRODUCT-QA-E2E-20260629/product-qa",
+  "base_ref": "origin/main",
+  "goal": "Read docs/agent-work/product-qa-pack.md and run an independent end-to-end product QA pass for Kolibri SPA/PWA before owner handoff. Cover chat-first flow, right-bottom Control FAB, Control Panel/plugin tabs, light/system themes, PWA install assets, deterministic estimate generation for 100 m2 plastering in Tatarstan, billing plans/checkout fallback/T-Bank notification safety, mobile viewports, Android/iOS PWA readiness, Control Plane/factory status, GitHub Project/CI trail, agent feed and living bird states. Do not claim readiness if blockers remain; produce a GO / NO-GO / GO WITH EXCEPTION decision, blocker list, exact reproduction steps, evidence commands, screenshots where available, and rollback/follow-up notes.",
   "role_slot": "qa_lead",
   "role_goal": "perform complete product testing after implementation and before owner readiness report",
+  "role_catalog": [
+    {
+      "role": "qa_lead",
+      "source_doc": "docs/agent-work/product-qa-pack.md",
+      "must_cover": [
+        "SPA/PWA",
+        "Backend/API",
+        "Billing",
+        "Estimates and documents",
+        "Control Plane and agent runtime",
+        "GitHub Project and CI",
+        "Agent feed",
+        "Mobile/PWA and GoMesh boundary",
+        "Living bird"
+      ]
+    }
+  ],
   "acceptance": [
-    "Runs available automated tests/builds and records exact commands",
-    "Performs browser/mobile viewport checks where tools are available",
-    "Separates blockers from nonblocking warnings",
-    "Returns a final readiness recommendation with evidence"
+    "Runs available automated tests/builds and records exact commands, versions and failures",
+    "Performs browser/mobile viewport checks where tools are available and records screenshots or documented tooling blockers",
+    "Verifies deterministic estimate golden case for 100 m2 plastering in Tatarstan or reports exact blocker",
+    "Checks billing fallback and safety: lead mode cannot activate subscription without confirmed payment",
+    "Checks Control Plane, agent feed and GitHub Project/CI trail or records exact external access blockers",
+    "Separates P0 blockers, P1 exceptions and P2 backlog items according to docs/agent-work/product-qa-pack.md",
+    "Returns a final GO / NO-GO / GO WITH EXCEPTION recommendation with evidence and rollback/follow-up notes"
   ],
   "verification_commands": [
+    "npm --prefix frontend run lint --if-present",
     "npm --prefix frontend run build",
-    "python3 -m compileall -q backend ops"
+    "npm --prefix frontend run test:mobile-layout --if-present",
+    "python3 -m compileall -q backend ops tests",
+    "python3 -m pytest backend/tests tests"
   ],
   "max_retries": 2,
   "source": {
     "kind": "manual_control_plane",
     "requested_by": "owner",
-    "requested_at": "2026-06-29T00:00:00+03:00"
+    "requested_at": "2026-06-29T00:00:00+03:00",
+    "source_docs": [
+      "docs/agent-work/product-qa-pack.md"
+    ],
+    "prepared_by": "control_plane_envelope_integrator"
   }
 }

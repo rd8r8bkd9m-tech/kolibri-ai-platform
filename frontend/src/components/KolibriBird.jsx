@@ -15,12 +15,16 @@ const stateLabels = {
   calm: "спокойна",
   sleepy: "спит",
   flying: "летит",
+  working: "работает",
+  offline: "без сети",
+  celebrating: "празднует",
 }
 
-export function KolibriBird({ state = "idle", size = 56, className = "" }) {
+export function KolibriBird({ state = "idle", size = 56, className = "", reducedMotion = false }) {
   const px = typeof size === "number" ? size : 56
-  const animate =
-    state === "thinking" || state === "learning"
+  const animate = reducedMotion
+    ? {}
+    : state === "thinking" || state === "learning"
       ? { y: [0, -3, 0], rotate: [-1, 1, -1] }
       : state === "flying"
         ? { x: [0, 4, 0], y: [0, -5, 0], rotate: [-4, 5, -4] }
@@ -33,7 +37,7 @@ export function KolibriBird({ state = "idle", size = 56, className = "" }) {
       className={`kolibri-avatar kolibri-avatar--${state} ${className}`}
       style={{ width: px, height: px }}
       animate={animate}
-      transition={{ duration: 1.8, repeat: state === "idle" || state === "calm" ? 0 : Infinity }}
+      transition={{ duration: 1.8, repeat: reducedMotion || state === "idle" || state === "calm" ? 0 : Infinity }}
       aria-label={`Колибри ${stateLabels[state] || state}`}
       role="img"
     >

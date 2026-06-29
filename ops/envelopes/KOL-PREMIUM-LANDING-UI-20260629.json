@@ -1,0 +1,54 @@
+{
+  "task_id": "KOL-PREMIUM-LANDING-UI-20260629",
+  "idempotency_key": "premium-ui:landing:v1:2026-06-29",
+  "kind": "generic_implementation",
+  "required_capability": "generic_implementation",
+  "permission_pack": "full_autonomy",
+  "runner": "codex",
+  "branch": "agent/KOL-PREMIUM-LANDING-UI-20260629/premium-landing",
+  "base_ref": "origin/main",
+  "goal": "Read docs/agent-work/premium-ui-standard.md and implement or repair the Kolibri premium landing UI for / while preserving /app as a chat-first product surface. The first viewport must make Kolibri AI the primary signal, show a real product visual or living bird/product composition rather than an abstract gradient, include one primary CTA into /app, include a secondary CTA, and leave a hint of the next section visible on desktop and mobile. Keep Control FAB and Control Panel as the secondary app layer, do not change GoMesh or Control Plane behavior for visual polish, and avoid nested cards, decorative blobs/orbs, one-note blue/purple themes, overlap, horizontal overflow and unreadable Russian strings. Return screenshots/evidence for desktop and mobile where tools are available.",
+  "role_slot": "premium_ui_director",
+  "role_goal": "raise Kolibri landing/app presentation to the premium UI standard without weakening product usability",
+  "role_catalog": [
+    {
+      "role": "premium_ui_director",
+      "source_doc": "docs/agent-work/premium-ui-standard.md",
+      "must_cover": [
+        "landing / first viewport",
+        "chat-first /app boundary",
+        "Control FAB and Control Panel placement",
+        "responsive QA at 360x740, 390x844, 768x1024, 1440x900",
+        "PWA, accessibility and performance checks"
+      ],
+      "forbidden": [
+        "abstract gradient-only hero",
+        "nested cards and decorative noise",
+        "GoMesh or Control Plane behavior changes for visuals"
+      ]
+    }
+  ],
+  "acceptance": [
+    "/ and /app are visually and functionally distinct: landing sells trust, app stays usable and chat-first",
+    "Landing first viewport shows Kolibri AI, a product/living-bird visual, primary CTA to /app, secondary CTA and below-fold hint",
+    "Control FAB remains right-bottom, accessible and non-overlapping with composer, safe areas, toasts or bottom sheets",
+    "Desktop/tablet/mobile layouts have no horizontal overflow, incoherent overlap or clipped Russian UI text",
+    "Theme/colors use existing tokens where possible and avoid a one-note blue/purple or decorative blob/orb look",
+    "Evidence includes build output and, where browser tooling is available, desktop and mobile screenshots with notes on blockers"
+  ],
+  "verification_commands": [
+    "npm --prefix frontend run lint --if-present",
+    "npm --prefix frontend run build",
+    "npm --prefix frontend run test:mobile-layout --if-present"
+  ],
+  "max_retries": 2,
+  "source": {
+    "kind": "manual_control_plane",
+    "requested_by": "owner",
+    "requested_at": "2026-06-29T00:00:00+03:00",
+    "source_docs": [
+      "docs/agent-work/premium-ui-standard.md"
+    ],
+    "prepared_by": "control_plane_envelope_integrator"
+  }
+}

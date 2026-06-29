@@ -18,6 +18,166 @@ def test_parse_owner_ids_accepts_commas_and_semicolons():
     assert gateway.parse_owner_ids("1, 2;3") == {1, 2, 3}
 
 
+def test_report_sanitizer_redacts_quoted_token_values_and_private_paths():
+    gateway = load_gateway()
+
+    safe = gateway.sanitize_report_text(
+        "token=\"abc123\"\n"
+        "token='def456'\n"
+        "password=plain789\n"
+        "Authorization: Bearer should-not-leak\n"
+        "artifact=/var/lib/kolibri-agent/worktrees/task/result.json\n"
+        "secret_file=/run/secrets/telegram.env\n"
+        "config=/etc/kolibri/telegram.env\n"
+        "tmp=/tmp/private.log\n"
+    )
+
+    for leaked in [
+        "abc123",
+        "def456",
+        "plain789",
+        "should-not-leak",
+        "/var/lib/kolibri-agent",
+        "/run/secrets",
+        "/etc/kolibri",
+        "/tmp/private.log",
+    ]:
+        assert leaked not in safe
+    assert "token=\"[скрыто]\"" in safe
+    assert "token='[скрыто]'" in safe
+    assert "password=[скрыто]" in safe
+    assert "[строка скрыта: секретный материал]" in safe
+    assert safe.count("[внутренний путь скрыт]") == 4
+
+
+def test_report_letter_has_document_headers_and_sanitized_body(tmp_path, monkeypatch):
+    gateway = load_gateway()
+    monkeypatch.setattr(gateway, "utc_now", lambda: "2026-06-29T12:00:00+00:00")
+    report = tmp_path / "factory-status.md"
+    report.write_text("# Отчёт\n\nГотово.\nsecret=hidden-value\npath=/tmp/private.log\n", encoding="utf-8")
+
+    letter = gateway.build_report_letter(
+        report,
+        title="Статус фабрики",
+        agent="Супервизор",
+        status="blocked",
+        summary="token='summary-secret'",
+    )
+
+    assert "Тема: Статус фабрики" in letter
+    assert "Дата: 2026-06-29T12:00:00+00:00" in letter
+    assert "Ответственный: Супервизор" in letter
+    assert "Статус: blocked" in letter
+    assert "Кратко:" in letter
+    assert "Документ:" in letter
+    assert "hidden-value" not in letter
+    assert "summary-secret" not in letter
+    assert "/tmp/private.log" not in letter
+
+
+def test_split_telegram_text_keeps_parts_under_limit_without_empty_chunks():
+    gateway = load_gateway()
+    parts = gateway.split_telegram_text("A" * 15 + "\n\n" + "B" * 37, limit=20)
+
+    assert len(parts) == 3
+    assert all(parts)
+    assert all(len(part) <= 20 for part in parts)
+    assert "".join(parts).replace("\n", "") == ("A" * 15) + ("B" * 37)
+
+
+def test_send_report_letter_requires_owner_chat_id(tmp_path):
+    gateway = load_gateway()
+    report = tmp_path / "status.md"
+    report.write_text("Готово", encoding="utf-8")
+    state = gateway.StateStore(tmp_path / "state.json")
+
+    class Telegram:
+        def __init__(self):
+            self.calls = []
+
+        def send_text_document(self, chat_id, title, text):
+            self.calls.append((chat_id, title, text))
+            return 1
+
+    telegram = Telegram()
+    try:
+        gateway.send_report_letter(telegram, state, report)
+    except RuntimeError as exc:
+        assert "owner chat id" in str(exc)
+    else:
+        raise AssertionError("send_report_letter accepted missing owner chat id")
+    assert telegram.calls == []
+
+
+def test_send_report_letter_uses_state_owner_chat_id(tmp_path):
+    gateway = load_gateway()
+    report = tmp_path / "status.md"
+    report.write_text("Готово", encoding="utf-8")
+    state = gateway.StateStore(tmp_path / "state.json")
+    state.data["owner_chat_id"] = 100
+
+    class Telegram:
+        def __init__(self):
+            self.calls = []
+
+        def send_text_document(self, chat_id, title, text):
+            self.calls.append((chat_id, title, text))
+            return 1
+
+    telegram = Telegram()
+    result = gateway.send_report_letter(telegram, state, report, title="Письмо", agent="Агент", status="готово")
+
+    assert result == {"chat_id": 100, "parts": 1, "title": "Письмо"}
+    assert telegram.calls
+    assert telegram.calls[0][0] == 100
+    assert "Тема: Письмо" in telegram.calls[0][2]
+
+
+def test_report_cli_send_report_does_not_require_owner_ids(tmp_path, monkeypatch, capsys):
+    gateway = load_gateway()
+    report = tmp_path / "status.md"
+    state_file = tmp_path / "state.json"
+    report.write_text("Готово\nsecret=hidden\n", encoding="utf-8")
+    sent = []
+
+    class Telegram:
+        def __init__(self, token):
+            assert token == "fake-token"
+
+        def send_text_document(self, chat_id, title, text):
+            sent.append((chat_id, title, text))
+            return 1
+
+    monkeypatch.setattr(gateway, "TelegramClient", Telegram)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "fake-token")
+    monkeypatch.delenv("TELEGRAM_OWNER_IDS", raising=False)
+    monkeypatch.setattr(
+        gateway.sys,
+        "argv",
+        [
+            "telegram_gateway.py",
+            "--state-file",
+            str(state_file),
+            "--send-report",
+            str(report),
+            "--report-chat-id",
+            "100",
+            "--report-title",
+            "Письмо",
+        ],
+    )
+
+    assert gateway.main() == 0
+    output = capsys.readouterr().out
+    assert '"event": "telegram_report_sent"' in output
+    assert '"chat_id": 100' in output
+    assert "hidden" not in output
+    assert sent
+    assert sent[0][0] == 100
+    assert sent[0][1] == "Письмо"
+    assert "secret=[скрыто]" in sent[0][2]
+
+
 def test_factory_client_fails_over_between_control_plane_urls(monkeypatch):
     gateway = load_gateway()
     calls = []

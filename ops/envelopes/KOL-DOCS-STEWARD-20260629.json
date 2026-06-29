@@ -1,0 +1,47 @@
+{
+  "task_id": "KOL-DOCS-STEWARD-20260629",
+  "idempotency_key": "docs-steward:developer-portal:v1:2026-06-29",
+  "kind": "generic_implementation",
+  "required_capability": "generic_implementation",
+  "permission_pack": "full_autonomy",
+  "runner": "codex",
+  "branch": "agent/KOL-DOCS-STEWARD-20260629/docs-steward",
+  "base_ref": "origin/main",
+  "goal": "Read docs/agent-work/docs-steward.md and turn the developer portal package into review-ready repository artifacts without changing runtime behavior. Cover README, quickstart, API reference, deployment, runbook, task envelope guide, inter-agent API guide, examples and operations templates. Preserve remote-first Control Plane invariants: tasks enter through /v1/tasks or ops/kolibri-dispatch submit --file, Agent Host works in node-local worktrees/artifacts, Control Plane stores state/leases/result references, and secrets never appear in logs, docs, result payloads or Git. Separate implemented endpoints from planned contracts such as /v1/filesystem. Return changed files, exact checks, risks, and follow-up envelopes/issues.",
+  "role_slot": "docs_steward",
+  "role_goal": "own developer portal, API/runbook/task-envelope documentation and keep remote-first factory contracts explicit",
+  "role_catalog": [
+    {
+      "role": "docs_steward",
+      "source_doc": "docs/agent-work/docs-steward.md",
+      "must_cover": [
+        "developer portal navigation and audience",
+        "public backend, billing, proxy, compatibility, Control Plane and inter-agent API outlines",
+        "quickstart, deployment, runbook, task envelope guide and inter-agent API guide",
+        "remote-first invariants and no-secret policy",
+        "implemented versus planned endpoint distinction"
+      ]
+    }
+  ],
+  "acceptance": [
+    "Developer portal structure or PR-ready implementation plan is produced from docs/agent-work/docs-steward.md",
+    "API/reference material covers public backend, billing, proxy routes, compatibility API, Control Plane and inter-agent feed",
+    "Quickstart, deployment, runbook, task-envelope guide and inter-agent API guide are included or explicitly mapped to follow-up files",
+    "Remote-first Control Plane invariants and no-secret policy are stated in the resulting artifact",
+    "Implemented endpoints are separated from planned target contracts such as /v1/filesystem",
+    "Result includes changed files, verification commands, blockers and GitHub-ready follow-up text"
+  ],
+  "verification_commands": [
+    "python3 -m compileall -q ops backend"
+  ],
+  "max_retries": 2,
+  "source": {
+    "kind": "manual_control_plane",
+    "requested_by": "owner",
+    "requested_at": "2026-06-29T00:00:00+03:00",
+    "source_docs": [
+      "docs/agent-work/docs-steward.md"
+    ],
+    "prepared_by": "control_plane_envelope_integrator"
+  }
+}

@@ -6,9 +6,12 @@ import { ErrorBoundary } from "./components/ErrorBoundary"
 import { ChatWorkspace } from "./components/chat/ChatWorkspace"
 import { ControlFab } from "./components/control/ControlFab"
 import { ControlPanel } from "./components/control/ControlPanel"
+import { LandingShell } from "./components/LandingShell"
 import { usePwaStatus } from "./hooks/usePwaStatus"
 import { useThemeMode } from "./hooks/useThemeMode"
 import { controlPlugins, getControlPlugin } from "./plugins/controlPlugins"
+
+const PRODUCT_TITLE = "Фабрика Колибри"
 
 export default function App() {
   const [messages, setMessages] = useState([])
@@ -31,6 +34,8 @@ export default function App() {
   const [billingForm, setBillingForm] = useState({ plan_id: "team", email: "", name: "", company: "", phone: "" })
   const [billingLoading, setBillingLoading] = useState(false)
   const [billingMessage, setBillingMessage] = useState("")
+  const [routePath, setRoutePath] = useState(() => window.location.pathname)
+  const [composerFocused, setComposerFocused] = useState(false)
   const messagesEnd = useRef(null)
   const inputRef = useRef(null)
   const fileInputRef = useRef(null)
@@ -38,6 +43,7 @@ export default function App() {
   const reconnectTimer = useRef(null)
   const { theme, setTheme, resolvedTheme } = useThemeMode()
   const pwaStatus = usePwaStatus()
+  const isLanding = routePath === "/" || routePath === ""
 
   const fetchCluster = useCallback(async () => {
     try {
@@ -118,8 +124,19 @@ export default function App() {
   }, [connectWS, fetchCluster, fetchBillingPlans])
 
   useEffect(() => {
+    const handlePopState = () => setRoutePath(window.location.pathname)
+    window.addEventListener("popstate", handlePopState)
+    return () => window.removeEventListener("popstate", handlePopState)
+  }, [])
+
+  useEffect(() => {
+    window.dispatchEvent(new Event(connected ? "network:online" : "network:offline"))
+  }, [connected])
+
+  useEffect(() => {
+    if (isLanding) return
     messagesEnd.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages])
+  }, [isLanding, messages])
 
   useEffect(() => {
     if (controlOpen && activeControl === "docs") fetchDocuments()
@@ -144,9 +161,27 @@ export default function App() {
     setControlOpen(true)
   }, [])
 
+  const openApp = useCallback(() => {
+    if (window.location.pathname !== "/app") {
+      window.history.pushState({}, "", "/app")
+      setRoutePath("/app")
+    }
+    window.setTimeout(() => inputRef.current?.focus(), 0)
+  }, [])
+
   const handlePrompt = useCallback((prompt) => {
     setInput(prompt)
     inputRef.current?.focus()
+  }, [])
+
+  const handleComposerFocus = useCallback(() => {
+    setComposerFocused(true)
+    window.dispatchEvent(new Event("chat:focus"))
+  }, [])
+
+  const handleComposerBlur = useCallback(() => {
+    setComposerFocused(false)
+    window.dispatchEvent(new Event("chat:blur"))
   }, [])
 
   const handleFileUpload = async (event) => {
@@ -171,6 +206,7 @@ export default function App() {
     setMessages([...nextMessages, { role: "assistant", content: "", streaming: true, provider: "", timestamp: Date.now() }])
     setInput("")
     setLoading(true)
+    window.dispatchEvent(new Event("chat:send"))
 
     const socket = wsRef.current
     if (socket && socket.readyState === WebSocket.OPEN) {
@@ -289,32 +325,52 @@ export default function App() {
 
   const activePlugin = getControlPlugin(activeControl)
 
-  const birdState = loading ? "thinking" : connected ? "idle" : "error"
+  const birdState = !connected ? "offline" : loading ? "thinking" : composerFocused || input.trim() ? "listening" : "idle"
+  const chatProps = {
+    messages,
+    messagesEndRef: messagesEnd,
+    inputRef,
+    input,
+    loading,
+    onInputChange: setInput,
+    onSend: sendMessage,
+    onPrompt: handlePrompt,
+    onControl: openControl,
+    onFocus: handleComposerFocus,
+    onBlur: handleComposerBlur,
+  }
 
   return (
     <ErrorBoundary>
-      <div className="app chat-first">
-        <div className="main-content">
-          <AppHeader
+      <div className={`app chat-first ${isLanding ? "landing-shell" : "app-shell"}`}>
+        {isLanding ? (
+          <LandingShell
+            productTitle={PRODUCT_TITLE}
             birdState={birdState}
             clusterStatus={clusterStatus}
             providers={providers}
             selectedProvider={selectedProvider}
             onProviderChange={setSelectedProvider}
             onOpenSettings={() => openControl("settings")}
+            onOpenApp={openApp}
+            onOpenControl={openControl}
+            pwaStatus={pwaStatus}
+            chatProps={{ ...chatProps, messagesEndRef: null }}
           />
-          <ChatWorkspace
-            messages={messages}
-            messagesEndRef={messagesEnd}
-            inputRef={inputRef}
-            input={input}
-            loading={loading}
-            onInputChange={setInput}
-            onSend={sendMessage}
-            onPrompt={handlePrompt}
-            onControl={openControl}
-          />
-        </div>
+        ) : (
+          <div className="main-content">
+            <AppHeader
+              productTitle={PRODUCT_TITLE}
+              birdState={birdState}
+              clusterStatus={clusterStatus}
+              providers={providers}
+              selectedProvider={selectedProvider}
+              onProviderChange={setSelectedProvider}
+              onOpenSettings={() => openControl("settings")}
+            />
+            <ChatWorkspace {...chatProps} />
+          </div>
+        )}
         <ControlFab open={controlOpen} onClick={() => setControlOpen(prev => !prev)} />
         <ControlPanel
           open={controlOpen}

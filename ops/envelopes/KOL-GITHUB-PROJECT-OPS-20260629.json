@@ -1,0 +1,48 @@
+{
+  "task_id": "KOL-GITHUB-PROJECT-OPS-20260629",
+  "idempotency_key": "github-project-ops:v1:2026-06-29",
+  "kind": "generic_implementation",
+  "required_capability": "generic_implementation",
+  "permission_pack": "full_autonomy",
+  "runner": "codex",
+  "branch": "agent/KOL-GITHUB-PROJECT-OPS-20260629/github-project-ops",
+  "base_ref": "origin/main",
+  "goal": "Read docs/agent-work/github-project-ops.md and prepare or perform the safe GitHub Project operations pass for Kolibri. GitHub Project is the external operating screen; Control Plane remains the source of truth for task state, lease, result and artifacts. If gh/project OAuth scope is unavailable, do not treat that as success: produce an issue/PR/report artifact with Project sync: pending and the exact blocker. Do not add new Project fields, do not publish secrets or private investor contact details, and do not mark items Done without artifact/result/PR and closed acceptance. If authenticated tooling is available, audit tasks/issues/PRs for required fields, status mapping, blockers, CI/review state and next report.",
+  "role_slot": "github_project_operator",
+  "role_goal": "keep GitHub Project, issues, PRs, CI and Control Plane artifact references aligned without hiding blockers",
+  "role_catalog": [
+    {
+      "role": "github_project_operator",
+      "source_doc": "docs/agent-work/github-project-ops.md",
+      "must_cover": [
+        "required Project fields",
+        "Control Plane state to Project status mapping",
+        "issue/PR/update templates in Russian",
+        "CI and review blocker handling",
+        "investor/docs visibility and no-secret policy"
+      ],
+      "fallback": "If Project API scope is missing, write Project sync: pending with exact reason."
+    }
+  ],
+  "acceptance": [
+    "Result lists audited issue/PR/Project or Control Plane items, or clearly states why authenticated sync was blocked",
+    "Each relevant item has or is mapped to status, priority, direction, agent, next report and artifacts",
+    "Control Plane task items reference task_id and do not conflict with actual task state/result references",
+    "CI/review failures are classified as in progress or blocked with exact reason, never silently ignored",
+    "Investor/docs items avoid unsupported public claims and private contact disclosure",
+    "If gh Project scope is missing, result includes Project sync: pending, blocker owner and next action"
+  ],
+  "verification_commands": [
+    "python3 -m compileall -q ops backend"
+  ],
+  "max_retries": 1,
+  "source": {
+    "kind": "manual_control_plane",
+    "requested_by": "owner",
+    "requested_at": "2026-06-29T00:00:00+03:00",
+    "source_docs": [
+      "docs/agent-work/github-project-ops.md"
+    ],
+    "prepared_by": "control_plane_envelope_integrator"
+  }
+}
