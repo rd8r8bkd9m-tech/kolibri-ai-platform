@@ -96,6 +96,61 @@ def test_tbank_token_verification_is_case_insensitive_and_detects_tampering(tmp_
     assert not billing.verify_tbank_token({**signed_payload, "Amount": 1490001})
 
 
+def test_tbank_post_signs_payload_without_sending_password_or_calling_real_api(
+    tmp_path: Path,
+    monkeypatch,
+):
+    billing = load_billing(
+        monkeypatch,
+        tmp_path,
+        terminal_key="TerminalDemo",
+        password="contract-password",
+    )
+    monkeypatch.setattr(billing, "TBANK_API_URL", "https://securepay.example/v2")
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            captured["raise_for_status"] = True
+
+        def json(self):
+            return {"Success": True, "PaymentId": "pay_contract"}
+
+    class FakeAsyncClient:
+        def __init__(self, *, timeout):
+            captured["timeout"] = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, json):
+            captured["url"] = url
+            captured["json"] = json
+            return FakeResponse()
+
+    monkeypatch.setattr(billing.httpx, "AsyncClient", FakeAsyncClient)
+    payload = {
+        "TerminalKey": "TerminalDemo",
+        "Amount": 1000,
+        "OrderId": "sub_contract_token",
+        "DATA": {"OperationInitiatorType": "1"},
+    }
+
+    result = asyncio.run(billing.tbank_post("Init", payload))
+
+    assert result == {"Success": True, "PaymentId": "pay_contract"}
+    assert captured["timeout"] == 30.0
+    assert captured["url"] == "https://securepay.example/v2/Init"
+    assert captured["raise_for_status"] is True
+    assert captured["json"]["Token"] == billing.generate_tbank_token(payload)
+    assert captured["json"]["DATA"] == {"OperationInitiatorType": "1"}
+    assert "Password" not in captured["json"]
+    assert "Token" not in payload
+
+
 def test_checkout_falls_back_to_lead_mode_without_tbank_credentials(tmp_path: Path, monkeypatch):
     billing = load_billing(monkeypatch, tmp_path)
 

@@ -22,6 +22,19 @@ const birdStateMap = {
   celebrating: "happy",
 }
 
+const appStateLabels = {
+  idle: "спокойна",
+  listening: "слушает",
+  thinking: "думает",
+  working: "работает",
+  success: "готово",
+  warning: "предупреждает",
+  error: "нужна помощь",
+  offline: "без сети",
+  sleepy: "спит",
+  celebrating: "празднует",
+}
+
 const transientDurations = {
   listening: 1800,
   thinking: 2200,
@@ -97,15 +110,20 @@ export function LivingKolibri({
 
   const visualState = birdStateMap[appState] || "idle"
   const motionDisabled = reducedMotion ?? prefersReducedMotion
+  const semanticLabel = appStateLabels[appState] || appState
 
   return (
     <div
       className={`living-kolibri living-kolibri--${appState} ${className}`}
       data-state={appState}
       data-personality={personality}
-      aria-live="polite"
     >
-      <KolibriBird state={visualState} size={size} reducedMotion={motionDisabled} />
+      <KolibriBird
+        state={visualState}
+        size={size}
+        reducedMotion={motionDisabled}
+        ariaLabel={`Колибри ${semanticLabel}`}
+      />
     </div>
   )
 }

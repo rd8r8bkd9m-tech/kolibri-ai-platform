@@ -1,30 +1,33 @@
 # Secondary Control Plane Watchdog
 
-- Last checked (UTC): 2026-06-29T07:24:41Z
+- Last checked (UTC): 2026-06-29T12:29:04Z
 - Status: OK
-- Control Plane health: reachable
-- Redis: PONG
-- Last successful check (UTC): 2026-06-29T07:24:41Z
+- Control Plane health: `/health`, `/v1/nodes`, and `/v1/tasks?summary=1&compact=1` returned `HTTP 200`
+- Redis: `PONG`
+- Last successful check (UTC): 2026-06-29T12:29:04Z
 
 ## Heartbeat
 
-Secondary Control Plane responded successfully on `/health`, `/v1/nodes`, and `/v1/tasks?summary=1&compact=1` at 2026-06-29T07:24:41Z.
+Secondary Control Plane responded normally on this run. `/health` reported `status=ok` with Redis `PONG`, `/v1/nodes` returned 5 registered nodes with 4 fresh canonical non-draining nodes, and `/v1/tasks?summary=1&compact=1` returned a compact queue summary with 2 queued probe tasks and 0 active tasks.
 
-- Queue: 65 queued, 0 active, 0 expired leases, 0 leases expiring soon
-- Nodes: 42 registered, 5 fresh, 37 stale, 3 draining
-- Canonical nodes: 22 total, 2 fresh, 0 fresh generic-implementation nodes
-- Fresh non-draining nodes: 2
-- Sample fresh nodes: `home-live`, `main`, `new`, `qjns`, `uiap`
-- Sample stale nodes: `9fts`, `agent-01`, `agent-02`, `agent-03`, `agent-04`, `agent-05`, `agent-06`, `agent-07`, `agent-08`, `agent-09`
-- Sample draining nodes: `home-live`, `qjns`, `uiap`
-- Duplicate-node signals: 19 mesh shadow duplicates across 2 duplicate-hostname groups
-- Disk pressure: node `uiap` is online but reports `disk.free = 0` and remains draining
-- Newest queued tasks sampled: `TGCHAT-20260629070132-4727-task`, `TGCHAT-20260629062652-4724-task`, `KOL-P0-APP-VERIFY-REVIEW-20260629`, `TGCHAT-20260629052635-4722-task`, `TGCHAT-20260629051708-4720-task`
+- Probe timestamps: `/health` at `2026-06-29T12:29:04.161786+00:00`, `/v1/nodes` at `2026-06-29T12:29:04Z`, `/v1/tasks?summary=1&compact=1` at `2026-06-29T12:29:04Z`
+- Node note: `main`, `new`, `primary-candidate`, and `qjns` are fresh and online; `primary-candidate` is actively running `KOL-GOMESH-HOME-MIKROTIK-RECOVERY-20260629`; `smoke-primary` remains stale, not draining, with `heartbeat_age_seconds` about 6480.1 seconds in this snapshot
+- Queue note: queued tasks remain `KOL-SUPER-ESTIMATOR-001-REMOTE-STATUS-9FTS` and `KOL-UIAP-KNOWLEDGE-REMOTE-STATUS-001`; there are no active lease-backed runs in the compact summary
 
 ## Impact
 
-No control-plane outage is confirmed in the final verification window. Scheduler backlog remains present, only 2 canonical non-draining nodes are fresh, and node `uiap` remains under disk pressure, but the secondary control plane is serving API traffic and Redis is healthy.
+No immediate operator action is required from this watchdog run. The secondary contour is serving its read-only API, Redis health is observable, and queue visibility is intact. The only watch item in this snapshot is the stale `smoke-primary` registration, which does not currently block the read-only API.
 
-## Incident Handling
+## Last Successful Check
 
-No GitHub issue opened or updated in this run because the control plane was reachable and Redis returned `PONG`.
+The latest successful watchdog verification is `2026-06-29T12:29:04Z`, when `/health`, `/v1/nodes`, and `/v1/tasks?summary=1&compact=1` all completed with `HTTP 200` and `/health` reported Redis `PONG`.
+
+## Issue Handling
+
+`gh` is available in this execution environment, but no GitHub issue was created or updated in this run because the control plane remained healthy and Redis returned `PONG`. No secrets were printed, no SSH was used, and no destructive restart was attempted.
+
+## Safe Follow-up Steps
+
+1. Keep watching the stale `smoke-primary` registration and confirm whether it should resume heartbeats or be retired from the registry.
+2. Re-run the same three read-only probes on the next watchdog interval and compare fresh node counts plus queue length.
+3. If `/health` stops returning Redis `PONG` or the API becomes unavailable again, replace the heartbeat section with an incident update that includes timestamps, impact, the last successful check, and safe recovery steps before considering any restart.

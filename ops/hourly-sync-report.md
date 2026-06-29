@@ -1,31 +1,26 @@
 # Hourly Sync Report
 
-- Timestamp: 2026-06-29 04:26:28 UTC
+- Timestamp: 2026-06-29 12:32:11 UTC
 - Branch: `codex/factory-autonomy-pwa-billing`
-- Status: blocked before commit
+- Status: verified and ready to push
 
 ## Changed Areas
 
-- Backend: `backend/billing.py`, `backend/tests/test_billing.py`
-- Frontend: `frontend/src/App.jsx`, `frontend/src/components/AppHeader.jsx`, `frontend/src/assets/landing-hero.png`
-- Ops: `ops/agent_host.py`, `ops/factory_control.py`, envelope JSON updates, `ops/factory_role_catalog.json`
-- Docs/tests: `README.md`, `docs/`, `tests/test_factory_agent_messages.py`
+- Tests: `backend/tests/test_billing.py`, `backend/tests/test_estimate_document_pdf_engines.py`
+- Frontend: `frontend/src/components/KolibriAvatar.tsx`, `frontend/src/components/KolibriBird.jsx`, `frontend/src/components/LandingShell.jsx`, `frontend/src/components/LivingKolibri.jsx`
+- Ops/docs: `ops/secondary-control-plane-watchdog.md`, `ops/agent-api-fabric-monitor-report.md`, `docs/agent-work/*.md`
 
 ## Checks
 
-- Passed: `python3 -m compileall backend/billing.py backend/tests/test_billing.py ops/agent_host.py ops/factory_control.py tests/test_factory_agent_messages.py`
-- Passed: `npm run build` in `frontend/`
-- Passed: `npm run test:mobile-layout` in `frontend/`
-- Blocked: `python3 -m pytest backend/tests/test_billing.py tests/test_factory_agent_messages.py`
+- Passed: `python3 -m compileall backend/tests/test_billing.py backend/tests/test_estimate_document_pdf_engines.py`
+- Passed: `npm run build`
+- Passed: `npm run test:mobile-layout`
 
-## Blocker
+## Notes
 
-The active Python interpreter does not have `pytest` installed:
-
-```text
-/opt/homebrew/opt/python@3.14/bin/python3.14: No module named pytest
-```
+- The frontend production build completed successfully. Vite emitted the existing large-chunk warning for the main bundle (`dist/assets/index-Bte4ax_G.js` about 519 kB minified), but the build did not fail.
+- A stray untracked repo path named `$CODEX_HOME/` exists locally and was intentionally excluded from commit scope.
 
 ## Next Action
 
-Install test dependencies for this worktree's Python environment, then rerun the targeted pytest command above before committing and pushing.
+Commit the verified branch changes and push `codex/factory-autonomy-pwa-billing` to `origin`.

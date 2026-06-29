@@ -20,7 +20,7 @@ const stateLabels = {
   celebrating: "празднует",
 }
 
-export function KolibriBird({ state = "idle", size = 56, className = "", reducedMotion = false }) {
+export function KolibriBird({ state = "idle", size = 56, className = "", reducedMotion = false, ariaLabel }) {
   const px = typeof size === "number" ? size : 56
   const animate = reducedMotion
     ? {}
@@ -38,7 +38,7 @@ export function KolibriBird({ state = "idle", size = 56, className = "", reduced
       style={{ width: px, height: px }}
       animate={animate}
       transition={{ duration: 1.8, repeat: reducedMotion || state === "idle" || state === "calm" ? 0 : Infinity }}
-      aria-label={`Колибри ${stateLabels[state] || state}`}
+      aria-label={ariaLabel || `Колибри ${stateLabels[state] || state}`}
       role="img"
     >
       <svg viewBox="0 0 112 112" aria-hidden="true">

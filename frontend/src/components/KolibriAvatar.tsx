@@ -51,7 +51,7 @@ export function KolibriAvatar({
       style={{ width: px, height: px }}
       animate={animate}
       transition={{ duration: 1.8, repeat: state === "idle" || state === "calm" ? 0 : Infinity }}
-      aria-label={`Калибри ${stateLabels[state]}`}
+      aria-label={`Колибри ${stateLabels[state]}`}
       role="img"
     >
       <svg viewBox="0 0 112 112" aria-hidden="true">

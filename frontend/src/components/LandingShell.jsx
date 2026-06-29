@@ -17,6 +17,13 @@ const capabilityItems = [
   "PWA на рабочем столе",
 ]
 
+const birdSignals = {
+  offline: "ожидает соединение",
+  thinking: "думает над ответом",
+  listening: "слушает ввод",
+  idle: "чат готов к работе",
+}
+
 function getClusterSignal(clusterStatus) {
   return formatClusterSignal(clusterStatus)
 }
@@ -88,8 +95,8 @@ export function LandingShell({
             <div className="landing-bird-dock">
               <LivingKolibri state={birdState} size={64} personality="business" />
               <div>
-                <span>Живая птица</span>
-                <strong>{birdState === "offline" ? "следит за сетью" : "отражает состояние чата"}</strong>
+                <span>Статус</span>
+                <strong>{birdSignals[birdState] || "держит рабочий ритм"}</strong>
               </div>
             </div>
             <div className="landing-workbench">

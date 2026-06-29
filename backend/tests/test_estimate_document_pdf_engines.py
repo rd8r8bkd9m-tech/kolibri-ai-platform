@@ -50,10 +50,35 @@ def test_prompt_estimate_is_stable_for_same_plastering_scope_in_tatarstan():
     assert first.region == "Республика Татарстан"
     assert first.pricebook_version == "kolibri-ru-2026q2-v1"
     assert first.deterministic is True
+    assert first.created_at == "2026-06-29T00:00:00+00:00"
+    assert first.updated_at == "2026-06-29T00:00:00+00:00"
     assert first.totals.labor == Decimal("106500.00")
     assert first.totals.materials == Decimal("44000.00")
+    assert first.totals.subtotal == Decimal("150500.00")
+    assert first.totals.overhead == Decimal("10535.00")
+    assert first.totals.tax == Decimal("0.00")
     assert first.totals.grand_total == Decimal("161035.00")
-    assert first.calculation_audit[-1]["input_hash"] == first.input_hash
+    audit_rows = [entry for entry in first.calculation_audit if entry.get("kind") != "totals"]
+    assert [entry["item"] for entry in audit_rows] == [
+        "Грунтование стен под штукатурку",
+        "Установка штукатурных маяков",
+        "Штукатурка стен гипсовой смесью до 20 мм",
+        "Финишное выравнивание под шпаклевание",
+    ]
+    assert all(entry["source"] == "kolibri_pricebook" for entry in audit_rows)
+    for entry in audit_rows:
+        assert Decimal(entry["line_total"]) == Decimal(entry["labor_total"]) + Decimal(entry["material_total"])
+
+    totals_audit = first.calculation_audit[-1]
+    assert totals_audit["input_hash"] == first.input_hash
+    assert totals_audit["pricebook_version"] == "kolibri-ru-2026q2-v1"
+    assert totals_audit["calculated_at"] == "2026-06-29T00:00:00+00:00"
+    assert len(totals_audit["fingerprint"]) == 64
+
+    for section in first.sections:
+        for item in section.items:
+            assert item.provenance.source == "kolibri_pricebook"
+            assert item.provenance.captured_at == "2026-06-29T00:00:00+00:00"
 
 
 def test_business_document_pack_has_required_documents():
