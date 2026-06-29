@@ -1034,18 +1034,34 @@ def task_requires_deliverable_evidence(task: dict[str, Any]) -> bool:
     return kind in DELIVERABLE_REQUIRED_KINDS or RUNTIME_KIND_COMPAT.get(kind) in AUTONOMOUS_TASK_KINDS
 
 
+def has_non_empty_sequence(value: Any) -> bool:
+    if isinstance(value, (list, tuple, set)):
+        return any(str(item).strip() for item in value)
+    return False
+
+
+def has_artifact_evidence(result: dict[str, Any]) -> bool:
+    for key_name in ("artifacts", "artifact_paths", "created_files", "report_files"):
+        if has_non_empty_sequence(result.get(key_name)):
+            return True
+    for key_name in ("artifact_path", "report_path", "created_file"):
+        if str(result.get(key_name) or "").strip():
+            return True
+    return False
+
+
 def validate_deliverable_evidence(task: dict[str, Any], result: dict[str, Any], result_reference: str | None) -> list[str]:
     if not task_requires_deliverable_evidence(task):
         return []
     failures = []
     changed_files = result.get("changed_files")
     checks = result.get("checks")
-    has_changed_files = isinstance(changed_files, list) and any(str(path).strip() for path in changed_files)
-    has_code_reference = bool(result.get("commit") or result.get("pull_request_url") or result.get("pr_url"))
-    has_checks = isinstance(checks, list) and any(str(check).strip() for check in checks)
+    has_changed_files = has_non_empty_sequence(changed_files)
+    has_artifacts = has_artifact_evidence(result)
+    has_checks = has_non_empty_sequence(checks)
     if not result_reference:
         failures.append("missing_result_reference")
-    if not (has_changed_files or has_code_reference):
+    if not (has_changed_files or has_artifacts):
         failures.append("missing_code_delta")
     if not has_checks:
         failures.append("missing_checks")

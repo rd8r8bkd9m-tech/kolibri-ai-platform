@@ -81,6 +81,48 @@ def test_autonomous_completion_accepts_commit_changed_files_and_checks():
     assert has_pr is False
     assert completed['attempt_history'][-1]['status'] == 'completed'
 
+def test_autonomous_completion_rejects_commit_without_delta_or_artifact():
+    control = load_control()
+    task = control.normalize_task({'task_id': 'AUTO-GATE-2B', 'kind': 'generic_implementation'})
+    body = {
+        'result': {
+            'status': 'completed',
+            'result_path': '/tmp/result.json',
+            'commit': 'abc123',
+            'checks': ['pytest -q tests/test_api.py'],
+        },
+        'result_reference': '/tmp/result.json',
+    }
+
+    failures = control.validate_deliverable_evidence(task, body['result'], body['result_reference'])
+
+    assert failures == ['missing_code_delta']
+    try:
+        control.apply_task_completion(task, body)
+    except ValueError as exc:
+        assert 'deliverable_gate_failed:missing_code_delta' in str(exc)
+    else:
+        raise AssertionError('autonomous completion with commit-only evidence was accepted')
+
+def test_autonomous_completion_accepts_report_artifact_and_checks():
+    control = load_control()
+    task = control.normalize_task({'task_id': 'AUTO-GATE-2C', 'kind': 'generic_implementation'})
+    body = {
+        'result': {
+            'status': 'completed',
+            'result_path': '/tmp/result.json',
+            'artifacts': [{'path': 'docs/agent-work/report.md', 'kind': 'report'}],
+            'checks': ['test -s docs/agent-work/report.md'],
+        },
+        'result_reference': '/tmp/result.json',
+    }
+
+    completed, result, has_pr = control.apply_task_completion(task, body)
+
+    assert completed['state'] == control.STATE_COMPLETED
+    assert result['artifacts'][0]['path'] == 'docs/agent-work/report.md'
+    assert has_pr is False
+
 def test_read_only_completion_does_not_require_code_delta():
     control = load_control()
     task = control.normalize_task({'task_id': 'READ-GATE-1', 'kind': 'read_only_probe'})
