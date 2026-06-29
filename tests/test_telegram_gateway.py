@@ -73,6 +73,7 @@ def test_cyrillic_text_keeps_objective_but_uses_ascii_identifiers():
 def test_greeting_is_chat_not_factory_task():
     gateway = load_gateway()
     assert gateway.wants_factory_task("привет") is False
+    assert gateway.wants_factory_task("ghbdtn") is False
     message = {
         "message_id": 44,
         "chat": {"id": 100, "type": "private"},
@@ -86,6 +87,20 @@ def test_greeting_is_chat_not_factory_task():
     assert envelope["required_capability"] == "generic_implementation"
     assert "без заготовок" in envelope["objective"]
     assert envelope["source"]["message_id"] == 44
+
+
+def test_realtime_reply_understands_latin_keyboard_greeting():
+    gateway = load_gateway()
+    snapshot = {
+        "memory": gateway.memory_snapshot(gateway.empty_memory()),
+        "active_tasks": [],
+        "team": [{"name": "Инженер", "health": "online"}],
+    }
+    reply = gateway.build_realtime_owner_reply("ghbdtn", snapshot)
+    assert reply.startswith("Привет")
+    assert "фабрик" in reply
+    for forbidden in ["task_id", "node:", "agent:", "artifact:", "/var/lib", "TGCHAT"]:
+        assert forbidden not in reply
 
 
 def test_plain_language_work_request_creates_factory_task():

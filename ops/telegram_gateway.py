@@ -100,6 +100,12 @@ CHAT_GREETINGS = {
     "hello",
     "hi",
 }
+EN_TO_RU_KEYBOARD = str.maketrans({
+    "q": "й", "w": "ц", "e": "у", "r": "к", "t": "е", "y": "н", "u": "г", "i": "ш", "o": "щ", "p": "з",
+    "[": "х", "]": "ъ", "a": "ф", "s": "ы", "d": "в", "f": "а", "g": "п", "h": "р", "j": "о", "k": "л",
+    "l": "д", ";": "ж", "'": "э", "z": "я", "x": "ч", "c": "с", "v": "м", "b": "и", "n": "т", "m": "ь",
+    ",": "б", ".": "ю",
+})
 TERMINAL_TASK_STATES = {"completed", "failed", "cancelled", "dead_letter"}
 OWNER_MESSAGE_FORBIDDEN_MARKERS = (
     "task_id",
@@ -208,7 +214,7 @@ def wants_image_generation(text: str) -> bool:
 
 
 def wants_factory_task(text: str) -> bool:
-    lowered = text.strip().lower()
+    lowered = normalize_owner_text(text)
     if not lowered:
         return False
     if lowered in CHAT_GREETINGS:
@@ -230,7 +236,7 @@ def wants_factory_task(text: str) -> bool:
 
 
 def should_answer_immediately(text: str) -> bool:
-    lowered = text.strip().lower()
+    lowered = normalize_owner_text(text)
     if not lowered:
         return False
     if answer_simple_arithmetic(text) is not None and os.environ.get("TELEGRAM_DETERMINISTIC_SHORTCUTS", "0") == "1":
@@ -572,6 +578,16 @@ def has_any(text: str, words: tuple[str, ...]) -> bool:
     return any(word in lowered for word in words)
 
 
+def normalize_owner_text(text: str) -> str:
+    lowered = text.strip().lower()
+    if not lowered:
+        return ""
+    translated = lowered.translate(EN_TO_RU_KEYBOARD)
+    if translated in CHAT_GREETINGS or any(marker in translated for marker in IMMEDIATE_CHAT_MARKERS):
+        return translated
+    return lowered
+
+
 def answer_simple_arithmetic(text: str) -> str | None:
     expression = text.strip().replace(",", ".")
     if not re.fullmatch(r"[0-9\s+\-*/().]+", expression):
@@ -630,7 +646,7 @@ def first_known_url(memory: dict[str, Any]) -> str | None:
 
 def build_realtime_owner_reply(text: str, snapshot: dict[str, Any]) -> str:
     memory = snapshot.get("memory") or {}
-    lowered = text.lower().strip()
+    lowered = normalize_owner_text(text)
     active_tasks = snapshot.get("active_tasks") or []
     team = summarize_team(snapshot)
     last = memory.get("last_work_request") or {}
@@ -643,22 +659,25 @@ def build_realtime_owner_reply(text: str, snapshot: dict[str, Any]) -> str:
     if arithmetic is not None:
         return arithmetic
 
-    if has_any(text, ("как дела", "как ты", "что нового")):
+    if lowered in CHAT_GREETINGS:
+        return "Привет, я на связи. Вижу фабрику и держу очередь в поле зрения."
+
+    if has_any(lowered, ("как дела", "как ты", "что нового")):
         if active_tasks:
             return f"Работа идёт. Сейчас вижу активные задачи и держу команду в фокусе: {team}."
         return f"Я в порядке и смотрю на контур. Активных задач прямо сейчас не вижу, команда доступна: {team}."
 
-    if has_any(text, ("как зовут", "тебя зовут", "кто ты")):
+    if has_any(lowered, ("как зовут", "тебя зовут", "кто ты")):
         return "Для проекта я директор-оркестратор. Можешь обращаться ко мне просто как к Директору: я принимаю задачи, распределяю работу и возвращаю понятный результат."
 
-    if has_any(text, ("ссыл", "url", "линк", "link")):
+    if has_any(lowered, ("ссыл", "url", "линк", "link")):
         if url:
             return f"Да, помню. Вот ссылка: {url}"
         if last_text:
             return f"Помню про задачу: {last_text}. Ссылку пришлю, когда появится рабочий preview или staging. Сейчас задача {last_state_text}."
         return "Помню, что нужна ссылка. Готового preview или staging URL пока нет, я держу это ожидание открытым."
 
-    asks_running_result = has_any(text, ("запущ", "работает", "готов", "дев", "dev", "сервер", "preview", "веб"))
+    asks_running_result = has_any(lowered, ("запущ", "работает", "готов", "дев", "dev", "сервер", "preview", "веб"))
     if asks_running_result and (url or last_text):
         if url and last_state == "completed":
             return f"Да, запущено. Веб-приложение доступно здесь: {url}"
@@ -666,7 +685,7 @@ def build_realtime_owner_reply(text: str, snapshot: dict[str, Any]) -> str:
             return f"Есть рабочая ссылка: {url}. По последней задаче статус: {last_state_text}."
         return f"По последней задаче: {last_text}. Сейчас она {last_state_text}."
 
-    if has_any(text, ("что делаешь", "какие задачи", "статус", "что сделано", "не завис", "монитор", "кто делает", "что выполня")):
+    if has_any(lowered, ("что делаешь", "какие задачи", "статус", "что сделано", "не завис", "монитор", "кто делает", "что выполня")):
         if active_tasks:
             task_count = len(active_tasks)
             prefix = f"Сейчас в работе {task_count} задач."
@@ -676,7 +695,7 @@ def build_realtime_owner_reply(text: str, snapshot: dict[str, Any]) -> str:
             return f"{prefix} Последний результат готов: {url}"
         return f"{prefix} Команда на связи: {team}. {last_work_line(memory)}"
 
-    if has_any(text, ("контекст", "помнишь", "память", "знаешь")):
+    if has_any(lowered, ("контекст", "помнишь", "память", "знаешь")):
         if url:
             return f"Да, контекст держу на удаленном сервере. Помню последний результат: {url}"
         return f"Да, контекст держу на удаленном сервере. {last_work_line(memory)}"
