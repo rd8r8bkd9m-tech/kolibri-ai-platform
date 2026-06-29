@@ -1,0 +1,26 @@
+{
+  "task_id": "KOL-CODEX-CLI-ROLLOUT-20260629",
+  "kind": "generic_implementation",
+  "required_capability": "generic_implementation",
+  "permission_pack": "full_autonomy",
+  "runner": "codex",
+  "goal": "Install and verify Codex CLI on factory nodes using ops/install_codex_cli.sh. Use secure existing CODEX_ACCESS_TOKEN or KOLIBRI_CODEX_ACCESS_TOKEN_FILE when present. Do not print, commit, or copy secrets. If auth is unavailable on a node, return a blocker artifact with install status and exact missing secret source. After install, verify codex --help and codex --version, then report node id, version, auth status, and logs.",
+  "role_slot": "factory_sre",
+  "role_goal": "roll out a stable Codex CLI runtime to every server through Control Plane tasks",
+  "acceptance": [
+    "Codex CLI install command is idempotent and uses a trusted package manager source configured by env",
+    "No tokens or auth.json content are written to git, logs, or result payloads",
+    "Each node reports codex version, help check, auth cache status, and blocker if auth secret is absent",
+    "Rollout can run in batches without manual SSH"
+  ],
+  "verification_commands": [
+    "bash -n ops/install_codex_cli.sh",
+    "python3 -m compileall -q ops/agent_host.py ops/factory_control.py"
+  ],
+  "max_retries": 2,
+  "source": {
+    "kind": "manual_control_plane",
+    "requested_by": "owner",
+    "requested_at": "2026-06-29T00:00:00+03:00"
+  }
+}

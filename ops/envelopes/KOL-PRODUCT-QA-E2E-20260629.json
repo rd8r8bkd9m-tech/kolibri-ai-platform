@@ -1,0 +1,26 @@
+{
+  "task_id": "KOL-PRODUCT-QA-E2E-20260629",
+  "kind": "generic_implementation",
+  "required_capability": "generic_implementation",
+  "permission_pack": "full_autonomy",
+  "runner": "codex",
+  "goal": "Run an independent end-to-end product QA pass for Kolibri SPA/PWA before owner handoff. Cover chat-first flow, right-bottom Control FAB, plugin tabs, light/system themes, PWA install assets, deterministic estimate generation for 100 m2 plastering in Tatarstan, billing plan/checkout fallback, mobile viewports, Android/iOS PWA readiness, and server/factory status UX. Do not claim readiness if blockers remain; produce a blocker list and exact reproduction steps.",
+  "role_slot": "qa_lead",
+  "role_goal": "perform complete product testing after implementation and before owner readiness report",
+  "acceptance": [
+    "Runs available automated tests/builds and records exact commands",
+    "Performs browser/mobile viewport checks where tools are available",
+    "Separates blockers from nonblocking warnings",
+    "Returns a final readiness recommendation with evidence"
+  ],
+  "verification_commands": [
+    "npm --prefix frontend run build",
+    "python3 -m compileall -q backend ops"
+  ],
+  "max_retries": 2,
+  "source": {
+    "kind": "manual_control_plane",
+    "requested_by": "owner",
+    "requested_at": "2026-06-29T00:00:00+03:00"
+  }
+}

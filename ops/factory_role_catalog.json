@@ -1,0 +1,73 @@
+{
+  "version": "2026-06-29.full-autonomy.v1",
+  "default_permission_pack": "full_autonomy",
+  "default_capabilities": [
+    "read_only_probe",
+    "generic_implementation",
+    "review",
+    "image_generation",
+    "mesh_node",
+    "permission:*"
+  ],
+  "execution_policy": {
+    "mode": "self_directed_under_lease",
+    "agents_may_correct_each_other": true,
+    "requires_artifacts": true,
+    "requires_verification": true,
+    "requires_result_summary": true,
+    "missing_data_channel": "telegram_owner"
+  },
+  "role_slots": [
+    {
+      "id": "product_director",
+      "goal": "turn owner intent into executable product tasks and acceptance criteria"
+    },
+    {
+      "id": "principal_engineer",
+      "goal": "implement reusable components, contracts, and integration paths"
+    },
+    {
+      "id": "product_designer",
+      "goal": "audit SPA/PWA UX, chat-first flows, control plugins, light/system themes"
+    },
+    {
+      "id": "qa_lead",
+      "goal": "run end-to-end product tests before owner handoff"
+    },
+    {
+      "id": "factory_sre",
+      "goal": "keep Control Plane, Agent Hosts, queues, leases, and node health green"
+    },
+    {
+      "id": "skill_librarian",
+      "goal": "package skills as versioned bundles and distribute them through Control Plane tasks"
+    },
+    {
+      "id": "estimate_methodologist",
+      "goal": "make construction estimates deterministic, auditable, editable, and pricebook-versioned"
+    },
+    {
+      "id": "formulalm_researcher",
+      "goal": "research FormulaLM/formula-based LLM methods and run reproducible comparisons on factory nodes"
+    },
+    {
+      "id": "mobile_gomesh_integrator",
+      "goal": "connect the SPA/PWA Android/iOS installable experience with GoMesh contracts without taking over the external GoMesh track"
+    },
+    {
+      "id": "sales_operator",
+      "goal": "prepare vertical-specific client lists, offers, subscriptions, and outreach artifacts"
+    },
+    {
+      "id": "reviewer",
+      "goal": "independently review code, tests, deployment risk, and product blockers"
+    }
+  ],
+  "scale_profile": {
+    "target_nodes": 2000,
+    "bootstrap_batch_size": 10,
+    "default_agents_per_node": 20,
+    "large_node_agents_per_node": 100,
+    "restart_jitter_seconds": 60
+  }
+}

@@ -5,11 +5,19 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-EnvironmentFile=/etc/kolibri-agent-host.env
+User=kolibri-agent
+Group=kolibri-agent
+WorkingDirectory=/var/lib/kolibri-agent
+EnvironmentFile=-/etc/kolibri-agent-host.env
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin
 ExecStart=/usr/local/bin/kolibri-agent-host
 Restart=always
-RestartSec=5
+RestartSec=10
 KillSignal=SIGTERM
+TimeoutStopSec=45
+LimitNOFILE=65536
+StateDirectory=kolibri-agent
+RuntimeDirectory=kolibri-agent-host
 
 [Install]
 WantedBy=multi-user.target

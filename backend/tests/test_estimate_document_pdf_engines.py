@@ -39,6 +39,23 @@ def test_prompt_estimate_and_payload_normalization():
     assert normalized.totals.grand_total == estimate.totals.grand_total
 
 
+def test_prompt_estimate_is_stable_for_same_plastering_scope_in_tatarstan():
+    prompt = "100 м2 штукатурки в Татарстане"
+
+    first = create_estimate_from_prompt(prompt, client_name="Иван")
+    second = create_estimate_from_prompt(prompt, client_name="Иван")
+
+    assert first.model_dump(mode="json") == second.model_dump(mode="json")
+    assert first.estimate_id == "EST-A1B5B0B498"
+    assert first.region == "Республика Татарстан"
+    assert first.pricebook_version == "kolibri-ru-2026q2-v1"
+    assert first.deterministic is True
+    assert first.totals.labor == Decimal("106500.00")
+    assert first.totals.materials == Decimal("44000.00")
+    assert first.totals.grand_total == Decimal("161035.00")
+    assert first.calculation_audit[-1]["input_hash"] == first.input_hash
+
+
 def test_business_document_pack_has_required_documents():
     estimate = create_estimate_from_prompt("Ремонт квартиры 20 м2")
     document = create_business_document(estimate, DocumentType.commercial_offer, contractor_name="Колибри")

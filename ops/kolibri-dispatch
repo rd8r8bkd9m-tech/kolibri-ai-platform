@@ -116,7 +116,19 @@ def cmd_status(args: argparse.Namespace) -> int:
     if args.task_id:
         print_json(http_json("GET", f"{args.control_url}/v1/tasks/{args.task_id}"))
     else:
-        print_json(http_json("GET", f"{args.control_url}/v1/tasks"))
+        query = []
+        if args.state:
+            query.append(f"state={args.state}")
+        if args.full:
+            if args.limit:
+                query.append(f"limit={args.limit}")
+        else:
+            query.append("summary=1")
+            query.append("compact=1")
+            if args.limit:
+                query.append(f"limit={args.limit}")
+        suffix = f"?{'&'.join(query)}" if query else ""
+        print_json(http_json("GET", f"{args.control_url}/v1/tasks{suffix}"))
     return 0
 
 
@@ -218,6 +230,9 @@ def main(argv: list[str] | None = None) -> int:
     submit.set_defaults(func=cmd_submit)
     status = sub.add_parser("status")
     status.add_argument("task_id", nargs="?")
+    status.add_argument("--state")
+    status.add_argument("--limit", type=int, default=200)
+    status.add_argument("--full", action="store_true")
     status.set_defaults(func=cmd_status)
     collect = sub.add_parser("collect")
     collect.add_argument("task_id")

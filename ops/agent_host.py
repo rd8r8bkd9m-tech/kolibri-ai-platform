@@ -24,10 +24,47 @@ from typing import Any
 
 STOP = False
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+DEFAULT_AGENT_CAPABILITIES = "read_only_probe,generic_implementation,review,image_generation,mesh_node"
+PERMISSION_PACKS = {
+    "read_only": {"read_repo", "read_system", "write_artifacts"},
+    "ai_chat": {"ai_runner", "write_artifacts"},
+    "media_generation": {"ai_runner", "network", "write_artifacts"},
+    "implementation": {"read_repo", "write_worktree", "run_tests", "network", "git_push", "write_artifacts"},
+    "review": {"read_repo", "run_tests", "network", "github_review", "write_artifacts"},
+    "full_autonomy": {
+        "ai_runner",
+        "git_push",
+        "github_review",
+        "network",
+        "read_repo",
+        "run_tests",
+        "shell",
+        "spawn_subagents",
+        "write_artifacts",
+        "write_worktree",
+    },
+}
 
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def parse_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",") if item.strip()]
+    if isinstance(value, (list, tuple, set)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return [str(value).strip()] if str(value).strip() else []
+
+
+def expand_permission_packs(packs: Any) -> list[str]:
+    permissions: set[str] = set()
+    for pack in parse_list(packs):
+        permissions.update(PERMISSION_PACKS.get(pack, {pack}))
+    return sorted(permissions)
 
 
 def request(method: str, url: str, body: dict[str, Any] | None = None, timeout: int = 20) -> Any:
@@ -79,7 +116,10 @@ class AgentHost:
         self.control_url = self.control_urls[0]
         self.node_id = args.node_id
         self.agent_id = args.agent_id or f"{args.node_id}-agent-host"
-        self.capabilities = [item for item in args.capabilities.split(",") if item]
+        self.capabilities = parse_list(args.capabilities)
+        self.permission_packs = parse_list(getattr(args, "permission_packs", None) or "full_autonomy")
+        explicit_permissions = parse_list(getattr(args, "permissions", None))
+        self.permissions = sorted(set(explicit_permissions or expand_permission_packs(self.permission_packs)))
         self.repo_url = args.repo_url
         self.work_root = Path(args.work_root)
         self.artifact_root = Path(args.artifact_root)
@@ -121,6 +161,8 @@ class AgentHost:
             "agent_id": self.agent_id,
             "pid": self.pid,
             "capabilities": self.capabilities,
+            "permissions": self.permissions,
+            "permission_packs": self.permission_packs,
             **machine_stats(),
         }
         self.post("/v1/nodes/register", body)
@@ -132,6 +174,8 @@ class AgentHost:
             "agent_id": self.agent_id,
             "pid": self.pid,
             "capabilities": self.capabilities,
+            "permissions": self.permissions,
+            "permission_packs": self.permission_packs,
             "active_task": active_task,
             **machine_stats(),
         }
@@ -152,6 +196,8 @@ class AgentHost:
             "node_id": self.node_id,
             "agent_id": self.agent_id,
             "capabilities": self.capabilities,
+            "permissions": self.permissions,
+            "permission_packs": self.permission_packs,
         })
 
     def run_command(
@@ -555,6 +601,206 @@ class AgentHost:
         result["result_path"] = str(result_path)
         return result
 
+    @staticmethod
+    def generic_goal(envelope: dict[str, Any]) -> str:
+        for key in ("goal", "objective", "task", "message", "prompt"):
+            value = envelope.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return ""
+
+    @staticmethod
+    def generic_acceptance(envelope: dict[str, Any]) -> list[str]:
+        acceptance = envelope.get("acceptance") or envelope.get("acceptance_criteria") or []
+        if isinstance(acceptance, str):
+            return [line.strip() for line in acceptance.splitlines() if line.strip()]
+        if isinstance(acceptance, list):
+            return [str(item).strip() for item in acceptance if str(item).strip()]
+        return []
+
+    @staticmethod
+    def generic_verification_commands(envelope: dict[str, Any]) -> list[str | list[str]]:
+        commands = envelope.get("verification_commands")
+        if commands is None:
+            env_commands = os.environ.get("KOLIBRI_GENERIC_VERIFY_COMMANDS", "")
+            commands = [item.strip() for item in env_commands.split("&&") if item.strip()]
+        if not commands:
+            return [[
+                "python3",
+                "-c",
+                "import compileall,pathlib,sys; paths=[p for p in ('backend','infra','scripts','ops') if pathlib.Path(p).exists()]; sys.exit(0 if compileall.compile_dir('.', quiet=1, maxlevels=0) and all(compileall.compile_dir(p, quiet=1) for p in paths) else 1)",
+            ]]
+        if isinstance(commands, str):
+            return [commands]
+        if isinstance(commands, list):
+            return [command for command in commands if command]
+        return []
+
+    def build_generic_prompt(self, task: dict[str, Any], worktree: Path) -> str:
+        envelope = task.get("envelope", {})
+        goal = self.generic_goal(envelope)
+        if not goal:
+            raise RuntimeError("generic implementation task missing goal/message")
+        acceptance = self.generic_acceptance(envelope)
+        role_slot = envelope.get("role_slot") or envelope.get("role") or "autonomous_engineer"
+        role_goal = envelope.get("role_goal") or "implement the requested product/factory change"
+        role_catalog = envelope.get("role_catalog") or []
+        return (
+            "You are an autonomous Kolibri Factory node running under a Control Plane lease. "
+            "Work inside the checked-out repository only. Do not print secrets. Do not revert unrelated user or agent work. "
+            "Prefer reusable components, small contracts, tests, and artifact-backed results. "
+            "If another agent changed nearby code, adapt to it instead of undoing it. "
+            "Commit-ready output is expected: implement, verify, and leave a concise summary.\n\n"
+            f"Task id: {task.get('task_id')}\n"
+            f"Role slot: {role_slot}\n"
+            f"Role goal: {role_goal}\n"
+            f"Repository path: {worktree}\n"
+            f"Goal:\n{goal}\n\n"
+            f"Acceptance criteria:\n{json.dumps(acceptance, ensure_ascii=False, indent=2)}\n\n"
+            f"Role catalog excerpt:\n{json.dumps(role_catalog, ensure_ascii=False, indent=2)[:20000]}\n\n"
+            "After implementation, report changed files, verification commands, risks, and any follow-up tasks."
+        )
+
+    def run_generic_ai_runner(
+        self,
+        runner: str,
+        prompt: str,
+        worktree: Path,
+        stdout_path: Path,
+        stderr_path: Path,
+        task: dict[str, Any],
+        branch: str,
+        logs: dict[str, str],
+    ) -> str:
+        if runner == "codex":
+            codex = shutil.which("codex")
+            if not codex:
+                raise RuntimeError("codex executable is not available on this node")
+            return self.run_json_text_command(
+                [codex, "exec", "--json", "--skip-git-repo-check", "--sandbox", "danger-full-access", prompt],
+                f"{codex} exec --json --skip-git-repo-check --sandbox danger-full-access <prompt>",
+                "codex",
+                worktree,
+                stdout_path,
+                stderr_path,
+                task,
+                branch,
+                logs,
+            )
+        if runner == "mimo":
+            mimo = shutil.which("mimo")
+            if not mimo:
+                raise RuntimeError("mimo executable is not available on this node")
+            return self.run_json_text_command(
+                [mimo, "run", "--format", "json", "--title", f"factory-{task['task_id']}", prompt],
+                f"{mimo} run --format json --title factory-{task['task_id']} <prompt>",
+                "mimo",
+                worktree,
+                stdout_path,
+                stderr_path,
+                task,
+                branch,
+                logs,
+            )
+        raise RuntimeError(f"unsupported generic runner: {runner}")
+
+    def run_verification_commands(
+        self,
+        commands: list[str | list[str]],
+        worktree: Path,
+        stdout_path: Path,
+        stderr_path: Path,
+        task: dict[str, Any],
+        branch: str,
+        logs: dict[str, str],
+    ) -> list[str]:
+        labels = []
+        for command in commands:
+            if isinstance(command, str):
+                labels.append(command)
+                self.run_command(["/bin/sh", "-lc", command], worktree, stdout_path, stderr_path, task, branch, logs, command_label=command)
+            elif isinstance(command, list) and command:
+                labels.append(" ".join(str(item) for item in command))
+                self.run_command([str(item) for item in command], worktree, stdout_path, stderr_path, task, branch, logs)
+        return labels
+
+    def run_generic_implementation(self, task: dict[str, Any]) -> dict[str, Any]:
+        envelope = task.get("envelope", {})
+        branch = envelope.get("branch") or f"agent/{task['task_id']}/generic"
+        base_ref = envelope.get("base_ref", "origin/main")
+        runner = str(
+            os.environ.get("KOLIBRI_GENERIC_RUNNER")
+            or os.environ.get("KOLIBRI_AI_RUNNER")
+            or envelope.get("runner")
+            or "mimo"
+        ).strip().lower()
+        worktree, artifact_dir, logs = self.prepare_dirs(task)
+        worktree.parent.mkdir(parents=True, exist_ok=True)
+        stdout_path = Path(logs["stdout"])
+        stderr_path = Path(logs["stderr"])
+        self.task_heartbeat(task, worktree, branch, logs)
+
+        git_env = {"GIT_TERMINAL_PROMPT": "0"}
+        self.run_command(["git", "clone", self.repo_url, str(worktree)], worktree.parent, stdout_path, stderr_path, task, branch, logs, git_env)
+        self.run_command(["git", "fetch", "origin"], worktree, stdout_path, stderr_path, task, branch, logs, git_env)
+        self.run_command(["git", "checkout", "-B", branch, base_ref], worktree, stdout_path, stderr_path, task, branch, logs, git_env)
+        self.run_command(["git", "config", "user.name", "Kolibri Factory Agent"], worktree, stdout_path, stderr_path, task, branch, logs)
+        self.run_command(["git", "config", "user.email", "factory-agent@users.noreply.github.com"], worktree, stdout_path, stderr_path, task, branch, logs)
+
+        prompt = self.build_generic_prompt(task, worktree)
+        (artifact_dir / "generic-prompt.txt").write_text(prompt, encoding="utf-8")
+        response_text = self.run_generic_ai_runner(runner, prompt, worktree, stdout_path, stderr_path, task, branch, logs)
+        verification = self.run_verification_commands(
+            self.generic_verification_commands(envelope),
+            worktree,
+            stdout_path,
+            stderr_path,
+            task,
+            branch,
+            logs,
+        )
+        changed_files = subprocess.check_output(["git", "status", "--porcelain"], cwd=str(worktree), text=True).splitlines()
+        changed_paths = [line[3:] for line in changed_files]
+        commit = None
+        pushed = False
+        if changed_files:
+            self.run_command(["git", "add", "-A"], worktree, stdout_path, stderr_path, task, branch, logs)
+            commit_message = envelope.get("commit_message") or f"factory: complete {task['task_id']}"
+            self.run_command(["git", "commit", "-m", commit_message], worktree, stdout_path, stderr_path, task, branch, logs)
+            commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(worktree), text=True).strip()
+            if envelope.get("push", True):
+                self.run_command(["git", "push", "-u", "origin", branch], worktree, stdout_path, stderr_path, task, branch, logs, git_env)
+                pushed = True
+
+        result = {
+            "node_id": self.node_id,
+            "hostname": self.hostname,
+            "task_id": task["task_id"],
+            "agent_id": self.agent_id,
+            "attempt_id": task.get("attempt_id"),
+            "pid": self.pid,
+            "heartbeat_at": utc_now(),
+            "worktree": str(worktree),
+            "branch": branch,
+            "base_ref": base_ref,
+            "commit": commit,
+            "pushed": pushed,
+            "needs_central_pr": bool(commit),
+            "log_paths": logs,
+            "result_path": str(artifact_dir / "result.json"),
+            "status": "completed",
+            "kind": envelope.get("kind", "generic_implementation"),
+            "runner": runner,
+            "response": response_text,
+            "changed_files": changed_paths,
+            "checks": verification,
+            "permission_packs": self.permission_packs,
+            "permissions": self.permissions,
+        }
+        result_path = self.write_result(artifact_dir, result)
+        result["result_path"] = str(result_path)
+        return result
+
     def run_impl_factory_smoke(self, task: dict[str, Any]) -> dict[str, Any]:
         envelope = task.get("envelope", {})
         branch = envelope.get("branch", f"agent/{task['task_id']}/impl/factory-smoke")
@@ -920,6 +1166,8 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 result = self.run_telegram_chat_response(task)
             elif kind == "telegram_image_generation":
                 result = self.run_telegram_image_generation(task)
+            elif kind in {"owner_remote_task", "generic_implementation"}:
+                result = self.run_generic_implementation(task)
             elif kind == "review_pr":
                 result = self.run_review_pr(task)
             elif kind == "read_only_probe":
@@ -980,7 +1228,9 @@ def main() -> int:
     parser.add_argument("--control-urls", default=os.environ.get("KOLIBRI_FACTORY_CONTROL_URLS") or os.environ.get("KOLIBRI_FACTORY_CONTROL_URL", "http://10.99.0.2:9101"))
     parser.add_argument("--node-id", default=os.environ.get("KOLIBRI_NODE_ID", platform.node()))
     parser.add_argument("--agent-id", default=os.environ.get("KOLIBRI_AGENT_ID"))
-    parser.add_argument("--capabilities", default=os.environ.get("KOLIBRI_AGENT_CAPABILITIES", "read_only_probe"))
+    parser.add_argument("--capabilities", default=os.environ.get("KOLIBRI_AGENT_CAPABILITIES", DEFAULT_AGENT_CAPABILITIES))
+    parser.add_argument("--permissions", default=os.environ.get("KOLIBRI_AGENT_PERMISSIONS"))
+    parser.add_argument("--permission-packs", default=os.environ.get("KOLIBRI_AGENT_PERMISSION_PACKS", "full_autonomy"))
     parser.add_argument("--repo-url", default=os.environ.get("KOLIBRI_REPO_URL", "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform.git"))
     parser.add_argument("--work-root", default=os.environ.get("KOLIBRI_AGENT_WORK_ROOT", "/var/lib/kolibri-agent/worktrees"))
     parser.add_argument("--artifact-root", default=os.environ.get("KOLIBRI_AGENT_ARTIFACT_ROOT", "/var/lib/kolibri-agent/artifacts"))

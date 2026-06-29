@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Kolibri AI</title>
+  <desc id="desc">Kolibri AI application icon</desc>
+  <defs>
+    <linearGradient id="bg" x1="88" y1="60" x2="424" y2="452" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#102033" />
+      <stop offset="0.55" stop-color="#0d141d" />
+      <stop offset="1" stop-color="#111827" />
+    </linearGradient>
+    <linearGradient id="wing" x1="127" y1="164" x2="354" y2="326" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7dd3fc" />
+      <stop offset="0.55" stop-color="#34d399" />
+      <stop offset="1" stop-color="#fbbf24" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)" />
+  <path fill="url(#wing)" d="M255 115c-30 67-72 110-127 132 47 13 88 10 124-8-28 46-67 78-116 95 74 17 134-1 179-53l-22 111 69-134 92-32-101-22c-21-43-54-73-98-89Z" />
+  <path fill="#f8fafc" d="M344 190c30-21 67-33 110-36-34 25-61 49-80 73l-31-7c5-10 6-20 1-30Z" />
+  <circle cx="302" cy="170" r="15" fill="#f8fafc" />
+  <circle cx="307" cy="166" r="5" fill="#0d141d" />
+</svg>

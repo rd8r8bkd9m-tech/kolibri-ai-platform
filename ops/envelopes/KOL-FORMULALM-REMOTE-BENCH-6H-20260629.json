@@ -1,0 +1,29 @@
+{
+  "task_id": "KOL-FORMULALM-REMOTE-BENCH-6H-20260629",
+  "kind": "generic_implementation",
+  "required_capability": "generic_implementation",
+  "permission_pack": "full_autonomy",
+  "runner": "codex",
+  "target_node": "server-kfrm",
+  "goal": "Run the FormulaLM benchmark only on a remote Linux factory server. Do not run model experiments on the owner's Mac. First verify remote runtime prerequisites: OS is not Darwin, Ollama or equivalent model runtime is available, a Qwen/QW 2.5-compatible model is installed or a documented remote model endpoint is configured, and enough disk/RAM are available. Then run scripts/formulalm_benchmark.py for 6 hours or the maximum safe duration allowed by the node lease policy, writing artifacts under the task artifact directory. Compare baseline local Qwen/QW 2.5 output against the FormulaLM deterministic overlay/kernel. Return JSON/Markdown metrics, blocker list, exact commands, model/runtime version, and recommendation. If prerequisites are missing, do not fake results; return a blocker artifact.",
+  "role_slot": "formulalm_researcher",
+  "role_goal": "prove or falsify FormulaLM improvement with remote-only reproducible benchmarks",
+  "acceptance": [
+    "No experiment runs on macOS or the owner's Mac",
+    "Remote server prerequisites are recorded before the benchmark starts",
+    "Benchmark artifacts include formulalm-benchmark.json and formulalm-benchmark.md",
+    "Metrics compare baseline versus FormulaLM for deterministic estimate tasks",
+    "Report clearly separates proven improvements from inconclusive or blocked results"
+  ],
+  "verification_commands": [
+    "python3 -m compileall -q scripts/formulalm_benchmark.py backend/estimate_engine.py",
+    "uname -a"
+  ],
+  "max_retries": 1,
+  "source": {
+    "kind": "manual_control_plane",
+    "requested_by": "owner",
+    "requested_at": "2026-06-29T00:00:00+03:00",
+    "rule": "remote-only; Mac is control/editing surface only"
+  }
+}

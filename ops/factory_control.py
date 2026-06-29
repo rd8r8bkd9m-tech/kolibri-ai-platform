@@ -26,6 +26,7 @@ REDIS_HOST = os.environ.get("FACTORY_REDIS_HOST", "127.0.0.1")
 REDIS_PORT = int(os.environ.get("FACTORY_REDIS_PORT", "6379"))
 LEASE_DURATION = int(os.environ.get("FACTORY_LEASE_DURATION", "60"))
 MAX_RETRIES = int(os.environ.get("FACTORY_MAX_RETRIES", "3"))
+NODE_STALE_AFTER = int(os.environ.get("FACTORY_NODE_STALE_AFTER", "120"))
 
 STATE_QUEUED = "queued"
 STATE_LEASED = "leased"
@@ -38,6 +39,26 @@ STATE_CANCELLED = "cancelled"
 STATE_RETRY = "retry_scheduled"
 STATE_DEAD = "dead_letter"
 TERMINAL_STATES = {STATE_COMPLETED, STATE_FAILED, STATE_CANCELLED, STATE_DEAD}
+AUTONOMOUS_TASK_KINDS = {"owner_remote_task", "generic_implementation"}
+PERMISSION_PACKS = {
+    "read_only": {"read_repo", "read_system", "write_artifacts"},
+    "ai_chat": {"ai_runner", "write_artifacts"},
+    "media_generation": {"ai_runner", "network", "write_artifacts"},
+    "implementation": {"read_repo", "write_worktree", "run_tests", "network", "git_push", "write_artifacts"},
+    "review": {"read_repo", "run_tests", "network", "github_review", "write_artifacts"},
+    "full_autonomy": {
+        "ai_runner",
+        "git_push",
+        "github_review",
+        "network",
+        "read_repo",
+        "run_tests",
+        "shell",
+        "spawn_subagents",
+        "write_artifacts",
+        "write_worktree",
+    },
+}
 
 
 def utc_now() -> str:
@@ -50,6 +71,95 @@ def now_ts() -> float:
 
 def key(name: str) -> str:
     return f"{NAMESPACE}:{name}"
+
+
+def parse_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",") if item.strip()]
+    if isinstance(value, (list, tuple, set)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return [str(value).strip()] if str(value).strip() else []
+
+
+def expand_permission_packs(packs: Any) -> set[str]:
+    permissions: set[str] = set()
+    for pack in parse_list(packs):
+        permissions.update(PERMISSION_PACKS.get(pack, {pack}))
+    return permissions
+
+
+def default_permission_pack(kind: str) -> str | None:
+    if kind in AUTONOMOUS_TASK_KINDS:
+        return "full_autonomy"
+    return None
+
+
+def task_permission_pack(envelope: dict[str, Any]) -> str | None:
+    pack = envelope.get("permission_pack") or envelope.get("autonomy_pack")
+    return str(pack) if pack else default_permission_pack(str(envelope.get("kind") or ""))
+
+
+def task_required_permissions(envelope: dict[str, Any]) -> list[str]:
+    explicit = parse_list(envelope.get("required_permissions"))
+    if explicit:
+        return sorted(set(explicit))
+    pack = task_permission_pack(envelope)
+    return sorted(expand_permission_packs(pack)) if pack else []
+
+
+def available_permissions(capabilities: list[str], permissions: list[str] | None = None) -> set[str]:
+    values = set(parse_list(permissions))
+    for capability in parse_list(capabilities):
+        if capability.startswith("permission:"):
+            values.add(capability.removeprefix("permission:"))
+    return values
+
+
+def granted_permissions(task: dict[str, Any], capabilities: list[str], permissions: list[str] | None = None) -> list[str]:
+    required = set(parse_list(task.get("required_permissions")))
+    if not required:
+        required = set(task_required_permissions(task.get("envelope", {})))
+    node_permissions = available_permissions(capabilities, permissions)
+    if "*" in node_permissions:
+        return sorted(required)
+    return sorted(required & node_permissions)
+
+
+def parse_iso_ts(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def heartbeat_age_seconds(value: Any, current: datetime | None = None) -> float | None:
+    heartbeat = parse_iso_ts(value)
+    if not heartbeat:
+        return None
+    current = current or datetime.now(timezone.utc)
+    return max(0.0, (current - heartbeat).total_seconds())
+
+
+def decorate_node(node: dict[str, Any], current: datetime | None = None) -> dict[str, Any]:
+    decorated = dict(node)
+    age = heartbeat_age_seconds(decorated.get("heartbeat_at"), current)
+    decorated["heartbeat_age_seconds"] = age
+    decorated["fresh"] = age is not None and age <= NODE_STALE_AFTER
+    if not decorated["fresh"]:
+        decorated["health"] = "stale"
+
+    active_task = decorated.get("active_task")
+    if active_task:
+        task = load_task(str(active_task))
+        if task:
+            state = task.get("state")
+            decorated["active_task_state"] = state
+            decorated["active_task_terminal"] = state in TERMINAL_STATES
+    return decorated
 
 
 class RedisError(RuntimeError):
@@ -160,10 +270,17 @@ def remove_from_queue(task_id: str) -> None:
 def normalize_task(envelope: dict[str, Any]) -> dict[str, Any]:
     task_id = envelope.get("task_id") or f"KOL-TASK-{uuid.uuid4().hex[:12]}"
     created = utc_now()
+    kind = envelope.get("kind", "read_only_probe")
+    normalized_envelope = dict(envelope)
+    normalized_envelope["kind"] = kind
+    permission_pack = task_permission_pack(normalized_envelope)
+    required_permissions = task_required_permissions(normalized_envelope)
     return {
         "task_id": task_id,
         "idempotency_key": envelope.get("idempotency_key") or task_id,
-        "kind": envelope.get("kind", "read_only_probe"),
+        "kind": kind,
+        "permission_pack": permission_pack,
+        "required_permissions": required_permissions,
         "state": STATE_QUEUED,
         "attempt": 0,
         "max_retries": int(envelope.get("max_retries", MAX_RETRIES)),
@@ -177,11 +294,11 @@ def normalize_task(envelope: dict[str, Any]) -> dict[str, Any]:
         "error": None,
         "created_at": created,
         "updated_at": created,
-        "envelope": envelope,
+        "envelope": normalized_envelope,
     }
 
 
-def compatible(task: dict[str, Any], node_id: str, capabilities: list[str]) -> bool:
+def compatible(task: dict[str, Any], node_id: str, capabilities: list[str], permissions: list[str] | None = None) -> bool:
     envelope = task.get("envelope", {})
     target_node = envelope.get("target_node") or envelope.get("required_node")
     if target_node and target_node != node_id:
@@ -192,7 +309,61 @@ def compatible(task: dict[str, Any], node_id: str, capabilities: list[str]) -> b
     required = envelope.get("required_capability")
     if required and required not in capabilities:
         return False
+    required_permissions = set(parse_list(task.get("required_permissions")) or task_required_permissions(envelope))
+    node_permissions = available_permissions(capabilities, permissions)
+    if required_permissions and "*" not in node_permissions and not required_permissions <= node_permissions:
+        return False
     return True
+
+
+def compact_task(task: dict[str, Any]) -> dict[str, Any]:
+    envelope = task.get("envelope", {})
+    return {
+        "task_id": task.get("task_id"),
+        "kind": task.get("kind"),
+        "state": task.get("state"),
+        "target_node": envelope.get("target_node") or envelope.get("required_node"),
+        "required_capability": envelope.get("required_capability"),
+        "permission_pack": task.get("permission_pack"),
+        "required_permissions": task.get("required_permissions", []),
+        "attempt": task.get("attempt"),
+        "max_retries": task.get("max_retries"),
+        "lease_owner": task.get("lease_owner"),
+        "lease_until": task.get("lease_until"),
+        "error_type": task.get("error_type"),
+        "created_at": task.get("created_at"),
+        "updated_at": task.get("updated_at"),
+    }
+
+
+def summarize_tasks(tasks: list[dict[str, Any]]) -> dict[str, Any]:
+    counts: dict[str, int] = {}
+    for task in tasks:
+        state = str(task.get("state") or "unknown")
+        counts[state] = counts.get(state, 0) + 1
+    active = [
+        compact_task(task)
+        for task in tasks
+        if task.get("state") in {STATE_LEASED, STATE_RUNNING, STATE_REVIEW, STATE_WAITING_REVIEW}
+    ]
+    return {
+        "total": len(tasks),
+        "states": counts,
+        "active": active,
+    }
+
+
+def limited_tasks(wanted: str | None = None, limit: int | None = None, compact: bool = False) -> list[dict[str, Any]]:
+    tasks = []
+    for task_id in all_task_ids():
+        task = load_task(task_id)
+        if not task or (wanted is not None and task.get("state") != wanted):
+            continue
+        tasks.append(compact_task(task) if compact else task)
+    tasks.sort(key=lambda item: str(item.get("updated_at") or item.get("created_at") or ""), reverse=True)
+    if limit is not None:
+        return tasks[:limit]
+    return tasks
 
 
 def requeue_expired_leases() -> None:
@@ -234,6 +405,38 @@ def create_task(envelope: dict[str, Any]) -> dict[str, Any]:
     redis.command("SET", idem_key, task["task_id"])
     enqueue(task["task_id"])
     return task
+
+
+def append_attempt_history(task: dict[str, Any], status: str, error_type: str | None, error: str | None, result_reference: str | None) -> None:
+    attempt = {
+        "attempt": task.get("attempt"),
+        "attempt_id": task.get("attempt_id"),
+        "status": status,
+        "error_type": error_type,
+        "error": error,
+        "result_reference": result_reference,
+        "recorded_at": utc_now(),
+    }
+    history = task.setdefault("attempt_history", [])
+    attempt_id = attempt.get("attempt_id")
+    if attempt_id:
+        history[:] = [item for item in history if item.get("attempt_id") != attempt_id]
+    history.append(attempt)
+
+
+def apply_task_completion(task: dict[str, Any], body: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], bool]:
+    result = body.get("result", body)
+    needs_review = task.get("envelope", {}).get("create_review_on_complete")
+    has_pr = bool(result.get("pull_request_url") or result.get("pr_url"))
+    task["state"] = STATE_COMPLETED if (not needs_review or has_pr) else STATE_WAITING_REVIEW
+    task["result"] = result
+    task["result_reference"] = body.get("result_reference") or result.get("result_path")
+    task["heartbeat_at"] = utc_now()
+    task["lease_until"] = None
+    task["error_type"] = None
+    task["error"] = None
+    append_attempt_history(task, "completed", None, None, task.get("result_reference"))
+    return task, result, has_pr
 
 
 def create_review_task(source_task: dict[str, Any], result: dict[str, Any]) -> dict[str, Any] | None:
@@ -294,17 +497,24 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path == "/v1/nodes":
                 nodes = []
+                current = datetime.now(timezone.utc)
                 for node_id in sorted(redis.command("SMEMBERS", key("node_ids")) or []):
                     node = get_json(node_key(node_id), {})
                     node["draining"] = bool(redis.command("GET", drain_key(node_id)))
-                    nodes.append(node)
+                    nodes.append(decorate_node(node, current))
                 response(self, 200, {"nodes": nodes})
                 return
             if path == "/v1/tasks":
                 query = parse_qs(parsed.query)
                 wanted = query.get("state", [None])[0]
-                tasks = [load_task(task_id) for task_id in all_task_ids()]
-                tasks = [task for task in tasks if task and (wanted is None or task.get("state") == wanted)]
+                summary = query.get("summary", ["0"])[0].lower() in {"1", "true", "yes"}
+                compact = query.get("compact", ["0"])[0].lower() in {"1", "true", "yes"}
+                limit_value = query.get("limit", [None])[0]
+                limit = int(limit_value) if limit_value else None
+                tasks = limited_tasks(wanted=wanted, limit=limit, compact=compact)
+                if summary:
+                    response(self, 200, {"summary": summarize_tasks(tasks), "queue_length": len(queue_ids())})
+                    return
                 response(self, 200, {"tasks": tasks, "queue": queue_ids()})
                 return
             if path.startswith("/v1/tasks/"):
@@ -330,6 +540,8 @@ class Handler(BaseHTTPRequestHandler):
                     "node_id": node_id,
                     "hostname": body.get("hostname"),
                     "capabilities": body.get("capabilities", []),
+                    "permissions": parse_list(body.get("permissions")),
+                    "permission_packs": parse_list(body.get("permission_packs")),
                     "health": "online",
                     "heartbeat_at": utc_now(),
                     "pid": body.get("pid"),
@@ -346,6 +558,8 @@ class Handler(BaseHTTPRequestHandler):
                 node_id = path.split("/")[3]
                 node = get_json(node_key(node_id), {"node_id": node_id})
                 node.update(body)
+                node["permissions"] = parse_list(node.get("permissions"))
+                node["permission_packs"] = parse_list(node.get("permission_packs"))
                 node["health"] = "online"
                 node["heartbeat_at"] = utc_now()
                 set_json(node_key(node_id), node)
@@ -372,13 +586,14 @@ class Handler(BaseHTTPRequestHandler):
                     response(self, 204, {})
                     return
                 capabilities = body.get("capabilities", [])
+                permissions = parse_list(body.get("permissions"))
                 agent_id = body.get("agent_id", node_id)
                 for task_id in queue_ids():
                     task = load_task(task_id)
                     if not task or task.get("state") not in {STATE_QUEUED, STATE_REVIEW}:
                         remove_from_queue(task_id)
                         continue
-                    if not compatible(task, node_id, capabilities):
+                    if not compatible(task, node_id, capabilities, permissions):
                         continue
                     remove_from_queue(task_id)
                     task["state"] = STATE_LEASED
@@ -387,6 +602,7 @@ class Handler(BaseHTTPRequestHandler):
                     task["lease_owner"] = f"{node_id}:{agent_id}"
                     task["lease_until"] = now_ts() + LEASE_DURATION
                     task["heartbeat_at"] = utc_now()
+                    task["granted_permissions"] = granted_permissions(task, capabilities, permissions)
                     save_task(task)
                     response(self, 200, task)
                     return
@@ -415,14 +631,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not task:
                     response(self, 404, {"error": "task_not_found", "task_id": task_id})
                     return
-                result = body.get("result", body)
-                needs_review = task.get("envelope", {}).get("create_review_on_complete")
-                has_pr = bool(result.get("pull_request_url") or result.get("pr_url"))
-                task["state"] = STATE_COMPLETED if (not needs_review or has_pr) else STATE_WAITING_REVIEW
-                task["result"] = result
-                task["result_reference"] = body.get("result_reference") or result.get("result_path")
-                task["heartbeat_at"] = utc_now()
-                task["lease_until"] = None
+                task, result, has_pr = apply_task_completion(task, body)
                 save_task(task)
                 review_task = create_review_task(task, result) if has_pr else None
                 response(self, 200, {"task": task, "review_task": review_task})
@@ -458,6 +667,7 @@ class Handler(BaseHTTPRequestHandler):
                 task["result"] = body.get("result")
                 task["result_reference"] = body.get("result_reference")
                 task["lease_until"] = None
+                append_attempt_history(task, "failed", task.get("error_type"), task.get("error"), task.get("result_reference"))
                 if int(task.get("attempt", 0)) < int(task.get("max_retries", MAX_RETRIES)) and body.get("retry", True):
                     task["state"] = STATE_RETRY
                     save_task(task)

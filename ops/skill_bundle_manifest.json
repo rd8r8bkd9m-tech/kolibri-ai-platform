@@ -1,0 +1,35 @@
+{
+  "version": "2026-06-29.skills.v1",
+  "distribution": "control_plane_task_manifest",
+  "install_root": "/var/lib/kolibri-agent/skills",
+  "policy": {
+    "no_secrets": true,
+    "agents_may_use_all_listed_skills": true,
+    "agents_must_report_missing_skill_files": true,
+    "agents_must_not_mutate_source_bundle": true
+  },
+  "bundles": [
+    {"name": "kolibri-factory-admin", "path": "/Users/kolibri/.codex/skills/kolibri-factory-admin"},
+    {"name": "server-admin-devops", "path": "/Users/kolibri/.codex/skills/server-admin-devops"},
+    {"name": "webapp-product-design", "path": "/Users/kolibri/.codex/skills/webapp-product-design"},
+    {"name": "estimate-builder", "path": "/Users/kolibri/.codex/skills/estimate-builder"},
+    {"name": "construction-estimates-ru", "path": "/Users/kolibri/.codex/skills/construction-estimates-ru"},
+    {"name": "estimate-documents", "path": "/Users/kolibri/.codex/skills/estimate-documents"},
+    {"name": "legal-documents-ru", "path": "/Users/kolibri/.codex/skills/legal-documents-ru"},
+    {"name": "cloudflare-deploy", "path": "/Users/kolibri/.codex/skills/cloudflare-deploy"},
+    {"name": "vercel-deploy", "path": "/Users/kolibri/.codex/skills/vercel-deploy"},
+    {"name": "netlify-deploy", "path": "/Users/kolibri/.codex/skills/netlify-deploy"},
+    {"name": "render-deploy", "path": "/Users/kolibri/.codex/skills/render-deploy"},
+    {"name": "openai-docs", "path": "/Users/kolibri/.codex/skills/.system/openai-docs"},
+    {"name": "playwright", "path": "/Users/kolibri/.codex/skills/playwright"},
+    {"name": "pdf", "path": "/Users/kolibri/.codex/skills/pdf"},
+    {"name": "doc", "path": "/Users/kolibri/.codex/skills/doc"}
+  ],
+  "internet_research_topics": [
+    "multi-agent software engineering orchestration",
+    "deterministic construction estimate pricebooks",
+    "FormulaLM and formula-discovery LLM methods",
+    "SPA PWA product QA checklists",
+    "subscription checkout and T-Bank recurring billing"
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "task_id": "KOL-FORMULALM-RD-20260629",
+  "kind": "generic_implementation",
+  "required_capability": "generic_implementation",
+  "permission_pack": "full_autonomy",
+  "runner": "codex",
+  "goal": "Research FormulaLM / formula-discovery LLM approaches for Kolibri. Do not change GoMesh-owned code. Produce an artifact with: source list, candidate algorithms, how to use formula-based models for deterministic construction estimates, benchmark plan, server rollout plan, risks, and a minimal reproducible comparison harness proposal. If internet access is unavailable on the node, report blocker and use repository docs only.",
+  "role_slot": "formulalm_researcher",
+  "role_goal": "own the scientific FormulaLM research track and produce reproducible implementation guidance",
+  "acceptance": [
+    "Research distinguishes FormulaLM named projects from broader formula-discovery LLM methods",
+    "Plan includes deterministic estimate use case and comparison metrics",
+    "Plan avoids touching active GoMesh development unless a documented integration contract is available",
+    "Result includes concrete next task envelopes for benchmark implementation"
+  ],
+  "verification_commands": [
+    "python3 -m compileall -q ops backend"
+  ],
+  "max_retries": 2,
+  "source": {
+    "kind": "manual_control_plane",
+    "requested_by": "owner",
+    "requested_at": "2026-06-29T00:00:00+03:00"
+  }
+}

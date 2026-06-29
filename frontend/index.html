@@ -3,8 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/kolibri.svg" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#0d141d" />
+    <meta name="description" content="Kolibri AI platform" />
+    <meta name="application-name" content="Kolibri AI" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Kolibri AI" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="msapplication-TileColor" content="#0d141d" />
+    <meta name="format-detection" content="telephone=no" />
     <title>Kolibri AI</title>
     <script>
       if (!window.crypto || !window.crypto.randomUUID) {
@@ -20,6 +30,16 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      (function() {
+        var isLocal = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+        if (!("serviceWorker" in navigator) || isLocal) return;
+        var script = document.createElement("script");
+        script.src = "/pwa-register.js";
+        script.defer = true;
+        document.head.appendChild(script);
+      })();
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

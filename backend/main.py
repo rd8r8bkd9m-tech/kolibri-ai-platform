@@ -21,6 +21,7 @@ from tts import TTSEngine
 from stt import STTEngine
 from websearch import WebSearchEngine
 from factory_status import fetch_factory_status
+from billing import router as billing_router
 
 DB_PATH = Path("/opt/kolibri-ai/data/kolibri.db")
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -334,6 +335,7 @@ async def cluster_status():
     return await api_factory_status()
 
 app.include_router(v1_router)
+app.include_router(billing_router)
 
 PROXY_ROUTES = {
     "/api/knowledge": {"target": "http://10.99.0.3:8002", "strip": "/api/knowledge", "add": "/rag"},
@@ -393,5 +395,4 @@ if frontend_path.exists():
         if file_path.exists() and file_path.is_file():
             return FileResponse(str(file_path))
         return FileResponse(str(frontend_path / "index.html"))
-
 

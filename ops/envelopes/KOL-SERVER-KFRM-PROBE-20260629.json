@@ -1,0 +1,19 @@
+{
+  "task_id": "KOL-SERVER-KFRM-PROBE-20260629",
+  "idempotency_key": "server-kfrm:read-only-probe:2026-06-29",
+  "kind": "read_only_probe",
+  "required_capability": "read_only_probe",
+  "target_node": "server-kfrm",
+  "max_retries": 1,
+  "goal": "Verify that the largest Kolibri factory node server-kfrm can lease and complete a task through Control Plane.",
+  "acceptance": [
+    "Task is leased by server-kfrm",
+    "Task completes through node-local artifacts",
+    "No SSH, secrets, or shared writable root are used"
+  ],
+  "source": {
+    "kind": "manual_control_plane",
+    "created_at": "2026-06-29",
+    "repo": "kolibri-ai-platform"
+  }
+}

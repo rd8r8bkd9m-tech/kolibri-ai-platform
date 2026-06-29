@@ -11,6 +11,15 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 TWOPLACES = Decimal("0.01")
+PRICEBOOK_VERSION = "kolibri-ru-2026q2-v1"
+DETERMINISTIC_TIMESTAMP = "2026-06-29T00:00:00+00:00"
+REGION_PROFILES = {
+    "татарстан": {"label": "Республика Татарстан", "labor_coeff": Decimal("1.00"), "material_coeff": Decimal("1.00")},
+    "республика татарстан": {"label": "Республика Татарстан", "labor_coeff": Decimal("1.00"), "material_coeff": Decimal("1.00")},
+    "москва": {"label": "Москва", "labor_coeff": Decimal("1.28"), "material_coeff": Decimal("1.12")},
+    "санкт-петербург": {"label": "Санкт-Петербург", "labor_coeff": Decimal("1.18"), "material_coeff": Decimal("1.08")},
+    "россия": {"label": "Россия", "labor_coeff": Decimal("1.00"), "material_coeff": Decimal("1.00")},
+}
 
 
 def utc_now() -> str:
@@ -74,7 +83,11 @@ class Estimate(BaseModel):
     title: str = "Смета"
     client_name: str = "Клиент"
     object_address: str = "Адрес объекта не указан"
+    region: str = "Россия"
     currency: str = "RUB"
+    pricebook_version: str = PRICEBOOK_VERSION
+    input_hash: str | None = None
+    deterministic: bool = False
     sections: list[EstimateSection] = Field(default_factory=list)
     overhead_rate: Decimal = Decimal("0.00")
     tax_rate: Decimal = Decimal("0.00")
@@ -87,6 +100,36 @@ class Estimate(BaseModel):
 def _fingerprint(payload: dict[str, Any]) -> str:
     body = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
     return hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
+def canonical_text(value: str) -> str:
+    return " ".join(value.strip().lower().replace("ё", "е").split())
+
+
+def canonical_input_hash(payload: dict[str, Any]) -> str:
+    return _fingerprint(payload)
+
+
+def deterministic_estimate_id(input_hash: str) -> str:
+    return f"EST-{input_hash[:10].upper()}"
+
+
+def region_profile(region: str) -> dict[str, Decimal | str]:
+    return REGION_PROFILES.get(canonical_text(region), REGION_PROFILES["россия"])
+
+
+def fixed_price_provenance(region: str, confidence: str = "0.98") -> PriceProvenance:
+    profile = region_profile(region)
+    return PriceProvenance(
+        source="kolibri_pricebook",
+        label=f"{profile['label']} / {PRICEBOOK_VERSION}",
+        captured_at=DETERMINISTIC_TIMESTAMP,
+        confidence=Decimal(confidence),
+    )
+
+
+def priced(value: Decimal | int | float | str, coeff: Decimal) -> Decimal:
+    return money(decimal_value(value) * coeff)
 
 
 def recalculate_estimate(estimate: Estimate) -> Estimate:
@@ -130,10 +173,12 @@ def recalculate_estimate(estimate: Estimate) -> Estimate:
     estimate.calculation_audit = audit + [{
         "kind": "totals",
         "fingerprint": _fingerprint(audit_payload),
-        "calculated_at": utc_now(),
+        "calculated_at": DETERMINISTIC_TIMESTAMP if estimate.deterministic else utc_now(),
         "formula": "labor + materials + overhead + tax",
+        "pricebook_version": estimate.pricebook_version,
+        "input_hash": estimate.input_hash,
     }]
-    estimate.updated_at = utc_now()
+    estimate.updated_at = DETERMINISTIC_TIMESTAMP if estimate.deterministic else utc_now()
     return estimate
 
 
@@ -144,9 +189,72 @@ def detect_area(prompt: str, fallback: Decimal = Decimal("20.00")) -> Decimal:
     return decimal_value(match.group(1))
 
 
-def create_estimate_from_prompt(prompt: str, *, client_name: str = "Клиент") -> Estimate:
+def detect_region(prompt: str, fallback: str = "Россия") -> str:
+    normalized = canonical_text(prompt)
+    for key, profile in REGION_PROFILES.items():
+        if key != "россия" and key in normalized:
+            return str(profile["label"])
+    return fallback
+
+
+def plastering_sections(area: Decimal, region: str) -> list[EstimateSection]:
+    profile = region_profile(region)
+    labor_coeff = profile["labor_coeff"]
+    material_coeff = profile["material_coeff"]
+    provenance = fixed_price_provenance(region)
+    return [
+        EstimateSection(title="Подготовка основания", items=[
+            EstimateItem(
+                name="Грунтование стен под штукатурку",
+                unit="м2",
+                quantity=area,
+                labor_unit_price=priced("95.00", labor_coeff),
+                material_unit_price=priced("38.00", material_coeff),
+                provenance=provenance,
+            ),
+            EstimateItem(
+                name="Установка штукатурных маяков",
+                unit="м2",
+                quantity=area,
+                labor_unit_price=priced("140.00", labor_coeff),
+                material_unit_price=priced("42.00", material_coeff),
+                provenance=provenance,
+            ),
+        ]),
+        EstimateSection(title="Штукатурные работы", items=[
+            EstimateItem(
+                name="Штукатурка стен гипсовой смесью до 20 мм",
+                unit="м2",
+                quantity=area,
+                labor_unit_price=priced("620.00", labor_coeff),
+                material_unit_price=priced("285.00", material_coeff),
+                provenance=provenance,
+            ),
+            EstimateItem(
+                name="Финишное выравнивание под шпаклевание",
+                unit="м2",
+                quantity=area,
+                labor_unit_price=priced("210.00", labor_coeff),
+                material_unit_price=priced("75.00", material_coeff),
+                provenance=provenance,
+            ),
+        ]),
+    ]
+
+
+def create_estimate_from_prompt(prompt: str, *, client_name: str = "Клиент", region: str | None = None, quality_level: str = "standard") -> Estimate:
     normalized = prompt.lower()
     area = detect_area(prompt)
+    detected_region = region or detect_region(prompt)
+    canonical_payload = {
+        "prompt": canonical_text(prompt),
+        "client_name": canonical_text(client_name),
+        "region": canonical_text(detected_region),
+        "area": str(area),
+        "quality_level": canonical_text(quality_level),
+        "pricebook_version": PRICEBOOK_VERSION,
+    }
+    input_hash = canonical_input_hash(canonical_payload)
     title = "Смета на ремонт"
     if "кух" in normalized:
         title = "Смета на ремонт кухни"
@@ -155,17 +263,38 @@ def create_estimate_from_prompt(prompt: str, *, client_name: str = "Клиент
     elif "кварт" in normalized:
         title = "Смета на ремонт квартиры"
     multiplier = max(area, Decimal("1.00"))
-    sections = [
-        EstimateSection(title="Подготовка", items=[
-            EstimateItem(name="Защита поверхностей и подготовка", unit="м2", quantity=multiplier, labor_unit_price=Decimal("180.00"), material_unit_price=Decimal("45.00")),
-            EstimateItem(name="Демонтажные работы", unit="м2", quantity=multiplier, labor_unit_price=Decimal("320.00"), material_unit_price=Decimal("0.00")),
-        ]),
-        EstimateSection(title="Отделка", items=[
-            EstimateItem(name="Выравнивание стен", unit="м2", quantity=multiplier, labor_unit_price=Decimal("520.00"), material_unit_price=Decimal("210.00")),
-            EstimateItem(name="Финишная отделка", unit="м2", quantity=multiplier, labor_unit_price=Decimal("680.00"), material_unit_price=Decimal("360.00")),
-        ]),
-    ]
-    estimate = Estimate(title=title, client_name=client_name, sections=sections, overhead_rate=Decimal("7.00"), tax_rate=Decimal("0.00"))
+    profile = region_profile(detected_region)
+    labor_coeff = profile["labor_coeff"]
+    material_coeff = profile["material_coeff"]
+    provenance = fixed_price_provenance(detected_region, "0.98")
+    if "штукатур" in normalized:
+        title = "Смета на штукатурные работы"
+        sections = plastering_sections(multiplier, detected_region)
+    else:
+        sections = [
+            EstimateSection(title="Подготовка", items=[
+                EstimateItem(name="Защита поверхностей и подготовка", unit="м2", quantity=multiplier, labor_unit_price=priced("180.00", labor_coeff), material_unit_price=priced("45.00", material_coeff), provenance=provenance),
+                EstimateItem(name="Демонтажные работы", unit="м2", quantity=multiplier, labor_unit_price=priced("320.00", labor_coeff), material_unit_price=Decimal("0.00"), provenance=provenance),
+            ]),
+            EstimateSection(title="Отделка", items=[
+                EstimateItem(name="Выравнивание стен", unit="м2", quantity=multiplier, labor_unit_price=priced("520.00", labor_coeff), material_unit_price=priced("210.00", material_coeff), provenance=provenance),
+                EstimateItem(name="Финишная отделка", unit="м2", quantity=multiplier, labor_unit_price=priced("680.00", labor_coeff), material_unit_price=priced("360.00", material_coeff), provenance=provenance),
+            ]),
+        ]
+    estimate = Estimate(
+        estimate_id=deterministic_estimate_id(input_hash),
+        title=title,
+        client_name=client_name,
+        region=str(profile["label"]),
+        pricebook_version=PRICEBOOK_VERSION,
+        input_hash=input_hash,
+        deterministic=True,
+        sections=sections,
+        overhead_rate=Decimal("7.00"),
+        tax_rate=Decimal("0.00"),
+        created_at=DETERMINISTIC_TIMESTAMP,
+        updated_at=DETERMINISTIC_TIMESTAMP,
+    )
     return recalculate_estimate(estimate)
 
 

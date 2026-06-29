@@ -1,0 +1,25 @@
+{
+  "task_id": "KOL-META-MIMO-ORCHESTRATOR-PRIMARY-20260629",
+  "idempotency_key": "primary-candidate:mimo-meta-orchestrator:2026-06-29",
+  "kind": "orchestrator_chat_response",
+  "required_capability": "generic_implementation",
+  "target_node": "primary-candidate",
+  "runner": "mimo",
+  "max_retries": 1,
+  "message": "Ты meta-orchestrator для проекта Kolibri AI Platform. Цель владельца: довести SPA/PWA приложение http://104.253.43.117 до продаваемого состояния, все взаимодействие через чат и кнопку Контрол в правом нижнем углу, схема расширения через плагины как в Codex, подписки через Т-Банк, первые клиенты и sales-пакет. Подготовь полный пакет автоматизации для 100 Mimo-субагентов: роли, очереди, task envelopes, acceptance criteria, ограничения безопасности, merge/review/deploy gates, список артефактов, план запуска на server-kfrm после восстановления polling и fallback-распределение на primary-candidate/home-live. Не заявляй, что субагенты уже запущены; верни готовый исполнимый план и JSON-шаблоны envelopes. Учитывай, что текущий agent_host поддерживает только read_only_probe, orchestrator_chat_response, telegram_chat_response, telegram_image_generation, review_pr, impl_factory_smoke, impl_retry_error_clearance; поэтому предложи минимальный патч для добавления plugin-driven generic_implementation runner через Control Plane без SSH и без секретов в envelope.",
+  "goal": "Create a live-node Mimo meta-orchestration package for 100 subagents and the plugin-driven Kolibri AI product buildout.",
+  "acceptance": [
+    "Result contains roles for 100 Mimo subagents",
+    "Result contains task envelope templates compatible with Control Plane",
+    "Result explains why server-kfrm is preferred but stale and how to restore it safely",
+    "Result includes fallback execution on primary-candidate/home-live",
+    "Result includes plugin-driven architecture requirements for SPA/PWA and Control surfaces",
+    "Result includes safe implementation path for enabling generic_implementation runner",
+    "No secrets, ad hoc SSH, or shared writable root are requested"
+  ],
+  "source": {
+    "kind": "manual_control_plane",
+    "created_at": "2026-06-29",
+    "repo": "kolibri-ai-platform"
+  }
+}
