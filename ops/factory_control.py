@@ -24,6 +24,8 @@ from urllib.parse import parse_qs, urlparse
 NAMESPACE = os.environ.get("FACTORY_NAMESPACE", "kolibri_factory")
 REDIS_HOST = os.environ.get("FACTORY_REDIS_HOST", "127.0.0.1")
 REDIS_PORT = int(os.environ.get("FACTORY_REDIS_PORT", "6379"))
+REDIS_TIMEOUT = float(os.environ.get("FACTORY_REDIS_TIMEOUT", "5"))
+REDIS_CONNECT_RETRIES = int(os.environ.get("FACTORY_REDIS_CONNECT_RETRIES", "1"))
 LEASE_DURATION = int(os.environ.get("FACTORY_LEASE_DURATION", "60"))
 TASK_HEARTBEAT_STALE_AFTER = int(os.environ.get("FACTORY_TASK_HEARTBEAT_STALE_AFTER", str(LEASE_DURATION * 2)))
 MAX_RETRIES = int(os.environ.get("FACTORY_MAX_RETRIES", "3"))
@@ -292,17 +294,36 @@ class RedisError(RuntimeError):
 
 
 class Redis:
-    def __init__(self, host: str = REDIS_HOST, port: int = REDIS_PORT, timeout: float = 5.0):
+    def __init__(
+        self,
+        host: str = REDIS_HOST,
+        port: int = REDIS_PORT,
+        timeout: float = REDIS_TIMEOUT,
+        connect_retries: int = REDIS_CONNECT_RETRIES,
+    ):
         self.host = host
         self.port = port
         self.timeout = timeout
+        self.connect_retries = max(0, int(connect_retries))
 
     def command(self, *parts: Any) -> Any:
         payload = self._encode(parts)
-        with socket.create_connection((self.host, self.port), timeout=self.timeout) as sock:
-            sock.sendall(payload)
-            reader = sock.makefile("rb")
-            return self._read(reader)
+        last_exc: OSError | None = None
+        for attempt in range(self.connect_retries + 1):
+            try:
+                sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
+            except OSError as exc:
+                last_exc = exc
+                if attempt < self.connect_retries:
+                    time.sleep(min(0.05 * (attempt + 1), 0.25))
+                    continue
+                break
+            with sock:
+                sock.sendall(payload)
+                reader = sock.makefile("rb")
+                return self._read(reader)
+        assert last_exc is not None
+        raise last_exc
 
     @staticmethod
     def _encode(parts: tuple[Any, ...]) -> bytes:
@@ -604,7 +625,8 @@ def compatible(task: dict[str, Any], node_id: str, capabilities: list[str], perm
 
 
 def compact_task(task: dict[str, Any]) -> dict[str, Any]:
-    envelope = task.get("envelope", {})
+    raw_envelope = task.get("envelope")
+    envelope = raw_envelope if isinstance(raw_envelope, dict) else {}
     return {
         "task_id": task.get("task_id"),
         "kind": task.get("kind"),
@@ -781,26 +803,14 @@ def compact_task_listing(wanted: str | None, limit: int) -> dict[str, Any]:
             "queue": q_prefix,
             "tasks": tasks,
         }
-    tasks = []
-    for task_id in q_prefix:
-        task = load_task(task_id)
-        if not task or (wanted is not None and task.get("state") != wanted):
-            continue
-        tasks.append(compact_task(task))
+    tasks, meta = operational_task_sample(limit=limit, compact=True)
     summary = summarize_tasks(tasks)
-    summary.update({
-        "tasks_scanned": len(q_prefix),
-        "tasks_matched": len(tasks),
-        "scan_truncated": q_len > len(q_prefix),
-    })
-    summary["tasks_returned"] = len(tasks)
-    summary["tasks_truncated"] = q_len > len(q_prefix)
+    summary.update(meta)
     summary["queue_total"] = q_len
     summary["queue_returned"] = len(q_prefix)
     summary["queue_truncated"] = q_len > len(q_prefix)
-    summary["limit"] = limit
     summary["max_limit"] = MAX_TASK_LIST_LIMIT
-    summary["summary_scope"] = "queue_prefix"
+    summary["summary_scope"] = "queue_active_index"
     return {
         "summary": summary,
         "queue_length": q_len,

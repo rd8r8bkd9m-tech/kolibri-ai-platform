@@ -4,13 +4,23 @@ FormulaLM — исследовательское направление влад
 формульный слой, который повышает детерминизм, проверяемость и точность в
 задачах, где важны расчёты.
 
-## Главное правило
+## Исполнимый remote guard
 
 Эксперименты FormulaLM, Qwen/QW 2.5 и любые модельные бенчмарки выполняются
-только на удалённых серверах через фабрику.
+только на удалённых серверах через фабрику. Это не пассивный запрет, а
+исполнимый порядок для агента:
 
-Mac используется только для управления, редактирования репозитория и чтения
-результатов.
+1. Получить задачу через Control Plane и lease на remote Linux node.
+2. Записать `preflight.json` до любого model call.
+3. Если `platform.system == "Darwin"`, записать `blockers.json` и завершить
+   задачу без запуска модели.
+4. Если runtime/model/dataset недоступны, записать blocker artifact с
+   безопасным следующим действием.
+5. Если preflight прошёл, выполнить benchmark и вернуть `result_reference`.
+
+Mac используется только для управления, редактирования репозитория, отправки
+Control Plane envelope и чтения результатов. Model call на Mac не является
+результатом FormulaLM.
 
 Детальный пакет:
 [FormulaLM Remote R&D Pack](agent-work/formulalm-remote-rd-pack.md). Он задаёт
@@ -19,10 +29,12 @@ GitHub report template и Control Plane envelope.
 
 ```mermaid
 flowchart TD
-    Task["Control Plane task"] --> Remote["Удалённый сервер"]
-    Remote --> Check["Проверка runtime и модели"]
-    Check --> Base["Baseline Qwen/QW 2.5"]
-    Check --> Formula["Qwen/QW 2.5 + FormulaLM overlay"]
+    Task["Control Plane task"] --> Lease["Remote lease"]
+    Lease --> Preflight["preflight.json"]
+    Preflight --> Guard{"Linux node and runtime ready?"}
+    Guard -->|"нет"| Blocker["blockers.json"]
+    Guard -->|"да"| Base["Baseline Qwen/QW 2.5"]
+    Guard -->|"да"| Formula["Qwen/QW 2.5 + FormulaLM overlay"]
     Base --> Metrics["Метрики"]
     Formula --> Metrics
     Metrics --> Artifacts["JSON / Markdown отчёт"]

@@ -1,0 +1,23 @@
+{
+  "task_id": "KOL-AUTOMATION-EXECUTION-POLICY-20260629",
+  "idempotency_key": "automation-execution-policy:2026-06-29",
+  "kind": "generic_implementation",
+  "required_capability": "implementation",
+  "target_node": "main",
+  "runner": "codex",
+  "base_ref": "origin/codex/factory-autonomy-pwa-billing",
+  "branch": "agent/KOL-AUTOMATION-EXECUTION-POLICY-20260629/policy",
+  "objective": "Implement and document a machine policy for Kolibri automations: every automation must follow analyze -> execute -> verify -> report, and analysis-only outputs must be treated as incomplete unless they include a concrete execution handoff/task with acceptance criteria and evidence. Do not run FormulaLM/LLM experiments on Mac. Keep changes scoped to docs/project-policy.md or docs/agent-work automation policy docs plus focused tests if there is an existing policy test.",
+  "acceptance": [
+    "Create or update a Russian machine-readable policy section for automation execution.",
+    "Define required evidence: changed file/artifact, commands/checks, report, owner-visible status.",
+    "Add at least one remote task envelope or documented Control Plane submission pattern for execution handoff.",
+    "Run relevant syntax/docs checks and return checks list.",
+    "Commit and push branch or return explicit blocker with result_reference."
+  ],
+  "verification_commands": [
+    "python3 -m py_compile ops/factory_control.py ops/agent_host.py"
+  ],
+  "source": {"kind": "owner_directive", "requested_at": "2026-06-29T11:40:00Z", "directive": "автоматизации: анализ -> исполнение"},
+  "max_retries": 2
+}

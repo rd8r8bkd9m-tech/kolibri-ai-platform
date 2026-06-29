@@ -1,0 +1,14 @@
+[Unit]
+Description=Kolibri Redis localhost forward to backup control node
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/ssh -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -N -L 127.0.0.1:6379:127.0.0.1:6379 root@10.99.0.10
+Restart=always
+RestartSec=3
+User=root
+
+[Install]
+WantedBy=multi-user.target

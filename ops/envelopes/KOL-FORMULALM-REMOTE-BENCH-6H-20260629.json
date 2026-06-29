@@ -11,6 +11,25 @@
   "goal": "Read docs/agent-work/formulalm-remote-rd-pack.md and run the FormulaLM benchmark only on a remote Linux factory server. Do not run model experiments on the owner's Mac. First write preflight artifacts proving OS is not Darwin and recording hostname, node id, task id, repo commit, runtime/model id, runtime version, disk/RAM and artifact directory. Verify Ollama, llama.cpp, vLLM or an equivalent documented remote model endpoint is available, a Qwen/QW 2.5-compatible model is configured, dataset formulalm-estimate-ru-2026q2-v1 is available, and pricebook kolibri-ru-2026q2-v1 is used. Then run scripts/formulalm_benchmark.py for 6 hours or the maximum safe duration allowed by node lease policy, writing artifacts under the task artifact directory. Compare baseline remote model output against the same remote model plus FormulaLM deterministic overlay/kernel using identical settings. Return formulalm-benchmark.json, formulalm-benchmark.md, preflight.json, blockers.json if any, exact commands, model/runtime version, metrics and recommendation. If prerequisites are missing, do not fake results; complete or fail with a blocker artifact.",
   "role_slot": "formulalm_researcher",
   "role_goal": "prove or falsify FormulaLM improvement with remote-only reproducible benchmarks",
+  "remote_guard": {
+    "mode": "execute_preflight_then_run_or_block",
+    "required_outputs": [
+      "preflight.json",
+      "formulalm-benchmark.json or blockers.json",
+      "formulalm-benchmark.md or blocker report"
+    ],
+    "darwin_action": "write blockers.json and stop before any model call",
+    "linux_action": "run benchmark only when runtime, model, dataset and pricebook checks pass",
+    "analysis_only_is_incomplete": true
+  },
+  "execution_flow": [
+    "lease_received",
+    "preflight_recorded",
+    "guard_checked",
+    "benchmark_started_or_blocked_with_artifact",
+    "artifacts_written",
+    "result_reference_returned"
+  ],
   "role_catalog": [
     {
       "role": "formulalm_researcher",

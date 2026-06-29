@@ -23,6 +23,10 @@ FormulaLM здесь означает внутренний подход Kolibri:
 удаленном Linux factory node через Control Plane. Mac является поверхностью
 управления, чтения и редактирования документов.
 
+Remote guard является исполнимым контрактом, а не только запретом. Каждый
+исполнитель обязан пройти состояние `preflight_recorded`, затем выбрать ровно
+одну ветку: `benchmark_started` или `blocked_with_artifact`.
+
 ## 2. Remote-only инварианты
 
 - Все задачи входят через `POST /v1/tasks` или
@@ -39,6 +43,24 @@ FormulaLM здесь означает внутренний подход Kolibri:
   возвращает blocker artifact.
 - Raw logs не публикуются без проверки на секреты, приватные пути и данные
   клиентов.
+
+## 2.1 Исполнимый remote guard
+
+Агент FormulaLM обязан выполнить следующий автомат:
+
+| State | Action | Output | Next |
+| --- | --- | --- | --- |
+| `lease_received` | Проверить task id, node id, artifact dir | stdout + heartbeat | `preflight_recorded` |
+| `preflight_recorded` | Записать `preflight.json` до model call | `preflight.json` | `guard_checked` |
+| `guard_checked` | Проверить OS/runtime/model/dataset/pricebook | decision log | `benchmark_started` или `blocked_with_artifact` |
+| `blocked_with_artifact` | Записать `blockers.json` и безопасный next action | `blockers.json` | `report_returned` |
+| `benchmark_started` | Запустить baseline и FormulaLM на одинаковых settings | raw local artifact logs | `artifacts_written` |
+| `artifacts_written` | Записать JSON/Markdown summary | `formulalm-benchmark.json`, `formulalm-benchmark.md` | `report_returned` |
+| `report_returned` | Вернуть result reference в Control Plane | result JSON | done |
+
+Запрещено оставлять задачу только в состоянии analysis. Если benchmark не
+может стартовать, результатом является blocker artifact. Если может стартовать,
+результатом является benchmark artifact.
 
 ## 3. Research hypotheses
 
@@ -404,6 +426,16 @@ without committing a new repository file.
   "goal": "Run a remote-only FormulaLM benchmark pilot on a Linux factory node. Do not run model experiments on the owner's Mac. First write preflight artifacts proving the node is not Darwin and recording runtime/model/disk/RAM/artifact directory. Compare baseline Qwen/QW 2.5-compatible output against FormulaLM deterministic overlay/kernel on dataset formulalm-estimate-ru-2026q2-v1. Return formulalm-benchmark.json, formulalm-benchmark.md, preflight.json, blockers.json if any, and a GitHub-ready report. If prerequisites are missing, do not fake results; complete or fail with a blocker artifact.",
   "role_slot": "formulalm_researcher",
   "role_goal": "prove or falsify FormulaLM improvement with remote-only reproducible benchmarks",
+  "remote_guard": {
+    "mode": "execute_preflight_then_run_or_block",
+    "required_outputs": [
+      "preflight.json",
+      "formulalm-benchmark.json or blockers.json",
+      "formulalm-benchmark.md or blocker report"
+    ],
+    "darwin_action": "write blockers.json and stop before model call",
+    "linux_action": "run benchmark if runtime/model/dataset/pricebook checks pass"
+  },
   "acceptance": [
     "No experiment runs on macOS or the owner's Mac",
     "Remote preflight artifact is recorded before benchmark execution",

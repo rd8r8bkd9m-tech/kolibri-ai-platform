@@ -250,6 +250,7 @@ def test_agent_host_register_heartbeat_and_lease_include_permissions_payloads(tm
 
 def test_generic_runner_falls_back_to_codex_when_mimo_returns_empty_text(tmp_path, monkeypatch):
     agent_host = load_agent_host()
+    monkeypatch.setenv("KOLIBRI_MIMO_COMMAND", "chat")
     monkeypatch.setattr(agent_host.shutil, "which", lambda name: f"/usr/bin/{name}" if name in {"mimo", "codex"} else None)
 
     class Host(agent_host.AgentHost):
@@ -305,6 +306,9 @@ def test_generic_runner_falls_back_to_codex_when_mimo_returns_empty_text(tmp_pat
 
     assert response == "Codex fallback completed."
     assert [command[0][0] for command in host.commands] == ["/usr/bin/mimo", "/usr/bin/codex"]
+    assert host.commands[0][0][:3] == ["/usr/bin/mimo", "chat", "--message"]
+    assert host.commands[0][0][-2:] == ["--json", "--no-stream"]
+    assert host.commands[0][1] == "/usr/bin/mimo chat --message <prompt> --json --no-stream"
     assert "retrying with codex fallback" in stdout_path.read_text(encoding="utf-8")
 
 
@@ -331,8 +335,8 @@ def test_agent_host_failure_payload_marks_empty_runner_response(tmp_path, monkey
             stdout_path = Path(logs["stdout"])
             stderr_path = Path(logs["stderr"])
             self.run_json_text_command(
-                ["/usr/bin/mimo", "run", "--format", "json", "<prompt>"],
-                "/usr/bin/mimo run --format json <prompt>",
+                ["/usr/bin/mimo", "chat", "--message", "<prompt>", "--json", "--no-stream"],
+                "/usr/bin/mimo chat --message <prompt> --json --no-stream",
                 "mimo",
                 worktree,
                 stdout_path,

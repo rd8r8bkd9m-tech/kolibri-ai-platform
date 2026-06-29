@@ -1,4 +1,5 @@
 import importlib.util
+import socket
 import subprocess
 import time
 from pathlib import Path
@@ -148,13 +149,18 @@ def test_compact_task_listing_bounds_payload_and_exposes_queue_and_leases(monkey
         },
     }
 
+    loaded_batches = []
+
     monkeypatch.setattr(control, "all_task_ids", lambda: list(tasks))
     monkeypatch.setattr(control, "load_task", lambda task_id: tasks[task_id])
+    monkeypatch.setattr(control, "load_tasks", lambda task_ids: loaded_batches.append(list(task_ids)) or [tasks[task_id] for task_id in task_ids])
+    monkeypatch.setattr(control, "active_task_ids", lambda: [])
     monkeypatch.setattr(control, "queue_length", lambda: 3)
     monkeypatch.setattr(control, "queue_prefix", lambda limit: ["TASK-QUEUED", "TASK-RUNNING"][:limit])
 
     listing = control.compact_task_listing(wanted=None, limit=2)
 
+    assert loaded_batches == [["TASK-QUEUED", "TASK-RUNNING"]]
     assert len(listing["tasks"]) == 2
     assert "envelope" not in listing["tasks"][0]
     assert "result" not in listing["tasks"][0]
@@ -167,6 +173,70 @@ def test_compact_task_listing_bounds_payload_and_exposes_queue_and_leases(monkey
     assert listing["summary"]["states"][control.STATE_RUNNING] == 1
     assert listing["summary"]["expired_lease_total"] == 1
     assert listing["summary"]["active_total"] == 1
+
+
+def test_compact_task_listing_uses_operational_fast_path_for_unfiltered_summary(monkeypatch):
+    control = load_control()
+    tasks = {
+        "QUEUE-1": {
+            "task_id": "QUEUE-1",
+            "kind": "generic_implementation",
+            "state": control.STATE_QUEUED,
+            "updated_at": "2026-06-29T00:01:00+00:00",
+            "envelope": {"prompt": "x" * 1000},
+        },
+        "ACTIVE-1": {
+            "task_id": "ACTIVE-1",
+            "kind": "generic_implementation",
+            "state": control.STATE_RUNNING,
+            "updated_at": "2026-06-29T00:02:00+00:00",
+            "envelope": {"target_node": "node-a"},
+        },
+    }
+
+    def fail_full_scan():
+        raise AssertionError("summary compact listing must not call all_task_ids")
+
+    monkeypatch.setattr(control, "all_task_ids", fail_full_scan)
+    monkeypatch.setattr(control, "queue_length", lambda: 1)
+    monkeypatch.setattr(control, "queue_prefix", lambda limit: ["QUEUE-1"][:limit])
+    monkeypatch.setattr(control, "active_task_ids", lambda: ["ACTIVE-1"])
+    monkeypatch.setattr(control, "load_tasks", lambda task_ids: [tasks[task_id] for task_id in task_ids])
+
+    listing = control.compact_task_listing(wanted=None, limit=10)
+
+    assert [task["task_id"] for task in listing["tasks"]] == ["QUEUE-1", "ACTIVE-1"]
+    assert listing["summary"]["source"] == "queue_active_index"
+    assert listing["summary"]["summary_scope"] == "queue_active_index"
+    assert listing["summary"]["active_candidate_total"] == 1
+    assert listing["summary"]["active_total"] == 1
+
+
+def test_summary_compact_get_handles_null_envelope_without_500(monkeypatch):
+    control = load_control()
+    captured = []
+    task = {
+        "task_id": "BAD-ENVELOPE",
+        "kind": "generic_implementation",
+        "state": control.STATE_QUEUED,
+        "updated_at": "2026-06-29T00:01:00+00:00",
+        "envelope": None,
+    }
+
+    class Request:
+        path = "/v1/tasks?summary=1&compact=1&limit=10"
+
+    monkeypatch.setattr(control, "response", lambda handler, status, body: captured.append((status, body)))
+    monkeypatch.setattr(control, "queue_length", lambda: 1)
+    monkeypatch.setattr(control, "queue_prefix", lambda limit: ["BAD-ENVELOPE"][:limit])
+    monkeypatch.setattr(control, "active_task_ids", lambda: [])
+    monkeypatch.setattr(control, "load_tasks", lambda task_ids: [task])
+
+    control.Handler.do_GET(Request())
+
+    assert captured[0][0] == 200
+    assert captured[0][1]["tasks"][0]["task_id"] == "BAD-ENVELOPE"
+    assert captured[0][1]["tasks"][0]["target_node"] is None
 
 
 def test_compact_task_exposes_failure_evidence_without_full_payload():
@@ -288,6 +358,47 @@ def test_unfiltered_operational_task_sample_uses_queue_and_active_indexes(monkey
     assert meta["active_candidate_total"] == 1
     assert meta["tasks_returned"] == 2
     assert "envelope" not in sample[0]
+
+
+def test_redis_command_retries_connect_timeout_before_sending(monkeypatch):
+    control = load_control()
+    attempts = []
+
+    class FakeSocket:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def sendall(self, payload):
+            attempts.append(("send", payload))
+
+        def makefile(self, mode):
+            assert mode == "rb"
+            return self
+
+        def read(self, size):
+            assert size == 1
+            return b"+"
+
+        def readline(self):
+            return b"PONG\r\n"
+
+    def fake_create_connection(address, timeout):
+        attempts.append(("connect", address, timeout))
+        if len([item for item in attempts if item[0] == "connect"]) == 1:
+            raise socket.timeout("timed out")
+        return FakeSocket()
+
+    monkeypatch.setattr(control.socket, "create_connection", fake_create_connection)
+    monkeypatch.setattr(control.time, "sleep", lambda seconds: attempts.append(("sleep", seconds)))
+
+    redis = control.Redis(timeout=0.1, connect_retries=1)
+
+    assert redis.command("PING") == "PONG"
+    assert [item[0] for item in attempts].count("connect") == 2
+    assert [item[0] for item in attempts].count("send") == 1
 
 
 def test_task_sample_supports_offset_for_state_pagination(monkeypatch):

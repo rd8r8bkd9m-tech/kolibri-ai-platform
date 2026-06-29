@@ -53,6 +53,7 @@ def make_chat_task(task_id, message):
 def test_telegram_chat_prompt_does_not_include_fixed_greeting_template(tmp_path, monkeypatch):
     agent_host = load_agent_host()
     monkeypatch.setenv("KOLIBRI_TELEGRAM_RUNNER", "mimo")
+    monkeypatch.setenv("KOLIBRI_MIMO_COMMAND", "chat")
     monkeypatch.setattr(agent_host.shutil, "which", lambda name: "/usr/bin/mimo" if name == "mimo" else None)
 
     class Host(agent_host.AgentHost):
@@ -86,13 +87,45 @@ def test_telegram_chat_prompt_does_not_include_fixed_greeting_template(tmp_path,
 
     assert result["kind"] == "telegram_chat_response"
     assert result["response"] == "Здравствуйте. Вижу контекст и отвечаю по делу."
-    prompt = host.commands[0][0][-1]
+    command, command_label = host.commands[0]
+    prompt = command[command.index("--message") + 1]
+    assert command[:3] == ["/usr/bin/mimo", "chat", "--message"]
+    assert command[-2:] == ["--json", "--no-stream"]
+    assert command_label == "/usr/bin/mimo chat --message <prompt> --json --no-stream"
     assert "каждый ответ должен быть заново сгенерирован" in prompt
     assert FORBIDDEN_GREETING_TEMPLATE not in prompt
     assert host.last_logs is not None
     stdout_path, stderr_path = host.last_logs
     assert FORBIDDEN_GREETING_TEMPLATE not in stdout_path.read_text(encoding="utf-8")
     assert FORBIDDEN_GREETING_TEMPLATE not in stderr_path.read_text(encoding="utf-8")
+
+
+def test_mimo_json_command_auto_supports_modern_and_legacy_cli(monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.delenv("KOLIBRI_MIMO_COMMAND", raising=False)
+
+    class Proc:
+        def __init__(self, stdout):
+            self.stdout = stdout
+            self.stderr = ""
+
+    monkeypatch.setattr(
+        agent_host.subprocess,
+        "run",
+        lambda *args, **kwargs: Proc("Commands:\n  chat        send request\n"),
+    )
+    command, label = agent_host.mimo_json_command("/usr/bin/mimo", "prompt", "title")
+    assert command == ["/usr/bin/mimo", "chat", "--message", "prompt", "--json", "--no-stream"]
+    assert label == "/usr/bin/mimo chat --message <prompt> --json --no-stream"
+
+    monkeypatch.setattr(
+        agent_host.subprocess,
+        "run",
+        lambda *args, **kwargs: Proc("Commands:\n  mimo run [message..]     run mimocode with a message\n"),
+    )
+    command, label = agent_host.mimo_json_command("/usr/local/bin/mimo", "prompt", "title")
+    assert command == ["/usr/local/bin/mimo", "run", "--format", "json", "--title", "title", "prompt"]
+    assert label == "/usr/local/bin/mimo run --format json --title title <prompt>"
 
 
 def test_telegram_chat_uses_codex_when_ai_runner_is_codex(tmp_path, monkeypatch):
@@ -180,4 +213,3 @@ def test_parse_codex_agent_message_jsonl(tmp_path):
     )
 
     assert agent_host.AgentHost.parse_json_text_response(stdout) == "Живой ответ директора."
-

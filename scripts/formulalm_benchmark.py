@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Benchmark a local Qwen/Ollama model with and without the FormulaLM overlay.
+"""Run a remote-guarded Qwen/Ollama benchmark with and without FormulaLM.
 
 FormulaLM is treated as a deterministic program overlay:
-- the same local model is used for natural-language interpretation;
+- the same remote model is used for natural-language interpretation;
 - totals are constrained by a fixed formula kernel and pricebook;
 - model weights are never modified.
+
+The script is allowed to run from a remote factory node. On macOS it writes a
+blocker artifact and exits before any model call unless explicitly overridden.
 """
 
 from __future__ import annotations
@@ -12,8 +15,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import platform
 import re
+import socket
 import time
 import urllib.error
 import urllib.request
@@ -27,8 +32,6 @@ import sys
 
 if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
-
-from estimate_engine import create_estimate_from_prompt  # noqa: E402
 
 
 DEFAULT_CASES = [
@@ -46,6 +49,48 @@ def utc_now() -> str:
 
 def sha256_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def preflight_payload(args: argparse.Namespace, out_dir: Path) -> dict[str, Any]:
+    return {
+        "artifact_dir": str(out_dir),
+        "hostname": socket.gethostname(),
+        "model": args.model,
+        "node_id": args.node_id,
+        "ollama_url": args.ollama_url,
+        "platform": platform.platform(),
+        "platform_system": platform.system(),
+        "pricebook_version": args.pricebook_version,
+        "python_version": platform.python_version(),
+        "remote_guard": {
+            "mac_execution_allowed": bool(args.allow_local_mac),
+            "mode": "execute_preflight_then_run_or_block",
+            "status": "preflight_recorded",
+        },
+        "task_id": args.task_id,
+        "time": utc_now(),
+    }
+
+
+def write_blocker(out_dir: Path, severity: str, category: str, message: str, preflight: dict[str, Any]) -> dict[str, Any]:
+    blocker = {
+        "category": category,
+        "first_seen_at": utc_now(),
+        "mac_execution": "blocked" if preflight.get("platform_system") == "Darwin" else "not_attempted",
+        "message": message,
+        "node_id": preflight.get("node_id"),
+        "preflight": preflight,
+        "safe_next_action": "Fix the remote runtime or resubmit through Control Plane after the blocker is gone.",
+        "severity": severity,
+        "status": "blocked",
+        "task_id": preflight.get("task_id"),
+    }
+    write_json(out_dir / "blockers.json", blocker)
+    return blocker
 
 
 def ollama_generate(base_url: str, model: str, prompt: str, timeout: int, num_predict: int) -> str:
@@ -129,6 +174,8 @@ def formulalm_prompt(case: dict[str, str]) -> str:
 
 
 def expected_estimate(case: dict[str, str]) -> dict[str, Any]:
+    from estimate_engine import create_estimate_from_prompt  # noqa: PLC0415
+
     estimate = create_estimate_from_prompt(case["prompt"], client_name=case.get("client_name", "Клиент"))
     return estimate.model_dump(mode="json")
 
@@ -229,18 +276,28 @@ def main() -> int:
     parser.add_argument("--num-predict", type=int, default=512)
     parser.add_argument("--sleep-seconds", type=float, default=0.0)
     parser.add_argument("--allow-local-mac", action="store_true", help="Explicit emergency override; FormulaLM experiments should run on remote servers.")
+    parser.add_argument("--node-id", default=os.environ.get("KOLIBRI_NODE_ID", "unknown"))
+    parser.add_argument("--pricebook-version", default="kolibri-ru-2026q2-v1")
+    parser.add_argument("--task-id", default=os.environ.get("KOLIBRI_TASK_ID", "manual-formulalm-benchmark"))
     args = parser.parse_args()
 
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    preflight = preflight_payload(args, out_dir)
+    write_json(out_dir / "preflight.json", preflight)
+
     if platform.system().lower() == "darwin" and not args.allow_local_mac:
-        print(json.dumps({
-            "error": "mac_execution_blocked",
-            "message": "FormulaLM experiments must run on remote servers through Control Plane, not on this Mac.",
-        }, ensure_ascii=False, indent=2))
+        blocker = write_blocker(
+            out_dir,
+            "P0",
+            "mac_execution_blocked",
+            "FormulaLM experiments must run on remote servers through Control Plane, not on this Mac.",
+            preflight,
+        )
+        print(json.dumps({"error": blocker["category"], "blockers": str(out_dir / "blockers.json")}, ensure_ascii=False, indent=2))
         return 2
 
     started = time.time()
-    out_dir = Path(args.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
     cases = load_cases(args.cases)
     records: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
@@ -276,13 +333,25 @@ def main() -> int:
         "started_at": datetime.fromtimestamp(started, timezone.utc).isoformat(),
         "finished_at": utc_now(),
         "duration_seconds": args.duration_seconds,
+        "preflight": preflight,
+        "pricebook_version": args.pricebook_version,
+        "task_id": args.task_id,
+        "node_id": args.node_id,
         "model": args.model,
         "ollama_url": args.ollama_url,
         "records": records,
         "errors": errors,
         "summary": summarize(records),
     }
-    (out_dir / "formulalm-benchmark.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    if errors and not records:
+        write_blocker(
+            out_dir,
+            "P1",
+            "model_runtime_error",
+            "Remote model runtime returned errors before any benchmark record was created.",
+            preflight,
+        )
+    write_json(out_dir / "formulalm-benchmark.json", payload)
     write_markdown(out_dir / "formulalm-benchmark.md", payload)
     print(json.dumps({"summary": payload["summary"], "errors": len(errors), "out_dir": str(out_dir)}, ensure_ascii=False, indent=2))
     return 0 if records and not errors else 1

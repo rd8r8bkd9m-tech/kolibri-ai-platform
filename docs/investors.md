@@ -56,6 +56,7 @@ flowchart LR
 
 | Пакет | Как использовать в investor/customer evidence |
 | --- | --- |
+| [Investor/Client Execution Pack](agent-work/investor-execution-pack-20260629.md) | Исполнимый RU-пакет: one-pager, 20 категорий клиентов/инвесторов, outreach, evidence matrix, FormulaLM wording и Control Plane next actions. |
 | [Investor Outreach Pack](agent-work/investor-outreach-pack.md) | One-pager RU/EN, первые письма, CRM fields, segmentation и claim boundaries. |
 | [FormulaLM Remote R&D Pack](agent-work/formulalm-remote-rd-pack.md) | Research note: только remote-only метрики, без заявления, что FormulaLM уже доказан как универсально лучший подход. |
 | [T-Банк billing ops](agent-work/tbank-billing-ops.md) | Подтверждает, что подписочная модель имеет operational path: checkout, fallback lead, notification security, charge-due. |

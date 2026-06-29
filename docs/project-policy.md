@@ -255,14 +255,29 @@ GitHub — главный внешний журнал разработки.
 
 FormulaLM — отдельное R&D-направление.
 
-Правила:
+Правило изменено с запрета на исполнимый remote guard: агент не просто пишет
+"нельзя на Mac", а обязан выполнить ветку `preflight -> execute_or_block ->
+artifacts -> report`.
 
-- эксперименты только на удалённых серверах;
-- Mac не используется для модельных тестов;
-- baseline и FormulaLM сравниваются на одном датасете;
-- результаты не выдумываются;
-- если runtime/model отсутствует, задача возвращает blocker artifact;
-- raw logs не публикуются без проверки на секреты и приватные данные.
+Машинный порядок:
+
+1. Принять задачу только через Control Plane envelope с `target_node`,
+   `task_id`, `role_slot`, dataset, pricebook и acceptance.
+2. На удалённом lease-владельце записать `preflight.json`: OS, hostname,
+   node id, task id, model/runtime, commit, RAM/disk, artifact directory.
+3. Если OS равна Darwin/macOS, не запускать модель: записать `blockers.json`
+   с `severity=P0`, `category=mac_execution_blocked`, завершить задачу как
+   заблокированную.
+4. Если remote runtime/model/dataset/pricebook отсутствуют, записать
+   `blockers.json` с P1/P2 причиной и безопасным следующим действием.
+5. Если preflight прошёл, выполнить baseline и FormulaLM на одном dataset,
+   одной модели, одном runtime и одинаковых настройках.
+6. Записать `formulalm-benchmark.json`, `formulalm-benchmark.md`,
+   `preflight.json`, `blockers.json` при блокерах, точные команды и вывод.
+7. Вернуть `result_reference` в Control Plane и GitHub-ready отчёт.
+
+Результаты не выдумываются. Raw logs не публикуются без проверки на секреты и
+приватные данные.
 
 ## 12. Инвесторы и клиенты
 

@@ -168,6 +168,28 @@ def classify_runner_exception(exc: Exception) -> str:
     return "runtime_error"
 
 
+def detect_mimo_chat_command(mimo: str) -> bool:
+    try:
+        proc = subprocess.run([mimo, "--help"], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    help_text = f"{proc.stdout}\n{proc.stderr}"
+    return "mimo chat" in help_text or any(line.strip().startswith("chat ") for line in help_text.splitlines())
+
+
+def mimo_json_command(mimo: str, prompt: str, title: str) -> tuple[list[str], str]:
+    mode = os.environ.get("KOLIBRI_MIMO_COMMAND", "auto").strip().lower()
+    if mode in {"chat", "mimo_chat"} or (mode == "auto" and detect_mimo_chat_command(mimo)):
+        return (
+            [mimo, "chat", "--message", prompt, "--json", "--no-stream"],
+            f"{mimo} chat --message <prompt> --json --no-stream",
+        )
+    return (
+        [mimo, "run", "--format", "json", "--title", title, prompt],
+        f"{mimo} run --format json --title {title} <prompt>",
+    )
+
+
 class AgentHost:
     def __init__(self, args: argparse.Namespace):
         control_urls_arg = getattr(args, "control_urls", None) or args.control_url
@@ -523,9 +545,10 @@ class AgentHost:
             mimo = shutil.which("mimo")
             if not mimo:
                 raise RuntimeError("mimo executable is not available on this node")
+            command, command_label = mimo_json_command(mimo, prompt, f"telegram-chat-{task['task_id']}")
             response_text = self.run_json_text_command(
-                [mimo, "run", "--format", "json", "--title", f"telegram-chat-{task['task_id']}", prompt],
-                f"{mimo} run --format json --title telegram-chat-{task['task_id']} <prompt>",
+                command,
+                command_label,
                 "mimo",
                 worktree,
                 stdout_path,
@@ -775,10 +798,11 @@ class AgentHost:
             mimo = shutil.which("mimo")
             if not mimo:
                 raise RunnerUnavailableError("mimo executable is not available on this node")
+            command, command_label = mimo_json_command(mimo, prompt, f"factory-{task['task_id']}")
             try:
                 return self.run_json_text_command(
-                    [mimo, "run", "--format", "json", "--title", f"factory-{task['task_id']}", prompt],
-                    f"{mimo} run --format json --title factory-{task['task_id']} <prompt>",
+                    command,
+                    command_label,
                     "mimo",
                     worktree,
                     stdout_path,
