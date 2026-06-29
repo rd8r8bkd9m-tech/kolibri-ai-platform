@@ -1,0 +1,36 @@
+{
+  "task_id": "KOL-GOMESH-HOME-MIKROTIK-RECOVERY-20260629",
+  "idempotency_key": "gomesh-home-mikrotik-recovery:2026-06-29",
+  "kind": "generic_implementation",
+  "required_capability": "generic_implementation",
+  "permission_pack": "full_autonomy",
+  "runner": "codex",
+  "target_node": "primary-candidate",
+  "branch": "agent/KOL-GOMESH-HOME-MIKROTIK-RECOVERY-20260629/home-mikrotik-recovery",
+  "base_ref": "origin/codex/factory-autonomy-pwa-billing",
+  "role_slot": "Инженер восстановления GoMesh MikroTik",
+  "role_goal": "восстановить диагностируемый путь к home monitor через MikroTik/GoMesh без раскрытия секретов и без неподтвержденных live changes",
+  "goal": "Продолжи восстановление home monitor через MikroTik/GoMesh. Используй как вход docs/agent-work/gomesh-mikrotik-home-access-20260629.md и primary repo /opt/kolibri/repo. Проверь read-only: 10.99.0.1:8081/health, ssh ladik@10.99.0.1, RouterOS host 192.168.88.1 ports 22/80/443/8291/8728/8729, routeros_live_audit, service_route_audit, profile_audit, prepared manual dump/API bundle files. Если RouterOS management остается недоступен, не заявляй восстановление: обнови отчет с blocker, точными командами для WinBox/manual dump и безопасным планом восстановления. Если RouterOS API станет доступен с read-only user, запусти live audit через --api-user kolibri-ro --api-password-file /etc/kolibri-gomesh/routeros-api.password и приложи sanitized summary. Не печатай пароль, не меняй маршруты/firewall/DNS, не перезапускай home services без явного evidence и rollback. FormulaLM/model benchmark не запускать.",
+  "acceptance": [
+    "Creates or updates docs/agent-work/gomesh-mikrotik-home-access-20260629.md with latest evidence",
+    "Runs read-only home mesh-agent and MikroTik reachability checks",
+    "Runs RouterOS profile audit and service route audit",
+    "Verifies RouterOS API bootstrap bundle without printing secrets",
+    "If RouterOS management is unreachable, reports blocker and manual dump path",
+    "If RouterOS API is reachable, runs read-only live audit and reports sanitized result",
+    "No RouterOS route, firewall, DNS, user, scheduler, or system changes are made by the agent",
+    "No passwords, tokens, private keys, cookies, or auth cache are printed or committed",
+    "Result includes changed_files, checks, blockers, and next safe machine action"
+  ],
+  "verification_commands": [
+    "python3 -m json.tool ops/envelopes/KOL-GOMESH-HOME-MIKROTIK-RECOVERY-20260629.json >/dev/null",
+    "test -s docs/agent-work/gomesh-mikrotik-home-access-20260629.md"
+  ],
+  "max_retries": 1,
+  "source": {
+    "kind": "owner_request",
+    "requested_by": "Владислав",
+    "requested_at": "2026-06-29T15:27:00+03:00",
+    "context": "Owner asked to try accessing home through MikroTik after direct home mesh SSH and health checks timed out."
+  }
+}
