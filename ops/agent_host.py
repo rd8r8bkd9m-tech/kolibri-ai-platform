@@ -113,6 +113,36 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def git_output(args: list[str], cwd: Path) -> str:
+    return subprocess.check_output(["git", *args], cwd=str(cwd), text=True).strip()
+
+
+def git_status_paths(status_lines: list[str]) -> list[str]:
+    paths: list[str] = []
+    for line in status_lines:
+        if len(line) < 4:
+            continue
+        path = line[3:]
+        if " -> " in path:
+            path = path.split(" -> ", 1)[1]
+        paths.append(path)
+    return paths
+
+
+def git_diff_paths(worktree: Path, base_commit: str, head_commit: str) -> list[str]:
+    if not base_commit or not head_commit or base_commit == head_commit:
+        return []
+    output = git_output(["diff", "--name-only", f"{base_commit}..{head_commit}"], worktree)
+    return [line for line in output.splitlines() if line]
+
+
+def git_remote_branch_matches(worktree: Path, branch: str, commit: str) -> bool:
+    if not branch or not commit:
+        return False
+    output = git_output(["ls-remote", "--heads", "origin", branch], worktree)
+    return any(line.split()[0] == commit for line in output.splitlines() if line.split())
+
+
 class AgentHost:
     def __init__(self, args: argparse.Namespace):
         control_urls_arg = getattr(args, "control_urls", None) or args.control_url
@@ -775,6 +805,7 @@ class AgentHost:
         self.run_command(["git", "checkout", "-B", branch, base_ref], worktree, stdout_path, stderr_path, task, branch, logs, git_env)
         self.run_command(["git", "config", "user.name", "Kolibri Factory Agent"], worktree, stdout_path, stderr_path, task, branch, logs)
         self.run_command(["git", "config", "user.email", "factory-agent@users.noreply.github.com"], worktree, stdout_path, stderr_path, task, branch, logs)
+        base_commit = git_output(["rev-parse", "HEAD"], worktree)
 
         prompt = self.build_generic_prompt(task, worktree)
         (artifact_dir / "generic-prompt.txt").write_text(prompt, encoding="utf-8")
@@ -789,17 +820,27 @@ class AgentHost:
             logs,
         )
         changed_files = subprocess.check_output(["git", "status", "--porcelain"], cwd=str(worktree), text=True).splitlines()
-        changed_paths = [line[3:] for line in changed_files]
+        changed_paths = git_status_paths(changed_files)
         commit = None
         pushed = False
         if changed_files:
             self.run_command(["git", "add", "-A"], worktree, stdout_path, stderr_path, task, branch, logs)
             commit_message = envelope.get("commit_message") or f"factory: complete {task['task_id']}"
             self.run_command(["git", "commit", "-m", commit_message], worktree, stdout_path, stderr_path, task, branch, logs)
-            commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(worktree), text=True).strip()
+            commit = git_output(["rev-parse", "HEAD"], worktree)
             if envelope.get("push", True):
                 self.run_command(["git", "push", "-u", "origin", branch], worktree, stdout_path, stderr_path, task, branch, logs, git_env)
                 pushed = True
+        else:
+            head_commit = git_output(["rev-parse", "HEAD"], worktree)
+            runner_changed_paths = git_diff_paths(worktree, base_commit, head_commit)
+            if runner_changed_paths:
+                changed_paths = runner_changed_paths
+                commit = head_commit
+                pushed = git_remote_branch_matches(worktree, branch, commit)
+                if envelope.get("push", True) and not pushed:
+                    self.run_command(["git", "push", "-u", "origin", branch], worktree, stdout_path, stderr_path, task, branch, logs, git_env)
+                    pushed = True
 
         result = {
             "node_id": self.node_id,

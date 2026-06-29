@@ -1,14 +1,14 @@
 # Secondary Control Plane Watchdog
 
-- Last checked (UTC): 2026-06-29T06:31:24Z
+- Last checked (UTC): 2026-06-29T06:35:07Z
 - Status: OK
 - Control Plane health: reachable
 - Redis: PONG
-- Last successful check (UTC): 2026-06-29T06:31:24Z
+- Last successful check (UTC): 2026-06-29T06:35:07Z
 
 ## Heartbeat
 
-Secondary Control Plane responded successfully on `/health`, `/v1/nodes`, and `/v1/tasks?summary=1&compact=1&limit=20` at 2026-06-29T06:31:24Z.
+Secondary Control Plane responded successfully on `/health`, `/v1/nodes`, and `/v1/tasks?summary=1&compact=1` at 2026-06-29T06:35:07Z.
 
 - Queue: 65 queued, 0 active, 0 expired leases, 0 leases expiring soon
 - Nodes: 35 total, 6 online/fresh, 29 stale, 3 draining

@@ -1,4 +1,5 @@
 import importlib.util
+import subprocess
 import time
 from pathlib import Path
 
@@ -134,3 +135,31 @@ def test_legacy_remote_implementation_kind_is_classified_without_queue_mutation(
     assert control.runtime_runner_kind(task) == "generic_implementation"
     assert agent_host.RUNTIME_KIND_COMPAT["remote_implementation_runner_ready"] == "generic_implementation"
     assert "remote_implementation_runner_ready" in agent_host.DEFAULT_AGENT_CAPABILITIES
+
+
+def test_agent_host_detects_runner_committed_and_pushed_changes(tmp_path):
+    agent_host = load_agent_host()
+    origin = tmp_path / "origin.git"
+    repo = tmp_path / "repo"
+
+    subprocess.run(["git", "init", "--bare", str(origin)], check=True)
+    subprocess.run(["git", "clone", str(origin), str(repo)], check=True)
+    subprocess.run(["git", "config", "user.name", "Test Agent"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=repo, check=True)
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", "base"], cwd=repo, check=True)
+    subprocess.run(["git", "push", "-u", "origin", "HEAD:main"], cwd=repo, check=True)
+
+    branch = "agent/test-runner-commit"
+    subprocess.run(["git", "checkout", "-B", branch, "origin/main"], cwd=repo, check=True)
+    base_commit = agent_host.git_output(["rev-parse", "HEAD"], repo)
+    (repo / "docs.md").write_text("runner artifact\n", encoding="utf-8")
+    subprocess.run(["git", "add", "docs.md"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", "runner commit"], cwd=repo, check=True)
+    runner_commit = agent_host.git_output(["rev-parse", "HEAD"], repo)
+    subprocess.run(["git", "push", "-u", "origin", branch], cwd=repo, check=True)
+
+    assert subprocess.check_output(["git", "status", "--porcelain"], cwd=repo, text=True).splitlines() == []
+    assert agent_host.git_diff_paths(repo, base_commit, runner_commit) == ["docs.md"]
+    assert agent_host.git_remote_branch_matches(repo, branch, runner_commit) is True
