@@ -1,0 +1,16 @@
+{
+  "artifact_dir": "docs/agent-work/generated/remote-server-transfer-20260629T1603/",
+  "changed_files": [
+    "docs/agent-work/generated/remote-server-transfer-20260629T1603/formulalm-remote-launch-primary.md",
+    "docs/agent-work/generated/remote-server-transfer-20260629T1603/agent-message-fallback.md",
+    "docs/agent-work/generated/remote-server-transfer-20260629T1603/result.json",
+    "docs/agent-work/generated/remote-server-transfer-20260629T1603/artifact-manifest.json"
+  ],
+  "artifact_manifest": "docs/agent-work/generated/remote-server-transfer-20260629T1603/artifact-manifest.json",
+  "launch_envelope": "docs/agent-work/generated/remote-server-transfer-20260629T1603/formulalm-remote-launch-primary.md",
+  "no_mac_guard": "required; benchmark launch is blocked when host OS is Darwin/macOS",
+  "result_reference": "docs/agent-work/generated/remote-server-transfer-20260629T1603/result.json",
+  "status": "completed",
+  "task_id": "KOL-REMOTE-SERVER-TASK-20260629T1603-004-PRIMARY-FORMULALM",
+  "telegram_fallback": "docs/agent-work/generated/remote-server-transfer-20260629T1603/agent-message-fallback.md"
+}

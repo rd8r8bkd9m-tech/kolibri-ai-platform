@@ -1,0 +1,17 @@
+[
+  {
+    "bytes": 7852,
+    "path": "docs/agent-work/generated/remote-server-transfer-20260629T1603/formulalm-remote-launch-primary.md",
+    "sha256": "f2ac6d444d48b51e4aa15162049666f2b64c3506efdd5e3abccc690a1845746d"
+  },
+  {
+    "bytes": 548,
+    "path": "docs/agent-work/generated/remote-server-transfer-20260629T1603/agent-message-fallback.md",
+    "sha256": "57731c07d90518c99ab1023b4f6c4c5ac1aab92318cf42deb7424e2ac84d13fb"
+  },
+  {
+    "bytes": 1126,
+    "path": "docs/agent-work/generated/remote-server-transfer-20260629T1603/result.json",
+    "sha256": "8aded5803aadb05e220d6d9576d96ce4a935c0c2466f736fe8e8e1e1871089e9"
+  }
+]
