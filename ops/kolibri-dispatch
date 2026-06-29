@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import urllib.error
@@ -24,6 +25,23 @@ DEFAULT_CONTROL_URL = os.environ.get("KOLIBRI_FACTORY_CONTROL_URL", "http://10.9
 DEFAULT_NODES = {
     "9fts": {"ssh": "root@94.183.235.154", "proxy_jump": "kolibri-home"},
     "new": {"ssh": "root@109.248.161.39", "proxy_jump": "kolibri-home"},
+}
+REF_PREFLIGHT_SKIP_ENV = "KOLIBRI_DISPATCH_SKIP_REF_PREFLIGHT"
+REF_PREFLIGHT_PATH_RE = re.compile(
+    r"(?P<path>(?:docs|ops|scripts|tests|backend|frontend|infra)/"
+    r"[A-Za-z0-9_./@+:-]+"
+    r"(?:\.json|\.md|\.py|\.sh|\.jsx|\.tsx|\.js|\.mjs|\.ts|\.css|"
+    r"\.html|\.yaml|\.yml|\.txt|\.service|\.toml|\.cfg|\.ini|\.rsc))"
+)
+REF_PREFLIGHT_STRUCTURED_KEYS = {
+    "verification_commands",
+    "source_docs",
+    "input_files",
+    "inputs",
+    "required_files",
+    "read_files",
+    "reference_files",
+    "repo_files",
 }
 
 
@@ -55,6 +73,96 @@ def run_capture(command: list[str], timeout: int = 20) -> dict[str, Any]:
         return {"ok": proc.returncode == 0, "returncode": proc.returncode, "stdout": proc.stdout.strip(), "stderr": proc.stderr.strip()}
     except Exception as exc:
         return {"ok": False, "returncode": None, "stdout": "", "stderr": str(exc)}
+
+
+def git_output(command: list[str], cwd: Path) -> str:
+    return subprocess.check_output(["git", *command], cwd=str(cwd), text=True, stderr=subprocess.PIPE).strip()
+
+
+def git_ok(command: list[str], cwd: Path) -> bool:
+    proc = subprocess.run(["git", *command], cwd=str(cwd), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+    return proc.returncode == 0
+
+
+def repo_root(cwd: Path | None = None) -> Path:
+    base = cwd or Path.cwd()
+    return Path(git_output(["rev-parse", "--show-toplevel"], base))
+
+
+def normalize_repo_path(value: str) -> str | None:
+    path = value.strip().strip("'\"`.,:;)")
+    path = path.removeprefix("./")
+    if not path or path.startswith("/") or ".." in Path(path).parts:
+        return None
+    if not REF_PREFLIGHT_PATH_RE.fullmatch(path):
+        return None
+    return path
+
+
+def paths_from_text(text: str) -> set[str]:
+    paths: set[str] = set()
+    for match in REF_PREFLIGHT_PATH_RE.finditer(text):
+        path = normalize_repo_path(match.group("path"))
+        if path:
+            paths.add(path)
+    return paths
+
+
+def iter_structured_strings(value: Any, parent_key: str = ""):
+    if isinstance(value, str):
+        if parent_key in REF_PREFLIGHT_STRUCTURED_KEYS:
+            yield value
+        return
+    if isinstance(value, list):
+        for item in value:
+            yield from iter_structured_strings(item, parent_key)
+        return
+    if isinstance(value, dict):
+        for key, item in value.items():
+            next_parent = key if key in REF_PREFLIGHT_STRUCTURED_KEYS else parent_key
+            yield from iter_structured_strings(item, next_parent)
+
+
+def ref_preflight_paths(envelope: dict[str, Any]) -> list[str]:
+    paths: set[str] = set()
+    for text in iter_structured_strings(envelope):
+        paths.update(paths_from_text(text))
+    return sorted(paths)
+
+
+def ref_preflight_errors(envelope: dict[str, Any], root: Path | None = None) -> list[str]:
+    base_ref = str(envelope.get("base_ref") or "").strip()
+    if not base_ref:
+        return []
+    try:
+        root = root or repo_root()
+    except Exception as exc:
+        return [f"cannot resolve git repository for ref preflight: {exc}"]
+    errors: list[str] = []
+    for rel_path in ref_preflight_paths(envelope):
+        local_path = root / rel_path
+        if not local_path.exists():
+            continue
+        ref_path = f"{base_ref}:{rel_path}"
+        if not git_ok(["cat-file", "-e", ref_path], root):
+            errors.append(f"{rel_path} exists locally but is missing from base_ref {base_ref}")
+            continue
+        if not git_ok(["diff", "--quiet", base_ref, "--", rel_path], root):
+            errors.append(f"{rel_path} differs from base_ref {base_ref}; commit and push it before submit")
+    return errors
+
+
+def run_submit_preflight(envelope: dict[str, Any], *, skip: bool = False) -> None:
+    if skip or os.environ.get(REF_PREFLIGHT_SKIP_ENV):
+        return
+    errors = ref_preflight_errors(envelope)
+    if errors:
+        body = "\n".join(f"- {error}" for error in errors)
+        raise SystemExit(
+            "remote submit ref preflight failed; referenced local files are not reproducible from base_ref.\n"
+            f"{body}\n"
+            "Commit/push those files or rerun with --skip-ref-preflight only for an intentional exception."
+        )
 
 
 def ssh_command(node: dict[str, str], remote: str) -> list[str]:
@@ -107,6 +215,7 @@ def load_envelope(path: str | None) -> dict[str, Any]:
 
 def cmd_submit(args: argparse.Namespace) -> int:
     envelope = load_envelope(args.file)
+    run_submit_preflight(envelope, skip=args.skip_ref_preflight)
     task = http_json("POST", f"{args.control_url}/v1/tasks", envelope)
     print_json(task)
     return 0
@@ -248,6 +357,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("nodes").set_defaults(func=cmd_nodes)
     submit = sub.add_parser("submit")
     submit.add_argument("--file")
+    submit.add_argument("--skip-ref-preflight", action="store_true")
     submit.set_defaults(func=cmd_submit)
     status = sub.add_parser("status")
     status.add_argument("task_id", nargs="?")
