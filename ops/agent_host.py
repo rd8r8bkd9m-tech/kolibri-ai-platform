@@ -10,6 +10,7 @@ import json
 import mimetypes
 import os
 import platform
+import shlex
 import shutil
 import signal
 import subprocess
@@ -17,6 +18,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import getpass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -26,7 +28,7 @@ STOP = False
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 DEFAULT_AGENT_CAPABILITIES = (
     "read_only_probe,generic_implementation,implementation,"
-    "remote_implementation_runner_ready,review,image_generation,mesh_node"
+    "remote_implementation_runner_ready,review,image_generation,mesh_node,visible_mimo_session"
 )
 RUNTIME_KIND_COMPAT = {
     "remote_implementation_runner_ready": "generic_implementation",
@@ -36,6 +38,7 @@ PERMISSION_PACKS = {
     "read_only": {"read_repo", "read_system", "write_artifacts"},
     "ai_chat": {"ai_runner", "write_artifacts"},
     "media_generation": {"ai_runner", "network", "write_artifacts"},
+    "visible_session": {"read_system", "shell", "write_artifacts"},
     "implementation": {"read_repo", "write_worktree", "run_tests", "network", "git_push", "write_artifacts"},
     "review": {"read_repo", "run_tests", "network", "github_review", "write_artifacts"},
     "full_autonomy": {
@@ -490,6 +493,78 @@ class AgentHost:
             "status": "completed",
             "kind": "read_only_probe",
             "message": "read-only probe completed",
+        }
+        result_path = self.write_result(artifact_dir, result)
+        result["result_path"] = str(result_path)
+        return result
+
+    def run_visible_mimo_session(self, task: dict[str, Any]) -> dict[str, Any]:
+        envelope = task.get("envelope", {})
+        session_name = str(envelope.get("session_name") or f"kolibri-mimo-{task['task_id']}").strip()
+        tty_number = int(envelope.get("tty_number") or os.environ.get("KOLIBRI_VISIBLE_MIMO_TTY", "9"))
+        project_path = Path(str(envelope.get("project_path") or os.environ.get("KOLIBRI_VISIBLE_MIMO_PROJECT") or "/srv/kolibri/repo"))
+        run_user = str(envelope.get("run_user") or os.environ.get("KOLIBRI_VISIBLE_MIMO_USER") or os.environ.get("SUDO_USER") or os.environ.get("USER") or "ladik")
+        mimo = shutil.which("mimo")
+        openvt = shutil.which("openvt")
+        if not mimo:
+            raise RunnerUnavailableError("mimo executable is not available on this node")
+        if not openvt:
+            raise RunnerUnavailableError("openvt executable is not available on this node")
+        if tty_number < 2 or tty_number > 63:
+            raise RuntimeError(f"unsafe tty_number for visible Mimo session: {tty_number}")
+        if not all(char.isalnum() or char in "._-" for char in run_user):
+            raise RuntimeError(f"unsafe run_user for visible Mimo session: {run_user}")
+        if not all(char.isalnum() or char in "._-" for char in session_name):
+            raise RuntimeError(f"unsafe session_name for visible Mimo session: {session_name}")
+        if not project_path.exists():
+            raise RuntimeError(f"visible Mimo project path does not exist: {project_path}")
+
+        worktree, artifact_dir, logs = self.prepare_dirs(task)
+        worktree.mkdir(parents=True, exist_ok=True)
+        stdout_path = Path(logs["stdout"])
+        stderr_path = Path(logs["stderr"])
+        self.task_heartbeat(task, worktree, None, logs)
+        if os.geteuid() == 0:
+            exec_mimo = f"exec runuser -u {shlex.quote(run_user)} -- {shlex.quote(mimo)} --trust {shlex.quote(str(project_path))}"
+        elif getpass.getuser() == run_user:
+            exec_mimo = f"exec {shlex.quote(mimo)} --trust {shlex.quote(str(project_path))}"
+        else:
+            raise RuntimeError(f"visible Mimo session requires root or current user {run_user}")
+        launch_script = (
+            f"export HOME=/home/{run_user} USER={run_user} LOGNAME={run_user}; "
+            "clear; "
+            f"printf 'Kolibri visible Mimo session: {session_name}\\nStarted: %s\\nRepo: {project_path}\\nUser: {run_user}\\n\\n' \"$(date -Is)\"; "
+            f"cd {shlex.quote(str(project_path))}; "
+            f"{exec_mimo}"
+        )
+        command = [openvt, "-f", "-c", str(tty_number), "-s", "--", "/bin/bash", "-lc", launch_script]
+        self.run_command(command, worktree, stdout_path, stderr_path, task, None, logs)
+        inspect_command = ["ps", "-t", f"tty{tty_number}", "-o", "user,pid,ppid,stat,pcpu,pmem,etime,args"]
+        with stdout_path.open("ab") as stdout, stderr_path.open("ab") as stderr:
+            stdout.write(f"\n$ {' '.join(inspect_command)}\n".encode("utf-8"))
+            proc = subprocess.run(inspect_command, cwd=str(worktree), stdout=stdout, stderr=stderr, text=False)
+        if proc.returncode != 0:
+            raise RuntimeError(f"visible Mimo session did not appear on tty{tty_number}")
+        result = {
+            "node_id": self.node_id,
+            "hostname": self.hostname,
+            "task_id": task["task_id"],
+            "agent_id": self.agent_id,
+            "attempt_id": task.get("attempt_id"),
+            "pid": self.pid,
+            "heartbeat_at": utc_now(),
+            "status": "completed",
+            "kind": "visible_mimo_session",
+            "session_name": session_name,
+            "tty_number": tty_number,
+            "project_path": str(project_path),
+            "run_user": run_user,
+            "log_paths": logs,
+            "artifacts": [{"path": str(stdout_path), "kind": "visible_mimo_launch_log"}],
+            "checks": [f"ps -t tty{tty_number} -o user,pid,ppid,stat,pcpu,pmem,etime,args"],
+            "changed_files": [],
+            "permission_packs": self.permission_packs,
+            "permissions": self.permissions,
         }
         result_path = self.write_result(artifact_dir, result)
         result["result_path"] = str(result_path)
@@ -1306,6 +1381,8 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 result = self.run_telegram_chat_response(task)
             elif runner_kind == "telegram_image_generation":
                 result = self.run_telegram_image_generation(task)
+            elif runner_kind == "visible_mimo_session":
+                result = self.run_visible_mimo_session(task)
             elif runner_kind in {"owner_remote_task", "generic_implementation"}:
                 result = self.run_generic_implementation(task)
             elif runner_kind == "review_pr":

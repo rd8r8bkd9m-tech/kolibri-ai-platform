@@ -35,6 +35,31 @@ def test_owner_remote_task_defaults_to_full_autonomy_required_permissions():
     assert set(control.task_required_permissions(task["envelope"])) == full_autonomy
 
 
+def test_visible_mimo_session_uses_limited_visible_session_permissions():
+    control = load_control()
+    task = control.normalize_task(
+        {
+            "task_id": "VISIBLE-MIMO-1",
+            "kind": "visible_mimo_session",
+            "required_capability": "visible_mimo_session",
+        }
+    )
+
+    assert task["permission_pack"] == "visible_session"
+    assert set(task["required_permissions"]) == {"read_system", "shell", "write_artifacts"}
+    assert control.task_requires_deliverable_evidence(task) is True
+    assert (
+        control.compatible(
+            task,
+            "home",
+            ["visible_mimo_session"],
+            permissions=["read_system", "shell", "write_artifacts"],
+        )
+        is True
+    )
+    assert control.compatible(task, "home", ["read_only_probe"], permissions=["read_system"]) is False
+
+
 def test_compatible_requires_required_permissions_from_capability_or_permissions_list():
     control = load_control()
     task = control.normalize_task(
@@ -246,6 +271,86 @@ def test_agent_host_register_heartbeat_and_lease_include_permissions_payloads(tm
     for body in (register_body, heartbeat_body, lease_body):
         assert set(body["permissions"]) == {"read_repo", "write_worktree"}
         assert set(body["permission_packs"]) == {"full_autonomy", "implementation"}
+
+
+def test_agent_host_visible_mimo_session_runner_builds_openvt_artifact(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    project = tmp_path / "repo"
+    project.mkdir()
+    monkeypatch.setattr(
+        agent_host.shutil,
+        "which",
+        lambda name: {"mimo": "/usr/local/bin/mimo", "openvt": "/usr/bin/openvt"}.get(name),
+    )
+    monkeypatch.setattr(agent_host.os, "geteuid", lambda: 0)
+
+    class Completed:
+        returncode = 0
+
+    def fake_run(command, cwd, stdout, stderr, text):
+        del cwd, stderr, text
+        assert command[:3] == ["ps", "-t", "tty9"]
+        stdout.write(b"USER PID COMMAND\nladik 123 mimo --trust repo\n")
+        return Completed()
+
+    monkeypatch.setattr(agent_host.subprocess, "run", fake_run)
+
+    class Host(agent_host.AgentHost):
+        def __init__(self, args):
+            super().__init__(args)
+            self.posts = []
+            self.commands = []
+
+        def post(self, path, body):
+            self.posts.append((path, body))
+            return body
+
+        def run_command(self, command, cwd, stdout_path, stderr_path, task, branch, logs, env=None, command_label=None):
+            del cwd, task, branch, logs, env, command_label
+            self.commands.append(command)
+            stdout_path.write_text("$ openvt\n", encoding="utf-8")
+            stderr_path.write_text("", encoding="utf-8")
+
+    args = argparse.Namespace(
+        control_url="http://127.0.0.1:9101",
+        control_urls="http://127.0.0.1:9101",
+        node_id="home",
+        agent_id="agent-home",
+        capabilities="visible_mimo_session",
+        permissions="read_system,shell,write_artifacts",
+        permission_packs="visible_session",
+        repo_url="https://example.invalid/repo.git",
+        work_root=str(tmp_path / "work"),
+        artifact_root=str(tmp_path / "artifacts"),
+        heartbeat_interval=10,
+        lease_refresh=20,
+        max_inflight=1,
+    )
+    host = Host(args)
+    task = {
+        "task_id": "VISIBLE-MIMO-1",
+        "attempt": 1,
+        "attempt_id": "VISIBLE-MIMO-1-attempt-1",
+        "envelope": {
+            "kind": "visible_mimo_session",
+            "session_name": "kolibri-visible-demo",
+            "tty_number": 9,
+            "project_path": str(project),
+            "run_user": "ladik",
+        },
+    }
+
+    result = host.run_visible_mimo_session(task)
+
+    assert host.commands
+    assert host.commands[0][:6] == ["/usr/bin/openvt", "-f", "-c", "9", "-s", "--"]
+    assert result["kind"] == "visible_mimo_session"
+    assert result["tty_number"] == 9
+    assert result["project_path"] == str(project)
+    assert result["artifacts"]
+    assert result["checks"] == ["ps -t tty9 -o user,pid,ppid,stat,pcpu,pmem,etime,args"]
+    assert Path(result["result_path"]).exists()
+    assert any(path.endswith("/heartbeat") for path, _body in host.posts)
 
 
 def test_generic_runner_falls_back_to_codex_when_mimo_returns_empty_text(tmp_path, monkeypatch):

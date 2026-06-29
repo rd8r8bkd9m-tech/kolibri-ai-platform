@@ -61,17 +61,19 @@ KNOWN_TASK_STATES = {
 ACTIVE_TASK_STATES = {STATE_LEASED, STATE_RUNNING, STATE_REVIEW, STATE_WAITING_REVIEW}
 LEASED_TASK_STATES = {STATE_LEASED, STATE_RUNNING, STATE_REVIEW}
 AUTONOMOUS_TASK_KINDS = {"owner_remote_task", "generic_implementation"}
+VISIBLE_SESSION_TASK_KINDS = {"visible_mimo_session"}
 RUNTIME_CAPABILITY_COMPAT = {
     "remote_implementation_runner_ready": {"implementation", "generic_implementation"},
 }
 RUNTIME_KIND_COMPAT = {
     "remote_implementation_runner_ready": "generic_implementation",
 }
-DELIVERABLE_REQUIRED_KINDS = AUTONOMOUS_TASK_KINDS | {"remote_implementation_runner_ready"}
+DELIVERABLE_REQUIRED_KINDS = AUTONOMOUS_TASK_KINDS | VISIBLE_SESSION_TASK_KINDS | {"remote_implementation_runner_ready"}
 PERMISSION_PACKS = {
     "read_only": {"read_repo", "read_system", "write_artifacts"},
     "ai_chat": {"ai_runner", "write_artifacts"},
     "media_generation": {"ai_runner", "network", "write_artifacts"},
+    "visible_session": {"read_system", "shell", "write_artifacts"},
     "implementation": {"read_repo", "write_worktree", "run_tests", "network", "git_push", "write_artifacts"},
     "review": {"read_repo", "run_tests", "network", "github_review", "write_artifacts"},
     "full_autonomy": {
@@ -121,6 +123,8 @@ def expand_permission_packs(packs: Any) -> set[str]:
 def default_permission_pack(kind: str) -> str | None:
     if kind in AUTONOMOUS_TASK_KINDS:
         return "full_autonomy"
+    if kind in VISIBLE_SESSION_TASK_KINDS:
+        return "visible_session"
     return None
 
 
