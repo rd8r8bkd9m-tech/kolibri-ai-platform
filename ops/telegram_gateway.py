@@ -152,6 +152,8 @@ IMMEDIATE_CHAT_MARKERS = (
     "память",
 )
 READABLE_RESPONSE_KEYS = (
+    "agent_message",
+    "assistant_message",
     "response",
     "message",
     "summary",

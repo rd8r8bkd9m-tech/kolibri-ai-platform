@@ -172,6 +172,22 @@ def test_chat_transition_extracts_response_from_structured_json_without_raw_payl
         assert forbidden not in message
 
 
+def test_chat_transition_extracts_agent_message_from_structured_json():
+    gateway = load_gateway()
+    payload = json.dumps(
+        {
+            "agent_message": "Готово <main> & без JSON.\nnode: hidden\nartifact: /var/lib/hidden.json",
+            "task_id": "TGCHAT-202606291603-1-task",
+        },
+        ensure_ascii=False,
+    )
+    task = {"state": "completed", "result": {"response": payload}}
+    message = gateway.format_transition("COMPLETED", task, mode="chat")
+    assert message == "Готово <main> & без JSON."
+    for forbidden in ["{", "}", "agent_message", "task_id", "node:", "artifact:", "/var/lib"]:
+        assert forbidden not in message
+
+
 def test_telegram_client_sends_html_escaped_message_payload(monkeypatch):
     gateway = load_gateway()
     calls = []
@@ -201,6 +217,28 @@ def test_telegram_client_sends_html_escaped_message_payload(monkeypatch):
     assert payload["parse_mode"] == ["HTML"]
     assert payload["text"] == ["5 &lt; 7 &amp; &lt;b&gt;raw&lt;/b&gt;"]
     assert "123:ABC" not in payload["text"][0]
+
+
+def test_telegram_client_escapes_edit_and_photo_caption_payloads():
+    gateway = load_gateway()
+    client = gateway.TelegramClient("redacted-token", api_base="https://example.invalid")
+    calls = []
+
+    def fake_call(method, payload=None, timeout=35):
+        calls.append((method, payload or {}, timeout))
+        return {"ok": True, "result": {"message_id": 7}}
+
+    client.call = fake_call
+
+    client.edit_message(100, 7, "Исправлено <ok> & проверено")
+    client.send_photo(100, "https://example.invalid/image.png", caption="Картинка <ready> & safe")
+
+    edit_payload = calls[0][1]
+    photo_payload = calls[1][1]
+    assert edit_payload["parse_mode"] == "HTML"
+    assert edit_payload["text"] == "Исправлено &lt;ok&gt; &amp; проверено"
+    assert photo_payload["parse_mode"] == "HTML"
+    assert photo_payload["caption"] == "Картинка &lt;ready&gt; &amp; safe"
 
 
 def test_telegram_client_get_updates_409_reports_poll_ownership(monkeypatch):
@@ -236,6 +274,28 @@ def test_task_transition_is_human_readable_without_internal_metadata():
     message = gateway.format_transition("COMPLETED", task, mode="task")
     assert "Готово" in message
     for forbidden in ["task_id", "node:", "agent:", "artifact:", "/var/lib", "TG-202606"]:
+        assert forbidden not in message
+
+
+def test_task_status_unwraps_json_response_before_url_summary():
+    gateway = load_gateway()
+    task = {
+        "state": "completed",
+        "envelope": {"kind": "owner_remote_task"},
+        "result": {
+            "response": json.dumps(
+                {
+                    "response": "Frontend: http://178.207.11.90:8180\nBackend healthy\nresult_path: /var/lib/kolibri-agent/result.json",
+                    "metadata": {"task_id": "TG-202606291603-1"},
+                },
+                ensure_ascii=False,
+            )
+        },
+    }
+    message = gateway.format_task_status(task)
+    assert "http://178.207.11.90:8180" in message
+    assert "Проверки живые" in message
+    for forbidden in ["{", "}", "response", "task_id", "result_path", "/var/lib"]:
         assert forbidden not in message
 
 

@@ -60,6 +60,15 @@ jobs:
           python -m pip install pytest
           python -m pytest -q
 
+      - name: Telegram readable formatter rollout gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 ops/telegram_rollout_gate.py \
+            --report /tmp/telegram-live-verification-main.md \
+            --task-id KOL-REMOTE-SERVER-TASK-20260629T1603-002B-MAIN-TELEGRAM-IMPLEMENTATION-DELIVERABLE-RETRY \
+            --control-url ""
+
       - name: Set up Node
         if: ${{ hashFiles('frontend/package.json') != '' }}
         uses: actions/setup-node@v4

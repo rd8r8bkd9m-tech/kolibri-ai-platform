@@ -8,6 +8,7 @@ import importlib.util
 import io
 import json
 import os
+import shlex
 import subprocess
 import sys
 import urllib.error
@@ -20,16 +21,20 @@ from typing import Any, Callable
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_REPORT = ROOT / "docs/agent-work/generated/remote-server-transfer-20260629T1603/telegram-live-verification-main.md"
-DEFAULT_TASK_ID = "KOL-REMOTE-SERVER-TASK-20260629T1603-002B-MAIN-TELEGRAM-IMPLEMENTATION"
+DEFAULT_TASK_ID = "KOL-REMOTE-SERVER-TASK-20260629T1603-002B-MAIN-TELEGRAM-IMPLEMENTATION-DELIVERABLE-RETRY"
+GATE_PYTHON = os.environ.get("KOLIBRI_GATE_PYTHON") or (
+    ".venv/bin/python" if (ROOT / ".venv/bin/python").exists() else sys.executable
+)
 CHANGED_FILES = [
+    ".github/workflows/ci.yml",
     "ops/telegram_gateway.py",
     "ops/telegram_rollout_gate.py",
     "tests/test_telegram_gateway.py",
     "docs/agent-work/generated/remote-server-transfer-20260629T1603/telegram-live-verification-main.md",
 ]
 VERIFICATION_COMMANDS = [
-    ["python3", "-m", "compileall", "-q", "ops", "tests"],
-    ["python3", "-m", "pytest", "-q", "tests/test_telegram_gateway.py", "tests/test_agent_host_telegram_chat.py"],
+    [GATE_PYTHON, "-m", "compileall", "-q", "ops", "tests"],
+    [GATE_PYTHON, "-m", "pytest", "-q", "tests/test_telegram_gateway.py", "tests/test_agent_host_telegram_chat.py"],
 ]
 DELIVERABLE_COMMANDS = [
     ["git", "diff", "--check"],
@@ -40,7 +45,8 @@ ROLLBACK_COMMANDS = [
     "sudo systemctl stop kolibri-telegram-gateway.service",
     "cd /opt/kolibri-ai-platform && sudo git checkout HEAD~1 -- ops/telegram_gateway.py",
     "sudo install -m 0755 /opt/kolibri-ai-platform/ops/telegram_gateway.py /usr/local/bin/kolibri-telegram-gateway",
-    "sudo systemctl start kolibri-telegram-gateway.service",
+    "sudo systemctl daemon-reload",
+    "sudo systemctl restart kolibri-telegram-gateway.service",
     "sudo journalctl -u kolibri-telegram-gateway.service -n 80 --no-pager",
 ]
 
@@ -210,9 +216,59 @@ def live_telegram_probe(enabled: bool) -> dict[str, Any]:
         }
 
 
+def live_systemd_probe(enabled: bool, service: str, journal_since: str) -> dict[str, Any]:
+    if not enabled:
+        return {"status": "SKIPPED", "reason": "live systemd probe not requested"}
+    try:
+        active = subprocess.run(["systemctl", "is-active", service], cwd=ROOT, text=True, capture_output=True, timeout=10, check=False)
+    except Exception as exc:
+        return {
+            "status": "FALLBACK",
+            "reason": f"{type(exc).__name__}: {exc}",
+            "agent_message": "Telegram systemd verification is unavailable; use offline gate checks and rollback commands before retry.",
+        }
+    state = active.stdout.strip() or "unknown"
+    if active.returncode != 0:
+        return {"status": "FAIL", "reason": f"{service} is {state}", "service": service, "state": state}
+    try:
+        journal = subprocess.run(
+            ["journalctl", "-u", service, "--since", journal_since, "--no-pager", "-o", "cat"],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            timeout=15,
+            check=False,
+        )
+    except Exception as exc:
+        return {
+            "status": "FALLBACK",
+            "reason": f"{type(exc).__name__}: {exc}",
+            "service": service,
+            "state": state,
+            "agent_message": "Telegram journal verification is unavailable; use offline gate checks and rollback commands before retry.",
+        }
+    if journal.returncode != 0:
+        return {"status": "FALLBACK", "reason": "journalctl failed", "service": service, "state": state}
+    lowered = journal.stdout.lower()
+    conflict = (
+        ("409" in lowered and ("getupdates" in lowered or "conflict" in lowered))
+        or "terminated by other getupdates request" in lowered
+        or "ownership conflict" in lowered
+    )
+    return {
+        "status": "FAIL" if conflict else "PASS",
+        "service": service,
+        "state": state,
+        "journal_since": journal_since,
+        "duplicate_getupdates_409_found": conflict,
+    }
+
+
 def annotate_control_plane(control_url: str, task_id: str, report_path: Path, status: str, command_results: list[dict[str, Any]]) -> dict[str, Any]:
     if not task_id:
         return {"status": "SKIPPED", "reason": "task id not provided"}
+    if not control_url:
+        return {"status": "SKIPPED", "reason": "control url not provided", "result_reference": str(report_path)}
     commands = [item["command"] for item in command_results]
     body = {
         "result_reference": str(report_path),
@@ -254,7 +310,9 @@ def command_line(args: argparse.Namespace) -> str:
     parts = ["python3", "ops/telegram_rollout_gate.py", "--report", path, "--task-id", args.task_id]
     if args.live_telegram:
         parts.append("--live-telegram")
-    return " ".join(parts)
+    if args.live_systemd:
+        parts.extend(["--live-systemd", "--service", args.service, "--journal-since", args.journal_since])
+    return " ".join(shlex.quote(part) for part in parts)
 
 
 def markdown_report(data: dict[str, Any]) -> str:
@@ -292,6 +350,19 @@ def markdown_report(data: dict[str, Any]) -> str:
         lines.append(f"- fallback_agent_message: {telegram['agent_message']}")
     if telegram.get("username"):
         lines.append(f"- bot_username: `{telegram['username']}`")
+    lines.extend(["", "## Systemd Gateway Ownership", ""])
+    systemd = data["systemd_live"]
+    lines.append(f"- status: `{systemd['status']}`")
+    if systemd.get("reason"):
+        lines.append(f"- reason: `{systemd['reason']}`")
+    if systemd.get("service"):
+        lines.append(f"- service: `{systemd['service']}`")
+    if systemd.get("state"):
+        lines.append(f"- state: `{systemd['state']}`")
+    if "duplicate_getupdates_409_found" in systemd:
+        lines.append(f"- duplicate_getupdates_409_found: `{systemd['duplicate_getupdates_409_found']}`")
+    if systemd.get("agent_message"):
+        lines.append(f"- fallback_agent_message: {systemd['agent_message']}")
     lines.extend(["", "## Control Plane Result Reference", ""])
     control = data["control_plane"]
     lines.append(f"- status: `{control['status']}`")
@@ -326,6 +397,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--task-id", default=os.environ.get("KOLIBRI_TASK_ID", DEFAULT_TASK_ID))
     parser.add_argument("--control-url", default=os.environ.get("KOLIBRI_FACTORY_CONTROL_URL", "http://10.99.0.2:9101"))
     parser.add_argument("--live-telegram", action="store_true")
+    parser.add_argument("--live-systemd", action="store_true")
+    parser.add_argument("--service", default="kolibri-telegram-gateway.service")
+    parser.add_argument("--journal-since", default="15 minutes ago")
     args = parser.parse_args(argv)
 
     report_path = Path(args.report)
@@ -341,8 +415,11 @@ def main(argv: list[str] | None = None) -> int:
     ]
     verification_results = run_verification_commands()
     telegram_live = live_telegram_probe(args.live_telegram)
+    systemd_live = live_systemd_probe(args.live_systemd, args.service, args.journal_since)
     status = "PASS"
     if any(item["status"] != "PASS" for item in checks + verification_results):
+        status = "FAIL"
+    if systemd_live["status"] == "FAIL":
         status = "FAIL"
 
     data = {
@@ -354,6 +431,7 @@ def main(argv: list[str] | None = None) -> int:
         "checks": checks,
         "verification_commands": verification_results,
         "telegram_live": telegram_live,
+        "systemd_live": systemd_live,
         "control_plane": {"status": "PENDING"},
     }
     report_path.write_text(markdown_report(data), encoding="utf-8")
@@ -361,6 +439,8 @@ def main(argv: list[str] | None = None) -> int:
     deliverable_results = run_deliverable_commands()
     verification_results = deliverable_results + verification_results
     if any(item["status"] != "PASS" for item in checks + verification_results):
+        status = "FAIL"
+    if systemd_live["status"] == "FAIL":
         status = "FAIL"
     data["status"] = status
     data["verification_commands"] = verification_results
