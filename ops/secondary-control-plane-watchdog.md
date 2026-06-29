@@ -1,6 +1,6 @@
 # Secondary Control Plane Watchdog
 
-Last check: 2026-06-29T06:56:10Z
+Last check: 2026-06-29T06:58:58Z
 
 ## Current Status
 
@@ -9,14 +9,16 @@ Last check: 2026-06-29T06:56:10Z
 - Nodes: 35 registered, 5 fresh/online, 30 stale or not fresh, 3 draining.
 - Tasks: 65 queued, 0 active in compact summary.
 - P0 miniapp deploy task `KOL-P0-DEPLOY-KOLIBRIAI-MINIAPP-20260629T0647Z`: running on main.
+- P0 owner-director prompt deploy task `KOL-P0-DEPLOY-KOLIBRIAI-MINIAPP-PROMPT-20260629T065744Z`: queued for main.
+- GitHub PR: `#61` with labels `P0` and `factory`.
 
 ## Impact
 
-No Control Plane or Redis outage detected during this run. Telegram Mini App production deployment remains in progress; public `https://kolibriai.ru` still requires deploy/DNS/TLS verification before it can be considered healthy.
+No Control Plane or Redis outage detected during this run. Telegram Mini App production deployment remains in progress; public `https://kolibriai.ru` still requires deploy/DNS/TLS verification before it can be considered healthy. The owner-director Telegram prompt is pushed and queued for production deployment after the current main task clears.
 
 ## Last Successful Check
 
-2026-06-29T06:56:10Z: `/health`, `/v1/nodes`, and `/v1/tasks?summary=1&compact=1` responded successfully.
+2026-06-29T06:58:58Z: `/health`, `/v1/nodes`, and `/v1/tasks?summary=1&compact=1` responded successfully.
 
 ## Safe Recovery Steps
 
