@@ -100,6 +100,56 @@ def test_compact_task_listing_bounds_payload_and_exposes_queue_and_leases(monkey
     assert listing["summary"]["active_total"] == 1
 
 
+def test_state_filtered_task_sample_uses_state_index_without_full_task_scan(monkeypatch):
+    control = load_control()
+    tasks = {
+        "WAITING-1": {
+            "task_id": "WAITING-1",
+            "kind": "generic_implementation",
+            "state": control.STATE_WAITING_REVIEW,
+            "updated_at": "2026-06-29T00:03:00+00:00",
+            "envelope": {"branch": "agent/waiting-1"},
+        }
+    }
+
+    def fail_full_scan():
+        raise AssertionError("state-filtered listing must not call all_task_ids")
+
+    monkeypatch.setattr(control, "all_task_ids", fail_full_scan)
+    monkeypatch.setattr(control, "indexed_task_ids_for_state", lambda state: ["WAITING-1"])
+    monkeypatch.setattr(control, "load_task", lambda task_id: tasks[task_id])
+
+    sample, meta = control.task_sample(wanted=control.STATE_WAITING_REVIEW, limit=10, compact=True)
+
+    assert [task["task_id"] for task in sample] == ["WAITING-1"]
+    assert meta["source"] == "state_index"
+    assert meta["candidate_total"] == 1
+    assert "envelope" not in sample[0]
+
+
+def test_task_sample_supports_offset_for_state_pagination(monkeypatch):
+    control = load_control()
+    tasks = {
+        f"WAITING-{idx}": {
+            "task_id": f"WAITING-{idx}",
+            "kind": "generic_implementation",
+            "state": control.STATE_WAITING_REVIEW,
+            "updated_at": f"2026-06-29T00:0{idx}:00+00:00",
+            "envelope": {},
+        }
+        for idx in range(1, 4)
+    }
+
+    monkeypatch.setattr(control, "indexed_task_ids_for_state", lambda state: list(tasks))
+    monkeypatch.setattr(control, "load_task", lambda task_id: tasks[task_id])
+
+    sample, meta = control.task_sample(wanted=control.STATE_WAITING_REVIEW, limit=1, compact=True, offset=1)
+
+    assert [task["task_id"] for task in sample] == ["WAITING-2"]
+    assert meta["offset"] == 1
+    assert meta["tasks_truncated"] is True
+
+
 def test_requeue_expired_leases_returns_stuck_tasks_to_queue(monkeypatch):
     control = load_control()
     current = time.time()
@@ -132,6 +182,7 @@ def test_requeue_expired_leases_returns_stuck_tasks_to_queue(monkeypatch):
 
     monkeypatch.setattr(control, "now_ts", lambda: current)
     monkeypatch.setattr(control, "all_task_ids", lambda: list(tasks))
+    monkeypatch.setattr(control, "leased_task_ids", lambda: list(tasks))
     monkeypatch.setattr(control, "load_task", lambda task_id: tasks[task_id])
     monkeypatch.setattr(control, "save_task", lambda task: saved.append((task["task_id"], task["state"])) or tasks.__setitem__(task["task_id"], dict(task)))
     monkeypatch.setattr(control, "remove_from_queue", lambda task_id: removed.append(task_id))
@@ -140,6 +191,7 @@ def test_requeue_expired_leases_returns_stuck_tasks_to_queue(monkeypatch):
     summary = control.requeue_expired_leases()
 
     assert summary["checked"] == 2
+    assert summary["lease_index_total"] == 2
     assert summary["expired"] == 1
     assert summary["requeued"] == ["TASK-EXPIRED"]
     assert summary["dead_lettered"] == []
@@ -180,6 +232,7 @@ def test_requeue_expired_leases_dead_letters_exhausted_tasks(monkeypatch):
 
     monkeypatch.setattr(control, "now_ts", lambda: current)
     monkeypatch.setattr(control, "all_task_ids", lambda: list(tasks))
+    monkeypatch.setattr(control, "leased_task_ids", lambda: list(tasks))
     monkeypatch.setattr(control, "load_task", lambda task_id: tasks[task_id])
     monkeypatch.setattr(control, "save_task", lambda task: saved.append((task["task_id"], task["state"])) or tasks.__setitem__(task["task_id"], dict(task)))
     monkeypatch.setattr(control, "redis", FakeRedis())
@@ -187,6 +240,7 @@ def test_requeue_expired_leases_dead_letters_exhausted_tasks(monkeypatch):
     summary = control.requeue_expired_leases()
 
     assert summary["checked"] == 1
+    assert summary["lease_index_total"] == 1
     assert summary["expired"] == 1
     assert summary["requeued"] == []
     assert summary["dead_lettered"] == ["TASK-EXHAUSTED"]

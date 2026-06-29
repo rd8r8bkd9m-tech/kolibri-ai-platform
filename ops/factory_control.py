@@ -43,6 +43,20 @@ STATE_CANCELLED = "cancelled"
 STATE_RETRY = "retry_scheduled"
 STATE_DEAD = "dead_letter"
 TERMINAL_STATES = {STATE_COMPLETED, STATE_FAILED, STATE_CANCELLED, STATE_DEAD}
+KNOWN_TASK_STATES = {
+    STATE_QUEUED,
+    STATE_LEASED,
+    STATE_RUNNING,
+    STATE_WAITING_REVIEW,
+    STATE_REVIEW,
+    STATE_COMPLETED,
+    STATE_FAILED,
+    STATE_CANCELLED,
+    STATE_RETRY,
+    STATE_DEAD,
+}
+ACTIVE_TASK_STATES = {STATE_LEASED, STATE_RUNNING, STATE_REVIEW, STATE_WAITING_REVIEW}
+LEASED_TASK_STATES = {STATE_LEASED, STATE_RUNNING, STATE_REVIEW}
 AUTONOMOUS_TASK_KINDS = {"owner_remote_task", "generic_implementation"}
 RUNTIME_CAPABILITY_COMPAT = {
     "remote_implementation_runner_ready": {"implementation", "generic_implementation"},
@@ -341,6 +355,18 @@ def task_key(task_id: str) -> str:
     return key(f"task:{task_id}")
 
 
+def task_state_key(state: str) -> str:
+    return key(f"task_state:{state}")
+
+
+def task_active_key() -> str:
+    return key("task_active_ids")
+
+
+def task_index_ready_key() -> str:
+    return key("task_state_index_ready")
+
+
 def node_key(node_id: str) -> str:
     return key(f"node:{node_id}")
 
@@ -355,6 +381,26 @@ def agent_feed_key(target: str) -> str:
 
 def all_task_ids() -> list[str]:
     values = redis.command("SMEMBERS", key("task_ids")) or []
+    return sorted(values)
+
+
+def indexed_task_ids_for_state(state: str) -> list[str]:
+    ensure_task_indexes()
+    values = redis.command("SMEMBERS", task_state_key(state)) or []
+    return sorted(values)
+
+
+def active_task_ids() -> list[str]:
+    ensure_task_indexes()
+    values = redis.command("SMEMBERS", task_active_key()) or []
+    return sorted(values)
+
+
+def leased_task_ids() -> list[str]:
+    ensure_task_indexes()
+    values: set[str] = set()
+    for state in LEASED_TASK_STATES:
+        values.update(redis.command("SMEMBERS", task_state_key(state)) or [])
     return sorted(values)
 
 
@@ -376,10 +422,88 @@ def load_task(task_id: str) -> dict[str, Any] | None:
     return get_json(task_key(task_id))
 
 
+def load_tasks(task_ids: list[str]) -> list[dict[str, Any] | None]:
+    if not task_ids:
+        return []
+    raw_values = redis.command("MGET", *[task_key(task_id) for task_id in task_ids]) or []
+    tasks: list[dict[str, Any] | None] = []
+    for raw in raw_values:
+        if raw is None:
+            tasks.append(None)
+            continue
+        try:
+            tasks.append(json.loads(raw))
+        except json.JSONDecodeError:
+            tasks.append(None)
+    return tasks
+
+
+def index_task_state(task_id: str, state: str | None, previous_state: str | None = None) -> None:
+    previous = str(previous_state or "")
+    current = str(state or "unknown")
+    if previous and previous != current:
+        redis.command("SREM", task_state_key(previous), task_id)
+        if previous in ACTIVE_TASK_STATES:
+            redis.command("SREM", task_active_key(), task_id)
+    redis.command("SADD", task_state_key(current), task_id)
+    if current in ACTIVE_TASK_STATES:
+        redis.command("SADD", task_active_key(), task_id)
+    else:
+        redis.command("SREM", task_active_key(), task_id)
+
+
+def rebuild_task_indexes(limit: int | None = None) -> dict[str, Any]:
+    for state in KNOWN_TASK_STATES:
+        redis.command("DEL", task_state_key(state))
+    redis.command("DEL", task_state_key("unknown"))
+    redis.command("DEL", task_active_key())
+    task_ids = all_task_ids()
+    if limit is not None:
+        task_ids = task_ids[: max(0, int(limit))]
+    counts: dict[str, int] = {}
+    state_groups: dict[str, list[str]] = {}
+    active_ids: list[str] = []
+    indexed = 0
+    missing = 0
+    for task_id, task in zip(task_ids, load_tasks(task_ids)):
+        if not task:
+            missing += 1
+            continue
+        state = str(task.get("state") or "unknown")
+        state_groups.setdefault(state, []).append(task_id)
+        if state in ACTIVE_TASK_STATES:
+            active_ids.append(task_id)
+        counts[state] = counts.get(state, 0) + 1
+        indexed += 1
+    for state, ids in state_groups.items():
+        if ids:
+            redis.command("SADD", task_state_key(state), *ids)
+    if active_ids:
+        redis.command("SADD", task_active_key(), *active_ids)
+    if limit is None:
+        redis.command("SET", task_index_ready_key(), utc_now())
+    return {
+        "indexed": indexed,
+        "missing": missing,
+        "states": counts,
+        "limited": limit is not None,
+        "limit": limit,
+    }
+
+
+def ensure_task_indexes() -> None:
+    if redis.command("GET", task_index_ready_key()):
+        return
+    rebuild_task_indexes()
+
+
 def save_task(task: dict[str, Any]) -> None:
+    existing = load_task(task["task_id"]) or {}
+    previous_state = existing.get("state")
     task["updated_at"] = utc_now()
     set_json(task_key(task["task_id"]), task)
     redis.command("SADD", key("task_ids"), task["task_id"])
+    index_task_state(task["task_id"], str(task.get("state") or "unknown"), str(previous_state or ""))
 
 
 def enqueue(task_id: str) -> None:
@@ -506,16 +630,28 @@ def bounded_limit(raw: str | None, default: int = DEFAULT_TASK_LIST_LIMIT) -> in
     return max(0, min(value, MAX_TASK_LIST_LIMIT))
 
 
+def bounded_offset(raw: str | None) -> int:
+    if raw is None or raw == "":
+        return 0
+    try:
+        value = int(raw)
+    except ValueError:
+        return 0
+    return max(0, value)
+
+
 def task_sample(
     wanted: str | None = None,
     limit: int = DEFAULT_TASK_LIST_LIMIT,
     compact: bool = False,
     scan_limit: int | None = None,
+    offset: int = 0,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     tasks = []
     seen = 0
     matched = 0
-    for task_id in all_task_ids():
+    candidate_ids = indexed_task_ids_for_state(wanted) if wanted is not None else all_task_ids()
+    for task_id in candidate_ids:
         if scan_limit is not None and seen >= scan_limit:
             break
         seen += 1
@@ -525,11 +661,16 @@ def task_sample(
         matched += 1
         tasks.append(compact_task(task) if compact else task)
     tasks.sort(key=lambda item: str(item.get("updated_at") or item.get("created_at") or ""), reverse=True)
-    return tasks[:limit], {
+    returned = tasks[offset:offset + limit]
+    return returned, {
+        "source": "state_index" if wanted is not None else "task_ids",
+        "offset": offset,
+        "limit": limit,
+        "candidate_total": len(candidate_ids),
         "tasks_scanned": seen,
         "tasks_matched": matched,
-        "tasks_returned": min(len(tasks), limit),
-        "tasks_truncated": len(tasks) > limit,
+        "tasks_returned": len(returned),
+        "tasks_truncated": len(tasks) > offset + limit,
         "scan_truncated": scan_limit is not None and seen >= scan_limit,
     }
 
@@ -546,6 +687,21 @@ def limited_tasks(wanted: str | None = None, limit: int | None = None, compact: 
 def compact_task_listing(wanted: str | None, limit: int) -> dict[str, Any]:
     q_len = queue_length()
     q_prefix = queue_prefix(limit)
+    if wanted is not None:
+        tasks, meta = task_sample(wanted=wanted, limit=limit, compact=True)
+        summary = summarize_tasks(tasks)
+        summary.update(meta)
+        summary["queue_total"] = q_len
+        summary["queue_returned"] = len(q_prefix)
+        summary["queue_truncated"] = q_len > len(q_prefix)
+        summary["max_limit"] = MAX_TASK_LIST_LIMIT
+        summary["summary_scope"] = "state_index"
+        return {
+            "summary": summary,
+            "queue_length": q_len,
+            "queue": q_prefix,
+            "tasks": tasks,
+        }
     tasks = []
     for task_id in q_prefix:
         task = load_task(task_id)
@@ -616,14 +772,16 @@ def load_agent_messages(target: str, limit: int = 50) -> list[dict[str, Any]]:
 
 def requeue_expired_leases(limit: int | None = None) -> dict[str, Any]:
     current = now_ts()
-    task_ids = all_task_ids()
+    task_total = len(all_task_ids())
+    task_ids = leased_task_ids()
     if limit is not None:
         limit = max(0, int(limit))
         selected_task_ids = task_ids[:limit]
     else:
         selected_task_ids = task_ids
     summary: dict[str, Any] = {
-        "task_total": len(task_ids),
+        "task_total": task_total,
+        "lease_index_total": len(task_ids),
         "scan_limit": limit,
         "scan_truncated": limit is not None and len(task_ids) > limit,
         "checked": 0,
@@ -788,10 +946,11 @@ class Handler(BaseHTTPRequestHandler):
                 summary = query.get("summary", ["0"])[0].lower() in {"1", "true", "yes"}
                 compact = query.get("compact", ["0"])[0].lower() in {"1", "true", "yes"}
                 limit = bounded_limit(query.get("limit", [None])[0])
+                offset = bounded_offset(query.get("offset", [None])[0])
                 if summary and compact:
                     response(self, 200, compact_task_listing(wanted, limit))
                     return
-                tasks, meta = task_sample(wanted=wanted, limit=limit, compact=compact)
+                tasks, meta = task_sample(wanted=wanted, limit=limit, compact=compact, offset=offset)
                 if summary:
                     payload = {"summary": summarize_tasks(tasks), "queue_length": queue_length(), "limits": meta}
                     response(self, 200, payload)
@@ -881,6 +1040,10 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/v1/tasks/reap-expired":
                 limit = body.get("limit")
                 response(self, 200, requeue_expired_leases(int(limit) if limit is not None else None))
+                return
+            if path == "/v1/tasks/rebuild-indexes":
+                limit = body.get("limit")
+                response(self, 200, rebuild_task_indexes(int(limit) if limit is not None else None))
                 return
             if path == "/v1/agent-messages":
                 message = publish_agent_message(normalize_agent_message(body))
