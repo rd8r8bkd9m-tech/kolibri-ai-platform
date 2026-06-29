@@ -65,6 +65,7 @@
   ],
   "scale_profile": {
     "target_nodes": 2000,
+    "target_utilization": 0.8,
     "bootstrap_batch_size": 10,
     "default_agents_per_node": 20,
     "large_node_agents_per_node": 100,
