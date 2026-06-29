@@ -1,0 +1,24 @@
+{
+  "task_id": "KOL-MAIN-CONTROL-PLANE-READONLY-AUDIT-20260629",
+  "idempotency_key": "primary-development-control:main-readonly-audit:2026-06-29",
+  "kind": "read_only_probe",
+  "required_capability": "read_only_probe",
+  "target_node": "main",
+  "runner": "agent_host",
+  "goal": "Безопасный follow-up после primary-development-control rerun: подтвердить, что node main живой, может лизовать read_only_probe и возвращает node-local artifact без изменений репозитория, очереди, PR, деплоя или FormulaLM/model benchmark.",
+  "role_slot": "Координатор очереди и Telegram",
+  "role_goal": "дать легкий machine-proof для main перед дальнейшими поручениями по очереди и Telegram",
+  "acceptance": [
+    "Task leased by node_id main",
+    "Result artifact is written under /var/lib/kolibri-agent/artifacts",
+    "Result includes node_id, hostname, agent_id, heartbeat_at, result_path and status=completed",
+    "No repository mutation, queue surgery, GitHub mutation, production deploy, FormulaLM, LLM or model benchmark is performed"
+  ],
+  "max_retries": 1,
+  "source": {
+    "kind": "primary_development_control_followup",
+    "requested_at": "2026-06-29T12:12:00Z",
+    "requested_by_task": "KOL-PRIMARY-DEVELOPMENT-CONTROL-RERUN-20260629",
+    "safety": "read_only_probe runner only; artifact proof without repo writes"
+  }
+}
