@@ -252,6 +252,44 @@ def test_state_filtered_task_sample_uses_state_index_without_full_task_scan(monk
     assert "envelope" not in sample[0]
 
 
+def test_unfiltered_operational_task_sample_uses_queue_and_active_indexes(monkeypatch):
+    control = load_control()
+    tasks = {
+        "QUEUE-1": {
+            "task_id": "QUEUE-1",
+            "kind": "generic_implementation",
+            "state": control.STATE_QUEUED,
+            "updated_at": "2026-06-29T00:01:00+00:00",
+            "envelope": {"prompt": "x" * 1000},
+        },
+        "ACTIVE-1": {
+            "task_id": "ACTIVE-1",
+            "kind": "generic_implementation",
+            "state": control.STATE_RUNNING,
+            "updated_at": "2026-06-29T00:02:00+00:00",
+            "envelope": {"prompt": "y" * 1000},
+        },
+    }
+
+    def fail_full_scan():
+        raise AssertionError("unfiltered operational listing must not call all_task_ids")
+
+    monkeypatch.setattr(control, "all_task_ids", fail_full_scan)
+    monkeypatch.setattr(control, "queue_length", lambda: 25)
+    monkeypatch.setattr(control, "queue_prefix", lambda limit: ["QUEUE-1"][:limit])
+    monkeypatch.setattr(control, "active_task_ids", lambda: ["ACTIVE-1"])
+    monkeypatch.setattr(control, "load_tasks", lambda task_ids: [tasks[task_id] for task_id in task_ids])
+
+    sample, meta = control.operational_task_sample(limit=10, compact=True)
+
+    assert [task["task_id"] for task in sample] == ["QUEUE-1", "ACTIVE-1"]
+    assert meta["source"] == "queue_active_index"
+    assert meta["queue_total"] == 25
+    assert meta["active_candidate_total"] == 1
+    assert meta["tasks_returned"] == 2
+    assert "envelope" not in sample[0]
+
+
 def test_task_sample_supports_offset_for_state_pagination(monkeypatch):
     control = load_control()
     tasks = {

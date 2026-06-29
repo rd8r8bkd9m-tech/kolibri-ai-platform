@@ -717,6 +717,43 @@ def task_sample(
     }
 
 
+def operational_task_ids(limit: int, offset: int = 0) -> tuple[list[str], dict[str, Any]]:
+    q_len = queue_length()
+    q_prefix = queue_prefix(limit + offset)
+    active_ids = active_task_ids()
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for task_id in [*q_prefix, *active_ids]:
+        if task_id in seen:
+            continue
+        seen.add(task_id)
+        ordered.append(task_id)
+    returned_ids = ordered[offset:offset + limit]
+    return returned_ids, {
+        "source": "queue_active_index",
+        "offset": offset,
+        "limit": limit,
+        "queue_total": q_len,
+        "queue_scanned": len(q_prefix),
+        "active_candidate_total": len(active_ids),
+        "candidate_total": len(ordered),
+        "tasks_scanned": len(returned_ids),
+        "tasks_truncated": len(ordered) > offset + limit or q_len > len(q_prefix),
+        "scan_truncated": q_len > len(q_prefix),
+    }
+
+
+def operational_task_sample(limit: int, compact: bool = False, offset: int = 0) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    task_ids, meta = operational_task_ids(limit, offset)
+    tasks: list[dict[str, Any]] = []
+    for task in load_tasks(task_ids):
+        if task:
+            tasks.append(compact_task(task) if compact else task)
+    meta["tasks_matched"] = len(tasks)
+    meta["tasks_returned"] = len(tasks)
+    return tasks, meta
+
+
 def limited_tasks(wanted: str | None = None, limit: int | None = None, compact: bool = False) -> list[dict[str, Any]]:
     sample, _meta = task_sample(
         wanted=wanted,
@@ -1099,7 +1136,10 @@ class Handler(BaseHTTPRequestHandler):
                 if summary and compact:
                     response(self, 200, compact_task_listing(wanted, limit))
                     return
-                tasks, meta = task_sample(wanted=wanted, limit=limit, compact=compact, offset=offset)
+                if wanted is None:
+                    tasks, meta = operational_task_sample(limit=limit, compact=compact, offset=offset)
+                else:
+                    tasks, meta = task_sample(wanted=wanted, limit=limit, compact=compact, offset=offset)
                 if summary:
                     payload = {"summary": summarize_tasks(tasks), "queue_length": queue_length(), "limits": meta}
                     response(self, 200, payload)
