@@ -50,6 +50,26 @@ Mac используется только как поверхность упра
 - Fresh canonical generic implementation nodes: 1
 - Queue before submission: 2 queued read-only tasks, active tasks: 0
 
+## Факт отправки
+
+Задача отправлена в Control Plane после commit/push envelope.
+
+- Submitted at: 2026-06-29 16:18 MSK
+- Commit with envelope: `ba5fd317`
+- State after submission: `queued`
+- Required capability: `generic_implementation`
+- Required permission pack: `full_autonomy`
+- Required permissions:
+  `ai_runner`, `git_push`, `github_review`, `network`, `read_repo`,
+  `run_tests`, `shell`, `spawn_subagents`, `write_artifacts`,
+  `write_worktree`
+
+Причина, почему задача еще не получила lease: целевой сильный узел
+`primary-candidate` в момент проверки занят task
+`TGCHAT-20260629131804-4876-home`. Это живой Telegram-task со state `running`,
+lease owner `primary-candidate:agent-host-primary`. FormulaLM R&D остается в
+очереди на этот узел, чтобы не перебивать активную работу владельца.
+
 ## Проверка локального пакета
 
 Локально не запускались модельные эксперименты. Разрешенная проверка:
