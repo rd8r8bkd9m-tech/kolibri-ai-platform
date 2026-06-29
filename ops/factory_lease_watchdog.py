@@ -43,7 +43,14 @@ def call_control(control_url: str, method: str, path: str, body: dict[str, Any] 
     return http_json(method, f"{control_url.rstrip('/')}{suffix}", body=body, timeout=timeout)
 
 
-def build_summary(health: dict[str, Any], rebuild: dict[str, Any] | None, reap: dict[str, Any], sweep: dict[str, Any]) -> dict[str, Any]:
+def build_summary(
+    health: dict[str, Any],
+    rebuild: dict[str, Any] | None,
+    reap: dict[str, Any],
+    sweep: dict[str, Any],
+    deliverable_failures: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    failures = deliverable_failures or {}
     return {
         "status": "ok" if health.get("status") == "ok" else "degraded",
         "redis": health.get("redis"),
@@ -58,6 +65,9 @@ def build_summary(health: dict[str, Any], rebuild: dict[str, Any] | None, reap: 
         "requeued_stuck": sweep.get("requeued_total"),
         "dead_lettered_stuck": sweep.get("dead_lettered_total"),
         "stale_after_seconds": sweep.get("stale_after_seconds"),
+        "deliverable_gate_status": "ok" if deliverable_failures is not None else "unavailable",
+        "deliverable_gate_failed": int_value(failures.get("total")),
+        "deliverable_gate_recent": failures.get("tasks") if isinstance(failures.get("tasks"), list) else [],
     }
 
 
@@ -71,6 +81,7 @@ def should_notify(summary: dict[str, Any]) -> bool:
         "stuck",
         "requeued_stuck",
         "dead_lettered_stuck",
+        "deliverable_gate_new",
     ):
         try:
             if int(summary.get(key) or 0) > 0:
@@ -102,6 +113,15 @@ def run_watchdog(
         {"limit": limit, "stale_after_seconds": stale_after_seconds},
         timeout=timeout,
     )
+    try:
+        deliverable_failures = call_control(
+            control_url,
+            "GET",
+            f"/v1/tasks/failures?error_type=deliverable_gate_failed&limit={limit}",
+            timeout=timeout,
+        )
+    except (OSError, urllib.error.URLError, TimeoutError):
+        deliverable_failures = None
     finished_at = utc_now()
     report = {
         "event": "factory_lease_watchdog",
@@ -114,8 +134,9 @@ def run_watchdog(
         "rebuild": rebuild,
         "reap_expired": reap,
         "sweep_stuck": sweep,
+        "deliverable_failures": deliverable_failures,
     }
-    report["summary"] = build_summary(health, rebuild, reap, sweep)
+    report["summary"] = build_summary(health, rebuild, reap, sweep, deliverable_failures)
     return report
 
 
@@ -137,6 +158,7 @@ def markdown_report(report: dict[str, Any]) -> str:
         f"- Stuck heartbeat tasks: `{summary.get('stuck')}`",
         f"- Requeued stuck: `{summary.get('requeued_stuck')}`",
         f"- Dead-lettered stuck: `{summary.get('dead_lettered_stuck')}`",
+        f"- Deliverable gate failures: `{summary.get('deliverable_gate_failed')}`",
         f"- Stale threshold seconds: `{summary.get('stale_after_seconds')}`",
         "",
         "```json",
@@ -254,6 +276,7 @@ def action_totals(summary: dict[str, Any]) -> dict[str, int]:
         "requeued_stuck": int_value(summary.get("requeued_stuck")),
         "dead_lettered_expired": int_value(summary.get("dead_lettered_expired")),
         "dead_lettered_stuck": int_value(summary.get("dead_lettered_stuck")),
+        "deliverable_gate_failed": int_value(summary.get("deliverable_gate_new")),
     }
 
 
@@ -274,9 +297,11 @@ def empty_rollup(now: str) -> dict[str, Any]:
             "requeued_stuck": 0,
             "dead_lettered_expired": 0,
             "dead_lettered_stuck": 0,
+            "deliverable_gate_failed": 0,
         },
         "last_summary": {},
         "recent_actions": [],
+        "deliverable_gate_seen_task_ids": [],
     }
 
 
@@ -292,7 +317,16 @@ def load_rollup(report_dir: Path, now: str) -> dict[str, Any]:
     for key in empty_rollup(now)["totals"]:
         totals[key] = int_value(totals.get(key))
     base.setdefault("recent_actions", [])
+    base.setdefault("deliverable_gate_seen_task_ids", [])
     return base
+
+
+def deliverable_gate_task_ids(summary: dict[str, Any]) -> list[str]:
+    ids = []
+    for item in summary.get("deliverable_gate_recent") or []:
+        if isinstance(item, dict) and item.get("task_id"):
+            ids.append(str(item["task_id"]))
+    return ids
 
 
 def update_rollup(report: dict[str, Any], report_dir: Path) -> dict[str, Any]:
@@ -310,6 +344,13 @@ def update_rollup(report: dict[str, Any], report_dir: Path) -> dict[str, Any]:
     else:
         rollup["runs_failed"] = int_value(rollup.get("runs_failed")) + 1
     totals = rollup.setdefault("totals", {})
+    seen_gate_ids = set(str(item) for item in (rollup.get("deliverable_gate_seen_task_ids") or []))
+    current_gate_ids = deliverable_gate_task_ids(summary)
+    new_gate_ids = [task_id for task_id in current_gate_ids if task_id not in seen_gate_ids]
+    summary["deliverable_gate_new"] = len(new_gate_ids)
+    summary["deliverable_gate_new_task_ids"] = new_gate_ids
+    if current_gate_ids:
+        rollup["deliverable_gate_seen_task_ids"] = sorted((seen_gate_ids | set(current_gate_ids)))[-500:]
     current_actions = action_totals(summary)
     action_count = sum(current_actions.values())
     rollup["actions_total"] = int_value(rollup.get("actions_total")) + action_count
@@ -351,6 +392,7 @@ def markdown_rollup(rollup: dict[str, Any]) -> str:
         f"- Requeued stuck: `{totals.get('requeued_stuck')}`",
         f"- Dead-lettered expired: `{totals.get('dead_lettered_expired')}`",
         f"- Dead-lettered stuck: `{totals.get('dead_lettered_stuck')}`",
+        f"- New deliverable gate failures: `{totals.get('deliverable_gate_failed')}`",
         "",
     ]
     recent = rollup.get("recent_actions") or []

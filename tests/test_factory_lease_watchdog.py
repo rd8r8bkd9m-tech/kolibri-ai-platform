@@ -26,18 +26,26 @@ def test_run_watchdog_calls_reap_and_sweep_without_rebuild_by_default(monkeypatc
             return {"task_total": 10, "lease_index_total": 1, "expired": 0, "requeued_total": 0, "dead_lettered_total": 0}
         if path == "/v1/tasks/sweep-stuck":
             return {"task_total": 10, "lease_index_total": 1, "stuck": 0, "requeued_total": 0, "dead_lettered_total": 0, "stale_after_seconds": 3600}
+        if path == "/v1/tasks/failures?error_type=deliverable_gate_failed&limit=50":
+            return {"error_type": "deliverable_gate_failed", "total": 0, "tasks": []}
         raise AssertionError(path)
 
     monkeypatch.setattr(watchdog, "call_control", fake_call)
 
     report = watchdog.run_watchdog("http://control:9101", limit=50, stale_after_seconds=3600, timeout=7)
 
-    assert [call[1] for call in calls] == ["/v1/health", "/v1/tasks/reap-expired", "/v1/tasks/sweep-stuck"]
+    assert [call[1] for call in calls] == [
+        "/v1/health",
+        "/v1/tasks/reap-expired",
+        "/v1/tasks/sweep-stuck",
+        "/v1/tasks/failures?error_type=deliverable_gate_failed&limit=50",
+    ]
     assert calls[1][2] == {"limit": 50}
     assert calls[2][2] == {"limit": 50, "stale_after_seconds": 3600}
     assert report["summary"]["status"] == "ok"
     assert report["summary"]["lease_index_total"] == 1
     assert report["summary"]["stuck"] == 0
+    assert report["summary"]["deliverable_gate_failed"] == 0
 
 
 def test_run_watchdog_can_rebuild_indexes_first(monkeypatch):
@@ -54,14 +62,51 @@ def test_run_watchdog_can_rebuild_indexes_first(monkeypatch):
             return {"task_total": 690, "lease_index_total": 1, "expired": 0, "requeued_total": 0, "dead_lettered_total": 0}
         if path == "/v1/tasks/sweep-stuck":
             return {"task_total": 690, "lease_index_total": 1, "stuck": 0, "requeued_total": 0, "dead_lettered_total": 0, "stale_after_seconds": 3600}
+        if path == "/v1/tasks/failures?error_type=deliverable_gate_failed&limit=20":
+            return {"error_type": "deliverable_gate_failed", "total": 0, "tasks": []}
         raise AssertionError(path)
 
     monkeypatch.setattr(watchdog, "call_control", fake_call)
 
     report = watchdog.run_watchdog("http://control:9101", limit=20, stale_after_seconds=3600, timeout=5, rebuild_indexes=True)
 
-    assert calls == ["/v1/health", "/v1/tasks/rebuild-indexes", "/v1/tasks/reap-expired", "/v1/tasks/sweep-stuck"]
+    assert calls == [
+        "/v1/health",
+        "/v1/tasks/rebuild-indexes",
+        "/v1/tasks/reap-expired",
+        "/v1/tasks/sweep-stuck",
+        "/v1/tasks/failures?error_type=deliverable_gate_failed&limit=20",
+    ]
     assert report["summary"]["rebuild_indexed"] == 690
+
+
+def test_run_watchdog_reports_deliverable_gate_failures(tmp_path, monkeypatch):
+    watchdog = load_watchdog()
+
+    def fake_call(control_url, method, path, body=None, timeout=20):
+        if path == "/v1/health":
+            return {"status": "ok", "redis": "PONG", "queue_backend": "redis"}
+        if path == "/v1/tasks/reap-expired":
+            return {"task_total": 10, "lease_index_total": 0, "expired": 0, "requeued_total": 0, "dead_lettered_total": 0}
+        if path == "/v1/tasks/sweep-stuck":
+            return {"task_total": 10, "lease_index_total": 0, "stuck": 0, "requeued_total": 0, "dead_lettered_total": 0, "stale_after_seconds": 3600}
+        if path == "/v1/tasks/failures?error_type=deliverable_gate_failed&limit=5":
+            return {
+                "error_type": "deliverable_gate_failed",
+                "total": 1,
+                "tasks": [{"task_id": "KOL-GATE-1", "error": "missing_checks"}],
+            }
+        raise AssertionError(path)
+
+    monkeypatch.setattr(watchdog, "call_control", fake_call)
+
+    report = watchdog.run_watchdog("http://control:9101", limit=5, stale_after_seconds=3600, timeout=7)
+
+    assert report["summary"]["deliverable_gate_status"] == "ok"
+    assert report["summary"]["deliverable_gate_failed"] == 1
+    assert report["summary"]["deliverable_gate_recent"][0]["task_id"] == "KOL-GATE-1"
+    watchdog.update_rollup(report, tmp_path)
+    assert watchdog.should_notify(report["summary"]) is True
 
 
 def test_write_reports_creates_latest_json_and_markdown(tmp_path):
@@ -98,6 +143,7 @@ def test_update_rollup_accumulates_actions_and_recent_events(tmp_path):
             "requeued_stuck": 0,
             "dead_lettered_expired": 0,
             "dead_lettered_stuck": 0,
+            "deliverable_gate_failed": 0,
         },
     }
     second = {
@@ -110,6 +156,8 @@ def test_update_rollup_accumulates_actions_and_recent_events(tmp_path):
             "requeued_stuck": 1,
             "dead_lettered_expired": 0,
             "dead_lettered_stuck": 1,
+            "deliverable_gate_failed": 1,
+            "deliverable_gate_recent": [{"task_id": "KOL-GATE-1"}],
         },
     }
 
@@ -119,12 +167,14 @@ def test_update_rollup_accumulates_actions_and_recent_events(tmp_path):
     assert rollup["runs_total"] == 2
     assert rollup["runs_ok"] == 1
     assert rollup["runs_degraded"] == 1
-    assert rollup["actions_total"] == 6
+    assert rollup["actions_total"] == 7
     assert rollup["totals"]["expired"] == 1
     assert rollup["totals"]["stuck"] == 2
     assert rollup["totals"]["requeued_expired"] == 1
     assert rollup["totals"]["requeued_stuck"] == 1
     assert rollup["totals"]["dead_lettered_stuck"] == 1
+    assert rollup["totals"]["deliverable_gate_failed"] == 1
+    assert rollup["deliverable_gate_seen_task_ids"] == ["KOL-GATE-1"]
     assert rollup["recent_actions"][0]["at"] == "2026-06-29T07:45:00+00:00"
 
 
@@ -135,6 +185,7 @@ def test_should_notify_only_on_action_or_problem():
     assert watchdog.should_notify({"status": "degraded", "expired": 0, "stuck": 0}) is True
     assert watchdog.should_notify({"status": "ok", "expired": 1, "stuck": 0}) is True
     assert watchdog.should_notify({"status": "ok", "expired": 0, "dead_lettered_stuck": 1}) is True
+    assert watchdog.should_notify({"status": "ok", "expired": 0, "stuck": 0, "deliverable_gate_new": 1}) is True
 
 
 def test_maybe_send_telegram_report_skips_clean_report(tmp_path, monkeypatch):
