@@ -1,5 +1,11 @@
 import importlib.util
+import io
+import json
+import urllib.error
+import urllib.parse
 from pathlib import Path
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -146,6 +152,74 @@ def test_chat_transition_hides_factory_metadata():
     assert message == "Привет! Чем могу помочь?"
     for forbidden in ["task_id", "node:", "agent:", "artifact:", "/var/lib", "TGCHAT"]:
         assert forbidden not in message
+
+
+def test_chat_transition_extracts_response_from_structured_json_without_raw_payload():
+    gateway = load_gateway()
+    payload = json.dumps(
+        {
+            "task_id": "TGCHAT-202606291603-1-chat",
+            "node_id": "primary-candidate",
+            "result_path": "/var/lib/kolibri-agent/artifacts/result.json",
+            "response": "Готово <b>безопасно</b> & понятно.",
+        },
+        ensure_ascii=False,
+    )
+    task = {"state": "completed", "result": {"response": payload}}
+    message = gateway.format_transition("COMPLETED", task, mode="chat")
+    assert message == "Готово <b>безопасно</b> & понятно."
+    for forbidden in ["{", "}", "task_id", "node_id", "result_path", "/var/lib"]:
+        assert forbidden not in message
+
+
+def test_telegram_client_sends_html_escaped_message_payload(monkeypatch):
+    gateway = load_gateway()
+    calls = []
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return b'{"ok":true,"result":{"message_id":1}}'
+
+    def fake_urlopen(req, timeout=35):
+        calls.append((req, timeout))
+        return Response()
+
+    monkeypatch.setattr(gateway.urllib.request, "urlopen", fake_urlopen)
+    client = gateway.TelegramClient("123:ABC", api_base="https://telegram.invalid")
+
+    assert client.send_message(100, "5 < 7 & <b>raw</b>") == {"message_id": 1}
+
+    payload = urllib.parse.parse_qs(calls[0][0].data.decode("utf-8"))
+    assert payload["parse_mode"] == ["HTML"]
+    assert payload["text"] == ["5 &lt; 7 &amp; &lt;b&gt;raw&lt;/b&gt;"]
+    assert "123:ABC" not in payload["text"][0]
+
+
+def test_telegram_client_get_updates_409_reports_poll_ownership(monkeypatch):
+    gateway = load_gateway()
+
+    def fake_urlopen(req, timeout=35):
+        raise urllib.error.HTTPError(
+            req.full_url,
+            409,
+            "Conflict",
+            {},
+            io.BytesIO(b'{"ok":false,"error_code":409,"description":"terminated by other getUpdates request"}'),
+        )
+
+    monkeypatch.setattr(gateway.urllib.request, "urlopen", fake_urlopen)
+    client = gateway.TelegramClient("123:ABC", api_base="https://telegram.invalid")
+
+    with pytest.raises(gateway.TelegramPollOwnershipError, match="another gateway instance owns"):
+        client.get_updates(None, 1)
 
 
 def test_task_transition_is_human_readable_without_internal_metadata():

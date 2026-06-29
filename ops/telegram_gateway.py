@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import html
 import json
 import mimetypes
 import os
@@ -150,6 +151,45 @@ IMMEDIATE_CHAT_MARKERS = (
     "помнишь",
     "память",
 )
+READABLE_RESPONSE_KEYS = (
+    "response",
+    "message",
+    "summary",
+    "text",
+    "caption",
+    "owner_message",
+    "human_message",
+    "status_message",
+    "description",
+    "result",
+)
+STRUCTURED_METADATA_KEYS = {
+    "agent_id",
+    "artifact",
+    "artifact_path",
+    "attempt_id",
+    "env_file",
+    "log_path",
+    "log_paths",
+    "node",
+    "node_id",
+    "pid",
+    "result_path",
+    "secret",
+    "task_id",
+    "token",
+    "worktree",
+}
+TELEGRAM_MESSAGE_LIMIT = 3900
+TELEGRAM_CAPTION_LIMIT = 1024
+
+
+class TelegramPollOwnershipError(RuntimeError):
+    """Raised when Telegram reports that another getUpdates poller owns the bot."""
+
+
+def telegram_html_text(text: str, limit: int = TELEGRAM_MESSAGE_LIMIT) -> str:
+    return html.escape((text or "")[:limit], quote=False)
 
 
 def utc_now() -> str:
@@ -273,9 +313,20 @@ class TelegramClient:
     def call(self, method: str, payload: dict[str, Any] | None = None, timeout: int = 35) -> dict[str, Any]:
         data = urllib.parse.urlencode(payload or {}).encode("utf-8")
         req = urllib.request.Request(f"{self.base_url}/{method}", data=data, method="POST")
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            response = json.loads(resp.read().decode("utf-8"))
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                response = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            if method == "getUpdates" and exc.code == 409:
+                raise TelegramPollOwnershipError(
+                    "telegram getUpdates conflict: another gateway instance owns the bot long poll"
+                ) from exc
+            raise RuntimeError(f"telegram {method} failed: HTTP {exc.code}") from exc
         if not response.get("ok"):
+            if method == "getUpdates" and response.get("error_code") == 409:
+                raise TelegramPollOwnershipError(
+                    "telegram getUpdates conflict: another gateway instance owns the bot long poll"
+                )
             raise RuntimeError(f"telegram {method} failed")
         return response
 
@@ -326,13 +377,22 @@ class TelegramClient:
         return self.call("getUpdates", payload, timeout=timeout + 10).get("result", [])
 
     def send_message(self, chat_id: int, text: str) -> dict[str, Any]:
-        response = self.call("sendMessage", {"chat_id": chat_id, "text": text[:3900], "disable_web_page_preview": True})
+        response = self.call(
+            "sendMessage",
+            {
+                "chat_id": chat_id,
+                "text": telegram_html_text(text),
+                "parse_mode": "HTML",
+                "disable_web_page_preview": True,
+            },
+        )
         return response.get("result") or {}
 
     def send_photo(self, chat_id: int, photo: str | bytes | Path, caption: str | None = None, mime_type: str | None = None) -> dict[str, Any]:
         fields: dict[str, Any] = {"chat_id": chat_id}
         if caption:
-            fields["caption"] = caption[:1024]
+            fields["caption"] = telegram_html_text(caption, TELEGRAM_CAPTION_LIMIT)
+            fields["parse_mode"] = "HTML"
         if isinstance(photo, bytes):
             content_type = mime_type or "image/png"
             response = self.call_multipart(
@@ -360,7 +420,8 @@ class TelegramClient:
             {
                 "chat_id": chat_id,
                 "message_id": message_id,
-                "text": text[:3900],
+                "text": telegram_html_text(text),
+                "parse_mode": "HTML",
                 "disable_web_page_preview": True,
             },
         )
@@ -1032,6 +1093,20 @@ class Gateway:
         while not STOP:
             try:
                 self.run_once()
+            except TelegramPollOwnershipError as exc:  # pragma: no cover - surfaced in systemd logs
+                print(
+                    json.dumps(
+                        {
+                            "event": "telegram_getupdates_ownership_conflict",
+                            "error": str(exc),
+                            "rollback_hint": "stop duplicate kolibri-telegram-gateway pollers before retrying rollout",
+                            "time": utc_now(),
+                        },
+                        ensure_ascii=False,
+                    ),
+                    file=sys.stderr,
+                )
+                time.sleep(int(os.environ.get("TELEGRAM_POLL_CONFLICT_SLEEP", "30")))
             except Exception as exc:  # pragma: no cover - surfaced in systemd logs
                 print(json.dumps({"event": "telegram_gateway_error", "error": str(exc), "time": utc_now()}), file=sys.stderr)
                 time.sleep(5)
@@ -1095,12 +1170,59 @@ def format_task_status(task: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def looks_like_json_text(text: str) -> bool:
+    stripped = text.strip()
+    return (stripped.startswith("{") and stripped.endswith("}")) or (stripped.startswith("[") and stripped.endswith("]"))
+
+
+def readable_text_from_structured(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not looks_like_json_text(stripped):
+            return value
+        try:
+            parsed = json.loads(stripped)
+        except ValueError:
+            return value
+        return readable_text_from_structured(parsed) or ""
+    if isinstance(value, dict):
+        for key in READABLE_RESPONSE_KEYS:
+            if key not in value:
+                continue
+            candidate = readable_text_from_structured(value.get(key))
+            if candidate:
+                return candidate
+        lines = []
+        for key, item in value.items():
+            key_text = str(key).lower()
+            if key_text in STRUCTURED_METADATA_KEYS or any(marker in key_text for marker in ("secret", "token", "_key")):
+                continue
+            if isinstance(item, str) and not looks_like_json_text(item):
+                lines.append(item)
+        return "\n".join(line for line in lines if line.strip()) or None
+    if isinstance(value, list):
+        lines = []
+        for item in value:
+            candidate = readable_text_from_structured(item)
+            if candidate:
+                lines.append(candidate)
+        return "\n".join(lines) or None
+    return None
+
+
 def clean_agent_response(text: str | None) -> str:
-    raw_lowered = (text or "").lower()
-    if any(marker in raw_lowered for marker in OWNER_RUNTIME_FAILURE_MARKERS):
+    source = text or ""
+    readable = readable_text_from_structured(source)
+    marker_source = readable if readable is not None else source
+    if any(marker in marker_source.lower() for marker in OWNER_RUNTIME_FAILURE_MARKERS):
         return owner_safe_runtime_failure("", None)
+    if readable == "":
+        return "Я завершил ответ, но текст не записался. Разберу это отдельно."
+    source = readable or source
     clean_chars = []
-    for ch in text or "":
+    for ch in source:
         if unicodedata.category(ch) in {"So", "Sk"}:
             continue
         clean_chars.append(ch)
