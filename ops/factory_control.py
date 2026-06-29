@@ -17,6 +17,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -26,8 +27,15 @@ REDIS_HOST = os.environ.get("FACTORY_REDIS_HOST", "127.0.0.1")
 REDIS_PORT = int(os.environ.get("FACTORY_REDIS_PORT", "6379"))
 LEASE_DURATION = int(os.environ.get("FACTORY_LEASE_DURATION", "60"))
 MAX_RETRIES = int(os.environ.get("FACTORY_MAX_RETRIES", "3"))
+SPOOL_DIR = Path(os.environ.get("FACTORY_SPOOL_DIR", "/var/lib/kolibri-factory-control/spool"))
+REQUEUE_INTERVAL = int(os.environ.get("FACTORY_REQUEUE_INTERVAL", "30"))
+REQUEUE_SCAN_LIMIT = int(os.environ.get("FACTORY_REQUEUE_SCAN_LIMIT", "500"))
+LAST_REQUEUE = 0.0
+FILESYSTEM_MODE = "mesh_api_namespace"
+FILESYSTEM_WRITE_POLICY = "node-local writes only; no shared writable root disk; shared roots require leases"
 
 STATE_QUEUED = "queued"
+STATE_SPOOLED = "spooled"
 STATE_LEASED = "leased"
 STATE_RUNNING = "running"
 STATE_WAITING_REVIEW = "waiting_review"
@@ -130,6 +138,15 @@ def drain_key(node_id: str) -> str:
     return key(f"drain:{node_id}")
 
 
+def namespace_segment(value: str, fallback: str) -> str:
+    safe = "".join(ch if ch.isalnum() or ch in "_.-" else "-" for ch in str(value).strip())
+    return safe or fallback
+
+
+def filesystem_namespace_prefix(node_id: str) -> str:
+    return f"/kolibri/nodes/{namespace_segment(node_id, 'node')}"
+
+
 def all_task_ids() -> list[str]:
     values = redis.command("SMEMBERS", key("task_ids")) or []
     return sorted(values)
@@ -181,6 +198,56 @@ def normalize_task(envelope: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def spool_path(task_id: str) -> Path:
+    safe = "".join(ch if ch.isalnum() or ch in "_.-" else "-" for ch in task_id)
+    return SPOOL_DIR / "queued" / f"{safe}.json"
+
+
+def spool_task(envelope: dict[str, Any], error: Exception | None = None) -> dict[str, Any]:
+    task = normalize_task(envelope)
+    task["state"] = STATE_SPOOLED
+    task["spooled_at"] = utc_now()
+    task["error_type"] = type(error).__name__ if error else None
+    task["error"] = str(error)[:500] if error else None
+    path = spool_path(task["task_id"])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        return json.loads(path.read_text(encoding="utf-8"))
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(task, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp.replace(path)
+    return task
+
+
+def load_spooled_task(task_id: str) -> dict[str, Any] | None:
+    path = spool_path(task_id)
+    if not path.exists():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def spooled_tasks() -> list[dict[str, Any]]:
+    queued = SPOOL_DIR / "queued"
+    if not queued.exists():
+        return []
+    tasks = []
+    for path in sorted(queued.glob("*.json")):
+        try:
+            tasks.append(json.loads(path.read_text(encoding="utf-8")))
+        except (OSError, json.JSONDecodeError):
+            continue
+    return tasks
+
+
+def replay_spooled_tasks(limit: int = 100) -> int:
+    replayed = 0
+    for task in spooled_tasks()[:limit]:
+        create_task(task.get("envelope", {}))
+        spool_path(task["task_id"]).unlink(missing_ok=True)
+        replayed += 1
+    return replayed
+
+
 def compatible(task: dict[str, Any], node_id: str, capabilities: list[str]) -> bool:
     envelope = task.get("envelope", {})
     target_node = envelope.get("target_node") or envelope.get("required_node")
@@ -195,9 +262,13 @@ def compatible(task: dict[str, Any], node_id: str, capabilities: list[str]) -> b
     return True
 
 
-def requeue_expired_leases() -> None:
+def requeue_expired_leases(force: bool = False) -> None:
+    global LAST_REQUEUE
     current = now_ts()
-    for task_id in all_task_ids():
+    if not force and current - LAST_REQUEUE < REQUEUE_INTERVAL:
+        return
+    LAST_REQUEUE = current
+    for task_id in all_task_ids()[:REQUEUE_SCAN_LIMIT]:
         task = load_task(task_id)
         if not task or task.get("state") not in {STATE_LEASED, STATE_RUNNING, STATE_REVIEW}:
             continue
@@ -262,6 +333,87 @@ def create_review_task(source_task: dict[str, Any], result: dict[str, Any]) -> d
     return review
 
 
+def normalize_filesystem_manifest(node_id: str, raw: Any) -> dict[str, Any]:
+    filesystem = raw if isinstance(raw, dict) else {}
+    prefix = filesystem_namespace_prefix(node_id)
+    roots = []
+    raw_roots = filesystem.get("roots") if isinstance(filesystem.get("roots"), list) else []
+    for index, root in enumerate(raw_roots, start=1):
+        if not isinstance(root, dict):
+            continue
+        name = namespace_segment(str(root.get("name") or f"root-{index}"), f"root-{index}")
+        entry: dict[str, Any] = {
+            "name": name,
+            "namespace": f"{prefix}/{name}",
+            "path": root.get("path") if isinstance(root.get("path"), str) else None,
+            "purpose": root.get("purpose") if isinstance(root.get("purpose"), str) else None,
+            "exists": bool(root.get("exists")),
+            "writable": bool(root.get("writable")),
+        }
+        disk = root.get("disk")
+        if isinstance(disk, dict):
+            entry["disk"] = {
+                metric: disk.get(metric)
+                for metric in ("total", "used", "free")
+                if isinstance(disk.get(metric), int)
+            }
+        roots.append(entry)
+    return {
+        "namespace_prefix": prefix,
+        "mode": FILESYSTEM_MODE,
+        "write_policy": FILESYSTEM_WRITE_POLICY,
+        "roots": roots,
+    }
+
+
+def build_filesystem_namespace() -> dict[str, Any]:
+    nodes = []
+    roots = []
+    for node_id in sorted(redis.command("SMEMBERS", key("node_ids")) or []):
+        node = get_json(node_key(node_id), {})
+        filesystem = normalize_filesystem_manifest(node_id, node.get("filesystem"))
+        prefix = filesystem["namespace_prefix"]
+        node_roots = []
+        for root in filesystem["roots"]:
+            entry = {
+                "node_id": node_id,
+                "hostname": node.get("hostname"),
+                "agent_id": node.get("agent_id"),
+                "root": root["name"],
+                "namespace": root["namespace"],
+                "path": root.get("path"),
+                "purpose": root.get("purpose"),
+                "exists": bool(root.get("exists")),
+                "writable": bool(root.get("writable")),
+            }
+            if "disk" in root:
+                entry["disk"] = root["disk"]
+            node_roots.append(entry)
+            roots.append(entry)
+        nodes.append({
+            "node_id": node_id,
+            "hostname": node.get("hostname"),
+            "agent_id": node.get("agent_id"),
+            "health": node.get("health"),
+            "heartbeat_at": node.get("heartbeat_at"),
+            "draining": bool(redis.command("GET", drain_key(node_id))),
+            "namespace_prefix": prefix,
+            "mode": filesystem["mode"],
+            "write_policy": filesystem["write_policy"],
+            "roots": node_roots,
+        })
+    return {
+        "namespace": "/kolibri",
+        "transport": "mesh-api/control-plane",
+        "mode": FILESYSTEM_MODE,
+        "write_policy": FILESYSTEM_WRITE_POLICY,
+        "nodes": nodes,
+        "roots": roots,
+        "root_count": len(roots),
+        "generated_at": utc_now(),
+    }
+
+
 def response(handler: BaseHTTPRequestHandler, status: int, body: Any) -> None:
     payload = json.dumps(body, indent=2, sort_keys=True).encode("utf-8")
     handler.send_response(status)
@@ -289,8 +441,27 @@ class Handler(BaseHTTPRequestHandler):
         path = parsed.path.rstrip("/") or "/"
         try:
             if path in {"/health", "/v1/health"}:
-                pong = redis.command("PING")
-                response(self, 200, {"status": "ok", "redis": pong, "queue_backend": "redis", "time": utc_now()})
+                try:
+                    pong = redis.command("PING")
+                    replayed = replay_spooled_tasks()
+                    response(self, 200, {
+                        "status": "ok",
+                        "redis": pong,
+                        "queue_backend": "redis",
+                        "spool_count": len(spooled_tasks()),
+                        "spool_replayed": replayed,
+                        "time": utc_now(),
+                    })
+                except Exception as exc:
+                    response(self, 200, {
+                        "status": "degraded",
+                        "redis": "unavailable",
+                        "queue_backend": "local_spool",
+                        "spool_count": len(spooled_tasks()),
+                        "error_type": type(exc).__name__,
+                        "error": str(exc)[:500],
+                        "time": utc_now(),
+                    })
                 return
             if path == "/v1/nodes":
                 nodes = []
@@ -300,16 +471,51 @@ class Handler(BaseHTTPRequestHandler):
                     nodes.append(node)
                 response(self, 200, {"nodes": nodes})
                 return
+            if path == "/v1/filesystem":
+                response(self, 200, build_filesystem_namespace())
+                return
             if path == "/v1/tasks":
                 query = parse_qs(parsed.query)
                 wanted = query.get("state", [None])[0]
-                tasks = [load_task(task_id) for task_id in all_task_ids()]
-                tasks = [task for task in tasks if task and (wanted is None or task.get("state") == wanted)]
-                response(self, 200, {"tasks": tasks, "queue": queue_ids()})
+                try:
+                    limit = int(query.get("limit", ["0"])[0] or "0")
+                except ValueError:
+                    limit = 0
+                try:
+                    replay_spooled_tasks()
+                    task_ids = all_task_ids()
+                    if limit > 0:
+                        task_ids = task_ids[-limit:]
+                    tasks = [load_task(task_id) for task_id in task_ids]
+                    tasks = [task for task in tasks if task and (wanted is None or task.get("state") == wanted)]
+                    queue = queue_ids()
+                    response(self, 200, {
+                        "tasks": tasks,
+                        "queue": queue[:limit] if limit > 0 else queue,
+                        "spool_count": len(spooled_tasks()),
+                    })
+                except Exception as exc:
+                    tasks = spooled_tasks()
+                    if limit > 0:
+                        tasks = tasks[-limit:]
+                    tasks = [task for task in tasks if wanted is None or task.get("state") == wanted]
+                    response(self, 200, {
+                        "status": "degraded",
+                        "tasks": tasks,
+                        "queue": [],
+                        "spool_count": len(spooled_tasks()),
+                        "error_type": type(exc).__name__,
+                        "error": str(exc)[:500],
+                    })
                 return
             if path.startswith("/v1/tasks/"):
                 task_id = path.split("/", 3)[3]
-                task = load_task(task_id)
+                try:
+                    task = load_task(task_id)
+                except Exception:
+                    task = load_spooled_task(task_id)
+                if not task:
+                    task = load_spooled_task(task_id)
                 if not task:
                     response(self, 404, {"error": "task_not_found", "task_id": task_id})
                     return
@@ -337,6 +543,7 @@ class Handler(BaseHTTPRequestHandler):
                     "ram": body.get("ram"),
                     "disk": body.get("disk"),
                     "agent_id": body.get("agent_id"),
+                    "filesystem": normalize_filesystem_manifest(node_id, body.get("filesystem")),
                 }
                 set_json(node_key(node_id), node)
                 redis.command("SADD", key("node_ids"), node_id)
@@ -345,7 +552,9 @@ class Handler(BaseHTTPRequestHandler):
             if path.startswith("/v1/nodes/") and path.endswith("/heartbeat"):
                 node_id = path.split("/")[3]
                 node = get_json(node_key(node_id), {"node_id": node_id})
+                filesystem = body.get("filesystem", node.get("filesystem"))
                 node.update(body)
+                node["filesystem"] = normalize_filesystem_manifest(node_id, filesystem)
                 node["health"] = "online"
                 node["heartbeat_at"] = utc_now()
                 set_json(node_key(node_id), node)
@@ -362,8 +571,18 @@ class Handler(BaseHTTPRequestHandler):
                 response(self, 200, {"node_id": node_id, "draining": drain})
                 return
             if path == "/v1/tasks":
-                task = create_task(body)
-                response(self, 201, task)
+                try:
+                    replay_spooled_tasks()
+                    task = create_task(body)
+                    response(self, 201, task)
+                except Exception as exc:
+                    task = spool_task(body, exc)
+                    response(self, 202, {
+                        **task,
+                        "accepted": True,
+                        "queue_backend": "local_spool",
+                        "message": "task accepted into local spool and will be replayed when Redis is available",
+                    })
                 return
             if path == "/v1/tasks/lease":
                 requeue_expired_leases()
@@ -406,6 +625,16 @@ class Handler(BaseHTTPRequestHandler):
                     task["worktree"] = body.get("worktree", task.get("worktree"))
                     task["branch"] = body.get("branch", task.get("branch"))
                     task["log_paths"] = body.get("log_paths", task.get("log_paths"))
+                    progress = body.get("progress") or {}
+                    partial_response = body.get("partial_response")
+                    if progress or partial_response is not None:
+                        result = task.get("result") if isinstance(task.get("result"), dict) else {}
+                        if progress:
+                            result["progress"] = progress
+                        if partial_response is not None:
+                            result["partial_response"] = partial_response
+                        result["stream_updated_at"] = utc_now()
+                        task["result"] = result
                     save_task(task)
                 response(self, 200, task)
                 return
