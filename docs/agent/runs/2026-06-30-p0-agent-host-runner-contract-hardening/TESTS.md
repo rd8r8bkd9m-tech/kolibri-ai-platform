@@ -25,13 +25,28 @@ Results:
 - `tests/test_factory_runtime.py`: 4 passed.
 - Full suite: 73 passed, 1 warning.
 
-Remote server validation:
+Test classification:
+
+| Test or check | Classification | Result |
+| --- | --- | --- |
+| `py_compile ops/agent_host.py` on Mac with Python 3.12.13 | `passed_local_mac` | Passed |
+| `pytest tests/test_agent_host_runner_contract.py -q` on Mac with Python 3.12.13 | `passed_local_mac` | 13 passed |
+| `pytest tests/test_agent_host* -q` on Mac with Python 3.12.13 | `passed_local_mac` | 19 passed |
+| `pytest tests/test_factory_runtime.py -q` on Mac with Python 3.12.13 | `passed_local_mac` | 4 passed |
+| `pytest -q` on Mac with Python 3.12.13 | `passed_local_mac` | 73 passed, 1 external warning |
+| `pytest -q` on Mac with Homebrew Python 3.14 | `blocked_missing_dependency` | `pydantic-core==2.23.2` cannot build because its PyO3 dependency supports up to Python 3.13 |
+| GitHub Actions `Kolibri CI / ci` | `deferred_to_ci` | Completed successfully |
+| Remote full suite on `217.60.63.31` | `deferred_to_server` | Completed successfully |
+| Control Plane rerun of P0 integration audit | `not_run_with_reason` | Intentionally left for next supervised task after PR merge/deploy |
+| Production/runtime repo mutation tests | `not_run_with_reason` | Forbidden by task scope |
+
+Remote server validation of code behavior:
 
 - Host: `server-kfrm`
 - IP: `217.60.63.31`
 - User: `root`
-- Commit tested: `82ca8fecfc2f374f1f2299de9197d0b86bf6681a`
-- Test checkout: `/var/tmp/kolibri-pr83-82ca8fec`
+- Commit tested: `67a57ea345e03db4989b56b29e9a7bf9ac65eeec`
+- Test checkout: `/var/tmp/kolibri-pr83-67a57ea3`
 - Source transfer: `git archive HEAD` from the already pushed PR branch,
   extracted into the temporary server checkout.
 - Python: 3.12.3
@@ -44,9 +59,9 @@ Remote server validation:
 GitHub validation:
 
 - PR: <https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/83>
-- Workflow run: <https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/actions/runs/28471963438>
+- Workflow run: <https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/actions/runs/28472388420>
 - Result: `Kolibri CI / ci` succeeded for commit
-  `82ca8fecfc2f374f1f2299de9197d0b86bf6681a`.
+  `67a57ea345e03db4989b56b29e9a7bf9ac65eeec`.
 
 Notes:
 
@@ -59,3 +74,6 @@ Notes:
 - `217.60.63.31` did not have `git` or `gh` installed, so the server test used
   a temporary archive checkout instead of modifying or depending on a production
   runtime repository.
+- This follow-up only adds documentation examples and test classification; it
+  does not change product code or runner behavior. GitHub CI validates each PR
+  head after push.

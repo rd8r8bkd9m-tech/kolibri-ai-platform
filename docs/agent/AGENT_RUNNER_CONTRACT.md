@@ -114,3 +114,145 @@ The Agent Host may call `/complete` only after the contract finalizer confirms:
 
 Otherwise the Agent Host must call `/fail` with a structured contract result and
 `error_type: runner_contract_blocked` for blocked states.
+
+## Valid Envelope Examples
+
+### Read-Only Probe With Required Artifact
+
+```json
+{
+  "task_id": "KOL-READONLY-REPORT-1",
+  "kind": "read_only_probe",
+  "required_capability": "read_only_probe",
+  "read_only": true,
+  "no_push": true,
+  "required_artifacts": [
+    "docs/agent/reports/KOL-READONLY-REPORT-1/RESULT.md"
+  ],
+  "write_scope": [
+    "docs/agent/reports/KOL-READONLY-REPORT-1/**"
+  ]
+}
+```
+
+Expected result if the artifact exists and only scoped docs changed:
+
+```json
+{
+  "status": "completed",
+  "push_attempted": false,
+  "push_blocked": true,
+  "push_block_reason": "no_push, read_only",
+  "required_artifacts_missing": [],
+  "write_scope_violations": [],
+  "product_code_changed": false
+}
+```
+
+### Documentation Artifact Task
+
+```json
+{
+  "task_id": "KOL-DOCS-ONLY-1",
+  "kind": "read_only_probe",
+  "documentation_artifacts_only": true,
+  "product_code_modification_forbidden": true,
+  "required_outputs": [
+    {
+      "path": "docs/agent/runs/KOL-DOCS-ONLY-1/RESULT.md"
+    }
+  ],
+  "write_scope": [
+    "docs/agent/runs/KOL-DOCS-ONLY-1/**"
+  ]
+}
+```
+
+Expected result if only scoped docs outputs are written:
+
+```json
+{
+  "status": "completed",
+  "product_code_modification_forbidden": true,
+  "product_code_changed": false,
+  "required_artifacts_present": [
+    "docs/agent/runs/KOL-DOCS-ONLY-1/RESULT.md"
+  ],
+  "write_scope_violations": []
+}
+```
+
+## Invalid Outcome Examples
+
+### Missing Required Artifact
+
+If the envelope requires:
+
+```json
+{
+  "required_artifacts": [
+    "docs/agent/integration/FRONTEND_BACKEND_CONTRACT.md"
+  ]
+}
+```
+
+but the file does not exist in the worktree or artifact directory, the runner
+must not complete:
+
+```json
+{
+  "status": "blocked",
+  "required_artifacts_missing": [
+    "docs/agent/integration/FRONTEND_BACKEND_CONTRACT.md"
+  ],
+  "blocked_reason": "required_artifacts_missing"
+}
+```
+
+### Write Scope Violation
+
+If `write_scope` is `["docs/agent/allowed/**"]` and the task changes
+`ops/agent_host.py`, the runner must not complete:
+
+```json
+{
+  "status": "blocked",
+  "changed_files": [
+    "ops/agent_host.py"
+  ],
+  "write_scope_violations": [
+    "ops/agent_host.py"
+  ],
+  "blocked_reason": "write_scope_violations"
+}
+```
+
+### Forbidden Push Attempt
+
+If the envelope has `git_push_forbidden: true` or `read_only: true`, any push
+attempt is a blocker:
+
+```json
+{
+  "status": "blocked",
+  "push_attempted": true,
+  "push_blocked": true,
+  "push_block_reason": "git_push_forbidden",
+  "blocked_reason": "forbidden_push_attempted"
+}
+```
+
+### Unsupported Task Kind
+
+If the Agent Host receives an unsupported `kind`, it must return a structured
+blocked result and avoid product modifications:
+
+```json
+{
+  "status": "blocked",
+  "kind": "owner_remote_task",
+  "changed_files": [],
+  "blocked_reason": "unsupported_task_kind:owner_remote_task",
+  "next_recommended_task": "enable a supported read-only runner for this task kind before resubmitting"
+}
+```

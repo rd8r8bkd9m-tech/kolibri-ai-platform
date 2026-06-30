@@ -6,12 +6,12 @@ GitHub:
 
 - Draft PR: <https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/83>
 - CI: `Kolibri CI / ci` succeeded for commit
-  `82ca8fecfc2f374f1f2299de9197d0b86bf6681a`.
+  `67a57ea345e03db4989b56b29e9a7bf9ac65eeec`.
 
-Remote server validation:
+Remote server validation of code behavior:
 
 - Heavy/full test host: `server-kfrm` at `217.60.63.31`.
-- Temporary checkout: `/var/tmp/kolibri-pr83-82ca8fec`.
+- Temporary checkout: `/var/tmp/kolibri-pr83-67a57ea3`.
 - Full remote suite: 73 passed, 1 external `reportlab` warning.
 
 Implemented behavior:
@@ -29,6 +29,9 @@ Implemented behavior:
   `push_attempted: false`, `push_blocked: true`, and a reason.
 - The P0 integration audit artifact-path drift case is covered by a regression
   test.
+- The contract document includes valid envelope examples and invalid blocked
+  outcome examples.
+- Test records include the required Mac/server/CI classification.
 
 Files changed:
 
