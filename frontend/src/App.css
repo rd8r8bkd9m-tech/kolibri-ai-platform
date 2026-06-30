@@ -510,14 +510,7 @@ body {
   .welcome-subtitle { font-size: 14px; }
 }
 
-/* ═══════════════════════════════════════════════════════════════════
-  fill: none;
-  stroke: #f6c76e;
-  stroke-linecap: round;
-  stroke-width: 2.6;
-}
-
-/* Kolibri Avatar — from kolibriai.ru */
+/* Kolibri Avatar - from kolibriai.ru */
 .kolibri-avatar {
   position: relative;
   display: inline-grid;
