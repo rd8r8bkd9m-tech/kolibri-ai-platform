@@ -8,9 +8,9 @@ Russian agent display name: `Инженер`
 
 Branch: `p0/api-first-full-control-fabric-2026-07-01`
 
-Commit: `pending`
+Implementation commit: `fa3cc378cf6891dc37934f867a6fcca9baa135e3`
 
-PR: `pending`
+PR: `https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/85`
 
 ## Scope
 
@@ -56,4 +56,4 @@ None currently.
 
 ## Next Action
 
-Commit, push without force, and open a draft PR.
+Monitor draft PR checks and move to review when ready.
