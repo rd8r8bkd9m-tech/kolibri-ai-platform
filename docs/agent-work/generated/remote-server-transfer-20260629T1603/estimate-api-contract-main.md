@@ -1,202 +1,145 @@
-# Estimate API contract: Main server
+# Estimate API contract - Main server
 
 Task: `KOL-REMOTE-SERVER-TASK-20260629T1603-005-MAIN-ESTIMATE-DELIVERABLE-RETRY`
 
 Result reference: `docs/agent-work/generated/remote-server-transfer-20260629T1603/estimate-api-contract-main.md`
 
-## Scope
+## Implemented contract
 
-The deterministic estimate engine is now exposed through a versioned API contract on the Main backend. The contract connects these code paths:
+The deterministic estimate engine is bound to a FastAPI contract on the Main backend:
 
-- `backend/estimate_engine.py`: deterministic line normalization, totals, audit fingerprint, canonical JSON/hash helpers, and claim constraints.
-- `backend/routes_v1.py`: API request/response schemas and estimate endpoints.
-- `backend/tests/test_estimate_api_contract.py`: endpoint-level contract regression tests.
-- `backend/tests/test_estimate_document_pdf_engines.py`: engine-level canonical hash regression tests.
+- `backend/estimate_engine.py` provides deterministic recalculation, canonical JSON/hash helpers, deterministic generated estimate IDs, and audit fingerprints.
+- `backend/estimate_api.py` exposes the estimate contract endpoints and validates unsupported 98-99% accuracy claims.
+- `backend/main.py` mounts the estimate API router before the existing v1 router.
+- `backend/tests/test_estimate_document_pdf_engines.py` covers engine determinism, canonical hashes, edit conflict flow, and claim rejection.
 
 Schema version: `kolibri.estimate.v1`.
 
 ## Endpoints
 
-### `GET /api/v1/estimates/contract`
+### `GET /api/estimates/contract`
 
-Returns the runtime contract metadata:
+Returns endpoint names, input JSON schemas, canonical schema version, and claim constraints.
 
-- `schema_version`
-- `generate_request_schema`
-- `edit_request_schema`
-- `response_schema`
-- `claim_constraints`
-- `canonical_hash` rules
+### `POST /api/estimates/generate`
 
-This endpoint is intended for clients, Mini App code, and remote agents that need to bind to the current estimate input/output shape without reading Python internals.
-
-### `POST /api/v1/estimates/generate`
-
-Request schema:
+Accepts:
 
 ```json
 {
   "prompt": "Нужна смета на ремонт кухни 12 м2",
   "client_name": "Иван",
-  "object_address": "optional",
+  "object_address": "Адрес объекта не указан",
   "currency": "RUB",
-  "overhead_rate": "7.00",
-  "tax_rate": "0.00"
+  "claim": null
 }
 ```
 
-Required field: `prompt`.
+Returns an estimate plus `canonical_json`, `canonical_hash`, and `contract.claim_constraints`.
 
-The endpoint calls `create_estimate_from_prompt`, applies optional contract overrides, recalculates with the deterministic engine, and returns the contract envelope.
+### `POST /api/estimates/edit`
 
-### `POST /api/v1/estimates/recalculate`
-
-Request schema:
+Accepts a generated estimate, the previous `expected_canonical_hash`, a partial `edits` patch, and optional `claim`.
 
 ```json
 {
-  "estimate": {
-    "estimate_id": "EST-...",
-    "title": "Смета на ремонт кухни",
-    "client_name": "Иван",
-    "object_address": "Адрес объекта не указан",
-    "currency": "RUB",
-    "sections": []
-  },
-  "base_canonical_hash": "optional 64-char sha256 from a previous response"
-}
-```
-
-The endpoint accepts a full edited estimate payload, validates it through the `Estimate` Pydantic model, recalculates all derived totals, and returns a new envelope. If `base_canonical_hash` is provided, the response includes:
-
-```json
-{
-  "edit": {
-    "base_canonical_hash": "previous hash",
-    "hash_changed": true
-  }
-}
-```
-
-The current implementation is stateless: `base_canonical_hash` is edit lineage metadata, not a persistence-layer optimistic lock.
-
-## Response envelope
-
-Both generate and recalculate return:
-
-```json
-{
-  "schema_version": "kolibri.estimate.v1",
   "estimate": {},
-  "canonical_json": "{}",
-  "canonical_hash": "64-char sha256",
-  "calculation_hash": "64-char sha256",
-  "claim_constraints": {},
-  "edit": null
+  "expected_canonical_hash": "sha256:<previous>",
+  "edits": {
+    "overhead_rate": "12.00"
+  },
+  "claim": null
 }
 ```
 
-`estimate` is the normalized `Estimate` model, including recalculated `totals` and `calculation_audit`.
+The server recalculates the submitted estimate and compares hashes before applying edits. A mismatch returns HTTP `409` with `canonical_hash_conflict`; a successful edit returns the new `canonical_hash` and `previous_canonical_hash`.
 
-`calculation_hash` is the deterministic audit hash for arithmetic totals.
+## Canonical JSON/hash
 
-`canonical_hash` is the SHA-256 hash of `canonical_json`.
+Canonical JSON uses UTF-8 JSON with sorted keys and compact separators. Hashes are returned as `sha256:<hex>`.
 
-## Canonical JSON and hash
+The canonical payload includes estimate content, deterministic calculation lines, totals, rates, and formula. Volatile runtime fields are excluded:
 
-Canonical JSON is serialized as UTF-8 with:
+- `created_at`
+- `updated_at`
+- `captured_at`
+- `calculated_at`
+- `calculation_audit`
 
-- `ensure_ascii=false`
-- `sort_keys=true`
-- compact separators `(",", ":")`
-- `schema_version=kolibri.estimate.v1`
+Prompt-generated estimates derive `estimate_id` from normalized prompt, client, address, and currency input, so equivalent generate calls produce stable IDs and canonical hashes.
 
-The canonical payload excludes volatile runtime fields:
-
-- `estimate.created_at`
-- `estimate.updated_at`
-- `estimate.sections[].items[].provenance.captured_at`
-- `estimate.calculation_audit[].calculated_at`
-
-The canonical payload keeps estimate identity, section/item economics, provenance source/label/confidence, deterministic totals, and non-volatile audit data. This means:
-
-- Recalculating the same estimate payload produces the same `canonical_hash`.
-- Editing a line quantity or price produces a different `canonical_hash`.
-- Repeating prompt generation may produce a different `canonical_hash` because a new estimate identity is created.
+Retry refinement: `estimate_canonical_payload` recalculates a deep copy, so creating canonical JSON/hash does not mutate runtime timestamps on the caller's estimate object.
 
 ## Edit-after-generate flow
 
-1. Client calls `POST /api/v1/estimates/generate`.
-2. Client stores `estimate` and `canonical_hash`.
-3. User edits line items, rates, notes, sections, client fields, or address locally.
-4. Client calls `POST /api/v1/estimates/recalculate` with the full edited `estimate` and the previous `base_canonical_hash`.
-5. Server validates the schema, recalculates totals, emits a new `calculation_hash`, new `canonical_json`, and new `canonical_hash`.
-6. Client compares `edit.hash_changed` and stores the returned normalized estimate as the new base.
+1. Client calls `POST /api/estimates/generate`.
+2. Client stores returned `estimate` and `canonical_hash`.
+3. User edits fields locally.
+4. Client calls `POST /api/estimates/edit` with the stored estimate, `expected_canonical_hash`, and patch object.
+5. Server recalculates and checks the submitted base estimate hash.
+6. If the base hash matches, server applies edits, recalculates, and returns a new canonical envelope.
+7. If the base hash does not match, server returns HTTP `409` and does not apply the patch.
 
-Clients must treat totals from local UI edits as provisional until the server returns the deterministic recalculation envelope.
+Clients must treat UI-side totals as provisional until the server returns the deterministic recalculation envelope.
 
 ## 98-99% claim constraints
 
-The API returns `claim_constraints.allowed=false` for the requested `98-99%` claim.
+The API contract does not treat deterministic recalculation as a price-accuracy warranty.
 
-Allowed public claim:
+Any `claim.percent >= 98.00` is rejected unless all of these are present:
 
-`Детерминированный пересчёт строк сметы с воспроизводимым аудит-хешем.`
+- `basis: "external_audit"`
+- `sample_size >= 100`
+- non-empty `evidence_reference`
 
-The API must not claim 98-99% estimate accuracy unless separate product evidence exists:
+Allowed claims are limited to deterministic recalculation, rounding, canonical JSON, hashes, and edit conflict checks unless external audit evidence is supplied.
 
-- signed measurement or BIM/plan import with units
-- versioned price book with source, region, and capture time
-- rounding, tax, and overhead rules
-- validation sample comparing planned and actual closed estimates
-- separate metrics for arithmetic reproducibility and commercial accuracy
+## Fallback report
 
-This protects the product from conflating deterministic arithmetic with market-price accuracy.
+Telegram delivery was not used for this code task. This artifact is the fallback agent-message/report and can be used as the Control Plane `result_reference`.
 
-## Verification
+## Verification commands
 
 Executed in this workspace:
 
 ```bash
-python3 -m compileall backend/estimate_engine.py backend/routes_v1.py backend/tests/test_estimate_api_contract.py backend/tests/test_estimate_document_pdf_engines.py
+python3 -m compileall backend/estimate_engine.py backend/estimate_api.py backend/main.py backend/tests/test_estimate_document_pdf_engines.py
 PYTHONPATH=backend python3 - <<'PY'
-from estimate_engine import canonical_estimate_hash, canonical_estimate_json, create_estimate_from_prompt, normalize_estimate_payload
+from estimate_engine import create_estimate_from_prompt, estimate_canonical_hash, estimate_canonical_json, normalize_estimate_payload
 estimate = create_estimate_from_prompt('Нужна смета на ремонт кухни 12 м2', client_name='Иван')
-first_hash = canonical_estimate_hash(estimate)
+repeated = create_estimate_from_prompt('Нужна смета на ремонт кухни 12 м2', client_name='Иван')
+assert estimate.estimate_id == repeated.estimate_id
+assert estimate_canonical_hash(estimate) == estimate_canonical_hash(repeated)
+updated_at = estimate.updated_at
+calculated_at = estimate.calculation_audit[-1]['calculated_at']
+first_hash = estimate_canonical_hash(estimate)
+assert estimate.updated_at == updated_at
+assert estimate.calculation_audit[-1]['calculated_at'] == calculated_at
+assert 'captured_at' not in estimate_canonical_json(estimate)
 payload = estimate.model_dump(mode='json')
-payload['updated_at'] = '2030-01-01T00:00:00+00:00'
-payload['calculation_audit'][-1]['calculated_at'] = '2030-01-01T00:00:00+00:00'
-payload['sections'][0]['items'][0]['provenance']['captured_at'] = '2030-01-01T00:00:00+00:00'
-normalized = normalize_estimate_payload(payload)
-assert canonical_estimate_hash(normalized) == first_hash
-canonical_json = canonical_estimate_json(normalized)
-assert 'calculated_at' not in canonical_json
-assert 'captured_at' not in canonical_json
-edited_payload = estimate.model_dump(mode='json')
-edited_payload['sections'][0]['items'][0]['material_unit_price'] = '99.00'
-edited = normalize_estimate_payload(edited_payload)
-assert canonical_estimate_hash(edited) != first_hash
-assert edited.totals.grand_total > estimate.totals.grand_total
+payload['sections'][0]['items'][0]['material_unit_price'] = '99.00'
+edited = normalize_estimate_payload(payload)
+assert estimate_canonical_hash(edited) != first_hash
 PY
 PYTHONPATH=backend python3 - <<'PY'
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from routes_v1 import router
-app = FastAPI()
-app.include_router(router)
+from main import app
 client = TestClient(app)
-contract = client.get('/api/v1/estimates/contract')
-generated = client.post('/api/v1/estimates/generate', json={'prompt': 'Нужна смета на ремонт кухни 12 м2', 'client_name': 'Иван'})
+contract = client.get('/api/estimates/contract')
+generated = client.post('/api/estimates/generate', json={'prompt': 'Нужна смета на ремонт кухни 12 м2', 'client_name': 'Иван'})
 body = generated.json()
-edited = body['estimate']
-edited['sections'][0]['items'][0]['material_unit_price'] = '99.00'
-recalculated = client.post('/api/v1/estimates/recalculate', json={'estimate': edited, 'base_canonical_hash': body['canonical_hash']})
+edited = client.post('/api/estimates/edit', json={'estimate': body['estimate'], 'expected_canonical_hash': body['canonical_hash'], 'edits': {'overhead_rate': '12.00'}})
+conflict = client.post('/api/estimates/edit', json={'estimate': body['estimate'], 'expected_canonical_hash': 'sha256:deadbeef', 'edits': {'overhead_rate': '15.00'}})
+claim = client.post('/api/estimates/generate', json={'prompt': 'Смета на ремонт квартиры 20 м2', 'claim': {'percent': '98.50', 'basis': 'manual'}})
 assert contract.status_code == 200
 assert generated.status_code == 200
-assert recalculated.status_code == 200
-assert body['claim_constraints']['allowed'] is False
-assert recalculated.json()['edit']['hash_changed'] is True
+assert edited.status_code == 200
+assert conflict.status_code == 409
+assert claim.status_code == 422
+assert body['canonical_hash'].startswith('sha256:')
+assert edited.json()['previous_canonical_hash'] == body['canonical_hash']
 PY
+git diff --check
 ```
 
 `python3 -m pytest` was not executed because this runtime does not have `pytest` installed (`No module named pytest`). The repo does not list pytest in `backend/requirements.txt`.

@@ -11,27 +11,8 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 TWOPLACES = Decimal("0.01")
-ESTIMATE_CONTRACT_SCHEMA_VERSION = "kolibri.estimate.v1"
-
-
-class EstimateClaimConstraints(BaseModel):
-    requested_claim: str = "98-99%"
-    allowed: bool = False
-    allowed_public_claim: str = "Детерминированный пересчёт строк сметы с воспроизводимым аудит-хешем."
-    reason: str = (
-        "98-99% нельзя заявлять как точность сметы без замеров, подтверждённых рыночных цен, "
-        "поставщиков, региона, сроков и контрольной выборки фактических закрывающих документов."
-    )
-    required_evidence: list[str] = Field(default_factory=lambda: [
-        "подписанный обмер или импорт BIM/плана с единицами измерения",
-        "версионированный справочник цен с источником, регионом и временем фиксации",
-        "правила округления, налогов и накладных расходов",
-        "валидационная выборка факт/план по закрытым сметам",
-        "отдельная метрика арифметической воспроизводимости и коммерческой точности",
-    ])
-
-
-ESTIMATE_CLAIM_CONSTRAINTS = EstimateClaimConstraints()
+CANONICAL_ESTIMATE_SCHEMA_VERSION = "kolibri.estimate.v1"
+VOLATILE_CANONICAL_KEYS = {"created_at", "updated_at", "captured_at", "calculated_at", "calculation_audit"}
 
 
 def utc_now() -> str:
@@ -50,8 +31,25 @@ def money(value: Decimal | int | float | str) -> Decimal:
     return decimal_value(value)
 
 
-def canonical_json_dumps(payload: dict[str, Any]) -> str:
+def canonical_json(payload: dict[str, Any]) -> str:
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def canonical_hash(payload: dict[str, Any]) -> str:
+    return f"sha256:{hashlib.sha256(canonical_json(payload).encode('utf-8')).hexdigest()}"
+
+
+def _strip_volatile_keys(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _strip_volatile_keys(item) for key, item in value.items() if key not in VOLATILE_CANONICAL_KEYS}
+    if isinstance(value, list):
+        return [_strip_volatile_keys(item) for item in value]
+    return value
+
+
+def deterministic_estimate_id(seed: dict[str, Any]) -> str:
+    digest = hashlib.sha256(canonical_json(seed).encode("utf-8")).hexdigest()
+    return f"EST-{digest[:10].upper()}"
 
 
 class PriceProvenance(BaseModel):
@@ -110,8 +108,7 @@ class Estimate(BaseModel):
 
 
 def _fingerprint(payload: dict[str, Any]) -> str:
-    body = canonical_json_dumps(payload)
-    return hashlib.sha256(body.encode("utf-8")).hexdigest()
+    return canonical_hash(payload).removeprefix("sha256:")
 
 
 def recalculate_estimate(estimate: Estimate) -> Estimate:
@@ -162,43 +159,25 @@ def recalculate_estimate(estimate: Estimate) -> Estimate:
     return estimate
 
 
-def _strip_volatile_estimate_fields(payload: dict[str, Any]) -> dict[str, Any]:
-    stable = dict(payload)
-    stable.pop("created_at", None)
-    stable.pop("updated_at", None)
-    for section in stable.get("sections", []):
-        for item in section.get("items", []):
-            provenance = item.get("provenance")
-            if isinstance(provenance, dict):
-                provenance.pop("captured_at", None)
-    for audit_entry in stable.get("calculation_audit", []):
-        if isinstance(audit_entry, dict):
-            audit_entry.pop("calculated_at", None)
-    return stable
-
-
-def canonical_estimate_payload(estimate: Estimate) -> dict[str, Any]:
-    normalized = recalculate_estimate(estimate.model_copy(deep=True))
-    payload = normalized.model_dump(mode="json")
+def estimate_canonical_payload(estimate: Estimate) -> dict[str, Any]:
+    calculated = recalculate_estimate(estimate.model_copy(deep=True))
+    deterministic_audit = [entry for entry in calculated.calculation_audit if entry.get("kind") != "totals"]
     return {
-        "schema_version": ESTIMATE_CONTRACT_SCHEMA_VERSION,
-        "estimate": _strip_volatile_estimate_fields(payload),
+        "schema_version": CANONICAL_ESTIMATE_SCHEMA_VERSION,
+        "estimate": _strip_volatile_keys(calculated.model_dump(mode="json")),
+        "calculation": {
+            "formula": "labor + materials + overhead + tax",
+            "lines": deterministic_audit,
+        },
     }
 
 
-def canonical_estimate_json(estimate: Estimate) -> str:
-    return canonical_json_dumps(canonical_estimate_payload(estimate))
+def estimate_canonical_json(estimate: Estimate) -> str:
+    return canonical_json(estimate_canonical_payload(estimate))
 
 
-def canonical_estimate_hash(estimate: Estimate) -> str:
-    return hashlib.sha256(canonical_estimate_json(estimate).encode("utf-8")).hexdigest()
-
-
-def calculation_hash(estimate: Estimate) -> str:
-    normalized = recalculate_estimate(estimate.model_copy(deep=True))
-    if not normalized.calculation_audit:
-        return ""
-    return str(normalized.calculation_audit[-1].get("fingerprint", ""))
+def estimate_canonical_hash(estimate: Estimate) -> str:
+    return canonical_hash(estimate_canonical_payload(estimate))
 
 
 def detect_area(prompt: str, fallback: Decimal = Decimal("20.00")) -> Decimal:
@@ -208,7 +187,13 @@ def detect_area(prompt: str, fallback: Decimal = Decimal("20.00")) -> Decimal:
     return decimal_value(match.group(1))
 
 
-def create_estimate_from_prompt(prompt: str, *, client_name: str = "Клиент") -> Estimate:
+def create_estimate_from_prompt(
+    prompt: str,
+    *,
+    client_name: str = "Клиент",
+    object_address: str = "Адрес объекта не указан",
+    currency: str = "RUB",
+) -> Estimate:
     normalized = prompt.lower()
     area = detect_area(prompt)
     title = "Смета на ремонт"
@@ -229,7 +214,22 @@ def create_estimate_from_prompt(prompt: str, *, client_name: str = "Клиент
             EstimateItem(name="Финишная отделка", unit="м2", quantity=multiplier, labor_unit_price=Decimal("680.00"), material_unit_price=Decimal("360.00")),
         ]),
     ]
-    estimate = Estimate(title=title, client_name=client_name, sections=sections, overhead_rate=Decimal("7.00"), tax_rate=Decimal("0.00"))
+    estimate_id = deterministic_estimate_id({
+        "prompt": " ".join(prompt.split()).lower(),
+        "client_name": client_name.strip(),
+        "object_address": object_address.strip(),
+        "currency": currency.strip().upper(),
+    })
+    estimate = Estimate(
+        estimate_id=estimate_id,
+        title=title,
+        client_name=client_name,
+        object_address=object_address,
+        currency=currency.strip().upper(),
+        sections=sections,
+        overhead_rate=Decimal("7.00"),
+        tax_rate=Decimal("0.00"),
+    )
     return recalculate_estimate(estimate)
 
 

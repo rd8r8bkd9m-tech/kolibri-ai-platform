@@ -4,12 +4,24 @@ import sys
 from decimal import Decimal
 from pathlib import Path
 
+from fastapi.testclient import TestClient
+
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from document_engine import DocumentType, create_business_document, create_document_pack
-from estimate_engine import Estimate, EstimateItem, EstimateSection, canonical_estimate_hash, canonical_estimate_json, create_estimate_from_prompt, normalize_estimate_payload, recalculate_estimate
+from estimate_engine import (
+    Estimate,
+    EstimateItem,
+    EstimateSection,
+    create_estimate_from_prompt,
+    estimate_canonical_hash,
+    estimate_canonical_json,
+    normalize_estimate_payload,
+    recalculate_estimate,
+)
+from main import app
 from pdf_engine import generate_business_document_pdf, generate_estimate_pdf
 
 
@@ -32,16 +44,21 @@ def test_estimate_recalculation_is_deterministic_and_audited():
 
 def test_prompt_estimate_and_payload_normalization():
     estimate = create_estimate_from_prompt("Нужна смета на ремонт кухни 12 м2", client_name="Иван")
+    repeated = create_estimate_from_prompt("Нужна смета на ремонт кухни 12 м2", client_name="Иван")
     assert estimate.client_name == "Иван"
     assert "кух" in estimate.title.lower()
     assert estimate.totals.grand_total > Decimal("0")
+    assert estimate.estimate_id == repeated.estimate_id
+    assert estimate_canonical_hash(estimate) == estimate_canonical_hash(repeated)
     normalized = normalize_estimate_payload(estimate.model_dump(mode="json"))
     assert normalized.totals.grand_total == estimate.totals.grand_total
+    assert estimate_canonical_hash(normalized) == estimate_canonical_hash(estimate)
+    assert "captured_at" not in estimate_canonical_json(estimate)
 
 
 def test_canonical_estimate_hash_is_stable_for_noop_recalculation():
     estimate = create_estimate_from_prompt("Нужна смета на ремонт кухни 12 м2", client_name="Иван")
-    first_hash = canonical_estimate_hash(estimate)
+    first_hash = estimate_canonical_hash(estimate)
     payload = estimate.model_dump(mode="json")
     payload["updated_at"] = "2030-01-01T00:00:00+00:00"
     payload["calculation_audit"][-1]["calculated_at"] = "2030-01-01T00:00:00+00:00"
@@ -49,21 +66,32 @@ def test_canonical_estimate_hash_is_stable_for_noop_recalculation():
 
     normalized = normalize_estimate_payload(payload)
 
-    assert canonical_estimate_hash(normalized) == first_hash
-    canonical_json = canonical_estimate_json(normalized)
+    assert estimate_canonical_hash(normalized) == first_hash
+    canonical_json = estimate_canonical_json(normalized)
     assert "calculated_at" not in canonical_json
     assert "captured_at" not in canonical_json
 
 
+def test_canonical_estimate_hash_does_not_mutate_runtime_timestamps():
+    estimate = create_estimate_from_prompt("Нужна смета на ремонт кухни 12 м2", client_name="Иван")
+    updated_at = estimate.updated_at
+    calculated_at = estimate.calculation_audit[-1]["calculated_at"]
+
+    estimate_canonical_hash(estimate)
+
+    assert estimate.updated_at == updated_at
+    assert estimate.calculation_audit[-1]["calculated_at"] == calculated_at
+
+
 def test_canonical_estimate_hash_changes_after_line_edit():
     estimate = create_estimate_from_prompt("Нужна смета на ремонт кухни 12 м2", client_name="Иван")
-    first_hash = canonical_estimate_hash(estimate)
+    first_hash = estimate_canonical_hash(estimate)
     payload = estimate.model_dump(mode="json")
     payload["sections"][0]["items"][0]["material_unit_price"] = "99.00"
 
     edited = normalize_estimate_payload(payload)
 
-    assert canonical_estimate_hash(edited) != first_hash
+    assert estimate_canonical_hash(edited) != first_hash
     assert edited.totals.grand_total > estimate.totals.grand_total
 
 
@@ -85,3 +113,56 @@ def test_pdf_generation_supports_cyrillic_documents(tmp_path: Path):
         data = path.read_bytes()
         assert data.startswith(b"%PDF")
         assert len(data) > 1500
+
+
+def test_estimate_api_generate_edit_and_conflict_contract():
+    client = TestClient(app)
+    contract = client.get("/api/estimates/contract")
+    assert contract.status_code == 200
+    assert contract.json()["claim_constraints"]["not_a_price_accuracy_warranty"] is True
+
+    generated = client.post(
+        "/api/estimates/generate",
+        json={"prompt": "Нужна смета на ремонт кухни 12 м2", "client_name": "Иван"},
+    )
+    assert generated.status_code == 200
+    generated_body = generated.json()
+    assert generated_body["canonical_hash"].startswith("sha256:")
+    assert generated_body["canonical_json"].startswith("{")
+
+    edited = client.post(
+        "/api/estimates/edit",
+        json={
+            "estimate": generated_body["estimate"],
+            "expected_canonical_hash": generated_body["canonical_hash"],
+            "edits": {"overhead_rate": "12.00"},
+        },
+    )
+    assert edited.status_code == 200
+    edited_body = edited.json()
+    assert edited_body["previous_canonical_hash"] == generated_body["canonical_hash"]
+    assert edited_body["canonical_hash"] != generated_body["canonical_hash"]
+    assert edited_body["edit_applied"] is True
+
+    conflict = client.post(
+        "/api/estimates/edit",
+        json={
+            "estimate": generated_body["estimate"],
+            "expected_canonical_hash": "sha256:deadbeef",
+            "edits": {"overhead_rate": "15.00"},
+        },
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"]["error"] == "canonical_hash_conflict"
+
+
+def test_estimate_api_rejects_unsupported_98_percent_claim():
+    client = TestClient(app)
+    response = client.post(
+        "/api/estimates/generate",
+        json={
+            "prompt": "Смета на ремонт квартиры 20 м2",
+            "claim": {"percent": "98.50", "basis": "manual"},
+        },
+    )
+    assert response.status_code == 422
