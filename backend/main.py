@@ -1,3 +1,4 @@
+from estimate_api import router as estimate_router
 from routes_v1 import router as v1_router
 import os
 import time
@@ -333,6 +334,7 @@ async def api_factory_status():
 async def cluster_status():
     return await api_factory_status()
 
+app.include_router(estimate_router)
 app.include_router(v1_router)
 
 PROXY_ROUTES = {
@@ -393,5 +395,4 @@ if frontend_path.exists():
         if file_path.exists() and file_path.is_file():
             return FileResponse(str(file_path))
         return FileResponse(str(frontend_path / "index.html"))
-
 
