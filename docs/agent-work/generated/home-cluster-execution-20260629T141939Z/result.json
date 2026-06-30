@@ -1,0 +1,64 @@
+{
+  "changed_files": [
+    "frontend/index.html",
+    "frontend/public/kolibri.svg",
+    "frontend/public/manifest.webmanifest",
+    "frontend/public/sw.js",
+    "frontend/src/main.jsx",
+    "frontend/src/registerServiceWorker.js",
+    "scripts/deploy.sh",
+    "docs/agent-work/generated/home-cluster-execution-20260629T141939Z/kol-home-cluster-20260629-141939-004-main-mimo.md",
+    "docs/agent-work/generated/home-cluster-execution-20260629T141939Z/agent-message-kol-home-cluster-20260629-141939-004-main-mimo.md",
+    "docs/agent-work/generated/home-cluster-execution-20260629T141939Z/result.json"
+  ],
+  "checks": [
+    {
+      "command": "python -m json.tool frontend/public/manifest.webmanifest",
+      "status": "failed",
+      "note": "python binary is not installed in this container; repeated with python3"
+    },
+    {
+      "command": "python3 -m json.tool frontend/public/manifest.webmanifest >/tmp/kolibri-manifest-check.json && echo manifest-json-ok",
+      "status": "passed"
+    },
+    {
+      "command": "npm install --no-package-lock",
+      "status": "passed",
+      "note": "238 packages installed, 239 audited, 0 vulnerabilities, package-lock absent"
+    },
+    {
+      "command": "npm run build",
+      "status": "passed",
+      "note": "Vite build passed; non-fatal >500 kB chunk warning remains"
+    },
+    {
+      "command": "test -f frontend/dist/manifest.webmanifest && test -f frontend/dist/sw.js && test -f frontend/dist/kolibri.svg && echo pwa-assets-emitted",
+      "status": "passed"
+    },
+    {
+      "command": "test \"$(find frontend/dist -maxdepth 1 -type f \\( -name 'manifest.webmanifest' -o -name 'sw.js' -o -name 'kolibri.svg' \\) | wc -l)\" -eq 3 && echo dist-pwa-files-ok",
+      "status": "passed"
+    },
+    {
+      "command": "grep -q 'serviceWorker' frontend/dist/assets/*.js && grep -q 'manifest.webmanifest' frontend/dist/index.html && echo dist-registration-links-ok",
+      "status": "passed"
+    },
+    {
+      "command": "npm run test:mobile-layout",
+      "status": "passed"
+    },
+    {
+      "command": "git diff --check",
+      "status": "passed"
+    }
+  ],
+  "result_path": "docs/agent-work/generated/home-cluster-execution-20260629T141939Z/result.json",
+  "result_reference": "docs/agent-work/generated/home-cluster-execution-20260629T141939Z/kol-home-cluster-20260629-141939-004-main-mimo.md",
+  "risks": [
+    "Production HTTPS/TLS is not confirmed in this repository; infra/network/nginx.conf listens on port 80 only.",
+    "Offline API/chat behavior is intentionally not cached.",
+    "Some PWA audits or stores may require raster PNG icon sizes in addition to the SVG icon."
+  ],
+  "telegram_fallback": "docs/agent-work/generated/home-cluster-execution-20260629T141939Z/agent-message-kol-home-cluster-20260629-141939-004-main-mimo.md",
+  "telegram_summary": "HTTPS/PWA gate готов: добавлены manifest, SVG icon, production-only service worker registration, conservative /sw.js, deploy copy для frontend/public/, и artifact report. Остаточный риск: production HTTPS/TLS пока не подтвержден в репозитории, Nginx sample слушает только 80."
+}

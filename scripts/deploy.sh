@@ -11,6 +11,7 @@ deploy_main() {
     echo "=== Deploying Main (API Gateway + Frontend) ==="
     scp -r -o ConnectTimeout=$SSH_TIMEOUT backend/ kolibri-main:/opt/kolibri-ai/
     scp -r -o ConnectTimeout=$SSH_TIMEOUT frontend/src/ kolibri-main:/opt/kolibri-ai/frontend/
+    scp -r -o ConnectTimeout=$SSH_TIMEOUT frontend/public/ kolibri-main:/opt/kolibri-ai/frontend/
     scp -o ConnectTimeout=$SSH_TIMEOUT frontend/package.json kolibri-main:/opt/kolibri-ai/frontend/
     scp -o ConnectTimeout=$SSH_TIMEOUT frontend/vite.config.js kolibri-main:/opt/kolibri-ai/frontend/
     scp -o ConnectTimeout=$SSH_TIMEOUT frontend/index.html kolibri-main:/opt/kolibri-ai/frontend/

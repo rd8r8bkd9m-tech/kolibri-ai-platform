@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Kolibri AI">
+  <defs>
+    <linearGradient id="bg" x1="72" x2="440" y1="64" y2="448" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0B1320"/>
+      <stop offset="1" stop-color="#12233A"/>
+    </linearGradient>
+    <linearGradient id="body" x1="155" x2="390" y1="104" y2="380" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8CF5FF"/>
+      <stop offset=".52" stop-color="#26BDF2"/>
+      <stop offset="1" stop-color="#0B8FF3"/>
+    </linearGradient>
+    <linearGradient id="wing" x1="82" x2="278" y1="82" y2="306" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#D7FCFF"/>
+      <stop offset=".46" stop-color="#78E8FF"/>
+      <stop offset="1" stop-color="#1096F4"/>
+    </linearGradient>
+    <radialGradient id="belly" cx="0" cy="0" r="1" gradientTransform="matrix(114 0 0 96 293 309)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#DFF9FF"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <ellipse cx="264" cy="424" rx="118" ry="28" fill="#07101D" opacity=".42"/>
+  <path d="M149 308C87 258 72 176 120 105c75 29 132 97 158 188-38 42-88 48-129 15Z" fill="url(#wing)" opacity=".82"/>
+  <path d="m159 330-84 73 108-8 43-55Z" fill="#0D7CCF"/>
+  <path d="M171 327c-35-97 25-204 130-231 95-24 185 38 205 133 20 101-54 190-158 214-87 20-150-24-177-116Z" fill="url(#body)"/>
+  <path d="M225 152c39-48 119-56 172-9 40 36 53 94 30 143-35-47-87-78-147-83-28-2-44-19-55-51Z" fill="#7DE9FF" opacity=".42"/>
+  <path d="M225 339c-24-65 11-139 82-157 67-17 120 25 139 82-14 76-66 132-146 148-35-5-61-30-75-73Z" fill="url(#belly)"/>
+  <path d="m386 242 106-45-88 79Z" fill="#F4C95D"/>
+  <circle cx="309" cy="221" r="43" fill="#F7FDFF"/>
+  <circle cx="386" cy="221" r="38" fill="#F7FDFF"/>
+  <circle cx="313" cy="225" r="25" fill="#101827"/>
+  <circle cx="387" cy="225" r="23" fill="#101827"/>
+  <circle cx="323" cy="213" r="8" fill="#FFFFFF"/>
+  <circle cx="395" cy="214" r="7" fill="#FFFFFF"/>
+  <path d="M333 270c17 16 43 16 60 0" fill="none" stroke="#0B2942" stroke-width="14" stroke-linecap="round"/>
+</svg>

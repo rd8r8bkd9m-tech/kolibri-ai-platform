@@ -1,0 +1,19 @@
+{
+  "name": "Kolibri AI",
+  "short_name": "Kolibri",
+  "description": "Kolibri AI cluster assistant",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0d141d",
+  "theme_color": "#0d141d",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/kolibri.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
