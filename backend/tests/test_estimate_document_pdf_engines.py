@@ -9,7 +9,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from document_engine import DocumentType, create_business_document, create_document_pack
-from estimate_engine import Estimate, EstimateItem, EstimateSection, create_estimate_from_prompt, normalize_estimate_payload, recalculate_estimate
+from estimate_engine import Estimate, EstimateItem, EstimateSection, canonical_estimate_hash, canonical_estimate_json, create_estimate_from_prompt, normalize_estimate_payload, recalculate_estimate
 from pdf_engine import generate_business_document_pdf, generate_estimate_pdf
 
 
@@ -37,6 +37,34 @@ def test_prompt_estimate_and_payload_normalization():
     assert estimate.totals.grand_total > Decimal("0")
     normalized = normalize_estimate_payload(estimate.model_dump(mode="json"))
     assert normalized.totals.grand_total == estimate.totals.grand_total
+
+
+def test_canonical_estimate_hash_is_stable_for_noop_recalculation():
+    estimate = create_estimate_from_prompt("Нужна смета на ремонт кухни 12 м2", client_name="Иван")
+    first_hash = canonical_estimate_hash(estimate)
+    payload = estimate.model_dump(mode="json")
+    payload["updated_at"] = "2030-01-01T00:00:00+00:00"
+    payload["calculation_audit"][-1]["calculated_at"] = "2030-01-01T00:00:00+00:00"
+    payload["sections"][0]["items"][0]["provenance"]["captured_at"] = "2030-01-01T00:00:00+00:00"
+
+    normalized = normalize_estimate_payload(payload)
+
+    assert canonical_estimate_hash(normalized) == first_hash
+    canonical_json = canonical_estimate_json(normalized)
+    assert "calculated_at" not in canonical_json
+    assert "captured_at" not in canonical_json
+
+
+def test_canonical_estimate_hash_changes_after_line_edit():
+    estimate = create_estimate_from_prompt("Нужна смета на ремонт кухни 12 м2", client_name="Иван")
+    first_hash = canonical_estimate_hash(estimate)
+    payload = estimate.model_dump(mode="json")
+    payload["sections"][0]["items"][0]["material_unit_price"] = "99.00"
+
+    edited = normalize_estimate_payload(payload)
+
+    assert canonical_estimate_hash(edited) != first_hash
+    assert edited.totals.grand_total > estimate.totals.grand_total
 
 
 def test_business_document_pack_has_required_documents():

@@ -11,6 +11,27 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 TWOPLACES = Decimal("0.01")
+ESTIMATE_CONTRACT_SCHEMA_VERSION = "kolibri.estimate.v1"
+
+
+class EstimateClaimConstraints(BaseModel):
+    requested_claim: str = "98-99%"
+    allowed: bool = False
+    allowed_public_claim: str = "Детерминированный пересчёт строк сметы с воспроизводимым аудит-хешем."
+    reason: str = (
+        "98-99% нельзя заявлять как точность сметы без замеров, подтверждённых рыночных цен, "
+        "поставщиков, региона, сроков и контрольной выборки фактических закрывающих документов."
+    )
+    required_evidence: list[str] = Field(default_factory=lambda: [
+        "подписанный обмер или импорт BIM/плана с единицами измерения",
+        "версионированный справочник цен с источником, регионом и временем фиксации",
+        "правила округления, налогов и накладных расходов",
+        "валидационная выборка факт/план по закрытым сметам",
+        "отдельная метрика арифметической воспроизводимости и коммерческой точности",
+    ])
+
+
+ESTIMATE_CLAIM_CONSTRAINTS = EstimateClaimConstraints()
 
 
 def utc_now() -> str:
@@ -27,6 +48,10 @@ def decimal_value(value: Decimal | int | float | str) -> Decimal:
 
 def money(value: Decimal | int | float | str) -> Decimal:
     return decimal_value(value)
+
+
+def canonical_json_dumps(payload: dict[str, Any]) -> str:
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
 
 
 class PriceProvenance(BaseModel):
@@ -85,7 +110,7 @@ class Estimate(BaseModel):
 
 
 def _fingerprint(payload: dict[str, Any]) -> str:
-    body = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+    body = canonical_json_dumps(payload)
     return hashlib.sha256(body.encode("utf-8")).hexdigest()
 
 
@@ -135,6 +160,45 @@ def recalculate_estimate(estimate: Estimate) -> Estimate:
     }]
     estimate.updated_at = utc_now()
     return estimate
+
+
+def _strip_volatile_estimate_fields(payload: dict[str, Any]) -> dict[str, Any]:
+    stable = dict(payload)
+    stable.pop("created_at", None)
+    stable.pop("updated_at", None)
+    for section in stable.get("sections", []):
+        for item in section.get("items", []):
+            provenance = item.get("provenance")
+            if isinstance(provenance, dict):
+                provenance.pop("captured_at", None)
+    for audit_entry in stable.get("calculation_audit", []):
+        if isinstance(audit_entry, dict):
+            audit_entry.pop("calculated_at", None)
+    return stable
+
+
+def canonical_estimate_payload(estimate: Estimate) -> dict[str, Any]:
+    normalized = recalculate_estimate(estimate.model_copy(deep=True))
+    payload = normalized.model_dump(mode="json")
+    return {
+        "schema_version": ESTIMATE_CONTRACT_SCHEMA_VERSION,
+        "estimate": _strip_volatile_estimate_fields(payload),
+    }
+
+
+def canonical_estimate_json(estimate: Estimate) -> str:
+    return canonical_json_dumps(canonical_estimate_payload(estimate))
+
+
+def canonical_estimate_hash(estimate: Estimate) -> str:
+    return hashlib.sha256(canonical_estimate_json(estimate).encode("utf-8")).hexdigest()
+
+
+def calculation_hash(estimate: Estimate) -> str:
+    normalized = recalculate_estimate(estimate.model_copy(deep=True))
+    if not normalized.calculation_audit:
+        return ""
+    return str(normalized.calculation_audit[-1].get("fingerprint", ""))
 
 
 def detect_area(prompt: str, fallback: Decimal = Decimal("20.00")) -> Decimal:
