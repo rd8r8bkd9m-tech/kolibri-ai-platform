@@ -1,0 +1,35 @@
+{
+  "checks": [
+    {
+      "detail": "raw JSON payloads are converted to owner-readable text",
+      "duration_ms": 0,
+      "name": "no_raw_json_formatter",
+      "status": "pass"
+    },
+    {
+      "detail": "Telegram HTML payloads are escaped and bounded",
+      "duration_ms": 0,
+      "name": "html_escaping",
+      "status": "pass"
+    },
+    {
+      "detail": "duplicate getUpdates ownership raises TelegramConflictError",
+      "duration_ms": 2,
+      "name": "getupdates_409_ownership_contract",
+      "status": "pass"
+    },
+    {
+      "detail": "Telegram live verification unavailable: TELEGRAM_BOT_TOKEN is not present. Fallback artifact report was generated.",
+      "duration_ms": 0,
+      "name": "live_telegram",
+      "status": "skip"
+    }
+  ],
+  "created_at": "2026-06-30T12:37:10Z",
+  "fallback_agent_message": "Telegram live verification unavailable: TELEGRAM_BOT_TOKEN is not present. Fallback artifact report was generated.",
+  "gate": "telegram_readable_formatter_rollout",
+  "rollback": {
+    "command_configured": false
+  },
+  "task_id": "KOL-REMOTE-SERVER-TASK-20260629T1603-002-MAIN-TELEGRAM"
+}

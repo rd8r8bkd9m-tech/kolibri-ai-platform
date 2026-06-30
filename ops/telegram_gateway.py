@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import html
 import json
 import mimetypes
 import os
@@ -36,6 +37,8 @@ from orchestrator_memory import (
 
 
 STOP = False
+TELEGRAM_MESSAGE_LIMIT = 3900
+TELEGRAM_CAPTION_LIMIT = 1024
 SIGNIFICANT_STATES = {
     "queued": "QUEUED",
     "leased": "RUNNING",
@@ -152,6 +155,10 @@ IMMEDIATE_CHAT_MARKERS = (
 )
 
 
+class TelegramConflictError(RuntimeError):
+    """Raised when Telegram reports another getUpdates long-poll owner."""
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -246,6 +253,24 @@ def owner_safe_runtime_failure(text: str, snapshot: dict[str, Any] | None = None
     return "Внутри фабрики упал исполнитель. Я зафиксировал сбой и разберу его отдельно; в чат дальше будут приходить только нормальные ответы."
 
 
+def telegram_html_escape(text: str | None, limit: int | None = None) -> str:
+    raw = text or ""
+    if limit is None:
+        return html.escape(raw, quote=False)
+    low = 0
+    high = len(raw)
+    best = ""
+    while low <= high:
+        mid = (low + high) // 2
+        escaped = html.escape(raw[:mid], quote=False)
+        if len(escaped) <= limit:
+            best = escaped
+            low = mid + 1
+        else:
+            high = mid - 1
+    return best
+
+
 def json_request(method: str, url: str, body: dict[str, Any] | None = None, timeout: int = 35) -> Any:
     data = None
     headers = {"Content-Type": "application/json"}
@@ -273,8 +298,16 @@ class TelegramClient:
     def call(self, method: str, payload: dict[str, Any] | None = None, timeout: int = 35) -> dict[str, Any]:
         data = urllib.parse.urlencode(payload or {}).encode("utf-8")
         req = urllib.request.Request(f"{self.base_url}/{method}", data=data, method="POST")
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            response = json.loads(resp.read().decode("utf-8"))
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                response = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")
+            if exc.code == 409 and method == "getUpdates":
+                raise TelegramConflictError("telegram getUpdates conflict: another long-poll owner is active") from exc
+            raise RuntimeError(f"telegram {method} failed: HTTP {exc.code}: {detail}") from exc
+        if response.get("error_code") == 409 and method == "getUpdates":
+            raise TelegramConflictError("telegram getUpdates conflict: another long-poll owner is active")
         if not response.get("ok"):
             raise RuntimeError(f"telegram {method} failed")
         return response
@@ -326,13 +359,22 @@ class TelegramClient:
         return self.call("getUpdates", payload, timeout=timeout + 10).get("result", [])
 
     def send_message(self, chat_id: int, text: str) -> dict[str, Any]:
-        response = self.call("sendMessage", {"chat_id": chat_id, "text": text[:3900], "disable_web_page_preview": True})
+        response = self.call(
+            "sendMessage",
+            {
+                "chat_id": chat_id,
+                "text": telegram_html_escape(text, TELEGRAM_MESSAGE_LIMIT),
+                "parse_mode": "HTML",
+                "disable_web_page_preview": True,
+            },
+        )
         return response.get("result") or {}
 
     def send_photo(self, chat_id: int, photo: str | bytes | Path, caption: str | None = None, mime_type: str | None = None) -> dict[str, Any]:
         fields: dict[str, Any] = {"chat_id": chat_id}
         if caption:
-            fields["caption"] = caption[:1024]
+            fields["caption"] = telegram_html_escape(caption, TELEGRAM_CAPTION_LIMIT)
+            fields["parse_mode"] = "HTML"
         if isinstance(photo, bytes):
             content_type = mime_type or "image/png"
             response = self.call_multipart(
@@ -360,7 +402,8 @@ class TelegramClient:
             {
                 "chat_id": chat_id,
                 "message_id": message_id,
-                "text": text[:3900],
+                "text": telegram_html_escape(text, TELEGRAM_MESSAGE_LIMIT),
+                "parse_mode": "HTML",
                 "disable_web_page_preview": True,
             },
         )
@@ -1095,12 +1138,65 @@ def format_task_status(task: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _raw_json_payload(text: str | None) -> Any:
+    stripped = (text or "").strip()
+    if not stripped:
+        return None
+    if not ((stripped.startswith("{") and stripped.endswith("}")) or (stripped.startswith("[") and stripped.endswith("]"))):
+        return None
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError:
+        return None
+
+
+def _json_value_to_owner_text(value: Any) -> str | None:
+    if isinstance(value, str):
+        return value.strip() or None
+    if isinstance(value, list):
+        parts = []
+        for item in value:
+            text = _json_value_to_owner_text(item)
+            if text:
+                parts.append(text)
+        return "\n".join(parts[:5]) or None
+    if isinstance(value, dict):
+        preferred_keys = (
+            "response",
+            "message",
+            "text",
+            "caption",
+            "summary",
+            "answer",
+            "content",
+            "details",
+            "result",
+        )
+        for key in preferred_keys:
+            if any(marker in key.lower() for marker in ("secret", "token", "password", "_key")):
+                continue
+            if key in value:
+                text = _json_value_to_owner_text(value.get(key))
+                if text:
+                    return text
+        return None
+    return None
+
+
+def readable_text_from_raw_json(text: str | None) -> str | None:
+    payload = _raw_json_payload(text)
+    if payload is None:
+        return None
+    return _json_value_to_owner_text(payload) or "Готово. Получил структурированный результат и держу служебные детали внутри рабочего контура."
+
+
 def clean_agent_response(text: str | None) -> str:
-    raw_lowered = (text or "").lower()
+    source_text = readable_text_from_raw_json(text) or (text or "")
+    raw_lowered = source_text.lower()
     if any(marker in raw_lowered for marker in OWNER_RUNTIME_FAILURE_MARKERS):
         return owner_safe_runtime_failure("", None)
     clean_chars = []
-    for ch in text or "":
+    for ch in source_text:
         if unicodedata.category(ch) in {"So", "Sk"}:
             continue
         clean_chars.append(ch)

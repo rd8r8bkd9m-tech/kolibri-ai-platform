@@ -1,4 +1,7 @@
+import io
 import importlib.util
+import json
+import urllib.error
 from pathlib import Path
 
 
@@ -165,6 +168,37 @@ def test_task_transition_is_human_readable_without_internal_metadata():
         assert forbidden not in message
 
 
+def test_chat_transition_humanizes_raw_json_response():
+    gateway = load_gateway()
+    task = {
+        "state": "completed",
+        "result": {
+            "response": json.dumps(
+                {
+                    "response": "Готово <safe> & понятно.",
+                    "task_id": "TGCHAT-202606300001-raw-json",
+                    "node_id": "primary-candidate",
+                },
+                ensure_ascii=False,
+            )
+        },
+    }
+    message = gateway.format_transition("COMPLETED", task, mode="chat")
+    assert message == "Готово <safe> & понятно."
+    for forbidden in ["{", "}", '"response"', "task_id", "node_id", "TGCHAT-"]:
+        assert forbidden not in message
+
+
+def test_unreadable_raw_json_gets_owner_safe_fallback():
+    gateway = load_gateway()
+    message = gateway.clean_agent_response(
+        json.dumps({"task_id": "TG-1", "node_id": "primary-candidate", "result_path": "/var/lib/result.json"})
+    )
+    assert message == "Готово. Получил структурированный результат и держу служебные детали внутри рабочего контура."
+    for forbidden in ["{", "}", "task_id", "node_id", "/var/lib"]:
+        assert forbidden not in message
+
+
 def test_owner_remote_task_completion_returns_clean_url_result():
     gateway = load_gateway()
     task = {
@@ -187,6 +221,52 @@ def test_owner_remote_task_completion_returns_clean_url_result():
     assert "Проверки живые" in message
     for forbidden in ["SECRET", "TOKEN", "result_path", "/var/lib"]:
         assert forbidden not in message
+
+
+def test_telegram_client_escapes_html_payloads():
+    gateway = load_gateway()
+
+    class Client(gateway.TelegramClient):
+        def __init__(self):
+            super().__init__("123:test", api_base="https://telegram.invalid")
+            self.calls = []
+
+        def call(self, method, payload=None, timeout=35):
+            self.calls.append((method, payload, timeout))
+            return {"ok": True, "result": {"message_id": 7}}
+
+    client = Client()
+    client.send_message(100, "<b>5 & 6</b>")
+    client.edit_message(100, 7, "A < B & C")
+    client.send_photo(100, "https://example.invalid/image.png", caption="Caption <raw> & safe")
+
+    send_payload = client.calls[0][1]
+    edit_payload = client.calls[1][1]
+    photo_payload = client.calls[2][1]
+    assert send_payload["parse_mode"] == "HTML"
+    assert send_payload["text"] == "&lt;b&gt;5 &amp; 6&lt;/b&gt;"
+    assert edit_payload["parse_mode"] == "HTML"
+    assert edit_payload["text"] == "A &lt; B &amp; C"
+    assert photo_payload["parse_mode"] == "HTML"
+    assert photo_payload["caption"] == "Caption &lt;raw&gt; &amp; safe"
+
+
+def test_get_updates_409_reports_duplicate_owner(monkeypatch):
+    gateway = load_gateway()
+
+    def fake_urlopen(req, timeout):
+        del timeout
+        body = b'{"ok":false,"error_code":409,"description":"Conflict: terminated by other getUpdates request"}'
+        raise urllib.error.HTTPError(req.full_url, 409, "Conflict", {}, io.BytesIO(body))
+
+    monkeypatch.setattr(gateway.urllib.request, "urlopen", fake_urlopen)
+    client = gateway.TelegramClient("123:test", api_base="https://telegram.invalid")
+    try:
+        client.get_updates(None, 1)
+    except gateway.TelegramConflictError as exc:
+        assert "another long-poll owner" in str(exc)
+    else:
+        raise AssertionError("expected TelegramConflictError")
 
 
 def test_gateway_auto_tracks_fresh_owner_tasks_for_common_chat(tmp_path):
