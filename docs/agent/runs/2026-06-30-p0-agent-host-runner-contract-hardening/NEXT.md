@@ -2,13 +2,12 @@
 
 Recommended next task:
 
-`P0_RERUN_INTEGRATION_CONTRACT_AUDIT_AFTER_AGENT_HOST_CONTRACT_HARDENING_2026_06_30`
+`PROMPT 2 - P0_CREATE_KOLIBRI_SUPERFACTORY_DOCUMENTATION_PACKAGE`
 
 Goal:
 
-Deploy or run this hardened Agent Host contract in the server Control Plane
-environment, then rerun the P0 integration contract audit that previously
-drifted on artifact paths.
+Create the full Kolibri Superfactory operating manual as a docs-only branch
+after Prompt 1 is accepted.
 
 Constraints:
 
@@ -20,8 +19,17 @@ Constraints:
 
 Suggested acceptance:
 
-- Agent Host reports blocked, not completed, when required audit artifacts are
-  missing.
-- Required audit artifacts are written to the expected paths.
-- `result.json` includes all runner contract fields.
-- Control Plane task state and artifact manifest agree.
+- Docs-only branch.
+- Create the full `docs/superfactory/` package from Prompt 2.
+- No product code changes.
+- No server mutation.
+- No FormulaLM, billing, frontend, Telegram, model, or fleet repair
+  implementation.
+
+After Prompt 2, the next ordered task is:
+
+`PROMPT 3 - P0_GITHUB_ALWAYS_CURRENT_CONTRACT`
+
+The P0 integration contract audit remains an important later task in the canvas
+queue and should run after runner hardening has landed in the environment where
+Control Plane agents execute.

@@ -32,6 +32,8 @@ Implemented behavior:
 - The contract document includes valid envelope examples and invalid blocked
   outcome examples.
 - Test records include the required Mac/server/CI classification.
+- Prompt 19 addendum docs were added to preserve the Superfactory canvas queue
+  without implementing later tasks in this branch.
 
 Files changed:
 
@@ -43,9 +45,20 @@ Files changed:
 - `docs/agent/runs/2026-06-30-p0-agent-host-runner-contract-hardening/TESTS.md`
 - `docs/agent/runs/2026-06-30-p0-agent-host-runner-contract-hardening/RESULT.md`
 - `docs/agent/runs/2026-06-30-p0-agent-host-runner-contract-hardening/NEXT.md`
+- `docs/agent/runs/2026-06-30-p0-agent-host-runner-contract-hardening/SUPERFACTORY_ADDENDUM.md`
+- `docs/superfactory/00_README.md`
+- `docs/superfactory/20_ROADMAP.md`
+- `docs/superfactory/TASKS.md`
 
 Blocked items:
 
 - None for this local branch.
 - Server rollout and Control Plane rerun are intentionally left for the next
   supervised task.
+
+Next exact prompt:
+
+`PROMPT 2 - P0_CREATE_KOLIBRI_SUPERFACTORY_DOCUMENTATION_PACKAGE`
+
+Run it only after owner approval/merge readiness of PR #83, or keep Prompt 1 in
+review if PR #83 is still not accepted.

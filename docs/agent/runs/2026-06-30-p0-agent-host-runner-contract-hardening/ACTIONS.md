@@ -20,3 +20,9 @@
 - Added `run_task` integration tests proving blocked tasks call `/fail`, not
   `/complete`.
 - Added this run report directory and `docs/agent/AGENT_RUNNER_CONTRACT.md`.
+- Added Superfactory Prompt 19 addendum docs without widening implementation
+  scope:
+  - `docs/superfactory/00_README.md`
+  - `docs/superfactory/20_ROADMAP.md`
+  - `docs/superfactory/TASKS.md`
+  - `docs/agent/runs/2026-06-30-p0-agent-host-runner-contract-hardening/SUPERFACTORY_ADDENDUM.md`

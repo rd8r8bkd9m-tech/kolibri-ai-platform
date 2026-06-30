@@ -39,6 +39,7 @@ Test classification:
 | Remote full suite on `217.60.63.31` | `deferred_to_server` | Completed successfully |
 | Control Plane rerun of P0 integration audit | `not_run_with_reason` | Intentionally left for next supervised task after PR merge/deploy |
 | Production/runtime repo mutation tests | `not_run_with_reason` | Forbidden by task scope |
+| Prompt 19 docs addendum | `passed_local_mac` | `git diff --check` passed; no product code changed |
 
 Remote server validation of code behavior:
 
@@ -77,3 +78,6 @@ Notes:
 - This follow-up only adds documentation examples and test classification; it
   does not change product code or runner behavior. GitHub CI validates each PR
   head after push.
+- Prompt 19 addendum files are documentation-only. No server mutation or heavy
+  remote rerun is required specifically for those files; GitHub CI validates the
+  pushed PR head.
