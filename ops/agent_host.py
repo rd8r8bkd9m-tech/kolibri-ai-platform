@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import fnmatch
 import hashlib
 import json
 import mimetypes
@@ -24,6 +25,38 @@ from typing import Any
 
 STOP = False
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+CONTRACT_STATUSES = {"completed", "blocked", "failed"}
+CONTRACT_RESULT_FIELDS = [
+    "task_id",
+    "status",
+    "changed_files",
+    "artifact_dir",
+    "required_artifacts_present",
+    "required_artifacts_missing",
+    "write_scope",
+    "write_scope_violations",
+    "read_only",
+    "product_code_modification_forbidden",
+    "product_code_changed",
+    "push_attempted",
+    "push_blocked",
+    "blocked_reason",
+    "failure_reason",
+    "tests_run",
+    "next_recommended_task",
+]
+SUPPORTED_TASK_KINDS = {
+    "impl_factory_smoke",
+    "impl_retry_error_clearance",
+    "orchestrator_chat_response",
+    "read_only_probe",
+    "review_pr",
+    "telegram_chat_response",
+    "telegram_image_generation",
+}
+NO_PUSH_FLAGS = ("git_push_forbidden", "no_push", "read_only")
+PRODUCT_CODE_FORBIDDEN_FLAGS = ("product_code_modification_forbidden", "read_only")
+REQUIRED_ARTIFACT_KEYS = ("required_outputs", "required_artifacts")
 
 
 def utc_now() -> str:
@@ -68,6 +101,338 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def task_envelope(task: dict[str, Any]) -> dict[str, Any]:
+    envelope = task.get("envelope")
+    return envelope if isinstance(envelope, dict) else {}
+
+
+def envelope_value(envelope: dict[str, Any], key_name: str, default: Any = None) -> Any:
+    if key_name in envelope:
+        return envelope[key_name]
+    constraints = envelope.get("constraints")
+    if isinstance(constraints, dict) and key_name in constraints:
+        return constraints[key_name]
+    return default
+
+
+def truthy(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+    return bool(value)
+
+
+def envelope_truthy(envelope: dict[str, Any], *keys: str) -> bool:
+    return any(truthy(envelope_value(envelope, key_name, False)) for key_name in keys)
+
+
+def ensure_list(value: Any) -> list[Any]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    return [value]
+
+
+def envelope_list(envelope: dict[str, Any], *keys: str) -> list[Any]:
+    values: list[Any] = []
+    for key_name in keys:
+        values.extend(ensure_list(envelope_value(envelope, key_name)))
+    return values
+
+
+def artifact_spec_path(spec: Any) -> str | None:
+    if isinstance(spec, str):
+        return spec.strip() or None
+    if isinstance(spec, dict):
+        for key_name in ("path", "file", "artifact", "output"):
+            value = spec.get(key_name)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return None
+
+
+def as_posix_path(value: str | Path) -> str:
+    return str(value).replace("\\", "/").strip()
+
+
+def changed_file_display(path: str | Path, worktree: Path | None = None, artifact_dir: Path | None = None) -> str:
+    raw = as_posix_path(path)
+    candidate = Path(raw)
+    for base in (worktree, artifact_dir):
+        if base and candidate.is_absolute():
+            try:
+                return candidate.relative_to(base).as_posix()
+            except ValueError:
+                pass
+    return raw.lstrip("./")
+
+
+def path_is_under(path: Path, base: Path) -> bool:
+    try:
+        path.resolve().relative_to(base.resolve())
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def is_docs_path(changed: str) -> bool:
+    normalized = changed.strip("/")
+    return normalized == "docs" or normalized.startswith("docs/")
+
+
+def is_artifact_path(changed: str | Path, artifact_dir: Path | None) -> bool:
+    if not artifact_dir:
+        return False
+    candidate = Path(str(changed))
+    return candidate.is_absolute() and path_is_under(candidate, artifact_dir)
+
+
+def path_matches_scope(changed: str | Path, scope_entry: Any, worktree: Path | None = None, artifact_dir: Path | None = None) -> bool:
+    if not isinstance(scope_entry, str) or not scope_entry.strip():
+        return False
+    changed_display = changed_file_display(changed, worktree, artifact_dir)
+    scope = as_posix_path(scope_entry).strip().rstrip("/")
+    if not scope:
+        return False
+
+    candidate = Path(str(changed))
+    scope_path = Path(scope)
+    if candidate.is_absolute() and scope_path.is_absolute():
+        try:
+            return path_is_under(candidate, scope_path) or candidate.resolve() == scope_path.resolve()
+        except OSError:
+            return False
+    if candidate.is_absolute() and artifact_dir and scope_path.is_absolute() and path_is_under(candidate, artifact_dir):
+        return path_is_under(candidate, scope_path)
+
+    if fnmatch.fnmatch(changed_display, scope):
+        return True
+    if scope.endswith("/**"):
+        prefix = scope[:-3].rstrip("/")
+        return changed_display == prefix or changed_display.startswith(f"{prefix}/")
+    if scope.endswith("/*"):
+        prefix = scope[:-2].rstrip("/")
+        return changed_display.startswith(f"{prefix}/") and "/" not in changed_display[len(prefix) + 1:]
+    return changed_display == scope or changed_display.startswith(f"{scope}/")
+
+
+def changed_file_allowed_by_scope(changed: str | Path, write_scope: list[Any], worktree: Path | None, artifact_dir: Path | None) -> bool:
+    return any(path_matches_scope(changed, scope_entry, worktree, artifact_dir) for scope_entry in write_scope)
+
+
+def collect_git_changed_files(worktree: Path | None) -> list[str]:
+    if not worktree or not worktree.exists() or not (worktree / ".git").exists():
+        return []
+    proc = subprocess.run(
+        ["git", "status", "--porcelain=v1"],
+        cwd=str(worktree),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        return []
+    changed: list[str] = []
+    for line in proc.stdout.splitlines():
+        if not line:
+            continue
+        path = line[3:].strip()
+        if " -> " in path:
+            path = path.rsplit(" -> ", 1)[1]
+        if path.startswith('"') and path.endswith('"'):
+            path = path[1:-1]
+        if path:
+            changed.append(path)
+    return sorted(set(changed))
+
+
+def product_code_changed(changed_files: list[str], artifact_dir: Path | None = None) -> bool:
+    for changed in changed_files:
+        if is_docs_path(changed) or is_artifact_path(changed, artifact_dir):
+            continue
+        return True
+    return False
+
+
+def required_artifact_candidates(spec_path: str, worktree: Path | None, artifact_dir: Path | None) -> list[Path]:
+    path = Path(spec_path)
+    if path.is_absolute():
+        return [path]
+    candidates: list[Path] = []
+    if worktree:
+        candidates.append(worktree / spec_path)
+    if artifact_dir:
+        candidates.append(artifact_dir / spec_path)
+    return candidates
+
+
+def verify_required_artifacts(envelope: dict[str, Any], worktree: Path | None, artifact_dir: Path | None) -> tuple[list[str], list[str]]:
+    present: list[str] = []
+    missing: list[str] = []
+    for spec in envelope_list(envelope, *REQUIRED_ARTIFACT_KEYS):
+        spec_path = artifact_spec_path(spec)
+        if not spec_path:
+            continue
+        if any(candidate.exists() for candidate in required_artifact_candidates(spec_path, worktree, artifact_dir)):
+            present.append(spec_path)
+        else:
+            missing.append(spec_path)
+    return present, missing
+
+
+def push_forbidden_by_envelope(envelope: dict[str, Any]) -> bool:
+    return envelope_truthy(envelope, *NO_PUSH_FLAGS)
+
+
+def push_block_reason(envelope: dict[str, Any]) -> str | None:
+    reasons = [flag for flag in NO_PUSH_FLAGS if truthy(envelope_value(envelope, flag, False))]
+    return ", ".join(reasons) if reasons else None
+
+
+def next_recommended_task_for(blockers: list[str], envelope: dict[str, Any]) -> str:
+    configured = envelope_value(envelope, "next_recommended_task")
+    if isinstance(configured, str) and configured.strip():
+        return configured.strip()
+    joined = " ".join(blockers)
+    if "unsupported_task_kind" in joined or "unsupported_required_capability" in joined:
+        return "enable a supported read-only runner for this task kind before resubmitting"
+    if "required_artifacts_missing" in joined:
+        return "rerun the task with corrected required_artifacts paths or produce the missing outputs"
+    if "write_scope_violations" in joined:
+        return "resubmit with a precise write_scope or move outputs into the allowed artifact paths"
+    if "product_code" in joined:
+        return "split product-code changes from read-only or documentation-only task constraints"
+    if "push" in joined:
+        return "resubmit through a no-push workflow or explicitly allow git push"
+    return "inspect the runner contract blockers and resubmit with corrected constraints"
+
+
+def finalize_runner_contract(
+    task: dict[str, Any],
+    result: dict[str, Any] | None,
+    artifact_dir: Path,
+    worktree: Path | None = None,
+    changed_files: list[str] | None = None,
+    push_attempted: bool | None = None,
+    push_blocked: bool | None = None,
+    blocked_reason: str | None = None,
+    failure_reason: str | None = None,
+) -> dict[str, Any]:
+    envelope = task_envelope(task)
+    final = dict(result or {})
+    kind = task.get("kind") or envelope.get("kind")
+    original_status = final.get("status")
+    if original_status not in CONTRACT_STATUSES:
+        if original_status:
+            final.setdefault("runner_status", original_status)
+        final["status"] = "completed"
+    final.setdefault("task_id", task["task_id"])
+    final.setdefault("kind", kind)
+    final["artifact_dir"] = str(artifact_dir)
+
+    effective_changed = changed_files
+    if effective_changed is None:
+        effective_changed = ensure_list(final.get("changed_files")) or collect_git_changed_files(worktree)
+    final["changed_files"] = [changed_file_display(path, worktree, artifact_dir) for path in effective_changed if isinstance(path, str)]
+
+    write_scope = envelope_list(envelope, "write_scope")
+    final["write_scope"] = write_scope
+
+    required_present, required_missing = verify_required_artifacts(envelope, worktree, artifact_dir)
+    final["required_artifacts_present"] = required_present
+    final["required_artifacts_missing"] = required_missing
+
+    read_only = envelope_truthy(envelope, "read_only")
+    product_forbidden = envelope_truthy(envelope, *PRODUCT_CODE_FORBIDDEN_FLAGS)
+    docs_only = envelope_truthy(envelope, "documentation_artifacts_only")
+    final["read_only"] = read_only
+    final["product_code_modification_forbidden"] = product_forbidden
+
+    changed_product = product_code_changed(final["changed_files"], artifact_dir)
+    final["product_code_changed"] = changed_product
+
+    write_scope_violations: list[str] = []
+    if write_scope:
+        write_scope_violations = [
+            changed
+            for changed in final["changed_files"]
+            if not changed_file_allowed_by_scope(changed, write_scope, worktree, artifact_dir)
+        ]
+    if docs_only:
+        docs_only_violations = [
+            changed
+            for changed in final["changed_files"]
+            if not is_docs_path(changed)
+            and not is_artifact_path(changed, artifact_dir)
+            and not changed_file_allowed_by_scope(changed, write_scope, worktree, artifact_dir)
+        ]
+        write_scope_violations = sorted(set(write_scope_violations + docs_only_violations))
+    final["write_scope_violations"] = write_scope_violations
+
+    forbidden_push = push_forbidden_by_envelope(envelope)
+    attempted = bool(final.get("push_attempted", False) if push_attempted is None else push_attempted)
+    blocked = bool(final.get("push_blocked", False) if push_blocked is None else push_blocked)
+    if forbidden_push and not attempted:
+        blocked = True
+    final["push_attempted"] = attempted
+    final["push_blocked"] = blocked
+    final["push_block_reason"] = final.get("push_block_reason") or push_block_reason(envelope)
+
+    tests_run = final.get("tests_run")
+    if tests_run is None:
+        tests_run = final.get("checks", [])
+    final["tests_run"] = ensure_list(tests_run)
+
+    blockers: list[str] = []
+    if blocked_reason:
+        blockers.append(blocked_reason)
+    if not artifact_dir.exists():
+        blockers.append("artifact_dir_missing")
+    if required_missing:
+        blockers.append("required_artifacts_missing")
+    if write_scope_violations:
+        blockers.append("write_scope_violations")
+    if read_only and changed_product:
+        blockers.append("read_only_product_code_changed")
+    if product_forbidden and changed_product:
+        blockers.append("product_code_modification_forbidden")
+    if forbidden_push and attempted:
+        blockers.append("forbidden_push_attempted")
+
+    if blockers:
+        final["status"] = "blocked"
+        final["blocked_reason"] = "; ".join(dict.fromkeys(blockers))
+        final["failure_reason"] = failure_reason
+    else:
+        final.setdefault("blocked_reason", None)
+        final["failure_reason"] = failure_reason
+    final["next_recommended_task"] = final.get("next_recommended_task") or (
+        next_recommended_task_for(blockers, envelope) if blockers else None
+    )
+
+    for field in CONTRACT_RESULT_FIELDS:
+        final.setdefault(field, None)
+    return final
+
+
+def unsupported_task_result(task: dict[str, Any], artifact_dir: Path, reason: str, worktree: Path | None = None) -> dict[str, Any]:
+    return finalize_runner_contract(
+        task,
+        {
+            "task_id": task["task_id"],
+            "status": "blocked",
+            "kind": task.get("kind") or task_envelope(task).get("kind"),
+            "changed_files": [],
+        },
+        artifact_dir,
+        worktree=worktree,
+        changed_files=[],
+        blocked_reason=reason,
+    )
 
 
 class AgentHost:
@@ -186,6 +551,44 @@ class AgentHost:
             if proc.returncode != 0:
                 raise RuntimeError(f"command failed with rc={proc.returncode}: {display_command}")
 
+    def git_push(
+        self,
+        task: dict[str, Any],
+        command: list[str],
+        cwd: Path,
+        stdout_path: Path,
+        stderr_path: Path,
+        branch: str | None,
+        logs: dict[str, str],
+        env: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        envelope = task_envelope(task)
+        reason = push_block_reason(envelope)
+        if reason:
+            with stdout_path.open("ab") as stdout:
+                stdout.write(f"\n$ git push skipped by runner contract: {reason}\n".encode("utf-8"))
+            return {
+                "push_attempted": False,
+                "push_blocked": True,
+                "push_block_reason": reason,
+            }
+        self.run_command(command, cwd, stdout_path, stderr_path, task, branch, logs, env)
+        return {
+            "push_attempted": True,
+            "push_blocked": False,
+            "push_block_reason": None,
+        }
+
+    def unsupported_task_reason(self, task: dict[str, Any]) -> str | None:
+        envelope = task_envelope(task)
+        kind = task.get("kind") or envelope.get("kind")
+        if kind not in SUPPORTED_TASK_KINDS:
+            return f"unsupported_task_kind:{kind}"
+        required_capability = envelope_value(envelope, "required_capability")
+        if required_capability and required_capability not in self.capabilities:
+            return f"unsupported_required_capability:{required_capability}"
+        return None
+
     @staticmethod
     def _content_text(content: Any) -> str:
         if isinstance(content, str):
@@ -290,6 +693,16 @@ class AgentHost:
         (artifact_dir / "artifact-manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         return result_path
 
+    def finalize_result(
+        self,
+        task: dict[str, Any],
+        result: dict[str, Any],
+        artifact_dir: Path,
+        worktree: Path | None = None,
+        changed_files: list[str] | None = None,
+    ) -> dict[str, Any]:
+        return finalize_runner_contract(task, result, artifact_dir, worktree=worktree, changed_files=changed_files)
+
     def complete(self, task: dict[str, Any], result: dict[str, Any], result_path: Path) -> None:
         self.post(f"/v1/tasks/{task['task_id']}/complete", {
             "result_reference": str(result_path),
@@ -339,6 +752,7 @@ class AgentHost:
             "kind": "read_only_probe",
             "message": "read-only probe completed",
         }
+        result = self.finalize_result(task, result, artifact_dir, worktree, changed_files=[])
         result_path = self.write_result(artifact_dir, result)
         result["result_path"] = str(result_path)
         return result
@@ -422,6 +836,7 @@ class AgentHost:
             "kind": envelope.get("kind", "orchestrator_chat_response"),
             "response": response_text,
         }
+        result = self.finalize_result(task, result, artifact_dir, worktree, changed_files=[])
         result_path = self.write_result(artifact_dir, result)
         result["result_path"] = str(result_path)
         return result
@@ -551,6 +966,7 @@ class AgentHost:
         embedded = self.image_b64_for_result(image_path)
         if embedded:
             result["image_b64"] = embedded
+        result = self.finalize_result(task, result, artifact_dir, worktree, changed_files=[])
         result_path = self.write_result(artifact_dir, result)
         result["result_path"] = str(result_path)
         return result
@@ -620,7 +1036,7 @@ class AgentHost:
         self.run_command(["git", "add", smoke_path], worktree, stdout_path, stderr_path, task, branch, logs)
         self.run_command(["git", "commit", "-m", "test: add factory runtime contracts"], worktree, stdout_path, stderr_path, task, branch, logs)
         commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(worktree), text=True).strip()
-        self.run_command(["git", "push", "-u", "origin", branch], worktree, stdout_path, stderr_path, task, branch, logs, git_env)
+        push_info = self.git_push(task, ["git", "push", "-u", "origin", branch], worktree, stdout_path, stderr_path, branch, logs, git_env)
 
         result = {
             "node_id": self.node_id,
@@ -640,7 +1056,9 @@ class AgentHost:
             "status": "completed",
             "changed_files": [smoke_path],
             "checks": ["mimo --version", "python3 compileall existing runtime paths", f"pytest -q {smoke_path}"],
+            **push_info,
         }
+        result = self.finalize_result(task, result, artifact_dir, worktree, changed_files=[smoke_path])
         result_path = self.write_result(artifact_dir, result)
         result["result_path"] = str(result_path)
         return result
@@ -817,7 +1235,7 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
         self.run_command(["git", "add", "ops/factory_control.py", "tests/test_factory_retry_error_clearance.py"], worktree, stdout_path, stderr_path, task, branch, logs)
         self.run_command(["git", "commit", "-m", "factory: clear stale retry error on success"], worktree, stdout_path, stderr_path, task, branch, logs)
         commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(worktree), text=True).strip()
-        self.run_command(["git", "push", "-u", "origin", branch], worktree, stdout_path, stderr_path, task, branch, logs, git_env)
+        push_info = self.git_push(task, ["git", "push", "-u", "origin", branch], worktree, stdout_path, stderr_path, branch, logs, git_env)
 
         result = {
             "node_id": self.node_id,
@@ -841,7 +1259,15 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 "python3 compileall existing runtime paths",
                 "pytest -q tests/test_factory_runtime.py tests/test_factory_retry_error_clearance.py",
             ],
+            **push_info,
         }
+        result = self.finalize_result(
+            task,
+            result,
+            artifact_dir,
+            worktree,
+            changed_files=["ops/factory_control.py", "tests/test_factory_retry_error_clearance.py"],
+        )
         result_path = self.write_result(artifact_dir, result)
         result["result_path"] = str(result_path)
         return result
@@ -903,6 +1329,7 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
             "log_paths": logs,
             "result_path": str(artifact_dir / "result.json"),
         }
+        result = self.finalize_result(task, result, artifact_dir, worktree, changed_files=diff_files)
         result_path = self.write_result(artifact_dir, result)
         result["result_path"] = str(result_path)
         return result
@@ -911,6 +1338,24 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
         result_path = None
         result = None
         try:
+            unsupported_reason = self.unsupported_task_reason(task)
+            if unsupported_reason:
+                worktree, artifact_dir, logs = self.prepare_dirs(task)
+                result = unsupported_task_result(task, artifact_dir, unsupported_reason, worktree=worktree)
+                result["node_id"] = self.node_id
+                result["hostname"] = self.hostname
+                result["agent_id"] = self.agent_id
+                result["attempt_id"] = task.get("attempt_id")
+                result["pid"] = self.pid
+                result["heartbeat_at"] = utc_now()
+                result["worktree"] = str(worktree)
+                result["log_paths"] = logs
+                result["result_path"] = str(artifact_dir / "result.json")
+                result_path = self.write_result(artifact_dir, result)
+                result["result_path"] = str(result_path)
+                self.fail(task, "runner_contract_blocked", unsupported_reason, result, result_path, retry=False)
+                return
+
             kind = task.get("kind")
             if kind == "impl_factory_smoke":
                 result = self.run_impl_factory_smoke(task)
@@ -925,9 +1370,21 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
             elif kind == "read_only_probe":
                 result = self.run_read_only_probe(task)
             else:
-                raise RuntimeError(f"unsupported task kind: {kind}")
+                raise RuntimeError(f"unsupported task kind reached dispatch: {kind}")
             result_path = Path(result["result_path"])
-            self.complete(task, result, result_path)
+            artifact_dir = result_path.parent
+            worktree_value = result.get("worktree")
+            worktree = Path(worktree_value) if isinstance(worktree_value, str) and worktree_value else None
+            result = finalize_runner_contract(task, result, artifact_dir, worktree=worktree)
+            result_path = self.write_result(artifact_dir, result)
+            result["result_path"] = str(result_path)
+            if result["status"] == "completed":
+                self.complete(task, result, result_path)
+            else:
+                error = result.get("blocked_reason") or result.get("failure_reason") or "runner contract prevented completion"
+                error_type = "runner_contract_blocked" if result["status"] == "blocked" else "runtime_error"
+                retry = result["status"] == "failed" and int(task.get("attempt", 0)) < int(task.get("max_retries", 3))
+                self.fail(task, error_type, error, result, result_path, retry=retry)
         except Exception as exc:
             task_id = task["task_id"]
             attempt_id = task.get("attempt_id") or f"{task_id}-attempt-{task.get('attempt', 1)}"
@@ -943,7 +1400,9 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 "status": "failed",
                 "error": str(exc),
                 "completed_at": utc_now(),
+                "result_path": str(artifact_dir / "result.json"),
             }
+            result = finalize_runner_contract(task, result, artifact_dir, failure_reason=str(exc))
             result_path = self.write_result(artifact_dir, result)
             retry = int(task.get("attempt", 0)) < int(task.get("max_retries", 3))
             self.fail(task, "runtime_error", str(exc), result, result_path, retry=retry)
