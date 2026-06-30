@@ -267,10 +267,16 @@ export default function App() {
   const handleKeyDown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage() } }
 
   const quickActions = [
-    { icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>, title: "Чат с AI", desc: "Задайте вопрос", color: "blue", prompt: "" },
-    { icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>, title: "Смета", desc: "AI-генерация сметы", color: "purple", prompt: "Создай строительную смету для " },
-    { icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 002 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0022 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>, title: "Документы", desc: "Пакет документов", color: "green", prompt: "Создай полный пакет документов для " },
-    { id: "search", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>, title: "Поиск", desc: "База знаний", color: "orange", prompt: "" },
+    { icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>, title: "Запустить поручение", desc: "Сформулировать задачу для фабрики", color: "blue", prompt: "Разбери задачу и предложи план выполнения: " },
+    { icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>, title: "Смета и документы", desc: "Расчеты, PDF и пакет работ", color: "purple", prompt: "Подготовь смету и список документов для " },
+    { id: "documents", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 002 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0022 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>, title: "Загрузить знания", desc: "PDF, DOCX, CSV для RAG", color: "green", prompt: "" },
+    { id: "search", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>, title: "Найти в базе", desc: "Семантический поиск по документам", color: "orange", prompt: "" },
+  ]
+
+  const landingMetrics = [
+    { label: "Узлы онлайн", value: clusterStatus ? `${clusterStatus.online_nodes}/${clusterStatus.total_nodes}` : "..." },
+    { label: "Свободная RAM", value: clusterStatus ? `${clusterStatus.free_ram_gb} GB` : "..." },
+    { label: "Очередь", value: clusterStatus?.queue_size ?? 0 },
   ]
 
   const birdState = loading ? "thinking" : connected ? "idle" : "error"
@@ -383,12 +389,25 @@ export default function App() {
                           transition={{ type: "spring", stiffness: 200, delay: 0.1 }}>
                           <KolibriBird size={90} state="idle" />
                         </motion.div>
+                        <motion.div className="welcome-kicker" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: 0.2 }}>
+                          Домашний AI-кластер для операторских задач
+                        </motion.div>
                         <motion.h1 className="welcome-title" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: 0.3 }}>Kolibri AI</motion.h1>
+                          transition={{ delay: 0.3 }}>Kolibri Factory</motion.h1>
                         <motion.p className="welcome-subtitle" initial={{ opacity: 0 }} animate={{ opacity: 1 }}
                           transition={{ delay: 0.4 }}>
-                          Фабрика Колибри · {clusterStatus ? `${clusterStatus.online_nodes}/${clusterStatus.total_nodes} узлов · ${clusterStatus.total_ram_gb} GB RAM` : "загрузка"}
+                          Единая точка входа для чата, RAG-документов, смет и контроля вычислительной сети.
                         </motion.p>
+                        <motion.div className="welcome-metrics" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: 0.45 }}>
+                          {landingMetrics.map(metric => (
+                            <div className="welcome-metric" key={metric.label}>
+                              <div className="welcome-metric-value">{metric.value}</div>
+                              <div className="welcome-metric-label">{metric.label}</div>
+                            </div>
+                          ))}
+                        </motion.div>
                         <div className="quick-actions">
                           {quickActions.map((a, i) => (
                             <motion.button key={a.title} className="quick-action"
@@ -397,6 +416,7 @@ export default function App() {
                               whileHover={{ scale: 1.03, y: -3 }} whileTap={{ scale: 0.97 }}
                               onClick={() => {
                                 if (a.id === "search") { setActiveTab("search"); return }
+                                if (a.id === "documents") { setActiveTab("documents"); return }
                                 setInput(a.prompt); inputRef.current?.focus()
                               }}>
                               <div className={`quick-action-icon ${a.color}`}>{a.icon}</div>
