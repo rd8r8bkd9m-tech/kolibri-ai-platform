@@ -2,6 +2,18 @@
 
 Status: completed locally, ready for PR review.
 
+GitHub:
+
+- Draft PR: <https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/83>
+- CI: `Kolibri CI / ci` succeeded for commit
+  `82ca8fecfc2f374f1f2299de9197d0b86bf6681a`.
+
+Remote server validation:
+
+- Heavy/full test host: `server-kfrm` at `217.60.63.31`.
+- Temporary checkout: `/var/tmp/kolibri-pr83-82ca8fec`.
+- Full remote suite: 73 passed, 1 external `reportlab` warning.
+
 Implemented behavior:
 
 - Runner results are normalized to the contract fields before they are written
