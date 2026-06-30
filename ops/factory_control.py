@@ -26,6 +26,7 @@ REDIS_HOST = os.environ.get("FACTORY_REDIS_HOST", "127.0.0.1")
 REDIS_PORT = int(os.environ.get("FACTORY_REDIS_PORT", "6379"))
 LEASE_DURATION = int(os.environ.get("FACTORY_LEASE_DURATION", "60"))
 MAX_RETRIES = int(os.environ.get("FACTORY_MAX_RETRIES", "3"))
+FABRIC_API_VERSION = "2026-07-01"
 
 STATE_QUEUED = "queued"
 STATE_LEASED = "leased"
@@ -38,6 +39,83 @@ STATE_CANCELLED = "cancelled"
 STATE_RETRY = "retry_scheduled"
 STATE_DEAD = "dead_letter"
 TERMINAL_STATES = {STATE_COMPLETED, STATE_FAILED, STATE_CANCELLED, STATE_DEAD}
+
+FABRIC_NODE_CATALOG = {
+    "home": {
+        "node_id": "home",
+        "role": "command_node_gateway",
+        "display_name": "Связной",
+        "api_paths": ["fabric_api", "fallback_relay"],
+        "ssh": "emergency_bootstrap_diagnostic_only",
+    },
+    "main": {
+        "node_id": "main",
+        "role": "control_plane",
+        "display_name": "Директор",
+        "api_paths": ["fabric_api", "control_plane_api", "artifact_api"],
+        "ssh": "emergency_bootstrap_diagnostic_only",
+    },
+    "uiap": {
+        "node_id": "uiap",
+        "role": "knowledge_model_node",
+        "display_name": "Знания",
+        "api_paths": ["fabric_api", "fallback_relay"],
+        "ssh": "emergency_bootstrap_diagnostic_only",
+    },
+    "qjns": {
+        "node_id": "qjns",
+        "role": "remote_agent",
+        "display_name": "Тестировщик",
+        "api_paths": ["fabric_api", "agent_host_api", "fallback_relay"],
+        "ssh": "emergency_bootstrap_diagnostic_only",
+    },
+    "9fts": {
+        "node_id": "9fts",
+        "role": "implementation_model_node",
+        "display_name": "Инженер",
+        "api_paths": ["fabric_api", "agent_host_api", "model_node_api", "fallback_relay"],
+        "ssh": "emergency_bootstrap_diagnostic_only",
+    },
+    "new": {
+        "node_id": "new",
+        "role": "review_agent",
+        "display_name": "Ревьюер",
+        "api_paths": ["fabric_api", "agent_host_api", "fallback_relay"],
+        "ssh": "emergency_bootstrap_diagnostic_only",
+    },
+}
+
+OWNER_RIGHTS_POLICY = {
+    "policy_id": "kolibri-owner-full-control-api",
+    "rights": ["fleet:read", "fleet:route", "task:submit", "task:cancel", "node:drain", "artifact:read", "bootstrap:create"],
+    "requires": ["authentication", "authorization", "scope", "audit_logging", "key_rotation"],
+    "default_scope": "least_privilege_per_command",
+    "secret_handling": "tokens and private keys are never returned by Fabric API responses",
+    "rotation": "node credentials rotate on bootstrap, compromise, owner request, and at least every 90 days",
+}
+
+NODE_IDENTITY_ROTATION_POLICY = {
+    "identity": {
+        "node_id": "stable non-secret node identifier",
+        "agent_id": "process-level API identity",
+        "display_name": "human-readable Russian role name for owner reports",
+    },
+    "key_rotation": {
+        "required": True,
+        "maximum_age_days": 90,
+        "events": ["new_bootstrap", "suspected_compromise", "operator_rotation", "node_reimage"],
+        "overlap": "old key remains valid only for a short audited drain window",
+    },
+    "audit": "all privileged Fabric API calls must record actor, scope, node_id, request_id and outcome",
+}
+
+BOOTSTRAP_CONTRACT = {
+    "endpoint": "POST /v1/fabric/bootstrap",
+    "purpose": "register a new server through the protected Fabric API without printing secrets",
+    "required_fields": ["node_id", "role", "display_name", "capabilities", "requested_by"],
+    "safe_stub": True,
+    "result": "returns bootstrap task metadata and next API action; privileged installers remain external until authenticated",
+}
 
 
 def utc_now() -> str:
@@ -135,12 +213,113 @@ def all_task_ids() -> list[str]:
     return sorted(values)
 
 
+def registered_nodes() -> list[dict[str, Any]]:
+    nodes = []
+    for node_id in sorted(redis.command("SMEMBERS", key("node_ids")) or []):
+        node = get_json(node_key(node_id), {})
+        node["draining"] = bool(redis.command("GET", drain_key(node_id)))
+        nodes.append(node)
+    return nodes
+
+
 def queue_ids() -> list[str]:
     return redis.command("LRANGE", key("queue"), 0, -1) or []
 
 
 def load_task(task_id: str) -> dict[str, Any] | None:
     return get_json(task_key(task_id))
+
+
+def fabric_blocked_envelope(
+    *,
+    reason: str,
+    target_node: str | None,
+    fallback_nodes: list[str] | None = None,
+    repair_task: dict[str, Any] | None = None,
+    route: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "status": "blocked",
+        "reason": reason,
+        "target_node": target_node,
+        "fallback_nodes": fallback_nodes or [],
+        "fallback_route": route or {"type": "fabric_relay", "endpoint": "/v1/fabric/relay"},
+        "repair_task": repair_task or {
+            "kind": "repair_fabric_route",
+            "target_node": target_node,
+            "action": "restore node heartbeat or register an API relay before retrying direct control",
+        },
+        "can_continue_elsewhere": bool(fallback_nodes),
+    }
+
+
+def _node_online(node: dict[str, Any]) -> bool:
+    return node.get("health") == "online"
+
+
+def fabric_nodes(registered_nodes: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    merged = {node_id: dict(node) for node_id, node in FABRIC_NODE_CATALOG.items()}
+    for registered in registered_nodes or []:
+        node_id = str(registered.get("node_id") or registered.get("id") or "")
+        if not node_id:
+            continue
+        catalog = merged.get(node_id, {"node_id": node_id, "api_paths": ["fabric_api", "fallback_relay"], "ssh": "emergency_bootstrap_diagnostic_only"})
+        catalog.update(registered)
+        catalog.setdefault("display_name", registered.get("hostname") or node_id)
+        catalog.setdefault("api_paths", ["fabric_api", "fallback_relay"])
+        catalog["ssh"] = "emergency_bootstrap_diagnostic_only"
+        merged[node_id] = catalog
+    for node in merged.values():
+        node.setdefault("health", "unknown")
+        node.setdefault("fallback_api_relay", "/v1/fabric/relay")
+        node.setdefault("management_path", "protected_fabric_api")
+    return sorted(merged.values(), key=lambda item: item["node_id"])
+
+
+def fabric_route(
+    *,
+    target_node: str | None = None,
+    required_capability: str | None = None,
+    registered_nodes: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    nodes = fabric_nodes(registered_nodes)
+    online = [node for node in nodes if _node_online(node)]
+    candidates = nodes
+    if target_node:
+        candidates = [node for node in candidates if node.get("node_id") == target_node]
+    if required_capability:
+        candidates = [node for node in candidates if required_capability in (node.get("capabilities") or [])]
+    direct = next((node for node in candidates if _node_online(node)), None)
+    fallback_nodes = [
+        node["node_id"]
+        for node in online
+        if node.get("node_id") != target_node
+        and (not required_capability or required_capability in (node.get("capabilities") or []))
+    ]
+    if direct:
+        return {
+            "status": "ok",
+            "route": {
+                "type": "direct_fabric_api",
+                "target_node": direct["node_id"],
+                "endpoint": f"/v1/nodes/{direct['node_id']}",
+                "relay_endpoint": "/v1/fabric/relay",
+            },
+            "fallback_nodes": fallback_nodes,
+            "can_continue_elsewhere": True,
+        }
+    reason = "target_node_unavailable" if target_node else "no_node_matches_capability"
+    return fabric_blocked_envelope(
+        reason=reason,
+        target_node=target_node,
+        fallback_nodes=fallback_nodes,
+        repair_task={
+            "kind": "repair_fabric_route",
+            "target_node": target_node,
+            "required_capability": required_capability,
+            "action": "register node heartbeat, clear drain state, or choose a fallback node via Fabric API",
+        },
+    )
 
 
 def save_task(task: dict[str, Any]) -> None:
@@ -293,12 +472,38 @@ class Handler(BaseHTTPRequestHandler):
                 response(self, 200, {"status": "ok", "redis": pong, "queue_backend": "redis", "time": utc_now()})
                 return
             if path == "/v1/nodes":
-                nodes = []
-                for node_id in sorted(redis.command("SMEMBERS", key("node_ids")) or []):
-                    node = get_json(node_key(node_id), {})
-                    node["draining"] = bool(redis.command("GET", drain_key(node_id)))
-                    nodes.append(node)
-                response(self, 200, {"nodes": nodes})
+                response(self, 200, {"nodes": registered_nodes()})
+                return
+            if path == "/v1/fabric/health":
+                pong = redis.command("PING")
+                response(self, 200, {
+                    "status": "ok",
+                    "fabric_api_version": FABRIC_API_VERSION,
+                    "primary_management_path": "protected_fabric_api",
+                    "ssh_policy": "emergency_bootstrap_diagnostic_only",
+                    "redis": pong,
+                    "time": utc_now(),
+                })
+                return
+            if path == "/v1/fabric/policy":
+                response(self, 200, {
+                    "primary_management_path": "protected_fabric_api",
+                    "ssh_policy": "emergency_bootstrap_diagnostic_only",
+                    "owner_rights": OWNER_RIGHTS_POLICY,
+                    "node_identity": NODE_IDENTITY_ROTATION_POLICY,
+                    "bootstrap": BOOTSTRAP_CONTRACT,
+                })
+                return
+            if path == "/v1/fabric/routes":
+                response(self, 200, {
+                    "status": "ok",
+                    "primary_management_path": "protected_fabric_api",
+                    "nodes": fabric_nodes(registered_nodes()),
+                    "relay_endpoint": "/v1/fabric/relay",
+                })
+                return
+            if path == "/v1/fabric/keys/rotation":
+                response(self, 200, NODE_IDENTITY_ROTATION_POLICY)
                 return
             if path == "/v1/tasks":
                 query = parse_qs(parsed.query)
@@ -364,6 +569,56 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/v1/tasks":
                 task = create_task(body)
                 response(self, 201, task)
+                return
+            if path == "/v1/fabric/route":
+                route = fabric_route(
+                    target_node=body.get("target_node"),
+                    required_capability=body.get("required_capability"),
+                    registered_nodes=registered_nodes(),
+                )
+                response(self, 200 if route.get("status") == "ok" else 503, route)
+                return
+            if path == "/v1/fabric/relay":
+                route = fabric_route(
+                    target_node=body.get("target_node"),
+                    required_capability=body.get("required_capability"),
+                    registered_nodes=registered_nodes(),
+                )
+                if route.get("status") != "ok" and not route.get("can_continue_elsewhere"):
+                    response(self, 503, route)
+                    return
+                response(self, 202, {
+                    "status": "accepted",
+                    "relay": "safe_stub",
+                    "route": route,
+                    "message": "relay contract accepted; privileged execution must be performed by an authenticated agent host",
+                })
+                return
+            if path == "/v1/fabric/bootstrap":
+                required = set(BOOTSTRAP_CONTRACT["required_fields"])
+                missing = sorted(field for field in required if not body.get(field))
+                if missing:
+                    response(self, 400, {
+                        "status": "blocked",
+                        "reason": "bootstrap_contract_missing_fields",
+                        "missing_fields": missing,
+                        "fallback_nodes": [],
+                        "repair_task": {
+                            "kind": "repair_bootstrap_request",
+                            "action": "resubmit bootstrap request with required non-secret identity and capability fields",
+                        },
+                        "can_continue_elsewhere": False,
+                    })
+                    return
+                response(self, 202, {
+                    "status": "accepted",
+                    "bootstrap": "safe_stub",
+                    "node_id": body["node_id"],
+                    "display_name": body.get("display_name"),
+                    "capabilities": body.get("capabilities", []),
+                    "next_action": "approve scoped credentials through authenticated Fabric API and start agent-host registration",
+                    "secrets_returned": False,
+                })
                 return
             if path == "/v1/tasks/lease":
                 requeue_expired_leases()

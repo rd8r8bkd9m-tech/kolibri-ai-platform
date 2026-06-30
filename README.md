@@ -61,6 +61,8 @@ npm run dev
 
 ## Деплой
 
+Основной путь управления фабрикой — защищенный Fabric API control plane. SSH не является control plane и допускается только для bootstrap, emergency recovery и диагностики, когда API недоступен или еще не установлен. Контракт API-first управления описан в [docs/fabric-api-first-control.md](docs/fabric-api-first-control.md).
+
 ```bash
 # На каждый сервер
 ./scripts/deploy.sh main    # API Gateway + Frontend
@@ -80,6 +82,18 @@ npm run dev
 | `POST /rag/search` | Поиск по базе знаний |
 | `POST /inference/generate` | Генерация текста |
 | `GET /cluster/status` | Статус кластера |
+
+### Fabric Control API
+
+| Endpoint | Описание |
+|----------|----------|
+| `GET /v1/fabric/health` | Health защищенного Fabric API |
+| `GET /v1/fabric/policy` | Owner rights, auth/authz/scope/logging/rotation policy |
+| `GET /v1/fabric/routes` | Представление всех серверов через API или fallback relay |
+| `POST /v1/fabric/route` | Direct route или structured blocked status |
+| `POST /v1/fabric/relay` | Safe relay contract |
+| `POST /v1/fabric/bootstrap` | Контракт bootstrap нового сервера без вывода секретов |
+| `GET /v1/fabric/keys/rotation` | Node identity и key rotation policy |
 
 ## Структура
 
