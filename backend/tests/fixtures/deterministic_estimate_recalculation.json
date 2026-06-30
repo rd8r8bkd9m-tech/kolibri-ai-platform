@@ -1,0 +1,134 @@
+{
+  "input": {
+    "estimate_id": "EST-FIXTURE-001",
+    "title": "Fixture estimate: deterministic apartment repair",
+    "client_name": "Fixture Client",
+    "object_address": "Fixture Address",
+    "currency": "RUB",
+    "overhead_rate": "7.50",
+    "tax_rate": "5.00",
+    "created_at": "2026-06-29T14:19:39+00:00",
+    "updated_at": "2026-06-29T14:19:39+00:00",
+    "sections": [
+      {
+        "title": "Preparation",
+        "items": [
+          {
+            "name": "Surface protection",
+            "unit": "m2",
+            "quantity": "12.345",
+            "labor_unit_price": "180.555",
+            "material_unit_price": "44.444",
+            "provenance": {
+              "source": "fixture",
+              "label": "Fixture catalog",
+              "captured_at": "2026-06-29T14:19:39+00:00",
+              "confidence": "1.00"
+            }
+          },
+          {
+            "name": "Demolition",
+            "unit": "m2",
+            "quantity": "8.005",
+            "labor_unit_price": "319.995",
+            "material_unit_price": "0",
+            "provenance": {
+              "source": "fixture",
+              "label": "Fixture catalog",
+              "captured_at": "2026-06-29T14:19:39+00:00",
+              "confidence": "1.00"
+            }
+          }
+        ]
+      },
+      {
+        "title": "Finishing",
+        "items": [
+          {
+            "name": "Wall leveling",
+            "unit": "m2",
+            "quantity": "10",
+            "labor_unit_price": "520",
+            "material_unit_price": "210.333",
+            "provenance": {
+              "source": "fixture",
+              "label": "Fixture catalog",
+              "captured_at": "2026-06-29T14:19:39+00:00",
+              "confidence": "1.00"
+            }
+          },
+          {
+            "name": "Final finish",
+            "unit": "m2",
+            "quantity": "6.5",
+            "labor_unit_price": "680.1",
+            "material_unit_price": "360.2",
+            "provenance": {
+              "source": "fixture",
+              "label": "Fixture catalog",
+              "captured_at": "2026-06-29T14:19:39+00:00",
+              "confidence": "1.00"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "expected": {
+    "totals": {
+      "labor": "14413.77",
+      "materials": "4993.43",
+      "subtotal": "19407.20",
+      "overhead": "1455.54",
+      "tax": "1043.14",
+      "grand_total": "21905.88"
+    },
+    "fingerprint": "f8841f6909a46ae03ec13d153994e08ce7b989e7bd746bfcbb99599b7e07fc9c",
+    "audit_lines": [
+      {
+        "section": "Preparation",
+        "item": "Surface protection",
+        "quantity": "12.35",
+        "labor_unit_price": "180.56",
+        "material_unit_price": "44.44",
+        "labor_total": "2229.92",
+        "material_total": "548.83",
+        "line_total": "2778.75",
+        "source": "fixture"
+      },
+      {
+        "section": "Preparation",
+        "item": "Demolition",
+        "quantity": "8.01",
+        "labor_unit_price": "320.00",
+        "material_unit_price": "0.00",
+        "labor_total": "2563.20",
+        "material_total": "0.00",
+        "line_total": "2563.20",
+        "source": "fixture"
+      },
+      {
+        "section": "Finishing",
+        "item": "Wall leveling",
+        "quantity": "10.00",
+        "labor_unit_price": "520.00",
+        "material_unit_price": "210.33",
+        "labor_total": "5200.00",
+        "material_total": "2103.30",
+        "line_total": "7303.30",
+        "source": "fixture"
+      },
+      {
+        "section": "Finishing",
+        "item": "Final finish",
+        "quantity": "6.50",
+        "labor_unit_price": "680.10",
+        "material_unit_price": "360.20",
+        "labor_total": "4420.65",
+        "material_total": "2341.30",
+        "line_total": "6761.95",
+        "source": "fixture"
+      }
+    ]
+  }
+}
