@@ -10,6 +10,9 @@ Current head: `350544492ce14a12865fb9a04e2abf6f87c87d3f`
 
 Status: open, draft, mergeable, GitHub Actions green.
 
+PR body status: refreshed on 2026-07-01 to match current head, CI and artifact
+hygiene evidence.
+
 ## What PR #91 Fixes
 
 PR #91 repairs the Agent Host direct MIMO runner contract:
@@ -75,6 +78,10 @@ Mark PR #91 ready for final review/merge, then deploy it to one canary Agent Hos
 After owner merge/deploy approval:
 
 `P0_PR91_POST_MERGE_MIMO_RUNNER_CANARY_2026_07_01`
+
+Prepared envelope:
+
+`docs/agent/dispatcher/envelopes/P0_PR91_POST_MERGE_MIMO_RUNNER_CANARY_2026_07_01.json`
 
 Goal:
 

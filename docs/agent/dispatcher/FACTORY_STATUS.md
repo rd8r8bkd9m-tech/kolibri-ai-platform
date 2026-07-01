@@ -4,6 +4,15 @@ Snapshot time:
 - 2026-07-01T09:15:43Z
 
 Latest update:
+- 2026-07-01T13:05:00Z:
+  GitHub PR #91 body was refreshed to match current source-of-truth state:
+  head `350544492ce14a12865fb9a04e2abf6f87c87d3f`, draft, mergeable,
+  GitHub Actions run `28518947833` success, artifact hygiene repaired, qjns
+  credential blockers documented, and post-merge canary steps listed. Prepared
+  but did not submit
+  `docs/agent/dispatcher/envelopes/P0_PR91_POST_MERGE_MIMO_RUNNER_CANARY_2026_07_01.json`.
+  Submit is intentionally gated on owner approval, PR #91 merge, and canary
+  Agent Host deploy/restart.
 - 2026-07-01T12:55:00Z:
   PR #91 artifact hygiene repair completed. Server task
   `P0_PR91_MIMO_RUNNER_ARTIFACT_HYGIENE_REPAIR_2026_07_01` pushed normal
