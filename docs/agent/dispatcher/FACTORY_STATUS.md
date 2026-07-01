@@ -4,6 +4,16 @@ Snapshot time:
 - 2026-07-01T08:00:05Z
 
 Latest update:
+- 2026-07-01T09:12:00Z:
+  Refreshed GitHub connector evidence for PR #83. PR remains open, draft,
+  mergeable, base `main` at `6d0317c52a9694448ee2c352dc196ce7a27b9487`,
+  head `81daf44dc842dce40d8547275f47b051871a2690`, with `Kolibri CI` run
+  `28504679530` success. Created owner release-gate packet
+  `docs/agent/dispatcher/PR83_OWNER_DECISION_PACKET.md`. The packet notes that
+  the PR body is stale, but Mac did not mutate the public PR, mark ready,
+  approve, merge, push to `main`, or restart services. Next action is owner
+  decision; after merge/deploy, submit
+  `P0_AGENT_HOST_POST_MERGE_CONTRACT_CANARY_2026_07_01`.
 - 2026-07-01T09:05:00Z:
   Ran deterministic read-only PR83 head verification on `primary-candidate`
   using the existing completed PR83 cleanup worktree at
