@@ -1,0 +1,68 @@
+{
+  "task_id": "P0_REPAIR_POST_MERGE_CANARY_RUNTIME_BLOCKERS_2026_07_02",
+  "status": "partially_repaired_precisely_classified",
+  "node": "kolibri",
+  "agent_display_name": "Сергей - Runtime Blocker Repair Steward",
+  "branch": "agent/P0_REPAIR_POST_MERGE_CANARY_RUNTIME_BLOCKERS_2026_07_02/repair",
+  "head_sha": "51b1620cd89634590d401aaa4c5aba16c16507a7",
+  "origin_main_sha": "51b1620cd89634590d401aaa4c5aba16c16507a7",
+  "repaired": [
+    {
+      "id": "artifact-contract",
+      "surface": "source_canary_artifact_contract",
+      "result": "repaired",
+      "evidence": "Added docs/agent/runs/2026-07-02-p0-post-merge-remote-canary-execution/NEXT_REMOTE_TASKS.md after source result failed on that exact missing file."
+    }
+  ],
+  "blockers": [
+    {
+      "id": "B1",
+      "surface": "telegram_runtime",
+      "classification": "owner_approval_required",
+      "evidence": "kolibri-telegram-gateway.service is loaded but inactive/dead; no restart performed because Telegram Bot API state must not be mutated without owner approval."
+    },
+    {
+      "id": "B2",
+      "surface": "fabric_api_live_route",
+      "classification": "stale_or_incomplete_deploy",
+      "evidence": "Both 10.99.0.2:9101 and 10.99.0.10:9101 return 200 for /health and /v1/health, but 404 for /v1/fabric/health, /v1/fabric/routes, /v1/fleet/nodes, and /v1/models."
+    },
+    {
+      "id": "B3",
+      "surface": "control_plane_freshness_tests",
+      "classification": "environment_packaging_blocker",
+      "evidence": "httpx is missing; python3 -m pip install --user httpx failed with externally-managed-environment."
+    },
+    {
+      "id": "B4",
+      "surface": "github_pr_queue",
+      "classification": "node_tooling_auth_blocker",
+      "evidence": "gh executable unavailable; ops/kolibri-dispatch doctor reports github_auth error [Errno 2] No such file or directory: 'gh'."
+    }
+  ],
+  "service_restart": {
+    "performed": false,
+    "reason": "No owner approval for live Telegram mutation risk or Factory Control deployment restart in this task."
+  },
+  "telegram_bot_api_mutated": false,
+  "forbidden_modifications": {
+    "product_code": false,
+    "tests": false,
+    "ci": false,
+    "telegram_tokens": false,
+    "secrets": false,
+    "main_branch": false
+  },
+  "artifacts": [
+    "docs/agent/runs/2026-07-02-p0-post-merge-remote-canary-execution/NEXT_REMOTE_TASKS.md",
+    "docs/agent/runs/2026-07-02-p0-repair-post-merge-canary-runtime-blockers/PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-repair-post-merge-canary-runtime-blockers/ACTIONS.md",
+    "docs/agent/runs/2026-07-02-p0-repair-post-merge-canary-runtime-blockers/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-repair-post-merge-canary-runtime-blockers/RUNTIME_BLOCKER_REPAIR_MATRIX.md",
+    "docs/agent/runs/2026-07-02-p0-repair-post-merge-canary-runtime-blockers/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-repair-post-merge-canary-runtime-blockers/NEXT.md",
+    "docs/agent/runs/2026-07-02-p0-repair-post-merge-canary-runtime-blockers/REMOTE_RESULT.json"
+  ],
+  "next_exact_task": "P0_DEPLOY_FACTORY_CONTROL_AND_TELEGRAM_GATEWAY_CANARY_REPAIR_2026_07_02"
+}
+
