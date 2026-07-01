@@ -1,0 +1,53 @@
+{
+  "task_id": "KWORK-ORDER-YYYYMMDD-PROJECTID-SLUG",
+  "kind": "owner_remote_task",
+  "required_capability": "generic_implementation",
+  "priority": "P0",
+  "goal": "Implement the scoped Kwork client delivery using sanitized requirements and produce reviewable artifacts.",
+  "branch": "kwork/YYYYMMDD/projectid-slug",
+  "constraints": {
+    "server_execution_required": true,
+    "mac_thin_client_only": true,
+    "read_client_data_minimization_required": true,
+    "secrets_redaction_required": true,
+    "client_data_redaction_required": true,
+    "product_code_modification_outside_write_scope_forbidden": true,
+    "destructive_git_commands_forbidden": true,
+    "git_push_forbidden_without_owner_approval": true,
+    "no_external_contact_by_agent": true,
+    "kwork_platform_rules_required": true
+  },
+  "write_scope": [
+    "docs/business/kwork/orders/YYYYMMDD-PROJECTID-SLUG/",
+    "client-deliverables/PROJECTID-SLUG/"
+  ],
+  "acceptance": [
+    "Deliverables match the approved Kwork scope.",
+    "No secrets, tokens, private contact data, bank data or personal data are present in artifacts.",
+    "Setup or usage instructions are included.",
+    "A short test checklist and known limitations are included.",
+    "Delivery summary is ready for owner review before sending to Kwork."
+  ],
+  "source": {
+    "kind": "kwork_order",
+    "owner_business_identity": "самозанятый Кочуров Владислав Евгеньевич, НПД",
+    "project_id": "PROJECT_ID",
+    "order_id": "ORDER_ID_IF_AVAILABLE",
+    "kwork_url": "https://kwork.ru/projects/PROJECT_ID",
+    "client_alias": "redacted-client-alias",
+    "communication_channel": "kwork_only"
+  },
+  "artifacts_required": [
+    "INTAKE.md",
+    "SCOPE.md",
+    "IMPLEMENTATION_NOTES.md",
+    "TESTS.md",
+    "DELIVERY_CHECKLIST.md",
+    "CLIENT_REPLY_DRAFT.md"
+  ],
+  "result": {
+    "artifact_directory": "docs/business/kwork/orders/YYYYMMDD-PROJECTID-SLUG/",
+    "owner_review_required": true,
+    "public_delivery_forbidden_without_owner_confirmation": true
+  }
+}
