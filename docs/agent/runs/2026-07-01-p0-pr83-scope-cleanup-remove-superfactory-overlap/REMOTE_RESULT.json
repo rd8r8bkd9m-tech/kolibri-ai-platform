@@ -1,0 +1,25 @@
+{
+  "agent_display_name_ru": "Автономный инженер",
+  "blockers": [],
+  "branch": "p0/agent-host-runner-contract-hardening-2026-06-30",
+  "node": "kolibri",
+  "pr": {
+    "number": 83,
+    "url": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/83"
+  },
+  "status": "completed",
+  "task_id": "P0_PR83_SCOPE_CLEANUP_REMOVE_SUPERFACTORY_OVERLAP_2026_07_01",
+  "tests": [
+    {
+      "command": "python3 -m pytest tests/test_agent_host_runner_contract.py -q",
+      "result": "15 passed in 0.14s"
+    },
+    {
+      "command": "git diff --name-status origin/main -- docs/superfactory/00_README.md docs/superfactory/20_ROADMAP.md docs/superfactory/TASKS.md",
+      "result": "no output"
+    }
+  ],
+  "blockers_summary": "none",
+  "next_task": "monitor PR #83 after push/CI and keep PR #85 as the owner of Superfactory documentation",
+  "new_head_sha": "reported after push"
+}

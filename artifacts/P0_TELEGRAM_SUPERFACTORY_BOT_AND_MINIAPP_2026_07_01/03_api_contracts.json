@@ -1,0 +1,18 @@
+{
+  "artifact": "api_contracts",
+  "control_plane_endpoints": [
+    "GET /v1/superfactory/status",
+    "POST /v1/superfactory/tasks",
+    "GET /v1/superfactory/tasks/{task_id}/artifacts",
+    "POST /v1/tasks",
+    "GET /v1/tasks",
+    "GET /v1/nodes"
+  ],
+  "covered_surfaces": [
+    "task submission",
+    "task status",
+    "artifacts",
+    "node and model runner status",
+    "PR and CI artifact links"
+  ]
+}

@@ -24,6 +24,7 @@ CURRENT_DIR = Path(__file__).resolve().parent
 if str(CURRENT_DIR) not in sys.path:
     sys.path.insert(0, str(CURRENT_DIR))
 from orchestrator_roster import ORCHESTRATOR_CARD, node_card
+from telegram_superfactory import plan_update_receiver, redacted_receiver_status
 from orchestrator_memory import (
     empty_memory,
     ensure_memory,
@@ -36,6 +37,7 @@ from orchestrator_memory import (
 
 
 STOP = False
+DELIVERY_STATE_MUTATION_METHODS = frozenset({"deleteWebhook", "setWebhook", "logOut", "close"})
 SIGNIFICANT_STATES = {
     "queued": "QUEUED",
     "leased": "RUNNING",
@@ -135,6 +137,9 @@ OWNER_RUNTIME_FAILURE_MARKERS = (
     "runtimeerror",
     "--title",
     "ты — центральный оркестратор",
+)
+TOKEN_LIKE_RE = re.compile(
+    r"(?i)(?:\b\d{6,}:[A-Za-z0-9_-]{20,}\b|\b(?:ghp|github_pat|xox[baprs]|sk)-[A-Za-z0-9_-]{16,}\b|\b[A-Fa-f0-9]{40,}\b)"
 )
 IMMEDIATE_CHAT_MARKERS = (
     "как дела",
@@ -264,13 +269,21 @@ def json_request(method: str, url: str, body: dict[str, Any] | None = None, time
 
 
 class TelegramClient:
-    def __init__(self, token: str, api_base: str = "https://api.telegram.org"):
+    def __init__(
+        self,
+        token: str,
+        api_base: str = "https://api.telegram.org",
+        allow_delivery_state_mutation: bool = False,
+    ):
         if not token:
             raise ValueError("Telegram token is required")
         self.api_base = api_base.rstrip("/")
         self.base_url = f"{self.api_base}/bot{token}"
+        self.allow_delivery_state_mutation = allow_delivery_state_mutation
 
     def call(self, method: str, payload: dict[str, Any] | None = None, timeout: int = 35) -> dict[str, Any]:
+        if method in DELIVERY_STATE_MUTATION_METHODS and not self.allow_delivery_state_mutation:
+            raise RuntimeError(f"telegram delivery-state mutation is not allowed from gateway startup: {method}")
         data = urllib.parse.urlencode(payload or {}).encode("utf-8")
         req = urllib.request.Request(f"{self.base_url}/{method}", data=data, method="POST")
         with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -428,8 +441,11 @@ def compact_factory_snapshot(factory: FactoryClient) -> dict[str, Any]:
                 "node_id": node.get("node_id"),
                 "health": node.get("health"),
                 "capabilities": node.get("capabilities", []),
+                "runners": node.get("runners", {}),
                 "draining": bool(node.get("draining")),
                 "heartbeat_at": node.get("heartbeat_at"),
+                "freshness": node.get("freshness"),
+                "heartbeat_age_seconds": node.get("heartbeat_age_seconds"),
             }
             for node in nodes
         ]
@@ -458,6 +474,34 @@ def compact_factory_snapshot(factory: FactoryClient) -> dict[str, Any]:
     except Exception as exc:
         snapshot["warnings"].append(f"tasks_unavailable:{type(exc).__name__}")
     return snapshot
+
+
+def runner_capability_names(runner: str) -> set[str]:
+    return {f"runner:{runner}", f"runner_{runner}", f"{runner}_runner"}
+
+
+def runner_node_available(node: dict[str, Any], runner: str) -> bool:
+    if node.get("health") != "online" or node.get("draining"):
+        return False
+    capabilities = set(node.get("capabilities") or [])
+    if not runner_capability_names(runner).intersection(capabilities):
+        return False
+    runners = node.get("runners") if isinstance(node.get("runners"), dict) else {}
+    state = runners.get(runner)
+    if isinstance(state, dict):
+        state = state.get("status")
+    if str(state or "available").strip().lower() in {"blocked", "degraded", "runner_auth_blocked", "unavailable"}:
+        return False
+    return True
+
+
+def select_runner_node(snapshot: dict[str, Any], runner: str, avoided: list[str] | None = None) -> str | None:
+    avoided_set = set(avoided or [])
+    for node in snapshot.get("nodes") or []:
+        node_id = node.get("node_id")
+        if node_id and node_id not in avoided_set and runner_node_available(node, runner):
+            return str(node_id)
+    return None
 
 
 def build_task_envelope(message: dict[str, Any], text: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -498,6 +542,7 @@ def build_task_envelope(message: dict[str, Any], text: str, context: dict[str, A
 def build_chat_envelope(message: dict[str, Any], text: str, snapshot: dict[str, Any] | None = None) -> dict[str, Any]:
     task_id = chat_task_id_from_message(message)
     context = snapshot or {}
+    runner = os.environ.get("TELEGRAM_CHAT_RUNNER", "codex")
     objective = (
         "Сгенерируй живой короткий ответ владельцу проекта в Telegram. "
         "Отвечай как директор-оркестратор проекта: естественно, по-русски, без заготовок, без markdown, "
@@ -515,7 +560,7 @@ def build_chat_envelope(message: dict[str, Any], text: str, snapshot: dict[str, 
         "max_retries": 1,
         "message": text,
         "objective": objective,
-        "runner": os.environ.get("TELEGRAM_CHAT_RUNNER", "codex"),
+        "runner": runner,
         "factory_snapshot": context,
         "source": {
             "kind": "telegram",
@@ -525,7 +570,11 @@ def build_chat_envelope(message: dict[str, Any], text: str, snapshot: dict[str, 
             "accepted_at": utc_now(),
         },
     }
-    target_node = os.environ.get("TELEGRAM_CHAT_NODE", "primary-candidate")
+    target_node = os.environ.get("TELEGRAM_CHAT_NODE")
+    if not target_node and context.get("nodes"):
+        target_node = select_runner_node(context, runner, envelope.get("avoid_nodes"))
+    if not target_node and not context.get("nodes"):
+        target_node = "primary-candidate"
     if target_node:
         envelope["target_node"] = target_node
     return envelope
@@ -1039,7 +1088,10 @@ class Gateway:
 
 def format_node(node: dict[str, Any]) -> str:
     card = node_card(node)
-    return f"{card['name']} — {card['role']}\nСостояние: {card['health']}\nЗадача: {card['responsibility']}"
+    freshness = card.get("freshness") or card["health"]
+    age = card.get("heartbeat_age_seconds")
+    age_text = "unknown" if age is None else f"{age}s"
+    return f"{card['name']} — {card['role']}\nСостояние: {card['health']} ({freshness}, heartbeat {age_text})\nЗадача: {card['responsibility']}"
 
 
 def human_task_state(state: str | None) -> str:
@@ -1078,6 +1130,9 @@ def format_task_status(task: dict[str, Any]) -> str:
     if envelope.get("kind") == "owner_remote_task" and task.get("state") in {"queued", "leased", "running"}:
         return "Задача в работе. Я держу её в поле зрения и пришлю сюда только понятное обновление или результат."
     if task.get("state") == "completed" and envelope.get("kind") == "owner_remote_task":
+        gomesh_card = format_gomesh_status_report(result.get("response"))
+        if gomesh_card:
+            return gomesh_card
         response = clean_agent_response(result.get("response"))
         urls = extract_urls(response)
         lines = ["Готово. Удалённый исполнитель завершил задачу, я проверяю результат."]
@@ -1093,6 +1148,145 @@ def format_task_status(task: dict[str, Any]) -> str:
     if pr_url:
         lines.append(f"PR готов: {pr_url}")
     return "\n".join(lines)
+
+
+def _safe_report_text(text: str | None) -> str:
+    if not text:
+        return ""
+    without_tokens = TOKEN_LIKE_RE.sub("[скрыто]", text)
+    return without_tokens.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _field_value(text: str, labels: tuple[str, ...]) -> str | None:
+    for label in labels:
+        pattern = rf"(?im)^\s*(?:[-*]\s*)?{label}\s*[:=]\s*(.+?)\s*$"
+        match = re.search(pattern, text)
+        if match:
+            value = " ".join(match.group(1).strip(" `").split())
+            if value and not TOKEN_LIKE_RE.search(value):
+                return value
+    return None
+
+
+def _first_number(text: str, patterns: tuple[str, ...]) -> str | None:
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE | re.MULTILINE)
+        if match:
+            return match.group(1).replace(",", ".")
+    return None
+
+
+def _pytest_pass_count(text: str) -> str | None:
+    match = re.search(r"(?i)\b(\d+)\s+passed\b", text)
+    if match:
+        return match.group(1)
+    return _field_value(text, ("pytest pass count", "pytest passed", "tests passed", "pass count"))
+
+
+def _rollback_paths(text: str) -> list[str]:
+    paths: list[str] = []
+    for line in text.splitlines():
+        lowered = line.lower()
+        if not any(word in lowered for word in ("rollback", "backup", "backup path", "backup paths", "бэкап", "резерв")):
+            continue
+        for path in re.findall(r"(?:/[\w.@:+-]+)+(?:\.[\w.+-]+)?", line):
+            if any(secret_word in path.lower() for secret_word in ("secret", "token", "passwd", "password", "psk", ".env")):
+                continue
+            if path not in paths:
+                paths.append(path)
+    return paths[:4]
+
+
+def _failed_speed_gate(text: str, direct_mbps: str | None, gomesh_mbps: str | None, target_mbps: str | None) -> bool:
+    lowered = text.lower()
+    if re.search(r"(?i)(speed[-_ ]?gate|скоростн\w+ gate|гейт).{0,80}(fail|failed|не пройден|провален)", text):
+        return True
+    if re.search(r"(?i)(fail|failed|не пройден|провален).{0,80}(speed[-_ ]?gate|скоростн\w+ gate|гейт)", text):
+        return True
+    if "failed speed gate" in lowered or "speed gate failed" in lowered:
+        return True
+    if gomesh_mbps and target_mbps:
+        try:
+            return float(gomesh_mbps) < float(target_mbps)
+        except ValueError:
+            return False
+    return False
+
+
+def format_gomesh_status_report(text: str | None) -> str | None:
+    """Turn noisy GoMesh speed/status reports into an owner-facing Telegram card."""
+    report = _safe_report_text(text)
+    lowered = report.lower()
+    if not report or not ("gomesh" in lowered or "go mesh" in lowered):
+        return None
+    if not any(marker in lowered for marker in ("speed", "mbps", "selector", "rollback", "endpoint", "health")):
+        return None
+
+    home_endpoint = _field_value(report, ("home endpoint", "home", "endpoint", "домашний endpoint", "home_endpoint"))
+    health = _field_value(report, ("health", "home health", "status health", "здоровье"))
+    selector = _field_value(report, ("selector status", "selector", "selector_state", "статус селектора"))
+    next_action = _field_value(report, ("next action", "next", "следующее действие", "next_action"))
+    direct_mbps = _first_number(
+        report,
+        (
+            r"\bdirect(?:\s+download)?(?:\s+mbps)?\s*[:=]\s*([0-9]+(?:[.,][0-9]+)?)",
+            r"\bbaseline(?:\s+mbps)?\s*[:=]\s*([0-9]+(?:[.,][0-9]+)?)",
+            r"\bпрям\w+(?:\s+канал)?(?:\s+mbps)?\s*[:=]\s*([0-9]+(?:[.,][0-9]+)?)",
+        ),
+    )
+    gomesh_mbps = _first_number(
+        report,
+        (
+            r"\bgomesh(?:\s+download)?(?:\s+mbps)?\s*[:=]\s*([0-9]+(?:[.,][0-9]+)?)",
+            r"\bgo mesh(?:\s+download)?(?:\s+mbps)?\s*[:=]\s*([0-9]+(?:[.,][0-9]+)?)",
+            r"\bчерез\s+gomesh(?:\s+mbps)?\s*[:=]\s*([0-9]+(?:[.,][0-9]+)?)",
+        ),
+    )
+    target_mbps = _first_number(
+        report,
+        (
+            r"\btarget\s*[:=]\s*([0-9]+(?:[.,][0-9]+)?)\+?\s*mbps",
+            r"\b([0-9]+(?:[.,][0-9]+)?)\+\s*mbps\s+target\b",
+            r"\bцель\s*[:=]\s*([0-9]+(?:[.,][0-9]+)?)\+?\s*mbps",
+        ),
+    ) or ("300" if re.search(r"(?i)\b300\+\s*mbps\b", report) else None)
+    pytest_passed = _pytest_pass_count(report)
+    rollback_paths = _rollback_paths(report)
+    failed_gate = _failed_speed_gate(report, direct_mbps, gomesh_mbps, target_mbps)
+
+    if not any((home_endpoint, health, direct_mbps, gomesh_mbps, target_mbps, selector, pytest_passed, rollback_paths)):
+        return None
+
+    lines = ["Kolibri GoMesh: статус speed-gate"]
+    lines.append(f"Статус: {'не пройден' if failed_gate else 'проверка пройдена'}")
+    if home_endpoint:
+        lines.append(f"Home endpoint: {home_endpoint}")
+    if health:
+        lines.append(f"Health: {health}")
+    metric_parts = []
+    if direct_mbps:
+        metric_parts.append(f"direct {direct_mbps} Mbps")
+    if gomesh_mbps:
+        metric_parts.append(f"GoMesh {gomesh_mbps} Mbps")
+    if target_mbps:
+        metric_parts.append(f"цель {target_mbps}+ Mbps")
+    if metric_parts:
+        lines.append("Метрики: " + "; ".join(metric_parts))
+    if failed_gate:
+        lines.append("Вердикт: speed-gate провален, 300+ Mbps через GoMesh не подтверждены.")
+    else:
+        lines.append("Вердикт: speed-gate без блокера по скорости.")
+    if selector:
+        lines.append(f"Selector: {selector}")
+    if pytest_passed:
+        lines.append(f"Тесты: pytest {pytest_passed} passed")
+    if rollback_paths:
+        lines.append("Rollback: " + "; ".join(rollback_paths))
+    if next_action:
+        lines.append(f"Следующее действие: {next_action}")
+    elif failed_gate:
+        lines.append("Следующее действие: оставить селектор в безопасном режиме и разбирать деградацию GoMesh до повторного переключения.")
+    return "\n".join(lines[:10])
 
 
 def clean_agent_response(text: str | None) -> str:
@@ -1210,7 +1404,12 @@ def main() -> int:
         raise SystemExit("TELEGRAM_OWNER_IDS is required")
     signal.signal(signal.SIGTERM, handle_stop)
     signal.signal(signal.SIGINT, handle_stop)
-    gateway = Gateway(TelegramClient(token), FactoryClient(args.control_url, args.control_urls), owner_ids, StateStore(Path(args.state_file)), args.poll_timeout)
+    telegram = TelegramClient(token)
+    receiver_plan = plan_update_receiver()
+    print(json.dumps({"event": "telegram_receiver_plan", **redacted_receiver_status(receiver_plan)}, sort_keys=True))
+    if not receiver_plan.should_poll:
+        raise SystemExit(f"canonical Telegram receiver refused to start polling: {receiver_plan.conflict or receiver_plan.startup_action}")
+    gateway = Gateway(telegram, FactoryClient(args.control_url, args.control_urls), owner_ids, StateStore(Path(args.state_file)), args.poll_timeout)
     gateway.run()
     return 0
 

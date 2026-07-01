@@ -1,0 +1,163 @@
+{
+  "task_id": "P0_TELEGRAM_SINGLE_CANONICAL_RECEIVER_MIGRATION_2026_07_01",
+  "idempotency_key": "mac-dispatcher:P0_TELEGRAM_SINGLE_CANONICAL_RECEIVER_MIGRATION_2026_07_01",
+  "kind": "owner_remote_task",
+  "required_capability": "generic_implementation",
+  "runner": "codex",
+  "agent_type": "telegram_receiver_steward",
+  "agent_display_name": "Мария — Telegram Receiver Steward",
+  "target_node": "home-live",
+  "target_node_pool": "telegram_capable_server_nodes",
+  "preferred_nodes": [
+    "home-live",
+    "home",
+    "primary-candidate"
+  ],
+  "allowed_nodes": [
+    "home-live",
+    "home",
+    "primary-candidate"
+  ],
+  "avoid_nodes": [
+    "main",
+    "qjns",
+    "uiap"
+  ],
+  "branch": "p0/telegram-single-canonical-receiver-migration-2026-07-01",
+  "base_branch": "main",
+  "base_ref": "origin/main",
+  "max_retries": 1,
+  "create_review_on_complete": false,
+  "objective": "Make the Telegram runtime safe for PR #89 by proving and, only when unambiguous, migrating @kolibriai_bot to exactly one canonical update receiver. The desired production receiver is the Kolibri Telegram gateway integrated with Fabric/Control Plane. First classify the current receiver topology on home-live/home/primary-candidate, verify webhook vs long-polling state without printing secrets, identify any stale long-polling worker, and stop/disable only a proven stale Kolibri Telegram worker. If ownership is ambiguous or privileged access is unavailable, do not change services; return a precise blocker, fallback route, and next owner-safe repair command. Mac is only the dispatcher.",
+  "constraints": {
+    "mac_thin_client_only": true,
+    "server_execution_required": true,
+    "read_only_first": true,
+    "product_code_modification_forbidden": true,
+    "heavy_local_tests_forbidden": true,
+    "destructive_git_commands_forbidden": true,
+    "git_push_forbidden": true,
+    "push_to_main_forbidden": true,
+    "force_push_forbidden": true,
+    "secrets_redaction_required": true,
+    "do_not_print_telegram_token": true,
+    "do_not_print_owner_chat_id": true,
+    "do_not_print_cookies_or_private_messages": true,
+    "do_not_rotate_tokens": true,
+    "do_not_delete_state": true,
+    "do_not_drop_pending_updates": true,
+    "do_not_call_getupdates_to_consume_updates": true,
+    "get_webhook_info_allowed_with_redaction": true,
+    "set_webhook_allowed_only_if_single_receiver_proven_and_owner_policy_allows": false,
+    "stop_only_confirmed_stale_telegram_poller": true,
+    "do_not_stop_ambiguous_or_canonical_services": true,
+    "privileged_actions_require_existing_authorized_server_path": true,
+    "do_not_embed_or_echo_sudo_passwords": true,
+    "owner_facing_agent_names_must_be_russian": true
+  },
+  "official_sources": [
+    "https://core.telegram.org/bots/api",
+    "https://core.telegram.org/bots/webapps",
+    "https://core.telegram.org/widgets/login"
+  ],
+  "known_evidence": {
+    "bot_username": "kolibriai_bot",
+    "current_symptom": "Live bot works but sends poor/incorrect responses; owner also saw old slash commands cached in Telegram UI.",
+    "live_bot_api_menu_cleanup": "Completed through Bot API: default/owner commands now only /start, /status, /help; menu button is 'Пульт фабрики' -> https://kolibriai.ru/?telegram=1.",
+    "telegram_platform_rule": "Bot API getUpdates long polling and webhooks are mutually exclusive.",
+    "pr89": {
+      "url": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/89",
+      "branch": "p0/telegram-superfactory-bot-miniapp-2026-07-01",
+      "head": "2b7cec1560276c31eb0d63d6b1a386c7ea00cce3",
+      "state": "draft",
+      "ci": "GitHub Actions Kolibri CI run 28493219207 succeeded"
+    },
+    "previous_diagnostic_task": {
+      "task_id": "P0_TELEGRAM_ACTIVE_POLLER_DIAGNOSTIC_AND_REPAIR_2026_07_01",
+      "control_plane_state": "failed",
+      "failure_reason": "wrapper expected missing docs/agent/runs/2026-07-01-p0-telegram-active-poller-diagnostic-and-repair/PLAN.md",
+      "result_reference": "/home/ladik/.kolibri-agent/artifacts/P0_TELEGRAM_ACTIVE_POLLER_DIAGNOSTIC_AND_REPAIR_2026_07_01/P0_TELEGRAM_ACTIVE_POLLER_DIAGNOSTIC_AND_REPAIR_2026_07_01-attempt-1/result.json",
+      "safe_summary": [
+        "Active polling owner was classified as not_discoverable_from_this_node.",
+        "No service was stopped or disabled.",
+        "No token rotation, no pending update deletion, and no product code modification were reported.",
+        "Home kolibri-telegram-gateway.service was inactive/disabled in the artifact summary.",
+        "n8n database evidence did not show Telegram workflow ownership.",
+        "sudo/passwordless privilege was unavailable for root-only process environment inspection."
+      ]
+    },
+    "control_plane": {
+      "url": "http://10.99.0.2:9101",
+      "health_observed_at": "2026-07-01T04:34:07Z",
+      "health": "ok",
+      "redis": "PONG",
+      "node_cards_observed": 42,
+      "selected_nodes_online": [
+        "home",
+        "home-live",
+        "primary-candidate",
+        "main",
+        "qjns",
+        "uiap"
+      ]
+    }
+  },
+  "read_first": [
+    "docs/agent/dispatcher/QUEUE.md",
+    "docs/agent/dispatcher/REMOTE_RESULTS.md",
+    "docs/agent/dispatcher/FACTORY_STATUS.md",
+    "docs/product/telegram-superfactory-bot/TELEGRAM_SUPERFACTORY_BOT_SPEC.md",
+    "docs/product/telegram-superfactory-bot/TELEGRAM_MINI_APP_SPEC.md",
+    "docs/product/telegram-superfactory-bot/TELEGRAM_SECURITY_AND_AUTH_POLICY.md",
+    "ops/telegram_gateway.py",
+    "ops/systemd/kolibri-telegram-gateway.service",
+    "tests/test_telegram_gateway.py",
+    "tests/test_agent_host_telegram_chat.py"
+  ],
+  "write_scope": [
+    "docs/agent/runs/2026-07-01-p0-telegram-single-canonical-receiver-migration/**"
+  ],
+  "required_docs": [
+    "docs/agent/runs/2026-07-01-p0-telegram-single-canonical-receiver-migration/PLAN.md",
+    "docs/agent/runs/2026-07-01-p0-telegram-single-canonical-receiver-migration/ACTIONS.md",
+    "docs/agent/runs/2026-07-01-p0-telegram-single-canonical-receiver-migration/TESTS.md",
+    "docs/agent/runs/2026-07-01-p0-telegram-single-canonical-receiver-migration/RESULT.md",
+    "docs/agent/runs/2026-07-01-p0-telegram-single-canonical-receiver-migration/NEXT.md"
+  ],
+  "required_artifacts": [
+    "docs/agent/runs/2026-07-01-p0-telegram-single-canonical-receiver-migration/PLAN.md",
+    "docs/agent/runs/2026-07-01-p0-telegram-single-canonical-receiver-migration/ACTIONS.md",
+    "docs/agent/runs/2026-07-01-p0-telegram-single-canonical-receiver-migration/TESTS.md",
+    "docs/agent/runs/2026-07-01-p0-telegram-single-canonical-receiver-migration/RESULT.md",
+    "docs/agent/runs/2026-07-01-p0-telegram-single-canonical-receiver-migration/NEXT.md"
+  ],
+  "verification_commands": [
+    "git diff --check",
+    "test -f docs/agent/runs/2026-07-01-p0-telegram-single-canonical-receiver-migration/PLAN.md",
+    "test -f docs/agent/runs/2026-07-01-p0-telegram-single-canonical-receiver-migration/ACTIONS.md",
+    "test -f docs/agent/runs/2026-07-01-p0-telegram-single-canonical-receiver-migration/TESTS.md",
+    "test -f docs/agent/runs/2026-07-01-p0-telegram-single-canonical-receiver-migration/RESULT.md",
+    "test -f docs/agent/runs/2026-07-01-p0-telegram-single-canonical-receiver-migration/NEXT.md"
+  ],
+  "acceptance": [
+    "The current Telegram receiver topology for @kolibriai_bot is classified across home-live, home and primary-candidate.",
+    "The report states webhook state, long-polling evidence, systemd unit state, container/tmux/process evidence and n8n evidence where accessible.",
+    "All evidence is redacted: no Telegram token, owner chat id, cookies, passwords, private messages or API keys are printed.",
+    "If exactly one stale Kolibri Telegram long-polling worker is proven, only that stale Telegram worker may be stopped/disabled through an already authorized server path.",
+    "If ownership is ambiguous, canonical, or requires unavailable privileges, no services are stopped; the task returns blocker classification and exact next safe repair action.",
+    "The canonical production receiver recommendation is explicit: webhook preferred, polling only as emergency/bootstrap fallback.",
+    "PR #89 remains draft unless the task proves single canonical receiver and returns an owner-approved live-switch command.",
+    "No product code is modified.",
+    "No git push is performed.",
+    "No Telegram token rotation is performed.",
+    "No pending Telegram updates are dropped or consumed.",
+    "All five exact run artifacts are created.",
+    "Remote result reports task ID, node, Russian agent display name, action taken, blockers, fallback nodes and next task."
+  ],
+  "source": {
+    "kind": "mac_thin_client_dispatcher",
+    "owner": "Vladislav",
+    "created_at": "2026-07-01T04:36:00Z",
+    "local_ledger": "docs/agent/dispatcher/DISPATCH_LOG.md"
+  }
+}
