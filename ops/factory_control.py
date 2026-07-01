@@ -22,8 +22,34 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 CURRENT_DIR = Path(__file__).resolve().parent
-if str(CURRENT_DIR) not in sys.path:
-    sys.path.insert(0, str(CURRENT_DIR))
+
+
+def factory_ops_import_paths() -> list[Path]:
+    paths = [CURRENT_DIR]
+    explicit_ops = os.environ.get("KOLIBRI_OPS_DIR")
+    if explicit_ops:
+        paths.append(Path(explicit_ops).expanduser())
+    repo_root = os.environ.get("KOLIBRI_REPO_ROOT")
+    if repo_root:
+        paths.append(Path(repo_root).expanduser() / "ops")
+    paths.extend([
+        Path.cwd() / "ops",
+        Path("/opt/kolibri-ai-platform/ops"),
+        Path("/opt/kolibri-ai/ops"),
+    ])
+    resolved: list[Path] = []
+    seen: set[str] = set()
+    for path in paths:
+        key = str(path)
+        if key not in seen:
+            resolved.append(path)
+            seen.add(key)
+    return resolved
+
+
+for ops_path in reversed(factory_ops_import_paths()):
+    if ops_path.exists() and str(ops_path) not in sys.path:
+        sys.path.insert(0, str(ops_path))
 from telegram_superfactory import plan_update_receiver, runner_policy, select_runner, validate_telegram_init_data
 
 
