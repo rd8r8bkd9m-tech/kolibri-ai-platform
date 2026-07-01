@@ -1,0 +1,28 @@
+Verification commands to run for this repair:
+
+1. python3 -m pytest tests/test_telegram_miniapp_auth.py -q
+   Result: blocked on this repair node before test execution.
+   Proof: ModuleNotFoundError: No module named 'fastapi'
+   Classification: system Python dependency blocker; fastapi is declared in
+   backend/requirements.txt but is not installed in the node's system Python.
+
+2. python3 -m pytest tests/test_telegram_gateway.py -q
+   Result: 31 passed in 1.28s
+
+3. python3 -m py_compile backend/telegram_miniapp_auth.py
+   Result: passed
+
+Dependency-satisfied focused reruns:
+
+4. .venv/bin/python -m pytest tests/test_telegram_miniapp_auth.py -q
+   Result: 8 passed in 0.87s
+
+5. .venv/bin/python -m pytest tests/test_telegram_gateway.py -q
+   Result: 31 passed in 1.27s
+
+Dependency classification:
+- System Python lacks declared backend dependency fastapi for the exact verifier
+  command.
+- A local ignored virtualenv was populated from backend/requirements.txt plus
+  pytest to prove the verifier path passes when declared app dependencies and
+  the test runner are available.

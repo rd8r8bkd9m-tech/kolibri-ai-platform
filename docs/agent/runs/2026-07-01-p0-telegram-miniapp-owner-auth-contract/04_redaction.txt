@@ -1,0 +1,12 @@
+Redaction checks:
+- No Telegram token is recorded in these artifacts.
+- No owner chat id is recorded in these artifacts.
+- No cookies, passwords, API keys, private messages, or raw initData are recorded
+  in these artifacts.
+- The backend auth module has no print statements or logger calls.
+- The focused auth tests assert route responses do not echo the signed fixture
+  text, fake bot token text, or raw owner user id text.
+
+Fixture note:
+- Focused tests use deterministic fake Telegram data and a fake bot token.
+- This artifact set intentionally does not reproduce the raw signed fixture.

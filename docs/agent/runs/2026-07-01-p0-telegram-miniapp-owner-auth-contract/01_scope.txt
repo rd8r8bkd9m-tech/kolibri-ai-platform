@@ -1,0 +1,26 @@
+task_id: P0_TELEGRAM_MINIAPP_OWNER_AUTH_VERIFIER_REPAIR_2026_07_01
+source_task_id: P0_TELEGRAM_MINIAPP_OWNER_AUTH_CONTRACT_2026_07_01
+node: kolibri
+russian_agent_display_name: Автономный инженер Колибри
+branch: p0/telegram-miniapp-owner-auth-contract-2026-07-01
+
+Verifier repair scope:
+- Preserved the already-pushed backend owner-auth implementation.
+- Added the exact root-level verifier test path required by the Control Plane:
+  tests/test_telegram_miniapp_auth.py
+- Added this exact verifier run artifact directory:
+  docs/agent/runs/2026-07-01-p0-telegram-miniapp-owner-auth-contract/
+
+Original source task status:
+- The original failed source task remains honestly failed.
+- This follow-up repairs the branch contract without rewriting history.
+
+Explicitly out of scope and untouched by this repair:
+- Frontend
+- Ops/runtime receiver
+- Webhook
+- Command menu
+- Payment
+- Guest Mode
+- Business mode
+- Bot-to-Bot behavior

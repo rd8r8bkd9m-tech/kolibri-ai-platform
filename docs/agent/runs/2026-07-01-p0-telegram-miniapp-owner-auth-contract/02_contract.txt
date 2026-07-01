@@ -1,0 +1,21 @@
+Control Plane verifier contract:
+- Root-level command must exist and pass:
+  python3 -m pytest tests/test_telegram_miniapp_auth.py -q
+- Existing Telegram gateway tests must be rerun:
+  python3 -m pytest tests/test_telegram_gateway.py -q
+- Exactly five run artifacts are present in this directory:
+  01_scope.txt
+  02_contract.txt
+  03_tests.txt
+  04_redaction.txt
+  05_remote_result.json
+
+Backend contract preserved:
+- POST /api/v1/auth/telegram-miniapp/session verifies Telegram Mini App init data.
+- Only configured Telegram owner ids map to role "owner".
+- Responses use a hashed subject and short-lived signed session token.
+- Raw initData and raw Telegram user ids are not echoed in API responses.
+
+Repair boundary:
+- No frontend, ops, runtime service, webhook, live receiver, command menu, payment,
+  Business mode, Guest Mode, or Bot-to-Bot behavior is part of this verifier repair.

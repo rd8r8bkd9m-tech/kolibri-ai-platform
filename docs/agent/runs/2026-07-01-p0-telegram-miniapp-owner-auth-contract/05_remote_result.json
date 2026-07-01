@@ -1,0 +1,35 @@
+{
+  "task_id": "P0_TELEGRAM_MINIAPP_OWNER_AUTH_VERIFIER_REPAIR_2026_07_01",
+  "source_task_id": "P0_TELEGRAM_MINIAPP_OWNER_AUTH_CONTRACT_2026_07_01",
+  "source_task_status": "failed_preserved",
+  "node": "kolibri",
+  "russian_agent_display_name": "Автономный инженер Колибри",
+  "branch": "p0/telegram-miniapp-owner-auth-contract-2026-07-01",
+  "pr": null,
+  "tests": [
+    {
+      "command": "python3 -m pytest tests/test_telegram_miniapp_auth.py -q",
+      "result": "blocked before execution: ModuleNotFoundError: No module named 'fastapi'"
+    },
+    {
+      "command": "python3 -m pytest tests/test_telegram_gateway.py -q",
+      "result": "31 passed in 1.28s"
+    },
+    {
+      "command": "python3 -m py_compile backend/telegram_miniapp_auth.py",
+      "result": "passed"
+    },
+    {
+      "command": ".venv/bin/python -m pytest tests/test_telegram_miniapp_auth.py -q",
+      "result": "8 passed in 0.87s"
+    },
+    {
+      "command": ".venv/bin/python -m pytest tests/test_telegram_gateway.py -q",
+      "result": "31 passed in 1.27s"
+    }
+  ],
+  "blockers": [
+    "System Python on this node is missing fastapi, a declared backend dependency in backend/requirements.txt, so the exact verifier command blocks during pytest collection. The same root-level verifier test passes in a local dependency-satisfied virtualenv."
+  ],
+  "next_remote_dispatch_command": "ops/kolibri-dispatch status P0_TELEGRAM_MINIAPP_OWNER_AUTH_VERIFIER_REPAIR_2026_07_01"
+}
