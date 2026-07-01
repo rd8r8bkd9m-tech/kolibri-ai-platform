@@ -1,0 +1,196 @@
+{
+  "batch_id": "P0_MIMO_DIRECT_FANOUT_BATCH_2026_07_01",
+  "created_at": "2026-07-01T11:58:00Z",
+  "source": {
+    "kind": "mac_thin_client_dispatcher",
+    "owner": "Vladislav",
+    "local_ledger": "docs/agent/dispatcher/DISPATCH_LOG.md"
+  },
+  "policy": {
+    "mac_thin_client_only": true,
+    "server_execution_required": true,
+    "runner": "mimo",
+    "do_not_print_secrets": true,
+    "no_product_code_changes": true,
+    "no_git_push": true,
+    "no_destructive_commands": true,
+    "no_long_running_workers_from_this_batch": true,
+    "owner_facing_agent_names_must_be_russian": true
+  },
+  "current_fleet_evidence": {
+    "control_plane_nodes_total": 42,
+    "control_plane_nodes_online": 29,
+    "mimo_hint_nodes": [
+      "main",
+      "mesh-9fts",
+      "mesh-agent-01",
+      "mesh-agent-02",
+      "mesh-agent-03",
+      "primary-candidate"
+    ],
+    "fresh_manual_read_only_evidence": {
+      "primary-candidate": "mimo binary exists; mimo repl process visible",
+      "home": "mimo binary exists; mimo serve and trusted mimo processes visible",
+      "qjns": "disk repaired; mimo binary exists; mimo serve processes visible",
+      "uiap": "disk repaired; mimo binary exists; mimo serve and existing mimo run processes visible",
+      "main": "prior MIMO owner task failed with runner_auth_failed; recheck only",
+      "mesh-agent-01..03": "degraded Control Plane cards; repair before assigning workload"
+    }
+  },
+  "child_envelopes": [
+    {
+      "task_id": "P0_MIMO_DIRECT_HOME_OBSERVABILITY_2026_07_01",
+      "idempotency_key": "mac-dispatcher:P0_MIMO_DIRECT_HOME_OBSERVABILITY_2026_07_01",
+      "kind": "orchestrator_chat_response",
+      "runner": "mimo",
+      "target_node": "home",
+      "allowed_nodes": [
+        "home"
+      ],
+      "max_retries": 1,
+      "message": "Ты — Мария, MIMO-агент узла Home. Прими прямую задачу от владельца Kolibri Factory: опиши, как Home должен стать визуальным монитором фабрики 24/7. Не меняй файлы, не запускай долгие процессы, не печатай секреты. Верни короткий русский ответ: 1) что видишь по роли Home, 2) какие процессы/экраны надо мониторить, 3) какие следующие серверные задачи назначить.",
+      "factory_snapshot": {
+        "role": "home visual monitor / observability",
+        "constraints": [
+          "read_only_response",
+          "no_secrets",
+          "no_product_code_changes"
+        ]
+      }
+    },
+    {
+      "task_id": "P0_MIMO_DIRECT_HOME_LIVE_OBSERVABILITY_2026_07_01",
+      "idempotency_key": "mac-dispatcher:P0_MIMO_DIRECT_HOME_LIVE_OBSERVABILITY_2026_07_01",
+      "kind": "orchestrator_chat_response",
+      "runner": "mimo",
+      "target_node": "home-live",
+      "allowed_nodes": [
+        "home-live"
+      ],
+      "max_retries": 1,
+      "message": "Ты — Мария, MIMO-агент Home Live. Основной `home` task пока queued, поэтому прими fallback-задачу: предложи минимальный живой экран наблюдения Kolibri Factory для владельца на Home. Не меняй файлы, не запускай долгие процессы, не печатай секреты. Верни короткий русский ответ: какие метрики, какие tmux/веб-панели, какие события и какой следующий remote task.",
+      "factory_snapshot": {
+        "role": "home-live visual monitor fallback",
+        "constraints": [
+          "read_only_response",
+          "fallback_route",
+          "no_secrets",
+          "no_product_code_changes"
+        ]
+      }
+    },
+    {
+      "task_id": "P0_MIMO_DIRECT_QJNS_TOOLS_EXECUTOR_2026_07_01",
+      "idempotency_key": "mac-dispatcher:P0_MIMO_DIRECT_QJNS_TOOLS_EXECUTOR_2026_07_01",
+      "kind": "orchestrator_chat_response",
+      "runner": "mimo",
+      "target_node": "qjns",
+      "allowed_nodes": [
+        "qjns"
+      ],
+      "max_retries": 1,
+      "message": "Ты — Олег, MIMO-агент узла qjns/tools-executor. Диск узла восстановлен. Прими прямую задачу: предложи безопасную роль qjns в фабрике как executor/tools node. Не меняй файлы, не запускай долгие процессы, не печатай секреты. Верни русский ответ: readiness, ограничения по ресурсам, какие легкие задачи можно брать прямо сейчас, какие проверки нужны до тяжелой разработки.",
+      "factory_snapshot": {
+        "role": "tools executor",
+        "disk_free": "about 8.2 GB",
+        "constraints": [
+          "read_only_response",
+          "light_tasks_first",
+          "no_secrets"
+        ]
+      }
+    },
+    {
+      "task_id": "P0_MIMO_DIRECT_UIAP_RAG_KNOWLEDGE_2026_07_01",
+      "idempotency_key": "mac-dispatcher:P0_MIMO_DIRECT_UIAP_RAG_KNOWLEDGE_2026_07_01",
+      "kind": "orchestrator_chat_response",
+      "runner": "mimo",
+      "target_node": "uiap",
+      "allowed_nodes": [
+        "uiap"
+      ],
+      "max_retries": 1,
+      "message": "Ты — Ирина, MIMO-агент узла uiap/RAG. Диск узла восстановлен. Прими прямую задачу: предложи, как uiap должен обслуживать RAG, embeddings, knowledge base и skills registry. Не меняй файлы, не запускай долгие процессы, не печатай секреты. Верни русский ответ: readiness, ограничения по RAM, безопасные первые задачи, какие артефакты нужны.",
+      "factory_snapshot": {
+        "role": "RAG / knowledge / skills registry",
+        "disk_free": "about 23 GB",
+        "constraints": [
+          "read_only_response",
+          "prefer_rag_knowledge_tasks",
+          "no_heavy_builds_until_memory_review"
+        ]
+      }
+    },
+    {
+      "task_id": "P0_MIMO_DIRECT_PRIMARY_COORDINATION_2026_07_01",
+      "idempotency_key": "mac-dispatcher:P0_MIMO_DIRECT_PRIMARY_COORDINATION_2026_07_01",
+      "kind": "orchestrator_chat_response",
+      "runner": "mimo",
+      "target_node": "primary-candidate",
+      "allowed_nodes": [
+        "primary-candidate"
+      ],
+      "max_retries": 1,
+      "message": "Ты — Андрей, MIMO-агент primary-candidate. Прими прямую задачу: предложи схему координации MIMO-агентов через Control Plane так, чтобы задачи не терялись, статусы были честными, GitHub оставался источником правды. Не меняй файлы, не запускай долгие процессы, не печатай секреты. Верни русский ответ: текущий риск, минимальный контракт, следующие задачи.",
+      "factory_snapshot": {
+        "role": "factory coordination / control plane standby",
+        "constraints": [
+          "read_only_response",
+          "no_git_push",
+          "no_secrets"
+        ]
+      }
+    },
+    {
+      "task_id": "P0_MIMO_DIRECT_MAIN_AUTH_RECHECK_2026_07_01",
+      "idempotency_key": "mac-dispatcher:P0_MIMO_DIRECT_MAIN_AUTH_RECHECK_2026_07_01",
+      "kind": "orchestrator_chat_response",
+      "runner": "mimo",
+      "target_node": "main",
+      "allowed_nodes": [
+        "main"
+      ],
+      "max_retries": 1,
+      "message": "Ты — Сергей, MIMO-агент main. Прими прямую диагностическую задачу: ответь, доступен ли MIMO runner на main для owner tasks. Не печатай токены, env, cookies, пути к секретам или приватные сообщения. Если auth broken, верни blocker runner_auth_failed и безопасный следующий repair task. Не меняй файлы.",
+      "factory_snapshot": {
+        "role": "main API/backend node auth recheck",
+        "known_prior_blocker": "mimo runner_auth_failed and codex token_expired",
+        "constraints": [
+          "diagnostic_only",
+          "no_secret_printing",
+          "no_login_or_token_refresh"
+        ]
+      }
+    },
+    {
+      "task_id": "P0_MIMO_DIRECT_MESH_9FTS_ROUTE_PROBE_2026_07_01",
+      "idempotency_key": "mac-dispatcher:P0_MIMO_DIRECT_MESH_9FTS_ROUTE_PROBE_2026_07_01",
+      "kind": "orchestrator_chat_response",
+      "runner": "mimo",
+      "target_node": "mesh-9fts",
+      "allowed_nodes": [
+        "mesh-9fts"
+      ],
+      "max_retries": 1,
+      "message": "Ты — Роман, MIMO route probe для mesh-9fts. Если этот узел может принять MIMO-задачу, ответь коротко по-русски: route alive, какие задачи можно брать, какие ограничения. Если маршрут не подходит для Agent Host lease, пусть задача останется диагностическим blocker. Не меняй файлы и не печатай секреты.",
+      "factory_snapshot": {
+        "role": "mesh MIMO route probe",
+        "constraints": [
+          "diagnostic_only",
+          "no_mutation",
+          "no_secrets"
+        ]
+      }
+    }
+  ],
+  "excluded_until_repair": [
+    {
+      "nodes": [
+        "mesh-agent-01",
+        "mesh-agent-02",
+        "mesh-agent-03"
+      ],
+      "reason": "Control Plane cards are degraded in the fresh snapshot; assign repair/inventory before workload."
+    }
+  ]
+}

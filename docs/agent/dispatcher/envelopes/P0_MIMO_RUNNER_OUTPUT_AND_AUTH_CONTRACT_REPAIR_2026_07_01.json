@@ -1,0 +1,116 @@
+{
+  "task_id": "P0_MIMO_RUNNER_OUTPUT_AND_AUTH_CONTRACT_REPAIR_2026_07_01",
+  "idempotency_key": "mac-dispatcher:P0_MIMO_RUNNER_OUTPUT_AND_AUTH_CONTRACT_REPAIR_2026_07_01",
+  "kind": "owner_remote_task",
+  "required_capability": "generic_implementation",
+  "runner": "codex",
+  "agent_type": "runner_contract_engineer",
+  "agent_display_name": "Виктор — инженер контракта MIMO runner",
+  "target_node": "primary-candidate",
+  "target_node_pool": "healthy_runner_contract_nodes",
+  "preferred_nodes": [
+    "primary-candidate",
+    "home"
+  ],
+  "allowed_nodes": [
+    "primary-candidate",
+    "home"
+  ],
+  "avoid_nodes": [
+    "main"
+  ],
+  "branch": "p0/mimo-runner-output-auth-contract-repair-2026-07-01",
+  "base_branch": "main",
+  "base_ref": "origin/main",
+  "max_retries": 1,
+  "create_review_on_complete": true,
+  "review_node": "home",
+  "objective": "Repair the Agent Host MIMO runner contract so direct MIMO tasks are classified correctly. Fresh fanout proved MIMO can complete on uiap and mesh-9fts, primary-candidate produced useful JSON in stdout but was marked failed with runner_empty_response, main failed with HTTP 401 auth, and qjns failed with HTTP 403 illegal_access. Implement narrow parser/classification fixes with tests; do not change secrets or run login.",
+  "constraints": {
+    "mac_thin_client_only": true,
+    "server_execution_required": true,
+    "product_code_changes_allowed_only_on_server_branch": true,
+    "scope_is_runner_contract_only": true,
+    "do_not_change_secrets": true,
+    "do_not_print_env": true,
+    "do_not_run_mimo_auth_login": true,
+    "do_not_rotate_tokens": true,
+    "git_push_to_main_forbidden": true,
+    "force_push_forbidden": true,
+    "destructive_git_commands_forbidden": true,
+    "dirty_worktree_checkout_forbidden": true,
+    "owner_facing_agent_names_must_be_russian": true
+  },
+  "known_evidence": {
+    "fanout_batch": "docs/agent/dispatcher/envelopes/P0_MIMO_DIRECT_FANOUT_BATCH_2026_07_01.json",
+    "successful_tasks": {
+      "P0_MIMO_DIRECT_UIAP_RAG_KNOWLEDGE_2026_07_01": "completed with Russian response from uiap",
+      "P0_MIMO_DIRECT_MESH_9FTS_ROUTE_PROBE_2026_07_01": "completed with route-alive response from mesh-9fts"
+    },
+    "misclassified_primary": {
+      "task_id": "P0_MIMO_DIRECT_PRIMARY_COORDINATION_2026_07_01",
+      "state": "failed",
+      "error": "mimo completed without text response",
+      "stdout_evidence": "stdout contained a JSON object with current_risk, minimal_contract and next_tasks; parser did not promote it to response"
+    },
+    "main_auth_failure": {
+      "task_id": "P0_MIMO_DIRECT_MAIN_AUTH_RECHECK_2026_07_01",
+      "state": "failed",
+      "stderr_evidence": "HTTP 401 auth failure; hint mentioned mimo auth status/login but task must not run login"
+    },
+    "qjns_policy_failure": {
+      "task_id": "P0_MIMO_DIRECT_QJNS_TOOLS_EXECUTOR_2026_07_01",
+      "state": "failed",
+      "stdout_evidence": "mimo-free bootstrap failed: 403 illegal_access"
+    },
+    "queued_home": {
+      "task_ids": [
+        "P0_MIMO_DIRECT_HOME_OBSERVABILITY_2026_07_01",
+        "P0_MIMO_DIRECT_HOME_LIVE_OBSERVABILITY_2026_07_01"
+      ],
+      "state": "queued after initial polling"
+    }
+  },
+  "write_scope": [
+    "ops/agent_host.py",
+    "tests/test_agent_host_telegram_chat.py",
+    "tests/test_agent_host_runner_contract.py",
+    "docs/agent/AGENT_RUNNER_CONTRACT.md",
+    "docs/agent/runs/2026-07-01-p0-mimo-runner-output-auth-contract-repair/**"
+  ],
+  "required_artifacts": [
+    "docs/agent/runs/2026-07-01-p0-mimo-runner-output-auth-contract-repair/PLAN.md",
+    "docs/agent/runs/2026-07-01-p0-mimo-runner-output-auth-contract-repair/ACTIONS.md",
+    "docs/agent/runs/2026-07-01-p0-mimo-runner-output-auth-contract-repair/TESTS.md",
+    "docs/agent/runs/2026-07-01-p0-mimo-runner-output-auth-contract-repair/RESULT.md",
+    "docs/agent/runs/2026-07-01-p0-mimo-runner-output-auth-contract-repair/NEXT.md"
+  ],
+  "required_behavior": [
+    "Teach Agent Host response parsing to accept useful JSON object outputs from MIMO stdout, including plain objects with meaningful string fields, not only known streaming event schemas.",
+    "If MIMO returns HTTP 401, classify the task as runner_auth_failed with redacted detail and a next repair action; do not suggest or run login automatically.",
+    "If MIMO returns HTTP 403 illegal_access, classify the task as runner_policy_blocked or runner_access_denied with redacted detail.",
+    "Do not leak owner prompts, tokens, env, cookies or raw secrets in failure payloads.",
+    "Add focused tests that reproduce primary-candidate JSON object stdout, main 401 stderr, and qjns 403 stdout cases.",
+    "Run focused tests and syntax checks on the server branch.",
+    "Open or update a draft PR if branch push is available; otherwise return explicit GitHub auth blocker."
+  ],
+  "verification_commands": [
+    "git diff --check",
+    "python3 -m py_compile ops/agent_host.py tests/test_agent_host_telegram_chat.py",
+    "python3 -m pytest tests/test_agent_host_telegram_chat.py -q"
+  ],
+  "acceptance": [
+    "A MIMO stdout JSON object with useful fields is parsed into a non-empty response and completes the task.",
+    "MIMO HTTP 401 is classified as runner_auth_failed without secret leakage.",
+    "MIMO HTTP 403 illegal_access is classified as runner_policy_blocked or runner_access_denied without secret leakage.",
+    "Focused tests cover all three fresh fanout failure/success modes.",
+    "Exact five run artifacts are created.",
+    "Remote result reports branch/PR, tests, blockers and next action."
+  ],
+  "source": {
+    "kind": "mac_thin_client_dispatcher",
+    "owner": "Vladislav",
+    "created_at": "2026-07-01T12:08:00Z",
+    "local_ledger": "docs/agent/dispatcher/DISPATCH_LOG.md"
+  }
+}

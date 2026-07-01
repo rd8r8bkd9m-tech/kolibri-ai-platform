@@ -1,0 +1,113 @@
+{
+  "task_id": "P0_TELEGRAM_GOMESH_REPORT_MESSAGE_FORMAT_2026_07_01",
+  "idempotency_key": "mac-dispatcher:P0_TELEGRAM_GOMESH_REPORT_MESSAGE_FORMAT_2026_07_01",
+  "kind": "owner_remote_task",
+  "required_capability": "generic_implementation",
+  "runner": "codex",
+  "agent_type": "telegram_message_ux_engineer",
+  "agent_display_name": "Михаил — Telegram Message UX Engineer",
+  "target_node": "primary-candidate",
+  "target_node_pool": "healthy_server_implementation_nodes",
+  "preferred_nodes": [
+    "primary-candidate",
+    "home"
+  ],
+  "allowed_nodes": [
+    "primary-candidate",
+    "home"
+  ],
+  "avoid_nodes": [
+    "main",
+    "qjns",
+    "uiap"
+  ],
+  "branch": "p0/telegram-superfactory-bot-miniapp-2026-07-01",
+  "base_branch": "p0/telegram-superfactory-bot-miniapp-2026-07-01",
+  "base_ref": "origin/p0/telegram-superfactory-bot-miniapp-2026-07-01",
+  "start_commit": "da70104545c4d213807b22f01b4f06f86ac2204e",
+  "max_retries": 1,
+  "create_review_on_complete": false,
+  "objective": "Improve owner-facing Telegram message formatting for Kolibri production reports, starting with Kolibri GoMesh speed-gate/status reports. Convert raw remote-agent report text into a stable human-readable Telegram card with sections for status, key metrics, verdict, selector, tests, rollback and next action. Keep messages concise, Russian, no emojis, no raw logs, no internal paths unless explicitly useful rollback paths are present, and no secrets. Push only PR #89 branch.",
+  "constraints": {
+    "mac_thin_client_only": true,
+    "server_execution_required": true,
+    "product_code_changes_allowed_on_server_branch_only": true,
+    "no_product_code_changes_on_mac": true,
+    "destructive_git_commands_forbidden": true,
+    "dirty_worktree_checkout_forbidden": true,
+    "push_to_main_forbidden": true,
+    "force_push_forbidden": true,
+    "git_push_allowed_only_to_task_branch": true,
+    "secrets_redaction_required": true,
+    "do_not_print_telegram_token": true,
+    "do_not_print_owner_chat_id": true,
+    "do_not_print_private_messages": true,
+    "do_not_call_live_telegram_api": true,
+    "do_not_call_getupdates": true,
+    "do_not_call_setwebhook": true,
+    "do_not_call_deletewebhook": true,
+    "do_not_mutate_botfather": true,
+    "do_not_start_or_restart_services": true,
+    "do_not_merge_pr89": true,
+    "do_not_mark_pr89_ready": true,
+    "owner_facing_agent_names_must_be_russian": true
+  },
+  "owner_example_report": {
+    "title": "Kolibri GoMesh",
+    "timestamp": "2026-07-01 09:56 UTC",
+    "raw_text": "Промежуточный отчёт по production-задаче.\n\nЧто исправлено:\n1. Нашёл старый ошибочный файл скорости: direct-test был не прямым, а шёл через mesh.\n2. Обновил multi-evidence свежим корректным замером через enp3s0.\n3. Обновил deployed scorer: теперь он учитывает speed-gate и не выбирает слабый exit автоматически.\n4. Исправил failover status на сервере: теперь команда смотрит реальный Home через mesh-agent, а не локальный systemd.\n\nТекущее состояние:\nHome endpoint: 78.17.4.108:29445\nHealth: ok\nDirect до 78: 159 Mbps\nTunnel через GoMesh: 66.7 Mbps\nЦель: 300+ Mbps\nВердикт: production speed gate НЕ пройден.\n\nSelector:\ncurrent_endpoint: 78.17.4.108:29445\ncurrent_health: ok\neligible exits: 0\nwould_switch: false\nПричина: нет exit, который сейчас доказан как production по скорости.\n\nТесты:\npytest: 22 passed\n\nRollback:\nscorer backup: /opt/kolibri-vpn/backups/exit-score-throughput-gate-20260701T095319Z\nfailover wrapper backup: /opt/kolibri-vpn/backups/home-failover-remote-wrapper-20260701T095523Z\n\nСледующий шаг: искать/поднимать быстрый exit или оптимизировать dataplane, потому что один текущий путь 78 физически не даёт 300 Mbps: прямой канал до него сейчас только 159 Mbps."
+  },
+  "required_behavior": [
+    "Add a deterministic formatting path for production/network reports in ops/telegram_gateway.py or the Telegram Superfactory reporting adapter.",
+    "The formatter must recognize GoMesh/speed-gate style reports and produce a stable owner-facing card in Russian.",
+    "The formatted message must make the blocker obvious: speed gate failed because current direct path is 159 Mbps and tunnel is 66.7 Mbps against 300+ Mbps target.",
+    "The formatted message must keep useful rollback backup paths, but must not expose secrets, tokens, cookies, private prompts, raw stdout/stderr or unrelated internal metadata.",
+    "Do not strip important units like Mbps, endpoint, pass/fail verdict, pytest count and next action.",
+    "Do not send the message to Telegram during tests; use unit tests only."
+  ],
+  "read_first": [
+    "ops/telegram_gateway.py",
+    "tests/test_telegram_gateway.py",
+    "docs/product/telegram-command-center/2026-07-01/RICH_STREAMING_REPORTS_PLAN.md",
+    "docs/product/telegram-command-center/2026-07-01/BOT_RUNTIME_CONTRACT.md"
+  ],
+  "write_scope": [
+    "ops/telegram_gateway.py",
+    "tests/test_telegram_gateway.py",
+    "docs/product/telegram-command-center/2026-07-01/**",
+    "docs/agent/runs/2026-07-01-p0-telegram-gomesh-report-message-format/**"
+  ],
+  "required_artifacts": [
+    "docs/agent/runs/2026-07-01-p0-telegram-gomesh-report-message-format/PLAN.md",
+    "docs/agent/runs/2026-07-01-p0-telegram-gomesh-report-message-format/ACTIONS.md",
+    "docs/agent/runs/2026-07-01-p0-telegram-gomesh-report-message-format/TESTS.md",
+    "docs/agent/runs/2026-07-01-p0-telegram-gomesh-report-message-format/RESULT.md",
+    "docs/agent/runs/2026-07-01-p0-telegram-gomesh-report-message-format/NEXT.md"
+  ],
+  "verification_commands": [
+    "git diff --check",
+    "python3 -m py_compile ops/telegram_gateway.py",
+    "python3 -m pytest tests/test_telegram_gateway.py -q",
+    "test -f docs/agent/runs/2026-07-01-p0-telegram-gomesh-report-message-format/PLAN.md",
+    "test -f docs/agent/runs/2026-07-01-p0-telegram-gomesh-report-message-format/ACTIONS.md",
+    "test -f docs/agent/runs/2026-07-01-p0-telegram-gomesh-report-message-format/TESTS.md",
+    "test -f docs/agent/runs/2026-07-01-p0-telegram-gomesh-report-message-format/RESULT.md",
+    "test -f docs/agent/runs/2026-07-01-p0-telegram-gomesh-report-message-format/NEXT.md",
+    "rg --no-ignore -n '[0-9]{6,}:[A-Za-z0-9_-]{20,}|[A-Za-z0-9_]*(TOKEN|SECRET|PASSWORD|COOKIE|API_KEY|CHAT_ID)=[^ ]+' ops tests docs/agent/runs/2026-07-01-p0-telegram-gomesh-report-message-format && exit 1 || true"
+  ],
+  "acceptance": [
+    "A unit test uses the owner's Kolibri GoMesh report sample and proves the output is a clean Telegram-ready Russian status card.",
+    "The output includes Home endpoint, health, direct Mbps, GoMesh Mbps, 300+ Mbps target, failed speed gate, selector status, pytest pass count, rollback backup paths and next action.",
+    "The output does not include task_id, raw node metadata, stdout/stderr noise, secrets, token-like strings or false completed claims.",
+    "Focused Telegram gateway tests pass on the server.",
+    "Exact five run artifacts are created.",
+    "Branch p0/telegram-superfactory-bot-miniapp-2026-07-01 is pushed normally; no push to main and no force push.",
+    "Remote result reports task_id, server node, Russian agent display name, PR #89 URL, commit, tests, blockers and next action."
+  ],
+  "source": {
+    "kind": "mac_thin_client_dispatcher",
+    "owner": "Vladislav",
+    "created_at": "2026-07-01T10:04:00Z",
+    "local_ledger": "docs/agent/dispatcher/DISPATCH_LOG.md"
+  }
+}
