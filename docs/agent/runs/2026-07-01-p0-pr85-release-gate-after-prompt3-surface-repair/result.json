@@ -2,7 +2,7 @@
   "task_id": "P0_PR85_RELEASE_GATE_AFTER_PROMPT3_SURFACE_REPAIR_2026_07_01",
   "status": "completed",
   "node": "kolibri",
-  "reviewer": "autonomous_engineer",
+  "reviewer": "Алексей — Fabric API Release Reviewer",
   "review_time_utc": "2026-07-01T15:35:49Z",
   "pr": 85,
   "reviewed_head": "06adeb54c0e7d7132c7f0817ea4755786cd3f092",
@@ -58,9 +58,18 @@
     }
   ],
   "artifact_paths": [
+    "docs/agent/runs/2026-07-01-p0-pr85-release-gate-after-prompt3-surface-repair/PLAN.md",
+    "docs/agent/runs/2026-07-01-p0-pr85-release-gate-after-prompt3-surface-repair/ACTIONS.md",
+    "docs/agent/runs/2026-07-01-p0-pr85-release-gate-after-prompt3-surface-repair/TESTS.md",
     "docs/agent/runs/2026-07-01-p0-pr85-release-gate-after-prompt3-surface-repair/RESULT.md",
+    "docs/agent/runs/2026-07-01-p0-pr85-release-gate-after-prompt3-surface-repair/NEXT.md",
+    "docs/agent/runs/2026-07-01-p0-pr85-release-gate-after-prompt3-surface-repair/PROMPT3_POST_REPAIR_GAP_MATRIX.md",
+    "docs/agent/runs/2026-07-01-p0-pr85-release-gate-after-prompt3-surface-repair/PR85_POST_REPAIR_RELEASE_DECISION.md",
+    "docs/agent/runs/2026-07-01-p0-pr85-release-gate-after-prompt3-surface-repair/CI_AND_TEST_EVIDENCE.md",
+    "docs/agent/runs/2026-07-01-p0-pr85-release-gate-after-prompt3-surface-repair/SPLIT_OR_MERGE_RISK.md",
     "docs/agent/runs/2026-07-01-p0-pr85-release-gate-after-prompt3-surface-repair/result.json",
     "docs/agent/runs/2026-07-01-p0-pr85-release-gate-after-prompt3-surface-repair/artifact-manifest.json"
   ],
-  "next_exact_task": "P0_PR85_MINOR_DOCS_WHITESPACE_FIX_2026_07_01"
+  "next_exact_task": "P0_PR85_MINOR_DOCS_WHITESPACE_FIX_2026_07_01",
+  "artifact_completion_note": "Exact artifact aliases completed after remote review; no product code changed."
 }
