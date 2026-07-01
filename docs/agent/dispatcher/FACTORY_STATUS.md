@@ -1,9 +1,64 @@
 # Factory Status
 
 Snapshot time:
-- 2026-07-01T03:28:51Z
+- 2026-07-01T05:53:39Z
 
 Latest update:
+- 2026-07-01T05:53:39Z:
+  `P0_PR89_DELETEWEBHOOK_SAFETY_GATE_2026_07_01` has a useful GitHub result
+  but failed its Control Plane wrapper on an exact artifact alias check. Remote
+  agent pushed PR #89 branch to `1c341ebb83a6a4eb66ea8ce5d739a21d2d4d9be0`
+  with the Telegram delivery-state safety gate; thin-client relay then added
+  exact `PLAN/ACTIONS/TESTS/RESULT/NEXT` artifact aliases and pushed PR #89 to
+  `da70104545c4d213807b22f01b4f06f86ac2204e`. GitHub Actions `Kolibri CI`
+  run `28496630947` completed with conclusion `success`. PR #89 remains draft:
+  do not live-roll out until owner approves a maintenance window and smoke
+  checks.
+- 2026-07-01T05:46:43Z:
+  `P0_PR89_DELETEWEBHOOK_SAFETY_GATE_2026_07_01` is running on
+  `primary-candidate:agent-host-primary` against branch
+  `p0/telegram-superfactory-bot-miniapp-2026-07-01`. It was submitted through
+  the Control Plane at `2026-07-01T05:37:12Z`; latest heartbeat is fresh and
+  there is no result artifact yet. This task is allowed to update only PR #89
+  branch and is forbidden from live Telegram API calls, service mutation, token
+  rotation, pending update deletion, second receiver enablement, push to main or
+  force push.
+- 2026-07-01T05:32:22Z:
+  `P0_TELEGRAM_PR89_MAIN_RECEIVER_CUTOVER_PLAN_2026_07_01` completed on
+  `primary-candidate:agent-host-primary`. Five exact artifacts were created
+  under
+  `docs/agent/runs/2026-07-01-p0-telegram-pr89-main-receiver-cutover-plan/`
+  and central branch
+  `p0/telegram-pr89-main-receiver-cutover-plan-2026-07-01` exists at
+  `437613ebdffd20a730be4592fd08de5944637ead`. Result: PR #89 must not roll
+  out live unchanged. The plan requires preserving exactly one receiver on
+  `main` and moving `deleteWebhook(drop_pending_updates=False)` behind an
+  explicit owner-approved migration gate before any live rollout. Contract
+  warning: this read-only/no-push task still received `full_autonomy`/`git_push`
+  and pushed a central branch, so runner hardening remains P0.
+- 2026-07-01T05:24:00Z: Prepared
+  `P0_TELEGRAM_PR89_MAIN_RECEIVER_CUTOVER_PLAN_2026_07_01` for a healthy
+  review node. The live receiver is now confirmed on `main`; the next step is a
+  read-only rollout/cutover plan, not a second receiver.
+- 2026-07-01T05:19:56Z:
+  `P0_TELEGRAM_MAIN_RECEIVER_TOKEN_LINEAGE_AND_IDENTITY_2026_07_01` failed in
+  Control Plane because the `main` Codex runner token is expired/reused. A
+  remote SSH diagnostic fallback on `kolibri-main` confirmed the live receiver
+  token identity: `getMe` returned username `kolibriai_bot`; service is
+  active/running; state file offset exists; webhook is empty and pending updates
+  are `0`.
+- 2026-07-01T05:18:00Z: Prepared
+  `P0_TELEGRAM_MAIN_RECEIVER_TOKEN_LINEAGE_AND_IDENTITY_2026_07_01` for
+  `main`. This is the next safe step after fleet discovery found an active
+  receiver candidate on `main` but left token-lineage/username identity
+  unresolved.
+- 2026-07-01T05:15:52Z:
+  `P0_TELEGRAM_FLEET_RECEIVER_DISCOVERY_2026_07_01` completed. It found visible
+  active receiver candidate `main` / `10.99.0.2` /
+  `kolibri-telegram-gateway.service`, but did not prove username identity
+  because it only used `getWebhookInfo`. It also pushed GitHub branch
+  `p0/telegram-fleet-receiver-discovery-2026-07-01` despite the envelope
+  forbidding git push, so runner permission/reporting remains a contract issue.
 - 2026-07-01T05:07:32Z: Latest exact query for
   `P0_TELEGRAM_FLEET_RECEIVER_DISCOVERY_2026_07_01` still reports `running`
   on `home:agent-host-home`; no result artifact yet.
