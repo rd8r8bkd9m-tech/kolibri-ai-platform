@@ -105,7 +105,7 @@ BACKEND_TEST_ENV_KEYS = (
     "backend_verification_environment",
 )
 BACKEND_TEST_ENV_TYPES = {"backend_python", "python_backend"}
-SUPPORTED_AI_RUNNERS = {"codex", "mimo"}
+SUPPORTED_AI_RUNNERS = {"api", "codex", "local_llm", "mimo"}
 RUNNER_AUTH_FAILURE_MARKERS = (
     "401",
     "403",
@@ -1317,6 +1317,10 @@ class AgentHost:
         runner = runner.strip().lower()
         if runner not in SUPPORTED_AI_RUNNERS:
             raise RunnerExecutionError("runner_unavailable", runner, f"unsupported runner requested: {runner}")
+        if runner == "api":
+            return self.run_api_text_runner(prompt)
+        if runner == "local_llm":
+            return self.run_local_llm_text_runner(prompt)
         executable = shutil.which(runner)
         if not executable:
             self.mark_runner_status(runner, "unavailable", "runner_unavailable")
@@ -1689,6 +1693,57 @@ class AgentHost:
         result_path = self.write_result(artifact_dir, result)
         result["result_path"] = str(result_path)
         return result
+
+    def run_api_text_runner(self, prompt: str) -> str:
+        endpoint = os.environ.get("KOLIBRI_API_RUNNER_URL", "https://api.openai.com/v1/chat/completions")
+        api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("KOLIBRI_API_RUNNER_TOKEN")
+        if not api_key:
+            raise RuntimeError("api runner auth is not configured: set OPENAI_API_KEY or KOLIBRI_API_RUNNER_TOKEN")
+        body = {
+            "model": os.environ.get("KOLIBRI_API_RUNNER_MODEL", "gpt-4.1-mini"),
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": float(os.environ.get("KOLIBRI_API_RUNNER_TEMPERATURE", "0.2")),
+        }
+        req = urllib.request.Request(
+            endpoint,
+            data=json.dumps(body).encode("utf-8"),
+            method="POST",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=int(os.environ.get("KOLIBRI_API_RUNNER_TIMEOUT", "120"))) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+        choices = payload.get("choices") or []
+        if choices:
+            message = choices[0].get("message") or {}
+            text = message.get("content")
+            if text:
+                return str(text)
+        text = payload.get("response") or payload.get("text")
+        if text:
+            return str(text)
+        raise RuntimeError("api runner returned no text")
+
+    def run_local_llm_text_runner(self, prompt: str) -> str:
+        endpoint = os.environ.get("KOLIBRI_LOCAL_LLM_URL")
+        if not endpoint:
+            raise RuntimeError("local_llm runner is not configured: set KOLIBRI_LOCAL_LLM_URL")
+        body = {
+            "prompt": prompt,
+            "model": os.environ.get("KOLIBRI_LOCAL_LLM_MODEL", "local"),
+            "stream": False,
+        }
+        req = urllib.request.Request(
+            endpoint,
+            data=json.dumps(body).encode("utf-8"),
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=int(os.environ.get("KOLIBRI_LOCAL_LLM_TIMEOUT", "120"))) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+        text = payload.get("response") or payload.get("text") or payload.get("content")
+        if text:
+            return str(text)
+        raise RuntimeError("local_llm runner returned no text")
 
     def generated_image_path(self, artifact_dir: Path, preferred: Path) -> Path:
         if preferred.exists() and preferred.is_file():

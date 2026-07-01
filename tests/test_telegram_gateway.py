@@ -1,4 +1,5 @@
 import importlib.util
+import sys
 from pathlib import Path
 
 
@@ -13,9 +14,166 @@ def load_gateway():
     return module
 
 
+def load_webhook_migration():
+    spec = importlib.util.spec_from_file_location("telegram_webhook_migration", ROOT / "ops" / "telegram_webhook_migration.py")
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_parse_owner_ids_accepts_commas_and_semicolons():
     gateway = load_gateway()
     assert gateway.parse_owner_ids("1, 2;3") == {1, 2, 3}
+
+
+def test_default_telegram_client_blocks_delivery_state_mutation(monkeypatch):
+    gateway = load_gateway()
+
+    def fail_urlopen(*args, **kwargs):
+        raise AssertionError("default client must not call Telegram for blocked delivery-state mutations")
+
+    monkeypatch.setattr(gateway.urllib.request, "urlopen", fail_urlopen)
+    client = gateway.TelegramClient("fake-token")
+    for method in gateway.DELIVERY_STATE_MUTATION_METHODS:
+        try:
+            client.call(method)
+        except RuntimeError as exc:
+            assert method in str(exc)
+        else:
+            raise AssertionError(f"{method} was not blocked")
+
+
+def test_default_gateway_startup_is_non_mutating_with_unsafe_webhook_env(monkeypatch, tmp_path):
+    gateway = load_gateway()
+    events = []
+
+    class FakeTelegramClient:
+        def __init__(self, token, api_base="https://api.telegram.org", allow_delivery_state_mutation=False):
+            events.append(("telegram_client", token, api_base, allow_delivery_state_mutation))
+
+        def call(self, method, payload=None, timeout=35):
+            events.append(("telegram_call", method, payload, timeout))
+            raise AssertionError("startup must not call Telegram API methods")
+
+        def get_updates(self, offset, timeout):
+            events.append(("get_updates", offset, timeout))
+            raise AssertionError("startup must not start polling before Gateway.run owns the receiver")
+
+    class FakeFactoryClient:
+        def __init__(self, control_url, control_urls):
+            events.append(("factory_client", control_url, control_urls))
+
+    class FakeGateway:
+        def __init__(self, telegram, factory, owner_ids, state, poll_timeout):
+            events.append(("gateway_init", owner_ids, poll_timeout))
+
+        def run(self):
+            events.append(("gateway_run",))
+
+    def fail_urlopen(*args, **kwargs):
+        raise AssertionError("startup must not open network connections")
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "fake-token")
+    monkeypatch.setenv("TELEGRAM_OWNER_IDS", "100")
+    monkeypatch.setenv("TELEGRAM_WEBHOOK_URL", "https://unsafe.example/hook")
+    monkeypatch.setenv("TELEGRAM_DELETE_WEBHOOK", "1")
+    monkeypatch.setenv("TELEGRAM_DROP_PENDING_UPDATES", "1")
+    monkeypatch.setattr(sys, "argv", ["telegram_gateway.py", "--state-file", str(tmp_path / "state.json"), "--poll-timeout", "1"])
+    monkeypatch.setattr(gateway.urllib.request, "urlopen", fail_urlopen)
+    monkeypatch.setattr(gateway, "TelegramClient", FakeTelegramClient)
+    monkeypatch.setattr(gateway, "FactoryClient", FakeFactoryClient)
+    monkeypatch.setattr(gateway, "Gateway", FakeGateway)
+
+    try:
+        gateway.main()
+    except SystemExit as exc:
+        assert "refused to start polling" in str(exc)
+    else:
+        raise AssertionError("unsafe webhook environment did not refuse ordinary polling startup")
+    assert ("telegram_client", "fake-token", "https://api.telegram.org", False) in events
+    assert ("gateway_run",) not in events
+    assert not any(event[0] in {"telegram_call", "get_updates"} for event in events)
+
+
+def test_default_gateway_startup_without_webhook_env_starts_existing_polling_receiver(monkeypatch, tmp_path):
+    gateway = load_gateway()
+    events = []
+
+    class FakeTelegramClient:
+        def __init__(self, token, api_base="https://api.telegram.org", allow_delivery_state_mutation=False):
+            events.append(("telegram_client", token, api_base, allow_delivery_state_mutation))
+
+        def call(self, method, payload=None, timeout=35):
+            events.append(("telegram_call", method, payload, timeout))
+            raise AssertionError("startup must not call Telegram API methods")
+
+        def get_updates(self, offset, timeout):
+            events.append(("get_updates", offset, timeout))
+            raise AssertionError("startup must not poll until Gateway.run owns the receiver")
+
+    class FakeFactoryClient:
+        def __init__(self, control_url, control_urls):
+            events.append(("factory_client", control_url, control_urls))
+
+    class FakeGateway:
+        def __init__(self, telegram, factory, owner_ids, state, poll_timeout):
+            events.append(("gateway_init", owner_ids, poll_timeout))
+
+        def run(self):
+            events.append(("gateway_run",))
+
+    def fail_urlopen(*args, **kwargs):
+        raise AssertionError("startup must not open network connections")
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "fake-token")
+    monkeypatch.setenv("TELEGRAM_OWNER_IDS", "100")
+    monkeypatch.delenv("TELEGRAM_WEBHOOK_URL", raising=False)
+    monkeypatch.delenv("TELEGRAM_ALLOW_WEBHOOK_DELETE", raising=False)
+    monkeypatch.delenv("TELEGRAM_DROP_PENDING_UPDATES", raising=False)
+    monkeypatch.setattr(sys, "argv", ["telegram_gateway.py", "--state-file", str(tmp_path / "state.json"), "--poll-timeout", "1"])
+    monkeypatch.setattr(gateway.urllib.request, "urlopen", fail_urlopen)
+    monkeypatch.setattr(gateway, "TelegramClient", FakeTelegramClient)
+    monkeypatch.setattr(gateway, "FactoryClient", FakeFactoryClient)
+    monkeypatch.setattr(gateway, "Gateway", FakeGateway)
+
+    assert gateway.main() == 0
+    assert ("telegram_client", "fake-token", "https://api.telegram.org", False) in events
+    assert ("gateway_run",) in events
+    assert not any(event[0] in {"telegram_call", "get_updates"} for event in events)
+
+
+def test_webhook_deletion_is_owner_approved_migration_only(monkeypatch):
+    migration = load_webhook_migration()
+    calls = []
+
+    class FakeTelegramClient:
+        def __init__(self, token, api_base="https://api.telegram.org", allow_delivery_state_mutation=False):
+            calls.append(("client", token, api_base, allow_delivery_state_mutation))
+
+        def call(self, method, payload=None, timeout=35):
+            calls.append(("call", method, payload, timeout))
+            return {"ok": True, "result": True}
+
+    monkeypatch.setattr(migration, "TelegramClient", FakeTelegramClient)
+    result = migration.delete_webhook_for_owner_approved_migration(
+        "fake-token",
+        migration.DELETE_WEBHOOK_APPROVAL,
+        drop_pending_updates=False,
+        api_base="https://telegram.invalid",
+    )
+    assert result == {"ok": True, "result": True}
+    assert calls == [
+        ("client", "fake-token", "https://telegram.invalid", True),
+        ("call", "deleteWebhook", {"drop_pending_updates": "false"}, 35),
+    ]
+
+    try:
+        migration.delete_webhook_for_owner_approved_migration("fake-token", "unsafe")
+    except SystemExit as exc:
+        assert "owner approval" in str(exc)
+    else:
+        raise AssertionError("webhook deletion did not require owner approval")
 
 
 def test_factory_client_fails_over_between_control_plane_urls(monkeypatch):
@@ -187,6 +345,67 @@ def test_owner_remote_task_completion_returns_clean_url_result():
     assert "Проверки живые" in message
     for forbidden in ["SECRET", "TOKEN", "result_path", "/var/lib"]:
         assert forbidden not in message
+
+
+def test_gomesh_speed_gate_report_becomes_clean_russian_telegram_card():
+    gateway = load_gateway()
+    owner_sample = """
+task_id: P0_TELEGRAM_GOMESH_REPORT_MESSAGE_FORMAT_2026_07_01
+node: server-9fts
+agent: agent-host-9fts
+worktree: /var/lib/kolibri-agent/worktrees/P0_TELEGRAM/repo
+stdout:
+  raw speedtest output omitted
+stderr:
+  warning: retry noise
+secret token: 123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef
+
+Kolibri GoMesh speed/status report
+Home endpoint: home.kolibri.local:9443
+Health: healthy
+Direct Mbps: 487.6
+GoMesh Mbps: 214.8
+Target: 300+ Mbps
+Speed gate: FAILED
+Selector status: safe-mode, GoMesh selector not promoted
+pytest: 42 passed in 18.4s
+Rollback backup paths: /etc/kolibri/gomesh-selector.conf.bak-20260701 /opt/kolibri/backups/gomesh-routes-20260701.json
+Next action: tune exit selection and rerun the 300+ Mbps gate before enabling selector promotion.
+"""
+    task = {
+        "state": "completed",
+        "envelope": {"kind": "owner_remote_task"},
+        "result": {"response": owner_sample},
+    }
+
+    message = gateway.format_task_status(task)
+
+    assert message.startswith("Kolibri GoMesh: статус speed-gate")
+    assert "Статус: не пройден" in message
+    assert "Home endpoint: home.kolibri.local:9443" in message
+    assert "Health: healthy" in message
+    assert "direct 487.6 Mbps" in message
+    assert "GoMesh 214.8 Mbps" in message
+    assert "цель 300+ Mbps" in message
+    assert "speed-gate провален" in message
+    assert "Selector: safe-mode, GoMesh selector not promoted" in message
+    assert "pytest 42 passed" in message
+    assert "/etc/kolibri/gomesh-selector.conf.bak-20260701" in message
+    assert "/opt/kolibri/backups/gomesh-routes-20260701.json" in message
+    assert "Следующее действие: tune exit selection" in message
+    for forbidden in [
+        "task_id",
+        "node:",
+        "agent:",
+        "stdout",
+        "stderr",
+        "/var/lib",
+        "123456789:",
+        "секрет",
+        "Готово",
+        "завершил",
+    ]:
+        assert forbidden.lower() not in message.lower()
 
 
 def test_gateway_auto_tracks_fresh_owner_tasks_for_common_chat(tmp_path):

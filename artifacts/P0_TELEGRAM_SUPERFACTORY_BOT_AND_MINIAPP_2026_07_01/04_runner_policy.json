@@ -1,0 +1,8 @@
+{
+  "artifact": "runner_policy",
+  "default_order": ["codex", "mimo", "api", "local_llm"],
+  "image_runner": "image",
+  "runtime_code_paths": ["codex", "mimo", "api", "local_llm", "image"],
+  "broken_auth_reporting": "missing configuration is reported by environment variable name only, never by secret value",
+  "owner_response_language": "ru"
+}

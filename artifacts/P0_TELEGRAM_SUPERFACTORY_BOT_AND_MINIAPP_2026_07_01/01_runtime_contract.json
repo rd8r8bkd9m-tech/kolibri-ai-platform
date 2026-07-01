@@ -1,0 +1,8 @@
+{
+  "task_id": "P0_TELEGRAM_SUPERFACTORY_BOT_AND_MINIAPP_2026_07_01",
+  "artifact": "runtime_contract",
+  "canonical_receiver": "kolibri-telegram-gateway",
+  "receiver_modes": ["polling", "webhook", "disabled"],
+  "polling_conflict_rule": "refuse polling when Telegram webhook is configured unless TELEGRAM_ALLOW_WEBHOOK_DELETE=1 is set for migration",
+  "secrets_policy": "tokens, owner ids, cookies, API keys, passwords, private messages and raw logs are not printed"
+}
