@@ -1,5 +1,26 @@
 # Superfactory Tasks
 
+## P0: GitHub Main Freshness Release Train
+
+Status: remote release curator task running on `primary-candidate`.
+
+Goal: keep `main` current through PRs, CI and owner-approved release gates. The
+README and production-facing code path must not stay stale while PRs pile up.
+
+Active task:
+
+- `P0_GITHUB_MAIN_README_CODE_SYNC_RELEASE_TRAIN_2026_07_01`
+
+Required behavior:
+
+1. Maintain a release train matrix for open PRs.
+2. Assign each PR a steward, state, blocker, test evidence and next action.
+3. Move merge-ready PRs toward owner/maintainer review.
+4. Dispatch exact repair tasks for blocked PRs.
+5. Split unrelated subsystem changes instead of merging large mixed PRs.
+6. Update README/docs through dedicated PRs when `main` is behind reality.
+7. Never push directly to `main`; use GitHub PRs, CI and release gates.
+
 ## P0: Fleet Always Online Guardian
 
 Status: owner law drafted; remote guardian task required.

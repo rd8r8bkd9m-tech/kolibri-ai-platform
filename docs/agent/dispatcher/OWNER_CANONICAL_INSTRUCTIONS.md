@@ -93,6 +93,25 @@ Rules:
   docs;
 - green CI is evidence, not automatic release approval.
 
+## Main Freshness And PR Queue Stewardship
+
+Owner rule: `main` must stay current through an active PR release train.
+
+This does not mean direct pushes to `main`. It means:
+- every open PR has an assigned steward, status, test/CI evidence, blocker and
+  next action;
+- stale README, docs or production code on `main` is a P0 release-train issue;
+- merge-ready PRs are moved toward owner/maintainer review instead of being left
+  in the queue indefinitely;
+- blocked PRs get exact repair tasks or split tasks;
+- unrelated subsystems are not bundled just to make `main` look current;
+- merges to `main` happen only through GitHub PRs, green gates and the current
+  owner-approved release policy.
+
+Control Plane should keep a GitHub release curator task active when the PR queue
+is stale. The curator keeps a matrix of PRs, proposes the next merge/split/repair
+step, updates owner-visible status and creates remote tasks for blockers.
+
 ## Control Plane And Agent Host
 
 Control Plane is the nervous system.
