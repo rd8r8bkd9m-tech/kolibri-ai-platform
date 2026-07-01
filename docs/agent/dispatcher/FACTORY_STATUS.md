@@ -1,9 +1,21 @@
 # Factory Status
 
 Snapshot time:
-- 2026-07-01T06:06:17Z
+- 2026-07-01T06:12:43Z
 
 Latest update:
+- 2026-07-01T06:12:43Z:
+  `P0_AGENT_HOST_REVIEW_CLONE_AND_CONSTRAINT_ENFORCEMENT_2026_07_01`
+  completed on `primary-candidate:agent-host-primary`. PR #83 branch
+  `p0/agent-host-runner-contract-hardening-2026-06-30` was fast-forwarded to
+  `23e8e43fdff8eeda192df2349215e17882983d58`; GitHub Actions `Kolibri CI`
+  run `28497411550` completed with conclusion `success`. Remote verification:
+  focused runner contract suite `25 passed`, relevant Agent Host suite
+  `31 passed`, `py_compile`, `git diff --check`, exact run artifacts and
+  Superfactory-overlap guard passed. Key contract change: read-only/no-push
+  envelopes lose `git_push`/`full_autonomy`, no-push publish paths are gated,
+  missing exact artifacts cannot complete, and review clone/auth failures write
+  `result.json` with actionable `review_clone_auth_failed` classification.
 - 2026-07-01T06:06:17Z:
   `P0_AGENT_HOST_REVIEW_CLONE_AND_CONSTRAINT_ENFORCEMENT_2026_07_01` is
   running on `primary-candidate:agent-host-primary` against PR #83 branch
@@ -273,9 +285,11 @@ Submitted tasks:
   forbidden `docs/superfactory/*` files were not touched. GitHub Actions
   `Kolibri CI` run `28490349624` for `8951a9f` completed with conclusion
   `success`.
-- Current P0 runner hardening estimate: about 96% done. Remaining work is to
-  dispatch a micro cleanup for stale verifier-command assumptions and then
-  convert PR #83 from draft when the owner approves merge/release policy.
+- Current P0 runner hardening estimate: about 99% done. PR #83 head
+  `23e8e43fdff8eeda192df2349215e17882983d58` is CI-green and contains the
+  post-Telegram evidence hardening. Remaining work is owner/maintainer review,
+  a real post-merge canary task proving no-push/read-only enforcement in the
+  deployed Agent Host, and then draft-to-ready/merge policy approval.
 - `P0_PR83_VERIFIER_COMMAND_CLEANUP_PROOF_2026_07_01`: submitted at
   `2026-07-01T03:19:16Z` through the fallback route
   `Mac -> kolibri-primary-codex -> Control Plane`; leased by
