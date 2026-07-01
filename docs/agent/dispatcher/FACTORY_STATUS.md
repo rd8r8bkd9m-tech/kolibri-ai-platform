@@ -1,7 +1,7 @@
 # Factory Status
 
 Snapshot time:
-- 2026-07-01T02:46:43Z
+- 2026-07-01T02:52:16Z
 
 Mac executor:
 - Hostname: `MacBook-Air-Vladislav.local`
@@ -129,6 +129,16 @@ Submitted tasks:
   `2026-07-01T02:46:43Z` to record the current head, publish gate, scope
   cleanup, remote validation, GitHub Actions success, and the remaining
   canonical artifact contract follow-up. The PR remains draft and unmerged.
+- `P0_CANONICAL_RUN_ARTIFACT_CONTRACT_AND_ALIASES_2026_07_01`: submitted at
+  `2026-07-01T02:50:44Z` through the fallback route
+  `Mac -> kolibri-primary-codex -> Control Plane`; leased by
+  `primary-candidate:agent-host-primary` with fresh heartbeat at
+  `2026-07-01T02:52:16Z`; current state `running`. Artifact root:
+  `/var/lib/kolibri-agent/artifacts/P0_CANONICAL_RUN_ARTIFACT_CONTRACT_AND_ALIASES_2026_07_01/P0_CANONICAL_RUN_ARTIFACT_CONTRACT_AND_ALIASES_2026_07_01-attempt-1/`.
+  The task targets existing PR #83 branch
+  `p0/agent-host-runner-contract-hardening-2026-06-30` and asks remote agent
+  `Дмитрий` to implement/test canonical `PLAN/ACTIONS/TESTS/RESULT/NEXT`
+  artifact behavior for the three observed wrapper mismatch cases.
 
 Node snapshot through Control Plane:
 - Observed node cards: 42.
