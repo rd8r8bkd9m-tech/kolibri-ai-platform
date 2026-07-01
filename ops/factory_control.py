@@ -26,6 +26,8 @@ REDIS_HOST = os.environ.get("FACTORY_REDIS_HOST", "127.0.0.1")
 REDIS_PORT = int(os.environ.get("FACTORY_REDIS_PORT", "6379"))
 LEASE_DURATION = int(os.environ.get("FACTORY_LEASE_DURATION", "60"))
 MAX_RETRIES = int(os.environ.get("FACTORY_MAX_RETRIES", "3"))
+NODE_DEGRADED_AFTER = int(os.environ.get("FACTORY_NODE_DEGRADED_AFTER", "30"))
+NODE_STALE_AFTER = int(os.environ.get("FACTORY_NODE_STALE_AFTER", "90"))
 
 STATE_QUEUED = "queued"
 STATE_LEASED = "leased"
@@ -46,6 +48,21 @@ def utc_now() -> str:
 
 def now_ts() -> float:
     return time.time()
+
+
+def parse_iso_ts(value: Any) -> float | None:
+    if not value:
+        return None
+    try:
+        text = str(value)
+        if text.endswith("Z"):
+            text = f"{text[:-1]}+00:00"
+        parsed = datetime.fromisoformat(text)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.timestamp()
+    except (TypeError, ValueError):
+        return None
 
 
 def key(name: str) -> str:
@@ -128,6 +145,43 @@ def node_key(node_id: str) -> str:
 
 def drain_key(node_id: str) -> str:
     return key(f"drain:{node_id}")
+
+
+def classify_node_freshness(node: dict[str, Any], current: float | None = None) -> dict[str, Any]:
+    current_ts = now_ts() if current is None else current
+    heartbeat_ts = parse_iso_ts(node.get("heartbeat_at"))
+    observed_health = str(node.get("health") or "unknown")
+    classified = dict(node)
+    classified["reported_health"] = observed_health
+    if heartbeat_ts is None:
+        freshness = "stale"
+        heartbeat_age = None
+    else:
+        heartbeat_age = max(0, int(current_ts - heartbeat_ts))
+        if heartbeat_age > NODE_STALE_AFTER:
+            freshness = "stale"
+        elif heartbeat_age > NODE_DEGRADED_AFTER:
+            freshness = "degraded"
+        else:
+            freshness = "fresh"
+    classified["freshness"] = freshness
+    classified["heartbeat_age_seconds"] = heartbeat_age
+    if freshness == "fresh":
+        classified["health"] = observed_health
+    else:
+        classified["health"] = freshness
+    return classified
+
+
+def node_health_counts(nodes: list[dict[str, Any]]) -> dict[str, int]:
+    counts = {"fresh": 0, "degraded": 0, "stale": 0, "online": 0, "total": len(nodes)}
+    for node in nodes:
+        freshness = node.get("freshness") or "stale"
+        if freshness in {"fresh", "degraded", "stale"}:
+            counts[freshness] += 1
+        if node.get("health") == "online":
+            counts["online"] += 1
+    return counts
 
 
 def all_task_ids() -> list[str]:
@@ -294,11 +348,13 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path == "/v1/nodes":
                 nodes = []
+                current = now_ts()
                 for node_id in sorted(redis.command("SMEMBERS", key("node_ids")) or []):
                     node = get_json(node_key(node_id), {})
                     node["draining"] = bool(redis.command("GET", drain_key(node_id)))
-                    nodes.append(node)
-                response(self, 200, {"nodes": nodes})
+                    nodes.append(classify_node_freshness(node, current))
+                counts = node_health_counts(nodes)
+                response(self, 200, {"nodes": nodes, "counts": counts, "freshness": counts})
                 return
             if path == "/v1/tasks":
                 query = parse_qs(parsed.query)

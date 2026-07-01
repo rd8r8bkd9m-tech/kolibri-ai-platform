@@ -1,5 +1,6 @@
 import importlib.util
 from pathlib import Path
+from datetime import datetime, timedelta, timezone
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -44,6 +45,38 @@ def test_control_plane_states_are_declared():
         "retry_scheduled",
         "dead_letter",
     }
+
+
+def test_control_plane_classifies_stale_online_heartbeat_as_stale():
+    control = load_module(ROOT / "ops" / "factory_control.py")
+    now = datetime.now(timezone.utc)
+    node = control.classify_node_freshness(
+        {
+            "node_id": "worker-1",
+            "health": "online",
+            "heartbeat_at": (now - timedelta(seconds=600)).isoformat(),
+        },
+        now.timestamp(),
+    )
+
+    assert node["reported_health"] == "online"
+    assert node["freshness"] == "stale"
+    assert node["health"] == "stale"
+    assert node["heartbeat_age_seconds"] == 600
+    assert control.node_health_counts([node]) == {"fresh": 0, "degraded": 0, "stale": 1, "online": 0, "total": 1}
+
+
+def test_control_plane_counts_fresh_degraded_and_stale_nodes():
+    control = load_module(ROOT / "ops" / "factory_control.py")
+    now = datetime.now(timezone.utc)
+    nodes = [
+        control.classify_node_freshness({"node_id": "fresh", "health": "online", "heartbeat_at": (now - timedelta(seconds=5)).isoformat()}, now.timestamp()),
+        control.classify_node_freshness({"node_id": "degraded", "health": "online", "heartbeat_at": (now - timedelta(seconds=45)).isoformat()}, now.timestamp()),
+        control.classify_node_freshness({"node_id": "stale", "health": "online", "heartbeat_at": (now - timedelta(seconds=120)).isoformat()}, now.timestamp()),
+    ]
+
+    assert [node["freshness"] for node in nodes] == ["fresh", "degraded", "stale"]
+    assert control.node_health_counts(nodes) == {"fresh": 1, "degraded": 1, "stale": 1, "online": 1, "total": 3}
 
 
 def test_agent_host_supports_required_task_kinds():
