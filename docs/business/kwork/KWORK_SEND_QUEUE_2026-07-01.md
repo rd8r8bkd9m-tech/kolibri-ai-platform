@@ -1,6 +1,6 @@
 # Kwork Send Queue: 2026-07-01
 
-Status: ready for safe in-platform batch send under the 2026-07-01 owner delegation.
+Status: first safe in-platform proposal sent; remaining queue prepared under the 2026-07-01 owner delegation.
 
 Safe-chat-only policy: send proposals and replies only inside Kwork. Do not include or accept phone, Telegram, WhatsApp, email, external messenger links, direct-payment offers or any platform-bypass wording. Canonical policy: `KWORK_SAFE_CHAT_ONLY_AUTONOMY_POLICY.md`.
 
@@ -10,7 +10,7 @@ Batch policy: no per-message approval. The 2026-07-01 owner delegation covers sa
 
 | # | Project | Link | Offer | Price | Term | Status |
 |---|---|---|---|---:|---|---|
-| 1 | Сервис анализа звонков и проверки выполнения скриптов | https://kwork.ru/projects/3208095 | AI call analysis MVP | 45 000-180 000 RUB | 7-14 days | prepared |
+| 1 | Сервис анализа звонков и проверки выполнения скриптов | https://kwork.ru/projects/3208095 | AI call analysis MVP | 60 000 RUB | 10 days | sent 2026-07-01 06:00 MSK |
 | 2 | Разработка ИИ-приложения для Word Add-in | https://kwork.ru/projects/3207309 | AI document add-in prototype | 40 000-160 000 RUB | 7-14 days | prepared |
 | 3 | Доработка платформы с Telegram-ботом | https://kwork.ru/projects/3207963 | audit + implementation stage | 20 000-150 000 RUB | 2-12 days | prepared |
 | 4 | AI-ассистент в amoCRM (TG + Max) | https://kwork.ru/projects/3208206 | AI sales assistant + CRM handoff | 20 000-60 000 RUB | 4-8 days | prepared |
@@ -58,4 +58,5 @@ Fill after each submission:
 
 | Time | Project | Status | Notes |
 |---|---|---|---|
-| 2026-07-01 05:44 MSK | proposal wave A | not sent | Session focused on completing portfolio item and publishing first Telegram AI bot kwork; no public proposals/replies sent yet. |
+| 2026-07-01 05:44 MSK | proposal wave A | deferred | Session focused on completing portfolio item and publishing first Telegram AI bot kwork; proposal sending continued at 06:00 MSK. |
+| 2026-07-01 06:00 MSK | Сервис анализа звонков и проверки выполнения скриптов / https://kwork.ru/projects/3208095 | sent | Sent safe Kwork-only proposal to MaximPeregudov. Offer: 60 000 ₽, 10 days, tasks 15 000 ₽ / 30 000 ₽ / 15 000 ₽. Visible result: "Ваше индивидуальное предложение отправлено"; connects 29/30. |

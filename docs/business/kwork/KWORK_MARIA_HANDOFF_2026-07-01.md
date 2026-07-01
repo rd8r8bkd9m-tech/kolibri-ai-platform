@@ -33,10 +33,17 @@ Yandex Browser is logged into Kwork as `kolibrinano`.
 Latest observed page after `Мария` completion:
 
 ```text
-https://kwork.ru/script-programming/53216866/sozdam-telegram-ai-bota-dlya-zayavok-i-otvetov-klientam
+https://kwork.ru/projects?a=1&page=4
 ```
 
 Visible result:
+
+- Kwork displayed the green confirmation: `Ваше индивидуальное предложение отправлено`;
+- connects displayed: `Осталось 29 из 30`;
+- the sent proposal target was project `3208095`, title `Сервис анализа звонков и проверки выполнения скриптов`, buyer `MaximPeregudov`;
+- offer sent inside Kwork: 60 000 ₽, 10 days, staged tasks 15 000 ₽ / 30 000 ₽ / 15 000 ₽.
+
+Previous public kwork result:
 
 - public kwork page opened successfully;
 - title: `Создам Telegram AI-бота для заявок и ответов клиентам`;
@@ -180,8 +187,8 @@ next_action:
 
 ## First Actions
 
-1. Verify the first public kwork from manage kworks/profile and watch for Kwork moderation/public status changes.
-2. Send proposal wave A inside Kwork only after checking the live project page, proposal limits and safe text.
+1. Watch Kwork inbox/offers for replies to project `3208095`; answer only inside Kwork.
+2. Continue proposal wave A from item #2 in `KWORK_SEND_QUEUE_2026-07-01.md` after checking each live project page, proposal limits and safe text.
 3. Analyze live pricing for the remaining directions.
 4. Publish remaining safe kworks when package fields are unambiguous.
 5. Update docs after each public action and push the PR branch when ready.

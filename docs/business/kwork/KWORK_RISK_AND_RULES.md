@@ -18,6 +18,8 @@
 
 Canonical policy: `KWORK_SAFE_CHAT_ONLY_AUTONOMY_POLICY.md`.
 
+Owner update applied 2026-07-01 06:00 MSK: automatic Kwork-only negotiation, proposals, stage updates, safe request intake and factory routing are allowed, but only inside Kwork and only when no payment, payout, bank, tax, passport, password, 2FA or security action is required from the owner.
+
 ## Owner Public Button Authorization
 
 On 2026-07-01 the owner explicitly stated:

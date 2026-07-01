@@ -22,7 +22,7 @@ Subagent delegation:
 - Codex thread id: `019f1b76-23c0-7e71-a130-8d90434b7c4b`.
 - Handoff file: `docs/business/kwork/KWORK_MARIA_HANDOFF_2026-07-01.md`.
 - Safe-chat-only autonomy policy: `docs/business/kwork/KWORK_SAFE_CHAT_ONLY_AUTONOMY_POLICY.md`.
-- Latest owner update delivered to `Мария`: negotiate and deliver only inside Kwork; public proposals/messages allowed; direct contacts, payout/bank/tax/passport/password/2FA/security settings and Kwork rule bypass are forbidden; log saved/published items, sent proposals, attention-needed dialogs, factory work and platform-rule risks.
+- Latest owner update delivered to `Мария` and applied at 2026-07-01 06:00 MSK: automatic safe-chat-only Kwork operation is allowed for live price/competitor analysis, public proposals/messages, Kwork-only client negotiation, in-Kwork stage/result delivery, safe request/order intake and factory routing. Direct contacts, off-platform payment, payout/bank/tax/passport/password/2FA/security settings and Kwork rule bypass are forbidden; log saved/published items, sent proposals, attention-needed dialogs, factory work and platform-rule risks.
 
 Kwork public/profile state observed:
 
@@ -101,6 +101,7 @@ Every public click must be logged with time, page/action, visible result and nex
 5. Publish or complete remaining narrow kworks when price/scope/deadline fields are unambiguous.
 6. Update `KWORK_PORTFOLIO_UPLOAD_STATUS_2026-07-01.md` after every observed portfolio state change.
 7. Send proposal wave A inside Kwork after verifying page state, project fit and current proposal limits.
+8. Done 2026-07-01 06:00 MSK: first Wave A proposal sent to project `3208095`; Kwork showed `Ваше индивидуальное предложение отправлено`; connects changed to `29 из 30`.
 
 ## Offer Focus
 
@@ -234,4 +235,15 @@ visible_result: Kwork opened the public kwork page with title, cover, descriptio
 url_or_title: https://kwork.ru/script-programming/53216866/sozdam-telegram-ai-bota-dlya-zayavok-i-otvetov-klientam / Создам Telegram AI-бота для заявок и ответов клиентам
 blocker: none
 next_action: verify public visibility from manage kworks/profile, then send safe in-platform proposal wave A or prepare the next narrow kwork
+```
+
+```text
+time: 2026-07-01 06:00 MSK
+target: Kwork project proposal / project 3208095 / buyer MaximPeregudov
+action: sent individual proposal from Vladislav's Kwork account for the project "Сервис анализа звонков и проверки выполнения скриптов"; price 60 000 ₽; deadline 10 days; staged payment proposal 15 000 ₽ / 30 000 ₽ / 15 000 ₽; all wording kept inside Kwork and asked only scope questions
+status: sent
+visible_result: Kwork redirected to the projects page and displayed green confirmation "Ваше индивидуальное предложение отправлено"; connects visible as "Осталось 29 из 30"
+url_or_title: https://kwork.ru/projects/3208095 / Сервис анализа звонков и проверки выполнения скриптов
+blocker: none
+next_action: watch Kwork inbox/offers for buyer reply; if accepted or clarified, create sanitized intake and route development through Kolibri Factory
 ```

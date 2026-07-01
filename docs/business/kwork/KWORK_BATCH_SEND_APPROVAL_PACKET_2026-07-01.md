@@ -1,6 +1,6 @@
 # Kwork Batch Send Approval Packet 2026-07-01
 
-Status: prepared, not sent.
+Status: first Wave A proposal sent; continue Wave A under safe-chat-only delegation.
 
 Purpose: give the owner one clear approval packet for the first Kwork proposal wave while preserving Kolibri Factory rules: no fake status, no external payments, no secret exposure, no local Mac implementation as the main execution path.
 
@@ -39,7 +39,7 @@ Send Wave A first, not all 25 at once, unless the owner explicitly chooses the f
 
 | # | Project ID | Project | Offer | Range | Why first |
 |---|---:|---|---|---|---|
-| 1 | 3208095 | Сервис анализа звонков и проверки выполнения скриптов | AI call analysis MVP | 45 000-180 000 RUB | High-value AI pipeline and reports. |
+| 1 | 3208095 | Сервис анализа звонков и проверки выполнения скриптов | AI call analysis MVP | sent 2026-07-01 06:00 MSK at 60 000 RUB / 10 days | High-value AI pipeline and reports. |
 | 2 | 3207309 | Разработка ИИ-приложения для Word Add-in | AI document add-in prototype | 40 000-160 000 RUB | Fits document AI and API/backend skills. |
 | 3 | 3207963 | Доработка платформы с Telegram-ботом | Audit + implementation stage | 20 000-150 000 RUB | Good fit for bot/backend rescue work. |
 | 4 | 3208206 | AI-ассистент в amoCRM (TG + Max) | AI sales assistant + CRM handoff | 20 000-60 000 RUB | Clear bot + CRM handoff case. |
@@ -108,7 +108,7 @@ Suggested remote agent roles:
 Recommended next public action:
 
 ```text
-Save second Kwork portfolio card, then send Wave A if visible proposal texts and project targets still match this packet.
+Continue Wave A from item #2 if visible proposal texts and project targets still match this packet.
 ```
 
 Alternative:

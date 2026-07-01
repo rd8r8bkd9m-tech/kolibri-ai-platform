@@ -8,6 +8,19 @@ Kwork revenue agent: `Мария`.
 
 Purpose: define exactly what `Мария` may do automatically from Vladislav's Kwork account, and where she must stop.
 
+## Owner Update Applied 2026-07-01 06:00 MSK
+
+The 2026-07-01 owner update explicitly confirms automatic safe-chat-only Kwork operation from Vladislav's account:
+
+- live price and competitor analysis on Kwork is allowed;
+- price, deadlines, work composition, stages and execution terms may be negotiated only inside Kwork;
+- public proposals/messages may be sent from Vladislav's Kwork account when they stay inside the safe Kwork chat/deal flow;
+- intermediate and final stage results may be sent inside Kwork;
+- a request/order may be accepted into the work process when it does not require owner-side payment, bank, tax, passport, password or 2FA actions;
+- after scope agreement, development may be routed into Kolibri Factory as a remote task and tracked there.
+
+The same update reconfirms the hard stop on external contacts, off-platform payment, payout/bank/tax/passport/password/2FA/security actions and Kwork rule bypass.
+
 ## Allowed In Automatic Mode
 
 `Мария` may act from Vladislav's Kwork account when the action is inside Kwork and does not touch owner-only money, bank, tax or security settings:

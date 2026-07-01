@@ -1,12 +1,12 @@
 # Kwork Today Outreach: 2026-07-01
 
-Status: prepared, not sent.
+Status: 1 sent, 24 prepared.
 
 Goal: get first real Kwork lead/order today by sending a focused batch of AI-bot/app proposals from Vladislav's account.
 
 Account state observed:
 
-- Connects available: 30/30.
+- Connects available: 29/30 after the first proposal send at 2026-07-01 06:00 MSK.
 - Favorite project pool: 39 projects in scripts/bots/mini apps/parsers/chatbots/AI bots/machine learning.
 - Best commercial direction: AI bots, Telegram bots, AI support, document/estimate bots, mini apps and API integrations.
 
@@ -18,7 +18,7 @@ Under the 2026-07-01 owner delegation, safe public proposals may be sent by the 
 
 If sending in a smaller first wave, send these first:
 
-1. `3208095` — Сервис анализа звонков и проверки выполнения скриптов.
+1. `3208095` — Сервис анализа звонков и проверки выполнения скриптов. Sent 2026-07-01 06:00 MSK.
 2. `3207309` — Разработка ИИ-приложения для Word Add-in.
 3. `3207963` — Доработка платформы с Telegram-ботом.
 4. `3208206` — AI-ассистент в amoCRM (TG + Max).
@@ -35,9 +35,11 @@ If sending in a smaller first wave, send these first:
 
 - Project: `https://kwork.ru/projects/3208095`
 - Fit: very high.
-- Proposed price: 120 000-180 000 RUB after scope clarification.
-- Proposed first milestone: 45 000-60 000 RUB for MVP/spec + prototype.
-- Proposed timeline: 7-14 days for MVP depending on integrations.
+- Sent price: 60 000 RUB for the first working stage.
+- Sent milestones: 15 000 RUB / 30 000 RUB / 15 000 RUB.
+- Sent timeline: 10 days.
+- Sent status: sent inside Kwork on 2026-07-01 06:00 MSK.
+- Visible Kwork result: `Ваше индивидуальное предложение отправлено`; connects visible as 29/30.
 
 Message:
 
@@ -57,6 +59,18 @@ Message:
 - сколько звонков в день планируется проверять.
 
 После этого предложу точный scope, срок и стоимость.
+```
+
+Actual sent message on 2026-07-01 06:00 MSK:
+
+```text
+Здравствуйте! Могу взяться за систему анализа звонков: получение/загрузка записей, расшифровка в текст, сравнение со скриптом продаж и понятная сводка для руководителя по каждому менеджеру и звонку.
+
+Предлагаю идти первым рабочим этапом за 60 000 ₽ и 10 дней: фиксируем источник звонков и формат файлов, собираем расшифровку, задаем критерии проверки скрипта, делаем базовую оценку звонка и итоговый отчет/таблицу с нарушениями и рекомендациями.
+
+После просмотра ТЗ и уточнения деталей можно расширить проект до полного контура в рамках бюджета: автоматическая загрузка, личный кабинет, роли, история проверок, интеграции и более подробная аналитика.
+
+Чтобы точно зафиксировать объем внутри Kwork, уточните, пожалуйста: откуда берутся записи звонков, сколько звонков в день нужно проверять, есть ли готовый скрипт продаж и в каком виде нужен отчет руководителю.
 ```
 
 ### 2. Разработка ИИ-приложения для Word Add-in

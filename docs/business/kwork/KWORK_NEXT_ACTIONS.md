@@ -19,6 +19,14 @@ Kwork status:
 - Deadline: `3 дня`.
 - Public attributes observed: `Написание и доработка`, `Python`, `Telegram`.
 
+Proposal status:
+
+- First proposal sent by `Мария` on 2026-07-01 06:00 MSK.
+- Target: `https://kwork.ru/projects/3208095` / `Сервис анализа звонков и проверки выполнения скриптов`.
+- Buyer alias: `MaximPeregudov`.
+- Offer: 60 000 ₽, 10 days, staged tasks 15 000 ₽ / 30 000 ₽ / 15 000 ₽.
+- Visible Kwork result: `Ваше индивидуальное предложение отправлено`; connects visible as 29/30.
+
 Autonomy policy:
 
 - Safe-chat-only autonomy policy recorded in `KWORK_SAFE_CHAT_ONLY_AUTONOMY_POLICY.md`.
@@ -82,7 +90,7 @@ It does not allow tax, payout, bank, card, passport, phone, email, password, 2FA
 ## Next 5 Actions
 
 1. Verify the first kwork from manage kworks/profile and watch for moderation/public status changes.
-2. Send the first proposal wave from `KWORK_SEND_QUEUE_2026-07-01.md` after verifying proposal texts, limits and target list.
+2. Continue the proposal wave from item #2 in `KWORK_SEND_QUEUE_2026-07-01.md` after verifying live page state, proposal texts, limits and target list.
 3. Publish or complete remaining narrow kworks: document/estimate AI bot, knowledge-base FAQ bot, mini-app/PWA, audit and repair.
 4. Analyze live Kwork competitor pricing before final package prices for the remaining directions.
 5. Route any paid order through `KWORK_FACTORY_ORDER_ROUTING.md`.
@@ -108,4 +116,4 @@ It does not allow tax, payout, bank, card, passport, phone, email, password, 2FA
 - Need explicit owner-level decision before tax, payout, bank, card, passport, phone/email/password/security settings or accepting/closing unclear/platform-risky orders.
 - Kwork execution is delegated to the background Codex subagent thread `019f1b76-23c0-7e71-a130-8d90434b7c4b` with working name `Мария`.
 - Profile trust recovery requires careful handling because of one negative public review.
-- No proposals have been sent yet in this session.
+- Waiting for replies to the first sent proposal; no factory dispatch until scope/order is accepted inside Kwork.

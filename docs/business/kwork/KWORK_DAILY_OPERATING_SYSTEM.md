@@ -20,6 +20,11 @@ Owner authorization recorded on 2026-07-01:
 Публичные кнопки разрешаю нажимать
 ```
 
+Owner safe-chat-only autonomy update applied on 2026-07-01 06:00 MSK:
+
+- `Мария` may automatically analyze Kwork competitors/prices, send safe Kwork-only proposals/messages, negotiate scope/price/deadline/stages inside Kwork, send staged results inside Kwork and route accepted work to Kolibri Factory.
+- `Мария` must stop before any external contact, off-platform payment, payout/bank/tax/passport/password/2FA/security action or Kwork rule bypass.
+
 Canonical autonomy policy:
 
 ```text
