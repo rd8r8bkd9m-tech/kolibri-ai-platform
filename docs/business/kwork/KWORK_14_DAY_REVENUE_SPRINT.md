@@ -2,7 +2,7 @@
 
 ## Goal
 
-Start earning on Kwork by reducing buyer risk, adding narrow offers, improving trust signals and sending careful owner-approved responses. Do not chase "big AI system" orders first; build a small reliable funnel.
+Start earning on Kwork by reducing buyer risk, adding narrow offers, improving trust signals and sending careful owner-delegated responses inside Kwork. Do not chase "big AI system" orders first; build a small reliable funnel.
 
 ## Current Bottleneck
 
@@ -49,7 +49,7 @@ Why third: easiest first sale and review path; low delivery risk; produces portf
 
 1. Check Kwork messages and orders.
 2. Review new buyer projects.
-3. Draft 5-10 personalized responses; send only owner-approved text.
+3. Draft 5-10 personalized responses; send safe in-platform text under the 2026-07-01 owner delegation.
 4. Improve one offer element: title, cover, FAQ, requirements or package.
 5. Improve one portfolio case.
 6. Complete one Kwork learning block until 8/8.
@@ -59,7 +59,7 @@ Why third: easiest first sale and review path; low delivery risk; produces portf
 
 Day 1:
 - Approve profile copy.
-- Draft/publish Telegram AI bot kwork after owner confirmation.
+- Draft/publish Telegram AI bot kwork under the 2026-07-01 owner delegation when visible fields are unambiguous.
 - Prepare 3 lead response templates.
 
 Day 2:
@@ -69,7 +69,7 @@ Day 2:
 
 Day 3:
 - Add audit/report kwork.
-- Send 5 owner-approved responses to relevant projects.
+- Send 5 safe delegated responses to relevant projects inside Kwork.
 - Complete Kwork learning block 1.
 
 Days 4-7:

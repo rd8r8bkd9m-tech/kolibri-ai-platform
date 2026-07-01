@@ -243,4 +243,4 @@ Candidate local assets:
 
 ## Kwork Upload Rule
 
-Do not upload or save anything publicly until owner confirms the exact public action. Drafting, preparing text, organizing screenshots and filling a not-submitted draft is allowed. Public save/publish/send requires action-time confirmation.
+Under the 2026-07-01 owner delegation, the Kwork Revenue Manager may upload and save prepared public portfolio items when the visible form matches the documented title, description and safe demo asset. Do not upload private client data, external contacts, tax/bank/passport/security data or misleading client claims.

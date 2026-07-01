@@ -1,8 +1,8 @@
 # Kwork Send Queue: 2026-07-01
 
-Status: ready for owner-approved batch send.
+Status: ready for safe in-platform batch send under the 2026-07-01 owner delegation.
 
-Batch policy: no per-message approval. One batch confirmation covers the whole selected send wave.
+Batch policy: no per-message approval. The 2026-07-01 owner delegation covers safe in-platform proposal waves when the target, text and risk state match this queue.
 
 ## Wave A: Send First
 

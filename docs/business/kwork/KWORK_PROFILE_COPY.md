@@ -84,4 +84,4 @@ AI, Telegram bot, автоматизация, Python, сайт, React, FastAPI, 
 
 ## Save Policy
 
-This copy is a draft. Do not paste/save/publish it on Kwork without owner confirmation.
+This copy is approved as source material for safe public Kwork profile editing under the 2026-07-01 owner delegation. Do not paste private tax, passport, bank, address, phone/email, password, 2FA or security data into public fields.

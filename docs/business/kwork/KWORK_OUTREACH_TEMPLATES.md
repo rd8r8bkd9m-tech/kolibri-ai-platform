@@ -1,6 +1,6 @@
 # Kwork Outreach Templates
 
-Status: drafts only. Do not send without owner approval.
+Status: source templates for Kwork-only communication under the 2026-07-01 owner delegation. Send only inside Kwork, and log every sent/skipped/blocked message.
 
 ## Telegram Bot Project Response
 

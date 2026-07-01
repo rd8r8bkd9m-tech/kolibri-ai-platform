@@ -1,6 +1,6 @@
 # First Kwork Ready To Paste
 
-Status: draft only. Do not publish without owner confirmation.
+Status: source copy for the first public kwork under the 2026-07-01 owner delegation. Publish only when the visible Kwork fields, package price, delivery time, scope and exclusions match this document or a logged update.
 
 ## Title
 

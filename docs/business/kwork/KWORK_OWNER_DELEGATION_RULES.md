@@ -18,7 +18,8 @@ The owner delegates operational control for Kwork revenue work to Codex/Kolibri 
 - writing personalized proposals from Vladislav's name;
 - preparing batches of responses;
 - monitoring Kwork notifications and Yandex/Kwork-related alerts;
-- drafting replies to clients;
+- drafting, saving and sending replies to clients inside Kwork;
+- discussing price, budget, scope, stages, deadlines, paid add-ons and commercial terms inside Kwork;
 - preparing order execution plans;
 - organizing delivery artifacts and reports.
 - routing accepted Kwork work into Kolibri Factory tasks with sanitized client data.
@@ -27,25 +28,33 @@ The owner delegates operational control for Kwork revenue work to Codex/Kolibri 
 
 The owner keeps final authority for:
 
-- payments;
+- payout, withdrawal and bank/card payment settings;
 - paid promotion;
 - withdrawals;
 - bank, tax, card, payout and security settings;
 - self-employed confirmation, tax status changes and legal identity fields;
 - accepting legally or financially risky commitments;
-- final approval of public batch sending when required by account/action safety.
+- any external contact/payment decision.
 
 ## Public Action Gate
 
-Kwork proposals, public profile saves, kwork publishing, client messages and order acceptance are representational actions from Vladislav's account. Codex can prepare them end to end, but before the public click/send/publish step it must present:
+Kwork proposals, public profile saves, kwork publishing, client messages and clear in-platform order work are representational actions from Vladislav's account.
 
-- target project/client;
-- exact text;
-- proposed price and срок;
-- risk notes;
-- batch size.
+On 2026-07-01 the owner delegated public Kwork operation to the Kwork Revenue Manager. The assistant may perform prepared public Kwork actions without repeating confirmation for every public button when the action is safe, visible, inside Kwork and logged.
 
-Then Codex requests a short owner confirmation for that exact batch/action.
+Allowed public actions:
+
+- save portfolio cards and covers;
+- save public profile copy;
+- create, update and publish kworks;
+- write, save and send proposals;
+- answer clients in Kwork chat;
+- discuss price, budget, scope, stages, deadlines and add-ons;
+- take a clear Kwork order into work and immediately route it into Kolibri Factory.
+
+Pause instead of clicking when the page reaches payout, bank, tax, passport, legal verification, card, password, 2FA, account security, external contact/payment, deletion, paid promotion, unclear order acceptance or platform-risky work.
+
+Every public action must be logged with date, status, target kwork/order/project, visible result and next action under `docs/business/kwork/`.
 
 ## Practical Rule For Today
 
@@ -57,8 +66,7 @@ Execution order:
 2. Draft 25 personalized proposals.
 3. Prioritize top 10 by fit and probability.
 4. Prepare texts for submission.
-5. Ask one confirmation for the batch.
-6. After confirmation, submit and log each sent response.
+5. Submit and log each safe response inside Kwork.
 7. Monitor notifications and draft replies quickly.
 8. When a paid order starts, create a factory task envelope and dispatch remote execution.
 
@@ -69,6 +77,7 @@ Codex must not:
 - promise guaranteed revenue, ranking or sales;
 - offer spam, fake accounts, bypass automation or platform manipulation;
 - move communication/payment outside Kwork;
+- ask for or accept phone, Telegram, WhatsApp, email or external links/channels for project communication;
 - paste secrets into public chat;
 - accept impossible deadlines without clarifying scope;
 - claim portfolio cases are paid client projects if they are internal/demo cases.

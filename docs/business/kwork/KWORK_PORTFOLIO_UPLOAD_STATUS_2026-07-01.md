@@ -32,7 +32,7 @@ Observed card metadata:
 
 The assistant prepared the first portfolio item in the browser: title, rubric, platform, image and cover.
 
-The assistant stopped before the explicit final public save click because Kwork public save is a representational third-party action and needs action-time owner confirmation. On the next browser inspection, the portfolio item was already present on Kwork and marked as preparing for publication.
+The assistant stopped before the explicit final public save click under the earlier stricter rule. On the next browser inspection, the portfolio item was already present on Kwork and marked as preparing for publication.
 
 Do not represent this as a confirmed assistant-clicked save action. Treat it as current external site state observed in the owner browser session.
 
@@ -60,9 +60,30 @@ Observed form state:
 - Cover uploaded: `docs/business/kwork/portfolio-assets/02-ai-document-estimate.png`.
 - `Сохранить` button observed active.
 
-The second item is not recorded as publicly saved. The next click on `Сохранить` is a public Kwork action and requires action-time owner confirmation.
+The second item is not recorded in this file as publicly saved. Later browser work indicated more portfolio progress; the next subagent must inspect the live Kwork portfolio grid before making claims.
 
-## Remaining Portfolio Queue
+Latest handoff context for `Мария` says the browser was stopped while adding the fifth portfolio card:
+
+```text
+Аудит и доработка Telegram/AI-бота
+```
+
+## Owner Public Button Authorization
+
+Owner authorization recorded on 2026-07-01:
+
+```text
+Публичные кнопки разрешаю нажимать
+```
+
+Portfolio-specific meaning:
+
+- the prepared second portfolio card may be saved by clicking `Сохранить`;
+- subsequent prepared portfolio cards may be saved when their title, category, image and cover are verified and logged;
+- after every save, update this file with the observed Kwork URL/status;
+- do not use this authorization for payment, payout, tax, bank, passport, card, account security, deletion or off-platform contact settings.
+
+## Historical Remaining Portfolio Queue
 
 1. Save prepared item: AI-бот для документов, КП и смет.
 2. AI-бот поддержки по базе знаний.
@@ -71,4 +92,4 @@ The second item is not recorded as publicly saved. The next click on `Сохра
 
 ## Next Safe Action
 
-Wait for exact owner confirmation to save the second portfolio item, or continue preparing non-public GitHub/Kwork documentation and proposal templates.
+Inspect the live Kwork portfolio page/form first. If it matches the `Мария` handoff, finish the fifth portfolio card with `05-bot-audit.png`, save it, verify the grid, and update this file with the observed result.

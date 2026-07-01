@@ -8,9 +8,37 @@
 4. Improve one kwork title, description, FAQ or buyer requirement.
 5. Add or polish one portfolio proof.
 6. Analyze competitors ethically: titles, scope, pricing, FAQ, thumbnails.
-7. Draft lead responses manually; send only after owner approval.
+7. Draft lead responses manually; send from documented queue under the 2026-07-01 owner public-button authorization.
 8. Track views, favorites, orders, messages, conversion and blockers.
 9. Write a short daily report.
+
+## Public Button Rule
+
+Owner authorization recorded on 2026-07-01:
+
+```text
+Публичные кнопки разрешаю нажимать
+```
+
+Allowed without extra per-button confirmation when the action is prepared and logged:
+
+- save prepared Kwork portfolio cards;
+- save prepared public profile or kwork text;
+- publish prepared kworks when package, price, delivery time and exclusions are clear;
+- send proposals from an approved documented queue;
+- answer Kwork clients with prepared safe replies;
+- discuss price, budget, scope, stages, deadlines and paid add-ons inside Kwork;
+- route accepted in-platform work into Kolibri Factory.
+
+Always excluded:
+
+- payment, payout, bank, tax, passport, card, security, password, 2FA and account-recovery settings;
+- deleting data;
+- accepting/closing unclear, illegal, abusive or platform-risky orders;
+- off-platform contact/payment;
+- fake claims, fake reviews, spam or platform manipulation.
+
+If a client asks for phone, Telegram, WhatsApp, email or external links, answer politely inside Kwork: work and communication stay in the protected Kwork chat so deal protection and the history of agreements remain preserved.
 
 ## Weekly Routine
 
@@ -40,7 +68,7 @@ Track:
 
 - Reach 5-7 active narrow kworks.
 - Complete Kwork learning materials.
-- Improve profile headline/description after owner approval.
+- Improve profile headline/description under the owner delegation when public fields are safe and unambiguous.
 - Add at least 3 strong portfolio case descriptions.
-- Draft 5 owner-approved response templates.
+- Maintain 5 owner-delegated safe response templates.
 - Avoid low-scope chaos: every offer must have clear included/excluded scope.

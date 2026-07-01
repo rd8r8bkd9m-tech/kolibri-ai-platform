@@ -38,6 +38,8 @@ Create one intake card per lead or order:
 
 - Start work only after a paid Kwork order or explicitly approved pre-sales audit.
 - Keep all client communication inside Kwork.
+- Commercial discussion is allowed inside Kwork: price, budget, scope, stages, deadlines, revision boundaries and add-ons.
+- If a client requests phone, Telegram, WhatsApp, email, external links or off-platform payment, politely decline and keep everything inside Kwork safe chat.
 - Do not copy private chat, tokens, credentials, bank data, personal data or proprietary documents into public GitHub.
 - Use demo data in public docs and screenshots.
 - If client access is needed, request temporary credentials inside the Kwork order and instruct the client to rotate them after delivery.
@@ -131,4 +133,4 @@ next_action:
 3. Draft a reply inside Kwork tone.
 4. If scope changes, update the intake and task envelope.
 5. If work is accepted, dispatch or update the remote factory task.
-6. Send only after action-time owner confirmation for the exact public message.
+6. Send safe in-platform replies under the owner delegation and log the action; pause for owner-only/payment/security/tax/external-contact blockers.

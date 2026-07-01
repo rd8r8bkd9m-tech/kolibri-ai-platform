@@ -12,13 +12,7 @@ Account state observed:
 
 ## Sending Policy
 
-Do not send until the owner confirms the exact batch. These are public proposals from Vladislav's Kwork account.
-
-Confirmation phrase for this batch:
-
-```text
-ПОДТВЕРЖДАЮ ОТПРАВКУ 25 ОТКЛИКОВ KWORK 2026-07-01
-```
+Under the 2026-07-01 owner delegation, safe public proposals may be sent by the Kwork Revenue Manager inside Kwork without per-message confirmation when the page state, target project and exact text match this queue. Log every sent, skipped or blocked action.
 
 ## Top 10 First
 

@@ -2,12 +2,13 @@
 
 ## Status
 
-Read-only profile audit completed. Draft docs, portfolio assets, upload ledger and subagent role created. No Kwork profile changes were saved. No kwork was published. No client messages were sent.
+Read-only profile audit completed. Draft docs, portfolio assets, upload ledger and Kwork Revenue Manager role created. Public Kwork actions are now delegated to the dedicated Kwork subagent role "Мария" under the 2026-07-01 owner rules.
 
 Portfolio status:
 
 - First portfolio card observed on Kwork: `Telegram AI-бот для заявок и FAQ`; Kwork showed preparation for publication.
-- Second portfolio card prepared in the browser form: `AI-бот для документов, КП и смет`; main image and cover uploaded; not publicly saved by the assistant.
+- Earlier upload ledger recorded the second portfolio card prepared in the browser form: `AI-бот для документов, КП и смет`; main image and cover uploaded.
+- Latest handoff context for `Мария`: the browser was stopped while adding the fifth portfolio card `Аудит и доработка Telegram/AI-бота`; exact live public state must be inspected before making completion claims.
 
 ## Profile Sections Inspected
 
@@ -38,25 +39,39 @@ No.
 
 ## Requires Owner Confirmation
 
-- Updating public profile description/headline.
 - Confirming self-employed/NPD status in Kwork.
 - Saving tax, payout, bank, card, passport or security data.
-- Creating/saving/publishing any kwork in Kwork UI.
-- Uploading portfolio images.
-- Sending any client proposal/message.
-- Changing prices, delivery time or accepting orders.
 - Payment, payout, tax, phone/email/password/security changes.
+- Paid promotion, refunds outside the agreed policy, deletion, external contact/payment or any ambiguous/platform-risky action.
+
+## Owner Public Button Authorization
+
+Owner authorization recorded on 2026-07-01:
+
+```text
+Публичные кнопки разрешаю нажимать
+```
+
+This allows prepared public Kwork buttons without extra per-button confirmation:
+
+- save prepared portfolio cards;
+- save prepared public profile/kwork text;
+- publish prepared kworks;
+- upload and save owner-approved portfolio/demo images;
+- send proposals from the documented send queue;
+- answer clients with prepared safe replies.
+- discuss price, budget, scope, stages, deadlines and add-ons inside Kwork.
+
+It does not allow tax, payout, bank, card, passport, phone, email, password, 2FA, account security, deleting data, off-platform contact/payment, fake claims, spam or unclear/platform-risky order acceptance.
 
 ## Next 5 Actions
 
-1. Save the prepared second portfolio card only after the exact action-time owner confirmation: `Сохраняй вторую карточку Kwork`.
-2. Prepare the third, fourth and fifth portfolio cards without public save unless confirmed.
-3. Open Kwork seller dashboard step 5 "Подробнее" and inspect the official NPD/self-employed fields.
-4. Owner provides or confirms true IP/NPD tax data from official sources, without printing secrets in chat.
-5. Owner reviews `KWORK_PROFILE_COPY.md` and `KWORK_SELF_EMPLOYED_IP_PROFILE_SETUP.md`.
-6. After exact confirmation, update public profile text and NPD/self-employed status if the Kwork form is ready.
-7. After exact batch confirmation, send the first proposal wave from `KWORK_SEND_QUEUE_2026-07-01.md`.
-8. Route any paid order through `KWORK_FACTORY_ORDER_ROUTING.md`.
+1. Open the live Kwork browser state and reconcile it with `KWORK_MARIA_HANDOFF_2026-07-01.md`.
+2. If the fifth portfolio card form is still open, upload `05-bot-audit.png`, save it and verify the portfolio grid.
+3. Publish or complete 3-5 narrow kworks: Telegram AI bot, document/estimate AI bot, knowledge-base FAQ bot, mini-app/PWA, audit and repair.
+4. Analyze live Kwork competitor pricing before final package prices.
+5. Send the first proposal wave from `KWORK_SEND_QUEUE_2026-07-01.md` after verifying proposal texts, limits and target list.
+6. Route any paid order through `KWORK_FACTORY_ORDER_ROUTING.md`.
 
 ## Files Created
 
@@ -76,6 +91,6 @@ No.
 
 ## Blockers
 
-- Need owner approval before public Kwork edits.
-- Browser automation interaction is safe for inspection, but form submission/publishing requires explicit action-time confirmation.
+- Need explicit owner-level decision before tax, payout, bank, card, passport, phone/email/password/security settings or accepting/closing unclear/platform-risky orders.
+- Kwork execution is delegated to the background Codex subagent thread `019f1b76-23c0-7e71-a130-8d90434b7c4b` with working name `Мария`.
 - Profile trust recovery requires careful handling because of one negative public review.

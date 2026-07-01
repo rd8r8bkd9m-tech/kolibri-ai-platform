@@ -84,4 +84,4 @@ The public profile shows one negative review and no positive reviews. Do not hid
 4. Add portfolio case descriptions: task, solution, stack, result, limits.
 5. Complete Kwork education materials.
 6. Improve response speed from 70% to a higher level through daily message checks.
-7. Prepare owner-approved message templates, but do not automate sending.
+7. Prepare owner-delegated message templates and send only safe in-platform Kwork messages.

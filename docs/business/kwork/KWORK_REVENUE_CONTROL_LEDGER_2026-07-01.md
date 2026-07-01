@@ -16,6 +16,12 @@ GitHub source of truth:
 - PR: https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/87
 - Status docs are under `docs/business/kwork/`.
 
+Subagent delegation:
+
+- Kwork/UI work delegated to `Мария`.
+- Codex thread id: `019f1b76-23c0-7e71-a130-8d90434b7c4b`.
+- Handoff file: `docs/business/kwork/KWORK_MARIA_HANDOFF_2026-07-01.md`.
+
 Kwork public/profile state observed:
 
 - First portfolio item exists on Kwork: `Telegram AI-бот для заявок и FAQ`.
@@ -36,30 +42,40 @@ Kwork form state prepared but not publicly saved:
 
 The assistant may prepare forms, upload owner-approved demo images, draft text and inspect public pages.
 
-The assistant must stop before these actions unless the owner gives action-time confirmation:
-
-- click `Сохранить` for a Kwork portfolio item;
-- save public profile text;
-- publish or edit a kwork;
-- send proposals or messages;
-- accept, reject, price, deliver or close an order;
-- enter/save tax, payout, bank, passport, card, phone, email or security settings.
-
-Exact confirmation phrase for the currently prepared item:
+Owner public-button authorization was given on 2026-07-01:
 
 ```text
-Сохраняй вторую карточку Kwork
+Публичные кнопки разрешаю нажимать
 ```
+
+This authorization covers prepared and logged public Kwork actions:
+
+- click `Сохранить` for a prepared portfolio item;
+- save prepared public profile text;
+- publish or edit a prepared kwork;
+- send proposals from a documented send queue;
+- send prepared safe replies to Kwork clients.
+
+This authorization does not cover:
+
+- tax, payout, bank, passport, card, phone, email, password, 2FA or security settings;
+- payout/withdrawal/bank/tax/legal/security actions;
+- external contact/payment;
+- accepting, delivering or closing unclear, illegal, abusive, impossible or platform-risky work;
+- deleting data;
+- spam, fake claims, fake portfolio, fake reviews or platform manipulation.
+
+Every public click must be logged with time, page/action, visible result and next action.
 
 ## Today Execution Queue
 
-1. Save second portfolio card only after the exact owner confirmation above.
-2. Prepare card 3 in the browser without saving: `AI-бот поддержки по базе знаний`.
-3. Prepare card 4 in the browser without saving: `Мини-приложение: форма и заявки`.
-4. Prepare card 5 in the browser without saving: `Аудит и доработка Telegram/AI-бота`.
-5. Inspect public profile after Kwork finishes processing the first item.
+1. Delegate Kwork UI completion to the dedicated subagent role `Мария`.
+2. Finish the fifth portfolio card if the visible browser state matches `KWORK_MARIA_HANDOFF_2026-07-01.md`.
+3. Inspect public profile after Kwork finishes portfolio processing.
+4. Publish or complete 3-5 narrow kworks when price/scope/deadline fields are unambiguous.
+5. Analyze live Kwork competitor pricing and update `KWORK_PRICE_PACKAGES_2026-07-01.md`.
 6. Update `KWORK_PORTFOLIO_UPLOAD_STATUS_2026-07-01.md` after every observed public state change.
-7. Send proposal wave A only after owner batch confirmation.
+7. Send proposal wave A inside Kwork after verifying page state, project fit and current proposal limits.
 
 ## Offer Focus
 
@@ -100,7 +116,7 @@ Never put tokens, client private chats, personal data, bank data, cookies, scree
 
 ## Factory Dispatch On Paid Order
 
-When a Kwork order is paid and scope is clear:
+When a Kwork order is paid or clearly accepted inside Kwork and scope is clear:
 
 1. Create sanitized order folder:
 
@@ -155,7 +171,7 @@ Morning:
 Midday:
 
 - Draft proposals for wave A/B.
-- Submit owner-approved proposal batch inside Kwork.
+- Submit safe proposal batch inside Kwork under the owner delegation.
 - Convert replies into sanitized intake rows.
 
 Evening:
@@ -165,12 +181,8 @@ Evening:
 - Push GitHub status if any public state changed.
 - Dispatch paid/approved work to remote factory execution.
 
-## Next Owner-Facing Decision
+## Next Kwork Execution Step
 
-The next public action is saving the second portfolio card. The browser form is ready. The assistant must wait for:
+Run the `Мария` Kwork handoff: finish portfolio, publish focused kworks, analyze prices, send safe in-platform proposals, and route accepted work into Kolibri Factory.
 
-```text
-Сохраняй вторую карточку Kwork
-```
-
-Without that phrase, continue only non-public preparation, GitHub docs, read-only inspection, and internal factory task setup.
+After every public action, record the observed Kwork result in `KWORK_PORTFOLIO_UPLOAD_STATUS_2026-07-01.md`, `KWORK_SEND_QUEUE_2026-07-01.md` or this ledger before moving to the next action.
