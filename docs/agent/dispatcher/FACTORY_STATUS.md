@@ -4,6 +4,17 @@ Snapshot time:
 - 2026-07-01T09:15:43Z
 
 Latest update:
+- 2026-07-01T14:02:46Z:
+  `P0_UIAP_MINIMAL_RAG_INDEXER_CONTRACT_2026_07_01` ran on
+  `primary-candidate:agent-host-primary` and failed exact verification because
+  the runner wrote useful docs under `docs/run-artifacts/...` and
+  `docs/intelligence/P0_...`, not required `docs/agent/...` paths. The useful
+  output has been relayed into exact local docs:
+  `docs/agent/intelligence/2026-07-01-uiap-rag-indexer-contract/` and
+  `docs/agent/runs/2026-07-01-p0-uiap-minimal-rag-indexer-contract/`.
+  The contract keeps `uiap` internal-only: GitHub commit SHA source of truth,
+  immutable ChromaDB collections, Control Plane trigger, future `/health` and
+  `/search` shapes, and security/resource gates before production exposure.
 - 2026-07-01T13:51:47Z:
   `P0_UIAP_RAG_SKILLS_REGISTRY_READINESS_2026_07_01` completed on
   `uiap:agent-host-uiap`. Result path:
