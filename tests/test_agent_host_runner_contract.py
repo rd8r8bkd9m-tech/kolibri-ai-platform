@@ -1,6 +1,7 @@
 import argparse
 import importlib.util
 import json
+import subprocess
 from pathlib import Path
 
 
@@ -60,6 +61,21 @@ def make_host(agent_host, tmp_path, capabilities="read_only_probe"):
             return body
 
     return Host()
+
+
+def write_local_python_package(package_root, package_name):
+    package_dir = package_root / package_name
+    package_dir.mkdir(parents=True)
+    (package_root / "pyproject.toml").write_text(
+        "[build-system]\n"
+        "requires = [\"setuptools\"]\n"
+        "build-backend = \"setuptools.build_meta\"\n\n"
+        "[project]\n"
+        f"name = \"{package_name.replace('_', '-')}\"\n"
+        "version = \"0.0.1\"\n",
+        encoding="utf-8",
+    )
+    (package_dir / "__init__.py").write_text("VALUE = 'backend-env-ok'\n", encoding="utf-8")
 
 
 def finalize(agent_host, tmp_path, envelope=None, changed_files=None, push_attempted=None):
@@ -638,3 +654,125 @@ def test_review_clone_auth_failure_posts_result_json_with_credential_repair(tmp_
     assert persisted["result_path"] == str(result_path)
     assert persisted["required_artifacts_missing"] == []
     assert persisted["next_recommended_task"] == "repair Agent Host git credentials, then rerun the review task"
+
+
+def test_backend_verifier_uses_declared_backend_python_environment_for_dependencies(tmp_path):
+    agent_host = load_agent_host()
+    package_name = "kolibri_backend_contract_dep_20260701"
+    dependency_src = tmp_path / "dependency-src"
+    write_local_python_package(dependency_src, package_name)
+    worktree, artifact_dir = make_paths(tmp_path)
+    (worktree / "backend").mkdir()
+    (worktree / "backend" / "requirements.txt").write_text(f"{dependency_src}\n", encoding="utf-8")
+    stdout_path = artifact_dir / "stdout.log"
+    stderr_path = artifact_dir / "stderr.log"
+    task = make_task({
+        "backend_python_verification_env": {
+            "type": "backend_python",
+            "requirements": ["backend/requirements.txt"],
+            "cleanup": True,
+        },
+    })
+
+    raw = subprocess.run(
+        ["python3", "-c", f"import {package_name}"],
+        cwd=str(worktree),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert raw.returncode != 0
+
+    host = make_host(agent_host, tmp_path, capabilities="review")
+    metadata = host.run_backend_verification_commands(
+        [["python3", "-c", f"import {package_name}; assert {package_name}.VALUE == 'backend-env-ok'"]],
+        worktree,
+        artifact_dir,
+        stdout_path,
+        stderr_path,
+        task,
+        "branch",
+        {"stdout": str(stdout_path), "stderr": str(stderr_path)},
+    )
+
+    assert metadata["enabled"] is True
+    assert metadata["status"] == "passed"
+    assert metadata["requirements"] == ["backend/requirements.txt"]
+    assert metadata["cleaned"] is True
+    assert not Path(metadata["path"]).exists()
+    assert "backend-test-env/bin/python -c" in stdout_path.read_text(encoding="utf-8")
+
+
+def test_backend_verification_environment_is_not_in_worktree_and_cleanup_is_enforced(tmp_path):
+    agent_host = load_agent_host()
+    package_name = "kolibri_backend_contract_cleanup_dep_20260701"
+    dependency_src = tmp_path / "dependency-src"
+    write_local_python_package(dependency_src, package_name)
+    worktree, artifact_dir = make_paths(tmp_path)
+    (worktree / "backend").mkdir()
+    (worktree / "backend" / "requirements.txt").write_text(f"{dependency_src}\n", encoding="utf-8")
+    subprocess.run(["git", "init"], cwd=str(worktree), check=True, capture_output=True)
+    subprocess.run(["git", "add", "backend/requirements.txt"], cwd=str(worktree), check=True, capture_output=True)
+    stdout_path = artifact_dir / "stdout.log"
+    stderr_path = artifact_dir / "stderr.log"
+    task = make_task({
+        "backend_test_environment": {
+            "type": "backend_python",
+            "path": "declared-backend-test-env",
+            "requirements": ["backend/requirements.txt"],
+            "cleanup": True,
+        },
+    })
+
+    host = make_host(agent_host, tmp_path, capabilities="review")
+    metadata = host.run_backend_verification_commands(
+        [["python3", "-c", f"import {package_name}"]],
+        worktree,
+        artifact_dir,
+        stdout_path,
+        stderr_path,
+        task,
+        "branch",
+        {"stdout": str(stdout_path), "stderr": str(stderr_path)},
+    )
+
+    env_path = Path(metadata["path"])
+    assert metadata["cleaned"] is True
+    assert not env_path.exists()
+    assert agent_host.path_is_under(env_path, artifact_dir)
+    assert not agent_host.path_is_under(env_path, worktree)
+    changed = agent_host.collect_git_changed_files(worktree)
+    assert all("backend-test-env" not in item and "declared-backend-test-env" not in item for item in changed)
+
+
+def test_backend_verification_environment_setup_failure_is_structured_blocker(tmp_path):
+    agent_host = load_agent_host()
+
+    class Host(agent_host.AgentHost):
+        def __init__(self):
+            super().__init__(make_args(tmp_path, capabilities="review_pr"))
+            self.posts = []
+
+        def post(self, path, body):
+            self.posts.append((path, body))
+            return body
+
+        def run_review_pr(self, task):
+            raise agent_host.BackendTestEnvironmentError(
+                "backend_test_environment_failed: command failed with rc=1: python3 -m venv"
+            )
+
+    task = make_task({"kind": "review_pr"})
+    task["kind"] = "review_pr"
+
+    host = Host()
+    host.run_task(task)
+    assert not [path for path, _ in host.posts if path.endswith("/complete")]
+    fail_posts = [(path, body) for path, body in host.posts if path.endswith("/fail")]
+    assert len(fail_posts) == 1
+    _, fail_body = fail_posts[0]
+    assert fail_body["error_type"] == "backend_test_environment_failed"
+    assert fail_body["retry"] is False
+    assert fail_body["result"]["status"] == "blocked"
+    assert fail_body["result"]["blocked_reason"] == "backend_test_environment_failed"
+    assert "backend test environment" in fail_body["result"]["next_recommended_task"]

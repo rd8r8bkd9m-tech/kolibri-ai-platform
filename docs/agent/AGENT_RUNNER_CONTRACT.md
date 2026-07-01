@@ -102,6 +102,58 @@ directory. Absolute paths are checked directly.
 If any required artifact is missing, the result must include it in
 `required_artifacts_missing` and must not be completed.
 
+## Backend Python Verification Environment
+
+Backend verification commands may opt into a declared dependency-satisfied
+Python environment. The contract is explicit: no backend environment is created
+unless the task envelope contains one of these object keys:
+
+- `backend_python_verification_env`
+- `backend_test_environment`
+- `backend_verification_environment`
+
+The object must use `type: "backend_python"` or `type: "python_backend"`.
+Supported setup inputs are intentionally narrow and auditable:
+
+- `python`: interpreter used to create the venv, default `python3`
+- `requirements` or `requirements_files`: explicit requirements files such as
+  `backend/requirements.txt`
+- `packages`: explicit packages or local package paths such as `pytest`
+- `path`, `venv_path`, or `env_dir`: optional env path; relative paths resolve
+  under the task artifact directory
+- `cleanup`: default `true`
+
+When enabled, verifier commands that start with `python`, `python3`, or `pytest`
+run through the temporary backend environment. Other commands run unchanged.
+
+The default env path is the task artifact directory, `backend-test-env`. Env
+paths under the worktree are rejected so temporary dependencies cannot become
+committed files. Cleanup is enabled by default, and repo ignore rules include the
+standard backend test env names as a defense-in-depth guard.
+
+If setup fails, the runner must report a structured blocker:
+
+```json
+{
+  "error_type": "backend_test_environment_failed",
+  "status": "blocked",
+  "blocked_reason": "backend_test_environment_failed"
+}
+```
+
+Example:
+
+```json
+{
+  "backend_python_verification_env": {
+    "type": "backend_python",
+    "requirements": ["backend/requirements.txt"],
+    "packages": ["pytest"],
+    "cleanup": true
+  }
+}
+```
+
 ## Canonical Run Artifacts
 
 Owner-facing remote task runs that publish a docs run directory must declare one

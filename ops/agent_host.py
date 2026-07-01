@@ -43,6 +43,7 @@ CONTRACT_RESULT_FIELDS = [
     "blocked_reason",
     "failure_reason",
     "tests_run",
+    "backend_test_environment",
     "next_recommended_task",
 ]
 SUPPORTED_TASK_KINDS = {
@@ -70,6 +71,16 @@ CANONICAL_RUN_ARTIFACT_ALIAS_KEYS = (
     "run_artifact_aliases",
     "run_artifacts_aliases",
 )
+BACKEND_TEST_ENV_KEYS = (
+    "backend_python_verification_env",
+    "backend_test_environment",
+    "backend_verification_environment",
+)
+BACKEND_TEST_ENV_TYPES = {"backend_python", "python_backend"}
+
+
+class BackendTestEnvironmentError(RuntimeError):
+    """Raised when an explicit backend verification environment cannot be prepared."""
 
 
 def utc_now() -> str:
@@ -155,6 +166,14 @@ def envelope_list(envelope: dict[str, Any], *keys: str) -> list[Any]:
     for key_name in keys:
         values.extend(ensure_list(envelope_value(envelope, key_name)))
     return values
+
+
+def envelope_dict(envelope: dict[str, Any], *keys: str) -> dict[str, Any] | None:
+    for key_name in keys:
+        value = envelope_value(envelope, key_name)
+        if isinstance(value, dict):
+            return value
+    return None
 
 
 def artifact_spec_path(spec: Any) -> str | None:
@@ -393,6 +412,71 @@ def verify_required_artifacts(envelope: dict[str, Any], worktree: Path | None, a
     return present, missing
 
 
+def backend_test_environment_spec(envelope: dict[str, Any]) -> dict[str, Any] | None:
+    spec = envelope_dict(envelope, *BACKEND_TEST_ENV_KEYS)
+    if spec is None:
+        return None
+    if not truthy(spec.get("enabled", True)):
+        return None
+    env_type = str(spec.get("type") or "backend_python").strip()
+    if env_type not in BACKEND_TEST_ENV_TYPES:
+        raise BackendTestEnvironmentError(f"backend_test_environment_failed: unsupported backend test env type: {env_type}")
+    return spec
+
+
+def backend_test_environment_path(spec: dict[str, Any], artifact_dir: Path) -> Path:
+    configured = spec.get("path") or spec.get("venv_path") or spec.get("env_dir")
+    if isinstance(configured, str) and configured.strip():
+        path = Path(configured.strip())
+        return path if path.is_absolute() else artifact_dir / path
+    return artifact_dir / "backend-test-env"
+
+
+def backend_test_environment_requirement_files(spec: dict[str, Any]) -> list[str]:
+    values = []
+    values.extend(ensure_list(spec.get("requirements")))
+    values.extend(ensure_list(spec.get("requirements_files")))
+    return [item.strip() for item in values if isinstance(item, str) and item.strip()]
+
+
+def backend_test_environment_packages(spec: dict[str, Any]) -> list[str]:
+    return [item.strip() for item in ensure_list(spec.get("packages")) if isinstance(item, str) and item.strip()]
+
+
+def backend_verifier_command(command: list[str], env_python: Path) -> list[str]:
+    if not command:
+        return command
+    executable = Path(command[0]).name
+    if executable in {"python", "python3"}:
+        return [str(env_python), *command[1:]]
+    if executable == "pytest":
+        return [str(env_python), "-m", "pytest", *command[1:]]
+    return command
+
+
+def backend_test_environment_metadata(
+    spec: dict[str, Any],
+    env_dir: Path,
+    status: str,
+    error: str | None = None,
+    cleaned: bool = False,
+) -> dict[str, Any]:
+    metadata = {
+        "enabled": True,
+        "type": str(spec.get("type") or "backend_python"),
+        "path": str(env_dir),
+        "python": str(spec.get("python") or "python3"),
+        "requirements": backend_test_environment_requirement_files(spec),
+        "packages": backend_test_environment_packages(spec),
+        "cleanup": truthy(spec.get("cleanup", True)),
+        "status": status,
+        "cleaned": cleaned,
+    }
+    if error:
+        metadata["error"] = error
+    return metadata
+
+
 def push_forbidden_by_envelope(envelope: dict[str, Any]) -> bool:
     return envelope_truthy(envelope, *NO_PUSH_FLAGS)
 
@@ -475,6 +559,8 @@ def next_recommended_task_for(blockers: list[str], envelope: dict[str, Any]) -> 
         return "resubmit through a no-push workflow or explicitly allow git push"
     if "review_clone_auth_failed" in joined:
         return "repair Agent Host git credentials, then rerun the review task"
+    if "backend_test_environment_failed" in joined:
+        return "repair the declared backend test environment requirements or package list, then rerun verification"
     return "inspect the runner contract blockers and resubmit with corrected constraints"
 
 
@@ -889,6 +975,88 @@ class AgentHost:
         if not response_text:
             raise RuntimeError(f"{empty_response_label} completed without text response")
         return response_text
+
+    def prepare_backend_test_environment(
+        self,
+        task: dict[str, Any],
+        worktree: Path,
+        artifact_dir: Path,
+        stdout_path: Path,
+        stderr_path: Path,
+        branch: str | None,
+        logs: dict[str, str],
+    ) -> tuple[Path, dict[str, Any]] | None:
+        spec = backend_test_environment_spec(task_envelope(task))
+        if spec is None:
+            return None
+
+        env_dir = backend_test_environment_path(spec, artifact_dir)
+        if worktree.exists() and path_is_under(env_dir, worktree):
+            message = "backend_test_environment_failed: backend test env path must be outside the worktree"
+            raise BackendTestEnvironmentError(message)
+
+        python_bin = str(spec.get("python") or "python3")
+        requirements = backend_test_environment_requirement_files(spec)
+        packages = backend_test_environment_packages(spec)
+        metadata = backend_test_environment_metadata(spec, env_dir, "preparing")
+
+        try:
+            if env_dir.exists():
+                shutil.rmtree(env_dir)
+            self.run_command([python_bin, "-m", "venv", str(env_dir)], worktree, stdout_path, stderr_path, task, branch, logs)
+            env_python = env_dir / "bin" / "python"
+            self.run_command([str(env_python), "-m", "pip", "install", "--upgrade", "pip"], worktree, stdout_path, stderr_path, task, branch, logs)
+            if requirements:
+                self.run_command([str(env_python), "-m", "pip", "install", *[item for req in requirements for item in ("-r", req)]], worktree, stdout_path, stderr_path, task, branch, logs)
+            if packages:
+                self.run_command([str(env_python), "-m", "pip", "install", *packages], worktree, stdout_path, stderr_path, task, branch, logs)
+        except Exception as exc:
+            metadata = backend_test_environment_metadata(spec, env_dir, "failed", error=str(exc))
+            if env_dir.exists() and truthy(spec.get("cleanup", True)):
+                shutil.rmtree(env_dir, ignore_errors=True)
+                metadata["cleaned"] = True
+            raise BackendTestEnvironmentError(f"backend_test_environment_failed: {exc}") from exc
+
+        metadata["status"] = "ready"
+        return env_dir / "bin" / "python", metadata
+
+    def cleanup_backend_test_environment(self, metadata: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not metadata or not truthy(metadata.get("cleanup", True)):
+            return metadata
+        env_path = metadata.get("path")
+        if isinstance(env_path, str) and env_path:
+            shutil.rmtree(env_path, ignore_errors=True)
+            metadata["cleaned"] = True
+        return metadata
+
+    def run_backend_verification_commands(
+        self,
+        commands: list[list[str]],
+        worktree: Path,
+        artifact_dir: Path,
+        stdout_path: Path,
+        stderr_path: Path,
+        task: dict[str, Any],
+        branch: str | None,
+        logs: dict[str, str],
+        env: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        prepared = self.prepare_backend_test_environment(task, worktree, artifact_dir, stdout_path, stderr_path, branch, logs)
+        metadata: dict[str, Any] | None = prepared[1] if prepared else None
+        env_python = prepared[0] if prepared else None
+        executed: list[str] = []
+        try:
+            for command in commands:
+                effective_command = backend_verifier_command(command, env_python) if env_python else command
+                executed.append(" ".join(effective_command))
+                self.run_command(effective_command, worktree, stdout_path, stderr_path, task, branch, logs, env)
+            if metadata:
+                metadata["status"] = "passed"
+                metadata["commands"] = executed
+            return metadata or {"enabled": False, "status": "not_configured", "commands": executed}
+        finally:
+            if metadata:
+                self.cleanup_backend_test_environment(metadata)
 
     def write_result(self, artifact_dir: Path, result: dict[str, Any]) -> Path:
         result_path = artifact_dir / "result.json"
@@ -1530,10 +1698,25 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
             "import compileall,pathlib,sys; paths=[p for p in ('backend','infra','scripts','ops') if pathlib.Path(p).exists()]; sys.exit(0 if compileall.compile_dir('.', quiet=1, maxlevels=0) and all(compileall.compile_dir(p, quiet=1) for p in paths) else 1)",
         ], worktree, stdout_path, stderr_path, task, branch, logs)
         if (worktree / "tests").exists():
-            venv_dir = artifact_dir / "venv"
-            self.run_command(["python3", "-m", "venv", str(venv_dir)], worktree, stdout_path, stderr_path, task, branch, logs)
-            self.run_command([str(venv_dir / "bin" / "python"), "-m", "pip", "install", "--upgrade", "pip", "pytest"], worktree, stdout_path, stderr_path, task, branch, logs)
-            self.run_command([str(venv_dir / "bin" / "python"), "-m", "pytest", "-q"], worktree, stdout_path, stderr_path, task, branch, logs)
+            if backend_test_environment_spec(envelope):
+                backend_test_environment = self.run_backend_verification_commands(
+                    [["python3", "-m", "pytest", "-q"]],
+                    worktree,
+                    artifact_dir,
+                    stdout_path,
+                    stderr_path,
+                    task,
+                    branch,
+                    logs,
+                )
+            else:
+                venv_dir = artifact_dir / "venv"
+                self.run_command(["python3", "-m", "venv", str(venv_dir)], worktree, stdout_path, stderr_path, task, branch, logs)
+                self.run_command([str(venv_dir / "bin" / "python"), "-m", "pip", "install", "--upgrade", "pip", "pytest"], worktree, stdout_path, stderr_path, task, branch, logs)
+                self.run_command([str(venv_dir / "bin" / "python"), "-m", "pytest", "-q"], worktree, stdout_path, stderr_path, task, branch, logs)
+                backend_test_environment = None
+        else:
+            backend_test_environment = None
         github_review = "skipped: gh unavailable"
         if shutil.which("gh"):
             event = "APPROVE" if status == "APPROVED" else "REQUEST_CHANGES"
@@ -1557,6 +1740,8 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
             "log_paths": logs,
             "result_path": str(artifact_dir / "result.json"),
         }
+        if backend_test_environment:
+            result["backend_test_environment"] = backend_test_environment
         result = self.finalize_result(task, result, artifact_dir, worktree, changed_files=diff_files)
         result_path = self.write_result(artifact_dir, result)
         result["result_path"] = str(result_path)
@@ -1634,7 +1819,17 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
             result = finalize_runner_contract(task, result, artifact_dir, failure_reason=str(exc))
             result_path = self.write_result(artifact_dir, result)
             retry = int(task.get("attempt", 0)) < int(task.get("max_retries", 3))
-            error_type = "review_clone_auth_failed" if str(exc).startswith("review_clone_auth_failed:") else "runtime_error"
+            if isinstance(exc, BackendTestEnvironmentError) or str(exc).startswith("backend_test_environment_failed:"):
+                error_type = "backend_test_environment_failed"
+                retry = False
+                result["status"] = "blocked"
+                result["blocked_reason"] = "backend_test_environment_failed"
+                result["next_recommended_task"] = "repair the declared backend test environment requirements or package list, then rerun verification"
+                result_path = self.write_result(artifact_dir, result)
+            elif str(exc).startswith("review_clone_auth_failed:"):
+                error_type = "review_clone_auth_failed"
+            else:
+                error_type = "runtime_error"
             if error_type == "review_clone_auth_failed":
                 result["next_recommended_task"] = "repair Agent Host git credentials, then rerun the review task"
                 result_path = self.write_result(artifact_dir, result)
