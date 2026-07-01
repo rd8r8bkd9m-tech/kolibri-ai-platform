@@ -6,7 +6,10 @@ Wants=network-online.target
 [Service]
 Type=simple
 EnvironmentFile=/etc/kolibri-factory-control.env
-ExecStart=/usr/local/bin/kolibri-factory-control
+Environment=KOLIBRI_REPO_ROOT=/opt/kolibri-ai-platform
+Environment=KOLIBRI_OPS_DIR=/opt/kolibri-ai-platform/ops
+WorkingDirectory=/opt/kolibri-ai-platform
+ExecStart=/usr/bin/python3 /opt/kolibri-ai-platform/ops/factory_control.py
 Restart=always
 RestartSec=5
 KillSignal=SIGTERM
