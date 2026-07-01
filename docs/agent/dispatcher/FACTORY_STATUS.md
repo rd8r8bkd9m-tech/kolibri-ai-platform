@@ -1,7 +1,7 @@
 # Factory Status
 
 Snapshot time:
-- 2026-07-01T03:26:27Z
+- 2026-07-01T03:28:51Z
 
 Mac executor:
 - Hostname: `MacBook-Air-Vladislav.local`
@@ -153,8 +153,8 @@ Submitted tasks:
 - `P0_PR83_VERIFIER_COMMAND_CLEANUP_PROOF_2026_07_01`: submitted at
   `2026-07-01T03:19:16Z` through the fallback route
   `Mac -> kolibri-primary-codex -> Control Plane`; leased by
-  `primary-candidate:agent-host-primary`. Current Control Plane state is
-  `waiting_review`, with result artifact
+  `primary-candidate:agent-host-primary`. Control Plane state is now
+  `completed`, with result artifact
   `/var/lib/kolibri-agent/artifacts/P0_PR83_VERIFIER_COMMAND_CLEANUP_PROOF_2026_07_01/P0_PR83_VERIFIER_COMMAND_CLEANUP_PROOF_2026_07_01-attempt-1/result.json`.
 - Useful remote result: result JSON reports `status=completed`; PR #83 branch
   was pushed normally from `8951a9feb4a44b8dd87a762d0da199257de1dae0` to
@@ -167,6 +167,12 @@ Submitted tasks:
   ops/agent_host.py`; `git diff --check`; Superfactory overlap guard returned
   no paths. GitHub Actions `Kolibri CI` run `28491266003` completed with
   conclusion `success`.
+- The dispatcher used the supported `/v1/tasks/<task_id>/annotate` endpoint to
+  add PR #83 URL to the result. This created review task
+  `P0_PR83_VERIFIER_COMMAND_CLEANUP_PROOF_2026_07_01-REVIEW`; the review task
+  is currently `queued` and carries `error=lease expired before task
+  completion`, so it needs normal review-agent pickup or a small review lease
+  repair if it does not recover.
 
 Node snapshot through Control Plane:
 - Observed node cards: 42.
@@ -183,8 +189,9 @@ Node snapshot through Control Plane:
 - `main`: online; current free disk observed `7614488576` bytes; known
   Codex/MIMO runner auth is broken from prior task attempts.
 - `primary-candidate`: online; latest exact PR #83 verifier cleanup proof is
-  `waiting_review` on `primary-candidate:agent-host-primary`, with result JSON
-  reporting `completed`. PR #83 is currently CI-green at head
+  `completed` on `primary-candidate:agent-host-primary`; the associated review
+  task is queued. PR #83 is currently CI-green and GitHub reports it mergeable
+  at head
   `9bebf6cdba32a6886b6343f3701add3e85d18e41`.
 - Many mesh cards are degraded/stale or metadata-only; they need inventory
   before broad execution.
@@ -202,9 +209,9 @@ Known constraints:
 
 Current blockers:
 - Agent Host generic runner/verifier contract was narrowed substantially by PR
-  #83 and the latest proof is CI-green, but the Control Plane still requires a
-  human/review transition from `waiting_review` after result JSON reports
-  `completed`.
+  #83 and the latest proof is CI-green. The source task is now completed, but
+  the generated review task is queued with a stale lease-expired marker and
+  needs review-agent pickup or a focused review lease repair.
 - Agent Host generic runner/verifier contract was historically too weak:
   useful work could be pushed while task state still became `failed` due exact
   artifact filename mismatches. PR #83 now contains the hardening/proof path;
