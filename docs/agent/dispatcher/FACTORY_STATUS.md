@@ -1,7 +1,7 @@
 # Factory Status
 
 Snapshot time:
-- 2026-07-01T02:14:07Z
+- 2026-07-01T02:21:56Z
 
 Mac executor:
 - Hostname: `MacBook-Air-Vladislav.local`
@@ -72,10 +72,19 @@ Submitted tasks:
   Artifact stdout shows effective repair succeeded and current Control Plane
   cards confirm free disk on both nodes.
 - `P0_AGENT_HOST_GENERIC_RUNNER_CONTRACT_HARDENING_2026_07_01`: submitted at
-  `2026-07-01T02:12:34Z`; leased by `primary-candidate:agent-host-primary`;
-  latest state `running` at `2026-07-01T02:13:40Z`. This finalizer preserves
-  PR #83 and fixes the prior verifier path by requiring `python3` and exact
-  run artifacts.
+  `2026-07-01T02:12:34Z`; leased by `primary-candidate:agent-host-primary`.
+  Final Control Plane state is `failed` because the wrapper required
+  `docs/agent/runs/2026-07-01-p0-agent-host-runner-contract-hardening-finalize/PLAN.md`,
+  while the remote agent preserved and updated the existing
+  `2026-06-30` run artifact set.
+- Despite the wrapper failure, remote agent `Алексей` finalized PR #83 on the
+  existing source branch `p0/agent-host-runner-contract-hardening-2026-06-30`.
+  GitHub `refs/pull/83/head` and the branch both point to
+  `5b5bfc17f2efc49974173ebe6287bf1501c44bc2`.
+- PR #83 remote artifact reports: runner contract tests `13 passed`, Agent
+  Host tests `19 passed`, factory runtime tests `4 passed`, full suite
+  `73 passed, 1 warning`, plus `py_compile`, JSON validation,
+  `git diff --check` and remote branch verification passed.
 
 Node snapshot through Control Plane:
 - Observed node cards: 42.
@@ -111,6 +120,10 @@ Current blockers:
 - Agent Host generic runner/verifier contract is too weak: useful work can be
   pushed while task state still becomes `failed` due exact artifact filename
   mismatches.
+- P0 runner hardening is now a concrete example of the same issue: PR #83 is
+  finalized on GitHub, but the Control Plane wrapper state is failed because
+  the artifact contract allowed ambiguity between preserving the existing run
+  folder and requiring a new timestamped folder.
 - Server shell GitHub write path on `primary-candidate` is not reliable:
   GitHub SSH port 22 timed out and SSH over port 443 authenticated with a
   read-only key. Mac had to relay the server commit to GitHub over HTTPS.
