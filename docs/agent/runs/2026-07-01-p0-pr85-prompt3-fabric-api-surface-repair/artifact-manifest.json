@@ -1,0 +1,17 @@
+{
+  "task_id": "P0_PR85_PROMPT3_FABRIC_API_SURFACE_REPAIR_2026_07_01",
+  "node": "kolibri",
+  "agent_display_name": "Сергей — Fabric API Engineer",
+  "branch": "p0/api-first-full-control-fabric-2026-07-01",
+  "artifacts": [
+    "docs/agent/runs/2026-07-01-p0-pr85-prompt3-fabric-api-surface-repair/PLAN.md",
+    "docs/agent/runs/2026-07-01-p0-pr85-prompt3-fabric-api-surface-repair/ACTIONS.md",
+    "docs/agent/runs/2026-07-01-p0-pr85-prompt3-fabric-api-surface-repair/TESTS.md",
+    "docs/agent/runs/2026-07-01-p0-pr85-prompt3-fabric-api-surface-repair/RESULT.md",
+    "docs/agent/runs/2026-07-01-p0-pr85-prompt3-fabric-api-surface-repair/NEXT.md",
+    "docs/agent/runs/2026-07-01-p0-pr85-prompt3-fabric-api-surface-repair/README.md",
+    "docs/agent/runs/2026-07-01-p0-pr85-prompt3-fabric-api-surface-repair/result.json",
+    "docs/agent/runs/2026-07-01-p0-pr85-prompt3-fabric-api-surface-repair/artifact-manifest.json"
+  ],
+  "repair_commit": "see_git_commit_containing_this_artifact"
+}
