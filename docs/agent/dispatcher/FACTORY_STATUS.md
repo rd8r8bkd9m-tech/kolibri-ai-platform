@@ -1,7 +1,7 @@
 # Factory Status
 
 Snapshot time:
-- 2026-07-01T02:29:31Z
+- 2026-07-01T02:35:40Z
 
 Mac executor:
 - Hostname: `MacBook-Air-Vladislav.local`
@@ -90,12 +90,27 @@ Submitted tasks:
 - `P0_PR83_MERGE_READINESS_AND_RUNNER_PUBLISH_GATE_AUDIT_2026_07_01`:
   submitted at `2026-07-01T02:27:40Z` through the fallback route
   `Mac -> kolibri-primary-codex -> Control Plane`; leased by
-  `primary-candidate:agent-host-primary` with fresh heartbeat at
-  `2026-07-01T02:29:31Z`; current state `running`. Artifact root:
+  `primary-candidate:agent-host-primary`; final Control Plane state `failed`
+  at `2026-07-01T02:35:40Z`. Artifact root:
   `/var/lib/kolibri-agent/artifacts/P0_PR83_MERGE_READINESS_AND_RUNNER_PUBLISH_GATE_AUDIT_2026_07_01/P0_PR83_MERGE_READINESS_AND_RUNNER_PUBLISH_GATE_AUDIT_2026_07_01-attempt-1/`.
-  The task asks remote agent `Сергей` to classify PR #83 as
-  `merge_ready`, `needs_changes`, `split_required`, or `blocked`, and to
-  answer whether a publish-after-verification gate is still missing.
+- The wrapper failed because it expected
+  `docs/agent/runs/2026-07-01-p0-pr83-merge-readiness-and-runner-publish-gate-audit/PLAN.md`.
+  Remote agent `Сергей` created audit artifacts under
+  `docs/agent/runs/2026-07-01-p0-pr83-merge-readiness-runner-publish-gate-audit/`
+  and did not create all five canonical docs. This is another artifact path
+  contract mismatch, not evidence that the code change failed.
+- Useful remote result: `Сергей` pushed PR #83 branch to
+  `8b156572217cc646fc0e0fb779dbb1ecc37f1561`, classified the updated head as
+  `merge_ready`, and explicitly answered that PR #83 already blocked false
+  `completed` but did not previously gate GitHub publishing before verifier
+  artifacts. The new head adds that publish-after-verification gate.
+- Remote tests reported: `python3 -m py_compile ops/agent_host.py` passed;
+  runner contract tests `15 passed`; Agent Host glob tests `21 passed`; full
+  suite `75 passed, 1 warning`.
+- GitHub connector confirms PR #83 is open, draft, mergeable, and now points to
+  `8b156572217cc646fc0e0fb779dbb1ecc37f1561`. Combined commit statuses for
+  that SHA are currently empty, so GitHub CI/checks for the new head are not
+  yet proven in this ledger snapshot.
 
 Node snapshot through Control Plane:
 - Observed node cards: 42.
@@ -113,8 +128,9 @@ Node snapshot through Control Plane:
   Codex/MIMO runner auth is broken from prior task attempts.
 - `primary-candidate`: online; latest exact P0 runner-hardening task state is
   `failed` in Control Plane due verifier path mismatch, while PR #83 is
-  finalized and CI-green on GitHub. The new PR #83 merge-readiness/publish-gate
-  audit is queued for this node pool.
+  finalized and was CI-green at previous head. The new PR #83 merge-readiness
+  audit also failed only at wrapper artifact verification after pushing
+  `8b156572217cc646fc0e0fb779dbb1ecc37f1561`.
 - Many mesh cards are degraded/stale or metadata-only; they need inventory
   before broad execution.
 - Aggregate `/v1/tasks` response showed 200 queued tasks while the direct P0
@@ -137,6 +153,10 @@ Current blockers:
   finalized on GitHub, but the Control Plane wrapper state is failed because
   the artifact contract allowed ambiguity between preserving the existing run
   folder and requiring a new timestamped folder.
+- The PR #83 publish-gate follow-up fixed the more serious branch-publication
+  gap, but it also repeated the artifact-name mismatch. The next runner task
+  should make run artifact aliases/canonical names machine-enforced before
+  further broad factory prompts.
 - Server shell GitHub write path on `primary-candidate` is not reliable:
   GitHub SSH port 22 timed out and SSH over port 443 authenticated with a
   read-only key. Mac had to relay the server commit to GitHub over HTTPS.
