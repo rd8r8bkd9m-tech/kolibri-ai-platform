@@ -102,6 +102,68 @@ directory. Absolute paths are checked directly.
 If any required artifact is missing, the result must include it in
 `required_artifacts_missing` and must not be completed.
 
+## Canonical Run Artifacts
+
+Owner-facing remote task runs that publish a docs run directory must declare one
+canonical run artifact directory with one of these envelope keys:
+
+- `canonical_run_artifact_dir`
+- `run_artifact_dir`
+- `run_artifacts_dir`
+
+When present, the directory must contain exactly these required files:
+
+- `PLAN.md`
+- `ACTIONS.md`
+- `TESTS.md`
+- `RESULT.md`
+- `NEXT.md`
+
+The runner finalizer treats those five exact files as required artifacts by
+appending their paths to `required_artifacts_present` and
+`required_artifacts_missing`. Missing `NEXT.md` is therefore a contract blocker,
+not a successful completion with an ambiguous owner-facing state.
+
+Near-miss directories are not discovered by prefix, timestamp, or fuzzy match.
+If a run produced the files under another directory, that directory must be
+listed explicitly in one of these alias keys:
+
+- `canonical_run_artifact_aliases`
+- `run_artifact_aliases`
+- `run_artifacts_aliases`
+
+Aliases are deterministic and safe:
+
+- aliases are inspected in the envelope order
+- only an alias containing all five exact files may be used
+- a complete alias is copied into the canonical directory without overwriting
+  existing canonical files
+- alias inspection is recorded in `canonical_run_artifact_alias_log` and
+  persisted as `run-artifact-aliases.json` in the task artifact directory
+- partial aliases never hide missing canonical files
+
+Example:
+
+```json
+{
+  "canonical_run_artifact_dir": "docs/agent/runs/2026-07-01-p0-run",
+  "canonical_run_artifact_aliases": [
+    "docs/agent/runs/2026-07-01-p0-run-final"
+  ]
+}
+```
+
+Expected result after a complete alias is materialized:
+
+```json
+{
+  "status": "completed",
+  "canonical_run_artifact_alias_used": "docs/agent/runs/2026-07-01-p0-run-final",
+  "canonical_run_artifacts_missing": [],
+  "required_artifacts_missing": []
+}
+```
+
 ## Unsupported Tasks
 
 Unsupported task kinds or required capabilities must return a structured

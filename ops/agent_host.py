@@ -57,6 +57,17 @@ SUPPORTED_TASK_KINDS = {
 NO_PUSH_FLAGS = ("git_push_forbidden", "no_push", "read_only")
 PRODUCT_CODE_FORBIDDEN_FLAGS = ("product_code_modification_forbidden", "read_only")
 REQUIRED_ARTIFACT_KEYS = ("required_outputs", "required_artifacts")
+CANONICAL_RUN_ARTIFACT_FILES = ("PLAN.md", "ACTIONS.md", "TESTS.md", "RESULT.md", "NEXT.md")
+CANONICAL_RUN_ARTIFACT_DIR_KEYS = (
+    "canonical_run_artifact_dir",
+    "run_artifact_dir",
+    "run_artifacts_dir",
+)
+CANONICAL_RUN_ARTIFACT_ALIAS_KEYS = (
+    "canonical_run_artifact_aliases",
+    "run_artifact_aliases",
+    "run_artifacts_aliases",
+)
 
 
 def utc_now() -> str:
@@ -270,6 +281,102 @@ def required_artifact_candidates(spec_path: str, worktree: Path | None, artifact
     return candidates
 
 
+def canonical_run_artifact_dir(envelope: dict[str, Any]) -> str | None:
+    for key_name in CANONICAL_RUN_ARTIFACT_DIR_KEYS:
+        value = envelope_value(envelope, key_name)
+        if isinstance(value, str) and value.strip():
+            return value.strip().rstrip("/")
+    return None
+
+
+def canonical_run_artifact_aliases(envelope: dict[str, Any]) -> list[str]:
+    aliases: list[str] = []
+    for value in envelope_list(envelope, *CANONICAL_RUN_ARTIFACT_ALIAS_KEYS):
+        if isinstance(value, str) and value.strip():
+            aliases.append(value.strip().rstrip("/"))
+    return list(dict.fromkeys(aliases))
+
+
+def resolve_artifact_dir_spec(spec_path: str, worktree: Path | None, artifact_dir: Path | None) -> Path:
+    path = Path(spec_path)
+    if path.is_absolute():
+        return path
+    if worktree:
+        return worktree / spec_path
+    if artifact_dir:
+        return artifact_dir / spec_path
+    return path
+
+
+def canonical_run_artifact_paths(run_dir: str) -> list[str]:
+    return [f"{run_dir.rstrip('/')}/{filename}" for filename in CANONICAL_RUN_ARTIFACT_FILES]
+
+
+def complete_run_artifact_dir(base_dir: Path) -> bool:
+    return all((base_dir / filename).is_file() for filename in CANONICAL_RUN_ARTIFACT_FILES)
+
+
+def copy_complete_run_artifact_alias(alias_dir: Path, canonical_dir_path: Path) -> None:
+    canonical_dir_path.mkdir(parents=True, exist_ok=True)
+    for filename in CANONICAL_RUN_ARTIFACT_FILES:
+        target = canonical_dir_path / filename
+        if not target.exists():
+            shutil.copy2(alias_dir / filename, target)
+
+
+def finalize_canonical_run_artifacts(
+    envelope: dict[str, Any],
+    worktree: Path | None,
+    artifact_dir: Path | None,
+) -> dict[str, Any]:
+    run_dir = canonical_run_artifact_dir(envelope)
+    if not run_dir:
+        return {}
+
+    canonical_dir_path = resolve_artifact_dir_spec(run_dir, worktree, artifact_dir)
+    aliases = canonical_run_artifact_aliases(envelope)
+    alias_log: list[dict[str, Any]] = []
+    alias_used: str | None = None
+
+    if not complete_run_artifact_dir(canonical_dir_path):
+        for alias in aliases:
+            alias_dir_path = resolve_artifact_dir_spec(alias, worktree, artifact_dir)
+            complete = complete_run_artifact_dir(alias_dir_path)
+            alias_log.append({
+                "alias": alias,
+                "canonical": run_dir,
+                "complete": complete,
+                "action": "copied_to_canonical" if complete and alias_used is None else "inspected",
+            })
+            if complete and alias_used is None:
+                copy_complete_run_artifact_alias(alias_dir_path, canonical_dir_path)
+                alias_used = alias
+                break
+
+    present: list[str] = []
+    missing: list[str] = []
+    for artifact_path in canonical_run_artifact_paths(run_dir):
+        resolved = resolve_artifact_dir_spec(artifact_path, worktree, artifact_dir)
+        if resolved.is_file():
+            present.append(artifact_path)
+        else:
+            missing.append(artifact_path)
+
+    if alias_log and artifact_dir:
+        log_path = artifact_dir / "run-artifact-aliases.json"
+        log_path.write_text(json.dumps(alias_log, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    return {
+        "canonical_run_artifact_dir": run_dir,
+        "canonical_run_artifacts": canonical_run_artifact_paths(run_dir),
+        "canonical_run_artifact_aliases": aliases,
+        "canonical_run_artifact_alias_used": alias_used,
+        "canonical_run_artifact_alias_log": alias_log,
+        "canonical_run_artifacts_present": present,
+        "canonical_run_artifacts_missing": missing,
+    }
+
+
 def verify_required_artifacts(envelope: dict[str, Any], worktree: Path | None, artifact_dir: Path | None) -> tuple[list[str], list[str]]:
     present: list[str] = []
     missing: list[str] = []
@@ -343,6 +450,11 @@ def finalize_runner_contract(
     final["write_scope"] = write_scope
 
     required_present, required_missing = verify_required_artifacts(envelope, worktree, artifact_dir)
+    canonical_artifacts = finalize_canonical_run_artifacts(envelope, worktree, artifact_dir)
+    if canonical_artifacts:
+        required_present.extend(canonical_artifacts["canonical_run_artifacts_present"])
+        required_missing.extend(canonical_artifacts["canonical_run_artifacts_missing"])
+        final.update(canonical_artifacts)
     final["required_artifacts_present"] = required_present
     final["required_artifacts_missing"] = required_missing
 

@@ -181,6 +181,130 @@ def test_missing_required_artifact_blocks_completion(tmp_path):
     assert "required_artifacts_missing" in result["blocked_reason"]
 
 
+def write_run_artifacts(run_dir, filenames=None):
+    filenames = filenames or agent_host_files()
+    run_dir.mkdir(parents=True, exist_ok=True)
+    for filename in filenames:
+        (run_dir / filename).write_text(f"{filename}\n", encoding="utf-8")
+
+
+def agent_host_files():
+    agent_host = load_agent_host()
+    return agent_host.CANONICAL_RUN_ARTIFACT_FILES
+
+
+def test_canonical_run_artifact_contract_requires_exact_five_outputs(tmp_path):
+    agent_host = load_agent_host()
+    worktree, artifact_dir = make_paths(tmp_path)
+    run_dir = "docs/agent/runs/2026-07-01-contract"
+    write_run_artifacts(worktree / run_dir)
+    task = make_task({"canonical_run_artifact_dir": run_dir})
+
+    result = agent_host.finalize_runner_contract(
+        task,
+        {"task_id": task["task_id"], "status": "completed", "changed_files": []},
+        artifact_dir,
+        worktree=worktree,
+        changed_files=[],
+    )
+
+    assert result["status"] == "completed"
+    assert result["canonical_run_artifact_dir"] == run_dir
+    assert result["canonical_run_artifact_alias_used"] is None
+    assert result["canonical_run_artifacts_missing"] == []
+    assert result["required_artifacts_missing"] == []
+    assert result["canonical_run_artifacts_present"] == [
+        f"{run_dir}/PLAN.md",
+        f"{run_dir}/ACTIONS.md",
+        f"{run_dir}/TESTS.md",
+        f"{run_dir}/RESULT.md",
+        f"{run_dir}/NEXT.md",
+    ]
+
+
+def test_canonical_run_artifact_contract_blocks_near_miss_directory_without_explicit_alias(tmp_path):
+    agent_host = load_agent_host()
+    worktree, artifact_dir = make_paths(tmp_path)
+    run_dir = "docs/agent/runs/2026-07-01-contract"
+    near_miss = "docs/agent/runs/2026-07-01-contract-audit"
+    write_run_artifacts(worktree / near_miss)
+    task = make_task({"canonical_run_artifact_dir": run_dir})
+
+    result = agent_host.finalize_runner_contract(
+        task,
+        {"task_id": task["task_id"], "status": "completed", "changed_files": []},
+        artifact_dir,
+        worktree=worktree,
+        changed_files=[],
+    )
+
+    assert result["status"] == "blocked"
+    assert result["canonical_run_artifact_aliases"] == []
+    assert result["canonical_run_artifact_alias_used"] is None
+    assert result["canonical_run_artifacts_present"] == []
+    assert result["canonical_run_artifacts_missing"] == [
+        f"{run_dir}/PLAN.md",
+        f"{run_dir}/ACTIONS.md",
+        f"{run_dir}/TESTS.md",
+        f"{run_dir}/RESULT.md",
+        f"{run_dir}/NEXT.md",
+    ]
+    assert "required_artifacts_missing" in result["blocked_reason"]
+
+
+def test_canonical_run_artifact_contract_blocks_missing_next_md(tmp_path):
+    agent_host = load_agent_host()
+    worktree, artifact_dir = make_paths(tmp_path)
+    run_dir = "docs/agent/runs/2026-07-01-contract"
+    write_run_artifacts(worktree / run_dir, filenames=("PLAN.md", "ACTIONS.md", "TESTS.md", "RESULT.md"))
+    task = make_task({"canonical_run_artifact_dir": run_dir})
+
+    result = agent_host.finalize_runner_contract(
+        task,
+        {"task_id": task["task_id"], "status": "completed", "changed_files": []},
+        artifact_dir,
+        worktree=worktree,
+        changed_files=[],
+    )
+
+    assert result["status"] == "blocked"
+    assert result["canonical_run_artifacts_missing"] == [f"{run_dir}/NEXT.md"]
+    assert result["required_artifacts_missing"] == [f"{run_dir}/NEXT.md"]
+    assert "required_artifacts_missing" in result["blocked_reason"]
+
+
+def test_complete_explicit_run_artifact_alias_is_logged_and_materialized(tmp_path):
+    agent_host = load_agent_host()
+    worktree, artifact_dir = make_paths(tmp_path)
+    run_dir = "docs/agent/runs/2026-07-01-contract"
+    alias_dir = "docs/agent/runs/2026-07-01-contract-final"
+    write_run_artifacts(worktree / alias_dir)
+    task = make_task({
+        "canonical_run_artifact_dir": run_dir,
+        "canonical_run_artifact_aliases": [alias_dir],
+    })
+
+    result = agent_host.finalize_runner_contract(
+        task,
+        {"task_id": task["task_id"], "status": "completed", "changed_files": []},
+        artifact_dir,
+        worktree=worktree,
+        changed_files=[],
+    )
+
+    assert result["status"] == "completed"
+    assert result["canonical_run_artifact_alias_used"] == alias_dir
+    assert result["canonical_run_artifacts_missing"] == []
+    assert (worktree / run_dir / "NEXT.md").is_file()
+    assert result["canonical_run_artifact_alias_log"] == [{
+        "alias": alias_dir,
+        "canonical": run_dir,
+        "complete": True,
+        "action": "copied_to_canonical",
+    }]
+    assert (artifact_dir / "run-artifact-aliases.json").is_file()
+
+
 def test_unsupported_task_kind_returns_structured_blocked_result(tmp_path):
     agent_host = load_agent_host()
     worktree, artifact_dir = make_paths(tmp_path)
@@ -282,6 +406,41 @@ def test_publish_gate_skips_git_push_when_required_artifact_is_missing(tmp_path)
     assert gated["status"] == "blocked"
     assert gated["push_attempted"] is False
     assert gated["push_blocked"] is True
+    assert "required_artifacts_missing" in gated["push_block_reason"]
+    assert "git push skipped by runner contract preflight" in stdout_path.read_text(encoding="utf-8")
+
+
+def test_publish_gate_skips_git_push_when_canonical_next_md_is_missing(tmp_path):
+    agent_host = load_agent_host()
+    host = make_host(agent_host, tmp_path, capabilities="impl_factory_smoke")
+    worktree, artifact_dir = make_paths(tmp_path / "gate-canonical")
+    stdout_path = artifact_dir / "stdout.log"
+    stderr_path = artifact_dir / "stderr.log"
+    stdout_path.write_text("", encoding="utf-8")
+    stderr_path.write_text("", encoding="utf-8")
+    run_dir = "docs/agent/runs/2026-07-01-contract"
+    write_run_artifacts(worktree / run_dir, filenames=("PLAN.md", "ACTIONS.md", "TESTS.md", "RESULT.md"))
+    task = make_task({"canonical_run_artifact_dir": run_dir})
+    result = {"task_id": task["task_id"], "status": "completed", "changed_files": [f"{run_dir}/RESULT.md"]}
+
+    gated = host.git_push_after_contract_verification(
+        task,
+        ["git", "push", "-u", "origin", "branch"],
+        worktree,
+        stdout_path,
+        stderr_path,
+        "branch",
+        {"stdout": str(stdout_path), "stderr": str(stderr_path)},
+        result,
+        artifact_dir,
+        [f"{run_dir}/RESULT.md"],
+        {"GIT_TERMINAL_PROMPT": "0"},
+    )
+
+    assert gated["status"] == "blocked"
+    assert gated["push_attempted"] is False
+    assert gated["push_blocked"] is True
+    assert gated["canonical_run_artifacts_missing"] == [f"{run_dir}/NEXT.md"]
     assert "required_artifacts_missing" in gated["push_block_reason"]
     assert "git push skipped by runner contract preflight" in stdout_path.read_text(encoding="utf-8")
 
