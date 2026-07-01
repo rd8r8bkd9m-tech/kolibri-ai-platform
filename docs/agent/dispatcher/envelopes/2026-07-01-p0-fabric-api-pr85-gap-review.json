@@ -1,0 +1,118 @@
+{
+  "task_id": "2026-07-01-p0-fabric-api-pr85-gap-review",
+  "idempotency_key": "2026-07-01-p0-fabric-api-pr85-gap-review",
+  "kind": "owner_remote_task",
+  "priority": "P0",
+  "required_capability": "review",
+  "runner": "codex",
+  "agent_type": "review",
+  "agent_display_name": "Алексей — Fabric API Reviewer",
+  "target_node": "primary-candidate",
+  "target_node_pool": "healthy_review_qa_nodes",
+  "preferred_nodes": [
+    "primary-candidate",
+    "home",
+    "main"
+  ],
+  "allowed_nodes": [
+    "primary-candidate",
+    "home",
+    "main"
+  ],
+  "avoid_nodes": [
+    "qjns",
+    "uiap"
+  ],
+  "branch": "p0/fabric-api-pr85-gap-review-2026-07-01",
+  "base_branch": "main",
+  "base_ref": "origin/main",
+  "max_retries": 1,
+  "goal": "Review PR #85 against the Kolibri master canvas and decide whether the API-first Fabric PR is merge-ready, repair-needed, or split-required.",
+  "objective": "Run a remote gap review for PR #85. Compare PR #85 with docs/superfactory/Kolibri_All_Prompts.md and the P0_KOLIBRI_UNIFIED_FABRIC_API_AND_SERVER_CONNECTIVITY requirements. Produce a gap matrix, release/repair decision, test classification, and next exact task. Do not implement product code.",
+  "source": {
+    "requested_by": "Vladislav",
+    "origin": "mac-command-node-dispatcher",
+    "master_canvas": "docs/superfactory/Kolibri_All_Prompts.md",
+    "reviewer_name": "Алексей — Fabric API Reviewer"
+  },
+  "routing": {
+    "preferred_nodes": [
+      "primary-candidate",
+      "home",
+      "main"
+    ],
+    "avoid_nodes_until_repaired": [
+      "qjns",
+      "uiap"
+    ],
+    "allowed_agent_types": [
+      "review",
+      "qa",
+      "codex",
+      "mimo"
+    ]
+  },
+  "constraints": {
+    "mac_implementation_forbidden": true,
+    "server_execution_required": true,
+    "review_only": true,
+    "product_code_modification_forbidden": true,
+    "secrets_redaction_required": true,
+    "destructive_git_commands_forbidden": true,
+    "git_reset_forbidden": true,
+    "git_clean_forbidden": true,
+    "force_push_forbidden": true,
+    "push_to_main_forbidden": true,
+    "use_clean_remote_worktree": true,
+    "do_not_modify_dirty_runtime_repo": true
+  },
+  "review_targets": {
+    "primary_pr": 85,
+    "dependency_prs": [
+      91
+    ],
+    "master_canvas": "docs/superfactory/Kolibri_All_Prompts.md",
+    "main_p0_prompt": "P0_KOLIBRI_UNIFIED_FABRIC_API_AND_SERVER_CONNECTIVITY"
+  },
+  "required_outputs": [
+    "docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/PLAN.md",
+    "docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/ACTIONS.md",
+    "docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/TESTS.md",
+    "docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/RESULT.md",
+    "docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/NEXT.md",
+    "docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/FABRIC_PROMPT3_GAP_MATRIX.md",
+    "docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/PR85_RELEASE_OR_REPAIR_DECISION.md",
+    "docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/PR91_DEPENDENCY_CHECK.md"
+  ],
+  "write_scope": [
+    "docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/**"
+  ],
+  "gap_matrix_columns": [
+    "requirement_id",
+    "requirement_text",
+    "source_prompt_section",
+    "implemented_in_pr85",
+    "files_evidence",
+    "tests_evidence",
+    "risk",
+    "required_action",
+    "can_merge_without_this"
+  ],
+  "release_decision_values": [
+    "merge_ready",
+    "merge_ready_after_minor_docs_fix",
+    "repair_in_pr85",
+    "split_required",
+    "blocked"
+  ],
+  "acceptance": [
+    "Remote review happens on a server/control node, not local Mac implementation.",
+    "PR #85 is compared against the master canvas and Prompt #3 requirements.",
+    "PR #91 dependency is checked if accessible.",
+    "No product code is modified.",
+    "No secrets are printed.",
+    "Gap matrix is complete enough to decide merge/repair/split.",
+    "Release decision is explicit: merge_ready, merge_ready_after_minor_docs_fix, repair_in_pr85, split_required, or blocked.",
+    "Final result includes status, node, reviewer, PR #85 decision, blockers, and next exact task."
+  ]
+}

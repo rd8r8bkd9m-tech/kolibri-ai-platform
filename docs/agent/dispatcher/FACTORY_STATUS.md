@@ -4,6 +4,50 @@ Snapshot time:
 - 2026-07-01T09:15:43Z
 
 Latest update:
+- 2026-07-01T14:22:08Z:
+  Prepared remote-only release-gate envelope
+  `2026-07-01-p0-fabric-api-pr85-gap-review`.
+  This is the first concrete task after importing
+  `docs/superfactory/Kolibri_All_Prompts.md` as the master canvas. The task
+  must run on a server node, preferably `primary-candidate`, with Russian
+  display name `Алексей — Fabric API Reviewer`. It compares
+  canvas prompt #3 (`P0_KOLIBRI_UNIFIED_FABRIC_API_AND_SERVER_CONNECTIVITY`)
+  against PR #85 at head
+  `9690361f02addeff37771c52fd37878aef455e13`, which is open, draft,
+  mergeable and GitHub Actions green. The task is review/docs-artifacts only:
+  no product code, no PR #85 mutation, no merge, no deploy and no restart.
+  Expected artifacts are exact `PLAN/ACTIONS/TESTS/RESULT/NEXT`, plus
+  `FABRIC_PROMPT3_GAP_MATRIX.md` and
+  `PR85_RELEASE_OR_REPAIR_DECISION.md`, all under
+  `docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/`.
+  Direct Mac `ops/kolibri-dispatch submit` timed out, so submission used
+  the documented server fallback route through `kolibri-primary-codex`.
+  Control Plane accepted the task at `2026-07-01T14:27:03Z` with HTTP 201 and
+  initial state `queued`. Exact polling shows the task is now `running` on
+  `primary-candidate:agent-host-primary`, attempt
+  `2026-07-01-p0-fabric-api-pr85-gap-review-attempt-1`, with heartbeat
+  `2026-07-01T14:28:43.587861+00:00`. Result artifacts are not present yet,
+  so completion is not claimed.
+  Later exact polling returned `completed` with result reference
+  `/var/lib/kolibri-agent/artifacts/2026-07-01-p0-fabric-api-pr85-gap-review/2026-07-01-p0-fabric-api-pr85-gap-review-attempt-1/result.json`.
+  The source review produced a useful decision (`repair_in_pr85`) and pushed
+  branch `p0/fabric-api-pr85-gap-review-2026-07-01`, but it created only
+  `PR85_GAP_REVIEW.md`, not the eight exact owner-required files. Prepared
+  follow-up `2026-07-01-p0-fabric-api-pr85-gap-review-artifact-repair` to
+  repair artifacts remotely without product-code changes. Control Plane
+  accepted the artifact repair at `2026-07-01T14:35:00Z` with HTTP 201 and
+  initial state `queued`.
+  The generic artifact repair also missed the exact owner filenames and failed
+  on `PLAN.md`, but it produced useful server-side artifact material. A
+  deterministic remote artifact alias repair then created the exact files on a
+  clean server worktree. Server-side GitHub SSH push failed three times with
+  `github.com:22 timeout`, so the Mac acted as a thin-client relay and pushed
+  the server-created docs to GitHub. Draft PR #93 now records the review:
+  `https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/93`, head
+  `27930696692ae6474b1c9add4062dca04b8fb3f1`, mergeable, with `Kolibri CI`
+  run `28526155870` success. Final PR #85 release decision is
+  `repair_in_pr85`; next exact task is
+  `P0_PR85_PROMPT3_FABRIC_API_SURFACE_REPAIR_2026_07_01`.
 - 2026-07-01T14:02:46Z:
   `P0_UIAP_MINIMAL_RAG_INDEXER_CONTRACT_2026_07_01` ran on
   `primary-candidate:agent-host-primary` and failed exact verification because
