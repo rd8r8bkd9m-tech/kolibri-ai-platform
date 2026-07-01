@@ -7,48 +7,57 @@ reported that `main` still looked stale.
 
 ## Current Facts
 
-- `origin/main`: `a0d34d6d97a1a2af90463a1205649a24b4a178d7`
+- `origin/main`: `1b08c43a86f8e1ee943edea592f77988b45f41d9`.
 - PR #95 refreshed the old README on `main`.
-- Open PRs: 38.
-- Draft PRs: 25.
+- PR #88, #83, #96, #91, #97, and #85 are now merged into `main`.
+- Open PRs: 32.
+- Draft PRs: 19.
 - Ready/non-draft PRs: 13.
-- The main blocker is release governance: many PRs are CI-green and mergeable,
-  but remain draft/owner-gated.
+- The old mobile screenshot showing the pre-release README is stale relative to
+  current `origin/main`; if GitHub mobile still shows it, the likely causes are
+  mobile cache, viewing an old branch/ref, or repository page cache.
+- The remaining release blocker is governance/automation: queue stewardship is
+  not yet continuous, so draft PRs still need an explicit release steward to
+  recheck head SHA, CI, mergeability, scope, and post-merge canary before merge.
 
-## Green Draft P0 Queue
+## Priority PR State After Recheck
 
-| PR | Head | CI | Mergeable | Release classification |
-| --- | --- | --- | --- | --- |
-| #88 | `d4559722` | success | clean | docs-only candidate; safe first owner batch if PR scope remains dispatcher docs only |
-| #92 | `5a33c3fc` | success | clean | docs-only fleet inventory candidate |
-| #96 | `42625cad` | success | clean | early runtime-contract candidate; needs post-merge Agent Host permission canary |
-| #97 | `f542c5c7` | success | clean | early Control Plane candidate; needs freshness canary after deploy/restart |
-| #85 | `30b7e5dc` | success | clean | API-first Fabric candidate; release gate says `merge_ready_after_owner_review` |
-| #91 | `35054449` | success | clean | MIMO runner candidate; should follow Agent Host contract/permission decisions |
-| #89 | `e14aae21` | success | clean | Telegram candidate; hold until single receiver/cutover safety is closed |
-| #83 | `3560af06` | success | clean | runner hardening candidate; check overlap/supersession with #96 before merge |
+| PR | State | Merge commit | Current classification |
+| --- | --- | --- | --- |
+| #95 | merged | `a0d34d6d` | README release train landed; old README text is no longer in `origin/main` |
+| #88 | merged | `c915d9a0` | dispatcher ledger baseline landed |
+| #83 | merged | `3416ed1f` | Agent Host runner contract hardening landed; post-merge runtime canary remains needed |
+| #96 | merged | `4db58db4` | read-only Agent Host permission packs landed; post-merge canary remains needed |
+| #91 | merged | `9000973e` | MIMO runner output/auth classification landed; post-merge MIMO canary remains needed |
+| #97 | merged | `97ec4941` | stale heartbeat classification landed; deploy/restart freshness canary remains needed |
+| #85 | merged | `1b08c43a` | API-first full-control Fabric landed; post-merge Fabric API canary remains needed |
+| #92 | open draft | n/a | docs-only fleet inventory candidate; needs current-base update/recheck before merge |
+| #89 | open draft | n/a | Telegram candidate; hold until single receiver/cutover safety is current |
 
 ## Recommended Owner Batches
 
-Batch 1, low risk docs:
+Completed in `main`:
 
-1. PR #88 - dispatcher ledger.
-2. PR #92 - fleet inventory docs.
+1. PR #95 - README release train.
+2. PR #88 - dispatcher ledger baseline.
+3. PR #83 - Agent Host runner contract.
+4. PR #96 - Agent Host read-only permission packs.
+5. PR #91 - MIMO runner output/auth classification.
+6. PR #97 - Control Plane stale heartbeat classification.
+7. PR #85 - API-first full-control Fabric.
 
-Batch 2, runner/control contracts:
+Next safe queue:
 
-1. PR #96 - Agent Host read-only permission pack.
-2. PR #97 - Control Plane node-health freshness.
-
-Batch 3, API/fabric:
-
-1. PR #85 - API-first Fabric.
+1. Rebase/recheck PR #92 fleet inventory docs.
+2. Run post-merge canaries for #83/#96/#91/#97/#85 on the server factory.
+3. Re-run release-steward on all remaining 32 open PRs and close/split stale
+   branches instead of letting draft PRs accumulate.
 
 Hold:
 
-- PR #91 until Agent Host contract/canary order is confirmed.
 - PR #89 until Telegram receiver/cutover risk is closed.
-- PR #83 until the relationship with #96 is checked.
+- Any old branch that still targets pre-`1b08c43a` `main` until it is rebased
+  and rechecked.
 
 ## Remote Steward Attempts
 
