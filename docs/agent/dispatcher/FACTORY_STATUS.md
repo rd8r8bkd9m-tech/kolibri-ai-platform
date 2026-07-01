@@ -13,9 +13,11 @@ Latest update:
   `primary-candidate` produced useful JSON in stdout, but Agent Host marked it
   `runner_empty_response`, proving a MIMO parser/contract defect. `home` and
   `home-live` tasks remain queued without lease. Repair task
-  `P0_MIMO_RUNNER_OUTPUT_AND_AUTH_CONTRACT_REPAIR_2026_07_01` is running on
-  `primary-candidate:agent-host-primary` to fix parser and 401/403
-  classification.
+  `P0_MIMO_RUNNER_OUTPUT_AND_AUTH_CONTRACT_REPAIR_2026_07_01` completed on
+  `primary-candidate`, moved to `waiting_review`, pushed commit
+  `a32697b62914816abfbd87365c7c1fec588b3262`, and draft PR #91 is open:
+  `https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/91`.
+  GitHub Actions run `28517063983` is in progress.
 - 2026-07-01T11:55:38Z:
   Fresh read-only verification corrected the `qjns/uiap` status. The disk
   repair is effective despite the historical Control Plane task state
@@ -729,9 +731,9 @@ Current blockers:
   GitHub SSH port 22 timed out and SSH over port 443 authenticated with a
   read-only key. Mac had to relay the server commit to GitHub over HTTPS.
 - `main` still has Codex/MIMO runner auth failures from prior attempts.
-- MIMO runner contract is partially broken: primary-candidate and qjns can
-  produce stdout evidence that Agent Host currently misclassifies. A repair
-  task is running to parse useful JSON stdout and classify 401/403 correctly.
+- MIMO runner contract repair is now in PR #91. Until CI and deployment pass,
+  primary-candidate/qjns MIMO results can still be misclassified on the live
+  Agent Host.
 
 Known fleet notes from current owner context:
 - Owner-facing server set is 20 servers; latest emergency SSH probe reached
