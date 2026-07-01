@@ -17,7 +17,7 @@ Read-only profile audit completed. Draft docs and subagent role created. No Kwor
 - Short and full profile description.
 - Buyer-oriented positioning.
 - Tags/keywords.
-- self-employed/business profile wording for "самозанятый Кочуров Владислав Евгеньевич".
+- self-employed IP/business profile wording for "ИП Кочуров Владислав Евгеньевич, НПД".
 
 ## Profile Changes Applied
 
@@ -34,7 +34,7 @@ No.
 ## Requires Owner Confirmation
 
 - Updating public profile description/headline.
-- Confirming self-employed status in Kwork.
+- Confirming self-employed/NPD status in Kwork.
 - Saving tax, payout, bank, card, passport or security data.
 - Creating/saving/publishing any kwork in Kwork UI.
 - Uploading portfolio images.
@@ -44,10 +44,10 @@ No.
 
 ## Next 5 Actions
 
-1. Open Kwork seller dashboard step 5 "Подробнее" and inspect the official self-employed fields.
-2. Owner provides or confirms true self-employed/tax data from official sources, without printing secrets in chat.
-3. Owner reviews `KWORK_PROFILE_COPY.md` and `KWORK_SELF_EMPLOYED_PROFILE_SETUP.md`.
-4. After exact confirmation, update public profile text and self-employed status if the Kwork form is ready.
+1. Open Kwork seller dashboard step 5 "Подробнее" and inspect the official NPD/self-employed fields.
+2. Owner provides or confirms true IP/NPD tax data from official sources, without printing secrets in chat.
+3. Owner reviews `KWORK_PROFILE_COPY.md` and `KWORK_SELF_EMPLOYED_IP_PROFILE_SETUP.md`.
+4. After exact confirmation, update public profile text and NPD/self-employed status if the Kwork form is ready.
 5. After exact batch confirmation, send the first proposal wave from `KWORK_SEND_QUEUE_2026-07-01.md`.
 6. Route any paid order through `KWORK_FACTORY_ORDER_ROUTING.md`.
 
@@ -61,7 +61,7 @@ No.
 - `docs/business/kwork/KWORK_DAILY_OPERATING_SYSTEM.md`
 - `docs/business/kwork/KWORK_RISK_AND_RULES.md`
 - `docs/business/kwork/KWORK_NEXT_ACTIONS.md`
-- `docs/business/kwork/KWORK_SELF_EMPLOYED_PROFILE_SETUP.md`
+- `docs/business/kwork/KWORK_SELF_EMPLOYED_IP_PROFILE_SETUP.md`
 - `docs/business/kwork/KWORK_FACTORY_ORDER_ROUTING.md`
 - `docs/business/kwork/factory-envelopes/KWORK_ORDER_FACTORY_TASK_TEMPLATE.json`
 

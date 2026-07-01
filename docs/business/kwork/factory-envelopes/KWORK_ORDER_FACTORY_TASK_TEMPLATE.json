@@ -30,7 +30,7 @@
   ],
   "source": {
     "kind": "kwork_order",
-    "owner_business_identity": "самозанятый Кочуров Владислав Евгеньевич, НПД",
+    "owner_business_identity": "ИП Кочуров Владислав Евгеньевич, НПД",
     "project_id": "PROJECT_ID",
     "order_id": "ORDER_ID_IF_AVAILABLE",
     "kwork_url": "https://kwork.ru/projects/PROJECT_ID",

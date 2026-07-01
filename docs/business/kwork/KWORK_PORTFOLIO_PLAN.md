@@ -218,6 +218,8 @@ Priority order for Kwork:
 
 These five create a focused story: "I build useful AI bots and the small apps around them."
 
+Ready-to-upload copy and generated safe covers are in `KWORK_PORTFOLIO_READY_TO_UPLOAD.md` and `portfolio-assets/`.
+
 ## Asset Checklist
 
 Use only assets that are safe and redacted:

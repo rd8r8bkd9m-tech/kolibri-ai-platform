@@ -51,7 +51,7 @@ Every order task must include:
 - `kind: owner_remote_task`.
 - `required_capability: generic_implementation`.
 - `source.kind: kwork_order`.
-- Owner business identity: `самозанятый Кочуров Владислав Евгеньевич, НПД`.
+- Owner business identity: `ИП Кочуров Владислав Евгеньевич, НПД`.
 - Sanitized client alias.
 - Isolated branch: `kwork/YYYYMMDD/projectid-slug`.
 - Explicit write scope.

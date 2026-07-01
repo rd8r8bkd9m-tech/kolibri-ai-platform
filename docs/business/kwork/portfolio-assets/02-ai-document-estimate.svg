@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f8fafc"/>
+      <stop offset="45%" stop-color="#eef6ff"/>
+      <stop offset="100%" stop-color="#f9fafb"/>
+    </linearGradient>
+    <linearGradient id="bar" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0f766e"/>
+      <stop offset="100%" stop-color="#f59e0b"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="22" stdDeviation="24" flood-color="#0f172a" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+  <rect width="1600" height="1000" fill="url(#bg)"/>
+  <rect x="70" y="70" width="1460" height="860" rx="44" fill="#ffffff" filter="url(#shadow)"/>
+  <rect x="70" y="70" width="1460" height="18" fill="url(#bar)"/>
+  <text x="110" y="155" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="800" fill="#0f766e" letter-spacing="2">DOCS / ESTIMATES</text>
+  <text x="110" y="280" font-family="Arial, Helvetica, sans-serif" font-size="68" font-weight="800" fill="#0f172a" text-anchor="start">AI-бот для документов</text>
+  <text x="112" y="405" font-family="Arial, Helvetica, sans-serif" font-size="34" font-weight="500" fill="#475569" text-anchor="start">КП, сметы, акты и отчеты</text>
+  <rect x="110" y="625" width="470" height="82" rx="24" fill="#f8fafc" stroke="#e2e8f0" stroke-width="3"/>
+  <text x="145" y="676" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="800" fill="#0f172a">Без клиентских данных</text>
+  <rect x="110" y="760" width="125" height="46" rx="16" fill="#ffffff" opacity="0.92"/><text x="172" y="790" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700" fill="#334155" text-anchor="middle">таблица</text><rect x="255" y="760" width="125" height="46" rx="16" fill="#ffffff" opacity="0.92"/><text x="317" y="790" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700" fill="#334155" text-anchor="middle">итоги</text><rect x="400" y="760" width="125" height="46" rx="16" fill="#ffffff" opacity="0.92"/><text x="462" y="790" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700" fill="#334155" text-anchor="middle">контроль</text><rect x="545" y="760" width="125" height="46" rx="16" fill="#ffffff" opacity="0.92"/><text x="607" y="790" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700" fill="#334155" text-anchor="middle">выгрузка</text>
+  <rect x="760" y="300" width="650" height="390" rx="26" fill="#ffffff" stroke="#cbd5e1" stroke-width="3"/>
+<rect x="760" y="300" width="650" height="80" rx="26" fill="#0f766e"/>
+<text x="800" y="352" font-family="Arial, Helvetica, sans-serif" font-size="30" font-weight="700" fill="#ffffff">Расчет и документ</text>
+<line x1="800" y1="388" x2="1370" y2="388" stroke="#e2e8f0" stroke-width="2"/>
+<text x="800" y="420" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700" fill="#0f172a">Запрос</text>
+<text x="1190" y="420" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700" fill="#f59e0b">OK</text>
+<line x1="800" y1="460" x2="1370" y2="460" stroke="#e2e8f0" stroke-width="2"/>
+<text x="800" y="492" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700" fill="#0f172a">Структура</text>
+<text x="1190" y="492" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700" fill="#f59e0b">OK</text>
+<line x1="800" y1="532" x2="1370" y2="532" stroke="#e2e8f0" stroke-width="2"/>
+<text x="800" y="564" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700" fill="#0f172a">Расчет</text>
+<text x="1190" y="564" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700" fill="#f59e0b">OK</text>
+<line x1="800" y1="604" x2="1370" y2="604" stroke="#e2e8f0" stroke-width="2"/>
+<text x="800" y="636" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700" fill="#0f172a">PDF/КП</text>
+<text x="1190" y="636" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700" fill="#f59e0b">OK</text>
+  <text x="1490" y="885" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700" fill="#64748b" text-anchor="end">Kolibri AI Platform · demo case</text>
+</svg>

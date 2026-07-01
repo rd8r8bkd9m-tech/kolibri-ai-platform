@@ -1,8 +1,8 @@
-# Kwork Self-Employed Profile Setup
+# Kwork Self-Employed IP Profile Setup
 
 Date: 2026-07-01
 
-Owner business identity: самозанятый Кочуров Владислав Евгеньевич, налог на профессиональный доход.
+Owner business identity: ИП Кочуров Владислав Евгеньевич, применяет налог на профессиональный доход; short wording: самозанятый ИП.
 
 ## Current Kwork Entry Point
 
@@ -13,13 +13,13 @@ Observed seller dashboard path:
 3. Open step 5: "Увеличьте свой доход на 47%, оказывая услуги компаниям".
 4. Current observed status: "Статус самозанятого или ИП не подтвержден".
 5. Click "Подробнее".
-6. Review the official Kwork flow and choose the real legal status: "Я самозанятый".
+6. Review the official Kwork flow and choose the real legal status available for NPD/self-employed confirmation. If Kwork offers only "Я самозанятый", use that flow for the NPD status and do not publish private registration data.
 
 Public Kwork guidance says this feature is available from the seller page and may require Russian residency/citizenship, at least one active kwork, and verified status. Source: https://blog.kwork.ru/kak-sdelat/kak-stat-samozanyatym-i-zarabatyvat-bolshe-poshagovyj-gid-vozmozhnosti-na-kwork
 
 ## Why This Setting Matters
 
-According to Kwork public materials, confirmed self-employed status can:
+According to Kwork public materials, confirmed self-employed/NPD status can:
 
 - make the seller visible for company orders paid by bank transfer;
 - reduce withdrawal commission for orders from companies;
@@ -33,37 +33,37 @@ For orders from companies, Kwork guidance may require the seller to form a recei
 Use only true data from official documents, official tax status and Kwork fields. Do not invent or guess.
 
 - Full legal name: Кочуров Владислав Евгеньевич.
-- Legal status: самозанятый / налог на профессиональный доход.
+- Legal status: ИП на НПД / самозанятый ИП.
 - INN: enter only in the official Kwork private field if requested.
-- OGRNIP: not applicable for the self-employed status; do not enter or publish it unless the legal status changes.
-- Tax regime/status: select only the true current self-employed status.
+- OGRNIP: enter only in an official private Kwork field if the platform explicitly requests it for IP verification; do not publish it in public profile text.
+- Tax regime/status: select only the true current NPD/self-employed status.
 - Payout/bank details: fill only in official private payout settings if requested.
 - Phone/email: use already verified account data where possible.
-- Verify self-employed status only through official tax data if needed.
+- Verify NPD/self-employed status only through official tax data if needed.
 - Receipt/check process for company orders: prepare only after the platform requests it and after the real order exists.
 
 Do not put INN, OGRNIP, passport data, home address, bank/card details, private phone, tokens, cookies, API keys or client secrets into public profile text.
 
-## Public Profile Copy For Self-Employed Positioning
+## Public Profile Copy For Self-Employed IP Positioning
 
 Short public block:
 
 ```text
-Самозанятый специалист Кочуров Владислав Евгеньевич. Разрабатываю и внедряю AI-ботов, Telegram-ботов, мини-приложения и автоматизации для бизнеса. Работаю через безопасную сделку Kwork: фиксирую состав работ, сроки, результат и критерии приемки до старта заказа.
+ИП Кочуров Владислав Евгеньевич, применяю НПД. Разрабатываю и внедряю AI-ботов, Telegram-ботов, мини-приложения и автоматизации для бизнеса. Работаю через безопасную сделку Kwork: фиксирую состав работ, сроки, результат и критерии приемки до старта заказа.
 ```
 
 Profile signature:
 
 ```text
 Владислав Кочуров
-самозанятый специалист, НПД
+ИП на НПД
 AI-боты, Telegram-боты и автоматизация для бизнеса
 ```
 
 Business-friendly description:
 
 ```text
-Здравствуйте! Я Владислав Кочуров, самозанятый специалист по разработке AI-ботов и автоматизаций. Помогаю предпринимателям и компаниям автоматизировать заявки, поддержку, документы, таблицы, CRM/API и внутренние процессы с помощью AI-ботов, Telegram-ботов и веб-инструментов.
+Здравствуйте! Я Владислав Кочуров, ИП на НПД, разработчик AI-ботов и автоматизаций. Помогаю предпринимателям и компаниям автоматизировать заявки, поддержку, документы, таблицы, CRM/API и внутренние процессы с помощью AI-ботов, Telegram-ботов и веб-инструментов.
 
 Работаю по понятному процессу: уточняю задачу, фиксирую объем, ограничения, сроки и критерии приемки, затем делаю прототип или готовый модуль и передаю результат с инструкцией.
 
@@ -101,7 +101,7 @@ Official sources to keep at hand:
 Codex/Kolibri can inspect, draft and prepare the changes. The following actions still need action-time owner confirmation before the final click/save/send:
 
 - Save public profile text.
-- Confirm self-employed status in Kwork.
+- Confirm self-employed/NPD status in Kwork.
 - Enter or save tax, bank, payout, card, passport or security data.
 - Publish or edit a kwork.
 - Send buyer proposals or client messages.
@@ -109,4 +109,4 @@ Codex/Kolibri can inspect, draft and prepare the changes. The following actions 
 
 ## Next Exact UI Step
 
-Open Kwork seller dashboard, click step 5 "Подробнее", and inspect the official fields. Choose "Я самозанятый" and fill only verified self-employed/tax data from official sources. Do not save tax/payout/security changes until the final action-time confirmation.
+Open Kwork seller dashboard, click step 5 "Подробнее", and inspect the official fields. Use the NPD/self-employed confirmation flow that matches the real status "ИП на НПД". Fill only verified tax data from official sources. Do not save tax/payout/security changes until the final action-time confirmation.

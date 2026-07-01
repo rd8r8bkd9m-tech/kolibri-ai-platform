@@ -6,7 +6,7 @@ AI-автоматизация, Telegram-боты, сайты, документы
 
 ## Commercial Identity
 
-Исполнитель: самозанятый Кочуров Владислав Евгеньевич, налог на профессиональный доход.
+Исполнитель: ИП Кочуров Владислав Евгеньевич, применяет налог на профессиональный доход. Короткая публичная формулировка: ИП на НПД / самозанятый ИП.
 
 Use this identity in profile/business copy, portfolio, proposals and order handoff where appropriate. If Kwork asks for business status confirmation, complete the platform verification before relying on the public trust signal. Do not publish INN, passport data, bank details or home address in public profile text.
 
@@ -14,7 +14,7 @@ Short signature:
 
 ```text
 Владислав Кочуров
-самозанятый специалист, НПД
+ИП на НПД
 AI-боты, Telegram-боты и автоматизация для бизнеса
 ```
 
@@ -40,7 +40,7 @@ AI-боты, Telegram-боты и автоматизация для бизнес
 
 ## Full Profile Description
 
-Здравствуйте! Я Владислав Кочуров, самозанятый специалист по AI-ботам, Telegram-ботам и автоматизации, разработчик и основатель Kolibri AI Platform. Помогаю бизнесу автоматизировать задачи с помощью AI, Telegram-ботов, сайтов, API-интеграций, документов, смет и внутренних инструментов.
+Здравствуйте! Я Владислав Кочуров, ИП на НПД, специалист по AI-ботам, Telegram-ботам и автоматизации, разработчик и основатель Kolibri AI Platform. Помогаю бизнесу автоматизировать задачи с помощью AI, Telegram-ботов, сайтов, API-интеграций, документов, смет и внутренних инструментов.
 
 Что могу сделать:
 
