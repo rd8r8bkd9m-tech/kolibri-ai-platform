@@ -1,7 +1,7 @@
 # Factory Status
 
 Snapshot time:
-- 2026-07-01T03:19:55Z
+- 2026-07-01T03:26:27Z
 
 Mac executor:
 - Hostname: `MacBook-Air-Vladislav.local`
@@ -153,10 +153,20 @@ Submitted tasks:
 - `P0_PR83_VERIFIER_COMMAND_CLEANUP_PROOF_2026_07_01`: submitted at
   `2026-07-01T03:19:16Z` through the fallback route
   `Mac -> kolibri-primary-codex -> Control Plane`; leased by
-  `primary-candidate:agent-host-primary` with heartbeat
-  `2026-07-01T03:19:33Z`; current state `running`. This task is the narrow
-  proof for the corrected verifier commands and must not reference missing
-  `tests/test_agent_host.py`.
+  `primary-candidate:agent-host-primary`. Current Control Plane state is
+  `waiting_review`, with result artifact
+  `/var/lib/kolibri-agent/artifacts/P0_PR83_VERIFIER_COMMAND_CLEANUP_PROOF_2026_07_01/P0_PR83_VERIFIER_COMMAND_CLEANUP_PROOF_2026_07_01-attempt-1/result.json`.
+- Useful remote result: result JSON reports `status=completed`; PR #83 branch
+  was pushed normally from `8951a9feb4a44b8dd87a762d0da199257de1dae0` to
+  `9bebf6cdba32a6886b6343f3701add3e85d18e41`; exactly five canonical proof
+  artifacts were created under
+  `docs/agent/runs/2026-07-01-p0-pr83-verifier-command-cleanup-proof/`; no
+  product code changed.
+- Verification for the PR #83 proof passed remotely: focused runner contract
+  `20 passed`; relevant Agent Host suite `26 passed`; `python3 -m py_compile
+  ops/agent_host.py`; `git diff --check`; Superfactory overlap guard returned
+  no paths. GitHub Actions `Kolibri CI` run `28491266003` completed with
+  conclusion `success`.
 
 Node snapshot through Control Plane:
 - Observed node cards: 42.
@@ -173,8 +183,9 @@ Node snapshot through Control Plane:
 - `main`: online; current free disk observed `7614488576` bytes; known
   Codex/MIMO runner auth is broken from prior task attempts.
 - `primary-candidate`: online; latest exact PR #83 verifier cleanup proof is
-  `running` on `primary-candidate:agent-host-primary`. PR #83 is currently
-  CI-green at head `8951a9feb4a44b8dd87a762d0da199257de1dae0`.
+  `waiting_review` on `primary-candidate:agent-host-primary`, with result JSON
+  reporting `completed`. PR #83 is currently CI-green at head
+  `9bebf6cdba32a6886b6343f3701add3e85d18e41`.
 - Many mesh cards are degraded/stale or metadata-only; they need inventory
   before broad execution.
 - Aggregate `/v1/tasks` response showed 200 queued tasks while the direct P0
@@ -190,9 +201,14 @@ Known constraints:
   emergency recovery and diagnostics.
 
 Current blockers:
-- Agent Host generic runner/verifier contract is too weak: useful work can be
-  pushed while task state still becomes `failed` due exact artifact filename
-  mismatches.
+- Agent Host generic runner/verifier contract was narrowed substantially by PR
+  #83 and the latest proof is CI-green, but the Control Plane still requires a
+  human/review transition from `waiting_review` after result JSON reports
+  `completed`.
+- Agent Host generic runner/verifier contract was historically too weak:
+  useful work could be pushed while task state still became `failed` due exact
+  artifact filename mismatches. PR #83 now contains the hardening/proof path;
+  keep it draft until the owner approves merge/release policy.
 - P0 runner hardening is now a concrete example of the same issue: PR #83 is
   finalized on GitHub, but the Control Plane wrapper state is failed because
   the artifact contract allowed ambiguity between preserving the existing run
