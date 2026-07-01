@@ -1,9 +1,18 @@
 # Factory Status
 
 Snapshot time:
-- 2026-07-01T05:53:39Z
+- 2026-07-01T06:06:17Z
 
 Latest update:
+- 2026-07-01T06:06:17Z:
+  `P0_AGENT_HOST_REVIEW_CLONE_AND_CONSTRAINT_ENFORCEMENT_2026_07_01` is
+  running on `primary-candidate:agent-host-primary` against PR #83 branch
+  `p0/agent-host-runner-contract-hardening-2026-06-30`. It was accepted by
+  Control Plane at `2026-07-01T05:59:23Z`; latest direct task heartbeat is
+  `2026-07-01T06:06:06Z`. This task targets the current P0 factory law gap:
+  read-only/no-push envelopes still receiving `git_push`, no-push tasks
+  publishing central branches, exact artifact aliases collapsing useful results
+  into `failed`, and review clone failures pointing at missing result files.
 - 2026-07-01T05:53:39Z:
   `P0_PR89_DELETEWEBHOOK_SAFETY_GATE_2026_07_01` has a useful GitHub result
   but failed its Control Plane wrapper on an exact artifact alias check. Remote
