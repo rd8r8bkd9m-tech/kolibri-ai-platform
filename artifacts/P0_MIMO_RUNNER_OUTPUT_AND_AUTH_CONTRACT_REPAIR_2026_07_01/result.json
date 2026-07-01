@@ -1,0 +1,24 @@
+{
+  "blockers": [
+    "Full pytest collection requires missing local dependencies: pydantic and httpx."
+  ],
+  "branch": "p0/mimo-runner-output-auth-contract-repair-2026-07-01",
+  "changed_files": [
+    "ops/agent_host.py",
+    "tests/test_agent_host_direct_mimo.py",
+    "artifacts/P0_MIMO_RUNNER_OUTPUT_AND_AUTH_CONTRACT_REPAIR_2026_07_01/stdout.log",
+    "artifacts/P0_MIMO_RUNNER_OUTPUT_AND_AUTH_CONTRACT_REPAIR_2026_07_01/stderr.log",
+    "artifacts/P0_MIMO_RUNNER_OUTPUT_AND_AUTH_CONTRACT_REPAIR_2026_07_01/runner-contract.json",
+    "artifacts/P0_MIMO_RUNNER_OUTPUT_AND_AUTH_CONTRACT_REPAIR_2026_07_01/result.json",
+    "artifacts/P0_MIMO_RUNNER_OUTPUT_AND_AUTH_CONTRACT_REPAIR_2026_07_01/artifact-manifest.json"
+  ],
+  "next_action": "Open a PR from this branch and run the full suite in an environment with backend test dependencies installed.",
+  "pull_request_url": null,
+  "status": "completed",
+  "task_id": "P0_MIMO_RUNNER_OUTPUT_AND_AUTH_CONTRACT_REPAIR_2026_07_01",
+  "tests": [
+    "python3 -m pytest -q tests/test_agent_host_direct_mimo.py tests/test_agent_host_telegram_chat.py",
+    "python3 -m pytest -q tests/test_agent_host_direct_mimo.py tests/test_agent_host_telegram_chat.py tests/test_agent_host_image_generation.py",
+    "python3 -m compileall -q ops tests backend infra scripts"
+  ]
+}

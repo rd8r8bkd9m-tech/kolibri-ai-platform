@@ -24,6 +24,33 @@ from typing import Any
 
 STOP = False
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+MIMO_DIRECT_KINDS = {"owner_remote_task", "direct_mimo", "mimo_direct", "mimo_task"}
+SAFE_MIMO_RESULT_FIELDS = {
+    "answer",
+    "blockers",
+    "branch",
+    "changed_files",
+    "commit",
+    "message",
+    "next_action",
+    "output",
+    "pr_url",
+    "pull_request_url",
+    "response",
+    "result",
+    "status",
+    "summary",
+    "tests",
+    "text",
+}
+SECRET_FIELD_HINTS = ("authorization", "cookie", "key", "password", "secret", "token")
+
+
+class RunnerExecutionError(RuntimeError):
+    def __init__(self, error_type: str, message: str, retry: bool = True):
+        super().__init__(message)
+        self.error_type = error_type
+        self.retry = retry
 
 
 def utc_now() -> str:
@@ -205,11 +232,63 @@ class AgentHost:
             return "".join(parts)
         return ""
 
+    @staticmethod
+    def _safe_json_value(value: Any) -> Any:
+        if isinstance(value, dict):
+            safe = {}
+            for key, item in value.items():
+                key_text = str(key).lower()
+                if any(hint in key_text for hint in SECRET_FIELD_HINTS):
+                    safe[key] = "[redacted]"
+                else:
+                    safe[key] = AgentHost._safe_json_value(item)
+            return safe
+        if isinstance(value, list):
+            return [AgentHost._safe_json_value(item) for item in value]
+        return value
+
     @classmethod
-    def parse_json_text_response(cls, stdout_path: Path) -> str:
-        final_messages = []
-        text_parts = []
-        deltas = []
+    def _extract_json_event_text(cls, event: dict[str, Any]) -> tuple[list[str], list[str], list[str]]:
+        final_messages: list[str] = []
+        text_parts: list[str] = []
+        deltas: list[str] = []
+
+        part = event.get("part") or {}
+        if isinstance(part, dict) and part.get("type") == "text" and part.get("text"):
+            text_parts.append(part["text"])
+
+        msg = event.get("msg") or {}
+        if isinstance(msg, dict):
+            msg_type = str(msg.get("type") or "")
+            text = msg.get("message") or msg.get("text") or cls._content_text(msg.get("content"))
+            if text:
+                if "delta" in msg_type:
+                    deltas.append(text)
+                else:
+                    final_messages.append(text)
+
+        event_type = str(event.get("type") or "")
+        text = event.get("message") or event.get("text") or cls._content_text(event.get("content"))
+        if text:
+            if "delta" in event_type:
+                deltas.append(text)
+            elif event_type in {"agent_message", "assistant_message", "message"}:
+                final_messages.append(text)
+
+        item = event.get("item") or {}
+        if isinstance(item, dict) and item.get("type") in {"message", "assistant_message", "agent_message"}:
+            item_text = item.get("message") or item.get("text") or cls._content_text(item.get("content"))
+            if item_text:
+                final_messages.append(item_text)
+
+        return final_messages, text_parts, deltas
+
+    @classmethod
+    def parse_json_response_payload(cls, stdout_path: Path) -> dict[str, Any]:
+        final_messages: list[str] = []
+        text_parts: list[str] = []
+        deltas: list[str] = []
+        useful_objects: list[dict[str, Any]] = []
         for line in stdout_path.read_text(encoding="utf-8", errors="ignore").splitlines():
             line = line.strip()
             if not line.startswith("{"):
@@ -218,40 +297,90 @@ class AgentHost:
                 event = json.loads(line)
             except json.JSONDecodeError:
                 continue
+            if not isinstance(event, dict):
+                continue
 
-            part = event.get("part") or {}
-            if isinstance(part, dict) and part.get("type") == "text" and part.get("text"):
-                text_parts.append(part["text"])
+            event_final, event_parts, event_deltas = cls._extract_json_event_text(event)
+            final_messages.extend(event_final)
+            text_parts.extend(event_parts)
+            deltas.extend(event_deltas)
 
-            msg = event.get("msg") or {}
-            if isinstance(msg, dict):
-                msg_type = str(msg.get("type") or "")
-                text = msg.get("message") or msg.get("text") or cls._content_text(msg.get("content"))
-                if text:
-                    if "delta" in msg_type:
-                        deltas.append(text)
-                    else:
-                        final_messages.append(text)
-
-            event_type = str(event.get("type") or "")
-            text = event.get("message") or event.get("text") or cls._content_text(event.get("content"))
-            if text:
-                if "delta" in event_type:
-                    deltas.append(text)
-                elif event_type in {"agent_message", "assistant_message", "message"}:
-                    final_messages.append(text)
-
-            item = event.get("item") or {}
-            if isinstance(item, dict) and item.get("type") in {"message", "assistant_message", "agent_message"}:
-                item_text = item.get("message") or item.get("text") or cls._content_text(item.get("content"))
-                if item_text:
-                    final_messages.append(item_text)
+            if SAFE_MIMO_RESULT_FIELDS.intersection(event):
+                useful_objects.append(cls._safe_json_value(event))
 
         for parts in (final_messages, text_parts, deltas):
             response_text = "".join(parts).strip()
             if response_text:
-                return response_text
-        return ""
+                payload: dict[str, Any] = {"response": response_text}
+                if useful_objects:
+                    payload["runner_output"] = useful_objects[-1]
+                return payload
+        if useful_objects:
+            output = useful_objects[-1]
+            text = output.get("response") or output.get("message") or output.get("text") or output.get("summary")
+            if not isinstance(text, str) or not text.strip():
+                text = json.dumps(output, ensure_ascii=False, sort_keys=True)
+            return {"response": text.strip(), "runner_output": output}
+        return {"response": ""}
+
+    @classmethod
+    def parse_json_text_response(cls, stdout_path: Path) -> str:
+        return str(cls.parse_json_response_payload(stdout_path).get("response") or "")
+
+    @staticmethod
+    def _read_runner_output_for_error(stdout_path: Path, stderr_path: Path) -> str:
+        chunks = []
+        for path in (stdout_path, stderr_path):
+            if path.exists():
+                chunks.append(path.read_text(encoding="utf-8", errors="replace")[-4000:])
+        return "\n".join(chunks)
+
+    @staticmethod
+    def classify_runner_error(error: str, runner_output: str) -> tuple[str, str, bool]:
+        combined = f"{error}\n{runner_output}".lower()
+        if "http 401" in combined or " 401" in combined or "unauthorized" in combined:
+            return "runner_auth_failed", "mimo runner authentication failed with HTTP 401", False
+        if "http 403" in combined or " 403" in combined or "forbidden" in combined or "illegal_access" in combined:
+            if "illegal_access" in combined:
+                return "runner_policy_blocked", "mimo runner request was blocked by policy: illegal_access", False
+            return "runner_access_denied", "mimo runner access denied with HTTP 403", False
+        return "runtime_error", error, True
+
+    def run_json_payload_command(
+        self,
+        command: list[str],
+        command_label: str,
+        empty_response_label: str,
+        worktree: Path,
+        stdout_path: Path,
+        stderr_path: Path,
+        task: dict[str, Any],
+        branch: str | None,
+        logs: dict[str, str],
+    ) -> dict[str, Any]:
+        try:
+            self.run_command(
+                command,
+                worktree,
+                stdout_path,
+                stderr_path,
+                task,
+                branch,
+                logs,
+                command_label=command_label,
+            )
+        except Exception as exc:
+            error_type, message, retry = self.classify_runner_error(
+                str(exc),
+                self._read_runner_output_for_error(stdout_path, stderr_path),
+            )
+            if error_type != "runtime_error":
+                raise RunnerExecutionError(error_type, message, retry=retry) from exc
+            raise
+        payload = self.parse_json_response_payload(stdout_path)
+        if not payload.get("response"):
+            raise RuntimeError(f"{empty_response_label} completed without text response")
+        return payload
 
     def run_json_text_command(
         self,
@@ -265,20 +394,18 @@ class AgentHost:
         branch: str | None,
         logs: dict[str, str],
     ) -> str:
-        self.run_command(
+        payload = self.run_json_payload_command(
             command,
+            command_label,
+            empty_response_label,
             worktree,
             stdout_path,
             stderr_path,
             task,
             branch,
             logs,
-            command_label=command_label,
         )
-        response_text = self.parse_json_text_response(stdout_path)
-        if not response_text:
-            raise RuntimeError(f"{empty_response_label} completed without text response")
-        return response_text
+        return str(payload.get("response") or "")
 
     def write_result(self, artifact_dir: Path, result: dict[str, Any]) -> Path:
         result_path = artifact_dir / "result.json"
@@ -551,6 +678,72 @@ class AgentHost:
         embedded = self.image_b64_for_result(image_path)
         if embedded:
             result["image_b64"] = embedded
+        result_path = self.write_result(artifact_dir, result)
+        result["result_path"] = str(result_path)
+        return result
+
+    def run_direct_mimo_task(self, task: dict[str, Any]) -> dict[str, Any]:
+        envelope = task.get("envelope", {})
+        prompt = (envelope.get("objective") or envelope.get("prompt") or envelope.get("message") or "").strip()
+        if not prompt:
+            raise RuntimeError("direct mimo task missing objective")
+        branch = envelope.get("branch")
+        worktree, artifact_dir, logs = self.prepare_dirs(task)
+        worktree.mkdir(parents=True, exist_ok=True)
+        stdout_path = Path(logs["stdout"])
+        stderr_path = Path(logs["stderr"])
+        self.task_heartbeat(task, worktree, branch, logs)
+        runner_artifact = {
+            "kind": "direct_mimo_run",
+            "task_id": task["task_id"],
+            "attempt_id": task.get("attempt_id"),
+            "runner": "mimo",
+            "started_at": utc_now(),
+        }
+        (artifact_dir / "runner-contract.json").write_text(
+            json.dumps(runner_artifact, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        mimo = shutil.which("mimo")
+        if not mimo:
+            raise RuntimeError("mimo executable is not available on this node")
+        payload = self.run_json_payload_command(
+            [mimo, "run", "--format", "json", "--title", f"owner-task-{task['task_id']}", prompt],
+            f"{mimo} run --format json --title owner-task-{task['task_id']} <prompt>",
+            "mimo",
+            worktree,
+            stdout_path,
+            stderr_path,
+            task,
+            branch,
+            logs,
+        )
+        runner_output = payload.get("runner_output") if isinstance(payload.get("runner_output"), dict) else {}
+        result = {
+            "node_id": self.node_id,
+            "hostname": self.hostname,
+            "task_id": task["task_id"],
+            "agent_id": self.agent_id,
+            "attempt_id": task.get("attempt_id"),
+            "pid": self.pid,
+            "heartbeat_at": utc_now(),
+            "worktree": str(worktree),
+            "branch": runner_output.get("branch") or branch,
+            "base_ref": envelope.get("base_ref") or envelope.get("base_branch"),
+            "pull_request_url": runner_output.get("pull_request_url") or runner_output.get("pr_url"),
+            "log_paths": logs,
+            "result_path": str(artifact_dir / "result.json"),
+            "status": "completed",
+            "kind": task.get("kind") or envelope.get("kind") or "owner_remote_task",
+            "runner": "mimo",
+            "response": payload["response"],
+            "tests": runner_output.get("tests"),
+            "blockers": runner_output.get("blockers"),
+            "next_action": runner_output.get("next_action"),
+            "changed_files": runner_output.get("changed_files"),
+        }
+        if runner_output:
+            result["runner_output"] = runner_output
         result_path = self.write_result(artifact_dir, result)
         result["result_path"] = str(result_path)
         return result
@@ -924,6 +1117,8 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 result = self.run_review_pr(task)
             elif kind == "read_only_probe":
                 result = self.run_read_only_probe(task)
+            elif kind in MIMO_DIRECT_KINDS and str(task.get("envelope", {}).get("runner") or "mimo").strip().lower() == "mimo":
+                result = self.run_direct_mimo_task(task)
             else:
                 raise RuntimeError(f"unsupported task kind: {kind}")
             result_path = Path(result["result_path"])
@@ -942,11 +1137,12 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 "pid": self.pid,
                 "status": "failed",
                 "error": str(exc),
+                "error_type": getattr(exc, "error_type", "runtime_error"),
                 "completed_at": utc_now(),
             }
             result_path = self.write_result(artifact_dir, result)
-            retry = int(task.get("attempt", 0)) < int(task.get("max_retries", 3))
-            self.fail(task, "runtime_error", str(exc), result, result_path, retry=retry)
+            retry = getattr(exc, "retry", int(task.get("attempt", 0)) < int(task.get("max_retries", 3)))
+            self.fail(task, result["error_type"], str(exc), result, result_path, retry=retry)
 
     def loop(self) -> None:
         self.register()
