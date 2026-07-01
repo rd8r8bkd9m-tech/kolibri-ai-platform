@@ -1,6 +1,6 @@
 # Owner Green Draft Release Packet - 2026-07-01
 
-Status: `command_node_packet_ready_remote_steward_blocked_by_runner_auth`
+Status: `remote_mimo_steward_completed_artifacts_relayed`
 
 This packet records the command-node view of the release queue after the owner
 reported that `main` still looked stale.
@@ -65,7 +65,14 @@ Hold:
 
 3. `P0_GITHUB_RELEASE_STEWARD_GREEN_DRAFT_QUEUE_DRAIN_MIMO_FALLBACK_2026_07_01`
    - Submitted to Control Plane for `mesh-agent-01` MIMO.
-   - Current state at last command-node check: `queued`, no lease yet.
+   - Completed on `mesh-agent-01:agent-host-mesh-agent-01`.
+   - Server commit `f7aca0dccb2ad9911b4d76c3aa99a5add04cc2d8`
+     created the exact nine release-steward artifacts.
+   - Mac relayed that server-created commit into dispatcher branch as
+     `57ad4dcb`.
+   - Worker limitation: `gh` was unavailable, so it used the provided GitHub
+     snapshot plus checked-in gate artifacts; a final read-only GitHub recheck
+     is required immediately before any owner-approved mark-ready/merge action.
 
 ## Required Repair
 
