@@ -47,6 +47,7 @@ Fabric API / Control Plane.
 - Telegram APIs overview: https://core.telegram.org/
 - Bot API: https://core.telegram.org/bots/api
 - Bot features: https://core.telegram.org/bots/features
+- Webhooks: https://core.telegram.org/bots/webhooks
 - Mini Apps: https://core.telegram.org/bots/webapps
 - Telegram Login/OIDC: https://core.telegram.org/bots/telegram-login
 - Widgets: https://core.telegram.org/widgets
@@ -99,6 +100,86 @@ Practical Kolibri interpretation:
 - Rich Messages and streaming drafts are now important enough to become a
   planned reporting adapter: Control Plane events should be normalized once and
   rendered both in the Mini App and in Telegram rich/plain fallback messages.
+
+## Kolibri Decision Matrix
+
+Эта матрица фиксирует, что Telegram позволяет технически и что Kolibri должна
+делать практически. Наличие возможности в Telegram не означает, что ее можно
+сразу включать в live `@kolibriai_bot`.
+
+| Telegram capability | Kolibri decision | Gate / reason |
+| --- | --- | --- |
+| Private bot chat over Bot API | P0, enable as owner command router | Owner allowlist, one canonical receiver, Control Plane task envelope for real work |
+| Clean slash commands and menu button | P0 target state | Keep `/start`, `/status`, `/help`; live menu/BotFather mutation only in separate approved task |
+| Webhook receiver | P0 production target when ingress is stable | Exactly one receiver per bot token; TLS and allowed Telegram ports/subnets must be verified |
+| `getUpdates` long polling | Diagnostic/fallback only | Never run beside webhook or another active poller for the same token |
+| Inline keyboards and callback queries | P0 for bounded safe actions | Idempotency, task_id, trace_id, role check and short-lived session state |
+| Mini App as main command center | P0/P1 | Server-side `initData` verification before factory access; mobile-first UI and safe areas |
+| Main Mini App/profile launch and menu launch | P1 live configuration | Requires BotFather/menu mutation plan and rollback; no startup-time mutation |
+| Rich Messages | P1 feature flag | Use for reports, tables, collapsible details and artifacts; plain text fallback required |
+| Rich message drafts / streamed replies | P1 after stable report model | Stream sanitized progress only, never private chain-of-thought |
+| Files, media, screenshots, PDFs, DOCX/XLSX | P0/P1 | Send only sanitized artifacts or signed backend links; avoid raw logs by default |
+| Telegram Login / OIDC | P1 for `kolibriai.ru` web auth | Same role mapping and audit log as Mini App sessions |
+| Telegram Gateway API | P2 | Separate verification product; separate token, not needed for current bot repair |
+| Guest Bots | P2 policy-gated | No owner-only context leakage; per-chat allowlist, quotas, audit and kill switch |
+| Bot-to-Bot communication | P2 policy-gated | Max hops, dedupe, rate limits, max duration/cost, loop storm prevention |
+| Business / Secretary bots | P2 policy-gated | Separate privacy policy, data retention rules and owner-visible activity log |
+| Managed Bots | P2/P3 product line | Tenant isolation, token lifecycle, no token logging, managed-bot audit |
+| Stars, payments, subscriptions, paid media | Revenue phase only | Finance gate, `/paysupport`, refund/dispute flow, tax/legal policy and owner approval |
+| Broadcast limit increase with Stars | Later, probably not MVP | Anti-spam policy, user consent and legitimate business-purpose proof |
+| Chat admin / AI guardian / join requests | Later community product | Separate moderation policy; do not mix with owner command center |
+| TDLib / MTProto / custom client | Infrastructure/future only | Not required for `@kolibriai_bot`; no user-account automation to bypass Bot API rules |
+| Local Bot API server | Infrastructure optimization only | Use only if file limits/latency justify it; requires token routing and TLS design |
+
+Immediate product posture:
+
+- Telegram is the human command surface for the owner and the mobile UI shell.
+- GitHub remains source of truth; Control Plane remains task truth.
+- Telegram messages should be polished summaries and approval surfaces, not raw
+  execution logs.
+- Every privileged Telegram action must be authenticated, authorized, logged,
+  scoped to a task and reversible where possible.
+- The bot should feel like a living Kolibri director, but its authority comes
+  from Fabric API roles and safety gates, not from free-form chat text.
+
+## Target Bot Profile And Menu
+
+Recommended public/operator-facing target for `@kolibriai_bot`:
+
+- Name: `Колибри`
+- Short description: `AI-командный центр Kolibri Factory`
+- Description: concise promise of factory task dispatch, status, artifacts and
+  Mini App access.
+- Commands:
+  - `/start` - открыть командный центр;
+  - `/status` - статус фабрики;
+  - `/help` - помощь.
+- Menu button: `Открыть фабрику`, launching the verified Kolibri Mini App.
+- Profile media: high-quality Kolibri brand asset, not a generic bot image.
+- Privacy policy link: required before broader public/customer use, mandatory
+  before Business, payments, Guest, Bot-to-Bot or data-retention features.
+
+Do not keep legacy SaaS/referral commands in the owner menu unless the matching
+product surface exists and is intentionally enabled. Telegram command scopes are
+UX only; backend authorization must reject unauthorized commands even if they are
+hidden from the visible menu.
+
+## Current No-Go List
+
+These Telegram capabilities must not be activated as part of the current bot
+cleanup or MVP Mini App slice:
+
+- Business/Secretary access to the owner's or customers' chats.
+- Guest Mode in third-party chats.
+- Bot-to-Bot autonomous workflows.
+- Managed-bot token retrieval or managed-bot token replacement.
+- Stars payments, gifts, subscriptions, paid media, refunds or payouts.
+- Broadcast limit upgrades or mass messaging.
+- Live BotFather/menu/webhook mutation from tests, CI or normal backend startup.
+- User-account automation via MTProto/TDLib to bypass official Bot API limits.
+
+Each item above needs its own remote task, policy document, threat model,
+contract tests and explicit owner approval before production.
 
 ## 1. Telegram API Families
 

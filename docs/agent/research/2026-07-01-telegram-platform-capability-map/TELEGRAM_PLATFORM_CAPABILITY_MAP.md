@@ -18,6 +18,7 @@ Kolibri Factory Bot и Mini App, чтобы бот стал полноценны
 - https://core.telegram.org/bots/features
 - https://core.telegram.org/bots/api
 - https://core.telegram.org/bots/api-changelog
+- https://core.telegram.org/bots/webhooks
 - https://core.telegram.org/bots/webapps
 - https://core.telegram.org/bots/payments
 - https://core.telegram.org/bots/payments-stars
@@ -48,6 +49,13 @@ Telegram для Kolibri нужно рассматривать как полно�
 Bot API 10.1 от 2026-06-11. Самое важное для Kolibri: Rich Messages и
 streaming AI replies, то есть Telegram уже официально движется к формату
 человекоподобных AI-ботов с постепенной генерацией ответа.
+
+Практическое решение для Kolibri: включаем сейчас только Bot API private chat,
+чистое меню, один canonical receiver, Mini App auth contract, безопасные inline
+actions и sanitized reports. Rich Messages, SSE/streaming, Telegram Login и
+Mini App launch configuration идут следующим слоем. Guest Mode, Bot-to-Bot,
+Business/Secretary, Managed Bots, Stars/payments и broadcast monetization
+остаются policy-gated future features.
 
 ## Возможности Telegram, применимые к Kolibri
 
