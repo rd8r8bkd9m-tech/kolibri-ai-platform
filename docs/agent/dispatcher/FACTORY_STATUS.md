@@ -4,6 +4,28 @@ Snapshot time:
 - 2026-07-01T09:15:43Z
 
 Latest update:
+- 2026-07-01T13:51:47Z:
+  `P0_UIAP_RAG_SKILLS_REGISTRY_READINESS_2026_07_01` completed on
+  `uiap:agent-host-uiap`. Result path:
+  `/var/lib/kolibri-agent/artifacts/P0_UIAP_RAG_SKILLS_REGISTRY_READINESS_2026_07_01/P0_UIAP_RAG_SKILLS_REGISTRY_READINESS_2026_07_01-attempt-1/result.json`.
+  The node reports CPU-only light RAG readiness: 2 cores, 3.8 GB RAM, about
+  21 GB free, Python 3.12, Docker 28.1.1, sentence-transformers, ChromaDB,
+  ONNX Runtime, torch CPU and transformers available. Safe next work is a
+  minimal Markdown/skills indexer contract and ChromaDB collection. Do not send
+  heavy models, GPU inference, large batch indexing, secret storage, Git pushes
+  or long-running production workers to `uiap` yet.
+- 2026-07-01T13:50:19Z:
+  Owner instruction persistence was made durable in
+  `docs/agent/dispatcher/OWNER_CANONICAL_INSTRUCTIONS.md` and pushed to
+  dispatcher branch commit `43060cbd`. This separates durable GitHub memory
+  from weaker session/model memory.
+
+  Submitted read-only MIMO task
+  `P0_UIAP_RAG_SKILLS_REGISTRY_READINESS_2026_07_01` through
+  `kolibri-primary-codex -> Control Plane`. Control Plane accepted the task at
+  `2026-07-01T13:48:19Z`; it is leased to `uiap:agent-host-uiap` and latest
+  observed status is `running` with heartbeat `2026-07-01T13:50:19Z`. No
+  result/reference yet, so it must not be called completed.
 - 2026-07-01T13:33:00Z:
   Fleet role/capability inventory is now represented in GitHub as draft PR #92:
   `https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/92`.
