@@ -1,9 +1,48 @@
 # Factory Status
 
 Snapshot time:
-- 2026-07-01T07:12:15Z
+- 2026-07-01T07:41:39Z
 
 Latest update:
+- 2026-07-01T07:41:39Z:
+  `P0_AGENT_HOST_BACKEND_VERIFIER_ENV_SCOPE_REPAIR_2026_07_01` produced a
+  completed result and Control Plane moved the task endpoint to
+  `waiting_review`. Result artifact:
+  `/var/lib/kolibri-agent/artifacts/P0_AGENT_HOST_BACKEND_VERIFIER_ENV_SCOPE_REPAIR_2026_07_01/P0_AGENT_HOST_BACKEND_VERIFIER_ENV_SCOPE_REPAIR_2026_07_01-attempt-1/result.json`.
+  The server found PR #83 branch head `4b8d2a9...` already satisfied the
+  implementation contract, reran focused tests (`28 passed in 32.66s`), added
+  only exact repair artifacts under
+  `docs/agent/runs/2026-07-01-p0-agent-host-backend-verifier-env-scope-repair/`,
+  and pushed normal branch head
+  `dfbc7fc17f4d76d81d97944a852febbb91278d9b`. Main was not touched.
+- 2026-07-01T07:34:05Z:
+  Prepared `P0_AGENT_HOST_BACKEND_VERIFIER_ENV_SCOPE_REPAIR_2026_07_01`.
+  Reason: `P0_AGENT_HOST_BACKEND_VERIFIER_ENV_CONTRACT_2026_07_01` produced a
+  useful PR #83 branch head `4b8d2a9f431034963945ffc929a7c19e3c7ff640` and
+  server focused tests passed (`28 passed in 36.62s`), but Control Plane
+  correctly failed final verification because the envelope change-scope guard
+  omitted `.gitignore` and `docs/agent/AGENT_RUNNER_CONTRACT.md`. The repair
+  task will verify or minimally repair the same PR #83 branch with corrected
+  allowed scope and exact run artifacts.
+- 2026-07-01T07:32:49Z:
+  `P0_AGENT_HOST_BACKEND_VERIFIER_ENV_CONTRACT_2026_07_01` ended with Control
+  Plane state `failed`. Useful output: backend verifier environment contract
+  implementation was pushed normally to PR #83 branch head
+  `4b8d2a9f431034963945ffc929a7c19e3c7ff640`; remote stdout reports
+  `python3 -m pytest tests/test_agent_host_runner_contract.py -q` -> `28
+  passed in 36.62s`. Failure reason: final verifier changed-file guard only
+  allowed `ops/agent_host.py`, `tests/test_agent_host_runner_contract.py` and
+  the first run docs, but the server implementation also touched `.gitignore`
+  and `docs/agent/AGENT_RUNNER_CONTRACT.md`. Do not call this task completed;
+  repair via corrected-scope verifier.
+- 2026-07-01T07:17:21Z:
+  Prepared `P0_AGENT_HOST_BACKEND_VERIFIER_ENV_CONTRACT_2026_07_01` for the
+  PR #83 runner-hardening branch. Purpose: add an explicit backend Python
+  verification environment contract to Agent Host so backend verifier commands
+  can run with `backend/requirements.txt` plus pytest in a temporary
+  dependency-satisfied environment. This is the direct follow-up to PR #90,
+  where raw system Python lacked `fastapi` but the declared backend test env
+  passed.
 - 2026-07-01T07:12:15Z:
   `PR90_EXACT_ARTIFACT_RELAY_2026_07_01` completed as a deterministic
   thin-client relay. PR #90 branch is now at
