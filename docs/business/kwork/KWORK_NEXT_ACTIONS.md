@@ -2,7 +2,12 @@
 
 ## Status
 
-Read-only profile audit completed. Draft docs and subagent role created. No Kwork profile changes were saved. No kwork was published. No client messages were sent.
+Read-only profile audit completed. Draft docs, portfolio assets, upload ledger and subagent role created. No Kwork profile changes were saved. No kwork was published. No client messages were sent.
+
+Portfolio status:
+
+- First portfolio card observed on Kwork: `Telegram AI-бот для заявок и FAQ`; Kwork showed preparation for publication.
+- Second portfolio card prepared in the browser form: `AI-бот для документов, КП и смет`; main image and cover uploaded; not publicly saved by the assistant.
 
 ## Profile Sections Inspected
 
@@ -44,12 +49,14 @@ No.
 
 ## Next 5 Actions
 
-1. Open Kwork seller dashboard step 5 "Подробнее" and inspect the official NPD/self-employed fields.
-2. Owner provides or confirms true IP/NPD tax data from official sources, without printing secrets in chat.
-3. Owner reviews `KWORK_PROFILE_COPY.md` and `KWORK_SELF_EMPLOYED_IP_PROFILE_SETUP.md`.
-4. After exact confirmation, update public profile text and NPD/self-employed status if the Kwork form is ready.
-5. After exact batch confirmation, send the first proposal wave from `KWORK_SEND_QUEUE_2026-07-01.md`.
-6. Route any paid order through `KWORK_FACTORY_ORDER_ROUTING.md`.
+1. Save the prepared second portfolio card only after the exact action-time owner confirmation: `Сохраняй вторую карточку Kwork`.
+2. Prepare the third, fourth and fifth portfolio cards without public save unless confirmed.
+3. Open Kwork seller dashboard step 5 "Подробнее" and inspect the official NPD/self-employed fields.
+4. Owner provides or confirms true IP/NPD tax data from official sources, without printing secrets in chat.
+5. Owner reviews `KWORK_PROFILE_COPY.md` and `KWORK_SELF_EMPLOYED_IP_PROFILE_SETUP.md`.
+6. After exact confirmation, update public profile text and NPD/self-employed status if the Kwork form is ready.
+7. After exact batch confirmation, send the first proposal wave from `KWORK_SEND_QUEUE_2026-07-01.md`.
+8. Route any paid order through `KWORK_FACTORY_ORDER_ROUTING.md`.
 
 ## Files Created
 
@@ -64,6 +71,8 @@ No.
 - `docs/business/kwork/KWORK_SELF_EMPLOYED_IP_PROFILE_SETUP.md`
 - `docs/business/kwork/KWORK_FACTORY_ORDER_ROUTING.md`
 - `docs/business/kwork/factory-envelopes/KWORK_ORDER_FACTORY_TASK_TEMPLATE.json`
+- `docs/business/kwork/KWORK_REVENUE_CONTROL_LEDGER_2026-07-01.md`
+- `docs/business/kwork/KWORK_PORTFOLIO_UPLOAD_STATUS_2026-07-01.md`
 
 ## Blockers
 
