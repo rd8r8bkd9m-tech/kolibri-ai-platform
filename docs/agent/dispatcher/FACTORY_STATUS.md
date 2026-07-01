@@ -4,6 +4,28 @@ Snapshot time:
 - 2026-07-01T09:15:43Z
 
 Latest update:
+- 2026-07-01T12:11:34Z:
+  Direct MIMO fanout was submitted through Control Plane, not executed on Mac.
+  Seven child tasks were accepted. `uiap` completed a RAG/knowledge readiness
+  response and `mesh-9fts` completed a read-only route probe. `main` confirmed
+  MIMO auth failure with HTTP 401; no login or token refresh was attempted.
+  `qjns` ran MIMO but hit a 403 `illegal_access` bootstrap blocker.
+  `primary-candidate` produced useful JSON in stdout, but Agent Host marked it
+  `runner_empty_response`, proving a MIMO parser/contract defect. `home` and
+  `home-live` tasks remain queued without lease. Repair task
+  `P0_MIMO_RUNNER_OUTPUT_AND_AUTH_CONTRACT_REPAIR_2026_07_01` is running on
+  `primary-candidate:agent-host-primary` to fix parser and 401/403
+  classification.
+- 2026-07-01T11:55:38Z:
+  Fresh read-only verification corrected the `qjns/uiap` status. The disk
+  repair is effective despite the historical Control Plane task state
+  `failed`. `qjns` (`kolibri-tools-executor`) now shows `/` 19G total, 9.8G
+  used, 8.2G free, Agent Host online, `/usr/local/bin/mimo` present and MIMO
+  serve processes active. `uiap` (`kolibri-rag-knowledge`) now shows `/` 38G
+  total, 15G used, 23G free, Agent Host online, `/usr/local/bin/mimo` present,
+  MIMO serve active and two existing MIMO run processes. The remaining issue is
+  artifact/verifier classification plus resource/GitHub-auth validation for
+  heavier work, not disk space.
 - 2026-07-01T09:27:00Z:
   Submitted read-only diagnostic
   `P0_AI_RUNNER_AUTH_AND_OWNER_REMOTE_TASK_ROUTING_DIAGNOSTIC_2026_07_01`
@@ -525,8 +547,9 @@ Submitted tasks:
   `success`.
 - `P0_REPAIR_QJNS_UIAP_DISK_2026_07_01`: Control Plane task state is `failed`
   because final verifier required missing `docs/agent/runs/.../RESULT.md`.
-  Artifact stdout shows effective repair succeeded and current Control Plane
-  cards confirm free disk on both nodes.
+  Artifact stdout and a fresh 2026-07-01T11:55Z check show effective repair
+  succeeded: `qjns` has ~8.2 GB free and `uiap` has ~23 GB free. Do not treat
+  these nodes as disk-blocked.
 - `P0_AGENT_HOST_GENERIC_RUNNER_CONTRACT_HARDENING_2026_07_01`: submitted at
   `2026-07-01T02:12:34Z`; leased by `primary-candidate:agent-host-primary`.
   Final Control Plane state is `failed` because the wrapper required
@@ -640,12 +663,14 @@ Node snapshot through Control Plane:
 - Healthy owner-relevant execution nodes include `home`, `home-live`, `main`,
   `mesh-9fts`, `primary-candidate`, and mesh `agent-01..03` cards with
   implementation capability.
-- `qjns`: online; current free disk observed `10970157056` bytes.
-- `uiap`: online; current free disk observed `27758845952` bytes; RAM is tight
-  (`MemAvailable` observed around `126788 kB`), so use for research/RAG only
-  until resource pressure is reviewed.
+- `qjns`: online; fresh `df -h` observed 8.2 GB free on `/`; Agent Host and
+  MIMO are present. Use for light executor/MIMO tasks first.
+- `uiap`: online; fresh `df -h` observed 23 GB free on `/`; Agent Host and
+  MIMO are present. Prefer for RAG/knowledge/security tasks and avoid heavy
+  builds until memory pressure is reviewed.
 - `main`: online; current free disk observed `7614488576` bytes; known
-  Codex/MIMO runner auth is broken from prior task attempts.
+  Codex/MIMO runner auth is broken. Fresh MIMO direct recheck confirmed HTTP
+  401 auth failure without attempting login or token refresh.
 - `primary-candidate`: online; latest exact PR #83 verifier cleanup proof is
   `completed` on `primary-candidate:agent-host-primary`; the associated review
   task is queued. PR #83 is currently CI-green and GitHub reports it mergeable
@@ -704,11 +729,14 @@ Current blockers:
   GitHub SSH port 22 timed out and SSH over port 443 authenticated with a
   read-only key. Mac had to relay the server commit to GitHub over HTTPS.
 - `main` still has Codex/MIMO runner auth failures from prior attempts.
+- MIMO runner contract is partially broken: primary-candidate and qjns can
+  produce stdout evidence that Agent Host currently misclassifies. A repair
+  task is running to parse useful JSON stdout and classify 401/403 correctly.
 
 Known fleet notes from current owner context:
 - Owner-facing server set is 20 servers; latest emergency SSH probe reached
   all 20.
 - Control Plane currently exposes 42 node cards because it includes mesh,
   stale and metadata cards in addition to the owner-facing server set.
-- `qjns` and `uiap` disk pressure was effectively repaired, but retention
-  cleanup and GitHub auth validation are still follow-up tasks.
+- `qjns` and `uiap` disk pressure is confirmed repaired. Retention cleanup,
+  GitHub auth validation and per-node resource limits remain follow-up tasks.

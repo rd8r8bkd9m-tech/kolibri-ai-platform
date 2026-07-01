@@ -50,8 +50,9 @@
 | P0 | `P0_KOLIBRI_OPENAI_COMPATIBLE_FABRIC_API_STANDARD_2026_07_01` | docs / API contract / review | healthy server documentation nodes | `home`, then `primary-candidate`/`main` | superseded_by_unified_fabric | folded into `P0_KOLIBRI_UNIFIED_FABRIC_API_AND_SERVER_CONNECTIVITY_2026_07_01` |
 | P0 | `P0_CREATE_SUPERFACTORY_DOCUMENTATION_PACKAGE_2026_07_01` | implementation / docs / review | healthy server implementation nodes | `primary-candidate`, `main`, `Home` | handoff_needed | remote agent must re-create or validate local docs draft before any GitHub PR |
 | P0 | `P0_GITHUB_ALWAYS_CURRENT_CONTRACT_2026_07_01` | implementation / qa / review | healthy server implementation nodes | after P0 runner hardening | queued_after_p0 | dispatch after runner hardening result is authoritative |
-| P0 | `P0_MIMO_UNIFIED_API_FLEET_ENABLEMENT_2026_07_01` | mimo / implementation / review | MIMO-capable server nodes | `main`, `mesh-9fts`, `mesh-agent-01..03` | prepared | submit to `main` first; exclude `qjns/uiap` until disk repair |
-| P0 | `P0_REPAIR_QJNS_UIAP_DISK_2026_07_01` | devops / repair / qa | command/control repair nodes | `home`, `home-live`, then `main`/`primary-candidate` | prepared | read-only triage first; safe cleanup only; target disks `qjns/uiap` |
+| P0 | `P0_MIMO_UNIFIED_API_FLEET_ENABLEMENT_2026_07_01` | mimo / implementation / review | MIMO-capable server nodes | `home`, `qjns`, `uiap`, `primary-candidate`, then `main` after auth repair | ready_for_direct_fanout | disk block cleared for `qjns/uiap`; launch direct MIMO probes on healthy nodes and keep `main` as auth-blocker recheck |
+| P0 | `P0_MIMO_RUNNER_OUTPUT_AND_AUTH_CONTRACT_REPAIR_2026_07_01` | runner contract implementation | healthy runner contract nodes | `primary-candidate`, `home` | running | Fresh MIMO fanout exposed parser/auth classification defects; repair Agent Host parser and 401/403 error taxonomy |
+| P0 | `P0_REPAIR_QJNS_UIAP_DISK_2026_07_01` | devops / repair / qa | command/control repair nodes | `home`, `qjns`, `uiap` | failed_verifier_effective_repair_confirmed | Fresh 2026-07-01 check: `qjns` has ~8.2 GB free, `uiap` has ~23 GB free; remaining issue is runner artifact/verifier classification, not disk |
 
 Rules:
 - Do not execute product implementation on Mac.
@@ -61,5 +62,6 @@ Rules:
   route where possible, and create repair task.
 - Do not mark a task remote-executed without Control Plane task status or SSH
   dispatch record.
-- Do not use `qjns` or `uiap` for implementation until disk/GitHub auth
-  repair is confirmed.
+- `qjns` and `uiap` disk repair is confirmed. Use them carefully: `qjns`
+  can run light tools/MIMO tasks, `uiap` is preferred for RAG/knowledge work,
+  and heavy implementation still needs GitHub auth/resource validation.
