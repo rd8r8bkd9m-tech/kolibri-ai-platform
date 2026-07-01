@@ -5,7 +5,7 @@
   "node": "kolibri",
   "russian_agent_display_name": "Автономный инженер Колибри",
   "branch": "p0/telegram-miniapp-owner-auth-contract-2026-07-01",
-  "pr": null,
+  "pr": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/90",
   "tests": [
     {
       "command": "python3 -m pytest tests/test_telegram_miniapp_auth.py -q",
