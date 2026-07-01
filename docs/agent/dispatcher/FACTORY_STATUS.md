@@ -1,7 +1,7 @@
 # Factory Status
 
 Snapshot time:
-- 2026-07-01T02:21:56Z
+- 2026-07-01T02:24:50Z
 
 Mac executor:
 - Hostname: `MacBook-Air-Vladislav.local`
@@ -85,6 +85,8 @@ Submitted tasks:
   Host tests `19 passed`, factory runtime tests `4 passed`, full suite
   `73 passed, 1 warning`, plus `py_compile`, JSON validation,
   `git diff --check` and remote branch verification passed.
+- GitHub Actions `Kolibri CI` run `28488999139` for PR #83 completed with
+  conclusion `success`.
 
 Node snapshot through Control Plane:
 - Observed node cards: 42.
@@ -100,8 +102,9 @@ Node snapshot through Control Plane:
   until resource pressure is reviewed.
 - `main`: online; current free disk observed `7614488576` bytes; known
   Codex/MIMO runner auth is broken from prior task attempts.
-- `primary-candidate`: online and currently running
-  `P0_AGENT_HOST_GENERIC_RUNNER_CONTRACT_HARDENING_2026_07_01`.
+- `primary-candidate`: online; latest exact P0 runner-hardening task state is
+  `failed` in Control Plane due verifier path mismatch, while PR #83 is
+  finalized and CI-green on GitHub.
 - Many mesh cards are degraded/stale or metadata-only; they need inventory
   before broad execution.
 - Aggregate `/v1/tasks` response showed 200 queued tasks while the direct P0
