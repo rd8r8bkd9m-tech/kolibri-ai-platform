@@ -431,6 +431,8 @@ def compact_factory_snapshot(factory: FactoryClient) -> dict[str, Any]:
                 "runners": node.get("runners", {}),
                 "draining": bool(node.get("draining")),
                 "heartbeat_at": node.get("heartbeat_at"),
+                "freshness": node.get("freshness"),
+                "heartbeat_age_seconds": node.get("heartbeat_age_seconds"),
             }
             for node in nodes
         ]
@@ -1073,7 +1075,10 @@ class Gateway:
 
 def format_node(node: dict[str, Any]) -> str:
     card = node_card(node)
-    return f"{card['name']} — {card['role']}\nСостояние: {card['health']}\nЗадача: {card['responsibility']}"
+    freshness = card.get("freshness") or card["health"]
+    age = card.get("heartbeat_age_seconds")
+    age_text = "unknown" if age is None else f"{age}s"
+    return f"{card['name']} — {card['role']}\nСостояние: {card['health']} ({freshness}, heartbeat {age_text})\nЗадача: {card['responsibility']}"
 
 
 def human_task_state(state: str | None) -> str:

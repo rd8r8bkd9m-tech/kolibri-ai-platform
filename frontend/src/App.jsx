@@ -69,6 +69,7 @@ function ClusterView({ status, onRefresh }) {
   )
   
   const nodeEntries = Array.isArray(status.nodes) ? status.nodes.map(node => [node.node_id || node.id || node.hostname, node]) : Object.entries(status.nodes || {})
+  const freshness = status.node_freshness || {}
 
   const NodeIcon = ({ role }) => {
     const paths = {
@@ -96,10 +97,10 @@ function ClusterView({ status, onRefresh }) {
       
       <div className="cluster-stats">
         {[
-          { label: "Узлов онлайн", value: `${status.online_nodes}/${status.total_nodes}`, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>, color: "var(--accent)" },
-          { label: "RAM свободно", value: `${status.free_ram_gb} GB`, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 12h4"/><path d="M14 12h4"/></svg>, color: "var(--success)" },
-          { label: "CPU средний", value: `${status.avg_cpu_percent}%`, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg>, color: "var(--text-primary)" },
-          { label: "Задач в очереди", value: status.queue_size || 0, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>, color: "var(--warning)" },
+          { label: "Свежие", value: `${freshness.fresh ?? status.fresh_nodes ?? status.online_nodes}/${status.total_nodes}`, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>, color: "var(--success)" },
+          { label: "Деградируют", value: freshness.degraded ?? status.degraded_nodes ?? 0, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>, color: "var(--warning)" },
+          { label: "Устарели", value: freshness.stale ?? status.stale_nodes ?? 0, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>, color: "var(--error)" },
+          { label: "Задач в очереди", value: status.queue_size || 0, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>, color: "var(--accent)" },
         ].map((s, i) => (
           <motion.div key={s.label} className="stat-card"
             initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
@@ -128,6 +129,7 @@ function ClusterView({ status, onRefresh }) {
               <div className="doc-meta">{node.role} · {node.hostname || node.ip || node.agent_id || "internal"}</div>
             </div>
             <div style={{ textAlign: "right" }}>
+              <div style={{ fontSize: "12px", fontWeight: "700", color: node.status === "online" ? "var(--success)" : "var(--error)" }}>{node.freshness || node.status}</div>
               <div style={{ fontSize: "13px", fontWeight: "600" }}>CPU {node.cpu == null ? "n/a" : node.cpu}</div>
               <div className="ram-bar">
                 <div className="ram-bar-fill" style={{ width: `${node.ram_total_gb ? Math.min(100, ((node.ram_total_gb - node.ram_available_gb) / node.ram_total_gb) * 100) : Math.min(100, (parseFloat(node.ram || 0) / 16) * 100)}%` }} />

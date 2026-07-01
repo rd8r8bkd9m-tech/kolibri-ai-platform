@@ -324,7 +324,17 @@ async def api_factory_status():
                 "queue_size": 0,
                 "nodes": {},
                 "node_list": [],
-                "control_plane": {"status": "unavailable"},
+                "control_plane": {
+                    "status": "blocked",
+                    "reason": "control_plane_api_unreachable",
+                    "fallback_route": {"type": "fabric_api_relay", "endpoint": "/v1/fabric/relay"},
+                    "fallback_nodes": ["home", "main", "9fts", "new"],
+                    "repair_task": {
+                        "kind": "repair_control_plane_api",
+                        "action": "restore Fabric API reachability or route through a registered relay",
+                    },
+                    "can_continue_elsewhere": True,
+                },
             },
         )
 
@@ -393,5 +403,4 @@ if frontend_path.exists():
         if file_path.exists() and file_path.is_file():
             return FileResponse(str(file_path))
         return FileResponse(str(frontend_path / "index.html"))
-
 
