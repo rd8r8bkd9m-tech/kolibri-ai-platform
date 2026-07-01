@@ -1,0 +1,13 @@
+# Draft CODEOWNERS for Kolibri Factory.
+# Replace @rd8r8bkd9m-tech with the final owner/team mapping if needed.
+
+* @rd8r8bkd9m-tech
+
+/ops/ @rd8r8bkd9m-tech
+/backend/ @rd8r8bkd9m-tech
+/frontend/ @rd8r8bkd9m-tech
+/infra/ @rd8r8bkd9m-tech
+/scripts/training/ @rd8r8bkd9m-tech
+/.github/ @rd8r8bkd9m-tech
+/docs/superfactory/ @rd8r8bkd9m-tech
+/docs/agent/ @rd8r8bkd9m-tech

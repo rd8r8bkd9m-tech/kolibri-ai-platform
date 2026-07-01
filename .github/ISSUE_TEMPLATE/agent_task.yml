@@ -1,0 +1,47 @@
+name: Agent Task
+description: Dispatchable task for Codex, MIMO, API, review, QA, or human agent.
+title: "[agent-task] "
+labels: ["type:agent-task", "status:ready"]
+body:
+  - type: input
+    id: task-id
+    attributes:
+      label: Task ID
+      placeholder: "P0_EXAMPLE_TASK_YYYY_MM_DD"
+    validations:
+      required: true
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+    validations:
+      required: true
+  - type: dropdown
+    id: agent-type
+    attributes:
+      label: Agent Type
+      options: ["agent:codex", "agent:mimo", "agent:api", "agent:review", "agent:qa", "agent:human"]
+    validations:
+      required: true
+  - type: input
+    id: target-node
+    attributes:
+      label: Target Node / Pool
+      placeholder: "primary-candidate, home, fleet, GitHub Actions"
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints
+      description: Include read-only/write scope, no-push, no-secret and remote-first requirements.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+    validations:
+      required: true
+  - type: input
+    id: artifact
+    attributes:
+      label: Expected Artifact Path

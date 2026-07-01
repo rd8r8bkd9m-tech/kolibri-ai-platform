@@ -1,0 +1,46 @@
+name: Bug Report
+description: Report a defect, regression, or broken contract.
+title: "[bug] "
+labels: ["type:bug", "status:needs-review"]
+body:
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: What happened and where?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Logs, PRs, task IDs, artifacts, screenshots. Do not paste secrets.
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options: ["P0", "P1", "P2", "P3"]
+    validations:
+      required: true
+  - type: input
+    id: area
+    attributes:
+      label: Area
+      placeholder: "area:backend, area:agent-host, area:fleet"
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+    validations:
+      required: true
+  - type: textarea
+    id: forbidden
+    attributes:
+      label: Forbidden Scope
+      description: What must not be touched?

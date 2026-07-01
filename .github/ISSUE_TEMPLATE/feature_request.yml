@@ -1,0 +1,38 @@
+name: Feature Request
+description: Request a product, platform, docs, or automation feature.
+title: "[feature] "
+labels: ["type:feature", "status:needs-review"]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+    validations:
+      required: true
+  - type: textarea
+    id: non-goals
+    attributes:
+      label: Explicitly Not Included
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+    validations:
+      required: true
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Risk
+      options: ["risk:low", "risk:medium", "risk:high", "risk:dangerous"]
+    validations:
+      required: true
+  - type: input
+    id: linked-artifacts
+    attributes:
+      label: Linked Docs / Artifacts

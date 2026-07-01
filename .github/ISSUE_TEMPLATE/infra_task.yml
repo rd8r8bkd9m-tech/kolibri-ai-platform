@@ -1,0 +1,43 @@
+name: Infrastructure Task
+description: Server, Control Plane, Agent Host, CI, deploy, networking, or fleet work.
+title: "[infra] "
+labels: ["type:infra", "status:needs-review"]
+body:
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact / Problem
+    validations:
+      required: true
+  - type: input
+    id: target
+    attributes:
+      label: Target Host / Service
+      placeholder: "main, primary-candidate, home, qjns, uiap, GitHub Actions"
+  - type: textarea
+    id: discovery
+    attributes:
+      label: Read-Only Discovery Required
+  - type: textarea
+    id: change-plan
+    attributes:
+      label: Change Plan
+  - type: textarea
+    id: rollback
+    attributes:
+      label: Rollback Plan
+    validations:
+      required: true
+  - type: dropdown
+    id: owner-approval
+    attributes:
+      label: Owner Approval Required
+      options: ["yes", "no"]
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification
+    validations:
+      required: true
