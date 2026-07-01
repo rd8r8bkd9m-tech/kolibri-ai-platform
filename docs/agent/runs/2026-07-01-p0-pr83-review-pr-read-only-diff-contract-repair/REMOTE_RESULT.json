@@ -1,0 +1,41 @@
+{
+  "task_id": "P0_PR83_REVIEW_PR_READ_ONLY_DIFF_CONTRACT_REPAIR_2026_07_01",
+  "server_node": "kolibri",
+  "russian_agent_display_name": "Автономный инженер",
+  "pr": {
+    "number": 83,
+    "url": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/83",
+    "branch": "p0/agent-host-runner-contract-hardening-2026-06-30",
+    "old_head": "dfbc7fc17f4d76d81d97944a852febbb91278d9b",
+    "new_repair_head": "e3e343542f3be5c0be06eea38ca8562a18bb0d94"
+  },
+  "artifacts": [
+    "docs/agent/runs/2026-07-01-p0-pr83-review-pr-read-only-diff-contract-repair/PLAN.md",
+    "docs/agent/runs/2026-07-01-p0-pr83-review-pr-read-only-diff-contract-repair/ACTIONS.md",
+    "docs/agent/runs/2026-07-01-p0-pr83-review-pr-read-only-diff-contract-repair/TESTS.md",
+    "docs/agent/runs/2026-07-01-p0-pr83-review-pr-read-only-diff-contract-repair/RESULT.md",
+    "docs/agent/runs/2026-07-01-p0-pr83-review-pr-read-only-diff-contract-repair/REMOTE_RESULT.json"
+  ],
+  "tests": [
+    {
+      "command": "python3 -m pytest -q tests/test_agent_host_runner_contract.py",
+      "result": "passed",
+      "summary": "29 passed in 34.68s"
+    },
+    {
+      "command": "python3 -m pytest -q tests/test_agent_host_runner_contract.py tests/test_agent_host_image_generation.py tests/test_agent_host_telegram_chat.py tests/test_factory_runtime.py tests/test_factory_runtime_contracts.py",
+      "result": "passed",
+      "summary": "43 passed in 38.80s"
+    },
+    {
+      "command": "python3 -m py_compile ops/agent_host.py",
+      "result": "passed"
+    },
+    {
+      "command": "git diff --check",
+      "result": "passed"
+    }
+  ],
+  "blockers": [],
+  "next_action": "Run PR #83 merge-readiness verification after branch push, then merge PR #83 if checks and review policy pass."
+}
