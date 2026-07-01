@@ -149,6 +149,20 @@ recommended_start_price: 7 000 RUB
 notes: publish a narrow starter scope, avoid broad "any complexity" claims, and move extra integrations into Standard/Premium or paid add-ons inside Kwork.
 ```
 
+Published Telegram AI bot package on 2026-07-01:
+
+```text
+direction: Telegram AI bot for leads/FAQ
+public_url: https://kwork.ru/script-programming/53216866/sozdam-telegram-ai-bota-dlya-zayavok-i-otvetov-klientam
+published_title: Создам Telegram AI-бота для заявок и ответов клиентам
+selected_seller_price: 7 200 RUB
+observed_public_buyer_price: 9 000 RUB
+deadline: 3 days
+scope: one Telegram bot, up to 3 commands/buttons, scenario, test and instruction
+reason_for_price_delta: Kwork price selector did not offer exactly 7 000 RUB; nearest usable seller-side value was 7 200 RUB, which displays to buyers as 9 000 RUB.
+risk_note: within observed practical entry band, but watch conversion because the account still has low trust/social proof.
+```
+
 ## Live Analysis Required For Remaining Directions
 
 Мария must validate these ranges against current Kwork listings before publishing final package prices:

@@ -16,6 +16,8 @@
 
 ## Kwork-Specific Safety Gates
 
+Canonical policy: `KWORK_SAFE_CHAT_ONLY_AUTONOMY_POLICY.md`.
+
 ## Owner Public Button Authorization
 
 On 2026-07-01 the owner explicitly stated:
@@ -30,6 +32,7 @@ Operational meaning for Kwork revenue work:
 - the assistant may discuss price, budget, scope, stages, deadlines and add-ons inside Kwork safe chat;
 - the assistant may take clear in-platform Kwork work into execution and route it to Kolibri Factory with sanitized client data;
 - the assistant may guide the client through stages and send intermediate/final results inside Kwork;
+- the assistant may accept a request/order into the work process only when it does not require owner-side payment, bank, tax, passport, password or 2FA actions;
 - the assistant must inspect the visible final state before clicking and must log the action in the relevant Kwork docs;
 - no per-button confirmation is required for a documented batch once the batch, texts and targets are recorded in GitHub;
 - this authorization does not allow payment, payout, tax, passport, bank, card, phone, email, password, 2FA, API-key or security-setting changes;

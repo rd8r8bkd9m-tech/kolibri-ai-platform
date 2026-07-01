@@ -21,6 +21,7 @@ Subagent delegation:
 - Kwork/UI work delegated to `Мария`.
 - Codex thread id: `019f1b76-23c0-7e71-a130-8d90434b7c4b`.
 - Handoff file: `docs/business/kwork/KWORK_MARIA_HANDOFF_2026-07-01.md`.
+- Safe-chat-only autonomy policy: `docs/business/kwork/KWORK_SAFE_CHAT_ONLY_AUTONOMY_POLICY.md`.
 - Latest owner update delivered to `Мария`: negotiate and deliver only inside Kwork; public proposals/messages allowed; direct contacts, payout/bank/tax/passport/password/2FA/security settings and Kwork rule bypass are forbidden; log saved/published items, sent proposals, attention-needed dialogs, factory work and platform-rule risks.
 
 Kwork public/profile state observed:
@@ -29,6 +30,18 @@ Kwork public/profile state observed:
 - Kwork showed: `Работа в процессе подготовки к публикации. Обычно это занимает до нескольких часов.`
 - Browser observed portfolio URL: `https://kwork.ru/portfolio/23058129`.
 - Fifth handoff portfolio item was saved by `Мария` on 2026-07-01 05:21 MSK: `Аудит и доработка Telegram/AI-бота`; Kwork returned to the profile portfolio grid and showed the new work in preparation for publication.
+
+Kwork published/created service state observed:
+
+- First public kwork created by `Мария` on 2026-07-01 05:44 MSK.
+- Title: `Создам Telegram AI-бота для заявок и ответов клиентам`.
+- URL: `https://kwork.ru/script-programming/53216866/sozdam-telegram-ai-bota-dlya-zayavok-i-otvetov-klientam`.
+- Public buyer price: `9 000 руб.`
+- Seller-side selected kwork price: `7 200 ₽`.
+- Deadline: `3 дня`.
+- Category path: `Разработка и IT > Скрипты, боты и mini apps > Чат-боты`.
+- Attributes observed on public page: `Написание и доработка`, `Python`, `Telegram`.
+- Status note: public kwork page opened successfully after `Готово`; no validation blocker visible.
 
 Kwork form state prepared but not publicly saved:
 
@@ -84,9 +97,9 @@ Every public click must be logged with time, page/action, visible result and nex
 1. Delegate Kwork UI completion to the dedicated subagent role `Мария`.
 2. Done 2026-07-01 05:21 MSK: fifth portfolio card saved from `05-bot-audit.png` and observed in Kwork preparation state.
 3. Inspect public profile after Kwork finishes portfolio processing.
-4. Publish or complete 3-5 narrow kworks when price/scope/deadline fields are unambiguous.
-5. Analyze live Kwork competitor pricing and update `KWORK_PRICE_PACKAGES_2026-07-01.md`.
-6. Update `KWORK_PORTFOLIO_UPLOAD_STATUS_2026-07-01.md` after every observed public state change.
+4. Done 2026-07-01 05:44 MSK: first Telegram AI bot kwork created/published to public page after fields were verified.
+5. Publish or complete remaining narrow kworks when price/scope/deadline fields are unambiguous.
+6. Update `KWORK_PORTFOLIO_UPLOAD_STATUS_2026-07-01.md` after every observed portfolio state change.
 7. Send proposal wave A inside Kwork after verifying page state, project fit and current proposal limits.
 
 ## Offer Focus
@@ -210,4 +223,15 @@ visible_result: modal closed; Kwork portfolio grid showed a newly saved work in 
 url_or_title: https://kwork.ru/user/kolibrinano#portfolio-section / Аудит и доработка Telegram/AI-бота
 blocker: none
 next_action: continue with Kwork management section, price analysis, and first kwork completion/publishing under the existing delegation
+```
+
+```text
+time: 2026-07-01 05:44 MSK
+target: Kwork public kwork / user kolibrinano
+action: created/completed first Telegram AI bot kwork draft, uploaded unique cover, filled description and buyer requirements, set volume, selected seller-side price 7200 ₽, selected 3-day deadline, clicked public Готово
+status: published
+visible_result: Kwork opened the public kwork page with title, cover, description, buyer requirements, attributes Python/Telegram, price 9 000 руб. for buyer and 3-day delivery
+url_or_title: https://kwork.ru/script-programming/53216866/sozdam-telegram-ai-bota-dlya-zayavok-i-otvetov-klientam / Создам Telegram AI-бота для заявок и ответов клиентам
+blocker: none
+next_action: verify public visibility from manage kworks/profile, then send safe in-platform proposal wave A or prepare the next narrow kwork
 ```

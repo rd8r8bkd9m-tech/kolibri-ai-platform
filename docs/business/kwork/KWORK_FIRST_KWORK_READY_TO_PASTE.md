@@ -1,6 +1,31 @@
 # First Kwork Ready To Paste
 
-Status: source copy for the first public kwork under the 2026-07-01 owner delegation. Publish only when the visible Kwork fields, package price, delivery time, scope and exclusions match this document or a logged update.
+Status: first public kwork created/published by `Мария` on 2026-07-01 05:44 MSK under the 2026-07-01 owner delegation.
+
+Public URL:
+
+```text
+https://kwork.ru/script-programming/53216866/sozdam-telegram-ai-bota-dlya-zayavok-i-otvetov-klientam
+```
+
+Observed public title:
+
+```text
+Создам Telegram AI-бота для заявок и ответов клиентам
+```
+
+Observed public buyer price: `9 000 руб.`
+
+Seller-side selected price in Kwork form: `7 200 ₽`.
+
+Observed deadline: `3 дня`.
+
+Observed category/attributes:
+
+- `Разработка и IT > Скрипты, боты и mini apps > Чат-боты`;
+- `Написание и доработка`;
+- `Python`;
+- `Telegram`.
 
 ## Title
 
@@ -47,7 +72,12 @@ Alternative:
 
 ### Base
 
-Price: 7 000 RUB
+Planned price before Kwork selector constraints: 7 000 RUB.
+
+Actual Kwork-selected seller-side price: 7 200 RUB.
+
+Observed public buyer price: 9 000 RUB.
+
 Delivery: 3 days
 
 Included:

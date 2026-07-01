@@ -30,32 +30,50 @@ Fully prepare Vladislav's Kwork/Quork account for revenue:
 
 Yandex Browser is logged into Kwork as `kolibrinano`.
 
-Expected page:
+Latest observed page after `Мария` completion:
+
+```text
+https://kwork.ru/script-programming/53216866/sozdam-telegram-ai-bota-dlya-zayavok-i-otvetov-klientam
+```
+
+Visible result:
+
+- public kwork page opened successfully;
+- title: `Создам Telegram AI-бота для заявок и ответов клиентам`;
+- buyer price shown by page title: `9 000 руб.`;
+- category path: `Разработка и IT > Скрипты, боты и mini apps > Чат-боты`;
+- attributes: `Написание и доработка`, `Python`, `Telegram`;
+- volume: `1 Telegram-бот: до 3 команд/кнопок, сценарий, тест и инструкция`;
+- deadline: `3 дня на выполнение`;
+- edit link visible: `kwork.ru/edit?id=53216866`.
+
+Previous portfolio page:
 
 ```text
 https://kwork.ru/user/kolibrinano#portfolio-section
 ```
 
-The supervising agent stopped while adding the fifth portfolio card.
-
-Expected current form state:
+Portfolio fifth card was completed by `Мария` on 2026-07-01 05:21 MSK.
 
 - title: `Аудит и доработка Telegram/AI-бота`;
 - category: `Разработка и IT`;
 - subcategory: `Создание сайта`;
 - type: `Новый сайт`;
-- macOS file picker opened in `/Users/kolibri/Documents/KworkPortfolio`;
-- select `05-bot-audit.png`;
-- open it;
-- wait for Kwork to generate or display the cover;
-- click public `Сохранить`;
-- verify the portfolio grid/status.
+- uploaded image: `/Users/kolibri/Documents/KworkPortfolio/05-bot-audit.png`;
+- public `Сохранить` clicked;
+- visible result: portfolio grid showed the item in preparation for publication.
 
 If the visible UI differs, inspect first and log the actual state. Do not guess.
 
 ## Owner Delegation
 
 The owner authorized public Kwork operation from his account.
+
+Canonical policy:
+
+```text
+docs/business/kwork/KWORK_SAFE_CHAT_ONLY_AUTONOMY_POLICY.md
+```
 
 Latest owner update for `Мария`:
 
@@ -65,6 +83,7 @@ Latest owner update for `Мария`:
 - guide the client through stages and send results inside Kwork;
 - if a client asks for or sends a direct contact, politely answer that work continues only through the safe Kwork deal/chat according to platform rules, so both sides are protected;
 - document what was published/saved, which proposals were sent, which dialogs need attention, where factory development is needed, and where platform-rule risk exists.
+- accept a request/order into the work process only when it does not require payment, bank, tax, passport, password or 2FA actions from the owner.
 
 Allowed:
 
@@ -161,13 +180,11 @@ next_action:
 
 ## First Actions
 
-1. Finish fifth portfolio card with `05-bot-audit.png`.
-2. Verify portfolio grid.
-3. Open Kwork management section.
-4. Publish or complete the first Telegram AI bot kwork.
-5. Analyze live pricing for the five directions.
-6. Publish remaining safe kworks when package fields are unambiguous.
-7. Update docs and push the PR branch.
+1. Verify the first public kwork from manage kworks/profile and watch for Kwork moderation/public status changes.
+2. Send proposal wave A inside Kwork only after checking the live project page, proposal limits and safe text.
+3. Analyze live pricing for the remaining directions.
+4. Publish remaining safe kworks when package fields are unambiguous.
+5. Update docs after each public action and push the PR branch when ready.
 
 ## Blocker Rule
 

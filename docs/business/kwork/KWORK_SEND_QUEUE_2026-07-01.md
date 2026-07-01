@@ -2,6 +2,8 @@
 
 Status: ready for safe in-platform batch send under the 2026-07-01 owner delegation.
 
+Safe-chat-only policy: send proposals and replies only inside Kwork. Do not include or accept phone, Telegram, WhatsApp, email, external messenger links, direct-payment offers or any platform-bypass wording. Canonical policy: `KWORK_SAFE_CHAT_ONLY_AUTONOMY_POLICY.md`.
+
 Batch policy: no per-message approval. The 2026-07-01 owner delegation covers safe in-platform proposal waves when the target, text and risk state match this queue.
 
 ## Wave A: Send First
@@ -56,4 +58,4 @@ Fill after each submission:
 
 | Time | Project | Status | Notes |
 |---|---|---|---|
-| | | not sent | |
+| 2026-07-01 05:44 MSK | proposal wave A | not sent | Session focused on completing portfolio item and publishing first Telegram AI bot kwork; no public proposals/replies sent yet. |

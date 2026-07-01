@@ -8,7 +8,22 @@ Portfolio status:
 
 - First portfolio card observed on Kwork: `Telegram AI-бот для заявок и FAQ`; Kwork showed preparation for publication.
 - Earlier upload ledger recorded the second portfolio card prepared in the browser form: `AI-бот для документов, КП и смет`; main image and cover uploaded.
-- Latest handoff context for `Мария`: the browser was stopped while adding the fifth portfolio card `Аудит и доработка Telegram/AI-бота`; exact live public state must be inspected before making completion claims.
+- Fifth portfolio card `Аудит и доработка Telegram/AI-бота` was saved by `Мария` on 2026-07-01 05:21 MSK and observed in Kwork preparation state.
+
+Kwork status:
+
+- First Telegram AI bot kwork created/published by `Мария` on 2026-07-01 05:44 MSK.
+- Public URL: `https://kwork.ru/script-programming/53216866/sozdam-telegram-ai-bota-dlya-zayavok-i-otvetov-klientam`.
+- Public buyer price: `9 000 руб.`
+- Seller-side selected price: `7 200 ₽`.
+- Deadline: `3 дня`.
+- Public attributes observed: `Написание и доработка`, `Python`, `Telegram`.
+
+Autonomy policy:
+
+- Safe-chat-only autonomy policy recorded in `KWORK_SAFE_CHAT_ONLY_AUTONOMY_POLICY.md`.
+- `Мария` may negotiate price/scope/deadlines/stages and route accepted work to Kolibri Factory only inside Kwork.
+- External contacts, off-platform payment and owner-only payout/bank/tax/passport/password/2FA/security actions remain blockers.
 
 ## Profile Sections Inspected
 
@@ -35,7 +50,7 @@ Yes, in `KWORK_SERVICE_CATALOG.md`: "Создам Telegram-бота с AI-асс
 
 ## First Kwork Published
 
-No.
+Yes: `Создам Telegram AI-бота для заявок и ответов клиентам`.
 
 ## Requires Owner Confirmation
 
@@ -66,12 +81,11 @@ It does not allow tax, payout, bank, card, passport, phone, email, password, 2FA
 
 ## Next 5 Actions
 
-1. Open the live Kwork browser state and reconcile it with `KWORK_MARIA_HANDOFF_2026-07-01.md`.
-2. If the fifth portfolio card form is still open, upload `05-bot-audit.png`, save it and verify the portfolio grid.
-3. Publish or complete 3-5 narrow kworks: Telegram AI bot, document/estimate AI bot, knowledge-base FAQ bot, mini-app/PWA, audit and repair.
-4. Analyze live Kwork competitor pricing before final package prices.
-5. Send the first proposal wave from `KWORK_SEND_QUEUE_2026-07-01.md` after verifying proposal texts, limits and target list.
-6. Route any paid order through `KWORK_FACTORY_ORDER_ROUTING.md`.
+1. Verify the first kwork from manage kworks/profile and watch for moderation/public status changes.
+2. Send the first proposal wave from `KWORK_SEND_QUEUE_2026-07-01.md` after verifying proposal texts, limits and target list.
+3. Publish or complete remaining narrow kworks: document/estimate AI bot, knowledge-base FAQ bot, mini-app/PWA, audit and repair.
+4. Analyze live Kwork competitor pricing before final package prices for the remaining directions.
+5. Route any paid order through `KWORK_FACTORY_ORDER_ROUTING.md`.
 
 ## Files Created
 
@@ -94,3 +108,4 @@ It does not allow tax, payout, bank, card, passport, phone, email, password, 2FA
 - Need explicit owner-level decision before tax, payout, bank, card, passport, phone/email/password/security settings or accepting/closing unclear/platform-risky orders.
 - Kwork execution is delegated to the background Codex subagent thread `019f1b76-23c0-7e71-a130-8d90434b7c4b` with working name `Мария`.
 - Profile trust recovery requires careful handling because of one negative public review.
+- No proposals have been sent yet in this session.

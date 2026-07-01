@@ -6,6 +6,12 @@ Owner: Vladislav.
 
 Commercial identity: ИП Кочуров Владислав Евгеньевич, применяет налог на профессиональный доход. Short wording: ИП на НПД / самозанятый ИП.
 
+Canonical safe-chat-only autonomy policy:
+
+```text
+docs/business/kwork/KWORK_SAFE_CHAT_ONLY_AUTONOMY_POLICY.md
+```
+
 ## Delegation
 
 The owner delegates operational control for Kwork revenue work to Codex/Kolibri for:

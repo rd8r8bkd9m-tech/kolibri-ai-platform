@@ -4,13 +4,19 @@ Date: 2026-07-01
 
 Purpose: every real Kwork lead or order becomes a scoped Kolibri Factory task with sanitized client data, isolated artifacts, and clear acceptance.
 
+Canonical safe-chat-only autonomy policy:
+
+```text
+docs/business/kwork/KWORK_SAFE_CHAT_ONLY_AUTONOMY_POLICY.md
+```
+
 ## Lead States
 
 1. New lead or buyer project found in Kwork.
 2. Fit check: AI bot, Telegram bot, mini app, parser, API integration, documents, estimates, dashboard or automation.
 3. Proposal drafted and sent inside Kwork only.
 4. Scope clarified inside Kwork.
-5. Paid order starts.
+5. Paid order or clear in-platform request enters the work process without requiring owner-side payout, bank, tax, passport, password or 2FA actions.
 6. Internal factory task envelope created.
 7. Remote agent implements, tests and produces artifacts.
 8. Codex reviews result as thin client.
@@ -40,6 +46,7 @@ Create one intake card per lead or order:
 - Keep all client communication inside Kwork.
 - Commercial discussion is allowed inside Kwork: price, budget, scope, stages, deadlines, revision boundaries and add-ons.
 - If a client requests phone, Telegram, WhatsApp, email, external links or off-platform payment, politely decline and keep everything inside Kwork safe chat.
+- Intermediate and final results must be sent inside Kwork, not through external channels.
 - Do not copy private chat, tokens, credentials, bank data, personal data or proprietary documents into public GitHub.
 - Use demo data in public docs and screenshots.
 - If client access is needed, request temporary credentials inside the Kwork order and instruct the client to rotate them after delivery.

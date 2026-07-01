@@ -2,6 +2,14 @@
 
 Status captured: 2026-07-01, Europe/Moscow.
 
+Safe-chat-only autonomy policy:
+
+```text
+docs/business/kwork/KWORK_SAFE_CHAT_ONLY_AUTONOMY_POLICY.md
+```
+
+Portfolio/public proof must not contain external contacts, payment bypass wording, tokens, bank/tax/passport/security data, private client material or anything that encourages moving the client outside Kwork.
+
 ## Current Public Site State
 
 Kwork portfolio URL observed in browser:

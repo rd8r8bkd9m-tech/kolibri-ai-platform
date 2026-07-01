@@ -6,6 +6,8 @@ Status: ready draft. Do not upload or save publicly until owner confirms the exa
 
 Commercial identity: ИП Кочуров Владислав Евгеньевич, НПД. Public portfolio text must not contain INN, OGRNIP, passport data, bank details, phone, email, tokens, client chats or private server data.
 
+Safe-chat-only autonomy policy: `KWORK_SAFE_CHAT_ONLY_AUTONOMY_POLICY.md`. Portfolio text and images must not include direct contacts, external messenger invitations, payment bypass wording or private client data. All client conversion stays inside Kwork.
+
 ## Portfolio Direction
 
 First public portfolio should sell one clear promise:

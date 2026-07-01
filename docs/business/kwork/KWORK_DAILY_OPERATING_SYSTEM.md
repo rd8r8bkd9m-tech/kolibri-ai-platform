@@ -20,6 +20,12 @@ Owner authorization recorded on 2026-07-01:
 Публичные кнопки разрешаю нажимать
 ```
 
+Canonical autonomy policy:
+
+```text
+docs/business/kwork/KWORK_SAFE_CHAT_ONLY_AUTONOMY_POLICY.md
+```
+
 Allowed without extra per-button confirmation when the action is prepared and logged:
 
 - save prepared Kwork portfolio cards;
@@ -29,6 +35,7 @@ Allowed without extra per-button confirmation when the action is prepared and lo
 - answer Kwork clients with prepared safe replies;
 - discuss price, budget, scope, stages, deadlines and paid add-ons inside Kwork;
 - route accepted in-platform work into Kolibri Factory.
+- send intermediate/final results inside Kwork by stages.
 
 Always excluded:
 
