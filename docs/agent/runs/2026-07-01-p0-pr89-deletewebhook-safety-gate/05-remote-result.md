@@ -14,8 +14,8 @@ Commit: `b6db2b0` implementation commit; final pushed branch head is reported by
 
 Tests:
 
-- `.venv/bin/python -m pytest tests/test_telegram_gateway.py` - 34 passed.
-- `.venv/bin/python -m pytest tests/test_factory_runtime.py tests/test_factory_runtime_contracts.py tests/test_factory_runtime_queue_contracts.py tests/test_factory_status.py` - 14 passed.
+- `.venv/bin/python -m pytest tests/test_telegram_gateway.py` - 35 passed.
+- `.venv/bin/python -m pytest tests/test_telegram_superfactory_contracts.py tests/test_factory_runtime.py tests/test_factory_runtime_contracts.py tests/test_factory_runtime_queue_contracts.py tests/test_factory_status.py` - 18 passed.
 
 Blockers: none at implementation time.
 

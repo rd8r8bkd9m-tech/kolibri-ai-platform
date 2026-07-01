@@ -15,8 +15,10 @@ The Mac is only a dispatcher. It must not run a second Telegram poller.
 - `TELEGRAM_UPDATE_RECEIVER=disabled`: no update receiver starts.
 
 If Telegram already has a webhook while `polling` is configured, startup refuses
-to poll. To migrate from webhook to polling, set `TELEGRAM_ALLOW_WEBHOOK_DELETE=1`
-for a single restart, confirm the gateway deletes the webhook, then remove it.
+to poll. To migrate from webhook to polling, run the separate owner-approved
+webhook migration command during an approved cutover window, then restart the
+gateway normally. Do not put webhook deletion flags in the systemd service or
+ordinary gateway environment.
 
 ## Mini App
 
@@ -55,6 +57,8 @@ sudo journalctl -u kolibri-telegram-gateway.service -n 50 --no-pager
 ```
 
 Do not start any Mac-local poller and do not run another `getUpdates` process.
+Do not use `ops/telegram_webhook_migration.py delete-webhook` unless the owner
+has approved a webhook-to-polling migration for that window.
 
 ## Rollback
 

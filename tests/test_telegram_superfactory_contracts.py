@@ -41,14 +41,15 @@ def test_polling_receiver_refuses_existing_webhook_without_explicit_delete():
     assert "example.invalid" not in json.dumps(contracts.redacted_receiver_status(plan))
 
 
-def test_polling_receiver_can_delete_webhook_only_when_operator_allows_it():
+def test_polling_receiver_requires_separate_migration_even_when_delete_env_is_set():
     contracts = load_contracts()
     plan = contracts.plan_update_receiver(
         {"TELEGRAM_UPDATE_RECEIVER": "polling", "TELEGRAM_ALLOW_WEBHOOK_DELETE": "1"},
         {"url": "https://example.invalid/tg/webhook"},
     )
-    assert plan.should_poll is True
-    assert plan.startup_action == "delete_webhook_then_poll"
+    assert plan.should_poll is False
+    assert plan.conflict == "webhook_already_configured"
+    assert plan.startup_action == "refuse_polling"
 
 
 def test_telegram_init_data_validation_enforces_hash_freshness_and_owner():

@@ -45,18 +45,14 @@ def plan_update_receiver(
     mode = receiver_mode_from_env(env)
     receiver_id = env.get("TELEGRAM_RECEIVER_ID", CANONICAL_RECEIVER_ID)
     webhook_url = (webhook_info or {}).get("url") or env.get("TELEGRAM_WEBHOOK_URL") or None
-    allow_delete = env.get("TELEGRAM_ALLOW_WEBHOOK_DELETE", "0") == "1"
-
     if mode == "disabled":
         return ReceiverPlan(receiver_id, mode, False, webhook_url, None, "disabled")
     if mode == "webhook":
         if not webhook_url:
             return ReceiverPlan(receiver_id, mode, False, None, "webhook_url_missing", "refuse_polling")
         return ReceiverPlan(receiver_id, mode, False, webhook_url, None, "webhook_only")
-    if webhook_url and not allow_delete:
+    if webhook_url:
         return ReceiverPlan(receiver_id, mode, False, webhook_url, "webhook_already_configured", "refuse_polling")
-    if webhook_url and allow_delete:
-        return ReceiverPlan(receiver_id, mode, True, webhook_url, "webhook_delete_required", "delete_webhook_then_poll")
     return ReceiverPlan(receiver_id, mode, True, None, None, "poll")
 
 

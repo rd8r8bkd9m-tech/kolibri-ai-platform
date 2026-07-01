@@ -335,12 +335,6 @@ class TelegramClient:
             payload["offset"] = offset
         return self.call("getUpdates", payload, timeout=timeout + 10).get("result", [])
 
-    def get_webhook_info(self) -> dict[str, Any]:
-        return self.call("getWebhookInfo", {}, timeout=10).get("result", {})
-
-    def delete_webhook(self) -> None:
-        self.call("deleteWebhook", {"drop_pending_updates": False}, timeout=10)
-
     def send_message(self, chat_id: int, text: str) -> dict[str, Any]:
         response = self.call("sendMessage", {"chat_id": chat_id, "text": text[:3900], "disable_web_page_preview": True})
         return response.get("result") or {}
@@ -1227,14 +1221,8 @@ def main() -> int:
     signal.signal(signal.SIGTERM, handle_stop)
     signal.signal(signal.SIGINT, handle_stop)
     telegram = TelegramClient(token)
-    try:
-        webhook_info = telegram.get_webhook_info()
-    except Exception:
-        webhook_info = {}
-    receiver_plan = plan_update_receiver(webhook_info=webhook_info)
+    receiver_plan = plan_update_receiver()
     print(json.dumps({"event": "telegram_receiver_plan", **redacted_receiver_status(receiver_plan)}, sort_keys=True))
-    if receiver_plan.startup_action == "delete_webhook_then_poll":
-        telegram.delete_webhook()
     if not receiver_plan.should_poll:
         raise SystemExit(f"canonical Telegram receiver refused to start polling: {receiver_plan.conflict or receiver_plan.startup_action}")
     gateway = Gateway(telegram, FactoryClient(args.control_url, args.control_urls), owner_ids, StateStore(Path(args.state_file)), args.poll_timeout)

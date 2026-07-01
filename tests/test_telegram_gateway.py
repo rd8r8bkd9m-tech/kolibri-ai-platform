@@ -85,6 +85,58 @@ def test_default_gateway_startup_is_non_mutating_with_unsafe_webhook_env(monkeyp
     monkeypatch.setattr(gateway, "FactoryClient", FakeFactoryClient)
     monkeypatch.setattr(gateway, "Gateway", FakeGateway)
 
+    try:
+        gateway.main()
+    except SystemExit as exc:
+        assert "refused to start polling" in str(exc)
+    else:
+        raise AssertionError("unsafe webhook environment did not refuse ordinary polling startup")
+    assert ("telegram_client", "fake-token", "https://api.telegram.org", False) in events
+    assert ("gateway_run",) not in events
+    assert not any(event[0] in {"telegram_call", "get_updates"} for event in events)
+
+
+def test_default_gateway_startup_without_webhook_env_starts_existing_polling_receiver(monkeypatch, tmp_path):
+    gateway = load_gateway()
+    events = []
+
+    class FakeTelegramClient:
+        def __init__(self, token, api_base="https://api.telegram.org", allow_delivery_state_mutation=False):
+            events.append(("telegram_client", token, api_base, allow_delivery_state_mutation))
+
+        def call(self, method, payload=None, timeout=35):
+            events.append(("telegram_call", method, payload, timeout))
+            raise AssertionError("startup must not call Telegram API methods")
+
+        def get_updates(self, offset, timeout):
+            events.append(("get_updates", offset, timeout))
+            raise AssertionError("startup must not poll until Gateway.run owns the receiver")
+
+    class FakeFactoryClient:
+        def __init__(self, control_url, control_urls):
+            events.append(("factory_client", control_url, control_urls))
+
+    class FakeGateway:
+        def __init__(self, telegram, factory, owner_ids, state, poll_timeout):
+            events.append(("gateway_init", owner_ids, poll_timeout))
+
+        def run(self):
+            events.append(("gateway_run",))
+
+    def fail_urlopen(*args, **kwargs):
+        raise AssertionError("startup must not open network connections")
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "fake-token")
+    monkeypatch.setenv("TELEGRAM_OWNER_IDS", "100")
+    monkeypatch.delenv("TELEGRAM_WEBHOOK_URL", raising=False)
+    monkeypatch.delenv("TELEGRAM_ALLOW_WEBHOOK_DELETE", raising=False)
+    monkeypatch.delenv("TELEGRAM_DROP_PENDING_UPDATES", raising=False)
+    monkeypatch.setattr(sys, "argv", ["telegram_gateway.py", "--state-file", str(tmp_path / "state.json"), "--poll-timeout", "1"])
+    monkeypatch.setattr(gateway.urllib.request, "urlopen", fail_urlopen)
+    monkeypatch.setattr(gateway, "TelegramClient", FakeTelegramClient)
+    monkeypatch.setattr(gateway, "FactoryClient", FakeFactoryClient)
+    monkeypatch.setattr(gateway, "Gateway", FakeGateway)
+
     assert gateway.main() == 0
     assert ("telegram_client", "fake-token", "https://api.telegram.org", False) in events
     assert ("gateway_run",) in events
