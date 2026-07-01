@@ -4,6 +4,22 @@ Snapshot time:
 - 2026-07-01T08:00:05Z
 
 Latest update:
+- 2026-07-01T08:26:58Z:
+  Submitted exact follow-ups through `kolibri-primary-codex`.
+  `P0_PR83_REVIEW_DIFF_CONTRACT_EXACT_ARTIFACT_REPAIR_2026_07_01`
+  is running on `primary-candidate:agent-host-primary` with fresh heartbeat.
+  `P0_TELEGRAM_COMMAND_CENTER_ALIGNMENT_EXACT_CANONICAL_RELAY_2026_07_01`
+  is queued.
+- 2026-07-01T08:21:55Z:
+  PR83 read-only diff contract repair pushed branch head
+  `e2e27313e88ed8f285ccb057263dae6a5c447d2d`; GitHub Actions
+  `Kolibri CI` run `28503501294` completed successfully. Control Plane task
+  state remains `failed` because exact artifact `NEXT.md` was missing and
+  `REMOTE_RESULT.json` was created instead. Prepared
+  `P0_PR83_REVIEW_DIFF_CONTRACT_EXACT_ARTIFACT_REPAIR_2026_07_01`.
+  Telegram canonical repair also failed verifier after writing useful output to
+  non-canonical paths again; prepared strict exact canonical relay
+  `P0_TELEGRAM_COMMAND_CENTER_ALIGNMENT_EXACT_CANONICAL_RELAY_2026_07_01`.
 - 2026-07-01T08:13:19Z:
   Submitted `P0_TELEGRAM_COMMAND_CENTER_ALIGNMENT_CANONICAL_ARTIFACT_REPAIR_2026_07_01`;
   Control Plane accepted it as `queued`. Submitted
