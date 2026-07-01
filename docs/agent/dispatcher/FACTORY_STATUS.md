@@ -4,6 +4,19 @@ Snapshot time:
 - 2026-07-01T03:28:51Z
 
 Latest update:
+- 2026-07-01T04:41:05Z: Latest exact query for
+  `P0_TELEGRAM_SINGLE_CANONICAL_RECEIVER_MIGRATION_2026_07_01` still reports
+  `running` on `home-live:director-home-live`; no result artifact yet.
+- 2026-07-01T04:37:33Z: Control Plane accepted
+  `P0_TELEGRAM_SINGLE_CANONICAL_RECEIVER_MIGRATION_2026_07_01` and leased it
+  to `home-live:director-home-live`; latest observed state is `running`.
+- 2026-07-01T04:36:00Z: Prepared remote-only task
+  `P0_TELEGRAM_SINGLE_CANONICAL_RECEIVER_MIGRATION_2026_07_01` for
+  `home-live`, `home`, then `primary-candidate`. Its purpose is to prove the
+  single canonical Telegram receiver for `@kolibriai_bot` before PR #89 live
+  switch. It may stop/disable only a proven stale Kolibri Telegram worker; no
+  token rotation, pending update deletion, product code change or git push is
+  allowed.
 - 2026-07-01T04:22:48Z: PR #89 Telegram Superfactory branch is now at
   `2b7cec1560276c31eb0d63d6b1a386c7ea00cce3`.
 - Server task `P0_PR89_TELEGRAM_SUPERFACTORY_CANONICAL_ARTIFACTS_2026_07_01`
