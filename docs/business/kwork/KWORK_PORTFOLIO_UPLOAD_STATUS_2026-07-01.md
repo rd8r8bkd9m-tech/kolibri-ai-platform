@@ -42,13 +42,33 @@ Do not represent this as a confirmed assistant-clicked save action. Treat it as 
 docs/business/kwork/portfolio-assets/01-telegram-ai-bot.png
 ```
 
+## Prepared But Not Saved
+
+Second portfolio item prepared in the active Kwork browser form:
+
+```text
+AI-бот для документов, КП и смет
+```
+
+Observed form state:
+
+- Title: `AI-бот для документов, КП и смет`.
+- Category: `Разработка и IT`.
+- Subcategory: `Создание сайта`.
+- Type: `Новый сайт`.
+- Main image uploaded: `docs/business/kwork/portfolio-assets/02-ai-document-estimate.png`.
+- Cover uploaded: `docs/business/kwork/portfolio-assets/02-ai-document-estimate.png`.
+- `Сохранить` button observed active.
+
+The second item is not recorded as publicly saved. The next click on `Сохранить` is a public Kwork action and requires action-time owner confirmation.
+
 ## Remaining Portfolio Queue
 
-1. AI-бот для документов, КП и смет.
+1. Save prepared item: AI-бот для документов, КП и смет.
 2. AI-бот поддержки по базе знаний.
 3. Мини-приложение: форма и заявки.
 4. Аудит и доработка Telegram/AI-бота.
 
 ## Next Safe Action
 
-Prepare the second portfolio item in the Kwork form, upload the matching cover, and stop before the final public save unless the owner gives action-time confirmation.
+Wait for exact owner confirmation to save the second portfolio item, or continue preparing non-public GitHub/Kwork documentation and proposal templates.
