@@ -4,6 +4,26 @@ Snapshot time:
 - 2026-07-01T09:15:43Z
 
 Latest update:
+- 2026-07-01T12:37:12Z:
+  Fresh qjns/uiap status was rechecked through the server fallback route.
+  Control Plane health is `ok`. `qjns` is online as `kolibri-tools-executor`
+  with about 8.3 GB free on `/`, fresh Agent Host heartbeat, and
+  implementation/review/qa capabilities. `uiap` is online as
+  `kolibri-rag-knowledge` with about 22.9 GB free on `/` and has already
+  completed a direct MIMO RAG/knowledge readiness response. Therefore the
+  historical qjns/uiap disk blocker is repaired and should not be treated as
+  the current blocker.
+
+  Remaining qjns blockers are GitHub/MIMO auth, not disk. PR #91 review on
+  qjns failed because `git clone https://github.com/...` could not read a
+  username with terminal prompts disabled. Direct qjns MIMO still returned
+  `403 illegal_access`. A new server-side repair task was submitted through the
+  fallback command node after direct Mac dispatcher timeout:
+  `P0_REPAIR_QJNS_GITHUB_AND_MIMO_AUTH_2026_07_01`. It is running on
+  `primary-candidate:agent-host-primary` with branch
+  `p0/repair-qjns-github-mimo-auth-2026-07-01`. It is constrained to use only
+  approved existing credentials, avoid secret printing, avoid interactive
+  login, avoid provider bypass, and avoid product code changes.
 - 2026-07-01T12:11:34Z:
   Direct MIMO fanout was submitted through Control Plane, not executed on Mac.
   Seven child tasks were accepted. `uiap` completed a RAG/knowledge readiness
