@@ -80,7 +80,7 @@ def test_greeting_is_chat_not_factory_task():
         "text": "привет",
     }
     envelope = gateway.build_chat_envelope(message, message["text"])
-    assert envelope["kind"] == "owner_remote_task"
+    assert envelope["kind"] == "telegram_chat_response"
     assert envelope["runner"] == "codex"
     assert envelope["target_node"] == "primary-candidate"
     assert envelope["required_capability"] == "generic_implementation"
@@ -228,7 +228,7 @@ def test_orchestrator_chat_envelope_carries_factory_snapshot():
     }
     snapshot = {"nodes": [{"node_id": "9fts", "health": "online"}], "task_counts": {"completed": 3}}
     envelope = gateway.build_chat_envelope(message, message["text"], snapshot)
-    assert envelope["kind"] == "owner_remote_task"
+    assert envelope["kind"] == "telegram_chat_response"
     assert envelope["factory_snapshot"] == snapshot
     assert envelope["message"] == "фабрика уже работает?"
     assert "фабрика уже работает?" in envelope["objective"]
@@ -261,6 +261,31 @@ def test_chat_transition_polishes_brand_typo():
     message = gateway.format_transition("COMPLETED", task, mode="chat")
     assert message == "Привет! Я Kolibri, ваш оркестратор."
     assert "node:" not in message
+
+
+def test_chat_transition_extracts_owner_reply_from_engineering_report():
+    gateway = load_gateway()
+    task = {
+        "state": "completed",
+        "result": {
+            "response": (
+                "Сверю локальный контракт и состояние дерева, чтобы не делать кодовых правок.\n"
+                "Готовый ответ владельцу:\n"
+                "Понял. Это был неправильный формат: в Telegram должен уходить только живой ответ, без отчетов и команд. "
+                "Я поправлю контур, чтобы такие служебные хвосты больше не попадали в чат.\n"
+                "Changed files: none.\n"
+                "Verification: python3 -m pytest tests/test_telegram_gateway.py -q passed.\n"
+                "Risks: код не менялся."
+            )
+        },
+    }
+    message = gateway.format_transition("COMPLETED", task, mode="chat")
+    assert message == (
+        "Понял. Это был неправильный формат: в Telegram должен уходить только живой ответ, без отчетов и команд. "
+        "Я поправлю контур, чтобы такие служебные хвосты больше не попадали в чат."
+    )
+    for forbidden in ["Сверю локальный контракт", "Changed files", "Verification", "Risks"]:
+        assert forbidden not in message
 
 
 
@@ -584,7 +609,7 @@ def test_submit_chat_task_uses_remote_orchestrator_and_hides_intermediate_states
     message = {"message_id": 55, "chat": {"id": 100, "type": "private"}, "from": {"id": 100}, "text": "Что выполняешь?"}
     app.submit_chat_task(message, message["text"])
     assert factory.envelopes
-    assert factory.envelopes[0]["kind"] == "owner_remote_task"
+    assert factory.envelopes[0]["kind"] == "telegram_chat_response"
     assert factory.envelopes[0]["runner"] == "codex"
     assert factory.envelopes[0]["target_node"] == "primary-candidate"
     assert telegram.actions == [(100, "typing")]

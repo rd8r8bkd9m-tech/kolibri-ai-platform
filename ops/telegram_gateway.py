@@ -109,6 +109,9 @@ OWNER_MESSAGE_FORBIDDEN_MARKERS = (
     "worktree",
     "result_path",
     "log_path",
+    "changed files:",
+    "verification:",
+    "risks:",
     "/var/lib",
     "/tmp/",
     "TGCHAT-",
@@ -135,6 +138,19 @@ OWNER_RUNTIME_FAILURE_MARKERS = (
     "runtimeerror",
     "--title",
     "ты — центральный оркестратор",
+)
+OWNER_REPLY_PREFIXES = (
+    "готовый ответ владельцу:",
+    "ответ владельцу:",
+    "telegram-ответ:",
+)
+OWNER_REPORT_BOUNDARY_MARKERS = (
+    "changed files:",
+    "verification:",
+    "risks:",
+    "changed files",
+    "verification",
+    "risks",
 )
 IMMEDIATE_CHAT_MARKERS = (
     "как дела",
@@ -510,7 +526,7 @@ def build_chat_envelope(message: dict[str, Any], text: str, snapshot: dict[str, 
     envelope = {
         "task_id": task_id,
         "idempotency_key": f"telegram-chat:{message['chat']['id']}:{message['message_id']}",
-        "kind": os.environ.get("TELEGRAM_CHAT_KIND", "owner_remote_task"),
+        "kind": os.environ.get("TELEGRAM_CHAT_KIND", "telegram_chat_response"),
         "required_capability": os.environ.get("TELEGRAM_CHAT_CAPABILITY", "generic_implementation"),
         "max_retries": 1,
         "message": text,
@@ -1096,6 +1112,9 @@ def format_task_status(task: dict[str, Any]) -> str:
 
 
 def clean_agent_response(text: str | None) -> str:
+    extracted = extract_owner_reply(text or "")
+    if extracted:
+        text = extracted
     raw_lowered = (text or "").lower()
     if any(marker in raw_lowered for marker in OWNER_RUNTIME_FAILURE_MARKERS):
         return owner_safe_runtime_failure("", None)
@@ -1116,6 +1135,29 @@ def clean_agent_response(text: str | None) -> str:
     for wrong, right in OWNER_RESPONSE_REPLACEMENTS.items():
         cleaned = cleaned.replace(wrong, right)
     return cleaned or "Я завершил ответ, но текст не записался. Разберу это отдельно."
+
+
+def extract_owner_reply(text: str) -> str:
+    lowered = text.lower()
+    start = -1
+    prefix_len = 0
+    for prefix in OWNER_REPLY_PREFIXES:
+        index = lowered.find(prefix)
+        if index >= 0 and (start < 0 or index < start):
+            start = index
+            prefix_len = len(prefix)
+    if start < 0:
+        return ""
+    tail = text[start + prefix_len :].lstrip()
+    lines = []
+    for line in tail.splitlines():
+        stripped = line.strip()
+        lowered_line = stripped.lower()
+        if any(lowered_line.startswith(marker) for marker in OWNER_REPORT_BOUNDARY_MARKERS):
+            break
+        if stripped:
+            lines.append(stripped)
+    return "\n".join(lines).strip()
 
 
 def extract_urls(text: str) -> list[str]:
