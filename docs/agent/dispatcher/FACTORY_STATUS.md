@@ -132,13 +132,24 @@ Submitted tasks:
 - `P0_CANONICAL_RUN_ARTIFACT_CONTRACT_AND_ALIASES_2026_07_01`: submitted at
   `2026-07-01T02:50:44Z` through the fallback route
   `Mac -> kolibri-primary-codex -> Control Plane`; leased by
-  `primary-candidate:agent-host-primary` with fresh heartbeat at
-  `2026-07-01T02:52:16Z`; current state `running`. Artifact root:
+  `primary-candidate:agent-host-primary`; final Control Plane state `failed`
+  at `2026-07-01T02:58:19Z`. Artifact root:
   `/var/lib/kolibri-agent/artifacts/P0_CANONICAL_RUN_ARTIFACT_CONTRACT_AND_ALIASES_2026_07_01/P0_CANONICAL_RUN_ARTIFACT_CONTRACT_AND_ALIASES_2026_07_01-attempt-1/`.
-  The task targets existing PR #83 branch
-  `p0/agent-host-runner-contract-hardening-2026-06-30` and asks remote agent
-  `Дмитрий` to implement/test canonical `PLAN/ACTIONS/TESTS/RESULT/NEXT`
-  artifact behavior for the three observed wrapper mismatch cases.
+  Useful remote result: remote agent `Дмитрий` implemented/tested canonical
+  `PLAN/ACTIONS/TESTS/RESULT/NEXT` artifact behavior, created the exact five
+  run docs, and pushed PR #83 branch to
+  `8951a9feb4a44b8dd87a762d0da199257de1dae0`.
+- The latest wrapper failure is now narrower: the final verifier command used
+  `python3 -m pytest tests/test_agent_host.py tests/test_agent_host_runner_contract.py -q`,
+  but `tests/test_agent_host.py` is not present in this branch. Useful remote
+  validation passed: canonical runner contract `20 passed`, relevant Agent
+  Host suite `26 passed`, `compileall` passed, `git diff --check` passed, and
+  forbidden `docs/superfactory/*` files were not touched. GitHub Actions
+  `Kolibri CI` run `28490349624` for `8951a9f` completed with conclusion
+  `success`.
+- Current P0 runner hardening estimate: about 96% done. Remaining work is to
+  dispatch a micro cleanup for stale verifier-command assumptions and then
+  convert PR #83 from draft when the owner approves merge/release policy.
 
 Node snapshot through Control Plane:
 - Observed node cards: 42.

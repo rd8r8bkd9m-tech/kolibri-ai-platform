@@ -24,6 +24,20 @@ Suggested roster:
 | Виктор — Finance Reporter | review | billing reports, finance logs | finance-gated task |
 | Наталья — Anti-Degradation Auditor | qa / review | drift, blockers, regression watch | independent review node |
 
+Kwork safe-chat autonomy policy for `Мария`:
+- She may analyze Kwork prices, prepare/publicly save portfolio/kwork cards,
+  negotiate price, scope, timing and milestones, and conduct client
+  communication on Vladislav's behalf.
+- All client communication must stay inside the Kwork safe chat and follow
+  platform rules.
+- If a client asks for a phone, email, Telegram, WhatsApp or any external
+  contact, she must politely answer that work stays official and safe through
+  Kwork chat.
+- She must not perform banking, payouts, tax/self-employed/IP settings,
+  passport/identity, password, 2FA or external-payment actions.
+- When a permitted order is ready for execution, she may package it as a
+  factory task and route development to remote agents while tracking status.
+
 Known pool policy:
 - Use `primary-candidate`, `main`, and `Home` first if healthy.
 - Use other healthy implementation nodes through Control Plane lease.
