@@ -27,4 +27,4 @@ Starting head: `9bebf6cdba32a6886b6343f3701add3e85d18e41`
 
 ## Commit
 
-- Final commit SHA: pending local commit.
+- Implementation commit SHA: `e278ad0888f7687e2b338df70f129c22c41997a1`.
