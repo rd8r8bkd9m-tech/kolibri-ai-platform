@@ -1,7 +1,7 @@
 # Factory Status
 
 Snapshot time:
-- 2026-07-01T02:24:50Z
+- 2026-07-01T02:29:31Z
 
 Mac executor:
 - Hostname: `MacBook-Air-Vladislav.local`
@@ -87,6 +87,15 @@ Submitted tasks:
   `git diff --check` and remote branch verification passed.
 - GitHub Actions `Kolibri CI` run `28488999139` for PR #83 completed with
   conclusion `success`.
+- `P0_PR83_MERGE_READINESS_AND_RUNNER_PUBLISH_GATE_AUDIT_2026_07_01`:
+  submitted at `2026-07-01T02:27:40Z` through the fallback route
+  `Mac -> kolibri-primary-codex -> Control Plane`; leased by
+  `primary-candidate:agent-host-primary` with fresh heartbeat at
+  `2026-07-01T02:29:31Z`; current state `running`. Artifact root:
+  `/var/lib/kolibri-agent/artifacts/P0_PR83_MERGE_READINESS_AND_RUNNER_PUBLISH_GATE_AUDIT_2026_07_01/P0_PR83_MERGE_READINESS_AND_RUNNER_PUBLISH_GATE_AUDIT_2026_07_01-attempt-1/`.
+  The task asks remote agent `Сергей` to classify PR #83 as
+  `merge_ready`, `needs_changes`, `split_required`, or `blocked`, and to
+  answer whether a publish-after-verification gate is still missing.
 
 Node snapshot through Control Plane:
 - Observed node cards: 42.
@@ -104,7 +113,8 @@ Node snapshot through Control Plane:
   Codex/MIMO runner auth is broken from prior task attempts.
 - `primary-candidate`: online; latest exact P0 runner-hardening task state is
   `failed` in Control Plane due verifier path mismatch, while PR #83 is
-  finalized and CI-green on GitHub.
+  finalized and CI-green on GitHub. The new PR #83 merge-readiness/publish-gate
+  audit is queued for this node pool.
 - Many mesh cards are degraded/stale or metadata-only; they need inventory
   before broad execution.
 - Aggregate `/v1/tasks` response showed 200 queued tasks while the direct P0
