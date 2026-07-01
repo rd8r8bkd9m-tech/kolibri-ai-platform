@@ -1,7 +1,7 @@
 # Factory Status
 
 Snapshot time:
-- 2026-06-30T23:54:02Z
+- 2026-07-01T02:14:07Z
 
 Mac executor:
 - Hostname: `MacBook-Air-Vladislav.local`
@@ -11,9 +11,12 @@ Mac executor:
 Control Plane:
 - Default URL: `http://10.99.0.2:9101`
 - Direct Mac health check: timeout after 5 seconds.
-- Server-side check through `kolibri-primary-codex`: `status=ok`,
-  `redis=PONG`.
-- Status: direct Mac route unavailable; SSH-to-control-node route available.
+- Server-side check through `kolibri-primary-codex` to
+  `http://10.99.0.2:9101/health`: `status=ok`, `redis=PONG`.
+- `kolibri-primary-codex` local `127.0.0.1:9101` check failed; the active
+  listener observed on that node is `10.99.0.10:9101`.
+- Status: direct Mac route unavailable; fallback route through
+  `kolibri-primary-codex` to mesh Control Plane is available.
 
 Fabric law:
 - API-first control is the primary management path.
@@ -68,19 +71,28 @@ Submitted tasks:
   because final verifier required missing `docs/agent/runs/.../RESULT.md`.
   Artifact stdout shows effective repair succeeded and current Control Plane
   cards confirm free disk on both nodes.
+- `P0_AGENT_HOST_GENERIC_RUNNER_CONTRACT_HARDENING_2026_07_01`: submitted at
+  `2026-07-01T02:12:34Z`; leased by `primary-candidate:agent-host-primary`;
+  latest state `running` at `2026-07-01T02:13:40Z`. This finalizer preserves
+  PR #83 and fixes the prior verifier path by requiring `python3` and exact
+  run artifacts.
 
 Node snapshot through Control Plane:
 - Observed node cards: 42.
+- Canonical nodes: 20.
+- Fresh canonical nodes: 19.
+- Fresh canonical generic implementation nodes: 7.
 - Healthy owner-relevant execution nodes include `home`, `home-live`, `main`,
-  `mesh-9fts`, `new`, and mesh `agent-01..03` cards with implementation
-  capability.
-- `qjns`: online; current free disk observed `11628969984` bytes.
-- `uiap`: online; current free disk observed `28985135104` bytes.
-- `main`: online; current free disk observed `7685365760` bytes; known
+  `mesh-9fts`, `primary-candidate`, and mesh `agent-01..03` cards with
+  implementation capability.
+- `qjns`: online; current free disk observed `10970157056` bytes.
+- `uiap`: online; current free disk observed `27758845952` bytes; RAM is tight
+  (`MemAvailable` observed around `126788 kB`), so use for research/RAG only
+  until resource pressure is reviewed.
+- `main`: online; current free disk observed `7614488576` bytes; known
   Codex/MIMO runner auth is broken from prior task attempts.
-- `primary-candidate`: exact task heartbeat for active P0 is fresh, but node
-  card heartbeat was observed stale; use exact task endpoint as authority for
-  the running P0 task.
+- `primary-candidate`: online and currently running
+  `P0_AGENT_HOST_GENERIC_RUNNER_CONTRACT_HARDENING_2026_07_01`.
 - Many mesh cards are degraded/stale or metadata-only; they need inventory
   before broad execution.
 - Aggregate `/v1/tasks` response showed 200 queued tasks while the direct P0
