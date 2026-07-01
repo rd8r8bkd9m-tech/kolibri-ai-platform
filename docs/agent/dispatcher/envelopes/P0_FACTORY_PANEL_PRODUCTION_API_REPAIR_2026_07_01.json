@@ -1,0 +1,131 @@
+{
+  "task_id": "P0_FACTORY_PANEL_PRODUCTION_API_REPAIR_2026_07_01",
+  "idempotency_key": "mac-dispatcher:P0_FACTORY_PANEL_PRODUCTION_API_REPAIR_2026_07_01",
+  "kind": "owner_remote_task",
+  "required_capability": "generic_implementation",
+  "runner": "codex",
+  "agent_type": "production_panel_repair_engineer",
+  "agent_display_name": "Олег — Factory Panel Repair Engineer",
+  "target_node": "home",
+  "target_node_pool": "production_diagnostic_and_repair_nodes",
+  "preferred_nodes": [
+    "home",
+    "primary-candidate",
+    "home-live"
+  ],
+  "allowed_nodes": [
+    "home",
+    "primary-candidate",
+    "home-live"
+  ],
+  "avoid_nodes": [
+    "main",
+    "qjns",
+    "uiap"
+  ],
+  "branch": "p0/factory-panel-production-api-repair-2026-07-01",
+  "base_branch": "main",
+  "base_ref": "origin/main",
+  "max_retries": 1,
+  "create_review_on_complete": false,
+  "objective": "Diagnose and repair the production Kolibri factory panel at https://kolibriai.ru/?telegram=1. Current live evidence from Mac: the static panel HTML returns 200, /api/health returns 200 with backend version 3.0.0, but /api/factory/status returns 404 even though origin/main contains backend/main.py route /api/factory/status. Classify the production deployment/proxy mismatch, perform the smallest safe repair if authorized by the existing deployment policy, keep backups/rollback evidence, and return proof that the factory panel status API works or a precise blocker if production repair cannot be completed safely.",
+  "constraints": {
+    "mac_thin_client_only": true,
+    "server_execution_required": true,
+    "production_diagnostic_allowed": true,
+    "production_repair_allowed_for_factory_panel_only": true,
+    "product_code_changes_allowed_on_server_branch_only": true,
+    "live_service_change_requires_backup_and_rollback": true,
+    "destructive_git_commands_forbidden": true,
+    "dirty_worktree_checkout_forbidden": true,
+    "push_to_main_forbidden": true,
+    "force_push_forbidden": true,
+    "git_push_allowed_only_to_task_branch": true,
+    "secrets_redaction_required": true,
+    "do_not_print_env": true,
+    "do_not_print_tokens_or_cookies": true,
+    "do_not_print_database_urls": true,
+    "do_not_modify_telegram_webhook_or_token": true,
+    "do_not_touch_payments_or_money": true,
+    "owner_facing_agent_names_must_be_russian": true
+  },
+  "known_evidence": {
+    "live_static_panel": {
+      "url": "https://kolibriai.ru/?telegram=1",
+      "http_status": 200,
+      "asset": "./assets/index-BqkT2bgZ.js",
+      "observed_at": "2026-07-01T10:01:25Z"
+    },
+    "live_backend_health": {
+      "url": "https://kolibriai.ru/api/health",
+      "http_status": 200,
+      "body_summary": "status ok, version 3.0.0, database connected"
+    },
+    "broken_factory_status": {
+      "url": "https://kolibriai.ru/api/factory/status",
+      "http_status": 404,
+      "body_summary": "{\"detail\":\"Not Found\"}"
+    },
+    "github_source_truth": {
+      "origin_main": "backend/main.py contains /api/factory/status and /cluster/status routes; frontend/src/App.jsx fetches /api/factory/status"
+    },
+    "hypothesis": "Production is serving an older/different backend or nginx/API proxy than the GitHub main backend that includes the factory status route."
+  },
+  "required_behavior": [
+    "Run read-only production diagnostics first: effective nginx/server mapping, backend process identity/version, deployed commit/build timestamp if available, and whether /api/factory/status exists in the running app.",
+    "Do not print secrets or full environment. Redact all env values and credentials.",
+    "If the fix is a deployment/proxy mismatch and a safe documented reload/restart is available, create backup/rollback evidence before applying it.",
+    "If the fix requires merging an unapproved draft PR, broad redeploy, secret change, database migration, or unknown destructive action, do not perform it; return blocked with exact next command/task.",
+    "After any safe repair, verify from the server and from public URL that /api/factory/status returns HTTP 200 with status/source/control_plane fields and that https://kolibriai.ru/?telegram=1 still returns HTML 200.",
+    "Keep product code changes in a branch/PR if code changes are needed; keep production runtime hotfix evidence separate."
+  ],
+  "read_first": [
+    "backend/main.py",
+    "backend/factory_status.py",
+    "frontend/src/App.jsx",
+    "tests/test_factory_status.py",
+    "backend/tests/test_factory_status_fast_health.py",
+    "docs/product/telegram-command-center/2026-07-01/COMMAND_CENTER_SPEC.md",
+    "docs/superfactory/API_FIRST_CONTROL_FABRIC.md"
+  ],
+  "write_scope": [
+    "backend/**",
+    "frontend/**",
+    "infra/**",
+    "ops/**",
+    "docs/agent/runs/2026-07-01-p0-factory-panel-production-api-repair/**"
+  ],
+  "required_artifacts": [
+    "docs/agent/runs/2026-07-01-p0-factory-panel-production-api-repair/PLAN.md",
+    "docs/agent/runs/2026-07-01-p0-factory-panel-production-api-repair/ACTIONS.md",
+    "docs/agent/runs/2026-07-01-p0-factory-panel-production-api-repair/TESTS.md",
+    "docs/agent/runs/2026-07-01-p0-factory-panel-production-api-repair/RESULT.md",
+    "docs/agent/runs/2026-07-01-p0-factory-panel-production-api-repair/NEXT.md"
+  ],
+  "verification_commands": [
+    "git diff --check",
+    "python3 -m py_compile backend/main.py backend/factory_status.py",
+    "python3 -m pytest tests/test_factory_status.py backend/tests/test_factory_status_fast_health.py -q",
+    "curl -k -sS -D /tmp/kolibri-panel-status.headers https://kolibriai.ru/api/factory/status -o /tmp/kolibri-panel-status.json || true",
+    "test -f docs/agent/runs/2026-07-01-p0-factory-panel-production-api-repair/PLAN.md",
+    "test -f docs/agent/runs/2026-07-01-p0-factory-panel-production-api-repair/ACTIONS.md",
+    "test -f docs/agent/runs/2026-07-01-p0-factory-panel-production-api-repair/TESTS.md",
+    "test -f docs/agent/runs/2026-07-01-p0-factory-panel-production-api-repair/RESULT.md",
+    "test -f docs/agent/runs/2026-07-01-p0-factory-panel-production-api-repair/NEXT.md"
+  ],
+  "acceptance": [
+    "Production panel failure is classified with concrete evidence: static frontend, backend health, factory status route, deployment/proxy mapping and current running app version.",
+    "If safe repair is applied, backups/rollback path and exact changed files/services are recorded.",
+    "Public https://kolibriai.ru/api/factory/status returns HTTP 200 with factory status JSON, or result is blocked with a precise safe next task and no false success.",
+    "Public https://kolibriai.ru/?telegram=1 still returns HTTP 200 after repair or diagnostic.",
+    "No secrets, env values, cookies, database URLs or tokens appear in artifacts.",
+    "Exact five run artifacts are created.",
+    "Remote result reports task_id, server node, Russian agent display name, production status, tests, rollback/blockers and next action."
+  ],
+  "source": {
+    "kind": "mac_thin_client_dispatcher",
+    "owner": "Vladislav",
+    "created_at": "2026-07-01T10:04:00Z",
+    "local_ledger": "docs/agent/dispatcher/DISPATCH_LOG.md"
+  }
+}

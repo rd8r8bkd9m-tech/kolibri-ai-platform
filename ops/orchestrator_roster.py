@@ -55,6 +55,8 @@ def node_card(node: dict[str, Any]) -> dict[str, Any]:
         "responsibility": "получает задачи только по решению директора",
     }))
     card["health"] = node.get("health") or "unknown"
+    card["freshness"] = node.get("freshness")
+    card["heartbeat_age_seconds"] = node.get("heartbeat_age_seconds")
     card["capabilities"] = node.get("capabilities", [])
     card["draining"] = bool(node.get("draining"))
     card["heartbeat_at"] = node.get("heartbeat_at")
