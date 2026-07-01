@@ -1,0 +1,107 @@
+{
+  "task_id": "P0_POST_MERGE_CANARY_AND_PR_QUEUE_DRAIN_2026_07_01",
+  "idempotency_key": "P0_POST_MERGE_CANARY_AND_PR_QUEUE_DRAIN_2026_07_01",
+  "kind": "owner_remote_task",
+  "priority": "P0",
+  "required_capability": "generic_implementation",
+  "runner": "mimo",
+  "agent_type": "github_release_steward",
+  "agent_display_name": "Сергей - Release Steward",
+  "target_node": "mesh-agent-01",
+  "target_node_pool": "online_mimo_review_fallback",
+  "branch": "agent/P0_POST_MERGE_CANARY_AND_PR_QUEUE_DRAIN_2026_07_01/review",
+  "base_ref": "origin/main",
+  "max_retries": 1,
+  "goal": "Run server-side post-merge canary planning/checks for the freshly merged release train and drain the remaining GitHub PR queue without implementing product code.",
+  "objective": "Verify current main at 1b08c43a, classify post-merge canary status for PR #83, #96, #91, #97, and #85, recheck the remaining open PR queue, and produce the next exact merge/repair/split tasks. Do not modify product code and do not merge or push to main.",
+  "source": {
+    "requested_by": "Vladislav",
+    "origin": "mac-command-node-dispatcher",
+    "agent_name": "Сергей — Release Steward",
+    "current_main": "1b08c43a86f8e1ee943edea592f77988b45f41d9",
+    "related_pr": 98,
+    "owner_packet": "docs/agent/dispatcher/OWNER_GREEN_DRAFT_RELEASE_PACKET_2026_07_01.md"
+  },
+  "routing": {
+    "preferred_nodes": [
+      "mesh-agent-01",
+      "primary-candidate",
+      "home",
+      "main"
+    ],
+    "avoid_nodes_until_repaired_for_heavy_work": [
+      "qjns"
+    ],
+    "allowed_agent_types": [
+      "review",
+      "qa",
+      "mimo",
+      "codex"
+    ],
+    "fallback_allowed": true
+  },
+  "constraints": {
+    "mac_implementation_forbidden": true,
+    "server_execution_required": true,
+    "review_only": true,
+    "product_code_modification_forbidden": true,
+    "secrets_redaction_required": true,
+    "destructive_git_commands_forbidden": true,
+    "git_reset_forbidden": true,
+    "git_clean_forbidden": true,
+    "force_push_forbidden": true,
+    "push_to_main_forbidden": true,
+    "merge_forbidden": true,
+    "use_clean_remote_worktree": true,
+    "do_not_modify_dirty_runtime_repo": true
+  },
+  "write_scope": [
+    "docs/agent/runs/2026-07-01-p0-post-merge-canary-and-pr-queue-drain/**"
+  ],
+  "review_targets": {
+    "current_main": "1b08c43a86f8e1ee943edea592f77988b45f41d9",
+    "merged_prs_requiring_canaries": [
+      83,
+      96,
+      91,
+      97,
+      85
+    ],
+    "known_remaining_priority_prs": [
+      92,
+      89,
+      98
+    ]
+  },
+  "required_outputs": [
+    "docs/agent/runs/2026-07-01-p0-post-merge-canary-and-pr-queue-drain/PLAN.md",
+    "docs/agent/runs/2026-07-01-p0-post-merge-canary-and-pr-queue-drain/ACTIONS.md",
+    "docs/agent/runs/2026-07-01-p0-post-merge-canary-and-pr-queue-drain/TESTS.md",
+    "docs/agent/runs/2026-07-01-p0-post-merge-canary-and-pr-queue-drain/RESULT.md",
+    "docs/agent/runs/2026-07-01-p0-post-merge-canary-and-pr-queue-drain/NEXT.md",
+    "docs/agent/runs/2026-07-01-p0-post-merge-canary-and-pr-queue-drain/POST_MERGE_CANARY_MATRIX.md",
+    "docs/agent/runs/2026-07-01-p0-post-merge-canary-and-pr-queue-drain/OPEN_PR_QUEUE_MATRIX.md",
+    "docs/agent/runs/2026-07-01-p0-post-merge-canary-and-pr-queue-drain/NEXT_RELEASE_TRAIN.md"
+  ],
+  "verification_commands": [
+    "git diff --check",
+    "test -f docs/agent/runs/2026-07-01-p0-post-merge-canary-and-pr-queue-drain/PLAN.md",
+    "test -f docs/agent/runs/2026-07-01-p0-post-merge-canary-and-pr-queue-drain/ACTIONS.md",
+    "test -f docs/agent/runs/2026-07-01-p0-post-merge-canary-and-pr-queue-drain/TESTS.md",
+    "test -f docs/agent/runs/2026-07-01-p0-post-merge-canary-and-pr-queue-drain/RESULT.md",
+    "test -f docs/agent/runs/2026-07-01-p0-post-merge-canary-and-pr-queue-drain/NEXT.md",
+    "test -f docs/agent/runs/2026-07-01-p0-post-merge-canary-and-pr-queue-drain/POST_MERGE_CANARY_MATRIX.md",
+    "test -f docs/agent/runs/2026-07-01-p0-post-merge-canary-and-pr-queue-drain/OPEN_PR_QUEUE_MATRIX.md",
+    "test -f docs/agent/runs/2026-07-01-p0-post-merge-canary-and-pr-queue-drain/NEXT_RELEASE_TRAIN.md"
+  ],
+  "acceptance": [
+    "Remote execution happens on a server/control node, not local Mac implementation.",
+    "Current main SHA is verified before analysis.",
+    "Post-merge canary needs for PR #83, #96, #91, #97, and #85 are classified.",
+    "Remaining open PRs are classified as merge-ready, repair-needed, split-required, stale, or blocked.",
+    "No product code is modified.",
+    "No PR is merged, marked ready, closed, force-pushed, or pushed to main.",
+    "No secrets are printed.",
+    "Final result includes status, node, reviewer, blockers, and the next exact task."
+  ]
+}
