@@ -1735,14 +1735,15 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
             "pull_request_url": pr_url,
             "status": status,
             "github_review": github_review,
-            "changed_files": diff_files,
+            "changed_files": [],
+            "reviewed_diff_files": diff_files,
             "findings": blocked,
             "log_paths": logs,
             "result_path": str(artifact_dir / "result.json"),
         }
         if backend_test_environment:
             result["backend_test_environment"] = backend_test_environment
-        result = self.finalize_result(task, result, artifact_dir, worktree, changed_files=diff_files)
+        result = self.finalize_result(task, result, artifact_dir, worktree, changed_files=[])
         result_path = self.write_result(artifact_dir, result)
         result["result_path"] = str(result_path)
         return result

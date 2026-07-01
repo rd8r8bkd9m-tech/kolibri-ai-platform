@@ -656,6 +656,52 @@ def test_review_clone_auth_failure_posts_result_json_with_credential_repair(tmp_
     assert persisted["next_recommended_task"] == "repair Agent Host git credentials, then rerun the review task"
 
 
+def test_read_only_review_pr_separates_reviewed_diff_from_runner_changes(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+
+    class Host(agent_host.AgentHost):
+        def __init__(self):
+            super().__init__(make_args(tmp_path, capabilities="review"))
+            self.commands = []
+
+        def post(self, path, body):
+            return body
+
+        def run_command(self, command, cwd, stdout_path, stderr_path, task, branch=None, logs=None, env=None, command_label=None):
+            self.commands.append(command)
+            if command[:2] == ["git", "clone"]:
+                worktree = Path(command[-1])
+                worktree.mkdir(parents=True)
+                (worktree / ".git").mkdir()
+                (worktree / "backend").mkdir()
+                (worktree / "backend" / "providers.py").write_text("VALUE = 'reviewed'\n", encoding="utf-8")
+
+    def fake_check_output(command, cwd=None, text=None):
+        assert command[:3] == ["git", "diff", "--name-only"]
+        return "backend/providers.py\n"
+
+    monkeypatch.setattr(agent_host.subprocess, "check_output", fake_check_output)
+    monkeypatch.setattr(agent_host.shutil, "which", lambda name: None if name == "gh" else agent_host.shutil.which(name))
+
+    task = make_task({
+        "kind": "review_pr",
+        "read_only": True,
+        "branch": "product-code-pr",
+        "base_ref": "origin/main",
+        "pull_request_url": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/83",
+    })
+    task["kind"] = "review_pr"
+
+    result = Host().run_review_pr(task)
+
+    assert result["status"] == "completed"
+    assert result["runner_status"] == "APPROVED"
+    assert result["changed_files"] == []
+    assert result["reviewed_diff_files"] == ["backend/providers.py"]
+    assert result["product_code_changed"] is False
+    assert result["blocked_reason"] is None
+
+
 def test_backend_verifier_uses_declared_backend_python_environment_for_dependencies(tmp_path):
     agent_host = load_agent_host()
     package_name = "kolibri_backend_contract_dep_20260701"
