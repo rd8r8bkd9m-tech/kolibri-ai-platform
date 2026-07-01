@@ -1,0 +1,95 @@
+{
+  "task_id": "2026-07-01-p0-fabric-api-pr85-gap-review-artifact-repair",
+  "idempotency_key": "2026-07-01-p0-fabric-api-pr85-gap-review-artifact-repair",
+  "kind": "owner_remote_task",
+  "priority": "P0",
+  "required_capability": "review",
+  "runner": "codex",
+  "agent_type": "review_artifact_repair",
+  "agent_display_name": "Алексей — Fabric API Reviewer",
+  "target_node": "primary-candidate",
+  "target_node_pool": "healthy_review_qa_nodes",
+  "preferred_nodes": [
+    "primary-candidate",
+    "home",
+    "main"
+  ],
+  "allowed_nodes": [
+    "primary-candidate",
+    "home",
+    "main"
+  ],
+  "avoid_nodes": [
+    "qjns",
+    "uiap"
+  ],
+  "branch": "p0/fabric-api-pr85-gap-review-2026-07-01",
+  "base_branch": "main",
+  "base_ref": "origin/main",
+  "max_retries": 1,
+  "goal": "Repair the PR #85 Fabric API gap-review artifacts so the completed remote review satisfies the exact owner-required file contract.",
+  "objective": "Use the existing remote review result from task `2026-07-01-p0-fabric-api-pr85-gap-review` and its `PR85_GAP_REVIEW.md` artifact to create the exact required files under `docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/`. Do not change product code, do not edit PR #85, do not rerun heavy tests, and do not alter the release decision except to copy it into the exact decision artifact.",
+  "source": {
+    "requested_by": "Vladislav",
+    "origin": "mac-command-node-dispatcher",
+    "source_task_id": "2026-07-01-p0-fabric-api-pr85-gap-review",
+    "source_branch": "p0/fabric-api-pr85-gap-review-2026-07-01",
+    "source_artifact": "docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/PR85_GAP_REVIEW.md",
+    "reviewer_name": "Алексей — Fabric API Reviewer"
+  },
+  "constraints": {
+    "mac_implementation_forbidden": true,
+    "server_execution_required": true,
+    "artifact_repair_only": true,
+    "review_only": true,
+    "product_code_modification_forbidden": true,
+    "pr85_branch_modification_forbidden": true,
+    "secrets_redaction_required": true,
+    "destructive_git_commands_forbidden": true,
+    "git_reset_forbidden": true,
+    "git_clean_forbidden": true,
+    "force_push_forbidden": true,
+    "push_to_main_forbidden": true,
+    "use_clean_remote_worktree": true,
+    "do_not_modify_dirty_runtime_repo": true
+  },
+  "read_first": [
+    "docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/PR85_GAP_REVIEW.md",
+    "docs/superfactory/Kolibri_All_Prompts.md"
+  ],
+  "write_scope": [
+    "docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/**"
+  ],
+  "required_outputs": [
+    "docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/PLAN.md",
+    "docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/ACTIONS.md",
+    "docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/TESTS.md",
+    "docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/RESULT.md",
+    "docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/NEXT.md",
+    "docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/FABRIC_PROMPT3_GAP_MATRIX.md",
+    "docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/PR85_RELEASE_OR_REPAIR_DECISION.md",
+    "docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/PR91_DEPENDENCY_CHECK.md"
+  ],
+  "verification_commands": [
+    "git diff --check -- docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review",
+    "test -f docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/PLAN.md",
+    "test -f docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/ACTIONS.md",
+    "test -f docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/TESTS.md",
+    "test -f docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/RESULT.md",
+    "test -f docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/NEXT.md",
+    "test -f docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/FABRIC_PROMPT3_GAP_MATRIX.md",
+    "test -f docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/PR85_RELEASE_OR_REPAIR_DECISION.md",
+    "test -f docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/PR91_DEPENDENCY_CHECK.md",
+    "grep -q 'repair_in_pr85' docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/PR85_RELEASE_OR_REPAIR_DECISION.md"
+  ],
+  "acceptance": [
+    "All eight owner-required artifact files exist under the exact run directory.",
+    "The release decision remains explicit and consistent with the source review: `repair_in_pr85` unless new evidence proves otherwise.",
+    "PR91 dependency check is separated into `PR91_DEPENDENCY_CHECK.md`.",
+    "Gap matrix uses the requested columns.",
+    "No product code is modified.",
+    "PR #85 branch is not mutated.",
+    "No secrets are printed.",
+    "Final result includes status, node, reviewer, artifact paths, blockers, and next exact task."
+  ]
+}

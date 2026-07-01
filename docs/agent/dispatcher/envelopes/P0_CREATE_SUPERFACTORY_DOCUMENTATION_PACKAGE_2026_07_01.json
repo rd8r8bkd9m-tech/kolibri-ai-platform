@@ -1,0 +1,55 @@
+{
+  "task_id": "P0_CREATE_SUPERFACTORY_DOCUMENTATION_PACKAGE_2026_07_01",
+  "idempotency_key": "mac-dispatcher:P0_CREATE_SUPERFACTORY_DOCUMENTATION_PACKAGE_2026_07_01",
+  "kind": "owner_remote_task",
+  "required_capability": "generic_implementation",
+  "runner": "codex",
+  "agent_type": "implementation",
+  "target_node_pool": "healthy_server_implementation_nodes",
+  "preferred_nodes": [
+    "primary-candidate",
+    "main",
+    "Home"
+  ],
+  "branch": "codex/superfactory-docs-package-2026-07-01",
+  "base_branch": "main",
+  "base_ref": "origin/main",
+  "max_retries": 1,
+  "objective": "Remote-only documentation task. Recreate, apply, or validate the Superfactory documentation package on a server branch. Include the owner rule that every owner-facing agent must have a Russian human display name plus role. Local Mac draft is only a handoff reference and is not authoritative.",
+  "constraints": {
+    "mac_thin_client_only": true,
+    "server_execution_required": true,
+    "product_code_modification_forbidden": true,
+    "docs_only": true,
+    "heavy_local_tests_forbidden": true,
+    "destructive_git_commands_forbidden": true,
+    "git_push_to_main_forbidden": true,
+    "force_push_forbidden": true,
+    "secrets_redaction_required": true,
+    "owner_facing_agent_names_must_be_russian": true
+  },
+  "handoff_reference": {
+    "local_worktree": "/Users/kolibri/.codex/worktrees/superfactory-docs-package",
+    "local_status": "draft_not_authoritative",
+    "local_handoff": "docs/agent/dispatcher/LOCAL_DIFF_TO_REMOTE_HANDOFF.md"
+  },
+  "required_artifacts": [
+    "PLAN.md",
+    "ACTIONS.md",
+    "TESTS.md",
+    "RESULT.md",
+    "NEXT.md"
+  ],
+  "acceptance": [
+    "Documentation package exists under docs/superfactory/.",
+    "Run artifacts exist under docs/agent/runs/2026-07-01-p0-create-kolibri-superfactory-documentation-package/.",
+    "All owner-facing agent naming rules require Russian names plus roles.",
+    "Remote result reports task ID, node, agent display name, branch/PR, tests, blockers, and next task."
+  ],
+  "source": {
+    "kind": "mac_thin_client_dispatcher",
+    "owner": "Vladislav",
+    "created_at": "2026-06-30T21:00:00Z",
+    "local_ledger": "docs/agent/dispatcher/DISPATCH_LOG.md"
+  }
+}

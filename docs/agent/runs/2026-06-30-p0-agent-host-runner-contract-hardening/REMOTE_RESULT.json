@@ -1,0 +1,42 @@
+{
+  "agent_display_name_ru": "Автономный инженер",
+  "blockers": [],
+  "branch": "p0/agent-host-runner-contract-hardening-2026-06-30",
+  "completed_at": "2026-07-01T02:17:34Z",
+  "next_task": "PROMPT 2 - P0_CREATE_KOLIBRI_SUPERFACTORY_DOCUMENTATION_PACKAGE",
+  "node": "kolibri",
+  "pr": {
+    "number": 83,
+    "url": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/83"
+  },
+  "source_of_truth": "GitHub PR #83 branch p0/agent-host-runner-contract-hardening-2026-06-30",
+  "status": "completed",
+  "task_id": "P0_AGENT_HOST_GENERIC_RUNNER_CONTRACT_HARDENING_2026_07_01",
+  "tests": [
+    {
+      "command": "python3 -m py_compile ops/agent_host.py",
+      "result": "passed"
+    },
+    {
+      "command": "python3 -m pytest tests/test_agent_host_runner_contract.py -q",
+      "result": "13 passed"
+    },
+    {
+      "command": "python3 -m pytest tests/test_agent_host* -q",
+      "result": "19 passed"
+    },
+    {
+      "command": "python3 -m pytest tests/test_factory_runtime.py -q",
+      "result": "4 passed"
+    },
+    {
+      "command": "python3 -m pytest -q",
+      "result": "73 passed, 1 external reportlab warning"
+    },
+    {
+      "command": "git ls-remote --heads origin p0/agent-host-runner-contract-hardening-2026-06-30",
+      "result": "remote source branch was reachable and updated by this finalization"
+    }
+  ],
+  "verified_code_commit": "cac790042a57c959d25797a9fefa2b2a3625a99d"
+}

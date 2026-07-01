@@ -1,0 +1,139 @@
+{
+  "task_id": "P0_PR83_FINAL_REVIEW_AND_AGENT_HOST_CANARY_PLAN_2026_07_01",
+  "idempotency_key": "mac-dispatcher:P0_PR83_FINAL_REVIEW_AND_AGENT_HOST_CANARY_PLAN_2026_07_01",
+  "kind": "owner_remote_task",
+  "required_capability": "generic_implementation",
+  "runner": "codex",
+  "agent_type": "pr83_final_review_and_canary_planning",
+  "agent_display_name": "Олег — PR83 Release Reviewer",
+  "target_node": "primary-candidate",
+  "target_node_pool": "healthy server review nodes",
+  "preferred_nodes": [
+    "primary-candidate",
+    "home"
+  ],
+  "allowed_nodes": [
+    "primary-candidate",
+    "home"
+  ],
+  "avoid_nodes": [
+    "new",
+    "main",
+    "qjns",
+    "uiap"
+  ],
+  "branch": "p0/agent-host-runner-contract-hardening-2026-06-30",
+  "base_branch": "main",
+  "base_ref": "origin/main",
+  "start_commit": "dfbc7fc17f4d76d81d97944a852febbb91278d9b",
+  "related_pr": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/83",
+  "max_retries": 1,
+  "objective": "Perform the final server-side review of PR #83 against origin/main and produce a post-merge Agent Host canary plan. Do not merge, do not mark the draft PR ready, do not push product code, and do not change runtime services. This task exists because the automatic review_pr task was routed to node new and failed twice on git clone auth/route rc=128.",
+  "constraints": {
+    "mac_thin_client_only": true,
+    "server_execution_required": true,
+    "read_only": true,
+    "documentation_artifacts_only": true,
+    "product_code_modification_forbidden": true,
+    "destructive_git_commands_forbidden": true,
+    "dirty_worktree_checkout_forbidden": true,
+    "force_push_forbidden": true,
+    "git_push_forbidden": true,
+    "no_push": true,
+    "push_to_main_forbidden": true,
+    "git_push_allowed": false,
+    "merge_forbidden": true,
+    "mark_pr_ready_for_review_forbidden": true,
+    "service_restart_forbidden": true,
+    "live_runtime_mutation_forbidden": true,
+    "telegram_getupdates_forbidden": true,
+    "telegram_webhook_changes_forbidden": true,
+    "telegram_command_menu_changes_forbidden": true,
+    "secrets_redaction_required": true,
+    "owner_facing_agent_names_must_be_russian": true,
+    "exact_run_artifacts_required": true
+  },
+  "known_evidence": {
+    "pr83_url": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/83",
+    "pr83_state": "open",
+    "pr83_draft": true,
+    "pr83_mergeable": true,
+    "pr83_head": "dfbc7fc17f4d76d81d97944a852febbb91278d9b",
+    "pr83_base": "main",
+    "github_actions": {
+      "run_id": 28501701336,
+      "workflow": "Kolibri CI",
+      "conclusion": "success",
+      "job": "ci"
+    },
+    "control_plane_review_issue": "P0_AGENT_HOST_BACKEND_VERIFIER_ENV_SCOPE_REPAIR_2026_07_01-REVIEW routed to new:agent-host-new and failed clone twice with git@github-kolibri rc=128"
+  },
+  "read_first": [
+    "ops/agent_host.py",
+    "ops/factory_control.py",
+    "tests/test_agent_host_runner_contract.py",
+    "docs/agent/AGENT_RUNNER_CONTRACT.md",
+    "docs/agent/runs/2026-07-01-p0-agent-host-backend-verifier-env-contract/RESULT.md",
+    "docs/agent/runs/2026-07-01-p0-agent-host-backend-verifier-env-scope-repair/RESULT.md"
+  ],
+  "write_scope": [
+    "docs/agent/runs/2026-07-01-p0-pr83-final-review-and-agent-host-canary-plan/**"
+  ],
+  "forbidden_write_scope": [
+    ".github/**",
+    "backend/**",
+    "frontend/**",
+    "infra/**",
+    "ops/**",
+    "scripts/**",
+    "tests/**",
+    "docs/agent/AGENT_RUNNER_CONTRACT.md",
+    "docs/superfactory/**",
+    "docs/agent/dispatcher/**"
+  ],
+  "required_outputs": [
+    "docs/agent/runs/2026-07-01-p0-pr83-final-review-and-agent-host-canary-plan/PLAN.md",
+    "docs/agent/runs/2026-07-01-p0-pr83-final-review-and-agent-host-canary-plan/ACTIONS.md",
+    "docs/agent/runs/2026-07-01-p0-pr83-final-review-and-agent-host-canary-plan/TESTS.md",
+    "docs/agent/runs/2026-07-01-p0-pr83-final-review-and-agent-host-canary-plan/RESULT.md",
+    "docs/agent/runs/2026-07-01-p0-pr83-final-review-and-agent-host-canary-plan/NEXT.md"
+  ],
+  "canonical_run_artifact_dir": "docs/agent/runs/2026-07-01-p0-pr83-final-review-and-agent-host-canary-plan",
+  "required_behavior": [
+    "Clone/fetch PR #83 branch and origin/main in a safe server worktree.",
+    "Review PR #83 diff against origin/main, not against the PR branch itself.",
+    "Classify PR #83 scope: runner contract code, runner tests, runner contract docs and run artifacts only.",
+    "Verify GitHub Actions run 28501701336 is green for head dfbc7fc17f4d76d81d97944a852febbb91278d9b or record if GitHub access is unavailable.",
+    "Run focused server checks: py_compile ops/agent_host.py tests/test_agent_host_runner_contract.py and pytest tests/test_agent_host_runner_contract.py -q.",
+    "Produce a post-merge canary plan: target nodes, rollout order, service restart guard, smoke tasks, rollback, owner approval gates and telemetry to watch.",
+    "Do not merge PR #83, do not mark it ready, do not submit an approving GitHub review unless explicitly supported by project policy in the task result.",
+    "Do not push any branch. Only write exact docs artifacts under the task run directory."
+  ],
+  "verification_commands": [
+    "git diff --check",
+    "python3 -m py_compile ops/agent_host.py tests/test_agent_host_runner_contract.py",
+    "python3 -m pytest tests/test_agent_host_runner_contract.py -q",
+    "test -f docs/agent/runs/2026-07-01-p0-pr83-final-review-and-agent-host-canary-plan/PLAN.md",
+    "test -f docs/agent/runs/2026-07-01-p0-pr83-final-review-and-agent-host-canary-plan/ACTIONS.md",
+    "test -f docs/agent/runs/2026-07-01-p0-pr83-final-review-and-agent-host-canary-plan/TESTS.md",
+    "test -f docs/agent/runs/2026-07-01-p0-pr83-final-review-and-agent-host-canary-plan/RESULT.md",
+    "test -f docs/agent/runs/2026-07-01-p0-pr83-final-review-and-agent-host-canary-plan/NEXT.md",
+    "git diff --name-only dfbc7fc17f4d76d81d97944a852febbb91278d9b..HEAD | grep -Ev '^docs/agent/runs/2026-07-01-p0-pr83-final-review-and-agent-host-canary-plan/' && exit 1 || true",
+    "rg --no-ignore -n '[0-9]{6,}:[A-Za-z0-9_-]{20,}|[A-Za-z0-9_]*(TOKEN|SECRET|PASSWORD|COOKIE|API_KEY|CHAT_ID)=[^ ]+' docs/agent/runs/2026-07-01-p0-pr83-final-review-and-agent-host-canary-plan && exit 1 || true"
+  ],
+  "acceptance": [
+    "Exact five run artifacts exist under docs/agent/runs/2026-07-01-p0-pr83-final-review-and-agent-host-canary-plan/.",
+    "RESULT.md states whether PR #83 is merge-ready, still draft, blocked, or needs owner decision.",
+    "RESULT.md includes PR URL, head SHA, base SHA, CI evidence, focused server test evidence and changed-file scope summary.",
+    "NEXT.md contains the next recommended Control Plane task for post-merge canary or review repair.",
+    "No product code, tests, CI, superfactory docs, dispatcher files or runtime services are changed.",
+    "No git push, merge, force push or main update is attempted.",
+    "Remote result reports task_id, node, Russian agent display name, PR #83 URL, artifacts, tests, blockers and next action."
+  ],
+  "source": {
+    "kind": "mac_thin_client_dispatcher",
+    "owner": "Vladislav",
+    "created_at": "2026-07-01T07:49:23Z",
+    "local_ledger": "docs/agent/dispatcher/DISPATCH_LOG.md"
+  }
+}
