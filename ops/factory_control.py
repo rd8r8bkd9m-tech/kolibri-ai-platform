@@ -26,6 +26,10 @@ REDIS_HOST = os.environ.get("FACTORY_REDIS_HOST", "127.0.0.1")
 REDIS_PORT = int(os.environ.get("FACTORY_REDIS_PORT", "6379"))
 LEASE_DURATION = int(os.environ.get("FACTORY_LEASE_DURATION", "60"))
 MAX_RETRIES = int(os.environ.get("FACTORY_MAX_RETRIES", "3"))
+GLOBAL_LOGICAL_AGENT_TARGET = int(os.environ.get("FACTORY_GLOBAL_LOGICAL_AGENT_TARGET", "1000"))
+MAX_NODE_SUBAGENT_TARGET = int(os.environ.get("FACTORY_MAX_NODE_SUBAGENT_TARGET", "20"))
+FOLLOWUP_RATE_LIMIT = int(os.environ.get("FACTORY_FOLLOWUP_RATE_LIMIT", "5"))
+FOLLOWUP_RATE_WINDOW = int(os.environ.get("FACTORY_FOLLOWUP_RATE_WINDOW", "3600"))
 
 STATE_QUEUED = "queued"
 STATE_LEASED = "leased"
@@ -181,6 +185,110 @@ def normalize_task(envelope: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _as_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def classify_node_readiness(node: dict[str, Any]) -> tuple[str, list[str]]:
+    blockers: list[str] = []
+    if node.get("health") != "online":
+        blockers.append("node_not_online")
+    if node.get("draining"):
+        blockers.append("node_draining")
+    if not node.get("agent_id"):
+        blockers.append("agent_not_registered")
+    if not node.get("heartbeat_at"):
+        blockers.append("heartbeat_missing")
+    if not node.get("capabilities"):
+        blockers.append("capabilities_missing")
+    return ("blocked" if blockers else "ready", blockers)
+
+
+def active_task_count_for_node(node_id: str) -> int:
+    prefix = f"{node_id}:"
+    count = 0
+    for task_id in all_task_ids():
+        task = load_task(task_id)
+        if not task or task.get("state") not in {STATE_LEASED, STATE_RUNNING, STATE_REVIEW}:
+            continue
+        if str(task.get("lease_owner") or "").startswith(prefix):
+            count += 1
+    return count
+
+
+def scheduler_capacity_for_node(node: dict[str, Any], active_tasks: int = 0) -> dict[str, Any]:
+    requested = _as_int(node.get("subagent_target") or node.get("mimo_subagent_target"), 1)
+    cpu_limit = max(1, _as_int(node.get("cpu"), 1))
+    configured_max = max(1, _as_int(node.get("max_inflight"), 1))
+    capped_target = min(MAX_NODE_SUBAGENT_TARGET, requested, cpu_limit, configured_max)
+    readiness, blockers = classify_node_readiness(node)
+    available = max(0, capped_target - active_tasks) if readiness == "ready" else 0
+    return {
+        "readiness": readiness,
+        "blockers": blockers,
+        "requested_subagent_target": requested,
+        "max_subagent_target": MAX_NODE_SUBAGENT_TARGET,
+        "configured_max_inflight": configured_max,
+        "capacity": capped_target,
+        "active": active_tasks,
+        "available": available,
+    }
+
+
+def mesh_status_snapshot() -> dict[str, Any]:
+    nodes = []
+    total_capacity = 0
+    total_available = 0
+    blockers: list[dict[str, Any]] = []
+    for node_id in sorted(redis.command("SMEMBERS", key("node_ids")) or []):
+        node = get_json(node_key(node_id), {})
+        node["draining"] = bool(redis.command("GET", drain_key(node_id)))
+        capacity = scheduler_capacity_for_node(node, active_task_count_for_node(node_id))
+        node["scheduler_capacity"] = capacity
+        total_capacity += capacity["capacity"]
+        total_available += capacity["available"]
+        if capacity["blockers"]:
+            blockers.append({"node_id": node_id, "blockers": capacity["blockers"]})
+        nodes.append(node)
+    task_states: dict[str, int] = {}
+    live_tasks = []
+    for task_id in all_task_ids():
+        task = load_task(task_id)
+        if not task:
+            continue
+        state = str(task.get("state") or "unknown")
+        task_states[state] = task_states.get(state, 0) + 1
+        if state not in TERMINAL_STATES:
+            live_tasks.append({
+                "task_id": task_id,
+                "state": state,
+                "kind": task.get("kind"),
+                "lease_owner": task.get("lease_owner"),
+                "result_reference": task.get("result_reference"),
+                "error_type": task.get("error_type"),
+            })
+    return {
+        "status": "ready" if total_available > 0 else "blocked",
+        "generated_at": utc_now(),
+        "global_logical_agent_target": GLOBAL_LOGICAL_AGENT_TARGET,
+        "global_scheduler_capacity": total_capacity,
+        "global_available_capacity": total_available,
+        "max_node_subagent_target": MAX_NODE_SUBAGENT_TARGET,
+        "task_states": task_states,
+        "live_tasks": live_tasks,
+        "nodes": nodes,
+        "blockers": blockers,
+        "next_dispatch_wave": {
+            "available_slots": total_available,
+            "queued": task_states.get(STATE_QUEUED, 0),
+            "dispatchable": min(total_available, task_states.get(STATE_QUEUED, 0)),
+        },
+    }
+
+
 def compatible(task: dict[str, Any], node_id: str, capabilities: list[str]) -> bool:
     envelope = task.get("envelope", {})
     target_node = envelope.get("target_node") or envelope.get("required_node")
@@ -234,6 +342,34 @@ def create_task(envelope: dict[str, Any]) -> dict[str, Any]:
     redis.command("SET", idem_key, task["task_id"])
     enqueue(task["task_id"])
     return task
+
+
+def create_followup_task(source_task_id: str, body: dict[str, Any]) -> dict[str, Any]:
+    source_task = load_task(source_task_id)
+    if not source_task:
+        raise ValueError("source_task_not_found")
+    requester = body.get("agent_id") or body.get("lease_owner")
+    lease_owner = source_task.get("lease_owner")
+    if lease_owner and requester and requester != lease_owner:
+        raise PermissionError("source_task_lease_owner_mismatch")
+    rate_key = key(f"followup_rate:{source_task_id}:{requester or 'unknown'}")
+    count = int(redis.command("INCR", rate_key))
+    if count == 1:
+        redis.command("EXPIRE", rate_key, FOLLOWUP_RATE_WINDOW)
+    if count > FOLLOWUP_RATE_LIMIT:
+        raise OverflowError("followup_rate_limited")
+    envelope = dict(body.get("envelope") or {})
+    idempotency_key = body.get("idempotency_key") or envelope.get("idempotency_key")
+    if not idempotency_key:
+        raise ValueError("idempotency_key_required")
+    envelope["idempotency_key"] = f"followup:{source_task_id}:{idempotency_key}"
+    envelope.setdefault("task_id", f"{source_task_id}-FOLLOWUP-{uuid.uuid4().hex[:8]}")
+    envelope.setdefault("kind", body.get("kind") or "read_only_probe")
+    envelope["parent_task_id"] = source_task_id
+    envelope["created_by_agent"] = requester
+    envelope.setdefault("required_capability", body.get("required_capability") or envelope.get("required_capability"))
+    envelope.setdefault("max_retries", min(_as_int(source_task.get("max_retries"), MAX_RETRIES), MAX_RETRIES))
+    return create_task(envelope)
 
 
 def create_review_task(source_task: dict[str, Any], result: dict[str, Any]) -> dict[str, Any] | None:
@@ -290,13 +426,25 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path in {"/health", "/v1/health"}:
                 pong = redis.command("PING")
-                response(self, 200, {"status": "ok", "redis": pong, "queue_backend": "redis", "time": utc_now()})
+                response(self, 200, {
+                    "status": "ok",
+                    "redis": pong,
+                    "queue_backend": "redis",
+                    "queue": len(queue_ids()),
+                    "time": utc_now(),
+                    "global_logical_agent_target": GLOBAL_LOGICAL_AGENT_TARGET,
+                    "global_scheduler_capacity": mesh_status_snapshot()["global_scheduler_capacity"],
+                })
+                return
+            if path == "/v1/mesh/status":
+                response(self, 200, mesh_status_snapshot())
                 return
             if path == "/v1/nodes":
                 nodes = []
                 for node_id in sorted(redis.command("SMEMBERS", key("node_ids")) or []):
                     node = get_json(node_key(node_id), {})
                     node["draining"] = bool(redis.command("GET", drain_key(node_id)))
+                    node["scheduler_capacity"] = scheduler_capacity_for_node(node, active_task_count_for_node(node_id))
                     nodes.append(node)
                 response(self, 200, {"nodes": nodes})
                 return
@@ -337,7 +485,10 @@ class Handler(BaseHTTPRequestHandler):
                     "ram": body.get("ram"),
                     "disk": body.get("disk"),
                     "agent_id": body.get("agent_id"),
+                    "max_inflight": body.get("max_inflight"),
+                    "subagent_target": body.get("subagent_target"),
                 }
+                node["scheduler_capacity"] = scheduler_capacity_for_node(node, active_task_count_for_node(node_id))
                 set_json(node_key(node_id), node)
                 redis.command("SADD", key("node_ids"), node_id)
                 response(self, 200, node)
@@ -348,6 +499,7 @@ class Handler(BaseHTTPRequestHandler):
                 node.update(body)
                 node["health"] = "online"
                 node["heartbeat_at"] = utc_now()
+                node["scheduler_capacity"] = scheduler_capacity_for_node(node, active_task_count_for_node(node_id))
                 set_json(node_key(node_id), node)
                 redis.command("SADD", key("node_ids"), node_id)
                 response(self, 200, node)
@@ -373,6 +525,15 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 capabilities = body.get("capabilities", [])
                 agent_id = body.get("agent_id", node_id)
+                node = get_json(node_key(node_id), {"node_id": node_id, "health": "online", "agent_id": agent_id, "capabilities": capabilities})
+                node.update({"capabilities": capabilities, "agent_id": agent_id, "max_inflight": body.get("max_inflight", node.get("max_inflight")), "subagent_target": body.get("subagent_target", node.get("subagent_target"))})
+                capacity = scheduler_capacity_for_node(node, active_task_count_for_node(node_id))
+                if capacity["available"] <= 0:
+                    node["scheduler_capacity"] = capacity
+                    set_json(node_key(node_id), node)
+                    redis.command("SADD", key("node_ids"), node_id)
+                    response(self, 204, {})
+                    return
                 for task_id in queue_ids():
                     task = load_task(task_id)
                     if not task or task.get("state") not in {STATE_QUEUED, STATE_REVIEW}:
@@ -391,6 +552,18 @@ class Handler(BaseHTTPRequestHandler):
                     response(self, 200, task)
                     return
                 response(self, 204, {})
+                return
+            if path.startswith("/v1/tasks/") and path.endswith("/followups"):
+                task_id = path.split("/")[3]
+                try:
+                    task = create_followup_task(task_id, body)
+                    response(self, 201, task)
+                except ValueError as exc:
+                    response(self, 400, {"error": str(exc), "task_id": task_id})
+                except PermissionError as exc:
+                    response(self, 403, {"error": str(exc), "task_id": task_id})
+                except OverflowError as exc:
+                    response(self, 429, {"error": str(exc), "task_id": task_id})
                 return
             if path.startswith("/v1/tasks/") and path.endswith("/heartbeat"):
                 task_id = path.split("/")[3]

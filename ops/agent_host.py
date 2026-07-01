@@ -86,6 +86,7 @@ class AgentHost:
         self.heartbeat_interval = args.heartbeat_interval
         self.lease_refresh = args.lease_refresh
         self.max_inflight = args.max_inflight
+        self.subagent_target = args.subagent_target
         self.hostname = platform.node()
         self.pid = os.getpid()
         self.work_root.mkdir(parents=True, exist_ok=True)
@@ -121,6 +122,8 @@ class AgentHost:
             "agent_id": self.agent_id,
             "pid": self.pid,
             "capabilities": self.capabilities,
+            "max_inflight": self.max_inflight,
+            "subagent_target": self.subagent_target,
             **machine_stats(),
         }
         self.post("/v1/nodes/register", body)
@@ -133,6 +136,8 @@ class AgentHost:
             "pid": self.pid,
             "capabilities": self.capabilities,
             "active_task": active_task,
+            "max_inflight": self.max_inflight,
+            "subagent_target": self.subagent_target,
             **machine_stats(),
         }
         self.post(f"/v1/nodes/{self.node_id}/heartbeat", body)
@@ -152,7 +157,29 @@ class AgentHost:
             "node_id": self.node_id,
             "agent_id": self.agent_id,
             "capabilities": self.capabilities,
+            "max_inflight": self.max_inflight,
+            "subagent_target": self.subagent_target,
         })
+
+    def submit_repair_followup(self, task: dict[str, Any], error: str) -> dict[str, Any] | None:
+        envelope = task.get("envelope") or {}
+        if not envelope.get("create_repair_on_failure"):
+            return None
+        if envelope.get("parent_task_id"):
+            return None
+        digest = hashlib.sha256(error.encode("utf-8")).hexdigest()[:12]
+        followup = {
+            "agent_id": f"{self.node_id}:{self.agent_id}",
+            "idempotency_key": f"repair:{task['task_id']}:{digest}",
+            "envelope": {
+                "kind": envelope.get("repair_kind", "read_only_probe"),
+                "objective": envelope.get("repair_objective") or f"Repair failed task {task['task_id']}",
+                "required_capability": envelope.get("repair_required_capability") or envelope.get("required_capability"),
+                "target_node": envelope.get("repair_target_node"),
+                "source_error": error[:500],
+            },
+        }
+        return self.post(f"/v1/tasks/{task['task_id']}/followups", followup)
 
     def run_command(
         self,
@@ -945,6 +972,14 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 "completed_at": utc_now(),
             }
             result_path = self.write_result(artifact_dir, result)
+            try:
+                repair_task = self.submit_repair_followup(task, str(exc))
+                if repair_task:
+                    result["repair_task_id"] = repair_task.get("task_id")
+                    result_path = self.write_result(artifact_dir, result)
+            except Exception as followup_exc:
+                result["repair_task_error"] = str(followup_exc)
+                result_path = self.write_result(artifact_dir, result)
             retry = int(task.get("attempt", 0)) < int(task.get("max_retries", 3))
             self.fail(task, "runtime_error", str(exc), result, result_path, retry=retry)
 
@@ -987,6 +1022,7 @@ def main() -> int:
     parser.add_argument("--heartbeat-interval", type=int, default=int(os.environ.get("KOLIBRI_HEARTBEAT_INTERVAL", "10")))
     parser.add_argument("--lease-refresh", type=int, default=int(os.environ.get("KOLIBRI_LEASE_REFRESH", "20")))
     parser.add_argument("--max-inflight", type=int, default=int(os.environ.get("KOLIBRI_MAX_INFLIGHT", "1")))
+    parser.add_argument("--subagent-target", type=int, default=int(os.environ.get("KOLIBRI_SUBAGENT_TARGET", os.environ.get("KOLIBRI_MAX_INFLIGHT", "1"))))
     args = parser.parse_args()
     signal.signal(signal.SIGTERM, handle_stop)
     signal.signal(signal.SIGINT, handle_stop)

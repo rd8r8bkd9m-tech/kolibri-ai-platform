@@ -455,6 +455,48 @@ body {
 
 .node-card { cursor: default; }
 
+.mesh-section {
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-glass);
+}
+.mesh-section-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 10px;
+}
+.mesh-empty { color: var(--text-muted); font-size: 13px; }
+.mesh-task-list { display: flex; flex-direction: column; gap: 6px; }
+.mesh-task-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1.4fr) minmax(70px, 0.6fr) minmax(100px, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-height: 28px;
+  font-size: 12px;
+}
+.mesh-task-id,
+.mesh-task-owner {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mesh-task-id { font-family: var(--font-mono); color: var(--text-primary); }
+.mesh-task-state {
+  justify-self: start;
+  padding: 2px 7px;
+  border-radius: var(--radius-full);
+  color: var(--warning);
+  background: rgba(245, 158, 11, 0.1);
+  font-weight: 600;
+}
+.mesh-task-owner { color: var(--text-muted); text-align: right; }
+
 .skeleton { border-radius: var(--radius-md); background: linear-gradient(90deg, var(--border) 25%, var(--border-strong) 50%, var(--border) 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
 @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 .skeleton-card { height: 100px; }

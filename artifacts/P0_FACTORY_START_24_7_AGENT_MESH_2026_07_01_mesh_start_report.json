@@ -1,0 +1,66 @@
+{
+  "task_id": "P0_FACTORY_START_24_7_AGENT_MESH_2026_07_01",
+  "generated_at": "2026-07-01T16:00:13Z",
+  "control_plane_url": "http://10.99.0.2:9101",
+  "live_control_plane": {
+    "status": "ok",
+    "nodes_total": 42,
+    "nodes_online": 8,
+    "online_node_ids": [
+      "main",
+      "mesh-9fts",
+      "mesh-agent-01",
+      "mesh-agent-02",
+      "mesh-agent-03",
+      "new",
+      "qjns",
+      "uiap"
+    ],
+    "queue_len": 200
+  },
+  "child_tasks": [
+    {
+      "task_id": "P0_FACTORY_START_24_7_AGENT_MESH_2026_07_01-CHILD-READINESS-QJNS",
+      "idempotency_key": "P0_FACTORY_START_24_7_AGENT_MESH_2026_07_01:child:readiness:qjns:v2",
+      "target_node": "qjns",
+      "lease_owner": "qjns:agent-host-qjns",
+      "status": "completed",
+      "result_reference": "/var/lib/kolibri-agent/artifacts/P0_FACTORY_START_24_7_AGENT_MESH_2026_07_01-CHILD-READINESS-QJNS/P0_FACTORY_START_24_7_AGENT_MESH_2026_07_01-CHILD-READINESS-QJNS-attempt-1/result.json",
+      "log_paths": {
+        "stdout": "/var/lib/kolibri-agent/artifacts/P0_FACTORY_START_24_7_AGENT_MESH_2026_07_01-CHILD-READINESS-QJNS/P0_FACTORY_START_24_7_AGENT_MESH_2026_07_01-CHILD-READINESS-QJNS-attempt-1/stdout.log",
+        "stderr": "/var/lib/kolibri-agent/artifacts/P0_FACTORY_START_24_7_AGENT_MESH_2026_07_01-CHILD-READINESS-QJNS/P0_FACTORY_START_24_7_AGENT_MESH_2026_07_01-CHILD-READINESS-QJNS-attempt-1/stderr.log"
+      }
+    }
+  ],
+  "implemented_contracts": {
+    "mesh_status_endpoint": "/v1/mesh/status",
+    "followup_endpoint": "/v1/tasks/{task_id}/followups",
+    "global_logical_agent_target": 1000,
+    "max_node_subagent_target": 20,
+    "capacity_policy": "scheduler capacity only; no uncontrolled OS process fanout"
+  },
+  "blockers": [
+    {
+      "scope": "deployed_control_plane",
+      "blocker": "deployed Control Plane does not yet expose scheduler_capacity fields until this patch is deployed"
+    },
+    {
+      "scope": "fresh_or_stale_nodes",
+      "blocker": "stale nodes require heartbeat/readiness probes; nodes without agent_id are classified as agent_not_registered"
+    }
+  ],
+  "next_dispatch_wave": {
+    "recommended_target_nodes": [
+      "main",
+      "mesh-9fts",
+      "mesh-agent-01",
+      "mesh-agent-02",
+      "mesh-agent-03",
+      "new",
+      "qjns",
+      "uiap"
+    ],
+    "task_kind": "read_only_probe",
+    "dispatch_policy": "submit idempotent readiness probes first, then enable repair follow-ups for implementation/review tasks after this patch is deployed"
+  }
+}

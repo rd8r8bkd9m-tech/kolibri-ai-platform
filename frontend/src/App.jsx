@@ -100,6 +100,8 @@ function ClusterView({ status, onRefresh }) {
           { label: "RAM свободно", value: `${status.free_ram_gb} GB`, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 12h4"/><path d="M14 12h4"/></svg>, color: "var(--success)" },
           { label: "CPU средний", value: `${status.avg_cpu_percent}%`, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg>, color: "var(--text-primary)" },
           { label: "Задач в очереди", value: status.queue_size || 0, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>, color: "var(--warning)" },
+          { label: "Логическая цель", value: status.global_logical_agent_target || 1000, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 18V6"/><path d="M20 18V6"/><path d="M8 10h8"/><path d="M8 14h8"/><path d="M12 4v16"/></svg>, color: "var(--accent)" },
+          { label: "Слоты планировщика", value: `${status.global_available_capacity || 0}/${status.global_scheduler_capacity || 0}`, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 3h18v18H3z"/><path d="M9 3v18"/><path d="M15 3v18"/><path d="M3 9h18"/><path d="M3 15h18"/></svg>, color: "var(--success)" },
         ].map((s, i) => (
           <motion.div key={s.label} className="stat-card"
             initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
@@ -109,6 +111,23 @@ function ClusterView({ status, onRefresh }) {
             <div className="stat-label">{s.label}</div>
           </motion.div>
         ))}
+      </div>
+
+      <div className="mesh-section">
+        <div className="mesh-section-title">Живые задачи</div>
+        {(status.live_tasks || []).length === 0 ? (
+          <div className="mesh-empty">Нет активных задач</div>
+        ) : (
+          <div className="mesh-task-list">
+            {(status.live_tasks || []).slice(0, 12).map(task => (
+              <div key={task.task_id} className="mesh-task-row">
+                <span className="mesh-task-id">{task.task_id}</span>
+                <span className="mesh-task-state">{task.state}</span>
+                <span className="mesh-task-owner">{task.lease_owner || "unassigned"}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
       
       <div className="doc-list">
@@ -126,6 +145,10 @@ function ClusterView({ status, onRefresh }) {
             <div className="doc-info">
               <div className="doc-name" style={{ textTransform: "capitalize" }}>{name}</div>
               <div className="doc-meta">{node.role} · {node.hostname || node.ip || node.agent_id || "internal"}</div>
+              <div className="doc-meta">
+                {node.readiness || "unknown"} · slots {node.available_capacity || 0}/{node.capacity || 0}
+                {(node.blockers || []).length > 0 ? ` · blockers: ${node.blockers.join(", ")}` : ""}
+              </div>
             </div>
             <div style={{ textAlign: "right" }}>
               <div style={{ fontSize: "13px", fontWeight: "600" }}>CPU {node.cpu == null ? "n/a" : node.cpu}</div>

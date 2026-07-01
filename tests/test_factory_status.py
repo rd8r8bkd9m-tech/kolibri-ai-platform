@@ -19,11 +19,16 @@ def test_build_factory_status_normalizes_control_plane_nodes():
                 "cpu": 8,
                 "ram": {"MemTotal": "12247028 kB", "MemAvailable": "11510364 kB"},
                 "disk": {"free": 94581936128, "total": 105590231040},
+                "scheduler_capacity": {"readiness": "ready", "capacity": 8, "available": 6, "blockers": []},
             },
             {"node_id": "new", "health": "offline", "capabilities": ["review"], "ram": {}, "disk": {}},
         ]
     }
-    result = build_factory_status(payload, {"tasks": [{"state": "queued"}, {"state": "running"}]}, {"status": "ok", "queue_backend": "redis"})
+    result = build_factory_status(
+        payload,
+        {"tasks": [{"task_id": "TASK-1", "state": "queued"}, {"task_id": "TASK-2", "state": "running", "lease_owner": "primary:agent"}]},
+        {"status": "ok", "queue_backend": "redis", "global_logical_agent_target": 1000},
+    )
 
     assert result["status"] == "online"
     assert result["total_nodes"] == 2
@@ -31,6 +36,11 @@ def test_build_factory_status_normalizes_control_plane_nodes():
     assert result["queue_size"] == 2
     assert result["nodes"]["primary-candidate"]["role"] == "Директор"
     assert result["nodes"]["primary-candidate"]["ram_total_gb"] > 0
+    assert result["nodes"]["primary-candidate"]["capacity"] == 8
+    assert result["global_scheduler_capacity"] == 8
+    assert result["global_available_capacity"] == 6
+    assert result["global_logical_agent_target"] == 1000
+    assert result["live_tasks"][0]["task_id"] == "TASK-1"
     assert result["control_plane"]["status"] == "ok"
 
 
@@ -41,3 +51,5 @@ def test_frontend_uses_live_factory_status_endpoint():
     assert "/cluster/status" not in app_source
     assert "на базе 5 серверов" not in app_source
     assert "Фабрика Колибри" in app_source
+    assert "Живые задачи" in app_source
+    assert "global_scheduler_capacity" in app_source

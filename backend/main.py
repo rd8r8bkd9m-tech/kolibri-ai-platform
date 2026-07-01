@@ -322,6 +322,14 @@ async def api_factory_status():
                 "total_ram_gb": 0,
                 "avg_cpu_percent": 0,
                 "queue_size": 0,
+                "task_states": {},
+                "live_tasks": [],
+                "blockers": [{"node_id": "control-plane", "blockers": ["control_plane_unavailable"]}],
+                "global_logical_agent_target": 1000,
+                "global_scheduler_capacity": 0,
+                "global_available_capacity": 0,
+                "max_node_subagent_target": 20,
+                "next_dispatch_wave": {"available_slots": 0, "queued": 0, "dispatchable": 0},
                 "nodes": {},
                 "node_list": [],
                 "control_plane": {"status": "unavailable"},
@@ -393,5 +401,4 @@ if frontend_path.exists():
         if file_path.exists() and file_path.is_file():
             return FileResponse(str(file_path))
         return FileResponse(str(frontend_path / "index.html"))
-
 
