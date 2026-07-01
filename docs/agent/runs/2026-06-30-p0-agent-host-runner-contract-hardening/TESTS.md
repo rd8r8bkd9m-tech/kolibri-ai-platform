@@ -78,8 +78,8 @@ Notes:
   - `pytest tests/test_factory_runtime.py -q`: 4 passed.
   - `pytest -q`: 73 passed, 1 external `reportlab` warning.
 - `git ls-remote --heads origin p0/agent-host-runner-contract-hardening-2026-06-30`
-  confirmed that the GitHub source branch points to
-  `cac790042a57c959d25797a9fefa2b2a3625a99d`.
+  confirmed that the GitHub source branch was reachable before the final
+  artifact update was pushed.
 - `gh` was not installed in this worktree environment, so PR metadata was not
   queried through GitHub CLI during the finalization rerun.
 - A first full-suite attempt on the Homebrew default Python 3.14 failed during

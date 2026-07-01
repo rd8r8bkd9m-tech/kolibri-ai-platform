@@ -2,8 +2,7 @@
   "agent_display_name_ru": "Автономный инженер",
   "blockers": [],
   "branch": "p0/agent-host-runner-contract-hardening-2026-06-30",
-  "commit": "cac790042a57c959d25797a9fefa2b2a3625a99d",
-  "completed_at": "2026-07-01T02:15:41Z",
+  "completed_at": "2026-07-01T02:17:34Z",
   "next_task": "PROMPT 2 - P0_CREATE_KOLIBRI_SUPERFACTORY_DOCUMENTATION_PACKAGE",
   "node": "kolibri",
   "pr": {
@@ -36,7 +35,8 @@
     },
     {
       "command": "git ls-remote --heads origin p0/agent-host-runner-contract-hardening-2026-06-30",
-      "result": "remote branch points to cac790042a57c959d25797a9fefa2b2a3625a99d"
+      "result": "remote source branch was reachable and updated by this finalization"
     }
-  ]
+  ],
+  "verified_code_commit": "cac790042a57c959d25797a9fefa2b2a3625a99d"
 }
