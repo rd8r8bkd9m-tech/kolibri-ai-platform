@@ -1,9 +1,87 @@
 # Factory Status
 
 Snapshot time:
-- 2026-07-01T06:38:29Z
+- 2026-07-01T07:12:15Z
 
 Latest update:
+- 2026-07-01T07:12:15Z:
+  `PR90_EXACT_ARTIFACT_RELAY_2026_07_01` completed as a deterministic
+  thin-client relay. PR #90 branch is now at
+  `0fb48df868991ce2d23f326b87fe0e09e118bc3f`; exact canonical artifacts exist
+  under
+  `docs/agent/runs/2026-07-01-p0-telegram-miniapp-owner-auth-contract/`.
+  Relay checks: exact files present, `git diff --check` clean, secret-pattern
+  scan clean. GitHub connector fetched the commit diff; combined status list is
+  empty, so CI/check status is not claimed.
+- 2026-07-01T07:09:56Z:
+  `P0_TELEGRAM_AUTH_PR90_CANONICAL_ARTIFACTS_AND_ENV_VERIFIER_2026_07_01`
+  ended with Control Plane state `failed`. Useful output: server branch head
+  `133f698fc978e1632e83909cbb25016cedadc275`, dependency-satisfied root auth
+  verifier `8 passed`, and system Python blocker `ModuleNotFoundError: No
+  module named 'fastapi'`. Failure reason: the remote agent wrote
+  `PLAN.md/ACTIONS.md/TESTS.md/RESULT.md/NEXT.md` at repo root, while verifier
+  required them under `docs/agent/runs/2026-07-01-p0-telegram-miniapp-owner-auth-contract/`.
+- 2026-07-01T07:06:03Z:
+  `P0_TELEGRAM_AUTH_PR90_CANONICAL_ARTIFACTS_AND_ENV_VERIFIER_2026_07_01`
+  is running on `primary-candidate:agent-host-primary`. Attempt
+  `P0_TELEGRAM_AUTH_PR90_CANONICAL_ARTIFACTS_AND_ENV_VERIFIER_2026_07_01-attempt-1`
+  writes artifacts under
+  `/var/lib/kolibri-agent/artifacts/P0_TELEGRAM_AUTH_PR90_CANONICAL_ARTIFACTS_AND_ENV_VERIFIER_2026_07_01/`.
+- 2026-07-01T07:05:22Z:
+  Control Plane accepted
+  `P0_TELEGRAM_AUTH_PR90_CANONICAL_ARTIFACTS_AND_ENV_VERIFIER_2026_07_01`.
+  Initial state is `queued`; lease owner is not assigned yet.
+- 2026-07-01T07:04:00Z:
+  Prepared
+  `P0_TELEGRAM_AUTH_PR90_CANONICAL_ARTIFACTS_AND_ENV_VERIFIER_2026_07_01`.
+  It is docs/artifact and verification only: exact
+  `PLAN/ACTIONS/TESTS/RESULT/NEXT` artifacts for PR #90 plus a verifier command
+  that creates a temporary backend test environment before running
+  `tests/test_telegram_miniapp_auth.py`. Write scope excludes backend, tests,
+  frontend, ops, infra, GitHub Actions and dispatcher files.
+- 2026-07-01T07:01:57Z:
+  `P0_TELEGRAM_MINIAPP_OWNER_AUTH_VERIFIER_REPAIR_2026_07_01` ended with
+  Control Plane state `failed`. Useful output exists: Draft PR #90
+  `https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/90` and branch
+  head `378b19db9ca2b509d140ab241a67268f291b4c45`. It added
+  `tests/test_telegram_miniapp_auth.py` and proved the dependency-satisfied
+  root verifier path in a temporary venv (`8 passed`) plus gateway tests
+  (`31 passed`). Final wrapper correctly failed because raw system Python on
+  `primary-candidate` lacks `fastapi` from `backend/requirements.txt`. Read-only
+  branch inspection also shows canonical run artifacts are still not exact:
+  branch contains `01_scope.txt` through `05_remote_result.json`, not
+  `PLAN.md`, `ACTIONS.md`, `TESTS.md`, `RESULT.md`, `NEXT.md`.
+- 2026-07-01T06:56:48Z:
+  `P0_TELEGRAM_MINIAPP_OWNER_AUTH_VERIFIER_REPAIR_2026_07_01` is running on
+  `primary-candidate:agent-host-primary`. Attempt
+  `P0_TELEGRAM_MINIAPP_OWNER_AUTH_VERIFIER_REPAIR_2026_07_01-attempt-1`
+  writes artifacts under
+  `/var/lib/kolibri-agent/artifacts/P0_TELEGRAM_MINIAPP_OWNER_AUTH_VERIFIER_REPAIR_2026_07_01/`.
+  Expected proof: exact root-level `tests/test_telegram_miniapp_auth.py`,
+  exact five run docs, focused tests, normal branch push, and no frontend/ops
+  or live Telegram mutation.
+- 2026-07-01T06:56:01Z:
+  Control Plane accepted
+  `P0_TELEGRAM_MINIAPP_OWNER_AUTH_VERIFIER_REPAIR_2026_07_01` through the
+  `kolibri-primary-codex` route. Initial state is `queued`; lease owner and
+  result artifact are not assigned yet. The task targets the existing branch
+  `p0/telegram-miniapp-owner-auth-contract-2026-07-01` and may push only that
+  branch.
+- 2026-07-01T06:56:00Z:
+  `P0_TELEGRAM_MINIAPP_OWNER_AUTH_CONTRACT_2026_07_01` finished with
+  Control Plane state `failed`, and that status is correct. The remote agent
+  pushed useful backend-only branch
+  `p0/telegram-miniapp-owner-auth-contract-2026-07-01` at
+  `3d221079d167ffc5c9cdfd3a240b02709a00074c`, but final verifier ran
+  `python3 -m pytest tests/test_telegram_miniapp_auth.py -q` and failed
+  because the test was created under `backend/tests/test_telegram_miniapp_auth.py`.
+  Remote useful test evidence reported `8 passed` for the backend auth tests,
+  `31 passed` for `tests/test_telegram_gateway.py`, and `2 passed` for
+  `backend/tests/test_factory_status_fast_health.py`. Prepared follow-up
+  `P0_TELEGRAM_MINIAPP_OWNER_AUTH_VERIFIER_REPAIR_2026_07_01` to repair the
+  branch contract with exact root-level verifier path and exact
+  `PLAN/ACTIONS/TESTS/RESULT/NEXT` run artifacts. No product code was changed
+  on Mac.
 - 2026-07-01T06:38:29Z:
   `P0_TELEGRAM_MINIAPP_OWNER_AUTH_CONTRACT_2026_07_01` is running on
   `primary-candidate:agent-host-primary`. Control Plane accepted it at
