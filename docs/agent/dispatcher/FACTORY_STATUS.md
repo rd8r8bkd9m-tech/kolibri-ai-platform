@@ -1,9 +1,19 @@
 # Factory Status
 
 Snapshot time:
-- 2026-07-01T06:12:43Z
+- 2026-07-01T06:26:31Z
 
 Latest update:
+- 2026-07-01T06:26:31Z:
+  `P0_TELEGRAM_FACTORY_COMMAND_CENTER_SPEC_AND_RUNTIME_GAP_AUDIT_2026_07_01`
+  is running on `primary-candidate:agent-host-primary`. Control Plane accepted
+  it at `2026-07-01T06:25:08Z`, assigned attempt
+  `P0_TELEGRAM_FACTORY_COMMAND_CENTER_SPEC_AND_RUNTIME_GAP_AUDIT_2026_07_01-attempt-1`,
+  and created artifacts under
+  `/var/lib/kolibri-agent/artifacts/P0_TELEGRAM_FACTORY_COMMAND_CENTER_SPEC_AND_RUNTIME_GAP_AUDIT_2026_07_01/`.
+  This is docs/audit-only: no product code, live Telegram mutation, service
+  restart, `getUpdates`, webhook change, token rotation or deployment is
+  allowed.
 - 2026-07-01T06:12:43Z:
   `P0_AGENT_HOST_REVIEW_CLONE_AND_CONSTRAINT_ENFORCEMENT_2026_07_01`
   completed on `primary-candidate:agent-host-primary`. PR #83 branch
