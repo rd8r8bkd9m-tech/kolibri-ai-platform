@@ -105,7 +105,7 @@ BACKEND_TEST_ENV_KEYS = (
     "backend_verification_environment",
 )
 BACKEND_TEST_ENV_TYPES = {"backend_python", "python_backend"}
-SUPPORTED_AI_RUNNERS = {"codex", "mimo"}
+SUPPORTED_AI_RUNNERS = {"api", "codex", "local_llm", "mimo"}
 RUNNER_AUTH_FAILURE_MARKERS = (
     "401",
     "403",
@@ -1317,6 +1317,10 @@ class AgentHost:
         runner = runner.strip().lower()
         if runner not in SUPPORTED_AI_RUNNERS:
             raise RunnerExecutionError("runner_unavailable", runner, f"unsupported runner requested: {runner}")
+        if runner == "api":
+            return self.run_api_text_runner(prompt)
+        if runner == "local_llm":
+            return self.run_local_llm_text_runner(prompt)
         executable = shutil.which(runner)
         if not executable:
             self.mark_runner_status(runner, "unavailable", "runner_unavailable")
