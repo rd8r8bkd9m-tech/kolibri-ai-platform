@@ -4,6 +4,32 @@ Snapshot time:
 - 2026-07-01T08:00:05Z
 
 Latest update:
+- 2026-07-01T08:46:00Z:
+  PR83 artifact chain is now server-complete and GitHub-green. Cleanup task
+  `P0_PR83_REVIEW_DIFF_CONTRACT_EXACT_ARTIFACT_CLEANUP_2026_07_01`
+  completed on `primary-candidate`, pushed branch head
+  `81daf44dc842dce40d8547275f47b051871a2690`, and GitHub Actions
+  `Kolibri CI` run `28504679530` succeeded.
+  Telegram official-capability alignment is not complete: stricter task
+  `P0_TELEGRAM_COMMAND_CENTER_ALIGNMENT_RUN_PATH_RELAY_2026_07_01`
+  failed because the generic runner again wrote wrong artifact paths
+  (`REPORT.md` and `docs/product/.../runs/...`) instead of exact
+  `OFFICIAL_CAPABILITY_ALIGNMENT.md` and `docs/agent/runs/.../*.md`.
+  Do not repeat the same generic prompt. Next path is deterministic remote
+  artifact relay or Agent Host exact-path enforcement fix.
+- 2026-07-01T08:42:22Z:
+  Submitted `P0_TELEGRAM_COMMAND_CENTER_ALIGNMENT_RUN_PATH_RELAY_2026_07_01`
+  through `kolibri-primary-codex` after the previous Telegram relay wrote run
+  docs into the product directory. Control Plane accepted the task but assigned
+  `full_autonomy`/`git_push` permission pack despite the narrow docs-only
+  envelope; record this as a runner contract risk.
+- 2026-07-01T08:30:16Z:
+  PR83 exact artifact repair produced useful uncommitted worktree changes
+  (canonical `NEXT.md` added, `REMOTE_RESULT.json` removed), but Control Plane
+  failed because the scope guard did not allow deletion of `REMOTE_RESULT.json`.
+  Prepared cleanup task
+  `P0_PR83_REVIEW_DIFF_CONTRACT_EXACT_ARTIFACT_CLEANUP_2026_07_01`.
+  Telegram exact canonical relay is now running on `primary-candidate`.
 - 2026-07-01T08:26:58Z:
   Submitted exact follow-ups through `kolibri-primary-codex`.
   `P0_PR83_REVIEW_DIFF_CONTRACT_EXACT_ARTIFACT_REPAIR_2026_07_01`
