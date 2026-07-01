@@ -1,9 +1,16 @@
 # Factory Status
 
 Snapshot time:
-- 2026-07-01T07:41:39Z
+- 2026-07-01T07:43:51Z
 
 Latest update:
+- 2026-07-01T07:43:51Z:
+  GitHub Actions evidence for PR #83 head
+  `dfbc7fc17f4d76d81d97944a852febbb91278d9b`: `Kolibri CI` run
+  `28501701336` completed with conclusion `success`. The `ci` job succeeded,
+  including Python syntax compile, pytest, JavaScript/TypeScript checks,
+  JSON/YAML validation, secret scan, production secret path guard and local
+  component smoke.
 - 2026-07-01T07:41:39Z:
   `P0_AGENT_HOST_BACKEND_VERIFIER_ENV_SCOPE_REPAIR_2026_07_01` produced a
   completed result and Control Plane moved the task endpoint to
