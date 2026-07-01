@@ -4,6 +4,20 @@ Snapshot time:
 - 2026-07-01T08:00:05Z
 
 Latest update:
+- 2026-07-01T09:05:00Z:
+  Ran deterministic read-only PR83 head verification on `primary-candidate`
+  using the existing completed PR83 cleanup worktree at
+  `81daf44dc842dce40d8547275f47b051871a2690`. Results:
+  `python3 -m py_compile ops/agent_host.py tests/test_agent_host_runner_contract.py`
+  passed, `python3 -m pytest tests/test_agent_host_runner_contract.py -q`
+  returned `29 passed in 36.75s`, `git diff --check` passed, final git status
+  was clean. Initial GitHub SSH fetch from the server timed out on port 22, so
+  this was a verification of the already-present exact PR83 worktree, not a new
+  fetch. Combined with GitHub Actions run `28504679530` success, PR83 has strong
+  owner-decision evidence. It is still draft; Mac did not merge or mark ready.
+  Prepared gated post-merge canary envelope
+  `P0_AGENT_HOST_POST_MERGE_CONTRACT_CANARY_2026_07_01`, to submit only after
+  owner merge/deploy/restart.
 - 2026-07-01T08:57:00Z:
   Submitted final read-only PR #83 verification task
   `P0_PR83_FINAL_MERGE_READINESS_VERIFICATION_2026_07_01`.
