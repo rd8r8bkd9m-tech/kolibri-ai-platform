@@ -1,9 +1,18 @@
 # Factory Status
 
 Snapshot time:
-- 2026-07-01T06:31:00Z
+- 2026-07-01T06:38:29Z
 
 Latest update:
+- 2026-07-01T06:38:29Z:
+  `P0_TELEGRAM_MINIAPP_OWNER_AUTH_CONTRACT_2026_07_01` is running on
+  `primary-candidate:agent-host-primary`. Control Plane accepted it at
+  `2026-07-01T06:38:12Z` and created attempt
+  `P0_TELEGRAM_MINIAPP_OWNER_AUTH_CONTRACT_2026_07_01-attempt-1`. Scope is
+  deliberately narrow: backend `initData` verification, short-lived session /
+  role response, redaction-safe behavior and tests only. No frontend, ops, live
+  Telegram receiver/webhook/menu/service mutation, payments, Guest Mode,
+  Business mode or Bot-to-Bot behavior is allowed.
 - 2026-07-01T06:31:00Z:
   `P0_TELEGRAM_FACTORY_COMMAND_CENTER_SPEC_AND_RUNTIME_GAP_AUDIT_2026_07_01`
   finished as `failed` in Control Plane, and that status is correct. The

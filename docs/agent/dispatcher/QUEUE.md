@@ -2,6 +2,7 @@
 
 | Priority | Task ID | Agent type | Target node pool | Preferred nodes | Status | Next action |
 | --- | --- | --- | --- | --- | --- | --- |
+| P0 | `P0_TELEGRAM_MINIAPP_OWNER_AUTH_CONTRACT_2026_07_01` | Telegram Mini App auth implementation | healthy server implementation nodes | `primary-candidate`, `home` | running | Leased by `primary-candidate:agent-host-primary`; collect branch/PR/tests/result and verify no frontend/ops/live Telegram mutation |
 | P0 | `P0_TELEGRAM_FACTORY_COMMAND_CENTER_SPEC_AND_RUNTIME_GAP_AUDIT_2026_07_01` | Telegram command center architecture audit | healthy server audit nodes | `primary-candidate`, `home`, `home-live` | failed_verifier_useful_docs_relayed | Remote task failed exact-path verifier but produced useful docs; thin-client relay imported exact docs/run artifacts; next create auth-contract implementation envelope |
 | P0 | `P0_API_FIRST_FULL_CONTROL_FABRIC_2026_07_01` | implementation / API fabric / security policy | healthy server implementation nodes | `primary-candidate`, `home-live`, `home`, `main` | PR85_ci_green | PR #85 is source-of-truth branch at `9690361f02addeff37771c52fd37878aef455e13`; review/split before merge if needed |
 | P0 | `P0_API_FIRST_FULL_CONTROL_FABRIC_FINALIZE_2026_07_01` | implementation finalization / PR / artifact contract | `primary-candidate` | `primary-candidate` | superseded_by_PR85_relay | finalizer created PR #85 but failed exact verifier; no further action on this task |

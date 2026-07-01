@@ -1,0 +1,122 @@
+{
+  "task_id": "P0_TELEGRAM_MINIAPP_OWNER_AUTH_CONTRACT_2026_07_01",
+  "idempotency_key": "mac-dispatcher:P0_TELEGRAM_MINIAPP_OWNER_AUTH_CONTRACT_2026_07_01",
+  "kind": "owner_remote_task",
+  "required_capability": "generic_implementation",
+  "runner": "codex",
+  "agent_type": "telegram_miniapp_auth_implementation",
+  "agent_display_name": "Иван — Telegram Auth Engineer",
+  "target_node": "primary-candidate",
+  "target_node_pool": "healthy_server_implementation_nodes",
+  "preferred_nodes": [
+    "primary-candidate",
+    "home"
+  ],
+  "allowed_nodes": [
+    "primary-candidate",
+    "home",
+    "home-live"
+  ],
+  "avoid_nodes": [
+    "main",
+    "qjns",
+    "uiap"
+  ],
+  "branch": "p0/telegram-miniapp-owner-auth-contract-2026-07-01",
+  "base_branch": "main",
+  "base_ref": "origin/main",
+  "max_retries": 1,
+  "create_review_on_complete": true,
+  "objective": "Implement only the backend Telegram Mini App owner-auth contract on a server branch. Add Telegram initData verification, short-lived session issuance, role mapping, redaction-safe responses and fixed signed fixtures/tests. Do not implement Mini App UI, task mutation APIs, Telegram live receiver changes, webhook changes, service restarts, payments, Guest Mode, Business mode or Bot-to-Bot behavior.",
+  "constraints": {
+    "mac_thin_client_only": true,
+    "server_execution_required": true,
+    "product_code_changes_allowed_on_server_branch_only": true,
+    "no_product_code_changes_on_mac": true,
+    "destructive_git_commands_forbidden": true,
+    "git_push_allowed_only_to_task_branch": true,
+    "push_to_main_forbidden": true,
+    "force_push_forbidden": true,
+    "dirty_worktree_checkout_forbidden": true,
+    "use_temp_mirror_or_safe_worktree_for_branch_analysis": true,
+    "secrets_redaction_required": true,
+    "telegram_token_printing_forbidden": true,
+    "owner_chat_id_printing_forbidden": true,
+    "private_message_printing_forbidden": true,
+    "live_telegram_mutation_forbidden": true,
+    "telegram_getupdates_forbidden": true,
+    "telegram_webhook_changes_forbidden": true,
+    "telegram_command_menu_changes_forbidden": true,
+    "runtime_service_changes_forbidden": true,
+    "frontend_changes_forbidden": true,
+    "task_mutation_api_forbidden": true,
+    "money_payment_bank_tax_actions_forbidden": true,
+    "business_guest_bot_bot_to_bot_forbidden": true,
+    "owner_facing_agent_names_must_be_russian": true,
+    "exact_run_artifacts_required": true
+  },
+  "read_first": [
+    "docs/product/telegram-command-center/2026-07-01/COMMAND_CENTER_SPEC.md",
+    "docs/product/telegram-command-center/2026-07-01/OWNER_AUTH_AND_INITDATA_POLICY.md",
+    "docs/product/telegram-command-center/2026-07-01/NEXT_TASK_PROMPTS.md",
+    "backend/main.py",
+    "backend/factory_status.py",
+    "ops/telegram_gateway.py",
+    "tests/test_telegram_gateway.py",
+    "pyproject.toml"
+  ],
+  "write_scope": [
+    "backend/**",
+    "tests/test_telegram_miniapp_auth.py",
+    "tests/test_backend_telegram_auth.py",
+    "docs/agent/runs/2026-07-01-p0-telegram-miniapp-owner-auth-contract/**"
+  ],
+  "forbidden_write_scope": [
+    "frontend/**",
+    "ops/**",
+    "infra/**",
+    ".github/**",
+    "docs/superfactory/**",
+    "docs/agent/dispatcher/**"
+  ],
+  "required_behavior": [
+    "Validate Telegram Mini App initData server-side using the official Telegram WebApp HMAC contract.",
+    "Reject missing, malformed, stale, replayed or signature-invalid initData.",
+    "Expose a minimal backend session endpoint for Mini App auth without adding task mutation APIs.",
+    "Map verified Telegram users to Kolibri roles using configured owner/operator/reviewer/observer allowlists or safe defaults.",
+    "Return only redaction-safe response fields; never echo bot tokens, raw initData, full hashes, private messages, owner chat IDs or environment secrets.",
+    "Use deterministic tests with fixed non-secret bot-token fixtures.",
+    "Keep existing Telegram gateway behavior unchanged.",
+    "Do not call Telegram Bot API or any live Telegram endpoint."
+  ],
+  "verification_commands": [
+    "git diff --check",
+    "python3 -m py_compile backend/main.py",
+    "python3 -m pytest tests/test_telegram_miniapp_auth.py -q",
+    "python3 -m pytest tests/test_telegram_gateway.py -q",
+    "test -f docs/agent/runs/2026-07-01-p0-telegram-miniapp-owner-auth-contract/PLAN.md",
+    "test -f docs/agent/runs/2026-07-01-p0-telegram-miniapp-owner-auth-contract/ACTIONS.md",
+    "test -f docs/agent/runs/2026-07-01-p0-telegram-miniapp-owner-auth-contract/TESTS.md",
+    "test -f docs/agent/runs/2026-07-01-p0-telegram-miniapp-owner-auth-contract/RESULT.md",
+    "test -f docs/agent/runs/2026-07-01-p0-telegram-miniapp-owner-auth-contract/NEXT.md",
+    "git diff --name-only origin/main...HEAD | grep -E '^(frontend/|ops/|infra/|\\.github/|docs/superfactory/|docs/agent/dispatcher/)' && exit 1 || true",
+    "rg --no-ignore -n '[0-9]{6,}:[A-Za-z0-9_-]{20,}|[A-Za-z0-9_]*(TOKEN|SECRET|PASSWORD|COOKIE|API_KEY|CHAT_ID)=[^ ]+' backend tests docs/agent/runs/2026-07-01-p0-telegram-miniapp-owner-auth-contract && exit 1 || true"
+  ],
+  "acceptance": [
+    "Server branch is created and pushed; no push to main and no force push.",
+    "Telegram Mini App initData verification is implemented in backend code with focused tests.",
+    "Short-lived role/session response exists and is redaction-safe.",
+    "Unauthorized, malformed, stale and bad-signature cases are covered by tests.",
+    "No frontend, ops, runtime service, webhook, live bot receiver, command menu, payment, Business, Guest Mode or Bot-to-Bot changes are made.",
+    "No Telegram token, owner chat id, cookies, passwords, API keys, private messages or raw initData are printed into logs/artifacts.",
+    "Existing Telegram gateway tests continue to pass or any missing dependency blocker is reported honestly.",
+    "Exact five run artifacts are created.",
+    "Remote result reports task_id, node, Russian agent display name, branch/PR, tests, blockers and next remote dispatch command."
+  ],
+  "source": {
+    "kind": "mac_thin_client_dispatcher",
+    "owner": "Vladislav",
+    "created_at": "2026-07-01T06:35:00Z",
+    "local_ledger": "docs/agent/dispatcher/DISPATCH_LOG.md"
+  }
+}
