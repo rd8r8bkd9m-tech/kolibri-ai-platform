@@ -4,6 +4,35 @@ Snapshot time:
 - 2026-07-01T09:15:43Z
 
 Latest update:
+- 2026-07-01T15:22:03Z:
+  `P0_PR85_PROMPT3_FABRIC_API_SURFACE_REPAIR_2026_07_01` produced a useful
+  remote implementation on `primary-candidate:agent-host-primary`. The Control
+  Plane task state is `failed` only because the initial verifier checked for
+  missing exact `PLAN.md`; the server worktree itself implemented the Prompt #3
+  API surface, then exact `PLAN/ACTIONS/TESTS/RESULT/NEXT` artifacts were
+  repaired on the same server worktree. Server verification passed: focused
+  Fabric tests `11 passed`, full suite `71 passed, 1 warning`, `py_compile`
+  passed and `git diff --check` passed. Server GitHub SSH push failed with
+  `github.com:22 timeout`, so Mac acted only as thin-client relay for the
+  server-created patch. PR #85 is now updated at head
+  `06adeb54c0e7d7132c7f0817ea4755786cd3f092`, remains draft/mergeable, and
+  GitHub Actions `Kolibri CI` run `28528330219` succeeded. Next exact task:
+  `P0_PR85_RELEASE_GATE_AFTER_PROMPT3_SURFACE_REPAIR_2026_07_01`.
+- 2026-07-01T15:00:00Z:
+  Prepared remote implementation envelope
+  `P0_PR85_PROMPT3_FABRIC_API_SURFACE_REPAIR_2026_07_01`. This follows PR
+  #93's green review decision `repair_in_pr85` and targets PR #85 branch
+  `p0/api-first-full-control-fabric-2026-07-01` at expected start head
+  `9690361f02addeff37771c52fd37878aef455e13`. The task is remote-only,
+  assigned to `Сергей — Fabric API Engineer`, and may modify product code only
+  on PR #85 branch within Fabric API endpoint/schema/tests scope. It must add
+  Prompt #3 `/v1/fleet/*`, `/v1/models`, `/v1/responses`,
+  `/v1/chat/completions`, `/v1/agents/*`, deny-by-default `/v1/admin/*`,
+  canonical envelope tests, fallback taxonomy tests, docs whitespace repair,
+  and exact `PLAN/ACTIONS/TESTS/RESULT/NEXT` run artifacts. Mac has not
+  implemented these changes locally. Control Plane accepted the task through
+  `kolibri-primary-codex` at `2026-07-01T14:54:10Z` with HTTP 201 and initial
+  state `queued`.
 - 2026-07-01T14:22:08Z:
   Prepared remote-only release-gate envelope
   `2026-07-01-p0-fabric-api-pr85-gap-review`.
