@@ -665,6 +665,24 @@ Known constraints:
 - Use API-first paths for normal control. Use SSH only for bootstrap,
   emergency recovery and diagnostics.
 
+2026-07-01T10:16Z owner-facing production notes:
+- Telegram GoMesh report message formatting was implemented remotely on PR #89
+  branch head `e14aae215e0025a55509c0d7201ff5e192da32e6`; GitHub Actions
+  `Kolibri CI` run `28509984338` succeeded and remote Telegram gateway tests
+  reported `36 passed`. Control Plane task state is still `failed` because the
+  verifier required exact `PLAN.md`/`ACTIONS.md` aliases that were not created.
+  The formatter is not proven live on the current main Telegram receiver until
+  PR #89 or a narrow live-safe backport is deployed.
+- Production factory panel endpoint was repaired on `plastilin`: public
+  `https://kolibriai.ru/api/factory/status` now returns `200 application/json`
+  with `status=online`, `source=control-plane`, `total_nodes=42`,
+  `online_nodes=20`. Public `https://kolibriai.ru/?telegram=1` still returns
+  `200 text/html`. The repair is a tactical nginx exact-route exception to
+  `http://10.99.0.2:8000/api/factory/status`; rollback backup is
+  `/etc/nginx/kolibri-backups/kolibri.bak-factory-status-20260701T101154Z`.
+  Control Plane task state is `failed` only because the lease environment lacks
+  `pytest` for the requested verifier command.
+
 Current blockers:
 - Agent Host generic runner/verifier contract was narrowed substantially by PR
   #83 and the latest proof is CI-green. The source task is now completed, but
