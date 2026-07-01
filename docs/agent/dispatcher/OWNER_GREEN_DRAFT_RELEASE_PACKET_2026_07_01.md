@@ -7,11 +7,12 @@ reported that `main` still looked stale.
 
 ## Current Facts
 
-- `origin/main`: `1b08c43a86f8e1ee943edea592f77988b45f41d9`.
+- `origin/main`: `dc6e74d991b96b9bb78ff7f8adb40074dcc4731c`.
 - PR #95 refreshed the old README on `main`.
-- PR #88, #83, #96, #91, #97, and #85 are now merged into `main`.
-- Open PRs: 32.
-- Draft PRs: 19.
+- PR #88, #83, #96, #91, #97, #85, #89, #92, and #98 are now merged into
+  `main`.
+- Open PRs: 30.
+- Draft PRs: 17.
 - Ready/non-draft PRs: 13.
 - The old mobile screenshot showing the pre-release README is stale relative to
   current `origin/main`; if GitHub mobile still shows it, the likely causes are
@@ -31,8 +32,9 @@ reported that `main` still looked stale.
 | #91 | merged | `9000973e` | MIMO runner output/auth classification landed; post-merge MIMO canary remains needed |
 | #97 | merged | `97ec4941` | stale heartbeat classification landed; deploy/restart freshness canary remains needed |
 | #85 | merged | `1b08c43a` | API-first full-control Fabric landed; post-merge Fabric API canary remains needed |
-| #92 | open draft | n/a | docs-only fleet inventory candidate; needs current-base update/recheck before merge |
-| #89 | open draft | n/a | Telegram candidate; hold until single receiver/cutover safety is current |
+| #89 | merged | `7640b1a5` | Telegram Superfactory bot/Mini App command layer landed; live receiver/cutover canary remains needed |
+| #92 | merged | `638ff0e0` | fleet role/capability inventory landed |
+| #98 | merged | `dc6e74d9` | post-merge release steward status packet and next remote task envelope landed |
 
 ## Recommended Owner Batches
 
@@ -45,17 +47,18 @@ Completed in `main`:
 5. PR #91 - MIMO runner output/auth classification.
 6. PR #97 - Control Plane stale heartbeat classification.
 7. PR #85 - API-first full-control Fabric.
+8. PR #89 - Telegram Superfactory bot and Mini App command layer.
+9. PR #92 - fleet role/capability inventory.
+10. PR #98 - post-merge release steward status packet.
 
 Next safe queue:
 
-1. Rebase/recheck PR #92 fleet inventory docs.
-2. Run post-merge canaries for #83/#96/#91/#97/#85 on the server factory.
-3. Re-run release-steward on all remaining 32 open PRs and close/split stale
+1. Run post-merge canaries for #83/#96/#91/#97/#85/#89 on the server factory.
+2. Re-run release-steward on all remaining 30 open PRs and close/split stale
    branches instead of letting draft PRs accumulate.
 
 Hold:
 
-- PR #89 until Telegram receiver/cutover risk is closed.
 - Any old branch that still targets pre-`1b08c43a` `main` until it is rebased
   and rechecked.
 
