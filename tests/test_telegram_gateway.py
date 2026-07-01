@@ -347,6 +347,67 @@ def test_owner_remote_task_completion_returns_clean_url_result():
         assert forbidden not in message
 
 
+def test_gomesh_speed_gate_report_becomes_clean_russian_telegram_card():
+    gateway = load_gateway()
+    owner_sample = """
+task_id: P0_TELEGRAM_GOMESH_REPORT_MESSAGE_FORMAT_2026_07_01
+node: server-9fts
+agent: agent-host-9fts
+worktree: /var/lib/kolibri-agent/worktrees/P0_TELEGRAM/repo
+stdout:
+  raw speedtest output omitted
+stderr:
+  warning: retry noise
+secret token: 123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef
+
+Kolibri GoMesh speed/status report
+Home endpoint: home.kolibri.local:9443
+Health: healthy
+Direct Mbps: 487.6
+GoMesh Mbps: 214.8
+Target: 300+ Mbps
+Speed gate: FAILED
+Selector status: safe-mode, GoMesh selector not promoted
+pytest: 42 passed in 18.4s
+Rollback backup paths: /etc/kolibri/gomesh-selector.conf.bak-20260701 /opt/kolibri/backups/gomesh-routes-20260701.json
+Next action: tune exit selection and rerun the 300+ Mbps gate before enabling selector promotion.
+"""
+    task = {
+        "state": "completed",
+        "envelope": {"kind": "owner_remote_task"},
+        "result": {"response": owner_sample},
+    }
+
+    message = gateway.format_task_status(task)
+
+    assert message.startswith("Kolibri GoMesh: статус speed-gate")
+    assert "Статус: не пройден" in message
+    assert "Home endpoint: home.kolibri.local:9443" in message
+    assert "Health: healthy" in message
+    assert "direct 487.6 Mbps" in message
+    assert "GoMesh 214.8 Mbps" in message
+    assert "цель 300+ Mbps" in message
+    assert "speed-gate провален" in message
+    assert "Selector: safe-mode, GoMesh selector not promoted" in message
+    assert "pytest 42 passed" in message
+    assert "/etc/kolibri/gomesh-selector.conf.bak-20260701" in message
+    assert "/opt/kolibri/backups/gomesh-routes-20260701.json" in message
+    assert "Следующее действие: tune exit selection" in message
+    for forbidden in [
+        "task_id",
+        "node:",
+        "agent:",
+        "stdout",
+        "stderr",
+        "/var/lib",
+        "123456789:",
+        "секрет",
+        "Готово",
+        "завершил",
+    ]:
+        assert forbidden.lower() not in message.lower()
+
+
 def test_gateway_auto_tracks_fresh_owner_tasks_for_common_chat(tmp_path):
     gateway = load_gateway()
 
