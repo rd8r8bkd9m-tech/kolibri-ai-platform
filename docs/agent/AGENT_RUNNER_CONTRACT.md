@@ -311,6 +311,12 @@ attempt is a blocker:
 }
 ```
 
+The runner must also sanitize effective permissions before lease execution. A
+`read_only`, `no_push`, or `git_push_forbidden` envelope cannot retain
+`git_push` in `permissions`, `permission_set`, or `allowed_permissions`, and a
+`full_autonomy` permission pack is downgraded to `read_only` before the task is
+run. The sanitized view is recorded in `effective_permissions`.
+
 ### Publish Preflight Failure
 
 If a branch-producing implementation runner is otherwise allowed to push but a
@@ -328,6 +334,14 @@ required artifact is missing, the runner must skip `git push`:
   "blocked_reason": "required_artifacts_missing"
 }
 ```
+
+### Review Clone/Auth Failure
+
+Review runners must write `result.json` even when the initial clone cannot
+authenticate. If clone stderr indicates missing GitHub credentials, missing repo
+access, disabled prompts, or SSH permission denial, the result must fail with
+`error_type: review_clone_auth_failed`, keep `required_artifacts_missing` empty,
+and recommend repairing the Agent Host git credentials before rerunning review.
 
 ### Unsupported Task Kind
 

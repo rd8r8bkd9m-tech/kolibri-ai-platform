@@ -1,0 +1,15 @@
+{
+  "agent_display_name_ru": "Автономный инженер",
+  "blockers": [],
+  "branch": "p0/agent-host-runner-contract-hardening-2026-06-30",
+  "commit": "pending local commit",
+  "next_deployment_review_command": "gh pr checks 83 --watch",
+  "node": "autonomous_engineer",
+  "pr_url": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/83",
+  "status": "completed",
+  "task_id": "P0_AGENT_HOST_REVIEW_CLONE_AND_CONSTRAINT_ENFORCEMENT_2026_07_01",
+  "tests": [
+    "python3 -m pytest tests/test_agent_host_runner_contract.py -q",
+    "python3 -m py_compile ops/agent_host.py"
+  ]
+}

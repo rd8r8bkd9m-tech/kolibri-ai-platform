@@ -96,6 +96,59 @@ def test_forbidden_push_attempt_cannot_complete(tmp_path):
     assert "forbidden_push_attempted" in result["blocked_reason"]
 
 
+def test_read_only_envelope_does_not_receive_push_or_full_autonomy_permissions(tmp_path):
+    agent_host = load_agent_host()
+    task = make_task({
+        "read_only": True,
+        "permission_pack": "full_autonomy",
+        "permissions": ["read", "git_push", "full_autonomy"],
+    })
+
+    sanitized = agent_host.sanitize_task_permissions(task)
+
+    assert sanitized["envelope"]["permission_pack"] == "read_only"
+    assert sanitized["envelope"]["permissions"] == ["read"]
+    assert sanitized["effective_permissions"]["permission_pack"] == "read_only"
+    assert sanitized["effective_permissions"]["permissions"] == ["read"]
+    assert sanitized["effective_permissions"]["git_push_allowed"] is False
+
+
+def test_git_push_forbidden_lease_sanitizes_full_autonomy_pack(tmp_path):
+    agent_host = load_agent_host()
+
+    class Host(agent_host.AgentHost):
+        def __init__(self):
+            super().__init__(make_args(tmp_path, capabilities="generic_implementation"))
+
+        def post(self, path, body):
+            assert path == "/v1/tasks/lease"
+            return make_task({
+                "git_push_forbidden": True,
+                "permission_pack": "full_autonomy",
+                "allowed_permissions": ["read", "git_push"],
+            })
+
+    leased = Host().lease()
+
+    assert leased["envelope"]["permission_pack"] == "read_only"
+    assert leased["envelope"]["allowed_permissions"] == ["read"]
+    assert leased["effective_permissions"]["git_push_allowed"] is False
+
+
+def test_push_allowed_envelope_keeps_git_push_permission(tmp_path):
+    agent_host = load_agent_host()
+    task = make_task({
+        "permission_pack": "full_autonomy",
+        "permissions": ["read", "git_push"],
+    })
+
+    sanitized = agent_host.sanitize_task_permissions(task)
+
+    assert sanitized["envelope"]["permission_pack"] == "full_autonomy"
+    assert sanitized["envelope"]["permissions"] == ["read", "git_push"]
+    assert sanitized["effective_permissions"]["git_push_allowed"] is True
+
+
 def test_read_only_product_code_change_is_blocked(tmp_path):
     agent_host = load_agent_host()
 
@@ -410,6 +463,53 @@ def test_publish_gate_skips_git_push_when_required_artifact_is_missing(tmp_path)
     assert "git push skipped by runner contract preflight" in stdout_path.read_text(encoding="utf-8")
 
 
+def test_no_push_task_cannot_publish_central_branch_after_artifact_verification(tmp_path):
+    agent_host = load_agent_host()
+
+    class Host(agent_host.AgentHost):
+        def __init__(self):
+            super().__init__(make_args(tmp_path, capabilities="impl_factory_smoke"))
+            self.commands = []
+
+        def post(self, path, body):
+            return body
+
+        def run_command(self, command, cwd, stdout_path, stderr_path, task, branch=None, logs=None, env=None):
+            self.commands.append(command)
+
+    host = Host()
+    worktree, artifact_dir = make_paths(tmp_path / "central-no-push")
+    run_dir = "docs/agent/runs/2026-07-01-contract"
+    write_run_artifacts(worktree / run_dir)
+    stdout_path = artifact_dir / "stdout.log"
+    stderr_path = artifact_dir / "stderr.log"
+    stdout_path.write_text("", encoding="utf-8")
+    stderr_path.write_text("", encoding="utf-8")
+    task = make_task({"no_push": True, "canonical_run_artifact_dir": run_dir})
+    result = {"task_id": task["task_id"], "status": "completed", "changed_files": [f"{run_dir}/RESULT.md"]}
+
+    gated = host.git_push_after_contract_verification(
+        task,
+        ["git", "push", "-u", "origin", "main"],
+        worktree,
+        stdout_path,
+        stderr_path,
+        "main",
+        {"stdout": str(stdout_path), "stderr": str(stderr_path)},
+        result,
+        artifact_dir,
+        [f"{run_dir}/RESULT.md"],
+        {"GIT_TERMINAL_PROMPT": "0"},
+    )
+
+    assert host.commands == []
+    assert gated["status"] == "completed"
+    assert gated["push_attempted"] is False
+    assert gated["push_blocked"] is True
+    assert gated["push_block_reason"] == "no_push"
+    assert "git push skipped by runner contract: no_push" in stdout_path.read_text(encoding="utf-8")
+
+
 def test_publish_gate_skips_git_push_when_canonical_next_md_is_missing(tmp_path):
     agent_host = load_agent_host()
     host = make_host(agent_host, tmp_path, capabilities="impl_factory_smoke")
@@ -490,3 +590,51 @@ def test_publish_gate_allows_git_push_after_contract_verification_passes(tmp_pat
     assert gated["push_attempted"] is True
     assert gated["push_blocked"] is False
     assert gated["required_artifacts_missing"] == []
+
+
+def test_review_clone_auth_failure_posts_result_json_with_credential_repair(tmp_path):
+    agent_host = load_agent_host()
+
+    class Host(agent_host.AgentHost):
+        def __init__(self):
+            super().__init__(make_args(tmp_path, capabilities="review"))
+            self.posts = []
+
+        def post(self, path, body):
+            self.posts.append((path, body))
+            return body
+
+        def run_command(self, command, cwd, stdout_path, stderr_path, task, branch=None, logs=None, env=None, command_label=None):
+            if command[:2] == ["git", "clone"]:
+                stderr_path.write_text(
+                    "git@github.com: Permission denied (publickey).\n"
+                    "fatal: Could not read from remote repository.\n",
+                    encoding="utf-8",
+                )
+                raise RuntimeError("command failed with rc=128: git clone")
+            raise AssertionError(f"unexpected command: {command}")
+
+    task = make_task({
+        "kind": "review_pr",
+        "branch": "p0/agent-host-runner-contract-hardening-2026-06-30",
+        "pull_request_url": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/83",
+    })
+    task["kind"] = "review_pr"
+
+    host = Host()
+    host.run_task(task)
+
+    assert not [path for path, _ in host.posts if path.endswith("/complete")]
+    fail_posts = [(path, body) for path, body in host.posts if path.endswith("/fail")]
+    assert len(fail_posts) == 1
+    _, fail_body = fail_posts[0]
+    assert fail_body["error_type"] == "review_clone_auth_failed"
+    assert fail_body["retry"] is False
+    assert "repair Agent Host git credentials" in fail_body["error"]
+    result_path = Path(fail_body["result_reference"])
+    assert result_path.is_file()
+    persisted = json.loads(result_path.read_text(encoding="utf-8"))
+    assert persisted["status"] == "failed"
+    assert persisted["result_path"] == str(result_path)
+    assert persisted["required_artifacts_missing"] == []
+    assert persisted["next_recommended_task"] == "repair Agent Host git credentials, then rerun the review task"

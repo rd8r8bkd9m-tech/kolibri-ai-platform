@@ -57,6 +57,8 @@ SUPPORTED_TASK_KINDS = {
 NO_PUSH_FLAGS = ("git_push_forbidden", "no_push", "read_only")
 PRODUCT_CODE_FORBIDDEN_FLAGS = ("product_code_modification_forbidden", "read_only")
 REQUIRED_ARTIFACT_KEYS = ("required_outputs", "required_artifacts")
+PUSH_PERMISSION_NAMES = {"git_push", "full_autonomy"}
+FULL_AUTONOMY_PACKS = {"full_autonomy", "full-autonomy", "autonomous_full"}
 CANONICAL_RUN_ARTIFACT_FILES = ("PLAN.md", "ACTIONS.md", "TESTS.md", "RESULT.md", "NEXT.md")
 CANONICAL_RUN_ARTIFACT_DIR_KEYS = (
     "canonical_run_artifact_dir",
@@ -400,6 +402,62 @@ def push_block_reason(envelope: dict[str, Any]) -> str | None:
     return ", ".join(reasons) if reasons else None
 
 
+def sanitized_permissions_for_envelope(envelope: dict[str, Any]) -> dict[str, Any]:
+    permissions = envelope_list(envelope, "permissions", "permission_set", "allowed_permissions")
+    permission_pack = envelope_value(envelope, "permission_pack")
+    if push_forbidden_by_envelope(envelope) and isinstance(permission_pack, str) and permission_pack.strip().lower() in FULL_AUTONOMY_PACKS:
+        permission_pack = "read_only" if push_forbidden_by_envelope(envelope) else permission_pack
+    if push_forbidden_by_envelope(envelope):
+        permissions = [
+            item
+            for item in permissions
+            if not (isinstance(item, str) and item.strip().lower() in PUSH_PERMISSION_NAMES)
+        ]
+    return {
+        "permission_pack": permission_pack,
+        "permissions": permissions,
+        "git_push_allowed": not push_forbidden_by_envelope(envelope),
+    }
+
+
+def sanitize_task_permissions(task: dict[str, Any]) -> dict[str, Any]:
+    envelope = task_envelope(task)
+    if not envelope:
+        return task
+    effective = sanitized_permissions_for_envelope(envelope)
+    task["effective_permissions"] = effective
+    envelope["effective_permissions"] = effective
+    if push_forbidden_by_envelope(envelope):
+        for key_name in ("permissions", "permission_set", "allowed_permissions"):
+            if key_name in envelope:
+                envelope[key_name] = [
+                    item
+                    for item in ensure_list(envelope.get(key_name))
+                    if not (isinstance(item, str) and item.strip().lower() in PUSH_PERMISSION_NAMES)
+                ]
+        if str(envelope.get("permission_pack", "")).strip().lower() in FULL_AUTONOMY_PACKS:
+            envelope["permission_pack"] = "read_only"
+    return task
+
+
+def review_clone_auth_failure_message(stderr_text: str, repo_url: str) -> str | None:
+    lowered = stderr_text.lower()
+    markers = (
+        "permission denied",
+        "could not read from remote repository",
+        "authentication failed",
+        "repository not found",
+        "could not resolve hostname",
+        "terminal prompts disabled",
+    )
+    if not any(marker in lowered for marker in markers):
+        return None
+    return (
+        "review_clone_auth_failed: repair Agent Host git credentials or repo access "
+        f"for {repo_url}; clone failed before review checkout"
+    )
+
+
 def next_recommended_task_for(blockers: list[str], envelope: dict[str, Any]) -> str:
     configured = envelope_value(envelope, "next_recommended_task")
     if isinstance(configured, str) and configured.strip():
@@ -415,6 +473,8 @@ def next_recommended_task_for(blockers: list[str], envelope: dict[str, Any]) -> 
         return "split product-code changes from read-only or documentation-only task constraints"
     if "push" in joined:
         return "resubmit through a no-push workflow or explicitly allow git push"
+    if "review_clone_auth_failed" in joined:
+        return "repair Agent Host git credentials, then rerun the review task"
     return "inspect the runner contract blockers and resubmit with corrected constraints"
 
 
@@ -457,6 +517,7 @@ def finalize_runner_contract(
         final.update(canonical_artifacts)
     final["required_artifacts_present"] = required_present
     final["required_artifacts_missing"] = required_missing
+    final["effective_permissions"] = sanitized_permissions_for_envelope(envelope)
 
     read_only = envelope_truthy(envelope, "read_only")
     product_forbidden = envelope_truthy(envelope, *PRODUCT_CODE_FORBIDDEN_FLAGS)
@@ -625,11 +686,12 @@ class AgentHost:
         return self.post(f"/v1/tasks/{task['task_id']}/heartbeat", body)
 
     def lease(self) -> dict[str, Any] | None:
-        return self.post("/v1/tasks/lease", {
+        task = self.post("/v1/tasks/lease", {
             "node_id": self.node_id,
             "agent_id": self.agent_id,
             "capabilities": self.capabilities,
         })
+        return sanitize_task_permissions(task) if isinstance(task, dict) else task
 
     def run_command(
         self,
@@ -1444,7 +1506,14 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
         stderr_path = Path(logs["stderr"])
         self.task_heartbeat(task, worktree, branch, logs)
         git_env = {"GIT_TERMINAL_PROMPT": "0"}
-        self.run_command(["git", "clone", self.repo_url, str(worktree)], worktree.parent, stdout_path, stderr_path, task, branch, logs, git_env)
+        try:
+            self.run_command(["git", "clone", self.repo_url, str(worktree)], worktree.parent, stdout_path, stderr_path, task, branch, logs, git_env)
+        except RuntimeError as exc:
+            stderr_text = stderr_path.read_text(encoding="utf-8", errors="ignore") if stderr_path.exists() else ""
+            message = review_clone_auth_failure_message(stderr_text, self.repo_url)
+            if message:
+                raise RuntimeError(message) from exc
+            raise
         if base_ref.startswith("origin/"):
             self.run_command(["git", "fetch", "origin", base_ref.removeprefix("origin/")], worktree, stdout_path, stderr_path, task, branch, logs, git_env)
         self.run_command(["git", "fetch", "origin", branch], worktree, stdout_path, stderr_path, task, branch, logs, git_env)
@@ -1494,6 +1563,7 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
         return result
 
     def run_task(self, task: dict[str, Any]) -> None:
+        sanitize_task_permissions(task)
         result_path = None
         result = None
         try:
@@ -1564,7 +1634,12 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
             result = finalize_runner_contract(task, result, artifact_dir, failure_reason=str(exc))
             result_path = self.write_result(artifact_dir, result)
             retry = int(task.get("attempt", 0)) < int(task.get("max_retries", 3))
-            self.fail(task, "runtime_error", str(exc), result, result_path, retry=retry)
+            error_type = "review_clone_auth_failed" if str(exc).startswith("review_clone_auth_failed:") else "runtime_error"
+            if error_type == "review_clone_auth_failed":
+                result["next_recommended_task"] = "repair Agent Host git credentials, then rerun the review task"
+                result_path = self.write_result(artifact_dir, result)
+                retry = False
+            self.fail(task, error_type, str(exc), result, result_path, retry=retry)
 
     def loop(self) -> None:
         self.register()
