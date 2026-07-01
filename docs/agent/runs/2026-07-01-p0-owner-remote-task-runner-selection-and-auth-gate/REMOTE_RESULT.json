@@ -4,7 +4,7 @@
   "agent_display_name_ru": "Инженер",
   "pull_request_url": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/83",
   "branch": "p0/agent-host-runner-contract-hardening-2026-06-30",
-  "commit": "pending-local-commit",
+  "commit": "42c1251a99963872c5b52ab5bb350cc8654ce9e3",
   "tests": [
     "python3 -m py_compile ops/agent_host.py ops/factory_control.py ops/telegram_gateway.py",
     "python3 -m pytest tests/test_agent_host_runner_contract.py -q",
