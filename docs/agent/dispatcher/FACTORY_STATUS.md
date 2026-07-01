@@ -1,7 +1,7 @@
 # Factory Status
 
 Snapshot time:
-- 2026-07-01T02:35:40Z
+- 2026-07-01T02:36:30Z
 
 Mac executor:
 - Hostname: `MacBook-Air-Vladislav.local`
@@ -108,9 +108,10 @@ Submitted tasks:
   runner contract tests `15 passed`; Agent Host glob tests `21 passed`; full
   suite `75 passed, 1 warning`.
 - GitHub connector confirms PR #83 is open, draft, mergeable, and now points to
-  `8b156572217cc646fc0e0fb779dbb1ecc37f1561`. Combined commit statuses for
-  that SHA are currently empty, so GitHub CI/checks for the new head are not
-  yet proven in this ledger snapshot.
+  `8b156572217cc646fc0e0fb779dbb1ecc37f1561`.
+- GitHub Actions `Kolibri CI` run `28489561399` for PR #83 head
+  `8b156572217cc646fc0e0fb779dbb1ecc37f1561` completed with conclusion
+  `success`.
 
 Node snapshot through Control Plane:
 - Observed node cards: 42.
@@ -128,9 +129,9 @@ Node snapshot through Control Plane:
   Codex/MIMO runner auth is broken from prior task attempts.
 - `primary-candidate`: online; latest exact P0 runner-hardening task state is
   `failed` in Control Plane due verifier path mismatch, while PR #83 is
-  finalized and was CI-green at previous head. The new PR #83 merge-readiness
-  audit also failed only at wrapper artifact verification after pushing
-  `8b156572217cc646fc0e0fb779dbb1ecc37f1561`.
+  finalized and CI-green at head
+  `8b156572217cc646fc0e0fb779dbb1ecc37f1561`. The PR #83 merge-readiness
+  audit failed only at wrapper artifact verification after pushing that head.
 - Many mesh cards are degraded/stale or metadata-only; they need inventory
   before broad execution.
 - Aggregate `/v1/tasks` response showed 200 queued tasks while the direct P0
