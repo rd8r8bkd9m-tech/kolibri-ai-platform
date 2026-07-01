@@ -4,6 +4,41 @@ Snapshot time:
 - 2026-07-01T09:15:43Z
 
 Latest update:
+- 2026-07-01T12:55:00Z:
+  PR #91 artifact hygiene repair completed. Server task
+  `P0_PR91_MIMO_RUNNER_ARTIFACT_HYGIENE_REPAIR_2026_07_01` pushed normal
+  non-force commit `350544492ce14a12865fb9a04e2abf6f87c87d3f` to branch
+  `p0/mimo-runner-output-auth-contract-repair-2026-07-01`. The PR no longer
+  tracks top-level `artifacts/P0_MIMO_RUNNER_OUTPUT_AND_AUTH_CONTRACT_REPAIR_2026_07_01/*`.
+  It now contains canonical run docs under
+  `docs/agent/runs/2026-07-01-p0-mimo-runner-output-auth-contract-repair/`
+  plus the intended code/test changes. GitHub source-of-truth check confirms
+  PR #91 is open, draft, mergeable, head
+  `350544492ce14a12865fb9a04e2abf6f87c87d3f`, and GitHub Actions run
+  `28518947833` succeeded. Next action: owner release decision, then
+  merge/deploy PR #91 and run direct MIMO fanout canary.
+- 2026-07-01T12:54:11Z:
+  qjns auth repair completed as a safe classification, not a blind credential
+  mutation. Result:
+  `P0_REPAIR_QJNS_GITHUB_AND_MIMO_AUTH_2026_07_01` is `completed` with
+  artifact
+  `/var/lib/kolibri-agent/artifacts/P0_REPAIR_QJNS_GITHUB_AND_MIMO_AUTH_2026_07_01/P0_REPAIR_QJNS_GITHUB_AND_MIMO_AUTH_2026_07_01-attempt-1/result.json`.
+  GitHub on qjns is classified as `missing_node_github_credential`; MIMO on
+  qjns is classified as `provider_access_denied`. qjns remains online with
+  disk free about `8.26 GB`; this is no longer a disk issue. Next action is
+  owner/provider credential restoration, then rerun bounded qjns clone and
+  MIMO probes. No secrets were printed and no interactive login was attempted.
+
+  PR #91 focused release verification also completed:
+  `P0_PR91_MIMO_RUNNER_FOCUSED_RELEASE_VERIFIER_2026_07_01` verified exact
+  head `a32697b62914816abfbd87365c7c1fec588b3262`; targeted tests passed:
+  `9 passed in 2.17s`; `git diff --check` was clean. The verifier classified
+  PR #91 as `needs changes before merge` because it tracks top-level
+  `artifacts/` JSON files and those artifacts reference missing logs.
+  Cleanup task `P0_PR91_MIMO_RUNNER_ARTIFACT_HYGIENE_REPAIR_2026_07_01` is now
+  running on `primary-candidate:agent-host-primary` to move/normalize evidence
+  into canonical `docs/agent/runs/...` and remove top-level artifacts from the
+  PR branch.
 - 2026-07-01T12:37:12Z:
   Fresh qjns/uiap status was rechecked through the server fallback route.
   Control Plane health is `ok`. `qjns` is online as `kolibri-tools-executor`
