@@ -66,6 +66,22 @@ GitHub validation:
 
 Notes:
 
+- Finalization rerun on 2026-07-01 in the Control Plane worktree used
+  `/usr/bin/python3` version 3.12.3 to create `.venv-p0-runner-contract`, then
+  ran the checks through `.venv-p0-runner-contract/bin/python`. The bootstrap
+  command was `python3 -m venv .venv-p0-runner-contract`; no `python` verifier
+  was used.
+- Current finalization results:
+  - `py_compile ops/agent_host.py`: passed.
+  - `pytest tests/test_agent_host_runner_contract.py -q`: 13 passed.
+  - `pytest tests/test_agent_host* -q`: 19 passed.
+  - `pytest tests/test_factory_runtime.py -q`: 4 passed.
+  - `pytest -q`: 73 passed, 1 external `reportlab` warning.
+- `git ls-remote --heads origin p0/agent-host-runner-contract-hardening-2026-06-30`
+  confirmed that the GitHub source branch points to
+  `cac790042a57c959d25797a9fefa2b2a3625a99d`.
+- `gh` was not installed in this worktree environment, so PR metadata was not
+  queried through GitHub CLI during the finalization rerun.
 - A first full-suite attempt on the Homebrew default Python 3.14 failed during
   dependency installation because pinned `pydantic-core==2.23.2` depends on a
   PyO3 version that supports up to Python 3.13. The successful full run used
