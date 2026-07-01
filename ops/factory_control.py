@@ -26,6 +26,10 @@ REDIS_HOST = os.environ.get("FACTORY_REDIS_HOST", "127.0.0.1")
 REDIS_PORT = int(os.environ.get("FACTORY_REDIS_PORT", "6379"))
 LEASE_DURATION = int(os.environ.get("FACTORY_LEASE_DURATION", "60"))
 MAX_RETRIES = int(os.environ.get("FACTORY_MAX_RETRIES", "3"))
+LOGICAL_AGENT_TARGET = int(os.environ.get("FACTORY_LOGICAL_AGENT_TARGET", "1000"))
+LOGICAL_AGENT_NODE_LIMIT = int(os.environ.get("FACTORY_LOGICAL_AGENT_NODE_LIMIT", "20"))
+LOGICAL_AGENT_WAVE_LIMIT = int(os.environ.get("FACTORY_LOGICAL_AGENT_WAVE_LIMIT", "20"))
+LOGICAL_AGENT_QUEUE_LIMIT = int(os.environ.get("FACTORY_LOGICAL_AGENT_QUEUE_LIMIT", "50"))
 
 STATE_QUEUED = "queued"
 STATE_LEASED = "leased"
@@ -38,6 +42,7 @@ STATE_CANCELLED = "cancelled"
 STATE_RETRY = "retry_scheduled"
 STATE_DEAD = "dead_letter"
 TERMINAL_STATES = {STATE_COMPLETED, STATE_FAILED, STATE_CANCELLED, STATE_DEAD}
+ACTIVE_STATES = {STATE_QUEUED, STATE_LEASED, STATE_RUNNING, STATE_REVIEW, STATE_RETRY}
 
 
 def utc_now() -> str:
@@ -262,6 +267,200 @@ def create_review_task(source_task: dict[str, Any], result: dict[str, Any]) -> d
     return review
 
 
+def parse_kib_value(value: Any) -> int | None:
+    if isinstance(value, (int, float)):
+        return int(value)
+    if not isinstance(value, str):
+        return None
+    parts = value.strip().split()
+    if not parts:
+        return None
+    try:
+        number = float(parts[0])
+    except ValueError:
+        return None
+    unit = parts[1].lower() if len(parts) > 1 else "kb"
+    factor = 1
+    if unit in {"mb", "mib"}:
+        factor = 1024
+    elif unit in {"gb", "gib"}:
+        factor = 1024 * 1024
+    return int(number * factor)
+
+
+def node_capacity(node: dict[str, Any], per_server_limit: int = LOGICAL_AGENT_NODE_LIMIT) -> dict[str, Any]:
+    node_id = str(node.get("node_id") or "")
+    blockers: list[str] = []
+    if node.get("health") != "online":
+        blockers.append("node_not_online")
+
+    cpu = int(node.get("cpu") or 0)
+    ram = node.get("ram") if isinstance(node.get("ram"), dict) else {}
+    disk = node.get("disk") if isinstance(node.get("disk"), dict) else {}
+    mem_available_kib = parse_kib_value(ram.get("MemAvailable"))
+    disk_free_bytes = int(disk.get("free") or 0)
+    if cpu <= 0:
+        blockers.append("missing_cpu_measurement")
+    if not mem_available_kib:
+        blockers.append("missing_ram_measurement")
+    if disk_free_bytes <= 0:
+        blockers.append("missing_disk_measurement")
+
+    mem_gib = (mem_available_kib or 0) / (1024 * 1024)
+    disk_free_gib = disk_free_bytes / (1024 ** 3)
+    measured = not any(item.startswith("missing_") for item in blockers)
+    slots = 0
+    capacity_class = "blocked"
+    if node.get("health") == "online" and measured:
+        if cpu >= 16 and mem_gib >= 32 and disk_free_gib >= 40:
+            slots = 20
+            capacity_class = "xlarge"
+        elif cpu >= 8 and mem_gib >= 16 and disk_free_gib >= 20:
+            slots = 10
+            capacity_class = "large"
+        elif cpu >= 4 and mem_gib >= 8 and disk_free_gib >= 10:
+            slots = 4
+            capacity_class = "medium"
+        elif cpu >= 2 and mem_gib >= 4 and disk_free_gib >= 5:
+            slots = 1
+            capacity_class = "small"
+        else:
+            blockers.append("measured_capacity_below_minimum")
+    slots = max(0, min(slots, per_server_limit))
+    return {
+        "node_id": node_id,
+        "capacity_class": capacity_class,
+        "logical_agent_capacity": slots,
+        "cpu": cpu,
+        "mem_available_gib": round(mem_gib, 2),
+        "disk_free_gib": round(disk_free_gib, 2),
+        "measured": measured,
+        "blockers": blockers,
+    }
+
+
+def load_nodes() -> list[dict[str, Any]]:
+    nodes = []
+    for node_id in sorted(redis.command("SMEMBERS", key("node_ids")) or []):
+        node = get_json(node_key(node_id), {})
+        node["draining"] = bool(redis.command("GET", drain_key(node_id)))
+        nodes.append(node)
+    return nodes
+
+
+def logical_schedule_task_count(schedule_id: str, node_id: str | None = None) -> int:
+    count = 0
+    for task_id in all_task_ids():
+        task = load_task(task_id)
+        if not task or task.get("state") not in ACTIVE_STATES:
+            continue
+        envelope = task.get("envelope", {})
+        if envelope.get("schedule_id") != schedule_id:
+            continue
+        if node_id and envelope.get("target_node") != node_id:
+            continue
+        count += 1
+    return count
+
+
+def create_logical_scheduler_wave(request: dict[str, Any]) -> dict[str, Any]:
+    target = min(max(int(request.get("target", LOGICAL_AGENT_TARGET)), 1), LOGICAL_AGENT_TARGET)
+    per_server_limit = min(max(int(request.get("per_server_limit", LOGICAL_AGENT_NODE_LIMIT)), 1), LOGICAL_AGENT_NODE_LIMIT)
+    wave_limit = min(max(int(request.get("wave_limit", LOGICAL_AGENT_WAVE_LIMIT)), 1), LOGICAL_AGENT_QUEUE_LIMIT)
+    schedule_id = str(request.get("schedule_id") or f"logical-agents-{target}")
+    created_tasks: list[str] = []
+    blockers: list[dict[str, Any]] = []
+    capacities: list[dict[str, Any]] = []
+
+    global_active = logical_schedule_task_count(schedule_id)
+    create_budget = max(0, min(wave_limit, target - global_active, LOGICAL_AGENT_QUEUE_LIMIT - global_active))
+    nodes = load_nodes()
+    if not nodes:
+        return {
+            "schedule_id": schedule_id,
+            "status": "blocked",
+            "target": target,
+            "per_server_limit": per_server_limit,
+            "wave_limit": wave_limit,
+            "created_task_ids": [],
+            "node_capacities": [],
+            "blockers": [{"scope": "control_plane", "reason": "no_registered_nodes"}],
+            "next_wave": {"remaining_target": target, "available_create_budget": 0, "recommended_wave_limit": 0},
+        }
+
+    for node in nodes:
+        capacity = node_capacity(node, per_server_limit)
+        active_on_node = logical_schedule_task_count(schedule_id, capacity["node_id"])
+        capacity["active_logical_tasks"] = active_on_node
+        capacity["available_slots"] = max(0, capacity["logical_agent_capacity"] - active_on_node)
+        capacities.append(capacity)
+        node["capacity_classification"] = capacity
+        node["capacity_classified_at"] = utc_now()
+        set_json(node_key(capacity["node_id"]), node)
+
+    for capacity in capacities:
+        node_id = capacity["node_id"]
+        if create_budget <= 0:
+            break
+        if capacity["blockers"]:
+            blockers.append({"node_id": node_id, "reasons": capacity["blockers"]})
+            if capacity.get("measured") is False and "node_not_online" not in capacity["blockers"]:
+                probe = create_task({
+                    "task_id": f"CAPACITY-PROBE-{schedule_id}-{node_id}",
+                    "idempotency_key": f"capacity-probe:{schedule_id}:{node_id}",
+                    "kind": "read_only_probe",
+                    "target_node": node_id,
+                    "scheduler_action": "capacity_classification_probe",
+                    "schedule_id": schedule_id,
+                    "max_retries": 1,
+                })
+                if probe["task_id"] not in created_tasks:
+                    created_tasks.append(probe["task_id"])
+                    create_budget -= 1
+            continue
+        for _ in range(min(capacity["available_slots"], create_budget)):
+            ordinal = global_active + len(created_tasks) + 1
+            task = create_task({
+                "task_id": f"LOGICAL-AGENT-{schedule_id}-{node_id}-{ordinal}",
+                "idempotency_key": f"logical-agent:{schedule_id}:{node_id}:{ordinal}",
+                "kind": "read_only_probe",
+                "target_node": node_id,
+                "scheduler_action": "logical_agent_slot_probe",
+                "schedule_id": schedule_id,
+                "logical_target": target,
+                "per_server_limit": per_server_limit,
+                "max_retries": 1,
+            })
+            if task["task_id"] not in created_tasks:
+                created_tasks.append(task["task_id"])
+            create_budget -= 1
+            if create_budget <= 0:
+                break
+
+    updated_active = logical_schedule_task_count(schedule_id)
+    remaining = max(0, target - updated_active)
+    total_available_slots = sum(item["available_slots"] for item in capacities if not item["blockers"])
+    logical_children_created = any(task_id.startswith("LOGICAL-AGENT-") for task_id in created_tasks)
+    status = "started" if logical_children_created else ("blocked" if blockers and total_available_slots == 0 else "at_capacity")
+    return {
+        "schedule_id": schedule_id,
+        "status": status,
+        "target": target,
+        "per_server_limit": per_server_limit,
+        "wave_limit": wave_limit,
+        "queue_limit": LOGICAL_AGENT_QUEUE_LIMIT,
+        "created_task_ids": created_tasks,
+        "node_capacities": capacities,
+        "blockers": blockers,
+        "next_wave": {
+            "remaining_target": remaining,
+            "active_logical_tasks": updated_active,
+            "available_create_budget": max(0, min(wave_limit, remaining, LOGICAL_AGENT_QUEUE_LIMIT - updated_active)),
+            "recommended_wave_limit": min(LOGICAL_AGENT_WAVE_LIMIT, max(0, remaining)),
+        },
+    }
+
+
 def response(handler: BaseHTTPRequestHandler, status: int, body: Any) -> None:
     payload = json.dumps(body, indent=2, sort_keys=True).encode("utf-8")
     handler.send_response(status)
@@ -293,12 +492,7 @@ class Handler(BaseHTTPRequestHandler):
                 response(self, 200, {"status": "ok", "redis": pong, "queue_backend": "redis", "time": utc_now()})
                 return
             if path == "/v1/nodes":
-                nodes = []
-                for node_id in sorted(redis.command("SMEMBERS", key("node_ids")) or []):
-                    node = get_json(node_key(node_id), {})
-                    node["draining"] = bool(redis.command("GET", drain_key(node_id)))
-                    nodes.append(node)
-                response(self, 200, {"nodes": nodes})
+                response(self, 200, {"nodes": load_nodes()})
                 return
             if path == "/v1/tasks":
                 query = parse_qs(parsed.query)
@@ -364,6 +558,10 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/v1/tasks":
                 task = create_task(body)
                 response(self, 201, task)
+                return
+            if path == "/v1/scheduler/logical-agents":
+                result = create_logical_scheduler_wave(body)
+                response(self, 200, result)
                 return
             if path == "/v1/tasks/lease":
                 requeue_expired_leases()

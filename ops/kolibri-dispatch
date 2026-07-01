@@ -138,6 +138,18 @@ def cmd_drain(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_schedule_logical_agents(args: argparse.Namespace) -> int:
+    body = {
+        "target": args.target,
+        "per_server_limit": args.per_server_limit,
+        "wave_limit": args.wave_limit,
+    }
+    if args.schedule_id:
+        body["schedule_id"] = args.schedule_id
+    print_json(http_json("POST", f"{args.control_url}/v1/scheduler/logical-agents", body))
+    return 0
+
+
 def legacy_mode(argv: list[str]) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--node-id", required=True)
@@ -197,7 +209,7 @@ def legacy_mode(argv: list[str]) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    commands = {"doctor", "nodes", "submit", "status", "collect", "cancel", "drain"}
+    commands = {"doctor", "nodes", "submit", "status", "collect", "cancel", "drain", "schedule-logical-agents"}
     command_positions = [idx for idx, value in enumerate(argv) if value in commands]
     if not argv or not command_positions:
         return legacy_mode(argv)
@@ -231,6 +243,12 @@ def main(argv: list[str] | None = None) -> int:
     drain.add_argument("--enable", action="store_true")
     drain.add_argument("--disable", action="store_true")
     drain.set_defaults(func=cmd_drain)
+    schedule = sub.add_parser("schedule-logical-agents")
+    schedule.add_argument("--target", type=int, default=1000)
+    schedule.add_argument("--per-server-limit", type=int, default=20)
+    schedule.add_argument("--wave-limit", type=int, default=20)
+    schedule.add_argument("--schedule-id")
+    schedule.set_defaults(func=cmd_schedule_logical_agents)
     args = parser.parse_args(argv)
     return args.func(args)
 
