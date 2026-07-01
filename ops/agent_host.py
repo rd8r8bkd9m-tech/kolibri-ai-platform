@@ -25,6 +25,10 @@ from typing import Any
 
 STOP = False
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+READ_ONLY_PERMISSION_PACK_MARKERS = {"read_only", "readonly", "read-only", "no_push", "no-push", "nopush"}
+FORBIDDEN_READ_ONLY_PERMISSIONS = {"full_autonomy", "git_push", "write_worktree"}
+WRITE_WORKTREE_TASK_KINDS = {"impl_factory_smoke", "impl_retry_error_clearance"}
+GIT_PUSH_TASK_KINDS = {"impl_factory_smoke", "impl_retry_error_clearance"}
 CONTRACT_STATUSES = {"completed", "blocked", "failed"}
 CONTRACT_RESULT_FIELDS = [
     "task_id",
@@ -120,6 +124,15 @@ class RunnerExecutionError(RuntimeError):
         self.runner = runner
 
 
+class PermissionContractError(RuntimeError):
+    """Raised when a read-only/no-push permission pack requests write powers."""
+
+    def __init__(self, classification: dict[str, Any]):
+        self.classification = classification
+        permissions = ", ".join(classification.get("forbidden_permissions") or [])
+        super().__init__(f"read-only/no-push permission pack forbids requested runtime permissions: {permissions}")
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -162,6 +175,81 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def _string_values(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, (list, tuple, set)):
+        values = []
+        for item in value:
+            values.extend(_string_values(item))
+        return values
+    if isinstance(value, dict):
+        return [str(key) for key, enabled in value.items() if enabled]
+    return [str(value)]
+
+
+def _normalized_token(value: str) -> str:
+    return value.strip().lower().replace("-", "_")
+
+
+def classify_permission_pack(task: dict[str, Any]) -> dict[str, Any]:
+    envelope = task_envelope(task)
+    kind = str(task.get("kind") or envelope.get("kind") or "")
+    pack_values: list[str] = []
+    permission_values: list[str] = []
+    evidence: list[dict[str, str]] = []
+
+    for key_name in ("permission_pack", "permissionPack", "permissions_pack", "permission_profile"):
+        for value in _string_values(envelope_value(envelope, key_name)):
+            pack_values.append(value)
+            evidence.append({"field": key_name, "value": value})
+    for value in _string_values(envelope_value(envelope, "permission_packs")):
+        pack_values.append(value)
+        evidence.append({"field": "permission_packs", "value": value})
+    for value in _string_values(envelope_value(envelope, "permissions")):
+        permission_values.append(value)
+        evidence.append({"field": "permissions", "value": value})
+
+    for key_name in ("full_autonomy", "git_push", "write_worktree"):
+        if envelope_truthy(envelope, key_name):
+            permission_values.append(key_name)
+            evidence.append({"field": key_name, "value": str(envelope_value(envelope, key_name))})
+    if envelope_truthy(envelope, "read_only"):
+        pack_values.append("read_only")
+        evidence.append({"field": "read_only", "value": str(envelope_value(envelope, "read_only"))})
+    if envelope_truthy(envelope, "no_push"):
+        pack_values.append("no_push")
+        evidence.append({"field": "no_push", "value": str(envelope_value(envelope, "no_push"))})
+
+    normalized_packs = {_normalized_token(value) for value in pack_values}
+    normalized_permissions = {_normalized_token(value) for value in permission_values}
+    permission_markers = {_normalized_token(marker) for marker in READ_ONLY_PERMISSION_PACK_MARKERS}
+    read_only_no_push = any(marker in token for token in normalized_packs for marker in permission_markers)
+    forbidden_permissions = sorted(normalized_permissions & FORBIDDEN_READ_ONLY_PERMISSIONS)
+
+    if kind in WRITE_WORKTREE_TASK_KINDS:
+        forbidden_permissions.append("write_worktree")
+    if kind in GIT_PUSH_TASK_KINDS:
+        forbidden_permissions.append("git_push")
+    forbidden_permissions = sorted(set(forbidden_permissions))
+
+    domain = "gomesh" if any("gomesh" in _normalized_token(value) for value in pack_values + permission_values) else "generic"
+    decision = "blocked" if read_only_no_push and forbidden_permissions else "allowed"
+    return {
+        "contract": "agent_host_permission_pack_runtime_gate",
+        "domain": domain,
+        "kind": kind,
+        "read_only_no_push": read_only_no_push,
+        "permission_packs": sorted(normalized_packs),
+        "requested_permissions": sorted(normalized_permissions),
+        "forbidden_permissions": forbidden_permissions if read_only_no_push else [],
+        "evidence": evidence,
+        "decision": decision,
+    }
 
 
 def task_envelope(task: dict[str, Any]) -> dict[str, Any]:
@@ -1252,6 +1340,12 @@ class AgentHost:
             "retry": retry,
         })
 
+    def validate_runtime_permission_contract(self, task: dict[str, Any]) -> dict[str, Any]:
+        classification = classify_permission_pack(task)
+        if classification["decision"] == "blocked":
+            raise PermissionContractError(classification)
+        return classification
+
     def prepare_dirs(self, task: dict[str, Any]) -> tuple[Path, Path, dict[str, str]]:
         task_id = task["task_id"]
         attempt_id = task.get("attempt_id") or f"{task_id}-attempt-{task.get('attempt', 1)}"
@@ -1285,6 +1379,7 @@ class AgentHost:
             "status": "completed",
             "kind": "read_only_probe",
             "message": "read-only probe completed",
+            "permission_pack_classification": classify_permission_pack(task),
         }
         result = self.finalize_result(task, result, artifact_dir, worktree, changed_files=[])
         result_path = self.write_result(artifact_dir, result)
@@ -1955,6 +2050,7 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 self.fail(task, "runner_contract_blocked", unsupported_reason, result, result_path, retry=False)
                 return
 
+            permission_pack_classification = self.validate_runtime_permission_contract(task)
             kind = task.get("kind")
             if kind == "impl_factory_smoke":
                 result = self.run_impl_factory_smoke(task)
@@ -1972,6 +2068,7 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 result = self.run_read_only_probe(task)
             else:
                 raise RuntimeError(f"unsupported task kind reached dispatch: {kind}")
+            result.setdefault("permission_pack_classification", permission_pack_classification)
             result_path = Path(result["result_path"])
             artifact_dir = result_path.parent
             worktree_value = result.get("worktree")
@@ -1986,6 +2083,29 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 error_type = "runner_contract_blocked" if result["status"] == "blocked" else "runtime_error"
                 retry = result["status"] == "failed" and int(task.get("attempt", 0)) < int(task.get("max_retries", 3))
                 self.fail(task, error_type, error, result, result_path, retry=retry)
+        except PermissionContractError as exc:
+            task_id = task["task_id"]
+            attempt_id = task.get("attempt_id") or f"{task_id}-attempt-{task.get('attempt', 1)}"
+            artifact_dir = self.artifact_root / task_id / attempt_id
+            artifact_dir.mkdir(parents=True, exist_ok=True)
+            result = {
+                "node_id": self.node_id,
+                "hostname": self.hostname,
+                "task_id": task_id,
+                "agent_id": self.agent_id,
+                "attempt_id": attempt_id,
+                "pid": self.pid,
+                "status": "blocked",
+                "error_type": "permission_contract_violation",
+                "error": str(exc),
+                "completed_at": utc_now(),
+                "permission_pack_classification": exc.classification,
+                "blocked_reason": "permission_contract_violation",
+                "next_recommended_task": "remove write-capable runtime permissions or route this as a write-enabled task",
+            }
+            result = finalize_runner_contract(task, result, artifact_dir, failure_reason=str(exc))
+            result_path = self.write_result(artifact_dir, result)
+            self.fail(task, "permission_contract_violation", str(exc), result, result_path, retry=False)
         except Exception as exc:
             task_id = task["task_id"]
             attempt_id = task.get("attempt_id") or f"{task_id}-attempt-{task.get('attempt', 1)}"
