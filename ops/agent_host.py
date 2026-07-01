@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import fnmatch
 import hashlib
 import json
 import mimetypes
@@ -24,6 +25,10 @@ from typing import Any
 
 STOP = False
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+READ_ONLY_PERMISSION_PACK_MARKERS = {"read_only", "readonly", "read-only", "no_push", "no-push", "nopush"}
+FORBIDDEN_READ_ONLY_PERMISSIONS = {"full_autonomy", "git_push", "write_worktree"}
+WRITE_WORKTREE_TASK_KINDS = {"impl_factory_smoke", "impl_retry_error_clearance"}
+GIT_PUSH_TASK_KINDS = {"impl_factory_smoke", "impl_retry_error_clearance"}
 MIMO_DIRECT_KINDS = {"owner_remote_task", "direct_mimo", "mimo_direct", "mimo_task"}
 SAFE_MIMO_RESULT_FIELDS = {
     "answer",
@@ -44,13 +49,115 @@ SAFE_MIMO_RESULT_FIELDS = {
     "text",
 }
 SECRET_FIELD_HINTS = ("authorization", "cookie", "key", "password", "secret", "token")
+CONTRACT_STATUSES = {"completed", "blocked", "failed"}
+CONTRACT_RESULT_FIELDS = [
+    "task_id",
+    "status",
+    "changed_files",
+    "artifact_dir",
+    "required_artifacts_present",
+    "required_artifacts_missing",
+    "write_scope",
+    "write_scope_violations",
+    "read_only",
+    "product_code_modification_forbidden",
+    "product_code_changed",
+    "push_attempted",
+    "push_blocked",
+    "blocked_reason",
+    "failure_reason",
+    "tests_run",
+    "backend_test_environment",
+    "next_recommended_task",
+]
+SUPPORTED_TASK_KINDS = {
+    "direct_mimo",
+    "impl_factory_smoke",
+    "impl_retry_error_clearance",
+    "mimo_direct",
+    "mimo_task",
+    "orchestrator_chat_response",
+    "owner_remote_task",
+    "read_only_probe",
+    "review_pr",
+    "telegram_chat_response",
+    "telegram_image_generation",
+}
+NO_PUSH_FLAGS = ("git_push_forbidden", "no_push", "read_only")
+PRODUCT_CODE_FORBIDDEN_FLAGS = ("product_code_modification_forbidden", "read_only")
+REQUIRED_ARTIFACT_KEYS = ("required_outputs", "required_artifacts")
+PUSH_PERMISSION_NAMES = {"git_push", "full_autonomy"}
+FULL_AUTONOMY_PACKS = {"full_autonomy", "full-autonomy", "autonomous_full"}
+CANONICAL_RUN_ARTIFACT_FILES = ("PLAN.md", "ACTIONS.md", "TESTS.md", "RESULT.md", "NEXT.md")
+CANONICAL_RUN_ARTIFACT_DIR_KEYS = (
+    "canonical_run_artifact_dir",
+    "run_artifact_dir",
+    "run_artifacts_dir",
+)
+CANONICAL_RUN_ARTIFACT_ALIAS_KEYS = (
+    "canonical_run_artifact_aliases",
+    "run_artifact_aliases",
+    "run_artifacts_aliases",
+)
+BACKEND_TEST_ENV_KEYS = (
+    "backend_python_verification_env",
+    "backend_test_environment",
+    "backend_verification_environment",
+)
+BACKEND_TEST_ENV_TYPES = {"backend_python", "python_backend"}
+SUPPORTED_AI_RUNNERS = {"codex", "mimo"}
+RUNNER_AUTH_FAILURE_MARKERS = (
+    "401",
+    "403",
+    "api key",
+    "auth",
+    "authorization",
+    "credential",
+    "expired token",
+    "forbidden",
+    "invalid token",
+    "login required",
+    "not logged in",
+    "oauth",
+    "permission denied",
+    "refresh token",
+    "unauthorized",
+)
+SECRET_REDACTION_MARKERS = (
+    "api_key",
+    "authorization",
+    "bearer",
+    "password",
+    "refresh_token",
+    "secret",
+    "token",
+)
+
+
+class BackendTestEnvironmentError(RuntimeError):
+    """Raised when an explicit backend verification environment cannot be prepared."""
 
 
 class RunnerExecutionError(RuntimeError):
-    def __init__(self, error_type: str, message: str, retry: bool = True):
+    """Raised when a requested AI runner cannot execute on this node."""
+
+    def __init__(self, error_type: str, runner: str, message: str | None = None, retry: bool = False):
+        if message is None:
+            message = runner
+            runner = "mimo"
         super().__init__(message)
         self.error_type = error_type
+        self.runner = runner
         self.retry = retry
+
+
+class PermissionContractError(RuntimeError):
+    """Raised when a read-only/no-push permission pack requests write powers."""
+
+    def __init__(self, classification: dict[str, Any]):
+        self.classification = classification
+        permissions = ", ".join(classification.get("forbidden_permissions") or [])
+        super().__init__(f"read-only/no-push permission pack forbids requested runtime permissions: {permissions}")
 
 
 def utc_now() -> str:
@@ -97,6 +204,685 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def _string_values(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, (list, tuple, set)):
+        values = []
+        for item in value:
+            values.extend(_string_values(item))
+        return values
+    if isinstance(value, dict):
+        return [str(key) for key, enabled in value.items() if enabled]
+    return [str(value)]
+
+
+def _normalized_token(value: str) -> str:
+    return value.strip().lower().replace("-", "_")
+
+
+def classify_permission_pack(task: dict[str, Any]) -> dict[str, Any]:
+    envelope = task_envelope(task)
+    kind = str(task.get("kind") or envelope.get("kind") or "")
+    pack_values: list[str] = []
+    permission_values: list[str] = []
+    evidence: list[dict[str, str]] = []
+
+    for key_name in ("permission_pack", "permissionPack", "permissions_pack", "permission_profile"):
+        for value in _string_values(envelope_value(envelope, key_name)):
+            pack_values.append(value)
+            evidence.append({"field": key_name, "value": value})
+    for value in _string_values(envelope_value(envelope, "permission_packs")):
+        pack_values.append(value)
+        evidence.append({"field": "permission_packs", "value": value})
+    for value in _string_values(envelope_value(envelope, "permissions")):
+        permission_values.append(value)
+        evidence.append({"field": "permissions", "value": value})
+
+    for key_name in ("full_autonomy", "git_push", "write_worktree"):
+        if envelope_truthy(envelope, key_name):
+            permission_values.append(key_name)
+            evidence.append({"field": key_name, "value": str(envelope_value(envelope, key_name))})
+    if envelope_truthy(envelope, "read_only"):
+        pack_values.append("read_only")
+        evidence.append({"field": "read_only", "value": str(envelope_value(envelope, "read_only"))})
+    if envelope_truthy(envelope, "no_push"):
+        pack_values.append("no_push")
+        evidence.append({"field": "no_push", "value": str(envelope_value(envelope, "no_push"))})
+
+    normalized_packs = {_normalized_token(value) for value in pack_values}
+    normalized_permissions = {_normalized_token(value) for value in permission_values}
+    permission_markers = {_normalized_token(marker) for marker in READ_ONLY_PERMISSION_PACK_MARKERS}
+    read_only_no_push = any(marker in token for token in normalized_packs for marker in permission_markers)
+    forbidden_permissions = sorted(normalized_permissions & FORBIDDEN_READ_ONLY_PERMISSIONS)
+
+    if kind in WRITE_WORKTREE_TASK_KINDS:
+        forbidden_permissions.append("write_worktree")
+    if kind in GIT_PUSH_TASK_KINDS:
+        forbidden_permissions.append("git_push")
+    forbidden_permissions = sorted(set(forbidden_permissions))
+
+    domain = "gomesh" if any("gomesh" in _normalized_token(value) for value in pack_values + permission_values) else "generic"
+    decision = "blocked" if read_only_no_push and forbidden_permissions else "allowed"
+    return {
+        "contract": "agent_host_permission_pack_runtime_gate",
+        "domain": domain,
+        "kind": kind,
+        "read_only_no_push": read_only_no_push,
+        "permission_packs": sorted(normalized_packs),
+        "requested_permissions": sorted(normalized_permissions),
+        "forbidden_permissions": forbidden_permissions if read_only_no_push else [],
+        "evidence": evidence,
+        "decision": decision,
+    }
+
+
+def task_envelope(task: dict[str, Any]) -> dict[str, Any]:
+    envelope = task.get("envelope")
+    return envelope if isinstance(envelope, dict) else {}
+
+
+def envelope_value(envelope: dict[str, Any], key_name: str, default: Any = None) -> Any:
+    if key_name in envelope:
+        return envelope[key_name]
+    constraints = envelope.get("constraints")
+    if isinstance(constraints, dict) and key_name in constraints:
+        return constraints[key_name]
+    return default
+
+
+def truthy(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+    return bool(value)
+
+
+def envelope_truthy(envelope: dict[str, Any], *keys: str) -> bool:
+    return any(truthy(envelope_value(envelope, key_name, False)) for key_name in keys)
+
+
+def ensure_list(value: Any) -> list[Any]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    return [value]
+
+
+def requested_runner_for_envelope(envelope: dict[str, Any], default: str | None = None) -> str | None:
+    runner = envelope_value(envelope, "runner", default)
+    if runner is None:
+        return None
+    normalized = str(runner).strip().lower()
+    return normalized or None
+
+
+def runner_capability(runner: str) -> str:
+    return f"runner:{runner}"
+
+
+def redact_sensitive_text(text: str) -> str:
+    redacted_lines: list[str] = []
+    for line in text.splitlines():
+        lowered = line.lower()
+        if any(marker in lowered for marker in SECRET_REDACTION_MARKERS):
+            redacted_lines.append("[redacted sensitive runner output]")
+        else:
+            redacted_lines.append(line)
+    return "\n".join(redacted_lines)
+
+
+def sanitize_text_file(path: Path) -> None:
+    if not path.exists() or not path.is_file():
+        return
+    text = path.read_text(encoding="utf-8", errors="replace")
+    redacted = redact_sensitive_text(text)
+    if redacted != text:
+        path.write_text(redacted + ("\n" if text.endswith("\n") else ""), encoding="utf-8")
+
+
+def runner_auth_blocked(stderr_text: str) -> bool:
+    lowered = stderr_text.lower()
+    return any(marker in lowered for marker in RUNNER_AUTH_FAILURE_MARKERS)
+
+
+def envelope_list(envelope: dict[str, Any], *keys: str) -> list[Any]:
+    values: list[Any] = []
+    for key_name in keys:
+        values.extend(ensure_list(envelope_value(envelope, key_name)))
+    return values
+
+
+def envelope_dict(envelope: dict[str, Any], *keys: str) -> dict[str, Any] | None:
+    for key_name in keys:
+        value = envelope_value(envelope, key_name)
+        if isinstance(value, dict):
+            return value
+    return None
+
+
+def artifact_spec_path(spec: Any) -> str | None:
+    if isinstance(spec, str):
+        return spec.strip() or None
+    if isinstance(spec, dict):
+        for key_name in ("path", "file", "artifact", "output"):
+            value = spec.get(key_name)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return None
+
+
+def as_posix_path(value: str | Path) -> str:
+    return str(value).replace("\\", "/").strip()
+
+
+def changed_file_display(path: str | Path, worktree: Path | None = None, artifact_dir: Path | None = None) -> str:
+    raw = as_posix_path(path)
+    candidate = Path(raw)
+    for base in (worktree, artifact_dir):
+        if base and candidate.is_absolute():
+            try:
+                return candidate.relative_to(base).as_posix()
+            except ValueError:
+                pass
+    return raw.lstrip("./")
+
+
+def path_is_under(path: Path, base: Path) -> bool:
+    try:
+        path.resolve().relative_to(base.resolve())
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def is_docs_path(changed: str) -> bool:
+    normalized = changed.strip("/")
+    return normalized == "docs" or normalized.startswith("docs/")
+
+
+def is_artifact_path(changed: str | Path, artifact_dir: Path | None) -> bool:
+    if not artifact_dir:
+        return False
+    candidate = Path(str(changed))
+    return candidate.is_absolute() and path_is_under(candidate, artifact_dir)
+
+
+def path_matches_scope(changed: str | Path, scope_entry: Any, worktree: Path | None = None, artifact_dir: Path | None = None) -> bool:
+    if not isinstance(scope_entry, str) or not scope_entry.strip():
+        return False
+    changed_display = changed_file_display(changed, worktree, artifact_dir)
+    scope = as_posix_path(scope_entry).strip().rstrip("/")
+    if not scope:
+        return False
+
+    candidate = Path(str(changed))
+    scope_path = Path(scope)
+    if candidate.is_absolute() and scope_path.is_absolute():
+        try:
+            return path_is_under(candidate, scope_path) or candidate.resolve() == scope_path.resolve()
+        except OSError:
+            return False
+    if candidate.is_absolute() and artifact_dir and scope_path.is_absolute() and path_is_under(candidate, artifact_dir):
+        return path_is_under(candidate, scope_path)
+
+    if fnmatch.fnmatch(changed_display, scope):
+        return True
+    if scope.endswith("/**"):
+        prefix = scope[:-3].rstrip("/")
+        return changed_display == prefix or changed_display.startswith(f"{prefix}/")
+    if scope.endswith("/*"):
+        prefix = scope[:-2].rstrip("/")
+        return changed_display.startswith(f"{prefix}/") and "/" not in changed_display[len(prefix) + 1:]
+    return changed_display == scope or changed_display.startswith(f"{scope}/")
+
+
+def changed_file_allowed_by_scope(changed: str | Path, write_scope: list[Any], worktree: Path | None, artifact_dir: Path | None) -> bool:
+    return any(path_matches_scope(changed, scope_entry, worktree, artifact_dir) for scope_entry in write_scope)
+
+
+def collect_git_changed_files(worktree: Path | None) -> list[str]:
+    if not worktree or not worktree.exists() or not (worktree / ".git").exists():
+        return []
+    proc = subprocess.run(
+        ["git", "status", "--porcelain=v1"],
+        cwd=str(worktree),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        return []
+    changed: list[str] = []
+    for line in proc.stdout.splitlines():
+        if not line:
+            continue
+        path = line[3:].strip()
+        if " -> " in path:
+            path = path.rsplit(" -> ", 1)[1]
+        if path.startswith('"') and path.endswith('"'):
+            path = path[1:-1]
+        if path:
+            changed.append(path)
+    return sorted(set(changed))
+
+
+def product_code_changed(changed_files: list[str], artifact_dir: Path | None = None) -> bool:
+    for changed in changed_files:
+        if is_docs_path(changed) or is_artifact_path(changed, artifact_dir):
+            continue
+        return True
+    return False
+
+
+def required_artifact_candidates(spec_path: str, worktree: Path | None, artifact_dir: Path | None) -> list[Path]:
+    path = Path(spec_path)
+    if path.is_absolute():
+        return [path]
+    candidates: list[Path] = []
+    if worktree:
+        candidates.append(worktree / spec_path)
+    if artifact_dir:
+        candidates.append(artifact_dir / spec_path)
+    return candidates
+
+
+def canonical_run_artifact_dir(envelope: dict[str, Any]) -> str | None:
+    for key_name in CANONICAL_RUN_ARTIFACT_DIR_KEYS:
+        value = envelope_value(envelope, key_name)
+        if isinstance(value, str) and value.strip():
+            return value.strip().rstrip("/")
+    return None
+
+
+def canonical_run_artifact_aliases(envelope: dict[str, Any]) -> list[str]:
+    aliases: list[str] = []
+    for value in envelope_list(envelope, *CANONICAL_RUN_ARTIFACT_ALIAS_KEYS):
+        if isinstance(value, str) and value.strip():
+            aliases.append(value.strip().rstrip("/"))
+    return list(dict.fromkeys(aliases))
+
+
+def resolve_artifact_dir_spec(spec_path: str, worktree: Path | None, artifact_dir: Path | None) -> Path:
+    path = Path(spec_path)
+    if path.is_absolute():
+        return path
+    if worktree:
+        return worktree / spec_path
+    if artifact_dir:
+        return artifact_dir / spec_path
+    return path
+
+
+def canonical_run_artifact_paths(run_dir: str) -> list[str]:
+    return [f"{run_dir.rstrip('/')}/{filename}" for filename in CANONICAL_RUN_ARTIFACT_FILES]
+
+
+def complete_run_artifact_dir(base_dir: Path) -> bool:
+    return all((base_dir / filename).is_file() for filename in CANONICAL_RUN_ARTIFACT_FILES)
+
+
+def copy_complete_run_artifact_alias(alias_dir: Path, canonical_dir_path: Path) -> None:
+    canonical_dir_path.mkdir(parents=True, exist_ok=True)
+    for filename in CANONICAL_RUN_ARTIFACT_FILES:
+        target = canonical_dir_path / filename
+        if not target.exists():
+            shutil.copy2(alias_dir / filename, target)
+
+
+def finalize_canonical_run_artifacts(
+    envelope: dict[str, Any],
+    worktree: Path | None,
+    artifact_dir: Path | None,
+) -> dict[str, Any]:
+    run_dir = canonical_run_artifact_dir(envelope)
+    if not run_dir:
+        return {}
+
+    canonical_dir_path = resolve_artifact_dir_spec(run_dir, worktree, artifact_dir)
+    aliases = canonical_run_artifact_aliases(envelope)
+    alias_log: list[dict[str, Any]] = []
+    alias_used: str | None = None
+
+    if not complete_run_artifact_dir(canonical_dir_path):
+        for alias in aliases:
+            alias_dir_path = resolve_artifact_dir_spec(alias, worktree, artifact_dir)
+            complete = complete_run_artifact_dir(alias_dir_path)
+            alias_log.append({
+                "alias": alias,
+                "canonical": run_dir,
+                "complete": complete,
+                "action": "copied_to_canonical" if complete and alias_used is None else "inspected",
+            })
+            if complete and alias_used is None:
+                copy_complete_run_artifact_alias(alias_dir_path, canonical_dir_path)
+                alias_used = alias
+                break
+
+    present: list[str] = []
+    missing: list[str] = []
+    for artifact_path in canonical_run_artifact_paths(run_dir):
+        resolved = resolve_artifact_dir_spec(artifact_path, worktree, artifact_dir)
+        if resolved.is_file():
+            present.append(artifact_path)
+        else:
+            missing.append(artifact_path)
+
+    if alias_log and artifact_dir:
+        log_path = artifact_dir / "run-artifact-aliases.json"
+        log_path.write_text(json.dumps(alias_log, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    return {
+        "canonical_run_artifact_dir": run_dir,
+        "canonical_run_artifacts": canonical_run_artifact_paths(run_dir),
+        "canonical_run_artifact_aliases": aliases,
+        "canonical_run_artifact_alias_used": alias_used,
+        "canonical_run_artifact_alias_log": alias_log,
+        "canonical_run_artifacts_present": present,
+        "canonical_run_artifacts_missing": missing,
+    }
+
+
+def verify_required_artifacts(envelope: dict[str, Any], worktree: Path | None, artifact_dir: Path | None) -> tuple[list[str], list[str]]:
+    present: list[str] = []
+    missing: list[str] = []
+    for spec in envelope_list(envelope, *REQUIRED_ARTIFACT_KEYS):
+        spec_path = artifact_spec_path(spec)
+        if not spec_path:
+            continue
+        if any(candidate.exists() for candidate in required_artifact_candidates(spec_path, worktree, artifact_dir)):
+            present.append(spec_path)
+        else:
+            missing.append(spec_path)
+    return present, missing
+
+
+def backend_test_environment_spec(envelope: dict[str, Any]) -> dict[str, Any] | None:
+    spec = envelope_dict(envelope, *BACKEND_TEST_ENV_KEYS)
+    if spec is None:
+        return None
+    if not truthy(spec.get("enabled", True)):
+        return None
+    env_type = str(spec.get("type") or "backend_python").strip()
+    if env_type not in BACKEND_TEST_ENV_TYPES:
+        raise BackendTestEnvironmentError(f"backend_test_environment_failed: unsupported backend test env type: {env_type}")
+    return spec
+
+
+def backend_test_environment_path(spec: dict[str, Any], artifact_dir: Path) -> Path:
+    configured = spec.get("path") or spec.get("venv_path") or spec.get("env_dir")
+    if isinstance(configured, str) and configured.strip():
+        path = Path(configured.strip())
+        return path if path.is_absolute() else artifact_dir / path
+    return artifact_dir / "backend-test-env"
+
+
+def backend_test_environment_requirement_files(spec: dict[str, Any]) -> list[str]:
+    values = []
+    values.extend(ensure_list(spec.get("requirements")))
+    values.extend(ensure_list(spec.get("requirements_files")))
+    return [item.strip() for item in values if isinstance(item, str) and item.strip()]
+
+
+def backend_test_environment_packages(spec: dict[str, Any]) -> list[str]:
+    return [item.strip() for item in ensure_list(spec.get("packages")) if isinstance(item, str) and item.strip()]
+
+
+def backend_verifier_command(command: list[str], env_python: Path) -> list[str]:
+    if not command:
+        return command
+    executable = Path(command[0]).name
+    if executable in {"python", "python3"}:
+        return [str(env_python), *command[1:]]
+    if executable == "pytest":
+        return [str(env_python), "-m", "pytest", *command[1:]]
+    return command
+
+
+def backend_test_environment_metadata(
+    spec: dict[str, Any],
+    env_dir: Path,
+    status: str,
+    error: str | None = None,
+    cleaned: bool = False,
+) -> dict[str, Any]:
+    metadata = {
+        "enabled": True,
+        "type": str(spec.get("type") or "backend_python"),
+        "path": str(env_dir),
+        "python": str(spec.get("python") or "python3"),
+        "requirements": backend_test_environment_requirement_files(spec),
+        "packages": backend_test_environment_packages(spec),
+        "cleanup": truthy(spec.get("cleanup", True)),
+        "status": status,
+        "cleaned": cleaned,
+    }
+    if error:
+        metadata["error"] = error
+    return metadata
+
+
+def push_forbidden_by_envelope(envelope: dict[str, Any]) -> bool:
+    return envelope_truthy(envelope, *NO_PUSH_FLAGS)
+
+
+def push_block_reason(envelope: dict[str, Any]) -> str | None:
+    reasons = [flag for flag in NO_PUSH_FLAGS if truthy(envelope_value(envelope, flag, False))]
+    return ", ".join(reasons) if reasons else None
+
+
+def sanitized_permissions_for_envelope(envelope: dict[str, Any]) -> dict[str, Any]:
+    permissions = envelope_list(envelope, "permissions", "permission_set", "allowed_permissions")
+    permission_pack = envelope_value(envelope, "permission_pack")
+    if push_forbidden_by_envelope(envelope) and isinstance(permission_pack, str) and permission_pack.strip().lower() in FULL_AUTONOMY_PACKS:
+        permission_pack = "read_only" if push_forbidden_by_envelope(envelope) else permission_pack
+    if push_forbidden_by_envelope(envelope):
+        permissions = [
+            item
+            for item in permissions
+            if not (isinstance(item, str) and item.strip().lower() in PUSH_PERMISSION_NAMES)
+        ]
+    return {
+        "permission_pack": permission_pack,
+        "permissions": permissions,
+        "git_push_allowed": not push_forbidden_by_envelope(envelope),
+    }
+
+
+def sanitize_task_permissions(task: dict[str, Any]) -> dict[str, Any]:
+    envelope = task_envelope(task)
+    if not envelope:
+        return task
+    effective = sanitized_permissions_for_envelope(envelope)
+    task["effective_permissions"] = effective
+    envelope["effective_permissions"] = effective
+    if push_forbidden_by_envelope(envelope):
+        for key_name in ("permissions", "permission_set", "allowed_permissions"):
+            if key_name in envelope:
+                envelope[key_name] = [
+                    item
+                    for item in ensure_list(envelope.get(key_name))
+                    if not (isinstance(item, str) and item.strip().lower() in PUSH_PERMISSION_NAMES)
+                ]
+        if str(envelope.get("permission_pack", "")).strip().lower() in FULL_AUTONOMY_PACKS:
+            envelope["permission_pack"] = "read_only"
+    return task
+
+
+def review_clone_auth_failure_message(stderr_text: str, repo_url: str) -> str | None:
+    lowered = stderr_text.lower()
+    markers = (
+        "permission denied",
+        "could not read from remote repository",
+        "authentication failed",
+        "repository not found",
+        "could not resolve hostname",
+        "terminal prompts disabled",
+    )
+    if not any(marker in lowered for marker in markers):
+        return None
+    return (
+        "review_clone_auth_failed: repair Agent Host git credentials or repo access "
+        f"for {repo_url}; clone failed before review checkout"
+    )
+
+
+def next_recommended_task_for(blockers: list[str], envelope: dict[str, Any]) -> str:
+    configured = envelope_value(envelope, "next_recommended_task")
+    if isinstance(configured, str) and configured.strip():
+        return configured.strip()
+    joined = " ".join(blockers)
+    if "unsupported_task_kind" in joined or "unsupported_required_capability" in joined:
+        return "enable a supported read-only runner for this task kind before resubmitting"
+    if "required_artifacts_missing" in joined:
+        return "rerun the task with corrected required_artifacts paths or produce the missing outputs"
+    if "write_scope_violations" in joined:
+        return "resubmit with a precise write_scope or move outputs into the allowed artifact paths"
+    if "product_code" in joined:
+        return "split product-code changes from read-only or documentation-only task constraints"
+    if "push" in joined:
+        return "resubmit through a no-push workflow or explicitly allow git push"
+    if "review_clone_auth_failed" in joined:
+        return "repair Agent Host git credentials, then rerun the review task"
+    if "backend_test_environment_failed" in joined:
+        return "repair the declared backend test environment requirements or package list, then rerun verification"
+    return "inspect the runner contract blockers and resubmit with corrected constraints"
+
+
+def finalize_runner_contract(
+    task: dict[str, Any],
+    result: dict[str, Any] | None,
+    artifact_dir: Path,
+    worktree: Path | None = None,
+    changed_files: list[str] | None = None,
+    push_attempted: bool | None = None,
+    push_blocked: bool | None = None,
+    blocked_reason: str | None = None,
+    failure_reason: str | None = None,
+) -> dict[str, Any]:
+    envelope = task_envelope(task)
+    final = dict(result or {})
+    kind = task.get("kind") or envelope.get("kind")
+    original_status = final.get("status")
+    if original_status not in CONTRACT_STATUSES:
+        if original_status:
+            final.setdefault("runner_status", original_status)
+        final["status"] = "completed"
+    final.setdefault("task_id", task["task_id"])
+    final.setdefault("kind", kind)
+    final["artifact_dir"] = str(artifact_dir)
+
+    effective_changed = changed_files
+    if effective_changed is None:
+        effective_changed = ensure_list(final.get("changed_files")) or collect_git_changed_files(worktree)
+    final["changed_files"] = [changed_file_display(path, worktree, artifact_dir) for path in effective_changed if isinstance(path, str)]
+
+    write_scope = envelope_list(envelope, "write_scope")
+    final["write_scope"] = write_scope
+
+    required_present, required_missing = verify_required_artifacts(envelope, worktree, artifact_dir)
+    canonical_artifacts = finalize_canonical_run_artifacts(envelope, worktree, artifact_dir)
+    if canonical_artifacts:
+        required_present.extend(canonical_artifacts["canonical_run_artifacts_present"])
+        required_missing.extend(canonical_artifacts["canonical_run_artifacts_missing"])
+        final.update(canonical_artifacts)
+    final["required_artifacts_present"] = required_present
+    final["required_artifacts_missing"] = required_missing
+    final["effective_permissions"] = sanitized_permissions_for_envelope(envelope)
+
+    read_only = envelope_truthy(envelope, "read_only")
+    product_forbidden = envelope_truthy(envelope, *PRODUCT_CODE_FORBIDDEN_FLAGS)
+    docs_only = envelope_truthy(envelope, "documentation_artifacts_only")
+    final["read_only"] = read_only
+    final["product_code_modification_forbidden"] = product_forbidden
+
+    changed_product = product_code_changed(final["changed_files"], artifact_dir)
+    final["product_code_changed"] = changed_product
+
+    write_scope_violations: list[str] = []
+    if write_scope:
+        write_scope_violations = [
+            changed
+            for changed in final["changed_files"]
+            if not changed_file_allowed_by_scope(changed, write_scope, worktree, artifact_dir)
+        ]
+    if docs_only:
+        docs_only_violations = [
+            changed
+            for changed in final["changed_files"]
+            if not is_docs_path(changed)
+            and not is_artifact_path(changed, artifact_dir)
+            and not changed_file_allowed_by_scope(changed, write_scope, worktree, artifact_dir)
+        ]
+        write_scope_violations = sorted(set(write_scope_violations + docs_only_violations))
+    final["write_scope_violations"] = write_scope_violations
+
+    forbidden_push = push_forbidden_by_envelope(envelope)
+    attempted = bool(final.get("push_attempted", False) if push_attempted is None else push_attempted)
+    blocked = bool(final.get("push_blocked", False) if push_blocked is None else push_blocked)
+    if forbidden_push and not attempted:
+        blocked = True
+    final["push_attempted"] = attempted
+    final["push_blocked"] = blocked
+    final["push_block_reason"] = final.get("push_block_reason") or push_block_reason(envelope)
+
+    tests_run = final.get("tests_run")
+    if tests_run is None:
+        tests_run = final.get("checks", [])
+    final["tests_run"] = ensure_list(tests_run)
+
+    blockers: list[str] = []
+    if blocked_reason:
+        blockers.append(blocked_reason)
+    if not artifact_dir.exists():
+        blockers.append("artifact_dir_missing")
+    if required_missing:
+        blockers.append("required_artifacts_missing")
+    if write_scope_violations:
+        blockers.append("write_scope_violations")
+    if read_only and changed_product:
+        blockers.append("read_only_product_code_changed")
+    if product_forbidden and changed_product:
+        blockers.append("product_code_modification_forbidden")
+    if forbidden_push and attempted:
+        blockers.append("forbidden_push_attempted")
+
+    if blockers:
+        final["status"] = "blocked"
+        final["blocked_reason"] = "; ".join(dict.fromkeys(blockers))
+        final["failure_reason"] = failure_reason
+    else:
+        final.setdefault("blocked_reason", None)
+        final["failure_reason"] = failure_reason
+    final["next_recommended_task"] = final.get("next_recommended_task") or (
+        next_recommended_task_for(blockers, envelope) if blockers else None
+    )
+
+    for field in CONTRACT_RESULT_FIELDS:
+        final.setdefault(field, None)
+    return final
+
+
+def unsupported_task_result(task: dict[str, Any], artifact_dir: Path, reason: str, worktree: Path | None = None) -> dict[str, Any]:
+    return finalize_runner_contract(
+        task,
+        {
+            "task_id": task["task_id"],
+            "status": "blocked",
+            "kind": task.get("kind") or task_envelope(task).get("kind"),
+            "changed_files": [],
+        },
+        artifact_dir,
+        worktree=worktree,
+        changed_files=[],
+        blocked_reason=reason,
+    )
+
+
 class AgentHost:
     def __init__(self, args: argparse.Namespace):
         control_urls_arg = getattr(args, "control_urls", None) or args.control_url
@@ -115,6 +901,8 @@ class AgentHost:
         self.max_inflight = args.max_inflight
         self.hostname = platform.node()
         self.pid = os.getpid()
+        self.runner_status = self.detect_runner_status()
+        self.capabilities = self.capabilities_with_runners()
         self.work_root.mkdir(parents=True, exist_ok=True)
         self.artifact_root.mkdir(parents=True, exist_ok=True)
 
@@ -141,6 +929,37 @@ class AgentHost:
         assert last_exc is not None
         raise last_exc
 
+    def detect_runner_status(self) -> dict[str, dict[str, Any]]:
+        status: dict[str, dict[str, Any]] = {}
+        for runner in sorted(SUPPORTED_AI_RUNNERS):
+            try:
+                path = shutil.which(runner)
+            except RecursionError:
+                path = None
+            status[runner] = {
+                "status": "available" if path else "unavailable",
+                "path": path,
+                "checked_at": utc_now(),
+            }
+        return status
+
+    def capabilities_with_runners(self) -> list[str]:
+        capabilities = list(dict.fromkeys(self.capabilities))
+        for runner, state in self.runner_status.items():
+            if state.get("status") == "available":
+                cap = runner_capability(runner)
+                if cap not in capabilities:
+                    capabilities.append(cap)
+        return capabilities
+
+    def mark_runner_status(self, runner: str, status: str, error_type: str | None = None) -> None:
+        current = self.runner_status.setdefault(runner, {})
+        current.update({
+            "status": status,
+            "error_type": error_type,
+            "updated_at": utc_now(),
+        })
+
     def register(self) -> None:
         body = {
             "node_id": self.node_id,
@@ -148,6 +967,7 @@ class AgentHost:
             "agent_id": self.agent_id,
             "pid": self.pid,
             "capabilities": self.capabilities,
+            "runners": self.runner_status,
             **machine_stats(),
         }
         self.post("/v1/nodes/register", body)
@@ -159,6 +979,7 @@ class AgentHost:
             "agent_id": self.agent_id,
             "pid": self.pid,
             "capabilities": self.capabilities,
+            "runners": self.runner_status,
             "active_task": active_task,
             **machine_stats(),
         }
@@ -175,11 +996,13 @@ class AgentHost:
         return self.post(f"/v1/tasks/{task['task_id']}/heartbeat", body)
 
     def lease(self) -> dict[str, Any] | None:
-        return self.post("/v1/tasks/lease", {
+        task = self.post("/v1/tasks/lease", {
             "node_id": self.node_id,
             "agent_id": self.agent_id,
             "capabilities": self.capabilities,
+            "runners": self.runner_status,
         })
+        return sanitize_task_permissions(task) if isinstance(task, dict) else task
 
     def run_command(
         self,
@@ -212,6 +1035,77 @@ class AgentHost:
                 time.sleep(2)
             if proc.returncode != 0:
                 raise RuntimeError(f"command failed with rc={proc.returncode}: {display_command}")
+
+    def git_push(
+        self,
+        task: dict[str, Any],
+        command: list[str],
+        cwd: Path,
+        stdout_path: Path,
+        stderr_path: Path,
+        branch: str | None,
+        logs: dict[str, str],
+        env: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        envelope = task_envelope(task)
+        reason = push_block_reason(envelope)
+        if reason:
+            with stdout_path.open("ab") as stdout:
+                stdout.write(f"\n$ git push skipped by runner contract: {reason}\n".encode("utf-8"))
+            return {
+                "push_attempted": False,
+                "push_blocked": True,
+                "push_block_reason": reason,
+            }
+        self.run_command(command, cwd, stdout_path, stderr_path, task, branch, logs, env)
+        return {
+            "push_attempted": True,
+            "push_blocked": False,
+            "push_block_reason": None,
+        }
+
+    def git_push_after_contract_verification(
+        self,
+        task: dict[str, Any],
+        command: list[str],
+        cwd: Path,
+        stdout_path: Path,
+        stderr_path: Path,
+        branch: str | None,
+        logs: dict[str, str],
+        result: dict[str, Any],
+        artifact_dir: Path,
+        changed_files: list[str],
+        env: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        preflight = self.finalize_result(task, result, artifact_dir, cwd, changed_files=changed_files)
+        if preflight["status"] != "completed":
+            preflight["push_attempted"] = False
+            preflight["push_blocked"] = True
+            preflight["push_block_reason"] = preflight.get("blocked_reason") or "contract_verification_failed"
+            with stdout_path.open("ab") as stdout:
+                stdout.write(
+                    f"\n$ git push skipped by runner contract preflight: {preflight['push_block_reason']}\n".encode("utf-8")
+                )
+            return preflight
+        push_info = self.git_push(task, command, cwd, stdout_path, stderr_path, branch, logs, env)
+        return self.finalize_result(
+            task,
+            {**preflight, **push_info},
+            artifact_dir,
+            cwd,
+            changed_files=changed_files,
+        )
+
+    def unsupported_task_reason(self, task: dict[str, Any]) -> str | None:
+        envelope = task_envelope(task)
+        kind = task.get("kind") or envelope.get("kind")
+        if kind not in SUPPORTED_TASK_KINDS:
+            return f"unsupported_task_kind:{kind}"
+        required_capability = envelope_value(envelope, "required_capability")
+        if required_capability and required_capability not in self.capabilities:
+            return f"unsupported_required_capability:{required_capability}"
+        return None
 
     @staticmethod
     def _content_text(content: Any) -> str:
@@ -304,7 +1198,6 @@ class AgentHost:
             final_messages.extend(event_final)
             text_parts.extend(event_parts)
             deltas.extend(event_deltas)
-
             if SAFE_MIMO_RESULT_FIELDS.intersection(event):
                 useful_objects.append(cls._safe_json_value(event))
 
@@ -375,7 +1268,9 @@ class AgentHost:
                 self._read_runner_output_for_error(stdout_path, stderr_path),
             )
             if error_type != "runtime_error":
-                raise RunnerExecutionError(error_type, message, retry=retry) from exc
+                sanitize_text_file(stdout_path)
+                sanitize_text_file(stderr_path)
+                raise RunnerExecutionError(error_type, "mimo", message, retry=retry) from exc
             raise
         payload = self.parse_json_response_payload(stdout_path)
         if not payload.get("response"):
@@ -407,6 +1302,137 @@ class AgentHost:
         )
         return str(payload.get("response") or "")
 
+    def run_requested_ai_runner(
+        self,
+        runner: str,
+        prompt: str,
+        title: str,
+        worktree: Path,
+        stdout_path: Path,
+        stderr_path: Path,
+        task: dict[str, Any],
+        branch: str | None,
+        logs: dict[str, str],
+    ) -> str:
+        runner = runner.strip().lower()
+        if runner not in SUPPORTED_AI_RUNNERS:
+            raise RunnerExecutionError("runner_unavailable", runner, f"unsupported runner requested: {runner}")
+        executable = shutil.which(runner)
+        if not executable:
+            self.mark_runner_status(runner, "unavailable", "runner_unavailable")
+            raise RunnerExecutionError("runner_unavailable", runner, f"{runner} executable is not available on this node")
+
+        if runner == "codex":
+            command = [executable, "exec", "--json", "--skip-git-repo-check", "--sandbox", "danger-full-access", prompt]
+            command_label = f"{executable} exec --json --skip-git-repo-check --sandbox danger-full-access <prompt>"
+        else:
+            command = [executable, "run", "--format", "json", "--title", title, prompt]
+            command_label = f"{executable} run --format json --title {title} <prompt>"
+
+        try:
+            return self.run_json_text_command(
+                command,
+                command_label,
+                runner,
+                worktree,
+                stdout_path,
+                stderr_path,
+                task,
+                branch,
+                logs,
+            )
+        except RuntimeError as exc:
+            stderr_text = stderr_path.read_text(encoding="utf-8", errors="replace") if stderr_path.exists() else ""
+            auth_blocked = runner_auth_blocked(stderr_text) or runner_auth_blocked(str(exc))
+            sanitize_text_file(stdout_path)
+            sanitize_text_file(stderr_path)
+            if auth_blocked:
+                self.mark_runner_status(runner, "blocked", "runner_auth_blocked")
+                raise RunnerExecutionError("runner_auth_blocked", runner, f"{runner} auth blocked on this node") from exc
+            raise
+
+    def prepare_backend_test_environment(
+        self,
+        task: dict[str, Any],
+        worktree: Path,
+        artifact_dir: Path,
+        stdout_path: Path,
+        stderr_path: Path,
+        branch: str | None,
+        logs: dict[str, str],
+    ) -> tuple[Path, dict[str, Any]] | None:
+        spec = backend_test_environment_spec(task_envelope(task))
+        if spec is None:
+            return None
+
+        env_dir = backend_test_environment_path(spec, artifact_dir)
+        if worktree.exists() and path_is_under(env_dir, worktree):
+            message = "backend_test_environment_failed: backend test env path must be outside the worktree"
+            raise BackendTestEnvironmentError(message)
+
+        python_bin = str(spec.get("python") or "python3")
+        requirements = backend_test_environment_requirement_files(spec)
+        packages = backend_test_environment_packages(spec)
+        metadata = backend_test_environment_metadata(spec, env_dir, "preparing")
+
+        try:
+            if env_dir.exists():
+                shutil.rmtree(env_dir)
+            self.run_command([python_bin, "-m", "venv", str(env_dir)], worktree, stdout_path, stderr_path, task, branch, logs)
+            env_python = env_dir / "bin" / "python"
+            self.run_command([str(env_python), "-m", "pip", "install", "--upgrade", "pip"], worktree, stdout_path, stderr_path, task, branch, logs)
+            if requirements:
+                self.run_command([str(env_python), "-m", "pip", "install", *[item for req in requirements for item in ("-r", req)]], worktree, stdout_path, stderr_path, task, branch, logs)
+            if packages:
+                self.run_command([str(env_python), "-m", "pip", "install", *packages], worktree, stdout_path, stderr_path, task, branch, logs)
+        except Exception as exc:
+            metadata = backend_test_environment_metadata(spec, env_dir, "failed", error=str(exc))
+            if env_dir.exists() and truthy(spec.get("cleanup", True)):
+                shutil.rmtree(env_dir, ignore_errors=True)
+                metadata["cleaned"] = True
+            raise BackendTestEnvironmentError(f"backend_test_environment_failed: {exc}") from exc
+
+        metadata["status"] = "ready"
+        return env_dir / "bin" / "python", metadata
+
+    def cleanup_backend_test_environment(self, metadata: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not metadata or not truthy(metadata.get("cleanup", True)):
+            return metadata
+        env_path = metadata.get("path")
+        if isinstance(env_path, str) and env_path:
+            shutil.rmtree(env_path, ignore_errors=True)
+            metadata["cleaned"] = True
+        return metadata
+
+    def run_backend_verification_commands(
+        self,
+        commands: list[list[str]],
+        worktree: Path,
+        artifact_dir: Path,
+        stdout_path: Path,
+        stderr_path: Path,
+        task: dict[str, Any],
+        branch: str | None,
+        logs: dict[str, str],
+        env: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        prepared = self.prepare_backend_test_environment(task, worktree, artifact_dir, stdout_path, stderr_path, branch, logs)
+        metadata: dict[str, Any] | None = prepared[1] if prepared else None
+        env_python = prepared[0] if prepared else None
+        executed: list[str] = []
+        try:
+            for command in commands:
+                effective_command = backend_verifier_command(command, env_python) if env_python else command
+                executed.append(" ".join(effective_command))
+                self.run_command(effective_command, worktree, stdout_path, stderr_path, task, branch, logs, env)
+            if metadata:
+                metadata["status"] = "passed"
+                metadata["commands"] = executed
+            return metadata or {"enabled": False, "status": "not_configured", "commands": executed}
+        finally:
+            if metadata:
+                self.cleanup_backend_test_environment(metadata)
+
     def write_result(self, artifact_dir: Path, result: dict[str, Any]) -> Path:
         result_path = artifact_dir / "result.json"
         result_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -416,6 +1442,16 @@ class AgentHost:
                 manifest.append({"path": str(path), "sha256": sha256_file(path), "bytes": path.stat().st_size})
         (artifact_dir / "artifact-manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         return result_path
+
+    def finalize_result(
+        self,
+        task: dict[str, Any],
+        result: dict[str, Any],
+        artifact_dir: Path,
+        worktree: Path | None = None,
+        changed_files: list[str] | None = None,
+    ) -> dict[str, Any]:
+        return finalize_runner_contract(task, result, artifact_dir, worktree=worktree, changed_files=changed_files)
 
     def complete(self, task: dict[str, Any], result: dict[str, Any], result_path: Path) -> None:
         self.post(f"/v1/tasks/{task['task_id']}/complete", {
@@ -431,6 +1467,12 @@ class AgentHost:
             "result_reference": str(result_path) if result_path else None,
             "retry": retry,
         })
+
+    def validate_runtime_permission_contract(self, task: dict[str, Any]) -> dict[str, Any]:
+        classification = classify_permission_pack(task)
+        if classification["decision"] == "blocked":
+            raise PermissionContractError(classification)
+        return classification
 
     def prepare_dirs(self, task: dict[str, Any]) -> tuple[Path, Path, dict[str, str]]:
         task_id = task["task_id"]
@@ -465,7 +1507,9 @@ class AgentHost:
             "status": "completed",
             "kind": "read_only_probe",
             "message": "read-only probe completed",
+            "permission_pack_classification": classify_permission_pack(task),
         }
+        result = self.finalize_result(task, result, artifact_dir, worktree, changed_files=[])
         result_path = self.write_result(artifact_dir, result)
         result["result_path"] = str(result_path)
         return result
@@ -495,44 +1539,23 @@ class AgentHost:
             f"Снимок фабрики JSON: {json.dumps(envelope.get('factory_snapshot') or {}, ensure_ascii=False, sort_keys=True)}\n"
             f"Сообщение владельца: {message}"
         )
-        runner = str(
+        runner = (
             os.environ.get("KOLIBRI_TELEGRAM_RUNNER")
             or os.environ.get("KOLIBRI_AI_RUNNER")
-            or envelope.get("runner")
+            or requested_runner_for_envelope(envelope, "mimo")
             or "mimo"
         ).strip().lower()
-        if runner == "codex":
-            codex = shutil.which("codex")
-            if not codex:
-                raise RuntimeError("codex executable is not available on this node")
-            response_text = self.run_json_text_command(
-                [codex, "exec", "--json", "--skip-git-repo-check", "--sandbox", "danger-full-access", prompt],
-                f"{codex} exec --json --skip-git-repo-check --sandbox danger-full-access <prompt>",
-                "codex",
-                worktree,
-                stdout_path,
-                stderr_path,
-                task,
-                None,
-                logs,
-            )
-        elif runner == "mimo":
-            mimo = shutil.which("mimo")
-            if not mimo:
-                raise RuntimeError("mimo executable is not available on this node")
-            response_text = self.run_json_text_command(
-                [mimo, "run", "--format", "json", "--title", f"telegram-chat-{task['task_id']}", prompt],
-                f"{mimo} run --format json --title telegram-chat-{task['task_id']} <prompt>",
-                "mimo",
-                worktree,
-                stdout_path,
-                stderr_path,
-                task,
-                None,
-                logs,
-            )
-        else:
-            raise RuntimeError(f"unsupported telegram runner: {runner}")
+        response_text = self.run_requested_ai_runner(
+            runner,
+            prompt,
+            f"telegram-chat-{task['task_id']}",
+            worktree,
+            stdout_path,
+            stderr_path,
+            task,
+            None,
+            logs,
+        )
         result = {
             "node_id": self.node_id,
             "hostname": self.hostname,
@@ -549,6 +1572,120 @@ class AgentHost:
             "kind": envelope.get("kind", "orchestrator_chat_response"),
             "response": response_text,
         }
+        result = self.finalize_result(task, result, artifact_dir, worktree, changed_files=[])
+        result_path = self.write_result(artifact_dir, result)
+        result["result_path"] = str(result_path)
+        return result
+
+    def run_owner_remote_task(self, task: dict[str, Any]) -> dict[str, Any]:
+        envelope = task.get("envelope", {})
+        prompt = (envelope.get("objective") or envelope.get("message") or "").strip()
+        if not prompt:
+            raise RuntimeError("owner_remote_task missing objective")
+        runner = requested_runner_for_envelope(envelope, "mimo") or "mimo"
+        if runner not in SUPPORTED_AI_RUNNERS:
+            raise RunnerExecutionError("runner_unavailable", runner, f"unsupported runner requested: {runner}")
+        worktree, artifact_dir, logs = self.prepare_dirs(task)
+        worktree.mkdir(parents=True, exist_ok=True)
+        stdout_path = Path(logs["stdout"])
+        stderr_path = Path(logs["stderr"])
+        self.task_heartbeat(task, worktree, envelope.get("branch"), logs)
+        response_text = self.run_requested_ai_runner(
+            runner,
+            prompt,
+            f"owner-task-{task['task_id']}",
+            worktree,
+            stdout_path,
+            stderr_path,
+            task,
+            envelope.get("branch"),
+            logs,
+        )
+        result = {
+            "node_id": self.node_id,
+            "hostname": self.hostname,
+            "task_id": task["task_id"],
+            "agent_id": self.agent_id,
+            "attempt_id": task.get("attempt_id"),
+            "pid": self.pid,
+            "heartbeat_at": utc_now(),
+            "worktree": str(worktree),
+            "branch": envelope.get("branch"),
+            "log_paths": logs,
+            "result_path": str(artifact_dir / "result.json"),
+            "status": "completed",
+            "kind": "owner_remote_task",
+            "runner": runner,
+            "response": response_text,
+        }
+        result = self.finalize_result(task, result, artifact_dir, worktree, changed_files=[])
+        result_path = self.write_result(artifact_dir, result)
+        result["result_path"] = str(result_path)
+        return result
+
+    def run_direct_mimo_task(self, task: dict[str, Any]) -> dict[str, Any]:
+        envelope = task_envelope(task)
+        prompt = (envelope.get("objective") or envelope.get("prompt") or envelope.get("message") or "").strip()
+        if not prompt:
+            raise RuntimeError("direct mimo task missing objective")
+        branch = envelope.get("branch")
+        worktree, artifact_dir, logs = self.prepare_dirs(task)
+        worktree.mkdir(parents=True, exist_ok=True)
+        stdout_path = Path(logs["stdout"])
+        stderr_path = Path(logs["stderr"])
+        self.task_heartbeat(task, worktree, branch, logs)
+        runner_artifact = {
+            "kind": "direct_mimo_run",
+            "task_id": task["task_id"],
+            "attempt_id": task.get("attempt_id"),
+            "runner": "mimo",
+            "started_at": utc_now(),
+        }
+        (artifact_dir / "runner-contract.json").write_text(
+            json.dumps(runner_artifact, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        mimo = shutil.which("mimo")
+        if not mimo:
+            raise RunnerExecutionError("runner_unavailable", "mimo", "mimo executable is not available on this node")
+        payload = self.run_json_payload_command(
+            [mimo, "run", "--format", "json", "--title", f"owner-task-{task['task_id']}", prompt],
+            f"{mimo} run --format json --title owner-task-{task['task_id']} <prompt>",
+            "mimo",
+            worktree,
+            stdout_path,
+            stderr_path,
+            task,
+            branch,
+            logs,
+        )
+        runner_output = payload.get("runner_output") if isinstance(payload.get("runner_output"), dict) else {}
+        result = {
+            "node_id": self.node_id,
+            "hostname": self.hostname,
+            "task_id": task["task_id"],
+            "agent_id": self.agent_id,
+            "attempt_id": task.get("attempt_id"),
+            "pid": self.pid,
+            "heartbeat_at": utc_now(),
+            "worktree": str(worktree),
+            "branch": runner_output.get("branch") or branch,
+            "base_ref": envelope.get("base_ref") or envelope.get("base_branch"),
+            "pull_request_url": runner_output.get("pull_request_url") or runner_output.get("pr_url"),
+            "log_paths": logs,
+            "result_path": str(artifact_dir / "result.json"),
+            "status": "completed",
+            "kind": task.get("kind") or envelope.get("kind") or "owner_remote_task",
+            "runner": "mimo",
+            "response": payload["response"],
+            "tests": runner_output.get("tests"),
+            "blockers": runner_output.get("blockers"),
+            "next_action": runner_output.get("next_action"),
+            "changed_files": runner_output.get("changed_files"),
+        }
+        if runner_output:
+            result["runner_output"] = runner_output
+        result = self.finalize_result(task, result, artifact_dir, worktree)
         result_path = self.write_result(artifact_dir, result)
         result["result_path"] = str(result_path)
         return result
@@ -678,72 +1815,7 @@ class AgentHost:
         embedded = self.image_b64_for_result(image_path)
         if embedded:
             result["image_b64"] = embedded
-        result_path = self.write_result(artifact_dir, result)
-        result["result_path"] = str(result_path)
-        return result
-
-    def run_direct_mimo_task(self, task: dict[str, Any]) -> dict[str, Any]:
-        envelope = task.get("envelope", {})
-        prompt = (envelope.get("objective") or envelope.get("prompt") or envelope.get("message") or "").strip()
-        if not prompt:
-            raise RuntimeError("direct mimo task missing objective")
-        branch = envelope.get("branch")
-        worktree, artifact_dir, logs = self.prepare_dirs(task)
-        worktree.mkdir(parents=True, exist_ok=True)
-        stdout_path = Path(logs["stdout"])
-        stderr_path = Path(logs["stderr"])
-        self.task_heartbeat(task, worktree, branch, logs)
-        runner_artifact = {
-            "kind": "direct_mimo_run",
-            "task_id": task["task_id"],
-            "attempt_id": task.get("attempt_id"),
-            "runner": "mimo",
-            "started_at": utc_now(),
-        }
-        (artifact_dir / "runner-contract.json").write_text(
-            json.dumps(runner_artifact, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
-        mimo = shutil.which("mimo")
-        if not mimo:
-            raise RuntimeError("mimo executable is not available on this node")
-        payload = self.run_json_payload_command(
-            [mimo, "run", "--format", "json", "--title", f"owner-task-{task['task_id']}", prompt],
-            f"{mimo} run --format json --title owner-task-{task['task_id']} <prompt>",
-            "mimo",
-            worktree,
-            stdout_path,
-            stderr_path,
-            task,
-            branch,
-            logs,
-        )
-        runner_output = payload.get("runner_output") if isinstance(payload.get("runner_output"), dict) else {}
-        result = {
-            "node_id": self.node_id,
-            "hostname": self.hostname,
-            "task_id": task["task_id"],
-            "agent_id": self.agent_id,
-            "attempt_id": task.get("attempt_id"),
-            "pid": self.pid,
-            "heartbeat_at": utc_now(),
-            "worktree": str(worktree),
-            "branch": runner_output.get("branch") or branch,
-            "base_ref": envelope.get("base_ref") or envelope.get("base_branch"),
-            "pull_request_url": runner_output.get("pull_request_url") or runner_output.get("pr_url"),
-            "log_paths": logs,
-            "result_path": str(artifact_dir / "result.json"),
-            "status": "completed",
-            "kind": task.get("kind") or envelope.get("kind") or "owner_remote_task",
-            "runner": "mimo",
-            "response": payload["response"],
-            "tests": runner_output.get("tests"),
-            "blockers": runner_output.get("blockers"),
-            "next_action": runner_output.get("next_action"),
-            "changed_files": runner_output.get("changed_files"),
-        }
-        if runner_output:
-            result["runner_output"] = runner_output
+        result = self.finalize_result(task, result, artifact_dir, worktree, changed_files=[])
         result_path = self.write_result(artifact_dir, result)
         result["result_path"] = str(result_path)
         return result
@@ -813,7 +1885,6 @@ class AgentHost:
         self.run_command(["git", "add", smoke_path], worktree, stdout_path, stderr_path, task, branch, logs)
         self.run_command(["git", "commit", "-m", "test: add factory runtime contracts"], worktree, stdout_path, stderr_path, task, branch, logs)
         commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(worktree), text=True).strip()
-        self.run_command(["git", "push", "-u", "origin", branch], worktree, stdout_path, stderr_path, task, branch, logs, git_env)
 
         result = {
             "node_id": self.node_id,
@@ -834,6 +1905,19 @@ class AgentHost:
             "changed_files": [smoke_path],
             "checks": ["mimo --version", "python3 compileall existing runtime paths", f"pytest -q {smoke_path}"],
         }
+        result = self.git_push_after_contract_verification(
+            task,
+            ["git", "push", "-u", "origin", branch],
+            worktree,
+            stdout_path,
+            stderr_path,
+            branch,
+            logs,
+            result,
+            artifact_dir,
+            [smoke_path],
+            git_env,
+        )
         result_path = self.write_result(artifact_dir, result)
         result["result_path"] = str(result_path)
         return result
@@ -1010,7 +2094,6 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
         self.run_command(["git", "add", "ops/factory_control.py", "tests/test_factory_retry_error_clearance.py"], worktree, stdout_path, stderr_path, task, branch, logs)
         self.run_command(["git", "commit", "-m", "factory: clear stale retry error on success"], worktree, stdout_path, stderr_path, task, branch, logs)
         commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(worktree), text=True).strip()
-        self.run_command(["git", "push", "-u", "origin", branch], worktree, stdout_path, stderr_path, task, branch, logs, git_env)
 
         result = {
             "node_id": self.node_id,
@@ -1035,6 +2118,19 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 "pytest -q tests/test_factory_runtime.py tests/test_factory_retry_error_clearance.py",
             ],
         }
+        result = self.git_push_after_contract_verification(
+            task,
+            ["git", "push", "-u", "origin", branch],
+            worktree,
+            stdout_path,
+            stderr_path,
+            branch,
+            logs,
+            result,
+            artifact_dir,
+            ["ops/factory_control.py", "tests/test_factory_retry_error_clearance.py"],
+            git_env,
+        )
         result_path = self.write_result(artifact_dir, result)
         result["result_path"] = str(result_path)
         return result
@@ -1052,7 +2148,14 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
         stderr_path = Path(logs["stderr"])
         self.task_heartbeat(task, worktree, branch, logs)
         git_env = {"GIT_TERMINAL_PROMPT": "0"}
-        self.run_command(["git", "clone", self.repo_url, str(worktree)], worktree.parent, stdout_path, stderr_path, task, branch, logs, git_env)
+        try:
+            self.run_command(["git", "clone", self.repo_url, str(worktree)], worktree.parent, stdout_path, stderr_path, task, branch, logs, git_env)
+        except RuntimeError as exc:
+            stderr_text = stderr_path.read_text(encoding="utf-8", errors="ignore") if stderr_path.exists() else ""
+            message = review_clone_auth_failure_message(stderr_text, self.repo_url)
+            if message:
+                raise RuntimeError(message) from exc
+            raise
         if base_ref.startswith("origin/"):
             self.run_command(["git", "fetch", "origin", base_ref.removeprefix("origin/")], worktree, stdout_path, stderr_path, task, branch, logs, git_env)
         self.run_command(["git", "fetch", "origin", branch], worktree, stdout_path, stderr_path, task, branch, logs, git_env)
@@ -1069,10 +2172,25 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
             "import compileall,pathlib,sys; paths=[p for p in ('backend','infra','scripts','ops') if pathlib.Path(p).exists()]; sys.exit(0 if compileall.compile_dir('.', quiet=1, maxlevels=0) and all(compileall.compile_dir(p, quiet=1) for p in paths) else 1)",
         ], worktree, stdout_path, stderr_path, task, branch, logs)
         if (worktree / "tests").exists():
-            venv_dir = artifact_dir / "venv"
-            self.run_command(["python3", "-m", "venv", str(venv_dir)], worktree, stdout_path, stderr_path, task, branch, logs)
-            self.run_command([str(venv_dir / "bin" / "python"), "-m", "pip", "install", "--upgrade", "pip", "pytest"], worktree, stdout_path, stderr_path, task, branch, logs)
-            self.run_command([str(venv_dir / "bin" / "python"), "-m", "pytest", "-q"], worktree, stdout_path, stderr_path, task, branch, logs)
+            if backend_test_environment_spec(envelope):
+                backend_test_environment = self.run_backend_verification_commands(
+                    [["python3", "-m", "pytest", "-q"]],
+                    worktree,
+                    artifact_dir,
+                    stdout_path,
+                    stderr_path,
+                    task,
+                    branch,
+                    logs,
+                )
+            else:
+                venv_dir = artifact_dir / "venv"
+                self.run_command(["python3", "-m", "venv", str(venv_dir)], worktree, stdout_path, stderr_path, task, branch, logs)
+                self.run_command([str(venv_dir / "bin" / "python"), "-m", "pip", "install", "--upgrade", "pip", "pytest"], worktree, stdout_path, stderr_path, task, branch, logs)
+                self.run_command([str(venv_dir / "bin" / "python"), "-m", "pytest", "-q"], worktree, stdout_path, stderr_path, task, branch, logs)
+                backend_test_environment = None
+        else:
+            backend_test_environment = None
         github_review = "skipped: gh unavailable"
         if shutil.which("gh"):
             event = "APPROVE" if status == "APPROVED" else "REQUEST_CHANGES"
@@ -1091,24 +2209,52 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
             "pull_request_url": pr_url,
             "status": status,
             "github_review": github_review,
-            "changed_files": diff_files,
+            "changed_files": [],
+            "reviewed_diff_files": diff_files,
             "findings": blocked,
             "log_paths": logs,
             "result_path": str(artifact_dir / "result.json"),
         }
+        if backend_test_environment:
+            result["backend_test_environment"] = backend_test_environment
+        result = self.finalize_result(task, result, artifact_dir, worktree, changed_files=[])
         result_path = self.write_result(artifact_dir, result)
         result["result_path"] = str(result_path)
         return result
 
     def run_task(self, task: dict[str, Any]) -> None:
+        sanitize_task_permissions(task)
         result_path = None
         result = None
         try:
+            unsupported_reason = self.unsupported_task_reason(task)
+            if unsupported_reason:
+                worktree, artifact_dir, logs = self.prepare_dirs(task)
+                result = unsupported_task_result(task, artifact_dir, unsupported_reason, worktree=worktree)
+                result["node_id"] = self.node_id
+                result["hostname"] = self.hostname
+                result["agent_id"] = self.agent_id
+                result["attempt_id"] = task.get("attempt_id")
+                result["pid"] = self.pid
+                result["heartbeat_at"] = utc_now()
+                result["worktree"] = str(worktree)
+                result["log_paths"] = logs
+                result["result_path"] = str(artifact_dir / "result.json")
+                result_path = self.write_result(artifact_dir, result)
+                result["result_path"] = str(result_path)
+                self.fail(task, "runner_contract_blocked", unsupported_reason, result, result_path, retry=False)
+                return
+
+            permission_pack_classification = self.validate_runtime_permission_contract(task)
             kind = task.get("kind")
             if kind == "impl_factory_smoke":
                 result = self.run_impl_factory_smoke(task)
             elif kind == "impl_retry_error_clearance":
                 result = self.run_impl_retry_error_clearance(task)
+            elif kind in MIMO_DIRECT_KINDS and requested_runner_for_envelope(task_envelope(task), "mimo") == "mimo":
+                result = self.run_direct_mimo_task(task)
+            elif kind == "owner_remote_task":
+                result = self.run_owner_remote_task(task)
             elif kind in {"telegram_chat_response", "orchestrator_chat_response"}:
                 result = self.run_telegram_chat_response(task)
             elif kind == "telegram_image_generation":
@@ -1117,12 +2263,46 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 result = self.run_review_pr(task)
             elif kind == "read_only_probe":
                 result = self.run_read_only_probe(task)
-            elif kind in MIMO_DIRECT_KINDS and str(task.get("envelope", {}).get("runner") or "mimo").strip().lower() == "mimo":
-                result = self.run_direct_mimo_task(task)
             else:
-                raise RuntimeError(f"unsupported task kind: {kind}")
+                raise RuntimeError(f"unsupported task kind reached dispatch: {kind}")
+            result.setdefault("permission_pack_classification", permission_pack_classification)
             result_path = Path(result["result_path"])
-            self.complete(task, result, result_path)
+            artifact_dir = result_path.parent
+            worktree_value = result.get("worktree")
+            worktree = Path(worktree_value) if isinstance(worktree_value, str) and worktree_value else None
+            result = finalize_runner_contract(task, result, artifact_dir, worktree=worktree)
+            result_path = self.write_result(artifact_dir, result)
+            result["result_path"] = str(result_path)
+            if result["status"] == "completed":
+                self.complete(task, result, result_path)
+            else:
+                error = result.get("blocked_reason") or result.get("failure_reason") or "runner contract prevented completion"
+                error_type = "runner_contract_blocked" if result["status"] == "blocked" else "runtime_error"
+                retry = result["status"] == "failed" and int(task.get("attempt", 0)) < int(task.get("max_retries", 3))
+                self.fail(task, error_type, error, result, result_path, retry=retry)
+        except PermissionContractError as exc:
+            task_id = task["task_id"]
+            attempt_id = task.get("attempt_id") or f"{task_id}-attempt-{task.get('attempt', 1)}"
+            artifact_dir = self.artifact_root / task_id / attempt_id
+            artifact_dir.mkdir(parents=True, exist_ok=True)
+            result = {
+                "node_id": self.node_id,
+                "hostname": self.hostname,
+                "task_id": task_id,
+                "agent_id": self.agent_id,
+                "attempt_id": attempt_id,
+                "pid": self.pid,
+                "status": "blocked",
+                "error_type": "permission_contract_violation",
+                "error": str(exc),
+                "completed_at": utc_now(),
+                "permission_pack_classification": exc.classification,
+                "blocked_reason": "permission_contract_violation",
+                "next_recommended_task": "remove write-capable runtime permissions or route this as a write-enabled task",
+            }
+            result = finalize_runner_contract(task, result, artifact_dir, failure_reason=str(exc))
+            result_path = self.write_result(artifact_dir, result)
+            self.fail(task, "permission_contract_violation", str(exc), result, result_path, retry=False)
         except Exception as exc:
             task_id = task["task_id"]
             attempt_id = task.get("attempt_id") or f"{task_id}-attempt-{task.get('attempt', 1)}"
@@ -1136,13 +2316,44 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 "attempt_id": attempt_id,
                 "pid": self.pid,
                 "status": "failed",
-                "error": str(exc),
-                "error_type": getattr(exc, "error_type", "runtime_error"),
+                "error": redact_sensitive_text(str(exc)),
                 "completed_at": utc_now(),
+                "result_path": str(artifact_dir / "result.json"),
             }
+            if isinstance(exc, RunnerExecutionError):
+                result["status"] = "blocked"
+                result["runner"] = exc.runner
+            result = finalize_runner_contract(task, result, artifact_dir, failure_reason=str(exc))
             result_path = self.write_result(artifact_dir, result)
-            retry = getattr(exc, "retry", int(task.get("attempt", 0)) < int(task.get("max_retries", 3)))
-            self.fail(task, result["error_type"], str(exc), result, result_path, retry=retry)
+            retry = int(task.get("attempt", 0)) < int(task.get("max_retries", 3))
+            if isinstance(exc, RunnerExecutionError):
+                error_type = exc.error_type
+                retry = bool(getattr(exc, "retry", False))
+                result["status"] = "blocked"
+                result["blocked_reason"] = exc.error_type
+                result["failure_reason"] = redact_sensitive_text(str(exc))
+                result["next_recommended_task"] = (
+                    f"repair {exc.runner} auth on this node or route to another online node with {runner_capability(exc.runner)}"
+                    if exc.error_type in {"runner_auth_blocked", "runner_auth_failed", "runner_access_denied", "runner_policy_blocked"}
+                    else f"route to another online node with {runner_capability(exc.runner)} or install the requested runner"
+                )
+                result_path = self.write_result(artifact_dir, result)
+            elif isinstance(exc, BackendTestEnvironmentError) or str(exc).startswith("backend_test_environment_failed:"):
+                error_type = "backend_test_environment_failed"
+                retry = False
+                result["status"] = "blocked"
+                result["blocked_reason"] = "backend_test_environment_failed"
+                result["next_recommended_task"] = "repair the declared backend test environment requirements or package list, then rerun verification"
+                result_path = self.write_result(artifact_dir, result)
+            elif str(exc).startswith("review_clone_auth_failed:"):
+                error_type = "review_clone_auth_failed"
+            else:
+                error_type = "runtime_error"
+            if error_type == "review_clone_auth_failed":
+                result["next_recommended_task"] = "repair Agent Host git credentials, then rerun the review task"
+                result_path = self.write_result(artifact_dir, result)
+                retry = False
+            self.fail(task, error_type, redact_sensitive_text(str(exc)), result, result_path, retry=retry)
 
     def loop(self) -> None:
         self.register()

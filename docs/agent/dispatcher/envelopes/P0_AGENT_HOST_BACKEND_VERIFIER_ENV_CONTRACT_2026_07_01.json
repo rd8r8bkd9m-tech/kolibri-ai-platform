@@ -1,0 +1,126 @@
+{
+  "task_id": "P0_AGENT_HOST_BACKEND_VERIFIER_ENV_CONTRACT_2026_07_01",
+  "idempotency_key": "mac-dispatcher:P0_AGENT_HOST_BACKEND_VERIFIER_ENV_CONTRACT_2026_07_01",
+  "kind": "owner_remote_task",
+  "required_capability": "generic_implementation",
+  "runner": "codex",
+  "agent_type": "agent_host_runner_contract_implementation",
+  "agent_display_name": "Роман — Backend Verifier Engineer",
+  "target_node": "primary-candidate",
+  "target_node_pool": "healthy server implementation nodes",
+  "preferred_nodes": [
+    "primary-candidate",
+    "home"
+  ],
+  "allowed_nodes": [
+    "primary-candidate",
+    "home"
+  ],
+  "avoid_nodes": [
+    "main",
+    "qjns",
+    "uiap"
+  ],
+  "branch": "p0/agent-host-runner-contract-hardening-2026-06-30",
+  "base_branch": "p0/agent-host-runner-contract-hardening-2026-06-30",
+  "base_ref": "origin/p0/agent-host-runner-contract-hardening-2026-06-30",
+  "start_commit": "23e8e43fdff8eeda192df2349215e17882983d58",
+  "related_pr": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/83",
+  "max_retries": 1,
+  "create_review_on_complete": true,
+  "objective": "Extend the Agent Host runner contract so backend verification commands can run in a declared dependency-satisfied backend Python environment instead of raw system Python. This must prevent false verifier failures like PR #90, where system Python lacked fastapi while backend/requirements.txt plus pytest made the root verifier pass. Implement the generic runner/test-env contract on the existing PR #83 runner-hardening branch with focused tests and exact run artifacts.",
+  "constraints": {
+    "mac_thin_client_only": true,
+    "server_execution_required": true,
+    "product_code_changes_allowed_on_server_branch_only": true,
+    "destructive_git_commands_forbidden": true,
+    "dirty_worktree_checkout_forbidden": true,
+    "force_push_forbidden": true,
+    "push_to_main_forbidden": true,
+    "git_push_allowed_only_to_task_branch": true,
+    "use_temp_mirror_or_safe_worktree_for_branch_analysis": true,
+    "live_telegram_mutation_forbidden": true,
+    "telegram_getupdates_forbidden": true,
+    "telegram_webhook_changes_forbidden": true,
+    "telegram_command_menu_changes_forbidden": true,
+    "telegram_token_printing_forbidden": true,
+    "owner_chat_id_printing_forbidden": true,
+    "private_message_printing_forbidden": true,
+    "secrets_redaction_required": true,
+    "money_payment_bank_tax_actions_forbidden": true,
+    "business_guest_bot_bot_to_bot_forbidden": true,
+    "exact_run_artifacts_required": true,
+    "owner_facing_agent_names_must_be_russian": true
+  },
+  "known_evidence": {
+    "pr83_head": "23e8e43fdff8eeda192df2349215e17882983d58",
+    "pr83_status": "CI green before this task; runner hardening branch is the source of truth for Agent Host contract work",
+    "pr90_head": "0fb48df868991ce2d23f326b87fe0e09e118bc3f",
+    "pr90_evidence": [
+      "python3 -m pytest tests/test_telegram_miniapp_auth.py -q failed on primary-candidate with ModuleNotFoundError: No module named 'fastapi'",
+      "temporary backend env with backend/requirements.txt plus pytest ran tests/test_telegram_miniapp_auth.py -q -> 8 passed",
+      "temporary backend env ran tests/test_telegram_gateway.py -q -> 31 passed"
+    ],
+    "runner_gap": "Verification commands currently run as raw shell/system Python unless a task author manually embeds venv setup in the command. This causes false failed Control Plane states and manual artifact relays."
+  },
+  "read_first": [
+    "ops/agent_host.py",
+    "tests/test_agent_host_runner_contract.py",
+    "docs/agent/dispatcher/FACTORY_STATUS.md",
+    "docs/agent/dispatcher/REMOTE_RESULTS.md",
+    "backend/requirements.txt",
+    "tests/test_telegram_miniapp_auth.py",
+    "backend/tests/test_telegram_miniapp_auth.py"
+  ],
+  "write_scope": [
+    "ops/agent_host.py",
+    "tests/test_agent_host_runner_contract.py",
+    "docs/agent/runs/2026-07-01-p0-agent-host-backend-verifier-env-contract/**"
+  ],
+  "forbidden_write_scope": [
+    "backend/**",
+    "frontend/**",
+    "infra/**",
+    ".github/**",
+    "docs/superfactory/**",
+    "docs/agent/dispatcher/**"
+  ],
+  "required_behavior": [
+    "Add an explicit runner contract for backend Python verification, preferably via an envelope field such as verification_environment=backend_python, backend_test_environment_required=true, or structured verification command entries with environment=backend_python.",
+    "The backend verification environment must be temporary, live under the task artifact/work area, install backend/requirements.txt plus pytest, run requested backend verifier commands with the environment python, and be removed or excluded from committed changes.",
+    "Do not silently rewrite all python3 commands. The backend environment must be opt-in and recorded in result metadata so future envelopes can be explicit and auditable.",
+    "If backend/requirements.txt is missing or install fails, classify the blocker as backend_test_environment_failed with command/log proof instead of reporting a vague runtime_error.",
+    "The result must record system_python_backend_deps_missing when raw system Python lacks declared backend deps, but must not treat that alone as task failure when the declared backend verification environment succeeds.",
+    "Keep existing no-push/read-only/write-scope/canonical-artifact contracts intact.",
+    "Push only branch p0/agent-host-runner-contract-hardening-2026-06-30 with normal non-force push."
+  ],
+  "verification_commands": [
+    "git diff --check",
+    "python3 -m py_compile ops/agent_host.py tests/test_agent_host_runner_contract.py",
+    "python3 -m pytest tests/test_agent_host_runner_contract.py -q",
+    "python3 -m pytest tests/test_factory_runtime.py tests/test_factory_runtime_contracts.py -q",
+    "test -f docs/agent/runs/2026-07-01-p0-agent-host-backend-verifier-env-contract/PLAN.md",
+    "test -f docs/agent/runs/2026-07-01-p0-agent-host-backend-verifier-env-contract/ACTIONS.md",
+    "test -f docs/agent/runs/2026-07-01-p0-agent-host-backend-verifier-env-contract/TESTS.md",
+    "test -f docs/agent/runs/2026-07-01-p0-agent-host-backend-verifier-env-contract/RESULT.md",
+    "test -f docs/agent/runs/2026-07-01-p0-agent-host-backend-verifier-env-contract/NEXT.md",
+    "git diff --name-only 23e8e43fdff8eeda192df2349215e17882983d58..HEAD | grep -Ev '^(ops/agent_host.py|tests/test_agent_host_runner_contract.py|docs/agent/runs/2026-07-01-p0-agent-host-backend-verifier-env-contract/)' && exit 1 || true",
+    "rg --no-ignore -n '[0-9]{6,}:[A-Za-z0-9_-]{20,}|[A-Za-z0-9_]*(TOKEN|SECRET|PASSWORD|COOKIE|API_KEY|CHAT_ID)=[^ ]+' ops/agent_host.py tests/test_agent_host_runner_contract.py docs/agent/runs/2026-07-01-p0-agent-host-backend-verifier-env-contract && exit 1 || true"
+  ],
+  "acceptance": [
+    "A backend Python verification environment contract exists and is opt-in, explicit and auditable.",
+    "Focused runner contract tests prove that a backend verifier which fails on raw system Python due missing backend deps can pass through the declared backend verification environment.",
+    "Tests prove the temporary verification environment is not committed and cleanup/exclusion is enforced.",
+    "Tests prove install/setup failure is classified as backend_test_environment_failed or equivalent structured blocker.",
+    "Existing no-push, read-only, write-scope and canonical artifact tests still pass.",
+    "Exact five run artifacts exist under docs/agent/runs/2026-07-01-p0-agent-host-backend-verifier-env-contract/.",
+    "Branch p0/agent-host-runner-contract-hardening-2026-06-30 is pushed normally; no push to main and no force push.",
+    "Remote result reports task_id, node, Russian agent display name, PR #83 URL, branch head, tests, blockers and next remote dispatch command."
+  ],
+  "source": {
+    "kind": "mac_thin_client_dispatcher",
+    "owner": "Vladislav",
+    "created_at": "2026-07-01T07:17:21Z",
+    "local_ledger": "docs/agent/dispatcher/DISPATCH_LOG.md"
+  }
+}

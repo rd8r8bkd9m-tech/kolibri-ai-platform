@@ -1,0 +1,163 @@
+{
+  "task_id": "P0_TELEGRAM_COMMAND_CENTER_ALIGNMENT_RUN_PATH_RELAY_2026_07_01",
+  "idempotency_key": "mac-dispatcher:P0_TELEGRAM_COMMAND_CENTER_ALIGNMENT_RUN_PATH_RELAY_2026_07_01",
+  "kind": "owner_remote_task",
+  "required_capability": "generic_implementation",
+  "runner": "codex",
+  "agent_type": "telegram_run_path_artifact_relay",
+  "agent_display_name": "Иван — Telegram Platform Architect",
+  "target_node": "primary-candidate",
+  "target_node_pool": "healthy server documentation nodes",
+  "preferred_nodes": [
+    "primary-candidate",
+    "home",
+    "home-live"
+  ],
+  "allowed_nodes": [
+    "primary-candidate",
+    "home",
+    "home-live"
+  ],
+  "avoid_nodes": [
+    "main",
+    "new",
+    "qjns",
+    "uiap"
+  ],
+  "branch": "p0/telegram-command-center-official-capability-alignment-2026-07-01",
+  "base_branch": "main",
+  "base_ref": "origin/main",
+  "max_retries": 1,
+  "objective": "Repair the Telegram command-center official capability alignment artifact layout. Prior attempts produced useful content, but the last exact relay wrote PLAN/ACTIONS/TESTS/RESULT/NEXT into docs/product/telegram-command-center/2026-07-01/ instead of the required run directory. This task must create only the exact canonical product report and exact run artifacts, then push the task branch normally.",
+  "constraints": {
+    "mac_thin_client_only": true,
+    "server_execution_required": true,
+    "documentation_artifacts_only": true,
+    "product_code_modification_forbidden": true,
+    "test_code_modification_forbidden": true,
+    "runtime_service_changes_forbidden": true,
+    "live_telegram_mutation_forbidden": true,
+    "telegram_getupdates_forbidden": true,
+    "telegram_webhook_changes_forbidden": true,
+    "telegram_delete_webhook_forbidden": true,
+    "telegram_command_menu_changes_forbidden": true,
+    "telegram_botfather_changes_forbidden": true,
+    "telegram_token_rotation_forbidden": true,
+    "payments_stars_business_guest_bot_to_bot_activation_forbidden": true,
+    "secrets_redaction_required": true,
+    "destructive_git_commands_forbidden": true,
+    "dirty_worktree_checkout_forbidden": true,
+    "force_push_forbidden": true,
+    "push_to_main_forbidden": true,
+    "git_push_allowed_only_to_task_branch": true,
+    "owner_facing_agent_names_must_be_russian": true,
+    "exact_run_artifacts_required": true,
+    "alternate_artifact_paths_forbidden": true
+  },
+  "known_evidence": {
+    "source_tasks": [
+      "P0_TELEGRAM_COMMAND_CENTER_OFFICIAL_CAPABILITY_ALIGNMENT_2026_07_01",
+      "P0_TELEGRAM_COMMAND_CENTER_ALIGNMENT_CANONICAL_ARTIFACT_REPAIR_2026_07_01",
+      "P0_TELEGRAM_COMMAND_CENTER_ALIGNMENT_EXACT_CANONICAL_RELAY_2026_07_01"
+    ],
+    "source_state": "all failed verifier after creating useful non-canonical or wrong-path output",
+    "latest_failure_reason": "missing docs/agent/runs/2026-07-01-p0-telegram-command-center-official-capability-alignment/PLAN.md",
+    "latest_useful_wrong_path_files": [
+      "docs/product/telegram-command-center/2026-07-01/OFFICIAL_CAPABILITY_ALIGNMENT.md",
+      "docs/product/telegram-command-center/2026-07-01/PLAN.md",
+      "docs/product/telegram-command-center/2026-07-01/ACTIONS.md",
+      "docs/product/telegram-command-center/2026-07-01/TESTS.md",
+      "docs/product/telegram-command-center/2026-07-01/RESULT.md",
+      "docs/product/telegram-command-center/2026-07-01/NEXT.md"
+    ],
+    "official_telegram_findings": [
+      "Bot API and Mini Apps are the correct P0 platform for Kolibri Telegram command center.",
+      "Bot API 10.1 supports Rich Messages and streaming AI replies.",
+      "Owner menu target is minimal: /start, /status, /help.",
+      "Mini App initData must be verified server-side before owner actions.",
+      "Guest, Bot-to-Bot, Business, Stars and payments remain future-gated."
+    ]
+  },
+  "write_scope": [
+    "docs/product/telegram-command-center/2026-07-01/OFFICIAL_CAPABILITY_ALIGNMENT.md",
+    "docs/agent/runs/2026-07-01-p0-telegram-command-center-official-capability-alignment/PLAN.md",
+    "docs/agent/runs/2026-07-01-p0-telegram-command-center-official-capability-alignment/ACTIONS.md",
+    "docs/agent/runs/2026-07-01-p0-telegram-command-center-official-capability-alignment/TESTS.md",
+    "docs/agent/runs/2026-07-01-p0-telegram-command-center-official-capability-alignment/RESULT.md",
+    "docs/agent/runs/2026-07-01-p0-telegram-command-center-official-capability-alignment/NEXT.md"
+  ],
+  "forbidden_write_scope": [
+    ".github/**",
+    "backend/**",
+    "frontend/**",
+    "infra/**",
+    "ops/**",
+    "scripts/**",
+    "tests/**",
+    "docs/superfactory/**",
+    "docs/agent/dispatcher/**",
+    "docs/reports/**",
+    "docs/artifacts/**",
+    "artifacts/**",
+    "docs/product/telegram-command-center/2026-07-01/PLAN.md",
+    "docs/product/telegram-command-center/2026-07-01/ACTIONS.md",
+    "docs/product/telegram-command-center/2026-07-01/TESTS.md",
+    "docs/product/telegram-command-center/2026-07-01/RESULT.md",
+    "docs/product/telegram-command-center/2026-07-01/NEXT.md"
+  ],
+  "required_outputs": [
+    "docs/product/telegram-command-center/2026-07-01/OFFICIAL_CAPABILITY_ALIGNMENT.md",
+    "docs/agent/runs/2026-07-01-p0-telegram-command-center-official-capability-alignment/PLAN.md",
+    "docs/agent/runs/2026-07-01-p0-telegram-command-center-official-capability-alignment/ACTIONS.md",
+    "docs/agent/runs/2026-07-01-p0-telegram-command-center-official-capability-alignment/TESTS.md",
+    "docs/agent/runs/2026-07-01-p0-telegram-command-center-official-capability-alignment/RESULT.md",
+    "docs/agent/runs/2026-07-01-p0-telegram-command-center-official-capability-alignment/NEXT.md"
+  ],
+  "required_absent_outputs": [
+    "docs/product/telegram-command-center/2026-07-01/PLAN.md",
+    "docs/product/telegram-command-center/2026-07-01/ACTIONS.md",
+    "docs/product/telegram-command-center/2026-07-01/TESTS.md",
+    "docs/product/telegram-command-center/2026-07-01/RESULT.md",
+    "docs/product/telegram-command-center/2026-07-01/NEXT.md"
+  ],
+  "required_behavior": [
+    "Create OFFICIAL_CAPABILITY_ALIGNMENT.md as the product-level report only.",
+    "Create PLAN/ACTIONS/TESTS/RESULT/NEXT only under docs/agent/runs/2026-07-01-p0-telegram-command-center-official-capability-alignment/.",
+    "Do not create docs/product/telegram-command-center/2026-07-01/PLAN.md or sibling run files in the product directory.",
+    "OFFICIAL_CAPABILITY_ALIGNMENT.md must classify Telegram features as MVP, P1, P2/future-gated, or forbidden for now.",
+    "OFFICIAL_CAPABILITY_ALIGNMENT.md must state the clean menu target: /start, /status, /help.",
+    "OFFICIAL_CAPABILITY_ALIGNMENT.md must state that Mini App initData is verified server-side and initDataUnsafe is display-only.",
+    "RESULT.md must record the prior exact relay failed because run artifacts were written into the product directory.",
+    "NEXT.md must recommend P0_TELEGRAM_MINI_APP_COMMAND_CENTER_MVP_2026_07_01 as remote-only after auth/session and read-only API gates.",
+    "Commit and push only the task branch normally if exact checks pass."
+  ],
+  "verification_commands": [
+    "git diff --check",
+    "test -f docs/product/telegram-command-center/2026-07-01/OFFICIAL_CAPABILITY_ALIGNMENT.md",
+    "test -f docs/agent/runs/2026-07-01-p0-telegram-command-center-official-capability-alignment/PLAN.md",
+    "test -f docs/agent/runs/2026-07-01-p0-telegram-command-center-official-capability-alignment/ACTIONS.md",
+    "test -f docs/agent/runs/2026-07-01-p0-telegram-command-center-official-capability-alignment/TESTS.md",
+    "test -f docs/agent/runs/2026-07-01-p0-telegram-command-center-official-capability-alignment/RESULT.md",
+    "test -f docs/agent/runs/2026-07-01-p0-telegram-command-center-official-capability-alignment/NEXT.md",
+    "test ! -e docs/product/telegram-command-center/2026-07-01/PLAN.md",
+    "test ! -e docs/product/telegram-command-center/2026-07-01/ACTIONS.md",
+    "test ! -e docs/product/telegram-command-center/2026-07-01/TESTS.md",
+    "test ! -e docs/product/telegram-command-center/2026-07-01/RESULT.md",
+    "test ! -e docs/product/telegram-command-center/2026-07-01/NEXT.md",
+    "git diff --name-only HEAD~1..HEAD | grep -Ev '^(docs/product/telegram-command-center/2026-07-01/OFFICIAL_CAPABILITY_ALIGNMENT.md|docs/agent/runs/2026-07-01-p0-telegram-command-center-official-capability-alignment/(PLAN.md|ACTIONS.md|TESTS.md|RESULT.md|NEXT.md))$' && exit 1 || true",
+    "rg --no-ignore -n '[0-9]{6,}:[A-Za-z0-9_-]{20,}|[A-Za-z0-9_]*(TOKEN|SECRET|PASSWORD|COOKIE|API_KEY|CHAT_ID)=[^ ]+' docs/product/telegram-command-center/2026-07-01/OFFICIAL_CAPABILITY_ALIGNMENT.md docs/agent/runs/2026-07-01-p0-telegram-command-center-official-capability-alignment && exit 1 || true"
+  ],
+  "acceptance": [
+    "Exact product report and five exact run artifacts exist.",
+    "Product-level sibling run files PLAN/ACTIONS/TESTS/RESULT/NEXT are absent.",
+    "No alternate docs/reports, docs/artifacts or artifacts outputs are created.",
+    "No product code, tests, runtime services, live Telegram settings, webhook/menu/BotFather state, payments, Business, Guest Mode or Bot-to-Bot activation changed.",
+    "Remote result reports task_id, node, Russian agent display name, branch/head, artifacts, checks, blockers and next action."
+  ],
+  "source": {
+    "kind": "mac_thin_client_dispatcher",
+    "owner": "Vladislav",
+    "created_at": "2026-07-01T08:45:00Z",
+    "local_ledger": "docs/agent/dispatcher/DISPATCH_LOG.md"
+  }
+}

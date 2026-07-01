@@ -1,0 +1,127 @@
+{
+  "task_id": "P0_CONTROL_PLANE_NODE_HEALTH_FRESHNESS_GATE_2026_07_01",
+  "idempotency_key": "mac-dispatcher:P0_CONTROL_PLANE_NODE_HEALTH_FRESHNESS_GATE_2026_07_01",
+  "kind": "owner_remote_task",
+  "priority": "P0",
+  "required_capability": "implementation",
+  "runner": "codex",
+  "agent_type": "control_plane_health_repair",
+  "agent_display_name": "Иван — Control Plane Health Guardian",
+  "target_node": "primary-candidate",
+  "target_node_pool": "healthy_control_nodes",
+  "preferred_nodes": [
+    "primary-candidate",
+    "main",
+    "home"
+  ],
+  "allowed_nodes": [
+    "primary-candidate",
+    "main",
+    "home"
+  ],
+  "avoid_nodes_until_repaired": [],
+  "max_retries": 1,
+  "goal": "Make Control Plane node health truthful: stale heartbeats must not be presented as fully online, and the owner must see fresh/degraded/stale node counts clearly.",
+  "objective": "On a server node, inspect and repair or document the Control Plane node freshness contract. The current /v1/nodes response reported 42 node cards, 32 health=online, but only 9 nodes with heartbeat <=30 minutes and 33 stale >30 minutes. Create tests and a focused PR or exact blocker report so stale nodes are classified truthfully and the factory wallboard/API cannot overstate online capacity.",
+  "context": {
+    "owner": "Vladislav",
+    "repository": "rd8r8bkd9m-tech/kolibri-ai-platform",
+    "evidence_collected_at": "2026-07-01T19:17Z",
+    "control_plane_endpoint": "http://10.99.0.10:9101",
+    "observed_counts": {
+      "node_cards_total": 42,
+      "health_online": 32,
+      "fresh_heartbeat_5m": 9,
+      "fresh_heartbeat_30m": 9,
+      "stale_heartbeat_over_30m": 33
+    },
+    "example_stale_online_nodes": [
+      {
+        "node_id": "home",
+        "health": "online",
+        "heartbeat_age_minutes": 503
+      },
+      {
+        "node_id": "mesh-qjns",
+        "health": "online",
+        "heartbeat_age_minutes": 535
+      },
+      {
+        "node_id": "agent-01",
+        "health": "online",
+        "heartbeat_age_minutes": 1880
+      }
+    ]
+  },
+  "constraints": {
+    "mac_implementation_forbidden": true,
+    "server_execution_required": true,
+    "product_code_modification_allowed": true,
+    "use_clean_remote_worktree": true,
+    "do_not_modify_dirty_runtime_repo": true,
+    "push_to_main_forbidden": true,
+    "merge_forbidden": true,
+    "force_push_forbidden": true,
+    "destructive_git_commands_forbidden": true,
+    "git_reset_forbidden": true,
+    "git_clean_forbidden": true,
+    "secrets_redaction_required": true,
+    "runtime_mutation_requires_explicit_canary": true,
+    "service_restart_forbidden": true,
+    "no_fake_online_status": true
+  },
+  "read_first": [
+    "docs/agent/dispatcher/OWNER_CANONICAL_INSTRUCTIONS.md",
+    "docs/superfactory/Kolibri_All_Prompts.md",
+    "ops/factory_control.py",
+    "ops/agent_host.py",
+    "backend/main.py",
+    "tests/test_factory_control*.py",
+    "tests/test_factory_runtime*.py"
+  ],
+  "required_analysis": [
+    "Find where /v1/nodes and /v1/fleet style node status is computed.",
+    "Define freshness thresholds for fresh, stale, degraded, offline and unknown states.",
+    "Check whether stale heartbeat cards should be excluded from online counts or returned with health=stale/degraded.",
+    "Check factory panel /api/factory/status mapping so owner-facing online node counts are not inflated.",
+    "Do not delete node records; preserve identity/history while marking freshness truthfully."
+  ],
+  "required_outputs": [
+    "docs/agent/runs/2026-07-01-p0-control-plane-node-health-freshness-gate/PLAN.md",
+    "docs/agent/runs/2026-07-01-p0-control-plane-node-health-freshness-gate/ACTIONS.md",
+    "docs/agent/runs/2026-07-01-p0-control-plane-node-health-freshness-gate/TESTS.md",
+    "docs/agent/runs/2026-07-01-p0-control-plane-node-health-freshness-gate/RESULT.md",
+    "docs/agent/runs/2026-07-01-p0-control-plane-node-health-freshness-gate/NEXT.md",
+    "docs/agent/runs/2026-07-01-p0-control-plane-node-health-freshness-gate/NODE_FRESHNESS_MATRIX.md",
+    "docs/agent/runs/2026-07-01-p0-control-plane-node-health-freshness-gate/PR_OR_BLOCKER_DECISION.md"
+  ],
+  "implementation_options": [
+    "If the contract is missing but safe to repair, add focused tests and a PR branch that classifies stale heartbeats truthfully.",
+    "If live behavior differs from repo code, produce exact blocker and deployment/runbook task instead of guessing.",
+    "If existing code already has freshness logic, identify why production endpoint still reports stale nodes as online and create the smallest repair task."
+  ],
+  "verification_commands": [
+    "python3 -m compileall -q ops backend tests",
+    "python3 -m pytest -q tests/test_factory_runtime.py tests/test_factory_runtime_contracts.py tests/test_factory_runtime_queue_contracts.py",
+    "python3 -m pytest -q tests/test_factory_control.py tests/test_factory_control_nodes.py || true",
+    "git diff --check",
+    "test -f docs/agent/runs/2026-07-01-p0-control-plane-node-health-freshness-gate/RESULT.md",
+    "test -f docs/agent/runs/2026-07-01-p0-control-plane-node-health-freshness-gate/NODE_FRESHNESS_MATRIX.md"
+  ],
+  "acceptance": [
+    "Remote execution happens on a server/control node.",
+    "Current stale/online mismatch is reproduced or classified with exact evidence.",
+    "A focused PR is opened if code repair is safe, otherwise an exact blocker/runbook task is produced.",
+    "Stale heartbeats are not counted as fully online in the proposed contract.",
+    "No product code is modified on Mac.",
+    "No service restart or live runtime mutation occurs in this task.",
+    "No secrets are printed.",
+    "Final result gives the next exact deployment/canary task."
+  ],
+  "source": {
+    "kind": "mac_thin_client_dispatcher",
+    "owner": "Vladislav",
+    "created_at": "2026-07-01T19:23:00Z",
+    "local_ledger": "docs/agent/dispatcher/DISPATCH_LOG.md"
+  }
+}

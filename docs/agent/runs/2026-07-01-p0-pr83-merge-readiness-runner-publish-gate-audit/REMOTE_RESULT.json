@@ -1,0 +1,37 @@
+{
+  "agent_display_name_ru": "Автономный инженер",
+  "blockers": [],
+  "limitations": [
+    "GitHub CLI was not installed in this worker; remote PR inspection used fetched GitHub refs instead.",
+    "GitHub REST unauthenticated pull request lookup returned 404 for this repository, so mergeability/check metadata could not be read from the API in this worker."
+  ],
+  "branch": "p0/agent-host-runner-contract-hardening-2026-06-30",
+  "classification": "merge_ready",
+  "node": "autonomous_engineer",
+  "next_task": "Run PR #83 CI on the updated head, then rerun the missing-artifact Control Plane wrapper scenario.",
+  "pr": {
+    "number": 83,
+    "url": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/83"
+  },
+  "source_of_truth": "GitHub fetched refs origin/pr/83, origin/pr/85, origin/main",
+  "status": "completed",
+  "task_id": "P0_PR83_MERGE_READINESS_AND_RUNNER_PUBLISH_GATE_AUDIT_2026_07_01",
+  "tests": [
+    {
+      "command": "python3 -m py_compile ops/agent_host.py",
+      "result": "passed"
+    },
+    {
+      "command": ".venv/bin/python -m pytest tests/test_agent_host_runner_contract.py -q",
+      "result": "15 passed"
+    },
+    {
+      "command": ".venv/bin/python -m pytest tests/test_agent_host* -q",
+      "result": "21 passed"
+    },
+    {
+      "command": ".venv/bin/python -m pytest -q",
+      "result": "75 passed, 1 external reportlab warning"
+    }
+  ]
+}

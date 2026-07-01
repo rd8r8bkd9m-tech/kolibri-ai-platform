@@ -1,0 +1,140 @@
+{
+  "task_id": "P0_AGENT_HOST_POST_MERGE_CONTRACT_CANARY_2026_07_01",
+  "idempotency_key": "mac-dispatcher:P0_AGENT_HOST_POST_MERGE_CONTRACT_CANARY_2026_07_01",
+  "kind": "owner_remote_task",
+  "required_capability": "generic_implementation",
+  "runner": "codex",
+  "agent_type": "agent_host_post_merge_contract_canary",
+  "agent_display_name": "Олег — Agent Host Runtime Canary",
+  "target_node": "primary-candidate",
+  "target_node_pool": "healthy Agent Host nodes",
+  "preferred_nodes": [
+    "primary-candidate",
+    "home",
+    "main"
+  ],
+  "allowed_nodes": [
+    "primary-candidate",
+    "home",
+    "main"
+  ],
+  "avoid_nodes": [
+    "new",
+    "qjns",
+    "uiap"
+  ],
+  "branch": "main",
+  "base_branch": "main",
+  "base_ref": "origin/main",
+  "max_retries": 1,
+  "objective": "After PR #83 is owner-approved, merged into main, deployed and Agent Host is restarted on target nodes, run a post-merge runtime canary proving the production Agent Host enforces the hardened runner contract: read-only/no-push envelopes do not receive git_push/full_autonomy, branch checkout points to the requested head, missing exact artifacts cannot complete, clone/auth failures produce result_reference artifacts, and no central branch is pushed by no-push tasks.",
+  "preconditions": [
+    "Owner has marked PR #83 ready or otherwise approved it.",
+    "PR #83 has been merged into main.",
+    "Target Agent Host service is deployed/restarted from the merged main code.",
+    "GitHub Actions for merged main are green or explicitly accepted by owner.",
+    "This canary must not be submitted before the above preconditions are true."
+  ],
+  "constraints": {
+    "mac_thin_client_only": true,
+    "server_execution_required": true,
+    "runtime_canary": true,
+    "product_code_modification_forbidden": true,
+    "test_code_modification_forbidden": true,
+    "destructive_git_commands_forbidden": true,
+    "force_push_forbidden": true,
+    "push_to_main_forbidden": true,
+    "git_push_forbidden_for_canary_tasks": true,
+    "merge_forbidden": true,
+    "service_restart_forbidden_in_this_task": true,
+    "live_telegram_mutation_forbidden": true,
+    "secrets_redaction_required": true,
+    "owner_facing_agent_names_must_be_russian": true,
+    "exact_run_artifacts_required": true
+  },
+  "known_evidence": {
+    "pr83_url": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/83",
+    "pr83_head": "81daf44dc842dce40d8547275f47b051871a2690",
+    "github_actions": {
+      "run_id": 28504679530,
+      "workflow": "Kolibri CI",
+      "run_number": 358,
+      "conclusion": "success",
+      "job": "ci"
+    },
+    "deterministic_server_verification": {
+      "node": "primary-candidate",
+      "repo": "/var/lib/kolibri-agent/worktrees/P0_PR83_REVIEW_DIFF_CONTRACT_EXACT_ARTIFACT_CLEANUP_2026_07_01/P0_PR83_REVIEW_DIFF_CONTRACT_EXACT_ARTIFACT_CLEANUP_2026_07_01-attempt-1/repo",
+      "head": "81daf44dc842dce40d8547275f47b051871a2690",
+      "commands": [
+        "python3 -m py_compile ops/agent_host.py tests/test_agent_host_runner_contract.py",
+        "python3 -m pytest tests/test_agent_host_runner_contract.py -q",
+        "git diff --check"
+      ],
+      "result": "29 passed in 36.75s; py_compile passed; git diff --check passed; final git status clean"
+    },
+    "production_runner_risks_observed_before_merge": [
+      "read-only/no-push tasks still received full_autonomy/git_push permission pack",
+      "review checkout branch name could point at PR branch while HEAD stayed on main",
+      "generic runner produced wrong exact artifact paths or incomplete exact artifacts"
+    ]
+  },
+  "write_scope": [
+    "docs/agent/runs/2026-07-01-p0-agent-host-post-merge-contract-canary/PLAN.md",
+    "docs/agent/runs/2026-07-01-p0-agent-host-post-merge-contract-canary/ACTIONS.md",
+    "docs/agent/runs/2026-07-01-p0-agent-host-post-merge-contract-canary/TESTS.md",
+    "docs/agent/runs/2026-07-01-p0-agent-host-post-merge-contract-canary/RESULT.md",
+    "docs/agent/runs/2026-07-01-p0-agent-host-post-merge-contract-canary/NEXT.md"
+  ],
+  "forbidden_write_scope": [
+    ".github/**",
+    "backend/**",
+    "frontend/**",
+    "infra/**",
+    "ops/**",
+    "scripts/**",
+    "tests/**",
+    "docs/agent/dispatcher/**",
+    "docs/superfactory/**"
+  ],
+  "required_outputs": [
+    "docs/agent/runs/2026-07-01-p0-agent-host-post-merge-contract-canary/PLAN.md",
+    "docs/agent/runs/2026-07-01-p0-agent-host-post-merge-contract-canary/ACTIONS.md",
+    "docs/agent/runs/2026-07-01-p0-agent-host-post-merge-contract-canary/TESTS.md",
+    "docs/agent/runs/2026-07-01-p0-agent-host-post-merge-contract-canary/RESULT.md",
+    "docs/agent/runs/2026-07-01-p0-agent-host-post-merge-contract-canary/NEXT.md"
+  ],
+  "required_behavior": [
+    "First verify preconditions: PR #83 is merged into main and the target Agent Host reports a version/commit containing the merge.",
+    "If preconditions are false, return blocked_precondition with exact evidence and do not run canary mutations.",
+    "Submit or simulate a read-only/no-push canary envelope and prove effective permissions do not include git_push and permission_pack is not full_autonomy.",
+    "Submit or simulate a requested-branch/head canary and prove the worktree HEAD equals the requested commit, not just the branch name.",
+    "Submit or simulate a missing-exact-artifact canary and prove Control Plane does not mark it completed.",
+    "Submit or simulate a clone/auth failure canary and prove result_reference points to an existing result artifact with redacted repair guidance.",
+    "Verify no central branch is pushed by no-push canary tasks.",
+    "Produce exact PLAN/ACTIONS/TESTS/RESULT/NEXT artifacts.",
+    "Do not modify product code, tests, CI, services, Telegram, secrets or GitHub state."
+  ],
+  "verification_commands": [
+    "git diff --check",
+    "test -f docs/agent/runs/2026-07-01-p0-agent-host-post-merge-contract-canary/PLAN.md",
+    "test -f docs/agent/runs/2026-07-01-p0-agent-host-post-merge-contract-canary/ACTIONS.md",
+    "test -f docs/agent/runs/2026-07-01-p0-agent-host-post-merge-contract-canary/TESTS.md",
+    "test -f docs/agent/runs/2026-07-01-p0-agent-host-post-merge-contract-canary/RESULT.md",
+    "test -f docs/agent/runs/2026-07-01-p0-agent-host-post-merge-contract-canary/NEXT.md",
+    "rg --no-ignore -n '[0-9]{6,}:[A-Za-z0-9_-]{20,}|[A-Za-z0-9_]*(TOKEN|SECRET|PASSWORD|COOKIE|API_KEY|CHAT_ID)=[^ ]+' docs/agent/runs/2026-07-01-p0-agent-host-post-merge-contract-canary && exit 1 || true"
+  ],
+  "acceptance": [
+    "If preconditions are unmet, task is blocked_precondition, not failed or completed.",
+    "If preconditions are met, RESULT.md proves runtime no-push/read-only permission sanitization, exact checkout, exact artifact failure gate, clone/auth result artifacts and no central push.",
+    "Exact five run artifacts exist.",
+    "No product code, tests, CI, service files, dispatcher files or superfactory docs are changed.",
+    "Remote result reports task_id, node, Russian agent display name, artifacts, canary checks, blockers and next action."
+  ],
+  "source": {
+    "kind": "mac_thin_client_dispatcher",
+    "owner": "Vladislav",
+    "created_at": "2026-07-01T09:05:00Z",
+    "local_ledger": "docs/agent/dispatcher/DISPATCH_LOG.md"
+  }
+}
