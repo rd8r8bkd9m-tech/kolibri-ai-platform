@@ -58,6 +58,13 @@ The result must report:
 If a push is attempted while one of those flags is truthy, the task must not be
 completed. The result status must become `blocked`.
 
+For implementation runners that are allowed to publish a branch, `git push` must
+still run only after the runner contract preflight has passed. The preflight must
+verify required artifacts, write scope, read-only/product-code constraints, and
+artifact directory presence before publishing. If preflight fails, the runner
+must report `push_attempted: false`, `push_blocked: true`, and use `/fail` rather
+than publishing a branch and later discovering the task cannot complete.
+
 ## Read-Only And Product-Code Policy
 
 When `read_only: true`, product code changes are forbidden. Docs and artifact
@@ -239,6 +246,24 @@ attempt is a blocker:
   "push_blocked": true,
   "push_block_reason": "git_push_forbidden",
   "blocked_reason": "forbidden_push_attempted"
+}
+```
+
+### Publish Preflight Failure
+
+If a branch-producing implementation runner is otherwise allowed to push but a
+required artifact is missing, the runner must skip `git push`:
+
+```json
+{
+  "status": "blocked",
+  "push_attempted": false,
+  "push_blocked": true,
+  "push_block_reason": "required_artifacts_missing",
+  "required_artifacts_missing": [
+    "docs/agent/runs/TASK/RESULT.md"
+  ],
+  "blocked_reason": "required_artifacts_missing"
 }
 ```
 

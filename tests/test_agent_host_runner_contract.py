@@ -18,8 +18,8 @@ def load_agent_host():
 def make_paths(tmp_path):
     worktree = tmp_path / "repo"
     artifact_dir = tmp_path / "artifacts"
-    worktree.mkdir()
-    artifact_dir.mkdir()
+    worktree.mkdir(parents=True)
+    artifact_dir.mkdir(parents=True)
     return worktree, artifact_dir
 
 
@@ -252,3 +252,82 @@ def test_run_task_missing_required_artifact_posts_blocked_fail_not_complete(tmp_
     assert fail_body["result"]["status"] == "blocked"
     assert fail_body["result"]["required_artifacts_missing"] == ["docs/agent/MISSING.md"]
     assert "required_artifacts_missing" in fail_body["result"]["blocked_reason"]
+
+
+def test_publish_gate_skips_git_push_when_required_artifact_is_missing(tmp_path):
+    agent_host = load_agent_host()
+    host = make_host(agent_host, tmp_path, capabilities="impl_factory_smoke")
+    worktree, artifact_dir = make_paths(tmp_path / "gate")
+    stdout_path = artifact_dir / "stdout.log"
+    stderr_path = artifact_dir / "stderr.log"
+    stdout_path.write_text("", encoding="utf-8")
+    stderr_path.write_text("", encoding="utf-8")
+    task = make_task({"required_artifacts": ["docs/agent/MISSING.md"]})
+    result = {"task_id": task["task_id"], "status": "completed", "changed_files": ["tests/test_factory_runtime_contracts.py"]}
+
+    gated = host.git_push_after_contract_verification(
+        task,
+        ["git", "push", "-u", "origin", "branch"],
+        worktree,
+        stdout_path,
+        stderr_path,
+        "branch",
+        {"stdout": str(stdout_path), "stderr": str(stderr_path)},
+        result,
+        artifact_dir,
+        ["tests/test_factory_runtime_contracts.py"],
+        {"GIT_TERMINAL_PROMPT": "0"},
+    )
+
+    assert gated["status"] == "blocked"
+    assert gated["push_attempted"] is False
+    assert gated["push_blocked"] is True
+    assert "required_artifacts_missing" in gated["push_block_reason"]
+    assert "git push skipped by runner contract preflight" in stdout_path.read_text(encoding="utf-8")
+
+
+def test_publish_gate_allows_git_push_after_contract_verification_passes(tmp_path):
+    agent_host = load_agent_host()
+
+    class Host(agent_host.AgentHost):
+        def __init__(self):
+            super().__init__(make_args(tmp_path, capabilities="impl_factory_smoke"))
+            self.commands = []
+
+        def post(self, path, body):
+            return body
+
+        def run_command(self, command, cwd, stdout_path, stderr_path, task, branch=None, logs=None, env=None):
+            self.commands.append(command)
+
+    host = Host()
+    worktree, artifact_dir = make_paths(tmp_path / "gate")
+    required = worktree / "docs" / "agent" / "RESULT.md"
+    required.parent.mkdir(parents=True)
+    required.write_text("ok\n", encoding="utf-8")
+    stdout_path = artifact_dir / "stdout.log"
+    stderr_path = artifact_dir / "stderr.log"
+    stdout_path.write_text("", encoding="utf-8")
+    stderr_path.write_text("", encoding="utf-8")
+    task = make_task({"required_artifacts": ["docs/agent/RESULT.md"]})
+    result = {"task_id": task["task_id"], "status": "completed", "changed_files": ["docs/agent/RESULT.md"]}
+
+    gated = host.git_push_after_contract_verification(
+        task,
+        ["git", "push", "-u", "origin", "branch"],
+        worktree,
+        stdout_path,
+        stderr_path,
+        "branch",
+        {"stdout": str(stdout_path), "stderr": str(stderr_path)},
+        result,
+        artifact_dir,
+        ["docs/agent/RESULT.md"],
+        {"GIT_TERMINAL_PROMPT": "0"},
+    )
+
+    assert host.commands == [["git", "push", "-u", "origin", "branch"]]
+    assert gated["status"] == "completed"
+    assert gated["push_attempted"] is True
+    assert gated["push_blocked"] is False
+    assert gated["required_artifacts_missing"] == []

@@ -579,6 +579,39 @@ class AgentHost:
             "push_block_reason": None,
         }
 
+    def git_push_after_contract_verification(
+        self,
+        task: dict[str, Any],
+        command: list[str],
+        cwd: Path,
+        stdout_path: Path,
+        stderr_path: Path,
+        branch: str | None,
+        logs: dict[str, str],
+        result: dict[str, Any],
+        artifact_dir: Path,
+        changed_files: list[str],
+        env: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        preflight = self.finalize_result(task, result, artifact_dir, cwd, changed_files=changed_files)
+        if preflight["status"] != "completed":
+            preflight["push_attempted"] = False
+            preflight["push_blocked"] = True
+            preflight["push_block_reason"] = preflight.get("blocked_reason") or "contract_verification_failed"
+            with stdout_path.open("ab") as stdout:
+                stdout.write(
+                    f"\n$ git push skipped by runner contract preflight: {preflight['push_block_reason']}\n".encode("utf-8")
+                )
+            return preflight
+        push_info = self.git_push(task, command, cwd, stdout_path, stderr_path, branch, logs, env)
+        return self.finalize_result(
+            task,
+            {**preflight, **push_info},
+            artifact_dir,
+            cwd,
+            changed_files=changed_files,
+        )
+
     def unsupported_task_reason(self, task: dict[str, Any]) -> str | None:
         envelope = task_envelope(task)
         kind = task.get("kind") or envelope.get("kind")
@@ -1036,7 +1069,6 @@ class AgentHost:
         self.run_command(["git", "add", smoke_path], worktree, stdout_path, stderr_path, task, branch, logs)
         self.run_command(["git", "commit", "-m", "test: add factory runtime contracts"], worktree, stdout_path, stderr_path, task, branch, logs)
         commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(worktree), text=True).strip()
-        push_info = self.git_push(task, ["git", "push", "-u", "origin", branch], worktree, stdout_path, stderr_path, branch, logs, git_env)
 
         result = {
             "node_id": self.node_id,
@@ -1056,9 +1088,20 @@ class AgentHost:
             "status": "completed",
             "changed_files": [smoke_path],
             "checks": ["mimo --version", "python3 compileall existing runtime paths", f"pytest -q {smoke_path}"],
-            **push_info,
         }
-        result = self.finalize_result(task, result, artifact_dir, worktree, changed_files=[smoke_path])
+        result = self.git_push_after_contract_verification(
+            task,
+            ["git", "push", "-u", "origin", branch],
+            worktree,
+            stdout_path,
+            stderr_path,
+            branch,
+            logs,
+            result,
+            artifact_dir,
+            [smoke_path],
+            git_env,
+        )
         result_path = self.write_result(artifact_dir, result)
         result["result_path"] = str(result_path)
         return result
@@ -1235,7 +1278,6 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
         self.run_command(["git", "add", "ops/factory_control.py", "tests/test_factory_retry_error_clearance.py"], worktree, stdout_path, stderr_path, task, branch, logs)
         self.run_command(["git", "commit", "-m", "factory: clear stale retry error on success"], worktree, stdout_path, stderr_path, task, branch, logs)
         commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(worktree), text=True).strip()
-        push_info = self.git_push(task, ["git", "push", "-u", "origin", branch], worktree, stdout_path, stderr_path, branch, logs, git_env)
 
         result = {
             "node_id": self.node_id,
@@ -1259,14 +1301,19 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 "python3 compileall existing runtime paths",
                 "pytest -q tests/test_factory_runtime.py tests/test_factory_retry_error_clearance.py",
             ],
-            **push_info,
         }
-        result = self.finalize_result(
+        result = self.git_push_after_contract_verification(
             task,
+            ["git", "push", "-u", "origin", branch],
+            worktree,
+            stdout_path,
+            stderr_path,
+            branch,
+            logs,
             result,
             artifact_dir,
-            worktree,
-            changed_files=["ops/factory_control.py", "tests/test_factory_retry_error_clearance.py"],
+            ["ops/factory_control.py", "tests/test_factory_retry_error_clearance.py"],
+            git_env,
         )
         result_path = self.write_result(artifact_dir, result)
         result["result_path"] = str(result_path)
