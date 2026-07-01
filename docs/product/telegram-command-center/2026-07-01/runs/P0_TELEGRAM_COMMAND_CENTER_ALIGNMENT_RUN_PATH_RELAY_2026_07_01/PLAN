@@ -1,0 +1,12 @@
+# PLAN
+
+Task: P0_TELEGRAM_COMMAND_CENTER_ALIGNMENT_RUN_PATH_RELAY_2026_07_01
+Node: kolibri
+Agent display name: Автономный инженер Kolibri
+
+1. Inspect the repository for existing documentation or artifact layout conventions.
+2. Confirm that no product-level sibling run files exist under `docs/product/telegram-command-center/2026-07-01/`.
+3. Create the exact product report and five exact run artifacts in the canonical run directory.
+4. Verify absence of alternate report/artifact outputs and absence of product/runtime code changes.
+5. Commit and push the task branch.
+

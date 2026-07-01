@@ -1,0 +1,28 @@
+# TESTS
+
+Task: P0_TELEGRAM_COMMAND_CENTER_ALIGNMENT_RUN_PATH_RELAY_2026_07_01
+Node: kolibri
+Agent display name: Автономный инженер Kolibri
+
+Verification commands:
+
+```sh
+test -f docs/product/telegram-command-center/2026-07-01/REPORT.md
+test -f docs/product/telegram-command-center/2026-07-01/runs/P0_TELEGRAM_COMMAND_CENTER_ALIGNMENT_RUN_PATH_RELAY_2026_07_01/PLAN
+test -f docs/product/telegram-command-center/2026-07-01/runs/P0_TELEGRAM_COMMAND_CENTER_ALIGNMENT_RUN_PATH_RELAY_2026_07_01/ACTIONS
+test -f docs/product/telegram-command-center/2026-07-01/runs/P0_TELEGRAM_COMMAND_CENTER_ALIGNMENT_RUN_PATH_RELAY_2026_07_01/TESTS
+test -f docs/product/telegram-command-center/2026-07-01/runs/P0_TELEGRAM_COMMAND_CENTER_ALIGNMENT_RUN_PATH_RELAY_2026_07_01/RESULT
+test -f docs/product/telegram-command-center/2026-07-01/runs/P0_TELEGRAM_COMMAND_CENTER_ALIGNMENT_RUN_PATH_RELAY_2026_07_01/NEXT
+test ! -e docs/product/telegram-command-center/2026-07-01/PLAN
+test ! -e docs/product/telegram-command-center/2026-07-01/ACTIONS
+test ! -e docs/product/telegram-command-center/2026-07-01/TESTS
+test ! -e docs/product/telegram-command-center/2026-07-01/RESULT
+test ! -e docs/product/telegram-command-center/2026-07-01/NEXT
+test ! -e docs/reports
+test ! -e docs/artifacts
+test ! -e artifacts
+git diff --name-only origin/main...HEAD
+```
+
+Expected changed files are limited to the product report and the five canonical run artifacts.
+
