@@ -1,0 +1,20 @@
+Verification commands run:
+
+1. python3 -m pytest tests/test_telegram_gateway.py -q
+   Result: 31 passed in 1.28s
+
+2. .test-venv/bin/python -m pytest backend/tests/test_telegram_miniapp_auth.py -q
+   Result: 8 passed in 0.86s
+
+3. .test-venv/bin/python -m pytest tests/test_telegram_gateway.py -q
+   Result: 31 passed in 1.25s
+
+4. .test-venv/bin/python -m pytest backend/tests/test_factory_status_fast_health.py -q
+   Result: 2 passed in 0.14s
+
+5. python3 -m py_compile backend/telegram_miniapp_auth.py
+   Result: passed
+
+Environment note:
+- System Python lacked backend dependencies fastapi/httpx.
+- A temporary local virtualenv was created for verification and removed afterward.

@@ -1,0 +1,20 @@
+task_id: P0_TELEGRAM_MINIAPP_OWNER_AUTH_CONTRACT_2026_07_01
+node: kolibri
+branch: p0/telegram-miniapp-owner-auth-contract-2026-07-01
+
+Implemented backend-only Telegram Mini App owner auth contract.
+
+Changed backend files:
+- backend/main.py
+- backend/telegram_miniapp_auth.py
+- backend/tests/test_telegram_miniapp_auth.py
+
+Explicitly out of scope and untouched:
+- Mini App UI
+- task mutation APIs
+- Telegram live receiver and webhook behavior
+- service restarts and ops runtime changes
+- payments
+- Guest Mode
+- Business mode
+- Bot-to-Bot behavior

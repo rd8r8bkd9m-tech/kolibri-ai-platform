@@ -1,0 +1,33 @@
+{
+  "task_id": "P0_TELEGRAM_MINIAPP_OWNER_AUTH_CONTRACT_2026_07_01",
+  "node": "kolibri",
+  "russian_agent_display_name": "Автономный инженер Колибри",
+  "branch": "p0/telegram-miniapp-owner-auth-contract-2026-07-01",
+  "pr": null,
+  "tests": [
+    {
+      "command": "python3 -m pytest tests/test_telegram_gateway.py -q",
+      "result": "31 passed in 1.28s"
+    },
+    {
+      "command": ".test-venv/bin/python -m pytest backend/tests/test_telegram_miniapp_auth.py -q",
+      "result": "8 passed in 0.86s"
+    },
+    {
+      "command": ".test-venv/bin/python -m pytest tests/test_telegram_gateway.py -q",
+      "result": "31 passed in 1.25s"
+    },
+    {
+      "command": ".test-venv/bin/python -m pytest backend/tests/test_factory_status_fast_health.py -q",
+      "result": "2 passed in 0.14s"
+    },
+    {
+      "command": "python3 -m py_compile backend/telegram_miniapp_auth.py",
+      "result": "passed"
+    }
+  ],
+  "blockers": [
+    "System Python was missing declared backend dependencies fastapi/httpx; tests were run in a temporary local virtualenv that was removed after verification."
+  ],
+  "next_remote_dispatch_command": "ops/kolibri-dispatch --task-id P0_TELEGRAM_MINIAPP_OWNER_AUTH_CONTRACT_2026_07_01 --branch p0/telegram-miniapp-owner-auth-contract-2026-07-01"
+}

@@ -1,0 +1,11 @@
+Redaction checks:
+
+- Auth module contains no print statements or logger calls.
+- Route error details are fixed codes only.
+- Successful response omits raw initData and raw Telegram user id.
+- Tests assert route responses do not contain raw signed fixture text, fake bot token text, or raw user id text.
+- Run artifacts intentionally omit signed fixture contents, environment values, owner chat id, cookies, passwords, API keys, private messages, and raw initData.
+
+Fixture note:
+- Focused tests use deterministic signed Telegram initData generated with a fake bot token and fixed auth_date.
+- The artifact set does not reproduce the raw fixture string.

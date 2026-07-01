@@ -1,4 +1,5 @@
 from routes_v1 import router as v1_router
+from telegram_miniapp_auth import router as telegram_miniapp_auth_router
 import os
 import time
 import json
@@ -334,6 +335,7 @@ async def cluster_status():
     return await api_factory_status()
 
 app.include_router(v1_router)
+app.include_router(telegram_miniapp_auth_router)
 
 PROXY_ROUTES = {
     "/api/knowledge": {"target": "http://10.99.0.3:8002", "strip": "/api/knowledge", "add": "/rag"},
@@ -393,5 +395,4 @@ if frontend_path.exists():
         if file_path.exists() and file_path.is_file():
             return FileResponse(str(file_path))
         return FileResponse(str(frontend_path / "index.html"))
-
 

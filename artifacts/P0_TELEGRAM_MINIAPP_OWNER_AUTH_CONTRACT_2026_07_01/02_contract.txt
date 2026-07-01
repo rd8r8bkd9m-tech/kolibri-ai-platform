@@ -1,0 +1,25 @@
+Endpoint:
+- POST /api/v1/auth/telegram-miniapp/session
+
+Request:
+- JSON body with init_data string.
+
+Verification:
+- Parses Telegram initData as query-string fields.
+- Builds Telegram data_check_string from sorted fields excluding hash.
+- Verifies HMAC-SHA256 using Telegram WebAppData secret derivation.
+- Rejects malformed payloads, stale auth_date values, future auth_date drift, and bad signatures.
+- Maps only configured owner Telegram users to role "owner".
+
+Response:
+- ok
+- role
+- hashed subject
+- short-lived signed session_token
+- expires_at
+- ttl_seconds
+
+Redaction contract:
+- Does not echo raw initData.
+- Does not return raw Telegram user id.
+- Does not log token, owner id, cookies, passwords, API keys, private messages, or raw initData.
