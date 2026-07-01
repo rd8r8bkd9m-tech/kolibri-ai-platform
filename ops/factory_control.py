@@ -17,8 +17,14 @@ import time
 import uuid
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
+
+CURRENT_DIR = Path(__file__).resolve().parent
+if str(CURRENT_DIR) not in sys.path:
+    sys.path.insert(0, str(CURRENT_DIR))
+from telegram_superfactory import plan_update_receiver, runner_policy, select_runner, validate_telegram_init_data
 
 
 NAMESPACE = os.environ.get("FACTORY_NAMESPACE", "kolibri_factory")
@@ -278,6 +284,77 @@ def read_body(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
     return json.loads(handler.rfile.read(length).decode("utf-8"))
 
 
+def parse_owner_ids(value: str) -> set[int]:
+    ids = set()
+    for item in value.replace(";", ",").split(","):
+        item = item.strip()
+        if item:
+            ids.add(int(item))
+    return ids
+
+
+def validate_miniapp(handler: BaseHTTPRequestHandler, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    init_data = handler.headers.get("X-Telegram-Init-Data") or (body or {}).get("init_data") or ""
+    return validate_telegram_init_data(
+        init_data,
+        os.environ.get("TELEGRAM_BOT_TOKEN", ""),
+        parse_owner_ids(os.environ.get("TELEGRAM_OWNER_IDS", "")),
+        parse_owner_ids(os.environ.get("TELEGRAM_ADMIN_IDS", "")),
+        int(os.environ.get("TELEGRAM_INIT_DATA_MAX_AGE", "86400")),
+    )
+
+
+def superfactory_status() -> dict[str, Any]:
+    nodes = []
+    for node_id in sorted(redis.command("SMEMBERS", key("node_ids")) or []):
+        node = get_json(node_key(node_id), {})
+        node["draining"] = bool(redis.command("GET", drain_key(node_id)))
+        nodes.append(node)
+    tasks = [task for task in (load_task(task_id) for task_id in all_task_ids()) if task]
+    counts: dict[str, int] = {}
+    for task in tasks:
+        state = str(task.get("state") or "unknown")
+        counts[state] = counts.get(state, 0) + 1
+    receiver = plan_update_receiver(webhook_info={"url": os.environ.get("TELEGRAM_WEBHOOK_URL", "")})
+    return {
+        "status": "ok",
+        "receiver": {
+            "mode": receiver.mode,
+            "should_poll": receiver.should_poll,
+            "webhook_configured": bool(receiver.webhook_url),
+            "conflict": receiver.conflict,
+        },
+        "runner_policy": runner_policy(),
+        "nodes": nodes,
+        "task_counts": counts,
+        "queue": queue_ids(),
+    }
+
+
+def miniapp_task_envelope(body: dict[str, Any], auth: dict[str, Any]) -> dict[str, Any]:
+    text = str(body.get("objective") or body.get("message") or "").strip()
+    if not text:
+        raise ValueError("objective is required")
+    runner = select_runner(str(body.get("kind") or "owner_remote_task"), body.get("runner"))
+    task_id = body.get("task_id") or f"TGAPP-{uuid.uuid4().hex[:12]}"
+    return {
+        "task_id": task_id,
+        "idempotency_key": body.get("idempotency_key") or f"telegram-miniapp:{auth['user']['id']}:{task_id}",
+        "kind": body.get("kind") or "owner_remote_task",
+        "required_capability": body.get("required_capability") or "generic_implementation",
+        "objective": text,
+        "runner": runner["runner"],
+        "runner_policy": runner,
+        "source": {
+            "kind": "telegram_miniapp",
+            "user_id": auth["user"]["id"],
+            "role": auth["role"],
+            "accepted_at": utc_now(),
+        },
+        "max_retries": int(body.get("max_retries", 1)),
+    }
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "KolibriFactoryControl/0.1"
 
@@ -291,6 +368,13 @@ class Handler(BaseHTTPRequestHandler):
             if path in {"/health", "/v1/health"}:
                 pong = redis.command("PING")
                 response(self, 200, {"status": "ok", "redis": pong, "queue_backend": "redis", "time": utc_now()})
+                return
+            if path == "/v1/superfactory/status":
+                auth = validate_miniapp(self)
+                if not auth.get("ok"):
+                    response(self, 401, {"error": auth.get("error", "unauthorized")})
+                    return
+                response(self, 200, superfactory_status())
                 return
             if path == "/v1/nodes":
                 nodes = []
@@ -314,6 +398,28 @@ class Handler(BaseHTTPRequestHandler):
                     response(self, 404, {"error": "task_not_found", "task_id": task_id})
                     return
                 response(self, 200, task)
+                return
+            if path.startswith("/v1/superfactory/tasks/") and path.endswith("/artifacts"):
+                auth = validate_miniapp(self)
+                if not auth.get("ok"):
+                    response(self, 401, {"error": auth.get("error", "unauthorized")})
+                    return
+                task_id = path.split("/")[4]
+                task = load_task(task_id)
+                if not task:
+                    response(self, 404, {"error": "task_not_found", "task_id": task_id})
+                    return
+                result = task.get("result") or {}
+                response(self, 200, {
+                    "task_id": task_id,
+                    "state": task.get("state"),
+                    "artifacts": {
+                        "pull_request_url": result.get("pull_request_url") or result.get("pr_url"),
+                        "preview_url": result.get("preview_url"),
+                        "ci_url": result.get("ci_url"),
+                        "result_reference": task.get("result_reference"),
+                    },
+                })
                 return
             response(self, 404, {"error": "not_found", "path": path})
         except Exception as exc:  # pragma: no cover - surfaced in runtime logs
@@ -363,6 +469,19 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path == "/v1/tasks":
                 task = create_task(body)
+                response(self, 201, task)
+                return
+            if path == "/v1/superfactory/tasks":
+                auth = validate_miniapp(self, body)
+                if not auth.get("ok"):
+                    response(self, 401, {"error": auth.get("error", "unauthorized")})
+                    return
+                try:
+                    envelope = miniapp_task_envelope(body, auth)
+                except ValueError as exc:
+                    response(self, 400, {"error": "invalid_task", "detail": str(exc)})
+                    return
+                task = create_task(envelope)
                 response(self, 201, task)
                 return
             if path == "/v1/tasks/lease":

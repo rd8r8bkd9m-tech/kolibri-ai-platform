@@ -24,6 +24,7 @@ CURRENT_DIR = Path(__file__).resolve().parent
 if str(CURRENT_DIR) not in sys.path:
     sys.path.insert(0, str(CURRENT_DIR))
 from orchestrator_roster import ORCHESTRATOR_CARD, node_card
+from telegram_superfactory import plan_update_receiver, redacted_receiver_status
 from orchestrator_memory import (
     empty_memory,
     ensure_memory,
@@ -324,6 +325,12 @@ class TelegramClient:
         if offset is not None:
             payload["offset"] = offset
         return self.call("getUpdates", payload, timeout=timeout + 10).get("result", [])
+
+    def get_webhook_info(self) -> dict[str, Any]:
+        return self.call("getWebhookInfo", {}, timeout=10).get("result", {})
+
+    def delete_webhook(self) -> None:
+        self.call("deleteWebhook", {"drop_pending_updates": False}, timeout=10)
 
     def send_message(self, chat_id: int, text: str) -> dict[str, Any]:
         response = self.call("sendMessage", {"chat_id": chat_id, "text": text[:3900], "disable_web_page_preview": True})
@@ -1210,7 +1217,18 @@ def main() -> int:
         raise SystemExit("TELEGRAM_OWNER_IDS is required")
     signal.signal(signal.SIGTERM, handle_stop)
     signal.signal(signal.SIGINT, handle_stop)
-    gateway = Gateway(TelegramClient(token), FactoryClient(args.control_url, args.control_urls), owner_ids, StateStore(Path(args.state_file)), args.poll_timeout)
+    telegram = TelegramClient(token)
+    try:
+        webhook_info = telegram.get_webhook_info()
+    except Exception:
+        webhook_info = {}
+    receiver_plan = plan_update_receiver(webhook_info=webhook_info)
+    print(json.dumps({"event": "telegram_receiver_plan", **redacted_receiver_status(receiver_plan)}, sort_keys=True))
+    if receiver_plan.startup_action == "delete_webhook_then_poll":
+        telegram.delete_webhook()
+    if not receiver_plan.should_poll:
+        raise SystemExit(f"canonical Telegram receiver refused to start polling: {receiver_plan.conflict or receiver_plan.startup_action}")
+    gateway = Gateway(telegram, FactoryClient(args.control_url, args.control_urls), owner_ids, StateStore(Path(args.state_file)), args.poll_timeout)
     gateway.run()
     return 0
 
