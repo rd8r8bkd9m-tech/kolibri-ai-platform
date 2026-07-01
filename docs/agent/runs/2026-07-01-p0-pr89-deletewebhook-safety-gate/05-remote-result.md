@@ -10,7 +10,7 @@ PR URL: `https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/89`
 
 Branch: `p0/telegram-superfactory-bot-miniapp-2026-07-01`
 
-Commit: `TBD`
+Commit: `b6db2b0` implementation commit; final pushed branch head is reported by the node after push.
 
 Tests:
 
