@@ -1,0 +1,20 @@
+{
+  "task_id": "P0_PR85_RELEASE_GATE_AFTER_PROMPT3_SURFACE_REPAIR_2026_07_01",
+  "created_at_utc": "2026-07-01T15:35:49Z",
+  "node": "kolibri",
+  "reviewer": "autonomous_engineer",
+  "artifacts": [
+    {
+      "path": "docs/agent/runs/2026-07-01-p0-pr85-release-gate-after-prompt3-surface-repair/RESULT.md",
+      "kind": "release_gate_report"
+    },
+    {
+      "path": "docs/agent/runs/2026-07-01-p0-pr85-release-gate-after-prompt3-surface-repair/result.json",
+      "kind": "machine_readable_release_gate_result"
+    },
+    {
+      "path": "docs/agent/runs/2026-07-01-p0-pr85-release-gate-after-prompt3-surface-repair/artifact-manifest.json",
+      "kind": "artifact_manifest"
+    }
+  ]
+}

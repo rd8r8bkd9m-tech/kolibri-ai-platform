@@ -1,0 +1,66 @@
+{
+  "task_id": "P0_PR85_RELEASE_GATE_AFTER_PROMPT3_SURFACE_REPAIR_2026_07_01",
+  "status": "completed",
+  "node": "kolibri",
+  "reviewer": "autonomous_engineer",
+  "review_time_utc": "2026-07-01T15:35:49Z",
+  "pr": 85,
+  "reviewed_head": "06adeb54c0e7d7132c7f0817ea4755786cd3f092",
+  "decision": "merge_ready_after_minor_docs_fix",
+  "product_code_modified": false,
+  "forbidden_actions_performed": {
+    "merge": false,
+    "approval": false,
+    "mark_ready": false,
+    "deploy": false,
+    "service_restart": false,
+    "force_push": false,
+    "push_to_main": false
+  },
+  "blockers": [
+    {
+      "severity": "minor",
+      "kind": "docs_whitespace",
+      "command": "git diff --check origin/main...HEAD",
+      "outcome": "exit 2; extra blank lines at EOF in docs/superfactory/*.md"
+    }
+  ],
+  "github_ci": [
+    {
+      "command": "mcp__codex_apps__github._get_commit_combined_status",
+      "outcome": "statuses: []"
+    },
+    {
+      "command": "curl -fsSL -H 'Accept: application/vnd.github+json' https://api.github.com/repos/rd8r8bkd9m-tech/kolibri-ai-platform/commits/06adeb54c0e7d7132c7f0817ea4755786cd3f092/check-runs",
+      "outcome": "exit 22; HTTP 404"
+    },
+    {
+      "command": "gh auth status",
+      "outcome": "exit 127; gh not installed"
+    }
+  ],
+  "server_side_tests": [
+    {
+      "command": "python3 -m pytest tests/test_fabric_control.py tests/test_prompt3_fabric_api_surface.py -q",
+      "outcome": "11 passed in 0.13s"
+    },
+    {
+      "command": "python3 -m pytest -q",
+      "outcome": "exit 2; collection failed because pydantic and httpx are not installed in system interpreter"
+    },
+    {
+      "command": ".release-gate-venv/bin/python -m pip install -q pytest && .release-gate-venv/bin/python -m pytest -q",
+      "outcome": "71 passed, 1 warning in 4.24s"
+    },
+    {
+      "command": "python3 -m py_compile ops/factory_control.py",
+      "outcome": "exit 0"
+    }
+  ],
+  "artifact_paths": [
+    "docs/agent/runs/2026-07-01-p0-pr85-release-gate-after-prompt3-surface-repair/RESULT.md",
+    "docs/agent/runs/2026-07-01-p0-pr85-release-gate-after-prompt3-surface-repair/result.json",
+    "docs/agent/runs/2026-07-01-p0-pr85-release-gate-after-prompt3-surface-repair/artifact-manifest.json"
+  ],
+  "next_exact_task": "P0_PR85_MINOR_DOCS_WHITESPACE_FIX_2026_07_01"
+}
