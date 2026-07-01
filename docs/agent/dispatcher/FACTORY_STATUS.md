@@ -4,6 +4,42 @@ Snapshot time:
 - 2026-07-01T03:28:51Z
 
 Latest update:
+- 2026-07-01T05:07:32Z: Latest exact query for
+  `P0_TELEGRAM_FLEET_RECEIVER_DISCOVERY_2026_07_01` still reports `running`
+  on `home:agent-host-home`; no result artifact yet.
+- 2026-07-01T05:06:28Z: Latest exact query for
+  `P0_TELEGRAM_FLEET_RECEIVER_DISCOVERY_2026_07_01` still reports `running`
+  on `home:agent-host-home`; no result artifact yet.
+- 2026-07-01T05:05:17Z:
+  `P0_TELEGRAM_FLEET_RECEIVER_DISCOVERY_2026_07_01` is running on
+  `home:agent-host-home`.
+- 2026-07-01T05:03:00Z: Prepared
+  `P0_TELEGRAM_FLEET_RECEIVER_DISCOVERY_2026_07_01`. Known probes now show
+  home/home-live and primary-candidate do not own a visible active Telegram
+  receiver; because `@kolibriai_bot` has no webhook and previously saw polling
+  conflict, the active receiver is likely on another token-capable/control-plane
+  or legacy host.
+- 2026-07-01T05:00:52Z:
+  `P0_PRIMARY_CANDIDATE_TELEGRAM_RECEIVER_PROBE_AND_REPAIR_2026_07_01` ended
+  with Control Plane state `failed` because exact `PLAN.md` was missing.
+  Useful remote evidence says `primary-candidate` canonical Telegram gateway is
+  inactive/disabled and no visible active local receiver was proven. No service
+  was stopped.
+- 2026-07-01T04:58:15Z:
+  `P0_PRIMARY_CANDIDATE_TELEGRAM_RECEIVER_PROBE_AND_REPAIR_2026_07_01` is
+  running on `primary-candidate:agent-host-primary`. This is the direct probe
+  needed after the home-live task could not inspect primary-candidate.
+- 2026-07-01T04:56:30Z: Prepared
+  `P0_PRIMARY_CANDIDATE_TELEGRAM_RECEIVER_PROBE_AND_REPAIR_2026_07_01` to run
+  directly on `primary-candidate`, because the completed home-live task proved
+  home/home-live negative evidence but could not inspect primary-candidate host
+  state.
+- 2026-07-01T04:51:07Z:
+  `P0_TELEGRAM_SINGLE_CANONICAL_RECEIVER_MIGRATION_2026_07_01` completed in
+  Control Plane. Semantic result is `blocked/ambiguous`: `@kolibriai_bot`
+  webhook URL is empty, pending updates are `0`, home/home-live have no active
+  Kolibri Telegram receiver, and primary-candidate host-level evidence remains
+  unavailable from the home-live lease. No runtime mutation was performed.
 - 2026-07-01T04:41:05Z: Latest exact query for
   `P0_TELEGRAM_SINGLE_CANONICAL_RECEIVER_MIGRATION_2026_07_01` still reports
   `running` on `home-live:director-home-live`; no result artifact yet.
