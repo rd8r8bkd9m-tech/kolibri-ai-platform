@@ -2,6 +2,9 @@
 
 Purpose: make this Mac a thin intelligent dispatcher for Kolibri Factory.
 
+Canonical owner rules:
+- `docs/agent/dispatcher/OWNER_CANONICAL_INSTRUCTIONS.md`
+
 Operating rule:
 - Mac thinks, plans, writes envelopes, submits tasks, watches status, collects
   artifacts, and summarizes results.
