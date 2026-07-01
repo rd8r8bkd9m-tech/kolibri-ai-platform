@@ -374,17 +374,113 @@ def test_complete_explicit_run_artifact_alias_is_logged_and_materialized(tmp_pat
     assert (artifact_dir / "run-artifact-aliases.json").is_file()
 
 
-def test_unsupported_task_kind_returns_structured_blocked_result(tmp_path):
+def test_owner_remote_task_with_mimo_invokes_mimo_not_codex(tmp_path, monkeypatch):
     agent_host = load_agent_host()
-    worktree, artifact_dir = make_paths(tmp_path)
-    task = make_task({"kind": "owner_remote_task", "required_capability": "generic_implementation"})
+    monkeypatch.setattr(agent_host.shutil, "which", lambda name: f"/usr/bin/{name}" if name in {"mimo", "codex"} else None)
 
-    result = agent_host.unsupported_task_result(task, artifact_dir, "unsupported_task_kind:owner_remote_task", worktree)
+    class Host(agent_host.AgentHost):
+        def __init__(self):
+            super().__init__(make_args(tmp_path, capabilities="generic_implementation,runner:mimo,runner:codex"))
+            self.posts = []
+            self.commands = []
 
-    assert result["status"] == "blocked"
-    assert result["changed_files"] == []
-    assert "unsupported_task_kind:owner_remote_task" in result["blocked_reason"]
-    assert result["next_recommended_task"] == "enable a supported read-only runner for this task kind before resubmitting"
+        def post(self, path, body):
+            self.posts.append((path, body))
+            return body
+
+        def run_command(self, command, cwd, stdout_path, stderr_path, task, branch, logs, env=None, command_label=None):
+            del cwd, task, branch, logs, env
+            self.commands.append((command, command_label))
+            stdout_path.write_text(json.dumps({"part": {"type": "text", "text": "MIMO completed."}}) + "\n", encoding="utf-8")
+            stderr_path.write_text("", encoding="utf-8")
+
+    task = make_task({
+        "kind": "owner_remote_task",
+        "required_capability": "generic_implementation",
+        "runner": "mimo",
+        "objective": "Do the requested work",
+    })
+    task["kind"] = "owner_remote_task"
+
+    host = Host()
+    host.run_task(task)
+    assert host.commands
+    command, command_label = host.commands[0]
+    assert command[0] == "/usr/bin/mimo"
+    assert command[1:4] == ["run", "--format", "json"]
+    assert "/usr/bin/codex" not in command
+    assert command_label == "/usr/bin/mimo run --format json --title owner-task-CONTRACT-1 <prompt>"
+    complete_posts = [(path, body) for path, body in host.posts if path.endswith("/complete")]
+    assert len(complete_posts) == 1
+    assert complete_posts[0][1]["result"]["runner"] == "mimo"
+
+
+def test_owner_remote_task_runner_auth_failure_is_structured_and_redacted(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setattr(agent_host.shutil, "which", lambda name: "/usr/bin/codex" if name == "codex" else None)
+    leaked = "refresh_token=SECRET_REFRESH_TOKEN_123"
+
+    class Host(agent_host.AgentHost):
+        def __init__(self):
+            super().__init__(make_args(tmp_path, capabilities="generic_implementation,runner:codex"))
+            self.posts = []
+
+        def post(self, path, body):
+            self.posts.append((path, body))
+            return body
+
+        def run_command(self, command, cwd, stdout_path, stderr_path, task, branch, logs, env=None, command_label=None):
+            del command, cwd, stdout_path, task, branch, logs, env
+            stderr_path.write_text(f"401 unauthorized {leaked}\n", encoding="utf-8")
+            raise RuntimeError(f"command failed with rc=1: {command_label}")
+
+    host = Host()
+    task = make_task({
+        "kind": "owner_remote_task",
+        "required_capability": "generic_implementation",
+        "runner": "codex",
+        "objective": "Do not leak secrets",
+    })
+    task["kind"] = "owner_remote_task"
+
+    host.run_task(task)
+
+    fail_posts = [(path, body) for path, body in host.posts if path.endswith("/fail")]
+    assert len(fail_posts) == 1
+    fail_body = fail_posts[0][1]
+    assert fail_body["error_type"] == "runner_auth_blocked"
+    assert fail_body["retry"] is False
+    assert fail_body["result"]["status"] == "blocked"
+    assert fail_body["result"]["runner"] == "codex"
+    assert fail_body["result"]["blocked_reason"] == "runner_auth_blocked"
+    serialized = json.dumps(fail_body, ensure_ascii=False)
+    assert "SECRET_REFRESH_TOKEN_123" not in serialized
+    stderr_path = tmp_path / "artifacts" / "CONTRACT-1" / "CONTRACT-1-attempt-1" / "stderr.log"
+    assert "SECRET_REFRESH_TOKEN_123" not in stderr_path.read_text(encoding="utf-8")
+
+
+def test_owner_remote_task_mimo_unavailable_does_not_fallback_to_codex(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setattr(agent_host.shutil, "which", lambda name: "/usr/bin/codex" if name == "codex" else None)
+
+    host = make_host(agent_host, tmp_path, capabilities="generic_implementation,runner:codex")
+    task = make_task({
+        "kind": "owner_remote_task",
+        "required_capability": "generic_implementation",
+        "runner": "mimo",
+        "objective": "Use MIMO only",
+    })
+    task["kind"] = "owner_remote_task"
+
+    host.run_task(task)
+
+    assert not [path for path, _ in host.posts if path.endswith("/complete")]
+    fail_posts = [(path, body) for path, body in host.posts if path.endswith("/fail")]
+    assert len(fail_posts) == 1
+    fail_body = fail_posts[0][1]
+    assert fail_body["error_type"] == "runner_unavailable"
+    assert fail_body["result"]["runner"] == "mimo"
+    assert fail_body["result"]["blocked_reason"] == "runner_unavailable"
 
 
 def test_p0_integration_audit_artifact_path_drift_is_blocked(tmp_path):
@@ -409,8 +505,8 @@ def test_runner_contract_result_schema_fields_are_always_present(tmp_path):
 def test_run_task_unsupported_kind_posts_blocked_fail_not_complete(tmp_path):
     agent_host = load_agent_host()
     host = make_host(agent_host, tmp_path, capabilities="generic_implementation")
-    task = make_task({"kind": "owner_remote_task", "required_capability": "generic_implementation"})
-    task["kind"] = "owner_remote_task"
+    task = make_task({"kind": "unknown_remote_task", "required_capability": "generic_implementation"})
+    task["kind"] = "unknown_remote_task"
 
     host.run_task(task)
 
@@ -421,7 +517,7 @@ def test_run_task_unsupported_kind_posts_blocked_fail_not_complete(tmp_path):
     assert fail_body["error_type"] == "runner_contract_blocked"
     assert fail_body["retry"] is False
     assert fail_body["result"]["status"] == "blocked"
-    assert "unsupported_task_kind:owner_remote_task" in fail_body["result"]["blocked_reason"]
+    assert "unsupported_task_kind:unknown_remote_task" in fail_body["result"]["blocked_reason"]
     result_path = Path(fail_body["result_reference"])
     persisted = json.loads(result_path.read_text(encoding="utf-8"))
     for field in agent_host.CONTRACT_RESULT_FIELDS:

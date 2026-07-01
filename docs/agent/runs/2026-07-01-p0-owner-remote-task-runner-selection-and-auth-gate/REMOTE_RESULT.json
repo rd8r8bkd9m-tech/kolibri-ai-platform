@@ -1,0 +1,17 @@
+{
+  "task_id": "P0_OWNER_REMOTE_TASK_RUNNER_SELECTION_AND_AUTH_GATE_2026_07_01",
+  "node": "primary-candidate",
+  "agent_display_name_ru": "Инженер",
+  "pull_request_url": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/83",
+  "branch": "p0/agent-host-runner-contract-hardening-2026-06-30",
+  "commit": "pending-local-commit",
+  "tests": [
+    "python3 -m py_compile ops/agent_host.py ops/factory_control.py ops/telegram_gateway.py",
+    "python3 -m pytest tests/test_agent_host_runner_contract.py -q",
+    "python3 -m pytest tests/test_factory_runtime.py tests/test_telegram_gateway.py -q",
+    "python3 -m pytest tests/test_agent_host_runner_contract.py tests/test_agent_host_telegram_chat.py tests/test_agent_host_image_generation.py -q",
+    "git diff --name-only origin/main...HEAD | rg '^docs/superfactory' || true"
+  ],
+  "blockers": [],
+  "next_deployment_or_review_command": "gh pr view 83 --web"
+}

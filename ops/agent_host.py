@@ -50,6 +50,7 @@ SUPPORTED_TASK_KINDS = {
     "impl_factory_smoke",
     "impl_retry_error_clearance",
     "orchestrator_chat_response",
+    "owner_remote_task",
     "read_only_probe",
     "review_pr",
     "telegram_chat_response",
@@ -77,10 +78,46 @@ BACKEND_TEST_ENV_KEYS = (
     "backend_verification_environment",
 )
 BACKEND_TEST_ENV_TYPES = {"backend_python", "python_backend"}
+SUPPORTED_AI_RUNNERS = {"codex", "mimo"}
+RUNNER_AUTH_FAILURE_MARKERS = (
+    "401",
+    "403",
+    "api key",
+    "auth",
+    "authorization",
+    "credential",
+    "expired token",
+    "forbidden",
+    "invalid token",
+    "login required",
+    "not logged in",
+    "oauth",
+    "permission denied",
+    "refresh token",
+    "unauthorized",
+)
+SECRET_REDACTION_MARKERS = (
+    "api_key",
+    "authorization",
+    "bearer",
+    "password",
+    "refresh_token",
+    "secret",
+    "token",
+)
 
 
 class BackendTestEnvironmentError(RuntimeError):
     """Raised when an explicit backend verification environment cannot be prepared."""
+
+
+class RunnerExecutionError(RuntimeError):
+    """Raised when a requested AI runner cannot execute on this node."""
+
+    def __init__(self, error_type: str, runner: str, message: str):
+        super().__init__(message)
+        self.error_type = error_type
+        self.runner = runner
 
 
 def utc_now() -> str:
@@ -159,6 +196,43 @@ def ensure_list(value: Any) -> list[Any]:
     if isinstance(value, tuple):
         return list(value)
     return [value]
+
+
+def requested_runner_for_envelope(envelope: dict[str, Any], default: str | None = None) -> str | None:
+    runner = envelope_value(envelope, "runner", default)
+    if runner is None:
+        return None
+    normalized = str(runner).strip().lower()
+    return normalized or None
+
+
+def runner_capability(runner: str) -> str:
+    return f"runner:{runner}"
+
+
+def redact_sensitive_text(text: str) -> str:
+    redacted_lines: list[str] = []
+    for line in text.splitlines():
+        lowered = line.lower()
+        if any(marker in lowered for marker in SECRET_REDACTION_MARKERS):
+            redacted_lines.append("[redacted sensitive runner output]")
+        else:
+            redacted_lines.append(line)
+    return "\n".join(redacted_lines)
+
+
+def sanitize_text_file(path: Path) -> None:
+    if not path.exists() or not path.is_file():
+        return
+    text = path.read_text(encoding="utf-8", errors="replace")
+    redacted = redact_sensitive_text(text)
+    if redacted != text:
+        path.write_text(redacted + ("\n" if text.endswith("\n") else ""), encoding="utf-8")
+
+
+def runner_auth_blocked(stderr_text: str) -> bool:
+    lowered = stderr_text.lower()
+    return any(marker in lowered for marker in RUNNER_AUTH_FAILURE_MARKERS)
 
 
 def envelope_list(envelope: dict[str, Any], *keys: str) -> list[Any]:
@@ -712,6 +786,8 @@ class AgentHost:
         self.max_inflight = args.max_inflight
         self.hostname = platform.node()
         self.pid = os.getpid()
+        self.runner_status = self.detect_runner_status()
+        self.capabilities = self.capabilities_with_runners()
         self.work_root.mkdir(parents=True, exist_ok=True)
         self.artifact_root.mkdir(parents=True, exist_ok=True)
 
@@ -738,6 +814,37 @@ class AgentHost:
         assert last_exc is not None
         raise last_exc
 
+    def detect_runner_status(self) -> dict[str, dict[str, Any]]:
+        status: dict[str, dict[str, Any]] = {}
+        for runner in sorted(SUPPORTED_AI_RUNNERS):
+            try:
+                path = shutil.which(runner)
+            except RecursionError:
+                path = None
+            status[runner] = {
+                "status": "available" if path else "unavailable",
+                "path": path,
+                "checked_at": utc_now(),
+            }
+        return status
+
+    def capabilities_with_runners(self) -> list[str]:
+        capabilities = list(dict.fromkeys(self.capabilities))
+        for runner, state in self.runner_status.items():
+            if state.get("status") == "available":
+                cap = runner_capability(runner)
+                if cap not in capabilities:
+                    capabilities.append(cap)
+        return capabilities
+
+    def mark_runner_status(self, runner: str, status: str, error_type: str | None = None) -> None:
+        current = self.runner_status.setdefault(runner, {})
+        current.update({
+            "status": status,
+            "error_type": error_type,
+            "updated_at": utc_now(),
+        })
+
     def register(self) -> None:
         body = {
             "node_id": self.node_id,
@@ -745,6 +852,7 @@ class AgentHost:
             "agent_id": self.agent_id,
             "pid": self.pid,
             "capabilities": self.capabilities,
+            "runners": self.runner_status,
             **machine_stats(),
         }
         self.post("/v1/nodes/register", body)
@@ -756,6 +864,7 @@ class AgentHost:
             "agent_id": self.agent_id,
             "pid": self.pid,
             "capabilities": self.capabilities,
+            "runners": self.runner_status,
             "active_task": active_task,
             **machine_stats(),
         }
@@ -776,6 +885,7 @@ class AgentHost:
             "node_id": self.node_id,
             "agent_id": self.agent_id,
             "capabilities": self.capabilities,
+            "runners": self.runner_status,
         })
         return sanitize_task_permissions(task) if isinstance(task, dict) else task
 
@@ -976,6 +1086,55 @@ class AgentHost:
             raise RuntimeError(f"{empty_response_label} completed without text response")
         return response_text
 
+    def run_requested_ai_runner(
+        self,
+        runner: str,
+        prompt: str,
+        title: str,
+        worktree: Path,
+        stdout_path: Path,
+        stderr_path: Path,
+        task: dict[str, Any],
+        branch: str | None,
+        logs: dict[str, str],
+    ) -> str:
+        runner = runner.strip().lower()
+        if runner not in SUPPORTED_AI_RUNNERS:
+            raise RunnerExecutionError("runner_unavailable", runner, f"unsupported runner requested: {runner}")
+        executable = shutil.which(runner)
+        if not executable:
+            self.mark_runner_status(runner, "unavailable", "runner_unavailable")
+            raise RunnerExecutionError("runner_unavailable", runner, f"{runner} executable is not available on this node")
+
+        if runner == "codex":
+            command = [executable, "exec", "--json", "--skip-git-repo-check", "--sandbox", "danger-full-access", prompt]
+            command_label = f"{executable} exec --json --skip-git-repo-check --sandbox danger-full-access <prompt>"
+        else:
+            command = [executable, "run", "--format", "json", "--title", title, prompt]
+            command_label = f"{executable} run --format json --title {title} <prompt>"
+
+        try:
+            return self.run_json_text_command(
+                command,
+                command_label,
+                runner,
+                worktree,
+                stdout_path,
+                stderr_path,
+                task,
+                branch,
+                logs,
+            )
+        except RuntimeError as exc:
+            stderr_text = stderr_path.read_text(encoding="utf-8", errors="replace") if stderr_path.exists() else ""
+            auth_blocked = runner_auth_blocked(stderr_text) or runner_auth_blocked(str(exc))
+            sanitize_text_file(stdout_path)
+            sanitize_text_file(stderr_path)
+            if auth_blocked:
+                self.mark_runner_status(runner, "blocked", "runner_auth_blocked")
+                raise RunnerExecutionError("runner_auth_blocked", runner, f"{runner} auth blocked on this node") from exc
+            raise
+
     def prepare_backend_test_environment(
         self,
         task: dict[str, Any],
@@ -1157,44 +1316,23 @@ class AgentHost:
             f"Снимок фабрики JSON: {json.dumps(envelope.get('factory_snapshot') or {}, ensure_ascii=False, sort_keys=True)}\n"
             f"Сообщение владельца: {message}"
         )
-        runner = str(
+        runner = (
             os.environ.get("KOLIBRI_TELEGRAM_RUNNER")
             or os.environ.get("KOLIBRI_AI_RUNNER")
-            or envelope.get("runner")
+            or requested_runner_for_envelope(envelope, "mimo")
             or "mimo"
         ).strip().lower()
-        if runner == "codex":
-            codex = shutil.which("codex")
-            if not codex:
-                raise RuntimeError("codex executable is not available on this node")
-            response_text = self.run_json_text_command(
-                [codex, "exec", "--json", "--skip-git-repo-check", "--sandbox", "danger-full-access", prompt],
-                f"{codex} exec --json --skip-git-repo-check --sandbox danger-full-access <prompt>",
-                "codex",
-                worktree,
-                stdout_path,
-                stderr_path,
-                task,
-                None,
-                logs,
-            )
-        elif runner == "mimo":
-            mimo = shutil.which("mimo")
-            if not mimo:
-                raise RuntimeError("mimo executable is not available on this node")
-            response_text = self.run_json_text_command(
-                [mimo, "run", "--format", "json", "--title", f"telegram-chat-{task['task_id']}", prompt],
-                f"{mimo} run --format json --title telegram-chat-{task['task_id']} <prompt>",
-                "mimo",
-                worktree,
-                stdout_path,
-                stderr_path,
-                task,
-                None,
-                logs,
-            )
-        else:
-            raise RuntimeError(f"unsupported telegram runner: {runner}")
+        response_text = self.run_requested_ai_runner(
+            runner,
+            prompt,
+            f"telegram-chat-{task['task_id']}",
+            worktree,
+            stdout_path,
+            stderr_path,
+            task,
+            None,
+            logs,
+        )
         result = {
             "node_id": self.node_id,
             "hostname": self.hostname,
@@ -1209,6 +1347,52 @@ class AgentHost:
             "result_path": str(artifact_dir / "result.json"),
             "status": "completed",
             "kind": envelope.get("kind", "orchestrator_chat_response"),
+            "response": response_text,
+        }
+        result = self.finalize_result(task, result, artifact_dir, worktree, changed_files=[])
+        result_path = self.write_result(artifact_dir, result)
+        result["result_path"] = str(result_path)
+        return result
+
+    def run_owner_remote_task(self, task: dict[str, Any]) -> dict[str, Any]:
+        envelope = task.get("envelope", {})
+        prompt = (envelope.get("objective") or envelope.get("message") or "").strip()
+        if not prompt:
+            raise RuntimeError("owner_remote_task missing objective")
+        runner = requested_runner_for_envelope(envelope, "mimo") or "mimo"
+        if runner not in SUPPORTED_AI_RUNNERS:
+            raise RunnerExecutionError("runner_unavailable", runner, f"unsupported runner requested: {runner}")
+        worktree, artifact_dir, logs = self.prepare_dirs(task)
+        worktree.mkdir(parents=True, exist_ok=True)
+        stdout_path = Path(logs["stdout"])
+        stderr_path = Path(logs["stderr"])
+        self.task_heartbeat(task, worktree, envelope.get("branch"), logs)
+        response_text = self.run_requested_ai_runner(
+            runner,
+            prompt,
+            f"owner-task-{task['task_id']}",
+            worktree,
+            stdout_path,
+            stderr_path,
+            task,
+            envelope.get("branch"),
+            logs,
+        )
+        result = {
+            "node_id": self.node_id,
+            "hostname": self.hostname,
+            "task_id": task["task_id"],
+            "agent_id": self.agent_id,
+            "attempt_id": task.get("attempt_id"),
+            "pid": self.pid,
+            "heartbeat_at": utc_now(),
+            "worktree": str(worktree),
+            "branch": envelope.get("branch"),
+            "log_paths": logs,
+            "result_path": str(artifact_dir / "result.json"),
+            "status": "completed",
+            "kind": "owner_remote_task",
+            "runner": runner,
             "response": response_text,
         }
         result = self.finalize_result(task, result, artifact_dir, worktree, changed_files=[])
@@ -1776,6 +1960,8 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 result = self.run_impl_factory_smoke(task)
             elif kind == "impl_retry_error_clearance":
                 result = self.run_impl_retry_error_clearance(task)
+            elif kind == "owner_remote_task":
+                result = self.run_owner_remote_task(task)
             elif kind in {"telegram_chat_response", "orchestrator_chat_response"}:
                 result = self.run_telegram_chat_response(task)
             elif kind == "telegram_image_generation":
@@ -1813,14 +1999,29 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 "attempt_id": attempt_id,
                 "pid": self.pid,
                 "status": "failed",
-                "error": str(exc),
+                "error": redact_sensitive_text(str(exc)),
                 "completed_at": utc_now(),
                 "result_path": str(artifact_dir / "result.json"),
             }
+            if isinstance(exc, RunnerExecutionError):
+                result["status"] = "blocked"
+                result["runner"] = exc.runner
             result = finalize_runner_contract(task, result, artifact_dir, failure_reason=str(exc))
             result_path = self.write_result(artifact_dir, result)
             retry = int(task.get("attempt", 0)) < int(task.get("max_retries", 3))
-            if isinstance(exc, BackendTestEnvironmentError) or str(exc).startswith("backend_test_environment_failed:"):
+            if isinstance(exc, RunnerExecutionError):
+                error_type = exc.error_type
+                retry = False
+                result["status"] = "blocked"
+                result["blocked_reason"] = exc.error_type
+                result["failure_reason"] = redact_sensitive_text(str(exc))
+                result["next_recommended_task"] = (
+                    f"repair {exc.runner} auth on this node or route to another online node with {runner_capability(exc.runner)}"
+                    if exc.error_type == "runner_auth_blocked"
+                    else f"route to another online node with {runner_capability(exc.runner)} or install the requested runner"
+                )
+                result_path = self.write_result(artifact_dir, result)
+            elif isinstance(exc, BackendTestEnvironmentError) or str(exc).startswith("backend_test_environment_failed:"):
                 error_type = "backend_test_environment_failed"
                 retry = False
                 result["status"] = "blocked"
@@ -1835,7 +2036,7 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 result["next_recommended_task"] = "repair Agent Host git credentials, then rerun the review task"
                 result_path = self.write_result(artifact_dir, result)
                 retry = False
-            self.fail(task, error_type, str(exc), result, result_path, retry=retry)
+            self.fail(task, error_type, redact_sensitive_text(str(exc)), result, result_path, retry=retry)
 
     def loop(self) -> None:
         self.register()

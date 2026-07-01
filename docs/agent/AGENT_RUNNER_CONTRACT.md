@@ -395,17 +395,32 @@ access, disabled prompts, or SSH permission denial, the result must fail with
 `error_type: review_clone_auth_failed`, keep `required_artifacts_missing` empty,
 and recommend repairing the Agent Host git credentials before rerunning review.
 
-### Unsupported Task Kind
+### Owner Remote Task Requested Runner
 
-If the Agent Host receives an unsupported `kind`, it must return a structured
-blocked result and avoid product modifications:
+`owner_remote_task` is a supported task kind. The Agent Host must honor the
+requested `runner` exactly. A task with `runner: mimo` must invoke MIMO or fail
+with a structured runner result; it must not invoke Codex unless the task
+envelope carries an explicit, audited fallback policy. A task with
+`runner: codex` follows the same rule for Codex.
+
+Runner auth and availability failures must be classified without credential
+repair side effects:
 
 ```json
 {
   "status": "blocked",
   "kind": "owner_remote_task",
-  "changed_files": [],
-  "blocked_reason": "unsupported_task_kind:owner_remote_task",
-  "next_recommended_task": "enable a supported read-only runner for this task kind before resubmitting"
+  "runner": "mimo",
+  "blocked_reason": "runner_auth_blocked",
+  "next_recommended_task": "repair mimo auth on this node or route to another online node with runner:mimo"
 }
 ```
+
+Nodes that advertise `runner:<name>` but fail with `runner_auth_blocked` or
+`runner_unavailable` must be marked blocked or unavailable for that runner so
+future leases do not treat the node as a healthy path for that runner.
+
+### Unsupported Task Kind
+
+If the Agent Host receives an unsupported `kind`, it must return a structured
+blocked result and avoid product modifications.

@@ -234,6 +234,48 @@ def test_orchestrator_chat_envelope_carries_factory_snapshot():
     assert "фабрика уже работает?" in envelope["objective"]
 
 
+def test_chat_envelope_selects_only_online_runner_capable_fallback_node():
+    gateway = load_gateway()
+    message = {
+        "message_id": 455,
+        "chat": {"id": 100, "type": "private"},
+        "from": {"id": 100},
+        "text": "что в работе?",
+    }
+    snapshot = {
+        "nodes": [
+            {"node_id": "offline", "health": "offline", "capabilities": ["generic_implementation", "runner:codex"]},
+            {"node_id": "generic-only", "health": "online", "capabilities": ["generic_implementation"]},
+            {"node_id": "blocked", "health": "online", "capabilities": ["generic_implementation", "runner:codex"], "runners": {"codex": {"status": "blocked"}}},
+            {"node_id": "good", "health": "online", "capabilities": ["generic_implementation", "runner:codex"], "runners": {"codex": {"status": "available"}}},
+        ]
+    }
+
+    envelope = gateway.build_chat_envelope(message, message["text"], snapshot)
+
+    assert envelope["runner"] == "codex"
+    assert envelope["target_node"] == "good"
+
+
+def test_chat_envelope_omits_target_when_only_avoided_runner_node_matches():
+    gateway = load_gateway()
+    message = {
+        "message_id": 456,
+        "chat": {"id": 100, "type": "private"},
+        "from": {"id": 100},
+        "text": "что в работе?",
+    }
+    snapshot = {
+        "nodes": [
+            {"node_id": "good", "health": "online", "capabilities": ["generic_implementation", "runner:codex"], "runners": {"codex": {"status": "available"}}},
+        ]
+    }
+    envelope = gateway.build_chat_envelope(message, message["text"], snapshot)
+    envelope["avoid_nodes"] = ["good"]
+
+    assert gateway.select_runner_node(snapshot, envelope["runner"], envelope["avoid_nodes"]) is None
+
+
 def test_compact_factory_snapshot_has_director_and_team_cards():
     gateway = load_gateway()
 
@@ -572,7 +614,14 @@ def test_submit_chat_task_uses_remote_orchestrator_and_hides_intermediate_states
             }
 
         def nodes(self):
-            return {"nodes": [{"node_id": "home-live", "health": "online", "capabilities": ["generic_implementation"]}]}
+            return {
+                "nodes": [{
+                    "node_id": "home-live",
+                    "health": "online",
+                    "capabilities": ["generic_implementation", "runner:codex"],
+                    "runners": {"codex": {"status": "available"}},
+                }]
+            }
 
         def get_tasks(self):
             return {"tasks": [], "queue": []}
@@ -586,7 +635,7 @@ def test_submit_chat_task_uses_remote_orchestrator_and_hides_intermediate_states
     assert factory.envelopes
     assert factory.envelopes[0]["kind"] == "owner_remote_task"
     assert factory.envelopes[0]["runner"] == "codex"
-    assert factory.envelopes[0]["target_node"] == "primary-candidate"
+    assert factory.envelopes[0]["target_node"] == "home-live"
     assert telegram.actions == [(100, "typing")]
     assert telegram.messages
     assert telegram.messages[0][1] == "Смотрю состояние фабрики."

@@ -69,3 +69,38 @@ def test_orchestrator_roster_has_human_role_cards():
     assert engineer["name"] == "Инженер"
     assert reviewer["name"] == "Ревьюер"
     assert engineer["health"] == "online"
+
+
+def test_control_plane_runner_compatibility_filters_blocked_and_avoided_nodes():
+    control = load_module(ROOT / "ops" / "factory_control.py")
+    task = control.normalize_task({
+        "kind": "owner_remote_task",
+        "runner": "mimo",
+        "required_capability": "generic_implementation",
+        "avoid_nodes": ["avoid-me"],
+    })
+
+    assert control.compatible(
+        task,
+        "healthy",
+        ["generic_implementation", "runner:mimo"],
+        {"runners": {"mimo": {"status": "available"}}},
+    ) is True
+    assert control.compatible(
+        task,
+        "missing-runner-cap",
+        ["generic_implementation"],
+        {"runners": {"mimo": {"status": "available"}}},
+    ) is False
+    assert control.compatible(
+        task,
+        "blocked",
+        ["generic_implementation", "runner:mimo"],
+        {"runners": {"mimo": {"status": "blocked"}}},
+    ) is False
+    assert control.compatible(
+        task,
+        "avoid-me",
+        ["generic_implementation", "runner:mimo"],
+        {"runners": {"mimo": {"status": "available"}}},
+    ) is False
