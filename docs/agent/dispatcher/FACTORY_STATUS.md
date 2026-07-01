@@ -1,7 +1,7 @@
 # Factory Status
 
 Snapshot time:
-- 2026-07-01T02:52:16Z
+- 2026-07-01T03:19:55Z
 
 Mac executor:
 - Hostname: `MacBook-Air-Vladislav.local`
@@ -150,6 +150,13 @@ Submitted tasks:
 - Current P0 runner hardening estimate: about 96% done. Remaining work is to
   dispatch a micro cleanup for stale verifier-command assumptions and then
   convert PR #83 from draft when the owner approves merge/release policy.
+- `P0_PR83_VERIFIER_COMMAND_CLEANUP_PROOF_2026_07_01`: submitted at
+  `2026-07-01T03:19:16Z` through the fallback route
+  `Mac -> kolibri-primary-codex -> Control Plane`; leased by
+  `primary-candidate:agent-host-primary` with heartbeat
+  `2026-07-01T03:19:33Z`; current state `running`. This task is the narrow
+  proof for the corrected verifier commands and must not reference missing
+  `tests/test_agent_host.py`.
 
 Node snapshot through Control Plane:
 - Observed node cards: 42.
@@ -165,10 +172,9 @@ Node snapshot through Control Plane:
   until resource pressure is reviewed.
 - `main`: online; current free disk observed `7614488576` bytes; known
   Codex/MIMO runner auth is broken from prior task attempts.
-- `primary-candidate`: online; latest exact PR #83 cleanup task state is
-  `failed` in Control Plane due missing `NEXT.md` artifact, while PR #83 is
-  finalized, scope-clean, mergeable, and CI-green at head
-  `c837e93ee3bf9da3c07b806ebfc003f52b9ad8d5`.
+- `primary-candidate`: online; latest exact PR #83 verifier cleanup proof is
+  `running` on `primary-candidate:agent-host-primary`. PR #83 is currently
+  CI-green at head `8951a9feb4a44b8dd87a762d0da199257de1dae0`.
 - Many mesh cards are degraded/stale or metadata-only; they need inventory
   before broad execution.
 - Aggregate `/v1/tasks` response showed 200 queued tasks while the direct P0
