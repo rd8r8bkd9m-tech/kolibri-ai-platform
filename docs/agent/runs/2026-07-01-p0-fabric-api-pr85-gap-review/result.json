@@ -1,0 +1,29 @@
+{
+  "artifacts": [
+    "docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/PLAN.md",
+    "docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/ACTIONS.md",
+    "docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/TESTS.md",
+    "docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/RESULT.md",
+    "docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/NEXT.md",
+    "docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/FABRIC_PROMPT3_GAP_MATRIX.md",
+    "docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/PR85_RELEASE_OR_REPAIR_DECISION.md",
+    "docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/PR91_DEPENDENCY_CHECK.md"
+  ],
+  "blockers": [
+    "PR #85 is draft",
+    "Prompt #3 canonical API endpoints are missing or only documented",
+    "canonical request/response envelope validation is missing",
+    "admin/security gates need deny-by-default API contracts and tests",
+    "tests cover narrower /v1/fabric/* behavior only",
+    "PR #85 docs whitespace must be repaired"
+  ],
+  "next_task": "P0_PR85_PROMPT3_FABRIC_API_SURFACE_REPAIR_2026_07_01",
+  "node": "primary-candidate:agent-host-primary",
+  "pr85_branch_mutated": false,
+  "product_code_modified": false,
+  "release_decision": "repair_in_pr85",
+  "reviewer": "Алексей — Fabric API Reviewer",
+  "secrets_printed": false,
+  "status": "completed_with_repair_decision",
+  "task_id": "2026-07-01-p0-fabric-api-pr85-gap-review"
+}

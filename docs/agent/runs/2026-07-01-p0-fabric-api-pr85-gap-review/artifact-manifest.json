@@ -1,0 +1,17 @@
+{
+  "artifact_count": 8,
+  "artifact_paths": [
+    "docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/PLAN.md",
+    "docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/ACTIONS.md",
+    "docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/TESTS.md",
+    "docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/RESULT.md",
+    "docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/NEXT.md",
+    "docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/FABRIC_PROMPT3_GAP_MATRIX.md",
+    "docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/PR85_RELEASE_OR_REPAIR_DECISION.md",
+    "docs/agent/runs/2026-07-01-p0-fabric-api-pr85-gap-review/PR91_DEPENDENCY_CHECK.md"
+  ],
+  "next_task": "P0_PR85_PROMPT3_FABRIC_API_SURFACE_REPAIR_2026_07_01",
+  "release_decision": "repair_in_pr85",
+  "status": "completed_with_repair_decision",
+  "task_id": "2026-07-01-p0-fabric-api-pr85-gap-review"
+}
