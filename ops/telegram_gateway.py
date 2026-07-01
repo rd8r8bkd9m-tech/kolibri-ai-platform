@@ -37,6 +37,7 @@ from orchestrator_memory import (
 
 
 STOP = False
+DELIVERY_STATE_MUTATION_METHODS = frozenset({"deleteWebhook", "setWebhook", "logOut", "close"})
 SIGNIFICANT_STATES = {
     "queued": "QUEUED",
     "leased": "RUNNING",
@@ -265,13 +266,21 @@ def json_request(method: str, url: str, body: dict[str, Any] | None = None, time
 
 
 class TelegramClient:
-    def __init__(self, token: str, api_base: str = "https://api.telegram.org"):
+    def __init__(
+        self,
+        token: str,
+        api_base: str = "https://api.telegram.org",
+        allow_delivery_state_mutation: bool = False,
+    ):
         if not token:
             raise ValueError("Telegram token is required")
         self.api_base = api_base.rstrip("/")
         self.base_url = f"{self.api_base}/bot{token}"
+        self.allow_delivery_state_mutation = allow_delivery_state_mutation
 
     def call(self, method: str, payload: dict[str, Any] | None = None, timeout: int = 35) -> dict[str, Any]:
+        if method in DELIVERY_STATE_MUTATION_METHODS and not self.allow_delivery_state_mutation:
+            raise RuntimeError(f"telegram delivery-state mutation is not allowed from gateway startup: {method}")
         data = urllib.parse.urlencode(payload or {}).encode("utf-8")
         req = urllib.request.Request(f"{self.base_url}/{method}", data=data, method="POST")
         with urllib.request.urlopen(req, timeout=timeout) as resp:
