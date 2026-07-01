@@ -59,6 +59,47 @@ Fabric API / Control Plane.
 - Bot platform developer terms: https://telegram.org/tos/bot-developers
 - AI bot platform update: https://telegram.org/blog/ai-bot-revolution-11-new-features
 
+## Latest Official Refresh On 2026-07-01
+
+Checked against official Telegram sources on 2026-07-01:
+
+- Bot API latest public changelog entry found: Bot API 10.1, 2026-06-11.
+  Source: https://core.telegram.org/bots/api
+- Telegram's 2026-06-11 product update confirms rich text for bots, AI
+  guardians for groups, poll links, `.md` file opening and in-app browser link
+  routing. Source: https://telegram.org/blog/watch-apps-and-more
+- Telegram's 2026-05-07 product update confirms guest AI bots, bot-to-bot
+  chats, text streaming from bots and chat automation through connected bots.
+  Source: https://telegram.org/blog/ai-bot-revolution-11-new-features
+- Telegram's 2026-03-31 product update confirms AI text editor, expanded polls,
+  live/motion photos and managed bots. Source:
+  https://telegram.org/blog/ai-editor-mighty-polls-and-more
+- Telegram Login now includes OIDC / Authorization Code Flow with PKCE, allowed
+  URLs configured through BotFather, server-side ID token validation and native
+  SDK options. Source: https://core.telegram.org/bots/telegram-login
+- Telegram Mini Apps remain the correct primary mobile UI surface: they support
+  main/profile launch, menu button launch, direct links with `startapp`,
+  inline launches, server-side `initData` validation, theme/safe-area APIs,
+  fullscreen, local/secure storage, biometrics, sensors, location, QR scanning,
+  invoices and file/download flows. Source:
+  https://core.telegram.org/bots/webapps
+- Telegram Bot Platform Developer Terms and the standard bot privacy policy are
+  mandatory context before enabling Business, Guest, Bot-to-Bot, payments,
+  public outreach, managed bots or customer-facing automation.
+
+Practical Kolibri interpretation:
+
+- Telegram should become the owner-facing command layer and mobile observation
+  surface, not the source of truth for code, secrets or destructive admin state.
+- The first Kolibri Telegram product must stay on Bot API + Mini App +
+  server-side auth + Fabric API dispatch.
+- Business/Guest/Bot-to-Bot/Managed Bots/Stars are powerful, but each one needs
+  a separate policy PR, threat model, loop prevention, rate limits, audit logs
+  and explicit owner approval before production activation.
+- Rich Messages and streaming drafts are now important enough to become a
+  planned reporting adapter: Control Plane events should be normalized once and
+  rendered both in the Mini App and in Telegram rich/plain fallback messages.
+
 ## 1. Telegram API Families
 
 Telegram officially exposes several families of capabilities:
