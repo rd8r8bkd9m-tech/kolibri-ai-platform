@@ -1,7 +1,7 @@
 # Factory Status
 
 Snapshot time:
-- 2026-07-01T02:41:03Z
+- 2026-07-01T02:44:50Z
 
 Mac executor:
 - Hostname: `MacBook-Air-Vladislav.local`
@@ -114,13 +114,17 @@ Submitted tasks:
   `success`.
 - `P0_PR83_SCOPE_CLEANUP_REMOVE_SUPERFACTORY_OVERLAP_2026_07_01`: submitted
   at `2026-07-01T02:40:15Z` through the fallback route
-  `Mac -> kolibri-primary-codex -> Control Plane`; leased by
-  `primary-candidate:agent-host-primary` with fresh heartbeat at
-  `2026-07-01T02:41:03Z`; current state `running`. Artifact root:
+  `Mac -> kolibri-primary-codex -> Control Plane`; final Control Plane state
+  `failed` at `2026-07-01T02:44:50Z` because the wrapper expected
+  `docs/agent/runs/2026-07-01-p0-pr83-scope-cleanup-remove-superfactory-overlap/NEXT.md`.
+  Artifact root:
   `/var/lib/kolibri-agent/artifacts/P0_PR83_SCOPE_CLEANUP_REMOVE_SUPERFACTORY_OVERLAP_2026_07_01/P0_PR83_SCOPE_CLEANUP_REMOVE_SUPERFACTORY_OVERLAP_2026_07_01-attempt-1/`.
-  The task removes unrelated `docs/superfactory/00_README.md`,
-  `docs/superfactory/20_ROADMAP.md`, and `docs/superfactory/TASKS.md` from
-  PR #83 so runner hardening remains a single-purpose PR.
+- Useful remote result: PR #83 branch now points to
+  `c837e93ee3bf9da3c07b806ebfc003f52b9ad8d5`; unrelated
+  `docs/superfactory/00_README.md`, `docs/superfactory/20_ROADMAP.md`, and
+  `docs/superfactory/TASKS.md` were removed from the PR diff; focused runner
+  contract test reported `15 passed`; GitHub Actions `Kolibri CI` run
+  `28489876130` completed with conclusion `success`.
 
 Node snapshot through Control Plane:
 - Observed node cards: 42.
@@ -136,11 +140,10 @@ Node snapshot through Control Plane:
   until resource pressure is reviewed.
 - `main`: online; current free disk observed `7614488576` bytes; known
   Codex/MIMO runner auth is broken from prior task attempts.
-- `primary-candidate`: online; latest exact P0 runner-hardening task state is
-  `failed` in Control Plane due verifier path mismatch, while PR #83 is
-  finalized and CI-green at head
-  `8b156572217cc646fc0e0fb779dbb1ecc37f1561`. The PR #83 merge-readiness
-  audit failed only at wrapper artifact verification after pushing that head.
+- `primary-candidate`: online; latest exact PR #83 cleanup task state is
+  `failed` in Control Plane due missing `NEXT.md` artifact, while PR #83 is
+  finalized, scope-clean, mergeable, and CI-green at head
+  `c837e93ee3bf9da3c07b806ebfc003f52b9ad8d5`.
 - Many mesh cards are degraded/stale or metadata-only; they need inventory
   before broad execution.
 - Aggregate `/v1/tasks` response showed 200 queued tasks while the direct P0
