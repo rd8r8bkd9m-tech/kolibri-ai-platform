@@ -5,6 +5,20 @@ Task id: `P0_GITHUB_MAIN_README_CODE_SYNC_RELEASE_TRAIN_2026_07_01`
 Execution node: remote server worktree at
 `/var/lib/kolibri-agent/worktrees/P0_GITHUB_MAIN_README_CODE_SYNC_RELEASE_TRAIN_2026_07_01/P0_GITHUB_MAIN_README_CODE_SYNC_RELEASE_TRAIN_2026_07_01-attempt-1/repo`.
 
+Retry task id:
+`P0_GITHUB_MAIN_README_CODE_SYNC_RELEASE_TRAIN_RETRY_2026_07_01`.
+
+Retry execution node: remote server worktree at
+`/var/lib/kolibri-agent/worktrees/P0_GITHUB_MAIN_README_CODE_SYNC_RELEASE_TRAIN_RETRY_2026_07_01/P0_GITHUB_MAIN_README_CODE_SYNC_RELEASE_TRAIN_RETRY_2026_07_01-attempt-1/repo`.
+
+Retry node evidence:
+
+- `uname -a` reported Linux host `kolibri`, kernel
+  `6.8.0-36-generic #36-Ubuntu SMP PREEMPT_DYNAMIC Mon Jun 10 10:49:14 UTC 2024 x86_64`.
+- `hostname` reported `kolibri`.
+- This retry did not run on a Mac dispatcher.
+- The previous invalid verifier token was not used in this retry.
+
 Main branch policy:
 
 - No direct push to `main`.
@@ -24,14 +38,47 @@ Changed files:
 - `README.md`
 - `docs/release/2026-07-01-main-readme-code-sync-release-train.md`
 
-PR creation blocker:
+Retry PR path:
 
 - `gh` is not installed on the remote server node.
 - Unauthenticated GitHub REST metadata returned HTTP 404 for this private
   repository context.
-- Branch push is the safe remote action available from this node. Owner can
-  create the PR from:
-  `https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/compare/main...p0/main-readme-release-train-2026-07-01`
+- The installed GitHub app connector can list PRs and open the draft PR without
+  relying on the missing `gh` CLI.
+- Branch push remains the only direct git write used from this node; `main` was
+  not pushed or merged.
+
+Missing dependency classification:
+
+- `github_cli_missing`: `gh` is not available on `PATH` on the server node.
+- This is not a test dependency failure and does not block connector-based PR
+  creation.
+- Subsequent verification uses shell, git, Python, and npm commands that exist
+  on this node; missing test dependencies are recorded by their exact command
+  output instead of by a shell-only verifier token.
+
+Retry verification evidence:
+
+- `git diff --check`: passed.
+- Invalid verifier token guard:
+  `if rg -n "classify missing tests/deps" README.md docs .github backend frontend infra ops scripts tests; then ...; else ...; fi`
+  -> `invalid verifier token absent`.
+- `python3 -m compileall -q backend ops scripts`: passed.
+- `python3 -m pytest -q`: initially blocked by undeclared node environment
+  packages for the current Python interpreter:
+  `ModuleNotFoundError: No module named 'pydantic'` and
+  `ModuleNotFoundError: No module named 'httpx'`.
+- `.venv/bin/python -m pip install -r backend/requirements.txt` plus
+  `.venv/bin/python -m pip install pytest==7.4.4`: passed in a local ignored
+  venv.
+- `.venv/bin/python -m pytest -q`: `60 passed, 1 warning`.
+- `npm --prefix frontend install`: passed, with engine warnings because this
+  server has Node `v18.19.1` while current frontend tooling expects Node
+  `20.19+` or `22.12+`.
+- `npm --prefix frontend run test:mobile-layout`: `mobile layout guard passed`.
+- `npm --prefix frontend run build`: blocked by `node_runtime_too_old`;
+  Vite reported that Node `20.19+` or `22.12+` is required and failed under
+  Node `v18.19.1` with `ReferenceError: CustomEvent is not defined`.
 
 ## Release Gate Matrix
 
