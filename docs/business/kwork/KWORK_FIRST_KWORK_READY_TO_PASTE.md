@@ -47,7 +47,7 @@ Alternative:
 
 ### Base
 
-Price: 15 000 RUB
+Price: 7 000 RUB
 Delivery: 3 days
 
 Included:
@@ -57,10 +57,11 @@ Included:
 - простой сбор заявки;
 - инструкция по проверке;
 - 1 small revision.
+- no custom CRM/API integration.
 
 ### Standard
 
-Price: 30 000 RUB
+Price: 18 000 RUB
 Delivery: 5 days
 
 Included:
@@ -74,7 +75,7 @@ Included:
 
 ### Premium
 
-Price: 60 000 RUB
+Price: 45 000 RUB
 Delivery: 7 days
 
 Included:

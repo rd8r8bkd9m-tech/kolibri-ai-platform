@@ -1,6 +1,6 @@
 # Kwork Price Packages 2026-07-01
 
-Status: draft until live Kwork competitor prices are inspected by Мария in the logged-in UI.
+Status: live Kwork competitor scan started by Мария on 2026-07-01.
 
 Purpose: publish focused starter packages that are small enough for a low-review account and still leave room for paid scope expansion inside Kwork.
 
@@ -16,19 +16,19 @@ Purpose: publish focused starter packages that are small enough for a low-review
 
 Starter:
 
-- price: 8 000-15 000 RUB;
+- price: 7 000-12 000 RUB;
 - term: 2-4 days;
 - scope: one core scenario, commands/buttons, simple FAQ or AI response block, test launch instruction.
 
 Standard:
 
-- price: 18 000-35 000 RUB;
+- price: 18 000-30 000 RUB;
 - term: 4-7 days;
 - scope: several scenarios, lead form, admin notification, basic storage, AI prompt rules, handoff text.
 
 Advanced:
 
-- price: 45 000-90 000 RUB;
+- price: 40 000-70 000 RUB;
 - term: 7-14 days;
 - scope: integrations, database, roles, richer AI logic, deployment instructions and extended testing.
 
@@ -112,7 +112,44 @@ Advanced:
 - term: 7-14 days;
 - scope: deeper refactor, API fixes, deployment repair and monitoring handoff.
 
-## Live Analysis Required
+## Live Analysis
+
+Scan time: 2026-07-01.
+
+Kwork search/category evidence:
+
+- `https://kwork.ru/script-programming/51084736/sozdam-telegram-bota-s-ai-dlya-vashego-biznesa` - Telegram bot with AI, visible order price 2 500 RUB.
+- `https://kwork.ru/script-programming/49692013/sdelayu-ii-bota-chatgpt-openai-dlya-telegram-na-python` - ChatGPT/OpenAI Telegram bot, visible similar/related price signal around 20 000 RUB.
+- `https://kwork.ru/script-programming/49761832/sozdam-telegram-bota-s-chatgpt-ot-2000-za-3-dnya` - ChatGPT Telegram bot, visible order price 2 500 RUB and related price signal around 7 000 RUB.
+- `https://kwork.ru/script-programming/49993978/telegram-bot-s-chatgpt-pod-klyuch-voronka-podderzhka-zapis-klientov` - ChatGPT Telegram bot for funnel/support/booking, visible price signal 3 000 RUB.
+- `https://kwork.ru/user/sergiodev` - profile with Telegram bot repair at 4 500 RUB, AI Telegram bot at 2 000 RUB, and another AI bot offer at 500 RUB.
+- `https://kwork.ru/user/alextyt` - profile with Telegram bot under-key visible at 1 000 RUB.
+- `https://kwork.ru/script-programming/45384851/chat-bot-dlya-prodazhi-kursov-bez-vashego-uchastiya-v-telegram-vk` - course-sale chatbot, visible order price 10 000 RUB.
+- `https://kwork.ru/script-programming/48608447/golosovoy-ai-agent-dlya-vashego-biznesa-ivr-avtootvetchik` - voice AI agent, visible order price 12 000 RUB.
+- `https://kwork.ru/categories/script-programming/ii-agenty` - Kwork category page with visible AI-agent examples around 10 000 and 13 000 RUB.
+- `https://kwork.ru/script-programming/48170504/telegram-bot-pod-klyuch-ot-idei-do-rabotayushchego-pomoshchnika` - Telegram bot under-key, visible price signal 25 000 RUB.
+
+Current market read:
+
+- observed low visible price: 500-3 000 RUB for very small or heavily competing bot offers;
+- observed practical entry band: 5 000-13 000 RUB for AI/Telegram bot and AI-agent offers;
+- observed stronger under-key band: 20 000-25 000+ RUB;
+- high trust sellers can sell broader scope; `kolibrinano` should start narrower because the account has one negative public review and low social proof.
+
+Recommended first public package for Telegram AI bot:
+
+```text
+direction: Telegram AI bot for leads/FAQ
+search_url: https://kwork.ru/categories/script-programming/ii-agenty and comparable Kwork offer pages above
+competitors_checked: 10
+observed_min_price: 500 RUB
+observed_median_visible_price: roughly 7 000-10 000 RUB from visible Kwork snippets/pages
+observed_high_price: 25 000+ RUB for under-key Telegram bot offers
+recommended_start_price: 7 000 RUB
+notes: publish a narrow starter scope, avoid broad "any complexity" claims, and move extra integrations into Standard/Premium or paid add-ons inside Kwork.
+```
+
+## Live Analysis Required For Remaining Directions
 
 Мария must validate these ranges against current Kwork listings before publishing final package prices:
 
