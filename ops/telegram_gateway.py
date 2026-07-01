@@ -428,6 +428,7 @@ def compact_factory_snapshot(factory: FactoryClient) -> dict[str, Any]:
                 "node_id": node.get("node_id"),
                 "health": node.get("health"),
                 "capabilities": node.get("capabilities", []),
+                "runners": node.get("runners", {}),
                 "draining": bool(node.get("draining")),
                 "heartbeat_at": node.get("heartbeat_at"),
                 "freshness": node.get("freshness"),
@@ -460,6 +461,34 @@ def compact_factory_snapshot(factory: FactoryClient) -> dict[str, Any]:
     except Exception as exc:
         snapshot["warnings"].append(f"tasks_unavailable:{type(exc).__name__}")
     return snapshot
+
+
+def runner_capability_names(runner: str) -> set[str]:
+    return {f"runner:{runner}", f"runner_{runner}", f"{runner}_runner"}
+
+
+def runner_node_available(node: dict[str, Any], runner: str) -> bool:
+    if node.get("health") != "online" or node.get("draining"):
+        return False
+    capabilities = set(node.get("capabilities") or [])
+    if not runner_capability_names(runner).intersection(capabilities):
+        return False
+    runners = node.get("runners") if isinstance(node.get("runners"), dict) else {}
+    state = runners.get(runner)
+    if isinstance(state, dict):
+        state = state.get("status")
+    if str(state or "available").strip().lower() in {"blocked", "degraded", "runner_auth_blocked", "unavailable"}:
+        return False
+    return True
+
+
+def select_runner_node(snapshot: dict[str, Any], runner: str, avoided: list[str] | None = None) -> str | None:
+    avoided_set = set(avoided or [])
+    for node in snapshot.get("nodes") or []:
+        node_id = node.get("node_id")
+        if node_id and node_id not in avoided_set and runner_node_available(node, runner):
+            return str(node_id)
+    return None
 
 
 def build_task_envelope(message: dict[str, Any], text: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -500,6 +529,7 @@ def build_task_envelope(message: dict[str, Any], text: str, context: dict[str, A
 def build_chat_envelope(message: dict[str, Any], text: str, snapshot: dict[str, Any] | None = None) -> dict[str, Any]:
     task_id = chat_task_id_from_message(message)
     context = snapshot or {}
+    runner = os.environ.get("TELEGRAM_CHAT_RUNNER", "codex")
     objective = (
         "Сгенерируй живой короткий ответ владельцу проекта в Telegram. "
         "Отвечай как директор-оркестратор проекта: естественно, по-русски, без заготовок, без markdown, "
@@ -517,7 +547,7 @@ def build_chat_envelope(message: dict[str, Any], text: str, snapshot: dict[str, 
         "max_retries": 1,
         "message": text,
         "objective": objective,
-        "runner": os.environ.get("TELEGRAM_CHAT_RUNNER", "codex"),
+        "runner": runner,
         "factory_snapshot": context,
         "source": {
             "kind": "telegram",
@@ -527,7 +557,11 @@ def build_chat_envelope(message: dict[str, Any], text: str, snapshot: dict[str, 
             "accepted_at": utc_now(),
         },
     }
-    target_node = os.environ.get("TELEGRAM_CHAT_NODE", "primary-candidate")
+    target_node = os.environ.get("TELEGRAM_CHAT_NODE")
+    if not target_node and context.get("nodes"):
+        target_node = select_runner_node(context, runner, envelope.get("avoid_nodes"))
+    if not target_node and not context.get("nodes"):
+        target_node = "primary-candidate"
     if target_node:
         envelope["target_node"] = target_node
     return envelope

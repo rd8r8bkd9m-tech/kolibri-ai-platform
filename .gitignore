@@ -6,6 +6,9 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+backend-test-env/
+declared-backend-test-env/
+.kolibri-backend-test-env/
 *.db
 *.sqlite
 *.gguf

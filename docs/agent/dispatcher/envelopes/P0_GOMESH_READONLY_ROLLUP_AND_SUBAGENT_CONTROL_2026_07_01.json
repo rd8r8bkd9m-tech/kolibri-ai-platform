@@ -1,0 +1,96 @@
+{
+  "task_id": "P0_GOMESH_READONLY_ROLLUP_AND_SUBAGENT_CONTROL_2026_07_01",
+  "idempotency_key": "mac-dispatcher:P0_GOMESH_READONLY_ROLLUP_AND_SUBAGENT_CONTROL_2026_07_01",
+  "kind": "owner_remote_task",
+  "priority": "P0",
+  "required_capability": "read_only_probe",
+  "runner": "codex",
+  "agent_type": "gomesh_safety_supervisor",
+  "agent_display_name": "Николай — GoMesh Safety Supervisor",
+  "target_node": "primary-candidate",
+  "target_node_pool": "gomesh_primary_candidate",
+  "preferred_nodes": [
+    "primary-candidate"
+  ],
+  "allowed_nodes": [
+    "primary-candidate"
+  ],
+  "max_retries": 1,
+  "goal": "Keep the active Kolibri GoMesh Codex subagent under owner policy control and produce a read-only GoMesh rollout/speed-gate status rollup without changing product code or runtime services.",
+  "objective": "On primary-candidate, inspect the active GoMesh worktree /opt/kolibri/repo on branch codex/gomesh-docs-rollout-safety. Do not modify files. Do not checkout or clean the dirty tree. Summarize current GoMesh artifacts, current speed-gate evidence, blockers, rollback references, branch/dirty risks, and the next exact canary/speed-gate task.",
+  "context": {
+    "direct_codex_ack_session": "019f1e84-048d-74e1-9f80-079c960898c1",
+    "direct_ack_agent": "Николай",
+    "direct_ack_node": "primary-candidate / Primorye",
+    "direct_ack_cwd": "/opt/kolibri/repo",
+    "direct_ack_branch": "codex/gomesh-docs-rollout-safety",
+    "direct_ack_dirty_summary": "modified=105 deleted=3 untracked=375",
+    "direct_ack_next_safe_task_alias": "GOMESH-READONLY-ROLLUP-20260701"
+  },
+  "constraints": {
+    "server_execution_required": true,
+    "mac_implementation_forbidden": true,
+    "read_only": true,
+    "product_code_modification_forbidden": true,
+    "runtime_service_restart_forbidden": true,
+    "deployment_forbidden": true,
+    "git_push_forbidden": true,
+    "push_to_main_forbidden": true,
+    "force_push_forbidden": true,
+    "destructive_git_commands_forbidden": true,
+    "git_reset_forbidden": true,
+    "git_clean_forbidden": true,
+    "dirty_worktree_checkout_forbidden": true,
+    "secrets_redaction_required": true,
+    "psk_redaction_required": true,
+    "heavy_tests_forbidden": true,
+    "do_not_print_env_values": true,
+    "do_not_mix_unrelated_subsystems": true
+  },
+  "read_first": [
+    "/root/.codex/skills/kolibri-gomesh-gateway/SKILL.md",
+    "/root/.codex/skills/kolibri-gomesh-gateway/references/architecture.md",
+    "/opt/kolibri/repo/.factory/MASTER_DIRECTIVE.md",
+    "/opt/kolibri/repo/docs/kolibri-gomesh-home-gateway-runbook.md",
+    "/opt/kolibri/repo/docs/kolibri-gomesh-current-state.md",
+    "/opt/kolibri/repo/docs/kolibri-vpn-protocol-v0.md"
+  ],
+  "safe_commands_only": [
+    "pwd",
+    "hostname",
+    "git branch --show-current",
+    "git status --short --branch --untracked-files=no",
+    "git status --porcelain=v1 | summarize counts only",
+    "find .run -maxdepth 4 -iname '*gomesh*' -printf '%TY-%Tm-%Td %TH:%TM %p\\n' | sort -r | head -60",
+    "read GoMesh report files only after redacting PSK/token/secret/cookie/password/key/env-like values"
+  ],
+  "required_report_sections": [
+    "STATUS",
+    "NODE",
+    "CWD_AND_BRANCH",
+    "DIRTY_TREE_RISK",
+    "LATEST_GOMESH_ARTIFACTS",
+    "CURRENT_SPEED_GATE_EVIDENCE",
+    "ROLLBACK_REFERENCES",
+    "BLOCKERS",
+    "NEXT_SAFE_TASK_ID",
+    "WHAT_NOT_TO_MIX_IN_ONE_PR",
+    "OWNER_VISIBLE_SUMMARY_RU"
+  ],
+  "acceptance": [
+    "Remote execution happens on primary-candidate or returns a structured blocker.",
+    "No product code, repo files, runtime services, git refs or dirty worktree state are modified.",
+    "No secrets, PSKs, tokens, cookies or env values are printed.",
+    "The report confirms branch and dirty summary.",
+    "The report classifies whether the GoMesh 300+ Mbps speed gate is passed, failed or unknown using current evidence.",
+    "The report lists rollback references by path/name only, not secret content.",
+    "The report provides one exact next safe task_id for canary/speed-gate work.",
+    "The report says explicitly that Factory/frontend/backend/Telegram/FormulaLM/GoMesh must not be mixed in one PR."
+  ],
+  "source": {
+    "kind": "mac_thin_client_dispatcher",
+    "owner": "Vladislav",
+    "created_at": "2026-07-01T19:36:00+03:00",
+    "local_ledger": "docs/agent/dispatcher/DISPATCH_LOG.md"
+  }
+}

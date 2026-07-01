@@ -40,6 +40,7 @@ STATE_CANCELLED = "cancelled"
 STATE_RETRY = "retry_scheduled"
 STATE_DEAD = "dead_letter"
 TERMINAL_STATES = {STATE_COMPLETED, STATE_FAILED, STATE_CANCELLED, STATE_DEAD}
+BLOCKED_RUNNER_STATES = {"blocked", "degraded", "runner_auth_blocked", "unavailable"}
 
 
 def utc_now() -> str:
@@ -235,7 +236,65 @@ def normalize_task(envelope: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def compatible(task: dict[str, Any], node_id: str, capabilities: list[str]) -> bool:
+def ensure_list(value: Any) -> list[Any]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    return [value]
+
+
+def runner_capability_names(runner: str) -> set[str]:
+    return {f"runner:{runner}", f"runner_{runner}", f"{runner}_runner"}
+
+
+def runner_state(node: dict[str, Any], runner: str) -> str | None:
+    runners = node.get("runners")
+    if isinstance(runners, dict):
+        value = runners.get(runner)
+        if isinstance(value, dict):
+            state = value.get("status")
+            return str(state).strip().lower() if state is not None else None
+        if isinstance(value, str):
+            return value.strip().lower()
+    runner_status = node.get("runner_status")
+    if isinstance(runner_status, dict):
+        value = runner_status.get(runner)
+        if isinstance(value, dict):
+            state = value.get("status")
+            return str(state).strip().lower() if state is not None else None
+        if isinstance(value, str):
+            return value.strip().lower()
+    return None
+
+
+def mark_node_runner_failure(task: dict[str, Any], body: dict[str, Any]) -> None:
+    error_type = body.get("error_type")
+    if error_type not in {"runner_auth_blocked", "runner_unavailable"}:
+        return
+    result = body.get("result") if isinstance(body.get("result"), dict) else {}
+    envelope = task.get("envelope", {})
+    runner = result.get("runner") or envelope.get("runner")
+    if not runner:
+        return
+    lease_owner = str(task.get("lease_owner") or "")
+    node_id = lease_owner.split(":", 1)[0] if lease_owner else None
+    if not node_id:
+        return
+    node = get_json(node_key(node_id), {"node_id": node_id})
+    runners = node.get("runners") if isinstance(node.get("runners"), dict) else {}
+    runners[str(runner)] = {
+        "status": "blocked" if error_type == "runner_auth_blocked" else "unavailable",
+        "error_type": error_type,
+        "updated_at": utc_now(),
+    }
+    node["runners"] = runners
+    set_json(node_key(node_id), node)
+
+
+def compatible(task: dict[str, Any], node_id: str, capabilities: list[str], node: dict[str, Any] | None = None) -> bool:
     envelope = task.get("envelope", {})
     target_node = envelope.get("target_node") or envelope.get("required_node")
     if target_node and target_node != node_id:
@@ -243,9 +302,19 @@ def compatible(task: dict[str, Any], node_id: str, capabilities: list[str]) -> b
     allowed = envelope.get("allowed_nodes")
     if allowed and node_id not in allowed:
         return False
+    avoided = set(str(item) for item in ensure_list(envelope.get("avoid_nodes") or envelope.get("avoided_nodes")))
+    if node_id in avoided:
+        return False
     required = envelope.get("required_capability")
     if required and required not in capabilities:
         return False
+    runner = str(envelope.get("runner") or "").strip().lower()
+    if envelope.get("kind") == "owner_remote_task" and runner:
+        if not runner_capability_names(runner).intersection(set(capabilities)):
+            return False
+        node_state = runner_state(node or {}, runner)
+        if node_state in BLOCKED_RUNNER_STATES:
+            return False
     return True
 
 
@@ -386,6 +455,7 @@ class Handler(BaseHTTPRequestHandler):
                     "node_id": node_id,
                     "hostname": body.get("hostname"),
                     "capabilities": body.get("capabilities", []),
+                    "runners": body.get("runners", {}),
                     "health": "online",
                     "heartbeat_at": utc_now(),
                     "pid": body.get("pid"),
@@ -429,12 +499,16 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 capabilities = body.get("capabilities", [])
                 agent_id = body.get("agent_id", node_id)
+                node = get_json(node_key(node_id), {"node_id": node_id, "capabilities": capabilities})
+                if isinstance(body.get("runners"), dict):
+                    node["runners"] = body["runners"]
+                    set_json(node_key(node_id), node)
                 for task_id in queue_ids():
                     task = load_task(task_id)
                     if not task or task.get("state") not in {STATE_QUEUED, STATE_REVIEW}:
                         remove_from_queue(task_id)
                         continue
-                    if not compatible(task, node_id, capabilities):
+                    if not compatible(task, node_id, capabilities, node):
                         continue
                     remove_from_queue(task_id)
                     task["state"] = STATE_LEASED
@@ -514,6 +588,7 @@ class Handler(BaseHTTPRequestHandler):
                 task["result"] = body.get("result")
                 task["result_reference"] = body.get("result_reference")
                 task["lease_until"] = None
+                mark_node_runner_failure(task, body)
                 if int(task.get("attempt", 0)) < int(task.get("max_retries", MAX_RETRIES)) and body.get("retry", True):
                     task["state"] = STATE_RETRY
                     save_task(task)
