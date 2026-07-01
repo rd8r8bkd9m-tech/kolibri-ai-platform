@@ -1,9 +1,19 @@
 # Factory Status
 
 Snapshot time:
-- 2026-07-01T06:26:31Z
+- 2026-07-01T06:31:00Z
 
 Latest update:
+- 2026-07-01T06:31:00Z:
+  `P0_TELEGRAM_FACTORY_COMMAND_CENTER_SPEC_AND_RUNTIME_GAP_AUDIT_2026_07_01`
+  finished as `failed` in Control Plane, and that status is correct. The
+  remote agent produced useful docs, but wrote them to non-contract paths
+  (`docs/telegram-*` and `artifacts/...`) while the envelope required
+  `docs/product/telegram-command-center/2026-07-01/*` and exact run artifacts.
+  The dispatcher imported the useful remote docs as a deterministic
+  thin-client relay under the exact paths. No product code, runtime service,
+  backend/frontend implementation, tests, GitHub Actions or live Telegram state
+  was changed by the relay.
 - 2026-07-01T06:26:31Z:
   `P0_TELEGRAM_FACTORY_COMMAND_CENTER_SPEC_AND_RUNTIME_GAP_AUDIT_2026_07_01`
   is running on `primary-candidate:agent-host-primary`. Control Plane accepted
