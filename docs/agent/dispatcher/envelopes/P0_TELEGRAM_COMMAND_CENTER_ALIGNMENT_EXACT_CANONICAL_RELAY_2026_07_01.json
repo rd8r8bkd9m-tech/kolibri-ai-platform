@@ -1,0 +1,135 @@
+{
+  "task_id": "P0_TELEGRAM_COMMAND_CENTER_ALIGNMENT_EXACT_CANONICAL_RELAY_2026_07_01",
+  "idempotency_key": "mac-dispatcher:P0_TELEGRAM_COMMAND_CENTER_ALIGNMENT_EXACT_CANONICAL_RELAY_2026_07_01",
+  "kind": "owner_remote_task",
+  "required_capability": "generic_implementation",
+  "runner": "codex",
+  "agent_type": "telegram_exact_canonical_artifact_relay",
+  "agent_display_name": "Иван — Telegram Platform Architect",
+  "target_node": "primary-candidate",
+  "target_node_pool": "healthy server documentation nodes",
+  "preferred_nodes": [
+    "primary-candidate",
+    "home",
+    "home-live"
+  ],
+  "allowed_nodes": [
+    "primary-candidate",
+    "home",
+    "home-live"
+  ],
+  "avoid_nodes": [
+    "main",
+    "new",
+    "qjns",
+    "uiap"
+  ],
+  "branch": "p0/telegram-command-center-official-capability-alignment-2026-07-01",
+  "base_branch": "main",
+  "base_ref": "origin/main",
+  "max_retries": 1,
+  "objective": "Create only the exact canonical Telegram command-center alignment files required by the dispatcher contract. Prior attempts created useful non-canonical artifacts under docs/reports, docs/artifacts or artifacts, so this task must write only docs/product/telegram-command-center/2026-07-01/OFFICIAL_CAPABILITY_ALIGNMENT.md and exact PLAN/ACTIONS/TESTS/RESULT/NEXT run docs.",
+  "constraints": {
+    "mac_thin_client_only": true,
+    "server_execution_required": true,
+    "documentation_artifacts_only": true,
+    "product_code_modification_forbidden": true,
+    "runtime_service_changes_forbidden": true,
+    "live_telegram_mutation_forbidden": true,
+    "telegram_getupdates_forbidden": true,
+    "telegram_webhook_changes_forbidden": true,
+    "telegram_delete_webhook_forbidden": true,
+    "telegram_command_menu_changes_forbidden": true,
+    "telegram_botfather_changes_forbidden": true,
+    "telegram_token_rotation_forbidden": true,
+    "payments_stars_business_guest_bot_to_bot_activation_forbidden": true,
+    "secrets_redaction_required": true,
+    "destructive_git_commands_forbidden": true,
+    "git_push_allowed_only_to_task_branch": true,
+    "push_to_main_forbidden": true,
+    "force_push_forbidden": true,
+    "dirty_worktree_checkout_forbidden": true,
+    "owner_facing_agent_names_must_be_russian": true,
+    "exact_run_artifacts_required": true,
+    "alternate_artifact_paths_forbidden": true
+  },
+  "known_evidence": {
+    "source_tasks": [
+      "P0_TELEGRAM_COMMAND_CENTER_OFFICIAL_CAPABILITY_ALIGNMENT_2026_07_01",
+      "P0_TELEGRAM_COMMAND_CENTER_ALIGNMENT_CANONICAL_ARTIFACT_REPAIR_2026_07_01"
+    ],
+    "source_state": "both failed verifier after writing useful non-canonical artifacts",
+    "first_source_report": "docs/reports/P0_TELEGRAM_COMMAND_CENTER_OFFICIAL_CAPABILITY_ALIGNMENT_2026_07_01/telegram_official_capability_alignment.md",
+    "second_source_report": "docs/artifacts/P0_TELEGRAM_COMMAND_CENTER_ALIGNMENT_CANONICAL_ARTIFACT_REPAIR_2026_07_01/telegram-command-center-alignment-report.md",
+    "second_source_tests": "pytest tests/test_telegram_gateway.py tests/test_factory_runtime_contracts.py tests/test_factory_runtime_queue_contracts.py passed: 39 passed in 1.44s",
+    "failure_reason": "canonical path docs/product/telegram-command-center/2026-07-01/OFFICIAL_CAPABILITY_ALIGNMENT.md missing"
+  },
+  "read_first": [
+    "docs/agent/research/2026-07-01-telegram-platform-capability-map/TELEGRAM_OFFICIAL_FULL_STUDY.md",
+    "docs/agent/research/2026-07-01-telegram-platform-capability-map/TELEGRAM_PLATFORM_CAPABILITY_MAP.md",
+    "docs/product/telegram-command-center/2026-07-01/COMMAND_CENTER_SPEC.md",
+    "docs/product/telegram-command-center/2026-07-01/TELEGRAM_RUNTIME_GAP_AUDIT.md",
+    "docs/product/telegram-command-center/2026-07-01/IMPLEMENTATION_SLICES.md",
+    "docs/product/telegram-command-center/2026-07-01/NEXT_TASK_PROMPTS.md"
+  ],
+  "write_scope": [
+    "docs/product/telegram-command-center/2026-07-01/OFFICIAL_CAPABILITY_ALIGNMENT.md",
+    "docs/agent/runs/2026-07-01-p0-telegram-command-center-official-capability-alignment/PLAN.md",
+    "docs/agent/runs/2026-07-01-p0-telegram-command-center-official-capability-alignment/ACTIONS.md",
+    "docs/agent/runs/2026-07-01-p0-telegram-command-center-official-capability-alignment/TESTS.md",
+    "docs/agent/runs/2026-07-01-p0-telegram-command-center-official-capability-alignment/RESULT.md",
+    "docs/agent/runs/2026-07-01-p0-telegram-command-center-official-capability-alignment/NEXT.md"
+  ],
+  "forbidden_write_scope": [
+    "ops/**",
+    "backend/**",
+    "frontend/**",
+    "tests/**",
+    "infra/**",
+    ".github/**",
+    "docs/superfactory/**",
+    "docs/agent/dispatcher/**",
+    "docs/reports/**",
+    "docs/artifacts/**",
+    "artifacts/**"
+  ],
+  "required_outputs": [
+    "docs/product/telegram-command-center/2026-07-01/OFFICIAL_CAPABILITY_ALIGNMENT.md",
+    "docs/agent/runs/2026-07-01-p0-telegram-command-center-official-capability-alignment/PLAN.md",
+    "docs/agent/runs/2026-07-01-p0-telegram-command-center-official-capability-alignment/ACTIONS.md",
+    "docs/agent/runs/2026-07-01-p0-telegram-command-center-official-capability-alignment/TESTS.md",
+    "docs/agent/runs/2026-07-01-p0-telegram-command-center-official-capability-alignment/RESULT.md",
+    "docs/agent/runs/2026-07-01-p0-telegram-command-center-official-capability-alignment/NEXT.md"
+  ],
+  "required_behavior": [
+    "Write only the exact allowed canonical files; do not create docs/reports, docs/artifacts or artifacts outputs.",
+    "OFFICIAL_CAPABILITY_ALIGNMENT.md must state the minimal Telegram menu model: /start, /status, /help, with complex workflows moved to Mini App.",
+    "RESULT.md must classify prior attempts as failed verifier/useful non-canonical output and record that this task repaired the canonical paths.",
+    "NEXT.md must recommend P0_TELEGRAM_MINI_APP_COMMAND_CENTER_MVP_2026_07_01 as a remote-only task with no live Telegram mutation.",
+    "Push only the task branch normally if exact checks pass."
+  ],
+  "verification_commands": [
+    "git diff --check",
+    "test -f docs/product/telegram-command-center/2026-07-01/OFFICIAL_CAPABILITY_ALIGNMENT.md",
+    "test -f docs/agent/runs/2026-07-01-p0-telegram-command-center-official-capability-alignment/PLAN.md",
+    "test -f docs/agent/runs/2026-07-01-p0-telegram-command-center-official-capability-alignment/ACTIONS.md",
+    "test -f docs/agent/runs/2026-07-01-p0-telegram-command-center-official-capability-alignment/TESTS.md",
+    "test -f docs/agent/runs/2026-07-01-p0-telegram-command-center-official-capability-alignment/RESULT.md",
+    "test -f docs/agent/runs/2026-07-01-p0-telegram-command-center-official-capability-alignment/NEXT.md",
+    "git diff --name-only HEAD~1..HEAD | grep -Ev '^(docs/product/telegram-command-center/2026-07-01/OFFICIAL_CAPABILITY_ALIGNMENT.md|docs/agent/runs/2026-07-01-p0-telegram-command-center-official-capability-alignment/(PLAN.md|ACTIONS.md|TESTS.md|RESULT.md|NEXT.md))$' && exit 1 || true",
+    "rg --no-ignore -n '[0-9]{6,}:[A-Za-z0-9_-]{20,}|[A-Za-z0-9_]*(TOKEN|SECRET|PASSWORD|COOKIE|API_KEY|CHAT_ID)=[^ ]+' docs/product/telegram-command-center/2026-07-01/OFFICIAL_CAPABILITY_ALIGNMENT.md docs/agent/runs/2026-07-01-p0-telegram-command-center-official-capability-alignment && exit 1 || true"
+  ],
+  "acceptance": [
+    "Exact canonical report and five run artifacts exist.",
+    "No alternate artifact paths are created in this repair commit.",
+    "No product code, tests, runtime services, live Telegram settings or superfactory docs are changed.",
+    "No getUpdates, webhook/menu/BotFather mutation, token rotation, payment, Business, Guest Mode or Bot-to-Bot activation occurs.",
+    "Remote result reports task_id, node, Russian agent display name, branch/head, artifacts, checks, blockers and next action."
+  ],
+  "source": {
+    "kind": "mac_thin_client_dispatcher",
+    "owner": "Vladislav",
+    "created_at": "2026-07-01T08:21:55Z",
+    "local_ledger": "docs/agent/dispatcher/DISPATCH_LOG.md"
+  }
+}
