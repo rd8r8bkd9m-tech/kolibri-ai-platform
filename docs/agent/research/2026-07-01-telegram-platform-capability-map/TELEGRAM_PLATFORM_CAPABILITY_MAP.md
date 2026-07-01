@@ -7,6 +7,9 @@
 Kolibri Factory Bot и Mini App, чтобы бот стал полноценным командным пультом
 фабрики, а не набором случайных команд.
 
+Полный официальный разбор возможностей Telegram вынесен в:
+`TELEGRAM_OFFICIAL_FULL_STUDY.md`.
+
 ## Источники
 
 - https://telegram.org/
