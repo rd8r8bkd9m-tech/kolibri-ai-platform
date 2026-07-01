@@ -1,9 +1,41 @@
 # Factory Status
 
 Snapshot time:
-- 2026-07-01T08:00:05Z
+- 2026-07-01T09:15:43Z
 
 Latest update:
+- 2026-07-01T09:27:00Z:
+  Submitted read-only diagnostic
+  `P0_AI_RUNNER_AUTH_AND_OWNER_REMOTE_TASK_ROUTING_DIAGNOSTIC_2026_07_01`
+  through the server fallback route. Control Plane returned `201 Created`; exact
+  task query shows state `running`, attempt
+  `P0_AI_RUNNER_AUTH_AND_OWNER_REMOTE_TASK_ROUTING_DIAGNOSTIC_2026_07_01-attempt-1`,
+  lease owner `primary-candidate:agent-host-primary`, branch
+  `p0/ai-runner-auth-routing-diagnostic-2026-07-01`; heartbeat was fresh at
+  `2026-07-01T09:21:41Z`. This task is constrained
+  to diagnostics only: no credential changes, no login/token refresh, no secret
+  printing, no product code changes, no git push and no heavy tests. Purpose:
+  classify the `main` Codex `token_expired` and MIMO `runner_auth_failed`
+  blockers and return the next safe repair task.
+- 2026-07-01T09:25:00Z:
+  Took a fresh read-only Control Plane snapshot through fallback route
+  `kolibri-primary-codex -> http://10.99.0.2:9101`. Control Plane health is
+  `ok`, Redis replies `PONG`, and `/v1/nodes` returns 42 node cards. Current
+  online server/fabric cards include `home`, `home-live`, `main`,
+  `primary-candidate`, `qjns`, `uiap`, `new`, `mesh-9fts`, `mesh-agent-03`,
+  `mesh-home`, `mesh-main`, `mesh-new`, `mesh-primary`, `mesh-qjns` and
+  `mesh-uiap`; several `mesh-agent-*` cards are `degraded`; the old direct
+  `agent-01..09`/`9fts`/`paris`/`reserve242`/`server-kfrm` cards remain
+  `stale`. Exact task queries confirm
+  `P0_AGENT_HOST_REVIEW_CLONE_AND_CONSTRAINT_ENFORCEMENT_2026_07_01` and
+  `P0_PR83_REVIEW_DIFF_CONTRACT_EXACT_ARTIFACT_CLEANUP_2026_07_01` are
+  `completed`, while API-first/Command-Fabric/Telegram alignment tasks remain
+  failed on exact-path verifier issues rather than total loss of work. GitHub
+  CLI is installed at `/opt/homebrew/bin/gh` but not on the current shell PATH;
+  using the full path confirms PR #83 is open, draft, mergeable, head
+  `81daf44dc842dce40d8547275f47b051871a2690`, and `Kolibri CI` is successful.
+  Open P0 PRs remain draft: #90, #89, #88, #87, #86, #85, #84 and #83. No PR
+  was marked ready, merged, approved, or deployed from Mac.
 - 2026-07-01T09:12:00Z:
   Refreshed GitHub connector evidence for PR #83. PR remains open, draft,
   mergeable, base `main` at `6d0317c52a9694448ee2c352dc196ce7a27b9487`,
