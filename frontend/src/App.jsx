@@ -163,6 +163,9 @@ export default function App() {
   const messagesEnd = useRef(null)
   const inputRef = useRef(null)
   const fileInputRef = useRef(null)
+  const wsRef = useRef(null)
+  const reconnectTimerRef = useRef(null)
+  const shouldReconnectRef = useRef(true)
 
   useEffect(() => {
     const root = document.documentElement
@@ -172,22 +175,57 @@ export default function App() {
     document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme === "dark" ? "#0a0a0f" : "#f0f4f8")
   }, [theme])
 
-  useEffect(() => {
-    fetch(`${API_BASE}/api/providers`).then(r => r.json()).then(setProviders).catch(() => {})
-    connectWS()
-    fetchCluster()
-    const ci = setInterval(fetchCluster, 15000)
-    return () => { if (ws) ws.close(); clearInterval(ci) }
-  }, [])
-
-  useEffect(() => { messagesEnd.current?.scrollIntoView({ behavior: "smooth" }) }, [messages])
-
-  const fetchCluster = async () => {
+  const fetchCluster = useCallback(async () => {
     try {
       const r = await fetch(`${API_BASE}/api/factory/status`)
       setClusterStatus(await r.json())
     } catch {}
-  }
+  }, [])
+
+  const connectWS = useCallback(() => {
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:"
+    let socket
+    try { socket = new WebSocket(`${proto}//${WS_HOST}/ws/chat`) } catch { return }
+    socket.onopen = () => setConnected(true)
+    socket.onclose = () => {
+      setConnected(false)
+      if (shouldReconnectRef.current) {
+        reconnectTimerRef.current = setTimeout(connectWS, 3000)
+      }
+    }
+    socket.onmessage = (e) => {
+      const data = JSON.parse(e.data)
+      setMessages(prev => {
+        const n = [...prev]
+        const last = n[n.length - 1]
+        if (last && last.role === "assistant" && last.streaming) {
+          last.content = data.response || data.content || ""
+          last.provider = data.provider
+          last.streaming = false
+        }
+        return [...n]
+      })
+      setLoading(false)
+    }
+    wsRef.current = socket
+    setWs(socket)
+  }, [])
+
+  useEffect(() => {
+    shouldReconnectRef.current = true
+    fetch(`${API_BASE}/api/providers`).then(r => r.json()).then(setProviders).catch(() => {})
+    connectWS()
+    fetchCluster()
+    const ci = setInterval(fetchCluster, 15000)
+    return () => {
+      shouldReconnectRef.current = false
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current)
+      if (wsRef.current) wsRef.current.close()
+      clearInterval(ci)
+    }
+  }, [connectWS, fetchCluster])
+
+  useEffect(() => { messagesEnd.current?.scrollIntoView({ behavior: "smooth" }) }, [messages])
 
   const fetchDocuments = async () => {
     setDocLoading(true); setDocError("")
@@ -211,29 +249,6 @@ export default function App() {
     } catch { setDocError("Ошибка загрузки") }
     setUploading(false)
   }
-
-  const connectWS = useCallback(() => {
-    const proto = window.location.protocol === "https:" ? "wss:" : "ws:"
-    let socket
-    try { socket = new WebSocket(`${proto}//${WS_HOST}/ws/chat`) } catch { return }
-    socket.onopen = () => setConnected(true)
-    socket.onclose = () => { setConnected(false); setTimeout(connectWS, 3000) }
-    socket.onmessage = (e) => {
-      const data = JSON.parse(e.data)
-      setMessages(prev => {
-        const n = [...prev]
-        const last = n[n.length - 1]
-        if (last && last.role === "assistant" && last.streaming) {
-          last.content = data.response || data.content || ""
-          last.provider = data.provider
-          last.streaming = false
-        }
-        return [...n]
-      })
-      setLoading(false)
-    }
-    setWs(socket)
-  }, [])
 
   const sendMessage = async () => {
     if (!input.trim() || loading) return
