@@ -1,9 +1,60 @@
 # Factory Status
 
 Snapshot time:
-- 2026-07-01T07:43:51Z
+- 2026-07-01T08:00:05Z
 
 Latest update:
+- 2026-07-01T08:13:19Z:
+  Submitted `P0_TELEGRAM_COMMAND_CENTER_ALIGNMENT_CANONICAL_ARTIFACT_REPAIR_2026_07_01`;
+  Control Plane accepted it as `queued`. Submitted
+  `P0_PR83_REVIEW_PR_READ_ONLY_DIFF_CONTRACT_REPAIR_2026_07_01`;
+  it is `running` on `primary-candidate:agent-host-primary` with fresh
+  heartbeat. This keeps the runner-hardening P0 moving before PR #83 merge.
+- 2026-07-01T08:09:58Z:
+  Telegram official capability alignment task
+  `P0_TELEGRAM_COMMAND_CENTER_OFFICIAL_CAPABILITY_ALIGNMENT_2026_07_01`
+  failed the wrapper verifier after producing useful output in non-canonical
+  paths (`docs/reports/...` and `artifacts/...`). Required canonical path
+  `docs/product/telegram-command-center/2026-07-01/OFFICIAL_CAPABILITY_ALIGNMENT.md`
+  was missing. Prepared docs-only repair task
+  `P0_TELEGRAM_COMMAND_CENTER_ALIGNMENT_CANONICAL_ARTIFACT_REPAIR_2026_07_01`.
+- 2026-07-01T08:05:57Z:
+  PR83 fallback review produced useful exact artifacts and focused server tests
+  passed, but Control Plane state is `failed` because the final wrapper verifier
+  attempted `python3 -m py_compile ops/agent_host.py tests/test_agent_host_runner_contract.py`
+  and the test path was missing in that checkout. The useful review found a real
+  blocker: `review_pr` currently treats reviewed PR diff files as runner-authored
+  changed files, so read-only review tasks can falsely block on product-code PRs.
+  Prepared repair task
+  `P0_PR83_REVIEW_PR_READ_ONLY_DIFF_CONTRACT_REPAIR_2026_07_01`.
+- 2026-07-01T08:02:13Z:
+  Submitted `P0_TELEGRAM_COMMAND_CENTER_OFFICIAL_CAPABILITY_ALIGNMENT_2026_07_01`
+  through fallback route `kolibri-primary-codex -> http://10.99.0.2:9101/v1/tasks`.
+  Control Plane accepted it as `queued`. It is waiting for a server lease and
+  must only produce docs/artifacts, not live Telegram or product mutations.
+- 2026-07-01T08:00:05Z:
+  Prepared remote docs-only Telegram official capability alignment task
+  `P0_TELEGRAM_COMMAND_CENTER_OFFICIAL_CAPABILITY_ALIGNMENT_2026_07_01`
+  after the owner asked to study Telegram capabilities fully. The task targets
+  `primary-candidate`/`home`/`home-live`, uses Russian display name
+  `Иван — Telegram Platform Architect`, and forbids live Telegram mutation,
+  product code changes, `getUpdates`, webhook/menu/BotFather changes,
+  payments/Stars, Business, Guest Mode and Bot-to-Bot activation.
+- 2026-07-01T07:58:01Z:
+  Submitted fallback remote review task
+  `P0_PR83_FINAL_REVIEW_AND_AGENT_HOST_CANARY_PLAN_2026_07_01`. Direct Mac
+  Control Plane API timed out, then fallback through `kolibri-primary-codex`
+  succeeded. Task is leased/running on `primary-candidate:agent-host-primary`.
+- 2026-07-01T07:49:23Z:
+  Prepared fallback remote review task
+  `P0_PR83_FINAL_REVIEW_AND_AGENT_HOST_CANARY_PLAN_2026_07_01` for PR #83.
+  Reason: automatic review task
+  `P0_AGENT_HOST_BACKEND_VERIFIER_ENV_SCOPE_REPAIR_2026_07_01-REVIEW` routed
+  to `new:agent-host-new` and failed clone twice with `git@github-kolibri`
+  rc=128. Fallback task targets `primary-candidate`, is read-only/docs-artifacts
+  only, and must not merge, mark PR ready, push, restart services or mutate
+  runtime state. Goal: final PR #83 review against `origin/main` plus
+  post-merge Agent Host canary plan.
 - 2026-07-01T07:43:51Z:
   GitHub Actions evidence for PR #83 head
   `dfbc7fc17f4d76d81d97944a852febbb91278d9b`: `Kolibri CI` run
