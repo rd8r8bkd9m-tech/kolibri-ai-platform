@@ -1,0 +1,122 @@
+{
+  "task_id": "P0_PR91_MIMO_RUNNER_REVIEW_AND_RELEASE_GATE_FALLBACK_2026_07_01",
+  "idempotency_key": "mac-dispatcher:P0_PR91_MIMO_RUNNER_REVIEW_AND_RELEASE_GATE_FALLBACK_2026_07_01",
+  "kind": "review_pr",
+  "required_capability": "review",
+  "runner": "codex",
+  "agent_type": "review_qa_release_gate",
+  "agent_display_name": "Елена — ревьюер MIMO runner release gate",
+  "target_node": "primary-candidate",
+  "target_node_pool": "healthy_review_qa_nodes",
+  "preferred_nodes": [
+    "primary-candidate",
+    "home"
+  ],
+  "allowed_nodes": [
+    "primary-candidate",
+    "home"
+  ],
+  "avoid_nodes": [
+    "main",
+    "uiap",
+    "qjns"
+  ],
+  "max_retries": 1,
+  "pr_url": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/91",
+  "branch": "p0/mimo-runner-output-auth-contract-repair-2026-07-01",
+  "base_branch": "main",
+  "base_ref": "origin/main",
+  "objective": "Perform an independent remote review and release gate for PR #91, which repairs MIMO runner output parsing and auth classification. Verify correctness, scope, tests, artifact placement, CI evidence, and deployment readiness. Do not merge, approve, mark ready, deploy, restart Agent Host, rotate tokens, run MIMO auth login, or print secrets.",
+  "constraints": {
+    "mac_thin_client_only": true,
+    "server_execution_required": true,
+    "review_only": true,
+    "no_product_code_modification": true,
+    "no_git_push": true,
+    "no_merge": true,
+    "no_approve_without_owner": true,
+    "no_mark_ready": true,
+    "no_deploy": true,
+    "no_service_restart": true,
+    "no_auth_login": true,
+    "no_token_refresh": true,
+    "secrets_redaction_required": true,
+    "owner_facing_agent_names_must_be_russian": true
+  },
+  "known_evidence": {
+    "pr": {
+      "number": 91,
+      "url": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/91",
+      "state": "OPEN",
+      "draft": true,
+      "mergeable": "MERGEABLE",
+      "head": "a32697b62914816abfbd87365c7c1fec588b3262",
+      "ci_run": "28517063983",
+      "ci_conclusion": "SUCCESS"
+    },
+    "changed_files": [
+      "ops/agent_host.py",
+      "tests/test_agent_host_direct_mimo.py",
+      "artifacts/P0_MIMO_RUNNER_OUTPUT_AND_AUTH_CONTRACT_REPAIR_2026_07_01/artifact-manifest.json",
+      "artifacts/P0_MIMO_RUNNER_OUTPUT_AND_AUTH_CONTRACT_REPAIR_2026_07_01/result.json",
+      "artifacts/P0_MIMO_RUNNER_OUTPUT_AND_AUTH_CONTRACT_REPAIR_2026_07_01/runner-contract.json"
+    ],
+    "server_task": {
+      "task_id": "P0_MIMO_RUNNER_OUTPUT_AND_AUTH_CONTRACT_REPAIR_2026_07_01",
+      "state": "waiting_review",
+      "node": "primary-candidate",
+      "result_reference": "/var/lib/kolibri-agent/artifacts/P0_MIMO_RUNNER_OUTPUT_AND_AUTH_CONTRACT_REPAIR_2026_07_01/P0_MIMO_RUNNER_OUTPUT_AND_AUTH_CONTRACT_REPAIR_2026_07_01-attempt-1/result.json",
+      "server_tests": [
+        "python3 -m pytest -q tests/test_agent_host_direct_mimo.py tests/test_agent_host_telegram_chat.py tests/test_agent_host_image_generation.py -> 9 passed",
+        "python3 -m compileall -q ops tests backend infra scripts -> passed",
+        "git diff --check -> passed"
+      ],
+      "server_full_pytest_blocker": "missing pydantic/httpx in server environment"
+    },
+    "reason": "Fresh MIMO fanout proved uiap and mesh-9fts complete, main fails 401, qjns fails 403, and primary-candidate useful JSON stdout was misclassified as empty response.",
+    "qjns_review_attempt": {
+      "task_id": "P0_PR91_MIMO_RUNNER_REVIEW_AND_RELEASE_GATE_2026_07_01",
+      "state": "failed",
+      "node": "qjns",
+      "error": "git clone https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform.git failed with rc=128",
+      "interpretation": "qjns disk is fixed but GitHub clone/auth/network is not ready for PR review tasks"
+    }
+  },
+  "review_focus": [
+    "Does PR #91 correctly parse useful final JSON objects from MIMO stdout without over-accepting error objects?",
+    "Does PR #91 classify HTTP 401 and HTTP 403/illegal_access without leaking prompts/secrets?",
+    "Does the PR preserve existing Telegram/Codex runner behavior?",
+    "Are the new top-level artifacts acceptable for the repository, or should they be moved under docs/agent/runs before merge?",
+    "Are tests sufficient, and do they cover the fresh fanout evidence?",
+    "Is PR #91 safe to mark ready for owner review, or does it need changes first?",
+    "What exact post-merge/deploy canary should run before rerunning broad MIMO fanout?"
+  ],
+  "required_artifacts": [
+    "docs/agent/runs/2026-07-01-p0-pr91-mimo-runner-review-and-release-gate/PLAN.md",
+    "docs/agent/runs/2026-07-01-p0-pr91-mimo-runner-review-and-release-gate/ACTIONS.md",
+    "docs/agent/runs/2026-07-01-p0-pr91-mimo-runner-review-and-release-gate/TESTS.md",
+    "docs/agent/runs/2026-07-01-p0-pr91-mimo-runner-review-and-release-gate/RESULT.md",
+    "docs/agent/runs/2026-07-01-p0-pr91-mimo-runner-review-and-release-gate/NEXT.md"
+  ],
+  "verification_commands": [
+    "git diff --check origin/main...HEAD",
+    "python3 -m py_compile ops/agent_host.py tests/test_agent_host_direct_mimo.py",
+    "python3 -m pytest -q tests/test_agent_host_direct_mimo.py tests/test_agent_host_telegram_chat.py tests/test_agent_host_image_generation.py",
+    "test -f docs/agent/runs/2026-07-01-p0-pr91-mimo-runner-review-and-release-gate/RESULT.md"
+  ],
+  "acceptance": [
+    "Review result is one of: ready_for_owner_review, needs_changes, blocked, or unsafe_to_merge.",
+    "Findings are grounded in exact file/function/test references.",
+    "PR #91 is not merged, approved, marked ready, deployed, or restarted by this task.",
+    "If top-level artifacts are a scope issue, the review says exactly whether to move/remove them before merge.",
+    "Exact post-merge/deploy canary is specified.",
+    "Exact five run artifacts are created.",
+    "No secrets or private auth material are printed."
+  ],
+  "source": {
+    "kind": "mac_thin_client_dispatcher",
+    "owner": "Vladislav",
+    "created_at": "2026-07-01T12:31:00Z",
+    "local_ledger": "docs/agent/dispatcher/DISPATCH_LOG.md"
+  }
+}

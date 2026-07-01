@@ -1,0 +1,132 @@
+{
+  "task_id": "P0_API_FIRST_FULL_CONTROL_FABRIC_CONTRACT_ALIGN_2026_07_01",
+  "idempotency_key": "mac-dispatcher:P0_API_FIRST_FULL_CONTROL_FABRIC_CONTRACT_ALIGN_2026_07_01",
+  "kind": "owner_remote_task",
+  "required_capability": "implementation",
+  "runner": "codex",
+  "agent_type": "docs_contract_alignment",
+  "agent_display_name": "Антон — Contract Keeper",
+  "target_node": "primary-candidate",
+  "target_node_pool": "healthy_server_documentation_nodes",
+  "preferred_nodes": [
+    "primary-candidate"
+  ],
+  "allowed_nodes": [
+    "primary-candidate"
+  ],
+  "avoid_nodes": [
+    "main",
+    "qjns",
+    "uiap",
+    "hostvds-agent-10"
+  ],
+  "branch": "p0/api-first-full-control-fabric-2026-07-01",
+  "base_branch": "p0/api-first-full-control-fabric-2026-07-01",
+  "base_ref": "origin/p0/api-first-full-control-fabric-2026-07-01",
+  "max_retries": 1,
+  "create_review_on_complete": false,
+  "objective": "Remote-only docs contract alignment. PR #85 already exists and branch p0/api-first-full-control-fabric-2026-07-01 is pushed with useful API-first Fabric implementation and tests. The last Control Plane verification failed only because exact required artifact filenames were missing. Start from origin/p0/api-first-full-control-fabric-2026-07-01, add the exact required docs/superfactory uppercase files and docs/agent/runs directory artifacts, keep existing implementation intact, run verification, commit, push branch. Do not modify product code.",
+  "known_truth": {
+    "pr_url": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/85",
+    "current_branch_head": "44d7b9abe8960b21138bf225076b7cb958e1e911",
+    "existing_summary_doc": "docs/superfactory/api-first-full-control-fabric.md",
+    "existing_run_doc": "docs/agent/runs/P0_API_FIRST_FULL_CONTROL_FABRIC_FINALIZE_2026_07_01.md",
+    "previous_remote_tests": "65 passed, 1 warning"
+  },
+  "constraints": {
+    "mac_thin_client_only": true,
+    "server_execution_required": true,
+    "docs_only": true,
+    "product_code_modification_forbidden": true,
+    "preserve_existing_pr_branch": true,
+    "base_ref_must_be_existing_pr_branch": true,
+    "destructive_git_commands_forbidden": true,
+    "git_push_to_main_forbidden": true,
+    "force_push_forbidden": true,
+    "secrets_redaction_required": true,
+    "no_secret_values_in_reports": true,
+    "owner_facing_agent_names_must_be_russian": true
+  },
+  "read_first": [
+    "docs/superfactory/api-first-full-control-fabric.md",
+    "docs/agent/runs/P0_API_FIRST_FULL_CONTROL_FABRIC_FINALIZE_2026_07_01.md",
+    "README.md",
+    "tests/test_fabric_control.py"
+  ],
+  "write_scope": [
+    "docs/superfactory/API_FIRST_CONTROL_FABRIC.md",
+    "docs/superfactory/FULL_CONTROL_API_POLICY.md",
+    "docs/superfactory/NODE_IDENTITY_AND_KEY_ROTATION.md",
+    "docs/superfactory/API_FALLBACK_ROUTING_POLICY.md",
+    "docs/superfactory/ANY_NODE_API_ACCESS_RUNBOOK.md",
+    "docs/superfactory/NEW_SERVER_API_BOOTSTRAP.md",
+    "docs/superfactory/ADMIN_API_SECURITY_GATES.md",
+    "docs/superfactory/TASKS.md",
+    "docs/agent/runs/2026-07-01-p0-api-first-full-control-fabric/PLAN.md",
+    "docs/agent/runs/2026-07-01-p0-api-first-full-control-fabric/ACTIONS.md",
+    "docs/agent/runs/2026-07-01-p0-api-first-full-control-fabric/TESTS.md",
+    "docs/agent/runs/2026-07-01-p0-api-first-full-control-fabric/RESULT.md",
+    "docs/agent/runs/2026-07-01-p0-api-first-full-control-fabric/NEXT.md"
+  ],
+  "required_docs": [
+    "docs/superfactory/API_FIRST_CONTROL_FABRIC.md",
+    "docs/superfactory/FULL_CONTROL_API_POLICY.md",
+    "docs/superfactory/NODE_IDENTITY_AND_KEY_ROTATION.md",
+    "docs/superfactory/API_FALLBACK_ROUTING_POLICY.md",
+    "docs/superfactory/ANY_NODE_API_ACCESS_RUNBOOK.md",
+    "docs/superfactory/NEW_SERVER_API_BOOTSTRAP.md",
+    "docs/superfactory/ADMIN_API_SECURITY_GATES.md",
+    "docs/superfactory/TASKS.md",
+    "docs/agent/runs/2026-07-01-p0-api-first-full-control-fabric/PLAN.md",
+    "docs/agent/runs/2026-07-01-p0-api-first-full-control-fabric/ACTIONS.md",
+    "docs/agent/runs/2026-07-01-p0-api-first-full-control-fabric/TESTS.md",
+    "docs/agent/runs/2026-07-01-p0-api-first-full-control-fabric/RESULT.md",
+    "docs/agent/runs/2026-07-01-p0-api-first-full-control-fabric/NEXT.md"
+  ],
+  "implementation_guidance": [
+    "Do not rename or remove existing lowercase docs; add compatibility copies or focused files with the exact required names.",
+    "Reuse content from docs/superfactory/api-first-full-control-fabric.md and docs/agent/runs/P0_API_FIRST_FULL_CONTROL_FABRIC_FINALIZE_2026_07_01.md.",
+    "For policy-specific files, split or summarize the existing API-first doc into the required filenames.",
+    "For PLAN/ACTIONS/TESTS/RESULT/NEXT, create concise run artifacts that reference PR #85, commit 44d7b9a, and prior test result 65 passed, 1 warning.",
+    "Run git diff --check and the exact file existence checks.",
+    "Commit with a docs-only message and push the existing PR branch without force."
+  ],
+  "verification_commands": [
+    "git diff --check",
+    "test -f docs/superfactory/API_FIRST_CONTROL_FABRIC.md",
+    "test -f docs/superfactory/FULL_CONTROL_API_POLICY.md",
+    "test -f docs/superfactory/NODE_IDENTITY_AND_KEY_ROTATION.md",
+    "test -f docs/superfactory/API_FALLBACK_ROUTING_POLICY.md",
+    "test -f docs/superfactory/ANY_NODE_API_ACCESS_RUNBOOK.md",
+    "test -f docs/superfactory/NEW_SERVER_API_BOOTSTRAP.md",
+    "test -f docs/superfactory/ADMIN_API_SECURITY_GATES.md",
+    "test -f docs/superfactory/TASKS.md",
+    "test -f docs/agent/runs/2026-07-01-p0-api-first-full-control-fabric/PLAN.md",
+    "test -f docs/agent/runs/2026-07-01-p0-api-first-full-control-fabric/ACTIONS.md",
+    "test -f docs/agent/runs/2026-07-01-p0-api-first-full-control-fabric/TESTS.md",
+    "test -f docs/agent/runs/2026-07-01-p0-api-first-full-control-fabric/RESULT.md",
+    "test -f docs/agent/runs/2026-07-01-p0-api-first-full-control-fabric/NEXT.md",
+    "python3 -m compileall ops backend tests infra"
+  ],
+  "required_artifacts": [
+    "PLAN.md",
+    "ACTIONS.md",
+    "TESTS.md",
+    "RESULT.md",
+    "NEXT.md"
+  ],
+  "acceptance": [
+    "Exact required docs/superfactory filenames exist.",
+    "Exact docs/agent/runs/2026-07-01-p0-api-first-full-control-fabric artifacts exist.",
+    "No product code is modified in this alignment task.",
+    "Existing PR #85 branch is preserved and pushed without force.",
+    "Verification commands pass.",
+    "Remote result reports task_id, node, Russian agent display name, commit, PR URL, tests, artifact paths, blockers and next action."
+  ],
+  "source": {
+    "kind": "mac_thin_client_dispatcher",
+    "owner": "Vladislav",
+    "created_at": "2026-07-01T00:40:00Z",
+    "local_ledger": "docs/agent/dispatcher/DISPATCH_LOG.md"
+  }
+}

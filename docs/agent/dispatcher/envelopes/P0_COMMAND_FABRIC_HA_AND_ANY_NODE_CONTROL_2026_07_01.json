@@ -1,0 +1,112 @@
+{
+  "task_id": "P0_COMMAND_FABRIC_HA_AND_ANY_NODE_CONTROL_2026_07_01",
+  "idempotency_key": "mac-dispatcher:P0_COMMAND_FABRIC_HA_AND_ANY_NODE_CONTROL_2026_07_01",
+  "kind": "owner_remote_task",
+  "required_capability": "generic_implementation",
+  "runner": "codex",
+  "agent_type": "documentation_architecture",
+  "target_node": "primary-candidate",
+  "target_node_pool": "healthy_server_documentation_nodes",
+  "preferred_nodes": [
+    "primary-candidate",
+    "main",
+    "home"
+  ],
+  "allowed_nodes": [
+    "primary-candidate",
+    "main",
+    "home",
+    "home-live"
+  ],
+  "avoid_nodes": [
+    "qjns",
+    "uiap"
+  ],
+  "branch": "p0/command-fabric-ha-any-node-control-2026-07-01",
+  "base_branch": "main",
+  "base_ref": "origin/main",
+  "max_retries": 1,
+  "create_review_on_complete": true,
+  "review_node": "new",
+  "objective": "Remote-only docs/architecture task. Update Kolibri Factory goal and architecture so Mac is not the only command point. Define multi-command-node Command Fabric HA: Mac, Primorye, Home, main, primary-candidate, Telegram/phone, GitHub emergency channel, and any trusted server/computer can submit tasks, query status, collect artifacts, and recover control. Do not change product code.",
+  "constraints": {
+    "mac_thin_client_only": true,
+    "server_execution_required": true,
+    "docs_only": true,
+    "product_code_modification_forbidden": true,
+    "heavy_local_tests_forbidden": true,
+    "destructive_git_commands_forbidden": true,
+    "git_push_to_main_forbidden": true,
+    "force_push_forbidden": true,
+    "secrets_redaction_required": true,
+    "dirty_worktree_checkout_forbidden": true,
+    "owner_facing_agent_names_must_be_russian": true,
+    "single_command_point_forbidden": true,
+    "command_fabric_ha_required": true
+  },
+  "read_first": [
+    "docs/agent/global-intelligence/2026-06-30-mac-server-github-full-intelligence/GLOBAL_DIGEST_FOR_CHATGPT.md",
+    "ops/factory_control.py",
+    "ops/agent_host.py",
+    "ops/kolibri-dispatch",
+    "ops/telegram_gateway.py",
+    "ops/systemd/",
+    "README.md"
+  ],
+  "write_scope": [
+    "docs/superfactory/**",
+    "docs/agent/runs/2026-07-01-p0-command-fabric-ha-and-any-node-control/**"
+  ],
+  "verification_commands": [
+    "git diff --check",
+    "test -f docs/superfactory/COMMAND_FABRIC_HA.md",
+    "test -f docs/superfactory/COMMAND_NODES.md",
+    "test -f docs/superfactory/CONTROL_PLANE_HA.md",
+    "test -f docs/superfactory/FAILOVER_RUNBOOK.md",
+    "test -f docs/superfactory/ANY_SERVER_COMMAND_MODE.md",
+    "test -f docs/superfactory/TELEGRAM_COMMAND_GATEWAY.md",
+    "test -f docs/superfactory/OWNER_ACCESS_RECOVERY.md",
+    "test -f docs/superfactory/ARTIFACT_REPLICATION_POLICY.md",
+    "test -f docs/superfactory/NODE_FAILURE_POLICY.md",
+    "test -f docs/superfactory/PAYMENT_OR_PROVIDER_FAILURE_POLICY.md"
+  ],
+  "required_artifacts": [
+    "PLAN.md",
+    "ACTIONS.md",
+    "TESTS.md",
+    "RESULT.md",
+    "NEXT.md"
+  ],
+  "required_docs": [
+    "docs/superfactory/00_GOAL.md",
+    "docs/superfactory/COMMAND_FABRIC_HA.md",
+    "docs/superfactory/COMMAND_NODES.md",
+    "docs/superfactory/CONTROL_PLANE_HA.md",
+    "docs/superfactory/FAILOVER_RUNBOOK.md",
+    "docs/superfactory/ANY_SERVER_COMMAND_MODE.md",
+    "docs/superfactory/TELEGRAM_COMMAND_GATEWAY.md",
+    "docs/superfactory/OWNER_ACCESS_RECOVERY.md",
+    "docs/superfactory/ARTIFACT_REPLICATION_POLICY.md",
+    "docs/superfactory/NODE_FAILURE_POLICY.md",
+    "docs/superfactory/PAYMENT_OR_PROVIDER_FAILURE_POLICY.md",
+    "docs/superfactory/TASKS.md"
+  ],
+  "acceptance": [
+    "New goal explicitly says Mac is not the only command point.",
+    "Primorye and Home are defined as command/control servers.",
+    "Any trusted server/computer can become a command node.",
+    "Phone/Telegram command path is defined.",
+    "GitHub emergency task ledger mode is defined.",
+    "Control Plane HA, leader/standby, failover, idempotency, split-brain prevention, and artifact replication are documented.",
+    "Failure scenarios include Mac, Primorye, Home, main, primary-candidate, Telegram, GitHub, Control Plane, Redis, unpaid/suspended server, disk full, GitHub auth broken, split brain, artifact loss, and owner phone-only mode.",
+    "No product code changed.",
+    "Next exact implementation tasks are added to docs/superfactory/TASKS.md.",
+    "Remote result reports task_id, node, Russian agent display name, branch/PR, tests, artifact paths, blockers, and next action."
+  ],
+  "source": {
+    "kind": "mac_thin_client_dispatcher",
+    "owner": "Vladislav",
+    "created_at": "2026-06-30T22:14:00Z",
+    "local_ledger": "docs/agent/dispatcher/DISPATCH_LOG.md"
+  }
+}
