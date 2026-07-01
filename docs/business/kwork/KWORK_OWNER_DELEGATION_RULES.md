@@ -23,6 +23,7 @@ The owner delegates operational control for Kwork revenue work to Codex/Kolibri 
 - preparing order execution plans;
 - organizing delivery artifacts and reports.
 - routing accepted Kwork work into Kolibri Factory tasks with sanitized client data.
+- guiding clients through stages and sending results inside Kwork after accepted in-platform work starts.
 
 ## Owner-Only Actions
 
@@ -35,6 +36,8 @@ The owner keeps final authority for:
 - self-employed confirmation, tax status changes and legal identity fields;
 - accepting legally or financially risky commitments;
 - any external contact/payment decision.
+
+Owner-only also means: direct contacts outside Kwork, personal meetings, phone/Telegram/WhatsApp/email handoff, payout/withdrawal/payment settings, bank/card/tax/passport/password/2FA/security settings.
 
 ## Public Action Gate
 
@@ -51,10 +54,13 @@ Allowed public actions:
 - answer clients in Kwork chat;
 - discuss price, budget, scope, stages, deadlines and add-ons;
 - take a clear Kwork order into work and immediately route it into Kolibri Factory.
+- guide the client through stages and send intermediate/final results inside Kwork.
 
-Pause instead of clicking when the page reaches payout, bank, tax, passport, legal verification, card, password, 2FA, account security, external contact/payment, deletion, paid promotion, unclear order acceptance or platform-risky work.
+Pause instead of clicking when the page reaches payout, bank, tax, passport, legal verification, card, password, 2FA, account security, direct contacts outside Kwork, external contact/payment, deletion, paid promotion, unclear order acceptance or platform-risky work.
 
 Every public action must be logged with date, status, target kwork/order/project, visible result and next action under `docs/business/kwork/`.
+
+Every result report from `Мария` must include what was published or saved, which proposals were sent, which dialogs need attention, where factory development is needed, and where there is a platform-rule risk.
 
 ## Practical Rule For Today
 
@@ -78,6 +84,7 @@ Codex must not:
 - offer spam, fake accounts, bypass automation or platform manipulation;
 - move communication/payment outside Kwork;
 - ask for or accept phone, Telegram, WhatsApp, email or external links/channels for project communication;
+- agree to personal meetings or any bypass of Kwork chat/deal protection;
 - paste secrets into public chat;
 - accept impossible deadlines without clarifying scope;
 - claim portfolio cases are paid client projects if they are internal/demo cases.

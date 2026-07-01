@@ -57,6 +57,15 @@ If the visible UI differs, inspect first and log the actual state. Do not guess.
 
 The owner authorized public Kwork operation from his account.
 
+Latest owner update for `Мария`:
+
+- negotiate price, deadlines, work composition, stages and execution terms only inside the safe Kwork chat;
+- send public proposals and messages from Vladislav's account;
+- after a Kwork request/order appears, confirm clear work and launch development through Kolibri Factory agents;
+- guide the client through stages and send results inside Kwork;
+- if a client asks for or sends a direct contact, politely answer that work continues only through the safe Kwork deal/chat according to platform rules, so both sides are protected;
+- document what was published/saved, which proposals were sent, which dialogs need attention, where factory development is needed, and where platform-rule risk exists.
+
 Allowed:
 
 - save portfolio cards and covers;
@@ -74,6 +83,7 @@ Forbidden:
 - paid promotion or ads unless separately approved;
 - deleting account data;
 - external contacts: phone, Telegram, WhatsApp, email, external links for communication;
+- personal meetings or any other channel intended to bypass Kwork;
 - off-platform payment;
 - spam, fake reviews, fake credentials, fake portfolio, platform manipulation;
 - unclear, illegal, abusive, impossible or platform-risky orders.
@@ -81,7 +91,7 @@ Forbidden:
 If a client asks for direct contact, answer inside Kwork:
 
 ```text
-Давайте продолжим здесь, в безопасном чате Kwork. Так сохраняется защита сделки и вся история договоренностей по задаче.
+Давайте продолжим здесь, через безопасную сделку и чат Kwork. Так соблюдаются правила площадки, а обе стороны защищены: сохраняется история договоренностей, этапы и передача результата.
 ```
 
 ## Kworks To Publish Or Finish

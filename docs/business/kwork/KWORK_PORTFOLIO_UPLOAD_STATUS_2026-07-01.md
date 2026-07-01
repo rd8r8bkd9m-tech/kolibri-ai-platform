@@ -28,6 +28,47 @@ Observed card metadata:
 Опубликовано 1 июля 2026
 ```
 
+## Update: Fifth Portfolio Item Saved
+
+Observed and saved by subagent `Мария` on 2026-07-01 05:21 MSK.
+
+Saved portfolio item:
+
+```text
+Аудит и доработка Telegram/AI-бота
+```
+
+Form state before save:
+
+- Title: `Аудит и доработка Telegram/AI-бота`.
+- Category: `Разработка и IT`.
+- Subcategory: `Создание сайта`.
+- Type: `Новый сайт`.
+- Main image uploaded from `/Users/kolibri/Documents/KworkPortfolio/05-bot-audit.png`.
+- Cover generated/displayed from the same image.
+- `Сохранить` button observed active.
+
+Observed result after public save:
+
+```text
+Kwork returned to the portfolio grid at https://kwork.ru/user/kolibrinano#portfolio-section.
+The grid showed a new portfolio tile with the status text:
+Работа в процессе подготовки к публикации. Обычно это занимает до нескольких часов.
+```
+
+Public action log:
+
+```text
+time: 2026-07-01 05:21 MSK
+target: Kwork portfolio item for user kolibrinano
+action: uploaded 05-bot-audit.png, used generated cover, clicked public Сохранить
+status: saved
+visible_result: portfolio grid shows a new item in preparation for publication
+url_or_title: https://kwork.ru/user/kolibrinano#portfolio-section / Аудит и доработка Telegram/AI-бота
+blocker: none
+next_action: open Kwork management section and continue kwork completion/publishing after checking docs and current UI
+```
+
 ## Important Note
 
 The assistant prepared the first portfolio item in the browser: title, rubric, platform, image and cover.

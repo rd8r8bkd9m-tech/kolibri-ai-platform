@@ -29,10 +29,11 @@ Operational meaning for Kwork revenue work:
 - the assistant may click public Kwork buttons for prepared, owner-approved, low-risk presentation actions: save portfolio item, save portfolio cover, save public profile text, publish or update a prepared kwork, submit a prepared proposal from the documented send queue;
 - the assistant may discuss price, budget, scope, stages, deadlines and add-ons inside Kwork safe chat;
 - the assistant may take clear in-platform Kwork work into execution and route it to Kolibri Factory with sanitized client data;
+- the assistant may guide the client through stages and send intermediate/final results inside Kwork;
 - the assistant must inspect the visible final state before clicking and must log the action in the relevant Kwork docs;
 - no per-button confirmation is required for a documented batch once the batch, texts and targets are recorded in GitHub;
 - this authorization does not allow payment, payout, tax, passport, bank, card, phone, email, password, 2FA, API-key or security-setting changes;
-- this authorization does not allow deleting data, platform manipulation, off-platform payment/contact, fake reviews, fake portfolio, spam, accepting unclear or platform-risky orders, or any action outside Kwork rules;
+- this authorization does not allow deleting data, platform manipulation, off-platform payment/contact, direct phone/Telegram/WhatsApp/email/personal-meeting handoff, fake reviews, fake portfolio, spam, accepting unclear or platform-risky orders, or any action outside Kwork rules;
 - if the button text or page context is ambiguous, pause and record the blocker instead of guessing.
 
 Before publishing a profile change or kwork:
@@ -49,6 +50,7 @@ Before sending a client message:
 - no outside-payment or platform-bypass request is included;
 - no private credentials are requested in chat.
 - all communication stays inside Kwork.
+- if the client asks for direct contact or gives a contact, answer that work stays inside Kwork safe chat/deal protection according to platform rules.
 
 Before accepting an order:
 
@@ -75,3 +77,4 @@ Before accepting an order:
 - Keep revisions limited.
 - Use synthetic/demo portfolio data when client data is private.
 - Track every sent message and accepted order.
+- Track every dialog that needs attention, every factory-development handoff, and every platform-rule risk.

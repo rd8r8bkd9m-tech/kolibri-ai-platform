@@ -21,12 +21,14 @@ Subagent delegation:
 - Kwork/UI work delegated to `Мария`.
 - Codex thread id: `019f1b76-23c0-7e71-a130-8d90434b7c4b`.
 - Handoff file: `docs/business/kwork/KWORK_MARIA_HANDOFF_2026-07-01.md`.
+- Latest owner update delivered to `Мария`: negotiate and deliver only inside Kwork; public proposals/messages allowed; direct contacts, payout/bank/tax/passport/password/2FA/security settings and Kwork rule bypass are forbidden; log saved/published items, sent proposals, attention-needed dialogs, factory work and platform-rule risks.
 
 Kwork public/profile state observed:
 
 - First portfolio item exists on Kwork: `Telegram AI-бот для заявок и FAQ`.
 - Kwork showed: `Работа в процессе подготовки к публикации. Обычно это занимает до нескольких часов.`
 - Browser observed portfolio URL: `https://kwork.ru/portfolio/23058129`.
+- Fifth handoff portfolio item was saved by `Мария` on 2026-07-01 05:21 MSK: `Аудит и доработка Telegram/AI-бота`; Kwork returned to the profile portfolio grid and showed the new work in preparation for publication.
 
 Kwork form state prepared but not publicly saved:
 
@@ -48,6 +50,12 @@ Owner public-button authorization was given on 2026-07-01:
 Публичные кнопки разрешаю нажимать
 ```
 
+Owner negotiation/update authorization was reinforced on 2026-07-01:
+
+```text
+Мария may negotiate price, deadlines, scope, stages and execution terms only inside safe Kwork chat; send public proposals/messages from Vladislav's Kwork account; confirm clear in-platform work after receiving a request; route accepted work to the factory/agents; manage client stages and send results inside Kwork.
+```
+
 This authorization covers prepared and logged public Kwork actions:
 
 - click `Сохранить` for a prepared portfolio item;
@@ -55,12 +63,16 @@ This authorization covers prepared and logged public Kwork actions:
 - publish or edit a prepared kwork;
 - send proposals from a documented send queue;
 - send prepared safe replies to Kwork clients.
+- negotiate price, deadlines, scope, milestones, terms and add-ons only inside Kwork;
+- confirm clear Kwork work and route it to Kolibri Factory/agents;
+- send stage updates and delivery results inside Kwork.
 
 This authorization does not cover:
 
 - tax, payout, bank, passport, card, phone, email, password, 2FA or security settings;
 - payout/withdrawal/bank/tax/legal/security actions;
 - external contact/payment;
+- phone, Telegram, WhatsApp, email, personal meetings or links used to bypass Kwork;
 - accepting, delivering or closing unclear, illegal, abusive, impossible or platform-risky work;
 - deleting data;
 - spam, fake claims, fake portfolio, fake reviews or platform manipulation.
@@ -70,7 +82,7 @@ Every public click must be logged with time, page/action, visible result and nex
 ## Today Execution Queue
 
 1. Delegate Kwork UI completion to the dedicated subagent role `Мария`.
-2. Finish the fifth portfolio card if the visible browser state matches `KWORK_MARIA_HANDOFF_2026-07-01.md`.
+2. Done 2026-07-01 05:21 MSK: fifth portfolio card saved from `05-bot-audit.png` and observed in Kwork preparation state.
 3. Inspect public profile after Kwork finishes portfolio processing.
 4. Publish or complete 3-5 narrow kworks when price/scope/deadline fields are unambiguous.
 5. Analyze live Kwork competitor pricing and update `KWORK_PRICE_PACKAGES_2026-07-01.md`.
@@ -186,3 +198,16 @@ Evening:
 Run the `Мария` Kwork handoff: finish portfolio, publish focused kworks, analyze prices, send safe in-platform proposals, and route accepted work into Kolibri Factory.
 
 After every public action, record the observed Kwork result in `KWORK_PORTFOLIO_UPLOAD_STATUS_2026-07-01.md`, `KWORK_SEND_QUEUE_2026-07-01.md` or this ledger before moving to the next action.
+
+## Public Action Log
+
+```text
+time: 2026-07-01 05:21 MSK
+target: Kwork portfolio item / user kolibrinano
+action: selected /Users/kolibri/Documents/KworkPortfolio/05-bot-audit.png, uploaded it to the fifth portfolio form, used the generated/displayed cover, clicked public Сохранить
+status: saved
+visible_result: modal closed; Kwork portfolio grid showed a newly saved work in preparation for publication
+url_or_title: https://kwork.ru/user/kolibrinano#portfolio-section / Аудит и доработка Telegram/AI-бота
+blocker: none
+next_action: continue with Kwork management section, price analysis, and first kwork completion/publishing under the existing delegation
+```
