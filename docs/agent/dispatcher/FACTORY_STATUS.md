@@ -4,6 +4,22 @@ Snapshot time:
 - 2026-07-01T08:00:05Z
 
 Latest update:
+- 2026-07-01T08:57:00Z:
+  Submitted final read-only PR #83 verification task
+  `P0_PR83_FINAL_MERGE_READINESS_VERIFICATION_2026_07_01`.
+  It ran on `primary-candidate:agent-host-primary` but ended
+  `failed_useful_artifacts`: useful `RESULT.md`, `TESTS.md`, `NEXT.md`,
+  `CHANGED_FILES.md` were created in the server worktree, but required exact
+  `PLAN.md` and `ACTIONS.md` were missing, so Control Plane correctly failed.
+  The server checkout also stayed at `origin/main` while the branch name was
+  PR83, so local tests did not validate the PR head. GitHub connector from the
+  dispatcher confirms current PR83 head
+  `81daf44dc842dce40d8547275f47b051871a2690` has `Kolibri CI` run
+  `28504679530` success. PR #83 is therefore at an owner release gate, not
+  automation-merge-ready: owner must decide mark-ready/merge vs another repair.
+  Record runner risks: no-push/read-only tasks still receive
+  `full_autonomy`/`git_push`; checkout branch name can point at PR branch while
+  HEAD remains at `main`; exact artifact enforcement is still brittle.
 - 2026-07-01T08:46:00Z:
   PR83 artifact chain is now server-complete and GitHub-green. Cleanup task
   `P0_PR83_REVIEW_DIFF_CONTRACT_EXACT_ARTIFACT_CLEANUP_2026_07_01`
