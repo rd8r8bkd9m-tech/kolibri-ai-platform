@@ -1,7 +1,7 @@
 # Factory Status
 
 Snapshot time:
-- 2026-07-01T02:36:30Z
+- 2026-07-01T02:41:03Z
 
 Mac executor:
 - Hostname: `MacBook-Air-Vladislav.local`
@@ -112,6 +112,15 @@ Submitted tasks:
 - GitHub Actions `Kolibri CI` run `28489561399` for PR #83 head
   `8b156572217cc646fc0e0fb779dbb1ecc37f1561` completed with conclusion
   `success`.
+- `P0_PR83_SCOPE_CLEANUP_REMOVE_SUPERFACTORY_OVERLAP_2026_07_01`: submitted
+  at `2026-07-01T02:40:15Z` through the fallback route
+  `Mac -> kolibri-primary-codex -> Control Plane`; leased by
+  `primary-candidate:agent-host-primary` with fresh heartbeat at
+  `2026-07-01T02:41:03Z`; current state `running`. Artifact root:
+  `/var/lib/kolibri-agent/artifacts/P0_PR83_SCOPE_CLEANUP_REMOVE_SUPERFACTORY_OVERLAP_2026_07_01/P0_PR83_SCOPE_CLEANUP_REMOVE_SUPERFACTORY_OVERLAP_2026_07_01-attempt-1/`.
+  The task removes unrelated `docs/superfactory/00_README.md`,
+  `docs/superfactory/20_ROADMAP.md`, and `docs/superfactory/TASKS.md` from
+  PR #83 so runner hardening remains a single-purpose PR.
 
 Node snapshot through Control Plane:
 - Observed node cards: 42.
