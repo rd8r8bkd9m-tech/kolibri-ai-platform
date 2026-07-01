@@ -119,6 +119,51 @@ If a server is unavailable, do not stop at a dead end. Return structured status:
 
 The fleet is a shared resource pool.
 
+## Fleet Always Online Invariant
+
+Owner rule: Kolibri Factory must be kept in an always-working state.
+
+This is a hard operational invariant for every agent:
+- every canonical server must be visible through Fabric API / Control Plane or
+  have a structured repair task;
+- a broken, stale, unreachable or degraded server is not ignored and is not
+  treated as a permanent dead end;
+- agents must classify the failure reason, choose a fallback route, keep work
+  running on healthy nodes and create or update a repair task for the broken
+  node;
+- the owner must always be able to see current fleet status, working capacity,
+  blockers and next repair actions;
+- stale duplicate node cards must not be counted as healthy capacity;
+- all 20 owner servers are expected to be restored to full working condition,
+  with Agent Host, Control Plane/Fabric API reachability, GitHub access, runner
+  readiness and resource probes verified.
+
+Practical rule: "always online" means automatic detection, fallback execution,
+repair dispatch, evidence and owner-visible status. It does not allow fake
+healthy status, hidden failures or claiming capacity from stale cards.
+
+Control Plane guardian rule:
+- Control Plane must continuously verify the factory, not wait for the owner to
+  notice breakage.
+- The guardian loop checks server health, Agent Host heartbeat, MIMO/API runner
+  readiness, GitHub access, queue/lease health, artifact creation and stale
+  node-card drift.
+- When a server or agent breaks, Control Plane creates a scoped repair task and
+  routes it to healthy repair agents through fallback nodes.
+- Agents may trigger other agents through Control Plane task envelopes, but
+  must preserve task ids, rate limits, owner-visible status and artifact trails.
+- The factory must keep working 24/7: if one command node is idle or offline,
+  healthy command/control nodes continue checks, dispatches and handoffs.
+
+MIMO/subagent capacity rule:
+- Target state: each canonical server should be able to host up to 20 local
+  MIMO/subagents where resources and policy allow.
+- Logical agents may scale up to 1000 across the factory, but only through a
+  scheduler that respects CPU, RAM, disk, model/provider limits, queue pressure,
+  API terms, safety gates and owner priorities.
+- Capacity is earned by probes and metrics, not assumed. A node without fresh
+  resource/runner evidence cannot be counted for 20 MIMO agents.
+
 Nodes must be classified before use:
 - development;
 - review;

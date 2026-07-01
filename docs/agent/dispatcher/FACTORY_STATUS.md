@@ -4,6 +4,57 @@ Snapshot time:
 - 2026-07-01T09:15:43Z
 
 Latest update:
+- 2026-07-01T15:58:10Z:
+  START command executed by Mac dispatcher as task submission only. Control
+  Plane accepted four P0 factory tasks:
+  `P0_FACTORY_START_24_7_AGENT_MESH_2026_07_01` is `running` on
+  `primary-candidate:agent-host-primary` with fresh heartbeat;
+  `P0_FLEET_ALWAYS_ONLINE_GUARDIAN_AND_20_SERVER_RESTORE_2026_07_01` is
+  `queued`; `P0_HOME_FACTORY_TERMINAL_UI_RU_2026_07_01` is `queued`;
+  `P0_LOGICAL_AGENT_SCHEDULER_1000_CAPACITY_GATED_2026_07_01` is `queued`.
+  These tasks are the operational start wave: launcher, always-online guardian,
+  Home Russian terminal wallboard, and capacity-gated 1000 logical-agent
+  scheduler. Mac is stopping active work after dispatch; factory agents should
+  continue through Control Plane, child tasks, statuses and artifacts.
+- 2026-07-01T16:05:00Z:
+  Owner upgraded the invariant from passive uptime to active 24/7 factory work:
+  Control Plane must check the factory, dispatch commands to agents, agents may
+  trigger follow-up tasks for other agents through Control Plane, and each
+  canonical server should target up to 20 MIMO/subagents when capacity allows.
+  Logical agents may scale up to 1000 only through capacity-gated scheduling.
+  Added durable policy docs and prepared launch envelope
+  `P0_FACTORY_START_24_7_AGENT_MESH_2026_07_01`; this is the first operational
+  wave intended to submit real child tasks to fresh nodes and create repair
+  follow-ups instead of only auditing.
+- 2026-07-01T15:43:00Z:
+  `P0_PR85_RELEASE_GATE_AFTER_PROMPT3_SURFACE_REPAIR_2026_07_01` completed
+  on `primary-candidate:agent-host-primary`. Decision:
+  `merge_ready_after_minor_docs_fix` for PR #85 head
+  `06adeb54c0e7d7132c7f0817ea4755786cd3f092`. Remote tests: focused Fabric
+  tests `11 passed`; full suite in isolated venv `71 passed, 1 warning`.
+  The only blocker is doc-only EOF whitespace in new `docs/superfactory/*.md`
+  files from `git diff --check origin/main...HEAD`; no product-code repair or
+  split is required. Exact artifacts were completed on the server, but server
+  GitHub SSH push again timed out on `github.com:22`, so Mac relayed the
+  server-created docs. Draft PR #94 now records the release gate:
+  `https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/94`, head
+  `66da3e895bb8a2105ae95e17e01d9e4aec1f0ac5`, mergeable, CI success.
+  Prepared next exact task:
+  `P0_PR85_MINOR_DOCS_WHITESPACE_FIX_2026_07_01`.
+- 2026-07-01T15:30:00Z:
+  Prepared remote-only release-gate envelope
+  `P0_PR85_RELEASE_GATE_AFTER_PROMPT3_SURFACE_REPAIR_2026_07_01` for
+  `Алексей — Fabric API Release Reviewer`. It reviews PR #85 after the
+  Prompt #3 surface repair at exact head
+  `06adeb54c0e7d7132c7f0817ea4755786cd3f092` against
+  `docs/superfactory/Kolibri_All_Prompts.md`, the API-first addendum, Prompt
+  #3, PR #93 gap findings, repair artifacts, server tests and GitHub CI. The
+  task is review-only: no product code, merge, mark-ready, approval, deploy,
+  restart, force-push, push-to-main or credential changes. Direct Mac
+  `ops/kolibri-dispatch submit` timed out, then the documented fallback route
+  through `kolibri-primary-codex` submitted the envelope to
+  `http://10.99.0.10:9101/v1/tasks`. Control Plane accepted it at
+  `2026-07-01T15:30:01Z` with initial state `queued`.
 - 2026-07-01T15:22:03Z:
   `P0_PR85_PROMPT3_FABRIC_API_SURFACE_REPAIR_2026_07_01` produced a useful
   remote implementation on `primary-candidate:agent-host-primary`. The Control

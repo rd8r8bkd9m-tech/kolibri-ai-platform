@@ -1,5 +1,36 @@
 # Superfactory Tasks
 
+## P0: Fleet Always Online Guardian
+
+Status: owner law drafted; remote guardian task required.
+
+Goal: keep all 20 owner servers in a working state. Every server must be either
+fully online and routable through Fabric API / Control Plane, or have a
+structured blocker, fallback route and active repair task.
+
+Control Plane must act as the guardian: it checks the factory, dispatches repair
+commands to agents, keeps fallback execution running and maintains owner-visible
+state. This must become a 24/7 loop, not a one-time audit.
+
+Required docs:
+
+- `FLEET_ALWAYS_ONLINE_POLICY.md`
+
+Required behavior:
+
+1. Maintain canonical list of the 20 owner servers.
+2. Count fresh heartbeats separately from stale/mesh duplicate cards.
+3. Route work only to healthy capacity.
+4. Dispatch repair tasks for degraded, unreachable or stale canonical servers.
+5. Keep owner-visible fleet status current.
+6. Never claim "server unavailable" as a dead end.
+7. Define per-server MIMO/subagent target: up to 20 MIMO/subagents per server
+   when capacity allows.
+8. Define logical-agent scheduler target: up to 1000 logical agents across the
+   factory, constrained by measured throughput and safety gates.
+9. Add buddy-trigger/handoff policy so healthy nodes keep checks and repairs
+   running 24/7.
+
 ## P0: API-First Control Fabric
 
 Status: drafted as contract.
