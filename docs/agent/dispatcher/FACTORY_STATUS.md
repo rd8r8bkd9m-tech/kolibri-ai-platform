@@ -4,6 +4,20 @@ Snapshot time:
 - 2026-07-01T09:15:43Z
 
 Latest update:
+- 2026-07-01T13:33:00Z:
+  Fleet role/capability inventory is now represented in GitHub as draft PR #92:
+  `https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/92`.
+  Head `5a33c3fc0a5a434f40c6ed3783d8c73fe9557168` is mergeable and
+  GitHub Actions run `28521289206` succeeded. The source Control Plane
+  inventory task and canonical relay both produced useful server-side evidence
+  but failed exact artifact verification because the generic runner wrote wrong
+  paths/names. A deterministic docs-only alias repair normalized the output
+  into exact run artifacts and intelligence files. The inventory confirms:
+  `qjns`/`uiap` are no longer disk-blocked; `qjns` remains blocked for full
+  work by GitHub credential and MIMO provider access; `uiap` is suitable for
+  light RAG/knowledge work; `main` needs runner auth smoke; `home`/`home-live`
+  need heartbeat freshness cleanup; stale mesh/metadata cards and queue
+  retention need cleanup.
 - 2026-07-01T13:05:00Z:
   GitHub PR #91 body was refreshed to match current source-of-truth state:
   head `350544492ce14a12865fb9a04e2abf6f87c87d3f`, draft, mergeable,
