@@ -33,4 +33,3 @@ The implementation remains documented in:
 ## Next Action
 
 Run verification, commit the docs-only alignment, and push the existing PR branch without force.
-

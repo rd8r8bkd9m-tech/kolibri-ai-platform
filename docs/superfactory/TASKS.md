@@ -53,4 +53,3 @@ Rules:
 - Factory work enters through Fabric API.
 - Every task has `task_id`, `trace_id`, route, artifacts and status.
 - Mac remains a thin command node.
-

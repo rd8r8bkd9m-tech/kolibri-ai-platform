@@ -76,4 +76,3 @@ POST /v1/admin/rotate-keys
 - автоматические деньги, банк, 2FA, security bypass;
 - массовый restart/reboot без blast-radius отчета;
 - blind install unaudited internet code.
-

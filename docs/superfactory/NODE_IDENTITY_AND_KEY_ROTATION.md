@@ -60,4 +60,3 @@ Request must include:
 7. Promote new identity.
 8. Revoke old identity.
 9. Write audit artifact.
-

@@ -73,4 +73,3 @@ Logs, artifacts and owner reports must redact:
 - passwords;
 - OAuth refresh/access tokens;
 - provider credentials.
-

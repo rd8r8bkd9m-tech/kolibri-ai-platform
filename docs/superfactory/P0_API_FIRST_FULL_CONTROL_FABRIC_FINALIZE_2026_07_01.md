@@ -21,4 +21,3 @@ Finalization summary:
 - SSH remains emergency-only, not a routine control plane.
 - Owner full-control policy requires authn, authz, scoped rights, audit logging, and rotation.
 - Safe stubs avoid returning secrets and provide explicit next API actions.
-

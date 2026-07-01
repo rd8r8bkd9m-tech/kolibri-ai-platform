@@ -86,4 +86,3 @@ POST /v1/admin/rotate-keys
 ## SSH break-glass
 
 SSH можно использовать только если API route не отвечает или нужно bootstrap-ить новый узел. После SSH-диагностики агент обязан записать repair task, чтобы штатное управление вернулось в API.
-

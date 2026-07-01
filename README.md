@@ -1,92 +1,58 @@
 # Kolibri AI Platform
 
-Собственная AI-платформа на 5 серверах с WireGuard mesh сетью.
+Kolibri AI Platform is the control, chat, and factory automation surface for the
+Kolibri server fleet. The current main branch contains a FastAPI backend, React
+frontend, Redis-backed factory control-plane sidecars, Telegram/factory
+orchestration utilities, deployment scripts, and regression tests for the active
+runtime contracts.
 
-## Архитектура
+This repository is operated through protected release trains. Do not push
+directly to `main`. Product, documentation, and factory-runtime changes should
+land through focused pull requests with CI evidence and owner approval.
 
-```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   Home      │     │    Main     │     │    UIAP     │
-│ 10.99.0.1   │────▶│ 10.99.0.2   │────▶│ 10.99.0.3   │
-│ Training    │     │ API Gateway │     │  RAG Engine │
-│ Redis       │     │ Frontend    │     │ ChromaDB    │
-└─────────────┘     └──────┬──────┘     └─────────────┘
-                           │
-                    ┌──────┴──────┐
-                    │             │
-              ┌─────▼─────┐ ┌────▼──────┐
-              │   QJNS    │ │   9FTS    │
-              │ 10.99.0.4 │ │ 10.99.0.5 │
-              │   Agent   │ │ Inference │
-              │ MiMo CLI  │ │ TinyLlama │
-              └───────────┘ └───────────┘
-```
+## Current Components
 
-## Серверы
+| Area | Path | Purpose |
+| --- | --- | --- |
+| Backend API | `backend/` | FastAPI chat, provider catalog, conversations, TTS/STT, web search, pipeline, and factory status endpoints. |
+| Frontend | `frontend/` | React 19 and Vite application for the Kolibri chat and factory status UI. |
+| Factory control | `ops/factory_control.py`, `ops/agent_host.py` | Redis-backed task queue, leases, node heartbeat, review tasks, and agent execution contracts. |
+| Telegram gateway | `ops/telegram_gateway.py` | Owner-facing Telegram command and chat integration for factory workflows. |
+| Mesh bridge | `ops/mesh_control_bridge.py` | Local control bridge for mesh/factory node operations. |
+| Deployment | `scripts/deploy.sh`, `ops/systemd/` | Server deployment and systemd service units. |
+| Tests | `tests/`, `backend/tests/`, `frontend/tests/` | Python contract tests and frontend layout guards. |
 
-| Сервер | IP | Роль | Порт |
-|--------|-----|------|------|
-| Home | 178.207.11.90 | Training Hub, Redis | 2222 |
-| Main | 104.253.43.117 | API Gateway, Frontend | 80, 8000 |
-| UIAP | 31.57.26.151 | RAG Engine | 8002 |
-| QJNS | 217.60.63.97 | Agent Executor | 8003 |
-| 9FTS | 94.183.235.154 | Inference | 8001 |
+## Backend API
 
-## Стек
+The backend entry point is `backend/main.py`. Current local routes include:
 
-- **Frontend**: React 19, Vite, Framer Motion, Tailwind CSS
-- **Backend**: FastAPI, SQLite, httpx
-- **RAG**: ChromaDB, sentence-transformers
-- **Inference**: TinyLlama-1.1B (Q4_K_M), llama.cpp
-- **Network**: WireGuard mesh (10.99.0.0/24)
-- **Orchestration**: Kolibri Organism v3 (Redis State Store, Job Queue)
+| Endpoint | Description |
+| --- | --- |
+| `GET /api/health` | Backend health and provider status. |
+| `GET /api/providers` | Configured AI provider status. |
+| `GET /api/models` | Model catalog and active system prompt. |
+| `POST /api/chat` | Cached chat generation through the provider manager. |
+| `WS /ws/chat` | Streaming-style websocket chat exchange. |
+| `POST /api/conversations` | Create a stored conversation. |
+| `GET /api/conversations` | List stored conversations. |
+| `GET /api/conversations/{conv_id}/messages` | Read stored conversation messages. |
+| `DELETE /api/conversations/{conv_id}` | Delete a stored conversation. |
+| `POST /api/tts` | Text-to-speech generation. |
+| `GET /api/tts/voices` | TTS voice catalog. |
+| `POST /api/search` | Web search helper. |
+| `POST /api/tools` | Tool-call helper endpoint. |
+| `POST /api/pipeline` | Unified pipeline execution. |
+| `GET /api/pipeline/health` | Pipeline dependency health. |
+| `GET /api/factory/status` | Live factory status normalized for the frontend. |
+| `GET /cluster/status` | Legacy cluster status compatibility endpoint. |
 
-## Быстрый старт
-
-```bash
-# Клонировать
-git clone https://github.com/YOUR_USER/kolibri-ai-platform.git
-cd kolibri-ai-platform
-
-# Backend
-cd backend
-pip install -r requirements.txt
-python -m uvicorn main:app --host 0.0.0.0 --port 8000
-
-# Frontend
-cd frontend
-npm install
-npm run dev
-```
-
-## Деплой
-
-Основной путь управления фабрикой — защищенный Fabric API control plane. SSH не является control plane и допускается только для bootstrap, emergency recovery и диагностики, когда API недоступен или еще не установлен. Контракт API-first управления описан в [docs/fabric-api-first-control.md](docs/fabric-api-first-control.md).
-
-```bash
-# На каждый сервер
-./scripts/deploy.sh main    # API Gateway + Frontend
-./scripts/deploy.sh uiap    # RAG Engine
-./scripts/deploy.sh qjns    # Agent
-./scripts/deploy.sh 9fts    # Inference
-./scripts/deploy.sh home    # Training
-```
-
-## API Endpoints
-
-| Endpoint | Описание |
-|----------|----------|
-| `POST /api/chat` | Чат с AI |
-| `POST /api/pipeline` | Unified pipeline (RAG + Agent + Inference) |
-| `GET /api/pipeline/health` | Health check всех сервисов |
-| `POST /rag/search` | Поиск по базе знаний |
-| `POST /inference/generate` | Генерация текста |
-| `GET /cluster/status` | Статус кластера |
+The versioned router in `backend/routes_v1.py` is also included by the backend
+for `/v1` contracts.
 
 ### Fabric Control API
 
 | Endpoint | Описание |
-|----------|----------|
+| --- | --- |
 | `GET /v1/fabric/health` | Health защищенного Fabric API |
 | `GET /v1/fabric/policy` | Owner rights, auth/authz/scope/logging/rotation policy |
 | `GET /v1/fabric/routes` | Представление всех серверов через API или fallback relay |
@@ -95,19 +61,57 @@ npm run dev
 | `POST /v1/fabric/bootstrap` | Контракт bootstrap нового сервера без вывода секретов |
 | `GET /v1/fabric/keys/rotation` | Node identity и key rotation policy |
 
-## Структура
+## Quick Start
 
+Backend:
+
+```bash
+cd backend
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -r requirements.txt
+python -m uvicorn main:app --host 0.0.0.0 --port 8000
 ```
-kolibri-ai-platform/
-├── backend/          # FastAPI backend (Main)
-├── frontend/         # React frontend
-├── infra/
-│   ├── network/      # WireGuard, Kolibri Organism, Nginx
-│   └── inference/    # Inference server (9FTS)
-├── scripts/          # Deploy & training scripts
-└── docs/             # Документация
+
+Frontend:
+
+```bash
+cd frontend
+npm install
+npm run dev
 ```
 
-## Лицензия
+Factory control sidecar:
 
-Kolibri AI Platform
+Основной путь управления фабрикой — защищенный Fabric API control plane. SSH не является control plane и допускается только для bootstrap, emergency recovery и диагностики, когда API недоступен или еще не установлен. Контракт API-first управления описан в [docs/fabric-api-first-control.md](docs/fabric-api-first-control.md).
+
+```bash
+python3 ops/factory_control.py --host 127.0.0.1 --port 8765
+```
+
+## Verification
+
+Run the same categories that CI covers before opening or updating a PR:
+
+```bash
+python3 -m compileall -q backend ops scripts
+python3 -m pytest -q
+cd frontend && npm install && npm run build
+```
+
+CI also validates tracked JSON/YAML files, scans for common secret patterns, and
+blocks production secret-like paths in pull requests.
+
+## Release Train
+
+The active main-branch sync train for July 1, 2026 is recorded in
+`docs/release/2026-07-01-main-readme-code-sync-release-train.md`.
+
+Release rules for this train:
+
+- Remote execution must happen on a server node, not on a Mac dispatcher.
+- `main` must not be pushed directly.
+- Pull requests must stay focused; do not mix unrelated product, docs, and
+  operations changes in one PR.
+- Owner approval is required before merge.
+- PR #85 remains a release-gated item and must not be skipped.

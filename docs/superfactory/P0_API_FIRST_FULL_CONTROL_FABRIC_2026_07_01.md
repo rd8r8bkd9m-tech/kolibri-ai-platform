@@ -15,4 +15,3 @@ Contract summary:
 - Owner full-control actions require authentication, authorization scopes, audit logging, and credential rotation.
 - Node identity uses stable non-secret node ids and Russian display names.
 - Bootstrap safe stubs accept non-secret metadata and never return secrets.
-

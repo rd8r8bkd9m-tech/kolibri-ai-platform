@@ -54,4 +54,3 @@ POST /v1/admin/bootstrap-node
 - Node artifacts are discoverable.
 - Rotation policy is recorded.
 - SSH is no longer required for normal work after bootstrap.
-
