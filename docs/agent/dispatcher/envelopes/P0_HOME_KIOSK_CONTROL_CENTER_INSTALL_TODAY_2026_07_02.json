@@ -1,0 +1,115 @@
+{
+  "task_id": "P0_HOME_KIOSK_CONTROL_CENTER_INSTALL_TODAY_2026_07_02",
+  "idempotency_key": "home-today:P0_HOME_KIOSK_CONTROL_CENTER_INSTALL_TODAY_2026_07_02",
+  "kind": "owner_remote_task",
+  "priority": "P0",
+  "required_capability": "home",
+  "runner": "mimo",
+  "mimo_mode": "auto",
+  "agent_type": "home_kiosk_deploy_engineer",
+  "agent_display_name": "Мария - инженер киоска Home",
+  "target_node": "home",
+  "target_node_pool": "home_local_control_plane",
+  "preferred_nodes": [
+    "home",
+    "home-live"
+  ],
+  "allowed_nodes": [
+    "home",
+    "home-live"
+  ],
+  "branch": "agent/P0_HOME_KIOSK_CONTROL_CENTER_INSTALL_TODAY_2026_07_02/mimo",
+  "base_ref": "origin/main",
+  "max_retries": 1,
+  "goal": "Сегодня установить или включить Home kiosk / Kolibri AI Control Center monitor для владельца.",
+  "objective": "На Home/plastilin поставить owner-visible kiosk/control-center экран сегодня. Использовать существующий wallboard, Firefox/kiosk или Ubuntu Frame-style fullscreen путь, выбрать самый безопасный рабочий вариант. Разрешены только ограниченные действия с Home kiosk/wallboard/control-center units и только с backup/rollback. Не трогать секреты, Telegram receiver, provider billing, HostVDS покупки/удаления серверов и нерелевантные production services.",
+  "read_first": [
+    "docs/product/kolibri-ai-control-center/2026-07-02/CONTROL_CENTER_TZ_V0_1.md",
+    "docs/superfactory/DIRECTOR_OPERATING_CHARTER.md",
+    "docs/superfactory/SCOPED_CONTEXT_AND_ACCESS_DELEGATION.md",
+    "docs/agent/dispatcher/envelopes/P0_HOME_CONTROL_CENTER_MONITOR_LOCAL_BUILD_2026_07_02.json",
+    "docs/agent/dispatcher/envelopes/P0_HOME_BROWSER_WORKSTATION_REPAIR_2026_07_02.json"
+  ],
+  "known_context": {
+    "home_host_alias": "kolibri-home",
+    "hostname": "plastilin",
+    "desktop_user": "ladik",
+    "display": ":0",
+    "known_services": [
+      "kolibri-home-wallboard-tty1.service",
+      "kolibri-home-wallboard.service",
+      "kolibri-agent-host.service",
+      "kolibri-agent-host-live.service",
+      "kolibri-factory-control.service",
+      "mimo-agent.service"
+    ],
+    "preferred_surface": "owner visible monitor / kiosk",
+    "deadline": "2026-07-02 Europe/Moscow"
+  },
+  "allowed_runtime_actions": [
+    "read service status and logs for Home kiosk/wallboard/control-center units",
+    "build or configure local Home control-center static/web app if source is available",
+    "create backup copies of changed Home kiosk/wallboard/control-center unit files",
+    "restart only explicitly changed Home kiosk/wallboard/control-center units after backup",
+    "verify owner-visible browser/kiosk process on display :0",
+    "record rollback commands and exact view/attach/open URL"
+  ],
+  "forbidden_runtime_actions": [
+    "do not touch Telegram receiver/webhook/getUpdates ownership",
+    "do not print or request tokens, cookies, passwords, private keys or chat ids",
+    "do not buy, delete, resize or rebuild servers",
+    "do not restart unrelated production services",
+    "do not change provider billing or HostVDS state",
+    "do not disable Agent Host or Control Plane unless rollback requires it and owner approves"
+  ],
+  "write_scope": [
+    "docs/agent/runs/2026-07-02-p0-home-kiosk-control-center-install-today/**",
+    "docs/product/kolibri-ai-control-center/2026-07-02/**",
+    "ops/**",
+    "tests/**"
+  ],
+  "required_outputs": [
+    "docs/agent/runs/2026-07-02-p0-home-kiosk-control-center-install-today/PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-home-kiosk-control-center-install-today/ACTIONS.md",
+    "docs/agent/runs/2026-07-02-p0-home-kiosk-control-center-install-today/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-home-kiosk-control-center-install-today/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-home-kiosk-control-center-install-today/NEXT.md",
+    "docs/agent/runs/2026-07-02-p0-home-kiosk-control-center-install-today/ROLLBACK.md"
+  ],
+  "verification_commands": [
+    "test -f docs/agent/runs/2026-07-02-p0-home-kiosk-control-center-install-today/PLAN.md",
+    "test -f docs/agent/runs/2026-07-02-p0-home-kiosk-control-center-install-today/ACTIONS.md",
+    "test -f docs/agent/runs/2026-07-02-p0-home-kiosk-control-center-install-today/TESTS.md",
+    "test -f docs/agent/runs/2026-07-02-p0-home-kiosk-control-center-install-today/RESULT.md",
+    "test -f docs/agent/runs/2026-07-02-p0-home-kiosk-control-center-install-today/NEXT.md",
+    "test -f docs/agent/runs/2026-07-02-p0-home-kiosk-control-center-install-today/ROLLBACK.md"
+  ],
+  "acceptance": [
+    "Home kiosk/control-center is installed, enabled or an exact blocker is recorded today.",
+    "Owner gets exact URL, display, attach command or browser/kiosk process evidence.",
+    "Only Home kiosk/wallboard/control-center units are changed or restarted.",
+    "Backup and rollback commands are recorded before changes.",
+    "No secrets, Telegram receiver changes, billing/provider actions, server creation/deletion or unrelated service restarts occur.",
+    "Final report is in Russian and human-readable."
+  ],
+  "constraints": {
+    "execute_on_home_required": true,
+    "today_required": true,
+    "owner_visible_kiosk_required": true,
+    "remote_execution_required": true,
+    "mac_implementation_forbidden": true,
+    "scoped_grants_only": true,
+    "secrets_redaction_required": true,
+    "limited_runtime_deploy_allowed": true,
+    "rollback_required": true,
+    "telegram_receiver_changes_forbidden": true,
+    "provider_paid_actions_forbidden": true,
+    "destructive_commands_forbidden": true,
+    "unrelated_service_restart_forbidden": true
+  },
+  "source": {
+    "kind": "director_today_p0_dispatch",
+    "owner": "Vladislav",
+    "created_at": "2026-07-02T19:30:00+03:00"
+  }
+}

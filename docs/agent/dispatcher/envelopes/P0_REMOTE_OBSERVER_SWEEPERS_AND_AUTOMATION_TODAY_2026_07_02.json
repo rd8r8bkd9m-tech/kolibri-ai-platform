@@ -1,0 +1,98 @@
+{
+  "task_id": "P0_REMOTE_OBSERVER_SWEEPERS_AND_AUTOMATION_TODAY_2026_07_02",
+  "idempotency_key": "director:P0_REMOTE_OBSERVER_SWEEPERS_AND_AUTOMATION_TODAY_2026_07_02",
+  "kind": "owner_remote_task",
+  "priority": "P0",
+  "required_capability": "generic_implementation",
+  "runner": "mimo",
+  "mimo_mode": "auto",
+  "agent_type": "remote_observer_automation_engineer",
+  "agent_display_name": "Николай - инженер обходчиков фабрики",
+  "target_node_pool": "fresh_remote_implementation_nodes",
+  "preferred_nodes": [
+    "server-kfrm",
+    "9fts",
+    "main",
+    "new",
+    "qjns"
+  ],
+  "allowed_nodes": [
+    "server-kfrm",
+    "9fts",
+    "main",
+    "new",
+    "qjns"
+  ],
+  "branch": "agent/P0_REMOTE_OBSERVER_SWEEPERS_AND_AUTOMATION_TODAY_2026_07_02/mimo",
+  "base_ref": "origin/main",
+  "goal": "Сегодня настроить remote-first обходчиков, которые проверяют фабрику и докладывают директору через API.",
+  "objective": "Реализовать или подготовить к безопасному deploy систему remote observer sweepers: не локальные субагенты на Mac, а серверные обходчики, которые периодически проверяют Control Plane, home kiosk, queued/running/blocked tasks, PR/branch status, fleet health, MIMO runner status и создают structured repair tasks. Обходчики должны докладывать через Fabric API/Control Plane, а не через ручные SSH-циклы.",
+  "read_first": [
+    "docs/superfactory/FEDERATED_FRACTAL_CONTROL_PLANE.md",
+    "docs/superfactory/DIRECTOR_OPERATING_CHARTER.md",
+    "docs/superfactory/CONTROL_PLANE_UNIFICATION_PROGRAM.md",
+    "docs/superfactory/FLEET_ALWAYS_ONLINE_POLICY.md",
+    "docs/superfactory/TOKEN_WINDOW_BUDGET_POLICY.md",
+    "ops/factory_control.py",
+    "ops/agent_host.py",
+    "docs/agent/dispatcher/envelopes/P0_FLEET_ALWAYS_ONLINE_GUARDIAN_AND_20_SERVER_RESTORE_2026_07_01.json"
+  ],
+  "implementation_requirements": [
+    "Design the observer as remote server workers with bounded intervals and jitter, not Mac-local subagents.",
+    "Define API payloads for observer reports: observed_at, observer_node, subject, status, severity, next_action, repair_task_id.",
+    "Add or update scripts/contracts for sweeps of Control Plane health, task queue, home kiosk, PR branches, runner status and stale nodes.",
+    "Add deduplication/idempotency so observers do not spam repair tasks.",
+    "Add tests or deterministic dry-run fixtures.",
+    "Prepare a safe deploy plan for systemd timer/service on selected remote nodes with rollback.",
+    "Do not perform paid provider actions, destructive changes, secret exposure or Telegram receiver changes."
+  ],
+  "write_scope": [
+    "docs/agent/runs/2026-07-02-p0-remote-observer-sweepers-and-automation-today/**",
+    "docs/superfactory/**",
+    "ops/**",
+    "tests/**"
+  ],
+  "required_outputs": [
+    "docs/agent/runs/2026-07-02-p0-remote-observer-sweepers-and-automation-today/PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-remote-observer-sweepers-and-automation-today/ACTIONS.md",
+    "docs/agent/runs/2026-07-02-p0-remote-observer-sweepers-and-automation-today/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-remote-observer-sweepers-and-automation-today/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-remote-observer-sweepers-and-automation-today/NEXT.md",
+    "docs/agent/runs/2026-07-02-p0-remote-observer-sweepers-and-automation-today/DEPLOY_PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-remote-observer-sweepers-and-automation-today/ROLLBACK.md"
+  ],
+  "verification_commands": [
+    "python3 -m py_compile ops/factory_control.py ops/agent_host.py",
+    "test -f docs/agent/runs/2026-07-02-p0-remote-observer-sweepers-and-automation-today/PLAN.md",
+    "test -f docs/agent/runs/2026-07-02-p0-remote-observer-sweepers-and-automation-today/ACTIONS.md",
+    "test -f docs/agent/runs/2026-07-02-p0-remote-observer-sweepers-and-automation-today/TESTS.md",
+    "test -f docs/agent/runs/2026-07-02-p0-remote-observer-sweepers-and-automation-today/RESULT.md",
+    "test -f docs/agent/runs/2026-07-02-p0-remote-observer-sweepers-and-automation-today/NEXT.md",
+    "test -f docs/agent/runs/2026-07-02-p0-remote-observer-sweepers-and-automation-today/DEPLOY_PLAN.md",
+    "test -f docs/agent/runs/2026-07-02-p0-remote-observer-sweepers-and-automation-today/ROLLBACK.md"
+  ],
+  "acceptance": [
+    "Observer/sweeper architecture is remote-first and API-reporting.",
+    "Home kiosk, Control Plane queue, PR/branch triage, fleet health and runner status are covered.",
+    "Deduplication/backoff prevents spam and lease storms.",
+    "Safe deploy and rollback plan exists for remote systemd timer/service.",
+    "No Mac-local subagent dependency is introduced.",
+    "Exact required run artifacts are created."
+  ],
+  "constraints": {
+    "remote_execution_required": true,
+    "mac_subagents_forbidden_except_local_inspection": true,
+    "api_reporting_required": true,
+    "deduplication_required": true,
+    "secrets_redaction_required": true,
+    "provider_paid_actions_forbidden": true,
+    "telegram_receiver_changes_forbidden": true,
+    "destructive_commands_forbidden": true,
+    "production_deploy_requires_canary_and_rollback": true
+  },
+  "source": {
+    "kind": "director_today_p0_dispatch",
+    "owner": "Vladislav",
+    "created_at": "2026-07-02T19:30:00+03:00"
+  }
+}

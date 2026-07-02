@@ -29,6 +29,7 @@ FILESYSTEM_WRITE_POLICY = "node-local writes only; no shared writable root disk;
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 READ_ONLY_PERMISSION_PACK_MARKERS = {"read_only", "readonly", "read-only", "no_push", "no-push", "nopush"}
 FORBIDDEN_READ_ONLY_PERMISSIONS = {"full_autonomy", "git_push", "write_worktree"}
+FACTORY_AUTO_PERMIT_PACKS = {"factory_auto_permit", "factory-auto-permit", "factory_autopermit"}
 WRITE_WORKTREE_TASK_KINDS = {"impl_factory_smoke", "impl_retry_error_clearance"}
 GIT_PUSH_TASK_KINDS = {"impl_factory_smoke", "impl_retry_error_clearance"}
 MIMO_DIRECT_KINDS = {"owner_remote_task", "direct_mimo", "mimo_direct", "mimo_task"}
@@ -306,7 +307,9 @@ def classify_permission_pack(task: dict[str, Any]) -> dict[str, Any]:
     normalized_packs = {_normalized_token(value) for value in pack_values}
     normalized_permissions = {_normalized_token(value) for value in permission_values}
     permission_markers = {_normalized_token(marker) for marker in READ_ONLY_PERMISSION_PACK_MARKERS}
+    auto_permit_markers = {_normalized_token(marker) for marker in FACTORY_AUTO_PERMIT_PACKS}
     read_only_no_push = any(marker in token for token in normalized_packs for marker in permission_markers)
+    factory_auto_permit = any(marker in normalized_packs for marker in auto_permit_markers)
     forbidden_permissions = sorted(normalized_permissions & FORBIDDEN_READ_ONLY_PERMISSIONS)
 
     if kind in WRITE_WORKTREE_TASK_KINDS:
@@ -315,13 +318,30 @@ def classify_permission_pack(task: dict[str, Any]) -> dict[str, Any]:
         forbidden_permissions.append("git_push")
     forbidden_permissions = sorted(set(forbidden_permissions))
 
-    domain = "gomesh" if any("gomesh" in _normalized_token(value) for value in pack_values + permission_values) else "generic"
+    if factory_auto_permit:
+        domain = "factory"
+    elif any("gomesh" in _normalized_token(value) for value in pack_values + permission_values):
+        domain = "gomesh"
+    else:
+        domain = "generic"
     decision = "blocked" if read_only_no_push and forbidden_permissions else "allowed"
     return {
         "contract": "agent_host_permission_pack_runtime_gate",
         "domain": domain,
         "kind": kind,
         "read_only_no_push": read_only_no_push,
+        "factory_auto_permit": factory_auto_permit,
+        "auto_approve_non_destructive": factory_auto_permit,
+        "manual_approval_required_for": [
+            "raw_secret_disclosure",
+            "private_key_export",
+            "provider_billing",
+            "server_delete_rebuild_or_resize",
+            "production_receiver_migration",
+            "destructive_action_without_rollback",
+            "force_push",
+            "direct_main_push",
+        ] if factory_auto_permit else [],
         "permission_packs": sorted(normalized_packs),
         "requested_permissions": sorted(normalized_permissions),
         "forbidden_permissions": forbidden_permissions if read_only_no_push else [],

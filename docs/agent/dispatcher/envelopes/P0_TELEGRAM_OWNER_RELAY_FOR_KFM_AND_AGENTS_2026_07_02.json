@@ -1,0 +1,110 @@
+{
+  "task_id": "P0_TELEGRAM_OWNER_RELAY_FOR_KFM_AND_AGENTS_2026_07_02",
+  "idempotency_key": "director:P0_TELEGRAM_OWNER_RELAY_FOR_KFM_AND_AGENTS_2026_07_02",
+  "kind": "owner_remote_task",
+  "priority": "P0",
+  "required_capability": "generic_implementation",
+  "runner": "mimo",
+  "mimo_mode": "auto",
+  "permission_pack": "factory_auto_permit",
+  "approval_mode": "auto_within_factory_rules",
+  "agent_type": "telegram_owner_relay_engineer",
+  "agent_display_name": "Илья - инженер Telegram-связи фабрики",
+  "target_node": "server-kfrm",
+  "target_node_pool": "kfm_primary_then_fresh_remote_nodes",
+  "preferred_nodes": [
+    "server-kfrm",
+    "main",
+    "9fts",
+    "qjns",
+    "new"
+  ],
+  "allowed_nodes": [
+    "server-kfrm",
+    "main",
+    "9fts",
+    "qjns",
+    "new"
+  ],
+  "branch": "agent/P0_TELEGRAM_OWNER_RELAY_FOR_KFM_AND_AGENTS_2026_07_02/mimo",
+  "base_ref": "origin/main",
+  "goal": "Дать KFM и агентам возможность писать владельцу в Telegram без раздачи raw bot token.",
+  "objective": "Развернуть и проверить capability telegram_owner_notify: агенты публикуют owner notifications через Control Plane, canonical Telegram gateway доставляет их владельцу, а raw TELEGRAM_BOT_TOKEN остается только в secret env gateway. KFM/MIMO Code должен знать secret_ref и API, но не значение токена.",
+  "read_first": [
+    "docs/superfactory/TELEGRAM_OWNER_RELAY_POLICY.md",
+    "docs/telegram-superfactory.md",
+    "docs/product/telegram-command-center/2026-07-01/BOT_RUNTIME_CONTRACT.md",
+    "docs/superfactory/KFM_MIMO_CODE_AUTONOMY_POLICY.md",
+    "ops/factory_control.py",
+    "ops/telegram_gateway.py",
+    "tests/test_telegram_gateway.py",
+    "tests/test_prompt3_fabric_api_surface.py"
+  ],
+  "implementation_requirements": [
+    "Verify Control Plane exposes POST /v1/owner/notifications and GET /v1/owner/notifications.",
+    "Verify Telegram gateway reads pending notifications and acknowledges delivery.",
+    "Install the non-secret relay policy into KFM/MIMO Code memory.",
+    "Give agents capability telegram_owner_notify and secret_ref telegram_owner_bot_token, not the raw token.",
+    "If the current bot token was exposed in any chat/log, record that it should be rotated through the canonical gateway secret install path.",
+    "Do not start a second Telegram receiver or direct getUpdates worker.",
+    "Do not copy, print, commit or fan out TELEGRAM_BOT_TOKEN, cookies, passwords, OAuth tokens or chat ids.",
+    "Record PLAN/ACTIONS/TESTS/RESULT/NEXT artifacts in Russian under the required run directory."
+  ],
+  "notification_contract": {
+    "capability": "telegram_owner_notify",
+    "secret_ref": "telegram_owner_bot_token",
+    "producer_endpoint": "POST /v1/owner/notifications",
+    "gateway_pending_endpoint": "GET /v1/owner/notifications?state=pending",
+    "gateway_ack_endpoint": "POST /v1/owner/notifications/{notification_id}/ack",
+    "raw_token_distribution": "forbidden"
+  },
+  "write_scope": [
+    "docs/agent/runs/2026-07-02-p0-telegram-owner-relay-for-kfm-and-agents/**",
+    "docs/superfactory/**",
+    "docs/telegram-superfactory.md",
+    "ops/**",
+    "tests/**"
+  ],
+  "required_outputs": [
+    "docs/agent/runs/2026-07-02-p0-telegram-owner-relay-for-kfm-and-agents/PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-telegram-owner-relay-for-kfm-and-agents/ACTIONS.md",
+    "docs/agent/runs/2026-07-02-p0-telegram-owner-relay-for-kfm-and-agents/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-telegram-owner-relay-for-kfm-and-agents/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-telegram-owner-relay-for-kfm-and-agents/NEXT.md"
+  ],
+  "verification_commands": [
+    "python3 -m py_compile ops/factory_control.py ops/telegram_gateway.py",
+    "python3 -m pytest -q tests/test_telegram_gateway.py tests/test_prompt3_fabric_api_surface.py",
+    "test -f docs/superfactory/TELEGRAM_OWNER_RELAY_POLICY.md",
+    "test -f docs/agent/runs/2026-07-02-p0-telegram-owner-relay-for-kfm-and-agents/PLAN.md",
+    "test -f docs/agent/runs/2026-07-02-p0-telegram-owner-relay-for-kfm-and-agents/ACTIONS.md",
+    "test -f docs/agent/runs/2026-07-02-p0-telegram-owner-relay-for-kfm-and-agents/TESTS.md",
+    "test -f docs/agent/runs/2026-07-02-p0-telegram-owner-relay-for-kfm-and-agents/RESULT.md",
+    "test -f docs/agent/runs/2026-07-02-p0-telegram-owner-relay-for-kfm-and-agents/NEXT.md"
+  ],
+  "acceptance": [
+    "KFM and agents can send owner-visible Telegram notifications through Control Plane.",
+    "Only the canonical Telegram gateway needs the bot token.",
+    "Raw token distribution to agents is forbidden and not performed.",
+    "The bot receiver remains single-owner/canonical.",
+    "Notification bodies are redacted for token-like strings.",
+    "The exposed token is flagged for rotation through the canonical secret install path."
+  ],
+  "constraints": {
+    "raw_token_distribution_forbidden": true,
+    "single_telegram_receiver_required": true,
+    "secret_ref_only_for_agents": true,
+    "secrets_redaction_required": true,
+    "telegram_receiver_changes_forbidden": true,
+    "provider_paid_actions_forbidden": true,
+    "destructive_commands_forbidden": true,
+    "direct_main_push_forbidden": true,
+    "force_push_forbidden": true
+  },
+  "source": {
+    "kind": "director_telegram_relay_dispatch",
+    "owner": "Vladislav",
+    "created_at": "2026-07-02T20:35:00+03:00",
+    "note": "Owner provided a bot token in chat; raw value is intentionally not copied into this envelope."
+  }
+}

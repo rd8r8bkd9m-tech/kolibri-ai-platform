@@ -26,12 +26,15 @@ def test_prompt3_required_endpoint_surface_is_declared():
             "/v1/models",
             "/v1/agents/status/{task_id}",
             "/v1/agents/artifacts/{task_id}",
+            "/v1/owner/notifications",
         ],
         "POST": [
             "/v1/responses",
             "/v1/chat/completions",
             "/v1/agents/tasks",
             "/v1/agents/cancel/{task_id}",
+            "/v1/owner/notifications",
+            "/v1/owner/notifications/{notification_id}/ack",
             "/v1/admin/exec",
             "/v1/admin/service",
             "/v1/admin/git",
@@ -90,6 +93,24 @@ def test_agents_aliases_normalize_envelope_and_artifacts():
     assert artifacts["status"] == "completed"
     assert artifacts["node"] == "9fts"
     assert artifacts["artifacts"] == ["docs/agent/runs/run/result.json"]
+
+
+def test_owner_notification_request_redacts_token_like_text_and_uses_secret_ref():
+    control = load_control()
+    notification = control.owner_notification_from_request({
+        "source_node": "server-kfrm",
+        "task_id": "TASK-1",
+        "severity": "warning",
+        "message": "done with token 123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef",
+        "bot_token": "do-not-store",
+    })
+
+    assert notification["channel"] == "telegram_owner"
+    assert notification["delivery_state"] == "pending"
+    assert notification["severity"] == "warning"
+    assert notification["secret_ref"] == "telegram_owner_bot_token"
+    assert notification["secrets_redacted"] is True
+    assert "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef" not in notification["message"]
 
 
 def test_admin_endpoints_are_deny_by_default_stubs():

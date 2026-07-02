@@ -42,6 +42,23 @@ Active dispatch:
 - `P0_DIRECTOR_SCOPED_GRANTS_AND_TOKEN_WINDOW_CONTROL_2026_07_02` submitted
   to primary and standby Control Plane on 2026-07-02; current state observed:
   `queued`.
+- `P0_HOME_KIOSK_CONTROL_CENTER_INSTALL_TODAY_2026_07_02` must install or
+  unblock the owner-visible Home kiosk/control-center today.
+- `P0_REMOTE_OBSERVER_SWEEPERS_AND_AUTOMATION_TODAY_2026_07_02` must set up
+  remote-first observer/sweeper automation instead of Mac-local polling.
+- `P0_BRANCH_RUNTIME_TRIAGE_AND_RELEASE_ORCHESTRATION_TODAY_2026_07_02` must
+  classify active branches, PRs and runtime processes into start/stop/merge/
+  repair decisions.
+- `P0_BRANCH_RUNTIME_TRIAGE_AND_RELEASE_ORCHESTRATION_TODAY_MIMO_RETRY_2026_07_02`
+  retries the branch/runtime triage through MIMO Auto after `main` reported
+  `runner_auth_blocked` for Codex.
+- `P0_KFM_MIMO_CODE_AUTONOMOUS_SUPERCOMPUTER_FABRIC_2026_07_02` must configure
+  KFM/MIMO Code with `factory_auto_permit`, no manual confirmation for routine
+  non-destructive work, and the unified `/kolibri/nodes` namespace policy.
+- `P0_TELEGRAM_OWNER_RELAY_FOR_KFM_AND_AGENTS_2026_07_02` must let KFM and
+  agents notify the owner through Telegram via Control Plane capability
+  `telegram_owner_notify`, while keeping the raw bot token only in the
+  canonical gateway secret environment.
 
 ## P0: Unified OpenAI-Compatible Fabric API
 

@@ -1,0 +1,77 @@
+{
+  "task_id": "P0_BRANCH_RUNTIME_TRIAGE_AND_RELEASE_ORCHESTRATION_TODAY_2026_07_02",
+  "idempotency_key": "director:P0_BRANCH_RUNTIME_TRIAGE_AND_RELEASE_ORCHESTRATION_TODAY_2026_07_02",
+  "kind": "owner_remote_task",
+  "priority": "P0",
+  "required_capability": "review",
+  "runner": "codex",
+  "agent_type": "release_train_and_runtime_triage_director",
+  "agent_display_name": "Анна - директор релизов и процессов",
+  "target_node_pool": "fresh_review_orchestrator_nodes",
+  "preferred_nodes": [
+    "new",
+    "main",
+    "server-kfrm",
+    "9fts"
+  ],
+  "allowed_nodes": [
+    "new",
+    "main",
+    "server-kfrm",
+    "9fts"
+  ],
+  "branch": "agent/P0_BRANCH_RUNTIME_TRIAGE_AND_RELEASE_ORCHESTRATION_TODAY_2026_07_02/codex",
+  "base_ref": "origin/main",
+  "goal": "Сегодня разобрать ветки, PR, runtime-процессы и активные задачи: что запускать, что останавливать, что мерджить, что ремонтировать.",
+  "objective": "Сделать удалённую ревизию GitHub branches/PRs, Control Plane tasks, live runtime services and product streams. Составить понятную русскую матрицу: active, queued, blocked, duplicate, should_start, should_stop, should_merge, should_repair. Не выполнять destructive stop/merge; только дать точные рекомендации и создать follow-up repair/deploy tasks where safe.",
+  "read_first": [
+    "docs/superfactory/CONTROL_PLANE_UNIFICATION_PROGRAM.md",
+    "docs/superfactory/DIRECTOR_OPERATING_CHARTER.md",
+    "docs/superfactory/TASKS.md",
+    "docs/agent/dispatcher/envelopes/P0_GITHUB_MAIN_README_CODE_SYNC_RELEASE_TRAIN_2026_07_01.json",
+    "docs/agent/dispatcher/envelopes/P0_POST_MERGE_REMOTE_CANARY_EXECUTION_2026_07_02.json"
+  ],
+  "write_scope": [
+    "docs/agent/runs/2026-07-02-p0-branch-runtime-triage-and-release-orchestration-today/**",
+    "docs/agent/release-train/**",
+    "docs/superfactory/TASKS.md"
+  ],
+  "required_outputs": [
+    "docs/agent/runs/2026-07-02-p0-branch-runtime-triage-and-release-orchestration-today/PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-branch-runtime-triage-and-release-orchestration-today/ACTIONS.md",
+    "docs/agent/runs/2026-07-02-p0-branch-runtime-triage-and-release-orchestration-today/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-branch-runtime-triage-and-release-orchestration-today/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-branch-runtime-triage-and-release-orchestration-today/NEXT.md",
+    "docs/agent/runs/2026-07-02-p0-branch-runtime-triage-and-release-orchestration-today/BRANCH_PROCESS_MATRIX.md"
+  ],
+  "verification_commands": [
+    "test -f docs/agent/runs/2026-07-02-p0-branch-runtime-triage-and-release-orchestration-today/PLAN.md",
+    "test -f docs/agent/runs/2026-07-02-p0-branch-runtime-triage-and-release-orchestration-today/ACTIONS.md",
+    "test -f docs/agent/runs/2026-07-02-p0-branch-runtime-triage-and-release-orchestration-today/TESTS.md",
+    "test -f docs/agent/runs/2026-07-02-p0-branch-runtime-triage-and-release-orchestration-today/RESULT.md",
+    "test -f docs/agent/runs/2026-07-02-p0-branch-runtime-triage-and-release-orchestration-today/NEXT.md",
+    "test -f docs/agent/runs/2026-07-02-p0-branch-runtime-triage-and-release-orchestration-today/BRANCH_PROCESS_MATRIX.md"
+  ],
+  "acceptance": [
+    "Open branches/PRs and major runtime task streams are classified.",
+    "Matrix states what to start, stop, merge, repair or leave running.",
+    "No destructive stop/merge is performed without owner/release gate.",
+    "Duplicate or obsolete lines are identified for later safe cleanup.",
+    "Home kiosk and Control Plane unification are marked P0 today.",
+    "Final report is concise, Russian and owner-readable."
+  ],
+  "constraints": {
+    "remote_execution_required": true,
+    "read_only_default": true,
+    "no_destructive_stops": true,
+    "no_merge_without_green_ci": true,
+    "no_force_push": true,
+    "secrets_redaction_required": true,
+    "owner_facing_language": "ru"
+  },
+  "source": {
+    "kind": "director_today_p0_dispatch",
+    "owner": "Vladislav",
+    "created_at": "2026-07-02T19:30:00+03:00"
+  }
+}

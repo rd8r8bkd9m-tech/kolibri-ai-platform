@@ -27,6 +27,45 @@ def test_parse_owner_ids_accepts_commas_and_semicolons():
     assert gateway.parse_owner_ids("1, 2;3") == {1, 2, 3}
 
 
+def test_gateway_delivers_owner_notifications_and_acks(tmp_path):
+    gateway = load_gateway()
+
+    class Telegram:
+        def __init__(self):
+            self.messages = []
+
+        def send_message(self, chat_id, text):
+            self.messages.append((chat_id, text))
+            return {"message_id": len(self.messages)}
+
+    class Factory:
+        def __init__(self):
+            self.acks = []
+
+        def get_owner_notifications(self):
+            return [
+                {
+                    "notification_id": "N1",
+                    "title": "KFM",
+                    "message": "Готово, проверка завершена.",
+                }
+            ]
+
+        def ack_owner_notification(self, notification_id, delivered=True, error=""):
+            self.acks.append((notification_id, delivered, error))
+            return {"ok": True}
+
+    telegram = Telegram()
+    factory = Factory()
+    state = gateway.StateStore(tmp_path / "state.json")
+    app = gateway.Gateway(telegram, factory, {100}, state, 1)
+
+    app.poll_owner_notifications()
+
+    assert telegram.messages == [(100, "KFM\nГотово, проверка завершена.")]
+    assert factory.acks == [("N1", True, "")]
+
+
 def test_default_telegram_client_blocks_delivery_state_mutation(monkeypatch):
     gateway = load_gateway()
 

@@ -9,8 +9,10 @@ client so it can run next to the legacy control plane without adding packages.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import re
 import socket
 import sys
 import time
@@ -90,6 +92,12 @@ STATE_DEAD = "dead_letter"
 TERMINAL_STATES = {STATE_COMPLETED, STATE_FAILED, STATE_CANCELLED, STATE_DEAD}
 BLOCKED_RUNNER_STATES = {"blocked", "degraded", "runner_auth_blocked", "unavailable"}
 DEFAULT_MIMO_TASK_KINDS = {"owner_remote_task", "direct_mimo", "mimo_direct", "mimo_task"}
+OWNER_NOTIFICATION_STATUSES = {"pending", "delivered", "failed"}
+OWNER_NOTIFICATION_SEVERITIES = {"info", "success", "warning", "critical"}
+TOKEN_LIKE_RE = re.compile(
+    r"(?i)(?:\b\d{6,}:[A-Za-z0-9_-]{20,}\b|\b(?:ghp|github_pat|xox[baprs]|sk)-[A-Za-z0-9_-]{16,}\b)"
+)
+SECRET_FIELD_HINTS = ("authorization", "cookie", "key", "password", "secret", "token")
 
 FABRIC_NODE_CATALOG = {
     "home": {
@@ -197,12 +205,15 @@ PROMPT3_REQUIRED_ENDPOINTS = {
         "/v1/models",
         "/v1/agents/status/{task_id}",
         "/v1/agents/artifacts/{task_id}",
+        "/v1/owner/notifications",
     ],
     "POST": [
         "/v1/responses",
         "/v1/chat/completions",
         "/v1/agents/tasks",
         "/v1/agents/cancel/{task_id}",
+        "/v1/owner/notifications",
+        "/v1/owner/notifications/{notification_id}/ack",
         "/v1/admin/exec",
         "/v1/admin/service",
         "/v1/admin/git",
@@ -313,6 +324,15 @@ def node_key(node_id: str) -> str:
     return key(f"node:{node_id}")
 
 
+def owner_notification_key(notification_id: str) -> str:
+    return key(f"owner_notification:{notification_id}")
+
+
+def owner_notification_idempotency_key(idempotency_key: str) -> str:
+    digest = hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest()
+    return key(f"owner_notification_idem:{digest}")
+
+
 def drain_key(node_id: str) -> str:
     return key(f"drain:{node_id}")
 
@@ -359,6 +379,11 @@ def all_task_ids() -> list[str]:
     return sorted(values)
 
 
+def all_owner_notification_ids() -> list[str]:
+    values = redis.command("SMEMBERS", key("owner_notification_ids")) or []
+    return sorted(values)
+
+
 def registered_nodes() -> list[dict[str, Any]]:
     nodes = []
     for node_id in sorted(redis.command("SMEMBERS", key("node_ids")) or []):
@@ -374,6 +399,97 @@ def queue_ids() -> list[str]:
 
 def load_task(task_id: str) -> dict[str, Any] | None:
     return get_json(task_key(task_id))
+
+
+def load_owner_notification(notification_id: str) -> dict[str, Any] | None:
+    return get_json(owner_notification_key(notification_id))
+
+
+def redact_secret_like_text(text: str) -> str:
+    return TOKEN_LIKE_RE.sub("[redacted]", text)
+
+
+def contains_secret_field(body: dict[str, Any]) -> bool:
+    for name, value in body.items():
+        lowered = str(name).lower()
+        if any(hint in lowered for hint in SECRET_FIELD_HINTS):
+            if value not in (None, "", False):
+                return True
+    return False
+
+
+def owner_notification_from_request(body: dict[str, Any]) -> dict[str, Any]:
+    text = str(body.get("message") or body.get("text") or body.get("summary") or "").strip()
+    if not text:
+        raise ValueError("message is required")
+    severity = str(body.get("severity") or "info").strip().lower()
+    if severity not in OWNER_NOTIFICATION_SEVERITIES:
+        severity = "info"
+    source_node = str(body.get("source_node") or body.get("node_id") or "unknown").strip() or "unknown"
+    task_id = str(body.get("task_id") or "").strip()
+    redacted_text = redact_secret_like_text(text)[:3900]
+    base_idem = body.get("idempotency_key") or f"{source_node}:{task_id}:{hashlib.sha256(redacted_text.encode('utf-8')).hexdigest()}"
+    notification_id = str(body.get("notification_id") or f"OWNOTIFY-{uuid.uuid4().hex[:12]}")
+    return {
+        "notification_id": notification_id,
+        "idempotency_key": str(base_idem),
+        "channel": "telegram_owner",
+        "delivery_state": "pending",
+        "severity": severity,
+        "source_node": source_node,
+        "source_agent": body.get("source_agent") or body.get("agent_id") or "",
+        "task_id": task_id,
+        "title": redact_secret_like_text(str(body.get("title") or "")).strip()[:160],
+        "message": redacted_text,
+        "created_at": utc_now(),
+        "updated_at": utc_now(),
+        "secrets_redacted": redacted_text != text or contains_secret_field(body),
+        "secrets_returned": False,
+        "secret_ref": "telegram_owner_bot_token",
+    }
+
+
+def create_owner_notification(body: dict[str, Any]) -> dict[str, Any]:
+    notification = owner_notification_from_request(body)
+    idem_key = owner_notification_idempotency_key(notification["idempotency_key"])
+    existing = redis.command("GET", idem_key)
+    if existing:
+        existing_notification = load_owner_notification(existing)
+        if existing_notification:
+            return existing_notification
+    set_json(owner_notification_key(notification["notification_id"]), notification)
+    redis.command("SADD", key("owner_notification_ids"), notification["notification_id"])
+    redis.command("SET", idem_key, notification["notification_id"])
+    return notification
+
+
+def list_owner_notifications(state: str = "pending", limit: int = 50) -> list[dict[str, Any]]:
+    if state not in OWNER_NOTIFICATION_STATUSES:
+        state = "pending"
+    notifications = []
+    for notification_id in all_owner_notification_ids():
+        notification = load_owner_notification(notification_id)
+        if not notification or notification.get("delivery_state") != state:
+            continue
+        notifications.append(notification)
+    notifications.sort(key=lambda item: str(item.get("created_at") or ""))
+    return notifications[: max(1, min(limit, 100))]
+
+
+def ack_owner_notification(notification_id: str, body: dict[str, Any]) -> dict[str, Any] | None:
+    notification = load_owner_notification(notification_id)
+    if not notification:
+        return None
+    delivered = body.get("delivered", True)
+    notification["delivery_state"] = "delivered" if delivered else "failed"
+    notification["updated_at"] = utc_now()
+    notification["delivery"] = {
+        "gateway": body.get("gateway") or "telegram_gateway",
+        "delivered": bool(delivered),
+        "error": redact_secret_like_text(str(body.get("error") or ""))[:500],
+    }
+    set_json(owner_notification_key(notification_id), notification)
+    return notification
 
 
 def canonical_response_envelope(
@@ -1285,6 +1401,21 @@ class Handler(BaseHTTPRequestHandler):
                 tasks = [task for task in tasks if task and (wanted is None or task.get("state") == wanted)]
                 response(self, 200, {"tasks": tasks, "queue": queue_ids()})
                 return
+            if path == "/v1/owner/notifications":
+                query = parse_qs(parsed.query)
+                state = query.get("state", ["pending"])[0]
+                try:
+                    limit = int(query.get("limit", ["50"])[0])
+                except ValueError:
+                    limit = 50
+                notifications = list_owner_notifications(state=state, limit=limit)
+                response(self, 200, canonical_response_envelope(
+                    status="completed",
+                    route_used="/v1/owner/notifications",
+                    data={"notifications": notifications},
+                    next_action="telegram gateway should deliver pending notifications and ack them",
+                ))
+                return
             if path.startswith("/v1/tasks/"):
                 task_id = path.split("/", 3)[3]
                 task = load_task(task_id)
@@ -1418,6 +1549,45 @@ class Handler(BaseHTTPRequestHandler):
                     route_used="/v1/agents/tasks",
                     data={"task": task},
                     next_action="poll /v1/agents/status/{task_id}",
+                ))
+                return
+            if path == "/v1/owner/notifications":
+                try:
+                    notification = create_owner_notification(body)
+                except ValueError as exc:
+                    response(self, 400, canonical_response_envelope(
+                        status="blocked",
+                        route_used="/v1/owner/notifications",
+                        blocked_reason="unknown",
+                        data={"error": str(exc), "secrets_returned": False},
+                        next_action="resubmit with a non-empty message and without raw secrets",
+                    ))
+                    return
+                response(self, 201, canonical_response_envelope(
+                    status="completed",
+                    task_id=notification.get("task_id") or notification["notification_id"],
+                    route_used="/v1/owner/notifications",
+                    data={"notification": notification},
+                    next_action="telegram gateway will deliver this through its configured secret_ref",
+                ))
+                return
+            if path.startswith("/v1/owner/notifications/") and path.endswith("/ack"):
+                notification_id = path.split("/")[4]
+                notification = ack_owner_notification(notification_id, body)
+                if not notification:
+                    response(self, 404, canonical_response_envelope(
+                        status="blocked",
+                        task_id=notification_id,
+                        route_used="/v1/owner/notifications/{notification_id}/ack",
+                        blocked_reason="not_found",
+                        next_action="verify notification_id before retrying ack",
+                    ))
+                    return
+                response(self, 200, canonical_response_envelope(
+                    status="completed",
+                    task_id=notification.get("task_id") or notification_id,
+                    route_used="/v1/owner/notifications/{notification_id}/ack",
+                    data={"notification": notification},
                 ))
                 return
             if path in {"/v1/responses", "/v1/chat/completions"}:

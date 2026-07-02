@@ -415,6 +415,21 @@ class FactoryClient:
     def get_tasks(self) -> dict[str, Any]:
         return self.request("GET", "/v1/tasks")
 
+    def get_owner_notifications(self) -> list[dict[str, Any]]:
+        payload = self.request("GET", "/v1/owner/notifications?state=pending&limit=20", timeout=15)
+        data = payload.get("data") if isinstance(payload, dict) else {}
+        notifications = data.get("notifications") if isinstance(data, dict) else []
+        return notifications if isinstance(notifications, list) else []
+
+    def ack_owner_notification(self, notification_id: str, delivered: bool = True, error: str = "") -> dict[str, Any]:
+        quoted = urllib.parse.quote(notification_id, safe="")
+        return self.request(
+            "POST",
+            f"/v1/owner/notifications/{quoted}/ack",
+            {"gateway": "kolibri-telegram-gateway", "delivered": delivered, "error": error},
+            timeout=15,
+        )
+
     def cancel_task(self, task_id: str) -> dict[str, Any]:
         quoted = urllib.parse.quote(task_id, safe="")
         return self.request("POST", f"/v1/tasks/{quoted}/cancel", {"reason": "telegram cancel"})
@@ -807,6 +822,8 @@ class Gateway:
         chat_id = self.state.data.get("owner_chat_id")
         if chat_id:
             return int(chat_id)
+        if len(self.owner_ids) == 1:
+            return next(iter(self.owner_ids))
         for record in (self.state.data.get("tracked") or {}).values():
             if record.get("chat_id"):
                 return int(record["chat_id"])
@@ -1067,6 +1084,38 @@ class Gateway:
                 self.state.data["tracked"][task_id]["last_state"] = label
                 self.state.save()
 
+    def poll_owner_notifications(self) -> None:
+        chat_id = self.owner_chat_id()
+        if not chat_id:
+            return
+        try:
+            notifications = self.factory.get_owner_notifications()
+        except Exception:
+            return
+        for notification in notifications:
+            notification_id = str(notification.get("notification_id") or "")
+            if not notification_id:
+                continue
+            title = clean_agent_response(notification.get("title")) if notification.get("title") else ""
+            message = clean_agent_response(notification.get("message"))
+            if not message:
+                self.factory.ack_owner_notification(notification_id, delivered=False, error="empty message")
+                continue
+            text = f"{title}\n{message}" if title else message
+            try:
+                self.telegram.send_message(chat_id, text)
+            except Exception as exc:
+                try:
+                    self.factory.ack_owner_notification(notification_id, delivered=False, error=type(exc).__name__)
+                except Exception:
+                    pass
+                continue
+            self.remember_orchestrator_message(text)
+            try:
+                self.factory.ack_owner_notification(notification_id, delivered=True)
+            except Exception:
+                pass
+
     def run_once(self) -> None:
         updates = self.telegram.get_updates(self.state.data.get("offset"), self.poll_timeout)
         for update in updates:
@@ -1076,6 +1125,7 @@ class Gateway:
                 self.handle_message(message)
         self.state.save()
         self.poll_task_transitions()
+        self.poll_owner_notifications()
 
     def run(self) -> None:
         while not STOP:

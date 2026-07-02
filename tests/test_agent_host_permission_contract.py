@@ -118,3 +118,43 @@ def test_read_only_no_push_envelope_blocks_write_worktree_and_git_push_runtime(t
     persisted = json.loads(result_path.read_text(encoding="utf-8"))
     assert persisted["status"] == "blocked"
     assert persisted["permission_pack_classification"] == classification
+
+
+def test_factory_auto_permit_allows_non_destructive_autonomy_without_manual_clicks(tmp_path):
+    agent_host = load_agent_host()
+
+    class Host(RecordingHost, agent_host.AgentHost):
+        def __init__(self, args):
+            super().__init__(args)
+            self.posts = []
+
+    host = Host(make_args(tmp_path))
+    task = {
+        "task_id": "KFM-AUTO-1",
+        "kind": "read_only_probe",
+        "attempt": 1,
+        "attempt_id": "KFM-AUTO-1-attempt-1",
+        "envelope": {
+            "kind": "read_only_probe",
+            "permission_pack": "factory_auto_permit",
+            "approval_mode": "auto_within_factory_rules",
+            "permissions": [
+                "fabric_api_read",
+                "fleet_namespace_search",
+                "task_scope_write",
+                "non_destructive_diagnostics",
+                "repair_task_create",
+                "fallback_route_use",
+            ],
+        },
+    }
+
+    result = host.run_read_only_probe(task)
+
+    classification = result["permission_pack_classification"]
+    assert classification["domain"] == "factory"
+    assert classification["decision"] == "allowed"
+    assert classification["factory_auto_permit"] is True
+    assert classification["auto_approve_non_destructive"] is True
+    assert "factory_auto_permit" in classification["permission_packs"]
+    assert "provider_billing" in classification["manual_approval_required_for"]

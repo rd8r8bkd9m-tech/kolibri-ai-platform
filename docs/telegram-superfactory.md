@@ -8,6 +8,26 @@ remote Agent Host runners execute Codex, MIMO, API, local LLM, or image work.
 
 The Mac is only a dispatcher. It must not run a second Telegram poller.
 
+## Owner Notifications
+
+Agents do not receive the raw bot token. To send owner-visible updates they
+publish notifications to Control Plane:
+
+```text
+POST /v1/owner/notifications
+```
+
+The canonical gateway reads pending messages and acknowledges delivery:
+
+```text
+GET /v1/owner/notifications?state=pending
+POST /v1/owner/notifications/{notification_id}/ack
+```
+
+Workers may receive `capability=telegram_owner_notify` and
+`secret_ref=telegram_owner_bot_token`, but the token value remains only in the
+gateway secret environment.
+
 ## Receiver Modes
 
 - `TELEGRAM_UPDATE_RECEIVER=polling`: systemd gateway owns `getUpdates`.
