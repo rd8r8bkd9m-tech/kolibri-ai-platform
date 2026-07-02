@@ -1,0 +1,17 @@
+[Unit]
+Description=Kolibri Home Russian tmux factory screen
+Documentation=README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+EnvironmentFile=-%h/.config/kolibri/home-screen.env
+Environment=KOLIBRI_REPO_ROOT=/opt/kolibri-ai-platform
+WorkingDirectory=/opt/kolibri-ai-platform
+ExecStart=/bin/bash /opt/kolibri-ai-platform/ops/kolibri-home-screen start
+ExecStop=/bin/bash /opt/kolibri-ai-platform/ops/kolibri-home-screen stop
+
+[Install]
+WantedBy=default.target

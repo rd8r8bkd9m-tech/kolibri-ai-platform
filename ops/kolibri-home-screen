@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="${KOLIBRI_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+export KOLIBRI_REPO_ROOT="$ROOT"
+
+exec python3 "$ROOT/ops/kolibri_home_screen.py" "$@"
