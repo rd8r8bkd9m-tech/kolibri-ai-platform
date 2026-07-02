@@ -1,0 +1,69 @@
+{
+  "task_id": "P1_KOLIBRI_SKILL_REGISTRY_AND_INTERNET_DISCOVERY_REMOTE_IMPL_2026_07_02",
+  "idempotency_key": "mesh-agent-43:P1_KOLIBRI_SKILL_REGISTRY_AND_INTERNET_DISCOVERY_REMOTE_IMPL_2026_07_02",
+  "kind": "remote_codex_task",
+  "runner": "codex",
+  "agent_type": "skill_registry_librarian",
+  "agent_display_name": "Мария — Skill Librarian",
+  "target_node": "primary-candidate",
+  "allowed_nodes": [
+    "primary-candidate",
+    "main"
+  ],
+  "max_retries": 1,
+  "goal": "Create the Kolibri Skill Registry docs package from master canvas prompt 14 without installing or executing unaudited internet code.",
+  "message": "Ты — Мария, Skill Librarian Kolibri Factory. Реализуй docs-only задачу P1_KOLIBRI_SKILL_REGISTRY_AND_INTERNET_DISCOVERY_REMOTE_IMPL_2026_07_02. Работай только в репозитории. Прочитай docs/superfactory/Kolibri_All_Prompts.md prompt 14 и артефакты текущей подготовки в docs/agent/runs/2026-07-02-p0-autopilot-extra-43-skills-registry-mesh/. Создай registry/policy/discovery docs и минимум 10 внутренних .agents/skills/*/SKILL.md drafts. Каталогизируй минимум 20 кандидатов, но не выполняй и не устанавливай интернет-код. Не печатай секреты. Не меняй product code. Не делай push в main. Верни русский owner-facing summary, changed files, verification commands, blockers, risks and next gated server sync task.",
+  "source": {
+    "master_canvas": "docs/superfactory/Kolibri_All_Prompts.md",
+    "prompt": "14. P1 Skill Registry and Internet Discovery",
+    "preparation_artifacts": "docs/agent/runs/2026-07-02-p0-autopilot-extra-43-skills-registry-mesh/"
+  },
+  "expected_files": [
+    "docs/superfactory/09_SKILL_REGISTRY.md",
+    "docs/superfactory/10_SKILL_INTERNET_DISCOVERY.md",
+    "docs/superfactory/SKILL_SECURITY_POLICY.md",
+    "docs/superfactory/SKILL_INSTALLATION_POLICY.md",
+    "docs/superfactory/SKILL_EVAL_PLAN.md",
+    "docs/superfactory/SKILL_DISCOVERY_REPORT.md",
+    ".agents/skills/README.md",
+    ".agents/skills/kolibri-runner-hardening/SKILL.md",
+    ".agents/skills/kolibri-github-curator/SKILL.md",
+    ".agents/skills/kolibri-ci-doctor/SKILL.md",
+    ".agents/skills/kolibri-fleet-inventory/SKILL.md",
+    ".agents/skills/kolibri-server-recovery/SKILL.md",
+    ".agents/skills/kolibri-pr-splitter/SKILL.md",
+    ".agents/skills/kolibri-formulalm-planner/SKILL.md",
+    ".agents/skills/kolibri-model-factory/SKILL.md",
+    ".agents/skills/kolibri-business-builder/SKILL.md",
+    ".agents/skills/kolibri-finance-reporter/SKILL.md"
+  ],
+  "acceptance": [
+    "Remote execution happens on primary-candidate or main.",
+    "No product code is modified.",
+    "No secrets are printed.",
+    "No unaudited internet code is executed or installed.",
+    "Skill registry exists with at least 20 candidates cataloged.",
+    "At least 10 Kolibri internal skills are drafted.",
+    "Security, installation, evaluation and quarantine policies are documented.",
+    "Result includes status, node, agent name, blockers, artifacts, and next exact gated server sync task.",
+    "Russian owner-facing summary is produced."
+  ],
+  "constraints": [
+    "no_product_code_changes",
+    "no_git_push_to_main",
+    "no_force_push",
+    "no_destructive_git_commands",
+    "no_secret_printing",
+    "no_server_wide_install",
+    "no_internet_code_execution"
+  ],
+  "next_gate_after_success": {
+    "task_id": "P1_KOLIBRI_SKILL_SECURITY_REVIEW_AND_APPROVED_SERVER_SYNC_PLAN_2026_07_02",
+    "agents": [
+      "Николай — Security Reviewer",
+      "Дмитрий — Fleet Engineer"
+    ],
+    "rule": "Only skills with approve_server or approve_all_agents may enter server sync."
+  }
+}
+

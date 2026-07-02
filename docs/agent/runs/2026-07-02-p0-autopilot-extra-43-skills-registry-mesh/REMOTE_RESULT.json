@@ -1,0 +1,44 @@
+{
+  "task_id": "P0_AUTOPILOT_EXTRA_43_SKILLS_REGISTRY_MESH_2026_07_02",
+  "status": "completed",
+  "node": "mesh-agent-43",
+  "agent": {
+    "role_slot": "autonomous_engineer",
+    "owner_facing_next_agent": "Мария — Skill Librarian"
+  },
+  "execution": {
+    "remote_server_side_worker": true,
+    "local_mac_product_code_modified": false,
+    "product_code_modified": false,
+    "secrets_printed": false,
+    "destructive_git_commands": false,
+    "pushed_to_main": false,
+    "force_pushed": false
+  },
+  "artifacts": [
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-43-skills-registry-mesh/PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-43-skills-registry-mesh/ACTIONS.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-43-skills-registry-mesh/SKILLS_REGISTRY_MESH_EXTRACTION.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-43-skills-registry-mesh/SERVER_AGENT_MAP.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-43-skills-registry-mesh/REMOTE_SYNC_PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-43-skills-registry-mesh/NEXT.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-43-skills-registry-mesh/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-43-skills-registry-mesh/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-43-skills-registry-mesh/OWNER_SUMMARY_RU.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-43-skills-registry-mesh/REMOTE_RESULT.json",
+    "docs/agent/dispatcher/envelopes/P1_KOLIBRI_SKILL_REGISTRY_AND_INTERNET_DISCOVERY_REMOTE_IMPL_2026_07_02.json"
+  ],
+  "blockers": [
+    "Server-wide skill sync is blocked until skill registry, security policy, installation policy, and per-skill approval decisions exist.",
+    "UIAP remains limited to light docs/skills indexing until resource and security gates are approved.",
+    "No unaudited internet skill code may be executed or installed."
+  ],
+  "next_exact_task": {
+    "task_id": "P1_KOLIBRI_SKILL_REGISTRY_AND_INTERNET_DISCOVERY_REMOTE_IMPL_2026_07_02",
+    "envelope": "docs/agent/dispatcher/envelopes/P1_KOLIBRI_SKILL_REGISTRY_AND_INTERNET_DISCOVERY_REMOTE_IMPL_2026_07_02.json",
+    "target_node": "primary-candidate",
+    "fallback_node": "main",
+    "agent_display_name": "Мария — Skill Librarian"
+  }
+}
+
