@@ -1,0 +1,54 @@
+{
+  "task_id": "P0_HOSTVDS_AGENT_07_DIRECT_READINESS_PROBE_2026_07_02",
+  "idempotency_key": "mesh-agent-29:P0_HOSTVDS_AGENT_07_DIRECT_READINESS_PROBE_2026_07_02",
+  "kind": "owner_remote_task",
+  "runner": "codex",
+  "agent_type": "hostvds_agent_07_readiness_probe",
+  "agent_display_name": "Павел — HostVDS Agent 07",
+  "target_node": "mesh-agent-07",
+  "allowed_nodes": [
+    "mesh-agent-07"
+  ],
+  "required_capability": "generic_implementation",
+  "branch": "agent/P0_HOSTVDS_AGENT_07_DIRECT_READINESS_PROBE_2026_07_02/generic",
+  "base_ref": "main",
+  "write_scope": [
+    "docs/agent/runs/P0_HOSTVDS_AGENT_07_DIRECT_READINESS_PROBE_2026_07_02/**"
+  ],
+  "max_retries": 1,
+  "objective": "Read-only readiness probe for hostvds-agent-07 / mesh-agent-07. Do not modify product code, do not push, do not run destructive git commands, do not print secrets, env files, tokens, cookies, private keys, or raw credential helper output. Collect and summarize only: node identity, current task/runner availability, disk free/total for '/', GitHub auth status as one of ok/missing/blocked_unknown without account names or token details, API route/Control Plane reachability if locally observable, blockers, artifact paths, and the next exact repair task. Produce Russian owner-facing summary and exact run docs under docs/agent/runs/P0_HOSTVDS_AGENT_07_DIRECT_READINESS_PROBE_2026_07_02/.",
+  "constraints": {
+    "read_only": true,
+    "no_product_code_changes": true,
+    "no_git_push": true,
+    "push_to_main_forbidden": true,
+    "force_push_forbidden": true,
+    "destructive_git_commands_forbidden": true,
+    "secrets_redaction_required": true,
+    "direct_auth_output_forbidden": true
+  },
+  "required_outputs": [
+    "docs/agent/runs/P0_HOSTVDS_AGENT_07_DIRECT_READINESS_PROBE_2026_07_02/PLAN.md",
+    "docs/agent/runs/P0_HOSTVDS_AGENT_07_DIRECT_READINESS_PROBE_2026_07_02/ACTIONS.md",
+    "docs/agent/runs/P0_HOSTVDS_AGENT_07_DIRECT_READINESS_PROBE_2026_07_02/TESTS.md",
+    "docs/agent/runs/P0_HOSTVDS_AGENT_07_DIRECT_READINESS_PROBE_2026_07_02/RESULT.md",
+    "docs/agent/runs/P0_HOSTVDS_AGENT_07_DIRECT_READINESS_PROBE_2026_07_02/NEXT.md"
+  ],
+  "verification_commands": [
+    "test -f docs/agent/runs/P0_HOSTVDS_AGENT_07_DIRECT_READINESS_PROBE_2026_07_02/RESULT.md",
+    "rg --no-ignore -n '[A-Za-z0-9_]*(TOKEN|SECRET|PASSWORD|COOKIE|API_KEY)=[^ ]+' docs/agent/runs/P0_HOSTVDS_AGENT_07_DIRECT_READINESS_PROBE_2026_07_02 && exit 1 || true"
+  ],
+  "acceptance": [
+    "Remote execution happens on mesh-agent-07.",
+    "No secrets or raw auth output are printed.",
+    "Result includes status, node, agent name, disk, runner status, GitHub auth classification, blockers, artifacts, and next exact task.",
+    "Russian owner-facing summary is produced.",
+    "No product code is modified."
+  ],
+  "source": {
+    "kind": "server_side_mesh_worker_relay",
+    "parent_task_id": "P0_AUTOPILOT_EXTRA_29_HOSTVDS_AGENT_07_READINESS_2026_07_02",
+    "parent_lease_owner": "mesh-agent-29:agent-host-mesh-agent-29",
+    "created_at": "2026-07-02T02:57:00Z"
+  }
+}
