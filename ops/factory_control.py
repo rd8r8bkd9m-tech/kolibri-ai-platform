@@ -125,6 +125,8 @@ class FactoryThreadingHTTPServer(ThreadingHTTPServer):
         )
 
     def process_request(self, request: Any, client_address: Any) -> None:
+        if maybe_respond_empty_lease_poll_from_accept_loop(request):
+            return
         try:
             self._executor.submit(self.process_request_thread, request, client_address)
         except RuntimeError:
@@ -1017,7 +1019,31 @@ def lease_persisted_queued_task(node_id: str, agent_id: str, capabilities: list[
     candidates = redis.command("SRANDMEMBER", queued_task_ids_key(), max(1, LEASE_QUEUE_SCAN_LIMIT)) or []
     if isinstance(candidates, str):
         candidates = [candidates]
-    for task_id in candidates:
+    task_id_candidates = list(dict.fromkeys(str(task_id) for task_id in candidates))
+    for task_id in task_id_candidates:
+        task = load_task(task_id)
+        if not task or task.get("state") not in {STATE_QUEUED, STATE_REVIEW}:
+            redis.command("SREM", queued_task_ids_key(), task_id)
+            continue
+        if not compatible(task, node_id, capabilities, node):
+            rotate_queue_item(task_id)
+            continue
+        claimed = _try_lease_task_id(task_id, node_id, agent_id, capabilities, node)
+        if claimed:
+            remove_from_queue(task_id)
+            return claimed
+    if not task_id_candidates:
+        return None
+    full_scan = redis.command("SMEMBERS", queued_task_ids_key()) or []
+    if isinstance(full_scan, str):
+        full_scan = [full_scan]
+    if len(full_scan) <= len(task_id_candidates):
+        return None
+    seen = set(task_id_candidates)
+    for task_id in full_scan:
+        task_id = str(task_id)
+        if task_id in seen:
+            continue
         task = load_task(task_id)
         if not task or task.get("state") not in {STATE_QUEUED, STATE_REVIEW}:
             redis.command("SREM", queued_task_ids_key(), task_id)
@@ -1136,6 +1162,86 @@ def lease_no_task_response_bytes(reason: str = "queue_empty") -> bytes:
 
 def response_no_task(handler: BaseHTTPRequestHandler, reason: str = "queue_empty") -> None:
     response_bytes(handler, 200, lease_no_task_response_bytes(reason))
+
+
+def maybe_respond_empty_lease_poll_from_accept_loop(request: Any) -> bool:
+    if not lease_empty_fast_path_cached():
+        return False
+    first_bytes = b""
+    try:
+        request.settimeout(0.001)
+        deadline = now_ts() + 0.003
+        while now_ts() < deadline:
+            first_bytes = request.recv(4096, socket.MSG_PEEK)
+            complete = complete_http_request_length(first_bytes)
+            if complete is not None:
+                break
+        else:
+            return False
+    except (BlockingIOError, TimeoutError):
+        return False
+    except OSError:
+        return False
+    finally:
+        try:
+            request.settimeout(None)
+        except OSError:
+            pass
+    complete = complete_http_request_length(first_bytes)
+    if complete is None or not first_bytes.startswith(b"POST /v1/tasks/lease "):
+        return False
+    try:
+        body_start = first_bytes.find(b"\r\n\r\n") + 4
+        body = json.loads(first_bytes[body_start:complete].decode("utf-8") or "{}")
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    if not isinstance(body, dict) or not body.get("node_id") or isinstance(body.get("runners"), dict):
+        return False
+    try:
+        remaining = complete
+        while remaining > 0:
+            chunk = request.recv(min(remaining, 4096))
+            if not chunk:
+                return False
+            remaining -= len(chunk)
+    except OSError:
+        return False
+    payload = lease_no_task_response_bytes()
+    response_payload = (
+        b"HTTP/1.0 200 OK\r\n"
+        b"Server: KolibriFactoryControl\r\n"
+        b"Content-Type: application/json\r\n"
+        b"Content-Length: " + str(len(payload)).encode("ascii") + b"\r\n"
+        b"Connection: close\r\n"
+        b"\r\n" + payload
+    )
+    try:
+        request.sendall(response_payload)
+    except OSError:
+        pass
+    try:
+        request.close()
+    except OSError:
+        pass
+    return True
+
+
+def complete_http_request_length(data: bytes) -> int | None:
+    header_end = data.find(b"\r\n\r\n")
+    if header_end < 0:
+        return None
+    headers = data[:header_end].decode("iso-8859-1", "replace").split("\r\n")
+    content_length = 0
+    for line in headers[1:]:
+        name, separator, value = line.partition(":")
+        if separator and name.strip().lower() == "content-length":
+            try:
+                content_length = max(0, int(value.strip()))
+            except ValueError:
+                return None
+            break
+    complete = header_end + 4 + content_length
+    return complete if len(data) >= complete else None
 
 
 def classify_lease_canary_response(status_code: int, body: dict[str, Any] | None = None) -> dict[str, Any]:
