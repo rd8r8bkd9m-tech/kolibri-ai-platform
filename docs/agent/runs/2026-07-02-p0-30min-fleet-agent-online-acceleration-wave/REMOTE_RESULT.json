@@ -1,0 +1,65 @@
+{
+  "task_id": "P0_30MIN_FLEET_AGENT_ONLINE_ACCELERATION_WAVE_2026_07_02",
+  "status": "timebox_completed_partial_capacity_restored",
+  "execution_node": {
+    "host": "kolibri",
+    "lease_node": "mesh-agent-02:agent-host-mesh-agent-02",
+    "branch": "agent/P0_30MIN_FLEET_AGENT_ONLINE_ACCELERATION_WAVE_2026_07_02/generic",
+    "remote_server_worktree": true
+  },
+  "guardrails": {
+    "product_code_changed": false,
+    "destructive_service_action_performed": false,
+    "destructive_filesystem_action_performed": false,
+    "secrets_printed": false
+  },
+  "timebox": {
+    "started_at": "2026-07-02T00:17:35Z",
+    "target_duration_seconds": 1800,
+    "completed_at": "2026-07-02T00:48:23Z",
+    "observed_elapsed_seconds": 1848
+  },
+  "classification": {
+    "initial_online": 7,
+    "high_water_fresh_online": 10,
+    "final_fresh_online": 9,
+    "final_stale_cards": 33,
+    "route_level_blocked_entries": 10,
+    "fresh_runner_ready_nodes": [
+      "main",
+      "mesh-9fts",
+      "mesh-agent-01",
+      "mesh-agent-02",
+      "mesh-agent-03",
+      "primary-candidate"
+    ],
+    "fresh_limited_or_role_specific_nodes": [
+      "new",
+      "qjns",
+      "uiap"
+    ],
+    "stale_owner_facing_nodes": [
+      "home",
+      "home-live"
+    ]
+  },
+  "peer_wave_tasks": {
+    "P0_30MIN_MESH_AGENT_01_RELEASE_QUEUE_ACCELERATOR_2026_07_02": "completed",
+    "P0_30MIN_MESH_AGENT_03_AGENT_LAUNCH_ACCELERATOR_2026_07_02": "completed",
+    "P0_30MIN_RELEASE_GATE_ACCELERATION_WAVE_2026_07_02": "completed"
+  },
+  "artifacts": [
+    "docs/agent/runs/2026-07-02-p0-30min-fleet-agent-online-acceleration-wave/PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-30min-fleet-agent-online-acceleration-wave/ACTIONS.md",
+    "docs/agent/runs/2026-07-02-p0-30min-fleet-agent-online-acceleration-wave/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-30min-fleet-agent-online-acceleration-wave/FLEET_CLASSIFICATION.md",
+    "docs/agent/runs/2026-07-02-p0-30min-fleet-agent-online-acceleration-wave/SAFE_LAUNCH_REPAIR_PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-30min-fleet-agent-online-acceleration-wave/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-30min-fleet-agent-online-acceleration-wave/REMOTE_RESULT.json"
+  ],
+  "next_actions": [
+    "Keep this task running only long enough to publish final artifacts/status through Control Plane.",
+    "Dispatch only read-only repair-classification tasks for stale or route-blocked nodes.",
+    "Do not count stale metadata or mesh shadow cards as restored capacity."
+  ]
+}
