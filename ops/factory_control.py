@@ -14,6 +14,8 @@ import os
 import socket
 import sys
 import time
+import urllib.error
+import urllib.request
 import uuid
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -59,6 +61,10 @@ REDIS_PORT = int(os.environ.get("FACTORY_REDIS_PORT", "6379"))
 LEASE_DURATION = int(os.environ.get("FACTORY_LEASE_DURATION", "60"))
 MAX_RETRIES = int(os.environ.get("FACTORY_MAX_RETRIES", "3"))
 FABRIC_API_VERSION = "2026-07-01"
+KOLIBRI_SYSTEM_PROMPT = (
+    "Ты — Kolibri AI, большая языковая модель. "
+    "Отвечай на языке пользователя. Не используй эмодзи."
+)
 CANONICAL_RESPONSE_STATUSES = {"completed", "running", "blocked", "failed", "partial"}
 FALLBACK_REASON_TAXONOMY = {
     "api_unreachable",
@@ -172,7 +178,14 @@ MODEL_CATALOG = [
         "object": "model",
         "owned_by": "kolibri-fabric",
         "capabilities": ["chat", "responses"],
-        "route": "safe_stub_until_model_node_authenticated",
+        "route": "fabric_or_local_llm_fallback",
+    },
+    {
+        "id": "local",
+        "object": "model",
+        "owned_by": "kolibri-fabric",
+        "capabilities": ["chat", "responses"],
+        "route": "KOLIBRI_LOCAL_LLM_URL_when_configured",
     }
 ]
 
@@ -437,6 +450,205 @@ def fleet_topology(nodes: list[dict[str, Any]]) -> dict[str, Any]:
         "edges": edges,
         "relay_endpoint": "/v1/fabric/relay",
     }
+
+
+def _content_text(content: Any) -> str:
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                text = item.get("text") or item.get("input_text") or item.get("content")
+                if text:
+                    parts.append(str(text))
+        return "\n".join(part for part in parts if part)
+    if isinstance(content, dict):
+        return str(content.get("text") or content.get("input_text") or content.get("content") or "")
+    return str(content)
+
+
+def model_messages_from_request(body: dict[str, Any], *, endpoint: str) -> list[dict[str, str]]:
+    if endpoint == "/v1/chat/completions":
+        messages = body.get("messages") or []
+        normalized = []
+        for message in messages if isinstance(messages, list) else []:
+            if not isinstance(message, dict):
+                continue
+            role = str(message.get("role") or "user")
+            content = _content_text(message.get("content"))
+            if content:
+                normalized.append({"role": role, "content": content})
+        return normalized
+
+    value = body.get("input")
+    if isinstance(value, str):
+        return [{"role": "user", "content": value}]
+    if isinstance(value, list):
+        normalized = []
+        for item in value:
+            if isinstance(item, dict):
+                role = str(item.get("role") or "user")
+                content = _content_text(item.get("content") or item.get("text"))
+            else:
+                role = "user"
+                content = _content_text(item)
+            if content:
+                normalized.append({"role": role, "content": content})
+        return normalized
+    if body.get("prompt"):
+        return [{"role": "user", "content": str(body["prompt"])}]
+    return []
+
+
+def model_prompt_from_messages(messages: list[dict[str, str]]) -> str:
+    lines = [KOLIBRI_SYSTEM_PROMPT]
+    for message in messages:
+        role = message.get("role") or "user"
+        content = message.get("content") or ""
+        if content:
+            lines.append(f"{role}: {content}")
+    lines.append("assistant:")
+    return "\n".join(lines)
+
+
+def model_task_envelope(body: dict[str, Any], *, endpoint: str) -> dict[str, Any]:
+    messages = model_messages_from_request(body, endpoint=endpoint)
+    prompt = model_prompt_from_messages(messages) if messages else str(body.get("input") or body.get("prompt") or "")
+    task_id = body.get("task_id") or f"MODEL-{uuid.uuid4().hex[:12]}"
+    runner = str(body.get("runner") or os.environ.get("KOLIBRI_MODEL_FALLBACK_RUNNER", "mimo")).strip().lower()
+    return {
+        "task_id": task_id,
+        "idempotency_key": body.get("idempotency_key") or f"{endpoint}:{task_id}",
+        "kind": "orchestrator_chat_response",
+        "source": "fabric_model_api",
+        "requested_role": "model",
+        "required_capability": body.get("required_capability") or "generic_implementation",
+        "target_node": body.get("target_node"),
+        "runner": runner,
+        "model": body.get("model") or "mimo-auto",
+        "message": messages[-1]["content"] if messages else prompt,
+        "objective": prompt,
+        "openai_endpoint": endpoint,
+        "openai_request": {
+            "model": body.get("model") or "mimo-auto",
+            "stream": bool(body.get("stream", False)),
+            "temperature": body.get("temperature"),
+            "max_tokens": body.get("max_tokens") or body.get("max_completion_tokens"),
+        },
+        "fallback_allowed": True,
+        "write_scope": [],
+        "constraints": {"no_secret_echo": True, "openai_compatible_response": True},
+    }
+
+
+def _local_llm_payload(prompt: str, body: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "prompt": prompt,
+        "model": body.get("model") or os.environ.get("KOLIBRI_LOCAL_LLM_MODEL", "local"),
+        "stream": False,
+        "temperature": body.get("temperature"),
+        "max_tokens": body.get("max_tokens") or body.get("max_completion_tokens"),
+    }
+
+
+def local_llm_generate(body: dict[str, Any], *, endpoint: str) -> dict[str, Any]:
+    url = os.environ.get("KOLIBRI_LOCAL_LLM_URL")
+    if not url:
+        raise RuntimeError("local_llm_not_configured")
+    messages = model_messages_from_request(body, endpoint=endpoint)
+    if not messages:
+        raise ValueError("model request must include input or messages")
+    payload = _local_llm_payload(model_prompt_from_messages(messages), body)
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    timeout = int(os.environ.get("KOLIBRI_LOCAL_LLM_TIMEOUT", "120"))
+    with urllib.request.urlopen(request, timeout=timeout) as resp:
+        raw = resp.read().decode("utf-8")
+    parsed = json.loads(raw)
+    text = parsed.get("response") or parsed.get("text") or parsed.get("content")
+    if not text and isinstance(parsed.get("message"), dict):
+        text = _content_text(parsed["message"].get("content"))
+    if not text:
+        raise RuntimeError("local_llm_returned_no_text")
+    return {"text": str(text), "raw": parsed}
+
+
+def openai_response_payload(body: dict[str, Any], *, endpoint: str, text: str, route: str, task_id: str | None = None) -> dict[str, Any]:
+    created = int(time.time())
+    model = body.get("model") or "mimo-auto"
+    response_id = body.get("id") or task_id or f"resp_{uuid.uuid4().hex[:24]}"
+    if endpoint == "/v1/chat/completions":
+        return {
+            "id": response_id if str(response_id).startswith("chatcmpl_") else f"chatcmpl_{uuid.uuid4().hex[:24]}",
+            "object": "chat.completion",
+            "created": created,
+            "model": model,
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": text},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            "fabric": {"route": route, "task_id": task_id or "", "status": "completed"},
+        }
+    return {
+        "id": response_id,
+        "object": "response",
+        "created_at": created,
+        "status": "completed",
+        "model": model,
+        "output": [
+            {
+                "id": f"msg_{uuid.uuid4().hex[:24]}",
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": text}],
+            }
+        ],
+        "output_text": text,
+        "fabric": {"route": route, "task_id": task_id or "", "status": "completed"},
+    }
+
+
+def fabric_model_fallback_envelope(body: dict[str, Any], *, endpoint: str, task: dict[str, Any], reason: str = "") -> dict[str, Any]:
+    fallback_nodes = [
+        node["node_id"]
+        for node in fabric_nodes(registered_nodes())
+        if "generic_implementation" in (node.get("capabilities") or [])
+        or "model" in (node.get("capabilities") or [])
+        or "model_node_api" in (node.get("api_paths") or [])
+    ]
+    return canonical_response_envelope(
+        status="running",
+        task_id=task["task_id"],
+        trace_id=body.get("trace_id") or task["task_id"],
+        node=(task.get("envelope") or {}).get("target_node") or "main",
+        route_used=endpoint,
+        fallback_nodes=fallback_nodes,
+        blocked_reason=reason,
+        data={
+            "object": "fabric.model_fallback",
+            "openai_endpoint": endpoint,
+            "model": body.get("model") or "mimo-auto",
+            "task": task,
+            "poll": {
+                "status": f"/v1/agents/status/{task['task_id']}",
+                "artifacts": f"/v1/agents/artifacts/{task['task_id']}",
+            },
+        },
+        next_action="poll /v1/agents/status/{task_id}; generation has not completed yet",
+    )
 
 
 def model_stub_envelope(body: dict[str, Any], *, endpoint: str) -> dict[str, Any]:
@@ -961,7 +1173,7 @@ class Handler(BaseHTTPRequestHandler):
                     status="completed",
                     route_used="/v1/models",
                     data={"object": "list", "data": MODEL_CATALOG},
-                    next_action="model generation endpoints remain safe stubs until authenticated model routes are online",
+                    next_action="use /v1/responses or /v1/chat/completions; local LLM is synchronous when configured, otherwise Fabric task fallback is queued",
                 ))
                 return
             if path == "/v1/fabric/health":
@@ -1138,7 +1350,46 @@ class Handler(BaseHTTPRequestHandler):
                 ))
                 return
             if path in {"/v1/responses", "/v1/chat/completions"}:
-                response(self, 503, model_stub_envelope(body, endpoint=path))
+                if body.get("stream"):
+                    response(self, 400, canonical_response_envelope(
+                        status="blocked",
+                        task_id=body.get("task_id") or "",
+                        trace_id=body.get("trace_id") or body.get("task_id") or "",
+                        route_used=path,
+                        blocked_reason="model_runtime_unavailable",
+                        repair_task={
+                            "kind": "implement_model_streaming",
+                            "endpoint": path,
+                            "action": "streaming is not enabled on the Fabric model gateway yet; retry without stream=true",
+                        },
+                        next_action="retry with stream=false or submit an async Fabric model task",
+                    ))
+                    return
+                if not model_messages_from_request(body, endpoint=path):
+                    response(self, 400, canonical_response_envelope(
+                        status="blocked",
+                        task_id=body.get("task_id") or "",
+                        trace_id=body.get("trace_id") or body.get("task_id") or "",
+                        route_used=path,
+                        blocked_reason="unknown",
+                        repair_task={"kind": "repair_model_request", "endpoint": path},
+                        next_action="include input for /v1/responses or messages for /v1/chat/completions",
+                    ))
+                    return
+                try:
+                    generated = local_llm_generate(body, endpoint=path)
+                    response(self, 200, openai_response_payload(
+                        body,
+                        endpoint=path,
+                        text=generated["text"],
+                        route="local_llm",
+                    ))
+                    return
+                except (urllib.error.URLError, TimeoutError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
+                    envelope = model_task_envelope(body, endpoint=path)
+                    task = create_task(envelope)
+                    reason = "model_runtime_unavailable" if str(exc) == "local_llm_not_configured" else "api_unreachable"
+                    response(self, 202, fabric_model_fallback_envelope(body, endpoint=path, task=task, reason=reason))
                 return
             if path in ADMIN_ENDPOINTS:
                 response(self, 403, admin_denied_envelope(body, endpoint=path))

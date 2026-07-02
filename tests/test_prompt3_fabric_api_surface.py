@@ -58,15 +58,61 @@ def test_fleet_aliases_return_catalog_topology_capabilities_and_routes():
     assert route["route"]["endpoint"] == "/v1/nodes/9fts"
 
 
-def test_model_responses_and_chat_completions_are_safe_blocked_stubs():
+def test_model_responses_and_chat_completions_build_real_contracts(monkeypatch):
     control = load_control()
-    for endpoint in ["/v1/responses", "/v1/chat/completions"]:
-        envelope = control.model_stub_envelope({"task_id": "MODEL-1", "trace_id": "TRACE-1"}, endpoint=endpoint)
-        assert envelope["status"] == "blocked"
-        assert envelope["route_used"] == endpoint
-        assert envelope["blocked_reason"] == "model_runtime_unavailable"
-        assert envelope["repair_task"]["kind"] == "repair_model_runtime_route"
-        assert "9fts" in envelope["fallback_nodes"]
+    monkeypatch.setattr(control, "registered_nodes", lambda: [
+        {"node_id": "9fts", "health": "online", "capabilities": ["generic_implementation", "runner:mimo"]},
+    ])
+
+    responses_body = {"task_id": "MODEL-1", "trace_id": "TRACE-1", "model": "mimo-auto", "input": "ping"}
+    chat_body = {"task_id": "MODEL-2", "messages": [{"role": "user", "content": "ping"}]}
+
+    responses_task = {"task_id": "MODEL-1", "envelope": control.model_task_envelope(responses_body, endpoint="/v1/responses")}
+    chat_task = {"task_id": "MODEL-2", "envelope": control.model_task_envelope(chat_body, endpoint="/v1/chat/completions")}
+
+    responses_fallback = control.fabric_model_fallback_envelope(
+        responses_body,
+        endpoint="/v1/responses",
+        task=responses_task,
+        reason="model_runtime_unavailable",
+    )
+    chat_payload = control.openai_response_payload(
+        chat_body,
+        endpoint="/v1/chat/completions",
+        text="pong",
+        route="local_llm",
+        task_id="MODEL-2",
+    )
+
+    assert responses_fallback["status"] == "running"
+    assert responses_fallback["route_used"] == "/v1/responses"
+    assert responses_fallback["data"]["object"] == "fabric.model_fallback"
+    assert responses_fallback["data"]["poll"]["status"] == "/v1/agents/status/MODEL-1"
+    assert responses_task["envelope"]["kind"] == "orchestrator_chat_response"
+    assert responses_task["envelope"]["runner"] == "mimo"
+    assert "ping" in responses_task["envelope"]["objective"]
+    assert "9fts" in responses_fallback["fallback_nodes"]
+
+    assert chat_payload["object"] == "chat.completion"
+    assert chat_payload["choices"][0]["message"]["content"] == "pong"
+    assert chat_payload["fabric"]["route"] == "local_llm"
+
+
+def test_responses_payload_is_openai_compatible():
+    control = load_control()
+    payload = control.openai_response_payload(
+        {"model": "mimo-auto", "input": "hello"},
+        endpoint="/v1/responses",
+        text="world",
+        route="local_llm",
+        task_id="MODEL-3",
+    )
+
+    assert payload["object"] == "response"
+    assert payload["status"] == "completed"
+    assert payload["output_text"] == "world"
+    assert payload["output"][0]["content"][0]["type"] == "output_text"
+    assert payload["fabric"]["status"] == "completed"
 
 
 def test_agents_aliases_normalize_envelope_and_artifacts():
