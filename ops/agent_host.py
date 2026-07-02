@@ -1010,6 +1010,8 @@ class AgentHost:
             "runners": self.runner_status,
             "max_inflight": self.max_inflight,
         })
+        if isinstance(task, dict) and task.get("status") in {"no_task", "overloaded"} and not task.get("task_id"):
+            return None
         return sanitize_task_permissions(task) if isinstance(task, dict) else task
 
     def idle_poll_sleep(self, empty_polls: int = 0) -> float:

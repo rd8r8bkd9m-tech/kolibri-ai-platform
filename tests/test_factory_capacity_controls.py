@@ -1,5 +1,6 @@
 import argparse
 import importlib.util
+import json
 from pathlib import Path
 
 
@@ -177,6 +178,107 @@ def test_redis_client_reuses_one_socket_per_thread(monkeypatch):
 
     assert len(sockets) == 1
     assert len(sockets[0].sent) == 2
+
+
+def test_lease_empty_poll_returns_structured_no_task_envelope():
+    control = load_control()
+    envelope = control.lease_no_task_response()
+
+    assert envelope["status"] == "no_task"
+    assert envelope["task"] is None
+    assert envelope["reason"] == "queue_empty"
+    assert envelope["retry_after_seconds"] >= 0
+    assert envelope["lease_queue_scan_limit"] == control.LEASE_QUEUE_SCAN_LIMIT
+
+
+def test_agent_host_treats_structured_no_task_lease_as_idle_poll(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setattr(agent_host.AgentHost, "detect_runner_status", lambda self: {})
+
+    args = argparse.Namespace(
+        control_url="http://127.0.0.1:9101",
+        control_urls="http://127.0.0.1:9101",
+        node_id="logical-empty",
+        agent_id="agent-host-empty",
+        capabilities="read_only_probe",
+        repo_url="https://example.invalid/repo.git",
+        work_root=str(tmp_path / "work"),
+        artifact_root=str(tmp_path / "artifacts"),
+        heartbeat_interval=10,
+        lease_refresh=20,
+        max_inflight=1,
+        lease_idle_min=1.0,
+        lease_idle_max=15.0,
+        lease_empty_backoff_factor=1.35,
+        lease_error_backoff=5.0,
+    )
+    host = agent_host.AgentHost(args)
+    monkeypatch.setattr(host, "post", lambda path, body: {"status": "no_task", "task": None})
+
+    assert host.lease() is None
+
+
+class BrokenPipeWriter:
+    def write(self, payload):
+        del payload
+        raise BrokenPipeError()
+
+
+class BrokenPipeHandler:
+    wfile = BrokenPipeWriter()
+
+    def send_response(self, status):
+        self.status = status
+
+    def send_header(self, name, value):
+        del name, value
+
+    def end_headers(self):
+        pass
+
+
+def test_response_write_broken_pipe_is_client_disconnect_not_500_loop():
+    control = load_control()
+
+    try:
+        control.response(BrokenPipeHandler(), 200, {"status": "ok"})
+    except Exception as exc:
+        assert isinstance(exc, control.ClientDisconnected)
+    else:
+        raise AssertionError("broken pipe must be classified as client disconnect")
+
+
+class CaptureRequest:
+    def __init__(self):
+        self.payload = b""
+
+    def sendall(self, payload):
+        self.payload += payload
+
+
+def test_overload_response_is_bounded_structured_json():
+    control = load_control()
+    request = CaptureRequest()
+
+    control.BoundedThreadingHTTPServer._send_overloaded(request)
+    head, body = request.payload.split(b"\r\n\r\n", 1)
+
+    assert b"503 Service Unavailable" in head
+    assert b"Content-Type: application/json" in head
+    payload = json.loads(body.decode("utf-8"))
+    assert payload["status"] == "overloaded"
+    assert payload["task"] is None
+    assert payload["error"] == "control_plane_overloaded"
+    assert payload["retry_after_seconds"] >= 0
+
+
+def test_lease_canary_classifier_fails_any_lease_5xx():
+    control = load_control()
+
+    for status_code in (500, 502, 503, 599):
+        classified = control.classify_lease_canary_response(status_code, {"status": "no_task"})
+        assert classified["status"] == "failed"
+        assert classified["reason"] == "lease_5xx"
 
 
 def test_agent_host_poll_jitter_spreads_1000_logical_hosts_without_process_spawn(tmp_path, monkeypatch):
