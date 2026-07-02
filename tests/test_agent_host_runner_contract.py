@@ -524,6 +524,31 @@ def test_run_task_unsupported_kind_posts_blocked_fail_not_complete(tmp_path):
         assert field in persisted
 
 
+def test_run_task_unsupported_required_capability_posts_blocked_fail_not_complete(tmp_path):
+    agent_host = load_agent_host()
+    host = make_host(agent_host, tmp_path, capabilities="generic_implementation")
+    task = make_task({"kind": "read_only_probe", "required_capability": "review"})
+    task["kind"] = "read_only_probe"
+
+    host.run_task(task)
+
+    assert not [path for path, _ in host.posts if path.endswith("/complete")]
+    fail_posts = [(path, body) for path, body in host.posts if path.endswith("/fail")]
+    assert len(fail_posts) == 1
+    _, fail_body = fail_posts[0]
+    assert fail_body["error_type"] == "runner_contract_blocked"
+    assert fail_body["retry"] is False
+    assert fail_body["result"]["status"] == "blocked"
+    assert "unsupported_required_capability:review" in fail_body["result"]["blocked_reason"]
+    assert fail_body["result"]["next_recommended_task"] == "enable a supported read-only runner for this task kind before resubmitting"
+    result_path = Path(fail_body["result_reference"])
+    persisted = json.loads(result_path.read_text(encoding="utf-8"))
+    assert persisted["status"] == "blocked"
+    assert persisted["required_artifacts_missing"] == []
+    for field in agent_host.CONTRACT_RESULT_FIELDS:
+        assert field in persisted
+
+
 def test_run_task_missing_required_artifact_posts_blocked_fail_not_complete(tmp_path):
     agent_host = load_agent_host()
     host = make_host(agent_host, tmp_path, capabilities="read_only_probe")
