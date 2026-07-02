@@ -1,0 +1,120 @@
+{
+  "task_id": "P0_AUTOPILOT_EXTRA_23_HOSTVDS_AGENT_01_READINESS_2026_07_02",
+  "idempotency_key": "control-plane:P0_AUTOPILOT_EXTRA_23_HOSTVDS_AGENT_01_READINESS_2026_07_02:hostvds-agent-01-readiness",
+  "kind": "owner_remote_task",
+  "required_capability": "generic_implementation",
+  "runner": "codex",
+  "agent_type": "hostvds_agent_readiness_probe",
+  "agent_display_name": "Иван — HostVDS Agent Readiness Inspector",
+  "target_node": "mesh-agent-01",
+  "target_node_pool": "hostvds-agent-01 server-side mesh worker",
+  "preferred_nodes": [
+    "mesh-agent-01"
+  ],
+  "allowed_nodes": [
+    "mesh-agent-01"
+  ],
+  "avoid_nodes": [
+    "main",
+    "home",
+    "home-live",
+    "primary-candidate",
+    "qjns",
+    "uiap",
+    "new"
+  ],
+  "branch": "main",
+  "base_branch": "main",
+  "base_ref": "origin/main",
+  "max_retries": 0,
+  "create_review_on_complete": false,
+  "objective": "Remote-only readiness probe for hostvds-agent-01, represented in Control Plane as node mesh-agent-01 and agent agent-host-mesh-agent-01. Run on this assigned server-side mesh worker only. Do not modify product code, tests, CI, services, credentials, or GitHub state. Do not print secrets, raw tokens, private keys, cookies, full env, or credential values. Probe and report: Control Plane node readiness, API route/control-plane reachability, GitHub auth status without secret output, disk availability, runner status for Codex/MIMO, current lease/runner availability, and the exact safe repair task if any blocker exists. Use only non-destructive read-only commands and sanitized Control Plane data. Produce a concise Russian owner-facing summary plus structured technical facts: status, node, agent name, blockers, artifacts, and next exact task.",
+  "constraints": {
+    "server_execution_required": true,
+    "assigned_worker_only": true,
+    "mac_product_code_changes_forbidden": true,
+    "read_only": true,
+    "diagnostic_only": true,
+    "product_code_modification_forbidden": true,
+    "credential_changes_forbidden": true,
+    "interactive_login_forbidden": true,
+    "token_refresh_forbidden": true,
+    "secret_printing_forbidden": true,
+    "environment_value_printing_forbidden": true,
+    "destructive_git_commands_forbidden": true,
+    "git_push_forbidden": true,
+    "force_push_forbidden": true,
+    "push_to_main_forbidden": true,
+    "heavy_tests_forbidden": true,
+    "owner_facing_summary_language": "ru",
+    "raw_log_paste_forbidden": true
+  },
+  "suggested_read_only_checks": [
+    "hostname",
+    "pwd",
+    "git status --short --branch",
+    "git rev-parse --show-toplevel",
+    "git rev-parse --short HEAD",
+    "df -h / /var/lib/kolibri-agent 2>/dev/null || df -h /",
+    "command -v gh >/dev/null && gh auth status --hostname github.com 2>&1 | sed -E 's/[A-Za-z0-9_]{20,}/[redacted]/g' || true",
+    "command -v codex >/dev/null && codex --version || true",
+    "command -v mimo >/dev/null && mimo --version || true",
+    "python3 ops/kolibri-dispatch nodes | python3 -c 'import json,sys; data=json.load(sys.stdin); nodes=[n for n in data.get(\"nodes\",[]) if n.get(\"node_id\") in {\"mesh-agent-01\",\"agent-01\"}]; print(json.dumps(nodes, ensure_ascii=False, sort_keys=True, indent=2))' || true",
+    "python3 ops/kolibri-dispatch status P0_AUTOPILOT_EXTRA_23_HOSTVDS_AGENT_01_READINESS_2026_07_02 || true"
+  ],
+  "write_scope": [
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-23-hostvds-agent-01-readiness/**"
+  ],
+  "forbidden_write_scope": [
+    ".github/**",
+    "backend/**",
+    "frontend/**",
+    "infra/**",
+    "ops/**",
+    "scripts/**",
+    "tests/**",
+    "docs/agent/dispatcher/**",
+    "docs/superfactory/**"
+  ],
+  "required_outputs": [
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-23-hostvds-agent-01-readiness/PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-23-hostvds-agent-01-readiness/ACTIONS.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-23-hostvds-agent-01-readiness/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-23-hostvds-agent-01-readiness/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-23-hostvds-agent-01-readiness/NEXT.md"
+  ],
+  "required_findings": [
+    "remote_execution_node",
+    "control_plane_node_card",
+    "api_route_or_control_plane_reachability",
+    "github_auth_status_redacted",
+    "disk_status",
+    "runner_status_codex_mimo",
+    "current_runner_or_lease_status",
+    "blockers",
+    "artifacts",
+    "next_exact_task"
+  ],
+  "verification_commands": [
+    "git diff --check",
+    "test -f docs/agent/runs/2026-07-02-p0-autopilot-extra-23-hostvds-agent-01-readiness/PLAN.md",
+    "test -f docs/agent/runs/2026-07-02-p0-autopilot-extra-23-hostvds-agent-01-readiness/ACTIONS.md",
+    "test -f docs/agent/runs/2026-07-02-p0-autopilot-extra-23-hostvds-agent-01-readiness/TESTS.md",
+    "test -f docs/agent/runs/2026-07-02-p0-autopilot-extra-23-hostvds-agent-01-readiness/RESULT.md",
+    "test -f docs/agent/runs/2026-07-02-p0-autopilot-extra-23-hostvds-agent-01-readiness/NEXT.md",
+    "rg --no-ignore -n '[0-9]{6,}:[A-Za-z0-9_-]{20,}|[A-Za-z0-9_]*(TOKEN|SECRET|PASSWORD|COOKIE|API_KEY|PRIVATE_KEY)=[^ ]+' docs/agent/runs/2026-07-02-p0-autopilot-extra-23-hostvds-agent-01-readiness && exit 1 || true"
+  ],
+  "acceptance": [
+    "Remote execution happened on mesh-agent-01 / agent-host-mesh-agent-01.",
+    "No product code was modified locally on Mac or in the remote result.",
+    "No secrets are printed.",
+    "No destructive git commands, no force push, no push to main.",
+    "Result includes status, node, agent name, blockers, artifacts, and next exact task.",
+    "Russian owner-facing summary is produced."
+  ],
+  "source": {
+    "kind": "control_plane_lease_dispatcher",
+    "created_at": "2026-07-02T00:00:00Z",
+    "local_ledger": "docs/agent/dispatcher/REMOTE_RESULTS.md"
+  }
+}
