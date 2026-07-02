@@ -138,6 +138,39 @@ def test_1000_logical_lease_polls_do_not_spawn_processes_or_scan_unbounded_queue
     assert lpop_count == 1000
 
 
+def test_1000_concurrent_logical_lease_polls_lease_every_created_task(monkeypatch):
+    control = load_control()
+    fake = InMemoryRedis()
+    monkeypatch.setattr(control, "redis", fake)
+    monkeypatch.setattr(control, "LEASE_QUEUE_SCAN_LIMIT", 16)
+
+    for index in range(1000):
+        control.create_task({
+            "task_id": f"CANARY-{index}",
+            "idempotency_key": f"canary-{index}",
+            "kind": "read_only_probe",
+            "required_capability": "read_only_probe",
+        })
+
+    def lease(index):
+        node_id = f"canary-logical-{index}"
+        task = control.lease_next_task(
+            node_id,
+            f"agent-{index}",
+            ["read_only_probe"],
+            {"node_id": node_id, "capabilities": ["read_only_probe"]},
+        )
+        return None if task is None else task["task_id"]
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=128) as pool:
+        leased = list(pool.map(lease, range(1000)))
+
+    assert None not in leased
+    assert len(set(leased)) == 1000
+    assert len(fake.lists[control.key("queue")]) == 0
+    assert int(fake.command("SCARD", control.queued_task_ids_key())) == 0
+
+
 def test_lease_recovers_persisted_queued_task_when_queue_index_loses_one_entry(monkeypatch):
     control = load_control()
     fake = InMemoryRedis()
@@ -166,6 +199,32 @@ def test_lease_recovers_persisted_queued_task_when_queue_index_loses_one_entry(m
 
     assert len(set(leased)) == 10
     assert "STRICT-9" in leased
+
+
+def test_lease_recovery_sweeps_queued_index_when_random_window_misses_compatible_task(monkeypatch):
+    control = load_control()
+    fake = InMemoryRedis()
+    monkeypatch.setattr(control, "redis", fake)
+    monkeypatch.setattr(control, "LEASE_QUEUE_SCAN_LIMIT", 8)
+
+    for index in range(20):
+        control.create_task({
+            "task_id": f"MISS-{index}",
+            "idempotency_key": f"miss-{index}",
+            "kind": "read_only_probe",
+            "required_capability": "special" if index == 19 else "other",
+        })
+    fake.lists[control.key("queue")].clear()
+
+    task = control.lease_next_task(
+        "special-node",
+        "special-agent",
+        ["special"],
+        {"node_id": "special-node", "capabilities": ["special"]},
+    )
+
+    assert task is not None
+    assert task["task_id"] == "MISS-19"
 
 
 def test_concurrent_empty_lease_polls_return_no_task_without_historical_scan(monkeypatch):
@@ -348,6 +407,194 @@ def test_empty_http_lease_fast_path_skips_reaper_and_node_load(monkeypatch):
     assert ("SCARD", control.queued_task_ids_key()) in fake.commands
     assert not any(command[0] == "SET" and command[1] == control.key("lease_reaper:lock") for command in fake.commands)
     assert ("GET", control.node_key("empty-fast")) not in fake.commands
+
+
+def test_empty_lease_fast_path_cache_bypasses_redis_until_enqueue(monkeypatch):
+    control = load_control()
+    fake = InMemoryRedis()
+    monkeypatch.setattr(control, "redis", fake)
+    monkeypatch.setattr(control, "LEASE_EMPTY_FAST_PATH_TTL", 60.0)
+
+    assert control.lease_queue_empty() is True
+    assert ("LLEN", control.key("queue")) in fake.commands
+    assert ("SCARD", control.queued_task_ids_key()) in fake.commands
+
+    fake.commands.clear()
+    for _index in range(500):
+        assert control.lease_queue_empty() is True
+    assert fake.commands == []
+
+    control.create_task({
+        "task_id": "WAKE-EMPTY-CACHE",
+        "idempotency_key": "wake-empty-cache",
+        "kind": "read_only_probe",
+        "required_capability": "read_only_probe",
+    })
+
+    fake.commands.clear()
+    assert control.lease_queue_empty() is False
+    assert ("LLEN", control.key("queue")) in fake.commands
+
+
+def test_factory_http_server_completes_1000_warmed_empty_lease_polls_without_redis_work(monkeypatch):
+    control = load_control()
+    fake = InMemoryRedis()
+    monkeypatch.setattr(control, "redis", fake)
+    monkeypatch.setattr(control, "LEASE_EMPTY_FAST_PATH_TTL", 60.0)
+
+    assert control.lease_queue_empty() is True
+    fake.commands.clear()
+
+    server = control.FactoryThreadingHTTPServer(("127.0.0.1", 0), control.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    url = f"http://127.0.0.1:{server.server_address[1]}/v1/tasks/lease"
+
+    def lease(index):
+        payload = json.dumps({
+            "node_id": f"empty-warmed-{index}",
+            "agent_id": f"agent-warmed-{index}",
+            "capabilities": ["read_only_probe"],
+        }).encode("utf-8")
+        request = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return response.status, json.loads(response.read().decode("utf-8"))
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1000) as pool:
+            results = list(pool.map(lease, range(1000)))
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert all(status == 200 for status, _body in results)
+    assert all(body["status"] == "no_task" for _status, body in results)
+    assert fake.commands == []
+    assert server.max_workers <= 64
+
+
+def test_warmed_empty_lease_poll_still_enters_worker_executor(monkeypatch):
+    control = load_control()
+    fake = InMemoryRedis()
+    monkeypatch.setattr(control, "redis", fake)
+    monkeypatch.setattr(control, "LEASE_EMPTY_FAST_PATH_TTL", 60.0)
+
+    assert control.lease_queue_empty() is True
+    handled = []
+
+    class RecordingExecutor:
+        _max_workers = 1
+
+        def submit(self, func, request, client_address):
+            handled.append((func, request, client_address))
+
+        def shutdown(self, wait=False):
+            pass
+
+    server = control.FactoryThreadingHTTPServer(("127.0.0.1", 0), control.Handler)
+    try:
+        server._executor.shutdown(wait=False)
+        server._executor = RecordingExecutor()
+        request = object()
+
+        server.process_request(request, ("127.0.0.1", 12345))
+
+        assert handled == [(server.process_request_thread, request, ("127.0.0.1", 12345))]
+        assert not hasattr(control, "maybe_respond_empty_lease_poll_from_accept_loop")
+        assert not hasattr(control, "complete_http_request_length")
+    finally:
+        server.server_close()
+
+
+def test_empty_lease_no_task_response_is_preencoded_compact_json(monkeypatch):
+    control = load_control()
+    monkeypatch.setattr(control, "LEASE_EMPTY_RETRY_AFTER", 1.25)
+    monkeypatch.setattr(control, "LEASE_QUEUE_SCAN_LIMIT", 17)
+
+    payload = control.lease_no_task_response_bytes()
+    decoded = json.loads(payload.decode("utf-8"))
+
+    assert decoded == control.lease_no_task_response()
+    assert b"\n" not in payload
+    assert b"  " not in payload
+    assert control.lease_no_task_response_bytes() is payload
+
+
+def test_empty_lease_no_task_response_closes_and_flushes_handler_connection():
+    control = load_control()
+
+    class Writer:
+        def __init__(self):
+            self.payload = b""
+            self.flushed = False
+
+        def write(self, payload):
+            self.payload += payload
+
+        def flush(self):
+            self.flushed = True
+
+    class Handler:
+        def __init__(self):
+            self.wfile = Writer()
+            self.status = None
+            self.headers = []
+            self.close_connection = False
+
+        def send_response(self, status):
+            self.status = status
+
+        def send_header(self, name, value):
+            self.headers.append((name, value))
+
+        def end_headers(self):
+            pass
+
+    handler = Handler()
+
+    control.response_no_task(handler)
+
+    headers = dict(handler.headers)
+    assert handler.status == 200
+    assert handler.close_connection is True
+    assert headers["Content-Type"] == "application/json"
+    assert headers["Content-Length"] == str(len(handler.wfile.payload))
+    assert headers["Connection"] == "close"
+    assert json.loads(handler.wfile.payload.decode("utf-8"))["status"] == "no_task"
+    assert handler.wfile.flushed is True
+
+
+def test_successful_lease_poll_access_logs_are_suppressed_by_default(monkeypatch, capsys):
+    control = load_control()
+    fake = InMemoryRedis()
+    monkeypatch.setattr(control, "redis", fake)
+    monkeypatch.setattr(control, "LEASE_EMPTY_FAST_PATH_TTL", 60.0)
+
+    assert control.lease_queue_empty() is True
+    fake.commands.clear()
+
+    server = control.FactoryThreadingHTTPServer(("127.0.0.1", 0), control.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    url = f"http://127.0.0.1:{server.server_address[1]}/v1/tasks/lease"
+    payload = json.dumps({
+        "node_id": "empty-log-suppressed",
+        "agent_id": "agent-log-suppressed",
+        "capabilities": ["read_only_probe"],
+    }).encode("utf-8")
+    request = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
+
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            assert response.status == 200
+            assert json.loads(response.read().decode("utf-8"))["status"] == "no_task"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert "/v1/tasks/lease" not in capsys.readouterr().err
 
 
 def test_factory_http_server_completes_300_empty_lease_polls_without_transport_drop(monkeypatch):
