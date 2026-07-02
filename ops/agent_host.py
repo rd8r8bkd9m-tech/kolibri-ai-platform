@@ -849,6 +849,16 @@ def finalize_runner_contract(
     final.setdefault("task_id", task["task_id"])
     final.setdefault("kind", kind)
     final["artifact_dir"] = str(artifact_dir)
+    effective_blocked_reason = blocked_reason
+    if not effective_blocked_reason:
+        existing_blocked_reason = final.get("blocked_reason")
+        if isinstance(existing_blocked_reason, str) and existing_blocked_reason.strip():
+            effective_blocked_reason = existing_blocked_reason.strip()
+    effective_failure_reason = failure_reason
+    if effective_failure_reason is None:
+        existing_failure_reason = final.get("failure_reason")
+        if isinstance(existing_failure_reason, str) and existing_failure_reason.strip():
+            effective_failure_reason = existing_failure_reason.strip()
 
     effective_changed = changed_files
     if effective_changed is None:
@@ -910,8 +920,8 @@ def finalize_runner_contract(
     final["tests_run"] = ensure_list(tests_run)
 
     blockers: list[str] = []
-    if blocked_reason:
-        blockers.append(blocked_reason)
+    if effective_blocked_reason:
+        blockers.append(effective_blocked_reason)
     if not artifact_dir.exists():
         blockers.append("artifact_dir_missing")
     if required_missing:
@@ -928,10 +938,10 @@ def finalize_runner_contract(
     if blockers:
         final["status"] = "blocked"
         final["blocked_reason"] = "; ".join(dict.fromkeys(blockers))
-        final["failure_reason"] = failure_reason
+        final["failure_reason"] = effective_failure_reason
     else:
         final.setdefault("blocked_reason", None)
-        final["failure_reason"] = failure_reason
+        final["failure_reason"] = effective_failure_reason
     final["next_recommended_task"] = final.get("next_recommended_task") or (
         next_recommended_task_for(blockers, envelope) if blockers else None
     )
