@@ -283,10 +283,10 @@ export default function EstimatesPage() {
                 <ArrowLeft size={18} />
               </button>
               <div className="min-w-0 flex-1">
-                <textarea value={current.title} onChange={event => updateCurrent({ title: event.target.value })} rows={2} className="min-h-[58px] w-full resize-none bg-transparent text-[20px] font-semibold leading-tight tracking-tight text-[var(--text-primary)] outline-none sm:min-h-[64px] sm:text-[24px]" />
+                <textarea value={current.title} onChange={event => updateCurrent({ title: event.target.value })} rows={2} className="min-h-[58px] w-full resize-none bg-transparent text-[20px] font-semibold leading-tight tracking-tight text-[var(--text-primary)] outline-none break-words [overflow-wrap:anywhere] sm:min-h-[64px] sm:text-[24px]" />
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px] text-[var(--text-tertiary)]">
                   <span className={`rounded-[var(--radius-pill)] px-2 py-1 font-medium ${statusLabels[current.status]?.className}`}>{statusLabels[current.status]?.text}</span>
-                  <span className="max-w-full truncate">{current.id}</span>
+                  <span className="max-w-full break-all">{current.id}</span>
                   <span>версия {current.version}</span>
                   <span>{formatDate(current.updated_at)}</span>
                   <span className={apiState === 'online' ? 'text-emerald-600' : apiState === 'offline' ? 'text-red-600' : 'text-[var(--text-tertiary)]'}>
@@ -314,11 +314,11 @@ export default function EstimatesPage() {
                   <MoreHorizontal size={16} />
                 </button>
                 {menuOpen && (
-                  <div className="absolute right-0 top-10 z-20 w-52 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] py-1 shadow-[var(--shadow-lg)]">
-                    <button onClick={handleDuplicate} className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] hover:bg-[var(--bg-hover)]"><Copy size={14} /> Дублировать</button>
-                    <a href={estimates.pdfUrl(current.id)} target="_blank" rel="noreferrer" className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] hover:bg-[var(--bg-hover)]"><Download size={14} /> PDF</a>
-                    <a href={estimates.exportUrl(current.id, 'csv')} target="_blank" rel="noreferrer" className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] hover:bg-[var(--bg-hover)]"><FileDown size={14} /> CSV</a>
-                    <button onClick={handleDelete} className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-red-600 hover:bg-red-50"><Trash2 size={14} /> Удалить</button>
+                  <div className="fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] z-[70] rounded-[24px] border border-white/20 bg-[var(--bg-surface)]/95 p-2 shadow-2xl backdrop-blur-xl sm:absolute sm:bottom-auto sm:right-0 sm:top-10 sm:z-20 sm:w-52 sm:rounded-[var(--radius-md)] sm:border-[var(--border-subtle)] sm:bg-[var(--bg-surface)] sm:py-1 sm:shadow-[var(--shadow-lg)]">
+                    <button onClick={handleDuplicate} className="flex min-h-11 w-full items-center gap-2 rounded-[var(--radius-md)] px-3 py-2 text-left text-[13px] hover:bg-[var(--bg-hover)]"><Copy size={14} /> Дублировать</button>
+                    <a href={estimates.pdfUrl(current.id)} target="_blank" rel="noreferrer" className="flex min-h-11 w-full items-center gap-2 rounded-[var(--radius-md)] px-3 py-2 text-left text-[13px] hover:bg-[var(--bg-hover)]"><Download size={14} /> PDF</a>
+                    <a href={estimates.exportUrl(current.id, 'csv')} target="_blank" rel="noreferrer" className="flex min-h-11 w-full items-center gap-2 rounded-[var(--radius-md)] px-3 py-2 text-left text-[13px] hover:bg-[var(--bg-hover)]"><FileDown size={14} /> CSV</a>
+                    <button onClick={handleDelete} className="flex min-h-11 w-full items-center gap-2 rounded-[var(--radius-md)] px-3 py-2 text-left text-[13px] text-red-600 hover:bg-red-50"><Trash2 size={14} /> Удалить</button>
                   </div>
                 )}
               </div>
@@ -326,7 +326,7 @@ export default function EstimatesPage() {
           </div>
 
           {saveState === 'error' && <div className="rounded-[var(--radius-md)] border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700">Не удалось сохранить. Проверьте соединение с backend API.</div>}
-          {aiResult && <div className="rounded-[var(--radius-md)] border border-violet-200 bg-violet-50 px-4 py-3 text-[13px] leading-6 text-violet-900">{aiResult}</div>}
+          {aiResult && <div className="whitespace-pre-wrap break-words rounded-[var(--radius-md)] border border-violet-200 bg-violet-50 px-4 py-3 text-[13px] leading-6 text-violet-900 [overflow-wrap:anywhere]">{aiResult}</div>}
 
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
             <main className="flex min-w-0 flex-col gap-4">
@@ -359,15 +359,30 @@ export default function EstimatesPage() {
                       const lineTotal = numberValue(position.quantity) * numberValue(position.price)
                       return (
                         <div key={position.id} className="grid gap-2 p-3 lg:grid-cols-[84px_minmax(220px,1fr)_70px_96px_118px_124px_40px] lg:items-center">
-                          <input value={position.code} onChange={event => updatePosition(section.id, position.id, { code: event.target.value })} placeholder="Код" className="h-11 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2 text-[13px] outline-none focus:border-[var(--accent-teal)] lg:h-9" />
+                          <label className="grid gap-1 text-[12px] font-medium text-[var(--text-tertiary)] lg:block lg:text-[0px]">
+                            <span className="lg:sr-only">Код</span>
+                            <input value={position.code} onChange={event => updatePosition(section.id, position.id, { code: event.target.value })} placeholder="Код" className="h-11 w-full rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-primary)] outline-none focus:border-[var(--accent-teal)] lg:h-9" />
+                          </label>
                           <div className="grid gap-2">
-                            <input value={position.name} onChange={event => updatePosition(section.id, position.id, { name: event.target.value })} placeholder="Название позиции" className="h-11 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2 text-[13px] outline-none focus:border-[var(--accent-teal)] lg:h-9" />
+                            <label className="grid gap-1 text-[12px] font-medium text-[var(--text-tertiary)] lg:block lg:text-[0px]">
+                              <span className="lg:sr-only">Позиция</span>
+                              <input value={position.name} onChange={event => updatePosition(section.id, position.id, { name: event.target.value })} placeholder="Название позиции" className="h-11 w-full rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-primary)] outline-none focus:border-[var(--accent-teal)] lg:h-9" />
+                            </label>
                             <input value={position.source || ''} onChange={event => updatePosition(section.id, position.id, { source: event.target.value })} placeholder="Источник цены" className="h-8 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-secondary)] px-2 text-[12px] text-[var(--text-secondary)] outline-none focus:border-[var(--accent-teal)] lg:hidden" />
                           </div>
                           <div className="grid grid-cols-3 gap-2 lg:contents">
-                            <input value={position.unit} onChange={event => updatePosition(section.id, position.id, { unit: event.target.value })} placeholder="Ед." className="h-11 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2 text-[13px] outline-none focus:border-[var(--accent-teal)] lg:h-9" />
-                            <input inputMode="decimal" value={position.quantity} onChange={event => updatePosition(section.id, position.id, { quantity: event.target.value })} className="h-11 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2 text-right text-[13px] outline-none focus:border-[var(--accent-teal)] lg:h-9" />
-                            <input inputMode="decimal" value={position.price} onChange={event => updatePosition(section.id, position.id, { price: event.target.value })} className="h-11 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2 text-right text-[13px] outline-none focus:border-[var(--accent-teal)] lg:h-9" />
+                            <label className="grid gap-1 text-[12px] font-medium text-[var(--text-tertiary)] lg:block lg:text-[0px]">
+                              <span className="lg:sr-only">Ед.</span>
+                              <input value={position.unit} onChange={event => updatePosition(section.id, position.id, { unit: event.target.value })} placeholder="Ед." className="h-11 w-full rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-primary)] outline-none focus:border-[var(--accent-teal)] lg:h-9" />
+                            </label>
+                            <label className="grid gap-1 text-[12px] font-medium text-[var(--text-tertiary)] lg:block lg:text-[0px]">
+                              <span className="lg:sr-only">Кол-во</span>
+                              <input inputMode="decimal" value={position.quantity} onChange={event => updatePosition(section.id, position.id, { quantity: event.target.value })} className="h-11 w-full rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2 text-right text-[13px] text-[var(--text-primary)] outline-none focus:border-[var(--accent-teal)] lg:h-9" />
+                            </label>
+                            <label className="grid gap-1 text-[12px] font-medium text-[var(--text-tertiary)] lg:block lg:text-[0px]">
+                              <span className="lg:sr-only">Цена</span>
+                              <input inputMode="decimal" value={position.price} onChange={event => updatePosition(section.id, position.id, { price: event.target.value })} className="h-11 w-full rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2 text-right text-[13px] text-[var(--text-primary)] outline-none focus:border-[var(--accent-teal)] lg:h-9" />
+                            </label>
                           </div>
                           <div className="flex items-center justify-between gap-2 lg:justify-end">
                             <span className="text-[12px] text-[var(--text-tertiary)] lg:hidden">Сумма</span>

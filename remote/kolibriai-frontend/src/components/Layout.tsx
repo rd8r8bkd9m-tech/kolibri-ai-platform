@@ -84,6 +84,7 @@ export default function Layout({ user, onLogout }: LayoutProps) {
   }, [navigate])
 
   const isHome = location.pathname === '/'
+  const isChat = location.pathname === '/chat'
 
   const closeMobileMenu = () => setMobileMenuOpen(false)
 
@@ -103,7 +104,7 @@ export default function Layout({ user, onLogout }: LayoutProps) {
   }
 
   const openNewChat = () => {
-    navigate('/')
+    navigate('/chat')
     closeMobileMenu()
   }
 
@@ -268,7 +269,7 @@ export default function Layout({ user, onLogout }: LayoutProps) {
             role="dialog"
             aria-modal="true"
             aria-label="Мобильное меню Колибри"
-            className="fixed bottom-0 left-0 top-0 z-[60] flex flex-col bg-[var(--bg-primary)] shadow-xl animate-slideIn md:hidden"
+            className="fixed bottom-0 left-0 top-0 z-[60] flex flex-col border-r border-white/20 bg-[var(--bg-primary)]/95 shadow-xl backdrop-blur-xl animate-slideIn md:hidden"
             style={{ width: 'min(320px, 88vw)' }}
           >
             <div className="flex h-[var(--mobile-header-height)] flex-shrink-0 items-end justify-between border-b border-[var(--border-subtle)] px-4 pb-2 pt-[env(safe-area-inset-top)]">
@@ -409,7 +410,7 @@ export default function Layout({ user, onLogout }: LayoutProps) {
       )}
 
       {/* ===== MAIN CONTENT ===== */}
-      <main className="h-full flex-1 overflow-y-auto pt-[var(--mobile-header-height)] md:pt-0">
+      <main className={`h-full flex-1 pt-[var(--mobile-header-height)] md:pt-0 ${isChat ? 'overflow-hidden' : 'overflow-y-auto'}`}>
         <Outlet context={{ openSearch } satisfies LayoutOutletContext} />
       </main>
 

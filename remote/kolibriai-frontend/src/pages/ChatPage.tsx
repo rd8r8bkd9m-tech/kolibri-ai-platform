@@ -145,10 +145,10 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-y-auto">
+    <div className="flex h-full min-h-0 flex-col md:h-full">
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
         {messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full px-4">
+          <div className="flex min-h-full flex-col items-center justify-center px-4 py-6">
             <MascotAnimation state="idle" className="mb-4 h-16 w-16" decorative />
             <p className="text-[15px] text-[var(--text-secondary)] mb-6">Начните новый разговор</p>
             <div className="flex flex-wrap justify-center gap-2 max-w-[500px]">
@@ -157,7 +157,7 @@ export default function ChatPage() {
                   type="button"
                   key={s}
                   onClick={() => handleSendMessage(s)}
-                  className="px-3 py-2 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] text-[13px] text-[var(--text-secondary)] hover:border-[var(--border-hover)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors text-left"
+                  className="min-h-11 px-3 py-2 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] text-[13px] text-[var(--text-secondary)] hover:border-[var(--border-hover)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors text-left break-words"
                 >
                   {s}
                 </button>
@@ -170,7 +170,7 @@ export default function ChatPage() {
               <button
                 type="button"
                 onClick={handleNewChat}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-md)] text-[13px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] border border-[var(--border-subtle)] hover:border-[var(--border-hover)] transition-colors"
+                className="flex min-h-10 items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-md)] text-[13px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] border border-[var(--border-subtle)] hover:border-[var(--border-hover)] transition-colors bg-[var(--bg-primary)]/90 backdrop-blur-md"
               >
                 <Plus size={14} strokeWidth={2} />
                 Новый чат
@@ -192,7 +192,7 @@ export default function ChatPage() {
                 </div>
                 <div className="flex-1 min-w-0">
                   {msg.reasoning && <ReasoningBlock text={msg.reasoning} />}
-                  <p className="text-[14px] text-[var(--text-primary)] leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                  <p className="text-[14px] text-[var(--text-primary)] leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{msg.content}</p>
                   {msg.actions && msg.actions.length > 0 && (
                     <div className="flex flex-wrap gap-2 mt-3">
                       {msg.actions.map((action, i) => (
@@ -200,7 +200,7 @@ export default function ChatPage() {
                           key={i}
                           type="button"
                           onClick={() => handleAction(action)}
-                          className="h-8 px-3 rounded-[var(--radius-md)] bg-[var(--accent-teal)] text-white text-[13px] font-medium hover:bg-[var(--accent-teal-hover)] transition-colors"
+                          className="min-h-10 px-3 rounded-[var(--radius-md)] bg-[var(--accent-teal)] text-white text-[13px] font-medium hover:bg-[var(--accent-teal-hover)] transition-colors"
                         >
                           {action.label}
                         </button>
@@ -221,7 +221,7 @@ export default function ChatPage() {
         )}
       </div>
 
-      <div className="flex-shrink-0 border-t border-[var(--border-subtle)] bg-[var(--bg-primary)] p-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]">
+      <div className="flex-shrink-0 border-t border-[var(--border-subtle)] bg-[var(--bg-primary)]/95 p-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] backdrop-blur-xl">
         <div className="max-w-[720px] mx-auto">
           <div
             className={`relative bg-[var(--bg-surface)] rounded-[var(--radius-xl)] border transition-all duration-200 ${
