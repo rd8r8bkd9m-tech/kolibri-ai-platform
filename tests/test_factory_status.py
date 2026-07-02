@@ -72,6 +72,39 @@ def test_frontend_uses_live_factory_status_endpoint():
     assert "/cluster/status" not in app_source
     assert "на базе 5 серверов" not in app_source
     assert "Фабрика Колибри" in app_source
-    assert "Свежие" in app_source
+    assert "Агенты онлайн" in app_source
     assert "Деградируют" in app_source
-    assert "Устарели" in app_source
+    assert "Живой пульт Home" in app_source
+    assert "Блокеры" in app_source
+    assert "Логи и артефакты" in app_source
+
+
+def test_build_factory_status_normalizes_wallboard_payloads():
+    now = datetime.now(timezone.utc)
+    result = build_factory_status(
+        {
+            "nodes": [
+                {
+                    "node_id": "worker-a",
+                    "health": "online",
+                    "heartbeat_at": (now - timedelta(seconds=4)).isoformat(),
+                    "capabilities": ["implementation"],
+                }
+            ]
+        },
+        {
+            "tasks": [{"task_id": "P0", "state": "running", "goal": "Ship wallboard", "leased_by": "worker-a"}],
+            "blockers": {"items": [{"id": "B1", "title": "Redis down", "severity": "high", "repair_command": "systemctl restart redis"}]},
+            "prs": {"items": [{"number": 101, "title": "Wallboard UI", "state": "open", "checks": "pending"}]},
+            "logs": {"events": [{"id": "L1", "level": "info", "source": "agent-host", "message": "lease renewed"}]},
+        },
+        {"status": "ok", "queue_backend": "redis", "redis": "ok", "time": now.isoformat()},
+    )
+
+    assert result["tasks"][0]["title"] == "Ship wallboard"
+    assert result["tasks"][0]["assignee"] == "worker-a"
+    assert result["blockers"][0]["title"] == "Redis down"
+    assert result["blockers"][0]["repair"] == "systemctl restart redis"
+    assert result["prs"][0]["number"] == 101
+    assert result["logs"][0]["source"] == "agent-host"
+    assert {item["name"] for item in result["server_health"]} >= {"Control Plane", "Redis", "Agent Host", "Frontend API"}

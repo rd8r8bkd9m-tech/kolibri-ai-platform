@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -9,6 +10,8 @@ import httpx
 CONTROL_PLANE_URL = os.getenv("KOLIBRI_FACTORY_CONTROL_URL", "http://control.kolibri.internal:9101")
 NODE_DEGRADED_AFTER = int(os.getenv("FACTORY_NODE_DEGRADED_AFTER", "30"))
 NODE_STALE_AFTER = int(os.getenv("FACTORY_NODE_STALE_AFTER", "90"))
+RECENT_LIMIT = int(os.getenv("FACTORY_WALLBOARD_RECENT_LIMIT", "8"))
+REPO_ROOT = Path(os.getenv("KOLIBRI_REPO_ROOT", Path(__file__).resolve().parents[1]))
 
 
 def _control_plane_v1_url(path: str) -> str:
@@ -158,7 +161,173 @@ def _extract_tasks(tasks_payload: Any) -> list[dict[str, Any]]:
     return []
 
 
+def _short_text(value: Any, limit: int = 180) -> str:
+    text = " ".join(str(value or "").split())
+    return text[: limit - 1] + "…" if len(text) > limit else text
+
+
+def _normalize_tasks(tasks_payload: Any) -> list[dict[str, Any]]:
+    tasks = _extract_tasks(tasks_payload)
+    normalized = []
+    for index, task in enumerate(tasks[:RECENT_LIMIT]):
+        if not isinstance(task, dict):
+            continue
+        task_id = str(task.get("id") or task.get("task_id") or task.get("lease_id") or f"task-{index + 1}")
+        state = str(task.get("state") or task.get("status") or "unknown")
+        normalized.append(
+            {
+                "id": task_id,
+                "title": _short_text(task.get("title") or task.get("goal") or task.get("role_goal") or task_id, 96),
+                "state": state,
+                "assignee": task.get("assignee") or task.get("node_id") or task.get("leased_by") or task.get("agent_id"),
+                "updated_at": task.get("updated_at") or task.get("leased_at") or task.get("created_at"),
+                "priority": task.get("priority") or task.get("severity"),
+            }
+        )
+    return normalized
+
+
+def _extract_items(payload: Any, keys: tuple[str, ...]) -> list[dict[str, Any]]:
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    if isinstance(payload, dict):
+        for key in keys:
+            items = payload.get(key)
+            if isinstance(items, list):
+                return [item for item in items if isinstance(item, dict)]
+            if isinstance(items, dict):
+                return [item for item in items.values() if isinstance(item, dict)]
+    return []
+
+
+def _read_recent_run_results(limit: int = RECENT_LIMIT) -> list[dict[str, Any]]:
+    runs_dir = REPO_ROOT / "docs" / "agent" / "runs"
+    if not runs_dir.exists():
+        return []
+    results = []
+    for result_path in sorted(runs_dir.glob("*/RESULT.md"), key=lambda p: p.stat().st_mtime, reverse=True)[:limit]:
+        try:
+            text = result_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        lines = [line.strip(" #*\t") for line in text.splitlines() if line.strip()]
+        title = lines[0] if lines else result_path.parent.name
+        lower = text.lower()
+        status = "blocked" if "blocked" in lower or "блок" in lower else "done" if "complete" in lower or "готов" in lower else "note"
+        results.append(
+            {
+                "id": result_path.parent.name,
+                "title": _short_text(title, 110),
+                "status": status,
+                "path": str(result_path.relative_to(REPO_ROOT)),
+                "summary": _short_text(" ".join(lines[1:4]) if len(lines) > 1 else title, 220),
+            }
+        )
+    return results
+
+
+def _normalize_blockers(blockers_payload: Any | None, health_payload: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    blockers = _extract_items(blockers_payload, ("blockers", "items", "problems"))
+    normalized = []
+    for index, blocker in enumerate(blockers[:RECENT_LIMIT]):
+        normalized.append(
+            {
+                "id": str(blocker.get("id") or blocker.get("key") or f"blocker-{index + 1}"),
+                "title": _short_text(blocker.get("title") or blocker.get("reason") or blocker.get("summary") or "Блокер", 110),
+                "severity": blocker.get("severity") or blocker.get("priority") or "unknown",
+                "owner": blocker.get("owner") or blocker.get("node_id") or blocker.get("assignee"),
+                "repair": _short_text(blocker.get("repair") or blocker.get("repair_command") or blocker.get("next_action"), 180),
+            }
+        )
+    cp_status = (health_payload or {}).get("status")
+    if cp_status and cp_status != "ok":
+        normalized.insert(
+            0,
+            {
+                "id": "control-plane-health",
+                "title": "Control Plane сообщает о деградации",
+                "severity": "high",
+                "owner": "factory-control",
+                "repair": "Проверить /v1/health, очередь и systemd-сервис kolibri-factory-control.",
+            },
+        )
+    return normalized[:RECENT_LIMIT]
+
+
+def _normalize_prs(prs_payload: Any | None) -> list[dict[str, Any]]:
+    prs = _extract_items(prs_payload, ("prs", "pull_requests", "items"))
+    normalized = []
+    for index, pr in enumerate(prs[:RECENT_LIMIT]):
+        number = pr.get("number") or pr.get("id") or index + 1
+        normalized.append(
+            {
+                "number": number,
+                "title": _short_text(pr.get("title") or pr.get("head") or f"PR {number}", 110),
+                "state": pr.get("state") or pr.get("status") or "unknown",
+                "checks": pr.get("checks") or pr.get("ci") or pr.get("check_state"),
+                "url": pr.get("url") or pr.get("html_url"),
+                "updated_at": pr.get("updated_at") or pr.get("created_at"),
+            }
+        )
+    return normalized
+
+
+def _normalize_logs(logs_payload: Any | None, fallback_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    logs = _extract_items(logs_payload, ("logs", "events", "items"))
+    normalized = []
+    for index, log in enumerate(logs[:RECENT_LIMIT]):
+        normalized.append(
+            {
+                "id": str(log.get("id") or f"log-{index + 1}"),
+                "level": log.get("level") or log.get("severity") or "info",
+                "source": log.get("source") or log.get("service") or log.get("node_id") or "control-plane",
+                "message": _short_text(log.get("message") or log.get("summary") or log.get("event"), 160),
+                "time": log.get("time") or log.get("timestamp") or log.get("created_at"),
+            }
+        )
+    if normalized:
+        return normalized
+    return [
+        {
+            "id": item["id"],
+            "level": "blocked" if item["status"] == "blocked" else "info",
+            "source": "run-artifact",
+            "message": item["title"],
+            "time": item["path"],
+        }
+        for item in fallback_results[:RECENT_LIMIT]
+    ]
+
+
+def _server_health(node_list: list[dict[str, Any]], health_payload: dict[str, Any] | None) -> list[dict[str, Any]]:
+    services = [
+        {
+            "name": "Control Plane",
+            "status": (health_payload or {}).get("status", "unknown"),
+            "detail": f"queue={((health_payload or {}).get('queue') if (health_payload or {}).get('queue') is not None else 'n/a')} backend={(health_payload or {}).get('queue_backend') or 'unknown'}",
+        },
+        {
+            "name": "Redis",
+            "status": (health_payload or {}).get("redis", "unknown"),
+            "detail": "Очередь задач и lease-состояния",
+        },
+        {
+            "name": "Agent Host",
+            "status": "online" if any(node.get("freshness") == "fresh" for node in node_list) else "degraded",
+            "detail": f"fresh={sum(1 for node in node_list if node.get('freshness') == 'fresh')} stale={sum(1 for node in node_list if node.get('freshness') == 'stale')}",
+        },
+        {
+            "name": "Frontend API",
+            "status": "ok",
+            "detail": "/api/factory/status отвечает",
+        },
+    ]
+    return services
+
+
 def build_factory_status(nodes_payload: Any, tasks_payload: Any | None = None, health_payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    if tasks_payload is None:
+        tasks_payload = {"tasks": []}
     raw_nodes = nodes_payload.get("nodes", []) if isinstance(nodes_payload, dict) else nodes_payload if isinstance(nodes_payload, list) else []
     generated_at = (health_payload or {}).get("time") or datetime.now(timezone.utc).isoformat()
     node_list = [_node_card(node, generated_at) for node in raw_nodes if isinstance(node, dict)]
@@ -175,6 +344,10 @@ def build_factory_status(nodes_payload: Any, tasks_payload: Any | None = None, h
     for task in tasks:
         state = str(task.get("state") or "unknown")
         task_states[state] = task_states.get(state, 0) + 1
+    artifact_results = _read_recent_run_results()
+    blockers_payload = tasks_payload.get("blockers") if isinstance(tasks_payload, dict) else None
+    prs_payload = tasks_payload.get("prs") or tasks_payload.get("pull_requests") if isinstance(tasks_payload, dict) else None
+    logs_payload = tasks_payload.get("logs") or tasks_payload.get("events") if isinstance(tasks_payload, dict) else None
     return {
         "status": "online" if online_nodes else "degraded",
         "source": "control-plane",
@@ -206,6 +379,12 @@ def build_factory_status(nodes_payload: Any, tasks_payload: Any | None = None, h
             else int((health_payload or {}).get("queue") or 0)
         ),
         "task_states": task_states,
+        "tasks": _normalize_tasks(tasks_payload),
+        "blockers": _normalize_blockers(blockers_payload, health_payload),
+        "prs": _normalize_prs(prs_payload),
+        "logs": _normalize_logs(logs_payload, artifact_results),
+        "recent_runs": artifact_results,
+        "server_health": _server_health(node_list, health_payload),
         "nodes": nodes,
         "node_list": node_list,
     }
@@ -218,7 +397,7 @@ async def fetch_factory_status() -> dict[str, Any]:
         health_response.raise_for_status()
         nodes_response.raise_for_status()
 
-    tasks_payload: Any = {"tasks": []}
+    tasks_payload: dict[str, Any] = {"tasks": []}
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(1.5, connect=1.0)) as client:
             tasks_response = await client.get(_control_plane_v1_url("/tasks"))
@@ -226,5 +405,24 @@ async def fetch_factory_status() -> dict[str, Any]:
                 tasks_payload = tasks_response.json()
     except Exception:
         tasks_payload = {"tasks": []}
+
+    async def fetch_optional(path: str) -> Any:
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(1.2, connect=0.8)) as client:
+                response = await client.get(_control_plane_v1_url(path))
+                if response.status_code == 200:
+                    return response.json()
+        except Exception:
+            return None
+        return None
+
+    optional_payloads = {
+        "blockers": await fetch_optional("/blockers"),
+        "prs": await fetch_optional("/prs"),
+        "logs": await fetch_optional("/logs"),
+    }
+    for key, value in optional_payloads.items():
+        if value is not None:
+            tasks_payload[key] = value
 
     return build_factory_status(nodes_response.json(), tasks_payload, health_response.json())

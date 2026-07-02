@@ -59,6 +59,41 @@ function Skeleton({ className }) {
   return <div className={`skeleton ${className || ""}`} />
 }
 
+const ruState = {
+  queued: "В очереди",
+  leased: "Назначена",
+  running: "В работе",
+  complete: "Готово",
+  completed: "Готово",
+  failed: "Ошибка",
+  blocked: "Блокер",
+  stale: "Устарел",
+  degraded: "Деградация",
+  fresh: "Свежий",
+  online: "Онлайн",
+  offline: "Офлайн",
+  ok: "OK",
+}
+
+function StatusPill({ value }) {
+  const raw = String(value || "unknown")
+  const normalized = raw.toLowerCase()
+  const tone = ["ok", "online", "fresh", "complete", "completed", "success"].includes(normalized)
+    ? "good"
+    : ["queued", "leased", "running", "info"].includes(normalized)
+      ? "info"
+      : ["degraded", "warning", "blocked", "high"].includes(normalized)
+        ? "warn"
+        : ["failed", "error", "offline", "stale"].includes(normalized)
+          ? "bad"
+          : "neutral"
+  return <span className={`status-pill ${tone}`}>{ruState[normalized] || raw}</span>
+}
+
+function EmptyWallboardRow({ text }) {
+  return <div className="wallboard-empty">{text}</div>
+}
+
 function ClusterView({ status, onRefresh }) {
   if (!status) return (
     <div className="documents-panel">
@@ -70,6 +105,13 @@ function ClusterView({ status, onRefresh }) {
   
   const nodeEntries = Array.isArray(status.nodes) ? status.nodes.map(node => [node.node_id || node.id || node.hostname, node]) : Object.entries(status.nodes || {})
   const freshness = status.node_freshness || {}
+  const taskStates = status.task_states || {}
+  const tasks = status.tasks || []
+  const blockers = status.blockers || []
+  const prs = status.prs || []
+  const logs = status.logs || []
+  const serverHealth = status.server_health || []
+  const recentRuns = status.recent_runs || []
 
   const NodeIcon = ({ role }) => {
     const paths = {
@@ -84,9 +126,12 @@ function ClusterView({ status, onRefresh }) {
   }
   
   return (
-    <motion.div key="cluster" className="documents-panel" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+    <motion.div key="cluster" className="documents-panel wallboard-panel" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
       <div className="documents-header">
-        <h2>Сеть Kolibri</h2>
+        <div>
+          <h2>Живой пульт Home</h2>
+          <div className="wallboard-subtitle">Агенты, задачи, здоровье серверов, блокеры, PR и последние события</div>
+        </div>
         <button className="refresh-btn" onClick={onRefresh}>
           <motion.svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
             whileHover={{ rotate: 180 }} transition={{ duration: 0.3 }}>
@@ -94,13 +139,13 @@ function ClusterView({ status, onRefresh }) {
           </motion.svg>
         </button>
       </div>
-      
+
       <div className="cluster-stats">
         {[
-          { label: "Свежие", value: `${freshness.fresh ?? status.fresh_nodes ?? status.online_nodes}/${status.total_nodes}`, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>, color: "var(--success)" },
+          { label: "Агенты онлайн", value: `${freshness.fresh ?? status.fresh_nodes ?? status.online_nodes}/${status.total_nodes}`, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>, color: "var(--success)" },
           { label: "Деградируют", value: freshness.degraded ?? status.degraded_nodes ?? 0, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>, color: "var(--warning)" },
-          { label: "Устарели", value: freshness.stale ?? status.stale_nodes ?? 0, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>, color: "var(--error)" },
-          { label: "Задач в очереди", value: status.queue_size || 0, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>, color: "var(--accent)" },
+          { label: "Блокеры", value: blockers.length, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6"/><path d="M9 9l6 6"/></svg>, color: blockers.length ? "var(--error)" : "var(--success)" },
+          { label: "Активные задачи", value: status.queue_size || 0, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>, color: "var(--accent)" },
         ].map((s, i) => (
           <motion.div key={s.label} className="stat-card"
             initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
@@ -111,34 +156,145 @@ function ClusterView({ status, onRefresh }) {
           </motion.div>
         ))}
       </div>
-      
-      <div className="doc-list">
-        {nodeEntries.map(([name, node], i) => (
-          <motion.div key={name} className="doc-item node-card"
-            initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: 0.3 + i * 0.06, type: "spring", stiffness: 150 }}
-            whileHover={{ scale: 1.01, x: 4 }}>
-            <div className="doc-icon" style={{
-              background: node.status === "online" ? "rgba(16,185,129,0.1)" : "rgba(239,68,68,0.1)",
-              color: node.status === "online" ? "var(--success)" : "var(--error)"
-            }}>
-              <NodeIcon role={node.role} />
-            </div>
-            <div className="doc-info">
-              <div className="doc-name" style={{ textTransform: "capitalize" }}>{name}</div>
-              <div className="doc-meta">{node.role} · {node.hostname || node.ip || node.agent_id || "internal"}</div>
-            </div>
-            <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: "12px", fontWeight: "700", color: node.status === "online" ? "var(--success)" : "var(--error)" }}>{node.freshness || node.status}</div>
-              <div style={{ fontSize: "13px", fontWeight: "600" }}>CPU {node.cpu == null ? "n/a" : node.cpu}</div>
-              <div className="ram-bar">
-                <div className="ram-bar-fill" style={{ width: `${node.ram_total_gb ? Math.min(100, ((node.ram_total_gb - node.ram_available_gb) / node.ram_total_gb) * 100) : Math.min(100, (parseFloat(node.ram || 0) / 16) * 100)}%` }} />
+
+      <div className="wallboard-grid">
+        <section className="wallboard-section wide">
+          <div className="wallboard-section-header">
+            <h3>Агенты</h3>
+            <span>{nodeEntries.length} узлов</span>
+          </div>
+          <div className="doc-list compact-list">
+            {nodeEntries.map(([name, node], i) => (
+              <motion.div key={name} className="doc-item node-card wallboard-row"
+                initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.1 + i * 0.04, type: "spring", stiffness: 150 }}
+                whileHover={{ scale: 1.005, x: 3 }}>
+                <div className="doc-icon" style={{
+                  background: node.freshness === "fresh" ? "rgba(16,185,129,0.1)" : "rgba(239,68,68,0.1)",
+                  color: node.freshness === "fresh" ? "var(--success)" : "var(--error)"
+                }}>
+                  <NodeIcon role={node.role} />
+                </div>
+                <div className="doc-info">
+                  <div className="doc-name">{node.name || name}</div>
+                  <div className="doc-meta">{node.role} · {node.hostname || node.ip || node.agent_id || "internal"} · heartbeat {node.heartbeat_age_seconds ?? "n/a"}s</div>
+                </div>
+                <div className="wallboard-row-right">
+                  <StatusPill value={node.freshness || node.status} />
+                  <div className="wallboard-metric">CPU {node.cpu == null ? "n/a" : node.cpu}</div>
+                  <div className="ram-bar"><div className="ram-bar-fill" style={{ width: `${node.ram_total_gb ? Math.min(100, ((node.ram_total_gb - node.ram_available_gb) / node.ram_total_gb) * 100) : Math.min(100, (parseFloat(node.ram || 0) / 16) * 100)}%` }} /></div>
+                </div>
+              </motion.div>
+            ))}
+            {nodeEntries.length === 0 && <EmptyWallboardRow text="Нет данных по агентам" />}
+          </div>
+        </section>
+
+        <section className="wallboard-section">
+          <div className="wallboard-section-header">
+            <h3>Состояния задач</h3>
+            <span>{Object.values(taskStates).reduce((a, b) => a + b, 0)} всего</span>
+          </div>
+          <div className="state-grid">
+            {Object.entries(taskStates).map(([state, count]) => (
+              <div className="state-cell" key={state}>
+                <StatusPill value={state} />
+                <strong>{count}</strong>
               </div>
-              <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>{node.ram || `${node.ram_available_gb || 0}/${node.ram_total_gb || 0} GB`}</div>
-            </div>
-          </motion.div>
-        ))}
+            ))}
+            {Object.keys(taskStates).length === 0 && <EmptyWallboardRow text="Очередь задач пуста или недоступна" />}
+          </div>
+          <div className="mini-list">
+            {tasks.map(task => (
+              <div className="mini-row" key={task.id}>
+                <div>
+                  <strong>{task.title}</strong>
+                  <span>{task.assignee || "без исполнителя"}</span>
+                </div>
+                <StatusPill value={task.state} />
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="wallboard-section">
+          <div className="wallboard-section-header">
+            <h3>Здоровье серверов</h3>
+            <span>{status.control_plane?.queue_backend || "backend unknown"}</span>
+          </div>
+          <div className="mini-list">
+            {serverHealth.map(item => (
+              <div className="mini-row" key={item.name}>
+                <div>
+                  <strong>{item.name}</strong>
+                  <span>{item.detail}</span>
+                </div>
+                <StatusPill value={item.status} />
+              </div>
+            ))}
+            {serverHealth.length === 0 && <EmptyWallboardRow text="Нет health-данных" />}
+          </div>
+        </section>
+
+        <section className="wallboard-section">
+          <div className="wallboard-section-header">
+            <h3>Блокеры</h3>
+            <span>{blockers.length ? "требуют действия" : "чисто"}</span>
+          </div>
+          <div className="mini-list">
+            {blockers.map(blocker => (
+              <div className="mini-row alert" key={blocker.id}>
+                <div>
+                  <strong>{blocker.title}</strong>
+                  <span>{blocker.owner || "owner unknown"} · {blocker.repair || "нужна диагностика"}</span>
+                </div>
+                <StatusPill value={blocker.severity} />
+              </div>
+            ))}
+            {blockers.length === 0 && <EmptyWallboardRow text="Активные блокеры не обнаружены" />}
+          </div>
+        </section>
+
+        <section className="wallboard-section">
+          <div className="wallboard-section-header">
+            <h3>PR</h3>
+            <span>{prs.length ? "из Control Plane" : "нет данных"}</span>
+          </div>
+          <div className="mini-list">
+            {prs.map(pr => (
+              <div className="mini-row" key={pr.number}>
+                <div>
+                  <strong>#{pr.number} {pr.title}</strong>
+                  <span>{pr.checks || "checks unknown"} · {pr.updated_at || "time unknown"}</span>
+                </div>
+                <StatusPill value={pr.state} />
+              </div>
+            ))}
+            {prs.length === 0 && <EmptyWallboardRow text="Control Plane не вернул список PR" />}
+          </div>
+        </section>
+
+        <section className="wallboard-section wide">
+          <div className="wallboard-section-header">
+            <h3>Логи и артефакты</h3>
+            <span>{logs.length || recentRuns.length} событий</span>
+          </div>
+          <div className="log-list">
+            {logs.map(log => (
+              <div className="log-row" key={log.id}>
+                <StatusPill value={log.level} />
+                <div>
+                  <strong>{log.source}</strong>
+                  <span>{log.message}</span>
+                  <small>{log.time}</small>
+                </div>
+              </div>
+            ))}
+            {logs.length === 0 && <EmptyWallboardRow text="Нет событий для отображения" />}
+          </div>
+        </section>
       </div>
+
     </motion.div>
   )
 }
@@ -303,7 +459,7 @@ export default function App() {
               { id: "chat", label: "Чат", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg> },
               { id: "documents", label: "Документы", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg> },
               { id: "search", label: "Поиск", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> },
-              { id: "cluster", label: "Сеть", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="2" width="6" height="6" rx="1"/><rect x="16" y="2" width="6" height="6" rx="1"/><rect x="9" y="16" width="6" height="6" rx="1"/><path d="M5 8v3a2 2 0 002 2h10a2 2 0 002-2V8"/></svg> },
+              { id: "cluster", label: "Пульт Home", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="2" width="6" height="6" rx="1"/><rect x="16" y="2" width="6" height="6" rx="1"/><rect x="9" y="16" width="6" height="6" rx="1"/><path d="M5 8v3a2 2 0 002 2h10a2 2 0 002-2V8"/></svg> },
             ].map(item => (
               <motion.button key={item.id} className={`sidebar-nav-item ${activeTab === item.id ? "active" : ""}`}
                 onClick={() => { setActiveTab(item.id); setSidebar(false) }}

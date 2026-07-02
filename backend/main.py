@@ -322,6 +322,35 @@ async def api_factory_status():
                 "total_ram_gb": 0,
                 "avg_cpu_percent": 0,
                 "queue_size": 0,
+                "task_states": {},
+                "tasks": [],
+                "blockers": [
+                    {
+                        "id": "control-plane-api-unreachable",
+                        "title": "Control Plane API недоступен",
+                        "severity": "high",
+                        "owner": "factory-control",
+                        "repair": "Проверить systemctl status kolibri-factory-control и доступность /v1/health.",
+                    }
+                ],
+                "prs": [],
+                "logs": [
+                    {
+                        "id": "factory-status-503",
+                        "level": "error",
+                        "source": "frontend-api",
+                        "message": "Не удалось получить live-status из Control Plane.",
+                        "time": "api_factory_status",
+                    }
+                ],
+                "recent_runs": [],
+                "server_health": [
+                    {
+                        "name": "Control Plane",
+                        "status": "blocked",
+                        "detail": "control_plane_api_unreachable",
+                    }
+                ],
                 "nodes": {},
                 "node_list": [],
                 "control_plane": {
@@ -403,4 +432,3 @@ if frontend_path.exists():
         if file_path.exists() and file_path.is_file():
             return FileResponse(str(file_path))
         return FileResponse(str(frontend_path / "index.html"))
-
