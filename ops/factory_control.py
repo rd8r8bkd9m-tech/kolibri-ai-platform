@@ -88,6 +88,9 @@ STATE_RETRY = "retry_scheduled"
 STATE_DEAD = "dead_letter"
 TERMINAL_STATES = {STATE_COMPLETED, STATE_FAILED, STATE_CANCELLED, STATE_DEAD}
 BLOCKED_RUNNER_STATES = {"blocked", "degraded", "runner_auth_blocked", "unavailable"}
+GUARDIAN_BACKLOG_STATES = {STATE_QUEUED, STATE_FAILED, STATE_LEASED, STATE_RUNNING, STATE_REVIEW, STATE_RETRY, STATE_DEAD}
+GUARDIAN_RUNNING_STATES = {STATE_LEASED, STATE_RUNNING, STATE_REVIEW}
+BROAD_QUEUE_ACTIONS = {"cancel", "requeue", "retry", "supersede"}
 
 FABRIC_NODE_CATALOG = {
     "home": {
@@ -369,6 +372,10 @@ def queue_ids() -> list[str]:
     return redis.command("LRANGE", key("queue"), 0, -1) or []
 
 
+def dead_letter_ids() -> list[str]:
+    return redis.command("LRANGE", key("dead_letter"), 0, -1) or []
+
+
 def load_task(task_id: str) -> dict[str, Any] | None:
     return get_json(task_key(task_id))
 
@@ -505,6 +512,180 @@ def task_artifact_envelope(task: dict[str, Any] | None, task_id: str) -> dict[st
         data={"task_state": task.get("state"), "result_reference": task.get("result_reference")},
         next_action="collect listed artifact paths from the authenticated artifact API" if artifacts else "wait for task completion or annotate result artifacts",
     )
+
+
+def task_artifact_paths(task: dict[str, Any]) -> list[Any]:
+    result = task.get("result") if isinstance(task.get("result"), dict) else {}
+    artifacts: list[Any] = []
+    for key_name in ("result_path", "artifact_path", "artifact_paths", "artifacts"):
+        value = result.get(key_name) or task.get(key_name)
+        if not value:
+            continue
+        if isinstance(value, list):
+            artifacts.extend(value)
+        else:
+            artifacts.append(value)
+    return artifacts
+
+
+def queue_guardian_policy(
+    task: dict[str, Any],
+    *,
+    current: float | None = None,
+    queued_task_ids: set[str] | None = None,
+    dead_letter_task_ids: set[str] | None = None,
+) -> dict[str, Any]:
+    """Classify one task and propose the safest next queue action.
+
+    This function is intentionally read-only. It reports what a guardian may do
+    next, but broad retry/cancel/supersede execution remains owner-gated.
+    """
+    current_ts = now_ts() if current is None else current
+    task_id = str(task.get("task_id") or "")
+    state = str(task.get("state") or "unknown")
+    queued = task_id in (queued_task_ids or set())
+    in_dead_letter = task_id in (dead_letter_task_ids or set())
+    lease_owner = task.get("lease_owner")
+    lease_until = float(task.get("lease_until") or 0)
+    attempt = int(task.get("attempt") or 0)
+    max_retries = int(task.get("max_retries") or MAX_RETRIES)
+    artifacts = task_artifact_paths(task)
+    blockers: list[str] = []
+    action = "inspect"
+    reason = "classification_only"
+    owner_gate_required = False
+    next_action = "monitor task state"
+
+    if state == STATE_QUEUED:
+        if not queued:
+            blockers.append("queue_index_missing")
+            action = "repair_queue_index"
+            reason = "queued task is not present in the Redis queue list"
+            next_action = "repair this single task queue index after confirming it is not duplicated"
+        else:
+            action = "lease"
+            reason = "task is queued and ready for a compatible Agent Host"
+            next_action = "wait for compatible Agent Host lease"
+    elif state in GUARDIAN_RUNNING_STATES:
+        if lease_until and lease_until < current_ts:
+            blockers.append("lease_expired")
+            if attempt < max_retries:
+                action = "retry"
+                reason = "expired lease still has retry budget"
+                next_action = "allow lease reaper to requeue this single expired task"
+            else:
+                action = "dead_letter"
+                reason = "expired lease exhausted retry budget"
+                next_action = "move this single task to dead_letter with explicit exhaustion reason"
+        else:
+            action = "monitor"
+            reason = "task has an active lease"
+            next_action = "continue heartbeat polling; do not cancel running work without owner gate"
+    elif state == STATE_RETRY:
+        action = "retry"
+        reason = "task is already marked retry_scheduled"
+        next_action = "allow normal queue flow to return the task to queued"
+    elif state == STATE_FAILED:
+        if not artifacts:
+            blockers.append("missing_failure_artifact")
+        if attempt < max_retries:
+            action = "retry"
+            reason = "failed task has retry budget"
+            next_action = "retry only as a bounded single-task repair or prepare owner approval for a batch"
+        else:
+            action = "supersede"
+            reason = "failed task exhausted retry budget"
+            owner_gate_required = True
+            next_action = "prepare a replacement task with owner approval; do not broad-requeue exhausted failures"
+    elif state == STATE_DEAD:
+        if not in_dead_letter:
+            blockers.append("dead_letter_index_missing")
+        action = "supersede"
+        reason = "dead_letter tasks require owner review before resurrection"
+        owner_gate_required = True
+        next_action = "create a targeted repair task or owner-approved retry; do not auto-requeue dead_letter backlog"
+    elif state in TERMINAL_STATES:
+        action = "archive"
+        reason = "terminal task does not need queue repair"
+        next_action = "collect artifacts if needed"
+    else:
+        blockers.append("unknown_state")
+        action = "inspect"
+        reason = "unknown state must be inspected before mutation"
+        owner_gate_required = True
+        next_action = "inspect task record and annotate a safe state transition"
+
+    return {
+        "task_id": task_id,
+        "status": state,
+        "lease_owner": lease_owner,
+        "artifacts": artifacts,
+        "blockers": blockers,
+        "next_action": next_action,
+        "policy": {
+            "action": action,
+            "reason": reason,
+            "owner_gate_required": owner_gate_required,
+            "broad_action_forbidden_without_owner_gate": action in BROAD_QUEUE_ACTIONS,
+        },
+    }
+
+
+def queue_guardian_snapshot(
+    tasks: list[dict[str, Any]],
+    *,
+    queue: list[str] | None = None,
+    dead_letter: list[str] | None = None,
+    current: float | None = None,
+) -> dict[str, Any]:
+    queued_task_ids = set(queue or [])
+    dead_letter_task_ids = set(dead_letter or [])
+    backlog = [
+        queue_guardian_policy(
+            task,
+            current=current,
+            queued_task_ids=queued_task_ids,
+            dead_letter_task_ids=dead_letter_task_ids,
+        )
+        for task in tasks
+        if str(task.get("state") or "unknown") in GUARDIAN_BACKLOG_STATES
+    ]
+    counts: dict[str, int] = {"queued": 0, "failed": 0, "running": 0, "dead_letter": 0}
+    for item in backlog:
+        status = item["status"]
+        if status == STATE_QUEUED:
+            counts["queued"] += 1
+        elif status == STATE_FAILED:
+            counts["failed"] += 1
+        elif status in GUARDIAN_RUNNING_STATES:
+            counts["running"] += 1
+        elif status == STATE_DEAD:
+            counts["dead_letter"] += 1
+    severity = {
+        STATE_DEAD: 0,
+        STATE_FAILED: 1,
+        STATE_RUNNING: 2,
+        STATE_LEASED: 2,
+        STATE_REVIEW: 2,
+        STATE_RETRY: 3,
+        STATE_QUEUED: 4,
+    }
+    first_repair_queue = sorted(
+        (item for item in backlog if item["blockers"] or item["policy"]["action"] in {"retry", "supersede", "repair_queue_index", "dead_letter"}),
+        key=lambda item: (severity.get(item["status"], 9), item["task_id"]),
+    )
+    return {
+        "status": "completed",
+        "generated_at": utc_now(),
+        "policy": {
+            "mode": "read_only_classification",
+            "owner_gate_required_for_broad_actions": sorted(BROAD_QUEUE_ACTIONS),
+            "broad_action_rule": "Do not cancel, requeue, retry, or supersede broad task sets without explicit owner approval.",
+        },
+        "counts": counts,
+        "backlog": backlog,
+        "first_repair_queue": first_repair_queue,
+    }
 
 
 def fabric_blocked_envelope(
@@ -1001,6 +1182,11 @@ class Handler(BaseHTTPRequestHandler):
                 tasks = [load_task(task_id) for task_id in all_task_ids()]
                 tasks = [task for task in tasks if task and (wanted is None or task.get("state") == wanted)]
                 response(self, 200, {"tasks": tasks, "queue": queue_ids()})
+                return
+            if path in {"/v1/tasks/backlog/guardian", "/v1/queue/guardian"}:
+                tasks = [task for task in (load_task(task_id) for task_id in all_task_ids()) if task]
+                snapshot = queue_guardian_snapshot(tasks, queue=queue_ids(), dead_letter=dead_letter_ids())
+                response(self, 200, snapshot)
                 return
             if path.startswith("/v1/tasks/"):
                 task_id = path.split("/", 3)[3]

@@ -1,0 +1,43 @@
+{
+  "task_id": "P0_QUEUE_GUARDIAN_REQUEUE_AND_DEADLETTER_POLICY_2026_07_02",
+  "status": "completed",
+  "lease_owner": "mesh-agent-04:autonomous_engineer",
+  "execution_node": "server Agent Host workspace",
+  "artifacts": [
+    "docs/agent/runs/2026-07-02-p0-queue-guardian-requeue-and-deadletter-policy/PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-queue-guardian-requeue-and-deadletter-policy/ACTIONS.md",
+    "docs/agent/runs/2026-07-02-p0-queue-guardian-requeue-and-deadletter-policy/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-queue-guardian-requeue-and-deadletter-policy/QUEUE_GUARDIAN_POLICY.md",
+    "docs/agent/runs/2026-07-02-p0-queue-guardian-requeue-and-deadletter-policy/BACKLOG_CLASSIFICATION.md",
+    "docs/agent/runs/2026-07-02-p0-queue-guardian-requeue-and-deadletter-policy/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-queue-guardian-requeue-and-deadletter-policy/NEXT.md",
+    "docs/agent/runs/2026-07-02-p0-queue-guardian-requeue-and-deadletter-policy/REMOTE_RESULT.json"
+  ],
+  "blockers": [
+    "Live Redis-backed backlog was not mutated; repository checked-in dispatcher queue was classified and live classification is available through GET /v1/tasks/backlog/guardian after deploy.",
+    "Broad python3 -m pytest tests is blocked in this environment by missing httpx during tests/test_factory_status.py collection."
+  ],
+  "next_action": "Deploy through owner-approved release flow, query GET /v1/tasks/backlog/guardian, and use first_repair_queue for targeted repairs only.",
+  "verification": [
+    {
+      "command": "python3 -m pytest tests/test_factory_runtime_queue_contracts.py tests/test_factory_runtime.py",
+      "result": "13 passed in 0.10s"
+    },
+    {
+      "command": "python3 -m py_compile ops/factory_control.py",
+      "result": "passed"
+    },
+    {
+      "command": "python3 -m pytest tests",
+      "result": "blocked: ModuleNotFoundError: No module named 'httpx'"
+    }
+  ],
+  "safety": {
+    "remote_execution_on_server_agent_host": true,
+    "secrets_printed": false,
+    "pushed_to_main": false,
+    "force_push_used": false,
+    "destructive_git_used": false,
+    "broad_queue_mutation_added": false
+  }
+}
