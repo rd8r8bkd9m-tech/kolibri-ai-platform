@@ -22,6 +22,14 @@ def load_webhook_migration():
     return module
 
 
+def load_live_menu():
+    spec = importlib.util.spec_from_file_location("telegram_live_menu", ROOT / "ops" / "telegram_live_menu.py")
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_parse_owner_ids_accepts_commas_and_semicolons():
     gateway = load_gateway()
     assert gateway.parse_owner_ids("1, 2;3") == {1, 2, 3}
@@ -174,6 +182,117 @@ def test_webhook_deletion_is_owner_approved_migration_only(monkeypatch):
         assert "owner approval" in str(exc)
     else:
         raise AssertionError("webhook deletion did not require owner approval")
+
+
+def test_live_menu_apply_minimal_backs_up_and_verifies(monkeypatch, tmp_path, capsys):
+    live_menu = load_live_menu()
+    state = {
+        "commands": [
+            {"command": "task", "description": "noisy"},
+            {"command": "nodes", "description": "noisy"},
+        ],
+        "menu_button": {"type": "web_app", "text": "Noisy UI", "web_app": {"url": "https://example.invalid"}},
+        "owner_menu_button": {"type": "web_app", "text": "Noisy UI", "web_app": {"url": "https://example.invalid"}},
+    }
+    calls = []
+
+    def fake_call(token, method, payload=None, timeout=30):
+        calls.append((token, method, payload, timeout))
+        if method == "getMyCommands":
+            return {"ok": True, "result": list(state["commands"])}
+        if method == "getChatMenuButton":
+            if payload and payload.get("chat_id") == 100:
+                return {"ok": True, "result": dict(state["owner_menu_button"])}
+            return {"ok": True, "result": dict(state["menu_button"])}
+        if method == "setMyCommands":
+            import json
+
+            state["commands"] = json.loads(payload["commands"])
+            return {"ok": True, "result": True}
+        if method == "setChatMenuButton":
+            import json
+
+            if payload and payload.get("chat_id") == 100:
+                state["owner_menu_button"] = json.loads(payload["menu_button"])
+            else:
+                state["menu_button"] = json.loads(payload["menu_button"])
+            return {"ok": True, "result": True}
+        raise AssertionError(method)
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "fake-token")
+    monkeypatch.setenv("TELEGRAM_OWNER_IDS", "100")
+    monkeypatch.setattr(live_menu, "bot_api_call", fake_call)
+
+    backup_path = tmp_path / "rollback.json"
+    rc = live_menu.main(["--backup-path", str(backup_path), "apply-minimal"])
+
+    assert rc == 0
+    assert state["commands"] == live_menu.MINIMAL_OWNER_COMMANDS
+    assert state["menu_button"] == live_menu.DEFAULT_MENU_BUTTON
+    assert state["owner_menu_button"] == live_menu.DEFAULT_MENU_BUTTON
+    assert backup_path.exists()
+    output = capsys.readouterr().out
+    assert "fake-token" not in output
+    assert "100" not in output
+    assert '"commands": ["start", "status", "help"]' in output
+    assert [call[1] for call in calls] == [
+        "getMyCommands",
+        "getMyCommands",
+        "getMyCommands",
+        "getChatMenuButton",
+        "getChatMenuButton",
+        "setMyCommands",
+        "setMyCommands",
+        "setMyCommands",
+        "setChatMenuButton",
+        "setChatMenuButton",
+        "getMyCommands",
+        "getMyCommands",
+        "getMyCommands",
+        "getChatMenuButton",
+        "getChatMenuButton",
+    ]
+
+
+def test_live_menu_rollback_restores_backup(monkeypatch, tmp_path):
+    live_menu = load_live_menu()
+    original = {
+        "commands": [{"command": "start", "description": "old"}],
+        "menu_button": {"type": "default"},
+    }
+    state = {
+        "commands": list(live_menu.MINIMAL_OWNER_COMMANDS),
+        "menu_button": dict(live_menu.DEFAULT_MENU_BUTTON),
+    }
+    backup_path = tmp_path / "rollback.json"
+    backup_path.write_text(
+        '{"commands":[{"command":"start","description":"old"}],"menu_button":{"type":"default"}}\n',
+        encoding="utf-8",
+    )
+
+    def fake_call(token, method, payload=None, timeout=30):
+        del token, timeout
+        if method == "getMyCommands":
+            return {"ok": True, "result": list(state["commands"])}
+        if method == "getChatMenuButton":
+            return {"ok": True, "result": dict(state["menu_button"])}
+        if method == "setMyCommands":
+            import json
+
+            state["commands"] = json.loads(payload["commands"])
+            return {"ok": True, "result": True}
+        if method == "setChatMenuButton":
+            import json
+
+            state["menu_button"] = json.loads(payload["menu_button"])
+            return {"ok": True, "result": True}
+        raise AssertionError(method)
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "fake-token")
+    monkeypatch.setattr(live_menu, "bot_api_call", fake_call)
+
+    assert live_menu.main(["--backup-path", str(backup_path), "rollback"]) == 0
+    assert state == original
 
 
 def test_factory_client_fails_over_between_control_plane_urls(monkeypatch):

@@ -13,5 +13,6 @@ declared-backend-test-env/
 *.sqlite
 *.gguf
 data/
+artifacts/runtime/
 *.log
 .DS_Store
