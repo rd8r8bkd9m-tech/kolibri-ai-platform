@@ -1,5 +1,6 @@
 import importlib.util
 from pathlib import Path
+from datetime import datetime, timedelta, timezone
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,20 +43,64 @@ def test_prompt3_required_endpoint_surface_is_declared():
 
 def test_fleet_aliases_return_catalog_topology_capabilities_and_routes():
     control = load_control()
+    now = datetime.now(timezone.utc)
     registered = [
-        {"node_id": "9fts", "health": "online", "capabilities": ["implementation", "model"]},
-        {"node_id": "qjns", "health": "online", "capabilities": ["review"]},
+        {"node_id": "9fts", "health": "online", "heartbeat_at": now.isoformat(), "capabilities": ["implementation", "model"]},
+        {"node_id": "qjns", "health": "online", "heartbeat_at": now.isoformat(), "capabilities": ["review"]},
     ]
     nodes = control.fabric_nodes(registered)
     capability_map = control.fleet_capabilities(nodes)["capabilities"]
     topology = control.fleet_topology(nodes)
-    route = control.fabric_route(target_node="9fts", required_capability="implementation", registered_nodes=registered)
+    route = control.fabric_route(target_node="9fts", required_capability="implementation", registered_nodes=registered, current=now.timestamp())
 
     assert {"home", "main", "uiap", "qjns", "9fts", "new"} <= {node["node_id"] for node in nodes}
     assert capability_map["implementation"] == ["9fts"]
     assert {"from": "main", "to": "9fts", "type": "protected_fabric_api"} in topology["edges"]
     assert topology["relay_endpoint"] == "/v1/fabric/relay"
     assert route["route"]["endpoint"] == "/v1/nodes/9fts"
+
+
+def test_fleet_route_blocks_stale_direct_target_and_excludes_stale_fallbacks():
+    control = load_control()
+    now = datetime.now(timezone.utc)
+    registered = [
+        {
+            "node_id": "stale-impl",
+            "health": "online",
+            "heartbeat_at": (now - timedelta(seconds=control.NODE_STALE_AFTER + 5)).isoformat(),
+            "capabilities": ["implementation"],
+        },
+        {
+            "node_id": "fresh-impl",
+            "health": "online",
+            "heartbeat_at": now.isoformat(),
+            "capabilities": ["implementation"],
+        },
+        {
+            "node_id": "stale-review",
+            "health": "online",
+            "heartbeat_at": (now - timedelta(seconds=control.NODE_STALE_AFTER + 5)).isoformat(),
+            "capabilities": ["review"],
+        },
+    ]
+
+    blocked = control.fabric_route(
+        target_node="stale-impl",
+        required_capability="implementation",
+        registered_nodes=registered,
+        current=now.timestamp(),
+    )
+    fallback_route = control.fabric_route(
+        required_capability="review",
+        registered_nodes=registered,
+        current=now.timestamp(),
+    )
+
+    assert blocked["status"] == "blocked"
+    assert blocked["reason"] == "target_node_unavailable"
+    assert blocked["fallback_nodes"] == ["fresh-impl"]
+    assert fallback_route["status"] == "blocked"
+    assert fallback_route["fallback_nodes"] == []
 
 
 def test_model_responses_and_chat_completions_are_safe_blocked_stubs():

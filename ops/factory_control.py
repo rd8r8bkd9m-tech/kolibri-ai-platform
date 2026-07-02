@@ -531,7 +531,7 @@ def fabric_blocked_envelope(
 
 
 def _node_online(node: dict[str, Any]) -> bool:
-    return node.get("health") == "online"
+    return node.get("health") == "online" and node.get("freshness", "fresh") == "fresh"
 
 
 def fabric_nodes(registered_nodes: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
@@ -558,8 +558,9 @@ def fabric_route(
     target_node: str | None = None,
     required_capability: str | None = None,
     registered_nodes: list[dict[str, Any]] | None = None,
+    current: float | None = None,
 ) -> dict[str, Any]:
-    nodes = fabric_nodes(registered_nodes)
+    nodes = [classify_node_freshness(node, current) for node in fabric_nodes(registered_nodes)]
     online = [node for node in nodes if _node_online(node)]
     candidates = nodes
     if target_node:
@@ -594,7 +595,7 @@ def fabric_route(
             "kind": "repair_fabric_route",
             "target_node": target_node,
             "required_capability": required_capability,
-            "action": "register node heartbeat, clear drain state, or choose a fallback node via Fabric API",
+            "action": "restore a fresh node heartbeat, clear drain state, or choose a fallback node via Fabric API",
         },
     )
 
