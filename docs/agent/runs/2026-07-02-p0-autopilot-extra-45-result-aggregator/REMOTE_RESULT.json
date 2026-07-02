@@ -1,0 +1,45 @@
+{
+  "task_id": "P0_AUTOPILOT_EXTRA_45_AUTOPILOT_RESULT_AGGREGATOR_2026_07_02",
+  "status": "completed_docs_only_aggregation",
+  "execution": {
+    "server_side_worker": "mesh-agent-45",
+    "workspace_root": "/var/lib/kolibri-agent/logical-workers/mesh-agent-45/worktrees/P0_AUTOPILOT_EXTRA_45_AUTOPILOT_RESULT_AGGREGATOR_2026_07_02/P0_AUTOPILOT_EXTRA_45_AUTOPILOT_RESULT_AGGREGATOR_2026_07_02-attempt-1/repo",
+    "local_mac_execution": false
+  },
+  "wave_cut": {
+    "source": "25 newest matching origin/agent factory/autopilot/wave refs after git fetch --all --prune",
+    "date_utc": "2026-07-02",
+    "count": 25
+  },
+  "artifacts": [
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-45-result-aggregator/OWNER_SUMMARY_RU.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-45-result-aggregator/STATUS_MATRIX.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-45-result-aggregator/NEXT_TASKS.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-45-result-aggregator/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-45-result-aggregator/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-45-result-aggregator/REMOTE_RESULT.json"
+  ],
+  "blockers": [
+    "route freshness and primary heartbeat fixes require owner-approved deploy/canary",
+    "queue guardian/backlog endpoints require live deploy; current live probe saw 404",
+    "public factory status edge has TLS/routing blockers",
+    "qjns needs a real read-only review canary after bounded clone/auth probe",
+    "several completed branches lack complete canonical artifact packs"
+  ],
+  "next_exact_tasks": [
+    "P0_DEPLOY_FACTORY_ROUTE_FRESHNESS_GATE_CANARY_2026_07_02",
+    "P0_DEPLOY_QUEUE_GUARDIAN_BACKLOG_ENDPOINTS_2026_07_02",
+    "P0_FACTORY_STATUS_PUBLIC_EDGE_TLS_ROUTING_REPAIR_2026_07_02",
+    "P0_QJNS_READONLY_REVIEW_CANARY_2026_07_02",
+    "P0_AUTOPILOT_25_WAVE_CANONICAL_ARTIFACT_RELAY_2026_07_02",
+    "P0_OWNER_REVIEW_PR113_THEN_PR109_PR112_2026_07_02",
+    "P0_UIAP_RAG_INDEXER_CONTRACT_TESTS_2026_07_02"
+  ],
+  "safety": {
+    "secrets_printed": false,
+    "destructive_git_commands": false,
+    "force_push": false,
+    "push_to_main": false,
+    "product_code_modified_in_this_worktree": false
+  }
+}
