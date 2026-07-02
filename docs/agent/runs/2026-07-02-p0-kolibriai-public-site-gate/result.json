@@ -1,0 +1,48 @@
+{
+  "task_id": "P0_AUTOPILOT_EXTRA_42_KOLIBRIAI_PUBLIC_SITE_GATE_2026_07_02",
+  "agent": "autonomous_engineer",
+  "node": {
+    "hostname": "kolibri",
+    "user": "root",
+    "execution_class": "server_side_mesh_worker",
+    "worktree": "/var/lib/kolibri-agent/logical-workers/mesh-agent-42/worktrees/P0_AUTOPILOT_EXTRA_42_KOLIBRIAI_PUBLIC_SITE_GATE_2026_07_02/P0_AUTOPILOT_EXTRA_42_KOLIBRIAI_PUBLIC_SITE_GATE_2026_07_02-attempt-1/repo"
+  },
+  "status": "blocked_external_release_task_required",
+  "repo_freshness": {
+    "head": "f7ac32c70406432a52752ca45d87e35d9f1facd3",
+    "origin_main": "f7ac32c70406432a52752ca45d87e35d9f1facd3",
+    "remote_main": "f7ac32c70406432a52752ca45d87e35d9f1facd3",
+    "latest_readme_commit": "1b08c43a86f8e1ee943edea592f77988b45f41d9",
+    "latest_readme_commit_subject": "p0: finalize API-first full-control Fabric (#85)"
+  },
+  "public_surface": {
+    "domain": "kolibriai.ru",
+    "dns_a": "178.207.11.90",
+    "https_certificate_subject": "CN = hcs0844dw9m.routingthecloud.net",
+    "https_certificate_san": "DNS:hcs0844dw9m.routingthecloud.net",
+    "root_marker": "MikroTik File Sharing",
+    "root_last_modified": "Tue, 21 Oct 2025 07:32:52 GMT",
+    "root_cache_control": "max-age=31536000",
+    "public_status": 400,
+    "public_body": "{\"error\": \"Invalid request.\"}"
+  },
+  "blockers": [
+    "github_cli_missing",
+    "github_raw_private_404",
+    "public_tls_wrong_san",
+    "public_route_wrong_origin",
+    "public_html_cache_too_long"
+  ],
+  "artifacts": [
+    "docs/agent/runs/2026-07-02-p0-kolibriai-public-site-gate/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-kolibriai-public-site-gate/result.json"
+  ],
+  "next_exact_task": "P0_PUBLIC_SITE_DEPLOY_ROUTE_TLS_AND_README_FRESHNESS_CANARY_2026_07_02",
+  "safety": {
+    "secrets_printed": false,
+    "product_code_modified": false,
+    "destructive_git_commands": false,
+    "pushed_to_main": false,
+    "force_push": false
+  }
+}
