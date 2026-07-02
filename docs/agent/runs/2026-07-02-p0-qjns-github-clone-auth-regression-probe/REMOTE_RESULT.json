@@ -1,0 +1,42 @@
+{
+  "artifacts": [
+    "docs/agent/runs/2026-07-02-p0-qjns-github-clone-auth-regression-probe/PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-qjns-github-clone-auth-regression-probe/ACTIONS.md",
+    "docs/agent/runs/2026-07-02-p0-qjns-github-clone-auth-regression-probe/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-qjns-github-clone-auth-regression-probe/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-qjns-github-clone-auth-regression-probe/NEXT.md"
+  ],
+  "blockers": [
+    "failed_task_artifact_listing_empty_for_clone_phase_canary",
+    "direct_ssh_to_qjns_unavailable_from_server_path",
+    "full_review_checkout_tests_not_run_by_design"
+  ],
+  "clone_phase_canary": {
+    "error": "command failed with rc=128: git fetch origin __kolibri_probe_missing_ref_20260702_no_checkout__",
+    "error_type": "runtime_error",
+    "interpretation": "qjns passed git clone/auth and failed at the deliberately missing ref",
+    "result_reference": "/var/lib/kolibri-agent/artifacts/P0_QJNS_GITHUB_CLONE_AUTH_REGRESSION_PROBE_2026_07_02_CLONE_PHASE_CANARY/P0_QJNS_GITHUB_CLONE_AUTH_REGRESSION_PROBE_2026_07_02_CLONE_PHASE_CANARY-attempt-1/result.json",
+    "state": "failed",
+    "task_id": "P0_QJNS_GITHUB_CLONE_AUTH_REGRESSION_PROBE_2026_07_02_CLONE_PHASE_CANARY"
+  },
+  "node": {
+    "active_task": null,
+    "agent_id": "agent-host-qjns",
+    "disk_free_bytes": 4868214784,
+    "disk_total_bytes": 20109631488,
+    "freshness": "fresh",
+    "health": "online",
+    "heartbeat_age_seconds": 15,
+    "hostname": "kolibri-tools-executor",
+    "node_id": "qjns"
+  },
+  "next_action": "Run a low-risk real read-only review canary on qjns, or implement a dedicated git_clone_probe Agent Host task kind.",
+  "read_only_probe": {
+    "result_reference": "/var/lib/kolibri-agent/artifacts/P0_QJNS_GITHUB_CLONE_AUTH_REGRESSION_PROBE_2026_07_02_READONLY_HOST_PROBE/P0_QJNS_GITHUB_CLONE_AUTH_REGRESSION_PROBE_2026_07_02_READONLY_HOST_PROBE-attempt-1/result.json",
+    "state": "completed",
+    "task_id": "P0_QJNS_GITHUB_CLONE_AUTH_REGRESSION_PROBE_2026_07_02_READONLY_HOST_PROBE"
+  },
+  "secrets_printed": false,
+  "state": "completed_with_bounded_canary",
+  "task_id": "P0_QJNS_GITHUB_CLONE_AUTH_REGRESSION_PROBE_2026_07_02"
+}
