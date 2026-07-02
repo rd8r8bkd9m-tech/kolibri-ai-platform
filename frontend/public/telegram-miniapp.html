@@ -3,91 +3,152 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>Kolibri Superfactory</title>
+    <title>Kolibri Factory Console</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
       :root {
         color-scheme: dark;
-        --bg: #0a0f14;
-        --panel: rgba(18, 28, 38, 0.86);
+        --bg: #0b1014;
+        --panel: #121a21;
+        --panel-2: #17232c;
         --line: rgba(255, 255, 255, 0.1);
-        --text: #eef7fb;
-        --muted: #8ca3b0;
+        --text: #edf7fb;
+        --muted: #91a7b3;
         --accent: #38bdf8;
         --green: #10b981;
         --amber: #f59e0b;
         --red: #ef4444;
+        --safe-bottom: env(safe-area-inset-bottom, 0px);
       }
       * { box-sizing: border-box; }
       body {
         margin: 0;
         min-height: 100svh;
-        font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        background:
-          linear-gradient(145deg, rgba(56, 189, 248, 0.16), transparent 34%),
-          linear-gradient(315deg, rgba(16, 185, 129, 0.1), transparent 28%),
-          var(--bg);
+        background: var(--bg);
         color: var(--text);
+        font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        line-height: 1.45;
       }
-      main { padding: 18px 16px calc(20px + env(safe-area-inset-bottom)); max-width: 760px; margin: 0 auto; }
-      header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
-      h1 { font-size: 22px; line-height: 1.1; margin: 0; letter-spacing: 0; }
-      .status-pill { border: 1px solid var(--line); border-radius: 999px; padding: 6px 10px; color: var(--muted); font-size: 12px; white-space: nowrap; }
-      .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; box-shadow: 0 18px 60px rgba(0, 0, 0, 0.28); }
-      .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
-      .metric { border: 1px solid var(--line); border-radius: 8px; padding: 12px; min-height: 76px; }
-      .metric strong { display: block; font-size: 24px; line-height: 1; margin-bottom: 8px; }
+      main { width: min(100%, 860px); margin: 0 auto; padding: 14px 12px calc(88px + var(--safe-bottom)); }
+      header { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; margin: 4px 0 12px; }
+      h1 { margin: 0; font-size: 22px; line-height: 1.12; letter-spacing: 0; }
+      h2 { margin: 0 0 10px; font-size: 16px; letter-spacing: 0; }
+      .subtitle { margin-top: 4px; color: var(--muted); font-size: 13px; }
+      .pill { border: 1px solid var(--line); border-radius: 999px; padding: 6px 10px; color: var(--muted); font-size: 12px; white-space: nowrap; background: rgba(255,255,255,0.03); }
+      .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+      .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+      .metric { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px; min-height: 74px; }
+      .metric strong { display: block; font-size: 22px; line-height: 1; margin-bottom: 7px; overflow-wrap: anywhere; }
       .metric span { color: var(--muted); font-size: 12px; }
-      textarea { width: 100%; min-height: 118px; resize: vertical; border-radius: 8px; border: 1px solid var(--line); background: rgba(255,255,255,0.06); color: var(--text); padding: 12px; font: inherit; outline: none; }
-      textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.18); }
-      .row { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
-      select, button { height: 42px; border-radius: 8px; border: 1px solid var(--line); font: inherit; }
-      select { flex: 1; background: rgba(255,255,255,0.06); color: var(--text); padding: 0 10px; }
-      button { min-width: 132px; background: var(--accent); color: #061019; font-weight: 700; cursor: pointer; }
-      button:disabled { opacity: 0.55; cursor: not-allowed; }
-      .list { display: grid; gap: 8px; margin-top: 12px; }
-      .item { border: 1px solid var(--line); border-radius: 8px; padding: 10px; display: flex; justify-content: space-between; gap: 12px; }
-      .item small { color: var(--muted); display: block; margin-top: 3px; }
+      .tabs { position: sticky; bottom: 0; z-index: 10; display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; padding: 8px 8px calc(8px + var(--safe-bottom)); margin: 0 -12px; background: rgba(11,16,20,0.94); border-top: 1px solid var(--line); backdrop-filter: blur(14px); }
+      .tab { height: 44px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
+      .tab.active { color: #061019; background: var(--accent); border-color: var(--accent); font-weight: 800; }
+      textarea, select, button { width: 100%; border-radius: 8px; border: 1px solid var(--line); font: inherit; }
+      textarea { min-height: 112px; resize: vertical; background: rgba(255,255,255,0.06); color: var(--text); padding: 12px; outline: none; }
+      textarea:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(56,189,248,0.16); }
+      .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+      select { height: 42px; background: rgba(255,255,255,0.06); color: var(--text); padding: 0 10px; }
+      .primary { height: 42px; background: var(--accent); color: #061019; font-weight: 800; cursor: pointer; }
+      .primary:disabled { opacity: 0.55; cursor: not-allowed; }
+      .list { display: grid; gap: 8px; }
+      .card { border: 1px solid var(--line); border-radius: 8px; padding: 10px; background: rgba(255,255,255,0.035); }
+      .card-top { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
+      .title { font-weight: 800; overflow-wrap: anywhere; }
+      .meta { color: var(--muted); font-size: 12px; margin-top: 3px; overflow-wrap: anywhere; }
+      .state { border-radius: 999px; padding: 3px 8px; font-size: 11px; border: 1px solid var(--line); white-space: nowrap; }
       .ok { color: var(--green); } .warn { color: var(--amber); } .bad { color: var(--red); }
-      .empty, .error, .loading, .success { margin-top: 12px; border-radius: 8px; padding: 12px; border: 1px solid var(--line); color: var(--muted); }
-      .error { color: #fecaca; border-color: rgba(239, 68, 68, 0.35); }
-      .success { color: #bbf7d0; border-color: rgba(16, 185, 129, 0.35); }
-      @media (max-width: 520px) { .grid { grid-template-columns: 1fr; } .row { flex-direction: column; } select, button { width: 100%; } }
+      .empty, .error, .loading, .success { margin-top: 10px; border-radius: 8px; padding: 11px; border: 1px solid var(--line); color: var(--muted); background: rgba(255,255,255,0.03); }
+      .error { color: #fecaca; border-color: rgba(239,68,68,0.42); }
+      .success { color: #bbf7d0; border-color: rgba(16,185,129,0.42); }
+      .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+      .chip { border: 1px solid var(--line); border-radius: 999px; padding: 3px 7px; color: var(--muted); font-size: 11px; }
+      [hidden] { display: none !important; }
+      @media (max-width: 640px) {
+        main { padding-left: 10px; padding-right: 10px; }
+        .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .form-row { grid-template-columns: 1fr; }
+        .tabs { margin-left: -10px; margin-right: -10px; }
+        h1 { font-size: 20px; }
+      }
     </style>
   </head>
   <body>
     <main>
       <header>
         <div>
-          <h1>Kolibri Superfactory</h1>
-          <div style="color: var(--muted); font-size: 13px; margin-top: 4px;">Команды, статус флота, задачи и артефакты</div>
+          <h1>Пульт фабрики Kolibri</h1>
+          <div class="subtitle">Задачи, агенты, здоровье серверов и артефакты</div>
         </div>
-        <div id="auth" class="status-pill">Проверка доступа</div>
+        <div id="auth" class="pill">Проверка доступа</div>
       </header>
-      <section class="panel">
-        <div id="state" class="loading">Загружаю состояние фабрики...</div>
-        <div id="dashboard" hidden>
-          <div class="grid">
-            <div class="metric"><strong id="nodes">0</strong><span>узлов онлайн</span></div>
-            <div class="metric"><strong id="queue">0</strong><span>задач в очереди</span></div>
-            <div class="metric"><strong id="receiver">-</strong><span>канонический receiver</span></div>
-            <div class="metric"><strong id="runner">-</strong><span>маршрут AI</span></div>
+
+      <section id="state" class="loading">Загружаю состояние фабрики...</section>
+
+      <section id="dashboard" hidden>
+        <section class="panel">
+          <div class="metrics">
+            <div class="metric"><strong id="nodes">0</strong><span>серверов онлайн</span></div>
+            <div class="metric"><strong id="activeTasks">0</strong><span>активных задач</span></div>
+            <div class="metric"><strong id="queue">0</strong><span>в очереди</span></div>
+            <div class="metric"><strong id="artifactsCount">0</strong><span>задач с артефактами</span></div>
           </div>
-          <textarea id="objective" placeholder="Например: проверь PR, статус CI и пришли артефакты"></textarea>
-          <div class="row">
-            <select id="runnerSelect">
-              <option value="codex">Codex</option>
-              <option value="mimo">MIMO</option>
-              <option value="api">API runner</option>
-              <option value="local_llm">Local LLM</option>
-            </select>
-            <button id="submit">Отправить</button>
-          </div>
-          <div id="submitState"></div>
-          <div id="nodesList" class="list"></div>
-        </div>
+        </section>
+
+        <section id="view-submit" class="view">
+          <section class="panel">
+            <h2>Новая задача</h2>
+            <textarea id="objective" placeholder="Например: проверь PR, почини Mini App, запусти тесты и верни артефакты"></textarea>
+            <div class="form-row">
+              <select id="runnerSelect">
+                <option value="codex">Codex</option>
+                <option value="mimo">MIMO</option>
+                <option value="api">API runner</option>
+                <option value="local_llm">Local LLM</option>
+              </select>
+              <select id="kindSelect">
+                <option value="owner_remote_task">Инженерная задача</option>
+                <option value="review_pr">Ревью PR</option>
+                <option value="read_only_probe">Диагностика</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <select id="prioritySelect">
+                <option value="p0">P0 срочно</option>
+                <option value="p1">P1 важно</option>
+                <option value="p2">P2 планово</option>
+              </select>
+              <button id="submit" class="primary">Отправить</button>
+            </div>
+            <div id="submitState"></div>
+          </section>
+        </section>
+
+        <section id="view-tasks" class="view" hidden>
+          <section class="panel"><h2>Список задач</h2><div id="tasksList" class="list"></div></section>
+        </section>
+
+        <section id="view-agents" class="view" hidden>
+          <section class="panel"><h2>Агенты</h2><div id="agentsList" class="list"></div></section>
+        </section>
+
+        <section id="view-health" class="view" hidden>
+          <section class="panel"><h2>Здоровье серверов</h2><div id="healthList" class="list"></div></section>
+        </section>
+
+        <section id="view-artifacts" class="view" hidden>
+          <section class="panel"><h2>Артефакты</h2><div id="artifactsList" class="list"></div></section>
+        </section>
       </section>
+
+      <nav class="tabs" aria-label="Разделы пульта">
+        <button class="tab active" data-view="submit">Задача</button>
+        <button class="tab" data-view="tasks">Список</button>
+        <button class="tab" data-view="agents">Агенты</button>
+        <button class="tab" data-view="health">Здоровье</button>
+        <button class="tab" data-view="artifacts">Артефакты</button>
+      </nav>
     </main>
+
     <script>
       const tg = window.Telegram?.WebApp
       tg?.ready()
@@ -97,7 +158,24 @@
       const dashboard = document.getElementById("dashboard")
       const auth = document.getElementById("auth")
       const submitState = document.getElementById("submitState")
-      const headers = () => ({ "Content-Type": "application/json", "X-Telegram-Init-Data": initData })
+      let currentStatus = null
+
+      const labels = {
+        queued: "В очереди",
+        leased: "Назначена",
+        running: "В работе",
+        waiting_review: "Ждёт ревью",
+        review: "Ревью",
+        completed: "Готово",
+        failed: "Ошибка",
+        cancelled: "Отменена",
+        dead_letter: "Без движения",
+        retry_scheduled: "Повтор",
+      }
+
+      function headers() {
+        return { "Content-Type": "application/json", "X-Telegram-Init-Data": initData }
+      }
 
       async function api(path, options = {}) {
         const res = await fetch(path, { ...options, headers: { ...headers(), ...(options.headers || {}) } })
@@ -106,24 +184,109 @@
         return data
       }
 
+      function esc(value) {
+        return String(value ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]))
+      }
+
+      function stateClass(value) {
+        if (["completed", "online", "fresh", "ok"].includes(value)) return "ok"
+        if (["queued", "leased", "running", "waiting_review", "review", "degraded"].includes(value)) return "warn"
+        return "bad"
+      }
+
+      function chips(values) {
+        const items = (values || []).slice(0, 5).map(v => `<span class="chip">${esc(v)}</span>`).join("")
+        return items ? `<div class="chips">${items}</div>` : ""
+      }
+
+      function empty(text) {
+        return `<div class="empty">${esc(text)}</div>`
+      }
+
+      function renderTasks(tasks) {
+        const list = document.getElementById("tasksList")
+        if (!tasks?.length) { list.innerHTML = empty("Задач пока нет."); return }
+        list.innerHTML = tasks.map(task => `
+          <article class="card">
+            <div class="card-top">
+              <div>
+                <div class="title">${esc(task.objective || task.task_id)}</div>
+                <div class="meta">${esc(task.task_id)} · ${esc(task.runner || "runner не выбран")} · ${esc(task.node_id || "узел ждёт назначения")}</div>
+              </div>
+              <span class="state ${stateClass(task.state)}">${esc(labels[task.state] || task.state)}</span>
+            </div>
+            <div class="meta">Попытка ${esc(task.attempt || 0)} · артефактов: ${esc(task.artifacts?.count || 0)}</div>
+            ${task.error ? `<div class="meta bad">${esc(task.error)}</div>` : ""}
+          </article>
+        `).join("")
+      }
+
+      function renderAgents(agents) {
+        const list = document.getElementById("agentsList")
+        if (!agents?.length) { list.innerHTML = empty("Агенты ещё не зарегистрированы."); return }
+        list.innerHTML = agents.map(agent => `
+          <article class="card">
+            <div class="card-top">
+              <div>
+                <div class="title">${esc(agent.agent_id || agent.node_id)}</div>
+                <div class="meta">Узел ${esc(agent.node_id)} · ${esc(agent.runner || "runner не объявлен")}</div>
+              </div>
+              <span class="state ${stateClass(agent.health)}">${esc(agent.health)}</span>
+            </div>
+            <div class="meta">Lease: ${esc(agent.current_lease || "нет")} · heartbeat: ${esc(agent.last_heartbeat || "нет")}</div>
+            ${chips(agent.capabilities)}
+          </article>
+        `).join("")
+      }
+
+      function renderHealth(nodes) {
+        const list = document.getElementById("healthList")
+        if (!nodes?.length) { list.innerHTML = empty("Серверы пока не зарегистрированы в Control Plane."); return }
+        list.innerHTML = nodes.map(node => `
+          <article class="card">
+            <div class="card-top">
+              <div>
+                <div class="title">${esc(node.name || node.node_id)}</div>
+                <div class="meta">${esc(node.node_id)} · freshness: ${esc(node.freshness || "unknown")} · drain: ${node.draining ? "да" : "нет"}</div>
+              </div>
+              <span class="state ${stateClass(node.health)}">${esc(node.health)}</span>
+            </div>
+            <div class="meta">CPU: ${esc(node.cpu ?? "n/a")} · RAM: ${esc(node.ram ? JSON.stringify(node.ram) : "n/a")}</div>
+            ${chips(node.capabilities)}
+          </article>
+        `).join("")
+      }
+
+      function renderArtifacts(artifacts) {
+        const list = document.getElementById("artifactsList")
+        const items = artifacts?.items || []
+        if (!items.length) { list.innerHTML = empty("Пока нет безопасных артефактов для показа."); return }
+        list.innerHTML = items.map(task => `
+          <article class="card">
+            <div class="card-top">
+              <div>
+                <div class="title">${esc(task.objective || task.task_id)}</div>
+                <div class="meta">${esc(task.task_id)} · ${esc(labels[task.state] || task.state)}</div>
+              </div>
+              <span class="state ok">${esc(task.items?.length || 0)}</span>
+            </div>
+            <div class="chips">${(task.items || []).map(ref => `<span class="chip">${esc(ref.label)}: ${esc(ref.value)}</span>`).join("")}</div>
+            ${task.has_more ? '<div class="meta">Есть дополнительные артефакты.</div>' : ""}
+          </article>
+        `).join("")
+      }
+
       function renderStatus(data) {
-        const online = (data.nodes || []).filter(n => n.health === "online").length
-        document.getElementById("nodes").textContent = String(online)
+        currentStatus = data
+        const server = data.server_health || {}
+        document.getElementById("nodes").textContent = String(server.nodes_online ?? (data.nodes || []).filter(n => n.health === "online").length)
+        document.getElementById("activeTasks").textContent = String(server.tasks_active ?? 0)
         document.getElementById("queue").textContent = String((data.queue || []).length)
-        document.getElementById("receiver").textContent = data.receiver?.mode || "-"
-        document.getElementById("runner").textContent = (data.runner_policy?.ordered_runners || ["-"])[0]
-        const list = document.getElementById("nodesList")
-        list.innerHTML = ""
-        if (!(data.nodes || []).length) {
-          list.innerHTML = '<div class="empty">Флот пока не зарегистрирован в Control Plane.</div>'
-        } else {
-          for (const node of data.nodes) {
-            const item = document.createElement("div")
-            item.className = "item"
-            item.innerHTML = `<div><strong>${node.node_id || "node"}</strong><small>${(node.capabilities || []).join(", ") || "capabilities не указаны"}</small></div><div class="${node.health === "online" ? "ok" : "bad"}">${node.health || "unknown"}</div>`
-            list.appendChild(item)
-          }
-        }
+        document.getElementById("artifactsCount").textContent = String(data.artifacts?.tasks_with_artifacts || 0)
+        renderTasks(data.tasks || [])
+        renderAgents(data.agents || [])
+        renderHealth(data.node_cards || data.nodes || [])
+        renderArtifacts(data.artifacts || {})
         state.hidden = true
         dashboard.hidden = false
         auth.textContent = "Доступ подтвержден"
@@ -139,10 +302,17 @@
         try { renderStatus(await api("/v1/superfactory/status")) }
         catch (err) {
           state.className = "error"
-          state.textContent = err.message === "forbidden" ? "Нет прав владельца или администратора." : "Не удалось загрузить состояние фабрики."
+          state.textContent = err.message === "forbidden" || err.message === "unauthorized" ? "Нет прав владельца или администратора." : "Не удалось загрузить состояние фабрики."
           auth.textContent = "Доступ закрыт"
         }
       }
+
+      document.querySelectorAll(".tab").forEach(button => {
+        button.addEventListener("click", () => {
+          document.querySelectorAll(".tab").forEach(tab => tab.classList.toggle("active", tab === button))
+          document.querySelectorAll(".view").forEach(view => view.hidden = view.id !== `view-${button.dataset.view}`)
+        })
+      })
 
       document.getElementById("submit").addEventListener("click", async () => {
         const objective = document.getElementById("objective").value.trim()
@@ -153,21 +323,31 @@
         }
         submitState.className = "loading"
         submitState.textContent = "Отправляю задачу в Control Plane..."
+        document.getElementById("submit").disabled = true
         try {
           const task = await api("/v1/superfactory/tasks", {
             method: "POST",
-            body: JSON.stringify({ objective, runner: document.getElementById("runnerSelect").value }),
+            body: JSON.stringify({
+              objective,
+              runner: document.getElementById("runnerSelect").value,
+              kind: document.getElementById("kindSelect").value,
+              priority: document.getElementById("prioritySelect").value,
+            }),
           })
           submitState.className = "success"
-          submitState.textContent = `Задача принята: ${task.state || "queued"}`
+          submitState.textContent = `Задача принята: ${labels[task.state] || task.state || "queued"}`
           document.getElementById("objective").value = ""
+          await load()
         } catch (err) {
           submitState.className = "error"
-          submitState.textContent = err.message === "forbidden" ? "Нет прав на постановку задач." : "Control Plane не принял задачу."
+          submitState.textContent = err.message === "forbidden" || err.message === "unauthorized" ? "Нет прав на постановку задач." : "Control Plane не принял задачу."
+        } finally {
+          document.getElementById("submit").disabled = false
         }
       })
 
       load()
+      setInterval(() => { if (currentStatus) load() }, 15000)
     </script>
   </body>
 </html>

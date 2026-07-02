@@ -507,6 +507,76 @@ def task_artifact_envelope(task: dict[str, Any] | None, task_id: str) -> dict[st
     )
 
 
+def _safe_text(value: Any, limit: int = 180) -> str | None:
+    if value is None:
+        return None
+    text = " ".join(str(value).split())
+    if not text:
+        return None
+    return text if len(text) <= limit else f"{text[: limit - 1]}…"
+
+
+def _safe_artifact_refs(task: dict[str, Any]) -> dict[str, Any]:
+    result = task.get("result") if isinstance(task.get("result"), dict) else {}
+    refs: list[dict[str, Any]] = []
+    for key_name in ("pull_request_url", "pr_url", "preview_url", "ci_url", "result_path", "result_reference"):
+        value = result.get(key_name) if key_name != "result_reference" else task.get("result_reference")
+        if value:
+            refs.append({"kind": key_name, "label": key_name.replace("_", " "), "value": str(value)})
+    for key_name in ("artifact_path", "artifact_paths", "artifacts", "required_artifacts_present"):
+        for value in ensure_list(result.get(key_name)):
+            if value:
+                refs.append({"kind": "artifact", "label": "artifact", "value": str(value)})
+    return {
+        "count": len(refs),
+        "items": refs[:8],
+        "has_more": len(refs) > 8,
+    }
+
+
+def task_console_card(task: dict[str, Any]) -> dict[str, Any]:
+    envelope = task.get("envelope") if isinstance(task.get("envelope"), dict) else {}
+    result = task.get("result") if isinstance(task.get("result"), dict) else {}
+    lease_owner = str(task.get("lease_owner") or "")
+    node_id = lease_owner.split(":", 1)[0] if lease_owner else envelope.get("target_node")
+    return {
+        "task_id": task.get("task_id"),
+        "state": task.get("state") or "unknown",
+        "kind": envelope.get("kind") or task.get("kind") or "task",
+        "objective": _safe_text(envelope.get("objective") or envelope.get("message") or result.get("summary"), 220),
+        "runner": envelope.get("runner") or result.get("runner"),
+        "node_id": node_id,
+        "attempt": task.get("attempt", 0),
+        "created_at": task.get("created_at"),
+        "updated_at": task.get("updated_at"),
+        "heartbeat_at": task.get("heartbeat_at"),
+        "error_type": task.get("error_type"),
+        "error": _safe_text(task.get("error"), 140),
+        "artifacts": _safe_artifact_refs(task),
+        "review_required": bool(envelope.get("create_review_on_complete") or task.get("state") in {STATE_WAITING_REVIEW, STATE_REVIEW}),
+    }
+
+
+def node_console_card(node: dict[str, Any]) -> dict[str, Any]:
+    capabilities = node.get("capabilities") if isinstance(node.get("capabilities"), list) else []
+    runners = node.get("runners") if isinstance(node.get("runners"), dict) else {}
+    return {
+        "node_id": node.get("node_id") or node.get("id"),
+        "name": node.get("display_name") or node.get("hostname") or node.get("node_id") or "node",
+        "health": node.get("health") or "unknown",
+        "freshness": node.get("freshness"),
+        "heartbeat_at": node.get("heartbeat_at"),
+        "capabilities": capabilities,
+        "runners": runners,
+        "agent_id": node.get("agent_id"),
+        "active_task": node.get("active_task"),
+        "draining": bool(node.get("draining")),
+        "cpu": node.get("cpu"),
+        "ram": node.get("ram"),
+        "disk": node.get("disk"),
+    }
+
+
 def fabric_blocked_envelope(
     *,
     reason: str,
@@ -824,16 +894,32 @@ def validate_miniapp(handler: BaseHTTPRequestHandler, body: dict[str, Any] | Non
 
 def superfactory_status() -> dict[str, Any]:
     nodes = []
+    current = now_ts()
     for node_id in sorted(redis.command("SMEMBERS", key("node_ids")) or []):
         node = get_json(node_key(node_id), {})
         node["draining"] = bool(redis.command("GET", drain_key(node_id)))
-        nodes.append(node)
+        nodes.append(classify_node_freshness(node, current))
     tasks = [task for task in (load_task(task_id) for task_id in all_task_ids()) if task]
     counts: dict[str, int] = {}
     for task in tasks:
         state = str(task.get("state") or "unknown")
         counts[state] = counts.get(state, 0) + 1
     receiver = plan_update_receiver(webhook_info={"url": os.environ.get("TELEGRAM_WEBHOOK_URL", "")})
+    task_cards = sorted((task_console_card(task) for task in tasks), key=lambda item: item.get("updated_at") or "", reverse=True)
+    node_cards = [node_console_card(node) for node in nodes]
+    agents = [
+        {
+            "agent_id": node.get("agent_id") or node.get("node_id"),
+            "node_id": node.get("node_id"),
+            "runner": ",".join(sorted((node.get("runners") or {}).keys())) if isinstance(node.get("runners"), dict) and node.get("runners") else None,
+            "health": node.get("health") or "unknown",
+            "current_lease": node.get("active_task"),
+            "last_heartbeat": node.get("heartbeat_at"),
+            "capabilities": node.get("capabilities") or [],
+        }
+        for node in node_cards
+    ]
+    artifact_tasks = [task for task in task_cards if task["artifacts"]["count"]]
     return {
         "status": "ok",
         "receiver": {
@@ -844,8 +930,32 @@ def superfactory_status() -> dict[str, Any]:
         },
         "runner_policy": runner_policy(),
         "nodes": nodes,
+        "node_cards": node_cards,
+        "agents": agents,
         "task_counts": counts,
+        "tasks": task_cards,
+        "artifacts": {
+            "tasks_with_artifacts": len(artifact_tasks),
+            "items": [
+                {
+                    "task_id": task["task_id"],
+                    "state": task["state"],
+                    "objective": task["objective"],
+                    "items": task["artifacts"]["items"],
+                    "has_more": task["artifacts"]["has_more"],
+                }
+                for task in artifact_tasks[:12]
+            ],
+        },
         "queue": queue_ids(),
+        "server_health": {
+            "redis": "ok",
+            "queue_backend": "redis",
+            "time": utc_now(),
+            "nodes_total": len(node_cards),
+            "nodes_online": sum(1 for node in node_cards if node.get("health") == "online"),
+            "tasks_active": sum(counts.get(state, 0) for state in (STATE_QUEUED, STATE_LEASED, STATE_RUNNING, STATE_WAITING_REVIEW, STATE_REVIEW)),
+        },
     }
 
 
