@@ -1,0 +1,66 @@
+{
+  "task_id": "P0_FACTORY_STATUS_PROXY_504_CANARY_2026_07_02",
+  "status": "prepared_safe_canary",
+  "node": "kolibri",
+  "branch": "agent/P0_FACTORY_STATUS_PROXY_504_CANARY_2026_07_02/generic",
+  "head_sha_at_implementation": "f7ac32c70406432a52752ca45d87e35d9f1facd3",
+  "remote_execution": {
+    "server_agent_host": true,
+    "hostname": "kolibri",
+    "local_mac": false
+  },
+  "repair": {
+    "required_calls": "health and nodes fetched concurrently with bounded per-route timeout",
+    "fallback": "KOLIBRI_FACTORY_CONTROL_URLS ordered route fallback",
+    "tasks": "FACTORY_STATUS_FETCH_TASKS is opt-in; default skips large /v1/tasks payload",
+    "canonical_health_envelope": "status=completed plus data is normalized to control_plane.status=ok"
+  },
+  "live_probe_summary": {
+    "control_plane_10_99_0_2_health": "HTTP 200 about 0.100s",
+    "control_plane_10_99_0_2_nodes": "HTTP 200 about 6.45s",
+    "control_plane_10_99_0_10_health": "HTTP 200 about 0.002s",
+    "control_plane_10_99_0_10_nodes": "HTTP 200 about 0.025s",
+    "control_plane_10_99_0_10_tasks": "HTTP 200 about 0.57s, about 15.5 MB",
+    "public_https_strict": "blocked: certificate hostname mismatch",
+    "public_https_insecure": "HTTP 400 Invalid request",
+    "public_http": "empty reply"
+  },
+  "tests": [
+    {
+      "command": "python3 -m pytest backend/tests/test_factory_status_fast_health.py tests/test_factory_status.py -q",
+      "result": "8 passed in 0.06s"
+    },
+    {
+      "command": "python3 -m py_compile backend/factory_status.py backend/main.py",
+      "result": "passed"
+    },
+    {
+      "command": "git diff --check",
+      "result": "passed"
+    }
+  ],
+  "artifacts": [
+    "docs/agent/runs/2026-07-02-p0-factory-status-proxy-504-canary/PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-factory-status-proxy-504-canary/ACTIONS.md",
+    "docs/agent/runs/2026-07-02-p0-factory-status-proxy-504-canary/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-factory-status-proxy-504-canary/ROLLBACK.md",
+    "docs/agent/runs/2026-07-02-p0-factory-status-proxy-504-canary/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-factory-status-proxy-504-canary/NEXT.md",
+    "docs/agent/runs/2026-07-02-p0-factory-status-proxy-504-canary/REMOTE_RESULT.json"
+  ],
+  "blockers": [
+    {
+      "id": "B1",
+      "surface": "public_https_edge",
+      "classification": "tls_hostname_mismatch",
+      "evidence": "curl strict HTTPS to https://kolibriai.ru/api/factory/status failed certificate hostname verification"
+    },
+    {
+      "id": "B2",
+      "surface": "public_edge_request_routing",
+      "classification": "does_not_reach_valid_backend_response",
+      "evidence": "curl -k returned HTTP 400 Invalid request; plain HTTP returned empty reply"
+    }
+  ],
+  "next_action": "Canary deploy backend adapter on one server with KOLIBRI_FACTORY_CONTROL_URLS=http://10.99.0.10:9101,http://10.99.0.2:9101 and FACTORY_STATUS_FETCH_TASKS=0, then separately repair public edge TLS/request routing."
+}

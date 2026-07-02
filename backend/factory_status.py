@@ -1,18 +1,36 @@
 from __future__ import annotations
 
+import asyncio
 import os
 from datetime import datetime, timezone
 from typing import Any
 
-import httpx
-
 CONTROL_PLANE_URL = os.getenv("KOLIBRI_FACTORY_CONTROL_URL", "http://control.kolibri.internal:9101")
+CONTROL_PLANE_FALLBACK_URLS = os.getenv("KOLIBRI_FACTORY_CONTROL_FALLBACK_URLS", "http://10.99.0.10:9101,http://10.99.0.2:9101")
+CONTROL_PLANE_REQUIRED_TIMEOUT = float(os.getenv("FACTORY_STATUS_REQUIRED_TIMEOUT", "2.0"))
+CONTROL_PLANE_CONNECT_TIMEOUT = float(os.getenv("FACTORY_STATUS_CONNECT_TIMEOUT", "0.5"))
+CONTROL_PLANE_TASKS_TIMEOUT = float(os.getenv("FACTORY_STATUS_TASKS_TIMEOUT", "0.75"))
+CONTROL_PLANE_FETCH_TASKS = os.getenv("FACTORY_STATUS_FETCH_TASKS", "").strip().lower() in {"1", "true", "yes"}
 NODE_DEGRADED_AFTER = int(os.getenv("FACTORY_NODE_DEGRADED_AFTER", "30"))
 NODE_STALE_AFTER = int(os.getenv("FACTORY_NODE_STALE_AFTER", "90"))
 
 
-def _control_plane_v1_url(path: str) -> str:
-    base = CONTROL_PLANE_URL.rstrip("/")
+def _control_plane_urls() -> list[str]:
+    configured = os.getenv("KOLIBRI_FACTORY_CONTROL_URLS")
+    urls = [configured] if configured else [CONTROL_PLANE_URL, CONTROL_PLANE_FALLBACK_URLS]
+    result: list[str] = []
+    seen: set[str] = set()
+    for group in urls:
+        for item in str(group or "").replace(";", ",").split(","):
+            url = item.strip().rstrip("/")
+            if url and url not in seen:
+                result.append(url)
+                seen.add(url)
+    return result or [CONTROL_PLANE_URL.rstrip("/")]
+
+
+def _control_plane_v1_url(path: str, base_url: str | None = None) -> str:
+    base = (base_url or CONTROL_PLANE_URL).rstrip("/")
     suffix = path if path.startswith("/") else f"/{path}"
     if base.endswith("/v1"):
         return f"{base}{suffix}"
@@ -158,9 +176,31 @@ def _extract_tasks(tasks_payload: Any) -> list[dict[str, Any]]:
     return []
 
 
-def build_factory_status(nodes_payload: Any, tasks_payload: Any | None = None, health_payload: dict[str, Any] | None = None) -> dict[str, Any]:
+def _health_data(health_payload: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(health_payload, dict):
+        return {}
+    data = health_payload.get("data")
+    if isinstance(data, dict):
+        return data
+    return health_payload
+
+
+def _control_plane_status(health_payload: dict[str, Any] | None) -> str:
+    if not isinstance(health_payload, dict):
+        return "unknown"
+    status = str(health_payload.get("status") or "unknown")
+    return "ok" if status == "completed" and isinstance(health_payload.get("data"), dict) else status
+
+
+def build_factory_status(
+    nodes_payload: Any,
+    tasks_payload: Any | None = None,
+    health_payload: dict[str, Any] | None = None,
+    control_plane_url: str | None = None,
+) -> dict[str, Any]:
     raw_nodes = nodes_payload.get("nodes", []) if isinstance(nodes_payload, dict) else nodes_payload if isinstance(nodes_payload, list) else []
-    generated_at = (health_payload or {}).get("time") or datetime.now(timezone.utc).isoformat()
+    health_data = _health_data(health_payload)
+    generated_at = health_data.get("time") or datetime.now(timezone.utc).isoformat()
     node_list = [_node_card(node, generated_at) for node in raw_nodes if isinstance(node, dict)]
     nodes = {node["node_id"]: node for node in node_list}
     online_nodes = [node for node in node_list if node.get("status") == "online"]
@@ -180,10 +220,10 @@ def build_factory_status(nodes_payload: Any, tasks_payload: Any | None = None, h
         "source": "control-plane",
         "generated_at": generated_at,
         "control_plane": {
-            "url": CONTROL_PLANE_URL,
-            "status": (health_payload or {}).get("status", "unknown"),
-            "queue_backend": (health_payload or {}).get("queue_backend"),
-            "redis": (health_payload or {}).get("redis"),
+            "url": control_plane_url or CONTROL_PLANE_URL,
+            "status": _control_plane_status(health_payload),
+            "queue_backend": health_data.get("queue_backend"),
+            "redis": health_data.get("redis"),
         },
         "total_nodes": len(node_list),
         "online_nodes": len(online_nodes),
@@ -203,7 +243,7 @@ def build_factory_status(nodes_payload: Any, tasks_payload: Any | None = None, h
         "queue_size": (
             sum(task_states.get(state, 0) for state in ("queued", "leased", "running"))
             if task_states
-            else int((health_payload or {}).get("queue") or 0)
+            else int(health_data.get("queue") or 0)
         ),
         "task_states": task_states,
         "nodes": nodes,
@@ -211,20 +251,46 @@ def build_factory_status(nodes_payload: Any, tasks_payload: Any | None = None, h
     }
 
 
-async def fetch_factory_status() -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=httpx.Timeout(4.0, connect=2.0)) as client:
-        health_response = await client.get(_control_plane_v1_url("/health"))
-        nodes_response = await client.get(_control_plane_v1_url("/nodes"))
+async def _fetch_required_status_payloads(base_url: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    import httpx
+
+    timeout = httpx.Timeout(CONTROL_PLANE_REQUIRED_TIMEOUT, connect=CONTROL_PLANE_CONNECT_TIMEOUT)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        health_task = client.get(_control_plane_v1_url("/health", base_url))
+        nodes_task = client.get(_control_plane_v1_url("/nodes", base_url))
+        health_response, nodes_response = await asyncio.gather(health_task, nodes_task)
         health_response.raise_for_status()
         nodes_response.raise_for_status()
+        return health_response.json(), nodes_response.json()
 
-    tasks_payload: Any = {"tasks": []}
-    try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(1.5, connect=1.0)) as client:
-            tasks_response = await client.get(_control_plane_v1_url("/tasks"))
-            if tasks_response.status_code == 200:
-                tasks_payload = tasks_response.json()
-    except Exception:
-        tasks_payload = {"tasks": []}
 
-    return build_factory_status(nodes_response.json(), tasks_payload, health_response.json())
+async def _fetch_optional_tasks_payload(base_url: str) -> Any:
+    import httpx
+
+    timeout = httpx.Timeout(CONTROL_PLANE_TASKS_TIMEOUT, connect=CONTROL_PLANE_CONNECT_TIMEOUT)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        tasks_response = await client.get(_control_plane_v1_url("/tasks", base_url))
+        if tasks_response.status_code == 200:
+            return tasks_response.json()
+    return {"tasks": []}
+
+
+async def fetch_factory_status() -> dict[str, Any]:
+    last_error: Exception | None = None
+    for base_url in _control_plane_urls():
+        try:
+            health_payload, nodes_payload = await _fetch_required_status_payloads(base_url)
+        except Exception as exc:
+            last_error = exc
+            continue
+
+        tasks_payload: Any = {"tasks": []}
+        if CONTROL_PLANE_FETCH_TASKS:
+            try:
+                tasks_payload = await _fetch_optional_tasks_payload(base_url)
+            except Exception:
+                tasks_payload = {"tasks": []}
+
+        return build_factory_status(nodes_payload, tasks_payload, health_payload, base_url)
+
+    raise RuntimeError(f"control plane status unavailable across {len(_control_plane_urls())} route(s): {last_error}")
