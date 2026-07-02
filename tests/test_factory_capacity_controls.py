@@ -301,6 +301,7 @@ def test_factory_http_server_accepts_64_empty_lease_polls_without_worker_gate(mo
     assert all(body["status"] == "no_task" for _status, body in results)
     assert control.FactoryThreadingHTTPServer.request_queue_size >= 128
     assert not hasattr(control, "BoundedThreadingHTTPServer")
+    assert server.max_workers <= control.HTTP_WORKER_THREAD_CEILING
 
 
 def test_empty_http_lease_fast_path_skips_reaper_and_node_load(monkeypatch):
@@ -367,6 +368,21 @@ def test_factory_http_server_completes_300_empty_lease_polls_without_transport_d
     assert not any(command[0] == "SET" and command[1] == control.key("lease_reaper:lock") for command in fake.commands)
     assert control.FactoryThreadingHTTPServer.request_queue_size >= 2048
     assert not hasattr(control, "BoundedThreadingHTTPServer")
+    assert server.max_workers <= 64
+
+
+def test_configured_http_workers_are_clamped_inside_runtime_canary_thread_gate(monkeypatch):
+    monkeypatch.setenv("FACTORY_HTTP_MAX_WORKERS", "256")
+    control = load_control()
+
+    server = control.FactoryThreadingHTTPServer(("127.0.0.1", 0), control.Handler)
+    try:
+        assert control.HTTP_MAX_WORKERS == 64
+        assert control.HTTP_MAX_WORKERS_CONFIGURED == 256
+        assert server.max_workers == 64
+        assert server._executor._max_workers == 64
+    finally:
+        server.server_close()
 
 
 def test_lease_reaper_is_lock_gated_and_batched(monkeypatch):

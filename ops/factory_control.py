@@ -67,7 +67,9 @@ LEASE_QUEUE_SCAN_LIMIT = int(os.environ.get("FACTORY_LEASE_QUEUE_SCAN_LIMIT", "1
 TASK_MUTATION_LOCK_TTL = int(os.environ.get("FACTORY_TASK_MUTATION_LOCK_TTL", "5"))
 TASK_MUTATION_LOCK_WAIT = float(os.environ.get("FACTORY_TASK_MUTATION_LOCK_WAIT", "2.0"))
 HTTP_REQUEST_QUEUE_SIZE = int(os.environ.get("FACTORY_HTTP_REQUEST_QUEUE_SIZE", "512"))
-HTTP_MAX_WORKERS = int(os.environ.get("FACTORY_HTTP_MAX_WORKERS", "256"))
+HTTP_WORKER_THREAD_CEILING = 64
+HTTP_MAX_WORKERS_CONFIGURED = int(os.environ.get("FACTORY_HTTP_MAX_WORKERS", "64"))
+HTTP_MAX_WORKERS = max(1, min(HTTP_MAX_WORKERS_CONFIGURED, HTTP_WORKER_THREAD_CEILING))
 TASK_LIST_DEFAULT_LIMIT = int(os.environ.get("FACTORY_TASK_LIST_DEFAULT_LIMIT", "1000"))
 TASK_LIST_MAX_LIMIT = int(os.environ.get("FACTORY_TASK_LIST_MAX_LIMIT", "5000"))
 LEASE_EMPTY_RETRY_AFTER = float(os.environ.get("FACTORY_LEASE_EMPTY_RETRY_AFTER", "1.0"))
@@ -114,16 +116,26 @@ class FactoryThreadingHTTPServer(ThreadingHTTPServer):
 
     def __init__(self, server_address: tuple[str, int], handler_class: type[BaseHTTPRequestHandler]):
         super().__init__(server_address, handler_class)
+        self.max_workers = max(1, HTTP_MAX_WORKERS)
+        self._request_slots = threading.BoundedSemaphore(self.max_workers)
         self._executor = concurrent.futures.ThreadPoolExecutor(
-            max_workers=max(1, HTTP_MAX_WORKERS),
+            max_workers=self.max_workers,
             thread_name_prefix="factory-control-http",
         )
 
     def process_request(self, request: Any, client_address: Any) -> None:
+        self._request_slots.acquire()
         try:
-            self._executor.submit(self.process_request_thread, request, client_address)
+            self._executor.submit(self._process_request_with_slot, request, client_address)
         except RuntimeError:
+            self._request_slots.release()
             self.shutdown_request(request)
+
+    def _process_request_with_slot(self, request: Any, client_address: Any) -> None:
+        try:
+            self.process_request_thread(request, client_address)
+        finally:
+            self._request_slots.release()
 
     def server_close(self) -> None:
         super().server_close()
