@@ -1,0 +1,38 @@
+{
+  "task_id": "P0_REPAIR_HOSTVDS_AGENT_06_ROUTE_AUTH_DISK_RUNNER_2026_07_02",
+  "kind": "repair_fabric_route",
+  "priority": "P0",
+  "target_node": "hostvds-agent-06",
+  "required_capability": "generic_implementation",
+  "source_task_id": "P0_AUTOPILOT_EXTRA_28_HOSTVDS_AGENT_06_READINESS_2026_07_02",
+  "read_only_until_route_confirmed": true,
+  "no_secrets_in_output": true,
+  "no_destructive_git": true,
+  "no_push_to_main": true,
+  "objective": "Repair or precisely classify hostvds-agent-06 readiness for factory work. Restore approved noninteractive SSH or Fabric relay, then verify disk, GitHub auth status, Agent Host runner status, API route status, and produce sanitized artifacts plus Russian owner summary.",
+  "known_blockers": [
+    "hostvds_agent_06_ssh_timeout",
+    "fabric_route_api_not_deployed",
+    "node_status_endpoint_timeout",
+    "target_runtime_unproven"
+  ],
+  "required_checks": [
+    "hostname",
+    "date -u",
+    "df -hP /",
+    "systemctl is-active kolibri-agent-host.service",
+    "systemctl is-active kolibri-factory-control.service",
+    "systemctl is-active kolibri-mesh-control-bridge.service",
+    "gh auth status --hostname github.com",
+    "test -d /opt/kolibri-ai-platform/.git",
+    "pgrep -fc 'agent_host|kolibri-agent'"
+  ],
+  "required_artifacts": [
+    "PLAN.md",
+    "ACTIONS.md",
+    "TESTS.md",
+    "RESULT.md",
+    "NEXT.md"
+  ],
+  "next_action": "Deploy or locate the authoritative Control Plane listener with Fabric route endpoints, then restore the approved route to hostvds-agent-06 and rerun the bounded readiness probe."
+}
