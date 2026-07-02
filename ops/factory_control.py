@@ -13,6 +13,7 @@ import json
 import os
 import socket
 import sys
+import threading
 import time
 import uuid
 from datetime import datetime, timezone
@@ -75,6 +76,12 @@ FALLBACK_REASON_TAXONOMY = {
 }
 NODE_DEGRADED_AFTER = int(os.environ.get("FACTORY_NODE_DEGRADED_AFTER", "30"))
 NODE_STALE_AFTER = int(os.environ.get("FACTORY_NODE_STALE_AFTER", "90"))
+SUPERVISOR_INTERVAL = int(os.environ.get("FACTORY_SUPERVISOR_INTERVAL", "30"))
+SUPERVISOR_ENABLED = os.environ.get("FACTORY_SUPERVISOR_ENABLED", "1").strip().lower() not in {"0", "false", "no", "off"}
+SUPERVISOR_AGENT_DEAD_AFTER = int(os.environ.get("FACTORY_SUPERVISOR_AGENT_DEAD_AFTER", str(max(NODE_STALE_AFTER * 3, 300))))
+SUPERVISOR_TASK_STUCK_AFTER = int(os.environ.get("FACTORY_SUPERVISOR_TASK_STUCK_AFTER", str(max(LEASE_DURATION * 2, 180))))
+SUPERVISOR_REPAIR_CAP_RATIO = min(0.5, max(0.0, float(os.environ.get("FACTORY_SUPERVISOR_REPAIR_CAP_RATIO", "0.5"))))
+SUPERVISOR_REPAIR_HORIZON_SECONDS = int(os.environ.get("FACTORY_SUPERVISOR_REPAIR_HORIZON_SECONDS", "3600"))
 
 STATE_QUEUED = "queued"
 STATE_LEASED = "leased"
@@ -606,6 +613,8 @@ def save_task(task: dict[str, Any]) -> None:
 
 
 def enqueue(task_id: str) -> None:
+    if task_id in queue_ids():
+        return
     redis.command("RPUSH", key("queue"), task_id)
 
 
@@ -784,6 +793,227 @@ def create_review_task(source_task: dict[str, Any], result: dict[str, Any]) -> d
     review["state"] = STATE_REVIEW if review["state"] == STATE_QUEUED else review["state"]
     save_task(review)
     return review
+
+
+def repair_dispatch_budget(total_nodes: int, ratio: float = SUPERVISOR_REPAIR_CAP_RATIO) -> int:
+    if total_nodes <= 0 or ratio <= 0:
+        return 0
+    return int(total_nodes * min(0.5, max(0.0, ratio)))
+
+
+def task_heartbeat_age_seconds(task: dict[str, Any], current: float) -> int | None:
+    heartbeat_ts = parse_iso_ts(task.get("heartbeat_at"))
+    if heartbeat_ts is None:
+        return None
+    return max(0, int(current - heartbeat_ts))
+
+
+def task_is_stuck(task: dict[str, Any], current: float, stale_after: int = SUPERVISOR_TASK_STUCK_AFTER) -> bool:
+    if task.get("state") not in {STATE_LEASED, STATE_RUNNING, STATE_REVIEW}:
+        return False
+    age = task_heartbeat_age_seconds(task, current)
+    if age is None:
+        lease_until = float(task.get("lease_until") or 0)
+        return lease_until < current
+    return age > stale_after
+
+
+def requeue_stuck_tasks(current: float | None = None, stale_after: int = SUPERVISOR_TASK_STUCK_AFTER) -> list[dict[str, Any]]:
+    current_ts = now_ts() if current is None else current
+    repaired: list[dict[str, Any]] = []
+    for task_id in all_task_ids():
+        task = load_task(task_id)
+        if not task or not task_is_stuck(task, current_ts, stale_after):
+            continue
+        age = task_heartbeat_age_seconds(task, current_ts)
+        if int(task.get("attempt", 0)) < int(task.get("max_retries", MAX_RETRIES)):
+            remove_from_queue(task_id)
+            task["state"] = STATE_RETRY
+            task["lease_owner"] = None
+            task["lease_until"] = None
+            task["error_type"] = "task_stuck"
+            task["error"] = "supervisor requeued task after stale heartbeat"
+            task["supervisor_requeued_at"] = utc_now()
+            save_task(task)
+            task["state"] = STATE_QUEUED
+            save_task(task)
+            enqueue(task_id)
+            action = "requeued"
+        else:
+            task["state"] = STATE_DEAD
+            task["lease_until"] = None
+            task["error_type"] = "task_stuck"
+            task["error"] = "supervisor moved task to dead letter after retry budget exhausted"
+            task["supervisor_dead_lettered_at"] = utc_now()
+            save_task(task)
+            redis.command("RPUSH", key("dead_letter"), task_id)
+            action = "dead_lettered"
+        repaired.append({
+            "task_id": task_id,
+            "action": action,
+            "heartbeat_age_seconds": age,
+            "attempt": task.get("attempt"),
+            "max_retries": task.get("max_retries"),
+        })
+    return repaired
+
+
+def dead_agent_nodes(nodes: list[dict[str, Any]], current: float | None = None, dead_after: int = SUPERVISOR_AGENT_DEAD_AFTER) -> list[dict[str, Any]]:
+    current_ts = now_ts() if current is None else current
+    dead = []
+    for node in nodes:
+        classified = classify_node_freshness(node, current_ts)
+        age = classified.get("heartbeat_age_seconds")
+        if age is None or int(age) >= dead_after:
+            dead.append(classified)
+    return dead
+
+
+def open_repair_task_for_node(node_id: str) -> dict[str, Any] | None:
+    for task_id in all_task_ids():
+        task = load_task(task_id)
+        if not task or task.get("state") in TERMINAL_STATES:
+            continue
+        envelope = task.get("envelope") or {}
+        if envelope.get("kind") == "repair_dead_agent" and envelope.get("target_node") == node_id:
+            return task
+    return None
+
+
+def mark_dead_agent(node: dict[str, Any]) -> dict[str, Any]:
+    node_id = str(node.get("node_id") or "")
+    stored = get_json(node_key(node_id), {"node_id": node_id})
+    stored.update(node)
+    stored["reported_health"] = node.get("reported_health", stored.get("health"))
+    stored["health"] = "dead"
+    stored["freshness"] = "stale"
+    stored["dead_detected_at"] = utc_now()
+    set_json(node_key(node_id), stored)
+    return stored
+
+
+def dispatch_repair_task_for_dead_agent(node: dict[str, Any], current: float) -> dict[str, Any] | None:
+    node_id = str(node.get("node_id") or "")
+    if not node_id:
+        return None
+    existing = open_repair_task_for_node(node_id)
+    if existing:
+        return existing
+    bucket = int(current // max(1, SUPERVISOR_REPAIR_HORIZON_SECONDS))
+    envelope = {
+        "task_id": f"REPAIR-{node_id}-{uuid.uuid4().hex[:8]}",
+        "idempotency_key": f"supervisor:repair_dead_agent:{node_id}:{bucket}",
+        "kind": "repair_dead_agent",
+        "target_node": node_id,
+        "required_capability": "generic_implementation",
+        "objective": (
+            "Diagnose and repair the dead Kolibri agent without printing secrets. "
+            "Restore heartbeat or produce an exact rollback-safe repair command."
+        ),
+        "source": "factory_supervisor",
+        "dead_agent": {
+            "node_id": node_id,
+            "reported_health": node.get("reported_health"),
+            "heartbeat_age_seconds": node.get("heartbeat_age_seconds"),
+            "heartbeat_at": node.get("heartbeat_at"),
+        },
+        "max_retries": 1,
+        "create_review_on_complete": False,
+        "constraints": {
+            "reversible": True,
+            "secret_handling": "do_not_print_secrets",
+            "repair_scope": "dead_agent_only",
+        },
+    }
+    return create_task(envelope)
+
+
+def supervisor_owner_summary_ru(report: dict[str, Any]) -> str:
+    status = "работает" if report.get("enabled") else "выключен"
+    health = report.get("health", {})
+    dead = len(report.get("dead_agents", []))
+    dispatched = len(report.get("repair_tasks_dispatched", []))
+    requeued = len([item for item in report.get("stuck_tasks", []) if item.get("action") == "requeued"])
+    dead_lettered = len([item for item in report.get("stuck_tasks", []) if item.get("action") == "dead_lettered"])
+    cap = report.get("repair_dispatch_cap", 0)
+    return (
+        f"Супервизор фабрики {status}. "
+        f"Redis: {health.get('redis', 'unknown')}. "
+        f"Узлы: всего {health.get('nodes_total', 0)}, свежих {health.get('nodes_fresh', 0)}, "
+        f"деградировали {health.get('nodes_degraded', 0)}, мертвых {dead}. "
+        f"Ремонтные задачи: отправлено {dispatched} из лимита {cap} за цикл (потолок 50%). "
+        f"Зависшие задачи: возвращено в очередь {requeued}, dead-letter {dead_lettered}. "
+        f"Следующее действие: {report.get('next_action', 'наблюдать следующий цикл')}."
+    )
+
+
+def supervisor_cycle(*, dry_run: bool = False) -> dict[str, Any]:
+    current = now_ts()
+    pong = redis.command("PING")
+    effective_dry_run = dry_run or not SUPERVISOR_ENABLED
+    if not effective_dry_run:
+        requeue_expired_leases()
+    nodes = registered_nodes()
+    classified_nodes = [classify_node_freshness(node, current) for node in nodes]
+    counts = node_health_counts(classified_nodes)
+    dead_nodes = dead_agent_nodes(nodes, current)
+    budget = repair_dispatch_budget(len(nodes))
+    repair_tasks = []
+    if not effective_dry_run:
+        for dead_node in dead_nodes[:budget]:
+            marked = mark_dead_agent(dead_node)
+            repair_task = dispatch_repair_task_for_dead_agent(marked, current)
+            if repair_task:
+                repair_tasks.append({
+                    "task_id": repair_task["task_id"],
+                    "target_node": marked["node_id"],
+                    "state": repair_task.get("state"),
+                })
+    stuck_tasks = [] if effective_dry_run else requeue_stuck_tasks(current)
+    next_action = "continue_24_7_supervisor_loop" if SUPERVISOR_ENABLED else "supervisor disabled by FACTORY_SUPERVISOR_ENABLED"
+    if SUPERVISOR_ENABLED and dead_nodes and budget == 0:
+        next_action = "increase healthy capacity or manually approve a scoped repair because 50 percent cap prevents dispatch"
+    elif SUPERVISOR_ENABLED and dead_nodes and len(dead_nodes) > budget:
+        next_action = "next supervisor cycle will continue repair dispatch within the 50 percent cap"
+    report = {
+        "enabled": SUPERVISOR_ENABLED,
+        "dry_run": effective_dry_run,
+        "checked_at": utc_now(),
+        "health": {
+            "redis": pong,
+            "nodes_total": counts["total"],
+            "nodes_fresh": counts["fresh"],
+            "nodes_degraded": counts["degraded"],
+            "nodes_stale": counts["stale"],
+            "queue_depth": len(queue_ids()),
+        },
+        "dead_agents": [
+            {
+                "node_id": node.get("node_id"),
+                "heartbeat_age_seconds": node.get("heartbeat_age_seconds"),
+                "reported_health": node.get("reported_health"),
+            }
+            for node in dead_nodes
+        ],
+        "repair_dispatch_cap": budget,
+        "repair_dispatch_cap_ratio": SUPERVISOR_REPAIR_CAP_RATIO,
+        "repair_tasks_dispatched": repair_tasks,
+        "stuck_tasks": stuck_tasks,
+        "next_action": next_action,
+    }
+    report["owner_summary_ru"] = supervisor_owner_summary_ru(report)
+    if not effective_dry_run:
+        set_json(key("supervisor:last_report"), report)
+    return report
+
+
+def supervisor_loop() -> None:
+    while True:
+        try:
+            supervisor_cycle()
+        except Exception as exc:  # pragma: no cover - surfaced in runtime logs
+            sys.stderr.write(f"{utc_now()} supervisor_cycle_failed {exc}\n")
+        time.sleep(max(5, SUPERVISOR_INTERVAL))
 
 
 def response(handler: BaseHTTPRequestHandler, status: int, body: Any) -> None:
@@ -992,6 +1222,18 @@ class Handler(BaseHTTPRequestHandler):
                     "relay_endpoint": "/v1/fabric/relay",
                 })
                 return
+            if path == "/v1/factory/supervisor":
+                last_report = get_json(key("supervisor:last_report"), None)
+                report = supervisor_cycle(dry_run=True)
+                if last_report:
+                    report["last_mutating_cycle"] = last_report
+                response(self, 200, canonical_response_envelope(
+                    status="completed",
+                    route_used="/v1/factory/supervisor",
+                    data=report,
+                    next_action=report["next_action"],
+                ))
+                return
             if path == "/v1/fabric/keys/rotation":
                 response(self, 200, NODE_IDENTITY_ROTATION_POLICY)
                 return
@@ -1193,6 +1435,15 @@ class Handler(BaseHTTPRequestHandler):
                     "secrets_returned": False,
                 })
                 return
+            if path == "/v1/factory/supervisor/run":
+                report = supervisor_cycle()
+                response(self, 200, canonical_response_envelope(
+                    status="completed",
+                    route_used="/v1/factory/supervisor/run",
+                    data=report,
+                    next_action=report["next_action"],
+                ))
+                return
             if path == "/v1/tasks/lease":
                 requeue_expired_leases()
                 node_id = body["node_id"]
@@ -1353,7 +1604,16 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=int(os.environ.get("FACTORY_PORT", "9101")))
     args = parser.parse_args()
     server = ThreadingHTTPServer((args.bind, args.port), Handler)
-    print(json.dumps({"event": "factory_control_started", "bind": args.bind, "port": args.port, "namespace": NAMESPACE}))
+    if SUPERVISOR_ENABLED:
+        threading.Thread(target=supervisor_loop, name="factory-supervisor", daemon=True).start()
+    print(json.dumps({
+        "event": "factory_control_started",
+        "bind": args.bind,
+        "port": args.port,
+        "namespace": NAMESPACE,
+        "supervisor_enabled": SUPERVISOR_ENABLED,
+        "supervisor_repair_cap_ratio": SUPERVISOR_REPAIR_CAP_RATIO,
+    }))
     server.serve_forever()
     return 0
 
