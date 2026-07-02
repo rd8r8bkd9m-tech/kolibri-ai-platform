@@ -1,0 +1,74 @@
+{
+  "task_id": "P0_PRIMARY_NODE_HEARTBEAT_REPAIR_READONLY_2026_07_02",
+  "status": "implemented_not_deployed",
+  "node": "kolibri",
+  "execution": {
+    "host": "kolibri",
+    "agent_node_id": "mesh-agent-12",
+    "lease_owner": "mesh-agent-12:agent-host-mesh-agent-12",
+    "local_mac_execution": false
+  },
+  "live_state": {
+    "factory_control_service": "active/running",
+    "factory_control_pid": 3588876,
+    "factory_control_listener": "10.99.0.10:9101",
+    "loopback_9101": "connection_refused",
+    "primary_candidate_node": {
+      "freshness": "degraded",
+      "health": "degraded",
+      "reported_health": "online",
+      "heartbeat_at": "2026-07-02T02:27:05.482718+00:00",
+      "heartbeat_age_seconds": 81,
+      "active_task": "P0_30MIN_12AGENT_05B_RUNNER_CONTRACT_STEWARD_FALLBACK_2026_07_02"
+    },
+    "primary_candidate_active_task": {
+      "task_id": "P0_30MIN_12AGENT_05B_RUNNER_CONTRACT_STEWARD_FALLBACK_2026_07_02",
+      "state": "running",
+      "lease_owner": "primary-candidate:agent-host-primary",
+      "heartbeat_at": "2026-07-02T02:28:23.874857+00:00",
+      "heartbeat_age_seconds_at_probe": 3
+    },
+    "diagnosis": "task heartbeat refreshed independently while node heartbeat aged into degraded state; live route selection used raw online node metadata before local patch"
+  },
+  "changed_files": [
+    "ops/factory_control.py",
+    "tests/test_fabric_control.py",
+    "docs/agent/runs/2026-07-02-p0-primary-node-heartbeat-repair-readonly/PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-primary-node-heartbeat-repair-readonly/ACTIONS.md",
+    "docs/agent/runs/2026-07-02-p0-primary-node-heartbeat-repair-readonly/PROBES.md",
+    "docs/agent/runs/2026-07-02-p0-primary-node-heartbeat-repair-readonly/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-primary-node-heartbeat-repair-readonly/NEXT.md",
+    "docs/agent/runs/2026-07-02-p0-primary-node-heartbeat-repair-readonly/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-primary-node-heartbeat-repair-readonly/REMOTE_RESULT.json"
+  ],
+  "tests_run": [
+    {
+      "command": "pytest -q tests/test_factory_runtime.py tests/test_factory_runtime_contracts.py tests/test_agent_host_permission_contract.py",
+      "result": "13 passed in 0.17s"
+    },
+    {
+      "command": "pytest -q tests/test_fabric_control.py tests/test_prompt3_fabric_api_surface.py tests/test_factory_runtime.py tests/test_factory_runtime_contracts.py tests/test_agent_host_permission_contract.py",
+      "result": "25 passed in 0.21s"
+    }
+  ],
+  "restart": {
+    "performed": false,
+    "reason": "read-only preferred task; live deployment requires approved preflight and rollback artifact"
+  },
+  "safety": {
+    "secrets_printed": false,
+    "destructive_git_commands": false,
+    "force_push": false,
+    "push_to_main": false,
+    "telegram_bot_api_mutated": false
+  },
+  "required_artifacts_present": true,
+  "blockers": [
+    {
+      "id": "deploy_canary_required",
+      "reason": "checked-in fix is not live until Factory Control deployment is approved and restarted with rollback artifact"
+    }
+  ],
+  "next_action": "P0_DEPLOY_FACTORY_ROUTE_FRESHNESS_GATE_CANARY_2026_07_02"
+}
+

@@ -559,7 +559,11 @@ def fabric_route(
     required_capability: str | None = None,
     registered_nodes: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    nodes = fabric_nodes(registered_nodes)
+    current = now_ts()
+    nodes = [
+        classify_node_freshness(node, current) if node.get("heartbeat_at") else node
+        for node in fabric_nodes(registered_nodes)
+    ]
     online = [node for node in nodes if _node_online(node)]
     candidates = nodes
     if target_node:

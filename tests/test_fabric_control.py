@@ -1,5 +1,6 @@
 import importlib.machinery
 import importlib.util
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -66,6 +67,35 @@ def test_fabric_route_returns_structured_blocked_status_with_fallback_and_repair
     assert route["fallback_nodes"] == ["new"]
     assert route["fallback_route"]["endpoint"] == "/v1/fabric/relay"
     assert route["repair_task"]["kind"] == "repair_fabric_route"
+    assert route["can_continue_elsewhere"] is True
+
+
+def test_fabric_route_rejects_stale_online_target_with_fresh_fallback():
+    control = load_control()
+    now = datetime.now(timezone.utc)
+    route = control.fabric_route(
+        target_node="primary-candidate",
+        required_capability="generic_implementation",
+        registered_nodes=[
+            {
+                "node_id": "primary-candidate",
+                "health": "online",
+                "heartbeat_at": (now - timedelta(seconds=600)).isoformat(),
+                "capabilities": ["generic_implementation"],
+            },
+            {
+                "node_id": "mesh-agent-12",
+                "health": "online",
+                "heartbeat_at": now.isoformat(),
+                "capabilities": ["generic_implementation"],
+            },
+        ],
+    )
+
+    assert route["status"] == "blocked"
+    assert route["reason"] == "target_node_unavailable"
+    assert route["target_node"] == "primary-candidate"
+    assert route["fallback_nodes"] == ["mesh-agent-12"]
     assert route["can_continue_elsewhere"] is True
 
 
