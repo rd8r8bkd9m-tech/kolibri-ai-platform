@@ -62,8 +62,11 @@ FABRIC_API_VERSION = "2026-07-01"
 CANONICAL_RESPONSE_STATUSES = {"completed", "running", "blocked", "failed", "partial"}
 FALLBACK_REASON_TAXONOMY = {
     "api_unreachable",
+    "auth_down",
     "vpn_down",
     "firewall",
+    "node_degraded",
+    "node_stale",
     "disk_full",
     "auth_failed",
     "dns",
@@ -75,6 +78,9 @@ FALLBACK_REASON_TAXONOMY = {
 }
 NODE_DEGRADED_AFTER = int(os.environ.get("FACTORY_NODE_DEGRADED_AFTER", "30"))
 NODE_STALE_AFTER = int(os.environ.get("FACTORY_NODE_STALE_AFTER", "90"))
+AUTOREPAIR_DISK_MIN_FREE_BYTES = int(os.environ.get("FACTORY_AUTOREPAIR_DISK_MIN_FREE_BYTES", str(2 * 1024 * 1024 * 1024)))
+AUTOREPAIR_DISK_MIN_FREE_RATIO = float(os.environ.get("FACTORY_AUTOREPAIR_DISK_MIN_FREE_RATIO", "0.05"))
+AUTOREPAIR_MAX_RETRIES = int(os.environ.get("FACTORY_AUTOREPAIR_MAX_RETRIES", "1"))
 
 STATE_QUEUED = "queued"
 STATE_LEASED = "leased"
@@ -358,10 +364,11 @@ def all_task_ids() -> list[str]:
 
 def registered_nodes() -> list[dict[str, Any]]:
     nodes = []
+    current = now_ts()
     for node_id in sorted(redis.command("SMEMBERS", key("node_ids")) or []):
         node = get_json(node_key(node_id), {})
         node["draining"] = bool(redis.command("GET", drain_key(node_id)))
-        nodes.append(node)
+        nodes.append(classify_node_freshness(node, current))
     return nodes
 
 
@@ -530,8 +537,73 @@ def fabric_blocked_envelope(
     }
 
 
+def _safe_slug(value: Any) -> str:
+    text = str(value or "unknown").strip().lower()
+    return "".join(char if char.isalnum() else "-" for char in text).strip("-") or "unknown"
+
+
+def disk_repair_reason(node: dict[str, Any]) -> str | None:
+    disk = node.get("disk")
+    if not isinstance(disk, dict):
+        return None
+    try:
+        free = int(disk.get("free") or 0)
+        total = int(disk.get("total") or 0)
+    except (TypeError, ValueError):
+        return None
+    if free <= 0:
+        return "disk_full"
+    if free < AUTOREPAIR_DISK_MIN_FREE_BYTES:
+        return "disk_full"
+    if total > 0 and (free / total) < AUTOREPAIR_DISK_MIN_FREE_RATIO:
+        return "disk_full"
+    return None
+
+
+def auth_repair_reason(node: dict[str, Any]) -> str | None:
+    auth_status = str(node.get("auth_status") or node.get("auth") or "").strip().lower()
+    if auth_status in {"down", "failed", "blocked", "unauthorized", "forbidden", "expired"}:
+        return "auth_failed"
+    runners = node.get("runners") if isinstance(node.get("runners"), dict) else {}
+    for runner_name, runner in runners.items():
+        status = ""
+        error_type = ""
+        if isinstance(runner, dict):
+            status = str(runner.get("status") or "").strip().lower()
+            error_type = str(runner.get("error_type") or "").strip().lower()
+        else:
+            status = str(runner).strip().lower()
+        if status in {"auth_down", "auth_failed", "blocked", "runner_auth_blocked"} or error_type == "runner_auth_blocked":
+            return "auth_failed"
+        if "auth" in status and status not in {"available", "ok", "online"}:
+            return "auth_failed"
+        if runner_name and "auth" in error_type:
+            return "auth_failed"
+    return None
+
+
+def node_repair_reasons(node: dict[str, Any]) -> list[str]:
+    reasons: list[str] = []
+    health = str(node.get("health") or "").strip().lower()
+    freshness = str(node.get("freshness") or "").strip().lower()
+    reported_health = str(node.get("reported_health") or "").strip().lower()
+    if freshness == "stale" or health == "stale":
+        reasons.append("node_stale")
+    elif freshness == "degraded" or health == "degraded" or reported_health == "degraded":
+        reasons.append("node_degraded")
+    if health in {"offline", "down", "unreachable", "api_unreachable"}:
+        reasons.append("api_unreachable")
+    disk_reason = disk_repair_reason(node)
+    if disk_reason:
+        reasons.append(disk_reason)
+    auth_reason = auth_repair_reason(node)
+    if auth_reason:
+        reasons.append(auth_reason)
+    return sorted(set(reasons))
+
+
 def _node_online(node: dict[str, Any]) -> bool:
-    return node.get("health") == "online"
+    return node.get("health") == "online" and node.get("freshness", "fresh") == "fresh"
 
 
 def fabric_nodes(registered_nodes: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
@@ -545,6 +617,8 @@ def fabric_nodes(registered_nodes: list[dict[str, Any]] | None = None) -> list[d
         catalog.setdefault("display_name", registered.get("hostname") or node_id)
         catalog.setdefault("api_paths", ["fabric_api", "fallback_relay"])
         catalog["ssh"] = "emergency_bootstrap_diagnostic_only"
+        if catalog.get("heartbeat_at") or catalog.get("freshness"):
+            catalog = classify_node_freshness(catalog)
         merged[node_id] = catalog
     for node in merged.values():
         node.setdefault("health", "unknown")
@@ -590,13 +664,99 @@ def fabric_route(
         reason=reason,
         target_node=target_node,
         fallback_nodes=fallback_nodes,
-        repair_task={
+        repair_task=autorepair_task_preview(
+            {"node_id": target_node, "health": "unavailable"},
+            reason=reason,
+            required_capability=required_capability,
+            fallback_nodes=fallback_nodes,
+        ) if target_node else {
             "kind": "repair_fabric_route",
             "target_node": target_node,
             "required_capability": required_capability,
             "action": "register node heartbeat, clear drain state, or choose a fallback node via Fabric API",
         },
     )
+
+
+def fallback_nodes_for_repair(
+    target_node: str | None,
+    nodes: list[dict[str, Any]],
+    required_capability: str | None = None,
+) -> list[str]:
+    healthy = [node for node in nodes if _node_online(node) and not node.get("draining") and node.get("node_id") != target_node]
+    preferred = [
+        node["node_id"]
+        for node in healthy
+        if required_capability is None or required_capability in (node.get("capabilities") or [])
+    ]
+    if preferred:
+        return preferred
+    return [node["node_id"] for node in healthy]
+
+
+def autorepair_task_preview(
+    node: dict[str, Any],
+    *,
+    reason: str,
+    required_capability: str | None = None,
+    fallback_nodes: list[str] | None = None,
+) -> dict[str, Any]:
+    node_id = str(node.get("node_id") or "unknown")
+    task_id = f"AUTOREPAIR-{_safe_slug(node_id).upper()}-{_safe_slug(reason).upper()}"
+    return {
+        "task_id": task_id,
+        "idempotency_key": f"autorepair:{node_id}:{reason}",
+        "kind": "owner_remote_task",
+        "required_capability": required_capability or "generic_implementation",
+        "allowed_nodes": fallback_nodes or [],
+        "avoid_nodes": [node_id],
+        "target_repair_node": node_id,
+        "repair_reason": reason,
+        "fallback_route": {
+            "type": "fabric_api_relay",
+            "endpoint": "/v1/fabric/relay",
+            "fallback_nodes": fallback_nodes or [],
+        },
+        "objective": (
+            f"Repair Kolibri node {node_id} for reason {reason}. "
+            "Use only scoped diagnostics and API-safe operations, do not print secrets, "
+            "restore heartbeat/runner readiness where possible, and report rollback or hard blocker."
+        ),
+        "constraints": {
+            "scope": "repair target node health only",
+            "target_node": node_id,
+            "reason": reason,
+            "no_secrets": True,
+            "fallback_required": True,
+        },
+        "max_retries": AUTOREPAIR_MAX_RETRIES,
+        "source": "factory_control_autorepair",
+    }
+
+
+def ensure_autorepair_tasks_for_nodes(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    enqueued: list[dict[str, Any]] = []
+    for node in nodes:
+        node_id = str(node.get("node_id") or "")
+        if not node_id:
+            continue
+        fallback_nodes = fallback_nodes_for_repair(node_id, nodes, "generic_implementation")
+        for reason in node_repair_reasons(node):
+            envelope = autorepair_task_preview(
+                node,
+                reason=reason,
+                required_capability="generic_implementation",
+                fallback_nodes=fallback_nodes,
+            )
+            task = create_task(envelope)
+            enqueued.append({
+                "task_id": task["task_id"],
+                "state": task.get("state"),
+                "target_repair_node": node_id,
+                "repair_reason": reason,
+                "fallback_nodes": fallback_nodes,
+            })
+    return enqueued
 
 
 def save_task(task: dict[str, Any]) -> None:
@@ -908,14 +1068,16 @@ class Handler(BaseHTTPRequestHandler):
                     node["draining"] = bool(redis.command("GET", drain_key(node_id)))
                     nodes.append(classify_node_freshness(node, current))
                 counts = node_health_counts(nodes)
-                response(self, 200, {"nodes": nodes, "counts": counts, "freshness": counts})
+                repair_tasks = ensure_autorepair_tasks_for_nodes(nodes)
+                response(self, 200, {"nodes": nodes, "counts": counts, "freshness": counts, "autorepair_tasks": repair_tasks})
                 return
             if path == "/v1/fleet/nodes":
                 nodes = fabric_nodes(registered_nodes())
+                repair_tasks = ensure_autorepair_tasks_for_nodes(nodes)
                 response(self, 200, canonical_response_envelope(
                     status="completed",
                     route_used="/v1/fleet/nodes",
-                    data={"nodes": nodes},
+                    data={"nodes": nodes, "autorepair_tasks": repair_tasks},
                     next_action="select a target node or ask /v1/fleet/route for a safe route",
                 ))
                 return
@@ -930,11 +1092,17 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path == "/v1/fleet/route":
                 query = parse_qs(parsed.query)
+                registered = registered_nodes()
                 route = fabric_route(
                     target_node=query.get("target_node", [None])[0],
                     required_capability=query.get("required_capability", [None])[0],
-                    registered_nodes=registered_nodes(),
+                    registered_nodes=registered,
                 )
+                repair_tasks = []
+                if route.get("status") != "ok" and route.get("target_node"):
+                    target = next((node for node in fabric_nodes(registered) if node.get("node_id") == route.get("target_node")), None)
+                    if target:
+                        repair_tasks = ensure_autorepair_tasks_for_nodes([target] + [node for node in fabric_nodes(registered) if node.get("node_id") != route.get("target_node")])
                 status = "completed" if route.get("status") == "ok" else "blocked"
                 response(self, 200 if status == "completed" else 503, canonical_response_envelope(
                     status=status,
@@ -943,7 +1111,7 @@ class Handler(BaseHTTPRequestHandler):
                     fallback_nodes=route.get("fallback_nodes", []),
                     blocked_reason=route.get("reason", ""),
                     repair_task=route.get("repair_task", ""),
-                    data=route,
+                    data={**route, "autorepair_tasks": repair_tasks},
                     next_action="dispatch via /v1/agents/tasks" if status == "completed" else "choose a fallback node or run the repair task",
                 ))
                 return

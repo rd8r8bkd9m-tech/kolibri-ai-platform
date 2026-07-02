@@ -137,3 +137,112 @@ def test_control_plane_runner_compatibility_filters_blocked_and_avoided_nodes():
         ["generic_implementation", "runner:mimo"],
         {"runners": {"mimo": {"status": "available"}}},
     ) is False
+
+
+def test_autorepair_classifies_stale_disk_and_auth_failures():
+    control = load_module(ROOT / "ops" / "factory_control.py")
+    now = datetime.now(timezone.utc)
+    stale = control.classify_node_freshness(
+        {
+            "node_id": "stale-worker",
+            "health": "online",
+            "heartbeat_at": (now - timedelta(seconds=600)).isoformat(),
+        },
+        now.timestamp(),
+    )
+    disk_full = control.classify_node_freshness(
+        {
+            "node_id": "disk-worker",
+            "health": "online",
+            "heartbeat_at": now.isoformat(),
+            "disk": {"free": 1024, "total": 100 * 1024 * 1024 * 1024},
+        },
+        now.timestamp(),
+    )
+    auth_down = control.classify_node_freshness(
+        {
+            "node_id": "auth-worker",
+            "health": "online",
+            "heartbeat_at": now.isoformat(),
+            "runners": {"mimo": {"status": "blocked", "error_type": "runner_auth_blocked"}},
+        },
+        now.timestamp(),
+    )
+
+    assert control.node_repair_reasons(stale) == ["node_stale"]
+    assert control.node_repair_reasons(disk_full) == ["disk_full"]
+    assert control.node_repair_reasons(auth_down) == ["auth_failed"]
+
+
+def test_autorepair_enqueues_scoped_idempotent_task_with_fallback(monkeypatch):
+    control = load_module(ROOT / "ops" / "factory_control.py")
+    now = datetime.now(timezone.utc)
+    broken = control.classify_node_freshness(
+        {
+            "node_id": "qjns",
+            "health": "online",
+            "heartbeat_at": (now - timedelta(seconds=600)).isoformat(),
+            "capabilities": ["review"],
+        },
+        now.timestamp(),
+    )
+    healthy = control.classify_node_freshness(
+        {
+            "node_id": "primary-candidate",
+            "health": "online",
+            "heartbeat_at": now.isoformat(),
+            "capabilities": ["generic_implementation", "implementation"],
+        },
+        now.timestamp(),
+    )
+    created = []
+
+    def fake_create_task(envelope):
+        created.append(envelope)
+        task = control.normalize_task(envelope)
+        task["state"] = control.STATE_QUEUED
+        return task
+
+    monkeypatch.setattr(control, "create_task", fake_create_task)
+    repair_tasks = control.ensure_autorepair_tasks_for_nodes([broken, healthy])
+
+    assert len(repair_tasks) == 1
+    assert repair_tasks[0]["target_repair_node"] == "qjns"
+    assert repair_tasks[0]["repair_reason"] == "node_stale"
+    assert repair_tasks[0]["fallback_nodes"] == ["primary-candidate"]
+    assert created[0]["kind"] == "owner_remote_task"
+    assert created[0]["idempotency_key"] == "autorepair:qjns:node_stale"
+    assert created[0]["allowed_nodes"] == ["primary-candidate"]
+    assert created[0]["avoid_nodes"] == ["qjns"]
+    assert created[0]["fallback_route"]["endpoint"] == "/v1/fabric/relay"
+    assert created[0]["constraints"]["no_secrets"] is True
+
+
+def test_fabric_route_blocks_stale_target_and_returns_fallback_repair():
+    control = load_module(ROOT / "ops" / "factory_control.py")
+    now = datetime.now(timezone.utc)
+    route = control.fabric_route(
+        target_node="qjns",
+        required_capability="review",
+        registered_nodes=[
+            {
+                "node_id": "qjns",
+                "health": "online",
+                "heartbeat_at": (now - timedelta(seconds=600)).isoformat(),
+                "capabilities": ["review"],
+            },
+            {
+                "node_id": "new",
+                "health": "online",
+                "heartbeat_at": now.isoformat(),
+                "capabilities": ["review", "generic_implementation"],
+            },
+        ],
+    )
+
+    assert route["status"] == "blocked"
+    assert route["reason"] == "target_node_unavailable"
+    assert route["fallback_nodes"] == ["new"]
+    assert route["repair_task"]["kind"] == "owner_remote_task"
+    assert route["repair_task"]["target_repair_node"] == "qjns"
+    assert route["repair_task"]["allowed_nodes"] == ["new"]
