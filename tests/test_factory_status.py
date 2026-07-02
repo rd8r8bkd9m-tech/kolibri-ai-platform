@@ -19,6 +19,7 @@ def test_build_factory_status_normalizes_control_plane_nodes():
                 "agent_id": "agent-host-primary",
                 "pid": 120138,
                 "capabilities": ["primary", "implementation", "review"],
+                "max_inflight": 200,
                 "cpu": 8,
                 "ram": {"MemTotal": "12247028 kB", "MemAvailable": "11510364 kB"},
                 "disk": {"free": 94581936128, "total": 105590231040},
@@ -37,6 +38,9 @@ def test_build_factory_status_normalizes_control_plane_nodes():
     assert result["queue_size"] == 2
     assert result["nodes"]["primary-candidate"]["role"] == "Директор"
     assert result["nodes"]["primary-candidate"]["ram_total_gb"] > 0
+    assert result["nodes"]["primary-candidate"]["agent_pool"]["configured_agents"] == 20
+    assert result["mimo_capacity"]["configured_agents"] == 21
+    assert result["mimo_capacity"]["available_agents"] == 20
     assert result["control_plane"]["status"] == "ok"
 
 

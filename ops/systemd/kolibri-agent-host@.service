@@ -1,14 +1,15 @@
 [Unit]
-Description=Kolibri persistent Agent Host
+Description=Kolibri Agent Host MIMO pool slot %i
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
 EnvironmentFile=/etc/kolibri-agent-host.env
+Environment=KOLIBRI_AGENT_SLOT=%i
 Environment=KOLIBRI_MIMO_MAX_AGENTS_PER_SERVER=20
 Environment=KOLIBRI_MAX_INFLIGHT=1
-ExecStart=/usr/local/bin/kolibri-agent-host
+ExecStart=/usr/local/bin/kolibri-agent-host --agent-id ${KOLIBRI_AGENT_ID}-%i --max-inflight ${KOLIBRI_MAX_INFLIGHT}
 Restart=always
 RestartSec=5
 KillSignal=SIGTERM

@@ -51,6 +51,7 @@ for ops_path in reversed(factory_ops_import_paths()):
     if ops_path.exists() and str(ops_path) not in sys.path:
         sys.path.insert(0, str(ops_path))
 from telegram_superfactory import plan_update_receiver, runner_policy, select_runner, validate_telegram_init_data
+from mimo_pool_policy import node_pool_status, pool_policy
 
 
 NAMESPACE = os.environ.get("FACTORY_NAMESPACE", "kolibri_factory")
@@ -163,6 +164,11 @@ BOOTSTRAP_CONTRACT = {
     "purpose": "register a new server through the protected Fabric API without printing secrets",
     "required_fields": ["node_id", "role", "display_name", "capabilities", "requested_by"],
     "safe_stub": True,
+    "agent_pool": {
+        "default_max_agents_per_server": 20,
+        "service_template": "ops/systemd/kolibri-agent-host@.service",
+        "helper": "ops/kolibri-agent-pool",
+    },
     "result": "returns bootstrap task metadata and next API action; privileged installers remain external until authenticated",
 }
 
@@ -337,6 +343,7 @@ def classify_node_freshness(node: dict[str, Any], current: float | None = None) 
         classified["health"] = observed_health
     else:
         classified["health"] = freshness
+    classified["agent_pool"] = node_pool_status(classified)
     return classified
 
 
@@ -550,6 +557,7 @@ def fabric_nodes(registered_nodes: list[dict[str, Any]] | None = None) -> list[d
         node.setdefault("health", "unknown")
         node.setdefault("fallback_api_relay", "/v1/fabric/relay")
         node.setdefault("management_path", "protected_fabric_api")
+        node["agent_pool"] = node_pool_status(node)
     return sorted(merged.values(), key=lambda item: item["node_id"])
 
 
@@ -843,6 +851,7 @@ def superfactory_status() -> dict[str, Any]:
             "conflict": receiver.conflict,
         },
         "runner_policy": runner_policy(),
+        "mimo_pool_policy": pool_policy(),
         "nodes": nodes,
         "task_counts": counts,
         "queue": queue_ids(),
@@ -982,6 +991,7 @@ class Handler(BaseHTTPRequestHandler):
                     "owner_rights": OWNER_RIGHTS_POLICY,
                     "node_identity": NODE_IDENTITY_ROTATION_POLICY,
                     "bootstrap": BOOTSTRAP_CONTRACT,
+                    "mimo_pool": pool_policy(),
                 })
                 return
             if path == "/v1/fabric/routes":
@@ -1083,7 +1093,10 @@ class Handler(BaseHTTPRequestHandler):
                     "ram": body.get("ram"),
                     "disk": body.get("disk"),
                     "agent_id": body.get("agent_id"),
+                    "max_inflight": body.get("max_inflight"),
+                    "pool_policy": body.get("pool_policy") or pool_policy(),
                 }
+                node["agent_pool"] = node_pool_status(node)
                 set_json(node_key(node_id), node)
                 redis.command("SADD", key("node_ids"), node_id)
                 response(self, 200, node)
@@ -1094,6 +1107,8 @@ class Handler(BaseHTTPRequestHandler):
                 node.update(body)
                 node["health"] = "online"
                 node["heartbeat_at"] = utc_now()
+                node["pool_policy"] = node.get("pool_policy") or pool_policy()
+                node["agent_pool"] = node_pool_status(node)
                 set_json(node_key(node_id), node)
                 redis.command("SADD", key("node_ids"), node_id)
                 response(self, 200, node)

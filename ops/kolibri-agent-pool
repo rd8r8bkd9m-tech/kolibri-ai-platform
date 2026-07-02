@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ACTION="${1:-status}"
+COUNT="${2:-20}"
+UNIT_PREFIX="kolibri-agent-host@"
+
+case "${ACTION}" in
+  start|stop|restart|status)
+    ;;
+  *)
+    echo "usage: $0 {start|stop|restart|status} [count<=20]" >&2
+    exit 2
+    ;;
+esac
+
+if ! [[ "${COUNT}" =~ ^[0-9]+$ ]] || [[ "${COUNT}" -lt 1 ]] || [[ "${COUNT}" -gt 20 ]]; then
+  echo "count_must_be_1_to_20" >&2
+  exit 2
+fi
+
+for slot in $(seq 1 "${COUNT}"); do
+  unit="${UNIT_PREFIX}${slot}.service"
+  case "${ACTION}" in
+    status)
+      systemctl --no-pager --lines=0 status "${unit}" || true
+      ;;
+    *)
+      systemctl "${ACTION}" "${unit}"
+      ;;
+  esac
+done

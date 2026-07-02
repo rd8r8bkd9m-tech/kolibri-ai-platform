@@ -22,6 +22,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+CURRENT_DIR = Path(__file__).resolve().parent
+if str(CURRENT_DIR) not in sys.path:
+    sys.path.insert(0, str(CURRENT_DIR))
+
+from mimo_pool_policy import clamp_agent_capacity, node_pool_status, pool_policy
+
 
 STOP = False
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
@@ -898,7 +904,8 @@ class AgentHost:
         self.artifact_root = Path(args.artifact_root)
         self.heartbeat_interval = args.heartbeat_interval
         self.lease_refresh = args.lease_refresh
-        self.max_inflight = args.max_inflight
+        self.max_inflight = clamp_agent_capacity(args.max_inflight)
+        self.pool_policy = pool_policy()
         self.hostname = platform.node()
         self.pid = os.getpid()
         self.runner_status = self.detect_runner_status()
@@ -968,6 +975,12 @@ class AgentHost:
             "pid": self.pid,
             "capabilities": self.capabilities,
             "runners": self.runner_status,
+            "max_inflight": self.max_inflight,
+            "agent_pool": node_pool_status({
+                "health": "online",
+                "max_inflight": self.max_inflight,
+            }),
+            "pool_policy": self.pool_policy,
             **machine_stats(),
         }
         self.post("/v1/nodes/register", body)
@@ -981,6 +994,13 @@ class AgentHost:
             "capabilities": self.capabilities,
             "runners": self.runner_status,
             "active_task": active_task,
+            "max_inflight": self.max_inflight,
+            "agent_pool": node_pool_status({
+                "health": "online",
+                "max_inflight": self.max_inflight,
+                "active_task": active_task,
+            }),
+            "pool_policy": self.pool_policy,
             **machine_stats(),
         }
         self.post(f"/v1/nodes/{self.node_id}/heartbeat", body)
@@ -1001,6 +1021,8 @@ class AgentHost:
             "agent_id": self.agent_id,
             "capabilities": self.capabilities,
             "runners": self.runner_status,
+            "max_inflight": self.max_inflight,
+            "pool_policy": self.pool_policy,
         })
         return sanitize_task_permissions(task) if isinstance(task, dict) else task
 

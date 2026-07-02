@@ -1,10 +1,21 @@
 from __future__ import annotations
 
 import os
+import sys
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
-import httpx
+try:
+    import httpx
+except ModuleNotFoundError:  # pragma: no cover - exercised when runtime deps are absent in minimal test envs
+    httpx = None
+
+OPS_DIR = Path(__file__).resolve().parents[1] / "ops"
+if str(OPS_DIR) not in sys.path:
+    sys.path.insert(0, str(OPS_DIR))
+
+from mimo_pool_policy import node_pool_status, pool_policy
 
 CONTROL_PLANE_URL = os.getenv("KOLIBRI_FACTORY_CONTROL_URL", "http://control.kolibri.internal:9101")
 NODE_DEGRADED_AFTER = int(os.getenv("FACTORY_NODE_DEGRADED_AFTER", "30"))
@@ -143,6 +154,11 @@ def _node_card(node: dict[str, Any], generated_at: str | None = None) -> dict[st
         "capabilities": capabilities,
         "heartbeat_at": node.get("heartbeat_at"),
         "active_task": node.get("active_task"),
+        "agent_pool": node_pool_status({
+            **node,
+            "health": status,
+            "freshness": freshness,
+        }),
     }
 
 
@@ -179,6 +195,12 @@ def build_factory_status(nodes_payload: Any, tasks_payload: Any | None = None, h
         "status": "online" if online_nodes else "degraded",
         "source": "control-plane",
         "generated_at": generated_at,
+        "mimo_pool_policy": pool_policy(),
+        "mimo_capacity": {
+            "configured_agents": sum((node.get("agent_pool") or {}).get("configured_agents", 0) for node in node_list),
+            "available_agents": sum((node.get("agent_pool") or {}).get("available_agents", 0) for node in node_list),
+            "max_agents_per_server": pool_policy()["max_agents_per_server"],
+        },
         "control_plane": {
             "url": CONTROL_PLANE_URL,
             "status": (health_payload or {}).get("status", "unknown"),
@@ -212,6 +234,8 @@ def build_factory_status(nodes_payload: Any, tasks_payload: Any | None = None, h
 
 
 async def fetch_factory_status() -> dict[str, Any]:
+    if httpx is None:
+        raise RuntimeError("httpx is required to fetch live factory status")
     async with httpx.AsyncClient(timeout=httpx.Timeout(4.0, connect=2.0)) as client:
         health_response = await client.get(_control_plane_v1_url("/health"))
         nodes_response = await client.get(_control_plane_v1_url("/nodes"))
