@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Outlet, useLocation, NavLink, useNavigate } from 'react-router'
 import {
   MessageSquare,
@@ -40,6 +40,7 @@ interface LayoutProps {
 
 export interface LayoutOutletContext {
   openSearch: () => void
+  user: AuthUser | null
 }
 
 export default function Layout({ user, onLogout }: LayoutProps) {
@@ -48,6 +49,8 @@ export default function Layout({ user, onLogout }: LayoutProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [recentItems, setRecentItems] = useState<LibraryItem[]>([])
+  const mobileMenuRef = useRef<HTMLElement>(null)
+  const restoreFocusRef = useRef<HTMLElement | null>(null)
 
   // Load recent items
   useEffect(() => {
@@ -56,10 +59,41 @@ export default function Layout({ user, onLogout }: LayoutProps) {
 
   useEffect(() => {
     if (!mobileMenuOpen) return
+    restoreFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const previousOverflow = document.body.style.overflow
+    const focusMenu = window.setTimeout(() => {
+      const first = mobileMenuRef.current?.querySelector<HTMLElement>('button, a[href], [tabindex]:not([tabindex="-1"])')
+      first?.focus()
+    }, 0)
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setMobileMenuOpen(false)
+        return
+      }
+      if (event.key !== 'Tab') return
+      const focusables = Array.from(mobileMenuRef.current?.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ) || []).filter(el => !el.hasAttribute('disabled') && el.tabIndex !== -1)
+      if (focusables.length === 0) return
+      const first = focusables[0]
+      const last = focusables[focusables.length - 1]
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
     document.body.style.overflow = 'hidden'
+    window.addEventListener('keydown', handleKeyDown)
     return () => {
+      window.clearTimeout(focusMenu)
       document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', handleKeyDown)
+      restoreFocusRef.current?.focus()
+      restoreFocusRef.current = null
     }
   }, [mobileMenuOpen])
 
@@ -265,6 +299,7 @@ export default function Layout({ user, onLogout }: LayoutProps) {
             onClick={() => setMobileMenuOpen(false)}
           />
           <aside
+            ref={mobileMenuRef}
             id="kolibri-mobile-menu"
             role="dialog"
             aria-modal="true"
@@ -411,7 +446,7 @@ export default function Layout({ user, onLogout }: LayoutProps) {
 
       {/* ===== MAIN CONTENT ===== */}
       <main className={`h-full flex-1 pt-[var(--mobile-header-height)] md:pt-0 ${isChat ? 'overflow-hidden' : 'overflow-y-auto'}`}>
-        <Outlet context={{ openSearch } satisfies LayoutOutletContext} />
+        <Outlet context={{ openSearch, user: user ?? null } satisfies LayoutOutletContext} />
       </main>
 
       <SearchModal open={searchOpen} onClose={() => setSearchOpen(false)} />

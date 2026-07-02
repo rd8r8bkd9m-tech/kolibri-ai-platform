@@ -13,13 +13,19 @@ export default function SearchModal({ open, onClose }: SearchModalProps) {
   const [results, setResults] = useState<SearchResult[]>([])
   const [loading, setLoading] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const restoreFocusRef = useRef<HTMLElement | null>(null)
   const navigate = useNavigate()
 
   useEffect(() => {
     if (open) {
+      restoreFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
       setQuery('')
       setResults([])
       setTimeout(() => inputRef.current?.focus(), 100)
+    } else {
+      restoreFocusRef.current?.focus()
+      restoreFocusRef.current = null
     }
   }, [open])
 
@@ -27,7 +33,24 @@ export default function SearchModal({ open, onClose }: SearchModalProps) {
     if (!open) return
     const previousOverflow = document.body.style.overflow
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        onClose()
+      }
+      if (event.key !== 'Tab') return
+      const focusables = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ) || []).filter(el => !el.hasAttribute('disabled') && el.tabIndex !== -1)
+      if (focusables.length === 0) return
+      const first = focusables[0]
+      const last = focusables[focusables.length - 1]
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
     }
     document.body.style.overflow = 'hidden'
     window.addEventListener('keydown', handleKeyDown)
@@ -68,6 +91,7 @@ export default function SearchModal({ open, onClose }: SearchModalProps) {
       role="presentation"
     >
       <div
+        ref={dialogRef}
         className="max-h-[min(82dvh,640px)] w-full overflow-hidden rounded-t-[28px] border border-white/20 bg-[var(--bg-primary)]/95 shadow-2xl backdrop-blur-xl sm:max-w-[560px] sm:rounded-[var(--radius-xl)]"
         onClick={e => e.stopPropagation()}
         role="dialog"
@@ -81,8 +105,8 @@ export default function SearchModal({ open, onClose }: SearchModalProps) {
             ref={inputRef}
             value={query}
             onChange={e => setQuery(e.target.value)}
-            placeholder="Поиск по сметам, документам, позициям..."
-            className="min-h-11 flex-1 bg-transparent text-[14px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-tertiary)]"
+            placeholder="Поиск"
+            className="min-h-11 min-w-0 flex-1 bg-transparent text-[14px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-tertiary)]"
           />
           <button onClick={onClose} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]" aria-label="Закрыть поиск">
             <X size={16} />

@@ -41,6 +41,8 @@ const WELCOME_SUGGESTIONS = [
   'Сгенерировать техническое задание',
 ]
 
+const CHAT_TIMEOUT_MS = 20000
+
 function readInitialPrompt() {
   const stored = sessionStorage.getItem('kolibri_initial_prompt')
   if (stored) return stored
@@ -60,6 +62,7 @@ export default function ChatPage() {
   const [input, setInput] = useState('')
   const [focused, setFocused] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [lastFailedPrompt, setLastFailedPrompt] = useState('')
   const [birdState, setBirdState] = useState<BirdState>('idle')
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -68,6 +71,7 @@ export default function ChatPage() {
   const handleNewChat = () => {
     setMessages([])
     setInput('')
+    setLastFailedPrompt('')
     setBirdState('idle')
   }
 
@@ -91,12 +95,15 @@ export default function ChatPage() {
     const userMsg: Message = { id: createMessageId(), role: 'user', content: text, timestamp: new Date() }
     setMessages(prev => [...prev, userMsg])
     setInput('')
+    setLastFailedPrompt('')
     setLoading(true)
     setBirdState('thinking')
 
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => controller.abort(), CHAT_TIMEOUT_MS)
     try {
       const allMessages = [...messages, userMsg].map(m => ({ role: m.role, content: m.content }))
-      const res = await chat.send(allMessages)
+      const res = await chat.send(allMessages, controller.signal)
       const assistantMsg: Message = {
         id: createMessageId(),
         role: 'assistant',
@@ -108,17 +115,22 @@ export default function ChatPage() {
       setMessages(prev => [...prev, assistantMsg])
       setBirdState(res.actions?.length ? 'success' : 'ready')
       setTimeout(() => setBirdState('idle'), 2000)
-    } catch {
+    } catch (error) {
+      const timedOut = error instanceof DOMException && error.name === 'AbortError'
       const errMsg: Message = {
         id: createMessageId(),
         role: 'assistant',
-        content: 'Произошла ошибка при обращении к серверу. Попробуйте ещё раз.',
+        content: timedOut
+          ? 'Ответ занимает слишком много времени. Соединение остановлено, можно повторить запрос.'
+          : 'Произошла ошибка при обращении к серверу. Попробуйте ещё раз.',
         timestamp: new Date(),
       }
       setMessages(prev => [...prev, errMsg])
+      setLastFailedPrompt(text)
       setBirdState('error')
       setTimeout(() => setBirdState('idle'), 2000)
     } finally {
+      window.clearTimeout(timeout)
       setLoading(false)
     }
   }, [messages, loading])
@@ -213,7 +225,21 @@ export default function ChatPage() {
             {loading && (
               <div className="flex gap-3 px-4 py-3 bg-[var(--bg-secondary)]">
                 <StatusBird state={birdState} size="sm" />
-                <p className="text-[14px] text-[var(--text-tertiary)]">Думаю...</p>
+                <div className="min-w-0">
+                  <p className="text-[14px] text-[var(--text-tertiary)]">Думаю...</p>
+                  <p className="text-[12px] text-[var(--text-tertiary)]">Если сервер не ответит, запрос остановится автоматически.</p>
+                </div>
+              </div>
+            )}
+            {!loading && lastFailedPrompt && (
+              <div className="px-4 py-3">
+                <button
+                  type="button"
+                  onClick={() => handleSendMessage(lastFailedPrompt)}
+                  className="min-h-11 rounded-[var(--radius-md)] border border-[var(--border-subtle)] px-4 text-[14px] font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                >
+                  Повторить запрос
+                </button>
               </div>
             )}
             <div ref={bottomRef} />
@@ -242,10 +268,10 @@ export default function ChatPage() {
             />
             <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between">
               <div className="flex items-center gap-1">
-                <button type="button" title="Скоро" className="w-8 h-8 flex items-center justify-center rounded-[var(--radius-md)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors opacity-50 cursor-not-allowed">
+                <button type="button" title="Скоро" className="flex h-11 w-11 items-center justify-center rounded-[var(--radius-md)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors opacity-50 cursor-not-allowed">
                   <Paperclip size={18} strokeWidth={1.8} />
                 </button>
-                <button type="button" title="Скоро" className="w-8 h-8 flex items-center justify-center rounded-[var(--radius-md)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors opacity-50 cursor-not-allowed">
+                <button type="button" title="Скоро" className="flex h-11 w-11 items-center justify-center rounded-[var(--radius-md)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors opacity-50 cursor-not-allowed">
                   <Mic size={18} strokeWidth={1.8} />
                 </button>
               </div>
@@ -254,7 +280,7 @@ export default function ChatPage() {
                 onClick={() => handleSendMessage(input)}
                 disabled={!input.trim() || loading}
                 aria-label="Отправить"
-                className={`w-8 h-8 flex items-center justify-center rounded-full transition-all ${
+                className={`flex h-11 w-11 items-center justify-center rounded-full transition-all ${
                   input.trim() && !loading ? 'bg-[var(--accent-teal)] text-white hover:bg-[var(--accent-teal-hover)]' : 'bg-[var(--bg-elevated)] text-[var(--text-tertiary)]'
                 }`}
               >

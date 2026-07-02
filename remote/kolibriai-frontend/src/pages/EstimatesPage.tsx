@@ -16,9 +16,10 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
-import { useSearchParams } from 'react-router'
-import { ai, estimates, health, type Estimate, type Position, type Section } from '@/lib/api'
+import { useNavigate, useOutletContext, useSearchParams } from 'react-router'
+import { ai, estimates, getAuthToken, health, type Estimate, type Position, type Section } from '@/lib/api'
 import { formatDate, formatNum } from '@/lib/utils'
+import type { LayoutOutletContext } from '@/components/Layout'
 
 const statusLabels: Record<string, { text: string; className: string }> = {
   draft: { text: 'Черновик', className: 'bg-slate-100 text-slate-600' },
@@ -63,6 +64,9 @@ export default function EstimatesPage() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [aiResult, setAiResult] = useState<string | null>(null)
   const [aiLoading, setAiLoading] = useState(false)
+  const navigate = useNavigate()
+  const { user } = useOutletContext<LayoutOutletContext>()
+  const isUnauthenticated = !user && !getAuthToken()
 
   const totals = useMemo(() => {
     if (!current) return { positions: 0, sections: 0, localSubtotal: 0 }
@@ -91,6 +95,10 @@ export default function EstimatesPage() {
   }, [])
 
   const loadList = useCallback(async () => {
+    if (isUnauthenticated) {
+      setLoading(false)
+      return
+    }
     setLoading(true)
     try {
       const data = await estimates.list({ search: search || undefined, page_size: 50 })
@@ -102,14 +110,18 @@ export default function EstimatesPage() {
     } finally {
       setLoading(false)
     }
-  }, [search])
+  }, [isUnauthenticated, search])
 
-  useEffect(() => { pingBackend() }, [pingBackend])
+  useEffect(() => {
+    if (isUnauthenticated) return
+    pingBackend()
+  }, [isUnauthenticated, pingBackend])
   useEffect(() => { loadList() }, [loadList])
   useEffect(() => {
+    if (isUnauthenticated) return
     const editId = searchParams.get('edit')
     if (editId) void openEditor(editId)
-  }, [searchParams])
+  }, [isUnauthenticated, searchParams])
 
   const openEditor = async (id: string) => {
     try {
@@ -273,6 +285,38 @@ export default function EstimatesPage() {
     }
   }
 
+  if (isUnauthenticated) {
+    return (
+      <div className="min-h-full bg-[var(--bg-primary)]">
+        <div className="mx-auto flex min-h-[calc(100dvh-var(--mobile-header-height))] max-w-[720px] flex-col items-center justify-center px-4 py-10 text-center md:min-h-screen">
+          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-[var(--radius-lg)] bg-[var(--accent-teal)]/10 text-[var(--accent-teal)]">
+            <Calculator size={26} strokeWidth={1.8} />
+          </div>
+          <h1 className="text-[24px] font-semibold tracking-tight text-[var(--text-primary)]">Сметы доступны после входа</h1>
+          <p className="mt-2 max-w-[520px] text-[15px] leading-6 text-[var(--text-secondary)]">
+            Профессиональный редактор смет защищен: войдите, чтобы открыть список, создать новую смету или продолжить редактирование.
+          </p>
+          <div className="mt-6 flex w-full max-w-[360px] flex-col gap-2 sm:flex-row sm:justify-center">
+            <button
+              type="button"
+              onClick={() => navigate('/login')}
+              className="flex min-h-11 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-teal)] px-4 text-[14px] font-medium text-white hover:bg-[var(--accent-teal-hover)]"
+            >
+              Войти
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/')}
+              className="flex min-h-11 items-center justify-center rounded-[var(--radius-md)] border border-[var(--border-subtle)] px-4 text-[14px] font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+            >
+              На главную
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   if (view === 'editor' && current) {
     return (
       <div className="min-h-full bg-[var(--bg-primary)]">
@@ -296,7 +340,7 @@ export default function EstimatesPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center lg:ml-auto lg:justify-end">
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:max-w-full sm:flex-wrap sm:items-center lg:ml-auto lg:justify-end">
               <select value={current.status} onChange={event => updateCurrent({ status: event.target.value as Estimate['status'] })} className="col-span-2 h-11 min-w-0 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 text-[13px] outline-none sm:col-span-1 sm:h-9">
                 {statusOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
               </select>
@@ -314,7 +358,7 @@ export default function EstimatesPage() {
                   <MoreHorizontal size={16} />
                 </button>
                 {menuOpen && (
-                  <div className="fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] z-[70] rounded-[24px] border border-white/20 bg-[var(--bg-surface)]/95 p-2 shadow-2xl backdrop-blur-xl sm:absolute sm:bottom-auto sm:right-0 sm:top-10 sm:z-20 sm:w-52 sm:rounded-[var(--radius-md)] sm:border-[var(--border-subtle)] sm:bg-[var(--bg-surface)] sm:py-1 sm:shadow-[var(--shadow-lg)]">
+                  <div className="fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] z-[70] max-h-[min(70dvh,360px)] overflow-y-auto rounded-[24px] border border-white/20 bg-[var(--bg-surface)]/95 p-2 shadow-2xl backdrop-blur-xl sm:absolute sm:bottom-auto sm:right-0 sm:top-10 sm:z-20 sm:w-52 sm:rounded-[var(--radius-md)] sm:border-[var(--border-subtle)] sm:bg-[var(--bg-surface)] sm:py-1 sm:shadow-[var(--shadow-lg)]">
                     <button onClick={handleDuplicate} className="flex min-h-11 w-full items-center gap-2 rounded-[var(--radius-md)] px-3 py-2 text-left text-[13px] hover:bg-[var(--bg-hover)]"><Copy size={14} /> Дублировать</button>
                     <a href={estimates.pdfUrl(current.id)} target="_blank" rel="noreferrer" className="flex min-h-11 w-full items-center gap-2 rounded-[var(--radius-md)] px-3 py-2 text-left text-[13px] hover:bg-[var(--bg-hover)]"><Download size={14} /> PDF</a>
                     <a href={estimates.exportUrl(current.id, 'csv')} target="_blank" rel="noreferrer" className="flex min-h-11 w-full items-center gap-2 rounded-[var(--radius-md)] px-3 py-2 text-left text-[13px] hover:bg-[var(--bg-hover)]"><FileDown size={14} /> CSV</a>
@@ -441,7 +485,7 @@ export default function EstimatesPage() {
             <h1 className="text-[26px] font-semibold tracking-tight text-[var(--text-primary)]">Сметы</h1>
             <p className="mt-1 text-[13px] text-[var(--text-tertiary)]">Профессиональный редактор с расчетом через backend API.</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className={`inline-flex shrink-0 rounded-[var(--radius-pill)] px-2.5 py-1 text-[12px] font-medium ${apiState === 'online' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
               API {apiState === 'online' ? 'online' : apiState === 'checking' ? 'check' : 'offline'}
             </span>
