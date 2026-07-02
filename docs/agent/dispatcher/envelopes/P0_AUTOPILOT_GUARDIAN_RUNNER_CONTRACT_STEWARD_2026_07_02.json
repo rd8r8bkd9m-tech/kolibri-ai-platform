@@ -1,0 +1,59 @@
+{
+  "task_id": "P0_AUTOPILOT_GUARDIAN_RUNNER_CONTRACT_STEWARD_2026_07_02",
+  "idempotency_key": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02:guardian-runner-contract-steward",
+  "kind": "owner_remote_task",
+  "priority": "P0",
+  "required_capability": "qa",
+  "runner": "codex",
+  "branch": "agent/P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02/generic",
+  "base_ref": "origin/main",
+  "agent_type": "runner_contract_guardian",
+  "agent_display_name": "Павел - стюард runner-contract",
+  "target_node": "qjns",
+  "preferred_nodes": [
+    "qjns",
+    "uiap",
+    "main"
+  ],
+  "allowed_nodes": [
+    "qjns",
+    "uiap",
+    "main"
+  ],
+  "max_retries": 1,
+  "goal": "Guard runner-contract state for autopilot execution without changing product behavior.",
+  "objective": "Verify current runner-contract artifacts and Agent Host contract state from existing tests/artifacts. Report any blocker for broad fanout, especially permission packs, result artifact contract, lease refresh, and safe command restrictions. Do not change product code unless explicitly assigned a separate repair task.",
+  "constraints": {
+    "server_execution_required": true,
+    "read_mostly": true,
+    "destructive_commands_forbidden": true,
+    "git_reset_forbidden": true,
+    "git_clean_forbidden": true,
+    "push_to_main_forbidden": true,
+    "force_push_forbidden": true,
+    "secrets_redaction_required": true,
+    "product_feature_work_forbidden": true
+  },
+  "read_first": [
+    "docs/agent/runs/2026-07-02-p0-autopilot-2h-50pct-launch-orchestrator/RUNNER_CONTRACT_STATE.json",
+    "tests/test_agent_host_runner_contract.py",
+    "ops/agent_host.py"
+  ],
+  "write_scope": [
+    "docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/RUNNER_CONTRACT_STEWARD.md"
+  ],
+  "required_outputs": [
+    "docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/RUNNER_CONTRACT_STEWARD.md"
+  ],
+  "verification_commands": [
+    "test -f docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/RUNNER_CONTRACT_STEWARD.md"
+  ],
+  "acceptance": [
+    "Runner-contract state and blockers are recorded from artifacts/tests.",
+    "Fanout blockers for permissions, result artifacts, lease refresh, and safe commands are explicit.",
+    "No product feature work is performed."
+  ],
+  "source": {
+    "parent_task_id": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02"
+  }
+}

@@ -1,0 +1,74 @@
+{
+  "task_id": "P0_AUTOPILOT_CANONICAL_20_SERVER_READINESS_MATRIX_2026_07_02",
+  "idempotency_key": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02:canonical-20-server-readiness-matrix",
+  "kind": "owner_remote_task",
+  "priority": "P0",
+  "required_capability": "read_only_probe",
+  "runner": "codex",
+  "branch": "agent/P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02/generic",
+  "base_ref": "origin/main",
+  "agent_type": "fleet_readiness_matrix_steward",
+  "agent_display_name": "Ирина - матрица готовности 20 серверов",
+  "target_node": "primary-candidate",
+  "target_node_pool": "healthy_control_orchestrator_nodes",
+  "preferred_nodes": [
+    "primary-candidate",
+    "main",
+    "qjns"
+  ],
+  "allowed_nodes": [
+    "primary-candidate",
+    "main",
+    "qjns",
+    "uiap",
+    "mesh-9fts"
+  ],
+  "max_retries": 1,
+  "goal": "Create the canonical 20-server readiness matrix for the 2-hour 50%-capacity autopilot launch window.",
+  "objective": "Use Control Plane and Fabric API evidence first. Classify every canonical server as ready, degraded, stale, unreachable, duplicate-card, or unknown with exact blocker, heartbeat freshness, Agent Host state, queue pressure, MIMO/subagent readiness, GitHub readiness, and safe artifact path. Do not change product code, credentials, firewall, VPN, services, or GitHub branch state.",
+  "constraints": {
+    "server_execution_required": true,
+    "mac_implementation_forbidden": true,
+    "read_mostly": true,
+    "control_plane_dispatch_required": true,
+    "destructive_commands_forbidden": true,
+    "git_reset_forbidden": true,
+    "git_clean_forbidden": true,
+    "force_push_forbidden": true,
+    "push_to_main_forbidden": true,
+    "secrets_redaction_required": true,
+    "product_feature_work_forbidden": true,
+    "canonical_20_server_matrix_required": true
+  },
+  "read_first": [
+    "docs/agent/runs/2026-07-02-p0-autopilot-2h-50pct-launch-orchestrator/CONTROL_PLANE_HEALTH.json",
+    "docs/agent/runs/2026-07-02-p0-autopilot-2h-50pct-launch-orchestrator/CONTROL_PLANE_NODES.json",
+    "docs/agent/runs/2026-07-02-p0-autopilot-2h-50pct-launch-orchestrator/QJNS_STATE.json",
+    "docs/superfactory/FLEET_ALWAYS_ONLINE_POLICY.md",
+    "docs/agent/dispatcher/FACTORY_STATUS.md"
+  ],
+  "write_scope": [
+    "docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/CANONICAL_20_SERVER_READINESS_MATRIX.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-2h-50pct-launch-orchestrator/readiness-matrix/**"
+  ],
+  "required_outputs": [
+    "docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/CANONICAL_20_SERVER_READINESS_MATRIX.md"
+  ],
+  "verification_commands": [
+    "test -f docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/CANONICAL_20_SERVER_READINESS_MATRIX.md"
+  ],
+  "acceptance": [
+    "All canonical server slots are listed, even when blocker is unknown or unreachable.",
+    "Each row includes target node, status, lease owner if any, blocker, and artifact path.",
+    "No product feature work is performed."
+  ],
+  "source": {
+    "parent_task_id": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02",
+    "launch_window": {
+      "capacity_percent": 50,
+      "duration_hours": 2,
+      "started_at_utc": "2026-07-02T02:42:44Z",
+      "ends_at_utc": "2026-07-02T04:42:44Z"
+    }
+  }
+}

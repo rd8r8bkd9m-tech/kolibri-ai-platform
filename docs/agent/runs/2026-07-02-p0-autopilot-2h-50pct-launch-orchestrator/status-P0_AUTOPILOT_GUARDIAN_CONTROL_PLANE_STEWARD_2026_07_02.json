@@ -1,0 +1,79 @@
+{
+  "attempt": 0,
+  "attempt_id": null,
+  "created_at": "2026-07-02T02:45:17.489694+00:00",
+  "envelope": {
+    "acceptance": [
+      "Control Plane health, queue, lease freshness, duplicate launch tasks, and stale-node blockers are recorded.",
+      "No product feature work is performed.",
+      "No production service restart or credential change is performed."
+    ],
+    "agent_display_name": "\u0410\u043d\u043d\u0430 - \u0441\u0442\u044e\u0430\u0440\u0434 Control Plane",
+    "agent_type": "control_plane_guardian",
+    "allowed_nodes": [
+      "primary-candidate",
+      "main"
+    ],
+    "base_ref": "origin/main",
+    "branch": "agent/P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02/generic",
+    "constraints": {
+      "destructive_commands_forbidden": true,
+      "product_feature_work_forbidden": true,
+      "read_mostly": true,
+      "secrets_redaction_required": true,
+      "server_execution_required": true
+    },
+    "goal": "Guard Control Plane health and lease freshness during the 50%-capacity launch window.",
+    "idempotency_key": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02:guardian-control-plane-steward",
+    "kind": "owner_remote_task",
+    "max_retries": 1,
+    "objective": "Monitor health, task queue, expired leases, duplicate launch tasks, and stale nodes. Record status and exact blockers only; do not restart production services, change credentials, or modify product code.",
+    "preferred_nodes": [
+      "primary-candidate",
+      "main"
+    ],
+    "priority": "P0",
+    "required_capability": "read_only_probe",
+    "required_outputs": [
+      "docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/GUARDIAN_CONTROL_PLANE.md"
+    ],
+    "runner": "codex",
+    "source": {
+      "parent_task_id": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02"
+    },
+    "target_node": "primary-candidate",
+    "task_id": "P0_AUTOPILOT_GUARDIAN_CONTROL_PLANE_STEWARD_2026_07_02",
+    "verification_commands": [
+      "test -f docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/GUARDIAN_CONTROL_PLANE.md"
+    ],
+    "write_scope": [
+      "docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/GUARDIAN_CONTROL_PLANE.md"
+    ]
+  },
+  "error": null,
+  "error_type": null,
+  "heartbeat_at": null,
+  "idempotency_key": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02:guardian-control-plane-steward",
+  "kind": "owner_remote_task",
+  "lease_owner": null,
+  "lease_until": null,
+  "max_retries": 1,
+  "permission_pack": "full_autonomy",
+  "required_permissions": [
+    "ai_runner",
+    "git_push",
+    "github_review",
+    "network",
+    "read_repo",
+    "run_tests",
+    "shell",
+    "spawn_subagents",
+    "write_artifacts",
+    "write_worktree"
+  ],
+  "result": null,
+  "result_reference": null,
+  "state": "queued",
+  "task_id": "P0_AUTOPILOT_GUARDIAN_CONTROL_PLANE_STEWARD_2026_07_02",
+  "updated_at": "2026-07-02T02:45:17.581251+00:00"
+}

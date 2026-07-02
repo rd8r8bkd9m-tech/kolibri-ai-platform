@@ -1,0 +1,10 @@
+{
+  "ok": true,
+  "response": {
+    "queue_backend": "redis",
+    "redis": "PONG",
+    "status": "ok",
+    "time": "2026-07-02T02:41:49.899694+00:00"
+  },
+  "url_path": "/health"
+}

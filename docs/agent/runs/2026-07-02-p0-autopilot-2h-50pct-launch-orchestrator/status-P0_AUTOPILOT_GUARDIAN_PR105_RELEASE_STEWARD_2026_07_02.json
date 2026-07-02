@@ -1,0 +1,89 @@
+{
+  "attempt": 0,
+  "attempt_id": null,
+  "created_at": "2026-07-02T02:45:18.127002+00:00",
+  "envelope": {
+    "acceptance": [
+      "PR #105 state is recorded from read-only evidence.",
+      "Owner merge gate and blockers are explicit.",
+      "No merge, push, force push, approval, or mark-ready action is performed."
+    ],
+    "agent_display_name": "\u041e\u043b\u044c\u0433\u0430 - \u0441\u0442\u044e\u0430\u0440\u0434 PR #105",
+    "agent_type": "release_guardian",
+    "allowed_nodes": [
+      "qjns",
+      "main",
+      "primary-candidate"
+    ],
+    "base_ref": "origin/main",
+    "branch": "agent/P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02/generic",
+    "constraints": {
+      "auto_merge_forbidden": true,
+      "destructive_commands_forbidden": true,
+      "force_push_forbidden": true,
+      "merge_forbidden": true,
+      "product_feature_work_forbidden": true,
+      "push_to_main_forbidden": true,
+      "read_only": true,
+      "secrets_redaction_required": true,
+      "server_execution_required": true
+    },
+    "goal": "Guard PR #105 state during the launch window without merging or changing branch state.",
+    "idempotency_key": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02:guardian-pr105-release-steward",
+    "kind": "owner_remote_task",
+    "max_retries": 1,
+    "objective": "Use read-only GitHub/git evidence to record PR #105 state, CI/review blockers, merge risks, and owner gate. Do not approve, mark ready, merge, push, force push, or change product code.",
+    "preferred_nodes": [
+      "qjns",
+      "main",
+      "primary-candidate"
+    ],
+    "priority": "P0",
+    "read_first": [
+      "docs/agent/runs/2026-07-02-p0-autopilot-2h-50pct-launch-orchestrator/PR105_GIT_REFS.txt",
+      "docs/agent/runs/2026-07-02-p0-autopilot-2h-50pct-launch-orchestrator/PR105_STATE.json"
+    ],
+    "required_capability": "github_review",
+    "required_outputs": [
+      "docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/PR105_RELEASE_STEWARD.md"
+    ],
+    "runner": "codex",
+    "source": {
+      "parent_task_id": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02"
+    },
+    "target_node": "qjns",
+    "task_id": "P0_AUTOPILOT_GUARDIAN_PR105_RELEASE_STEWARD_2026_07_02",
+    "verification_commands": [
+      "test -f docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/PR105_RELEASE_STEWARD.md"
+    ],
+    "write_scope": [
+      "docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/PR105_RELEASE_STEWARD.md"
+    ]
+  },
+  "error": null,
+  "error_type": null,
+  "heartbeat_at": null,
+  "idempotency_key": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02:guardian-pr105-release-steward",
+  "kind": "owner_remote_task",
+  "lease_owner": null,
+  "lease_until": null,
+  "max_retries": 1,
+  "permission_pack": "full_autonomy",
+  "required_permissions": [
+    "ai_runner",
+    "git_push",
+    "github_review",
+    "network",
+    "read_repo",
+    "run_tests",
+    "shell",
+    "spawn_subagents",
+    "write_artifacts",
+    "write_worktree"
+  ],
+  "result": null,
+  "result_reference": null,
+  "state": "queued",
+  "task_id": "P0_AUTOPILOT_GUARDIAN_PR105_RELEASE_STEWARD_2026_07_02",
+  "updated_at": "2026-07-02T02:45:18.240881+00:00"
+}

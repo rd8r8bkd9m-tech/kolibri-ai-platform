@@ -1,0 +1,151 @@
+{
+  "attempt": 1,
+  "attempt_history": [
+    {
+      "attempt": 1,
+      "attempt_id": "P0_AUTOPILOT_50PCT_CAPACITY_GOVERNOR_2026_07_02-attempt-1",
+      "error": "command failed with rc=1: /usr/bin/codex exec --json --skip-git-repo-check --sandbox danger-full-access <prompt>",
+      "error_type": "runtime_error",
+      "recorded_at": "2026-07-02T02:46:05.765050+00:00",
+      "result_reference": "/var/lib/kolibri-agent/artifacts/P0_AUTOPILOT_50PCT_CAPACITY_GOVERNOR_2026_07_02/P0_AUTOPILOT_50PCT_CAPACITY_GOVERNOR_2026_07_02-attempt-1/result.json",
+      "status": "failed"
+    }
+  ],
+  "attempt_id": "P0_AUTOPILOT_50PCT_CAPACITY_GOVERNOR_2026_07_02-attempt-1",
+  "branch": "agent/P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02/generic",
+  "created_at": "2026-07-02T02:45:16.879887+00:00",
+  "envelope": {
+    "acceptance": [
+      "Governor status is recorded as active, queued, or blocked with exact reason.",
+      "Per-node and global caps are explicit and based on fresh node evidence.",
+      "Scale-down and repair-only triggers are defined."
+    ],
+    "agent_display_name": "\u0421\u0435\u043c\u0435\u043d - \u0433\u0443\u0431\u0435\u0440\u043d\u0430\u0442\u043e\u0440 50% \u043c\u043e\u0449\u043d\u043e\u0441\u0442\u0438",
+    "agent_type": "autopilot_capacity_governor",
+    "allowed_nodes": [
+      "main",
+      "primary-candidate",
+      "qjns"
+    ],
+    "base_ref": "origin/main",
+    "branch": "agent/P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02/generic",
+    "constraints": {
+      "capacity_percent": 50,
+      "control_plane_dispatch_required": true,
+      "destructive_commands_forbidden": true,
+      "duration_hours": 2,
+      "force_push_forbidden": true,
+      "git_clean_forbidden": true,
+      "git_reset_forbidden": true,
+      "mac_implementation_forbidden": true,
+      "product_feature_work_forbidden": true,
+      "production_restart_forbidden_without_owner_approval": true,
+      "push_to_main_forbidden": true,
+      "secrets_redaction_required": true,
+      "server_execution_required": true
+    },
+    "goal": "Enforce a 50%-capacity governor during the 2-hour autopilot launch window.",
+    "idempotency_key": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02:50pct-capacity-governor",
+    "kind": "owner_remote_task",
+    "max_retries": 1,
+    "objective": "Build an artifact-backed capacity governor from current Control Plane state: max active child tasks, per-node inflight caps, stale-node exclusion, task deduplication keys, lease freshness rules, repair-only fallback, and scale-down triggers. Do not change running services unless owner approval already exists; if enforcement cannot be applied through current Control Plane contracts, report the exact blocker and safe manual gate.",
+    "preferred_nodes": [
+      "main",
+      "primary-candidate",
+      "qjns"
+    ],
+    "priority": "P0",
+    "read_first": [
+      "docs/agent/runs/2026-07-02-p0-autopilot-2h-50pct-launch-orchestrator/CONTROL_PLANE_HEALTH.json",
+      "docs/agent/runs/2026-07-02-p0-autopilot-2h-50pct-launch-orchestrator/CONTROL_PLANE_NODES.json",
+      "docs/agent/runs/2026-07-02-p0-autopilot-2h-50pct-launch-orchestrator/CONTROL_PLANE_TASKS_BEFORE.json",
+      "ops/factory_control.py",
+      "ops/agent_host.py"
+    ],
+    "required_capability": "orchestrator",
+    "required_outputs": [
+      "docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/50PCT_CAPACITY_GOVERNOR.md"
+    ],
+    "runner": "codex",
+    "source": {
+      "launch_window": {
+        "capacity_percent": 50,
+        "duration_hours": 2,
+        "ends_at_utc": "2026-07-02T04:42:44Z",
+        "started_at_utc": "2026-07-02T02:42:44Z"
+      },
+      "parent_task_id": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02"
+    },
+    "target_node": "main",
+    "target_node_pool": "healthy_control_orchestrator_nodes",
+    "task_id": "P0_AUTOPILOT_50PCT_CAPACITY_GOVERNOR_2026_07_02",
+    "verification_commands": [
+      "test -f docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/50PCT_CAPACITY_GOVERNOR.md"
+    ],
+    "write_scope": [
+      "docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/50PCT_CAPACITY_GOVERNOR.md",
+      "docs/agent/runs/2026-07-02-p0-autopilot-2h-50pct-launch-orchestrator/capacity-governor/**"
+    ]
+  },
+  "error": "command failed with rc=1: /usr/bin/codex exec --json --skip-git-repo-check --sandbox danger-full-access <prompt>",
+  "error_type": "runtime_error",
+  "granted_permissions": [
+    "ai_runner",
+    "git_push",
+    "github_review",
+    "network",
+    "read_repo",
+    "run_tests",
+    "shell",
+    "spawn_subagents",
+    "write_artifacts",
+    "write_worktree"
+  ],
+  "heartbeat_at": "2026-07-02T02:45:59.138160+00:00",
+  "idempotency_key": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02:50pct-capacity-governor",
+  "kind": "owner_remote_task",
+  "lease_owner": null,
+  "lease_until": null,
+  "log_paths": {
+    "stderr": "/var/lib/kolibri-agent/artifacts/P0_AUTOPILOT_50PCT_CAPACITY_GOVERNOR_2026_07_02/P0_AUTOPILOT_50PCT_CAPACITY_GOVERNOR_2026_07_02-attempt-1/stderr.log",
+    "stdout": "/var/lib/kolibri-agent/artifacts/P0_AUTOPILOT_50PCT_CAPACITY_GOVERNOR_2026_07_02/P0_AUTOPILOT_50PCT_CAPACITY_GOVERNOR_2026_07_02-attempt-1/stdout.log"
+  },
+  "max_retries": 1,
+  "permission_pack": "full_autonomy",
+  "pid": 3384361,
+  "required_permissions": [
+    "ai_runner",
+    "git_push",
+    "github_review",
+    "network",
+    "read_repo",
+    "run_tests",
+    "shell",
+    "spawn_subagents",
+    "write_artifacts",
+    "write_worktree"
+  ],
+  "result": {
+    "agent_id": "agent-host-main",
+    "attempt_id": "P0_AUTOPILOT_50PCT_CAPACITY_GOVERNOR_2026_07_02-attempt-1",
+    "completed_at": "2026-07-02T02:46:05.614995+00:00",
+    "error": "command failed with rc=1: /usr/bin/codex exec --json --skip-git-repo-check --sandbox danger-full-access <prompt>",
+    "error_type": "runtime_error",
+    "hostname": "kolibri-main-api",
+    "log_paths": {
+      "stderr": "/var/lib/kolibri-agent/artifacts/P0_AUTOPILOT_50PCT_CAPACITY_GOVERNOR_2026_07_02/P0_AUTOPILOT_50PCT_CAPACITY_GOVERNOR_2026_07_02-attempt-1/stderr.log",
+      "stdout": "/var/lib/kolibri-agent/artifacts/P0_AUTOPILOT_50PCT_CAPACITY_GOVERNOR_2026_07_02/P0_AUTOPILOT_50PCT_CAPACITY_GOVERNOR_2026_07_02-attempt-1/stdout.log"
+    },
+    "node_id": "main",
+    "pid": 2604693,
+    "status": "failed",
+    "stderr_tail": " Please try signing in again.\\\",\\n    \\\"type\\\": null,\\n    \\\"code\\\": \\\"token_expired\\\",\\n    \\\"param\\\": null\\n  },\\n  \\\"status\\\": 401\\n}\")\n2026-07-02T02:45:59.377308Z ERROR codex_login::auth::manager: Failed to refresh token: Your access token could not be refreshed because your refresh token was already used. Please log out and sign in again.\n2026-07-02T02:45:59.583454Z ERROR codex_login::auth::manager: Failed to refresh token: Your access token could not be refreshed because your refresh token was already used. Please log out and sign in again.\n2026-07-02T02:45:59.763170Z ERROR codex_login::auth::manager: Failed to refresh token: Your access token could not be refreshed because your refresh token was already used. Please log out and sign in again.\n2026-07-02T02:46:00.051973Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 401 Unauthorized, url: wss://chatgpt.com/backend-api/codex/responses\n2026-07-02T02:46:00.417491Z ERROR codex_login::auth::manager: Failed to refresh token: Your access token could not be refreshed because your refresh token was already used. Please log out and sign in again.\n2026-07-02T02:46:00.620599Z ERROR codex_login::auth::manager: Failed to refresh token: Your access token could not be refreshed because your refresh token was already used. Please log out and sign in again.\n2026-07-02T02:46:00.787080Z ERROR codex_login::auth::manager: Failed to refresh token: Your access token could not be refreshed because your refresh token was already used. Please log out and sign in again.\n2026-07-02T02:46:01.185941Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 401 Unauthorized, url: wss://chatgpt.com/backend-api/codex/responses\n2026-07-02T02:46:01.448857Z ERROR codex_login::auth::manager: Failed to refresh token: Your access token could not be refreshed because your refresh token was already used. Please log out and sign in again.\n2026-07-02T02:46:01.670694Z ERROR codex_login::auth::manager: Failed to refresh token: Your access token could not be refreshed because your refresh token was already used. Please log out and sign in again.\n2026-07-02T02:46:02.167075Z ERROR codex_login::auth::manager: Failed to refresh token: Your access token could not be refreshed because your refresh token was already used. Please log out and sign in again.\n2026-07-02T02:46:02.304030Z ERROR codex_login::auth::manager: Failed to refresh token: Your access token could not be refreshed because your refresh token was already used. Please log out and sign in again.\n2026-07-02T02:46:02.476229Z ERROR codex_login::auth::manager: Failed to refresh token: Your access token could not be refreshed because your refresh token was already used. Please log out and sign in again.\n2026-07-02T02:46:02.861189Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 401 Unauthorized, url: wss://chatgpt.com/backend-api/codex/responses\n2026-07-02T02:46:03.304138Z ERROR codex_login::auth::manager: Failed to refresh token: Your access token could not be refreshed because your refresh token was already used. Please log out and sign in again.\n2026-07-02T02:46:03.463844Z ERROR codex_login::auth::manager: Failed to refresh token: Your access token could not be refreshed because your refresh token was already used. Please log out and sign in again.\n2026-07-02T02:46:03.596393Z ERROR codex_login::auth::manager: Failed to refresh token: Your access token could not be refreshed because your refresh token was already used. Please log out and sign in again.\n2026-07-02T02:46:04.027299Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 401 Unauthorized, url: wss://chatgpt.com/backend-api/codex/responses\n2026-07-02T02:46:04.287823Z ERROR codex_login::auth::manager: Failed to refresh token: Your access token could not be refreshed because your refresh token was already used. Please log out and sign in again.\n",
+    "stdout_tail": "\n$ git clone git@github.com:rd8r8bkd9m-tech/kolibri-ai-platform.git /var/lib/kolibri-agent/worktrees/P0_AUTOPILOT_50PCT_CAPACITY_GOVERNOR_2026_07_02/P0_AUTOPILOT_50PCT_CAPACITY_GOVERNOR_2026_07_02-attempt-1/repo\n\n$ git fetch origin\n\n$ git checkout -B agent/P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02/generic origin/main\nbranch 'agent/P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02/generic' set up to track 'origin/main'.\n\n$ git config user.name Kolibri Factory Agent\n\n$ git config user.email factory-agent@users.noreply.github.com\n\n$ /usr/bin/codex exec --json --skip-git-repo-check --sandbox danger-full-access <prompt>\n{\"type\":\"thread.started\",\"thread_id\":\"019f20b7-fb6f-7612-9d8b-ea6f6fe569d1\"}\n{\"type\":\"turn.started\"}\n{\"type\":\"error\",\"message\":\"Your access token could not be refreshed because your refresh token was already used. Please log out and sign in again.\"}\n{\"type\":\"turn.failed\",\"error\":{\"message\":\"Your access token could not be refreshed because your refresh token was already used. Please log out and sign in again.\"}}\n",
+    "task_id": "P0_AUTOPILOT_50PCT_CAPACITY_GOVERNOR_2026_07_02"
+  },
+  "result_reference": "/var/lib/kolibri-agent/artifacts/P0_AUTOPILOT_50PCT_CAPACITY_GOVERNOR_2026_07_02/P0_AUTOPILOT_50PCT_CAPACITY_GOVERNOR_2026_07_02-attempt-1/result.json",
+  "state": "failed",
+  "task_id": "P0_AUTOPILOT_50PCT_CAPACITY_GOVERNOR_2026_07_02",
+  "updated_at": "2026-07-02T02:46:05.834574+00:00",
+  "worktree": "/var/lib/kolibri-agent/worktrees/P0_AUTOPILOT_50PCT_CAPACITY_GOVERNOR_2026_07_02/P0_AUTOPILOT_50PCT_CAPACITY_GOVERNOR_2026_07_02-attempt-1/repo"
+}

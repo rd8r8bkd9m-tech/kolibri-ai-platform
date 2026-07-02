@@ -1,0 +1,2136 @@
+{
+  "nodes": [
+    {
+      "capabilities": [
+        "read_only_probe",
+        "implementation",
+        "generic_implementation",
+        "remote_implementation_runner_ready",
+        "permission:*"
+      ],
+      "draining": false,
+      "fresh": false,
+      "health": "stale",
+      "heartbeat_age_seconds": 139508.578141,
+      "heartbeat_at": "2026-06-30T11:56:41.304734+00:00",
+      "hostname": null,
+      "node_id": "9fts",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "*"
+      ]
+    },
+    {
+      "capabilities": [
+        "read_only_probe",
+        "implementation",
+        "generic_implementation",
+        "remote_implementation_runner_ready",
+        "permission:*"
+      ],
+      "draining": false,
+      "fresh": false,
+      "health": "stale",
+      "heartbeat_age_seconds": 139508.419177,
+      "heartbeat_at": "2026-06-30T11:56:41.463698+00:00",
+      "hostname": null,
+      "node_id": "agent-01",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "*"
+      ]
+    },
+    {
+      "capabilities": [
+        "read_only_probe",
+        "implementation",
+        "generic_implementation",
+        "remote_implementation_runner_ready",
+        "permission:*"
+      ],
+      "draining": false,
+      "fresh": false,
+      "health": "stale",
+      "heartbeat_age_seconds": 139508.272588,
+      "heartbeat_at": "2026-06-30T11:56:41.610287+00:00",
+      "hostname": null,
+      "node_id": "agent-02",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "*"
+      ]
+    },
+    {
+      "capabilities": [
+        "read_only_probe",
+        "implementation",
+        "generic_implementation",
+        "remote_implementation_runner_ready",
+        "permission:*"
+      ],
+      "draining": false,
+      "fresh": false,
+      "health": "stale",
+      "heartbeat_age_seconds": 139508.121275,
+      "heartbeat_at": "2026-06-30T11:56:41.761600+00:00",
+      "hostname": null,
+      "node_id": "agent-03",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "*"
+      ]
+    },
+    {
+      "capabilities": [
+        "read_only_probe",
+        "implementation",
+        "generic_implementation",
+        "remote_implementation_runner_ready",
+        "permission:*"
+      ],
+      "draining": false,
+      "fresh": false,
+      "health": "stale",
+      "heartbeat_age_seconds": 139507.952932,
+      "heartbeat_at": "2026-06-30T11:56:41.929943+00:00",
+      "hostname": null,
+      "node_id": "agent-04",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "*"
+      ]
+    },
+    {
+      "capabilities": [
+        "read_only_probe",
+        "implementation",
+        "generic_implementation",
+        "remote_implementation_runner_ready",
+        "permission:*"
+      ],
+      "draining": false,
+      "fresh": false,
+      "health": "stale",
+      "heartbeat_age_seconds": 139507.779196,
+      "heartbeat_at": "2026-06-30T11:56:42.103679+00:00",
+      "hostname": null,
+      "node_id": "agent-05",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "*"
+      ]
+    },
+    {
+      "capabilities": [
+        "read_only_probe",
+        "implementation",
+        "generic_implementation",
+        "remote_implementation_runner_ready",
+        "permission:*"
+      ],
+      "draining": false,
+      "fresh": false,
+      "health": "stale",
+      "heartbeat_age_seconds": 139507.584044,
+      "heartbeat_at": "2026-06-30T11:56:42.298831+00:00",
+      "hostname": null,
+      "node_id": "agent-06",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "*"
+      ]
+    },
+    {
+      "capabilities": [
+        "read_only_probe",
+        "implementation",
+        "generic_implementation",
+        "remote_implementation_runner_ready",
+        "permission:*"
+      ],
+      "draining": false,
+      "fresh": false,
+      "health": "stale",
+      "heartbeat_age_seconds": 139507.423195,
+      "heartbeat_at": "2026-06-30T11:56:42.459680+00:00",
+      "hostname": null,
+      "node_id": "agent-07",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "*"
+      ]
+    },
+    {
+      "capabilities": [
+        "read_only_probe",
+        "implementation",
+        "generic_implementation",
+        "remote_implementation_runner_ready",
+        "permission:*"
+      ],
+      "draining": false,
+      "fresh": false,
+      "health": "stale",
+      "heartbeat_age_seconds": 139507.242195,
+      "heartbeat_at": "2026-06-30T11:56:42.640680+00:00",
+      "hostname": null,
+      "node_id": "agent-08",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "*"
+      ]
+    },
+    {
+      "capabilities": [
+        "read_only_probe",
+        "implementation",
+        "generic_implementation",
+        "remote_implementation_runner_ready",
+        "permission:*"
+      ],
+      "draining": false,
+      "fresh": false,
+      "health": "stale",
+      "heartbeat_age_seconds": 139507.084156,
+      "heartbeat_at": "2026-06-30T11:56:42.798719+00:00",
+      "hostname": null,
+      "node_id": "agent-09",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "*"
+      ]
+    },
+    {
+      "capabilities": [
+        "read_only_probe",
+        "implementation",
+        "generic_implementation",
+        "remote_implementation_runner_ready",
+        "permission:*"
+      ],
+      "draining": false,
+      "fresh": false,
+      "health": "stale",
+      "heartbeat_age_seconds": 139506.92425,
+      "heartbeat_at": "2026-06-30T11:56:42.958625+00:00",
+      "hostname": null,
+      "node_id": "highload",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "*"
+      ]
+    },
+    {
+      "active_task": null,
+      "agent_id": "agent-host-home",
+      "capabilities": [
+        "coordinator",
+        "home",
+        "mesh",
+        "redis",
+        "control-standby",
+        "orchestrator",
+        "read_only_probe",
+        "generic_implementation",
+        "implementation",
+        "remote_implementation_runner_ready",
+        "review",
+        "network_convergence"
+      ],
+      "cpu": 6,
+      "disk": {
+        "free": 27659980800,
+        "total": 105089261568,
+        "used": 72043794432
+      },
+      "draining": false,
+      "fresh": true,
+      "health": "online",
+      "heartbeat_age_seconds": 54.942031,
+      "heartbeat_at": "2026-07-02T02:40:54.940844+00:00",
+      "hostname": "plastilin",
+      "node_id": "home",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "ai_runner",
+        "git_push",
+        "github_review",
+        "network",
+        "read_repo",
+        "run_tests",
+        "shell",
+        "spawn_subagents",
+        "write_artifacts",
+        "write_worktree"
+      ],
+      "pid": 1002,
+      "ram": {
+        "MemAvailable": "13729472 kB",
+        "MemTotal": "16239696 kB"
+      }
+    },
+    {
+      "active_task": null,
+      "agent_id": "director-home-live",
+      "capabilities": [
+        "home",
+        "orchestrator",
+        "telegram",
+        "generic_implementation",
+        "implementation",
+        "read_only_probe"
+      ],
+      "cpu": 6,
+      "disk": {
+        "free": 27659722752,
+        "total": 105089261568,
+        "used": 72044052480
+      },
+      "draining": false,
+      "fresh": true,
+      "health": "online",
+      "heartbeat_age_seconds": 64.469234,
+      "heartbeat_at": "2026-07-02T02:40:45.413641+00:00",
+      "hostname": "plastilin",
+      "node_id": "home-live",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "ai_runner",
+        "git_push",
+        "github_review",
+        "network",
+        "read_repo",
+        "run_tests",
+        "shell",
+        "spawn_subagents",
+        "write_artifacts",
+        "write_worktree"
+      ],
+      "pid": 95988,
+      "ram": {
+        "MemAvailable": "13625992 kB",
+        "MemTotal": "16239696 kB"
+      }
+    },
+    {
+      "active_task": null,
+      "agent_id": "agent-host-main",
+      "capabilities": [
+        "orchestrator",
+        "implementation",
+        "review",
+        "read_only_probe",
+        "runner:codex",
+        "runner:mimo"
+      ],
+      "cpu": 1,
+      "disk": {
+        "free": 7163203584,
+        "total": 20109631488,
+        "used": 12051906560
+      },
+      "draining": false,
+      "fresh": true,
+      "health": "online",
+      "heartbeat_age_seconds": 7.566061,
+      "heartbeat_at": "2026-07-02T02:41:42.316814+00:00",
+      "hostname": "kolibri-main-api",
+      "node_id": "main",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "ai_runner",
+        "git_push",
+        "github_review",
+        "network",
+        "read_repo",
+        "run_tests",
+        "shell",
+        "spawn_subagents",
+        "write_artifacts",
+        "write_worktree"
+      ],
+      "pid": 2604693,
+      "ram": {
+        "HardwareCorrupted": "0 kB",
+        "MemAvailable": "673264 kB",
+        "MemTotal": "2015392 kB"
+      }
+    },
+    {
+      "active_task": null,
+      "agent_id": "agent-host-mesh-9fts",
+      "capabilities": [
+        "mesh",
+        "mesh_node",
+        "implementation",
+        "generic_implementation",
+        "read_only_probe",
+        "remote_implementation_runner_ready",
+        "runner:mimo"
+      ],
+      "cpu": 1,
+      "disk": {
+        "free": 10504630272,
+        "total": 20080287744,
+        "used": 8670781440
+      },
+      "draining": false,
+      "fresh": true,
+      "health": "online",
+      "heartbeat_age_seconds": 7.36229,
+      "heartbeat_at": "2026-07-02T02:41:42.520585+00:00",
+      "hostname": "kolibri-inference-recovery",
+      "mesh": true,
+      "mesh_ip": "10.99.0.5",
+      "mesh_last_seen": "2026-07-02T02:38:49.983441092Z",
+      "mesh_role": "agent",
+      "mesh_source_node_id": "9fts",
+      "node_id": "mesh-9fts",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "ai_runner",
+        "git_push",
+        "github_review",
+        "network",
+        "read_repo",
+        "run_tests",
+        "shell",
+        "spawn_subagents",
+        "write_artifacts",
+        "write_worktree"
+      ],
+      "pid": 269244,
+      "ram": {
+        "HardwareCorrupted": "0 kB",
+        "MemAvailable": "318044 kB",
+        "MemTotal": "2015228 kB"
+      }
+    },
+    {
+      "active_task": null,
+      "agent_id": "agent-host-mesh-agent-01",
+      "capabilities": [
+        "mesh",
+        "mesh_node",
+        "implementation",
+        "generic_implementation",
+        "read_only_probe",
+        "remote_implementation_runner_ready",
+        "runner:codex",
+        "runner:mimo"
+      ],
+      "cpu": 8,
+      "disk": {
+        "free": 52810575872,
+        "total": 105590231040,
+        "used": 47395528704
+      },
+      "draining": false,
+      "fresh": true,
+      "health": "online",
+      "heartbeat_age_seconds": 0.0,
+      "heartbeat_at": "2026-07-02T02:41:50.006721+00:00",
+      "hostname": "kolibri",
+      "mesh": true,
+      "mesh_ip": "31.57.27.128",
+      "mesh_last_seen": "2026-06-28T20:17:23.468820348Z",
+      "mesh_role": "agent",
+      "mesh_source_node_id": "agent-01",
+      "node_id": "mesh-agent-01",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "ai_runner",
+        "git_push",
+        "github_review",
+        "network",
+        "read_repo",
+        "run_tests",
+        "shell",
+        "spawn_subagents",
+        "write_artifacts",
+        "write_worktree"
+      ],
+      "pid": 2104436,
+      "ram": {
+        "HardwareCorrupted": "0 kB",
+        "MemAvailable": "9860132 kB",
+        "MemTotal": "12247028 kB"
+      }
+    },
+    {
+      "active_task": null,
+      "agent_id": "agent-host-mesh-agent-02",
+      "capabilities": [
+        "mesh",
+        "mesh_node",
+        "implementation",
+        "generic_implementation",
+        "read_only_probe",
+        "remote_implementation_runner_ready",
+        "runner:codex",
+        "runner:mimo"
+      ],
+      "cpu": 8,
+      "disk": {
+        "free": 52810510336,
+        "total": 105590231040,
+        "used": 47395594240
+      },
+      "draining": false,
+      "fresh": true,
+      "health": "online",
+      "heartbeat_age_seconds": 0.0,
+      "heartbeat_at": "2026-07-02T02:41:50.356481+00:00",
+      "hostname": "kolibri",
+      "mesh": true,
+      "mesh_ip": "213.232.204.223",
+      "mesh_last_seen": "2026-06-28T20:17:30.401885647Z",
+      "mesh_role": "agent",
+      "mesh_source_node_id": "agent-02",
+      "node_id": "mesh-agent-02",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "ai_runner",
+        "git_push",
+        "github_review",
+        "network",
+        "read_repo",
+        "run_tests",
+        "shell",
+        "spawn_subagents",
+        "write_artifacts",
+        "write_worktree"
+      ],
+      "pid": 2104552,
+      "ram": {
+        "HardwareCorrupted": "0 kB",
+        "MemAvailable": "9861540 kB",
+        "MemTotal": "12247028 kB"
+      }
+    },
+    {
+      "active_task": null,
+      "agent_id": "agent-host-mesh-agent-03",
+      "capabilities": [
+        "mesh",
+        "mesh_node",
+        "implementation",
+        "generic_implementation",
+        "read_only_probe",
+        "remote_implementation_runner_ready",
+        "runner:codex",
+        "runner:mimo"
+      ],
+      "cpu": 8,
+      "disk": {
+        "free": 52810575872,
+        "total": 105590231040,
+        "used": 47395528704
+      },
+      "draining": false,
+      "fresh": true,
+      "health": "online",
+      "heartbeat_age_seconds": 0.0,
+      "heartbeat_at": "2026-07-02T02:41:50.018236+00:00",
+      "hostname": "kolibri",
+      "mesh": true,
+      "mesh_ip": "188.130.206.204",
+      "mesh_last_seen": "2026-06-28T20:17:05.575936491Z",
+      "mesh_role": "agent",
+      "mesh_source_node_id": "agent-03",
+      "node_id": "mesh-agent-03",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "ai_runner",
+        "git_push",
+        "github_review",
+        "network",
+        "read_repo",
+        "run_tests",
+        "shell",
+        "spawn_subagents",
+        "write_artifacts",
+        "write_worktree"
+      ],
+      "pid": 2104627,
+      "ram": {
+        "HardwareCorrupted": "0 kB",
+        "MemAvailable": "9860132 kB",
+        "MemTotal": "12247028 kB"
+      }
+    },
+    {
+      "active_task": null,
+      "agent_id": "agent-host-mesh-agent-04",
+      "capabilities": [
+        "mesh",
+        "mesh_node",
+        "implementation",
+        "generic_implementation",
+        "read_only_probe",
+        "remote_implementation_runner_ready",
+        "runner:codex",
+        "runner:mimo"
+      ],
+      "cpu": 8,
+      "disk": {
+        "free": 52810510336,
+        "total": 105590231040,
+        "used": 47395594240
+      },
+      "draining": false,
+      "fresh": true,
+      "health": "online",
+      "heartbeat_age_seconds": 0.0,
+      "heartbeat_at": "2026-07-02T02:41:50.189734+00:00",
+      "hostname": "kolibri",
+      "mesh": true,
+      "mesh_ip": "31.59.41.146",
+      "mesh_last_seen": "2026-06-28T20:17:11.885872595Z",
+      "mesh_role": "agent",
+      "mesh_source_node_id": "agent-04",
+      "node_id": "mesh-agent-04",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "ai_runner",
+        "git_push",
+        "github_review",
+        "network",
+        "read_repo",
+        "run_tests",
+        "shell",
+        "spawn_subagents",
+        "write_artifacts",
+        "write_worktree"
+      ],
+      "pid": 3740564,
+      "ram": {
+        "HardwareCorrupted": "0 kB",
+        "MemAvailable": "9860132 kB",
+        "MemTotal": "12247028 kB"
+      }
+    },
+    {
+      "active_task": null,
+      "agent_id": "agent-host-mesh-agent-05",
+      "capabilities": [
+        "mesh",
+        "mesh_node",
+        "implementation",
+        "generic_implementation",
+        "read_only_probe",
+        "remote_implementation_runner_ready",
+        "runner:codex",
+        "runner:mimo"
+      ],
+      "cpu": 8,
+      "disk": {
+        "free": 52810510336,
+        "total": 105590231040,
+        "used": 47395594240
+      },
+      "draining": false,
+      "fresh": true,
+      "health": "online",
+      "heartbeat_age_seconds": 0.0,
+      "heartbeat_at": "2026-07-02T02:41:50.342324+00:00",
+      "hostname": "kolibri",
+      "mesh": true,
+      "mesh_ip": "31.56.196.10",
+      "mesh_last_seen": "2026-06-28T20:17:19.316312513Z",
+      "mesh_role": "agent",
+      "mesh_source_node_id": "agent-05",
+      "node_id": "mesh-agent-05",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "ai_runner",
+        "git_push",
+        "github_review",
+        "network",
+        "read_repo",
+        "run_tests",
+        "shell",
+        "spawn_subagents",
+        "write_artifacts",
+        "write_worktree"
+      ],
+      "pid": 3740657,
+      "ram": {
+        "HardwareCorrupted": "0 kB",
+        "MemAvailable": "9861540 kB",
+        "MemTotal": "12247028 kB"
+      }
+    },
+    {
+      "active_task": null,
+      "agent_id": "agent-host-mesh-agent-06",
+      "capabilities": [
+        "mesh",
+        "mesh_node",
+        "implementation",
+        "generic_implementation",
+        "read_only_probe",
+        "remote_implementation_runner_ready",
+        "runner:codex",
+        "runner:mimo"
+      ],
+      "cpu": 8,
+      "disk": {
+        "free": 52810510336,
+        "total": 105590231040,
+        "used": 47395594240
+      },
+      "draining": false,
+      "fresh": true,
+      "health": "online",
+      "heartbeat_age_seconds": 0.0,
+      "heartbeat_at": "2026-07-02T02:41:50.290047+00:00",
+      "hostname": "kolibri",
+      "mesh": true,
+      "mesh_ip": "45.39.33.252",
+      "mesh_last_seen": "2026-06-28T20:17:00.946831772Z",
+      "mesh_role": "agent",
+      "mesh_source_node_id": "agent-06",
+      "node_id": "mesh-agent-06",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "ai_runner",
+        "git_push",
+        "github_review",
+        "network",
+        "read_repo",
+        "run_tests",
+        "shell",
+        "spawn_subagents",
+        "write_artifacts",
+        "write_worktree"
+      ],
+      "pid": 3740731,
+      "ram": {
+        "HardwareCorrupted": "0 kB",
+        "MemAvailable": "9859908 kB",
+        "MemTotal": "12247028 kB"
+      }
+    },
+    {
+      "active_task": null,
+      "agent_id": "agent-host-mesh-agent-07",
+      "capabilities": [
+        "mesh",
+        "mesh_node",
+        "implementation",
+        "generic_implementation",
+        "read_only_probe",
+        "remote_implementation_runner_ready",
+        "runner:codex",
+        "runner:mimo"
+      ],
+      "cpu": 8,
+      "disk": {
+        "free": 52811100160,
+        "total": 105590231040,
+        "used": 47395004416
+      },
+      "draining": false,
+      "fresh": true,
+      "health": "online",
+      "heartbeat_age_seconds": 6.698169,
+      "heartbeat_at": "2026-07-02T02:41:43.184706+00:00",
+      "hostname": "kolibri",
+      "mesh": true,
+      "mesh_ip": "46.8.225.34",
+      "mesh_last_seen": "2026-06-28T20:17:08.01079709Z",
+      "mesh_role": "agent",
+      "mesh_source_node_id": "agent-07",
+      "node_id": "mesh-agent-07",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "ai_runner",
+        "git_push",
+        "github_review",
+        "network",
+        "read_repo",
+        "run_tests",
+        "shell",
+        "spawn_subagents",
+        "write_artifacts",
+        "write_worktree"
+      ],
+      "pid": 3740807,
+      "ram": {
+        "HardwareCorrupted": "0 kB",
+        "MemAvailable": "9909392 kB",
+        "MemTotal": "12247028 kB"
+      }
+    },
+    {
+      "active_task": null,
+      "agent_id": "agent-host-mesh-agent-08",
+      "capabilities": [
+        "mesh",
+        "mesh_node",
+        "implementation",
+        "generic_implementation",
+        "read_only_probe",
+        "remote_implementation_runner_ready",
+        "runner:codex",
+        "runner:mimo"
+      ],
+      "cpu": 8,
+      "disk": {
+        "free": 52811100160,
+        "total": 105590231040,
+        "used": 47395004416
+      },
+      "draining": false,
+      "fresh": true,
+      "health": "online",
+      "heartbeat_age_seconds": 9.896955,
+      "heartbeat_at": "2026-07-02T02:41:39.985920+00:00",
+      "hostname": "kolibri",
+      "mesh": true,
+      "mesh_ip": "31.59.105.200",
+      "mesh_last_seen": "2026-06-28T20:17:15.426953059Z",
+      "mesh_role": "agent",
+      "mesh_source_node_id": "agent-08",
+      "node_id": "mesh-agent-08",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "ai_runner",
+        "git_push",
+        "github_review",
+        "network",
+        "read_repo",
+        "run_tests",
+        "shell",
+        "spawn_subagents",
+        "write_artifacts",
+        "write_worktree"
+      ],
+      "pid": 3740883,
+      "ram": {
+        "HardwareCorrupted": "0 kB",
+        "MemAvailable": "9913500 kB",
+        "MemTotal": "12247028 kB"
+      }
+    },
+    {
+      "active_task": null,
+      "agent_id": "agent-host-mesh-agent-09",
+      "capabilities": [
+        "mesh",
+        "mesh_node",
+        "implementation",
+        "generic_implementation",
+        "read_only_probe",
+        "remote_implementation_runner_ready",
+        "runner:codex",
+        "runner:mimo"
+      ],
+      "cpu": 8,
+      "disk": {
+        "free": 52811100160,
+        "total": 105590231040,
+        "used": 47395004416
+      },
+      "draining": false,
+      "fresh": true,
+      "health": "online",
+      "heartbeat_age_seconds": 1.668477,
+      "heartbeat_at": "2026-07-02T02:41:48.214398+00:00",
+      "hostname": "kolibri",
+      "mesh": true,
+      "mesh_ip": "95.182.84.254",
+      "mesh_last_seen": "2026-06-28T20:17:22.92915235Z",
+      "mesh_role": "agent",
+      "mesh_source_node_id": "agent-09",
+      "node_id": "mesh-agent-09",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "ai_runner",
+        "git_push",
+        "github_review",
+        "network",
+        "read_repo",
+        "run_tests",
+        "shell",
+        "spawn_subagents",
+        "write_artifacts",
+        "write_worktree"
+      ],
+      "pid": 3740962,
+      "ram": {
+        "HardwareCorrupted": "0 kB",
+        "MemAvailable": "9903000 kB",
+        "MemTotal": "12247028 kB"
+      }
+    },
+    {
+      "active_task": null,
+      "agent_id": "agent-host-mesh-agent-10",
+      "capabilities": [
+        "mesh",
+        "mesh_node",
+        "implementation",
+        "generic_implementation",
+        "read_only_probe",
+        "remote_implementation_runner_ready",
+        "runner:codex",
+        "runner:mimo"
+      ],
+      "cpu": 8,
+      "disk": {
+        "free": 52810514432,
+        "total": 105590231040,
+        "used": 47395590144
+      },
+      "draining": false,
+      "fresh": true,
+      "health": "online",
+      "heartbeat_age_seconds": 0.0,
+      "heartbeat_at": "2026-07-02T02:41:50.101191+00:00",
+      "hostname": "kolibri",
+      "node_id": "mesh-agent-10",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "ai_runner",
+        "git_push",
+        "github_review",
+        "network",
+        "read_repo",
+        "run_tests",
+        "shell",
+        "spawn_subagents",
+        "write_artifacts",
+        "write_worktree"
+      ],
+      "pid": 3772773,
+      "ram": {
+        "HardwareCorrupted": "0 kB",
+        "MemAvailable": "9860132 kB",
+        "MemTotal": "12247028 kB"
+      }
+    },
+    {
+      "active_task": null,
+      "agent_id": "agent-host-mesh-agent-11",
+      "capabilities": [
+        "mesh",
+        "mesh_node",
+        "implementation",
+        "generic_implementation",
+        "read_only_probe",
+        "remote_implementation_runner_ready",
+        "runner:codex",
+        "runner:mimo"
+      ],
+      "cpu": 8,
+      "disk": {
+        "free": 52811100160,
+        "total": 105590231040,
+        "used": 47395004416
+      },
+      "draining": false,
+      "fresh": true,
+      "health": "online",
+      "heartbeat_age_seconds": 5.830087,
+      "heartbeat_at": "2026-07-02T02:41:44.052788+00:00",
+      "hostname": "kolibri",
+      "node_id": "mesh-agent-11",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "ai_runner",
+        "git_push",
+        "github_review",
+        "network",
+        "read_repo",
+        "run_tests",
+        "shell",
+        "spawn_subagents",
+        "write_artifacts",
+        "write_worktree"
+      ],
+      "pid": 3772858,
+      "ram": {
+        "HardwareCorrupted": "0 kB",
+        "MemAvailable": "9907544 kB",
+        "MemTotal": "12247028 kB"
+      }
+    },
+    {
+      "active_task": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02",
+      "active_task_state": "running",
+      "active_task_terminal": false,
+      "agent_id": "agent-host-mesh-agent-12",
+      "capabilities": [
+        "mesh",
+        "mesh_node",
+        "implementation",
+        "generic_implementation",
+        "read_only_probe",
+        "remote_implementation_runner_ready",
+        "runner:codex",
+        "runner:mimo"
+      ],
+      "cpu": 8,
+      "disk": {
+        "free": 52811100160,
+        "total": 105590231040,
+        "used": 47395004416
+      },
+      "draining": false,
+      "fresh": true,
+      "health": "online",
+      "heartbeat_age_seconds": 0.325208,
+      "heartbeat_at": "2026-07-02T02:41:49.557667+00:00",
+      "hostname": "kolibri",
+      "node_id": "mesh-agent-12",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "ai_runner",
+        "git_push",
+        "github_review",
+        "network",
+        "read_repo",
+        "run_tests",
+        "shell",
+        "spawn_subagents",
+        "write_artifacts",
+        "write_worktree"
+      ],
+      "pid": 3903375,
+      "ram": {
+        "HardwareCorrupted": "0 kB",
+        "MemAvailable": "9902300 kB",
+        "MemTotal": "12247028 kB"
+      }
+    },
+    {
+      "active_task": null,
+      "agent_id": "agent-host-mesh-agent-13",
+      "capabilities": [
+        "mesh",
+        "mesh_node",
+        "implementation",
+        "generic_implementation",
+        "read_only_probe",
+        "remote_implementation_runner_ready",
+        "runner:codex",
+        "runner:mimo"
+      ],
+      "cpu": 8,
+      "disk": {
+        "free": 52811100160,
+        "total": 105590231040,
+        "used": 47395004416
+      },
+      "draining": false,
+      "fresh": true,
+      "health": "online",
+      "heartbeat_age_seconds": 6.950135,
+      "heartbeat_at": "2026-07-02T02:41:42.932740+00:00",
+      "hostname": "kolibri",
+      "node_id": "mesh-agent-13",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "ai_runner",
+        "git_push",
+        "github_review",
+        "network",
+        "read_repo",
+        "run_tests",
+        "shell",
+        "spawn_subagents",
+        "write_artifacts",
+        "write_worktree"
+      ],
+      "pid": 3773076,
+      "ram": {
+        "HardwareCorrupted": "0 kB",
+        "MemAvailable": "9908960 kB",
+        "MemTotal": "12247028 kB"
+      }
+    },
+    {
+      "active_task": null,
+      "agent_id": "agent-host-mesh-agent-14",
+      "capabilities": [
+        "mesh",
+        "mesh_node",
+        "implementation",
+        "generic_implementation",
+        "read_only_probe",
+        "remote_implementation_runner_ready",
+        "runner:codex",
+        "runner:mimo"
+      ],
+      "cpu": 8,
+      "disk": {
+        "free": 52810514432,
+        "total": 105590231040,
+        "used": 47395590144
+      },
+      "draining": false,
+      "fresh": true,
+      "health": "online",
+      "heartbeat_age_seconds": 0.0,
+      "heartbeat_at": "2026-07-02T02:41:50.137222+00:00",
+      "hostname": "kolibri",
+      "node_id": "mesh-agent-14",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "ai_runner",
+        "git_push",
+        "github_review",
+        "network",
+        "read_repo",
+        "run_tests",
+        "shell",
+        "spawn_subagents",
+        "write_artifacts",
+        "write_worktree"
+      ],
+      "pid": 3773214,
+      "ram": {
+        "HardwareCorrupted": "0 kB",
+        "MemAvailable": "9860132 kB",
+        "MemTotal": "12247028 kB"
+      }
+    },
+    {
+      "active_task": null,
+      "agent_id": "agent-host-mesh-agent-15",
+      "capabilities": [
+        "mesh",
+        "mesh_node",
+        "implementation",
+        "generic_implementation",
+        "read_only_probe",
+        "remote_implementation_runner_ready",
+        "runner:codex",
+        "runner:mimo"
+      ],
+      "cpu": 8,
+      "disk": {
+        "free": 52810514432,
+        "total": 105590231040,
+        "used": 47395590144
+      },
+      "draining": false,
+      "fresh": true,
+      "health": "online",
+      "heartbeat_age_seconds": 0.0,
+      "heartbeat_at": "2026-07-02T02:41:50.100764+00:00",
+      "hostname": "kolibri",
+      "node_id": "mesh-agent-15",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "ai_runner",
+        "git_push",
+        "github_review",
+        "network",
+        "read_repo",
+        "run_tests",
+        "shell",
+        "spawn_subagents",
+        "write_artifacts",
+        "write_worktree"
+      ],
+      "pid": 3773546,
+      "ram": {
+        "HardwareCorrupted": "0 kB",
+        "MemAvailable": "9860132 kB",
+        "MemTotal": "12247028 kB"
+      }
+    },
+    {
+      "active_task": null,
+      "agent_id": "agent-host-mesh-agent-16",
+      "capabilities": [
+        "mesh",
+        "mesh_node",
+        "implementation",
+        "generic_implementation",
+        "read_only_probe",
+        "remote_implementation_runner_ready",
+        "runner:codex",
+        "runner:mimo"
+      ],
+      "cpu": 8,
+      "disk": {
+        "free": 52811100160,
+        "total": 105590231040,
+        "used": 47395004416
+      },
+      "draining": false,
+      "fresh": true,
+      "health": "online",
+      "heartbeat_age_seconds": 6.195779,
+      "heartbeat_at": "2026-07-02T02:41:43.687096+00:00",
+      "hostname": "kolibri",
+      "node_id": "mesh-agent-16",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "ai_runner",
+        "git_push",
+        "github_review",
+        "network",
+        "read_repo",
+        "run_tests",
+        "shell",
+        "spawn_subagents",
+        "write_artifacts",
+        "write_worktree"
+      ],
+      "pid": 3773735,
+      "ram": {
+        "HardwareCorrupted": "0 kB",
+        "MemAvailable": "9908244 kB",
+        "MemTotal": "12247028 kB"
+      }
+    },
+    {
+      "active_task": null,
+      "agent_id": "agent-host-mesh-agent-17",
+      "capabilities": [
+        "mesh",
+        "mesh_node",
+        "implementation",
+        "generic_implementation",
+        "read_only_probe",
+        "remote_implementation_runner_ready",
+        "runner:codex",
+        "runner:mimo"
+      ],
+      "cpu": 8,
+      "disk": {
+        "free": 52809609216,
+        "total": 105590231040,
+        "used": 47396495360
+      },
+      "draining": false,
+      "fresh": true,
+      "health": "online",
+      "heartbeat_age_seconds": 0.0,
+      "heartbeat_at": "2026-07-02T02:41:53.304598+00:00",
+      "hostname": "kolibri",
+      "node_id": "mesh-agent-17",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "ai_runner",
+        "git_push",
+        "github_review",
+        "network",
+        "read_repo",
+        "run_tests",
+        "shell",
+        "spawn_subagents",
+        "write_artifacts",
+        "write_worktree"
+      ],
+      "pid": 3773865,
+      "ram": {
+        "HardwareCorrupted": "0 kB",
+        "MemAvailable": "9876948 kB",
+        "MemTotal": "12247028 kB"
+      }
+    },
+    {
+      "active_task": null,
+      "agent_id": "agent-host-mesh-agent-18",
+      "capabilities": [
+        "mesh",
+        "mesh_node",
+        "implementation",
+        "generic_implementation",
+        "read_only_probe",
+        "remote_implementation_runner_ready",
+        "runner:codex",
+        "runner:mimo"
+      ],
+      "cpu": 8,
+      "disk": {
+        "free": 52811100160,
+        "total": 105590231040,
+        "used": 47395004416
+      },
+      "draining": false,
+      "fresh": true,
+      "health": "online",
+      "heartbeat_age_seconds": 0.989219,
+      "heartbeat_at": "2026-07-02T02:41:48.893656+00:00",
+      "hostname": "kolibri",
+      "node_id": "mesh-agent-18",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "ai_runner",
+        "git_push",
+        "github_review",
+        "network",
+        "read_repo",
+        "run_tests",
+        "shell",
+        "spawn_subagents",
+        "write_artifacts",
+        "write_worktree"
+      ],
+      "pid": 3773954,
+      "ram": {
+        "HardwareCorrupted": "0 kB",
+        "MemAvailable": "9902524 kB",
+        "MemTotal": "12247028 kB"
+      }
+    },
+    {
+      "active_task": null,
+      "agent_id": "agent-host-mesh-agent-19",
+      "capabilities": [
+        "mesh",
+        "mesh_node",
+        "implementation",
+        "generic_implementation",
+        "read_only_probe",
+        "remote_implementation_runner_ready",
+        "runner:codex",
+        "runner:mimo"
+      ],
+      "cpu": 8,
+      "disk": {
+        "free": 52811100160,
+        "total": 105590231040,
+        "used": 47395004416
+      },
+      "draining": false,
+      "fresh": true,
+      "health": "online",
+      "heartbeat_age_seconds": 0.567193,
+      "heartbeat_at": "2026-07-02T02:41:49.315682+00:00",
+      "hostname": "kolibri",
+      "node_id": "mesh-agent-19",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "ai_runner",
+        "git_push",
+        "github_review",
+        "network",
+        "read_repo",
+        "run_tests",
+        "shell",
+        "spawn_subagents",
+        "write_artifacts",
+        "write_worktree"
+      ],
+      "pid": 3774044,
+      "ram": {
+        "HardwareCorrupted": "0 kB",
+        "MemAvailable": "9902300 kB",
+        "MemTotal": "12247028 kB"
+      }
+    },
+    {
+      "active_task": null,
+      "agent_id": "agent-host-mesh-agent-20",
+      "capabilities": [
+        "mesh",
+        "mesh_node",
+        "implementation",
+        "generic_implementation",
+        "read_only_probe",
+        "remote_implementation_runner_ready",
+        "runner:codex",
+        "runner:mimo"
+      ],
+      "cpu": 8,
+      "disk": {
+        "free": 52811100160,
+        "total": 105590231040,
+        "used": 47395004416
+      },
+      "draining": false,
+      "fresh": true,
+      "health": "online",
+      "heartbeat_age_seconds": 6.637209,
+      "heartbeat_at": "2026-07-02T02:41:43.245666+00:00",
+      "hostname": "kolibri",
+      "node_id": "mesh-agent-20",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "ai_runner",
+        "git_push",
+        "github_review",
+        "network",
+        "read_repo",
+        "run_tests",
+        "shell",
+        "spawn_subagents",
+        "write_artifacts",
+        "write_worktree"
+      ],
+      "pid": 3774134,
+      "ram": {
+        "HardwareCorrupted": "0 kB",
+        "MemAvailable": "9909392 kB",
+        "MemTotal": "12247028 kB"
+      }
+    },
+    {
+      "agent_id": "mesh-highload",
+      "capabilities": [
+        "mesh",
+        "mesh_node"
+      ],
+      "cpu": null,
+      "disk": null,
+      "draining": false,
+      "fresh": false,
+      "health": "stale",
+      "heartbeat_age_seconds": 56856.166232,
+      "heartbeat_at": "2026-07-01T10:54:13.716643+00:00",
+      "hostname": "highload",
+      "mesh": true,
+      "mesh_ip": "45.38.139.182",
+      "mesh_last_seen": "2026-06-28T20:17:16.747596256Z",
+      "mesh_role": "agent",
+      "mesh_source_node_id": "highload",
+      "node_id": "mesh-highload",
+      "permission_packs": [],
+      "permissions": [],
+      "pid": null,
+      "ram": null
+    },
+    {
+      "agent_id": "mesh-home",
+      "capabilities": [
+        "mesh",
+        "mesh_node"
+      ],
+      "cpu": null,
+      "disk": null,
+      "draining": false,
+      "fresh": false,
+      "health": "stale",
+      "heartbeat_age_seconds": 2476.419736,
+      "heartbeat_at": "2026-07-02T02:00:33.463139+00:00",
+      "hostname": "home",
+      "mesh": true,
+      "mesh_ip": "10.99.0.1",
+      "mesh_last_seen": "2026-07-02T02:00:02.919699593Z",
+      "mesh_role": "agent",
+      "mesh_source_node_id": "home",
+      "node_id": "mesh-home",
+      "permission_packs": [],
+      "permissions": [],
+      "pid": null,
+      "ram": null
+    },
+    {
+      "agent_id": "mesh-main",
+      "capabilities": [
+        "mesh",
+        "mesh_node"
+      ],
+      "cpu": null,
+      "disk": null,
+      "draining": false,
+      "fresh": false,
+      "health": "stale",
+      "heartbeat_age_seconds": 2477.111181,
+      "heartbeat_at": "2026-07-02T02:00:32.771694+00:00",
+      "hostname": "main",
+      "mesh": true,
+      "mesh_ip": "10.99.0.2",
+      "mesh_last_seen": "2026-07-02T02:00:17.690715603Z",
+      "mesh_role": "agent",
+      "mesh_source_node_id": "main",
+      "node_id": "mesh-main",
+      "permission_packs": [],
+      "permissions": [],
+      "pid": null,
+      "ram": null
+    },
+    {
+      "agent_id": "mesh-new",
+      "capabilities": [
+        "mesh",
+        "mesh_node"
+      ],
+      "cpu": null,
+      "disk": null,
+      "draining": false,
+      "fresh": false,
+      "health": "stale",
+      "heartbeat_age_seconds": 2476.170192,
+      "heartbeat_at": "2026-07-02T02:00:33.712683+00:00",
+      "hostname": "new",
+      "mesh": true,
+      "mesh_ip": "10.99.0.6",
+      "mesh_last_seen": "2026-07-02T00:17:34.367359249Z",
+      "mesh_role": "agent",
+      "mesh_source_node_id": "new",
+      "node_id": "mesh-new",
+      "permission_packs": [],
+      "permissions": [],
+      "pid": null,
+      "ram": null
+    },
+    {
+      "agent_id": "mesh-paris",
+      "capabilities": [
+        "mesh",
+        "mesh_node"
+      ],
+      "cpu": null,
+      "disk": null,
+      "draining": false,
+      "fresh": false,
+      "health": "stale",
+      "heartbeat_age_seconds": 56854.669796,
+      "heartbeat_at": "2026-07-01T10:54:15.213079+00:00",
+      "hostname": "paris",
+      "mesh": true,
+      "mesh_ip": "95.182.83.60",
+      "mesh_last_seen": "2026-06-28T20:17:30.017515213Z",
+      "mesh_role": "agent",
+      "mesh_source_node_id": "paris",
+      "node_id": "mesh-paris",
+      "permission_packs": [],
+      "permissions": [],
+      "pid": null,
+      "ram": null
+    },
+    {
+      "agent_id": "mesh-primary",
+      "capabilities": [
+        "mesh",
+        "mesh_node"
+      ],
+      "cpu": null,
+      "disk": null,
+      "draining": false,
+      "fresh": false,
+      "health": "stale",
+      "heartbeat_age_seconds": 2477.360993,
+      "heartbeat_at": "2026-07-02T02:00:32.521882+00:00",
+      "hostname": "primary",
+      "mesh": true,
+      "mesh_ip": "10.99.0.10",
+      "mesh_last_seen": "2026-07-02T01:59:59.196206211Z",
+      "mesh_role": "agent",
+      "mesh_source_node_id": "primary",
+      "node_id": "mesh-primary",
+      "permission_packs": [],
+      "permissions": [],
+      "pid": null,
+      "ram": null
+    },
+    {
+      "agent_id": "mesh-qjns",
+      "capabilities": [
+        "mesh",
+        "mesh_node"
+      ],
+      "cpu": null,
+      "disk": null,
+      "draining": false,
+      "fresh": false,
+      "health": "stale",
+      "heartbeat_age_seconds": 2477.652095,
+      "heartbeat_at": "2026-07-02T02:00:32.230780+00:00",
+      "hostname": "qjns",
+      "mesh": true,
+      "mesh_ip": "10.99.0.4",
+      "mesh_last_seen": "2026-07-02T00:17:45.755138532Z",
+      "mesh_role": "agent",
+      "mesh_source_node_id": "qjns",
+      "node_id": "mesh-qjns",
+      "permission_packs": [],
+      "permissions": [],
+      "pid": null,
+      "ram": null
+    },
+    {
+      "agent_id": "mesh-reserve242",
+      "capabilities": [
+        "mesh",
+        "mesh_node"
+      ],
+      "cpu": null,
+      "disk": null,
+      "draining": false,
+      "fresh": false,
+      "health": "stale",
+      "heartbeat_age_seconds": 56854.048154,
+      "heartbeat_at": "2026-07-01T10:54:15.834721+00:00",
+      "hostname": "reserve242",
+      "mesh": true,
+      "mesh_ip": "31.57.26.242",
+      "mesh_last_seen": "2026-06-28T20:17:10.594700036Z",
+      "mesh_role": "agent",
+      "mesh_source_node_id": "reserve242",
+      "node_id": "mesh-reserve242",
+      "permission_packs": [],
+      "permissions": [],
+      "pid": null,
+      "ram": null
+    },
+    {
+      "agent_id": "mesh-server-kfrm",
+      "capabilities": [
+        "mesh",
+        "mesh_node"
+      ],
+      "cpu": null,
+      "disk": null,
+      "draining": false,
+      "fresh": false,
+      "health": "stale",
+      "heartbeat_age_seconds": 56854.207974,
+      "heartbeat_at": "2026-07-01T10:54:15.674901+00:00",
+      "hostname": "server-kfrm",
+      "mesh": true,
+      "mesh_ip": "217.60.63.31",
+      "mesh_last_seen": "2026-06-28T20:17:06.88039632Z",
+      "mesh_role": "agent",
+      "mesh_source_node_id": "server-kfrm",
+      "node_id": "mesh-server-kfrm",
+      "permission_packs": [],
+      "permissions": [],
+      "pid": null,
+      "ram": null
+    },
+    {
+      "agent_id": "mesh-uiap",
+      "capabilities": [
+        "mesh",
+        "mesh_node"
+      ],
+      "cpu": null,
+      "disk": null,
+      "draining": false,
+      "fresh": false,
+      "health": "stale",
+      "heartbeat_age_seconds": 2476.660961,
+      "heartbeat_at": "2026-07-02T02:00:33.221914+00:00",
+      "hostname": "uiap",
+      "mesh": true,
+      "mesh_ip": "10.99.0.3",
+      "mesh_last_seen": "2026-07-02T02:00:18.153600302Z",
+      "mesh_role": "agent",
+      "mesh_source_node_id": "uiap",
+      "node_id": "mesh-uiap",
+      "permission_packs": [],
+      "permissions": [],
+      "pid": null,
+      "ram": null
+    },
+    {
+      "active_task": null,
+      "agent_id": "agent-host-new",
+      "capabilities": [
+        "review",
+        "read_only_probe",
+        "generic_review"
+      ],
+      "cpu": 2,
+      "disk": {
+        "free": 51367604224,
+        "total": 80702619648,
+        "used": 25863520256
+      },
+      "draining": false,
+      "filesystem": {
+        "mode": "mesh_api_namespace",
+        "namespace_prefix": "/kolibri/nodes/new",
+        "roots": [
+          {
+            "disk": {
+              "free": 51367604224,
+              "total": 80702619648,
+              "used": 25863520256
+            },
+            "exists": true,
+            "name": "worktrees",
+            "namespace": "/kolibri/nodes/new/worktrees",
+            "path": "/var/lib/kolibri-agent/worktrees",
+            "purpose": "per-task writable worktrees",
+            "writable": true
+          },
+          {
+            "disk": {
+              "free": 51367604224,
+              "total": 80702619648,
+              "used": 25863520256
+            },
+            "exists": true,
+            "name": "artifacts",
+            "namespace": "/kolibri/nodes/new/artifacts",
+            "path": "/var/lib/kolibri-agent/artifacts",
+            "purpose": "task logs and structured results",
+            "writable": true
+          },
+          {
+            "disk": {
+              "free": 51367604224,
+              "total": 80702619648,
+              "used": 25863520256
+            },
+            "exists": true,
+            "name": "root",
+            "namespace": "/kolibri/nodes/new/root",
+            "path": "/",
+            "purpose": "configured remote file root",
+            "writable": false
+          }
+        ],
+        "write_policy": "node-local writes only; no shared writable root disk; shared roots require leases"
+      },
+      "fresh": true,
+      "health": "online",
+      "heartbeat_age_seconds": 4.591272,
+      "heartbeat_at": "2026-07-02T02:41:45.291603+00:00",
+      "hostname": "kolibri-worker-backup",
+      "node_id": "new",
+      "permission_packs": [],
+      "permissions": [],
+      "pid": 422878,
+      "ram": {
+        "MemAvailable": "5753592 kB",
+        "MemTotal": "8132672 kB"
+      }
+    },
+    {
+      "capabilities": [
+        "read_only_probe",
+        "implementation",
+        "generic_implementation",
+        "remote_implementation_runner_ready",
+        "permission:*"
+      ],
+      "draining": false,
+      "fresh": false,
+      "health": "stale",
+      "heartbeat_age_seconds": 139506.772862,
+      "heartbeat_at": "2026-06-30T11:56:43.110013+00:00",
+      "hostname": null,
+      "node_id": "paris",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "*"
+      ]
+    },
+    {
+      "active_task": "P0_30MIN_12AGENT_07B_QJNS_READINESS_FALLBACK_NO_CLONE_2026_07_02",
+      "active_task_state": "running",
+      "active_task_terminal": false,
+      "agent_id": "agent-host-primary",
+      "capabilities": [
+        "primary",
+        "control-standby",
+        "orchestrator",
+        "implementation",
+        "review",
+        "read_only_probe",
+        "generic_implementation",
+        "generic_review",
+        "runner:codex",
+        "runner:mimo"
+      ],
+      "cpu": 8,
+      "disk": {
+        "free": 52706631680,
+        "total": 105590231040,
+        "used": 47499472896
+      },
+      "draining": false,
+      "fresh": false,
+      "health": "stale",
+      "heartbeat_age_seconds": 283.208705,
+      "heartbeat_at": "2026-07-02T02:37:06.674170+00:00",
+      "hostname": "kolibri",
+      "node_id": "primary-candidate",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "ai_runner",
+        "git_push",
+        "github_review",
+        "network",
+        "read_repo",
+        "run_tests",
+        "shell",
+        "spawn_subagents",
+        "write_artifacts",
+        "write_worktree"
+      ],
+      "pid": 3574750,
+      "ram": {
+        "HardwareCorrupted": "0 kB",
+        "MemAvailable": "9871244 kB",
+        "MemTotal": "12247028 kB"
+      }
+    },
+    {
+      "active_task": null,
+      "agent_id": "agent-host-qjns",
+      "capabilities": [
+        "read_only_probe",
+        "implementation",
+        "review",
+        "qa",
+        "agent-host"
+      ],
+      "cpu": 1,
+      "disk": {
+        "free": 4801646592,
+        "total": 20109631488,
+        "used": 14413463552
+      },
+      "draining": false,
+      "fresh": true,
+      "health": "online",
+      "heartbeat_age_seconds": 0.02261,
+      "heartbeat_at": "2026-07-02T02:41:49.860265+00:00",
+      "hostname": "kolibri-tools-executor",
+      "node_id": "qjns",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "ai_runner",
+        "git_push",
+        "github_review",
+        "network",
+        "read_repo",
+        "run_tests",
+        "shell",
+        "spawn_subagents",
+        "write_artifacts",
+        "write_worktree"
+      ],
+      "pid": 152886,
+      "ram": {
+        "MemAvailable": "725960 kB",
+        "MemTotal": "2015392 kB"
+      }
+    },
+    {
+      "capabilities": [
+        "read_only_probe",
+        "implementation",
+        "generic_implementation",
+        "remote_implementation_runner_ready",
+        "permission:*"
+      ],
+      "draining": false,
+      "fresh": false,
+      "health": "stale",
+      "heartbeat_age_seconds": 139506.582366,
+      "heartbeat_at": "2026-06-30T11:56:43.300509+00:00",
+      "hostname": null,
+      "node_id": "reserve242",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "*"
+      ]
+    },
+    {
+      "capabilities": [
+        "read_only_probe",
+        "implementation",
+        "generic_implementation",
+        "remote_implementation_runner_ready",
+        "permission:*"
+      ],
+      "draining": false,
+      "fresh": false,
+      "health": "stale",
+      "heartbeat_age_seconds": 139506.391458,
+      "heartbeat_at": "2026-06-30T11:56:43.491417+00:00",
+      "hostname": null,
+      "node_id": "server-kfrm",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "*"
+      ]
+    },
+    {
+      "agent_id": "smoke-agent",
+      "capabilities": [
+        "smoke"
+      ],
+      "cpu": null,
+      "disk": null,
+      "draining": false,
+      "fresh": false,
+      "health": "stale",
+      "heartbeat_age_seconds": 230445.606137,
+      "heartbeat_at": "2026-06-29T10:41:04.276738+00:00",
+      "hostname": "primary",
+      "node_id": "smoke-primary",
+      "pid": null,
+      "ram": null
+    },
+    {
+      "active_task": null,
+      "agent_id": "agent-host-uiap",
+      "capabilities": [
+        "read_only_probe",
+        "research",
+        "security",
+        "rag",
+        "knowledge-base"
+      ],
+      "cpu": 2,
+      "disk": {
+        "free": 13383634944,
+        "total": 40253255680,
+        "used": 26423361536
+      },
+      "draining": false,
+      "filesystem": {
+        "mode": "mesh_api_namespace",
+        "namespace_prefix": "/kolibri/nodes/uiap",
+        "roots": [
+          {
+            "disk": {
+              "free": 13383634944,
+              "total": 40253255680,
+              "used": 26423361536
+            },
+            "exists": true,
+            "name": "worktrees",
+            "namespace": "/kolibri/nodes/uiap/worktrees",
+            "path": "/var/lib/kolibri-agent/worktrees",
+            "purpose": "per-task writable worktrees",
+            "writable": true
+          },
+          {
+            "disk": {
+              "free": 13383634944,
+              "total": 40253255680,
+              "used": 26423361536
+            },
+            "exists": true,
+            "name": "artifacts",
+            "namespace": "/kolibri/nodes/uiap/artifacts",
+            "path": "/var/lib/kolibri-agent/artifacts",
+            "purpose": "task logs and structured results",
+            "writable": true
+          }
+        ],
+        "write_policy": "node-local writes only; no shared writable root disk; shared roots require leases"
+      },
+      "fresh": true,
+      "health": "online",
+      "heartbeat_age_seconds": 0.0,
+      "heartbeat_at": "2026-07-02T02:41:55.110842+00:00",
+      "hostname": "kolibri-rag-knowledge",
+      "node_id": "uiap",
+      "permission_packs": [],
+      "permissions": [],
+      "pid": 1278827,
+      "ram": {
+        "MemAvailable": "1936276 kB",
+        "MemTotal": "4009980 kB"
+      }
+    }
+  ],
+  "summary": {
+    "canonical_nodes": 12,
+    "duplicate_hostname_groups": 3,
+    "duplicate_hostnames": {
+      "kolibri": [
+        "mesh-agent-01",
+        "mesh-agent-02",
+        "mesh-agent-03",
+        "mesh-agent-04",
+        "mesh-agent-05",
+        "mesh-agent-06",
+        "mesh-agent-07",
+        "mesh-agent-08",
+        "mesh-agent-09",
+        "mesh-agent-10",
+        "mesh-agent-11",
+        "mesh-agent-12",
+        "mesh-agent-13",
+        "mesh-agent-14",
+        "mesh-agent-15",
+        "mesh-agent-16",
+        "mesh-agent-17",
+        "mesh-agent-18",
+        "mesh-agent-19",
+        "mesh-agent-20",
+        "primary-candidate"
+      ],
+      "plastilin": [
+        "home",
+        "home-live"
+      ],
+      "primary": [
+        "mesh-primary",
+        "smoke-primary"
+      ]
+    },
+    "fresh_canonical_generic_implementation_nodes": 5,
+    "fresh_canonical_nodes": 7,
+    "fresh_nodes": 27,
+    "fresh_non_draining_nodes": 27,
+    "mesh_shadow_duplicate_nodes": [
+      {
+        "node_id": "mesh-9fts",
+        "shadows": "9fts"
+      },
+      {
+        "node_id": "mesh-agent-01",
+        "shadows": "agent-01"
+      },
+      {
+        "node_id": "mesh-agent-02",
+        "shadows": "agent-02"
+      },
+      {
+        "node_id": "mesh-agent-03",
+        "shadows": "agent-03"
+      },
+      {
+        "node_id": "mesh-agent-04",
+        "shadows": "agent-04"
+      },
+      {
+        "node_id": "mesh-agent-05",
+        "shadows": "agent-05"
+      },
+      {
+        "node_id": "mesh-agent-06",
+        "shadows": "agent-06"
+      },
+      {
+        "node_id": "mesh-agent-07",
+        "shadows": "agent-07"
+      },
+      {
+        "node_id": "mesh-agent-08",
+        "shadows": "agent-08"
+      },
+      {
+        "node_id": "mesh-agent-09",
+        "shadows": "agent-09"
+      },
+      {
+        "node_id": "mesh-highload",
+        "shadows": "highload"
+      },
+      {
+        "node_id": "mesh-home",
+        "shadows": "home"
+      },
+      {
+        "node_id": "mesh-main",
+        "shadows": "main"
+      },
+      {
+        "node_id": "mesh-new",
+        "shadows": "new"
+      },
+      {
+        "node_id": "mesh-paris",
+        "shadows": "paris"
+      },
+      {
+        "node_id": "mesh-qjns",
+        "shadows": "qjns"
+      },
+      {
+        "node_id": "mesh-reserve242",
+        "shadows": "reserve242"
+      },
+      {
+        "node_id": "mesh-server-kfrm",
+        "shadows": "server-kfrm"
+      },
+      {
+        "node_id": "mesh-uiap",
+        "shadows": "uiap"
+      }
+    ],
+    "mesh_shadow_duplicates": 19,
+    "registered_nodes": 53
+  }
+}

@@ -1,0 +1,77 @@
+{
+  "generated_from": "Control Plane /v1/tasks/{task_id}",
+  "tasks": [
+    {
+      "agent_type": null,
+      "artifact_path": "docs/agent/runs/2026-07-02-p0-autopilot-2h-50pct-launch-orchestrator/status-P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02.json",
+      "error_type": null,
+      "lease_owner": "mesh-agent-12:agent-host-mesh-agent-12",
+      "lease_until": 1782960522.9917536,
+      "required_capability": "generic_implementation",
+      "result_reference": null,
+      "status": "running",
+      "target_node": "mesh-agent-12",
+      "task_id": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02"
+    },
+    {
+      "agent_type": "fleet_readiness_matrix_steward",
+      "artifact_path": "docs/agent/runs/2026-07-02-p0-autopilot-2h-50pct-launch-orchestrator/status-P0_AUTOPILOT_CANONICAL_20_SERVER_READINESS_MATRIX_2026_07_02.json",
+      "error_type": null,
+      "lease_owner": null,
+      "lease_until": null,
+      "required_capability": "read_only_probe",
+      "result_reference": null,
+      "status": "queued",
+      "target_node": "primary-candidate",
+      "task_id": "P0_AUTOPILOT_CANONICAL_20_SERVER_READINESS_MATRIX_2026_07_02"
+    },
+    {
+      "agent_type": "autopilot_capacity_governor",
+      "artifact_path": "docs/agent/runs/2026-07-02-p0-autopilot-2h-50pct-launch-orchestrator/status-P0_AUTOPILOT_50PCT_CAPACITY_GOVERNOR_2026_07_02.json",
+      "error_type": "runtime_error",
+      "lease_owner": null,
+      "lease_until": null,
+      "required_capability": "orchestrator",
+      "result_reference": "/var/lib/kolibri-agent/artifacts/P0_AUTOPILOT_50PCT_CAPACITY_GOVERNOR_2026_07_02/P0_AUTOPILOT_50PCT_CAPACITY_GOVERNOR_2026_07_02-attempt-1/result.json",
+      "status": "failed",
+      "target_node": "main",
+      "task_id": "P0_AUTOPILOT_50PCT_CAPACITY_GOVERNOR_2026_07_02"
+    },
+    {
+      "agent_type": "control_plane_guardian",
+      "artifact_path": "docs/agent/runs/2026-07-02-p0-autopilot-2h-50pct-launch-orchestrator/status-P0_AUTOPILOT_GUARDIAN_CONTROL_PLANE_STEWARD_2026_07_02.json",
+      "error_type": null,
+      "lease_owner": null,
+      "lease_until": null,
+      "required_capability": "read_only_probe",
+      "result_reference": null,
+      "status": "queued",
+      "target_node": "primary-candidate",
+      "task_id": "P0_AUTOPILOT_GUARDIAN_CONTROL_PLANE_STEWARD_2026_07_02"
+    },
+    {
+      "agent_type": "release_guardian",
+      "artifact_path": "docs/agent/runs/2026-07-02-p0-autopilot-2h-50pct-launch-orchestrator/status-P0_AUTOPILOT_GUARDIAN_PR105_RELEASE_STEWARD_2026_07_02.json",
+      "error_type": null,
+      "lease_owner": null,
+      "lease_until": null,
+      "required_capability": "github_review",
+      "result_reference": null,
+      "status": "queued",
+      "target_node": "qjns",
+      "task_id": "P0_AUTOPILOT_GUARDIAN_PR105_RELEASE_STEWARD_2026_07_02"
+    },
+    {
+      "agent_type": "runner_contract_guardian",
+      "artifact_path": "docs/agent/runs/2026-07-02-p0-autopilot-2h-50pct-launch-orchestrator/status-P0_AUTOPILOT_GUARDIAN_RUNNER_CONTRACT_STEWARD_2026_07_02.json",
+      "error_type": "runner_unavailable",
+      "lease_owner": null,
+      "lease_until": null,
+      "required_capability": "qa",
+      "result_reference": "/var/lib/kolibri-agent/artifacts/P0_AUTOPILOT_GUARDIAN_RUNNER_CONTRACT_STEWARD_2026_07_02/P0_AUTOPILOT_GUARDIAN_RUNNER_CONTRACT_STEWARD_2026_07_02-attempt-1/result.json",
+      "status": "failed",
+      "target_node": "qjns",
+      "task_id": "P0_AUTOPILOT_GUARDIAN_RUNNER_CONTRACT_STEWARD_2026_07_02"
+    }
+  ]
+}

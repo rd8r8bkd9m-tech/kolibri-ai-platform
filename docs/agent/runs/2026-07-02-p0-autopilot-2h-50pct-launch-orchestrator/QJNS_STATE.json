@@ -1,0 +1,50 @@
+{
+  "found": true,
+  "matches": [
+    {
+      "active_task": null,
+      "agent_id": "agent-host-qjns",
+      "capabilities": [
+        "read_only_probe",
+        "implementation",
+        "review",
+        "qa",
+        "agent-host"
+      ],
+      "cpu": 1,
+      "disk": {
+        "free": 4801646592,
+        "total": 20109631488,
+        "used": 14413463552
+      },
+      "draining": false,
+      "fresh": true,
+      "health": "online",
+      "heartbeat_age_seconds": 0.02261,
+      "heartbeat_at": "2026-07-02T02:41:49.860265+00:00",
+      "hostname": "kolibri-tools-executor",
+      "node_id": "qjns",
+      "permission_packs": [
+        "full_autonomy"
+      ],
+      "permissions": [
+        "ai_runner",
+        "git_push",
+        "github_review",
+        "network",
+        "read_repo",
+        "run_tests",
+        "shell",
+        "spawn_subagents",
+        "write_artifacts",
+        "write_worktree"
+      ],
+      "pid": 152886,
+      "ram": {
+        "MemAvailable": "725960 kB",
+        "MemTotal": "2015392 kB"
+      }
+    }
+  ],
+  "node_id": "qjns"
+}

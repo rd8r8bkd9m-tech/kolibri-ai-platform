@@ -1,0 +1,16 @@
+{
+  "ok": false,
+  "source": "gh pr view 105 --json number,title,state,isDraft,headRefName,baseRefName,mergeStateStatus,reviewDecision,statusCheckRollup,updatedAt,url",
+  "blocker": {
+    "type": "tool_missing",
+    "tool": "gh",
+    "detail": "GitHub CLI is not installed on this Agent Host."
+  },
+  "fallback_evidence": "docs/agent/runs/2026-07-02-p0-autopilot-2h-50pct-launch-orchestrator/PR105_GIT_REFS.txt",
+  "policy": {
+    "merge_forbidden": true,
+    "auto_merge_forbidden": true,
+    "push_to_main_forbidden": true,
+    "force_push_forbidden": true
+  }
+}

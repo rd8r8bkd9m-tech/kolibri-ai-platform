@@ -1,0 +1,467 @@
+{
+  "attempt": 0,
+  "attempt_id": null,
+  "created_at": "2026-07-02T02:45:16.180123+00:00",
+  "envelope": {
+    "acceptance": [
+      "All canonical server slots are listed, even when blocker is unknown or unreachable.",
+      "Each row includes target node, status, lease owner if any, blocker, and artifact path.",
+      "No product feature work is performed."
+    ],
+    "agent_display_name": "\u0418\u0440\u0438\u043d\u0430 - \u043c\u0430\u0442\u0440\u0438\u0446\u0430 \u0433\u043e\u0442\u043e\u0432\u043d\u043e\u0441\u0442\u0438 20 \u0441\u0435\u0440\u0432\u0435\u0440\u043e\u0432",
+    "agent_type": "fleet_readiness_matrix_steward",
+    "allowed_nodes": [
+      "primary-candidate",
+      "main",
+      "qjns",
+      "uiap",
+      "mesh-9fts"
+    ],
+    "base_ref": "origin/main",
+    "branch": "agent/P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02/generic",
+    "constraints": {
+      "canonical_20_server_matrix_required": true,
+      "control_plane_dispatch_required": true,
+      "destructive_commands_forbidden": true,
+      "force_push_forbidden": true,
+      "git_clean_forbidden": true,
+      "git_reset_forbidden": true,
+      "mac_implementation_forbidden": true,
+      "product_feature_work_forbidden": true,
+      "push_to_main_forbidden": true,
+      "read_mostly": true,
+      "secrets_redaction_required": true,
+      "server_execution_required": true
+    },
+    "goal": "Create the canonical 20-server readiness matrix for the 2-hour 50%-capacity autopilot launch window.",
+    "idempotency_key": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02:canonical-20-server-readiness-matrix",
+    "kind": "owner_remote_task",
+    "max_retries": 1,
+    "objective": "Use Control Plane and Fabric API evidence first. Classify every canonical server as ready, degraded, stale, unreachable, duplicate-card, or unknown with exact blocker, heartbeat freshness, Agent Host state, queue pressure, MIMO/subagent readiness, GitHub readiness, and safe artifact path. Do not change product code, credentials, firewall, VPN, services, or GitHub branch state.",
+    "preferred_nodes": [
+      "primary-candidate",
+      "main",
+      "qjns"
+    ],
+    "priority": "P0",
+    "read_first": [
+      "docs/agent/runs/2026-07-02-p0-autopilot-2h-50pct-launch-orchestrator/CONTROL_PLANE_HEALTH.json",
+      "docs/agent/runs/2026-07-02-p0-autopilot-2h-50pct-launch-orchestrator/CONTROL_PLANE_NODES.json",
+      "docs/agent/runs/2026-07-02-p0-autopilot-2h-50pct-launch-orchestrator/QJNS_STATE.json",
+      "docs/superfactory/FLEET_ALWAYS_ONLINE_POLICY.md",
+      "docs/agent/dispatcher/FACTORY_STATUS.md"
+    ],
+    "required_capability": "read_only_probe",
+    "required_outputs": [
+      "docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/CANONICAL_20_SERVER_READINESS_MATRIX.md"
+    ],
+    "runner": "codex",
+    "source": {
+      "launch_window": {
+        "capacity_percent": 50,
+        "duration_hours": 2,
+        "ends_at_utc": "2026-07-02T04:42:44Z",
+        "started_at_utc": "2026-07-02T02:42:44Z"
+      },
+      "parent_task_id": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02"
+    },
+    "target_node": "primary-candidate",
+    "target_node_pool": "healthy_control_orchestrator_nodes",
+    "task_id": "P0_AUTOPILOT_CANONICAL_20_SERVER_READINESS_MATRIX_2026_07_02",
+    "verification_commands": [
+      "test -f docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/CANONICAL_20_SERVER_READINESS_MATRIX.md"
+    ],
+    "write_scope": [
+      "docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/CANONICAL_20_SERVER_READINESS_MATRIX.md",
+      "docs/agent/runs/2026-07-02-p0-autopilot-2h-50pct-launch-orchestrator/readiness-matrix/**"
+    ]
+  },
+  "error": null,
+  "error_type": null,
+  "heartbeat_at": null,
+  "idempotency_key": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02:canonical-20-server-readiness-matrix",
+  "kind": "owner_remote_task",
+  "lease_owner": null,
+  "lease_until": null,
+  "max_retries": 1,
+  "permission_pack": "full_autonomy",
+  "required_permissions": [
+    "ai_runner",
+    "git_push",
+    "github_review",
+    "network",
+    "read_repo",
+    "run_tests",
+    "shell",
+    "spawn_subagents",
+    "write_artifacts",
+    "write_worktree"
+  ],
+  "result": null,
+  "result_reference": null,
+  "state": "queued",
+  "task_id": "P0_AUTOPILOT_CANONICAL_20_SERVER_READINESS_MATRIX_2026_07_02",
+  "updated_at": "2026-07-02T02:45:16.306701+00:00"
+}
+{
+  "attempt": 0,
+  "attempt_id": null,
+  "created_at": "2026-07-02T02:45:16.879887+00:00",
+  "envelope": {
+    "acceptance": [
+      "Governor status is recorded as active, queued, or blocked with exact reason.",
+      "Per-node and global caps are explicit and based on fresh node evidence.",
+      "Scale-down and repair-only triggers are defined."
+    ],
+    "agent_display_name": "\u0421\u0435\u043c\u0435\u043d - \u0433\u0443\u0431\u0435\u0440\u043d\u0430\u0442\u043e\u0440 50% \u043c\u043e\u0449\u043d\u043e\u0441\u0442\u0438",
+    "agent_type": "autopilot_capacity_governor",
+    "allowed_nodes": [
+      "main",
+      "primary-candidate",
+      "qjns"
+    ],
+    "base_ref": "origin/main",
+    "branch": "agent/P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02/generic",
+    "constraints": {
+      "capacity_percent": 50,
+      "control_plane_dispatch_required": true,
+      "destructive_commands_forbidden": true,
+      "duration_hours": 2,
+      "force_push_forbidden": true,
+      "git_clean_forbidden": true,
+      "git_reset_forbidden": true,
+      "mac_implementation_forbidden": true,
+      "product_feature_work_forbidden": true,
+      "production_restart_forbidden_without_owner_approval": true,
+      "push_to_main_forbidden": true,
+      "secrets_redaction_required": true,
+      "server_execution_required": true
+    },
+    "goal": "Enforce a 50%-capacity governor during the 2-hour autopilot launch window.",
+    "idempotency_key": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02:50pct-capacity-governor",
+    "kind": "owner_remote_task",
+    "max_retries": 1,
+    "objective": "Build an artifact-backed capacity governor from current Control Plane state: max active child tasks, per-node inflight caps, stale-node exclusion, task deduplication keys, lease freshness rules, repair-only fallback, and scale-down triggers. Do not change running services unless owner approval already exists; if enforcement cannot be applied through current Control Plane contracts, report the exact blocker and safe manual gate.",
+    "preferred_nodes": [
+      "main",
+      "primary-candidate",
+      "qjns"
+    ],
+    "priority": "P0",
+    "read_first": [
+      "docs/agent/runs/2026-07-02-p0-autopilot-2h-50pct-launch-orchestrator/CONTROL_PLANE_HEALTH.json",
+      "docs/agent/runs/2026-07-02-p0-autopilot-2h-50pct-launch-orchestrator/CONTROL_PLANE_NODES.json",
+      "docs/agent/runs/2026-07-02-p0-autopilot-2h-50pct-launch-orchestrator/CONTROL_PLANE_TASKS_BEFORE.json",
+      "ops/factory_control.py",
+      "ops/agent_host.py"
+    ],
+    "required_capability": "orchestrator",
+    "required_outputs": [
+      "docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/50PCT_CAPACITY_GOVERNOR.md"
+    ],
+    "runner": "codex",
+    "source": {
+      "launch_window": {
+        "capacity_percent": 50,
+        "duration_hours": 2,
+        "ends_at_utc": "2026-07-02T04:42:44Z",
+        "started_at_utc": "2026-07-02T02:42:44Z"
+      },
+      "parent_task_id": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02"
+    },
+    "target_node": "main",
+    "target_node_pool": "healthy_control_orchestrator_nodes",
+    "task_id": "P0_AUTOPILOT_50PCT_CAPACITY_GOVERNOR_2026_07_02",
+    "verification_commands": [
+      "test -f docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/50PCT_CAPACITY_GOVERNOR.md"
+    ],
+    "write_scope": [
+      "docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/50PCT_CAPACITY_GOVERNOR.md",
+      "docs/agent/runs/2026-07-02-p0-autopilot-2h-50pct-launch-orchestrator/capacity-governor/**"
+    ]
+  },
+  "error": null,
+  "error_type": null,
+  "heartbeat_at": null,
+  "idempotency_key": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02:50pct-capacity-governor",
+  "kind": "owner_remote_task",
+  "lease_owner": null,
+  "lease_until": null,
+  "max_retries": 1,
+  "permission_pack": "full_autonomy",
+  "required_permissions": [
+    "ai_runner",
+    "git_push",
+    "github_review",
+    "network",
+    "read_repo",
+    "run_tests",
+    "shell",
+    "spawn_subagents",
+    "write_artifacts",
+    "write_worktree"
+  ],
+  "result": null,
+  "result_reference": null,
+  "state": "queued",
+  "task_id": "P0_AUTOPILOT_50PCT_CAPACITY_GOVERNOR_2026_07_02",
+  "updated_at": "2026-07-02T02:45:16.992943+00:00"
+}
+{
+  "attempt": 0,
+  "attempt_id": null,
+  "created_at": "2026-07-02T02:45:17.489694+00:00",
+  "envelope": {
+    "acceptance": [
+      "Control Plane health, queue, lease freshness, duplicate launch tasks, and stale-node blockers are recorded.",
+      "No product feature work is performed.",
+      "No production service restart or credential change is performed."
+    ],
+    "agent_display_name": "\u0410\u043d\u043d\u0430 - \u0441\u0442\u044e\u0430\u0440\u0434 Control Plane",
+    "agent_type": "control_plane_guardian",
+    "allowed_nodes": [
+      "primary-candidate",
+      "main"
+    ],
+    "base_ref": "origin/main",
+    "branch": "agent/P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02/generic",
+    "constraints": {
+      "destructive_commands_forbidden": true,
+      "product_feature_work_forbidden": true,
+      "read_mostly": true,
+      "secrets_redaction_required": true,
+      "server_execution_required": true
+    },
+    "goal": "Guard Control Plane health and lease freshness during the 50%-capacity launch window.",
+    "idempotency_key": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02:guardian-control-plane-steward",
+    "kind": "owner_remote_task",
+    "max_retries": 1,
+    "objective": "Monitor health, task queue, expired leases, duplicate launch tasks, and stale nodes. Record status and exact blockers only; do not restart production services, change credentials, or modify product code.",
+    "preferred_nodes": [
+      "primary-candidate",
+      "main"
+    ],
+    "priority": "P0",
+    "required_capability": "read_only_probe",
+    "required_outputs": [
+      "docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/GUARDIAN_CONTROL_PLANE.md"
+    ],
+    "runner": "codex",
+    "source": {
+      "parent_task_id": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02"
+    },
+    "target_node": "primary-candidate",
+    "task_id": "P0_AUTOPILOT_GUARDIAN_CONTROL_PLANE_STEWARD_2026_07_02",
+    "verification_commands": [
+      "test -f docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/GUARDIAN_CONTROL_PLANE.md"
+    ],
+    "write_scope": [
+      "docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/GUARDIAN_CONTROL_PLANE.md"
+    ]
+  },
+  "error": null,
+  "error_type": null,
+  "heartbeat_at": null,
+  "idempotency_key": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02:guardian-control-plane-steward",
+  "kind": "owner_remote_task",
+  "lease_owner": null,
+  "lease_until": null,
+  "max_retries": 1,
+  "permission_pack": "full_autonomy",
+  "required_permissions": [
+    "ai_runner",
+    "git_push",
+    "github_review",
+    "network",
+    "read_repo",
+    "run_tests",
+    "shell",
+    "spawn_subagents",
+    "write_artifacts",
+    "write_worktree"
+  ],
+  "result": null,
+  "result_reference": null,
+  "state": "queued",
+  "task_id": "P0_AUTOPILOT_GUARDIAN_CONTROL_PLANE_STEWARD_2026_07_02",
+  "updated_at": "2026-07-02T02:45:17.581251+00:00"
+}
+{
+  "attempt": 0,
+  "attempt_id": null,
+  "created_at": "2026-07-02T02:45:18.127002+00:00",
+  "envelope": {
+    "acceptance": [
+      "PR #105 state is recorded from read-only evidence.",
+      "Owner merge gate and blockers are explicit.",
+      "No merge, push, force push, approval, or mark-ready action is performed."
+    ],
+    "agent_display_name": "\u041e\u043b\u044c\u0433\u0430 - \u0441\u0442\u044e\u0430\u0440\u0434 PR #105",
+    "agent_type": "release_guardian",
+    "allowed_nodes": [
+      "qjns",
+      "main",
+      "primary-candidate"
+    ],
+    "base_ref": "origin/main",
+    "branch": "agent/P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02/generic",
+    "constraints": {
+      "auto_merge_forbidden": true,
+      "destructive_commands_forbidden": true,
+      "force_push_forbidden": true,
+      "merge_forbidden": true,
+      "product_feature_work_forbidden": true,
+      "push_to_main_forbidden": true,
+      "read_only": true,
+      "secrets_redaction_required": true,
+      "server_execution_required": true
+    },
+    "goal": "Guard PR #105 state during the launch window without merging or changing branch state.",
+    "idempotency_key": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02:guardian-pr105-release-steward",
+    "kind": "owner_remote_task",
+    "max_retries": 1,
+    "objective": "Use read-only GitHub/git evidence to record PR #105 state, CI/review blockers, merge risks, and owner gate. Do not approve, mark ready, merge, push, force push, or change product code.",
+    "preferred_nodes": [
+      "qjns",
+      "main",
+      "primary-candidate"
+    ],
+    "priority": "P0",
+    "read_first": [
+      "docs/agent/runs/2026-07-02-p0-autopilot-2h-50pct-launch-orchestrator/PR105_GIT_REFS.txt",
+      "docs/agent/runs/2026-07-02-p0-autopilot-2h-50pct-launch-orchestrator/PR105_STATE.json"
+    ],
+    "required_capability": "github_review",
+    "required_outputs": [
+      "docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/PR105_RELEASE_STEWARD.md"
+    ],
+    "runner": "codex",
+    "source": {
+      "parent_task_id": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02"
+    },
+    "target_node": "qjns",
+    "task_id": "P0_AUTOPILOT_GUARDIAN_PR105_RELEASE_STEWARD_2026_07_02",
+    "verification_commands": [
+      "test -f docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/PR105_RELEASE_STEWARD.md"
+    ],
+    "write_scope": [
+      "docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/PR105_RELEASE_STEWARD.md"
+    ]
+  },
+  "error": null,
+  "error_type": null,
+  "heartbeat_at": null,
+  "idempotency_key": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02:guardian-pr105-release-steward",
+  "kind": "owner_remote_task",
+  "lease_owner": null,
+  "lease_until": null,
+  "max_retries": 1,
+  "permission_pack": "full_autonomy",
+  "required_permissions": [
+    "ai_runner",
+    "git_push",
+    "github_review",
+    "network",
+    "read_repo",
+    "run_tests",
+    "shell",
+    "spawn_subagents",
+    "write_artifacts",
+    "write_worktree"
+  ],
+  "result": null,
+  "result_reference": null,
+  "state": "queued",
+  "task_id": "P0_AUTOPILOT_GUARDIAN_PR105_RELEASE_STEWARD_2026_07_02",
+  "updated_at": "2026-07-02T02:45:18.240881+00:00"
+}
+{
+  "attempt": 0,
+  "attempt_id": null,
+  "created_at": "2026-07-02T02:45:18.765949+00:00",
+  "envelope": {
+    "acceptance": [
+      "Runner-contract state and blockers are recorded from artifacts/tests.",
+      "Fanout blockers for permissions, result artifacts, lease refresh, and safe commands are explicit.",
+      "No product feature work is performed."
+    ],
+    "agent_display_name": "\u041f\u0430\u0432\u0435\u043b - \u0441\u0442\u044e\u0430\u0440\u0434 runner-contract",
+    "agent_type": "runner_contract_guardian",
+    "allowed_nodes": [
+      "qjns",
+      "uiap",
+      "main"
+    ],
+    "base_ref": "origin/main",
+    "branch": "agent/P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02/generic",
+    "constraints": {
+      "destructive_commands_forbidden": true,
+      "force_push_forbidden": true,
+      "git_clean_forbidden": true,
+      "git_reset_forbidden": true,
+      "product_feature_work_forbidden": true,
+      "push_to_main_forbidden": true,
+      "read_mostly": true,
+      "secrets_redaction_required": true,
+      "server_execution_required": true
+    },
+    "goal": "Guard runner-contract state for autopilot execution without changing product behavior.",
+    "idempotency_key": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02:guardian-runner-contract-steward",
+    "kind": "owner_remote_task",
+    "max_retries": 1,
+    "objective": "Verify current runner-contract artifacts and Agent Host contract state from existing tests/artifacts. Report any blocker for broad fanout, especially permission packs, result artifact contract, lease refresh, and safe command restrictions. Do not change product code unless explicitly assigned a separate repair task.",
+    "preferred_nodes": [
+      "qjns",
+      "uiap",
+      "main"
+    ],
+    "priority": "P0",
+    "read_first": [
+      "docs/agent/runs/2026-07-02-p0-autopilot-2h-50pct-launch-orchestrator/RUNNER_CONTRACT_STATE.json",
+      "tests/test_agent_host_runner_contract.py",
+      "ops/agent_host.py"
+    ],
+    "required_capability": "qa",
+    "required_outputs": [
+      "docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/RUNNER_CONTRACT_STEWARD.md"
+    ],
+    "runner": "codex",
+    "source": {
+      "parent_task_id": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02"
+    },
+    "target_node": "qjns",
+    "task_id": "P0_AUTOPILOT_GUARDIAN_RUNNER_CONTRACT_STEWARD_2026_07_02",
+    "verification_commands": [
+      "test -f docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/RUNNER_CONTRACT_STEWARD.md"
+    ],
+    "write_scope": [
+      "docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/RUNNER_CONTRACT_STEWARD.md"
+    ]
+  },
+  "error": null,
+  "error_type": null,
+  "heartbeat_at": null,
+  "idempotency_key": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02:guardian-runner-contract-steward",
+  "kind": "owner_remote_task",
+  "lease_owner": null,
+  "lease_until": null,
+  "max_retries": 1,
+  "permission_pack": "full_autonomy",
+  "required_permissions": [
+    "ai_runner",
+    "git_push",
+    "github_review",
+    "network",
+    "read_repo",
+    "run_tests",
+    "shell",
+    "spawn_subagents",
+    "write_artifacts",
+    "write_worktree"
+  ],
+  "result": null,
+  "result_reference": null,
+  "state": "queued",
+  "task_id": "P0_AUTOPILOT_GUARDIAN_RUNNER_CONTRACT_STEWARD_2026_07_02",
+  "updated_at": "2026-07-02T02:45:18.870124+00:00"
+}

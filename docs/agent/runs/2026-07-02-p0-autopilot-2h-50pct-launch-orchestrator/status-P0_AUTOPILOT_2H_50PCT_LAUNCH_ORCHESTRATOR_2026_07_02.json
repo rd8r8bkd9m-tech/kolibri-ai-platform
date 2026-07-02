@@ -1,0 +1,175 @@
+{
+  "attempt": 1,
+  "attempt_id": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02-attempt-1",
+  "branch": "agent/P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02/generic",
+  "created_at": "2026-07-02T02:39:43.011704+00:00",
+  "envelope": {
+    "acceptance": [
+      "Remote execution happens on a server Agent Host, not local Mac implementation.",
+      "Orchestrator first records current Control Plane, PR #105, qjns and runner-contract state before broad fanout.",
+      "Canonical 20-server readiness matrix task is created or exact blocker is reported.",
+      "50% capacity governor task is created or exact blocker is reported.",
+      "At least three guardian/steward child tasks are created, leased, or explicitly blocked with reason.",
+      "All child task IDs, target nodes, statuses, lease owners and artifact paths are recorded.",
+      "No product feature work is mixed into the orchestrator.",
+      "No secrets are printed.",
+      "No push to main, no force push, no destructive git commands, no auto-merge.",
+      "Final owner summary is in Russian and states continue_autopilot, hold_for_owner_merge, repair_only or scale_down."
+    ],
+    "canonical_server_candidates": [
+      "primary-candidate",
+      "home",
+      "main",
+      "uiap",
+      "qjns",
+      "9fts",
+      "new",
+      "reserve242",
+      "hostvds-highload",
+      "hostvds-agent-01",
+      "hostvds-agent-02",
+      "hostvds-agent-03",
+      "hostvds-agent-04",
+      "hostvds-agent-05",
+      "hostvds-agent-06",
+      "hostvds-agent-07",
+      "hostvds-agent-08",
+      "hostvds-agent-09",
+      "hostvds-agent-10",
+      "hostvds-paris-highload",
+      "server-kfrm"
+    ],
+    "child_tasks_to_create": [
+      {
+        "purpose": "Create canonical 20-server readiness matrix with ready/partial/repair/offline-route status and per-node capacity budget.",
+        "task_id": "P0_CANONICAL_20_SERVER_READINESS_MATRIX_2026_07_02"
+      },
+      {
+        "purpose": "Create and enforce 50% launch capacity policy for healthy/partial/repair/offline-route nodes.",
+        "task_id": "P0_FLEET_CAPACITY_GOVERNOR_50PCT_2026_07_02"
+      },
+      {
+        "purpose": "Make Home or a fallback terminal show Russian owner-facing live autopilot status.",
+        "task_id": "P0_HOME_WALLBOARD_AUTOPILOT_VISIBILITY_2026_07_02"
+      },
+      {
+        "purpose": "Classify queued/failed/dead-letter backlog and define safe retry/supersede/cancel policy.",
+        "task_id": "P0_QUEUE_GUARDIAN_REQUEUE_AND_DEADLETTER_POLICY_2026_07_02"
+      },
+      {
+        "purpose": "Keep PR queue current, open draft PRs for remote code branches, and dispatch CI repair tasks.",
+        "task_id": "P0_GITHUB_RELEASE_TRAIN_AUTOPILOT_STEWARD_2026_07_02"
+      },
+      {
+        "purpose": "Gate autopilot on runner truthfulness, exact artifacts, timebox/max-inflight, and no forbidden push/main mutation.",
+        "task_id": "P0_AGENT_HOST_RUNNER_CONTRACT_AUTOPILOT_GATE_2026_07_02"
+      },
+      {
+        "purpose": "Start skills registry and Russian-name team handoff protocol after P0 repair/release lanes are running.",
+        "task_id": "P1_SKILLS_REGISTRY_AND_TEAM_HANDOFF_MESH_2026_07_02"
+      }
+    ],
+    "constraints": {
+      "api_first_dispatch_required": true,
+      "auto_merge_forbidden": true,
+      "automatic_money_actions_forbidden": true,
+      "capacity_cap_cpu_percent": 50,
+      "capacity_cap_disk_percent": 70,
+      "capacity_cap_ram_percent": 60,
+      "destructive_git_commands_forbidden": true,
+      "force_push_forbidden": true,
+      "git_clean_forbidden": true,
+      "git_reset_forbidden": true,
+      "live_telegram_mutation_forbidden_without_gate": true,
+      "mac_implementation_forbidden": true,
+      "no_fake_completed_status": true,
+      "product_code_modification_forbidden_in_orchestrator": true,
+      "push_to_main_forbidden": true,
+      "secrets_redaction_required": true,
+      "server_execution_required": true,
+      "ssh_emergency_bootstrap_diagnostic_only": true
+    },
+    "current_baseline": {
+      "control_plane_url": "http://10.99.0.10:9101",
+      "known_open_gates": [
+        "PR #105 CI failed and remote repair is running",
+        "qjns GitHub clone/auth repair must be verified",
+        "runner timebox/max-inflight contract must be verified",
+        "Home must show or receive a clear Russian fallback wallboard"
+      ],
+      "last_snapshot": {
+        "degraded": 3,
+        "mesh_agents_active": "mesh-agent-01..20",
+        "node_cards_total": 53,
+        "online": 25,
+        "stale": 25
+      },
+      "must_collect_before_fanout": [
+        "P0_PR105_ROUTE_FRESHNESS_CI_REPAIR_2026_07_02",
+        "P0_QJNS_GITHUB_CLONE_AUTH_REGRESSION_PROBE_2026_07_02",
+        "P0_RUNNER_TIMEBOX_AND_MAX_INFLIGHT_CONTRACT_REPAIR_2026_07_02"
+      ]
+    },
+    "goal": "Start Kolibri Factory controlled autopilot mode for a 2-hour, 50%-capacity launch window through the remote Control Plane.",
+    "idempotency_key": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02",
+    "kind": "owner_remote_task",
+    "max_retries": 1,
+    "objective": "Act as the remote autopilot launch orchestrator. Consume the current dispatcher plan docs/agent/dispatcher/AUTOPILOT_2H_50PCT_PLAN_2026_07_02.md and the master canvas docs/superfactory/Kolibri_All_Prompts.md. Do not implement product features directly. First collect current running repair tasks and PR #105 state, then dispatch the canonical 20-server readiness matrix and 50% capacity governor as child Control Plane tasks. Keep Mac as dispatcher only. Use API-first /v1/tasks dispatch. Produce exact artifacts, Russian owner summary, and child task IDs/statuses.",
+    "priority": "P0",
+    "required_capability": "generic_implementation",
+    "required_outputs": [
+      "docs/agent/runs/2026-07-02-autopilot-2h-50pct/PLAN.md",
+      "docs/agent/runs/2026-07-02-autopilot-2h-50pct/ACTIONS.md",
+      "docs/agent/runs/2026-07-02-autopilot-2h-50pct/TESTS.md",
+      "docs/agent/runs/2026-07-02-autopilot-2h-50pct/RESULT.md",
+      "docs/agent/runs/2026-07-02-autopilot-2h-50pct/NEXT.md",
+      "docs/agent/runs/2026-07-02-autopilot-2h-50pct/CANONICAL_20_SERVER_MATRIX.md",
+      "docs/agent/runs/2026-07-02-autopilot-2h-50pct/CAPACITY_GOVERNOR_50PCT.md",
+      "docs/agent/runs/2026-07-02-autopilot-2h-50pct/CHILD_TASKS.md",
+      "docs/agent/runs/2026-07-02-autopilot-2h-50pct/OWNER_REPORT_RU.md"
+    ],
+    "source": {
+      "agent_name": "\u0410\u043d\u0434\u0440\u0435\u0439 \u2014 Autopilot Launch Orchestrator",
+      "capacity_cap": "50%",
+      "duration_minutes": 120,
+      "launch_mode": "START_AUTOPILOT_2H_50PCT",
+      "master_canvas": "docs/superfactory/Kolibri_All_Prompts.md",
+      "origin": "mac-command-node-dispatcher",
+      "plan_path": "docs/agent/dispatcher/AUTOPILOT_2H_50PCT_PLAN_2026_07_02.md",
+      "requested_by": "Vladislav"
+    },
+    "target_node": "mesh-agent-12",
+    "task_id": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02"
+  },
+  "error": null,
+  "error_type": null,
+  "granted_permissions": [
+    "ai_runner",
+    "git_push",
+    "github_review",
+    "network",
+    "read_repo",
+    "run_tests",
+    "shell",
+    "spawn_subagents",
+    "write_artifacts",
+    "write_worktree"
+  ],
+  "heartbeat_at": "2026-07-02T02:47:42.991734+00:00",
+  "idempotency_key": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02",
+  "kind": "owner_remote_task",
+  "lease_owner": "mesh-agent-12:agent-host-mesh-agent-12",
+  "lease_until": 1782960522.9917536,
+  "log_paths": {
+    "stderr": "/var/lib/kolibri-agent/logical-workers/mesh-agent-12/artifacts/P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02/P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02-attempt-1/stderr.log",
+    "stdout": "/var/lib/kolibri-agent/logical-workers/mesh-agent-12/artifacts/P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02/P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02-attempt-1/stdout.log"
+  },
+  "max_retries": 1,
+  "pid": 3903375,
+  "result": null,
+  "result_reference": null,
+  "state": "running",
+  "task_id": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02",
+  "updated_at": "2026-07-02T02:47:43.189438+00:00",
+  "worktree": "/var/lib/kolibri-agent/logical-workers/mesh-agent-12/worktrees/P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02/P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02-attempt-1/repo"
+}

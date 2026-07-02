@@ -1,0 +1,48 @@
+{
+  "task_id": "P0_AUTOPILOT_GUARDIAN_CONTROL_PLANE_STEWARD_2026_07_02",
+  "idempotency_key": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02:guardian-control-plane-steward",
+  "kind": "owner_remote_task",
+  "priority": "P0",
+  "required_capability": "read_only_probe",
+  "runner": "codex",
+  "branch": "agent/P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02/generic",
+  "base_ref": "origin/main",
+  "agent_type": "control_plane_guardian",
+  "agent_display_name": "Анна - стюард Control Plane",
+  "target_node": "primary-candidate",
+  "preferred_nodes": [
+    "primary-candidate",
+    "main"
+  ],
+  "allowed_nodes": [
+    "primary-candidate",
+    "main"
+  ],
+  "max_retries": 1,
+  "goal": "Guard Control Plane health and lease freshness during the 50%-capacity launch window.",
+  "objective": "Monitor health, task queue, expired leases, duplicate launch tasks, and stale nodes. Record status and exact blockers only; do not restart production services, change credentials, or modify product code.",
+  "constraints": {
+    "server_execution_required": true,
+    "read_mostly": true,
+    "destructive_commands_forbidden": true,
+    "secrets_redaction_required": true,
+    "product_feature_work_forbidden": true
+  },
+  "write_scope": [
+    "docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/GUARDIAN_CONTROL_PLANE.md"
+  ],
+  "required_outputs": [
+    "docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/GUARDIAN_CONTROL_PLANE.md"
+  ],
+  "verification_commands": [
+    "test -f docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/GUARDIAN_CONTROL_PLANE.md"
+  ],
+  "acceptance": [
+    "Control Plane health, queue, lease freshness, duplicate launch tasks, and stale-node blockers are recorded.",
+    "No product feature work is performed.",
+    "No production service restart or credential change is performed."
+  ],
+  "source": {
+    "parent_task_id": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02"
+  }
+}

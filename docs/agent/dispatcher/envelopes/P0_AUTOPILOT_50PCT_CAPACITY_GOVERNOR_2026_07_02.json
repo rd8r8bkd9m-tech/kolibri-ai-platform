@@ -1,0 +1,73 @@
+{
+  "task_id": "P0_AUTOPILOT_50PCT_CAPACITY_GOVERNOR_2026_07_02",
+  "idempotency_key": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02:50pct-capacity-governor",
+  "kind": "owner_remote_task",
+  "priority": "P0",
+  "required_capability": "orchestrator",
+  "runner": "codex",
+  "branch": "agent/P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02/generic",
+  "base_ref": "origin/main",
+  "agent_type": "autopilot_capacity_governor",
+  "agent_display_name": "Семен - губернатор 50% мощности",
+  "target_node": "main",
+  "target_node_pool": "healthy_control_orchestrator_nodes",
+  "preferred_nodes": [
+    "main",
+    "primary-candidate",
+    "qjns"
+  ],
+  "allowed_nodes": [
+    "main",
+    "primary-candidate",
+    "qjns"
+  ],
+  "max_retries": 1,
+  "goal": "Enforce a 50%-capacity governor during the 2-hour autopilot launch window.",
+  "objective": "Build an artifact-backed capacity governor from current Control Plane state: max active child tasks, per-node inflight caps, stale-node exclusion, task deduplication keys, lease freshness rules, repair-only fallback, and scale-down triggers. Do not change running services unless owner approval already exists; if enforcement cannot be applied through current Control Plane contracts, report the exact blocker and safe manual gate.",
+  "constraints": {
+    "server_execution_required": true,
+    "mac_implementation_forbidden": true,
+    "control_plane_dispatch_required": true,
+    "capacity_percent": 50,
+    "duration_hours": 2,
+    "destructive_commands_forbidden": true,
+    "production_restart_forbidden_without_owner_approval": true,
+    "git_reset_forbidden": true,
+    "git_clean_forbidden": true,
+    "force_push_forbidden": true,
+    "push_to_main_forbidden": true,
+    "secrets_redaction_required": true,
+    "product_feature_work_forbidden": true
+  },
+  "read_first": [
+    "docs/agent/runs/2026-07-02-p0-autopilot-2h-50pct-launch-orchestrator/CONTROL_PLANE_HEALTH.json",
+    "docs/agent/runs/2026-07-02-p0-autopilot-2h-50pct-launch-orchestrator/CONTROL_PLANE_NODES.json",
+    "docs/agent/runs/2026-07-02-p0-autopilot-2h-50pct-launch-orchestrator/CONTROL_PLANE_TASKS_BEFORE.json",
+    "ops/factory_control.py",
+    "ops/agent_host.py"
+  ],
+  "write_scope": [
+    "docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/50PCT_CAPACITY_GOVERNOR.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-2h-50pct-launch-orchestrator/capacity-governor/**"
+  ],
+  "required_outputs": [
+    "docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/50PCT_CAPACITY_GOVERNOR.md"
+  ],
+  "verification_commands": [
+    "test -f docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/50PCT_CAPACITY_GOVERNOR.md"
+  ],
+  "acceptance": [
+    "Governor status is recorded as active, queued, or blocked with exact reason.",
+    "Per-node and global caps are explicit and based on fresh node evidence.",
+    "Scale-down and repair-only triggers are defined."
+  ],
+  "source": {
+    "parent_task_id": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02",
+    "launch_window": {
+      "capacity_percent": 50,
+      "duration_hours": 2,
+      "started_at_utc": "2026-07-02T02:42:44Z",
+      "ends_at_utc": "2026-07-02T04:42:44Z"
+    }
+  }
+}

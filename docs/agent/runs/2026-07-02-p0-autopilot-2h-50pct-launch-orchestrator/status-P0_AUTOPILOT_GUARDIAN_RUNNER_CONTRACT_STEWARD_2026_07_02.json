@@ -1,0 +1,137 @@
+{
+  "attempt": 1,
+  "attempt_history": [
+    {
+      "attempt": 1,
+      "attempt_id": "P0_AUTOPILOT_GUARDIAN_RUNNER_CONTRACT_STEWARD_2026_07_02-attempt-1",
+      "error": "codex executable is not available on this node",
+      "error_type": "runner_unavailable",
+      "recorded_at": "2026-07-02T02:46:46.710741+00:00",
+      "result_reference": "/var/lib/kolibri-agent/artifacts/P0_AUTOPILOT_GUARDIAN_RUNNER_CONTRACT_STEWARD_2026_07_02/P0_AUTOPILOT_GUARDIAN_RUNNER_CONTRACT_STEWARD_2026_07_02-attempt-1/result.json",
+      "status": "failed"
+    }
+  ],
+  "attempt_id": "P0_AUTOPILOT_GUARDIAN_RUNNER_CONTRACT_STEWARD_2026_07_02-attempt-1",
+  "branch": "agent/P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02/generic",
+  "created_at": "2026-07-02T02:45:18.765949+00:00",
+  "envelope": {
+    "acceptance": [
+      "Runner-contract state and blockers are recorded from artifacts/tests.",
+      "Fanout blockers for permissions, result artifacts, lease refresh, and safe commands are explicit.",
+      "No product feature work is performed."
+    ],
+    "agent_display_name": "\u041f\u0430\u0432\u0435\u043b - \u0441\u0442\u044e\u0430\u0440\u0434 runner-contract",
+    "agent_type": "runner_contract_guardian",
+    "allowed_nodes": [
+      "qjns",
+      "uiap",
+      "main"
+    ],
+    "base_ref": "origin/main",
+    "branch": "agent/P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02/generic",
+    "constraints": {
+      "destructive_commands_forbidden": true,
+      "force_push_forbidden": true,
+      "git_clean_forbidden": true,
+      "git_reset_forbidden": true,
+      "product_feature_work_forbidden": true,
+      "push_to_main_forbidden": true,
+      "read_mostly": true,
+      "secrets_redaction_required": true,
+      "server_execution_required": true
+    },
+    "goal": "Guard runner-contract state for autopilot execution without changing product behavior.",
+    "idempotency_key": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02:guardian-runner-contract-steward",
+    "kind": "owner_remote_task",
+    "max_retries": 1,
+    "objective": "Verify current runner-contract artifacts and Agent Host contract state from existing tests/artifacts. Report any blocker for broad fanout, especially permission packs, result artifact contract, lease refresh, and safe command restrictions. Do not change product code unless explicitly assigned a separate repair task.",
+    "preferred_nodes": [
+      "qjns",
+      "uiap",
+      "main"
+    ],
+    "priority": "P0",
+    "read_first": [
+      "docs/agent/runs/2026-07-02-p0-autopilot-2h-50pct-launch-orchestrator/RUNNER_CONTRACT_STATE.json",
+      "tests/test_agent_host_runner_contract.py",
+      "ops/agent_host.py"
+    ],
+    "required_capability": "qa",
+    "required_outputs": [
+      "docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/RUNNER_CONTRACT_STEWARD.md"
+    ],
+    "runner": "codex",
+    "source": {
+      "parent_task_id": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02"
+    },
+    "target_node": "qjns",
+    "task_id": "P0_AUTOPILOT_GUARDIAN_RUNNER_CONTRACT_STEWARD_2026_07_02",
+    "verification_commands": [
+      "test -f docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/RUNNER_CONTRACT_STEWARD.md"
+    ],
+    "write_scope": [
+      "docs/agent/intelligence/2026-07-02-autopilot-2h-50pct-launch-orchestrator/RUNNER_CONTRACT_STEWARD.md"
+    ]
+  },
+  "error": "codex executable is not available on this node",
+  "error_type": "runner_unavailable",
+  "granted_permissions": [
+    "ai_runner",
+    "git_push",
+    "github_review",
+    "network",
+    "read_repo",
+    "run_tests",
+    "shell",
+    "spawn_subagents",
+    "write_artifacts",
+    "write_worktree"
+  ],
+  "heartbeat_at": "2026-07-02T02:46:41.712359+00:00",
+  "idempotency_key": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02:guardian-runner-contract-steward",
+  "kind": "owner_remote_task",
+  "lease_owner": null,
+  "lease_until": null,
+  "log_paths": {
+    "stderr": "/var/lib/kolibri-agent/artifacts/P0_AUTOPILOT_GUARDIAN_RUNNER_CONTRACT_STEWARD_2026_07_02/P0_AUTOPILOT_GUARDIAN_RUNNER_CONTRACT_STEWARD_2026_07_02-attempt-1/stderr.log",
+    "stdout": "/var/lib/kolibri-agent/artifacts/P0_AUTOPILOT_GUARDIAN_RUNNER_CONTRACT_STEWARD_2026_07_02/P0_AUTOPILOT_GUARDIAN_RUNNER_CONTRACT_STEWARD_2026_07_02-attempt-1/stdout.log"
+  },
+  "max_retries": 1,
+  "permission_pack": "full_autonomy",
+  "pid": 219515,
+  "required_permissions": [
+    "ai_runner",
+    "git_push",
+    "github_review",
+    "network",
+    "read_repo",
+    "run_tests",
+    "shell",
+    "spawn_subagents",
+    "write_artifacts",
+    "write_worktree"
+  ],
+  "result": {
+    "agent_id": "agent-host-qjns",
+    "attempt_id": "P0_AUTOPILOT_GUARDIAN_RUNNER_CONTRACT_STEWARD_2026_07_02-attempt-1",
+    "completed_at": "2026-07-02T02:46:45.743962+00:00",
+    "error": "codex executable is not available on this node",
+    "error_type": "runner_unavailable",
+    "hostname": "kolibri-tools-executor",
+    "log_paths": {
+      "stderr": "/var/lib/kolibri-agent/artifacts/P0_AUTOPILOT_GUARDIAN_RUNNER_CONTRACT_STEWARD_2026_07_02/P0_AUTOPILOT_GUARDIAN_RUNNER_CONTRACT_STEWARD_2026_07_02-attempt-1/stderr.log",
+      "stdout": "/var/lib/kolibri-agent/artifacts/P0_AUTOPILOT_GUARDIAN_RUNNER_CONTRACT_STEWARD_2026_07_02/P0_AUTOPILOT_GUARDIAN_RUNNER_CONTRACT_STEWARD_2026_07_02-attempt-1/stdout.log"
+    },
+    "node_id": "qjns",
+    "pid": 152886,
+    "status": "failed",
+    "stderr_tail": "Cloning into '/var/lib/kolibri-agent/worktrees/P0_AUTOPILOT_GUARDIAN_RUNNER_CONTRACT_STEWARD_2026_07_02/P0_AUTOPILOT_GUARDIAN_RUNNER_CONTRACT_STEWARD_2026_07_02-attempt-1/repo'...\nSwitched to a new branch 'agent/P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02/generic'\n",
+    "stdout_tail": "\n$ git clone https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform.git /var/lib/kolibri-agent/worktrees/P0_AUTOPILOT_GUARDIAN_RUNNER_CONTRACT_STEWARD_2026_07_02/P0_AUTOPILOT_GUARDIAN_RUNNER_CONTRACT_STEWARD_2026_07_02-attempt-1/repo\n\n$ git fetch origin\n\n$ git checkout -B agent/P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02/generic origin/main\nbranch 'agent/P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02/generic' set up to track 'origin/main'.\n\n$ git config user.name Kolibri Factory Agent\n\n$ git config user.email factory-agent@users.noreply.github.com\n",
+    "task_id": "P0_AUTOPILOT_GUARDIAN_RUNNER_CONTRACT_STEWARD_2026_07_02"
+  },
+  "result_reference": "/var/lib/kolibri-agent/artifacts/P0_AUTOPILOT_GUARDIAN_RUNNER_CONTRACT_STEWARD_2026_07_02/P0_AUTOPILOT_GUARDIAN_RUNNER_CONTRACT_STEWARD_2026_07_02-attempt-1/result.json",
+  "state": "failed",
+  "task_id": "P0_AUTOPILOT_GUARDIAN_RUNNER_CONTRACT_STEWARD_2026_07_02",
+  "updated_at": "2026-07-02T02:46:46.756694+00:00",
+  "worktree": "/var/lib/kolibri-agent/worktrees/P0_AUTOPILOT_GUARDIAN_RUNNER_CONTRACT_STEWARD_2026_07_02/P0_AUTOPILOT_GUARDIAN_RUNNER_CONTRACT_STEWARD_2026_07_02-attempt-1/repo"
+}

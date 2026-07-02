@@ -1,0 +1,17 @@
+{
+  "count": 1,
+  "matching_tasks": [
+    {
+      "error": null,
+      "error_type": null,
+      "idempotency_key": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02",
+      "kind": "owner_remote_task",
+      "lease_owner": "mesh-agent-12:agent-host-mesh-agent-12",
+      "lease_until": 1782960169.512963,
+      "result_reference": null,
+      "state": "running",
+      "task_id": "P0_AUTOPILOT_2H_50PCT_LAUNCH_ORCHESTRATOR_2026_07_02"
+    }
+  ],
+  "source": "CONTROL_PLANE_TASKS_BEFORE.json"
+}
