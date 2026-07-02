@@ -63,6 +63,9 @@ MAX_RETRIES = int(os.environ.get("FACTORY_MAX_RETRIES", "3"))
 LEASE_REAPER_INTERVAL = float(os.environ.get("FACTORY_LEASE_REAPER_INTERVAL", "5"))
 LEASE_REAPER_BATCH_LIMIT = int(os.environ.get("FACTORY_LEASE_REAPER_BATCH_LIMIT", "250"))
 LEASE_QUEUE_SCAN_LIMIT = int(os.environ.get("FACTORY_LEASE_QUEUE_SCAN_LIMIT", "100"))
+TASK_MUTATION_LOCK_TTL = int(os.environ.get("FACTORY_TASK_MUTATION_LOCK_TTL", "5"))
+TASK_MUTATION_LOCK_WAIT = float(os.environ.get("FACTORY_TASK_MUTATION_LOCK_WAIT", "2.0"))
+HTTP_REQUEST_QUEUE_SIZE = int(os.environ.get("FACTORY_HTTP_REQUEST_QUEUE_SIZE", "512"))
 TASK_LIST_DEFAULT_LIMIT = int(os.environ.get("FACTORY_TASK_LIST_DEFAULT_LIMIT", "1000"))
 TASK_LIST_MAX_LIMIT = int(os.environ.get("FACTORY_TASK_LIST_MAX_LIMIT", "5000"))
 LEASE_EMPTY_RETRY_AFTER = float(os.environ.get("FACTORY_LEASE_EMPTY_RETRY_AFTER", "1.0"))
@@ -100,6 +103,13 @@ BLOCKED_RUNNER_STATES = {"blocked", "degraded", "runner_auth_blocked", "unavaila
 
 class ClientDisconnected(Exception):
     pass
+
+
+class FactoryThreadingHTTPServer(ThreadingHTTPServer):
+    daemon_threads = True
+    block_on_close = False
+    request_queue_size = max(128, HTTP_REQUEST_QUEUE_SIZE)
+
 
 FABRIC_NODE_CATALOG = {
     "home": {
@@ -366,6 +376,14 @@ def drain_key(node_id: str) -> str:
 
 def task_claim_key(task_id: str) -> str:
     return key(f"task_claim:{task_id}")
+
+
+def task_mutation_lock_key(task_id: str) -> str:
+    return key(f"task_mutation:{task_id}")
+
+
+def clear_task_claim(task_id: str) -> None:
+    redis.command("DEL", task_claim_key(task_id))
 
 
 def queued_task_ids_key() -> str:
@@ -799,6 +817,38 @@ def _redis_set_nx_ex(redis_key: str, value: str, ttl_seconds: int) -> bool:
     return result == "OK"
 
 
+def _release_redis_lock(redis_key: str, token: str) -> None:
+    if redis.command("GET", redis_key) == token:
+        redis.command("DEL", redis_key)
+
+
+def mutate_task_locked(
+    task_id: str,
+    mutator: Any,
+    *,
+    wait_seconds: float | None = None,
+    ttl_seconds: int | None = None,
+) -> dict[str, Any] | None:
+    deadline = now_ts() + (TASK_MUTATION_LOCK_WAIT if wait_seconds is None else wait_seconds)
+    ttl = TASK_MUTATION_LOCK_TTL if ttl_seconds is None else ttl_seconds
+    token = f"{threading.get_ident()}:{uuid.uuid4().hex}"
+    lock_key = task_mutation_lock_key(task_id)
+    while True:
+        if _redis_set_nx_ex(lock_key, token, ttl):
+            try:
+                task = load_task(task_id)
+                if not task:
+                    return None
+                mutator(task)
+                save_task(task)
+                return task
+            finally:
+                _release_redis_lock(lock_key, token)
+        if now_ts() >= deadline:
+            raise TimeoutError(f"task mutation lock timeout: {task_id}")
+        time.sleep(0.01)
+
+
 def maybe_requeue_expired_leases() -> int:
     lock_ttl = max(1, int(LEASE_REAPER_INTERVAL))
     if not _redis_set_nx_ex(key("lease_reaper:lock"), str(now_ts()), lock_ttl):
@@ -826,23 +876,34 @@ def requeue_expired_leases(limit: int | None = None) -> int:
         if lease_until >= current:
             continue
         if int(task.get("attempt", 0)) < int(task.get("max_retries", MAX_RETRIES)):
-            task["state"] = STATE_RETRY
-            task["lease_owner"] = None
-            task["lease_until"] = None
-            task["error_type"] = "lease_expired"
-            task["error"] = "lease expired before task completion"
-            save_task(task)
-            task["state"] = STATE_QUEUED
-            save_task(task)
-            enqueue(task_id)
-            changed += 1
+            def requeue_expired(task: dict[str, Any]) -> None:
+                if task.get("state") not in {STATE_LEASED, STATE_RUNNING, STATE_REVIEW}:
+                    return
+                task["state"] = STATE_QUEUED
+                task["lease_owner"] = None
+                task["lease_until"] = None
+                task["error_type"] = "lease_expired"
+                task["error"] = "lease expired before task completion"
+
+            updated = mutate_task_locked(task_id, requeue_expired)
+            if updated and updated.get("state") == STATE_QUEUED:
+                clear_task_claim(task_id)
+                enqueue(task_id)
+                changed += 1
         else:
-            task["state"] = STATE_DEAD
-            task["error_type"] = "lease_expired"
-            task["error"] = "lease expired and retry budget exhausted"
-            save_task(task)
-            redis.command("RPUSH", key("dead_letter"), task_id)
-            changed += 1
+            def dead_letter_expired(task: dict[str, Any]) -> None:
+                if task.get("state") not in {STATE_LEASED, STATE_RUNNING, STATE_REVIEW}:
+                    return
+                task["state"] = STATE_DEAD
+                task["lease_until"] = None
+                task["error_type"] = "lease_expired"
+                task["error"] = "lease expired and retry budget exhausted"
+
+            updated = mutate_task_locked(task_id, dead_letter_expired)
+            if updated and updated.get("state") == STATE_DEAD:
+                clear_task_claim(task_id)
+                redis.command("RPUSH", key("dead_letter"), task_id)
+                changed += 1
     return changed
 
 
@@ -875,14 +936,30 @@ def _try_lease_task_id(task_id: str, node_id: str, agent_id: str, capabilities: 
     if not compatible(task, node_id, capabilities, node):
         rotate_queue_item(task_id)
         return None
-    task["state"] = STATE_LEASED
-    task["attempt"] = int(task.get("attempt", 0)) + 1
-    task["attempt_id"] = f"{task_id}-attempt-{task['attempt']}"
-    task["lease_owner"] = f"{node_id}:{agent_id}"
-    task["lease_until"] = now_ts() + LEASE_DURATION
-    task["heartbeat_at"] = utc_now()
-    save_task(task)
-    return task
+    lease_applied = False
+    def lease_task(current_task: dict[str, Any]) -> None:
+        nonlocal lease_applied
+        if current_task.get("state") not in {STATE_QUEUED, STATE_REVIEW}:
+            return
+        if not compatible(current_task, node_id, capabilities, node):
+            return
+        current_task["state"] = STATE_LEASED
+        current_task["attempt"] = int(current_task.get("attempt", 0)) + 1
+        current_task["attempt_id"] = f"{task_id}-attempt-{current_task['attempt']}"
+        current_task["lease_owner"] = f"{node_id}:{agent_id}"
+        current_task["lease_until"] = now_ts() + LEASE_DURATION
+        current_task["heartbeat_at"] = utc_now()
+        lease_applied = True
+
+    leased = mutate_task_locked(task_id, lease_task)
+    if not lease_applied:
+        if not leased or leased.get("state") not in {STATE_QUEUED, STATE_REVIEW}:
+            redis.command("SREM", queued_task_ids_key(), task_id)
+        return None
+    if not leased or leased.get("state") not in {STATE_LEASED, STATE_RUNNING}:
+        redis.command("SREM", queued_task_ids_key(), task_id)
+        return None
+    return leased
 
 
 def lease_persisted_queued_task(node_id: str, agent_id: str, capabilities: list[str], node: dict[str, Any]) -> dict[str, Any] | None:
@@ -1493,36 +1570,39 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path.startswith("/v1/tasks/") and path.endswith("/heartbeat"):
                 task_id = path.split("/")[3]
-                task = load_task(task_id)
+                def apply_heartbeat(task: dict[str, Any]) -> None:
+                    if task.get("state") not in TERMINAL_STATES:
+                        task["state"] = body.get("state") or STATE_RUNNING
+                        task["heartbeat_at"] = utc_now()
+                        task["lease_until"] = now_ts() + LEASE_DURATION
+                        task["pid"] = body.get("pid", task.get("pid"))
+                        task["worktree"] = body.get("worktree", task.get("worktree"))
+                        task["branch"] = body.get("branch", task.get("branch"))
+                        task["log_paths"] = body.get("log_paths", task.get("log_paths"))
+
+                task = mutate_task_locked(task_id, apply_heartbeat)
                 if not task:
                     response(self, 404, {"error": "task_not_found", "task_id": task_id})
                     return
-                if task.get("state") not in TERMINAL_STATES:
-                    task["state"] = body.get("state") or STATE_RUNNING
-                    task["heartbeat_at"] = utc_now()
-                    task["lease_until"] = now_ts() + LEASE_DURATION
-                    task["pid"] = body.get("pid", task.get("pid"))
-                    task["worktree"] = body.get("worktree", task.get("worktree"))
-                    task["branch"] = body.get("branch", task.get("branch"))
-                    task["log_paths"] = body.get("log_paths", task.get("log_paths"))
-                    save_task(task)
                 response(self, 200, task)
                 return
             if path.startswith("/v1/tasks/") and path.endswith("/complete"):
                 task_id = path.split("/")[3]
-                task = load_task(task_id)
+                result = body.get("result", body)
+                has_pr = bool(result.get("pull_request_url") or result.get("pr_url"))
+                def apply_completion(task: dict[str, Any]) -> None:
+                    needs_review = task.get("envelope", {}).get("create_review_on_complete")
+                    task["state"] = STATE_COMPLETED if (not needs_review or has_pr) else STATE_WAITING_REVIEW
+                    task["result"] = result
+                    task["result_reference"] = body.get("result_reference") or result.get("result_path")
+                    task["heartbeat_at"] = utc_now()
+                    task["lease_until"] = None
+
+                task = mutate_task_locked(task_id, apply_completion)
                 if not task:
                     response(self, 404, {"error": "task_not_found", "task_id": task_id})
                     return
-                result = body.get("result", body)
-                needs_review = task.get("envelope", {}).get("create_review_on_complete")
-                has_pr = bool(result.get("pull_request_url") or result.get("pr_url"))
-                task["state"] = STATE_COMPLETED if (not needs_review or has_pr) else STATE_WAITING_REVIEW
-                task["result"] = result
-                task["result_reference"] = body.get("result_reference") or result.get("result_path")
-                task["heartbeat_at"] = utc_now()
-                task["lease_until"] = None
-                save_task(task)
+                clear_task_claim(task_id)
                 review_task = create_review_task(task, result) if has_pr else None
                 response(self, 200, {"task": task, "review_task": review_task})
                 return
@@ -1552,39 +1632,51 @@ class Handler(BaseHTTPRequestHandler):
                 if not task:
                     response(self, 404, {"error": "task_not_found", "task_id": task_id})
                     return
-                task["error_type"] = body.get("error_type", "runtime_error")
-                task["error"] = body.get("error")
-                task["result"] = body.get("result")
-                task["result_reference"] = body.get("result_reference")
-                task["lease_until"] = None
                 mark_node_runner_failure(task, body)
-                if int(task.get("attempt", 0)) < int(task.get("max_retries", MAX_RETRIES)) and body.get("retry", True):
-                    task["state"] = STATE_RETRY
-                    save_task(task)
-                    task["state"] = STATE_QUEUED
-                    save_task(task)
+                should_enqueue = False
+                def apply_failure(current_task: dict[str, Any]) -> None:
+                    nonlocal should_enqueue
+                    current_task["error_type"] = body.get("error_type", "runtime_error")
+                    current_task["error"] = body.get("error")
+                    current_task["result"] = body.get("result")
+                    current_task["result_reference"] = body.get("result_reference")
+                    current_task["lease_until"] = None
+                    if int(current_task.get("attempt", 0)) < int(current_task.get("max_retries", MAX_RETRIES)) and body.get("retry", True):
+                        current_task["state"] = STATE_QUEUED
+                        should_enqueue = True
+                    else:
+                        current_task["state"] = STATE_FAILED
+
+                task = mutate_task_locked(task_id, apply_failure)
+                clear_task_claim(task_id)
+                if should_enqueue:
                     enqueue(task_id)
-                else:
-                    task["state"] = STATE_FAILED
-                    save_task(task)
                 response(self, 200, task)
                 return
             if path.startswith("/v1/tasks/") and path.endswith("/cancel"):
                 task_id = path.split("/")[3]
-                task = load_task(task_id)
+                remove_from_queue(task_id)
+                def apply_cancel(task: dict[str, Any]) -> None:
+                    task["state"] = STATE_CANCELLED
+                    task["cancel_requested_at"] = utc_now()
+                    task["lease_until"] = None
+
+                task = mutate_task_locked(task_id, apply_cancel)
                 if not task:
                     response(self, 404, {"error": "task_not_found", "task_id": task_id})
                     return
-                remove_from_queue(task_id)
-                task["state"] = STATE_CANCELLED
-                task["cancel_requested_at"] = utc_now()
-                task["lease_until"] = None
-                save_task(task)
+                clear_task_claim(task_id)
                 response(self, 200, task)
                 return
             if path.startswith("/v1/agents/cancel/"):
                 task_id = path.split("/", 4)[4]
-                task = load_task(task_id)
+                remove_from_queue(task_id)
+                def apply_agent_cancel(task: dict[str, Any]) -> None:
+                    task["state"] = STATE_CANCELLED
+                    task["cancel_requested_at"] = utc_now()
+                    task["lease_until"] = None
+
+                task = mutate_task_locked(task_id, apply_agent_cancel)
                 if not task:
                     response(self, 404, canonical_response_envelope(
                         status="blocked",
@@ -1595,11 +1687,7 @@ class Handler(BaseHTTPRequestHandler):
                         next_action="verify task id before retrying cancellation",
                     ))
                     return
-                remove_from_queue(task_id)
-                task["state"] = STATE_CANCELLED
-                task["cancel_requested_at"] = utc_now()
-                task["lease_until"] = None
-                save_task(task)
+                clear_task_claim(task_id)
                 response(self, 200, canonical_response_envelope(
                     status="completed",
                     task_id=task_id,
@@ -1624,7 +1712,7 @@ def main() -> int:
     parser.add_argument("--bind", default=os.environ.get("FACTORY_BIND", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=int(os.environ.get("FACTORY_PORT", "9101")))
     args = parser.parse_args()
-    server = ThreadingHTTPServer((args.bind, args.port), Handler)
+    server = FactoryThreadingHTTPServer((args.bind, args.port), Handler)
     print(json.dumps({
         "event": "factory_control_started",
         "bind": args.bind,
