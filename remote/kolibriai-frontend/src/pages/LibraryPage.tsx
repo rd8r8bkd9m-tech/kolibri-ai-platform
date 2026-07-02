@@ -70,13 +70,13 @@ export default function LibraryPage() {
           />
         </div>
 
-        <div className="flex items-center gap-2 mb-6 overflow-x-auto pb-1 scrollbar-hide">
+        <div className="flex items-center gap-2 mb-6 overflow-x-auto overscroll-x-contain pb-2 [-webkit-overflow-scrolling:touch] sm:flex-wrap sm:overflow-visible">
           <Filter size={14} className="text-[var(--text-tertiary)] flex-shrink-0" />
           {filters.map(f => (
             <button
               key={f}
               onClick={() => setActiveFilter(f)}
-              className={`px-3 py-1.5 rounded-[var(--radius-pill)] text-[13px] whitespace-nowrap transition-colors ${
+              className={`min-h-10 px-3 py-1.5 rounded-[var(--radius-pill)] text-[13px] whitespace-nowrap transition-colors ${
                 activeFilter === f
                   ? 'bg-[var(--accent-teal)]/10 text-[var(--accent-teal)] font-medium'
                   : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'

@@ -330,8 +330,8 @@ export interface ChatResponse {
 }
 
 export const chat = {
-  send: (messages: { role: string; content: string }[]) =>
-    request<ChatResponse>('/chat', { method: 'POST', body: JSON.stringify({ messages }) }),
+  send: (messages: { role: string; content: string }[], signal?: AbortSignal) =>
+    request<ChatResponse>('/chat', { method: 'POST', body: JSON.stringify({ messages }), signal }),
 }
 
 // ---------------------------------------------------------------------------

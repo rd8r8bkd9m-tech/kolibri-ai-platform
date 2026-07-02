@@ -47,6 +47,7 @@
     /* Sidebar */
     --sidebar-width: 240px;
     --sidebar-mobile-width: 260px;
+    --mobile-header-height: calc(56px + env(safe-area-inset-top));
 
     /* Radius */
     --radius-sm: 8px;
@@ -318,6 +319,7 @@
   html {
     -webkit-text-size-adjust: 100%;
     touch-action: manipulation;
+    background: var(--bg-primary);
   }
 
   body {
@@ -325,6 +327,11 @@
     color: var(--text-primary);
     overscroll-behavior-y: none;
     -webkit-tap-highlight-color: transparent;
+  }
+
+  #root {
+    min-height: 100dvh;
+    overflow-x: clip;
   }
 
   /* Scrollbar styling */
