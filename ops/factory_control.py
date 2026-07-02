@@ -1289,6 +1289,13 @@ class Handler(BaseHTTPRequestHandler):
                 task["error"] = body.get("error")
                 task["result"] = body.get("result")
                 task["result_reference"] = body.get("result_reference")
+                result = task["result"] if isinstance(task.get("result"), dict) else {}
+                for key_name in ("repair_task", "rerun_route", "can_continue_elsewhere"):
+                    value = body.get(key_name)
+                    if value is None and isinstance(result, dict):
+                        value = result.get(key_name)
+                    if value is not None:
+                        task[key_name] = value
                 task["lease_until"] = None
                 mark_node_runner_failure(task, body)
                 if int(task.get("attempt", 0)) < int(task.get("max_retries", MAX_RETRIES)) and body.get("retry", True):
