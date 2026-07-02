@@ -249,16 +249,21 @@ def test_response_write_broken_pipe_is_client_disconnect_not_500_loop():
 
 
 class CaptureRequest:
-    def __init__(self):
+    def __init__(self, request_head=b""):
         self.payload = b""
+        self.request_head = request_head
 
     def sendall(self, payload):
         self.payload += payload
 
+    def recv(self, size, flags):
+        del flags
+        return self.request_head[:size]
+
 
 def test_overload_response_is_bounded_structured_json():
     control = load_control()
-    request = CaptureRequest()
+    request = CaptureRequest(b"GET /v1/health HTTP/1.1\r\nHost: test\r\n\r\n")
 
     control.BoundedThreadingHTTPServer._send_overloaded(request)
     head, body = request.payload.split(b"\r\n\r\n", 1)
@@ -270,6 +275,22 @@ def test_overload_response_is_bounded_structured_json():
     assert payload["task"] is None
     assert payload["error"] == "control_plane_overloaded"
     assert payload["retry_after_seconds"] >= 0
+
+
+def test_lease_overload_response_is_http_200_idle_backoff_envelope():
+    control = load_control()
+    request = CaptureRequest(b"POST /v1/tasks/lease HTTP/1.1\r\nHost: test\r\n\r\n")
+
+    control.BoundedThreadingHTTPServer._send_overloaded(request)
+    head, body = request.payload.split(b"\r\n\r\n", 1)
+
+    assert b"200 OK" in head
+    assert b"503" not in head
+    payload = json.loads(body.decode("utf-8"))
+    assert payload["status"] == "overloaded"
+    assert payload["task"] is None
+    assert payload["error"] == "control_plane_overloaded"
+    assert payload["retry_after_seconds"] == control.LEASE_OVERLOAD_RETRY_AFTER
 
 
 def test_lease_canary_classifier_fails_any_lease_5xx():
