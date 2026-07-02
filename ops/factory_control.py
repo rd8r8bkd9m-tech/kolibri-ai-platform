@@ -57,6 +57,7 @@ NAMESPACE = os.environ.get("FACTORY_NAMESPACE", "kolibri_factory")
 REDIS_HOST = os.environ.get("FACTORY_REDIS_HOST", "127.0.0.1")
 REDIS_PORT = int(os.environ.get("FACTORY_REDIS_PORT", "6379"))
 LEASE_DURATION = int(os.environ.get("FACTORY_LEASE_DURATION", "60"))
+LEASE_HEARTBEAT_GRACE = int(os.environ.get("FACTORY_LEASE_HEARTBEAT_GRACE", str(LEASE_DURATION * 2)))
 MAX_RETRIES = int(os.environ.get("FACTORY_MAX_RETRIES", "3"))
 FABRIC_API_VERSION = "2026-07-01"
 CANONICAL_RESPONSE_STATUSES = {"completed", "running", "blocked", "failed", "partial"}
@@ -371,6 +372,34 @@ def queue_ids() -> list[str]:
 
 def load_task(task_id: str) -> dict[str, Any] | None:
     return get_json(task_key(task_id))
+
+
+def task_status_view(task: dict[str, Any] | None, current: float | None = None) -> dict[str, Any] | None:
+    if not task:
+        return None
+    view = dict(task)
+    current_ts = now_ts() if current is None else current
+    lease_until = float(task.get("lease_until") or 0)
+    heartbeat_ts = parse_iso_ts(task.get("heartbeat_at"))
+    if task.get("state") in TERMINAL_STATES:
+        lease_status = "terminal"
+    elif lease_until <= 0:
+        lease_status = "unleased"
+    elif lease_until < current_ts:
+        lease_status = "lease_expired"
+    else:
+        lease_status = "leased"
+    if heartbeat_ts is None:
+        heartbeat_status = "missing"
+        heartbeat_age_seconds = None
+    else:
+        heartbeat_age_seconds = max(0, int(current_ts - heartbeat_ts))
+        heartbeat_status = "heartbeating" if heartbeat_age_seconds <= LEASE_HEARTBEAT_GRACE else "heartbeat_stale"
+    view["lease_status"] = lease_status
+    view["heartbeat_status"] = heartbeat_status
+    view["heartbeat_age_seconds"] = heartbeat_age_seconds
+    view["seconds_until_lease_expiry"] = None if lease_until <= 0 else int(lease_until - current_ts)
+    return view
 
 
 def canonical_response_envelope(
@@ -728,10 +757,20 @@ def requeue_expired_leases() -> None:
         lease_until = float(task.get("lease_until") or 0)
         if lease_until >= current:
             continue
+        heartbeat_ts = parse_iso_ts(task.get("heartbeat_at"))
+        if heartbeat_ts is not None and current - heartbeat_ts <= LEASE_HEARTBEAT_GRACE:
+            task["state"] = STATE_RUNNING
+            task["lease_until"] = current + LEASE_DURATION
+            task["lease_status"] = "leased"
+            task["heartbeat_status"] = "heartbeating"
+            save_task(task)
+            continue
         if int(task.get("attempt", 0)) < int(task.get("max_retries", MAX_RETRIES)):
             task["state"] = STATE_RETRY
             task["lease_owner"] = None
             task["lease_until"] = None
+            task["lease_status"] = "lease_expired"
+            task["heartbeat_status"] = "heartbeat_stale"
             task["error_type"] = "lease_expired"
             task["error"] = "lease expired before task completion"
             save_task(task)
@@ -742,6 +781,8 @@ def requeue_expired_leases() -> None:
             task["state"] = STATE_DEAD
             task["error_type"] = "lease_expired"
             task["error"] = "lease expired and retry budget exhausted"
+            task["lease_status"] = "lease_expired"
+            task["heartbeat_status"] = "heartbeat_stale"
             save_task(task)
             redis.command("RPUSH", key("dead_letter"), task_id)
 
@@ -1000,7 +1041,7 @@ class Handler(BaseHTTPRequestHandler):
                 wanted = query.get("state", [None])[0]
                 tasks = [load_task(task_id) for task_id in all_task_ids()]
                 tasks = [task for task in tasks if task and (wanted is None or task.get("state") == wanted)]
-                response(self, 200, {"tasks": tasks, "queue": queue_ids()})
+                response(self, 200, {"tasks": [task_status_view(task) for task in tasks], "queue": queue_ids()})
                 return
             if path.startswith("/v1/tasks/"):
                 task_id = path.split("/", 3)[3]
@@ -1008,7 +1049,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not task:
                     response(self, 404, {"error": "task_not_found", "task_id": task_id})
                     return
-                response(self, 200, task)
+                response(self, 200, task_status_view(task))
                 return
             if path.startswith("/v1/superfactory/tasks/") and path.endswith("/artifacts"):
                 auth = validate_miniapp(self)
@@ -1050,7 +1091,7 @@ class Handler(BaseHTTPRequestHandler):
                     task_id=task_id,
                     node=(task.get("lease_owner") or "main").split(":", 1)[0],
                     route_used="/v1/agents/status",
-                    data={"task": task},
+                    data={"task": task_status_view(task)},
                     next_action="poll /v1/agents/artifacts/{task_id}" if task.get("state") in TERMINAL_STATES else "continue polling status",
                 ))
                 return
@@ -1220,7 +1261,7 @@ class Handler(BaseHTTPRequestHandler):
                     task["lease_until"] = now_ts() + LEASE_DURATION
                     task["heartbeat_at"] = utc_now()
                     save_task(task)
-                    response(self, 200, task)
+                    response(self, 200, task_status_view(task))
                     return
                 response(self, 204, {})
                 return
@@ -1239,7 +1280,7 @@ class Handler(BaseHTTPRequestHandler):
                     task["branch"] = body.get("branch", task.get("branch"))
                     task["log_paths"] = body.get("log_paths", task.get("log_paths"))
                     save_task(task)
-                response(self, 200, task)
+                response(self, 200, task_status_view(task))
                 return
             if path.startswith("/v1/tasks/") and path.endswith("/complete"):
                 task_id = path.split("/")[3]
@@ -1257,7 +1298,7 @@ class Handler(BaseHTTPRequestHandler):
                 task["lease_until"] = None
                 save_task(task)
                 review_task = create_review_task(task, result) if has_pr else None
-                response(self, 200, {"task": task, "review_task": review_task})
+                response(self, 200, {"task": task_status_view(task), "review_task": review_task})
                 return
             if path.startswith("/v1/tasks/") and path.endswith("/annotate"):
                 task_id = path.split("/")[3]
@@ -1277,7 +1318,7 @@ class Handler(BaseHTTPRequestHandler):
                     review_task = create_review_task(task, result)
                 else:
                     save_task(task)
-                response(self, 200, {"task": task, "review_task": review_task})
+                response(self, 200, {"task": task_status_view(task), "review_task": review_task})
                 return
             if path.startswith("/v1/tasks/") and path.endswith("/fail"):
                 task_id = path.split("/")[3]
@@ -1300,7 +1341,7 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     task["state"] = STATE_FAILED
                     save_task(task)
-                response(self, 200, task)
+                response(self, 200, task_status_view(task))
                 return
             if path.startswith("/v1/tasks/") and path.endswith("/cancel"):
                 task_id = path.split("/")[3]
@@ -1313,7 +1354,7 @@ class Handler(BaseHTTPRequestHandler):
                 task["cancel_requested_at"] = utc_now()
                 task["lease_until"] = None
                 save_task(task)
-                response(self, 200, task)
+                response(self, 200, task_status_view(task))
                 return
             if path.startswith("/v1/agents/cancel/"):
                 task_id = path.split("/", 4)[4]

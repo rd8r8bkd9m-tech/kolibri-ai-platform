@@ -15,6 +15,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -158,6 +159,10 @@ class PermissionContractError(RuntimeError):
         self.classification = classification
         permissions = ", ".join(classification.get("forbidden_permissions") or [])
         super().__init__(f"read-only/no-push permission pack forbids requested runtime permissions: {permissions}")
+
+
+class LeaseHeartbeatError(RuntimeError):
+    """Raised when a running task can no longer renew its control-plane lease."""
 
 
 def utc_now() -> str:
@@ -995,6 +1000,69 @@ class AgentHost:
         }
         return self.post(f"/v1/tasks/{task['task_id']}/heartbeat", body)
 
+    class TaskLeaseHeartbeat:
+        def __init__(
+            self,
+            host: "AgentHost",
+            task: dict[str, Any],
+            worktree: Path,
+            branch: str | None,
+            logs: dict[str, str],
+            pid: int | None = None,
+        ):
+            self.host = host
+            self.task = task
+            self.worktree = worktree
+            self.branch = branch
+            self.logs = logs
+            self.pid = pid
+            self.stop_event = threading.Event()
+            self.error: Exception | None = None
+            self.thread: threading.Thread | None = None
+
+        def __enter__(self) -> "AgentHost.TaskLeaseHeartbeat":
+            self._beat()
+            if self.error is not None:
+                raise LeaseHeartbeatError(f"lease heartbeat failed: {self.error}") from self.error
+            self.thread = threading.Thread(
+                target=self._loop,
+                name=f"kolibri-task-heartbeat-{self.task['task_id']}",
+                daemon=True,
+            )
+            self.thread.start()
+            return self
+
+        def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> bool:
+            self.stop_event.set()
+            if self.thread:
+                self.thread.join(timeout=5)
+            if exc_type is None and self.error is not None:
+                raise LeaseHeartbeatError(f"lease heartbeat failed: {self.error}") from self.error
+            return False
+
+        def _beat(self) -> None:
+            try:
+                self.host.task_heartbeat(self.task, self.worktree, self.branch, self.logs, self.pid)
+            except Exception as exc:  # surfaced by __exit__ for structured task failure
+                self.error = exc
+                self.stop_event.set()
+
+        def _loop(self) -> None:
+            while not self.stop_event.wait(max(0.1, float(self.host.lease_refresh))):
+                self._beat()
+                if self.error is not None:
+                    return
+
+    def long_running_heartbeat(
+        self,
+        task: dict[str, Any],
+        worktree: Path,
+        branch: str | None,
+        logs: dict[str, str],
+        pid: int | None = None,
+    ) -> "TaskLeaseHeartbeat":
+        return self.TaskLeaseHeartbeat(self, task, worktree, branch, logs, pid)
+
     def lease(self) -> dict[str, Any] | None:
         task = self.post("/v1/tasks/lease", {
             "node_id": self.node_id,
@@ -1025,14 +1093,15 @@ class AgentHost:
             stdout.flush()
             proc = subprocess.Popen(command, cwd=str(cwd), stdout=stdout, stderr=stderr, env=merged_env)
             last_refresh = 0.0
-            while proc.poll() is None:
-                if STOP:
-                    proc.terminate()
-                    raise RuntimeError("agent host received SIGTERM")
-                if time.time() - last_refresh >= self.lease_refresh:
-                    self.task_heartbeat(task, cwd, branch, logs, proc.pid)
-                    last_refresh = time.time()
-                time.sleep(2)
+            with self.long_running_heartbeat(task, cwd, branch, logs, proc.pid):
+                while proc.poll() is None:
+                    if STOP:
+                        proc.terminate()
+                        raise RuntimeError("agent host received SIGTERM")
+                    if time.time() - last_refresh >= self.lease_refresh:
+                        self.task_heartbeat(task, cwd, branch, logs, proc.pid)
+                        last_refresh = time.time()
+                    time.sleep(2)
             if proc.returncode != 0:
                 raise RuntimeError(f"command failed with rc={proc.returncode}: {display_command}")
 
@@ -1252,16 +1321,17 @@ class AgentHost:
         logs: dict[str, str],
     ) -> dict[str, Any]:
         try:
-            self.run_command(
-                command,
-                worktree,
-                stdout_path,
-                stderr_path,
-                task,
-                branch,
-                logs,
-                command_label=command_label,
-            )
+            with self.long_running_heartbeat(task, worktree, branch, logs):
+                self.run_command(
+                    command,
+                    worktree,
+                    stdout_path,
+                    stderr_path,
+                    task,
+                    branch,
+                    logs,
+                    command_label=command_label,
+                )
         except Exception as exc:
             error_type, message, retry = self.classify_runner_error(
                 str(exc),
@@ -1318,9 +1388,11 @@ class AgentHost:
         if runner not in SUPPORTED_AI_RUNNERS:
             raise RunnerExecutionError("runner_unavailable", runner, f"unsupported runner requested: {runner}")
         if runner == "api":
-            return self.run_api_text_runner(prompt)
+            with self.long_running_heartbeat(task, worktree, branch, logs):
+                return self.run_api_text_runner(prompt)
         if runner == "local_llm":
-            return self.run_local_llm_text_runner(prompt)
+            with self.long_running_heartbeat(task, worktree, branch, logs):
+                return self.run_local_llm_text_runner(prompt)
         executable = shutil.which(runner)
         if not executable:
             self.mark_runner_status(runner, "unavailable", "runner_unavailable")
@@ -1782,7 +1854,8 @@ class AgentHost:
     ) -> Path:
         command = os.environ.get("KOLIBRI_IMAGE_GENERATOR_CMD")
         if not command:
-            return self.run_openai_image_generation(prompt, output_path)
+            with self.long_running_heartbeat(task, worktree, None, logs):
+                return self.run_openai_image_generation(prompt, output_path)
         env = {
             "KOLIBRI_IMAGE_PROMPT": prompt,
             "KOLIBRI_IMAGE_OUTPUT_DIR": str(artifact_dir),
@@ -2399,6 +2472,13 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 result["status"] = "blocked"
                 result["blocked_reason"] = "backend_test_environment_failed"
                 result["next_recommended_task"] = "repair the declared backend test environment requirements or package list, then rerun verification"
+                result_path = self.write_result(artifact_dir, result)
+            elif isinstance(exc, LeaseHeartbeatError):
+                error_type = "lease_heartbeat_failed"
+                retry = False
+                result["status"] = "failed"
+                result["failure_reason"] = redact_sensitive_text(str(exc))
+                result["next_recommended_task"] = "repair task heartbeat connectivity to the Factory Control Plane before requeue"
                 result_path = self.write_result(artifact_dir, result)
             elif str(exc).startswith("review_clone_auth_failed:"):
                 error_type = "review_clone_auth_failed"

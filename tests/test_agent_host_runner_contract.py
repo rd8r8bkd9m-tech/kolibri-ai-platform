@@ -2,6 +2,7 @@ import argparse
 import importlib.util
 import json
 import subprocess
+import time
 from pathlib import Path
 
 
@@ -481,6 +482,127 @@ def test_owner_remote_task_mimo_unavailable_does_not_fallback_to_codex(tmp_path,
     assert fail_body["error_type"] == "runner_unavailable"
     assert fail_body["result"]["runner"] == "mimo"
     assert fail_body["result"]["blocked_reason"] == "runner_unavailable"
+
+
+def test_long_running_api_runner_refreshes_lease_multiple_times(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setattr(agent_host.shutil, "which", lambda name: None)
+
+    class Host(agent_host.AgentHost):
+        def __init__(self):
+            super().__init__(make_args(tmp_path, capabilities="generic_implementation,runner:api"))
+            self.lease_refresh = 0.05
+            self.posts = []
+
+        def post(self, path, body):
+            if path.endswith("/heartbeat"):
+                body = dict(body)
+                body["lease_until"] = time.time() + 0.2
+            self.posts.append((path, body))
+            return body
+
+        def run_api_text_runner(self, prompt):
+            assert "FormulaLM crawler" in prompt
+            time.sleep(0.18)
+            return "crawler completed"
+
+    host = Host()
+    task = make_task({
+        "kind": "owner_remote_task",
+        "required_capability": "generic_implementation",
+        "runner": "api",
+        "objective": "Run a fake FormulaLM crawler longer than the lease duration",
+    })
+    task["kind"] = "owner_remote_task"
+
+    host.run_task(task)
+
+    heartbeat_posts = [(path, body) for path, body in host.posts if path.endswith("/heartbeat")]
+    assert len(heartbeat_posts) >= 3
+    assert all(body["state"] == "running" for _, body in heartbeat_posts)
+    assert not [path for path, _ in host.posts if path.endswith("/fail")]
+    assert len([path for path, _ in host.posts if path.endswith("/complete")]) == 1
+
+
+def test_heartbeat_failure_posts_structured_failure_artifact(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setattr(agent_host.shutil, "which", lambda name: None)
+
+    class Host(agent_host.AgentHost):
+        def __init__(self):
+            super().__init__(make_args(tmp_path, capabilities="generic_implementation,runner:api"))
+            self.lease_refresh = 0.05
+            self.posts = []
+            self.heartbeats = 0
+
+        def post(self, path, body):
+            if path.endswith("/heartbeat"):
+                self.heartbeats += 1
+                if self.heartbeats >= 2:
+                    raise RuntimeError("control plane heartbeat rejected")
+            self.posts.append((path, body))
+            return body
+
+        def run_api_text_runner(self, prompt):
+            del prompt
+            time.sleep(0.12)
+            return "runner result after heartbeat failure"
+
+    host = Host()
+    task = make_task({
+        "kind": "owner_remote_task",
+        "required_capability": "generic_implementation",
+        "runner": "api",
+        "objective": "long api call",
+    })
+    task["kind"] = "owner_remote_task"
+
+    host.run_task(task)
+
+    fail_posts = [(path, body) for path, body in host.posts if path.endswith("/fail")]
+    assert len(fail_posts) == 1
+    fail_body = fail_posts[0][1]
+    assert fail_body["error_type"] == "lease_heartbeat_failed"
+    assert fail_body["retry"] is False
+    result_path = Path(fail_body["result_reference"])
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    assert result["status"] == "failed"
+    assert "lease heartbeat failed" in result["failure_reason"]
+
+
+def test_codex_like_long_runner_uses_heartbeat_mechanism(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setattr(agent_host.shutil, "which", lambda name: "/usr/bin/codex" if name == "codex" else None)
+
+    class Host(agent_host.AgentHost):
+        def __init__(self):
+            super().__init__(make_args(tmp_path, capabilities="generic_implementation,runner:codex"))
+            self.lease_refresh = 0.05
+            self.posts = []
+
+        def post(self, path, body):
+            self.posts.append((path, body))
+            return body
+
+        def run_command(self, command, cwd, stdout_path, stderr_path, task, branch, logs, env=None, command_label=None):
+            del command, cwd, task, branch, logs, env, command_label
+            time.sleep(0.12)
+            stdout_path.write_text(json.dumps({"message": "codex completed"}) + "\n", encoding="utf-8")
+            stderr_path.write_text("", encoding="utf-8")
+
+    host = Host()
+    task = make_task({
+        "kind": "owner_remote_task",
+        "required_capability": "generic_implementation",
+        "runner": "codex",
+        "objective": "long codex task",
+    })
+    task["kind"] = "owner_remote_task"
+
+    host.run_task(task)
+
+    assert len([path for path, _ in host.posts if path.endswith("/heartbeat")]) >= 2
+    assert len([path for path, _ in host.posts if path.endswith("/complete")]) == 1
 
 
 def test_p0_integration_audit_artifact_path_drift_is_blocked(tmp_path):

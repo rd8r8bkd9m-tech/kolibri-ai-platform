@@ -93,6 +93,9 @@ def test_direct_mimo_stdout_useful_json_completes_with_non_empty_response(tmp_pa
     fail_posts = [(path, body) for path, body in host.posts if path.endswith("/fail")]
     assert len(complete_posts) == 1
     assert fail_posts == []
+    heartbeat_posts = [(path, body) for path, body in host.posts if path.endswith("/heartbeat")]
+    assert heartbeat_posts
+    assert heartbeat_posts[-1][1]["state"] == "running"
     result = complete_posts[0][1]["result"]
     assert result["status"] == "completed"
     assert result["runner"] == "mimo"
