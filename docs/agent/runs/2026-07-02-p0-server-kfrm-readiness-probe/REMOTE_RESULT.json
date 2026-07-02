@@ -1,0 +1,57 @@
+{
+  "task_id": "P0_AUTOPILOT_EXTRA_34_KFRM_READINESS_2026_07_02",
+  "status": "readiness_probe_completed_with_blockers",
+  "requested_node": "server-kfrm",
+  "execution_node": "mesh-agent-34",
+  "execution_host": "kolibri",
+  "agent_name": "agent-host-mesh-agent-34",
+  "russian_agent_display_name": "Автономный инженер",
+  "remote_execution": true,
+  "mac_product_code_modified": false,
+  "secrets_printed": false,
+  "destructive_git_commands": false,
+  "force_push": false,
+  "push_to_main": false,
+  "api": {
+    "control_plane": "http://10.99.0.10:9101",
+    "health_http": 200,
+    "v1_health_http": 200,
+    "redis": "PONG",
+    "server_kfrm_route_status": "completed",
+    "server_kfrm_route_type": "direct_fabric_api",
+    "server_kfrm_route_endpoint": "/v1/nodes/server-kfrm"
+  },
+  "service_status": {
+    "kolibri-agent-host@mesh-agent-34.service": "active",
+    "kolibri-factory-control.service": "active",
+    "kolibri-mesh-control-bridge.service": "active",
+    "kolibri-telegram-gateway.service": "active",
+    "kolibri-factory-cluster-monitor.service": "activating",
+    "kolibri-factory-lease-watchdog.service": "inactive"
+  },
+  "disk": {
+    "filesystem": "/dev/vda1",
+    "available": "49G",
+    "used_percent": "48%"
+  },
+  "github_auth": {
+    "git_ls_remote_origin_head": "passed",
+    "gh_cli": "missing"
+  },
+  "blockers": [
+    "server-kfrm card lacks full worker telemetry: agent_id, hostname, cpu, memory, disk",
+    "server-kfrm heartbeat is stale at 2026-06-30T11:56:43.491417+00:00",
+    "gh CLI is missing on the executing worker",
+    "kolibri-factory-cluster-monitor.service is activating and lease watchdog is inactive"
+  ],
+  "artifacts": [
+    "docs/agent/runs/2026-07-02-p0-server-kfrm-readiness-probe/PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-server-kfrm-readiness-probe/ACTIONS.md",
+    "docs/agent/runs/2026-07-02-p0-server-kfrm-readiness-probe/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-server-kfrm-readiness-probe/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-server-kfrm-readiness-probe/NEXT.md",
+    "docs/agent/runs/2026-07-02-p0-server-kfrm-readiness-probe/REMOTE_RESULT.json"
+  ],
+  "next_exact_task": "P0_SERVER_KFRM_FULL_WORKER_TELEMETRY_AND_GH_CLI_REPAIR_2026_07_02",
+  "owner_summary_ru": "Проверка выполнена на серверном mesh-worker mesh-agent-34, не на Mac. Маршрут до server-kfrm через Control Plane сейчас находится и возвращает direct_fabric_api, но карточка server-kfrm неполная: нет disk/cpu/hostname и heartbeat старый от 2026-06-30. Следующая точная задача: P0_SERVER_KFRM_FULL_WORKER_TELEMETRY_AND_GH_CLI_REPAIR_2026_07_02."
+}
