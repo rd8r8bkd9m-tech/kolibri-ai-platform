@@ -12,6 +12,7 @@ import argparse
 import errno
 import json
 import os
+import select
 import socket
 import sys
 import threading
@@ -984,10 +985,12 @@ class BoundedThreadingHTTPServer(ThreadingHTTPServer):
 
     @staticmethod
     def _send_overloaded(request: Any) -> None:
+        status = 200 if _is_lease_request(request) else 503
+        reason = b"OK" if status == 200 else b"Service Unavailable"
         body = json.dumps(lease_overload_response()).encode("utf-8")
         try:
             request.sendall(
-                b"HTTP/1.1 503 Service Unavailable\r\n"
+                b"HTTP/1.1 " + str(status).encode("ascii") + b" " + reason + b"\r\n"
                 b"Content-Type: application/json\r\n"
                 + f"Content-Length: {len(body)}\r\nConnection: close\r\n\r\n".encode("ascii")
                 + body
@@ -995,6 +998,23 @@ class BoundedThreadingHTTPServer(ThreadingHTTPServer):
         except OSError as exc:
             if not is_client_disconnect(exc):
                 raise
+
+
+def _is_lease_request(request: Any) -> bool:
+    if hasattr(request, "fileno"):
+        try:
+            readable, _, _ = select.select([request], [], [], 0)
+        except (OSError, ValueError):
+            return False
+        if not readable:
+            return False
+    try:
+        preview = request.recv(4096, socket.MSG_PEEK)
+    except (AttributeError, OSError):
+        return False
+    request_line = preview.split(b"\r\n", 1)[0]
+    parts = request_line.split()
+    return len(parts) >= 2 and parts[1].split(b"?", 1)[0] == b"/v1/tasks/lease"
 
 
 def parse_owner_ids(value: str) -> set[int]:
