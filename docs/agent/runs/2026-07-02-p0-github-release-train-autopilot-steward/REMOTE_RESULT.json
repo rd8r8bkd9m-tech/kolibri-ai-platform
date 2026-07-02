@@ -1,0 +1,77 @@
+{
+  "task_id": "P0_GITHUB_RELEASE_TRAIN_AUTOPILOT_STEWARD_2026_07_02",
+  "status": "completed_with_blockers",
+  "lease_owner": "autonomous_engineer",
+  "node": "kolibri",
+  "execution": {
+    "host_classification": "server_agent_host",
+    "not_mac": true,
+    "no_secrets_printed": true,
+    "no_push_to_main": true,
+    "no_force_push": true,
+    "no_destructive_git": true,
+    "no_merge_to_main": true
+  },
+  "artifacts": [
+    "docs/agent/runs/2026-07-02-p0-github-release-train-autopilot-steward/PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-github-release-train-autopilot-steward/ACTIONS.md",
+    "docs/agent/runs/2026-07-02-p0-github-release-train-autopilot-steward/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-github-release-train-autopilot-steward/PR_QUEUE_MATRIX.md",
+    "docs/agent/runs/2026-07-02-p0-github-release-train-autopilot-steward/BRANCH_PR_COVERAGE.md",
+    "docs/agent/runs/2026-07-02-p0-github-release-train-autopilot-steward/RELEASE_TRAIN_ORDER.md",
+    "docs/agent/runs/2026-07-02-p0-github-release-train-autopilot-steward/NEXT.md",
+    "docs/agent/runs/2026-07-02-p0-github-release-train-autopilot-steward/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-github-release-train-autopilot-steward/REMOTE_RESULT.json"
+  ],
+  "draft_prs_created": [
+    {
+      "number": 106,
+      "branch": "agent/P0_30MIN_12AGENT_05B_RUNNER_CONTRACT_STEWARD_FALLBACK_2026_07_02/generic"
+    },
+    {
+      "number": 107,
+      "branch": "agent/P0_30MIN_MESH_AGENT_01_RELEASE_QUEUE_ACCELERATOR_2026_07_02/generic"
+    },
+    {
+      "number": 108,
+      "branch": "agent/P0_30MIN_MESH_AGENT_02_FLEET_ONLINE_ACCELERATOR_2026_07_02/generic"
+    },
+    {
+      "number": 109,
+      "branch": "agent/P0_FACTORY_STATUS_PROXY_504_CANARY_2026_07_02/generic"
+    },
+    {
+      "number": 110,
+      "branch": "agent/P0_PRIMARY_NODE_HEARTBEAT_REPAIR_READONLY_2026_07_02/generic"
+    },
+    {
+      "number": 111,
+      "branch": "agent/P0_QUEUE_LEASE_DEBT_AUDIT_AND_REQUEUE_POLICY_2026_07_02/generic"
+    },
+    {
+      "number": 112,
+      "branch": "agent/P0_RUNNER_TIMEBOX_AND_MAX_INFLIGHT_CONTRACT_REPAIR_2026_07_02/generic"
+    },
+    {
+      "number": 113,
+      "branch": "p0/factory-control-runtime-import-path-repair-2026-07-02"
+    }
+  ],
+  "existing_active_prs": [
+    {
+      "number": 90,
+      "classification": "open_draft_mergeable_with_verifier_dependency_blocker"
+    },
+    {
+      "number": 105,
+      "classification": "open_draft_mergeable_needs_ci_check_run_review"
+    }
+  ],
+  "blockers": [
+    "gh_cli_missing_on_server_runtime",
+    "github_connector_combined_status_returned_no_legacy_status_contexts_for_active_heads",
+    "P0_PR105_ROUTE_FRESHNESS_CI_REPAIR_2026_07_02_branch_empty_at_origin_main",
+    "P0_PR90_TELEGRAM_MINIAPP_AUTH_PYTEST_IMPORT_COLLISION_REPAIR_2026_07_02_branch_empty_at_origin_main"
+  ],
+  "next_action": "Inspect check-run state for PRs 105-113, then start owner review with PR #113 followed by #109 and #112."
+}
