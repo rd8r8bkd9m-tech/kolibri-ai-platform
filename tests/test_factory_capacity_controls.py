@@ -521,6 +521,50 @@ def test_empty_lease_no_task_response_is_preencoded_compact_json(monkeypatch):
     assert control.lease_no_task_response_bytes() is payload
 
 
+def test_empty_lease_no_task_response_closes_and_flushes_handler_connection():
+    control = load_control()
+
+    class Writer:
+        def __init__(self):
+            self.payload = b""
+            self.flushed = False
+
+        def write(self, payload):
+            self.payload += payload
+
+        def flush(self):
+            self.flushed = True
+
+    class Handler:
+        def __init__(self):
+            self.wfile = Writer()
+            self.status = None
+            self.headers = []
+            self.close_connection = False
+
+        def send_response(self, status):
+            self.status = status
+
+        def send_header(self, name, value):
+            self.headers.append((name, value))
+
+        def end_headers(self):
+            pass
+
+    handler = Handler()
+
+    control.response_no_task(handler)
+
+    headers = dict(handler.headers)
+    assert handler.status == 200
+    assert handler.close_connection is True
+    assert headers["Content-Type"] == "application/json"
+    assert headers["Content-Length"] == str(len(handler.wfile.payload))
+    assert headers["Connection"] == "close"
+    assert json.loads(handler.wfile.payload.decode("utf-8"))["status"] == "no_task"
+    assert handler.wfile.flushed is True
+
+
 def test_successful_lease_poll_access_logs_are_suppressed_by_default(monkeypatch, capsys):
     control = load_control()
     fake = InMemoryRedis()

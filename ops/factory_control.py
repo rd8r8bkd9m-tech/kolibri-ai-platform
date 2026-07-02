@@ -1114,13 +1114,24 @@ def response(handler: BaseHTTPRequestHandler, status: int, body: Any) -> None:
     response_bytes(handler, status, payload)
 
 
-def response_bytes(handler: BaseHTTPRequestHandler, status: int, payload: bytes) -> None:
+def response_bytes(
+    handler: BaseHTTPRequestHandler,
+    status: int,
+    payload: bytes,
+    *,
+    close_connection: bool = False,
+) -> None:
     try:
+        if close_connection:
+            handler.close_connection = True
         handler.send_response(status)
         handler.send_header("Content-Type", "application/json")
         handler.send_header("Content-Length", str(len(payload)))
+        if close_connection:
+            handler.send_header("Connection", "close")
         handler.end_headers()
         handler.wfile.write(payload)
+        handler.wfile.flush()
     except OSError as exc:
         if is_client_disconnect(exc):
             raise ClientDisconnected() from None
@@ -1159,7 +1170,7 @@ def lease_no_task_response_bytes(reason: str = "queue_empty") -> bytes:
 
 
 def response_no_task(handler: BaseHTTPRequestHandler, reason: str = "queue_empty") -> None:
-    response_bytes(handler, 200, lease_no_task_response_bytes(reason))
+    response_bytes(handler, 200, lease_no_task_response_bytes(reason), close_connection=True)
 
 
 def classify_lease_canary_response(status_code: int, body: dict[str, Any] | None = None) -> dict[str, Any]:
