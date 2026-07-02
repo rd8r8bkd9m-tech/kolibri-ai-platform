@@ -66,6 +66,12 @@ CONTRACT_RESULT_FIELDS = [
     "push_blocked",
     "blocked_reason",
     "failure_reason",
+    "repair_task",
+    "rerun_route",
+    "can_continue_elsewhere",
+    "runner_artifacts",
+    "stdout_tail",
+    "stderr_tail",
     "tests_run",
     "backend_test_environment",
     "next_recommended_task",
@@ -149,6 +155,15 @@ class RunnerExecutionError(RuntimeError):
         self.error_type = error_type
         self.runner = runner
         self.retry = retry
+
+
+class WorktreeCheckoutError(RuntimeError):
+    """Raised when repo clone/fetch/checkout cannot produce a usable worktree."""
+
+    def __init__(self, message: str, branch: str | None = None, base_ref: str | None = None):
+        super().__init__(message)
+        self.branch = branch
+        self.base_ref = base_ref
 
 
 class PermissionContractError(RuntimeError):
@@ -731,11 +746,105 @@ def review_clone_auth_failure_message(stderr_text: str, repo_url: str) -> str | 
     )
 
 
+def text_file_tail(path: Path, limit: int = 4000) -> str | None:
+    if not path.exists():
+        return None
+    text = path.read_text(encoding="utf-8", errors="replace")
+    return redact_sensitive_text(text[-limit:]) if text else ""
+
+
+def rerun_route_hint(
+    blocked_reason: str,
+    envelope: dict[str, Any],
+    node_id: str | None = None,
+    runner: str | None = None,
+) -> dict[str, Any]:
+    requested_runner = runner or requested_runner_for_envelope(envelope)
+    required_capability = envelope_value(envelope, "required_capability")
+    if requested_runner:
+        required_capability = runner_capability(requested_runner)
+    avoid_nodes = []
+    if node_id:
+        avoid_nodes.append(node_id)
+    avoid_nodes.extend(str(item) for item in ensure_list(envelope_value(envelope, "avoid_nodes")))
+    return {
+        "kind": "dispatcher_rerun_route",
+        "route_endpoint": "/v1/fleet/route",
+        "submit_endpoint": "/v1/agents/tasks",
+        "blocked_reason": blocked_reason,
+        "required_capability": required_capability,
+        "runner": requested_runner,
+        "target_node": envelope_value(envelope, "target_node") or envelope_value(envelope, "required_node"),
+        "avoid_nodes": sorted(set(item for item in avoid_nodes if item)),
+        "can_continue_elsewhere": blocked_reason in {
+            "runner_contract_blocked",
+            "required_artifacts_missing",
+            "runner_access_denied",
+            "runner_auth_blocked",
+            "runner_auth_failed",
+            "runner_policy_blocked",
+            "runner_unavailable",
+            "worktree_checkout_failed",
+        },
+    }
+
+
+def repair_task_for_blockers(blockers: list[str], envelope: dict[str, Any], route_hint: dict[str, Any]) -> dict[str, Any] | None:
+    joined = " ".join(blockers)
+    if "required_artifacts_missing" in joined:
+        return {
+            "kind": "repair_missing_required_outputs",
+            "action": "rerun task with corrected required_outputs or generate the missing artifacts",
+            "missing_outputs": ensure_list(route_hint.get("missing_outputs")),
+            "rerun_route": route_hint,
+        }
+    if "worktree_checkout_failed" in joined:
+        return {
+            "kind": "repair_worktree_checkout",
+            "action": "reroute to a node that can clone/fetch the requested base_ref and branch",
+            "base_ref": envelope_value(envelope, "base_ref"),
+            "branch": envelope_value(envelope, "branch"),
+            "rerun_route": route_hint,
+        }
+    if any(marker in joined for marker in ("runner_auth_blocked", "runner_auth_failed", "runner_access_denied", "runner_policy_blocked")):
+        return {
+            "kind": "repair_runner_auth_or_route",
+            "action": "repair runner authentication on this node or reroute to another compatible runner node",
+            "runner": route_hint.get("runner"),
+            "rerun_route": route_hint,
+        }
+    if "runner_contract_blocked" in joined:
+        return {
+            "kind": "repair_runner_invocation_or_route",
+            "action": "repair the requested runner invocation on this node or reroute to another compatible runner node",
+            "runner": route_hint.get("runner"),
+            "rerun_route": route_hint,
+        }
+    if "runner_unavailable" in joined:
+        return {
+            "kind": "repair_runner_unavailable_or_route",
+            "action": "install the requested runner on this node or reroute to another compatible runner node",
+            "runner": route_hint.get("runner"),
+            "rerun_route": route_hint,
+        }
+    return None
+
+
 def next_recommended_task_for(blockers: list[str], envelope: dict[str, Any]) -> str:
     configured = envelope_value(envelope, "next_recommended_task")
     if isinstance(configured, str) and configured.strip():
         return configured.strip()
     joined = " ".join(blockers)
+    if "worktree_checkout_failed" in joined:
+        return "reroute to another node or repair git clone/fetch/checkout access for the requested base_ref and branch"
+    if any(marker in joined for marker in ("runner_auth_blocked", "runner_auth_failed", "runner_access_denied", "runner_policy_blocked")):
+        runner = requested_runner_for_envelope(envelope)
+        runner_text = f" {runner}" if runner else ""
+        return f"repair{runner_text} runner authentication on this node or reroute through /v1/fleet/route"
+    if "runner_contract_blocked" in joined:
+        runner = requested_runner_for_envelope(envelope)
+        runner_text = f" {runner}" if runner else ""
+        return f"repair{runner_text} runner invocation on this node or reroute through /v1/fleet/route"
     if "unsupported_task_kind" in joined or "unsupported_required_capability" in joined:
         return "enable a supported read-only runner for this task kind before resubmitting"
     if "required_artifacts_missing" in joined:
@@ -784,12 +893,23 @@ def finalize_runner_contract(
     write_scope = envelope_list(envelope, "write_scope")
     final["write_scope"] = write_scope
 
-    required_present, required_missing = verify_required_artifacts(envelope, worktree, artifact_dir)
-    canonical_artifacts = finalize_canonical_run_artifacts(envelope, worktree, artifact_dir)
-    if canonical_artifacts:
-        required_present.extend(canonical_artifacts["canonical_run_artifacts_present"])
-        required_missing.extend(canonical_artifacts["canonical_run_artifacts_missing"])
-        final.update(canonical_artifacts)
+    runner_precontract_blocked = blocked_reason in {
+        "runner_contract_blocked",
+        "runner_access_denied",
+        "runner_auth_blocked",
+        "runner_auth_failed",
+        "runner_policy_blocked",
+        "runner_unavailable",
+    }
+    if runner_precontract_blocked:
+        required_present, required_missing = [], []
+    else:
+        required_present, required_missing = verify_required_artifacts(envelope, worktree, artifact_dir)
+        canonical_artifacts = finalize_canonical_run_artifacts(envelope, worktree, artifact_dir)
+        if canonical_artifacts:
+            required_present.extend(canonical_artifacts["canonical_run_artifacts_present"])
+            required_missing.extend(canonical_artifacts["canonical_run_artifacts_missing"])
+            final.update(canonical_artifacts)
     final["required_artifacts_present"] = required_present
     final["required_artifacts_missing"] = required_missing
     final["effective_permissions"] = sanitized_permissions_for_envelope(envelope)
@@ -855,9 +975,21 @@ def finalize_runner_contract(
         final["status"] = "blocked"
         final["blocked_reason"] = "; ".join(dict.fromkeys(blockers))
         final["failure_reason"] = failure_reason
+        route_hint = rerun_route_hint(final["blocked_reason"], envelope, node_id=final.get("node_id"), runner=final.get("runner"))
+        if required_missing:
+            route_hint["missing_outputs"] = required_missing
+        final["rerun_route"] = final.get("rerun_route") or route_hint
+        final["can_continue_elsewhere"] = bool(final["rerun_route"].get("can_continue_elsewhere"))
+        final["repair_task"] = final.get("repair_task") or repair_task_for_blockers(blockers, envelope, final["rerun_route"])
     else:
         final.setdefault("blocked_reason", None)
         final["failure_reason"] = failure_reason
+        final.setdefault("repair_task", None)
+        final.setdefault("rerun_route", None)
+        final.setdefault("can_continue_elsewhere", False)
+    final.setdefault("runner_artifacts", None)
+    final.setdefault("stdout_tail", None)
+    final.setdefault("stderr_tail", None)
     final["next_recommended_task"] = final.get("next_recommended_task") or (
         next_recommended_task_for(blockers, envelope) if blockers else None
     )
@@ -1237,6 +1369,21 @@ class AgentHost:
             if "illegal_access" in combined:
                 return "runner_policy_blocked", "mimo runner request was blocked by policy: illegal_access", False
             return "runner_access_denied", "mimo runner access denied with HTTP 403", False
+        if (
+            "rc=6" in combined
+            or "returncode: 6" in combined
+            or "return code 6" in combined
+        ) and (
+            "check your network connection" in combined
+            or "https_proxy" in combined
+            or "proxy" in combined
+            or "network" in combined
+        ):
+            return (
+                "runner_contract_blocked",
+                "mimo runner invocation failed with rc=6 before producing the output contract; inspect stderr_tail and reroute or repair runner network/proxy access",
+                False,
+            )
         return "runtime_error", error, True
 
     def run_json_payload_command(
@@ -1464,13 +1611,18 @@ class AgentHost:
         })
 
     def fail(self, task: dict[str, Any], error_type: str, error: str, result: dict[str, Any] | None, result_path: Path | None, retry: bool = True) -> None:
-        self.post(f"/v1/tasks/{task['task_id']}/fail", {
+        body = {
             "error_type": error_type,
             "error": error,
             "result": result,
             "result_reference": str(result_path) if result_path else None,
             "retry": retry,
-        })
+        }
+        if isinstance(result, dict):
+            for key_name in ("repair_task", "rerun_route", "can_continue_elsewhere"):
+                if key_name in result:
+                    body[key_name] = result[key_name]
+        self.post(f"/v1/tasks/{task['task_id']}/fail", body)
 
     def validate_runtime_permission_contract(self, task: dict[str, Any]) -> dict[str, Any]:
         classification = classify_permission_pack(task)
@@ -1491,6 +1643,38 @@ class AgentHost:
             "stderr": str(artifact_dir / "stderr.log"),
         }
         return worktree, artifact_dir, logs
+
+    def checkout_worktree(
+        self,
+        task: dict[str, Any],
+        worktree: Path,
+        stdout_path: Path,
+        stderr_path: Path,
+        branch: str | None,
+        base_ref: str | None,
+        logs: dict[str, str],
+    ) -> None:
+        git_env = {"GIT_TERMINAL_PROMPT": "0"}
+        checkout_base = base_ref or "origin/main"
+        try:
+            self.run_command(["git", "clone", self.repo_url, str(worktree)], worktree.parent, stdout_path, stderr_path, task, branch, logs, git_env)
+            self.run_command(["git", "fetch", "origin"], worktree, stdout_path, stderr_path, task, branch, logs, git_env)
+            if branch:
+                self.run_command(["git", "checkout", "-B", branch, checkout_base], worktree, stdout_path, stderr_path, task, branch, logs, git_env)
+            else:
+                self.run_command(["git", "checkout", checkout_base], worktree, stdout_path, stderr_path, task, branch, logs, git_env)
+        except Exception as exc:
+            raise WorktreeCheckoutError(
+                f"worktree_checkout_failed: unable to checkout base_ref={checkout_base} branch={branch or ''}",
+                branch=branch,
+                base_ref=checkout_base,
+            ) from exc
+        if not (worktree / ".git").exists() or not any(worktree.iterdir()):
+            raise WorktreeCheckoutError(
+                f"worktree_checkout_failed: checkout produced empty or non-git worktree for base_ref={checkout_base} branch={branch or ''}",
+                branch=branch,
+                base_ref=checkout_base,
+            )
 
     def run_read_only_probe(self, task: dict[str, Any]) -> dict[str, Any]:
         worktree, artifact_dir, logs = self.prepare_dirs(task)
@@ -1590,9 +1774,13 @@ class AgentHost:
         if runner not in SUPPORTED_AI_RUNNERS:
             raise RunnerExecutionError("runner_unavailable", runner, f"unsupported runner requested: {runner}")
         worktree, artifact_dir, logs = self.prepare_dirs(task)
-        worktree.mkdir(parents=True, exist_ok=True)
         stdout_path = Path(logs["stdout"])
         stderr_path = Path(logs["stderr"])
+        if envelope_truthy(envelope, "use_clean_remote_worktree", "requires_repo_context", "checkout_required"):
+            worktree.parent.mkdir(parents=True, exist_ok=True)
+            self.checkout_worktree(task, worktree, stdout_path, stderr_path, envelope.get("branch"), envelope.get("base_ref", "origin/main"), logs)
+        else:
+            worktree.mkdir(parents=True, exist_ok=True)
         self.task_heartbeat(task, worktree, envelope.get("branch"), logs)
         response_text = self.run_requested_ai_runner(
             runner,
@@ -1634,9 +1822,13 @@ class AgentHost:
             raise RuntimeError("direct mimo task missing objective")
         branch = envelope.get("branch")
         worktree, artifact_dir, logs = self.prepare_dirs(task)
-        worktree.mkdir(parents=True, exist_ok=True)
         stdout_path = Path(logs["stdout"])
         stderr_path = Path(logs["stderr"])
+        if envelope_truthy(envelope, "use_clean_remote_worktree", "requires_repo_context", "checkout_required"):
+            worktree.parent.mkdir(parents=True, exist_ok=True)
+            self.checkout_worktree(task, worktree, stdout_path, stderr_path, branch, envelope.get("base_ref", "origin/main"), logs)
+        else:
+            worktree.mkdir(parents=True, exist_ok=True)
         self.task_heartbeat(task, worktree, branch, logs)
         runner_artifact = {
             "kind": "direct_mimo_run",
@@ -1887,9 +2079,7 @@ class AgentHost:
         self.task_heartbeat(task, worktree, branch, logs)
 
         git_env = {"GIT_TERMINAL_PROMPT": "0"}
-        self.run_command(["git", "clone", self.repo_url, str(worktree)], worktree.parent, stdout_path, stderr_path, task, branch, logs, git_env)
-        self.run_command(["git", "fetch", "origin"], worktree, stdout_path, stderr_path, task, branch, logs, git_env)
-        self.run_command(["git", "checkout", "-B", branch, base_ref], worktree, stdout_path, stderr_path, task, branch, logs, git_env)
+        self.checkout_worktree(task, worktree, stdout_path, stderr_path, branch, base_ref, logs)
         self.run_command(["git", "config", "user.name", "Kolibri Factory Agent"], worktree, stdout_path, stderr_path, task, branch, logs)
         self.run_command(["git", "config", "user.email", "factory-agent@users.noreply.github.com"], worktree, stdout_path, stderr_path, task, branch, logs)
 
@@ -1988,9 +2178,7 @@ class AgentHost:
         self.task_heartbeat(task, worktree, branch, logs)
 
         git_env = {"GIT_TERMINAL_PROMPT": "0"}
-        self.run_command(["git", "clone", self.repo_url, str(worktree)], worktree.parent, stdout_path, stderr_path, task, branch, logs, git_env)
-        self.run_command(["git", "fetch", "origin"], worktree, stdout_path, stderr_path, task, branch, logs, git_env)
-        self.run_command(["git", "checkout", "-B", branch, base_ref], worktree, stdout_path, stderr_path, task, branch, logs, git_env)
+        self.checkout_worktree(task, worktree, stdout_path, stderr_path, branch, base_ref, logs)
         self.run_command(["git", "config", "user.name", "Kolibri Factory Agent"], worktree, stdout_path, stderr_path, task, branch, logs)
         self.run_command(["git", "config", "user.email", "factory-agent@users.noreply.github.com"], worktree, stdout_path, stderr_path, task, branch, logs)
 
@@ -2375,24 +2563,56 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 "completed_at": utc_now(),
                 "result_path": str(artifact_dir / "result.json"),
             }
+            logs = {
+                "stdout": str(artifact_dir / "stdout.log"),
+                "stderr": str(artifact_dir / "stderr.log"),
+            }
+            result["log_paths"] = logs
+            result["runner_artifacts"] = logs
+            result["stdout_tail"] = text_file_tail(artifact_dir / "stdout.log")
+            result["stderr_tail"] = text_file_tail(artifact_dir / "stderr.log")
             if isinstance(exc, RunnerExecutionError):
                 result["status"] = "blocked"
                 result["runner"] = exc.runner
-            result = finalize_runner_contract(task, result, artifact_dir, failure_reason=str(exc))
+                result = finalize_runner_contract(
+                    task,
+                    result,
+                    artifact_dir,
+                    failure_reason=redact_sensitive_text(str(exc)),
+                    blocked_reason=exc.error_type,
+                )
+            elif isinstance(exc, WorktreeCheckoutError):
+                result["status"] = "blocked"
+                result["base_ref"] = exc.base_ref
+                result["branch"] = exc.branch
+                result = finalize_runner_contract(
+                    task,
+                    result,
+                    artifact_dir,
+                    failure_reason=redact_sensitive_text(str(exc)),
+                    blocked_reason="worktree_checkout_failed",
+                )
+            else:
+                result = finalize_runner_contract(task, result, artifact_dir, failure_reason=redact_sensitive_text(str(exc)))
             result_path = self.write_result(artifact_dir, result)
             retry = int(task.get("attempt", 0)) < int(task.get("max_retries", 3))
             if isinstance(exc, RunnerExecutionError):
                 error_type = exc.error_type
                 retry = bool(getattr(exc, "retry", False))
-                result["status"] = "blocked"
-                result["blocked_reason"] = exc.error_type
-                result["failure_reason"] = redact_sensitive_text(str(exc))
-                result["next_recommended_task"] = (
-                    f"repair {exc.runner} auth on this node or route to another online node with {runner_capability(exc.runner)}"
-                    if exc.error_type in {"runner_auth_blocked", "runner_auth_failed", "runner_access_denied", "runner_policy_blocked"}
-                    else f"route to another online node with {runner_capability(exc.runner)} or install the requested runner"
-                )
+                if exc.error_type in {"runner_auth_blocked", "runner_auth_failed", "runner_access_denied", "runner_policy_blocked"}:
+                    result["next_recommended_task"] = (
+                        f"repair {exc.runner} auth on this node or route to another online node with {runner_capability(exc.runner)}"
+                    )
+                elif exc.error_type == "runner_contract_blocked":
+                    result["next_recommended_task"] = (
+                        f"repair {exc.runner} runner invocation/network access on this node or route to another online node with {runner_capability(exc.runner)}"
+                    )
+                else:
+                    result["next_recommended_task"] = f"route to another online node with {runner_capability(exc.runner)} or install the requested runner"
                 result_path = self.write_result(artifact_dir, result)
+            elif isinstance(exc, WorktreeCheckoutError):
+                error_type = "worktree_checkout_failed"
+                retry = False
             elif isinstance(exc, BackendTestEnvironmentError) or str(exc).startswith("backend_test_environment_failed:"):
                 error_type = "backend_test_environment_failed"
                 retry = False

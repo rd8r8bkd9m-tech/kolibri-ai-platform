@@ -483,6 +483,53 @@ def test_owner_remote_task_mimo_unavailable_does_not_fallback_to_codex(tmp_path,
     assert fail_body["result"]["blocked_reason"] == "runner_unavailable"
 
 
+def test_owner_remote_task_mimo_rc6_is_runner_contract_blocked_not_missing_artifacts(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setattr(agent_host.shutil, "which", lambda name: "/usr/bin/mimo" if name == "mimo" else None)
+
+    class Host(agent_host.AgentHost):
+        def __init__(self):
+            super().__init__(make_args(tmp_path, capabilities="generic_implementation,runner:mimo"))
+            self.posts = []
+
+        def post(self, path, body):
+            self.posts.append((path, body))
+            return body
+
+        def run_command(self, command, cwd, stdout_path, stderr_path, task, branch, logs, env=None, command_label=None):
+            del command, cwd, task, branch, logs, env, command_label
+            stdout_path.write_text("", encoding="utf-8")
+            stderr_path.write_text(
+                '{"error":"runner failed","hint":"Check your network connection. To use a proxy: set HTTPS_PROXY env var."}\n',
+                encoding="utf-8",
+            )
+            raise RuntimeError("command failed with rc=6: /usr/bin/mimo run --format json --title owner-task-CONTRACT-1 <prompt>")
+
+    task = make_task({
+        "kind": "owner_remote_task",
+        "required_capability": "generic_implementation",
+        "runner": "mimo",
+        "objective": "produce docs",
+        "required_artifacts": ["docs/agent/runs/mimo/RESULT.md"],
+    })
+    task["kind"] = "owner_remote_task"
+
+    host = Host()
+    host.run_task(task)
+
+    assert not [path for path, _ in host.posts if path.endswith("/complete")]
+    fail_body = [body for path, body in host.posts if path.endswith("/fail")][0]
+    assert fail_body["error_type"] == "runner_contract_blocked"
+    assert fail_body["retry"] is False
+    assert fail_body["result"]["status"] == "blocked"
+    assert fail_body["result"]["runner"] == "mimo"
+    assert fail_body["result"]["blocked_reason"] == "runner_contract_blocked"
+    assert fail_body["result"]["required_artifacts_missing"] == []
+    assert fail_body["result"]["repair_task"]["kind"] == "repair_runner_invocation_or_route"
+    assert "Check your network connection" in fail_body["result"]["stderr_tail"]
+    assert fail_body["result"]["runner_artifacts"]["stderr"].endswith("stderr.log")
+
+
 def test_p0_integration_audit_artifact_path_drift_is_blocked(tmp_path):
     agent_host = load_agent_host()
     missing_contract = "docs/agent/integration/2026-06-30-p0-integration-contract-audit/FRONTEND_BACKEND_CONTRACT.md"
@@ -541,6 +588,88 @@ def test_run_task_missing_required_artifact_posts_blocked_fail_not_complete(tmp_
     assert fail_body["result"]["status"] == "blocked"
     assert fail_body["result"]["required_artifacts_missing"] == ["docs/agent/MISSING.md"]
     assert "required_artifacts_missing" in fail_body["result"]["blocked_reason"]
+    assert fail_body["result"]["repair_task"]["kind"] == "repair_missing_required_outputs"
+    assert fail_body["result"]["rerun_route"]["route_endpoint"] == "/v1/fleet/route"
+    assert fail_body["result"]["can_continue_elsewhere"] is True
+    assert fail_body["repair_task"]["kind"] == "repair_missing_required_outputs"
+
+
+def test_runner_auth_blocker_includes_repair_task_and_rerun_route(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setattr(agent_host.shutil, "which", lambda name: "/usr/bin/codex" if name == "codex" else None)
+
+    class Host(agent_host.AgentHost):
+        def __init__(self):
+            super().__init__(make_args(tmp_path, capabilities="generic_implementation,runner:codex"))
+            self.posts = []
+
+        def post(self, path, body):
+            self.posts.append((path, body))
+            return body
+
+        def run_command(self, command, cwd, stdout_path, stderr_path, task, branch, logs, env=None, command_label=None):
+            del command, cwd, stdout_path, task, branch, logs, env, command_label
+            stderr_path.write_text("401 unauthorized refresh_token=SECRET\n", encoding="utf-8")
+            raise RuntimeError("command failed with rc=1: codex exec")
+
+    task = make_task({
+        "kind": "owner_remote_task",
+        "required_capability": "generic_implementation",
+        "runner": "codex",
+        "objective": "repair task",
+    })
+    task["kind"] = "owner_remote_task"
+
+    host = Host()
+    host.run_task(task)
+
+    fail_body = [body for path, body in host.posts if path.endswith("/fail")][0]
+    assert fail_body["error_type"] == "runner_auth_blocked"
+    assert fail_body["result"]["repair_task"]["kind"] == "repair_runner_auth_or_route"
+    assert fail_body["result"]["rerun_route"]["required_capability"] == "runner:codex"
+    assert fail_body["result"]["rerun_route"]["avoid_nodes"] == ["primary-candidate"]
+    assert fail_body["result"]["can_continue_elsewhere"] is True
+
+
+def test_worktree_checkout_failure_is_structured_blocker_not_empty_repo(tmp_path):
+    agent_host = load_agent_host()
+
+    class Host(agent_host.AgentHost):
+        def __init__(self):
+            super().__init__(make_args(tmp_path, capabilities="impl_factory_smoke"))
+            self.posts = []
+
+        def post(self, path, body):
+            self.posts.append((path, body))
+            return body
+
+        def run_command(self, command, cwd, stdout_path, stderr_path, task, branch, logs, env=None, command_label=None):
+            del cwd, stdout_path, task, branch, logs, env, command_label
+            if command[:2] == ["git", "clone"]:
+                stderr_path.write_text("fatal: Could not read from remote repository.\n", encoding="utf-8")
+                raise RuntimeError("command failed with rc=128: git clone")
+            raise AssertionError(f"unexpected command after failed checkout: {command}")
+
+    task = make_task({
+        "kind": "impl_factory_smoke",
+        "branch": "agent/checkout-fail",
+        "base_ref": "origin/main",
+    })
+    task["kind"] = "impl_factory_smoke"
+
+    host = Host()
+    host.run_task(task)
+
+    assert not [path for path, _ in host.posts if path.endswith("/complete")]
+    fail_body = [body for path, body in host.posts if path.endswith("/fail")][0]
+    assert fail_body["error_type"] == "worktree_checkout_failed"
+    assert fail_body["retry"] is False
+    assert fail_body["result"]["status"] == "blocked"
+    assert fail_body["result"]["blocked_reason"] == "worktree_checkout_failed"
+    assert fail_body["result"]["repair_task"]["kind"] == "repair_worktree_checkout"
+    result_path = Path(fail_body["result_reference"])
+    assert result_path.is_file()
+    assert (result_path.parent / "artifact-manifest.json").is_file()
 
 
 def test_publish_gate_skips_git_push_when_required_artifact_is_missing(tmp_path):
