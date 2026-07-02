@@ -134,6 +134,54 @@ FABRIC_NODE_CATALOG = {
     },
 }
 
+OWNER_SERVER_CATALOG = [
+    {"node_id": "home", "role": "owner_gateway", "repair_capability": "devops"},
+    {"node_id": "main", "role": "control_plane", "repair_capability": "devops"},
+    {"node_id": "uiap", "role": "rag_knowledge_node", "repair_capability": "devops"},
+    {"node_id": "qjns", "role": "tools_executor", "repair_capability": "devops"},
+    {"node_id": "9fts", "role": "inference_implementation_worker", "repair_capability": "devops"},
+    {"node_id": "new", "role": "review_worker", "repair_capability": "devops"},
+    {"node_id": "primary-candidate", "role": "control_standby", "repair_capability": "devops"},
+    {"node_id": "agent-01", "role": "backend_worker", "repair_capability": "devops"},
+    {"node_id": "agent-02", "role": "frontend_worker", "repair_capability": "devops"},
+    {"node_id": "agent-03", "role": "infra_worker", "repair_capability": "devops"},
+    {"node_id": "agent-04", "role": "qa_browser_worker", "repair_capability": "devops"},
+    {"node_id": "agent-05", "role": "security_worker", "repair_capability": "devops"},
+    {"node_id": "agent-06", "role": "docs_knowledge_worker", "repair_capability": "devops"},
+    {"node_id": "agent-07", "role": "formulalm_eval_worker", "repair_capability": "devops"},
+    {"node_id": "agent-08", "role": "rag_eval_worker", "repair_capability": "devops"},
+    {"node_id": "agent-09", "role": "release_canary_worker", "repair_capability": "devops"},
+    {"node_id": "highload", "role": "ci_build_highload", "repair_capability": "devops"},
+    {"node_id": "paris", "role": "paris_build_reserve", "repair_capability": "devops"},
+    {"node_id": "reserve242", "role": "qa_security_reserve", "repair_capability": "devops"},
+    {"node_id": "server-kfrm", "role": "heavy_tests_formulalm_candidate", "repair_capability": "devops"},
+]
+
+OWNER_SERVER_IDENTITY_ALIASES = {
+    "9fts": ["mesh-9fts"],
+    "agent-01": ["mesh-agent-01"],
+    "agent-02": ["mesh-agent-02"],
+    "agent-03": ["mesh-agent-03"],
+    "agent-04": ["mesh-agent-04"],
+    "agent-05": ["mesh-agent-05"],
+    "agent-06": ["mesh-agent-06"],
+    "agent-07": ["mesh-agent-07"],
+    "agent-08": ["mesh-agent-08"],
+    "agent-09": ["mesh-agent-09"],
+    "highload": ["mesh-highload"],
+    "paris": ["mesh-paris"],
+    "reserve242": ["mesh-reserve242"],
+    "server-kfrm": ["mesh-server-kfrm"],
+    "home": ["home-live", "mesh-home"],
+    "main": ["mesh-main"],
+    "new": ["mesh-new"],
+    "primary-candidate": ["mesh-primary"],
+    "qjns": ["mesh-qjns"],
+    "uiap": ["mesh-uiap"],
+}
+
+REPAIR_FALLBACK_NODES = ["primary-candidate", "main", "mesh-agent-01", "mesh-agent-02", "mesh-agent-03", "mesh-9fts", "new"]
+
 OWNER_RIGHTS_POLICY = {
     "policy_id": "kolibri-owner-full-control-api",
     "rights": ["fleet:read", "fleet:route", "task:submit", "task:cancel", "node:drain", "artifact:read", "bootstrap:create"],
@@ -599,6 +647,194 @@ def fabric_route(
     )
 
 
+def _node_disk_free_gb(node: dict[str, Any]) -> float | None:
+    for key_name in ("disk_free_gb", "free_gb"):
+        value = node.get(key_name)
+        if value is not None:
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return None
+    disk = node.get("disk")
+    if isinstance(disk, dict):
+        for key_name in ("free_gb", "available_gb", "disk_free_gb"):
+            value = disk.get(key_name)
+            if value is not None:
+                try:
+                    return float(value)
+                except (TypeError, ValueError):
+                    return None
+    return None
+
+
+def _runner_available(node: dict[str, Any]) -> bool:
+    capabilities = set(node.get("capabilities") or [])
+    if capabilities.intersection(runner_capability_names("codex") | runner_capability_names("mimo")):
+        return True
+    runners = node.get("runners")
+    if isinstance(runners, dict):
+        for runner_name in ("codex", "mimo"):
+            state = runner_state(node, runner_name)
+            if state and state not in BLOCKED_RUNNER_STATES:
+                return True
+    return False
+
+
+def owner_server_node_candidates(server_id: str, nodes_by_id: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    ids = [server_id, *OWNER_SERVER_IDENTITY_ALIASES.get(server_id, [])]
+    return [nodes_by_id[node_id] for node_id in ids if node_id in nodes_by_id]
+
+
+def repair_envelope_for_owner_server(
+    *,
+    node_id: str,
+    reason: str,
+    task_id_prefix: str,
+    fallback_nodes: list[str],
+    required_capability: str = "devops",
+) -> dict[str, Any]:
+    task_id = f"{task_id_prefix}-{node_id.upper().replace('-', '_')}"
+    return {
+        "task_id": task_id,
+        "idempotency_key": f"owner-server-repair:{task_id_prefix}:{node_id}",
+        "kind": "owner_remote_task",
+        "priority": "P0",
+        "required_capability": required_capability,
+        "runner": "codex",
+        "agent_type": "server_connectivity_repair",
+        "agent_display_name": "Ремонтник связи",
+        "target_node": node_id,
+        "fallback_nodes": fallback_nodes,
+        "branch": "p0/server-connectivity-repair-loop-2026-07-02",
+        "base_ref": "origin/main",
+        "write_scope": [
+            f"docs/agent/runs/{task_id}/**",
+            f"docs/agent/intelligence/{task_id}/**",
+        ],
+        "max_retries": 1,
+        "objective": (
+            "Repair this owner server enough for API reachability, Agent Host heartbeat, "
+            "and non-interactive GitHub auth smoke where possible. Do not print secrets. "
+            "Prefer reversible service/config checks; if blocked, return the exact owner "
+            "command needed."
+        ),
+        "repair_reason": reason,
+        "constraints": {
+            "secrets_redaction_required": True,
+            "destructive_commands_forbidden": True,
+            "force_push_forbidden": True,
+            "push_to_main_forbidden": True,
+            "credential_value_printing_forbidden": True,
+            "production_restart_requires_owner_approval": True,
+            "artifact_backed_result_required": True,
+        },
+        "required_outputs": ["PLAN.md", "ACTIONS.md", "TESTS.md", "RESULT.md", "NEXT.md"],
+        "acceptance": [
+            "API reachability is restored or an exact safe repair command is returned.",
+            "Agent Host heartbeat is fresh or the blocker is classified with fallback nodes.",
+            "GitHub auth is verified with a non-secret read-only smoke or classified as blocked.",
+            "No secrets, credential values, force pushes, main pushes, or destructive commands are used.",
+            "PLAN.md, ACTIONS.md, TESTS.md, RESULT.md, and NEXT.md are produced for this node.",
+        ],
+        "verification_commands": [
+            "GET /v1/health through Fabric API or local relay",
+            "GET /v1/nodes and confirm fresh heartbeat for target identity",
+            "systemctl is-active kolibri-agent-host without restarting unless explicitly approved",
+            "git ls-remote --exit-code origin HEAD without printing credentials",
+            "return exact blocker command when repair cannot be completed safely",
+        ],
+    }
+
+
+def owner_server_repair_plan(
+    registered_nodes: list[dict[str, Any]] | None = None,
+    *,
+    task_id_prefix: str = "P0_OWNER_SERVER_REPAIR",
+) -> dict[str, Any]:
+    nodes = fabric_nodes(registered_nodes)
+    nodes_by_id = {node["node_id"]: node for node in nodes}
+    usable_fallbacks = [
+        node_id for node_id in REPAIR_FALLBACK_NODES
+        if (node := nodes_by_id.get(node_id)) and node.get("health") == "online"
+    ] or ["main", "primary-candidate"]
+    matrix = []
+    repair_tasks = []
+    working = 0
+    blocked = 0
+    degraded = 0
+    for server in OWNER_SERVER_CATALOG:
+        node_id = server["node_id"]
+        candidates = owner_server_node_candidates(node_id, nodes_by_id)
+        best = next((node for node in candidates if node.get("health") == "online"), None)
+        best = best or (candidates[0] if candidates else None)
+        reasons = []
+        if not best:
+            reasons.append("missing_control_plane_card")
+        else:
+            health = str(best.get("health") or "unknown")
+            freshness = str(best.get("freshness") or "")
+            disk_free = _node_disk_free_gb(best)
+            if health != "online":
+                reasons.append(f"health_{health}")
+            if freshness in {"stale", "degraded"}:
+                reasons.append(f"heartbeat_{freshness}")
+            if disk_free is not None and disk_free <= 0:
+                reasons.append("disk_full")
+            if node_id in {"qjns", "main", "primary-candidate"} and not _runner_available(best):
+                reasons.append("github_or_runner_auth_unverified")
+            if node_id in {"home"} and freshness != "fresh":
+                reasons.append("owner_gateway_heartbeat_unverified")
+            if best.get("node_id") != node_id:
+                reasons.append("canonical_identity_alias_only")
+        if not reasons:
+            status = "working"
+            working += 1
+        else:
+            status = "blocked" if "missing_control_plane_card" in reasons or "disk_full" in reasons else "repair_pending"
+            if status == "blocked":
+                blocked += 1
+            else:
+                degraded += 1
+        repair_task = None
+        exact_command = ""
+        if reasons:
+            repair_task = repair_envelope_for_owner_server(
+                node_id=node_id,
+                reason=", ".join(reasons),
+                task_id_prefix=task_id_prefix,
+                fallback_nodes=[item for item in usable_fallbacks if item != node_id],
+                required_capability=server["repair_capability"],
+            )
+            repair_tasks.append(repair_task)
+            exact_command = f"./ops/kolibri-dispatch submit --file docs/agent/runs/{task_id_prefix}/repair-envelopes/{node_id}.json"
+        matrix.append({
+            "node_id": node_id,
+            "role": server["role"],
+            "status": status,
+            "observed_node": best.get("node_id") if best else "",
+            "health": best.get("health") if best else "missing",
+            "freshness": best.get("freshness", "") if best else "",
+            "reasons": reasons,
+            "fallback_nodes": [item for item in usable_fallbacks if item != node_id],
+            "repair_task_id": repair_task["task_id"] if repair_task else "",
+            "exact_repair_command": exact_command,
+        })
+    return {
+        "status": "partial" if repair_tasks else "completed",
+        "task_id_prefix": task_id_prefix,
+        "summary": {
+            "canonical_servers": len(OWNER_SERVER_CATALOG),
+            "working": working,
+            "repair_pending": degraded,
+            "blocked": blocked,
+            "repair_tasks": len(repair_tasks),
+        },
+        "matrix": matrix,
+        "repair_tasks": repair_tasks,
+        "next_action": "dispatch repair_tasks through /v1/tasks, then rerun this plan until working equals canonical_servers",
+    }
+
+
 def save_task(task: dict[str, Any]) -> None:
     task["updated_at"] = utc_now()
     set_json(task_key(task["task_id"]), task)
@@ -954,6 +1190,20 @@ class Handler(BaseHTTPRequestHandler):
                     route_used="/v1/fleet/capabilities",
                     data=fleet_capabilities(nodes),
                     next_action="include required_capability in /v1/agents/tasks when dispatching work",
+                ))
+                return
+            if path == "/v1/fleet/repair-plan":
+                query = parse_qs(parsed.query)
+                plan = owner_server_repair_plan(
+                    registered_nodes(),
+                    task_id_prefix=query.get("task_id_prefix", ["P0_OWNER_SERVER_REPAIR"])[0],
+                )
+                response(self, 200, canonical_response_envelope(
+                    status=plan["status"],
+                    route_used="/v1/fleet/repair-plan",
+                    fallback_nodes=REPAIR_FALLBACK_NODES,
+                    data=plan,
+                    next_action=plan["next_action"],
                 ))
                 return
             if path == "/v1/models":

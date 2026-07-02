@@ -87,3 +87,40 @@ def test_dispatcher_unreachable_control_plane_uses_blocked_envelope():
     assert envelope["fallback_route"]["endpoint"] == "/v1/fabric/relay"
     assert envelope["repair_task"]["kind"] == "repair_control_plane_api"
     assert envelope["can_continue_elsewhere"] is True
+
+
+def test_owner_server_repair_plan_covers_canonical_20_and_creates_repair_envelopes():
+    control = load_control()
+    plan = control.owner_server_repair_plan(
+        [
+            {"node_id": "main", "health": "online", "capabilities": ["devops", "runner:codex"]},
+            {"node_id": "mesh-agent-01", "health": "online", "capabilities": ["devops", "runner:codex"]},
+            {"node_id": "uiap", "health": "online", "disk": {"free_gb": 0}, "capabilities": ["read_only_probe"]},
+        ],
+        task_id_prefix="P0_TEST_REPAIR",
+    )
+
+    assert plan["summary"]["canonical_servers"] == 20
+    assert len(plan["matrix"]) == 20
+    uiap = next(item for item in plan["matrix"] if item["node_id"] == "uiap")
+    assert uiap["status"] == "blocked"
+    assert "disk_full" in uiap["reasons"]
+    assert uiap["repair_task_id"] == "P0_TEST_REPAIR-UIAP"
+    assert uiap["exact_repair_command"].endswith("/repair-envelopes/uiap.json")
+    assert any(task["target_node"] == "uiap" for task in plan["repair_tasks"])
+
+
+def test_owner_server_repair_plan_treats_fresh_alias_as_repair_pending_identity_gap():
+    control = load_control()
+    plan = control.owner_server_repair_plan(
+        [
+            {"node_id": "main", "health": "online", "capabilities": ["devops", "runner:codex"]},
+            {"node_id": "mesh-agent-01", "health": "online", "capabilities": ["devops", "runner:codex"]},
+        ],
+        task_id_prefix="P0_TEST_REPAIR",
+    )
+
+    agent = next(item for item in plan["matrix"] if item["node_id"] == "agent-01")
+    assert agent["observed_node"] == "mesh-agent-01"
+    assert agent["status"] == "repair_pending"
+    assert "canonical_identity_alias_only" in agent["reasons"]

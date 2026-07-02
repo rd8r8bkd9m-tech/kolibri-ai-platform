@@ -1,0 +1,54 @@
+{
+  "acceptance": [
+    "API reachability is restored or an exact safe repair command is returned.",
+    "Agent Host heartbeat is fresh or the blocker is classified with fallback nodes.",
+    "GitHub auth is verified with a non-secret read-only smoke or classified as blocked.",
+    "No secrets, credential values, force pushes, main pushes, or destructive commands are used.",
+    "PLAN.md, ACTIONS.md, TESTS.md, RESULT.md, and NEXT.md are produced for this node."
+  ],
+  "agent_display_name": "\u0420\u0435\u043c\u043e\u043d\u0442\u043d\u0438\u043a \u0441\u0432\u044f\u0437\u0438",
+  "agent_type": "server_connectivity_repair",
+  "base_ref": "origin/main",
+  "branch": "p0/server-connectivity-repair-loop-2026-07-02",
+  "constraints": {
+    "artifact_backed_result_required": true,
+    "credential_value_printing_forbidden": true,
+    "destructive_commands_forbidden": true,
+    "force_push_forbidden": true,
+    "production_restart_requires_owner_approval": true,
+    "push_to_main_forbidden": true,
+    "secrets_redaction_required": true
+  },
+  "fallback_nodes": [
+    "main",
+    "primary-candidate"
+  ],
+  "idempotency_key": "owner-server-repair:P0_EXEC_20_SERVER_CONNECTIVITY_REPAIR_LOOP_2026_07_02:agent-03",
+  "kind": "owner_remote_task",
+  "max_retries": 1,
+  "objective": "Repair this owner server enough for API reachability, Agent Host heartbeat, and non-interactive GitHub auth smoke where possible. Do not print secrets. Prefer reversible service/config checks; if blocked, return the exact owner command needed.",
+  "priority": "P0",
+  "repair_reason": "missing_control_plane_card",
+  "required_capability": "devops",
+  "required_outputs": [
+    "PLAN.md",
+    "ACTIONS.md",
+    "TESTS.md",
+    "RESULT.md",
+    "NEXT.md"
+  ],
+  "runner": "codex",
+  "target_node": "agent-03",
+  "task_id": "P0_EXEC_20_SERVER_CONNECTIVITY_REPAIR_LOOP_2026_07_02-AGENT_03",
+  "verification_commands": [
+    "GET /v1/health through Fabric API or local relay",
+    "GET /v1/nodes and confirm fresh heartbeat for target identity",
+    "systemctl is-active kolibri-agent-host without restarting unless explicitly approved",
+    "git ls-remote --exit-code origin HEAD without printing credentials",
+    "return exact blocker command when repair cannot be completed safely"
+  ],
+  "write_scope": [
+    "docs/agent/runs/P0_EXEC_20_SERVER_CONNECTIVITY_REPAIR_LOOP_2026_07_02-AGENT_03/**",
+    "docs/agent/intelligence/P0_EXEC_20_SERVER_CONNECTIVITY_REPAIR_LOOP_2026_07_02-AGENT_03/**"
+  ]
+}
