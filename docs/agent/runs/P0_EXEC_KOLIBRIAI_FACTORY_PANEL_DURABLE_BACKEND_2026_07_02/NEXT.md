@@ -2,7 +2,12 @@
 
 Exact next task:
 
-1. Open and merge the branch for this run after review/CI.
+1. Open and merge the branch for this run after review/CI:
+
+```text
+https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/new/agent/P0_EXEC_KOLIBRIAI_FACTORY_PANEL_DURABLE_BACKEND_2026_07_02/generic
+```
+
 2. Deploy the main node:
 
 ```bash
