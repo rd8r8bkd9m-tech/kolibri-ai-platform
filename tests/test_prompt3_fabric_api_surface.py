@@ -91,6 +91,63 @@ def test_agents_aliases_normalize_envelope_and_artifacts():
     assert artifacts["artifacts"] == ["docs/agent/runs/run/result.json"]
 
 
+def test_agent_task_target_unavailable_returns_blocked_fallback_route_without_dead_end():
+    control = load_control()
+    envelope = control.task_envelope_from_request({
+        "task_id": "AGENT-ROUTE-1",
+        "trace_id": "TRACE-ROUTE-1",
+        "target_node": "9fts",
+        "required_capability": "generic_implementation",
+    })
+    route = control.blocked_agent_task_route(
+        envelope,
+        registered_nodes=[
+            {"node_id": "9fts", "health": "offline", "capabilities": ["generic_implementation"]},
+            {"node_id": "new", "health": "online", "capabilities": ["generic_implementation", "review"]},
+        ],
+    )
+
+    assert route is not None
+    blocked = control.blocked_agent_task_route_envelope(envelope, route)
+
+    assert blocked["status"] == "blocked"
+    assert blocked["task_id"] == "AGENT-ROUTE-1"
+    assert blocked["trace_id"] == "TRACE-ROUTE-1"
+    assert blocked["node"] == "9fts"
+    assert blocked["route_used"] == "/v1/fabric/relay"
+    assert blocked["fallback_nodes"] == ["new"]
+    assert blocked["fallback_route"]["endpoint"] == "/v1/fabric/relay"
+    assert blocked["can_continue_elsewhere"] is True
+    assert blocked["blocked_reason"] == "target_node_unavailable"
+    assert blocked["repair_task"]["kind"] == "repair_fabric_route"
+    assert "choose a fallback node" in blocked["next_action"]
+
+
+def test_agent_task_required_capability_without_route_returns_blocked_repair_task():
+    control = load_control()
+    envelope = control.task_envelope_from_request({
+        "task_id": "AGENT-ROUTE-2",
+        "required_capability": "unique_gpu_runtime",
+    })
+    route = control.blocked_agent_task_route(
+        envelope,
+        registered_nodes=[
+            {"node_id": "9fts", "health": "online", "capabilities": ["generic_implementation"]},
+            {"node_id": "new", "health": "online", "capabilities": ["review"]},
+        ],
+    )
+
+    assert route is not None
+    blocked = control.blocked_agent_task_route_envelope(envelope, route)
+
+    assert blocked["status"] == "blocked"
+    assert blocked["route_used"] == "/v1/fabric/relay"
+    assert blocked["fallback_nodes"] == []
+    assert blocked["can_continue_elsewhere"] is False
+    assert blocked["blocked_reason"] == "no_node_matches_capability"
+    assert blocked["repair_task"]["required_capability"] == "unique_gpu_runtime"
+
+
 def test_admin_endpoints_are_deny_by_default_stubs():
     control = load_control()
     for endpoint in control.ADMIN_ENDPOINTS:
@@ -121,6 +178,8 @@ def test_canonical_envelope_and_fallback_reason_taxonomy():
         "node",
         "route_used",
         "fallback_nodes",
+        "fallback_route",
+        "can_continue_elsewhere",
         "artifacts",
         "blocked_reason",
         "repair_task",

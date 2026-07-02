@@ -381,6 +381,8 @@ def canonical_response_envelope(
     node: str | None = None,
     route_used: str | None = None,
     fallback_nodes: list[str] | None = None,
+    fallback_route: dict[str, Any] | None = None,
+    can_continue_elsewhere: bool | None = None,
     artifacts: list[Any] | None = None,
     blocked_reason: str | None = None,
     repair_task: Any = None,
@@ -397,6 +399,8 @@ def canonical_response_envelope(
         "node": node or "main",
         "route_used": route_used or "protected_fabric_api",
         "fallback_nodes": fallback_nodes or [],
+        "fallback_route": fallback_route or {},
+        "can_continue_elsewhere": bool(fallback_nodes) if can_continue_elsewhere is None else can_continue_elsewhere,
         "artifacts": artifacts or [],
         "blocked_reason": blocked_reason or "",
         "repair_task": repair_task or "",
@@ -415,6 +419,14 @@ def task_envelope_from_request(body: dict[str, Any], default_kind: str = "owner_
     envelope.setdefault("write_scope", [])
     envelope.setdefault("constraints", {})
     return envelope
+
+
+def route_target_from_envelope(envelope: dict[str, Any]) -> str | None:
+    target_node = envelope.get("target_node") or envelope.get("required_node")
+    if target_node is None:
+        return None
+    target = str(target_node).strip()
+    return None if target in {"", "auto", "*"} else target
 
 
 def fleet_capabilities(nodes: list[dict[str, Any]]) -> dict[str, Any]:
@@ -597,6 +609,51 @@ def fabric_route(
             "action": "register node heartbeat, clear drain state, or choose a fallback node via Fabric API",
         },
     )
+
+
+def blocked_agent_task_route_envelope(envelope: dict[str, Any], route: dict[str, Any]) -> dict[str, Any]:
+    fallback_nodes = route.get("fallback_nodes", [])
+    fallback_route = route.get("fallback_route") or {"type": "fabric_relay", "endpoint": "/v1/fabric/relay"}
+    target_node = route.get("target_node") or route_target_from_envelope(envelope) or "main"
+    next_action = "run the repair task before retrying this target"
+    if fallback_nodes:
+        next_action = f"choose a fallback node ({', '.join(fallback_nodes)}) or run the repair task for {target_node}"
+    return canonical_response_envelope(
+        status="blocked",
+        task_id=envelope.get("task_id"),
+        trace_id=envelope.get("trace_id") or envelope.get("task_id"),
+        node=target_node,
+        route_used=fallback_route.get("endpoint") or "/v1/fabric/relay",
+        fallback_nodes=fallback_nodes,
+        fallback_route=fallback_route,
+        can_continue_elsewhere=bool(route.get("can_continue_elsewhere")),
+        blocked_reason=route.get("reason", "unknown"),
+        repair_task=route.get("repair_task") or {
+            "kind": "repair_fabric_route",
+            "target_node": target_node,
+            "action": "restore node heartbeat or register an API relay before retrying direct control",
+        },
+        next_action=next_action,
+        data={"route": route},
+    )
+
+
+def blocked_agent_task_route(
+    envelope: dict[str, Any],
+    registered_nodes: list[dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
+    target_node = route_target_from_envelope(envelope)
+    required_capability = envelope.get("required_capability")
+    if not target_node and not required_capability:
+        return None
+    route = fabric_route(
+        target_node=target_node,
+        required_capability=required_capability,
+        registered_nodes=registered_nodes,
+    )
+    if route.get("status") == "ok":
+        return None
+    return route
 
 
 def save_task(task: dict[str, Any]) -> None:
@@ -1126,6 +1183,10 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path == "/v1/agents/tasks":
                 envelope = task_envelope_from_request(body)
+                blocked_route = blocked_agent_task_route(envelope, registered_nodes())
+                if blocked_route:
+                    response(self, 503, blocked_agent_task_route_envelope(envelope, blocked_route))
+                    return
                 task = create_task(envelope)
                 response(self, 201, canonical_response_envelope(
                     status="running",
