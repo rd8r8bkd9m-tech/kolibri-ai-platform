@@ -4,6 +4,21 @@ Snapshot time:
 - 2026-07-01T09:15:43Z
 
 Latest update:
+- 2026-07-02T00:52:05Z:
+  `P0_30MIN_SECOND_WAVE_PRIMARY_RELEASE_GATE_2026_07_02` completed its second
+  30-minute primary-candidate release gate wave and is blocked for P0 exit.
+  Local focused runtime/factory suite passed with `122 passed`; `git diff
+  --check`, runtime `py_compile`, Factory Control preflight, and the frontend
+  mobile layout guard passed. Live Factory Control routes `/health`,
+  `/v1/health`, `/v1/fabric/health`, `/v1/fabric/routes`, `/v1/fleet/nodes`
+  and `/v1/models` all returned HTTP 200 on `10.99.0.10:9101`. Systemd
+  reported both `kolibri-factory-control.service` and
+  `kolibri-telegram-gateway.service` active/running. The P0 exit blocker is
+  fleet freshness: `/v1/fleet/nodes` returned 42 nodes, but only 11 had
+  heartbeat timestamps within 30 minutes and 31 were stale. No deploy, restart,
+  Telegram Bot API call, credential change, secret output, PR merge, or
+  push-to-main occurred. Next exact task:
+  `P0_FLEET_30MIN_FRESHNESS_REPAIR_AND_THIRD_WAVE_RELEASE_GATE_2026_07_02`.
 - 2026-07-01T15:58:10Z:
   START command executed by Mac dispatcher as task submission only. Control
   Plane accepted four P0 factory tasks:

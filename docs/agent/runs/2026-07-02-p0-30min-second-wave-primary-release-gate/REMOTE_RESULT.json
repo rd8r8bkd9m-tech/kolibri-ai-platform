@@ -1,0 +1,59 @@
+{
+  "task_id": "P0_30MIN_SECOND_WAVE_PRIMARY_RELEASE_GATE_2026_07_02",
+  "status": "blocked_for_p0_exit",
+  "node": "primary-candidate",
+  "timestamp_utc": "2026-07-02T00:52:05Z",
+  "git": {
+    "branch": "agent/P0_30MIN_SECOND_WAVE_PRIMARY_RELEASE_GATE_2026_07_02/generic",
+    "head": "f7ac32c70406432a52752ca45d87e35d9f1facd3",
+    "origin_main": "f7ac32c70406432a52752ca45d87e35d9f1facd3"
+  },
+  "verification": {
+    "focused_pytest": "122 passed in 36.36s",
+    "diff_check": "passed",
+    "py_compile": "passed",
+    "factory_control_preflight": "factory_control_runtime_preflight=ok",
+    "mobile_layout_guard": "mobile layout guard passed",
+    "broad_pytest": "blocked_missing_pydantic_httpx",
+    "frontend_build": "blocked_vite_not_installed",
+    "frontend_test_script": "blocked_missing_script"
+  },
+  "live_routes": {
+    "/health": 200,
+    "/v1/health": 200,
+    "/v1/fabric/health": 200,
+    "/v1/fabric/routes": 200,
+    "/v1/fleet/nodes": 200,
+    "/v1/models": 200
+  },
+  "services": {
+    "kolibri-factory-control.service": {
+      "active_state": "active",
+      "sub_state": "running",
+      "main_pid": 3588876
+    },
+    "kolibri-telegram-gateway.service": {
+      "active_state": "active",
+      "sub_state": "running",
+      "main_pid": 3676235
+    }
+  },
+  "freshness_30m": {
+    "total": 42,
+    "fresh_30m": 11,
+    "stale_gt_30m": 31,
+    "missing_heartbeat": 0
+  },
+  "decision": {
+    "p0_exit": false,
+    "primary_blocker": "fleet_30min_freshness_failed",
+    "next_task": "P0_FLEET_30MIN_FRESHNESS_REPAIR_AND_THIRD_WAVE_RELEASE_GATE_2026_07_02"
+  },
+  "safety": {
+    "service_restart": false,
+    "deploy": false,
+    "telegram_bot_api_call": false,
+    "secrets_printed": false,
+    "push_to_main": false
+  }
+}
