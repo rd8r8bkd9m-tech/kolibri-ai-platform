@@ -534,6 +534,12 @@ def _node_online(node: dict[str, Any]) -> bool:
     return node.get("health") == "online" and node.get("freshness", "fresh") == "fresh"
 
 
+def _route_freshness_node(node: dict[str, Any], current: float | None = None) -> dict[str, Any]:
+    if "heartbeat_at" in node or "freshness" in node:
+        return classify_node_freshness(node, current)
+    return dict(node)
+
+
 def fabric_nodes(registered_nodes: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     merged = {node_id: dict(node) for node_id, node in FABRIC_NODE_CATALOG.items()}
     for registered in registered_nodes or []:
@@ -560,7 +566,7 @@ def fabric_route(
     registered_nodes: list[dict[str, Any]] | None = None,
     current: float | None = None,
 ) -> dict[str, Any]:
-    nodes = [classify_node_freshness(node, current) for node in fabric_nodes(registered_nodes)]
+    nodes = [_route_freshness_node(node, current) for node in fabric_nodes(registered_nodes)]
     online = [node for node in nodes if _node_online(node)]
     candidates = nodes
     if target_node:
