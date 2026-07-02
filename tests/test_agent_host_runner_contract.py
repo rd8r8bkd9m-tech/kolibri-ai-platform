@@ -250,6 +250,53 @@ def test_missing_required_artifact_blocks_completion(tmp_path):
     assert "required_artifacts_missing" in result["blocked_reason"]
 
 
+def test_required_result_json_can_complete_from_artifact_dir(tmp_path):
+    agent_host = load_agent_host()
+
+    result = finalize(agent_host, tmp_path, {"required_artifacts": ["result.json"]}, changed_files=[])
+
+    assert result["status"] == "completed"
+    assert result["changed_files"] == []
+    assert result["required_artifacts_present"] == ["result.json"]
+    assert result["required_artifacts_missing"] == []
+    assert result["materialized_result_artifacts"] == ["result.json"]
+
+
+def test_required_result_and_next_markdown_materialize_from_result_payload(tmp_path):
+    agent_host = load_agent_host()
+    worktree, artifact_dir = make_paths(tmp_path)
+    task = make_task({
+        "required_artifacts": [
+            "docs/agent/runs/fast/RESULT.md",
+            "docs/agent/runs/fast/NEXT.md",
+        ],
+    })
+    result = {
+        "task_id": task["task_id"],
+        "status": "completed",
+        "changed_files": [],
+        "response": "Analysis completed from logs.",
+        "next_action": "No repo docs changed; inspect result.json for evidence.",
+    }
+
+    finalized = agent_host.finalize_runner_contract(
+        task,
+        result,
+        artifact_dir,
+        worktree=worktree,
+        changed_files=[],
+    )
+
+    assert finalized["status"] == "completed"
+    assert finalized["required_artifacts_missing"] == []
+    assert finalized["materialized_result_artifacts"] == [
+        "docs/agent/runs/fast/RESULT.md",
+        "docs/agent/runs/fast/NEXT.md",
+    ]
+    assert (artifact_dir / "docs/agent/runs/fast/RESULT.md").read_text(encoding="utf-8") == "Analysis completed from logs.\n"
+    assert "No repo docs changed" in (artifact_dir / "docs/agent/runs/fast/NEXT.md").read_text(encoding="utf-8")
+
+
 def write_run_artifacts(run_dir, filenames=None):
     filenames = filenames or agent_host_files()
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -529,6 +576,52 @@ def test_owner_remote_task_mimo_rc6_is_runner_contract_blocked_not_missing_artif
     assert "Check your network connection" in fail_body["result"]["stderr_tail"]
     assert fail_body["result"]["runner_artifacts"]["stderr"].endswith("stderr.log")
 
+
+def test_owner_remote_task_mimo_non_contract_rc6_is_runner_execution_failed(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setattr(agent_host.shutil, "which", lambda name: "/usr/bin/mimo" if name == "mimo" else None)
+
+    class Host(agent_host.AgentHost):
+        def __init__(self):
+            super().__init__(make_args(tmp_path, capabilities="generic_implementation,runner:mimo"))
+            self.posts = []
+
+        def post(self, path, body):
+            self.posts.append((path, body))
+            return body
+
+        def run_command(self, command, cwd, stdout_path, stderr_path, task, branch, logs, env=None, command_label=None):
+            del command, cwd, task, branch, logs, env, command_label
+            stdout_path.write_text("runner started\n", encoding="utf-8")
+            stderr_path.write_text("mimo exited without contract output\n", encoding="utf-8")
+            raise RuntimeError("command failed with rc=6: /usr/bin/mimo run --format json --title owner-task-CONTRACT-1 <prompt>")
+
+    task = make_task({
+        "kind": "owner_remote_task",
+        "required_capability": "generic_implementation",
+        "runner": "mimo",
+        "objective": "produce docs",
+        "required_artifacts": ["docs/agent/runs/mimo/RESULT.md"],
+    })
+    task["kind"] = "owner_remote_task"
+
+    host = Host()
+    host.run_task(task)
+
+    assert not [path for path, _ in host.posts if path.endswith("/complete")]
+    fail_body = [body for path, body in host.posts if path.endswith("/fail")][0]
+    assert fail_body["error_type"] == "runner_execution_failed"
+    assert fail_body["retry"] is False
+    assert fail_body["result"]["status"] == "blocked"
+    assert fail_body["result"]["runner"] == "mimo"
+    assert fail_body["result"]["blocked_reason"] == "runner_execution_failed"
+    assert fail_body["result"]["required_artifacts_missing"] == []
+    assert fail_body["result"]["repair_task"]["kind"] == "repair_runner_execution_or_route"
+    assert "runner started" in fail_body["result"]["stdout_tail"]
+    assert "mimo exited without contract output" in fail_body["result"]["stderr_tail"]
+    persisted = json.loads(Path(fail_body["result_reference"]).read_text(encoding="utf-8"))
+    assert persisted["stdout_tail"] == fail_body["result"]["stdout_tail"]
+    assert persisted["stderr_tail"] == fail_body["result"]["stderr_tail"]
 
 def test_p0_integration_audit_artifact_path_drift_is_blocked(tmp_path):
     agent_host = load_agent_host()

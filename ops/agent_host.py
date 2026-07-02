@@ -72,6 +72,7 @@ CONTRACT_RESULT_FIELDS = [
     "runner_artifacts",
     "stdout_tail",
     "stderr_tail",
+    "materialized_result_artifacts",
     "tests_run",
     "backend_test_environment",
     "next_recommended_task",
@@ -616,6 +617,45 @@ def verify_required_artifacts(envelope: dict[str, Any], worktree: Path | None, a
     return present, missing
 
 
+def result_artifact_text(filename: str, result: dict[str, Any]) -> str | None:
+    if filename == "result.json":
+        return json.dumps(result, indent=2, sort_keys=True) + "\n"
+    if filename == "RESULT.md":
+        for key_name in ("response", "summary", "message", "output", "result"):
+            value = result.get(key_name)
+            if isinstance(value, str) and value.strip():
+                return value.strip() + "\n"
+            if isinstance(value, dict) and value:
+                return json.dumps(value, indent=2, sort_keys=True) + "\n"
+    if filename == "NEXT.md":
+        for key_name in ("next_action", "next_recommended_task"):
+            value = result.get(key_name)
+            if isinstance(value, str) and value.strip():
+                return value.strip() + "\n"
+        return "No next action supplied.\n"
+    return None
+
+
+def materialize_result_artifacts(envelope: dict[str, Any], result: dict[str, Any], artifact_dir: Path | None) -> list[str]:
+    if not artifact_dir:
+        return []
+    materialized: list[str] = []
+    for spec in envelope_list(envelope, *REQUIRED_ARTIFACT_KEYS):
+        spec_path = artifact_spec_path(spec)
+        if not spec_path:
+            continue
+        filename = Path(spec_path).name
+        text = result_artifact_text(filename, result)
+        if text is None:
+            continue
+        target = artifact_dir / spec_path
+        if not target.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text, encoding="utf-8")
+        materialized.append(spec_path)
+    return materialized
+
+
 def backend_test_environment_spec(envelope: dict[str, Any]) -> dict[str, Any] | None:
     spec = envelope_dict(envelope, *BACKEND_TEST_ENV_KEYS)
     if spec is None:
@@ -782,6 +822,7 @@ def rerun_route_hint(
             "runner_access_denied",
             "runner_auth_blocked",
             "runner_auth_failed",
+            "runner_execution_failed",
             "runner_policy_blocked",
             "runner_unavailable",
             "worktree_checkout_failed",
@@ -820,6 +861,13 @@ def repair_task_for_blockers(blockers: list[str], envelope: dict[str, Any], rout
             "runner": route_hint.get("runner"),
             "rerun_route": route_hint,
         }
+    if "runner_execution_failed" in joined:
+        return {
+            "kind": "repair_runner_execution_or_route",
+            "action": "inspect runner stdout/stderr from the result artifact, then repair the runner invocation or reroute to another compatible runner node",
+            "runner": route_hint.get("runner"),
+            "rerun_route": route_hint,
+        }
     if "runner_unavailable" in joined:
         return {
             "kind": "repair_runner_unavailable_or_route",
@@ -845,6 +893,10 @@ def next_recommended_task_for(blockers: list[str], envelope: dict[str, Any]) -> 
         runner = requested_runner_for_envelope(envelope)
         runner_text = f" {runner}" if runner else ""
         return f"repair{runner_text} runner invocation on this node or reroute through /v1/fleet/route"
+    if "runner_execution_failed" in joined:
+        runner = requested_runner_for_envelope(envelope)
+        runner_text = f" {runner}" if runner else ""
+        return f"inspect{runner_text} runner stdout/stderr, then repair the invocation or reroute through /v1/fleet/route"
     if "unsupported_task_kind" in joined or "unsupported_required_capability" in joined:
         return "enable a supported read-only runner for this task kind before resubmitting"
     if "required_artifacts_missing" in joined:
@@ -898,12 +950,16 @@ def finalize_runner_contract(
         "runner_access_denied",
         "runner_auth_blocked",
         "runner_auth_failed",
+        "runner_execution_failed",
         "runner_policy_blocked",
         "runner_unavailable",
     }
     if runner_precontract_blocked:
         required_present, required_missing = [], []
     else:
+        materialized = materialize_result_artifacts(envelope, final, artifact_dir)
+        if materialized:
+            final["materialized_result_artifacts"] = materialized
         required_present, required_missing = verify_required_artifacts(envelope, worktree, artifact_dir)
         canonical_artifacts = finalize_canonical_run_artifacts(envelope, worktree, artifact_dir)
         if canonical_artifacts:
@@ -1382,6 +1438,12 @@ class AgentHost:
             return (
                 "runner_contract_blocked",
                 "mimo runner invocation failed with rc=6 before producing the output contract; inspect stderr_tail and reroute or repair runner network/proxy access",
+                False,
+            )
+        if "rc=" in combined or "returncode:" in combined or "return code" in combined:
+            return (
+                "runner_execution_failed",
+                "mimo runner exited before producing the output contract; inspect stdout_tail and stderr_tail before retrying or rerouting",
                 False,
             )
         return "runtime_error", error, True
@@ -2606,6 +2668,10 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 elif exc.error_type == "runner_contract_blocked":
                     result["next_recommended_task"] = (
                         f"repair {exc.runner} runner invocation/network access on this node or route to another online node with {runner_capability(exc.runner)}"
+                    )
+                elif exc.error_type == "runner_execution_failed":
+                    result["next_recommended_task"] = (
+                        f"inspect {exc.runner} stdout/stderr, then repair the runner invocation or route to another online node with {runner_capability(exc.runner)}"
                     )
                 else:
                     result["next_recommended_task"] = f"route to another online node with {runner_capability(exc.runner)} or install the requested runner"
