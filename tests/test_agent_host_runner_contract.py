@@ -4,6 +4,8 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -149,6 +151,184 @@ def test_git_push_forbidden_lease_sanitizes_full_autonomy_pack(tmp_path):
     assert leased["envelope"]["permission_pack"] == "read_only"
     assert leased["envelope"]["allowed_permissions"] == ["read"]
     assert leased["effective_permissions"]["git_push_allowed"] is False
+
+
+def test_run_command_requires_initial_task_heartbeat_before_child_start(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    worktree, _ = make_paths(tmp_path)
+    stdout_path = tmp_path / "stdout.log"
+    stderr_path = tmp_path / "stderr.log"
+    task = make_task()
+
+    class Host(agent_host.AgentHost):
+        def __init__(self):
+            super().__init__(make_args(tmp_path))
+
+        def post(self, path, body):
+            assert path.endswith("/heartbeat")
+            raise ConnectionRefusedError("control plane refused heartbeat")
+
+    def fail_popen(*args, **kwargs):
+        raise AssertionError("child command must not start before initial heartbeat succeeds")
+
+    monkeypatch.setattr(agent_host.subprocess, "Popen", fail_popen)
+
+    with pytest.raises(ConnectionRefusedError):
+        Host().run_command(["true"], worktree, stdout_path, stderr_path, task, None, {})
+
+
+def test_run_command_recovers_from_transient_heartbeat_failure_after_success(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    worktree, _ = make_paths(tmp_path)
+    stdout_path = tmp_path / "stdout.log"
+    stderr_path = tmp_path / "stderr.log"
+    task = make_task()
+    proc_holder = {}
+
+    class FakeProc:
+        pid = 1234
+
+        def __init__(self):
+            self.returncode = None
+            self.poll_count = 0
+            self.terminated = False
+
+        def poll(self):
+            self.poll_count += 1
+            if self.poll_count <= 2:
+                return None
+            self.returncode = 0
+            return 0
+
+        def terminate(self):
+            self.terminated = True
+            self.returncode = -15
+
+    class Host(agent_host.AgentHost):
+        def __init__(self):
+            super().__init__(make_args(tmp_path))
+            self.lease_refresh = 0
+            self.fail_next_heartbeat = False
+            self.heartbeat_posts = 0
+
+        def post(self, path, body):
+            if path.endswith("/heartbeat"):
+                self.heartbeat_posts += 1
+                if self.fail_next_heartbeat:
+                    self.fail_next_heartbeat = False
+                    raise ConnectionRefusedError("control plane restarting")
+            return body
+
+    def fake_popen(*args, **kwargs):
+        proc = FakeProc()
+        proc_holder["proc"] = proc
+        return proc
+
+    monkeypatch.setattr(agent_host.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(agent_host.time, "sleep", lambda seconds: None)
+
+    host = Host()
+    host.task_heartbeat(task, worktree, None, {})
+    host.fail_next_heartbeat = True
+
+    host.run_command(["true"], worktree, stdout_path, stderr_path, task, None, {})
+
+    assert host.heartbeat_posts >= 3
+    assert proc_holder["proc"].terminated is False
+    assert str(task["task_id"]) not in host._task_heartbeat_outage_since
+
+
+def test_run_command_terminates_child_when_heartbeat_grace_expires(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    worktree, _ = make_paths(tmp_path)
+    stdout_path = tmp_path / "stdout.log"
+    stderr_path = tmp_path / "stderr.log"
+    task = make_task()
+    proc_holder = {}
+
+    class FakeProc:
+        pid = 1234
+
+        def __init__(self):
+            self.returncode = None
+            self.terminated = False
+
+        def poll(self):
+            return self.returncode
+
+        def terminate(self):
+            self.terminated = True
+            self.returncode = -15
+
+    class Host(agent_host.AgentHost):
+        def __init__(self):
+            super().__init__(make_args(tmp_path))
+            self.lease_refresh = 0
+            self.heartbeat_grace = 1
+            self.fail_heartbeats = False
+
+        def post(self, path, body):
+            if path.endswith("/heartbeat") and self.fail_heartbeats:
+                raise ConnectionRefusedError("control plane still down")
+            return body
+
+    def fake_popen(*args, **kwargs):
+        proc = FakeProc()
+        proc_holder["proc"] = proc
+        return proc
+
+    monkeypatch.setattr(agent_host.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(agent_host.time, "sleep", lambda seconds: None)
+    monotonic_values = iter([0, 0, 10, 11, 12])
+    monkeypatch.setattr(agent_host.time, "monotonic", lambda: next(monotonic_values, 12))
+
+    host = Host()
+    host.task_heartbeat(task, worktree, None, {})
+    host.fail_heartbeats = True
+
+    with pytest.raises(agent_host.LeaseHeartbeatFailed, match="task heartbeat outage exceeded grace") as raised:
+        host.run_command(["true"], worktree, stdout_path, stderr_path, task, None, {})
+
+    assert raised.value.error_type == "lease_heartbeat_failed"
+    assert proc_holder["proc"].terminated is True
+
+
+def test_run_task_reports_heartbeat_grace_expiry_as_structured_blocked_result(tmp_path):
+    agent_host = load_agent_host()
+    task = make_task()
+
+    class Host(agent_host.AgentHost):
+        def __init__(self):
+            super().__init__(make_args(tmp_path))
+            self.posts = []
+
+        def post(self, path, body):
+            self.posts.append((path, body))
+            return body
+
+        def run_read_only_probe(self, task):
+            raise agent_host.LeaseHeartbeatFailed(
+                "task heartbeat outage exceeded grace (12.0s > 1s): control plane still down",
+                outage_seconds=12.0,
+                grace_seconds=1,
+            )
+
+    host = Host()
+    host.run_task(task)
+
+    fail_posts = [(path, body) for path, body in host.posts if path.endswith("/fail")]
+    assert len(fail_posts) == 1
+    fail_body = fail_posts[0][1]
+    assert fail_body["error_type"] == "lease_heartbeat_failed"
+    assert fail_body["retry"] is False
+    assert fail_body["result"]["status"] == "blocked"
+    assert fail_body["result"]["blocked_reason"] == "lease_heartbeat_failed"
+    assert fail_body["result"]["heartbeat_outage_seconds"] == 12.0
+    assert fail_body["result"]["heartbeat_grace_seconds"] == 1
+    assert fail_body["result_reference"].endswith("/result.json")
+    persisted = json.loads(Path(fail_body["result_reference"]).read_text(encoding="utf-8"))
+    assert persisted["status"] == "blocked"
+    assert persisted["blocked_reason"] == "lease_heartbeat_failed"
 
 
 def test_push_allowed_envelope_keeps_git_push_permission(tmp_path):

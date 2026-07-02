@@ -151,6 +151,17 @@ class RunnerExecutionError(RuntimeError):
         self.retry = retry
 
 
+class LeaseHeartbeatFailed(RuntimeError):
+    """Raised when task lease heartbeat cannot be refreshed within the grace window."""
+
+    error_type = "lease_heartbeat_failed"
+
+    def __init__(self, message: str, *, outage_seconds: float, grace_seconds: int):
+        super().__init__(message)
+        self.outage_seconds = outage_seconds
+        self.grace_seconds = grace_seconds
+
+
 class PermissionContractError(RuntimeError):
     """Raised when a read-only/no-push permission pack requests write powers."""
 
@@ -898,11 +909,14 @@ class AgentHost:
         self.artifact_root = Path(args.artifact_root)
         self.heartbeat_interval = args.heartbeat_interval
         self.lease_refresh = args.lease_refresh
+        self.heartbeat_grace = max(0, int(getattr(args, "heartbeat_grace", 30)))
         self.max_inflight = args.max_inflight
         self.hostname = platform.node()
         self.pid = os.getpid()
         self.runner_status = self.detect_runner_status()
         self.capabilities = self.capabilities_with_runners()
+        self._successful_task_heartbeats: set[str] = set()
+        self._task_heartbeat_outage_since: dict[str, float] = {}
         self.work_root.mkdir(parents=True, exist_ok=True)
         self.artifact_root.mkdir(parents=True, exist_ok=True)
 
@@ -993,7 +1007,44 @@ class AgentHost:
             "branch": branch,
             "log_paths": logs,
         }
-        return self.post(f"/v1/tasks/{task['task_id']}/heartbeat", body)
+        result = self.post(f"/v1/tasks/{task['task_id']}/heartbeat", body)
+        task_id = str(task["task_id"])
+        self._successful_task_heartbeats.add(task_id)
+        self._task_heartbeat_outage_since.pop(task_id, None)
+        return result
+
+    def task_heartbeat_with_grace(
+        self,
+        task: dict[str, Any],
+        worktree: Path,
+        branch: str | None,
+        logs: dict[str, str],
+        pid: int | None = None,
+    ) -> bool:
+        task_id = str(task["task_id"])
+        try:
+            self.task_heartbeat(task, worktree, branch, logs, pid)
+            return True
+        except Exception as exc:
+            if task_id not in self._successful_task_heartbeats:
+                raise
+            if self.heartbeat_grace <= 0:
+                raise
+            now = time.monotonic()
+            outage_since = self._task_heartbeat_outage_since.setdefault(task_id, now)
+            outage_for = now - outage_since
+            if outage_for > self.heartbeat_grace:
+                raise LeaseHeartbeatFailed(
+                    f"task heartbeat outage exceeded grace ({outage_for:.1f}s > {self.heartbeat_grace}s): {exc}",
+                    outage_seconds=outage_for,
+                    grace_seconds=self.heartbeat_grace,
+                ) from exc
+            print(
+                f"{utc_now()} task_heartbeat_grace task_id={task_id} "
+                f"outage_seconds={outage_for:.1f} grace_seconds={self.heartbeat_grace} error={exc}",
+                flush=True,
+            )
+            return False
 
     def lease(self) -> dict[str, Any] | None:
         task = self.post("/v1/tasks/lease", {
@@ -1020,19 +1071,27 @@ class AgentHost:
         if env:
             merged_env.update(env)
         display_command = command_label or " ".join(command)
+        task_id = str(task["task_id"])
+        if task_id not in self._successful_task_heartbeats:
+            self.task_heartbeat(task, cwd, branch, logs)
         with stdout_path.open("ab") as stdout, stderr_path.open("ab") as stderr:
             stdout.write(f"\n$ {display_command}\n".encode("utf-8"))
             stdout.flush()
             proc = subprocess.Popen(command, cwd=str(cwd), stdout=stdout, stderr=stderr, env=merged_env)
-            last_refresh = 0.0
-            while proc.poll() is None:
-                if STOP:
+            last_refresh = time.monotonic()
+            try:
+                while proc.poll() is None:
+                    if STOP:
+                        proc.terminate()
+                        raise RuntimeError("agent host received SIGTERM")
+                    if time.monotonic() - last_refresh >= self.lease_refresh:
+                        if self.task_heartbeat_with_grace(task, cwd, branch, logs, proc.pid):
+                            last_refresh = time.monotonic()
+                    time.sleep(2)
+            except Exception:
+                if proc.poll() is None:
                     proc.terminate()
-                    raise RuntimeError("agent host received SIGTERM")
-                if time.time() - last_refresh >= self.lease_refresh:
-                    self.task_heartbeat(task, cwd, branch, logs, proc.pid)
-                    last_refresh = time.time()
-                time.sleep(2)
+                raise
             if proc.returncode != 0:
                 raise RuntimeError(f"command failed with rc={proc.returncode}: {display_command}")
 
@@ -2400,6 +2459,18 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 result["blocked_reason"] = "backend_test_environment_failed"
                 result["next_recommended_task"] = "repair the declared backend test environment requirements or package list, then rerun verification"
                 result_path = self.write_result(artifact_dir, result)
+            elif isinstance(exc, LeaseHeartbeatFailed):
+                error_type = exc.error_type
+                retry = False
+                result["status"] = "blocked"
+                result["blocked_reason"] = exc.error_type
+                result["failure_reason"] = redact_sensitive_text(str(exc))
+                result["heartbeat_outage_seconds"] = exc.outage_seconds
+                result["heartbeat_grace_seconds"] = exc.grace_seconds
+                result["next_recommended_task"] = (
+                    "restore the Control Plane task heartbeat path or reroute the lease to an online control node"
+                )
+                result_path = self.write_result(artifact_dir, result)
             elif str(exc).startswith("review_clone_auth_failed:"):
                 error_type = "review_clone_auth_failed"
             else:
@@ -2448,6 +2519,11 @@ def main() -> int:
     parser.add_argument("--artifact-root", default=os.environ.get("KOLIBRI_AGENT_ARTIFACT_ROOT", "/var/lib/kolibri-agent/artifacts"))
     parser.add_argument("--heartbeat-interval", type=int, default=int(os.environ.get("KOLIBRI_HEARTBEAT_INTERVAL", "10")))
     parser.add_argument("--lease-refresh", type=int, default=int(os.environ.get("KOLIBRI_LEASE_REFRESH", "20")))
+    parser.add_argument(
+        "--heartbeat-grace",
+        type=int,
+        default=int(os.environ.get("KOLIBRI_HEARTBEAT_GRACE_SECONDS", os.environ.get("KOLIBRI_HEARTBEAT_GRACE", "30"))),
+    )
     parser.add_argument("--max-inflight", type=int, default=int(os.environ.get("KOLIBRI_MAX_INFLIGHT", "1")))
     args = parser.parse_args()
     signal.signal(signal.SIGTERM, handle_stop)
