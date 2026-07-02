@@ -59,7 +59,7 @@ REDIS_PORT = int(os.environ.get("FACTORY_REDIS_PORT", "6379"))
 LEASE_DURATION = int(os.environ.get("FACTORY_LEASE_DURATION", "60"))
 MAX_RETRIES = int(os.environ.get("FACTORY_MAX_RETRIES", "3"))
 FABRIC_API_VERSION = "2026-07-01"
-CANONICAL_RESPONSE_STATUSES = {"completed", "running", "blocked", "failed", "partial"}
+CANONICAL_RESPONSE_STATUSES = {"completed", "running", "blocked", "failed", "partial", "cancelled"}
 FALLBACK_REASON_TAXONOMY = {
     "api_unreachable",
     "vpn_down",
@@ -487,24 +487,146 @@ def task_artifact_envelope(task: dict[str, Any] | None, task_id: str) -> dict[st
             repair_task={"kind": "locate_task_artifacts", "task_id": task_id},
             next_action="verify task_id and retry artifact lookup",
         )
-    result = task.get("result") or {}
-    artifacts = []
-    for key_name in ("result_path", "artifact_path", "artifact_paths", "artifacts"):
-        value = result.get(key_name) or task.get(key_name)
-        if not value:
-            continue
-        if isinstance(value, list):
-            artifacts.extend(value)
-        else:
-            artifacts.append(value)
+    artifacts = task_artifact_references(task)
     return canonical_response_envelope(
         status="completed" if artifacts else "partial",
         task_id=task_id,
         node=(task.get("lease_owner") or "main").split(":", 1)[0],
         artifacts=artifacts,
-        data={"task_state": task.get("state"), "result_reference": task.get("result_reference")},
+        data={"task_state": task.get("state"), "result_reference": task.get("result_reference"), "artifact_count": len(artifacts)},
         next_action="collect listed artifact paths from the authenticated artifact API" if artifacts else "wait for task completion or annotate result artifacts",
     )
+
+
+ARTIFACT_REFERENCE_KEYS = (
+    "artifact",
+    "artifact_path",
+    "artifact_paths",
+    "artifacts",
+    "ci_url",
+    "image_path",
+    "manifest_path",
+    "path",
+    "photo_path",
+    "preview_url",
+    "pr_url",
+    "pull_request_url",
+    "result_path",
+    "screenshot_path",
+    "stdout_path",
+    "stderr_path",
+    "url",
+)
+
+
+def _safe_artifact_reference(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    text = value.strip()
+    if not text:
+        return False
+    lower = text.lower()
+    if lower.startswith(("http://", "https://")):
+        return True
+    if any(marker in lower for marker in ("token=", "api_key=", "password=", "secret=")):
+        return False
+    return "/" in text or "." in Path(text).name
+
+
+def _collect_artifact_references(value: Any, refs: list[str]) -> None:
+    if isinstance(value, dict):
+        for key_name, item in value.items():
+            if key_name in ARTIFACT_REFERENCE_KEYS:
+                _collect_artifact_references(item, refs)
+            elif isinstance(item, (dict, list, tuple)):
+                _collect_artifact_references(item, refs)
+        return
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            _collect_artifact_references(item, refs)
+        return
+    if _safe_artifact_reference(value):
+        refs.append(str(value))
+
+
+def task_artifact_references(task: dict[str, Any]) -> list[str]:
+    refs: list[str] = []
+    for key_name in ARTIFACT_REFERENCE_KEYS:
+        if key_name in task:
+            _collect_artifact_references(task.get(key_name), refs)
+    result = task.get("result")
+    if isinstance(result, dict):
+        _collect_artifact_references(result, refs)
+    result_reference = task.get("result_reference")
+    if result_reference:
+        _collect_artifact_references(result_reference, refs)
+    unique: list[str] = []
+    seen: set[str] = set()
+    for ref in refs:
+        if ref not in seen:
+            unique.append(ref)
+            seen.add(ref)
+    return unique
+
+
+def agent_status_for_task(task: dict[str, Any]) -> str:
+    state = task.get("state")
+    if state == STATE_COMPLETED:
+        return "completed"
+    if state in {STATE_FAILED, STATE_DEAD}:
+        return "failed"
+    if state == STATE_CANCELLED:
+        return "cancelled"
+    return "running"
+
+
+def task_public_summary(task: dict[str, Any]) -> dict[str, Any]:
+    state = task.get("state")
+    envelope = task.get("envelope") if isinstance(task.get("envelope"), dict) else {}
+    result = task.get("result") if isinstance(task.get("result"), dict) else {}
+    return {
+        "task_id": task.get("task_id"),
+        "state": state,
+        "terminal": state in TERMINAL_STATES,
+        "kind": task.get("kind") or envelope.get("kind"),
+        "attempt": task.get("attempt", 0),
+        "max_retries": task.get("max_retries"),
+        "lease_owner": task.get("lease_owner"),
+        "created_at": task.get("created_at"),
+        "updated_at": task.get("updated_at"),
+        "heartbeat_at": task.get("heartbeat_at"),
+        "cancel_requested_at": task.get("cancel_requested_at"),
+        "error_type": task.get("error_type"),
+        "result_reference": task.get("result_reference"),
+        "pull_request_url": result.get("pull_request_url") or result.get("pr_url"),
+        "preview_url": result.get("preview_url"),
+        "artifact_count": len(task_artifact_references(task)),
+    }
+
+
+def task_status_envelope(task: dict[str, Any], task_id: str) -> dict[str, Any]:
+    status = agent_status_for_task(task)
+    return canonical_response_envelope(
+        status=status,
+        task_id=task_id,
+        node=(task.get("lease_owner") or "main").split(":", 1)[0],
+        route_used="/v1/agents/status",
+        data={"task": task_public_summary(task), "state": task.get("state")},
+        next_action="poll /v1/agents/artifacts/{task_id}" if task.get("state") in TERMINAL_STATES else "continue polling status",
+    )
+
+
+def cancel_task_for_agent(task: dict[str, Any], *, reason: str | None = None) -> tuple[bool, dict[str, Any]]:
+    state = task.get("state")
+    if state in TERMINAL_STATES:
+        return state == STATE_CANCELLED, task
+    remove_from_queue(task["task_id"])
+    task["state"] = STATE_CANCELLED
+    task["cancel_requested_at"] = utc_now()
+    task["cancel_reason"] = reason or "agent cancel"
+    task["lease_until"] = None
+    save_task(task)
+    return True, task
 
 
 def fabric_blocked_envelope(
@@ -1045,14 +1167,7 @@ class Handler(BaseHTTPRequestHandler):
                         next_action="submit a task through /v1/agents/tasks or verify the task id",
                     ))
                     return
-                response(self, 200, canonical_response_envelope(
-                    status="completed" if task.get("state") in TERMINAL_STATES else "running",
-                    task_id=task_id,
-                    node=(task.get("lease_owner") or "main").split(":", 1)[0],
-                    route_used="/v1/agents/status",
-                    data={"task": task},
-                    next_action="poll /v1/agents/artifacts/{task_id}" if task.get("state") in TERMINAL_STATES else "continue polling status",
-                ))
+                response(self, 200, task_status_envelope(task, task_id))
                 return
             if path.startswith("/v1/agents/artifacts/"):
                 task_id = path.split("/", 4)[4]
@@ -1328,17 +1443,23 @@ class Handler(BaseHTTPRequestHandler):
                         next_action="verify task id before retrying cancellation",
                     ))
                     return
-                remove_from_queue(task_id)
-                task["state"] = STATE_CANCELLED
-                task["cancel_requested_at"] = utc_now()
-                task["lease_until"] = None
-                save_task(task)
+                cancelled, task = cancel_task_for_agent(task, reason=body.get("reason"))
+                if not cancelled:
+                    response(self, 409, canonical_response_envelope(
+                        status=agent_status_for_task(task),
+                        task_id=task_id,
+                        node=(task.get("lease_owner") or "main").split(":", 1)[0],
+                        route_used="/v1/agents/cancel",
+                        data={"task": task_public_summary(task)},
+                        next_action="task is already terminal and was not mutated",
+                    ))
+                    return
                 response(self, 200, canonical_response_envelope(
-                    status="completed",
+                    status="cancelled",
                     task_id=task_id,
                     node=(task.get("lease_owner") or "main").split(":", 1)[0],
                     route_used="/v1/agents/cancel",
-                    data={"task": task},
+                    data={"task": task_public_summary(task)},
                     next_action="poll /v1/agents/status/{task_id} to confirm terminal state",
                 ))
                 return

@@ -91,6 +91,85 @@ def test_agents_aliases_normalize_envelope_and_artifacts():
     assert artifacts["artifacts"] == ["docs/agent/runs/run/result.json"]
 
 
+def test_agent_status_envelope_preserves_task_state_for_ui_and_telegram():
+    control = load_control()
+    running = {
+        "task_id": "AGENT-RUN",
+        "state": "running",
+        "attempt": 1,
+        "lease_owner": "9fts:agent-host-9fts",
+        "envelope": {"kind": "owner_remote_task"},
+        "result": {"pull_request_url": "https://github.example/pull/123"},
+    }
+    cancelled = {**running, "task_id": "AGENT-CANCEL", "state": "cancelled"}
+    failed = {**running, "task_id": "AGENT-FAIL", "state": "dead_letter"}
+
+    running_envelope = control.task_status_envelope(running, "AGENT-RUN")
+    cancelled_envelope = control.task_status_envelope(cancelled, "AGENT-CANCEL")
+    failed_envelope = control.task_status_envelope(failed, "AGENT-FAIL")
+
+    assert running_envelope["status"] == "running"
+    assert running_envelope["data"]["task"]["state"] == "running"
+    assert running_envelope["data"]["task"]["terminal"] is False
+    assert running_envelope["data"]["task"]["pull_request_url"] == "https://github.example/pull/123"
+    assert cancelled_envelope["status"] == "cancelled"
+    assert cancelled_envelope["data"]["task"]["terminal"] is True
+    assert failed_envelope["status"] == "failed"
+    assert failed_envelope["data"]["state"] == "dead_letter"
+
+
+def test_agent_artifact_envelope_collects_manifest_paths_and_links_recursively():
+    control = load_control()
+    task = {
+        "task_id": "AGENT-ART",
+        "state": "completed",
+        "lease_owner": "9fts:agent-host-9fts",
+        "result_reference": "artifacts/AGENT-ART/result.json",
+        "result": {
+            "artifact_paths": ["docs/agent/runs/run/result.json"],
+            "artifacts": [{"path": "docs/agent/runs/run/TESTS.md"}],
+            "pull_request_url": "https://github.example/pull/123",
+            "debug": {"token": "do-not-collect"},
+        },
+    }
+
+    envelope = control.task_artifact_envelope(task, "AGENT-ART")
+
+    assert envelope["status"] == "completed"
+    assert envelope["artifacts"] == [
+        "docs/agent/runs/run/result.json",
+        "docs/agent/runs/run/TESTS.md",
+        "https://github.example/pull/123",
+        "artifacts/AGENT-ART/result.json",
+    ]
+    assert envelope["data"]["artifact_count"] == 4
+
+
+def test_agent_cancel_is_idempotent_and_does_not_rewrite_completed_history(monkeypatch):
+    control = load_control()
+    saved = []
+    removed = []
+    monkeypatch.setattr(control, "remove_from_queue", lambda task_id: removed.append(task_id))
+    monkeypatch.setattr(control, "save_task", lambda task: saved.append(dict(task)))
+
+    queued = {"task_id": "AGENT-CANCEL", "state": "queued", "lease_until": 123}
+    cancelled, task = control.cancel_task_for_agent(queued, reason="owner requested")
+
+    assert cancelled is True
+    assert task["state"] == "cancelled"
+    assert task["cancel_reason"] == "owner requested"
+    assert task["lease_until"] is None
+    assert removed == ["AGENT-CANCEL"]
+    assert saved[-1]["state"] == "cancelled"
+
+    completed = {"task_id": "AGENT-DONE", "state": "completed", "lease_until": None}
+    cancelled, task = control.cancel_task_for_agent(completed, reason="too late")
+
+    assert cancelled is False
+    assert task["state"] == "completed"
+    assert len(saved) == 1
+
+
 def test_admin_endpoints_are_deny_by_default_stubs():
     control = load_control()
     for endpoint in control.ADMIN_ENDPOINTS:
