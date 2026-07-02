@@ -2,6 +2,7 @@ import argparse
 import importlib.util
 import json
 import subprocess
+import time
 from pathlib import Path
 
 
@@ -151,6 +152,34 @@ def test_git_push_forbidden_lease_sanitizes_full_autonomy_pack(tmp_path):
     assert leased["effective_permissions"]["git_push_allowed"] is False
 
 
+def test_lease_request_reports_capacity_and_refuses_when_saturated(tmp_path):
+    agent_host = load_agent_host()
+
+    class Host(agent_host.AgentHost):
+        def __init__(self):
+            args = make_args(tmp_path, capabilities="read_only_probe")
+            args.max_inflight = 2
+            super().__init__(args)
+            self.lease_bodies = []
+
+        def post(self, path, body):
+            assert path == "/v1/tasks/lease"
+            self.lease_bodies.append(body)
+            return None
+
+    host = Host()
+    assert host.try_activate_task({"task_id": "ACTIVE-1"})
+    assert host.lease() is None
+    assert host.lease_bodies[-1]["active_task_count"] == 1
+    assert host.lease_bodies[-1]["max_inflight"] == 2
+    assert host.lease_bodies[-1]["available_slots"] == 1
+    assert host.lease_bodies[-1]["active_tasks"] == ["ACTIVE-1"]
+
+    assert host.try_activate_task({"task_id": "ACTIVE-2"})
+    assert host.lease() is None
+    assert len(host.lease_bodies) == 1
+
+
 def test_push_allowed_envelope_keeps_git_push_permission(tmp_path):
     agent_host = load_agent_host()
     task = make_task({
@@ -248,6 +277,32 @@ def test_missing_required_artifact_blocks_completion(tmp_path):
     assert result["status"] == "blocked"
     assert result["required_artifacts_missing"] == ["docs/agent/MISSING.md"]
     assert "required_artifacts_missing" in result["blocked_reason"]
+
+
+def test_missing_or_null_result_status_blocks_completion(tmp_path):
+    agent_host = load_agent_host()
+    worktree, artifact_dir = make_paths(tmp_path)
+    task = make_task({})
+
+    missing = agent_host.finalize_runner_contract(
+        task,
+        {"task_id": task["task_id"], "changed_files": []},
+        artifact_dir,
+        worktree=worktree,
+        changed_files=[],
+    )
+    null_status = agent_host.finalize_runner_contract(
+        task,
+        {"task_id": task["task_id"], "status": None, "changed_files": []},
+        artifact_dir,
+        worktree=worktree,
+        changed_files=[],
+    )
+
+    assert missing["status"] == "blocked"
+    assert null_status["status"] == "blocked"
+    assert "result_status_missing" in missing["blocked_reason"]
+    assert "result_status_missing" in null_status["blocked_reason"]
 
 
 def write_run_artifacts(run_dir, filenames=None):
@@ -541,6 +596,82 @@ def test_run_task_missing_required_artifact_posts_blocked_fail_not_complete(tmp_
     assert fail_body["result"]["status"] == "blocked"
     assert fail_body["result"]["required_artifacts_missing"] == ["docs/agent/MISSING.md"]
     assert "required_artifacts_missing" in fail_body["result"]["blocked_reason"]
+
+
+def test_run_command_enforces_declared_timebox(tmp_path):
+    agent_host = load_agent_host()
+    host = make_host(agent_host, tmp_path, capabilities="read_only_probe")
+    worktree, artifact_dir = make_paths(tmp_path / "timebox-command")
+    task = make_task({"timebox_seconds": 0.1})
+    host.configure_task_timebox(task)
+
+    started = time.monotonic()
+    try:
+        host.run_command(
+            ["python3", "-c", "import time; time.sleep(5)"],
+            worktree,
+            artifact_dir / "stdout.log",
+            artifact_dir / "stderr.log",
+            task,
+            None,
+            {"stdout": str(artifact_dir / "stdout.log"), "stderr": str(artifact_dir / "stderr.log")},
+        )
+    except agent_host.TimeboxExceededError:
+        pass
+    else:
+        raise AssertionError("expected timebox enforcement")
+
+    assert time.monotonic() - started < 2
+
+
+def test_run_task_timebox_exceeded_posts_fail_not_complete(tmp_path):
+    agent_host = load_agent_host()
+
+    class Host(agent_host.AgentHost):
+        def __init__(self):
+            super().__init__(make_args(tmp_path, capabilities="read_only_probe"))
+            self.posts = []
+
+        def post(self, path, body):
+            self.posts.append((path, body))
+            return body
+
+        def run_read_only_probe(self, task):
+            worktree, artifact_dir, logs = self.prepare_dirs(task)
+            worktree.mkdir(parents=True, exist_ok=True)
+            time.sleep(0.05)
+            result = {
+                "node_id": self.node_id,
+                "hostname": self.hostname,
+                "task_id": task["task_id"],
+                "agent_id": self.agent_id,
+                "attempt_id": task.get("attempt_id"),
+                "pid": self.pid,
+                "worktree": str(worktree),
+                "log_paths": logs,
+                "result_path": str(artifact_dir / "result.json"),
+                "status": "completed",
+                "kind": "read_only_probe",
+            }
+            result = self.finalize_result(task, result, artifact_dir, worktree, changed_files=[])
+            result_path = self.write_result(artifact_dir, result)
+            result["result_path"] = str(result_path)
+            return result
+
+    task = make_task({"kind": "read_only_probe", "timebox_seconds": 0.01})
+    task["kind"] = "read_only_probe"
+
+    host = Host()
+    host.run_task(task)
+
+    assert not [path for path, _ in host.posts if path.endswith("/complete")]
+    fail_posts = [(path, body) for path, body in host.posts if path.endswith("/fail")]
+    assert len(fail_posts) == 1
+    _, fail_body = fail_posts[0]
+    assert fail_body["error_type"] == "timebox_exceeded"
+    assert fail_body["retry"] is False
+    assert fail_body["result"]["status"] == "blocked"
+    assert "timebox_exceeded" in fail_body["result"]["blocked_reason"]
 
 
 def test_publish_gate_skips_git_push_when_required_artifact_is_missing(tmp_path):

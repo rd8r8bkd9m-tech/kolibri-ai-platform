@@ -137,3 +137,21 @@ def test_control_plane_runner_compatibility_filters_blocked_and_avoided_nodes():
         ["generic_implementation", "runner:mimo"],
         {"runners": {"mimo": {"status": "available"}}},
     ) is False
+
+
+def test_control_plane_refuses_lease_capacity_when_agent_host_is_saturated():
+    control = load_module(ROOT / "ops" / "factory_control.py")
+
+    assert control.node_has_lease_capacity(active_task_count=0, max_inflight=1, available_slots=1) is True
+    assert control.node_has_lease_capacity(active_task_count=1, max_inflight=1, available_slots=0) is False
+    assert control.node_has_lease_capacity(active_task_count=2, max_inflight=2, available_slots=1) is False
+    assert control.node_has_lease_capacity(active_task_count=0, max_inflight=2, available_slots=0) is False
+
+
+def test_control_plane_complete_endpoint_requires_completed_result_status():
+    control = load_module(ROOT / "ops" / "factory_control.py")
+
+    assert control.completion_result_is_complete({"status": "completed"}) is True
+    assert control.completion_result_is_complete({"status": "blocked"}) is False
+    assert control.completion_result_is_complete({"status": None}) is False
+    assert control.completion_result_is_complete({}) is False

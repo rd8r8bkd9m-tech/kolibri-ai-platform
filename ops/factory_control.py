@@ -719,6 +719,14 @@ def compatible(task: dict[str, Any], node_id: str, capabilities: list[str], node
     return True
 
 
+def node_has_lease_capacity(active_task_count: int, max_inflight: int, available_slots: int) -> bool:
+    return max_inflight > 0 and active_task_count < max_inflight and available_slots > 0
+
+
+def completion_result_is_complete(result: Any) -> bool:
+    return isinstance(result, dict) and result.get("status") == STATE_COMPLETED
+
+
 def requeue_expired_leases() -> None:
     current = now_ts()
     for task_id in all_task_ids():
@@ -1083,6 +1091,11 @@ class Handler(BaseHTTPRequestHandler):
                     "ram": body.get("ram"),
                     "disk": body.get("disk"),
                     "agent_id": body.get("agent_id"),
+                    "active_task": body.get("active_task"),
+                    "active_tasks": body.get("active_tasks", []),
+                    "active_task_count": int(body.get("active_task_count") or 0),
+                    "max_inflight": int(body.get("max_inflight") or 1),
+                    "available_slots": int(body.get("available_slots") if body.get("available_slots") is not None else body.get("max_inflight") or 1),
                 }
                 set_json(node_key(node_id), node)
                 redis.command("SADD", key("node_ids"), node_id)
@@ -1202,9 +1215,19 @@ class Handler(BaseHTTPRequestHandler):
                 capabilities = body.get("capabilities", [])
                 agent_id = body.get("agent_id", node_id)
                 node = get_json(node_key(node_id), {"node_id": node_id, "capabilities": capabilities})
+                max_inflight = int(body.get("max_inflight") or 1)
+                active_task_count = int(body.get("active_task_count") or 0)
+                available_slots = int(body.get("available_slots") if body.get("available_slots") is not None else max_inflight - active_task_count)
+                node["max_inflight"] = max_inflight
+                node["active_task_count"] = active_task_count
+                node["available_slots"] = max(0, available_slots)
+                node["active_tasks"] = body.get("active_tasks", [])
                 if isinstance(body.get("runners"), dict):
                     node["runners"] = body["runners"]
-                    set_json(node_key(node_id), node)
+                set_json(node_key(node_id), node)
+                if not node_has_lease_capacity(active_task_count, max_inflight, available_slots):
+                    response(self, 204, {})
+                    return
                 for task_id in queue_ids():
                     task = load_task(task_id)
                     if not task or task.get("state") not in {STATE_QUEUED, STATE_REVIEW}:
@@ -1248,6 +1271,21 @@ class Handler(BaseHTTPRequestHandler):
                     response(self, 404, {"error": "task_not_found", "task_id": task_id})
                     return
                 result = body.get("result", body)
+                if not completion_result_is_complete(result):
+                    task["state"] = STATE_FAILED
+                    task["error_type"] = "runner_contract_blocked"
+                    task["error"] = "complete endpoint requires result.status=completed"
+                    task["result"] = result if isinstance(result, dict) else None
+                    task["result_reference"] = body.get("result_reference")
+                    task["heartbeat_at"] = utc_now()
+                    task["lease_until"] = None
+                    save_task(task)
+                    response(self, 409, {
+                        "error": "runner_contract_blocked",
+                        "detail": "complete endpoint requires result.status=completed",
+                        "task": task,
+                    })
+                    return
                 needs_review = task.get("envelope", {}).get("create_review_on_complete")
                 has_pr = bool(result.get("pull_request_url") or result.get("pr_url"))
                 task["state"] = STATE_COMPLETED if (not needs_review or has_pr) else STATE_WAITING_REVIEW

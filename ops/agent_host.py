@@ -15,6 +15,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -158,6 +159,10 @@ class PermissionContractError(RuntimeError):
         self.classification = classification
         permissions = ", ".join(classification.get("forbidden_permissions") or [])
         super().__init__(f"read-only/no-push permission pack forbids requested runtime permissions: {permissions}")
+
+
+class TimeboxExceededError(RuntimeError):
+    """Raised when a task exceeds its declared Agent Host timebox."""
 
 
 def utc_now() -> str:
@@ -362,6 +367,20 @@ def envelope_dict(envelope: dict[str, Any], *keys: str) -> dict[str, Any] | None
         value = envelope_value(envelope, key_name)
         if isinstance(value, dict):
             return value
+    return None
+
+
+def envelope_timebox_seconds(envelope: dict[str, Any]) -> float | None:
+    for key_name in ("timebox_seconds", "timeout_seconds", "max_runtime_seconds", "time_limit_seconds"):
+        value = envelope_value(envelope, key_name)
+        if value is None:
+            continue
+        try:
+            seconds = float(value)
+        except (TypeError, ValueError):
+            continue
+        if seconds > 0:
+            return seconds
     return None
 
 
@@ -771,7 +790,9 @@ def finalize_runner_contract(
     if original_status not in CONTRACT_STATUSES:
         if original_status:
             final.setdefault("runner_status", original_status)
-        final["status"] = "completed"
+            final["status"] = "completed"
+        else:
+            final["status"] = "blocked"
     final.setdefault("task_id", task["task_id"])
     final.setdefault("kind", kind)
     final["artifact_dir"] = str(artifact_dir)
@@ -838,6 +859,8 @@ def finalize_runner_contract(
     blockers: list[str] = []
     if blocked_reason:
         blockers.append(blocked_reason)
+    if not original_status:
+        blockers.append("result_status_missing")
     if not artifact_dir.exists():
         blockers.append("artifact_dir_missing")
     if required_missing:
@@ -899,8 +922,12 @@ class AgentHost:
         self.heartbeat_interval = args.heartbeat_interval
         self.lease_refresh = args.lease_refresh
         self.max_inflight = args.max_inflight
+        if self.max_inflight < 1:
+            self.max_inflight = 1
         self.hostname = platform.node()
         self.pid = os.getpid()
+        self._active_tasks: set[str] = set()
+        self._active_lock = threading.Lock()
         self.runner_status = self.detect_runner_status()
         self.capabilities = self.capabilities_with_runners()
         self.work_root.mkdir(parents=True, exist_ok=True)
@@ -968,11 +995,42 @@ class AgentHost:
             "pid": self.pid,
             "capabilities": self.capabilities,
             "runners": self.runner_status,
+            "active_task": None,
+            "active_tasks": self.active_task_ids(),
+            "active_task_count": self.active_task_count(),
+            "max_inflight": self.max_inflight,
+            "available_slots": self.available_slots(),
             **machine_stats(),
         }
         self.post("/v1/nodes/register", body)
 
+    def active_task_ids(self) -> list[str]:
+        with self._active_lock:
+            return sorted(self._active_tasks)
+
+    def active_task_count(self) -> int:
+        with self._active_lock:
+            return len(self._active_tasks)
+
+    def available_slots(self) -> int:
+        return max(0, self.max_inflight - self.active_task_count())
+
+    def try_activate_task(self, task: dict[str, Any]) -> bool:
+        task_id = str(task["task_id"])
+        with self._active_lock:
+            if task_id in self._active_tasks:
+                return True
+            if len(self._active_tasks) >= self.max_inflight:
+                return False
+            self._active_tasks.add(task_id)
+            return True
+
+    def deactivate_task(self, task: dict[str, Any]) -> None:
+        with self._active_lock:
+            self._active_tasks.discard(str(task.get("task_id")))
+
     def node_heartbeat(self, active_task: str | None = None) -> None:
+        active_tasks = self.active_task_ids()
         body = {
             "node_id": self.node_id,
             "hostname": self.hostname,
@@ -980,7 +1038,11 @@ class AgentHost:
             "pid": self.pid,
             "capabilities": self.capabilities,
             "runners": self.runner_status,
-            "active_task": active_task,
+            "active_task": active_task or (active_tasks[0] if len(active_tasks) == 1 else None),
+            "active_tasks": active_tasks,
+            "active_task_count": len(active_tasks),
+            "max_inflight": self.max_inflight,
+            "available_slots": max(0, self.max_inflight - len(active_tasks)),
             **machine_stats(),
         }
         self.post(f"/v1/nodes/{self.node_id}/heartbeat", body)
@@ -996,13 +1058,35 @@ class AgentHost:
         return self.post(f"/v1/tasks/{task['task_id']}/heartbeat", body)
 
     def lease(self) -> dict[str, Any] | None:
+        if self.available_slots() <= 0:
+            return None
         task = self.post("/v1/tasks/lease", {
             "node_id": self.node_id,
             "agent_id": self.agent_id,
             "capabilities": self.capabilities,
             "runners": self.runner_status,
+            "active_tasks": self.active_task_ids(),
+            "active_task_count": self.active_task_count(),
+            "max_inflight": self.max_inflight,
+            "available_slots": self.available_slots(),
         })
         return sanitize_task_permissions(task) if isinstance(task, dict) else task
+
+    @staticmethod
+    def task_deadline(task: dict[str, Any]) -> float | None:
+        deadline = task.get("_agent_host_deadline_monotonic")
+        return float(deadline) if isinstance(deadline, (int, float)) else None
+
+    def configure_task_timebox(self, task: dict[str, Any]) -> None:
+        seconds = envelope_timebox_seconds(task_envelope(task))
+        if seconds is not None:
+            task["_agent_host_timebox_seconds"] = seconds
+            task["_agent_host_deadline_monotonic"] = time.monotonic() + seconds
+
+    def assert_timebox_remaining(self, task: dict[str, Any]) -> None:
+        deadline = self.task_deadline(task)
+        if deadline is not None and time.monotonic() >= deadline:
+            raise TimeboxExceededError("task timebox exceeded")
 
     def run_command(
         self,
@@ -1029,10 +1113,23 @@ class AgentHost:
                 if STOP:
                     proc.terminate()
                     raise RuntimeError("agent host received SIGTERM")
+                deadline = self.task_deadline(task)
+                if deadline is not None and time.monotonic() >= deadline:
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                        proc.wait(timeout=5)
+                    raise TimeboxExceededError("task timebox exceeded")
                 if time.time() - last_refresh >= self.lease_refresh:
                     self.task_heartbeat(task, cwd, branch, logs, proc.pid)
                     last_refresh = time.time()
-                time.sleep(2)
+                sleep_for = 2.0
+                deadline = self.task_deadline(task)
+                if deadline is not None:
+                    sleep_for = max(0.05, min(sleep_for, deadline - time.monotonic()))
+                time.sleep(sleep_for)
             if proc.returncode != 0:
                 raise RuntimeError(f"command failed with rc={proc.returncode}: {display_command}")
 
@@ -2279,9 +2376,11 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
 
     def run_task(self, task: dict[str, Any]) -> None:
         sanitize_task_permissions(task)
+        self.configure_task_timebox(task)
         result_path = None
         result = None
         try:
+            self.assert_timebox_remaining(task)
             unsupported_reason = self.unsupported_task_reason(task)
             if unsupported_reason:
                 worktree, artifact_dir, logs = self.prepare_dirs(task)
@@ -2320,6 +2419,7 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 result = self.run_read_only_probe(task)
             else:
                 raise RuntimeError(f"unsupported task kind reached dispatch: {kind}")
+            self.assert_timebox_remaining(task)
             result.setdefault("permission_pack_classification", permission_pack_classification)
             result_path = Path(result["result_path"])
             artifact_dir = result_path.parent
@@ -2358,6 +2458,37 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
             result = finalize_runner_contract(task, result, artifact_dir, failure_reason=str(exc))
             result_path = self.write_result(artifact_dir, result)
             self.fail(task, "permission_contract_violation", str(exc), result, result_path, retry=False)
+        except TimeboxExceededError as exc:
+            task_id = task["task_id"]
+            attempt_id = task.get("attempt_id") or f"{task_id}-attempt-{task.get('attempt', 1)}"
+            artifact_dir = self.artifact_root / task_id / attempt_id
+            artifact_dir.mkdir(parents=True, exist_ok=True)
+            result = {
+                "node_id": self.node_id,
+                "hostname": self.hostname,
+                "task_id": task_id,
+                "agent_id": self.agent_id,
+                "attempt_id": attempt_id,
+                "pid": self.pid,
+                "status": "blocked",
+                "error_type": "timebox_exceeded",
+                "error": str(exc),
+                "completed_at": utc_now(),
+                "result_path": str(artifact_dir / "result.json"),
+                "timebox_seconds": task.get("_agent_host_timebox_seconds"),
+                "timebox_exceeded": True,
+                "blocked_reason": "timebox_exceeded",
+                "next_recommended_task": "increase the task timebox or split the work into a smaller remote task",
+            }
+            result = finalize_runner_contract(
+                task,
+                result,
+                artifact_dir,
+                blocked_reason="timebox_exceeded",
+                failure_reason=str(exc),
+            )
+            result_path = self.write_result(artifact_dir, result)
+            self.fail(task, "timebox_exceeded", str(exc), result, result_path, retry=False)
         except Exception as exc:
             task_id = task["task_id"]
             attempt_id = task.get("attempt_id") or f"{task_id}-attempt-{task.get('attempt', 1)}"
@@ -2410,6 +2541,17 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 retry = False
             self.fail(task, error_type, redact_sensitive_text(str(exc)), result, result_path, retry=retry)
 
+    def run_task_in_slot(self, task: dict[str, Any]) -> None:
+        if not self.try_activate_task(task):
+            raise RuntimeError("agent host max_inflight capacity exceeded")
+        self.run_active_task(task)
+
+    def run_active_task(self, task: dict[str, Any]) -> None:
+        try:
+            self.run_task(task)
+        finally:
+            self.deactivate_task(task)
+
     def loop(self) -> None:
         self.register()
         last_node_heartbeat = 0.0
@@ -2424,8 +2566,12 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 time.sleep(5)
                 continue
             if task:
-                self.node_heartbeat(active_task=task["task_id"])
-                self.run_task(task)
+                if self.try_activate_task(task):
+                    self.node_heartbeat(active_task=task["task_id"])
+                    thread = threading.Thread(target=self.run_active_task, args=(task,), daemon=True)
+                    thread.start()
+                else:
+                    self.node_heartbeat()
                 self.node_heartbeat()
             time.sleep(2)
 
