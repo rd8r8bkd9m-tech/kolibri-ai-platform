@@ -59,7 +59,30 @@ function Skeleton({ className }) {
   return <div className={`skeleton ${className || ""}`} />
 }
 
-function ClusterView({ status, onRefresh }) {
+function statusTone(value) {
+  if (["online", "fresh", "completed", "ok", "ready", "review"].includes(value)) return "good"
+  if (["queued", "leased", "running", "degraded", "partial", "waiting_review"].includes(value)) return "warn"
+  if (["stale", "blocked", "failed", "dead_letter", "cancelled", "offline"].includes(value)) return "bad"
+  return "muted"
+}
+
+function MetricCard({ label, value, icon, tone }) {
+  return (
+    <motion.div className="factory-metric"
+      initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+      transition={{ type: "spring", stiffness: 180 }}>
+      <div className={`factory-metric-icon ${tone || ""}`}>{icon}</div>
+      <div className="factory-metric-value">{value}</div>
+      <div className="factory-metric-label">{label}</div>
+    </motion.div>
+  )
+}
+
+function StatePill({ value }) {
+  return <span className={`state-pill ${statusTone(value)}`}>{value || "unknown"}</span>
+}
+
+function ClusterView({ status, onRefresh, onAction, actionState }) {
   if (!status) return (
     <div className="documents-panel">
       <div className="skeleton-grid">
@@ -70,6 +93,17 @@ function ClusterView({ status, onRefresh }) {
   
   const nodeEntries = Array.isArray(status.nodes) ? status.nodes.map(node => [node.node_id || node.id || node.hostname, node]) : Object.entries(status.nodes || {})
   const freshness = status.node_freshness || {}
+  const freshCount = freshness.fresh ?? status.fresh_nodes ?? status.online_nodes ?? 0
+  const totalNodes = status.total_nodes ?? nodeEntries.length
+  const tasks = status.recent_tasks || status.tasks || []
+  const prs = status.pull_requests || []
+  const blockers = status.blockers || []
+  const actions = status.safe_actions || [
+    { id: "refresh_status", label: "Refresh status", enabled: true, description: "Reload dashboard data." },
+    { id: "launch_readiness_probe", label: "Launch readiness probe", enabled: false, description: "Requires the updated dashboard action API." },
+  ]
+  const taskStates = status.task_states || {}
+  const agents = status.agents || status.node_list || nodeEntries.map(([, node]) => node)
 
   const NodeIcon = ({ role }) => {
     const paths = {
@@ -84,35 +118,137 @@ function ClusterView({ status, onRefresh }) {
   }
   
   return (
-    <motion.div key="cluster" className="documents-panel" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
-      <div className="documents-header">
-        <h2>Сеть Kolibri</h2>
-        <button className="refresh-btn" onClick={onRefresh}>
+    <motion.div key="cluster" className="factory-dashboard" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+      <div className="factory-hero">
+        <div>
+          <p className="factory-kicker">kolibriai.ru control plane</p>
+          <h2>Kolibri Factory</h2>
+          <p className="factory-summary">
+            Fleet, agents, task queue, pull requests, blockers, and safe launch controls from the live factory API.
+          </p>
+        </div>
+        <div className="factory-actions">
+          {actions.map(action => (
+            <button key={action.id} className={`factory-action ${action.id === "launch_readiness_probe" ? "primary" : ""}`}
+              onClick={() => action.id === "refresh_status" ? onRefresh() : onAction(action.id)}
+              disabled={!action.enabled || actionState.loading === action.id}
+              title={action.description}>
+              {actionState.loading === action.id ? "Running..." : action.label}
+            </button>
+          ))}
+          <button className="refresh-btn" onClick={onRefresh} title="Refresh dashboard">
           <motion.svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
             whileHover={{ rotate: 180 }} transition={{ duration: 0.3 }}>
             <polyline points="23,4 23,10 17,10"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
           </motion.svg>
-        </button>
+          </button>
+        </div>
       </div>
+      {actionState.message && <div className={`factory-action-result ${actionState.error ? "error" : ""}`}>{actionState.message}</div>}
       
-      <div className="cluster-stats">
-        {[
-          { label: "Свежие", value: `${freshness.fresh ?? status.fresh_nodes ?? status.online_nodes}/${status.total_nodes}`, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>, color: "var(--success)" },
-          { label: "Деградируют", value: freshness.degraded ?? status.degraded_nodes ?? 0, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>, color: "var(--warning)" },
-          { label: "Устарели", value: freshness.stale ?? status.stale_nodes ?? 0, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>, color: "var(--error)" },
-          { label: "Задач в очереди", value: status.queue_size || 0, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>, color: "var(--accent)" },
-        ].map((s, i) => (
-          <motion.div key={s.label} className="stat-card"
-            initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: i * 0.08, type: "spring", stiffness: 200 }}>
-            <div className="stat-icon">{s.icon}</div>
-            <div className="stat-value" style={{ color: s.color }}>{s.value}</div>
-            <div className="stat-label">{s.label}</div>
-          </motion.div>
-        ))}
+      <div className="factory-metrics">
+        <MetricCard label="Fresh fleet" value={`${freshCount}/${totalNodes || 0}`} tone="good"
+          icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>} />
+        <MetricCard label="Queue active" value={status.queue_size || 0} tone="accent"
+          icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>} />
+        <MetricCard label="Open PRs" value={prs.length} tone="warn"
+          icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 9v12"/><path d="M18 15a9 9 0 00-9-9"/></svg>} />
+        <MetricCard label="Blockers" value={blockers.length + (freshness.degraded || 0) + (freshness.stale || 0)} tone={blockers.length ? "bad" : "good"}
+          icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>} />
+        <MetricCard label="Free RAM" value={`${status.free_ram_gb || 0} GB`} tone="accent"
+          icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9z"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/></svg>} />
       </div>
-      
-      <div className="doc-list">
+
+      <div className="factory-grid">
+        <section className="factory-panel wide">
+          <div className="factory-panel-header">
+            <h3>Fleet</h3>
+            <span>{agents.length} agents</span>
+          </div>
+          <div className="agent-grid">
+            {nodeEntries.map(([name, node], i) => (
+              <motion.div key={name} className="agent-card"
+                initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.04 }}>
+                <div className="agent-card-top">
+                  <div className="doc-icon">
+                    <NodeIcon role={node.role} />
+                  </div>
+                  <StatePill value={node.freshness || node.status} />
+                </div>
+                <div className="agent-name">{node.name || name}</div>
+                <div className="agent-meta">{node.role} · {node.hostname || node.ip || node.agent_id || "internal"}</div>
+                <div className="agent-resources">
+                  <span>CPU {node.cpu == null ? "n/a" : node.cpu}</span>
+                  <span>{node.disk_free_gb ? `${node.disk_free_gb} GB disk` : "disk n/a"}</span>
+                </div>
+                <div className="ram-bar wide">
+                  <div className="ram-bar-fill" style={{ width: `${node.ram_total_gb ? Math.min(100, ((node.ram_total_gb - node.ram_available_gb) / node.ram_total_gb) * 100) : Math.min(100, (parseFloat(node.ram || 0) / 16) * 100)}%` }} />
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </section>
+
+        <section className="factory-panel">
+          <div className="factory-panel-header"><h3>Task states</h3><span>{tasks.length} recent</span></div>
+          <div className="state-stack">
+            {Object.keys(taskStates).length === 0 ? <p className="factory-empty">No active task data.</p> : Object.entries(taskStates).map(([state, count]) => (
+              <div className="state-row" key={state}><StatePill value={state} /><strong>{count}</strong></div>
+            ))}
+          </div>
+        </section>
+
+        <section className="factory-panel">
+          <div className="factory-panel-header"><h3>Blockers</h3><span>{blockers.length}</span></div>
+          <div className="factory-list compact">
+            {blockers.length === 0 ? <p className="factory-empty">No task blockers reported.</p> : blockers.slice(0, 5).map((blocker, i) => (
+              <div className="factory-list-item" key={`${blocker.task_id || blocker.reason}-${i}`}>
+                <div>
+                  <strong>{blocker.reason || "blocked"}</strong>
+                  <p>{blocker.detail || blocker.repair_task?.action || "Needs owner review."}</p>
+                </div>
+                <span>{blocker.node || "node"}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="factory-panel wide">
+          <div className="factory-panel-header"><h3>Tasks</h3><span>{status.queue_size || 0} queued/running</span></div>
+          <div className="factory-table">
+            <div className="factory-table-head"><span>Task</span><span>State</span><span>Agent</span><span>Updated</span></div>
+            {tasks.length === 0 ? <p className="factory-empty">No recent tasks from the control plane.</p> : tasks.slice(0, 8).map(task => (
+              <div className="factory-table-row" key={task.task_id}>
+                <div>
+                  <strong>{task.title}</strong>
+                  <p>{task.task_id}</p>
+                </div>
+                <StatePill value={task.state} />
+                <span>{task.node}</span>
+                <span>{task.updated_at ? new Date(task.updated_at).toLocaleString() : "n/a"}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="factory-panel">
+          <div className="factory-panel-header"><h3>Pull requests</h3><span>{prs.length}</span></div>
+          <div className="factory-list">
+            {prs.length === 0 ? <p className="factory-empty">No PR artifacts yet.</p> : prs.slice(0, 5).map(pr => (
+              <a className="factory-list-item link" key={`${pr.task_id}-${pr.url}`} href={pr.url} target="_blank" rel="noreferrer">
+                <div>
+                  <strong>{pr.title}</strong>
+                  <p>{pr.branch || pr.task_id}</p>
+                </div>
+                <StatePill value={pr.state} />
+              </a>
+            ))}
+          </div>
+        </section>
+      </div>
+
+      <div className="doc-list legacy-node-list">
         {nodeEntries.map(([name, node], i) => (
           <motion.div key={name} className="doc-item node-card"
             initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}
@@ -159,6 +295,7 @@ export default function App() {
   const [docError, setDocError] = useState("")
   const [uploading, setUploading] = useState(false)
   const [clusterStatus, setClusterStatus] = useState(null)
+  const [factoryActionState, setFactoryActionState] = useState({ loading: "", message: "", error: false })
   const [searchQuery, setSearchQuery] = useState("")
   const [searchResults, setSearchResults] = useState([])
   const [searchLoading, setSearchLoading] = useState(false)
@@ -175,7 +312,21 @@ export default function App() {
   }, [theme])
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/providers`).then(r => r.json()).then(setProviders).catch(() => {})
+    fetch(`${API_BASE}/api/providers`).then(r => r.json()).then(data => {
+      if (Array.isArray(data)) {
+        setProviders(data)
+        return
+      }
+      if (Array.isArray(data?.providers)) {
+        setProviders(data.providers)
+        return
+      }
+      const normalized = Object.entries(data || {}).map(([name, value]) => ({
+        name,
+        available: typeof value === "object" ? value.available !== false : Boolean(value),
+      }))
+      setProviders(normalized)
+    }).catch(() => {})
     connectWS()
     fetchCluster()
     const ci = setInterval(fetchCluster, 15000)
@@ -189,6 +340,22 @@ export default function App() {
       const r = await fetch(`${API_BASE}/api/factory/status`)
       setClusterStatus(await r.json())
     } catch {}
+  }
+
+  const runFactoryAction = async (action) => {
+    setFactoryActionState({ loading: action, message: "", error: false })
+    try {
+      const r = await fetch(`${API_BASE}/api/factory/actions/${action}`, { method: "POST" })
+      const data = await r.json()
+      if (!r.ok || data.status === "blocked") {
+        setFactoryActionState({ loading: "", message: data.detail || data.blocked_reason || "Factory action blocked", error: true })
+        return
+      }
+      setFactoryActionState({ loading: "", message: `Queued ${data.task_id || data.data?.task_id || action}`, error: false })
+      await fetchCluster()
+    } catch {
+      setFactoryActionState({ loading: "", message: "Factory action failed to reach the API", error: true })
+    }
   }
 
   const fetchDocuments = async () => {
@@ -357,7 +524,7 @@ export default function App() {
                   {clusterStatus ? (
                     <span className="header-cluster">
                       <span className="pulse-dot" />
-                      {clusterStatus.online_nodes} узлов · {clusterStatus.free_ram_gb} GB RAM
+                      {clusterStatus.online_nodes ?? clusterStatus.fresh_nodes ?? 0} узлов · {clusterStatus.free_ram_gb ?? 0} GB RAM
                     </span>
                   ) : "Загрузка..."}
                 </div>
@@ -509,7 +676,7 @@ export default function App() {
                 </motion.div>
               )}
 
-              {activeTab === "cluster" && <ClusterView status={clusterStatus} onRefresh={fetchCluster} />}
+              {activeTab === "cluster" && <ClusterView status={clusterStatus} onRefresh={fetchCluster} onAction={runFactoryAction} actionState={factoryActionState} />}
 
               {activeTab === "search" && (
                 <motion.div key="search" className="documents-panel" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>

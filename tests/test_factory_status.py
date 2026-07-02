@@ -35,6 +35,8 @@ def test_build_factory_status_normalizes_control_plane_nodes():
     assert result["degraded_nodes"] == 0
     assert result["stale_nodes"] == 1
     assert result["queue_size"] == 2
+    assert len(result["recent_tasks"]) == 2
+    assert result["safe_actions"][0]["id"] == "refresh_status"
     assert result["nodes"]["primary-candidate"]["role"] == "Директор"
     assert result["nodes"]["primary-candidate"]["ram_total_gb"] > 0
     assert result["control_plane"]["status"] == "ok"
@@ -72,6 +74,47 @@ def test_frontend_uses_live_factory_status_endpoint():
     assert "/cluster/status" not in app_source
     assert "на базе 5 серверов" not in app_source
     assert "Фабрика Колибри" in app_source
-    assert "Свежие" in app_source
-    assert "Деградируют" in app_source
-    assert "Устарели" in app_source
+    assert "Kolibri Factory" in app_source
+    assert "launch_readiness_probe" in app_source
+    assert "pull_requests" in app_source
+
+
+def test_factory_status_extracts_dashboard_prs_and_blockers():
+    now = datetime.now(timezone.utc)
+    status = build_factory_status(
+        {"nodes": [{"node_id": "9fts", "health": "online", "heartbeat_at": now.isoformat(), "capabilities": ["implementation"]}]},
+        {
+            "tasks": [
+                {
+                    "task_id": "TASK-1",
+                    "state": "waiting_review",
+                    "lease_owner": "9fts:agent",
+                    "envelope": {"objective": "Implement dashboard"},
+                    "result": {"pull_request_url": "https://github.com/example/repo/pull/1", "branch": "factory-dashboard"},
+                    "updated_at": now.isoformat(),
+                },
+                {
+                    "task_id": "TASK-2",
+                    "state": "failed",
+                    "error_type": "runner_auth_blocked",
+                    "error": "runner token unavailable",
+                    "envelope": {"objective": "Launch repair"},
+                },
+            ]
+        },
+        {"status": "ok", "time": now.isoformat()},
+    )
+
+    assert status["pull_requests"] == [
+        {
+            "task_id": "TASK-1",
+            "title": "Implement dashboard",
+            "url": "https://github.com/example/repo/pull/1",
+            "branch": "factory-dashboard",
+            "state": "waiting_review",
+            "node": "9fts",
+            "updated_at": now.isoformat(),
+        }
+    ]
+    assert status["blockers"][0]["reason"] == "runner_auth_blocked"
+    assert status["tasks"][1]["blocked"] is True

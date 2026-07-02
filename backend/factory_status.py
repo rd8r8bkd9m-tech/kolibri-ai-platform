@@ -158,6 +158,109 @@ def _extract_tasks(tasks_payload: Any) -> list[dict[str, Any]]:
     return []
 
 
+def _task_title(task: dict[str, Any]) -> str:
+    envelope = task.get("envelope") if isinstance(task.get("envelope"), dict) else {}
+    for key_name in ("title", "objective", "message", "kind"):
+        value = envelope.get(key_name) or task.get(key_name)
+        if value:
+            return str(value)
+    return str(task.get("task_id") or "Factory task")
+
+
+def _task_node(task: dict[str, Any]) -> str:
+    lease_owner = str(task.get("lease_owner") or "")
+    if lease_owner:
+        return lease_owner.split(":", 1)[0]
+    envelope = task.get("envelope") if isinstance(task.get("envelope"), dict) else {}
+    return str(envelope.get("target_node") or envelope.get("required_node") or "unassigned")
+
+
+def _task_pr_url(task: dict[str, Any]) -> str:
+    result = task.get("result") if isinstance(task.get("result"), dict) else {}
+    envelope = task.get("envelope") if isinstance(task.get("envelope"), dict) else {}
+    return str(
+        result.get("pull_request_url")
+        or result.get("pr_url")
+        or envelope.get("pull_request_url")
+        or envelope.get("pr_url")
+        or ""
+    )
+
+
+def _task_branch(task: dict[str, Any]) -> str:
+    result = task.get("result") if isinstance(task.get("result"), dict) else {}
+    envelope = task.get("envelope") if isinstance(task.get("envelope"), dict) else {}
+    return str(result.get("branch") or envelope.get("branch") or "")
+
+
+def _task_card(task: dict[str, Any]) -> dict[str, Any]:
+    state = str(task.get("state") or "unknown")
+    result = task.get("result") if isinstance(task.get("result"), dict) else {}
+    error = task.get("error") or result.get("error") or ""
+    error_type = task.get("error_type") or result.get("error_type") or ""
+    blocked = state in {"blocked", "failed", "dead_letter"} or bool(error_type)
+    return {
+        "task_id": str(task.get("task_id") or task.get("id") or ""),
+        "title": _task_title(task),
+        "kind": str(task.get("kind") or (task.get("envelope") or {}).get("kind") or "task"),
+        "state": state,
+        "node": _task_node(task),
+        "updated_at": task.get("updated_at") or task.get("created_at"),
+        "created_at": task.get("created_at"),
+        "attempt": task.get("attempt"),
+        "max_retries": task.get("max_retries"),
+        "pr_url": _task_pr_url(task),
+        "branch": _task_branch(task),
+        "blocked": blocked,
+        "blocker": {
+            "task_id": str(task.get("task_id") or task.get("id") or ""),
+            "reason": str(error_type or state if blocked else ""),
+            "detail": str(error or ""),
+            "node": _task_node(task),
+            "repair_task": result.get("repair_task") if isinstance(result.get("repair_task"), dict) else None,
+        } if blocked else None,
+    }
+
+
+def _pr_cards(tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    prs = []
+    for task in tasks:
+        pr_url = _task_pr_url(task)
+        if not pr_url:
+            continue
+        prs.append({
+            "task_id": str(task.get("task_id") or task.get("id") or ""),
+            "title": _task_title(task),
+            "url": pr_url,
+            "branch": _task_branch(task),
+            "state": str(task.get("state") or "unknown"),
+            "node": _task_node(task),
+            "updated_at": task.get("updated_at") or task.get("created_at"),
+        })
+    return prs
+
+
+def _dashboard_actions(status: str) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": "refresh_status",
+            "label": "Refresh status",
+            "method": "GET",
+            "safe": True,
+            "enabled": True,
+            "description": "Reload fleet, task, PR, and blocker data.",
+        },
+        {
+            "id": "launch_readiness_probe",
+            "label": "Launch readiness probe",
+            "method": "POST",
+            "safe": True,
+            "enabled": status != "offline",
+            "description": "Queue a read-only factory probe through the control plane.",
+        },
+    ]
+
+
 def build_factory_status(nodes_payload: Any, tasks_payload: Any | None = None, health_payload: dict[str, Any] | None = None) -> dict[str, Any]:
     raw_nodes = nodes_payload.get("nodes", []) if isinstance(nodes_payload, dict) else nodes_payload if isinstance(nodes_payload, list) else []
     generated_at = (health_payload or {}).get("time") or datetime.now(timezone.utc).isoformat()
@@ -171,12 +274,16 @@ def build_factory_status(nodes_payload: Any, tasks_payload: Any | None = None, h
     available_ram_kb = sum(_parse_mem_kb((node.get("ram") or {}).get("MemAvailable")) for node in raw_nodes if isinstance(node, dict))
     cpu_values = [node.get("cpu") for node in raw_nodes if isinstance(node, dict) and isinstance(node.get("cpu"), (int, float))]
     tasks = _extract_tasks(tasks_payload)
+    task_cards = [_task_card(task) for task in tasks if isinstance(task, dict)]
+    blockers = [task["blocker"] for task in task_cards if task.get("blocker")]
+    pr_cards = _pr_cards(tasks)
     task_states: dict[str, int] = {}
-    for task in tasks:
+    for task in task_cards:
         state = str(task.get("state") or "unknown")
         task_states[state] = task_states.get(state, 0) + 1
+    normalized_status = "online" if online_nodes else "degraded"
     return {
-        "status": "online" if online_nodes else "degraded",
+        "status": normalized_status,
         "source": "control-plane",
         "generated_at": generated_at,
         "control_plane": {
@@ -206,6 +313,12 @@ def build_factory_status(nodes_payload: Any, tasks_payload: Any | None = None, h
             else int((health_payload or {}).get("queue") or 0)
         ),
         "task_states": task_states,
+        "tasks": task_cards,
+        "recent_tasks": task_cards[:12],
+        "pull_requests": pr_cards,
+        "blockers": blockers,
+        "agents": node_list,
+        "safe_actions": _dashboard_actions(normalized_status),
         "nodes": nodes,
         "node_list": node_list,
     }
@@ -228,3 +341,22 @@ async def fetch_factory_status() -> dict[str, Any]:
         tasks_payload = {"tasks": []}
 
     return build_factory_status(nodes_response.json(), tasks_payload, health_response.json())
+
+
+async def submit_factory_dashboard_action(action: str) -> dict[str, Any]:
+    if action != "launch_readiness_probe":
+        raise ValueError("unsupported_factory_dashboard_action")
+
+    payload = {
+        "kind": "read_only_probe",
+        "objective": "Collect a read-only Kolibri Factory readiness snapshot for the owner dashboard.",
+        "required_capability": "generic_implementation",
+        "source": "kolibri_factory_dashboard",
+        "write_scope": [],
+        "fallback_allowed": True,
+        "max_retries": 1,
+    }
+    async with httpx.AsyncClient(timeout=httpx.Timeout(4.0, connect=2.0)) as client:
+        response = await client.post(_control_plane_v1_url("/agents/tasks"), json=payload)
+        response.raise_for_status()
+        return response.json()

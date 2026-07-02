@@ -20,7 +20,7 @@ from providers import AIProviderManager
 from tts import TTSEngine
 from stt import STTEngine
 from websearch import WebSearchEngine
-from factory_status import fetch_factory_status
+from factory_status import fetch_factory_status, submit_factory_dashboard_action
 
 DB_PATH = Path("/opt/kolibri-ai/data/kolibri.db")
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -322,6 +322,38 @@ async def api_factory_status():
                 "total_ram_gb": 0,
                 "avg_cpu_percent": 0,
                 "queue_size": 0,
+                "task_states": {},
+                "tasks": [],
+                "recent_tasks": [],
+                "pull_requests": [],
+                "blockers": [{
+                    "reason": "control_plane_api_unreachable",
+                    "detail": str(exc),
+                    "node": "control-plane",
+                    "repair_task": {
+                        "kind": "repair_control_plane_api",
+                        "action": "restore Fabric API reachability or route through a registered relay",
+                    },
+                }],
+                "agents": [],
+                "safe_actions": [
+                    {
+                        "id": "refresh_status",
+                        "label": "Refresh status",
+                        "method": "GET",
+                        "safe": True,
+                        "enabled": True,
+                        "description": "Reload cached dashboard data.",
+                    },
+                    {
+                        "id": "launch_readiness_probe",
+                        "label": "Launch readiness probe",
+                        "method": "POST",
+                        "safe": True,
+                        "enabled": False,
+                        "description": "Disabled until the control plane API is reachable.",
+                    },
+                ],
                 "nodes": {},
                 "node_list": [],
                 "control_plane": {
@@ -335,6 +367,34 @@ async def api_factory_status():
                     },
                     "can_continue_elsewhere": True,
                 },
+            },
+        )
+
+
+@app.post("/api/factory/actions/{action}")
+async def api_factory_action(action: str):
+    try:
+        return await submit_factory_dashboard_action(action)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except httpx.HTTPStatusError as exc:
+        return JSONResponse(
+            status_code=exc.response.status_code,
+            content={
+                "status": "blocked",
+                "action": action,
+                "blocked_reason": "control_plane_rejected_action",
+                "detail": exc.response.text[:500],
+            },
+        )
+    except Exception as exc:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "blocked",
+                "action": action,
+                "blocked_reason": "control_plane_api_unreachable",
+                "detail": str(exc),
             },
         )
 
@@ -403,4 +463,3 @@ if frontend_path.exists():
         if file_path.exists() and file_path.is_file():
             return FileResponse(str(file_path))
         return FileResponse(str(frontend_path / "index.html"))
-
