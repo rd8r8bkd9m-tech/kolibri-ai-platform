@@ -170,6 +170,7 @@ export interface PaginatedList<T> {
 
 export interface EstimateCreateInput {
   title: string
+  status?: Estimate['status']
   client?: string
   object_name?: string
   region?: string
@@ -201,6 +202,10 @@ export const estimates = {
   duplicate: (id: string) => request<Estimate>(`/estimates/${id}/duplicate`, { method: 'POST' }),
   pdfUrl: (id: string) => `${BASE}/estimates/${id}/pdf`,
   exportUrl: (id: string, fmt: 'csv' | 'json') => `${BASE}/estimates/${id}/export/${fmt}`,
+}
+
+export const health = {
+  v1: () => request<{ status: string; service: string; estimates: number }>('/health'),
 }
 
 // ---------------------------------------------------------------------------
