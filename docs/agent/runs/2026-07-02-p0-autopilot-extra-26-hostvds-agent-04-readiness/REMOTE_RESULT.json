@@ -1,0 +1,73 @@
+{
+  "task_id": "P0_AUTOPILOT_EXTRA_26_HOSTVDS_AGENT_04_READINESS_2026_07_02",
+  "status": "completed_with_blockers",
+  "node": "mesh-agent-04",
+  "assigned_host": "hostvds-agent-04",
+  "agent_name": "Дмитрий - Проверка hostvds-agent-04",
+  "agent_id": "agent-host-mesh-agent-04",
+  "remote_execution": {
+    "happened": true,
+    "task_id": "P0_AUTOPILOT_EXTRA_26_HOSTVDS_AGENT_04_READINESS_2026_07_02_REMOTE_PROBE",
+    "lease_owner_observed": "mesh-agent-04:agent-host-mesh-agent-04",
+    "result_reference": "/var/lib/kolibri-agent/logical-workers/mesh-agent-04/artifacts/P0_AUTOPILOT_EXTRA_26_HOSTVDS_AGENT_04_READINESS_2026_07_02_REMOTE_PROBE/P0_AUTOPILOT_EXTRA_26_HOSTVDS_AGENT_04_READINESS_2026_07_02_REMOTE_PROBE-attempt-1/result.json"
+  },
+  "readiness": {
+    "factory_work": "ready_for_bounded_control_plane_tasks",
+    "api_route": "ready_via_10.99.0.10:9101_control_plane",
+    "github_auth": "blocked_unverified",
+    "disk": {
+      "total_bytes": 105590231040,
+      "used_bytes": 47883030528,
+      "free_bytes": 52323074048
+    },
+    "runner_status": {
+      "codex": "advertised_by_capability",
+      "mimo": "advertised_by_capability",
+      "auth_smoke": "not_verified"
+    }
+  },
+  "blockers": [
+    {
+      "id": "ssh_port22_timeout",
+      "evidence": "Non-interactive SSH to hostvds-agent-04 at 31.59.41.146:22 timed out.",
+      "next_action": "repair SSH route or mark this worker Control Plane only"
+    },
+    {
+      "id": "github_auth_unverified_on_mesh_agent_04",
+      "evidence": "Safe read_only_probe does not expose gh/git auth status, and direct SSH was unavailable.",
+      "next_action": "dispatch bounded non-mutating GitHub auth probe on mesh-agent-04"
+    },
+    {
+      "id": "stale_agent_04_metadata_card",
+      "evidence": "agent-04 metadata card is stale while mesh-agent-04 is fresh.",
+      "next_action": "route scheduler tasks to mesh-agent-04 only"
+    },
+    {
+      "id": "transient_control_route_timeout",
+      "evidence": "One 10.99.0.2 node snapshot timed out; 10.99.0.10 returned the fresh node card.",
+      "next_action": "prefer 10.99.0.10 for this node until route freshness is rechecked"
+    }
+  ],
+  "artifacts": [
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-26-hostvds-agent-04-readiness/PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-26-hostvds-agent-04-readiness/ACTIONS.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-26-hostvds-agent-04-readiness/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-26-hostvds-agent-04-readiness/READINESS_MATRIX.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-26-hostvds-agent-04-readiness/NEXT.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-26-hostvds-agent-04-readiness/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-26-hostvds-agent-04-readiness/REMOTE_RESULT.json"
+  ],
+  "forbidden_actions_confirmed_absent": [
+    "product_code_modified",
+    "tests_modified",
+    "ci_modified",
+    "secrets_printed",
+    "destructive_git_commands",
+    "force_push",
+    "push_to_main",
+    "service_restart"
+  ],
+  "next_exact_task": "P0_REPAIR_HOSTVDS_AGENT_04_GITHUB_AUTH_AND_SSH_ROUTE_2026_07_02",
+  "owner_summary_ru": "hostvds-agent-04 живой как фабричный worker через карточку mesh-agent-04: удаленная задача реально выполнилась на agent-host-mesh-agent-04, диск и ресурсы достаточные, Codex/MIMO runners заявлены. Для обычных задач его можно использовать через Control Plane. Блокеры: прямой SSH на 31.59.41.146:22 не отвечает, GitHub auth на самом узле пока не подтвержден безопасной проверкой, а старая карточка agent-04 протухла. Следующая точная задача - безопасно проверить GitHub auth и починить или формально заменить SSH-маршрут."
+}
+
