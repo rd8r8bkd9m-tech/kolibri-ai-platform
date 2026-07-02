@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Routes, Route } from 'react-router'
+import { Navigate, Routes, Route } from 'react-router'
 import Layout from './components/Layout'
 import ErrorBoundary from './components/ErrorBoundary'
 import Home from './pages/Home'
@@ -46,6 +46,7 @@ export default function App() {
         <Route path="servers" element={<ServersPage />} />
         <Route path="settings" element={<SettingsPage user={user} onLogout={() => { setUser(null); localStorage.removeItem('kolibri_token') }} />} />
       </Route>
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
 }

@@ -48,23 +48,27 @@ export default function SearchModal({ open, onClose }: SearchModalProps) {
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 bg-black/30 z-50 flex items-start justify-center pt-[15vh] p-4" onClick={onClose}>
-      <div className="bg-[var(--bg-primary)] rounded-[var(--radius-xl)] shadow-xl max-w-[560px] w-full overflow-hidden" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border-subtle)]">
-          <Search size={16} className="text-[var(--text-tertiary)] flex-shrink-0" />
-          <input
-            ref={inputRef}
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            placeholder="Поиск по сметам, документам, позициям..."
-            className="flex-1 text-[14px] bg-transparent outline-none text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)]"
-          />
-          <button onClick={onClose} className="w-6 h-6 flex items-center justify-center rounded text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/18 p-0 sm:items-start sm:bg-black/25 sm:p-4 sm:pt-[12vh]" onClick={onClose}>
+      <div className="w-full max-w-[560px] overflow-hidden rounded-t-[var(--radius-xl)] border border-[var(--border-subtle)] bg-[var(--bg-primary)] shadow-xl sm:rounded-[var(--radius-xl)]" onClick={e => e.stopPropagation()}>
+        <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-[var(--border-hover)] sm:hidden" />
+        <div className="flex items-center gap-3 border-b border-[var(--border-subtle)] px-4 py-3">
+          <Search size={17} className="flex-shrink-0 text-[var(--text-secondary)]" />
+          <div className="min-w-0 flex-1">
+            <div className="text-[12px] font-medium text-[var(--text-secondary)] sm:hidden">Поиск</div>
+            <input
+              ref={inputRef}
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Сметы, документы, позиции"
+              className="w-full bg-transparent text-[16px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-tertiary)] sm:text-[14px]"
+            />
+          </div>
+          <button onClick={onClose} className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-[var(--radius-md)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]">
             <X size={16} />
           </button>
         </div>
 
-        <div className="max-h-[400px] overflow-y-auto">
+        <div className="max-h-[min(68dvh,480px)] overflow-y-auto overscroll-contain pb-[env(safe-area-inset-bottom)] sm:max-h-[400px]">
           {loading && <div className="px-4 py-6 text-center text-[13px] text-[var(--text-tertiary)]">Поиск...</div>}
 
           {!loading && query && results.length === 0 && (
@@ -75,7 +79,7 @@ export default function SearchModal({ open, onClose }: SearchModalProps) {
             <button
               key={`${r.type}-${r.id}-${i}`}
               onClick={() => handleSelect(r)}
-              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[var(--bg-hover)] transition-colors text-left"
+              className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-[var(--bg-hover)] sm:py-3"
             >
               {r.type === 'estimate' ? (
                 <Calculator size={16} className="text-[var(--accent-teal)] flex-shrink-0" />
