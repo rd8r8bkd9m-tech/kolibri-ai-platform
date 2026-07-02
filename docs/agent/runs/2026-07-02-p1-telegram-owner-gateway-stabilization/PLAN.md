@@ -1,9 +1,9 @@
 # Plan
 
-Task id: P1_KOLIBRI_TELEGRAM_OWNER_GATEWAY_STABILIZATION_2026_07_02
+Task id: P1_TELEGRAM_OWNER_GATEWAY_STABILIZATION_2026_07_02
 Node: mesh-agent-03 remote factory worker
-Branch: p1/kolibri-telegram-owner-gateway-stabilization-2026-07-02
-Head before changes: f7ac32c
+Branch: p1/telegram-owner-gateway-stabilization-2026-07-02
+Base implementation head: b45ff583283f454a6b6d9f04bc22fa4947331304
 
 Scope:
 - Stabilize owner Telegram command/chat surfaces only.
