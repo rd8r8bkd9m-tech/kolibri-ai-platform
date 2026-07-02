@@ -1,0 +1,36 @@
+{
+  "artifacts": [
+    "docs/agent/runs/2026-07-02-p0-queue-lease-debt-audit-and-requeue-policy/PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-queue-lease-debt-audit-and-requeue-policy/ACTIONS.md",
+    "docs/agent/runs/2026-07-02-p0-queue-lease-debt-audit-and-requeue-policy/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-queue-lease-debt-audit-and-requeue-policy/BACKLOG_REQUEUE_POLICY.md",
+    "docs/agent/runs/2026-07-02-p0-queue-lease-debt-audit-and-requeue-policy/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-queue-lease-debt-audit-and-requeue-policy/NEXT.md"
+  ],
+  "blockers": [
+    {
+      "blocker": "live_control_plane_route_not_deployed",
+      "evidence": "./ops/kolibri-dispatch backlog-audit returned HTTP 404 for /v1/tasks/backlog/audit",
+      "next_action": "deploy this branch's Factory Control service, then rerun backlog-audit"
+    }
+  ],
+  "changed_files": [
+    "ops/factory_control.py",
+    "ops/kolibri-dispatch",
+    "tests/test_factory_runtime.py",
+    "docs/agent/runs/2026-07-02-p0-queue-lease-debt-audit-and-requeue-policy/PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-queue-lease-debt-audit-and-requeue-policy/ACTIONS.md",
+    "docs/agent/runs/2026-07-02-p0-queue-lease-debt-audit-and-requeue-policy/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-queue-lease-debt-audit-and-requeue-policy/BACKLOG_REQUEUE_POLICY.md",
+    "docs/agent/runs/2026-07-02-p0-queue-lease-debt-audit-and-requeue-policy/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-queue-lease-debt-audit-and-requeue-policy/NEXT.md",
+    "docs/agent/runs/2026-07-02-p0-queue-lease-debt-audit-and-requeue-policy/result.json"
+  ],
+  "node": "kolibri",
+  "state": "implemented_with_live_probe_blocker",
+  "task_id": "P0_QUEUE_LEASE_DEBT_AUDIT_AND_REQUEUE_POLICY_2026_07_02",
+  "tests": [
+    "python3 -m pytest -q tests/test_factory_runtime.py tests/test_factory_runtime_contracts.py tests/test_factory_runtime_queue_contracts.py tests/test_fabric_control.py tests/test_prompt3_fabric_api_surface.py",
+    "python3 -m py_compile ops/factory_control.py ops/kolibri-dispatch"
+  ]
+}

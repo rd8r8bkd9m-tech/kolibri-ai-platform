@@ -88,6 +88,30 @@ STATE_RETRY = "retry_scheduled"
 STATE_DEAD = "dead_letter"
 TERMINAL_STATES = {STATE_COMPLETED, STATE_FAILED, STATE_CANCELLED, STATE_DEAD}
 BLOCKED_RUNNER_STATES = {"blocked", "degraded", "runner_auth_blocked", "unavailable"}
+BACKLOG_AUDIT_STATES = {STATE_QUEUED, STATE_FAILED, STATE_DEAD}
+LEASE_DEBT_STATES = {STATE_LEASED, STATE_RUNNING, STATE_REVIEW}
+
+POLICY_REQUEUE_NOW = "requeue_now"
+POLICY_REQUEUE_AFTER_GITHUB_CLONE_REPAIR = "requeue_after_github_clone_repair"
+POLICY_CANCEL = "cancel"
+POLICY_SUPERSEDE = "supersede"
+POLICY_WAIT = "wait"
+POLICY_BLOCKED = "blocked"
+POLICY_NOOP = "noop"
+
+GITHUB_CLONE_REPAIR_ERROR_TYPES = {
+    "review_clone_auth_failed",
+    "git_clone_auth_failed",
+    "missing_node_github_credential",
+    "github_auth_failed",
+}
+GITHUB_CLONE_REPAIR_MARKERS = (
+    "git clone",
+    "github credential",
+    "github auth",
+    "review_clone_auth_failed",
+    "missing_node_github_credential",
+)
 
 FABRIC_NODE_CATALOG = {
     "home": {
@@ -719,6 +743,202 @@ def compatible(task: dict[str, Any], node_id: str, capabilities: list[str], node
     return True
 
 
+def _lower_json(value: Any) -> str:
+    try:
+        return json.dumps(value, sort_keys=True, ensure_ascii=False).lower()
+    except TypeError:
+        return str(value).lower()
+
+
+def _task_node(task: dict[str, Any]) -> str:
+    lease_owner = str(task.get("lease_owner") or "")
+    if lease_owner:
+        return lease_owner.split(":", 1)[0]
+    envelope = task.get("envelope") if isinstance(task.get("envelope"), dict) else {}
+    return str(envelope.get("target_node") or envelope.get("required_node") or "unassigned")
+
+
+def _github_clone_repair_related(task: dict[str, Any]) -> bool:
+    error_type = str(task.get("error_type") or "").strip().lower()
+    if error_type in GITHUB_CLONE_REPAIR_ERROR_TYPES:
+        return True
+    haystack = _lower_json({
+        "error": task.get("error"),
+        "result": task.get("result"),
+        "result_reference": task.get("result_reference"),
+    })
+    return any(marker in haystack for marker in GITHUB_CLONE_REPAIR_MARKERS)
+
+
+def _result_has_artifacts(task: dict[str, Any]) -> bool:
+    result = task.get("result") if isinstance(task.get("result"), dict) else {}
+    for name in ("result_path", "artifact_path", "artifact_paths", "artifacts", "pull_request_url", "pr_url"):
+        value = result.get(name) or task.get(name)
+        if value:
+            return True
+    return bool(task.get("result_reference"))
+
+
+def _superseded_by(task: dict[str, Any]) -> str | None:
+    envelope = task.get("envelope") if isinstance(task.get("envelope"), dict) else {}
+    result = task.get("result") if isinstance(task.get("result"), dict) else {}
+    value = (
+        task.get("superseded_by")
+        or envelope.get("superseded_by")
+        or result.get("superseded_by")
+        or result.get("replacement_task_id")
+    )
+    return str(value) if value else None
+
+
+def classify_backlog_task(
+    task: dict[str, Any],
+    *,
+    current: float | None = None,
+    queue_members: set[str] | None = None,
+    dead_letter_members: set[str] | None = None,
+) -> dict[str, Any]:
+    current_ts = now_ts() if current is None else current
+    task_id = str(task.get("task_id") or "")
+    state = str(task.get("state") or "unknown")
+    attempt = int(task.get("attempt") or 0)
+    max_retries = int(task.get("max_retries", MAX_RETRIES))
+    lease_until = task.get("lease_until")
+    lease_debt_seconds = 0
+    if state in LEASE_DEBT_STATES and lease_until:
+        lease_debt_seconds = max(0, int(current_ts - float(lease_until)))
+
+    queue_members = queue_members or set()
+    dead_letter_members = dead_letter_members or set()
+    replacement = _superseded_by(task)
+    in_queue = task_id in queue_members
+    in_dead_letter = task_id in dead_letter_members or state == STATE_DEAD
+    retry_budget_remaining = max(0, max_retries - attempt)
+    error_type = str(task.get("error_type") or "")
+
+    action = POLICY_NOOP
+    reason = "terminal_or_not_backlog"
+    safe_to_retry_after_github_clone_repair = False
+
+    if replacement:
+        action = POLICY_SUPERSEDE
+        reason = "replacement_task_declared"
+    elif state == STATE_QUEUED:
+        if in_queue:
+            action = POLICY_WAIT
+            reason = "already_queued"
+        else:
+            action = POLICY_REQUEUE_NOW
+            reason = "queued_state_missing_queue_membership"
+    elif state in LEASE_DEBT_STATES:
+        if lease_debt_seconds <= 0:
+            action = POLICY_WAIT
+            reason = "active_lease_not_expired"
+        elif retry_budget_remaining > 0:
+            action = POLICY_REQUEUE_NOW
+            reason = "expired_lease_with_retry_budget"
+        else:
+            action = POLICY_BLOCKED
+            reason = "expired_lease_retry_budget_exhausted"
+    elif state in {STATE_FAILED, STATE_DEAD}:
+        if _github_clone_repair_related(task):
+            safe_to_retry_after_github_clone_repair = True
+            action = POLICY_REQUEUE_AFTER_GITHUB_CLONE_REPAIR
+            reason = "github_clone_or_credential_repair_required"
+        elif _result_has_artifacts(task):
+            action = POLICY_SUPERSEDE
+            reason = "failed_task_has_useful_artifacts_use_followup_not_blind_retry"
+        elif retry_budget_remaining > 0 and not in_dead_letter:
+            action = POLICY_REQUEUE_NOW
+            reason = "failed_transient_with_retry_budget"
+        else:
+            action = POLICY_BLOCKED
+            reason = "failed_or_dead_letter_without_safe_retry_signal"
+    elif state == STATE_CANCELLED:
+        action = POLICY_NOOP
+        reason = "already_cancelled"
+
+    if action == POLICY_CANCEL:
+        mutation = "POST /v1/tasks/{task_id}/cancel"
+    elif action in {POLICY_REQUEUE_NOW, POLICY_REQUEUE_AFTER_GITHUB_CLONE_REPAIR}:
+        mutation = "operator_requeue_after_policy_ack"
+    elif action == POLICY_SUPERSEDE:
+        mutation = "submit_replacement_task_and_cancel_or_leave_source_for_audit"
+    else:
+        mutation = "none"
+
+    return {
+        "task_id": task_id,
+        "state": state,
+        "node": _task_node(task),
+        "attempt": attempt,
+        "max_retries": max_retries,
+        "retry_budget_remaining": retry_budget_remaining,
+        "lease_owner": task.get("lease_owner"),
+        "lease_until": lease_until,
+        "lease_debt_seconds": lease_debt_seconds,
+        "in_queue": in_queue,
+        "in_dead_letter": in_dead_letter,
+        "error_type": error_type,
+        "safe_action": action,
+        "reason": reason,
+        "safe_to_retry_after_github_clone_repair": safe_to_retry_after_github_clone_repair,
+        "superseded_by": replacement,
+        "mutation_contract": mutation,
+    }
+
+
+def backlog_policy(tasks: list[dict[str, Any]], *, current: float | None = None, queue: list[str] | None = None, dead_letter: list[str] | None = None) -> dict[str, Any]:
+    current_ts = now_ts() if current is None else current
+    queue_members = set(queue or [])
+    dead_letter_members = set(dead_letter or [])
+    entries = [
+        classify_backlog_task(
+            task,
+            current=current_ts,
+            queue_members=queue_members,
+            dead_letter_members=dead_letter_members,
+        )
+        for task in tasks
+        if str(task.get("state") or "unknown") in BACKLOG_AUDIT_STATES | LEASE_DEBT_STATES | {STATE_CANCELLED}
+    ]
+    counts: dict[str, int] = {}
+    actions: dict[str, int] = {}
+    for entry in entries:
+        counts[entry["state"]] = counts.get(entry["state"], 0) + 1
+        actions[entry["safe_action"]] = actions.get(entry["safe_action"], 0) + 1
+    retry_after_clone_repair = [
+        entry["task_id"]
+        for entry in entries
+        if entry["safe_to_retry_after_github_clone_repair"]
+    ]
+    return {
+        "status": "ok",
+        "generated_at": utc_now(),
+        "policy": {
+            "remote_execution_required": "server_agent_host_only",
+            "audit_is_non_mutating": True,
+            "safe_actions": {
+                POLICY_REQUEUE_NOW: "Only requeue queue/lease debt with remaining retry budget or missing queue membership.",
+                POLICY_REQUEUE_AFTER_GITHUB_CLONE_REPAIR: "Retry only after Agent Host GitHub clone credentials are repaired and verified.",
+                POLICY_CANCEL: "Cancel only with explicit owner/operator intent.",
+                POLICY_SUPERSEDE: "Prefer a replacement task when useful artifacts exist or a newer task is declared.",
+                POLICY_BLOCKED: "Do not retry until the blocker is repaired and evidence is attached.",
+            },
+        },
+        "counts_by_state": counts,
+        "counts_by_safe_action": actions,
+        "safe_to_retry_after_github_clone_repair": retry_after_clone_repair,
+        "tasks": entries,
+    }
+
+
+def backlog_audit_snapshot() -> dict[str, Any]:
+    requeue_expired_leases()
+    tasks = [task for task in (load_task(task_id) for task_id in all_task_ids()) if task]
+    return backlog_policy(tasks, queue=queue_ids(), dead_letter=redis.command("LRANGE", key("dead_letter"), 0, -1) or [])
+
+
 def requeue_expired_leases() -> None:
     current = now_ts()
     for task_id in all_task_ids():
@@ -1001,6 +1221,9 @@ class Handler(BaseHTTPRequestHandler):
                 tasks = [load_task(task_id) for task_id in all_task_ids()]
                 tasks = [task for task in tasks if task and (wanted is None or task.get("state") == wanted)]
                 response(self, 200, {"tasks": tasks, "queue": queue_ids()})
+                return
+            if path == "/v1/tasks/backlog/audit":
+                response(self, 200, backlog_audit_snapshot())
                 return
             if path.startswith("/v1/tasks/"):
                 task_id = path.split("/", 3)[3]

@@ -16,7 +16,7 @@ def load_module(path):
 
 def test_dispatcher_exposes_required_commands():
     dispatch = (ROOT / "ops" / "kolibri-dispatch").read_text(encoding="utf-8")
-    for command in ["doctor", "nodes", "submit", "status", "collect", "cancel", "drain"]:
+    for command in ["doctor", "nodes", "submit", "status", "backlog-audit", "collect", "cancel", "drain"]:
         assert f'"{command}"' in dispatch
 
 
@@ -137,3 +137,77 @@ def test_control_plane_runner_compatibility_filters_blocked_and_avoided_nodes():
         ["generic_implementation", "runner:mimo"],
         {"runners": {"mimo": {"status": "available"}}},
     ) is False
+
+
+def test_backlog_policy_marks_github_clone_failures_retryable_after_repair():
+    control = load_module(ROOT / "ops" / "factory_control.py")
+    audit = control.backlog_policy([
+        {
+            "task_id": "CLONE-1",
+            "state": "failed",
+            "attempt": 1,
+            "max_retries": 1,
+            "lease_owner": "qjns:agent-host-qjns",
+            "error_type": "review_clone_auth_failed",
+            "error": "git clone failed without printing credentials",
+            "envelope": {"target_node": "qjns", "kind": "review_pr"},
+        }
+    ])
+
+    entry = audit["tasks"][0]
+    assert entry["safe_action"] == control.POLICY_REQUEUE_AFTER_GITHUB_CLONE_REPAIR
+    assert entry["safe_to_retry_after_github_clone_repair"] is True
+    assert audit["safe_to_retry_after_github_clone_repair"] == ["CLONE-1"]
+    assert entry["node"] == "qjns"
+
+
+def test_backlog_policy_supersedes_failed_tasks_with_useful_artifacts():
+    control = load_module(ROOT / "ops" / "factory_control.py")
+    audit = control.backlog_policy([
+        {
+            "task_id": "ARTIFACT-1",
+            "state": "failed",
+            "attempt": 1,
+            "max_retries": 3,
+            "result_reference": "/var/lib/kolibri-agent/artifacts/ARTIFACT-1/result.json",
+            "result": {"pull_request_url": "https://example.invalid/pr/1"},
+            "envelope": {"target_node": "primary-candidate"},
+        }
+    ])
+
+    entry = audit["tasks"][0]
+    assert entry["safe_action"] == control.POLICY_SUPERSEDE
+    assert entry["reason"] == "failed_task_has_useful_artifacts_use_followup_not_blind_retry"
+    assert entry["safe_to_retry_after_github_clone_repair"] is False
+
+
+def test_backlog_policy_requeues_expired_lease_debt_with_budget_only():
+    control = load_module(ROOT / "ops" / "factory_control.py")
+    current = 1000.0
+    audit = control.backlog_policy(
+        [
+            {
+                "task_id": "LEASE-1",
+                "state": "running",
+                "attempt": 1,
+                "max_retries": 2,
+                "lease_owner": "primary-candidate:agent-host-primary",
+                "lease_until": current - 45,
+            },
+            {
+                "task_id": "LEASE-2",
+                "state": "leased",
+                "attempt": 2,
+                "max_retries": 2,
+                "lease_owner": "main:agent-host-main",
+                "lease_until": current - 60,
+            },
+        ],
+        current=current,
+    )
+
+    by_id = {entry["task_id"]: entry for entry in audit["tasks"]}
+    assert by_id["LEASE-1"]["safe_action"] == control.POLICY_REQUEUE_NOW
+    assert by_id["LEASE-1"]["lease_debt_seconds"] == 45
+    assert by_id["LEASE-2"]["safe_action"] == control.POLICY_BLOCKED
+    assert by_id["LEASE-2"]["reason"] == "expired_lease_retry_budget_exhausted"
