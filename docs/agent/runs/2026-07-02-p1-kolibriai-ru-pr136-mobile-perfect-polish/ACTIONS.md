@@ -18,4 +18,3 @@
 
 - Added the exact PR136 run artifact path required by the prior mesh-agent-17 gate:
   `docs/agent/runs/2026-07-02-p1-kolibriai-ru-pr136-mobile-perfect-polish/`.
-

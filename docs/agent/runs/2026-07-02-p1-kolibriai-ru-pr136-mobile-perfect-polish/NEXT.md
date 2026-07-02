@@ -6,4 +6,3 @@
 - Confirm CI uses Node 20 or newer for the recovered Vite frontend.
 - Review the existing screenshot evidence under `remote/kolibriai-frontend/evidence/mobile-2026-07-02/`.
 - Move PR #136 from draft only after owner/design review approves the mobile polish.
-

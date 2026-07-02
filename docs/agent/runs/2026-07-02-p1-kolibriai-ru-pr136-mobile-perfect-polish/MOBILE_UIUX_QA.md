@@ -18,4 +18,3 @@ The recovered mesh-agent-17 patch addresses mobile clipping, long-text overflow,
 Existing mobile evidence remains under:
 
 - `remote/kolibriai-frontend/evidence/mobile-2026-07-02/`
-

@@ -18,4 +18,3 @@ Publish branch: `p1/kolibriai-ru-mobile-uiux-production-hardening-mesh-wide-2026
 - `npm run build` in `remote/kolibriai-frontend` using Node 20
 - `npm run lint` in `remote/kolibriai-frontend` using Node 20
 - changed-file allowlist check
-

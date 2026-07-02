@@ -18,4 +18,3 @@
 - `docs/agent/runs/2026-07-02-p1-kolibriai-ru-pr136-mobile-perfect-polish/NEXT.md`
 - `docs/agent/runs/2026-07-02-p1-kolibriai-ru-pr136-mobile-perfect-polish/MOBILE_UIUX_QA.md`
 - `docs/agent/runs/2026-07-02-p1-kolibriai-ru-pr136-mobile-perfect-polish/CHANGED_FILES.md`
-
