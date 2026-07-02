@@ -1,0 +1,93 @@
+{
+  "task_id": "P0_30MIN_SECOND_WAVE_MESH_AGENT_03_AGENT_LAUNCH_GATE_2026_07_02",
+  "status": "passed_with_throttled_launch_wave",
+  "node": "mesh-agent-03",
+  "lease_owner": "mesh-agent-03:agent-host-mesh-agent-03",
+  "control_plane": {
+    "url": "http://10.99.0.2:9101",
+    "health": "ok",
+    "queue_backend": "redis",
+    "redis": "PONG"
+  },
+  "safety": {
+    "product_code_modified": false,
+    "tests_modified": false,
+    "ci_modified": false,
+    "service_mutation": false,
+    "telegram_bot_api_mutation": false,
+    "secrets_printed": false,
+    "fake_accounts_used": false,
+    "provider_limit_bypass_used": false,
+    "broad_fanout_submitted": false
+  },
+  "decision": {
+    "launch_gate": "passed",
+    "wave_mode": "throttled_control_plane_wave",
+    "reason": "mesh-agent-03 is fresh and runner-ready, but current queue pressure and stale node-card debt make blind fanout unsafe."
+  },
+  "fresh_targets": [
+    {
+      "node_id": "mesh-agent-03",
+      "classification": "fresh_current_runner",
+      "safe_use": "small artifact-backed implementation tasks after this lease completes"
+    },
+    {
+      "node_id": "mesh-agent-01",
+      "classification": "fresh_busy",
+      "safe_use": "wait for active task completion before more work"
+    },
+    {
+      "node_id": "mesh-agent-02",
+      "classification": "fresh_busy",
+      "safe_use": "wait for active task completion before more work"
+    },
+    {
+      "node_id": "mesh-9fts",
+      "classification": "fresh_limited",
+      "safe_use": "small readiness/model checks only"
+    },
+    {
+      "node_id": "main",
+      "classification": "fresh_limited",
+      "safe_use": "control/read-only checks and small orchestration"
+    },
+    {
+      "node_id": "new",
+      "classification": "fresh_review",
+      "safe_use": "review and read-only probes"
+    },
+    {
+      "node_id": "qjns",
+      "classification": "fresh_limited",
+      "safe_use": "credential and runner classification only"
+    },
+    {
+      "node_id": "uiap",
+      "classification": "fresh_specialized",
+      "safe_use": "RAG and knowledge probes"
+    }
+  ],
+  "excluded_targets_reason": "stale mesh shadow or stale metadata card; not counted as capacity",
+  "next_exact_task": "P0_SECOND_WAVE_TELEGRAM_DIAGNOSTIC_ARTIFACT_ALIAS_REPAIR_2026_07_02",
+  "artifacts": [
+    "docs/agent/runs/2026-07-02-p0-30min-second-wave-mesh-agent-03-agent-launch-gate/PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-30min-second-wave-mesh-agent-03-agent-launch-gate/ACTIONS.md",
+    "docs/agent/runs/2026-07-02-p0-30min-second-wave-mesh-agent-03-agent-launch-gate/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-30min-second-wave-mesh-agent-03-agent-launch-gate/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-30min-second-wave-mesh-agent-03-agent-launch-gate/NEXT.md",
+    "docs/agent/runs/2026-07-02-p0-30min-second-wave-mesh-agent-03-agent-launch-gate/SAFE_AGENT_LAUNCH_WAVE.md",
+    "docs/agent/runs/2026-07-02-p0-30min-second-wave-mesh-agent-03-agent-launch-gate/REMOTE_RESULT.json"
+  ],
+  "verification_commands": [
+    "python3 ops/kolibri-dispatch --control-url http://10.99.0.2:9101 doctor",
+    "python3 ops/kolibri-dispatch --control-url http://10.99.0.2:9101 nodes",
+    "python3 ops/kolibri-dispatch --control-url http://10.99.0.2:9101 status P0_30MIN_SECOND_WAVE_MESH_AGENT_03_AGENT_LAUNCH_GATE_2026_07_02",
+    "git diff --check",
+    "test -f docs/agent/runs/2026-07-02-p0-30min-second-wave-mesh-agent-03-agent-launch-gate/PLAN.md",
+    "test -f docs/agent/runs/2026-07-02-p0-30min-second-wave-mesh-agent-03-agent-launch-gate/ACTIONS.md",
+    "test -f docs/agent/runs/2026-07-02-p0-30min-second-wave-mesh-agent-03-agent-launch-gate/RESULT.md",
+    "test -f docs/agent/runs/2026-07-02-p0-30min-second-wave-mesh-agent-03-agent-launch-gate/NEXT.md",
+    "test -f docs/agent/runs/2026-07-02-p0-30min-second-wave-mesh-agent-03-agent-launch-gate/SAFE_AGENT_LAUNCH_WAVE.md",
+    "python3 -m json.tool docs/agent/runs/2026-07-02-p0-30min-second-wave-mesh-agent-03-agent-launch-gate/REMOTE_RESULT.json"
+  ]
+}
