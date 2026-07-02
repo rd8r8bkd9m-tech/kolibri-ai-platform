@@ -1,0 +1,99 @@
+{
+  "task_id": "P0_AUTOPILOT_EXTRA_25_HOSTVDS_AGENT_03_READINESS_2026_07_02",
+  "status": "partially_ready_with_route_blockers",
+  "node": "mesh-agent-25",
+  "server_hostname": "kolibri",
+  "agent_display_name": "Алексей - HostVDS Agent 03 Readiness Steward",
+  "target": {
+    "requested": "hostvds-agent-03",
+    "canonical_node_id": "agent-03",
+    "usable_mesh_shadow": "mesh-agent-03",
+    "mesh_ip": "188.130.206.204"
+  },
+  "remote_execution": {
+    "server_side_worker": true,
+    "worker_node": "mesh-agent-25",
+    "worker_active_task": "P0_AUTOPILOT_EXTRA_25_HOSTVDS_AGENT_03_READINESS_2026_07_02",
+    "direct_ssh_to_requested_target": "blocked_timeout_before_remote_shell",
+    "product_code_modified_locally_on_mac": false
+  },
+  "readiness": {
+    "factory_work": "usable_via_mesh_agent_03_only",
+    "api_route": {
+      "fabric_api_authoritative": "http://10.99.0.10:9101",
+      "mesh_agent_03_route": "ok",
+      "agent_03_route": "ok",
+      "hostvds_agent_03_route": "blocked_target_node_unavailable",
+      "route_drift": "http://10.99.0.2:9101 lacks /v1/fabric/routes"
+    },
+    "disk": {
+      "mesh_agent_03_free_bytes": 52289089536,
+      "mesh_agent_03_total_bytes": 105590231040,
+      "classification": "pass"
+    },
+    "runner_status": {
+      "mesh_agent_03_active_task": null,
+      "capabilities": [
+        "generic_implementation",
+        "read_only_probe",
+        "remote_implementation_runner_ready",
+        "runner:codex",
+        "runner:mimo"
+      ],
+      "classification": "pass_via_node_card"
+    },
+    "github_auth_status": {
+      "execution_node_gh_present": false,
+      "classification": "blocked_github_cli_missing",
+      "secrets_printed": false
+    }
+  },
+  "blockers": [
+    {
+      "id": "B1",
+      "kind": "ssh_bootstrap_unreachable",
+      "evidence": "SSH to hostvds-agent-03 timed out before remote shell start.",
+      "next_action": "repair SSH reachability or document Fabric-only access"
+    },
+    {
+      "id": "B2",
+      "kind": "canonical_agent_03_stale",
+      "evidence": "agent-03 heartbeat is stale from 2026-06-30T11:56:41.761600+00:00.",
+      "next_action": "refresh canonical node heartbeat or retire alias"
+    },
+    {
+      "id": "B3",
+      "kind": "literal_hostvds_alias_unregistered",
+      "evidence": "Fabric route for hostvds-agent-03 returned HTTP 503 target_node_unavailable.",
+      "next_action": "register hostvds-agent-03 alias or dispatch to mesh-agent-03"
+    },
+    {
+      "id": "B4",
+      "kind": "github_cli_missing_on_execution_node",
+      "evidence": "ops/kolibri-dispatch doctor reports gh executable missing.",
+      "next_action": "run GitHub auth probe from an approved authenticated node or install approved gh tooling"
+    }
+  ],
+  "artifacts": [
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-25-hostvds-agent-03-readiness/PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-25-hostvds-agent-03-readiness/ACTIONS.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-25-hostvds-agent-03-readiness/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-25-hostvds-agent-03-readiness/READINESS_MATRIX.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-25-hostvds-agent-03-readiness/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-25-hostvds-agent-03-readiness/NEXT.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-25-hostvds-agent-03-readiness/REMOTE_RESULT.json"
+  ],
+  "forbidden_actions_confirmed_absent": [
+    "secrets_printed",
+    "product_code_modified",
+    "tests_modified",
+    "ci_modified",
+    "destructive_git_command",
+    "force_push",
+    "push_to_main",
+    "service_restart",
+    "credential_rotation"
+  ],
+  "next_exact_task": "P0_REPAIR_HOSTVDS_AGENT_03_ALIAS_AND_SSH_READINESS_2026_07_02",
+  "owner_summary_ru": "Проверка выполнена с серверного mesh-воркера mesh-agent-25, не с Mac. hostvds-agent-03 напрямую по SSH недоступен, а буквальный маршрут hostvds-agent-03 в Fabric API не зарегистрирован. Рабочий путь сейчас есть через mesh-agent-03: он онлайн, свободен, с нормальным диском и runner-capabilities codex/mimo. Нужно починить alias/heartbeat/SSH и отдельно проверить GitHub auth на узле с gh."
+}
