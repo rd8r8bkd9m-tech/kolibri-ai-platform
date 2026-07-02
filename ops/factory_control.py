@@ -173,6 +173,17 @@ MODEL_CATALOG = [
         "owned_by": "kolibri-fabric",
         "capabilities": ["chat", "responses"],
         "route": "safe_stub_until_model_node_authenticated",
+        "parameter_class": "remote_runner",
+        "data_policy": "no_secret_or_private_path_disclosure",
+    },
+    {
+        "id": "kolibri-10b-core",
+        "object": "model",
+        "owned_by": "kolibri-fabric",
+        "capabilities": ["chat", "responses", "local_llm", "reasoning"],
+        "route": "fabric_api_or_relay_after_model_node_authentication",
+        "parameter_class": "10b",
+        "data_policy": "local_or_private_fabric_only_no_training_by_default",
     }
 ]
 
@@ -436,6 +447,52 @@ def fleet_topology(nodes: list[dict[str, Any]]) -> dict[str, Any]:
         "nodes": nodes,
         "edges": edges,
         "relay_endpoint": "/v1/fabric/relay",
+    }
+
+
+def model_registry(registered_nodes: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    nodes = fabric_nodes(registered_nodes)
+    model_nodes = [
+        node
+        for node in nodes
+        if "model" in (node.get("capabilities") or []) or "model_node" in str(node.get("role") or "")
+    ]
+    online_model_nodes = [node for node in model_nodes if _node_online(node)]
+    fallback_nodes = [node["node_id"] for node in online_model_nodes]
+    node_status = {
+        node["node_id"]: {
+            "health": node.get("health", "unknown"),
+            "role": node.get("role", ""),
+            "capabilities": node.get("capabilities") or [],
+        }
+        for node in model_nodes
+    }
+
+    models = []
+    for model in MODEL_CATALOG:
+        entry = dict(model)
+        entry["status"] = "available" if online_model_nodes else "blocked"
+        entry["server_nodes"] = [node["node_id"] for node in model_nodes]
+        entry["fallback_nodes"] = fallback_nodes
+        entry["route_status"] = (
+            "model_node_candidate_available"
+            if online_model_nodes
+            else "blocked_until_model_node_registered"
+        )
+        entry["repair_task"] = "" if online_model_nodes else {
+            "kind": "repair_model_runtime_route",
+            "action": "register an online model-capable node heartbeat before enabling generation",
+            "required_capability": "model",
+        }
+        models.append(entry)
+
+    return {
+        "object": "list",
+        "data": models,
+        "model_nodes": node_status,
+        "model_route_available": bool(online_model_nodes),
+        "generation_enabled": False,
+        "generation_policy": "responses and chat completions remain safe stubs until model route authentication is enforced",
     }
 
 
@@ -957,10 +1014,16 @@ class Handler(BaseHTTPRequestHandler):
                 ))
                 return
             if path == "/v1/models":
+                registry = model_registry(registered_nodes())
                 response(self, 200, canonical_response_envelope(
                     status="completed",
                     route_used="/v1/models",
-                    data={"object": "list", "data": MODEL_CATALOG},
+                    data=registry,
+                    fallback_nodes=[
+                        node_id
+                        for model in registry["data"]
+                        for node_id in model.get("fallback_nodes", [])
+                    ],
                     next_action="model generation endpoints remain safe stubs until authenticated model routes are online",
                 ))
                 return

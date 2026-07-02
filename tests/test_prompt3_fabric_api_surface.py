@@ -69,6 +69,38 @@ def test_model_responses_and_chat_completions_are_safe_blocked_stubs():
         assert "9fts" in envelope["fallback_nodes"]
 
 
+def test_model_registry_exposes_10b_core_with_model_node_fallbacks():
+    control = load_control()
+    registry = control.model_registry([
+        {"node_id": "9fts", "health": "online", "capabilities": ["implementation", "model"]},
+        {"node_id": "uiap", "health": "offline", "capabilities": ["rag", "model"]},
+    ])
+    models = {model["id"]: model for model in registry["data"]}
+
+    assert registry["object"] == "list"
+    assert registry["model_route_available"] is True
+    assert registry["generation_enabled"] is False
+    assert {"mimo-auto", "kolibri-10b-core"} <= set(models)
+    assert models["kolibri-10b-core"]["parameter_class"] == "10b"
+    assert models["kolibri-10b-core"]["route_status"] == "model_node_candidate_available"
+    assert models["kolibri-10b-core"]["fallback_nodes"] == ["9fts"]
+    assert registry["model_nodes"]["uiap"]["health"] == "offline"
+
+
+def test_model_registry_blocks_generation_without_online_model_node():
+    control = load_control()
+    registry = control.model_registry([
+        {"node_id": "9fts", "health": "offline", "capabilities": ["implementation", "model"]},
+    ])
+
+    assert registry["generation_enabled"] is False
+    assert registry["model_route_available"] is False
+    for model in registry["data"]:
+        assert model["status"] == "blocked"
+        assert model["route_status"] == "blocked_until_model_node_registered"
+        assert model["repair_task"]["kind"] == "repair_model_runtime_route"
+
+
 def test_agents_aliases_normalize_envelope_and_artifacts():
     control = load_control()
     envelope = control.task_envelope_from_request({"task_id": "AGENT-1", "target_node": "9fts"})

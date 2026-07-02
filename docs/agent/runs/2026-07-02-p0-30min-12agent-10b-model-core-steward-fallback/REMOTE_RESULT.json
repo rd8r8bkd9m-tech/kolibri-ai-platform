@@ -1,0 +1,25 @@
+{
+  "task_id": "P0_30MIN_12AGENT_10B_MODEL_CORE_STEWARD_FALLBACK_2026_07_02",
+  "agent_display_name": "Михаил - Model Core Steward Fallback",
+  "status": "completed",
+  "summary": "Implemented a safe Fabric API model registry slice for kolibri-10b-core fallback visibility without enabling live generation.",
+  "changed_files": [
+    "ops/factory_control.py",
+    "tests/test_prompt3_fabric_api_surface.py",
+    "docs/agent/runs/2026-07-02-p0-30min-12agent-10b-model-core-steward-fallback/PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-30min-12agent-10b-model-core-steward-fallback/ACTIONS.md",
+    "docs/agent/runs/2026-07-02-p0-30min-12agent-10b-model-core-steward-fallback/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-30min-12agent-10b-model-core-steward-fallback/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-30min-12agent-10b-model-core-steward-fallback/NEXT.md",
+    "docs/agent/runs/2026-07-02-p0-30min-12agent-10b-model-core-steward-fallback/REMOTE_RESULT.json"
+  ],
+  "verification": [
+    "python3 -m py_compile ops/factory_control.py",
+    "python3 -m pytest tests/test_fabric_control.py tests/test_prompt3_fabric_api_surface.py -q",
+    "git diff --check"
+  ],
+  "risks": [
+    "The registry reports model-route candidates from heartbeat/capability metadata only; live model authentication and generation handoff remain intentionally disabled."
+  ],
+  "next_action": "Wire authenticated model-node health into registered node heartbeats before enabling /v1/responses or /v1/chat/completions."
+}
