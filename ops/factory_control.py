@@ -65,10 +65,7 @@ LEASE_REAPER_BATCH_LIMIT = int(os.environ.get("FACTORY_LEASE_REAPER_BATCH_LIMIT"
 LEASE_QUEUE_SCAN_LIMIT = int(os.environ.get("FACTORY_LEASE_QUEUE_SCAN_LIMIT", "100"))
 TASK_LIST_DEFAULT_LIMIT = int(os.environ.get("FACTORY_TASK_LIST_DEFAULT_LIMIT", "1000"))
 TASK_LIST_MAX_LIMIT = int(os.environ.get("FACTORY_TASK_LIST_MAX_LIMIT", "5000"))
-MAX_HTTP_WORKERS = int(os.environ.get("FACTORY_MAX_HTTP_WORKERS", "64"))
-HTTP_REQUEST_BACKLOG = int(os.environ.get("FACTORY_HTTP_REQUEST_BACKLOG", str(max(1024, MAX_HTTP_WORKERS * 32))))
 LEASE_EMPTY_RETRY_AFTER = float(os.environ.get("FACTORY_LEASE_EMPTY_RETRY_AFTER", "1.0"))
-LEASE_OVERLOAD_RETRY_AFTER = float(os.environ.get("FACTORY_LEASE_OVERLOAD_RETRY_AFTER", "5.0"))
 FABRIC_API_VERSION = "2026-07-01"
 CANONICAL_RESPONSE_STATUSES = {"completed", "running", "blocked", "failed", "partial"}
 FALLBACK_REASON_TAXONOMY = {
@@ -954,19 +951,6 @@ def lease_no_task_response(reason: str = "queue_empty") -> dict[str, Any]:
     }
 
 
-def lease_overload_response(reason: str = "worker_limit_reached") -> dict[str, Any]:
-    return {
-        "status": "overloaded",
-        "task": None,
-        "error": "control_plane_overloaded",
-        "reason": reason,
-        "detail": "request worker limit reached; retry with jittered backoff",
-        "retry_after_seconds": LEASE_OVERLOAD_RETRY_AFTER,
-        "lease_queue_scan_limit": LEASE_QUEUE_SCAN_LIMIT,
-        "max_http_workers": MAX_HTTP_WORKERS,
-    }
-
-
 def classify_lease_canary_response(status_code: int, body: dict[str, Any] | None = None) -> dict[str, Any]:
     if status_code == 0:
         return {
@@ -1032,47 +1016,6 @@ def read_body(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
     if not length:
         return {}
     return json.loads(handler.rfile.read(length).decode("utf-8"))
-
-
-class BoundedThreadingHTTPServer(ThreadingHTTPServer):
-    daemon_threads = True
-
-    def __init__(self, server_address: tuple[str, int], handler_class: type[BaseHTTPRequestHandler], max_workers: int = MAX_HTTP_WORKERS):
-        self.max_workers = max(1, max_workers)
-        self.request_queue_size = max(self.request_queue_size, self.max_workers, HTTP_REQUEST_BACKLOG)
-        super().__init__(server_address, handler_class)
-        self._worker_slots = threading.BoundedSemaphore(self.max_workers)
-
-    def process_request(self, request: Any, client_address: Any) -> None:
-        if not self._worker_slots.acquire(blocking=False):
-            self._send_overloaded(request)
-            self.shutdown_request(request)
-            return
-        try:
-            super().process_request(request, client_address)
-        except Exception:
-            self._worker_slots.release()
-            raise
-
-    def process_request_thread(self, request: Any, client_address: Any) -> None:
-        try:
-            super().process_request_thread(request, client_address)
-        finally:
-            self._worker_slots.release()
-
-    @staticmethod
-    def _send_overloaded(request: Any) -> None:
-        body = json.dumps(lease_overload_response()).encode("utf-8")
-        try:
-            request.sendall(
-                b"HTTP/1.1 503 Service Unavailable\r\n"
-                b"Content-Type: application/json\r\n"
-                + f"Content-Length: {len(body)}\r\nConnection: close\r\n\r\n".encode("ascii")
-                + body
-            )
-        except OSError as exc:
-            if not is_client_disconnect(exc):
-                raise
 
 
 def parse_owner_ids(value: str) -> set[int]:
@@ -1657,15 +1600,13 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--bind", default=os.environ.get("FACTORY_BIND", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=int(os.environ.get("FACTORY_PORT", "9101")))
-    parser.add_argument("--max-http-workers", type=int, default=MAX_HTTP_WORKERS)
     args = parser.parse_args()
-    server = BoundedThreadingHTTPServer((args.bind, args.port), Handler, max_workers=args.max_http_workers)
+    server = ThreadingHTTPServer((args.bind, args.port), Handler)
     print(json.dumps({
         "event": "factory_control_started",
         "bind": args.bind,
         "port": args.port,
         "namespace": NAMESPACE,
-        "max_http_workers": server.max_workers,
         "lease_queue_scan_limit": LEASE_QUEUE_SCAN_LIMIT,
         "lease_reaper_batch_limit": LEASE_REAPER_BATCH_LIMIT,
     }))

@@ -1,6 +1,5 @@
 import argparse
 import importlib.util
-import json
 from pathlib import Path
 
 
@@ -278,28 +277,11 @@ def test_response_write_broken_pipe_is_client_disconnect_not_500_loop():
         raise AssertionError("broken pipe must be classified as client disconnect")
 
 
-class CaptureRequest:
-    def __init__(self):
-        self.payload = b""
-
-    def sendall(self, payload):
-        self.payload += payload
-
-
-def test_overload_response_is_bounded_structured_json():
+def test_factory_control_does_not_install_runtime_503_worker_gate():
     control = load_control()
-    request = CaptureRequest()
 
-    control.BoundedThreadingHTTPServer._send_overloaded(request)
-    head, body = request.payload.split(b"\r\n\r\n", 1)
-
-    assert b"503 Service Unavailable" in head
-    assert b"Content-Type: application/json" in head
-    payload = json.loads(body.decode("utf-8"))
-    assert payload["status"] == "overloaded"
-    assert payload["task"] is None
-    assert payload["error"] == "control_plane_overloaded"
-    assert payload["retry_after_seconds"] >= 0
+    assert not hasattr(control, "BoundedThreadingHTTPServer")
+    assert not hasattr(control, "lease_overload_response")
 
 
 def test_lease_canary_classifier_fails_any_lease_5xx():
