@@ -1,5 +1,48 @@
 # Superfactory Tasks
 
+## P0: Federated Fractal Control Plane
+
+Status: law drafted on 2026-07-02; remote implementation tasks required.
+
+Goal: make Kolibri AI grow as a federated fractal factory where the Mac is only
+a thin command/audit terminal and remote Control Plane cells do the work.
+
+Required docs:
+
+- `FEDERATED_FRACTAL_CONTROL_PLANE.md`
+- `CONTROL_PLANE_UNIFICATION_PROGRAM.md`
+- `DIRECTOR_OPERATING_CHARTER.md`
+- `SCOPED_CONTEXT_AND_ACCESS_DELEGATION.md`
+- `TOKEN_WINDOW_BUDGET_POLICY.md`
+
+Required behavior:
+
+1. Scale horizontally through worker cells, pools and queue shards.
+2. Scale vertically through parent/child Control Plane reducers.
+3. Scale upward through federated regional/domain controllers.
+4. Keep all task execution remote-first through Fabric API.
+5. Use local subagents only for local Mac inspection or UI/browser work.
+6. Merge all Control Plane branches and live runtime drift into one trunk.
+7. Every runtime hotfix becomes a tested git commit and deployment canary.
+8. Director asks owner only for budget, credentials, destructive changes,
+   production-risk approvals and Telegram receiver changes.
+9. Remote agents get only scoped grants, never full Mac/session/secret access.
+10. Local token use is governed by a 5-hour 100% window with green/yellow/
+    orange/red bands and remote-first conservation.
+
+Next tasks:
+
+- `P0_FRACTAL_CONTROL_PLANE_FOUNDATION_2026_07_02`
+- `P0_CONTROL_PLANE_UNIFIED_TRUNK_INTEGRATION_2026_07_02`
+- `P0_CONTROL_PLANE_FEDERATION_REGISTRY_CONTRACT_2026_07_02`
+- `P0_DIRECTOR_SCOPED_GRANTS_AND_TOKEN_WINDOW_CONTROL_2026_07_02`
+
+Active dispatch:
+
+- `P0_DIRECTOR_SCOPED_GRANTS_AND_TOKEN_WINDOW_CONTROL_2026_07_02` submitted
+  to primary and standby Control Plane on 2026-07-02; current state observed:
+  `queued`.
+
 ## P0: Unified OpenAI-Compatible Fabric API
 
 Status: contract pack created on 2026-07-02; production canary still failing on
