@@ -4,6 +4,18 @@ Snapshot time:
 - 2026-07-01T09:15:43Z
 
 Latest update:
+- 2026-07-02T03:00:00Z:
+  `P0_AUTOPILOT_EXTRA_35_HOME_WALLBOARD_RUSSIAN_STATUS_2026_07_02`
+  completed as a docs-only remote status reporting plan on server node
+  `kolibri` by `Ольга — Documentation Curator`. It defines the Home
+  wallboard Russian owner-facing contract for visible tasks, active agents,
+  blockers, artifacts, and the single next exact action. Product/UI code was
+  not modified; Mac-local product edits were not performed; no secrets,
+  service restarts, force push, or push to `main` occurred. Canonical artifacts:
+  `docs/agent/runs/2026-07-02-p0-autopilot-extra-35-home-wallboard-russian-status/`.
+  Current blocker is policy-only: product implementation requires a PR-scoped
+  task. Next exact task:
+  `P0_HOME_WALLBOARD_RUSSIAN_STATUS_PR_IMPLEMENTATION_2026_07_02`.
 - 2026-07-01T15:58:10Z:
   START command executed by Mac dispatcher as task submission only. Control
   Plane accepted four P0 factory tasks:

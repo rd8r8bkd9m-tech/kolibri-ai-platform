@@ -1,0 +1,40 @@
+{
+  "task_id": "P0_AUTOPILOT_EXTRA_35_HOME_WALLBOARD_RUSSIAN_STATUS_2026_07_02",
+  "status": "completed_docs_only",
+  "node": "kolibri",
+  "agent_name": "Ольга — Documentation Curator",
+  "artifact_dir": "docs/agent/runs/2026-07-02-p0-autopilot-extra-35-home-wallboard-russian-status",
+  "changed_files": [
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-35-home-wallboard-russian-status/PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-35-home-wallboard-russian-status/ACTIONS.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-35-home-wallboard-russian-status/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-35-home-wallboard-russian-status/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-35-home-wallboard-russian-status/NEXT.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-35-home-wallboard-russian-status/WALLBOARD_RU_STATUS_PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-35-home-wallboard-russian-status/REMOTE_RESULT.json"
+  ],
+  "product_code_changed": false,
+  "mac_local_product_edit": false,
+  "secrets_printed": false,
+  "destructive_git_commands_used": false,
+  "force_push_attempted": false,
+  "push_to_main_attempted": false,
+  "blockers": [
+    {
+      "blocker": "product implementation requires a PR-scoped task",
+      "severity": "policy",
+      "next_action": "P0_HOME_WALLBOARD_RUSSIAN_STATUS_PR_IMPLEMENTATION_2026_07_02"
+    }
+  ],
+  "artifacts": [
+    "PLAN.md",
+    "ACTIONS.md",
+    "TESTS.md",
+    "RESULT.md",
+    "NEXT.md",
+    "WALLBOARD_RU_STATUS_PLAN.md",
+    "REMOTE_RESULT.json"
+  ],
+  "next_exact_task": "P0_HOME_WALLBOARD_RUSSIAN_STATUS_PR_IMPLEMENTATION_2026_07_02",
+  "owner_summary_ru": "Подготовлен русский контракт статуса для Home-wallboard: видимые задачи, активные агенты, блокеры и одно следующее точное действие. Код продукта не изменялся; реализация UI должна идти отдельной PR-задачей."
+}
