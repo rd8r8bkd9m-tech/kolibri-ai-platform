@@ -1,0 +1,45 @@
+{
+  "agent_name": "agent-host-mesh-agent-21",
+  "artifacts": [
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-21-reserve242-readiness/PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-21-reserve242-readiness/ACTIONS.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-21-reserve242-readiness/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-21-reserve242-readiness/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-21-reserve242-readiness/NEXT.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-21-reserve242-readiness/REMOTE_RESULT.json"
+  ],
+  "blockers": [
+    "reserve242 canonical card is stale",
+    "mesh-reserve242 is degraded and target_node_unavailable",
+    "direct listener http://31.57.26.242:9101/health refused connection",
+    "resource telemetry is missing for CPU, disk and RAM on mesh-reserve242",
+    "advertised /v1/nodes/reserve242 detail route returned 404",
+    "primary control listener 10.99.0.2 lacks Fabric/fleet/model aliases"
+  ],
+  "capacity": {
+    "classification": "unknown_unusable_for_workload",
+    "cpu": null,
+    "disk": null,
+    "ram": null
+  },
+  "fallback_route": {
+    "can_continue_elsewhere": true,
+    "control_url": "http://10.99.0.10:9101",
+    "relay_endpoint": "/v1/fabric/relay"
+  },
+  "next_exact_task": "P0_REPAIR_RESERVE242_AGENT_HOST_AND_FABRIC_ROUTE_2026_07_02",
+  "node": "mesh-agent-21",
+  "owner_summary_ru": "reserve242 сейчас не готов к работе. Узел виден в Fabric API через fallback 10.99.0.10, но реальный mesh-узел mesh-reserve242 деградировал: нет свежего heartbeat, нет CPU/RAM/disk телеметрии, прямой порт 9101 не отвечает, а route probe для mesh-узла возвращает target_node_unavailable. Работу надо продолжать через свежие fallback-узлы, а для reserve242 запустить отдельную repair-задачу на восстановление Agent Host heartbeat, Fabric listener и resource telemetry.",
+  "readiness": {
+    "classification": "blocked_degraded_not_ready",
+    "canonical_card": "discoverable_but_stale",
+    "mesh_shadow": "degraded_unavailable"
+  },
+  "remote_execution": {
+    "active_task": "P0_AUTOPILOT_EXTRA_21_RESERVE242_READINESS_2026_07_02",
+    "hostname": "kolibri",
+    "worker": "mesh-agent-21"
+  },
+  "status": "blocked_degraded_not_ready",
+  "target": "reserve242"
+}
