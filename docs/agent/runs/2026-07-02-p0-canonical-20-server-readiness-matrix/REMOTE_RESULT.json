@@ -1,0 +1,29 @@
+{
+  "task_id": "P0_CANONICAL_20_SERVER_READINESS_MATRIX_2026_07_02",
+  "status": "completed",
+  "lease_owner": "autonomous_engineer",
+  "execution_host": "kolibri",
+  "execution_context": "server_agent_host_not_mac",
+  "artifacts": [
+    "docs/agent/runs/2026-07-02-p0-canonical-20-server-readiness-matrix/PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-canonical-20-server-readiness-matrix/ACTIONS.md",
+    "docs/agent/runs/2026-07-02-p0-canonical-20-server-readiness-matrix/CANONICAL_20_SERVER_READINESS_MATRIX.md",
+    "docs/agent/runs/2026-07-02-p0-canonical-20-server-readiness-matrix/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-canonical-20-server-readiness-matrix/NEXT.md",
+    "docs/agent/runs/2026-07-02-p0-canonical-20-server-readiness-matrix/RESULT.md"
+  ],
+  "classification_counts": {
+    "ready": 10,
+    "partial": 5,
+    "repair": 1,
+    "offline-route": 4
+  },
+  "blockers": [
+    "node_local_provider_auth_smoke_not_run_read_only_task",
+    "primary_heartbeat_stale",
+    "offline_route_servers_missing_live_agent_host",
+    "low_memory_on_main_qjns_9fts",
+    "agent_01_to_09_share_physical_host_capacity"
+  ],
+  "next_action": "route immediate implementation work to agent-08 or agent-09 only if shared-host 50 percent capacity governor permits; schedule primary/qjns/offline-route repair tasks"
+}
