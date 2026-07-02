@@ -9,6 +9,7 @@ client so it can run next to the legacy control plane without adding packages.
 from __future__ import annotations
 
 import argparse
+import errno
 import json
 import os
 import socket
@@ -65,6 +66,8 @@ LEASE_QUEUE_SCAN_LIMIT = int(os.environ.get("FACTORY_LEASE_QUEUE_SCAN_LIMIT", "1
 TASK_LIST_DEFAULT_LIMIT = int(os.environ.get("FACTORY_TASK_LIST_DEFAULT_LIMIT", "1000"))
 TASK_LIST_MAX_LIMIT = int(os.environ.get("FACTORY_TASK_LIST_MAX_LIMIT", "5000"))
 MAX_HTTP_WORKERS = int(os.environ.get("FACTORY_MAX_HTTP_WORKERS", "64"))
+LEASE_EMPTY_RETRY_AFTER = float(os.environ.get("FACTORY_LEASE_EMPTY_RETRY_AFTER", "1.0"))
+LEASE_OVERLOAD_RETRY_AFTER = float(os.environ.get("FACTORY_LEASE_OVERLOAD_RETRY_AFTER", "5.0"))
 FABRIC_API_VERSION = "2026-07-01"
 CANONICAL_RESPONSE_STATUSES = {"completed", "running", "blocked", "failed", "partial"}
 FALLBACK_REASON_TAXONOMY = {
@@ -95,6 +98,10 @@ STATE_RETRY = "retry_scheduled"
 STATE_DEAD = "dead_letter"
 TERMINAL_STATES = {STATE_COMPLETED, STATE_FAILED, STATE_CANCELLED, STATE_DEAD}
 BLOCKED_RUNNER_STATES = {"blocked", "degraded", "runner_auth_blocked", "unavailable"}
+
+
+class ClientDisconnected(Exception):
+    pass
 
 FABRIC_NODE_CATALOG = {
     "home": {
@@ -881,11 +888,65 @@ def create_review_task(source_task: dict[str, Any], result: dict[str, Any]) -> d
 
 def response(handler: BaseHTTPRequestHandler, status: int, body: Any) -> None:
     payload = json.dumps(body, indent=2, sort_keys=True).encode("utf-8")
-    handler.send_response(status)
-    handler.send_header("Content-Type", "application/json")
-    handler.send_header("Content-Length", str(len(payload)))
-    handler.end_headers()
-    handler.wfile.write(payload)
+    try:
+        handler.send_response(status)
+        handler.send_header("Content-Type", "application/json")
+        handler.send_header("Content-Length", str(len(payload)))
+        handler.end_headers()
+        handler.wfile.write(payload)
+    except OSError as exc:
+        if is_client_disconnect(exc):
+            raise ClientDisconnected() from None
+        raise
+
+
+def is_client_disconnect(exc: OSError) -> bool:
+    disconnect_errnos = {errno.EPIPE, errno.ECONNRESET, errno.ECONNABORTED}
+    return isinstance(exc, (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)) or exc.errno in disconnect_errnos
+
+
+def lease_no_task_response(reason: str = "queue_empty") -> dict[str, Any]:
+    return {
+        "status": "no_task",
+        "task": None,
+        "reason": reason,
+        "detail": "no compatible task is currently available; retry with jittered backoff",
+        "retry_after_seconds": LEASE_EMPTY_RETRY_AFTER,
+        "lease_queue_scan_limit": LEASE_QUEUE_SCAN_LIMIT,
+    }
+
+
+def lease_overload_response(reason: str = "worker_limit_reached") -> dict[str, Any]:
+    return {
+        "status": "overloaded",
+        "task": None,
+        "error": "control_plane_overloaded",
+        "reason": reason,
+        "detail": "request worker limit reached; retry with jittered backoff",
+        "retry_after_seconds": LEASE_OVERLOAD_RETRY_AFTER,
+        "lease_queue_scan_limit": LEASE_QUEUE_SCAN_LIMIT,
+        "max_http_workers": MAX_HTTP_WORKERS,
+    }
+
+
+def classify_lease_canary_response(status_code: int, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    if 500 <= status_code <= 599:
+        return {
+            "status": "failed",
+            "route": "/v1/tasks/lease",
+            "reason": "lease_5xx",
+            "http_status": status_code,
+        }
+    if status_code == 200 and body and body.get("status") in {"no_task", "overloaded"}:
+        return {
+            "status": "passed" if body.get("status") == "no_task" else "blocked",
+            "route": "/v1/tasks/lease",
+            "reason": body.get("status"),
+            "http_status": status_code,
+        }
+    if status_code in {200, 204}:
+        return {"status": "passed", "route": "/v1/tasks/lease", "http_status": status_code}
+    return {"status": "failed", "route": "/v1/tasks/lease", "reason": "unexpected_status", "http_status": status_code}
 
 
 def read_body(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
@@ -923,10 +984,7 @@ class BoundedThreadingHTTPServer(ThreadingHTTPServer):
 
     @staticmethod
     def _send_overloaded(request: Any) -> None:
-        body = json.dumps({
-            "error": "control_plane_overloaded",
-            "detail": "request worker limit reached; retry with jittered backoff",
-        }).encode("utf-8")
+        body = json.dumps(lease_overload_response()).encode("utf-8")
         try:
             request.sendall(
                 b"HTTP/1.1 503 Service Unavailable\r\n"
@@ -934,8 +992,9 @@ class BoundedThreadingHTTPServer(ThreadingHTTPServer):
                 + f"Content-Length: {len(body)}\r\nConnection: close\r\n\r\n".encode("ascii")
                 + body
             )
-        except OSError:
-            pass
+        except OSError as exc:
+            if not is_client_disconnect(exc):
+                raise
 
 
 def parse_owner_ids(value: str) -> set[int]:
@@ -1233,8 +1292,13 @@ class Handler(BaseHTTPRequestHandler):
                 response(self, 200 if task else 404, envelope)
                 return
             response(self, 404, {"error": "not_found", "path": path})
+        except ClientDisconnected:
+            return
         except Exception as exc:  # pragma: no cover - surfaced in runtime logs
-            response(self, 500, {"error": "control_plane_error", "detail": str(exc)})
+            try:
+                response(self, 500, {"error": "control_plane_error", "detail": str(exc)})
+            except ClientDisconnected:
+                return
 
     def do_POST(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
@@ -1369,7 +1433,7 @@ class Handler(BaseHTTPRequestHandler):
                 maybe_requeue_expired_leases()
                 node_id = body["node_id"]
                 if redis.command("GET", drain_key(node_id)):
-                    response(self, 204, {})
+                    response(self, 200, lease_no_task_response("node_draining"))
                     return
                 capabilities = body.get("capabilities", [])
                 agent_id = body.get("agent_id", node_id)
@@ -1381,7 +1445,7 @@ class Handler(BaseHTTPRequestHandler):
                 if task:
                     response(self, 200, task)
                     return
-                response(self, 204, {})
+                response(self, 200, lease_no_task_response())
                 return
             if path.startswith("/v1/tasks/") and path.endswith("/heartbeat"):
                 task_id = path.split("/")[3]
@@ -1502,8 +1566,13 @@ class Handler(BaseHTTPRequestHandler):
                 ))
                 return
             response(self, 404, {"error": "not_found", "path": path})
+        except ClientDisconnected:
+            return
         except Exception as exc:  # pragma: no cover - surfaced in runtime logs
-            response(self, 500, {"error": "control_plane_error", "detail": str(exc)})
+            try:
+                response(self, 500, {"error": "control_plane_error", "detail": str(exc)})
+            except ClientDisconnected:
+                return
 
 
 def main() -> int:
