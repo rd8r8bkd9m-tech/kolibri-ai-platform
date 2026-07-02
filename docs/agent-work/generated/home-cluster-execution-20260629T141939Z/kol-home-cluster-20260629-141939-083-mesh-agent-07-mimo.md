@@ -39,8 +39,11 @@ This slot did not identify an obviously safe product-code delta inside the reque
   - Adds the slot-3 PR/CI sync artifact for the `20260629T141939Z` home-cluster execution batch.
   - No product code or runtime configuration changes.
   - Verification is limited to repository/documentation checks and git hygiene.
-- Commit evidence: to be filled by the publishing step after commit creation.
-- PR URL: not available at artifact creation time; branch publication may require GitHub push credentials on the publishing node.
+- Commit evidence: `f300fa6fe99a7f56c55ac1b3036828d250f2f72d`
+- Push evidence: branch pushed to `origin/codex/kol-home-cluster-20260629-141939-083-mesh-agent-07-mimo` and set as upstream.
+- PR creation URL:
+  `https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/new/codex/kol-home-cluster-20260629-141939-083-mesh-agent-07-mimo`
+- PR URL: not created from this worker because `gh` is not installed in the lease environment.
 
 ## CI Checks To Run
 
@@ -96,7 +99,7 @@ Observed results:
 ## Risks
 
 - No direct Telegram Bot API write was attempted from this worker because the task forbids reading or printing secrets, and no safe preconfigured Telegram send contract was discovered in the repository scope during this artifact-only pass.
-- PR URL and GitHub Actions evidence cannot exist until the branch is pushed and a PR is opened or updated.
+- GitHub Actions evidence cannot exist until a PR is opened or updated from the pushed branch.
 - The focused pytest command is a representative repository contract check for a docs-only delta; it is not a full-suite replacement.
 - If another agent publishes a broader batch PR first, this artifact should be included there instead of creating a competing docs-only PR.
 
