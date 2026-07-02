@@ -1,0 +1,25 @@
+{
+  "task_id": "P0_30MIN_MESH_AGENT_01_RELEASE_QUEUE_ACCELERATOR_2026_07_02",
+  "node": "mesh-agent-01",
+  "status": "completed_accelerated_exit_ready",
+  "main_sha": "f7ac32c70406432a52752ca45d87e35d9f1facd3",
+  "pull_refs_visible": 73,
+  "known_merged_or_superseded_refs": [83, 85, 88, 89, 91, 92, 95, 96, 97, 98],
+  "priority_metadata_required_refs": [100, 101, 102, 103, 104],
+  "mutations": {
+    "github_prs": false,
+    "main": false,
+    "services": false,
+    "telegram": false,
+    "credentials": false
+  },
+  "artifacts": [
+    "docs/agent/runs/2026-07-02-p0-30min-mesh-agent-01-release-queue-accelerator/PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-30min-mesh-agent-01-release-queue-accelerator/ACTIONS.md",
+    "docs/agent/runs/2026-07-02-p0-30min-mesh-agent-01-release-queue-accelerator/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-30min-mesh-agent-01-release-queue-accelerator/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-30min-mesh-agent-01-release-queue-accelerator/NEXT.md",
+    "docs/agent/runs/2026-07-02-p0-30min-mesh-agent-01-release-queue-accelerator/PR_REF_ACCELERATOR_MATRIX.md",
+    "docs/agent/runs/2026-07-02-p0-30min-mesh-agent-01-release-queue-accelerator/RELEASE_QUEUE_EXIT_PLAN.md"
+  ]
+}
