@@ -88,6 +88,7 @@ STATE_RETRY = "retry_scheduled"
 STATE_DEAD = "dead_letter"
 TERMINAL_STATES = {STATE_COMPLETED, STATE_FAILED, STATE_CANCELLED, STATE_DEAD}
 BLOCKED_RUNNER_STATES = {"blocked", "degraded", "runner_auth_blocked", "unavailable"}
+DEFAULT_MIMO_TASK_KINDS = {"owner_remote_task", "direct_mimo", "mimo_direct", "mimo_task"}
 
 FABRIC_NODE_CATALOG = {
     "home": {
@@ -671,6 +672,29 @@ def runner_state(node: dict[str, Any], runner: str) -> str | None:
     return None
 
 
+def task_envelope_value(task: dict[str, Any], *names: str, default: Any = None) -> Any:
+    envelope = task.get("envelope") if isinstance(task.get("envelope"), dict) else {}
+    for name in names:
+        value = task.get(name)
+        if value not in (None, "", []):
+            return value
+        value = envelope.get(name)
+        if value not in (None, "", []):
+            return value
+    return default
+
+
+def effective_task_runner(task: dict[str, Any]) -> str | None:
+    runner = task_envelope_value(task, "runner")
+    kind = str(task_envelope_value(task, "kind", default=task.get("kind") or "") or "").strip().lower()
+    if runner is None and kind in DEFAULT_MIMO_TASK_KINDS:
+        runner = "mimo"
+    if runner is None:
+        return None
+    normalized = str(runner).strip().lower()
+    return normalized or None
+
+
 def mark_node_runner_failure(task: dict[str, Any], body: dict[str, Any]) -> None:
     error_type = body.get("error_type")
     if error_type not in {"runner_auth_blocked", "runner_unavailable"}:
@@ -696,25 +720,24 @@ def mark_node_runner_failure(task: dict[str, Any], body: dict[str, Any]) -> None
 
 
 def compatible(task: dict[str, Any], node_id: str, capabilities: list[str], node: dict[str, Any] | None = None) -> bool:
-    envelope = task.get("envelope", {})
-    target_node = envelope.get("target_node") or envelope.get("required_node")
+    target_node = task_envelope_value(task, "target_node", "required_node")
     if target_node and target_node != node_id:
         return False
-    allowed = envelope.get("allowed_nodes")
+    allowed = task_envelope_value(task, "allowed_nodes")
     if allowed and node_id not in allowed:
         return False
-    avoided = set(str(item) for item in ensure_list(envelope.get("avoid_nodes") or envelope.get("avoided_nodes")))
+    avoided = set(str(item) for item in ensure_list(task_envelope_value(task, "avoid_nodes", "avoided_nodes")))
     if node_id in avoided:
         return False
-    required = envelope.get("required_capability")
+    required = task_envelope_value(task, "required_capability")
     if required and required not in capabilities:
         return False
-    runner = str(envelope.get("runner") or "").strip().lower()
-    if envelope.get("kind") == "owner_remote_task" and runner:
-        if not runner_capability_names(runner).intersection(set(capabilities)):
-            return False
+    runner = effective_task_runner(task)
+    if runner:
         node_state = runner_state(node or {}, runner)
         if node_state in BLOCKED_RUNNER_STATES:
+            return False
+        if not runner_capability_names(runner).intersection(set(capabilities)):
             return False
     return True
 

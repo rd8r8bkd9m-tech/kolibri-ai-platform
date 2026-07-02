@@ -137,3 +137,65 @@ def test_control_plane_runner_compatibility_filters_blocked_and_avoided_nodes():
         ["generic_implementation", "runner:mimo"],
         {"runners": {"mimo": {"status": "available"}}},
     ) is False
+
+
+def test_owner_remote_task_without_runner_still_requires_default_mimo_runner():
+    control = load_module(ROOT / "ops" / "factory_control.py")
+    task = control.normalize_task({
+        "kind": "owner_remote_task",
+        "required_capability": "generic_implementation",
+    })
+
+    assert control.effective_task_runner(task) == "mimo"
+    assert control.compatible(
+        task,
+        "mimo-node",
+        ["generic_implementation", "runner:mimo"],
+        {"runners": {"mimo": {"status": "available"}}},
+    ) is True
+    assert control.compatible(
+        task,
+        "generic-only",
+        ["generic_implementation"],
+        {"runners": {}},
+    ) is False
+
+
+def test_runner_status_available_without_capability_does_not_satisfy_runner_route():
+    control = load_module(ROOT / "ops" / "factory_control.py")
+    task = control.normalize_task({
+        "kind": "owner_remote_task",
+        "runner": "codex",
+        "required_capability": "generic_implementation",
+    })
+
+    assert control.compatible(
+        task,
+        "runner-status-node",
+        ["generic_implementation"],
+        {"runners": {"codex": {"status": "available"}}},
+    ) is False
+
+
+def test_target_node_mimo_pool_task_only_leases_to_selected_pool_backing_node():
+    control = load_module(ROOT / "ops" / "factory_control.py")
+    task = control.normalize_task({
+        "kind": "owner_remote_task",
+        "runner": "codex",
+        "required_capability": "generic_implementation",
+        "target_node": "mesh-agent-20",
+        "target_pool": ["mesh-agent-20-mimo-pool-01"],
+    })
+
+    assert control.compatible(
+        task,
+        "mesh-agent-20",
+        ["generic_implementation", "runner:codex"],
+        {"runners": {"codex": {"status": "available"}}},
+    ) is True
+    assert control.compatible(
+        task,
+        "mesh-agent-14",
+        ["generic_implementation", "runner:codex"],
+        {"runners": {"codex": {"status": "available"}}},
+    ) is False
