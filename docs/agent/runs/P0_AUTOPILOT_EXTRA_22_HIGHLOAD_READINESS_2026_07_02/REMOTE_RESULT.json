@@ -1,0 +1,93 @@
+{
+  "task_id": "P0_AUTOPILOT_EXTRA_22_HIGHLOAD_READINESS_2026_07_02",
+  "status": "blocked_repair_required",
+  "node": "mesh-agent-22",
+  "agent_name": "Роман - Highload Readiness",
+  "target": "hostvds-highload",
+  "target_control_plane_nodes": ["highload", "mesh-highload"],
+  "remote_execution": {
+    "happened": true,
+    "lease_owner": "mesh-agent-22:agent-host-mesh-agent-22",
+    "worktree": "/var/lib/kolibri-agent/logical-workers/mesh-agent-22/worktrees/P0_AUTOPILOT_EXTRA_22_HIGHLOAD_READINESS_2026_07_02/P0_AUTOPILOT_EXTRA_22_HIGHLOAD_READINESS_2026_07_02-attempt-1/repo"
+  },
+  "readiness": {
+    "classification": "not_ready",
+    "safe_current_capacity": 0,
+    "highload": {
+      "health": "stale",
+      "fresh": false,
+      "heartbeat_at": "2026-06-30T11:56:42.958625+00:00",
+      "heartbeat_age_seconds_observed": 140441.229768,
+      "capabilities_from_stale_card": [
+        "read_only_probe",
+        "implementation",
+        "generic_implementation",
+        "remote_implementation_runner_ready",
+        "permission:*"
+      ]
+    },
+    "mesh_highload": {
+      "health": "stale",
+      "fresh": false,
+      "heartbeat_at": "2026-07-01T10:54:13.716643+00:00",
+      "heartbeat_age_seconds_observed": 57790.47175,
+      "mesh_ip": "45.38.139.182",
+      "mesh_last_seen": "2026-06-28T20:17:16.747596256Z",
+      "cpu": null,
+      "ram": null,
+      "disk": null
+    }
+  },
+  "api_probe": {
+    "control_plane_health": "ok",
+    "node_inventory_route": "/v1/nodes",
+    "route_surface_blockers": [
+      {"endpoint": "GET /v1/fleet/route", "status": 404},
+      {"endpoint": "GET /v1/fabric/routes", "status": 404},
+      {"endpoint": "POST /v1/fabric/route", "status": 404},
+      {"endpoint": "POST /v1/fabric/relay", "status": 404},
+      {"endpoint": "POST /v1/agents/tasks", "status": 404}
+    ]
+  },
+  "queued_highload_tasks": [
+    {
+      "task_id": "KOL-CLUSTER-CHECK-mesh-highload-20260630",
+      "state": "queued",
+      "lease_owner": null
+    },
+    {
+      "task_id": "KOL-CLUSTER-NODE-highload-CHK-20260630",
+      "state": "queued",
+      "lease_owner": null
+    },
+    {
+      "task_id": "KOL-HOME-CLUSTER-20260629-141939-111-MESH_HIGHLOAD-MIMO",
+      "state": "queued",
+      "lease_owner": null
+    }
+  ],
+  "blockers": [
+    "agent_host_down",
+    "api_unreachable",
+    "mesh_stale",
+    "capacity_unknown"
+  ],
+  "fallback_nodes": [
+    "home",
+    "home-live",
+    "main",
+    "primary-candidate",
+    "fresh mesh-agent workers"
+  ],
+  "artifacts": [
+    "docs/agent/runs/P0_AUTOPILOT_EXTRA_22_HIGHLOAD_READINESS_2026_07_02/PLAN.md",
+    "docs/agent/runs/P0_AUTOPILOT_EXTRA_22_HIGHLOAD_READINESS_2026_07_02/ACTIONS.md",
+    "docs/agent/runs/P0_AUTOPILOT_EXTRA_22_HIGHLOAD_READINESS_2026_07_02/TESTS.md",
+    "docs/agent/runs/P0_AUTOPILOT_EXTRA_22_HIGHLOAD_READINESS_2026_07_02/RESULT.md",
+    "docs/agent/runs/P0_AUTOPILOT_EXTRA_22_HIGHLOAD_READINESS_2026_07_02/NEXT.md",
+    "docs/agent/runs/P0_AUTOPILOT_EXTRA_22_HIGHLOAD_READINESS_2026_07_02/REMOTE_RESULT.json"
+  ],
+  "next_exact_task": "P0_REPAIR_HOSTVDS_HIGHLOAD_AGENT_HOST_AND_ROUTE_SURFACE_2026_07_02",
+  "owner_summary_ru": "hostvds-highload сейчас не готов к нагрузке: карточки highload и mesh-highload устарели, живой Agent Host не забирает задачи, телеметрии CPU/RAM/disk нет, старые задачи highload стоят в очереди без lease owner. Текущая безопасная емкость: 0. Следующая задача: P0_REPAIR_HOSTVDS_HIGHLOAD_AGENT_HOST_AND_ROUTE_SURFACE_2026_07_02."
+}
+
