@@ -139,6 +139,14 @@ def test_direct_mimo_http_401_is_runner_auth_failed_without_prompt_leak(tmp_path
     fail_body = fail_posts[0][1]
     assert fail_body["error_type"] == "runner_auth_failed"
     assert fail_body["retry"] is False
+    fallback = fail_body["result"]["fallback_contract"]
+    assert fallback["fallback_required"] is True
+    assert fallback["fallback_allowed"] is True
+    assert fallback["fallback_reason"] == "runner_auth_failed"
+    assert fallback["failed_node_id"] == "primary-candidate"
+    assert fallback["requested_runner"] == "mimo"
+    assert fallback["required_capability"] == "runner:mimo"
+    assert fallback["failed_runner_status"]["status"] == "blocked"
     service_payload = json.dumps(fail_body, ensure_ascii=False)
     assert secret_prompt not in service_payload
     assert "HTTP 401" in service_payload
@@ -179,6 +187,12 @@ def test_direct_mimo_http_403_illegal_access_is_policy_blocked_without_prompt_le
     fail_body = fail_posts[0][1]
     assert fail_body["error_type"] == "runner_policy_blocked"
     assert fail_body["retry"] is False
+    fallback = fail_body["result"]["fallback_contract"]
+    assert fallback["fallback_required"] is True
+    assert fallback["fallback_reason"] == "runner_policy_blocked"
+    assert fallback["requested_runner"] == "mimo"
+    assert fallback["required_capability"] == "runner:mimo"
+    assert fallback["failed_runner_status"]["error_type"] == "runner_policy_blocked"
     service_payload = json.dumps(fail_body, ensure_ascii=False)
     assert secret_prompt not in service_payload
     assert "illegal_access" in service_payload

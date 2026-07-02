@@ -325,6 +325,29 @@ def runner_capability(runner: str) -> str:
     return f"runner:{runner}"
 
 
+def runner_fallback_contract(
+    runner: str,
+    error_type: str,
+    node_id: str,
+    runner_status: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    state = (runner_status or {}).get(runner) or {}
+    return {
+        "fallback_required": True,
+        "fallback_allowed": True,
+        "fallback_reason": error_type,
+        "failed_node_id": node_id,
+        "requested_runner": runner,
+        "required_capability": runner_capability(runner),
+        "failed_runner_status": {
+            key: state.get(key)
+            for key in ("status", "error_type", "checked_at", "updated_at")
+            if key in state
+        },
+        "next_action": f"route to another online node with {runner_capability(runner)} or repair {runner} on {node_id}",
+    }
+
+
 def redact_sensitive_text(text: str) -> str:
     redacted_lines: list[str] = []
     for line in text.splitlines():
@@ -2384,9 +2407,17 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
             if isinstance(exc, RunnerExecutionError):
                 error_type = exc.error_type
                 retry = bool(getattr(exc, "retry", False))
+                runner_state = "unavailable" if exc.error_type == "runner_unavailable" else "blocked"
+                self.mark_runner_status(exc.runner, runner_state, exc.error_type)
                 result["status"] = "blocked"
                 result["blocked_reason"] = exc.error_type
                 result["failure_reason"] = redact_sensitive_text(str(exc))
+                result["fallback_contract"] = runner_fallback_contract(
+                    exc.runner,
+                    exc.error_type,
+                    self.node_id,
+                    self.runner_status,
+                )
                 result["next_recommended_task"] = (
                     f"repair {exc.runner} auth on this node or route to another online node with {runner_capability(exc.runner)}"
                     if exc.error_type in {"runner_auth_blocked", "runner_auth_failed", "runner_access_denied", "runner_policy_blocked"}

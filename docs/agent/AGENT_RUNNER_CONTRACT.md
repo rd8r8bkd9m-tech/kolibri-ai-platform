@@ -222,6 +222,28 @@ Unsupported task kinds or required capabilities must return a structured
 `blocked` result. The Agent Host must not fall back to arbitrary execution and
 must not modify product code for an unsupported task.
 
+## Runner Fallback Evidence
+
+When a requested runner cannot execute on the leased node because the runner is
+unavailable, blocked by auth, denied by access policy, or rejected by runner
+policy, the Agent Host must not silently switch to another runner. The task must
+return a blocked result with `runner` set to the requested runner and a
+`fallback_contract` object containing only routing metadata:
+
+- `fallback_required: true`
+- `fallback_allowed: true`
+- `fallback_reason`
+- `failed_node_id`
+- `requested_runner`
+- `required_capability`
+- `failed_runner_status`
+- `next_action`
+
+The `fallback_contract` must not include prompts, tokens, command output,
+stderr, cookies, environment variables, or secret paths. The Control Plane may
+use this evidence to lease the task to another online node with the required
+runner capability.
+
 ## Completion Gate
 
 The Agent Host may call `/complete` only after the contract finalizer confirms:

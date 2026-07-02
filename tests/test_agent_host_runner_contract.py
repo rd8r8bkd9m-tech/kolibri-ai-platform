@@ -453,6 +453,15 @@ def test_owner_remote_task_runner_auth_failure_is_structured_and_redacted(tmp_pa
     assert fail_body["result"]["status"] == "blocked"
     assert fail_body["result"]["runner"] == "codex"
     assert fail_body["result"]["blocked_reason"] == "runner_auth_blocked"
+    fallback = fail_body["result"]["fallback_contract"]
+    assert fallback["fallback_required"] is True
+    assert fallback["fallback_allowed"] is True
+    assert fallback["fallback_reason"] == "runner_auth_blocked"
+    assert fallback["failed_node_id"] == "primary-candidate"
+    assert fallback["requested_runner"] == "codex"
+    assert fallback["required_capability"] == "runner:codex"
+    assert fallback["failed_runner_status"]["status"] == "blocked"
+    assert fallback["failed_runner_status"]["error_type"] == "runner_auth_blocked"
     serialized = json.dumps(fail_body, ensure_ascii=False)
     assert "SECRET_REFRESH_TOKEN_123" not in serialized
     stderr_path = tmp_path / "artifacts" / "CONTRACT-1" / "CONTRACT-1-attempt-1" / "stderr.log"
@@ -481,6 +490,13 @@ def test_owner_remote_task_mimo_unavailable_does_not_fallback_to_codex(tmp_path,
     assert fail_body["error_type"] == "runner_unavailable"
     assert fail_body["result"]["runner"] == "mimo"
     assert fail_body["result"]["blocked_reason"] == "runner_unavailable"
+    fallback = fail_body["result"]["fallback_contract"]
+    assert fallback["fallback_required"] is True
+    assert fallback["fallback_reason"] == "runner_unavailable"
+    assert fallback["requested_runner"] == "mimo"
+    assert fallback["required_capability"] == "runner:mimo"
+    assert fallback["failed_runner_status"]["status"] == "unavailable"
+    assert fallback["failed_runner_status"]["error_type"] == "runner_unavailable"
 
 
 def test_p0_integration_audit_artifact_path_drift_is_blocked(tmp_path):
