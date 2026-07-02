@@ -369,6 +369,10 @@ def queue_ids() -> list[str]:
     return redis.command("LRANGE", key("queue"), 0, -1) or []
 
 
+def dead_letter_ids() -> list[str]:
+    return redis.command("LRANGE", key("dead_letter"), 0, -1) or []
+
+
 def load_task(task_id: str) -> dict[str, Any] | None:
     return get_json(task_key(task_id))
 
@@ -609,6 +613,16 @@ def enqueue(task_id: str) -> None:
     redis.command("RPUSH", key("queue"), task_id)
 
 
+def enqueue_once(task_id: str) -> None:
+    if task_id not in queue_ids():
+        enqueue(task_id)
+
+
+def dead_letter_once(task_id: str) -> None:
+    if task_id not in dead_letter_ids():
+        redis.command("RPUSH", key("dead_letter"), task_id)
+
+
 def remove_from_queue(task_id: str) -> None:
     redis.command("LREM", key("queue"), 0, task_id)
 
@@ -719,31 +733,55 @@ def compatible(task: dict[str, Any], node_id: str, capabilities: list[str], node
     return True
 
 
-def requeue_expired_leases() -> None:
+def append_runtime_event(task: dict[str, Any], event: str, detail: str | None = None) -> None:
+    events = task.get("runtime_events")
+    if not isinstance(events, list):
+        events = []
+    record = {
+        "event": event,
+        "at": utc_now(),
+        "attempt": int(task.get("attempt", 0)),
+        "lease_owner": task.get("lease_owner"),
+    }
+    if detail:
+        record["detail"] = detail
+    events.append(record)
+    task["runtime_events"] = events[-50:]
+
+
+def requeue_expired_leases() -> dict[str, int]:
     current = now_ts()
+    summary = {"requeued": 0, "dead_lettered": 0, "inspected": 0}
     for task_id in all_task_ids():
         task = load_task(task_id)
         if not task or task.get("state") not in {STATE_LEASED, STATE_RUNNING, STATE_REVIEW}:
             continue
+        summary["inspected"] += 1
         lease_until = float(task.get("lease_until") or 0)
         if lease_until >= current:
             continue
+        remove_from_queue(task_id)
         if int(task.get("attempt", 0)) < int(task.get("max_retries", MAX_RETRIES)):
             task["state"] = STATE_RETRY
             task["lease_owner"] = None
             task["lease_until"] = None
             task["error_type"] = "lease_expired"
             task["error"] = "lease expired before task completion"
+            append_runtime_event(task, "lease_expired_requeued", task["error"])
             save_task(task)
             task["state"] = STATE_QUEUED
             save_task(task)
-            enqueue(task_id)
+            enqueue_once(task_id)
+            summary["requeued"] += 1
         else:
             task["state"] = STATE_DEAD
             task["error_type"] = "lease_expired"
             task["error"] = "lease expired and retry budget exhausted"
+            append_runtime_event(task, "lease_expired_dead_lettered", task["error"])
             save_task(task)
-            redis.command("RPUSH", key("dead_letter"), task_id)
+            dead_letter_once(task_id)
+            summary["dead_lettered"] += 1
+    return summary
 
 
 def create_task(envelope: dict[str, Any]) -> dict[str, Any]:
@@ -823,6 +861,7 @@ def validate_miniapp(handler: BaseHTTPRequestHandler, body: dict[str, Any] | Non
 
 
 def superfactory_status() -> dict[str, Any]:
+    runtime_reconciliation = requeue_expired_leases()
     nodes = []
     for node_id in sorted(redis.command("SMEMBERS", key("node_ids")) or []):
         node = get_json(node_key(node_id), {})
@@ -846,6 +885,8 @@ def superfactory_status() -> dict[str, Any]:
         "nodes": nodes,
         "task_counts": counts,
         "queue": queue_ids(),
+        "dead_letter": dead_letter_ids(),
+        "runtime_reconciliation": runtime_reconciliation,
     }
 
 
@@ -996,13 +1037,20 @@ class Handler(BaseHTTPRequestHandler):
                 response(self, 200, NODE_IDENTITY_ROTATION_POLICY)
                 return
             if path == "/v1/tasks":
+                runtime_reconciliation = requeue_expired_leases()
                 query = parse_qs(parsed.query)
                 wanted = query.get("state", [None])[0]
                 tasks = [load_task(task_id) for task_id in all_task_ids()]
                 tasks = [task for task in tasks if task and (wanted is None or task.get("state") == wanted)]
-                response(self, 200, {"tasks": tasks, "queue": queue_ids()})
+                response(self, 200, {
+                    "tasks": tasks,
+                    "queue": queue_ids(),
+                    "dead_letter": dead_letter_ids(),
+                    "runtime_reconciliation": runtime_reconciliation,
+                })
                 return
             if path.startswith("/v1/tasks/"):
+                requeue_expired_leases()
                 task_id = path.split("/", 3)[3]
                 task = load_task(task_id)
                 if not task:
@@ -1015,6 +1063,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not auth.get("ok"):
                     response(self, 401, {"error": auth.get("error", "unauthorized")})
                     return
+                requeue_expired_leases()
                 task_id = path.split("/")[4]
                 task = load_task(task_id)
                 if not task:
@@ -1033,6 +1082,7 @@ class Handler(BaseHTTPRequestHandler):
                 })
                 return
             if path.startswith("/v1/agents/status/"):
+                requeue_expired_leases()
                 task_id = path.split("/", 4)[4]
                 task = load_task(task_id)
                 if not task:
@@ -1055,6 +1105,7 @@ class Handler(BaseHTTPRequestHandler):
                 ))
                 return
             if path.startswith("/v1/agents/artifacts/"):
+                requeue_expired_leases()
                 task_id = path.split("/", 4)[4]
                 task = load_task(task_id)
                 envelope = task_artifact_envelope(task, task_id)
