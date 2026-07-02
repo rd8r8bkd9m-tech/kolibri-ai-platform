@@ -71,6 +71,7 @@ FALLBACK_REASON_TAXONOMY = {
     "no_node_matches_capability",
     "model_runtime_unavailable",
     "admin_scope_denied",
+    "not_found",
     "unknown",
 }
 NODE_DEGRADED_AFTER = int(os.environ.get("FACTORY_NODE_DEGRADED_AFTER", "30"))
@@ -192,6 +193,7 @@ PROMPT3_REQUIRED_ENDPOINTS = {
         "/v1/fleet/topology",
         "/v1/fleet/route",
         "/v1/fleet/capabilities",
+        "/v1/filesystem",
         "/v1/models",
         "/v1/agents/status/{task_id}",
         "/v1/agents/artifacts/{task_id}",
@@ -440,6 +442,103 @@ def fleet_topology(nodes: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def namespace_segment(value: str, fallback: str) -> str:
+    safe = "".join(ch if ch.isalnum() or ch in "_.-" else "-" for ch in value.strip())
+    return safe or fallback
+
+
+def safe_filesystem_root(
+    node_id: str,
+    node_namespace: str,
+    root: dict[str, Any],
+    *,
+    include_paths: bool = False,
+) -> dict[str, Any]:
+    name = namespace_segment(str(root.get("name") or "root"), "root")
+    safe_root: dict[str, Any] = {
+        "name": name,
+        "namespace": root.get("namespace") or f"{node_namespace}/{name}",
+        "purpose": root.get("purpose") or "node filesystem root",
+        "exists": bool(root.get("exists")),
+        "writable": bool(root.get("writable")),
+    }
+    if isinstance(root.get("disk"), dict):
+        safe_root["disk"] = root["disk"]
+    if include_paths and root.get("path"):
+        safe_root["path"] = str(root["path"])
+    if not safe_root["exists"]:
+        safe_root["repair_task"] = {
+            "kind": "repair_filesystem_root",
+            "node_id": node_id,
+            "root": name,
+            "action": "restore the declared node-local root or update the node filesystem manifest",
+        }
+    return safe_root
+
+
+def filesystem_namespace(nodes: list[dict[str, Any]], *, include_paths: bool = False) -> dict[str, Any]:
+    """Return the federated filesystem namespace from node-published manifests.
+
+    The Control Plane must never walk remote disks here. It only aggregates
+    metadata that Agent Hosts already heartbeat in their node cards.
+    """
+
+    namespace_nodes = []
+    flat_roots = []
+    repair_tasks = []
+    current = now_ts()
+    for raw_node in nodes:
+        node = classify_node_freshness(raw_node, current)
+        node_id = str(node.get("node_id") or node.get("id") or "unknown")
+        filesystem = node.get("filesystem") if isinstance(node.get("filesystem"), dict) else {}
+        node_namespace = filesystem.get("namespace_prefix") or f"/kolibri/nodes/{namespace_segment(node_id, 'node')}"
+        roots = []
+        for root in ensure_list(filesystem.get("roots")):
+            if not isinstance(root, dict):
+                continue
+            safe_root = safe_filesystem_root(node_id, node_namespace, root, include_paths=include_paths)
+            roots.append(safe_root)
+            flat_roots.append({"node_id": node_id, **safe_root})
+            if safe_root.get("repair_task"):
+                repair_tasks.append(safe_root["repair_task"])
+        missing_manifest = not filesystem
+        if missing_manifest:
+            repair_tasks.append({
+                "kind": "repair_node_filesystem_manifest",
+                "node_id": node_id,
+                "action": "restart or upgrade Agent Host so heartbeat includes filesystem.namespace_prefix and roots",
+            })
+        namespace_nodes.append({
+            "node_id": node_id,
+            "health": node.get("health"),
+            "freshness": node.get("freshness"),
+            "heartbeat_age_seconds": node.get("heartbeat_age_seconds"),
+            "namespace_prefix": node_namespace,
+            "mode": filesystem.get("mode") or "mesh_api_namespace",
+            "write_policy": filesystem.get("write_policy") or "node-local writes only; no shared writable root disk; shared roots require leases",
+            "missing_manifest": missing_manifest,
+            "roots": roots,
+        })
+    counts = {
+        "nodes_total": len(namespace_nodes),
+        "nodes_with_filesystem": sum(1 for node in namespace_nodes if not node["missing_manifest"]),
+        "nodes_missing_filesystem": sum(1 for node in namespace_nodes if node["missing_manifest"]),
+        "roots_total": len(flat_roots),
+        "writable_roots": sum(1 for root in flat_roots if root.get("writable")),
+    }
+    return {
+        "mode": "mesh_api_namespace",
+        "namespace_prefix": "/kolibri/nodes",
+        "write_policy": "node-local writes only; no shared writable root disk; shared roots require leases",
+        "counts": counts,
+        "nodes": namespace_nodes,
+        "roots": flat_roots,
+        "repair_tasks": repair_tasks,
+        "metadata_only": True,
+        "local_paths_included": include_paths,
+    }
+
+
 def model_stub_envelope(body: dict[str, Any], *, endpoint: str) -> dict[str, Any]:
     task_id = body.get("task_id") or body.get("id") or ""
     trace_id = body.get("trace_id") or task_id
@@ -476,6 +575,22 @@ def admin_denied_envelope(body: dict[str, Any], *, endpoint: str) -> dict[str, A
             "action": "obtain authenticated owner scope and audited approval before privileged execution",
         },
         next_action="resubmit with an authenticated admin capability token through the protected Fabric API",
+    )
+
+
+def not_found_envelope(path: str, *, method: str) -> dict[str, Any]:
+    return canonical_response_envelope(
+        status="blocked",
+        route_used=path,
+        blocked_reason="not_found",
+        repair_task={
+            "kind": "repair_fabric_api_route",
+            "method": method,
+            "path": path,
+            "action": "verify the endpoint contract, deploy the matching Control Plane build, or use a listed Fabric fallback route",
+        },
+        next_action="check /v1/health, /v1/fleet/route, and the API contract before retrying this route",
+        data={"error": "not_found", "method": method, "path": path},
     )
 
 
@@ -695,6 +810,134 @@ def effective_task_runner(task: dict[str, Any]) -> str | None:
     return normalized or None
 
 
+def repair_slug(value: Any) -> str:
+    parts = []
+    current = []
+    for char in str(value or "runtime_error").lower():
+        if char.isalnum():
+            current.append(char)
+        elif current:
+            parts.append("".join(current))
+            current = []
+    if current:
+        parts.append("".join(current))
+    return "_".join(parts) or "runtime_error"
+
+
+def is_auto_repair_task(task: dict[str, Any]) -> bool:
+    kind = str(task_envelope_value(task, "kind", default=task.get("kind") or "") or "").strip().lower()
+    idempotency_key = str(task.get("idempotency_key") or "")
+    return (
+        kind.startswith("repair_")
+        or bool(task_envelope_value(task, "auto_repair", "repair_for_task_id"))
+        or idempotency_key.startswith("repair:")
+    )
+
+
+def failure_result(task: dict[str, Any], body: dict[str, Any]) -> dict[str, Any]:
+    for value in (body.get("result"), task.get("result")):
+        if isinstance(value, dict):
+            return value
+    return {}
+
+
+def failure_repair_kind(error_type: str, result: dict[str, Any]) -> str:
+    missing_artifacts = ensure_list(result.get("required_artifacts_missing"))
+    if error_type == "runner_contract_blocked" and missing_artifacts:
+        return "repair_required_artifacts"
+    if error_type == "runner_contract_blocked":
+        return "repair_runner_contract"
+    if error_type == "lease_expired":
+        return "repair_expired_lease"
+    return "repair_failed_task"
+
+
+def failure_repair_task_envelope(task: dict[str, Any], body: dict[str, Any]) -> dict[str, Any] | None:
+    if is_auto_repair_task(task):
+        return None
+    source_task_id = str(task.get("task_id") or "")
+    if not source_task_id:
+        return None
+    result = failure_result(task, body)
+    error_type = str(body.get("error_type") or task.get("error_type") or "runtime_error")
+    error = body.get("error") or task.get("error") or result.get("failure_reason") or error_type
+    missing_artifacts = [str(item) for item in ensure_list(result.get("required_artifacts_missing")) if str(item)]
+    repair_kind = failure_repair_kind(error_type, result)
+    slug = repair_slug(error_type).upper()
+    envelope = task.get("envelope") if isinstance(task.get("envelope"), dict) else {}
+    target_node = task_envelope_value(task, "repair_target_node", "target_node", "required_node")
+    if not target_node and error_type == "runner_contract_blocked":
+        lease_owner = str(task.get("lease_owner") or "")
+        target_node = lease_owner.split(":", 1)[0] if lease_owner else None
+    runner = task_envelope_value(task, "repair_runner", "runner") or effective_task_runner(task) or "mimo"
+    required_capability = task_envelope_value(task, "repair_required_capability", "required_capability")
+    objective = (
+        f"Repair failed Kolibri AI factory task {source_task_id}. "
+        f"Failure type: {error_type}. Error: {error}. "
+        "Produce a bounded repair result and state the safe rerun path through the Fabric API."
+    )
+    acceptance = [
+        f"Inspect source task {source_task_id}, its result_reference, and failure payload without bypassing Control Plane contracts.",
+        "Classify whether the task can be repaired automatically or needs operator/manual intervention.",
+        "Return a RESULT/NEXT style artifact or structured response with the exact rerun, cancel, or operator action.",
+    ]
+    if missing_artifacts:
+        acceptance.insert(1, f"Produce or correct missing required artifacts: {', '.join(missing_artifacts)}.")
+    repair_envelope: dict[str, Any] = {
+        "task_id": f"{source_task_id}-REPAIR-{slug}",
+        "idempotency_key": f"repair:{source_task_id}:{repair_slug(error_type)}",
+        "kind": "owner_remote_task",
+        "source": "control_plane_auto_repair",
+        "auto_repair": True,
+        "repair_for_task_id": source_task_id,
+        "repair": {
+            "kind": repair_kind,
+            "source_task_id": source_task_id,
+            "source_task_kind": task.get("kind") or envelope.get("kind"),
+            "error_type": error_type,
+            "error": error,
+            "blocked_reason": result.get("blocked_reason") or error,
+            "required_artifacts_missing": missing_artifacts,
+            "result_reference": body.get("result_reference") or task.get("result_reference"),
+        },
+        "objective": objective,
+        "acceptance": acceptance,
+        "runner": str(runner),
+        "max_retries": 1,
+        "control_center": {
+            "surface": ["incidents", "tasks"],
+            "incident_type": "task_failed",
+            "manual_intervention_candidate": bool(result.get("manual_intervention_required")),
+        },
+    }
+    if target_node:
+        repair_envelope["target_node"] = target_node
+    if required_capability:
+        repair_envelope["required_capability"] = required_capability
+    for key_name in ("branch", "base_ref", "write_scope", "allowed_files"):
+        if envelope.get(key_name):
+            repair_envelope[key_name] = envelope[key_name]
+    return repair_envelope
+
+
+def create_failure_repair_task(task: dict[str, Any], body: dict[str, Any]) -> dict[str, Any] | None:
+    repair_envelope = failure_repair_task_envelope(task, body)
+    if not repair_envelope:
+        return None
+    repair_task = create_task(repair_envelope)
+    repair = repair_envelope["repair"]
+    task["repair_task_id"] = repair_task["task_id"]
+    task["repair_task"] = {
+        "task_id": repair_task["task_id"],
+        "state": repair_task.get("state"),
+        "kind": repair["kind"],
+        "idempotency_key": repair_envelope["idempotency_key"],
+        "source_task_id": task["task_id"],
+        "required_artifacts_missing": repair.get("required_artifacts_missing", []),
+    }
+    return repair_task
+
+
 def mark_node_runner_failure(task: dict[str, Any], body: dict[str, Any]) -> None:
     error_type = body.get("error_type")
     if error_type not in {"runner_auth_blocked", "runner_unavailable"}:
@@ -765,6 +1008,11 @@ def requeue_expired_leases() -> None:
             task["state"] = STATE_DEAD
             task["error_type"] = "lease_expired"
             task["error"] = "lease expired and retry budget exhausted"
+            create_failure_repair_task(task, {
+                "error_type": task["error_type"],
+                "error": task["error"],
+                "retry": False,
+            })
             save_task(task)
             redis.command("RPUSH", key("dead_letter"), task_id)
 
@@ -979,6 +1227,18 @@ class Handler(BaseHTTPRequestHandler):
                     next_action="include required_capability in /v1/agents/tasks when dispatching work",
                 ))
                 return
+            if path in {"/v1/filesystem", "/v1/fleet/filesystem"}:
+                query = parse_qs(parsed.query)
+                include_paths = str(query.get("include_paths", ["false"])[0]).lower() in {"1", "true", "yes"}
+                namespace = filesystem_namespace(registered_nodes(), include_paths=include_paths)
+                response(self, 200, canonical_response_envelope(
+                    status="completed",
+                    route_used=path,
+                    data=namespace,
+                    repair_task=namespace["repair_tasks"],
+                    next_action="use namespace paths for artifact discovery; request include_paths=true only for authenticated diagnostics",
+                ))
+                return
             if path == "/v1/models":
                 response(self, 200, canonical_response_envelope(
                     status="completed",
@@ -1083,7 +1343,7 @@ class Handler(BaseHTTPRequestHandler):
                 envelope = task_artifact_envelope(task, task_id)
                 response(self, 200 if task else 404, envelope)
                 return
-            response(self, 404, {"error": "not_found", "path": path})
+            response(self, 404, not_found_envelope(path, method="GET"))
         except Exception as exc:  # pragma: no cover - surfaced in runtime logs
             response(self, 500, {"error": "control_plane_error", "detail": str(exc)})
 
@@ -1322,6 +1582,7 @@ class Handler(BaseHTTPRequestHandler):
                     enqueue(task_id)
                 else:
                     task["state"] = STATE_FAILED
+                    create_failure_repair_task(task, body)
                     save_task(task)
                 response(self, 200, task)
                 return
@@ -1365,7 +1626,7 @@ class Handler(BaseHTTPRequestHandler):
                     next_action="poll /v1/agents/status/{task_id} to confirm terminal state",
                 ))
                 return
-            response(self, 404, {"error": "not_found", "path": path})
+            response(self, 404, not_found_envelope(path, method="POST"))
         except Exception as exc:  # pragma: no cover - surfaced in runtime logs
             response(self, 500, {"error": "control_plane_error", "detail": str(exc)})
 

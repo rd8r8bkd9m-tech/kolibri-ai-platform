@@ -199,3 +199,174 @@ def test_target_node_mimo_pool_task_only_leases_to_selected_pool_backing_node():
         ["generic_implementation", "runner:codex"],
         {"runners": {"codex": {"status": "available"}}},
     ) is False
+
+
+def test_filesystem_namespace_aggregates_node_manifests_without_raw_paths_by_default():
+    control = load_module(ROOT / "ops" / "factory_control.py")
+    now = datetime.now(timezone.utc)
+    namespace = control.filesystem_namespace([
+        {
+            "node_id": "server-kfrm",
+            "health": "online",
+            "heartbeat_at": now.isoformat(),
+            "filesystem": {
+                "mode": "mesh_api_namespace",
+                "namespace_prefix": "/kolibri/nodes/server-kfrm",
+                "write_policy": "node-local writes only; no shared writable root disk; shared roots require leases",
+                "roots": [
+                    {
+                        "name": "owner-project",
+                        "namespace": "/kolibri/nodes/server-kfrm/owner-project",
+                        "path": "/srv/kolibri-ai-platform",
+                        "purpose": "owner project workspace",
+                        "exists": True,
+                        "writable": True,
+                        "disk": {"total": 100, "used": 40, "free": 60},
+                    },
+                    {
+                        "name": "artifacts",
+                        "namespace": "/kolibri/nodes/server-kfrm/artifacts",
+                        "path": "/var/lib/kolibri-agent/artifacts",
+                        "purpose": "task logs and structured results",
+                        "exists": True,
+                        "writable": True,
+                    },
+                ],
+            },
+        }
+    ])
+
+    assert namespace["metadata_only"] is True
+    assert namespace["local_paths_included"] is False
+    assert namespace["namespace_prefix"] == "/kolibri/nodes"
+    assert namespace["counts"] == {
+        "nodes_total": 1,
+        "nodes_with_filesystem": 1,
+        "nodes_missing_filesystem": 0,
+        "roots_total": 2,
+        "writable_roots": 2,
+    }
+    assert namespace["nodes"][0]["namespace_prefix"] == "/kolibri/nodes/server-kfrm"
+    assert namespace["nodes"][0]["roots"][0]["namespace"] == "/kolibri/nodes/server-kfrm/owner-project"
+    assert "path" not in namespace["nodes"][0]["roots"][0]
+    assert namespace["roots"][0]["node_id"] == "server-kfrm"
+    assert namespace["repair_tasks"] == []
+
+
+def test_filesystem_namespace_can_include_paths_for_authenticated_diagnostics():
+    control = load_module(ROOT / "ops" / "factory_control.py")
+    namespace = control.filesystem_namespace([
+        {
+            "node_id": "server-kfrm",
+            "health": "online",
+            "heartbeat_at": datetime.now(timezone.utc).isoformat(),
+            "filesystem": {
+                "namespace_prefix": "/kolibri/nodes/server-kfrm",
+                "roots": [
+                    {
+                        "name": "owner-project",
+                        "path": "/srv/kolibri-ai-platform",
+                        "exists": True,
+                        "writable": True,
+                    }
+                ],
+            },
+        }
+    ], include_paths=True)
+
+    assert namespace["local_paths_included"] is True
+    assert namespace["nodes"][0]["roots"][0]["path"] == "/srv/kolibri-ai-platform"
+
+
+def test_filesystem_namespace_reports_repair_task_for_missing_manifest():
+    control = load_module(ROOT / "ops" / "factory_control.py")
+    namespace = control.filesystem_namespace([
+        {
+            "node_id": "legacy-worker",
+            "health": "online",
+            "heartbeat_at": datetime.now(timezone.utc).isoformat(),
+        }
+    ])
+
+    assert namespace["counts"]["nodes_missing_filesystem"] == 1
+    assert namespace["nodes"][0]["missing_manifest"] is True
+    assert namespace["nodes"][0]["namespace_prefix"] == "/kolibri/nodes/legacy-worker"
+    assert namespace["repair_tasks"] == [
+        {
+            "kind": "repair_node_filesystem_manifest",
+            "node_id": "legacy-worker",
+            "action": "restart or upgrade Agent Host so heartbeat includes filesystem.namespace_prefix and roots",
+        }
+    ]
+
+
+def test_terminal_runner_contract_failure_creates_supported_auto_repair_task():
+    control = load_module(ROOT / "ops" / "factory_control.py")
+    created = []
+
+    def fake_create_task(envelope):
+        created.append(envelope)
+        return control.normalize_task(envelope)
+
+    control.create_task = fake_create_task
+    task = control.normalize_task({
+        "task_id": "P1_REMOTE_MIMO_POOL_NODE_BOOTSTRAP_AND_DIRECTOR_INTEGRATION_2026_07_02",
+        "kind": "owner_remote_task",
+        "required_capability": "generic_implementation",
+    })
+    task["lease_owner"] = "mesh-agent-20:agent-host-mesh-agent-20"
+    body = {
+        "error_type": "runner_contract_blocked",
+        "error": "required_artifacts_missing",
+        "result_reference": "docs/agent/runs/source/result.json",
+        "result": {
+            "status": "blocked",
+            "blocked_reason": "required_artifacts_missing: docs/agent/MISSING.md",
+            "required_artifacts_missing": ["docs/agent/MISSING.md"],
+        },
+        "retry": False,
+    }
+
+    repair = control.create_failure_repair_task(task, body)
+
+    assert repair is not None
+    assert len(created) == 1
+    envelope = created[0]
+    assert envelope["kind"] == "owner_remote_task"
+    assert envelope["source"] == "control_plane_auto_repair"
+    assert envelope["auto_repair"] is True
+    assert envelope["repair_for_task_id"] == task["task_id"]
+    assert envelope["target_node"] == "mesh-agent-20"
+    assert envelope["required_capability"] == "generic_implementation"
+    assert envelope["runner"] == "mimo"
+    assert envelope["max_retries"] == 1
+    assert envelope["repair"]["kind"] == "repair_required_artifacts"
+    assert envelope["repair"]["required_artifacts_missing"] == ["docs/agent/MISSING.md"]
+    assert envelope["control_center"]["surface"] == ["incidents", "tasks"]
+    assert "docs/agent/MISSING.md" in envelope["acceptance"][1]
+    assert task["repair_task_id"] == repair["task_id"]
+    assert task["repair_task"]["kind"] == "repair_required_artifacts"
+
+
+def test_auto_repair_task_failure_does_not_create_repair_loop():
+    control = load_module(ROOT / "ops" / "factory_control.py")
+
+    def fail_create_task(_envelope):
+        raise AssertionError("repair task should not create another repair task")
+
+    control.create_task = fail_create_task
+    task = control.normalize_task({
+        "task_id": "SOURCE-REPAIR-RUNNER_CONTRACT_BLOCKED",
+        "kind": "owner_remote_task",
+        "auto_repair": True,
+        "repair_for_task_id": "SOURCE",
+    })
+
+    repair = control.create_failure_repair_task(task, {
+        "error_type": "runner_contract_blocked",
+        "error": "required_artifacts_missing",
+        "retry": False,
+    })
+
+    assert repair is None
+    assert "repair_task_id" not in task

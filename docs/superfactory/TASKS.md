@@ -1,5 +1,73 @@
 # Superfactory Tasks
 
+## P0: Unified OpenAI-Compatible Fabric API
+
+Status: contract pack created on 2026-07-02; production canary still failing on
+new fabric routes.
+
+Goal: make Kolibri a uniform API-first AI factory where all command nodes,
+servers, agents, MIMO, models, Telegram, Web UI, Control Plane and GitHub speak
+one routed contract.
+
+Required docs:
+
+- `UNIFIED_OPENAI_COMPATIBLE_FABRIC_API.md`
+- `API_FIRST_CLUSTER_CONNECTIVITY.md`
+- `FABRIC_NODE_REGISTRY.md`
+- `FABRIC_AGENT_MODEL_REGISTRY.md`
+- `FABRIC_ROUTING_AND_FALLBACK_POLICY.md`
+- `FABRIC_ERROR_MODEL.md`
+- `FABRIC_COMMAND_NODE_PROTOCOL.md`
+- `FABRIC_MIMO_AGENT_POLICY.md`
+- `FABRIC_PARALLEL_DEVELOPMENT_POLICY.md`
+- `FABRIC_NO_KOSTYL_POLICY.md`
+
+Production gaps observed at 2026-07-02T12:29Z:
+
+1. `/v1/fleet/nodes` returns 404 on the live Control Plane.
+2. `/v1/fleet/route` returns 404 on the live Control Plane.
+3. `/v1/models` returns 404 on the live Control Plane.
+4. `/v1/agents/status/{task_id}` returns 404 on the live Control Plane.
+5. Legacy `/v1/nodes` returns node cards with `health` and `fresh`, not the
+   normalized fabric `status` schema.
+6. Failed web task status is only visible through legacy `/v1/tasks/{task_id}`.
+
+Next implementation task:
+
+- `P0_API_FIRST_SUPERFACTORY_FABRIC_PRODUCTION_GAP_AND_CANARY_2026_07_02`
+
+## P1: Remote MIMO Pool Node Bootstrap
+
+Status: contract and local bootstrap packet created on 2026-07-02.
+
+Goal: run MIMO from another healthy server as one factory-visible MIMO Pool
+Node, with a local supervisor and bounded workers, instead of many direct lease
+pollers.
+
+Selected provisional target:
+
+- `mesh-agent-20` as backing server.
+- Planned pool id: `mesh-agent-20-mimo-pool-01`.
+
+Fallbacks:
+
+- `mesh-agent-14`
+- `mesh-agent-13`
+- `mesh-agent-17`
+- `mesh-agent-18`
+- `main` for low-risk docs/control fallback only.
+
+Forbidden:
+
+- full MIMO wave;
+- 1000 physical workers;
+- 1000 direct Control Plane pollers;
+- MIMO without heartbeat, artifacts and bounded concurrency.
+
+Next task:
+
+- `P1_REMOTE_MIMO_POOL_NODE_BOOTSTRAP_AND_DIRECTOR_INTEGRATION_2026_07_02`
+
 ## P0: GitHub Main Freshness Release Train
 
 Status: remote release curator task running on `primary-candidate`.

@@ -15,6 +15,7 @@ GET /v1/health
 GET /v1/fleet/nodes
 GET /v1/fleet/topology
 GET /v1/fleet/capabilities
+GET /v1/filesystem
 GET /v1/models
 ```
 

@@ -22,6 +22,7 @@ def test_prompt3_required_endpoint_surface_is_declared():
             "/v1/fleet/topology",
             "/v1/fleet/route",
             "/v1/fleet/capabilities",
+            "/v1/filesystem",
             "/v1/models",
             "/v1/agents/status/{task_id}",
             "/v1/agents/artifacts/{task_id}",
@@ -138,3 +139,18 @@ def test_canonical_envelope_and_fallback_reason_taxonomy():
         "dns",
         "unknown",
     } <= control.FALLBACK_REASON_TAXONOMY
+
+
+def test_unknown_fabric_route_returns_structured_not_found_repair_envelope():
+    control = load_control()
+    envelope = control.not_found_envelope("/v1/fleet/unknown", method="GET")
+
+    assert envelope["status"] == "blocked"
+    assert envelope["route_used"] == "/v1/fleet/unknown"
+    assert envelope["blocked_reason"] == "not_found"
+    assert envelope["blocked_reason"] in control.FALLBACK_REASON_TAXONOMY
+    assert envelope["repair_task"]["kind"] == "repair_fabric_api_route"
+    assert envelope["repair_task"]["method"] == "GET"
+    assert envelope["repair_task"]["path"] == "/v1/fleet/unknown"
+    assert envelope["data"] == {"error": "not_found", "method": "GET", "path": "/v1/fleet/unknown"}
+    assert "retrying this route" in envelope["next_action"]
