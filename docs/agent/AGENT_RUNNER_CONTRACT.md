@@ -236,6 +236,42 @@ The Agent Host may call `/complete` only after the contract finalizer confirms:
 Otherwise the Agent Host must call `/fail` with a structured contract result and
 `error_type: runner_contract_blocked` for blocked states.
 
+## Autopilot Truthfulness Gate
+
+Autopilot tasks are enabled by any truthy envelope flag:
+
+- `autopilot`
+- `auto_pilot`
+- `autonomous`
+- `autopilot_enabled`
+
+Before executing an autopilot task, Agent Host applies an admission gate. The
+task must declare:
+
+- a strict `write_scope`
+- exact artifacts through `required_artifacts`, `required_outputs`, or a
+  canonical run artifact directory
+- a positive bounded timebox via `timebox_seconds`, `max_duration_seconds`,
+  `timeout_seconds`, or `task_timeout_seconds`
+- Agent Host `max_inflight=1`
+
+The final result includes an `autopilot_gate` pass/fail matrix and repair tasks.
+The matrix covers:
+
+- server Agent Host execution, not Mac
+- task_id/status/lease_owner/artifacts/blockers/next action recording
+- exact artifact presence
+- no fake `completed` claim while artifacts are missing
+- no push to `main`, no force push, and no destructive git mutation
+- write_scope compliance
+- timebox compliance
+- max_inflight compliance
+
+If any matrix row fails, the task status becomes `blocked`; the result records
+`blockers`, `next_action`, and `autopilot_gate.repair_tasks`. Commands that
+exceed the declared timebox fail with `task_timebox_exceeded:<seconds>`.
+Protected git operations are blocked before execution.
+
 ## Valid Envelope Examples
 
 ### Read-Only Probe With Required Artifact

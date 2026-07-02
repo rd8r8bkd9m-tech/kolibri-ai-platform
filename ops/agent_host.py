@@ -53,7 +53,9 @@ CONTRACT_STATUSES = {"completed", "blocked", "failed"}
 CONTRACT_RESULT_FIELDS = [
     "task_id",
     "status",
+    "lease_owner",
     "changed_files",
+    "artifacts",
     "artifact_dir",
     "required_artifacts_present",
     "required_artifacts_missing",
@@ -68,8 +70,14 @@ CONTRACT_RESULT_FIELDS = [
     "failure_reason",
     "tests_run",
     "backend_test_environment",
+    "autopilot_gate",
+    "blockers",
+    "next_action",
     "next_recommended_task",
 ]
+AUTOPILOT_FLAGS = ("autopilot", "auto_pilot", "autonomous", "autopilot_enabled")
+TIMEBOX_KEYS = ("timebox_seconds", "max_duration_seconds", "timeout_seconds", "task_timeout_seconds")
+MAX_AUTOPILOT_TIMEBOX_SECONDS = 6 * 60 * 60
 SUPPORTED_TASK_KINDS = {
     "direct_mimo",
     "impl_factory_smoke",
@@ -303,6 +311,10 @@ def envelope_truthy(envelope: dict[str, Any], *keys: str) -> bool:
     return any(truthy(envelope_value(envelope, key_name, False)) for key_name in keys)
 
 
+def autopilot_enabled(envelope: dict[str, Any]) -> bool:
+    return envelope_truthy(envelope, *AUTOPILOT_FLAGS)
+
+
 def ensure_list(value: Any) -> list[Any]:
     if value is None:
         return []
@@ -348,6 +360,19 @@ def sanitize_text_file(path: Path) -> None:
 def runner_auth_blocked(stderr_text: str) -> bool:
     lowered = stderr_text.lower()
     return any(marker in lowered for marker in RUNNER_AUTH_FAILURE_MARKERS)
+
+
+def timebox_seconds_from_envelope(envelope: dict[str, Any]) -> int | None:
+    for key_name in TIMEBOX_KEYS:
+        value = envelope_value(envelope, key_name)
+        if value in (None, ""):
+            continue
+        try:
+            seconds = int(value)
+        except (TypeError, ValueError):
+            return None
+        return seconds if seconds > 0 else None
+    return None
 
 
 def envelope_list(envelope: dict[str, Any], *keys: str) -> list[Any]:
@@ -675,6 +700,29 @@ def push_block_reason(envelope: dict[str, Any]) -> str | None:
     return ", ".join(reasons) if reasons else None
 
 
+def forbidden_git_command_reason(command: list[str]) -> str | None:
+    if not command:
+        return None
+    executable = Path(command[0]).name
+    if executable != "git":
+        return None
+    args = command[1:]
+    if not args:
+        return None
+    verb = args[0]
+    if verb == "reset" and "--hard" in args:
+        return "destructive_git_reset_hard_forbidden"
+    if verb == "clean" and any(arg.startswith("-") and "f" in arg for arg in args[1:]):
+        return "destructive_git_clean_forbidden"
+    if verb == "push":
+        if any(arg in {"--force", "-f", "--force-with-lease"} for arg in args[1:]):
+            return "force_push_forbidden"
+        targets = [arg for arg in args[1:] if not arg.startswith("-")]
+        if any(target in {"main", "master", "refs/heads/main", "refs/heads/master"} for target in targets):
+            return "push_to_protected_branch_forbidden"
+    return None
+
+
 def sanitized_permissions_for_envelope(envelope: dict[str, Any]) -> dict[str, Any]:
     permissions = envelope_list(envelope, "permissions", "permission_set", "allowed_permissions")
     permission_pack = envelope_value(envelope, "permission_pack")
@@ -750,7 +798,128 @@ def next_recommended_task_for(blockers: list[str], envelope: dict[str, Any]) -> 
         return "repair Agent Host git credentials, then rerun the review task"
     if "backend_test_environment_failed" in joined:
         return "repair the declared backend test environment requirements or package list, then rerun verification"
+    if "autopilot" in joined or "timebox" in joined or "max_inflight" in joined:
+        return "repair the autopilot gate contract, then resubmit with exact artifacts, write_scope, and timebox"
     return "inspect the runner contract blockers and resubmit with corrected constraints"
+
+
+def autopilot_repair_task(check: str, reason: str) -> dict[str, str]:
+    actions = {
+        "server_agent_host": "route autopilot work to a Linux server Agent Host lease",
+        "lease_record": "include task_id, status, lease_owner, blockers, artifacts, and next action in the result",
+        "exact_artifacts": "declare and produce exact required_artifacts or canonical_run_artifact_dir outputs",
+        "no_fake_completed": "return blocked with an explicit missing-artifact blocker until required artifacts exist",
+        "forbidden_git": "remove force/main/destructive git operations from the autopilot path",
+        "write_scope": "declare a strict write_scope and move outputs into allowed paths",
+        "timebox": "declare a positive autopilot timebox within the allowed maximum",
+        "max_inflight": "run autopilot with Agent Host max_inflight set to 1",
+    }
+    return {
+        "check": check,
+        "reason": reason,
+        "next_action": actions.get(check, "repair the failed autopilot contract check"),
+    }
+
+
+def autopilot_gate_matrix(
+    task: dict[str, Any],
+    result: dict[str, Any],
+    artifact_dir: Path,
+    host_max_inflight: int | None = None,
+) -> dict[str, Any]:
+    envelope = task_envelope(task)
+    if not autopilot_enabled(envelope):
+        return {"enabled": False}
+
+    artifacts = ensure_list(result.get("artifacts"))
+    for key_name in ("result_path", "artifact_path", "image_path"):
+        value = result.get(key_name)
+        if isinstance(value, str) and value:
+            artifacts.append(value)
+    artifacts.extend(ensure_list(result.get("required_artifacts_present")))
+    artifacts = [str(item) for item in artifacts if isinstance(item, str) and item]
+    blockers = [item for item in ensure_list(result.get("blocked_reason")) if isinstance(item, str) and item]
+    blockers.extend(item for item in ensure_list(result.get("failure_reason")) if isinstance(item, str) and item)
+
+    declared_artifacts = envelope_list(envelope, *REQUIRED_ARTIFACT_KEYS)
+    has_canonical_artifact_contract = bool(canonical_run_artifact_dir(envelope))
+    missing_artifacts = ensure_list(result.get("required_artifacts_missing"))
+    admission_phase = result.get("autopilot_phase") == "admission"
+    write_scope = envelope_list(envelope, "write_scope")
+    timebox_seconds = timebox_seconds_from_envelope(envelope)
+    max_inflight = host_max_inflight if host_max_inflight is not None else result.get("max_inflight")
+    try:
+        max_inflight_int = int(max_inflight) if max_inflight is not None else None
+    except (TypeError, ValueError):
+        max_inflight_int = None
+
+    checks: list[dict[str, Any]] = []
+
+    def add_check(name: str, passed: bool, reason: str = "") -> None:
+        checks.append({
+            "check": name,
+            "status": "pass" if passed else "fail",
+            "reason": reason,
+        })
+
+    add_check(
+        "server_agent_host",
+        platform.system().lower() != "darwin",
+        "autopilot must run on server Agent Host, not Mac",
+    )
+    add_check(
+        "lease_record",
+        all(result.get(key) not in (None, "", []) for key in ("task_id", "status", "lease_owner"))
+        and isinstance(artifacts, list)
+        and result.get("next_action") not in (None, ""),
+        "result must record task_id/status/lease_owner/artifacts/blockers/next action",
+    )
+    add_check(
+        "exact_artifacts",
+        bool(declared_artifacts or has_canonical_artifact_contract) and (admission_phase or not missing_artifacts),
+        "autopilot requires declared exact artifacts and all must exist before completion",
+    )
+    add_check(
+        "no_fake_completed",
+        not (result.get("runner_claimed_completed") and missing_artifacts),
+        "completed is forbidden while required artifacts are missing",
+    )
+    add_check(
+        "forbidden_git",
+        not result.get("push_attempted") or not result.get("push_blocked"),
+        "forbidden push/main/force/destructive git cannot be attempted",
+    )
+    add_check(
+        "write_scope",
+        bool(write_scope) and not result.get("write_scope_violations"),
+        "autopilot requires a strict write_scope with no violations",
+    )
+    add_check(
+        "timebox",
+        timebox_seconds is not None and timebox_seconds <= MAX_AUTOPILOT_TIMEBOX_SECONDS,
+        "autopilot requires a positive bounded timebox",
+    )
+    add_check(
+        "max_inflight",
+        max_inflight_int == 1,
+        "autopilot requires max_inflight=1 on Agent Host",
+    )
+
+    repair_tasks = [
+        autopilot_repair_task(row["check"], row["reason"])
+        for row in checks
+        if row["status"] == "fail"
+    ]
+    failed = [row["check"] for row in checks if row["status"] == "fail"]
+    return {
+        "enabled": True,
+        "status": "pass" if not failed else "fail",
+        "matrix": checks,
+        "repair_tasks": repair_tasks,
+        "failed_checks": failed,
+        "timebox_seconds": timebox_seconds,
+        "max_inflight": max_inflight_int,
+    }
 
 
 def finalize_runner_contract(
@@ -763,17 +932,20 @@ def finalize_runner_contract(
     push_blocked: bool | None = None,
     blocked_reason: str | None = None,
     failure_reason: str | None = None,
+    host_max_inflight: int | None = None,
 ) -> dict[str, Any]:
     envelope = task_envelope(task)
     final = dict(result or {})
     kind = task.get("kind") or envelope.get("kind")
     original_status = final.get("status")
+    final["runner_claimed_completed"] = original_status == "completed"
     if original_status not in CONTRACT_STATUSES:
         if original_status:
             final.setdefault("runner_status", original_status)
         final["status"] = "completed"
     final.setdefault("task_id", task["task_id"])
     final.setdefault("kind", kind)
+    final.setdefault("lease_owner", task.get("lease_owner") or f"{final.get('node_id', '')}:{final.get('agent_id', '')}".strip(":"))
     final["artifact_dir"] = str(artifact_dir)
 
     effective_changed = changed_files
@@ -840,7 +1012,8 @@ def finalize_runner_contract(
         blockers.append(blocked_reason)
     if not artifact_dir.exists():
         blockers.append("artifact_dir_missing")
-    if required_missing:
+    admission_phase = final.get("autopilot_phase") == "admission"
+    if required_missing and not admission_phase:
         blockers.append("required_artifacts_missing")
     if write_scope_violations:
         blockers.append("write_scope_violations")
@@ -861,6 +1034,30 @@ def finalize_runner_contract(
     final["next_recommended_task"] = final.get("next_recommended_task") or (
         next_recommended_task_for(blockers, envelope) if blockers else None
     )
+    final["blockers"] = [item for item in dict.fromkeys(blockers)]
+    artifact_values = []
+    for key_name in ("result_path", "artifact_path", "image_path"):
+        value = final.get(key_name)
+        if isinstance(value, str) and value:
+            artifact_values.append(value)
+    artifact_values.extend(required_present)
+    final["artifacts"] = list(dict.fromkeys(str(item) for item in artifact_values if item))
+    final["next_action"] = final.get("next_action") or final.get("next_recommended_task") or (
+        "complete task" if final["status"] == "completed" else "inspect runner contract result"
+    )
+    gate = autopilot_gate_matrix(task, final, artifact_dir, host_max_inflight=host_max_inflight)
+    if gate.get("enabled"):
+        final["autopilot_gate"] = gate
+        failed_checks = ensure_list(gate.get("failed_checks"))
+        if failed_checks:
+            autopilot_blocker = "autopilot_gate_failed:" + ",".join(str(item) for item in failed_checks)
+            final["status"] = "blocked"
+            final["blockers"] = list(dict.fromkeys(final["blockers"] + [autopilot_blocker]))
+            final["blocked_reason"] = "; ".join(final["blockers"])
+            final["next_recommended_task"] = next_recommended_task_for(final["blockers"], envelope)
+            final["next_action"] = final["next_recommended_task"]
+    else:
+        final["autopilot_gate"] = gate
 
     for field in CONTRACT_RESULT_FIELDS:
         final.setdefault(field, None)
@@ -881,6 +1078,37 @@ def unsupported_task_result(task: dict[str, Any], artifact_dir: Path, reason: st
         changed_files=[],
         blocked_reason=reason,
     )
+
+
+def autopilot_admission_result(
+    task: dict[str, Any],
+    artifact_dir: Path,
+    host_max_inflight: int,
+    worktree: Path | None = None,
+) -> dict[str, Any] | None:
+    envelope = task_envelope(task)
+    if not autopilot_enabled(envelope):
+        return None
+    result = {
+        "task_id": task["task_id"],
+        "status": "blocked",
+        "kind": task.get("kind") or envelope.get("kind"),
+        "changed_files": [],
+        "lease_owner": task.get("lease_owner"),
+        "result_path": str(artifact_dir / "result.json"),
+        "autopilot_phase": "admission",
+    }
+    finalized = finalize_runner_contract(
+        task,
+        result,
+        artifact_dir,
+        worktree=worktree,
+        changed_files=[],
+        blocked_reason="autopilot_admission_gate",
+        host_max_inflight=host_max_inflight,
+    )
+    gate = finalized.get("autopilot_gate") or {}
+    return finalized if gate.get("status") == "fail" else None
 
 
 class AgentHost:
@@ -1016,6 +1244,10 @@ class AgentHost:
         env: dict[str, str] | None = None,
         command_label: str | None = None,
     ) -> None:
+        forbidden_reason = forbidden_git_command_reason(command)
+        if forbidden_reason:
+            raise RuntimeError(forbidden_reason)
+        timebox_seconds = timebox_seconds_from_envelope(task_envelope(task))
         merged_env = os.environ.copy()
         if env:
             merged_env.update(env)
@@ -1025,10 +1257,18 @@ class AgentHost:
             stdout.flush()
             proc = subprocess.Popen(command, cwd=str(cwd), stdout=stdout, stderr=stderr, env=merged_env)
             last_refresh = 0.0
+            started_at = time.time()
             while proc.poll() is None:
                 if STOP:
                     proc.terminate()
                     raise RuntimeError("agent host received SIGTERM")
+                if timebox_seconds is not None and time.time() - started_at > timebox_seconds:
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                    raise RuntimeError(f"task_timebox_exceeded:{timebox_seconds}")
                 if time.time() - last_refresh >= self.lease_refresh:
                     self.task_heartbeat(task, cwd, branch, logs, proc.pid)
                     last_refresh = time.time()
@@ -1056,6 +1296,15 @@ class AgentHost:
                 "push_attempted": False,
                 "push_blocked": True,
                 "push_block_reason": reason,
+            }
+        forbidden_reason = forbidden_git_command_reason(command)
+        if forbidden_reason:
+            with stdout_path.open("ab") as stdout:
+                stdout.write(f"\n$ git push skipped by runner contract: {forbidden_reason}\n".encode("utf-8"))
+            return {
+                "push_attempted": False,
+                "push_blocked": True,
+                "push_block_reason": forbidden_reason,
             }
         self.run_command(command, cwd, stdout_path, stderr_path, task, branch, logs, env)
         return {
@@ -1455,7 +1704,14 @@ class AgentHost:
         worktree: Path | None = None,
         changed_files: list[str] | None = None,
     ) -> dict[str, Any]:
-        return finalize_runner_contract(task, result, artifact_dir, worktree=worktree, changed_files=changed_files)
+        return finalize_runner_contract(
+            task,
+            result,
+            artifact_dir,
+            worktree=worktree,
+            changed_files=changed_files,
+            host_max_inflight=self.max_inflight,
+        )
 
     def complete(self, task: dict[str, Any], result: dict[str, Any], result_path: Path) -> None:
         self.post(f"/v1/tasks/{task['task_id']}/complete", {
@@ -2300,6 +2556,29 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 self.fail(task, "runner_contract_blocked", unsupported_reason, result, result_path, retry=False)
                 return
 
+            worktree, artifact_dir, logs = self.prepare_dirs(task)
+            admission_block = autopilot_admission_result(task, artifact_dir, self.max_inflight, worktree=worktree)
+            if admission_block:
+                admission_block["node_id"] = self.node_id
+                admission_block["hostname"] = self.hostname
+                admission_block["agent_id"] = self.agent_id
+                admission_block["attempt_id"] = task.get("attempt_id")
+                admission_block["pid"] = self.pid
+                admission_block["heartbeat_at"] = utc_now()
+                admission_block["worktree"] = str(worktree)
+                admission_block["log_paths"] = logs
+                result_path = self.write_result(artifact_dir, admission_block)
+                admission_block["result_path"] = str(result_path)
+                self.fail(
+                    task,
+                    "autopilot_gate_failed",
+                    admission_block.get("blocked_reason") or "autopilot gate failed",
+                    admission_block,
+                    result_path,
+                    retry=False,
+                )
+                return
+
             permission_pack_classification = self.validate_runtime_permission_contract(task)
             kind = task.get("kind")
             if kind == "impl_factory_smoke":
@@ -2325,7 +2604,7 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
             artifact_dir = result_path.parent
             worktree_value = result.get("worktree")
             worktree = Path(worktree_value) if isinstance(worktree_value, str) and worktree_value else None
-            result = finalize_runner_contract(task, result, artifact_dir, worktree=worktree)
+            result = finalize_runner_contract(task, result, artifact_dir, worktree=worktree, host_max_inflight=self.max_inflight)
             result_path = self.write_result(artifact_dir, result)
             result["result_path"] = str(result_path)
             if result["status"] == "completed":

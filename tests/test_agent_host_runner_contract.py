@@ -704,6 +704,204 @@ def test_publish_gate_allows_git_push_after_contract_verification_passes(tmp_pat
     assert gated["required_artifacts_missing"] == []
 
 
+def test_autopilot_gate_pass_matrix_records_truthfulness_contract(tmp_path):
+    agent_host = load_agent_host()
+    worktree, artifact_dir = make_paths(tmp_path)
+    required = worktree / "docs" / "agent" / "runs" / "TASK" / "RESULT.md"
+    required.parent.mkdir(parents=True)
+    required.write_text("ok\n", encoding="utf-8")
+    task = make_task({
+        "autopilot": True,
+        "timebox_seconds": 600,
+        "write_scope": ["docs/agent/runs/TASK/**"],
+        "required_artifacts": ["docs/agent/runs/TASK/RESULT.md"],
+    })
+    task["lease_owner"] = "server-node-1:agent-host-server-node-1"
+
+    result = agent_host.finalize_runner_contract(
+        task,
+        {
+            "task_id": task["task_id"],
+            "status": "completed",
+            "node_id": "server-node-1",
+            "agent_id": "agent-host-server-node-1",
+            "result_path": str(artifact_dir / "result.json"),
+            "changed_files": ["docs/agent/runs/TASK/RESULT.md"],
+        },
+        artifact_dir,
+        worktree=worktree,
+        changed_files=["docs/agent/runs/TASK/RESULT.md"],
+        host_max_inflight=1,
+    )
+
+    assert result["status"] == "completed"
+    assert result["lease_owner"] == "server-node-1:agent-host-server-node-1"
+    assert str(artifact_dir / "result.json") in result["artifacts"]
+    assert "docs/agent/runs/TASK/RESULT.md" in result["artifacts"]
+    assert result["blockers"] == []
+    assert result["next_action"] == "complete task"
+    assert result["autopilot_gate"]["status"] == "pass"
+    assert {row["status"] for row in result["autopilot_gate"]["matrix"]} == {"pass"}
+    assert result["autopilot_gate"]["repair_tasks"] == []
+
+
+def test_autopilot_completed_with_missing_artifact_is_blocked_with_matrix_and_repair_task(tmp_path):
+    agent_host = load_agent_host()
+    worktree, artifact_dir = make_paths(tmp_path)
+    task = make_task({
+        "autopilot": True,
+        "timebox_seconds": 600,
+        "write_scope": ["docs/agent/runs/TASK/**"],
+        "required_artifacts": ["docs/agent/runs/TASK/MISSING.md"],
+    })
+    task["lease_owner"] = "server-node-1:agent-host-server-node-1"
+
+    result = agent_host.finalize_runner_contract(
+        task,
+        {
+            "task_id": task["task_id"],
+            "status": "completed",
+            "node_id": "server-node-1",
+            "agent_id": "agent-host-server-node-1",
+            "result_path": str(artifact_dir / "result.json"),
+            "changed_files": [],
+        },
+        artifact_dir,
+        worktree=worktree,
+        changed_files=[],
+        host_max_inflight=1,
+    )
+
+    assert result["status"] == "blocked"
+    assert "required_artifacts_missing" in result["blocked_reason"]
+    assert result["autopilot_gate"]["status"] == "fail"
+    failed = {row["check"] for row in result["autopilot_gate"]["matrix"] if row["status"] == "fail"}
+    assert "exact_artifacts" in failed
+    assert "no_fake_completed" in failed
+    assert {
+        "check": "exact_artifacts",
+        "reason": "autopilot requires declared exact artifacts and all must exist before completion",
+        "next_action": "declare and produce exact required_artifacts or canonical_run_artifact_dir outputs",
+    } in result["autopilot_gate"]["repair_tasks"]
+
+
+def test_autopilot_admission_blocks_missing_timebox_write_scope_and_bad_inflight_before_runner(tmp_path):
+    agent_host = load_agent_host()
+
+    class Host(agent_host.AgentHost):
+        def __init__(self):
+            super().__init__(make_args(tmp_path, capabilities="read_only_probe"))
+            self.max_inflight = 2
+            self.posts = []
+            self.probe_called = False
+
+        def post(self, path, body):
+            self.posts.append((path, body))
+            return body
+
+        def run_read_only_probe(self, task):
+            del task
+            self.probe_called = True
+            raise AssertionError("autopilot runner must not execute before admission passes")
+
+    task = make_task({
+        "kind": "read_only_probe",
+        "autopilot": True,
+        "required_artifacts": ["docs/agent/runs/TASK/RESULT.md"],
+    })
+    task["kind"] = "read_only_probe"
+    task["lease_owner"] = "server-node-1:agent-host-server-node-1"
+
+    host = Host()
+    host.run_task(task)
+
+    assert host.probe_called is False
+    fail_posts = [(path, body) for path, body in host.posts if path.endswith("/fail")]
+    assert len(fail_posts) == 1
+    _, fail_body = fail_posts[0]
+    assert fail_body["error_type"] == "autopilot_gate_failed"
+    result = fail_body["result"]
+    assert result["status"] == "blocked"
+    failed = set(result["autopilot_gate"]["failed_checks"])
+    assert {"write_scope", "timebox", "max_inflight"} <= failed
+    assert result["next_action"] == "repair the autopilot gate contract, then resubmit with exact artifacts, write_scope, and timebox"
+
+
+def test_git_push_contract_blocks_main_and_force_push(tmp_path):
+    agent_host = load_agent_host()
+    host = make_host(agent_host, tmp_path, capabilities="impl_factory_smoke")
+    worktree, artifact_dir = make_paths(tmp_path / "protected-push")
+    stdout_path = artifact_dir / "stdout.log"
+    stderr_path = artifact_dir / "stderr.log"
+    stdout_path.write_text("", encoding="utf-8")
+    stderr_path.write_text("", encoding="utf-8")
+    task = make_task({})
+
+    main_push = host.git_push(
+        task,
+        ["git", "push", "-u", "origin", "main"],
+        worktree,
+        stdout_path,
+        stderr_path,
+        "main",
+        {"stdout": str(stdout_path), "stderr": str(stderr_path)},
+    )
+    force_push = host.git_push(
+        task,
+        ["git", "push", "--force", "origin", "branch"],
+        worktree,
+        stdout_path,
+        stderr_path,
+        "branch",
+        {"stdout": str(stdout_path), "stderr": str(stderr_path)},
+    )
+
+    assert main_push["push_attempted"] is False
+    assert main_push["push_blocked"] is True
+    assert main_push["push_block_reason"] == "push_to_protected_branch_forbidden"
+    assert force_push["push_attempted"] is False
+    assert force_push["push_block_reason"] == "force_push_forbidden"
+
+
+def test_run_command_enforces_timebox_and_blocks_destructive_git(tmp_path):
+    agent_host = load_agent_host()
+    host = make_host(agent_host, tmp_path, capabilities="read_only_probe")
+    worktree, artifact_dir = make_paths(tmp_path / "timebox")
+    stdout_path = artifact_dir / "stdout.log"
+    stderr_path = artifact_dir / "stderr.log"
+    task = make_task({"timebox_seconds": 1})
+
+    try:
+        host.run_command(
+            ["python3", "-c", "import time; time.sleep(5)"],
+            worktree,
+            stdout_path,
+            stderr_path,
+            task,
+            None,
+            {"stdout": str(stdout_path), "stderr": str(stderr_path)},
+        )
+    except RuntimeError as exc:
+        assert str(exc) == "task_timebox_exceeded:1"
+    else:
+        raise AssertionError("timeboxed command should fail")
+
+    try:
+        host.run_command(
+            ["git", "reset", "--hard"],
+            worktree,
+            stdout_path,
+            stderr_path,
+            task,
+            None,
+            {"stdout": str(stdout_path), "stderr": str(stderr_path)},
+        )
+    except RuntimeError as exc:
+        assert str(exc) == "destructive_git_reset_hard_forbidden"
+    else:
+        raise AssertionError("destructive git command should fail")
+
+
 def test_review_clone_auth_failure_posts_result_json_with_credential_repair(tmp_path):
     agent_host = load_agent_host()
 
