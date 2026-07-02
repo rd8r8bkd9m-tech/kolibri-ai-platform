@@ -38,6 +38,7 @@ def make_task(envelope=None):
 def make_args(tmp_path, capabilities="read_only_probe"):
     return argparse.Namespace(
         control_url="http://127.0.0.1:9101",
+        control_urls="http://127.0.0.1:9101",
         node_id="primary-candidate",
         agent_id="agent-host-primary",
         capabilities=capabilities,
@@ -413,6 +414,64 @@ def test_owner_remote_task_with_mimo_invokes_mimo_not_codex(tmp_path, monkeypatc
     complete_posts = [(path, body) for path, body in host.posts if path.endswith("/complete")]
     assert len(complete_posts) == 1
     assert complete_posts[0][1]["result"]["runner"] == "mimo"
+
+
+def test_qjns_worker_pool_advertises_mimo_runner_only_when_ready(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setenv("KOLIBRI_QJNS_UIAP_WORKER_POOL", "1")
+    monkeypatch.setenv("KOLIBRI_AGENT_MIN_DISK_FREE_GB", "1")
+    monkeypatch.setattr(agent_host.shutil, "which", lambda name: "/usr/bin/mimo" if name == "mimo" else None)
+    args = make_args(tmp_path, capabilities="read_only_probe")
+    args.node_id = "qjns"
+    args.agent_id = "agent-host-qjns"
+
+    host = agent_host.AgentHost(args)
+
+    assert host.worker_pool["ready"] is True
+    assert "generic_implementation" in host.capabilities
+    assert "remote_implementation_runner_ready" in host.capabilities
+    assert "runner:mimo" in host.capabilities
+
+
+def test_uiap_worker_pool_withholds_worker_caps_when_mimo_missing(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setenv("KOLIBRI_QJNS_UIAP_WORKER_POOL", "1")
+    monkeypatch.setattr(agent_host.shutil, "which", lambda name: None)
+    args = make_args(tmp_path, capabilities="read_only_probe,generic_implementation,runner:mimo")
+    args.node_id = "uiap"
+    args.agent_id = "agent-host-uiap"
+
+    host = agent_host.AgentHost(args)
+
+    assert host.worker_pool["ready"] is False
+    assert "mimo_unavailable" in host.worker_pool["reasons"]
+    assert host.capabilities == ["read_only_probe"]
+
+
+def test_agent_host_posts_worker_pool_readiness_on_register_heartbeat_and_lease(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setenv("KOLIBRI_QJNS_UIAP_WORKER_POOL", "1")
+    monkeypatch.setattr(agent_host.shutil, "which", lambda name: "/usr/bin/mimo" if name == "mimo" else None)
+
+    class Host(agent_host.AgentHost):
+        def __init__(self):
+            args = make_args(tmp_path, capabilities="read_only_probe")
+            args.node_id = "qjns"
+            super().__init__(args)
+            self.posts = []
+
+        def post(self, path, body):
+            self.posts.append((path, body))
+            return None
+
+    host = Host()
+    host.register()
+    host.node_heartbeat()
+    host.lease()
+
+    bodies = [body for _, body in host.posts]
+    assert all("worker_pool" in body for body in bodies)
+    assert all(body["worker_pool"]["enabled"] is True for body in bodies)
 
 
 def test_owner_remote_task_runner_auth_failure_is_structured_and_redacted(tmp_path, monkeypatch):

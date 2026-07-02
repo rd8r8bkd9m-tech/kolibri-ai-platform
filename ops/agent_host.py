@@ -106,6 +106,15 @@ BACKEND_TEST_ENV_KEYS = (
 )
 BACKEND_TEST_ENV_TYPES = {"backend_python", "python_backend"}
 SUPPORTED_AI_RUNNERS = {"api", "codex", "local_llm", "mimo"}
+WORKER_POOL_NODE_IDS = {"qjns", "uiap"}
+WORKER_POOL_CAPABILITIES = {
+    "generic_implementation",
+    "implementation",
+    "remote_implementation_runner_ready",
+    "review",
+}
+DEFAULT_WORKER_POOL_MIN_DISK_FREE_GB = 5
+DEFAULT_WORKER_POOL_MIN_MEM_AVAILABLE_MB = 512
 RUNNER_AUTH_FAILURE_MARKERS = (
     "401",
     "403",
@@ -194,6 +203,33 @@ def machine_stats() -> dict[str, Any]:
         "ram": ram,
         "disk": {"total": disk.total, "used": disk.used, "free": disk.free},
     }
+
+
+def env_bool(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def env_int(name: str, default: int) -> int:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
+def meminfo_kb(stats: dict[str, Any], name: str) -> int | None:
+    value = (stats.get("ram") or {}).get(name)
+    if not isinstance(value, str):
+        return None
+    try:
+        return int(value.split()[0])
+    except (IndexError, ValueError):
+        return None
 
 
 def sha256_file(path: Path) -> str:
@@ -892,7 +928,8 @@ class AgentHost:
         self.control_url = self.control_urls[0]
         self.node_id = args.node_id
         self.agent_id = args.agent_id or f"{args.node_id}-agent-host"
-        self.capabilities = [item for item in args.capabilities.split(",") if item]
+        self.configured_capabilities = [item for item in args.capabilities.split(",") if item]
+        self.capabilities = list(self.configured_capabilities)
         self.repo_url = args.repo_url
         self.work_root = Path(args.work_root)
         self.artifact_root = Path(args.artifact_root)
@@ -901,10 +938,12 @@ class AgentHost:
         self.max_inflight = args.max_inflight
         self.hostname = platform.node()
         self.pid = os.getpid()
-        self.runner_status = self.detect_runner_status()
-        self.capabilities = self.capabilities_with_runners()
         self.work_root.mkdir(parents=True, exist_ok=True)
         self.artifact_root.mkdir(parents=True, exist_ok=True)
+        self.worker_pool_enabled = self.worker_pool_enabled_for_node()
+        self.runner_status = self.detect_runner_status()
+        self.worker_pool = self.evaluate_worker_pool()
+        self.capabilities = self.capabilities_with_runners()
 
     def post(self, path: str, body: dict[str, Any]) -> Any:
         return self._request_with_failover("POST", path, body)
@@ -943,14 +982,73 @@ class AgentHost:
             }
         return status
 
+    def worker_pool_enabled_for_node(self) -> bool:
+        if env_bool("KOLIBRI_AGENT_POOL_ENABLED", False):
+            return True
+        if env_bool("KOLIBRI_WORKER_POOL_ENABLED", False):
+            return True
+        return self.node_id in WORKER_POOL_NODE_IDS and env_bool("KOLIBRI_QJNS_UIAP_WORKER_POOL", False)
+
+    def evaluate_worker_pool(self, active_count: int = 0) -> dict[str, Any]:
+        stats = machine_stats()
+        min_disk_free_gb = env_int("KOLIBRI_AGENT_MIN_DISK_FREE_GB", DEFAULT_WORKER_POOL_MIN_DISK_FREE_GB)
+        min_mem_available_mb = env_int("KOLIBRI_AGENT_MIN_MEM_AVAILABLE_MB", DEFAULT_WORKER_POOL_MIN_MEM_AVAILABLE_MB)
+        min_disk_free_bytes = max(0, min_disk_free_gb) * 1024 * 1024 * 1024
+        min_mem_available_kb = max(0, min_mem_available_mb) * 1024
+        disk_free = int((stats.get("disk") or {}).get("free") or 0)
+        mem_available = meminfo_kb(stats, "MemAvailable")
+        reasons: list[str] = []
+        if not self.worker_pool_enabled:
+            reasons.append("worker_pool_disabled")
+        if disk_free < min_disk_free_bytes:
+            reasons.append("disk_free_below_cap")
+        if mem_available is not None and mem_available < min_mem_available_kb:
+            reasons.append("mem_available_below_cap")
+        if active_count >= self.max_inflight:
+            reasons.append("max_inflight_reached")
+        if (self.runner_status.get("mimo") or {}).get("status") != "available":
+            reasons.append("mimo_unavailable")
+        return {
+            "enabled": self.worker_pool_enabled,
+            "ready": not reasons,
+            "reasons": reasons,
+            "active": active_count,
+            "max_inflight": self.max_inflight,
+            "resource_caps": {
+                "min_disk_free_gb": min_disk_free_gb,
+                "min_mem_available_mb": min_mem_available_mb,
+            },
+            "resources": {
+                "disk_free": disk_free,
+                "mem_available_kb": mem_available,
+            },
+            "checked_at": utc_now(),
+        }
+
     def capabilities_with_runners(self) -> list[str]:
-        capabilities = list(dict.fromkeys(self.capabilities))
+        capabilities = list(dict.fromkeys(self.configured_capabilities))
+        worker_ready = bool(self.worker_pool.get("ready"))
+        if self.worker_pool_enabled and worker_ready:
+            for capability in ("generic_implementation", "remote_implementation_runner_ready"):
+                if capability not in capabilities:
+                    capabilities.append(capability)
+        if self.worker_pool_enabled and not worker_ready:
+            capabilities = [
+                capability
+                for capability in capabilities
+                if capability not in WORKER_POOL_CAPABILITIES and not capability.startswith("runner:")
+            ]
         for runner, state in self.runner_status.items():
             if state.get("status") == "available":
                 cap = runner_capability(runner)
-                if cap not in capabilities:
+                if cap not in capabilities and (not self.worker_pool_enabled or worker_ready):
                     capabilities.append(cap)
         return capabilities
+
+    def refresh_node_readiness(self, active_count: int = 0) -> None:
+        self.runner_status = self.detect_runner_status()
+        self.worker_pool = self.evaluate_worker_pool(active_count)
+        self.capabilities = self.capabilities_with_runners()
 
     def mark_runner_status(self, runner: str, status: str, error_type: str | None = None) -> None:
         current = self.runner_status.setdefault(runner, {})
@@ -961,6 +1059,7 @@ class AgentHost:
         })
 
     def register(self) -> None:
+        self.refresh_node_readiness()
         body = {
             "node_id": self.node_id,
             "hostname": self.hostname,
@@ -968,11 +1067,13 @@ class AgentHost:
             "pid": self.pid,
             "capabilities": self.capabilities,
             "runners": self.runner_status,
+            "worker_pool": self.worker_pool,
             **machine_stats(),
         }
         self.post("/v1/nodes/register", body)
 
     def node_heartbeat(self, active_task: str | None = None) -> None:
+        self.refresh_node_readiness(1 if active_task else 0)
         body = {
             "node_id": self.node_id,
             "hostname": self.hostname,
@@ -980,6 +1081,7 @@ class AgentHost:
             "pid": self.pid,
             "capabilities": self.capabilities,
             "runners": self.runner_status,
+            "worker_pool": self.worker_pool,
             "active_task": active_task,
             **machine_stats(),
         }
@@ -996,11 +1098,13 @@ class AgentHost:
         return self.post(f"/v1/tasks/{task['task_id']}/heartbeat", body)
 
     def lease(self) -> dict[str, Any] | None:
+        self.refresh_node_readiness()
         task = self.post("/v1/tasks/lease", {
             "node_id": self.node_id,
             "agent_id": self.agent_id,
             "capabilities": self.capabilities,
             "runners": self.runner_status,
+            "worker_pool": self.worker_pool,
         })
         return sanitize_task_permissions(task) if isinstance(task, dict) else task
 

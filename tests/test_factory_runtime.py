@@ -137,3 +137,31 @@ def test_control_plane_runner_compatibility_filters_blocked_and_avoided_nodes():
         ["generic_implementation", "runner:mimo"],
         {"runners": {"mimo": {"status": "available"}}},
     ) is False
+
+
+def test_control_plane_worker_pool_readiness_blocks_worker_leases():
+    control = load_module(ROOT / "ops" / "factory_control.py")
+    task = control.normalize_task({
+        "kind": "owner_remote_task",
+        "runner": "mimo",
+        "required_capability": "generic_implementation",
+    })
+
+    assert control.compatible(
+        task,
+        "qjns",
+        ["generic_implementation", "runner:mimo"],
+        {
+            "worker_pool": {"ready": False, "reasons": ["disk_free_below_cap"]},
+            "runners": {"mimo": {"status": "available"}},
+        },
+    ) is False
+    assert control.compatible(
+        task,
+        "qjns",
+        ["generic_implementation", "runner:mimo"],
+        {
+            "worker_pool": {"ready": True, "reasons": []},
+            "runners": {"mimo": {"status": "available"}},
+        },
+    ) is True

@@ -88,6 +88,7 @@ STATE_RETRY = "retry_scheduled"
 STATE_DEAD = "dead_letter"
 TERMINAL_STATES = {STATE_COMPLETED, STATE_FAILED, STATE_CANCELLED, STATE_DEAD}
 BLOCKED_RUNNER_STATES = {"blocked", "degraded", "runner_auth_blocked", "unavailable"}
+WORKER_POOL_CAPABILITIES = {"generic_implementation", "implementation", "remote_implementation_runner_ready", "review"}
 
 FABRIC_NODE_CATALOG = {
     "home": {
@@ -671,6 +672,24 @@ def runner_state(node: dict[str, Any], runner: str) -> str | None:
     return None
 
 
+def worker_pool_ready(node: dict[str, Any] | None) -> bool:
+    if not node:
+        return True
+    pool = node.get("worker_pool")
+    if not isinstance(pool, dict):
+        return True
+    return bool(pool.get("ready"))
+
+
+def task_requires_worker_pool(task: dict[str, Any]) -> bool:
+    envelope = task.get("envelope", {})
+    required = envelope.get("required_capability")
+    if required in WORKER_POOL_CAPABILITIES:
+        return True
+    runner = str(envelope.get("runner") or "").strip().lower()
+    return bool(runner and envelope.get("kind") == "owner_remote_task")
+
+
 def mark_node_runner_failure(task: dict[str, Any], body: dict[str, Any]) -> None:
     error_type = body.get("error_type")
     if error_type not in {"runner_auth_blocked", "runner_unavailable"}:
@@ -705,6 +724,8 @@ def compatible(task: dict[str, Any], node_id: str, capabilities: list[str], node
         return False
     avoided = set(str(item) for item in ensure_list(envelope.get("avoid_nodes") or envelope.get("avoided_nodes")))
     if node_id in avoided:
+        return False
+    if task_requires_worker_pool(task) and not worker_pool_ready(node):
         return False
     required = envelope.get("required_capability")
     if required and required not in capabilities:
@@ -1082,6 +1103,7 @@ class Handler(BaseHTTPRequestHandler):
                     "cpu": body.get("cpu"),
                     "ram": body.get("ram"),
                     "disk": body.get("disk"),
+                    "worker_pool": body.get("worker_pool"),
                     "agent_id": body.get("agent_id"),
                 }
                 set_json(node_key(node_id), node)
@@ -1204,7 +1226,12 @@ class Handler(BaseHTTPRequestHandler):
                 node = get_json(node_key(node_id), {"node_id": node_id, "capabilities": capabilities})
                 if isinstance(body.get("runners"), dict):
                     node["runners"] = body["runners"]
-                    set_json(node_key(node_id), node)
+                if isinstance(body.get("worker_pool"), dict):
+                    node["worker_pool"] = body["worker_pool"]
+                if capabilities:
+                    node["capabilities"] = capabilities
+                node["agent_id"] = agent_id
+                set_json(node_key(node_id), node)
                 for task_id in queue_ids():
                     task = load_task(task_id)
                     if not task or task.get("state") not in {STATE_QUEUED, STATE_REVIEW}:
