@@ -20,6 +20,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
+from urllib.request import Request, urlopen
 
 CURRENT_DIR = Path(__file__).resolve().parent
 
@@ -174,6 +175,13 @@ MODEL_CATALOG = [
         "capabilities": ["chat", "responses"],
         "route": "safe_stub_until_model_node_authenticated",
     }
+]
+
+LOCAL_MODEL_ENDPOINTS = [
+    {"provider": "ollama", "base_url": "http://127.0.0.1:11434", "models_path": "/api/tags", "protocol": "ollama"},
+    {"provider": "vllm", "base_url": "http://127.0.0.1:8000", "models_path": "/v1/models", "protocol": "openai"},
+    {"provider": "litellm", "base_url": "http://127.0.0.1:4000", "models_path": "/v1/models", "protocol": "openai"},
+    {"provider": "openai-compatible", "base_url": "http://127.0.0.1:8080", "models_path": "/v1/models", "protocol": "openai"},
 ]
 
 ADMIN_ENDPOINTS = {
@@ -436,6 +444,130 @@ def fleet_topology(nodes: list[dict[str, Any]]) -> dict[str, Any]:
         "nodes": nodes,
         "edges": edges,
         "relay_endpoint": "/v1/fabric/relay",
+    }
+
+
+def local_model_endpoint_candidates() -> list[dict[str, str]]:
+    candidates = [dict(endpoint) for endpoint in LOCAL_MODEL_ENDPOINTS]
+    extra = os.environ.get("KOLIBRI_LOCAL_MODEL_ENDPOINTS", "")
+    for item in extra.replace(";", ",").split(","):
+        base_url = item.strip().rstrip("/")
+        if not base_url:
+            continue
+        candidates.append({
+            "provider": "openai-compatible",
+            "base_url": base_url,
+            "models_path": "/v1/models",
+            "protocol": "openai",
+        })
+    deduped: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for candidate in candidates:
+        key_pair = (candidate["base_url"], candidate["models_path"])
+        if key_pair in seen:
+            continue
+        seen.add(key_pair)
+        deduped.append(candidate)
+    return deduped
+
+
+def read_json_url(url: str, timeout: float) -> dict[str, Any]:
+    request = Request(url, headers={"Accept": "application/json", "User-Agent": "kolibri-fabric-model-inventory"})
+    with urlopen(request, timeout=timeout) as response_body:  # noqa: S310 - local model route inventory only; no secrets sent.
+        payload = response_body.read(1024 * 1024)
+    return json.loads(payload.decode("utf-8"))
+
+
+def _model_id(value: Any) -> str | None:
+    if isinstance(value, str):
+        return value
+    if not isinstance(value, dict):
+        return None
+    model_id = value.get("id") or value.get("name") or value.get("model")
+    return str(model_id) if model_id else None
+
+
+def models_from_endpoint_payload(payload: dict[str, Any], *, provider: str, route: dict[str, str]) -> list[dict[str, Any]]:
+    if route["protocol"] == "ollama":
+        raw_models = payload.get("models") or []
+    else:
+        raw_models = payload.get("data") or payload.get("models") or []
+    models: list[dict[str, Any]] = []
+    for raw_model in raw_models:
+        model_id = _model_id(raw_model)
+        if not model_id:
+            continue
+        models.append({
+            "id": model_id,
+            "object": "model",
+            "owned_by": provider,
+            "capabilities": ["chat", "responses"],
+            "route": {
+                "type": "local_model_runtime",
+                "provider": provider,
+                "base_url": route["base_url"],
+                "protocol": route["protocol"],
+            },
+        })
+    return models
+
+
+def inventory_local_model_routes(timeout: float | None = None) -> dict[str, Any]:
+    timeout = timeout if timeout is not None else float(os.environ.get("KOLIBRI_MODEL_ROUTE_TIMEOUT", "1.5"))
+    routes: list[dict[str, Any]] = []
+    first_working_route: dict[str, Any] | None = None
+    for candidate in local_model_endpoint_candidates():
+        url = f"{candidate['base_url']}{candidate['models_path']}"
+        route = {
+            "provider": candidate["provider"],
+            "base_url": candidate["base_url"],
+            "models_path": candidate["models_path"],
+            "protocol": candidate["protocol"],
+            "url": url,
+        }
+        try:
+            payload = read_json_url(url, timeout)
+            models = models_from_endpoint_payload(payload, provider=candidate["provider"], route=candidate)
+            route.update({"status": "online" if models else "empty", "models": models})
+            if models and first_working_route is None:
+                first_working_route = {
+                    "provider": route["provider"],
+                    "base_url": route["base_url"],
+                    "protocol": route["protocol"],
+                    "models_path": route["models_path"],
+                    "model_count": len(models),
+                }
+        except Exception as exc:  # noqa: BLE001 - route inventory should degrade into an exact blocker.
+            route.update({
+                "status": "blocked",
+                "models": [],
+                "blocked_reason": "model_runtime_unavailable",
+                "error": exc.__class__.__name__,
+            })
+        routes.append(route)
+    return {
+        "routes": routes,
+        "first_working_route": first_working_route,
+        "repair_task": "" if first_working_route else {
+            "kind": "deploy_local_model_runtime",
+            "action": "start an Ollama, vLLM, LiteLLM, or OpenAI-compatible runtime on one of the inventoried loopback endpoints",
+            "exact_repair_command": "docker run -d --name kolibri-ollama -p 127.0.0.1:11434:11434 -v kolibri-ollama:/root/.ollama ollama/ollama:latest && docker exec kolibri-ollama ollama pull qwen2.5:0.5b",
+            "verify_command": "curl --noproxy '*' -sS http://127.0.0.1:11434/api/tags",
+        },
+    }
+
+
+def fabric_model_catalog() -> dict[str, Any]:
+    inventory = inventory_local_model_routes()
+    discovered: list[dict[str, Any]] = []
+    for route in inventory["routes"]:
+        discovered.extend(route.get("models") or [])
+    return {
+        "object": "list",
+        "data": [*MODEL_CATALOG, *discovered],
+        "local_model_route_inventory": inventory["routes"],
+        "first_working_route": inventory["first_working_route"],
+        "repair_task": inventory["repair_task"],
     }
 
 
@@ -957,11 +1089,15 @@ class Handler(BaseHTTPRequestHandler):
                 ))
                 return
             if path == "/v1/models":
+                model_catalog = fabric_model_catalog()
+                has_local_route = bool(model_catalog["first_working_route"])
                 response(self, 200, canonical_response_envelope(
                     status="completed",
                     route_used="/v1/models",
-                    data={"object": "list", "data": MODEL_CATALOG},
-                    next_action="model generation endpoints remain safe stubs until authenticated model routes are online",
+                    blocked_reason="" if has_local_route else "model_runtime_unavailable",
+                    repair_task="" if has_local_route else model_catalog["repair_task"],
+                    data=model_catalog,
+                    next_action="route model work through the first_working_route" if has_local_route else "deploy a local model runtime and retry /v1/models",
                 ))
                 return
             if path == "/v1/fabric/health":

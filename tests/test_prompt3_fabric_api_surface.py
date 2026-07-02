@@ -69,6 +69,48 @@ def test_model_responses_and_chat_completions_are_safe_blocked_stubs():
         assert "9fts" in envelope["fallback_nodes"]
 
 
+def test_model_catalog_inventories_first_working_local_openai_route(monkeypatch):
+    control = load_control()
+
+    def fake_read_json_url(url, timeout):
+        if url == "http://127.0.0.1:11434/api/tags":
+            raise TimeoutError("offline")
+        if url == "http://127.0.0.1:8000/v1/models":
+            return {"object": "list", "data": [{"id": "local-vllm-model", "object": "model"}]}
+        raise ConnectionError("offline")
+
+    monkeypatch.setattr(control, "read_json_url", fake_read_json_url)
+    catalog = control.fabric_model_catalog()
+
+    assert catalog["first_working_route"] == {
+        "provider": "vllm",
+        "base_url": "http://127.0.0.1:8000",
+        "protocol": "openai",
+        "models_path": "/v1/models",
+        "model_count": 1,
+    }
+    assert any(model["id"] == "local-vllm-model" for model in catalog["data"])
+    local_model = next(model for model in catalog["data"] if model["id"] == "local-vllm-model")
+    assert local_model["route"]["type"] == "local_model_runtime"
+    assert catalog["repair_task"] == ""
+
+
+def test_model_catalog_reports_exact_deploy_blocker_when_no_local_route(monkeypatch):
+    control = load_control()
+
+    def fake_read_json_url(url, timeout):
+        raise ConnectionError("offline")
+
+    monkeypatch.setattr(control, "read_json_url", fake_read_json_url)
+    catalog = control.fabric_model_catalog()
+
+    assert catalog["first_working_route"] is None
+    assert catalog["data"] == control.MODEL_CATALOG
+    assert catalog["repair_task"]["kind"] == "deploy_local_model_runtime"
+    assert "docker run -d --name kolibri-ollama" in catalog["repair_task"]["exact_repair_command"]
+    assert all(route["status"] == "blocked" for route in catalog["local_model_route_inventory"])
+
+
 def test_agents_aliases_normalize_envelope_and_artifacts():
     control = load_control()
     envelope = control.task_envelope_from_request({"task_id": "AGENT-1", "target_node": "9fts"})
