@@ -1,0 +1,135 @@
+{
+  "task_id": "P0_AUTOPILOT_EXTRA_31_HOSTVDS_AGENT_09_READINESS_2026_07_02",
+  "status": "blocked_target_node_unavailable",
+  "node": "kolibri",
+  "assigned_worker": "mesh-agent-31",
+  "target_node": "hostvds-agent-09",
+  "agent_display_name": "mesh-agent-31 - HostVDS Agent 09 Readiness Probe",
+  "branch": "agent/P0_AUTOPILOT_EXTRA_31_HOSTVDS_AGENT_09_READINESS_2026_07_02/generic",
+  "head_sha": "f7ac32c70406432a52752ca45d87e35d9f1facd3",
+  "remote_execution": {
+    "happened": true,
+    "evidence": "Worktree path is under /var/lib/kolibri-agent/logical-workers/mesh-agent-31/.../repo on hostname kolibri."
+  },
+  "api_routes": {
+    "control_plane": "10.99.0.10:9101",
+    "health": "ok",
+    "fabric_health": "ok",
+    "fleet_nodes": "ok",
+    "models": "ok",
+    "hostvds_agent_09_route": {
+      "http_status": 503,
+      "status": "blocked",
+      "blocked_reason": "target_node_unavailable",
+      "repair_task": {
+        "kind": "repair_fabric_route",
+        "target_node": "hostvds-agent-09",
+        "action": "register node heartbeat, clear drain state, or choose a fallback node via Fabric API"
+      }
+    }
+  },
+  "fleet_identity": {
+    "canonical_hostvds_agent_09_found": false,
+    "related_nodes_found": [
+      {
+        "node_id": "agent-09",
+        "health": "online",
+        "draining": false,
+        "capabilities": [
+          "read_only_probe",
+          "implementation",
+          "generic_implementation",
+          "remote_implementation_runner_ready",
+          "permission:*"
+        ]
+      },
+      {
+        "node_id": "mesh-agent-09",
+        "agent_id": "agent-host-mesh-agent-09",
+        "health": "online",
+        "draining": false,
+        "capabilities": [
+          "mesh",
+          "mesh_node",
+          "implementation",
+          "generic_implementation",
+          "read_only_probe",
+          "remote_implementation_runner_ready",
+          "runner:codex",
+          "runner:mimo"
+        ],
+        "disk_free_bytes": 52326215680,
+        "disk_total_bytes": 105590231040
+      }
+    ]
+  },
+  "ssh_fallback": {
+    "attempted": true,
+    "result": "timeout",
+    "host": "hostvds-agent-09",
+    "port": 22
+  },
+  "github_auth": {
+    "status": "blocked",
+    "reason": "gh executable is not installed on executing worker"
+  },
+  "disk": {
+    "executing_worker_root_total": "99G",
+    "executing_worker_root_used": "45G",
+    "executing_worker_root_available": "49G",
+    "executing_worker_root_used_percent": "48%",
+    "executing_worker_inode_used_percent": "19%",
+    "target_node_disk": "unknown_due_to_route_and_ssh_blocker"
+  },
+  "runner_status": {
+    "executing_worker_agent_host": "active",
+    "executing_worker_factory_control": "active",
+    "executing_worker_mesh_control_bridge": "active",
+    "target_node_runner": "unknown_due_to_route_and_ssh_blocker"
+  },
+  "blockers": [
+    {
+      "id": "B1",
+      "surface": "fabric_route",
+      "classification": "target_node_unavailable",
+      "evidence": "GET /v1/fleet/route?target_node=hostvds-agent-09 returned HTTP 503."
+    },
+    {
+      "id": "B2",
+      "surface": "ssh_diagnostic_fallback",
+      "classification": "connection_timeout",
+      "evidence": "Batch-mode SSH to hostvds-agent-09 timed out on port 22."
+    },
+    {
+      "id": "B3",
+      "surface": "github_auth",
+      "classification": "node_tooling_auth_blocker",
+      "evidence": "gh executable unavailable; gh auth status cannot run."
+    },
+    {
+      "id": "B4",
+      "surface": "node_identity",
+      "classification": "canonical_name_missing",
+      "evidence": "Fleet registry has agent-09 and mesh-agent-09, but no hostvds-agent-09 node id."
+    }
+  ],
+  "forbidden_modifications": {
+    "product_code": false,
+    "tests": false,
+    "ci": false,
+    "secrets": false,
+    "main_branch": false,
+    "force_push": false,
+    "destructive_git_commands": false
+  },
+  "artifacts": [
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-31-hostvds-agent-09-readiness/PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-31-hostvds-agent-09-readiness/ACTIONS.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-31-hostvds-agent-09-readiness/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-31-hostvds-agent-09-readiness/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-31-hostvds-agent-09-readiness/NEXT.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-31-hostvds-agent-09-readiness/REMOTE_RESULT.json"
+  ],
+  "next_exact_task": "P0_REPAIR_HOSTVDS_AGENT_09_FABRIC_IDENTITY_AND_SSH_ROUTE_2026_07_02",
+  "owner_summary_ru": "hostvds-agent-09 сейчас не готов к фабричной работе под этим именем: Control Plane живой, но Fabric route возвращает target_node_unavailable, а SSH fallback до хоста по ключу не отвечает. В реестре есть похожие живые узлы agent-09 и mesh-agent-09, поэтому главный ремонт - привести имя узла к одному каноническому identity, зарегистрировать heartbeat/capabilities и затем повторить readiness-probe. Секреты не выводились, сервисы не перезапускались, код продукта не менялся."
+}
