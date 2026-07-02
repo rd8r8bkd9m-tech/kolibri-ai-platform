@@ -1,0 +1,80 @@
+{
+  "task_id": "P0_AUTOPILOT_EXTRA_27_HOSTVDS_AGENT_05_READINESS_2026_07_02",
+  "status": "blocked_precisely_classified",
+  "executed_from": {
+    "host": "kolibri",
+    "user": "root",
+    "logical_worker": "mesh-agent-27",
+    "workspace": "/var/lib/kolibri-agent/logical-workers/mesh-agent-27/worktrees/P0_AUTOPILOT_EXTRA_27_HOSTVDS_AGENT_05_READINESS_2026_07_02/P0_AUTOPILOT_EXTRA_27_HOSTVDS_AGENT_05_READINESS_2026_07_02-attempt-1/repo"
+  },
+  "target": {
+    "ssh_alias": "hostvds-agent-05",
+    "canonical_node": "agent-05",
+    "mesh_node": "mesh-agent-05",
+    "mesh_source_node_id": "agent-05",
+    "mesh_ip": "31.56.196.10",
+    "agent_name": "agent-host-mesh-agent-05"
+  },
+  "control_plane": {
+    "health_http": 200,
+    "task_api_http": 200,
+    "fleet_alias_http": 404,
+    "agents_alias_http": 404
+  },
+  "node_status": {
+    "agent-05": {
+      "health": "stale",
+      "heartbeat_at": "2026-06-30T11:56:42.103679+00:00"
+    },
+    "mesh-agent-05": {
+      "health": "online",
+      "fresh": true,
+      "hostname": "kolibri",
+      "disk_free_bytes": 52285231104,
+      "disk_total_bytes": 105590231040,
+      "capabilities": [
+        "mesh",
+        "mesh_node",
+        "implementation",
+        "generic_implementation",
+        "read_only_probe",
+        "remote_implementation_runner_ready",
+        "runner:codex",
+        "runner:mimo"
+      ]
+    }
+  },
+  "pinned_probe_task": {
+    "task_id": "P0_AUTOPILOT_EXTRA_27_HOSTVDS_AGENT_05_READINESS_2026_07_02_REMOTE_PROBE",
+    "state": "queued",
+    "lease_owner": null,
+    "result_reference": null,
+    "target_node": "mesh-agent-05"
+  },
+  "blockers": [
+    "Direct SSH to hostvds-agent-05 timed out.",
+    "Pinned read-only Control Plane task for mesh-agent-05 remained queued without lease_owner during the probe window.",
+    "Deployed Control Plane returns 404 for expected /v1/fleet/* and /v1/agents/* alias routes.",
+    "GitHub CLI is missing in the current server worker context; target GitHub auth was not directly verified.",
+    "Canonical agent-05 node card is stale while mesh-agent-05 shadow is online."
+  ],
+  "artifacts": [
+    "docs/agent/runs/2026-07-02-p0-hostvds-agent-05-readiness/PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-hostvds-agent-05-readiness/ACTIONS.md",
+    "docs/agent/runs/2026-07-02-p0-hostvds-agent-05-readiness/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-hostvds-agent-05-readiness/READINESS_MATRIX.md",
+    "docs/agent/runs/2026-07-02-p0-hostvds-agent-05-readiness/REMOTE_RESULT.json",
+    "docs/agent/runs/2026-07-02-p0-hostvds-agent-05-readiness/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-hostvds-agent-05-readiness/NEXT.md"
+  ],
+  "next_exact_task": "P0_REPAIR_HOSTVDS_AGENT_05_LEASE_API_GITHUB_AUTH_2026_07_02",
+  "safety": {
+    "product_code_modified": false,
+    "secrets_printed": false,
+    "destructive_git_commands": false,
+    "force_push": false,
+    "push_to_main": false,
+    "service_restart": false
+  }
+}
+
