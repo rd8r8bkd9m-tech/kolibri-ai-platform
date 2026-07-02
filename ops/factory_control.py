@@ -936,7 +936,7 @@ class Handler(BaseHTTPRequestHandler):
                     registered_nodes=registered_nodes(),
                 )
                 status = "completed" if route.get("status") == "ok" else "blocked"
-                response(self, 200 if status == "completed" else 503, canonical_response_envelope(
+                response(self, 200, canonical_response_envelope(
                     status=status,
                     node=route.get("route", {}).get("target_node") or route.get("target_node") or "main",
                     route_used="/v1/fleet/route",

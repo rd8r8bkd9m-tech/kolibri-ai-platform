@@ -1,5 +1,9 @@
 import importlib.util
+import json
+import threading
 from pathlib import Path
+from http.client import HTTPConnection
+from http.server import ThreadingHTTPServer
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -11,6 +15,75 @@ def load_control():
     assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
+
+
+class FakeRedis:
+    def __init__(self):
+        self.values = {}
+        self.sets = {}
+        self.lists = {}
+
+    def command(self, name, *args):
+        command = name.upper()
+        if command == "PING":
+            return "PONG"
+        if command == "GET":
+            return self.values.get(args[0])
+        if command == "SET":
+            self.values[args[0]] = args[1]
+            return "OK"
+        if command == "DEL":
+            return 1 if self.values.pop(args[0], None) is not None else 0
+        if command == "SADD":
+            self.sets.setdefault(args[0], set()).add(args[1])
+            return 1
+        if command == "SMEMBERS":
+            return sorted(self.sets.get(args[0], set()))
+        if command == "RPUSH":
+            self.lists.setdefault(args[0], []).append(args[1])
+            return len(self.lists[args[0]])
+        if command == "LRANGE":
+            values = self.lists.get(args[0], [])
+            start = int(args[1])
+            stop = int(args[2])
+            if stop == -1:
+                return values[start:]
+            return values[start : stop + 1]
+        if command == "LREM":
+            values = self.lists.get(args[0], [])
+            target = args[2]
+            self.lists[args[0]] = [value for value in values if value != target]
+            return len(values) - len(self.lists[args[0]])
+        raise AssertionError(f"unsupported redis command: {command}")
+
+
+class ControlServer:
+    def __init__(self, control):
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), control.Handler)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+
+    def __enter__(self):
+        self.thread.start()
+        return self
+
+    def __exit__(self, *_):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=5)
+
+    def request(self, method, path, body=None):
+        payload = b""
+        headers = {}
+        if body is not None:
+            payload = json.dumps(body).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        host, port = self.server.server_address
+        conn = HTTPConnection(host, port, timeout=5)
+        conn.request(method, path, body=payload, headers=headers)
+        response = conn.getresponse()
+        data = json.loads(response.read().decode("utf-8"))
+        conn.close()
+        return response.status, data
 
 
 def test_prompt3_required_endpoint_surface_is_declared():
@@ -138,3 +211,63 @@ def test_canonical_envelope_and_fallback_reason_taxonomy():
         "dns",
         "unknown",
     } <= control.FALLBACK_REASON_TAXONOMY
+
+
+def test_prompt3_fabric_surface_is_live_over_http_without_transport_failure():
+    control = load_control()
+    control.redis = FakeRedis()
+
+    with ControlServer(control) as server:
+        status, health = server.request("GET", "/v1/health")
+        assert status == 200
+        assert health["status"] == "completed"
+
+        status, task_envelope = server.request(
+            "POST",
+            "/v1/agents/tasks",
+            {"task_id": "HTTP-1", "target_node": "9fts", "required_capability": "implementation"},
+        )
+        assert status == 201
+        assert task_envelope["status"] == "running"
+        assert task_envelope["route_used"] == "/v1/agents/tasks"
+
+        status, status_envelope = server.request("GET", "/v1/agents/status/HTTP-1")
+        assert status == 200
+        assert status_envelope["task_id"] == "HTTP-1"
+        assert status_envelope["status"] == "running"
+
+        status, nodes = server.request("GET", "/v1/fleet/nodes")
+        assert status == 200
+        assert {"home", "main", "uiap", "qjns", "9fts", "new"} <= {
+            node["node_id"] for node in nodes["data"]["nodes"]
+        }
+
+        status, capabilities = server.request("GET", "/v1/fleet/capabilities")
+        assert status == 200
+        assert capabilities["route_used"] == "/v1/fleet/capabilities"
+
+        status, topology = server.request("GET", "/v1/fleet/topology")
+        assert status == 200
+        assert topology["data"]["relay_endpoint"] == "/v1/fabric/relay"
+
+        status, route = server.request("GET", "/v1/fleet/route?target_node=missing")
+        assert status == 200
+        assert route["status"] == "blocked"
+        assert route["blocked_reason"] == "target_node_unavailable"
+        assert route["repair_task"]["kind"] == "repair_fabric_route"
+
+        status, models = server.request("GET", "/v1/models")
+        assert status == 200
+        assert models["data"]["object"] == "list"
+
+        for endpoint in ["/v1/responses", "/v1/chat/completions"]:
+            status, model_stub = server.request("POST", endpoint, {"task_id": "MODEL-HTTP-1"})
+            assert status == 503
+            assert model_stub["status"] == "blocked"
+            assert model_stub["blocked_reason"] == "model_runtime_unavailable"
+
+        for endpoint in control.ADMIN_ENDPOINTS:
+            status, admin_stub = server.request("POST", endpoint, {"task_id": "ADMIN-HTTP-1"})
+            assert status == 403
+            assert admin_stub["status"] == "blocked"
+            assert admin_stub["blocked_reason"] == "admin_scope_denied"
