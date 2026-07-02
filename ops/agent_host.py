@@ -12,6 +12,7 @@ import mimetypes
 import os
 import platform
 import random
+import re
 import shutil
 import signal
 import subprocess
@@ -125,14 +126,15 @@ RUNNER_AUTH_FAILURE_MARKERS = (
     "refresh token",
     "unauthorized",
 )
-SECRET_REDACTION_MARKERS = (
-    "api_key",
-    "authorization",
-    "bearer",
-    "password",
-    "refresh_token",
-    "secret",
-    "token",
+SECRET_INLINE_VALUE_RE = re.compile(
+    r"\b(?:authorization|bearer|refresh_token|api_key|secret|token|password|cookie|credential)\b\s*[:=]\s*\S+"
+    r"|\bbearer\s+\S+",
+    re.IGNORECASE,
+)
+SECRET_ENV_ASSIGNMENT_RE = re.compile(
+    r"(?P<prefix>\b(?:[A-Za-z_][A-Za-z0-9_]*_)?(?:API_KEY|TOKEN|SECRET|PASSWORD|COOKIE|PRIVATE_KEY|CREDENTIAL|JWT)[A-Za-z0-9_]*\s*=\s*)"
+    r"(?P<value>\"[^\"]*\"|'[^']*'|[^;\\\s,\"']+)",
+    re.IGNORECASE,
 )
 
 
@@ -334,12 +336,41 @@ def runner_capability(runner: str) -> str:
 def redact_sensitive_text(text: str) -> str:
     redacted_lines: list[str] = []
     for line in text.splitlines():
-        lowered = line.lower()
-        if any(marker in lowered for marker in SECRET_REDACTION_MARKERS):
+        if SECRET_ENV_ASSIGNMENT_RE.search(line):
+            redacted_lines.append(SECRET_ENV_ASSIGNMENT_RE.sub(r"\g<prefix>[redacted]", line))
+            continue
+        if SECRET_INLINE_VALUE_RE.search(line):
             redacted_lines.append("[redacted sensitive runner output]")
         else:
             redacted_lines.append(line)
     return "\n".join(redacted_lines)
+
+
+def sanitize_sensitive_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        safe = {}
+        for key, item in value.items():
+            key_text = str(key).lower()
+            if any(hint in key_text for hint in SECRET_FIELD_HINTS):
+                safe[key] = "[redacted]"
+            else:
+                safe[key] = sanitize_sensitive_value(item)
+        return safe
+    if isinstance(value, list):
+        return [sanitize_sensitive_value(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(sanitize_sensitive_value(item) for item in value)
+    if isinstance(value, str):
+        return redact_sensitive_text(value)
+    return value
+
+
+def sanitize_result_in_place(result: dict[str, Any]) -> dict[str, Any]:
+    safe = sanitize_sensitive_value(result)
+    if isinstance(safe, dict):
+        result.clear()
+        result.update(safe)
+    return result
 
 
 def sanitize_text_file(path: Path) -> None:
@@ -349,6 +380,11 @@ def sanitize_text_file(path: Path) -> None:
     redacted = redact_sensitive_text(text)
     if redacted != text:
         path.write_text(redacted + ("\n" if text.endswith("\n") else ""), encoding="utf-8")
+
+
+def sanitize_artifact_text_logs(artifact_dir: Path) -> None:
+    for filename in ("stdout.log", "stderr.log"):
+        sanitize_text_file(artifact_dir / filename)
 
 
 def runner_auth_blocked(stderr_text: str) -> bool:
@@ -1169,22 +1205,26 @@ class AgentHost:
         if env:
             merged_env.update(env)
         display_command = command_label or " ".join(command)
-        with stdout_path.open("ab") as stdout, stderr_path.open("ab") as stderr:
-            stdout.write(f"\n$ {display_command}\n".encode("utf-8"))
-            stdout.flush()
-            proc = subprocess.Popen(command, cwd=str(cwd), stdout=stdout, stderr=stderr, env=merged_env)
-            last_refresh = 0.0
-            with self.long_running_heartbeat(task, cwd, branch, logs, proc.pid):
-                while proc.poll() is None:
-                    if STOP:
-                        proc.terminate()
-                        raise RuntimeError("agent host received SIGTERM")
-                    if time.time() - last_refresh >= self.lease_refresh:
-                        self.task_heartbeat(task, cwd, branch, logs, proc.pid)
-                        last_refresh = time.time()
-                    time.sleep(2)
-            if proc.returncode != 0:
-                raise RuntimeError(f"command failed with rc={proc.returncode}: {display_command}")
+        try:
+            with stdout_path.open("ab") as stdout, stderr_path.open("ab") as stderr:
+                stdout.write(f"\n$ {display_command}\n".encode("utf-8"))
+                stdout.flush()
+                proc = subprocess.Popen(command, cwd=str(cwd), stdout=stdout, stderr=stderr, env=merged_env)
+                last_refresh = 0.0
+                with self.long_running_heartbeat(task, cwd, branch, logs, proc.pid):
+                    while proc.poll() is None:
+                        if STOP:
+                            proc.terminate()
+                            raise RuntimeError("agent host received SIGTERM")
+                        if time.time() - last_refresh >= self.lease_refresh:
+                            self.task_heartbeat(task, cwd, branch, logs, proc.pid)
+                            last_refresh = time.time()
+                        time.sleep(2)
+                if proc.returncode != 0:
+                    raise RuntimeError(f"command failed with rc={proc.returncode}: {display_command}")
+        finally:
+            sanitize_text_file(stdout_path)
+            sanitize_text_file(stderr_path)
 
     def git_push(
         self,
@@ -1278,18 +1318,7 @@ class AgentHost:
 
     @staticmethod
     def _safe_json_value(value: Any) -> Any:
-        if isinstance(value, dict):
-            safe = {}
-            for key, item in value.items():
-                key_text = str(key).lower()
-                if any(hint in key_text for hint in SECRET_FIELD_HINTS):
-                    safe[key] = "[redacted]"
-                else:
-                    safe[key] = AgentHost._safe_json_value(item)
-            return safe
-        if isinstance(value, list):
-            return [AgentHost._safe_json_value(item) for item in value]
-        return value
+        return sanitize_sensitive_value(value)
 
     @classmethod
     def _extract_json_event_text(cls, event: dict[str, Any]) -> tuple[list[str], list[str], list[str]]:
@@ -1591,6 +1620,8 @@ class AgentHost:
                 self.cleanup_backend_test_environment(metadata)
 
     def write_result(self, artifact_dir: Path, result: dict[str, Any]) -> Path:
+        sanitize_artifact_text_logs(artifact_dir)
+        sanitize_result_in_place(result)
         result_path = artifact_dir / "result.json"
         result_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         manifest = []
@@ -1611,15 +1642,18 @@ class AgentHost:
         return finalize_runner_contract(task, result, artifact_dir, worktree=worktree, changed_files=changed_files)
 
     def complete(self, task: dict[str, Any], result: dict[str, Any], result_path: Path) -> None:
+        sanitize_result_in_place(result)
         self.post(f"/v1/tasks/{task['task_id']}/complete", {
             "result_reference": str(result_path),
             "result": result,
         })
 
     def fail(self, task: dict[str, Any], error_type: str, error: str, result: dict[str, Any] | None, result_path: Path | None, retry: bool = True) -> None:
+        if result is not None:
+            sanitize_result_in_place(result)
         self.post(f"/v1/tasks/{task['task_id']}/fail", {
             "error_type": error_type,
-            "error": error,
+            "error": redact_sensitive_text(error),
             "result": result,
             "result_reference": str(result_path) if result_path else None,
             "retry": retry,

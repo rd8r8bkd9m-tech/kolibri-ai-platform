@@ -50,6 +50,22 @@ def make_chat_task(task_id, message):
     }
 
 
+def make_owner_ai_task(task_id, runner="codex"):
+    return {
+        "task_id": task_id,
+        "kind": "owner_remote_task",
+        "attempt": 1,
+        "attempt_id": f"{task_id}-attempt-1",
+        "max_retries": 1,
+        "envelope": {
+            "kind": "owner_remote_task",
+            "runner": runner,
+            "objective": "run the diagnostic",
+            "branch": "agent/diagnostic",
+        },
+    }
+
+
 def test_telegram_chat_prompt_does_not_include_fixed_greeting_template(tmp_path, monkeypatch):
     agent_host = load_agent_host()
     monkeypatch.setenv("KOLIBRI_TELEGRAM_RUNNER", "mimo")
@@ -180,6 +196,102 @@ def test_parse_codex_agent_message_jsonl(tmp_path):
     )
 
     assert agent_host.AgentHost.parse_json_text_response(stdout) == "Живой ответ директора."
+
+
+def test_ai_runner_success_artifacts_redact_env_style_secret_lines(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setattr(agent_host.shutil, "which", lambda name: "/usr/bin/codex" if name == "codex" else None)
+
+    class Host(agent_host.AgentHost):
+        def __init__(self, args):
+            super().__init__(args)
+            self.posts = []
+
+        def post(self, path, body):
+            self.posts.append((path, body))
+            return body
+
+        def run_command(self, command, cwd, stdout_path, stderr_path, task, branch, logs, env=None, command_label=None):
+            del command, cwd, task, branch, logs, env
+            event = {
+                "type": "agent_message",
+                "text": (
+                    "diagnostic: model completed\n"
+                    "OPENAI_API_KEY=sk-live-success\n"
+                    "SERVICE_TOKEN=tok-live-success\n"
+                    "diagnostic: preserved after secrets"
+                ),
+            }
+            stdout_path.write_text(f"$ {command_label}\n" + json.dumps(event) + "\n", encoding="utf-8")
+            stderr_path.write_text("stderr diagnostic line\nCOOKIE=session-live-success\n", encoding="utf-8")
+
+    host = Host(make_args(tmp_path))
+    host.run_task(make_owner_ai_task("AI-SUCCESS"))
+
+    complete_posts = [(path, body) for path, body in host.posts if path.endswith("/complete")]
+    assert len(complete_posts) == 1
+    payload_text = json.dumps(complete_posts[0][1], ensure_ascii=False)
+    artifact_dir = tmp_path / "artifacts" / "AI-SUCCESS" / "AI-SUCCESS-attempt-1"
+    result_text = (artifact_dir / "result.json").read_text(encoding="utf-8")
+    stdout_text = (artifact_dir / "stdout.log").read_text(encoding="utf-8")
+    stderr_text = (artifact_dir / "stderr.log").read_text(encoding="utf-8")
+
+    for text in (payload_text, result_text, stdout_text, stderr_text):
+        assert "sk-live-success" not in text
+        assert "tok-live-success" not in text
+        assert "session-live-success" not in text
+    assert "OPENAI_API_KEY=[redacted]" in stdout_text
+    assert "SERVICE_TOKEN=[redacted]" in stdout_text
+    assert "COOKIE=[redacted]" in stderr_text
+    assert "diagnostic: model completed" in payload_text
+    assert "diagnostic: preserved after secrets" in result_text
+    assert "stderr diagnostic line" in stderr_text
+
+
+def test_ai_runner_failure_artifacts_and_payload_redact_env_style_secret_lines(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setattr(agent_host.shutil, "which", lambda name: "/usr/bin/codex" if name == "codex" else None)
+
+    class Host(agent_host.AgentHost):
+        def __init__(self, args):
+            super().__init__(args)
+            self.posts = []
+
+        def post(self, path, body):
+            self.posts.append((path, body))
+            return body
+
+        def run_command(self, command, cwd, stdout_path, stderr_path, task, branch, logs, env=None, command_label=None):
+            del command, cwd, task, branch, logs, env, command_label
+            stdout_path.write_text(
+                "runner diagnostic before failure\nPRIVATE_KEY=private-live-failure\nrunner diagnostic after failure\n",
+                encoding="utf-8",
+            )
+            stderr_path.write_text("stderr useful detail\nJWT=jwt-live-failure\n", encoding="utf-8")
+            raise RuntimeError("runner failed\nPASSWORD=password-live-failure\nkeep this diagnostic")
+
+    host = Host(make_args(tmp_path))
+    host.run_task(make_owner_ai_task("AI-FAIL"))
+
+    fail_posts = [(path, body) for path, body in host.posts if path.endswith("/fail")]
+    assert len(fail_posts) == 1
+    payload_text = json.dumps(fail_posts[0][1], ensure_ascii=False)
+    artifact_dir = tmp_path / "artifacts" / "AI-FAIL" / "AI-FAIL-attempt-1"
+    result_text = (artifact_dir / "result.json").read_text(encoding="utf-8")
+    stdout_text = (artifact_dir / "stdout.log").read_text(encoding="utf-8")
+    stderr_text = (artifact_dir / "stderr.log").read_text(encoding="utf-8")
+
+    for text in (payload_text, result_text, stdout_text, stderr_text):
+        assert "private-live-failure" not in text
+        assert "jwt-live-failure" not in text
+        assert "password-live-failure" not in text
+    assert "PRIVATE_KEY=[redacted]" in stdout_text
+    assert "JWT=[redacted]" in stderr_text
+    assert "PASSWORD=[redacted]" in payload_text
+    assert "runner diagnostic before failure" in stdout_text
+    assert "runner diagnostic after failure" in stdout_text
+    assert "stderr useful detail" in stderr_text
+    assert "keep this diagnostic" in payload_text
 
 
 def test_api_runner_missing_auth_is_reported_without_prompt(tmp_path, monkeypatch):
