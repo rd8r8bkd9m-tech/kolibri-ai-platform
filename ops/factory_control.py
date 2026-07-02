@@ -13,6 +13,7 @@ import json
 import os
 import socket
 import sys
+import threading
 import time
 import uuid
 from datetime import datetime, timezone
@@ -58,6 +59,12 @@ REDIS_HOST = os.environ.get("FACTORY_REDIS_HOST", "127.0.0.1")
 REDIS_PORT = int(os.environ.get("FACTORY_REDIS_PORT", "6379"))
 LEASE_DURATION = int(os.environ.get("FACTORY_LEASE_DURATION", "60"))
 MAX_RETRIES = int(os.environ.get("FACTORY_MAX_RETRIES", "3"))
+LEASE_REAPER_INTERVAL = float(os.environ.get("FACTORY_LEASE_REAPER_INTERVAL", "5"))
+LEASE_REAPER_BATCH_LIMIT = int(os.environ.get("FACTORY_LEASE_REAPER_BATCH_LIMIT", "250"))
+LEASE_QUEUE_SCAN_LIMIT = int(os.environ.get("FACTORY_LEASE_QUEUE_SCAN_LIMIT", "100"))
+TASK_LIST_DEFAULT_LIMIT = int(os.environ.get("FACTORY_TASK_LIST_DEFAULT_LIMIT", "1000"))
+TASK_LIST_MAX_LIMIT = int(os.environ.get("FACTORY_TASK_LIST_MAX_LIMIT", "5000"))
+MAX_HTTP_WORKERS = int(os.environ.get("FACTORY_MAX_HTTP_WORKERS", "64"))
 FABRIC_API_VERSION = "2026-07-01"
 CANONICAL_RESPONSE_STATUSES = {"completed", "running", "blocked", "failed", "partial"}
 FALLBACK_REASON_TAXONOMY = {
@@ -245,13 +252,51 @@ class Redis:
         self.host = host
         self.port = port
         self.timeout = timeout
+        self._local = threading.local()
 
     def command(self, *parts: Any) -> Any:
         payload = self._encode(parts)
-        with socket.create_connection((self.host, self.port), timeout=self.timeout) as sock:
+        try:
+            return self._command(payload)
+        except (OSError, RedisError):
+            self.close()
+            return self._command(payload)
+
+    def _command(self, payload: bytes) -> Any:
+        sock, reader = self._connection()
+        try:
             sock.sendall(payload)
-            reader = sock.makefile("rb")
             return self._read(reader)
+        except Exception:
+            self.close()
+            raise
+
+    def _connection(self) -> tuple[socket.socket, Any]:
+        sock = getattr(self._local, "sock", None)
+        reader = getattr(self._local, "reader", None)
+        if sock is None or reader is None:
+            sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
+            sock.settimeout(self.timeout)
+            reader = sock.makefile("rb")
+            self._local.sock = sock
+            self._local.reader = reader
+        return sock, reader
+
+    def close(self) -> None:
+        reader = getattr(self._local, "reader", None)
+        sock = getattr(self._local, "sock", None)
+        self._local.reader = None
+        self._local.sock = None
+        if reader is not None:
+            try:
+                reader.close()
+            except OSError:
+                pass
+        if sock is not None:
+            try:
+                sock.close()
+            except OSError:
+                pass
 
     @staticmethod
     def _encode(parts: tuple[Any, ...]) -> bytes:
@@ -613,6 +658,11 @@ def remove_from_queue(task_id: str) -> None:
     redis.command("LREM", key("queue"), 0, task_id)
 
 
+def rotate_queue_item(task_id: str) -> None:
+    remove_from_queue(task_id)
+    enqueue(task_id)
+
+
 def normalize_task(envelope: dict[str, Any]) -> dict[str, Any]:
     task_id = envelope.get("task_id") or f"KOL-TASK-{uuid.uuid4().hex[:12]}"
     created = utc_now()
@@ -719,9 +769,26 @@ def compatible(task: dict[str, Any], node_id: str, capabilities: list[str], node
     return True
 
 
-def requeue_expired_leases() -> None:
+def _redis_set_nx_ex(redis_key: str, value: str, ttl_seconds: int) -> bool:
+    result = redis.command("SET", redis_key, value, "NX", "EX", max(1, ttl_seconds))
+    return result == "OK"
+
+
+def maybe_requeue_expired_leases() -> int:
+    lock_ttl = max(1, int(LEASE_REAPER_INTERVAL))
+    if not _redis_set_nx_ex(key("lease_reaper:lock"), str(now_ts()), lock_ttl):
+        return 0
+    return requeue_expired_leases(limit=LEASE_REAPER_BATCH_LIMIT)
+
+
+def requeue_expired_leases(limit: int | None = None) -> int:
     current = now_ts()
+    scanned = 0
+    changed = 0
     for task_id in all_task_ids():
+        if limit is not None and scanned >= limit:
+            break
+        scanned += 1
         task = load_task(task_id)
         if not task or task.get("state") not in {STATE_LEASED, STATE_RUNNING, STATE_REVIEW}:
             continue
@@ -738,12 +805,38 @@ def requeue_expired_leases() -> None:
             task["state"] = STATE_QUEUED
             save_task(task)
             enqueue(task_id)
+            changed += 1
         else:
             task["state"] = STATE_DEAD
             task["error_type"] = "lease_expired"
             task["error"] = "lease expired and retry budget exhausted"
             save_task(task)
             redis.command("RPUSH", key("dead_letter"), task_id)
+            changed += 1
+    return changed
+
+
+def lease_next_task(node_id: str, agent_id: str, capabilities: list[str], node: dict[str, Any]) -> dict[str, Any] | None:
+    scan_limit = max(1, LEASE_QUEUE_SCAN_LIMIT)
+    for _ in range(scan_limit):
+        task_id = redis.command("LPOP", key("queue"))
+        if not task_id:
+            return None
+        task = load_task(task_id)
+        if not task or task.get("state") not in {STATE_QUEUED, STATE_REVIEW}:
+            continue
+        if not compatible(task, node_id, capabilities, node):
+            rotate_queue_item(task_id)
+            continue
+        task["state"] = STATE_LEASED
+        task["attempt"] = int(task.get("attempt", 0)) + 1
+        task["attempt_id"] = f"{task_id}-attempt-{task['attempt']}"
+        task["lease_owner"] = f"{node_id}:{agent_id}"
+        task["lease_until"] = now_ts() + LEASE_DURATION
+        task["heartbeat_at"] = utc_now()
+        save_task(task)
+        return task
+    return None
 
 
 def create_task(envelope: dict[str, Any]) -> dict[str, Any]:
@@ -802,6 +895,49 @@ def read_body(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
     return json.loads(handler.rfile.read(length).decode("utf-8"))
 
 
+class BoundedThreadingHTTPServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def __init__(self, server_address: tuple[str, int], handler_class: type[BaseHTTPRequestHandler], max_workers: int = MAX_HTTP_WORKERS):
+        self.max_workers = max(1, max_workers)
+        self.request_queue_size = max(self.request_queue_size, self.max_workers)
+        super().__init__(server_address, handler_class)
+        self._worker_slots = threading.BoundedSemaphore(self.max_workers)
+
+    def process_request(self, request: Any, client_address: Any) -> None:
+        if not self._worker_slots.acquire(blocking=False):
+            self._send_overloaded(request)
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self._worker_slots.release()
+            raise
+
+    def process_request_thread(self, request: Any, client_address: Any) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._worker_slots.release()
+
+    @staticmethod
+    def _send_overloaded(request: Any) -> None:
+        body = json.dumps({
+            "error": "control_plane_overloaded",
+            "detail": "request worker limit reached; retry with jittered backoff",
+        }).encode("utf-8")
+        try:
+            request.sendall(
+                b"HTTP/1.1 503 Service Unavailable\r\n"
+                b"Content-Type: application/json\r\n"
+                + f"Content-Length: {len(body)}\r\nConnection: close\r\n\r\n".encode("ascii")
+                + body
+            )
+        except OSError:
+            pass
+
+
 def parse_owner_ids(value: str) -> set[int]:
     ids = set()
     for item in value.replace(";", ",").split(","):
@@ -846,6 +982,12 @@ def superfactory_status() -> dict[str, Any]:
         "nodes": nodes,
         "task_counts": counts,
         "queue": queue_ids(),
+        "capacity_controls": {
+            "lease_queue_scan_limit": LEASE_QUEUE_SCAN_LIMIT,
+            "lease_reaper_batch_limit": LEASE_REAPER_BATCH_LIMIT,
+            "lease_reaper_interval": LEASE_REAPER_INTERVAL,
+            "task_list_default_limit": TASK_LIST_DEFAULT_LIMIT,
+        },
     }
 
 
@@ -889,7 +1031,17 @@ class Handler(BaseHTTPRequestHandler):
                     status="completed",
                     node="main",
                     route_used="/v1/health",
-                    data={"redis": pong, "queue_backend": "redis", "time": utc_now(), "fabric_api_version": FABRIC_API_VERSION},
+                    data={
+                        "redis": pong,
+                        "queue_backend": "redis",
+                        "time": utc_now(),
+                        "fabric_api_version": FABRIC_API_VERSION,
+                        "capacity_controls": {
+                            "lease_queue_scan_limit": LEASE_QUEUE_SCAN_LIMIT,
+                            "lease_reaper_batch_limit": LEASE_REAPER_BATCH_LIMIT,
+                            "lease_reaper_interval": LEASE_REAPER_INTERVAL,
+                        },
+                    },
                     next_action="use /v1/fleet/route before dispatching work to a node",
                 ))
                 return
@@ -998,9 +1150,29 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/v1/tasks":
                 query = parse_qs(parsed.query)
                 wanted = query.get("state", [None])[0]
-                tasks = [load_task(task_id) for task_id in all_task_ids()]
+                try:
+                    limit = int(query.get("limit", [TASK_LIST_DEFAULT_LIMIT])[0])
+                except (TypeError, ValueError):
+                    limit = TASK_LIST_DEFAULT_LIMIT
+                limit = min(max(1, limit), TASK_LIST_MAX_LIMIT)
+                try:
+                    offset = max(0, int(query.get("offset", [0])[0] or 0))
+                except (TypeError, ValueError):
+                    offset = 0
+                task_ids = all_task_ids()
+                selected_ids = task_ids[offset:offset + limit]
+                tasks = [load_task(task_id) for task_id in selected_ids]
                 tasks = [task for task in tasks if task and (wanted is None or task.get("state") == wanted)]
-                response(self, 200, {"tasks": tasks, "queue": queue_ids()})
+                response(self, 200, {
+                    "tasks": tasks,
+                    "queue": queue_ids(),
+                    "pagination": {
+                        "offset": offset,
+                        "limit": limit,
+                        "returned": len(tasks),
+                        "total_task_ids": len(task_ids),
+                    },
+                })
                 return
             if path.startswith("/v1/tasks/"):
                 task_id = path.split("/", 3)[3]
@@ -1194,7 +1366,7 @@ class Handler(BaseHTTPRequestHandler):
                 })
                 return
             if path == "/v1/tasks/lease":
-                requeue_expired_leases()
+                maybe_requeue_expired_leases()
                 node_id = body["node_id"]
                 if redis.command("GET", drain_key(node_id)):
                     response(self, 204, {})
@@ -1205,21 +1377,8 @@ class Handler(BaseHTTPRequestHandler):
                 if isinstance(body.get("runners"), dict):
                     node["runners"] = body["runners"]
                     set_json(node_key(node_id), node)
-                for task_id in queue_ids():
-                    task = load_task(task_id)
-                    if not task or task.get("state") not in {STATE_QUEUED, STATE_REVIEW}:
-                        remove_from_queue(task_id)
-                        continue
-                    if not compatible(task, node_id, capabilities, node):
-                        continue
-                    remove_from_queue(task_id)
-                    task["state"] = STATE_LEASED
-                    task["attempt"] = int(task.get("attempt", 0)) + 1
-                    task["attempt_id"] = f"{task_id}-attempt-{task['attempt']}"
-                    task["lease_owner"] = f"{node_id}:{agent_id}"
-                    task["lease_until"] = now_ts() + LEASE_DURATION
-                    task["heartbeat_at"] = utc_now()
-                    save_task(task)
+                task = lease_next_task(node_id, agent_id, capabilities, node)
+                if task:
                     response(self, 200, task)
                     return
                 response(self, 204, {})
@@ -1351,9 +1510,18 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--bind", default=os.environ.get("FACTORY_BIND", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=int(os.environ.get("FACTORY_PORT", "9101")))
+    parser.add_argument("--max-http-workers", type=int, default=MAX_HTTP_WORKERS)
     args = parser.parse_args()
-    server = ThreadingHTTPServer((args.bind, args.port), Handler)
-    print(json.dumps({"event": "factory_control_started", "bind": args.bind, "port": args.port, "namespace": NAMESPACE}))
+    server = BoundedThreadingHTTPServer((args.bind, args.port), Handler, max_workers=args.max_http_workers)
+    print(json.dumps({
+        "event": "factory_control_started",
+        "bind": args.bind,
+        "port": args.port,
+        "namespace": NAMESPACE,
+        "max_http_workers": server.max_workers,
+        "lease_queue_scan_limit": LEASE_QUEUE_SCAN_LIMIT,
+        "lease_reaper_batch_limit": LEASE_REAPER_BATCH_LIMIT,
+    }))
     server.serve_forever()
     return 0
 

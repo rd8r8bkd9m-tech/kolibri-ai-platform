@@ -11,6 +11,7 @@ import json
 import mimetypes
 import os
 import platform
+import random
 import shutil
 import signal
 import subprocess
@@ -898,7 +899,13 @@ class AgentHost:
         self.artifact_root = Path(args.artifact_root)
         self.heartbeat_interval = args.heartbeat_interval
         self.lease_refresh = args.lease_refresh
-        self.max_inflight = args.max_inflight
+        self.max_inflight = max(1, int(args.max_inflight))
+        self.lease_idle_min = max(0.2, float(getattr(args, "lease_idle_min", 1.0)))
+        self.lease_idle_max = max(self.lease_idle_min, float(getattr(args, "lease_idle_max", 15.0)))
+        self.lease_empty_backoff_factor = max(1.0, float(getattr(args, "lease_empty_backoff_factor", 1.35)))
+        self.lease_error_backoff = max(self.lease_idle_min, float(getattr(args, "lease_error_backoff", 5.0)))
+        jitter_seed = int(hashlib.sha256(self.agent_id.encode("utf-8")).hexdigest()[:12], 16)
+        self.poll_jitter = random.Random(jitter_seed)
         self.hostname = platform.node()
         self.pid = os.getpid()
         self.runner_status = self.detect_runner_status()
@@ -1001,8 +1008,13 @@ class AgentHost:
             "agent_id": self.agent_id,
             "capabilities": self.capabilities,
             "runners": self.runner_status,
+            "max_inflight": self.max_inflight,
         })
         return sanitize_task_permissions(task) if isinstance(task, dict) else task
+
+    def idle_poll_sleep(self, empty_polls: int = 0) -> float:
+        base = min(self.lease_idle_max, self.lease_idle_min * (self.lease_empty_backoff_factor ** max(0, empty_polls)))
+        return self.poll_jitter.uniform(self.lease_idle_min, base)
 
     def run_command(
         self,
@@ -2413,6 +2425,7 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
     def loop(self) -> None:
         self.register()
         last_node_heartbeat = 0.0
+        empty_polls = 0
         while not STOP:
             if time.time() - last_node_heartbeat >= self.heartbeat_interval:
                 self.node_heartbeat()
@@ -2421,13 +2434,16 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 task = self.lease()
             except Exception as exc:
                 print(f"{utc_now()} lease_failed {exc}", flush=True)
-                time.sleep(5)
+                time.sleep(self.poll_jitter.uniform(self.lease_idle_min, self.lease_error_backoff))
                 continue
             if task:
+                empty_polls = 0
                 self.node_heartbeat(active_task=task["task_id"])
                 self.run_task(task)
                 self.node_heartbeat()
-            time.sleep(2)
+            else:
+                empty_polls += 1
+            time.sleep(self.idle_poll_sleep(empty_polls))
 
 
 def handle_stop(signum: int, frame: Any) -> None:
@@ -2449,6 +2465,10 @@ def main() -> int:
     parser.add_argument("--heartbeat-interval", type=int, default=int(os.environ.get("KOLIBRI_HEARTBEAT_INTERVAL", "10")))
     parser.add_argument("--lease-refresh", type=int, default=int(os.environ.get("KOLIBRI_LEASE_REFRESH", "20")))
     parser.add_argument("--max-inflight", type=int, default=int(os.environ.get("KOLIBRI_MAX_INFLIGHT", "1")))
+    parser.add_argument("--lease-idle-min", type=float, default=float(os.environ.get("KOLIBRI_LEASE_IDLE_MIN", "1.0")))
+    parser.add_argument("--lease-idle-max", type=float, default=float(os.environ.get("KOLIBRI_LEASE_IDLE_MAX", "15.0")))
+    parser.add_argument("--lease-empty-backoff-factor", type=float, default=float(os.environ.get("KOLIBRI_LEASE_EMPTY_BACKOFF_FACTOR", "1.35")))
+    parser.add_argument("--lease-error-backoff", type=float, default=float(os.environ.get("KOLIBRI_LEASE_ERROR_BACKOFF", "5.0")))
     args = parser.parse_args()
     signal.signal(signal.SIGTERM, handle_stop)
     signal.signal(signal.SIGINT, handle_stop)
