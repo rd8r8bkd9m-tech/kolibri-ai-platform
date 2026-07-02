@@ -1,0 +1,56 @@
+{
+  "task_id": "P0_HOME_WALLBOARD_AUTOPILOT_VISIBILITY_2026_07_02",
+  "status": "implemented_with_visibility_blocker",
+  "lease_owner": "mesh-agent-03/autonomous_engineer",
+  "node": "kolibri",
+  "server_execution": true,
+  "mac_execution": false,
+  "artifacts": [
+    "ops/home_wallboard_status_ru.py",
+    "tests/test_home_wallboard_status_ru.py",
+    "docs/agent/runs/2026-07-02-p0-home-wallboard-autopilot-visibility/PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-home-wallboard-autopilot-visibility/ACTIONS.md",
+    "docs/agent/runs/2026-07-02-p0-home-wallboard-autopilot-visibility/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-home-wallboard-autopilot-visibility/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-home-wallboard-autopilot-visibility/NEXT.md",
+    "docs/agent/runs/2026-07-02-p0-home-wallboard-autopilot-visibility/SAFE_GATE_AND_ROLLBACK.md",
+    "docs/agent/runs/2026-07-02-p0-home-wallboard-autopilot-visibility/REMOTE_RESULT.json"
+  ],
+  "verified": {
+    "services": {
+      "kolibri-factory-control.service": "active/running",
+      "kolibri-agent-host.service": "active/running",
+      "kolibri-mesh-control-bridge.service": "active/running",
+      "kolibri-telegram-gateway.service": "active/running"
+    },
+    "control_plane": {
+      "health_http": 200,
+      "redis": "PONG",
+      "nodes": 53,
+      "tasks_total_observed": 670,
+      "queued_tasks_observed": 151,
+      "running_tasks_observed": 7
+    },
+    "public_status": {
+      "path": "http://127.0.0.1/api/factory/status",
+      "http": 200,
+      "product": "Колибри",
+      "runtime": "compatibility_gateway",
+      "nodes_total": 0,
+      "tasks_total": 0
+    }
+  },
+  "blockers": [
+    "Public /api/factory/status is reachable but currently reports zero node/task totals while the control plane reports live nodes and queued tasks.",
+    "Broader tests/test_factory_status.py verification is blocked because httpx is not installed in the current Python environment."
+  ],
+  "next_action": "Owner-approved read-only tmux wallboard on Home or fallback Agent Host, then repair public status adapter for live node/task totals.",
+  "safety": {
+    "secrets_printed": false,
+    "service_restart": false,
+    "telegram_mutation": false,
+    "push_to_main": false,
+    "force_push": false,
+    "destructive_git": false
+  }
+}
