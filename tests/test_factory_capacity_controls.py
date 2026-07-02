@@ -1,6 +1,8 @@
 import argparse
 import concurrent.futures
 import importlib.util
+import json
+import urllib.request
 import threading
 from pathlib import Path
 
@@ -45,6 +47,13 @@ class InMemoryRedis:
                     return None
                 self.values[key] = value
                 return "OK"
+            if op == "DEL":
+                removed = 0
+                for redis_key in parts[1:]:
+                    removed += int(self.values.pop(redis_key, None) is not None)
+                    self.sets.pop(redis_key, None)
+                    self.lists.pop(redis_key, None)
+                return removed
             if op == "SADD":
                 before = len(self.sets.setdefault(parts[1], set()))
                 self.sets[parts[1]].add(parts[2])
@@ -186,6 +195,108 @@ def test_concurrent_empty_lease_polls_return_no_task_without_historical_scan(mon
     assert all(envelope["task"] is None for envelope in envelopes)
     assert not any(command == ("SMEMBERS", control.key("task_ids")) for command in fake.commands)
     assert not any(command[0] == "LRANGE" for command in fake.commands)
+
+
+def test_completion_cannot_be_overwritten_by_concurrent_heartbeat(monkeypatch):
+    control = load_control()
+    fake = InMemoryRedis()
+    monkeypatch.setattr(control, "redis", fake)
+
+    task = control.normalize_task({"task_id": "RACE-COMPLETE", "idempotency_key": "race-complete"})
+    task["state"] = control.STATE_LEASED
+    task["lease_owner"] = "node:agent"
+    task["lease_until"] = control.now_ts() + control.LEASE_DURATION
+    control.save_task(task)
+
+    def heartbeat(_index):
+        def apply(task):
+            if task.get("state") not in control.TERMINAL_STATES:
+                task["state"] = control.STATE_RUNNING
+                task["lease_until"] = control.now_ts() + control.LEASE_DURATION
+        return control.mutate_task_locked("RACE-COMPLETE", apply)
+
+    def complete():
+        def apply(task):
+            task["state"] = control.STATE_COMPLETED
+            task["result"] = {"status": "completed", "result_path": "/tmp/result.json"}
+            task["result_reference"] = "/tmp/result.json"
+            task["lease_until"] = None
+        return control.mutate_task_locked("RACE-COMPLETE", apply)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=16) as pool:
+        futures = [pool.submit(heartbeat, index) for index in range(32)]
+        futures.append(pool.submit(complete))
+        for future in futures:
+            future.result()
+
+    persisted = control.load_task("RACE-COMPLETE")
+    assert persisted["state"] == control.STATE_COMPLETED
+    assert persisted["lease_until"] is None
+    assert persisted["result_reference"] == "/tmp/result.json"
+    assert "RACE-COMPLETE" not in fake.sets.get(control.active_lease_task_ids_key(), set())
+
+
+def test_requeued_failure_clears_old_claim_for_immediate_release(monkeypatch):
+    control = load_control()
+    fake = InMemoryRedis()
+    monkeypatch.setattr(control, "redis", fake)
+
+    task = control.create_task({
+        "task_id": "RETRY-CLAIM",
+        "idempotency_key": "retry-claim",
+        "required_capability": "read_only_probe",
+        "max_retries": 2,
+    })
+    leased = control.lease_next_task("node-a", "agent-a", ["read_only_probe"], {"node_id": "node-a", "capabilities": ["read_only_probe"]})
+    assert leased["task_id"] == task["task_id"]
+
+    def fail_for_retry(current_task):
+        current_task["state"] = control.STATE_QUEUED
+        current_task["lease_until"] = None
+        current_task["error_type"] = "runtime_error"
+
+    failed = control.mutate_task_locked("RETRY-CLAIM", fail_for_retry)
+    assert failed["state"] == control.STATE_QUEUED
+    control.clear_task_claim("RETRY-CLAIM")
+    control.enqueue("RETRY-CLAIM")
+
+    leased_again = control.lease_next_task("node-b", "agent-b", ["read_only_probe"], {"node_id": "node-b", "capabilities": ["read_only_probe"]})
+    assert leased_again["task_id"] == "RETRY-CLAIM"
+    assert leased_again["lease_owner"] == "node-b:agent-b"
+
+
+def test_factory_http_server_accepts_64_empty_lease_polls_without_worker_gate(monkeypatch):
+    control = load_control()
+    fake = InMemoryRedis()
+    monkeypatch.setattr(control, "redis", fake)
+
+    server = control.FactoryThreadingHTTPServer(("127.0.0.1", 0), control.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    url = f"http://127.0.0.1:{server.server_address[1]}/v1/tasks/lease"
+
+    def lease(index):
+        payload = json.dumps({
+            "node_id": f"empty-{index}",
+            "agent_id": f"agent-{index}",
+            "capabilities": ["read_only_probe"],
+        }).encode("utf-8")
+        request = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(request, timeout=5) as response:
+            return response.status, json.loads(response.read().decode("utf-8"))
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=64) as pool:
+            results = list(pool.map(lease, range(64)))
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert all(status == 200 for status, _body in results)
+    assert all(body["status"] == "no_task" for _status, body in results)
+    assert control.FactoryThreadingHTTPServer.request_queue_size >= 128
+    assert not hasattr(control, "BoundedThreadingHTTPServer")
 
 
 def test_lease_reaper_is_lock_gated_and_batched(monkeypatch):
