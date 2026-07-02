@@ -1,6 +1,7 @@
 import argparse
 import concurrent.futures
 import importlib.util
+import inspect
 import json
 import urllib.request
 import threading
@@ -302,6 +303,20 @@ def test_factory_http_server_accepts_64_empty_lease_polls_without_worker_gate(mo
     assert control.FactoryThreadingHTTPServer.request_queue_size >= 128
     assert not hasattr(control, "BoundedThreadingHTTPServer")
     assert server.max_workers <= control.HTTP_WORKER_THREAD_CEILING
+
+
+def test_factory_http_server_accept_loop_does_not_block_on_worker_slots():
+    control = load_control()
+    server = control.FactoryThreadingHTTPServer(("127.0.0.1", 0), control.Handler)
+    try:
+        process_request_source = inspect.getsource(control.FactoryThreadingHTTPServer.process_request)
+        assert "_request_slots" not in process_request_source
+        assert ".acquire(" not in process_request_source
+        assert not hasattr(server, "_request_slots")
+        assert server._executor._max_workers == control.HTTP_MAX_WORKERS
+        assert server.max_workers <= control.HTTP_WORKER_THREAD_CEILING
+    finally:
+        server.server_close()
 
 
 def test_empty_http_lease_fast_path_skips_reaper_and_node_load(monkeypatch):
