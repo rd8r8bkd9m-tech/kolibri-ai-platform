@@ -59,3 +59,25 @@ def test_factory_control_runtime_preflight_is_read_only_and_checks_fabric_routes
 
     assert result.returncode == 0, result.stderr
     assert "factory_control_runtime_preflight=ok" in result.stdout
+
+
+def test_strict_canary_integrity_gate_is_read_only_and_requires_sha_check():
+    script = ROOT / "scripts" / "strict-canary-with-integrity-gate.sh"
+    text = script.read_text(encoding="utf-8")
+
+    forbidden = ["systemctl", "service ", "scp ", "rsync ", "ssh ", "docker restart", "git push"]
+    for token in forbidden:
+        assert token not in text
+    assert "verify-control-plane-deployed-sha.py" in text
+    assert "exec \"$@\"" in text
+
+
+def test_deployed_sha_verifier_is_read_only():
+    script = ROOT / "scripts" / "verify-control-plane-deployed-sha.py"
+    text = script.read_text(encoding="utf-8")
+
+    forbidden = ["subprocess", "os.system", "systemctl", "scp ", "rsync ", "ssh ", "git push"]
+    for token in forbidden:
+        assert token not in text
+    assert "/v1/filesystem" in text
+    assert "sha256" in text

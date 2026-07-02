@@ -1,4 +1,5 @@
 import importlib.util
+import hashlib
 import time
 from pathlib import Path
 
@@ -33,3 +34,55 @@ def test_lease_expiry_calculation():
     lease_until = time.time() + control.LEASE_DURATION
     assert lease_until > time.time()
     assert control.LEASE_DURATION >= 60
+
+def test_filesystem_manifest_reports_repo_file_sha(tmp_path):
+    control = load_control()
+    repo = tmp_path / "repo"
+    target = repo / "ops" / "factory_control.py"
+    target.parent.mkdir(parents=True)
+    target.write_text("runtime-version\n", encoding="utf-8")
+
+    manifest = control.filesystem_manifest(["ops/factory_control.py"], repo_root=repo)
+
+    assert manifest["missing"] == []
+    assert manifest["files"][0]["exists"] is True
+    assert manifest["files"][0]["sha256"] == hashlib.sha256(b"runtime-version\n").hexdigest()
+
+def test_filesystem_manifest_rejects_paths_outside_repo(tmp_path):
+    control = load_control()
+
+    entry = control.filesystem_entry("../secret.txt", repo_root=tmp_path)
+
+    assert entry["exists"] is False
+    assert entry["error"] == "path_outside_repo"
+
+def test_task_page_prefilters_state_before_pagination():
+    control = load_control()
+    tasks = [
+        {"task_id": "queued-1", "state": control.STATE_QUEUED},
+        {"task_id": "running-1", "state": control.STATE_RUNNING},
+        {"task_id": "running-2", "state": control.STATE_RUNNING},
+        {"task_id": "done-1", "state": control.STATE_COMPLETED},
+    ]
+
+    page = control.task_page(tasks, state=control.STATE_RUNNING, limit=1, cursor=1)
+
+    assert [task["task_id"] for task in page["tasks"]] == ["running-2"]
+    assert page["total"] == 2
+    assert page["next_cursor"] is None
+
+def test_registry_hygiene_flags_synthetic_duplicates_and_namespace_drift():
+    control = load_control()
+
+    report = control.registry_hygiene_report([
+        {"node_id": "10-99-0-10", "namespace": control.NAMESPACE},
+        {"node_id": "canary-fixture-1", "namespace": control.NAMESPACE},
+        {"node_id": "10-99-0-10", "namespace": "old_namespace"},
+        {"agent_id": "missing-node-id"},
+    ])
+
+    assert report["status"] == "needs_cleanup"
+    assert report["issues"]["synthetic_nodes"] == ["canary-fixture-1"]
+    assert report["issues"]["duplicate_node_ids"] == ["10-99-0-10"]
+    assert report["issues"]["missing_node_id_count"] == 1
+    assert report["issues"]["wrong_namespace"] == [{"node_id": "10-99-0-10", "namespace": "old_namespace"}]

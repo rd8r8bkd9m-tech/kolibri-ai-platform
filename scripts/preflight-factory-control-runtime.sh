@@ -47,6 +47,8 @@ required_get = {
     "/v1/fleet/topology",
     "/v1/fleet/route",
     "/v1/fleet/capabilities",
+    "/v1/fleet/registry/hygiene",
+    "/v1/filesystem",
     "/v1/models",
 }
 required_fabric = {

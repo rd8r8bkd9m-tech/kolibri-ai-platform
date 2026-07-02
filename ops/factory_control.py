@@ -9,6 +9,7 @@ client so it can run next to the legacy control plane without adding packages.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import socket
@@ -75,6 +76,13 @@ FALLBACK_REASON_TAXONOMY = {
 }
 NODE_DEGRADED_AFTER = int(os.environ.get("FACTORY_NODE_DEGRADED_AFTER", "30"))
 NODE_STALE_AFTER = int(os.environ.get("FACTORY_NODE_STALE_AFTER", "90"))
+REPO_ROOT = Path(os.environ.get("KOLIBRI_REPO_ROOT", CURRENT_DIR.parent)).expanduser().resolve()
+FILESYSTEM_MANIFEST_PATHS = [
+    "ops/factory_control.py",
+    "ops/telegram_superfactory.py",
+    "scripts/preflight-factory-control-runtime.sh",
+    "ops/systemd/kolibri-factory-control.service",
+]
 
 STATE_QUEUED = "queued"
 STATE_LEASED = "leased"
@@ -191,6 +199,8 @@ PROMPT3_REQUIRED_ENDPOINTS = {
         "/v1/fleet/topology",
         "/v1/fleet/route",
         "/v1/fleet/capabilities",
+        "/v1/fleet/registry/hygiene",
+        "/v1/filesystem",
         "/v1/models",
         "/v1/agents/status/{task_id}",
         "/v1/agents/artifacts/{task_id}",
@@ -423,6 +433,109 @@ def fleet_capabilities(nodes: list[dict[str, Any]]) -> dict[str, Any]:
         for capability in node.get("capabilities") or []:
             by_capability.setdefault(capability, []).append(node["node_id"])
     return {"capabilities": by_capability, "nodes": nodes}
+
+
+def filesystem_entry(path_text: str, repo_root: Path | None = None) -> dict[str, Any]:
+    root = (repo_root or REPO_ROOT).resolve()
+    requested = Path(path_text)
+    rel_path = requested if not requested.is_absolute() else requested.relative_to("/")
+    candidate = (root / rel_path).resolve()
+    try:
+        relative = candidate.relative_to(root)
+    except ValueError:
+        return {
+            "path": path_text,
+            "exists": False,
+            "error": "path_outside_repo",
+            "sha256": "",
+            "size_bytes": 0,
+        }
+    if not candidate.is_file():
+        return {
+            "path": str(relative),
+            "exists": False,
+            "error": "file_not_found",
+            "sha256": "",
+            "size_bytes": 0,
+        }
+    digest = hashlib.sha256(candidate.read_bytes()).hexdigest()
+    return {
+        "path": str(relative),
+        "exists": True,
+        "sha256": digest,
+        "size_bytes": candidate.stat().st_size,
+    }
+
+
+def filesystem_manifest(paths: list[str] | None = None, repo_root: Path | None = None) -> dict[str, Any]:
+    selected_paths = paths or FILESYSTEM_MANIFEST_PATHS
+    files = [filesystem_entry(path, repo_root=repo_root) for path in selected_paths]
+    return {
+        "repo_root": str((repo_root or REPO_ROOT).resolve()),
+        "files": files,
+        "missing": [entry["path"] for entry in files if not entry.get("exists")],
+    }
+
+
+def task_page(tasks: list[dict[str, Any]], *, state: str | None = None, limit: int = 100, cursor: int = 0) -> dict[str, Any]:
+    filtered = [task for task in tasks if task and (state is None or task.get("state") == state)]
+    safe_cursor = max(0, cursor)
+    safe_limit = max(1, min(limit, 500))
+    items = filtered[safe_cursor:safe_cursor + safe_limit]
+    next_cursor = safe_cursor + safe_limit if safe_cursor + safe_limit < len(filtered) else None
+    return {
+        "tasks": items,
+        "count": len(items),
+        "total": len(filtered),
+        "state": state,
+        "limit": safe_limit,
+        "cursor": safe_cursor,
+        "next_cursor": next_cursor,
+    }
+
+
+def registry_hygiene_report(nodes: list[dict[str, Any]], *, namespace: str = NAMESPACE) -> dict[str, Any]:
+    synthetic_markers = ("canary", "synthetic", "fixture", "test-node", "fake")
+    duplicate_counts: dict[str, int] = {}
+    synthetic_nodes = []
+    missing_node_id = []
+    wrong_namespace = []
+    for index, node in enumerate(nodes):
+        node_id = str(node.get("node_id") or node.get("id") or "")
+        if not node_id:
+            missing_node_id.append({"index": index, "node": node})
+            continue
+        duplicate_counts[node_id] = duplicate_counts.get(node_id, 0) + 1
+        searchable = " ".join(
+            str(value).lower()
+            for value in (
+                node_id,
+                node.get("agent_id", ""),
+                node.get("hostname", ""),
+                node.get("source", ""),
+                node.get("kind", ""),
+            )
+        )
+        if any(marker in searchable for marker in synthetic_markers) or node.get("synthetic") is True:
+            synthetic_nodes.append(node_id)
+        node_namespace = node.get("namespace")
+        if node_namespace and node_namespace != namespace:
+            wrong_namespace.append({"node_id": node_id, "namespace": node_namespace})
+    duplicates = sorted(node_id for node_id, count in duplicate_counts.items() if count > 1)
+    issues = {
+        "synthetic_nodes": sorted(set(synthetic_nodes)),
+        "duplicate_node_ids": duplicates,
+        "missing_node_id_count": len(missing_node_id),
+        "wrong_namespace": wrong_namespace,
+    }
+    status = "ok" if not any(issues.values()) else "needs_cleanup"
+    return {
+        "status": status,
+        "namespace": namespace,
+        "node_count": len(nodes),
+        "issues": issues,
+        "next_action": "remove synthetic registry records and align FACTORY_NAMESPACE before trusting fleet state" if status != "ok" else "registry hygiene clean",
+    }
 
 
 def fleet_topology(nodes: list[dict[str, Any]]) -> dict[str, Any]:
@@ -956,6 +1069,31 @@ class Handler(BaseHTTPRequestHandler):
                     next_action="include required_capability in /v1/agents/tasks when dispatching work",
                 ))
                 return
+            if path == "/v1/fleet/registry/hygiene":
+                report = registry_hygiene_report(registered_nodes())
+                response(self, 200, canonical_response_envelope(
+                    status="completed" if report["status"] == "ok" else "blocked",
+                    route_used="/v1/fleet/registry/hygiene",
+                    blocked_reason="" if report["status"] == "ok" else "registry_hygiene_drift",
+                    repair_task={"kind": "clean_fleet_registry", "namespace": report["namespace"]} if report["status"] != "ok" else "",
+                    data=report,
+                    next_action=report["next_action"],
+                ))
+                return
+            if path == "/v1/filesystem":
+                query = parse_qs(parsed.query)
+                requested_paths = query.get("path") or query.get("paths") or []
+                manifest = filesystem_manifest(requested_paths)
+                status = "completed" if not manifest["missing"] else "blocked"
+                response(self, 200 if status == "completed" else 404, canonical_response_envelope(
+                    status=status,
+                    route_used="/v1/filesystem",
+                    blocked_reason="" if status == "completed" else "deployed_file_missing",
+                    repair_task={"kind": "redeploy_control_plane_file", "missing": manifest["missing"]} if status != "completed" else "",
+                    data=manifest,
+                    next_action="compare sha256 values against the GitHub head before strict canary execution",
+                ))
+                return
             if path == "/v1/models":
                 response(self, 200, canonical_response_envelope(
                     status="completed",
@@ -998,9 +1136,12 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/v1/tasks":
                 query = parse_qs(parsed.query)
                 wanted = query.get("state", [None])[0]
+                limit = int(query.get("limit", ["100"])[0])
+                cursor = int(query.get("cursor", ["0"])[0])
                 tasks = [load_task(task_id) for task_id in all_task_ids()]
-                tasks = [task for task in tasks if task and (wanted is None or task.get("state") == wanted)]
-                response(self, 200, {"tasks": tasks, "queue": queue_ids()})
+                page = task_page([task for task in tasks if task], state=wanted, limit=limit, cursor=cursor)
+                page["queue"] = queue_ids()
+                response(self, 200, page)
                 return
             if path.startswith("/v1/tasks/"):
                 task_id = path.split("/", 3)[3]
