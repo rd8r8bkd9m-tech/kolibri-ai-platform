@@ -230,25 +230,25 @@ export default function Layout({ user, onLogout }: LayoutProps) {
       )}
 
       {/* ===== MOBILE HEADER ===== */}
-      <header className="md:hidden fixed top-0 left-0 right-0 h-14 bg-[var(--bg-primary)]/95 backdrop-blur-md border-b border-[var(--border-subtle)] z-40 flex items-center justify-between px-3 gap-3 pt-[env(safe-area-inset-top)]">
+      <header className="fixed left-0 right-0 top-0 z-40 flex h-[var(--mobile-header-height)] items-end justify-between gap-3 border-b border-[var(--border-subtle)] bg-[var(--bg-primary)]/95 px-3 pb-2 pt-[env(safe-area-inset-top)] backdrop-blur-md md:hidden">
         <button
           type="button"
           onClick={() => setMobileMenuOpen(true)}
-          className="w-10 h-10 flex items-center justify-center rounded-[var(--radius-md)] hover:bg-[var(--bg-hover)] transition-colors"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] hover:bg-[var(--bg-hover)] transition-colors"
           aria-label="Открыть меню"
           aria-controls="kolibri-mobile-menu"
           aria-expanded={mobileMenuOpen}
         >
           <Menu size={22} strokeWidth={1.8} />
         </button>
-        <div className="flex items-center gap-2.5">
+        <div className="flex min-w-0 items-center gap-2.5">
           <MascotAnimation state="idle" className="h-8 w-8" decorative />
-          <span className="font-medium text-[17px]">Колибри</span>
+          <span className="truncate text-[17px] font-medium">Колибри</span>
         </div>
         <button
           type="button"
           onClick={() => openSearch()}
-          className="w-10 h-10 flex items-center justify-center rounded-[var(--radius-md)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] transition-colors"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] transition-colors"
           aria-label="Поиск"
           title="Поиск"
         >
@@ -268,13 +268,13 @@ export default function Layout({ user, onLogout }: LayoutProps) {
             role="dialog"
             aria-modal="true"
             aria-label="Мобильное меню Колибри"
-            className="md:hidden fixed top-0 left-0 bottom-0 bg-[var(--bg-primary)] z-[60] shadow-xl flex flex-col animate-slideIn"
+            className="fixed bottom-0 left-0 top-0 z-[60] flex flex-col bg-[var(--bg-primary)] shadow-xl animate-slideIn md:hidden"
             style={{ width: 'min(320px, 88vw)' }}
           >
-            <div className="flex items-center justify-between px-4 h-14 border-b border-[var(--border-subtle)] flex-shrink-0 pt-[env(safe-area-inset-top)]">
-              <div className="flex items-center gap-2.5">
+            <div className="flex h-[var(--mobile-header-height)] flex-shrink-0 items-end justify-between border-b border-[var(--border-subtle)] px-4 pb-2 pt-[env(safe-area-inset-top)]">
+              <div className="flex min-w-0 items-center gap-2.5">
                 <MascotAnimation state="idle" className="h-8 w-8" decorative />
-                <span className="font-semibold text-[17px]">Колибри</span>
+                <span className="truncate text-[17px] font-semibold">Колибри</span>
               </div>
               <button
                 type="button"
@@ -409,7 +409,7 @@ export default function Layout({ user, onLogout }: LayoutProps) {
       )}
 
       {/* ===== MAIN CONTENT ===== */}
-      <main className="flex-1 h-full overflow-y-auto pt-14 md:pt-0">
+      <main className="h-full flex-1 overflow-y-auto pt-[var(--mobile-header-height)] md:pt-0">
         <Outlet context={{ openSearch } satisfies LayoutOutletContext} />
       </main>
 

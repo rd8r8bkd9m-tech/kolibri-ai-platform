@@ -81,7 +81,12 @@ export default function EstimatesPage() {
       await health.v1()
       setApiState('online')
     } catch {
-      setApiState('offline')
+      try {
+        await estimates.list({ page_size: 1 })
+        setApiState('online')
+      } catch {
+        setApiState('offline')
+      }
     }
   }, [])
 
@@ -270,18 +275,18 @@ export default function EstimatesPage() {
 
   if (view === 'editor' && current) {
     return (
-      <div className="h-full overflow-y-auto bg-[var(--bg-primary)]">
-        <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-4 px-3 py-3 sm:px-6 sm:py-5">
+      <div className="min-h-full bg-[var(--bg-primary)]">
+        <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-4 px-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3 sm:px-6 sm:py-5">
           <div className="flex flex-col gap-3 border-b border-[var(--border-subtle)] pb-4 lg:flex-row lg:items-center">
             <div className="flex min-w-0 items-start gap-2">
-              <button onClick={() => { setView('list'); setCurrent(null); void loadList() }} className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-md)] border border-[var(--border-subtle)] hover:bg-[var(--bg-hover)]" aria-label="Назад">
+              <button onClick={() => { setView('list'); setCurrent(null); void loadList() }} className="mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] border border-[var(--border-subtle)] hover:bg-[var(--bg-hover)] sm:h-9 sm:w-9" aria-label="Назад">
                 <ArrowLeft size={18} />
               </button>
               <div className="min-w-0 flex-1">
-                <input value={current.title} onChange={event => updateCurrent({ title: event.target.value })} className="w-full bg-transparent text-[20px] font-semibold leading-tight tracking-tight text-[var(--text-primary)] outline-none sm:text-[24px]" />
+                <textarea value={current.title} onChange={event => updateCurrent({ title: event.target.value })} rows={2} className="min-h-[58px] w-full resize-none bg-transparent text-[20px] font-semibold leading-tight tracking-tight text-[var(--text-primary)] outline-none sm:min-h-[64px] sm:text-[24px]" />
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px] text-[var(--text-tertiary)]">
                   <span className={`rounded-[var(--radius-pill)] px-2 py-1 font-medium ${statusLabels[current.status]?.className}`}>{statusLabels[current.status]?.text}</span>
-                  <span>{current.id}</span>
+                  <span className="max-w-full truncate">{current.id}</span>
                   <span>версия {current.version}</span>
                   <span>{formatDate(current.updated_at)}</span>
                   <span className={apiState === 'online' ? 'text-emerald-600' : apiState === 'offline' ? 'text-red-600' : 'text-[var(--text-tertiary)]'}>
@@ -291,21 +296,21 @@ export default function EstimatesPage() {
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 lg:ml-auto">
-              <select value={current.status} onChange={event => updateCurrent({ status: event.target.value as Estimate['status'] })} className="h-9 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 text-[13px] outline-none">
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center lg:ml-auto lg:justify-end">
+              <select value={current.status} onChange={event => updateCurrent({ status: event.target.value as Estimate['status'] })} className="col-span-2 h-11 min-w-0 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 text-[13px] outline-none sm:col-span-1 sm:h-9">
                 {statusOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
               </select>
-              <button onClick={handleAiAnalyze} disabled={aiLoading} className="flex h-9 items-center gap-2 rounded-[var(--radius-md)] border border-violet-200 px-3 text-[13px] font-medium text-violet-700 hover:bg-violet-50 disabled:opacity-50">
-                <Sparkles size={15} /> {aiLoading ? 'Анализ' : 'AI аудит'}
+              <button onClick={handleAiAnalyze} disabled={aiLoading} className="flex h-11 min-w-0 items-center justify-center gap-2 rounded-[var(--radius-md)] border border-violet-200 px-3 text-[13px] font-medium text-violet-700 hover:bg-violet-50 disabled:opacity-50 sm:h-9">
+                <Sparkles size={15} className="shrink-0" /> <span className="truncate">{aiLoading ? 'Анализ' : 'AI аудит'}</span>
               </button>
-              <button onClick={handleCalculate} disabled={saveState === 'saving'} className="flex h-9 items-center gap-2 rounded-[var(--radius-md)] border border-[var(--border-subtle)] px-3 text-[13px] font-medium hover:bg-[var(--bg-hover)] disabled:opacity-50">
-                <Calculator size={15} /> Пересчитать
+              <button onClick={handleCalculate} disabled={saveState === 'saving'} className="flex h-11 min-w-0 items-center justify-center gap-2 rounded-[var(--radius-md)] border border-[var(--border-subtle)] px-3 text-[13px] font-medium hover:bg-[var(--bg-hover)] disabled:opacity-50 sm:h-9">
+                <Calculator size={15} className="shrink-0" /> <span className="truncate">Пересчитать</span>
               </button>
-              <button onClick={handleSave} disabled={saveState === 'saving'} className="flex h-9 items-center gap-2 rounded-[var(--radius-md)] bg-[var(--accent-teal)] px-3 text-[13px] font-medium text-white hover:bg-[var(--accent-teal-hover)] disabled:opacity-50">
-                {saveState === 'saved' ? <Check size={15} /> : <Save size={15} />} {saveState === 'saving' ? 'Сохранение' : saveState === 'saved' ? 'Сохранено' : 'Сохранить'}
+              <button onClick={handleSave} disabled={saveState === 'saving'} className="flex h-11 min-w-0 items-center justify-center gap-2 rounded-[var(--radius-md)] bg-[var(--accent-teal)] px-3 text-[13px] font-medium text-white hover:bg-[var(--accent-teal-hover)] disabled:opacity-50 sm:h-9">
+                {saveState === 'saved' ? <Check size={15} className="shrink-0" /> : <Save size={15} className="shrink-0" />} <span className="truncate">{saveState === 'saving' ? 'Сохранение' : saveState === 'saved' ? 'Сохранено' : 'Сохранить'}</span>
               </button>
               <div className="relative">
-                <button onClick={() => setMenuOpen(!menuOpen)} className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-md)] border border-[var(--border-subtle)] hover:bg-[var(--bg-hover)]" aria-label="Еще">
+                <button onClick={() => setMenuOpen(!menuOpen)} className="flex h-11 w-full items-center justify-center rounded-[var(--radius-md)] border border-[var(--border-subtle)] hover:bg-[var(--bg-hover)] sm:h-9 sm:w-9" aria-label="Еще">
                   <MoreHorizontal size={16} />
                 </button>
                 {menuOpen && (
@@ -326,12 +331,12 @@ export default function EstimatesPage() {
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
             <main className="flex min-w-0 flex-col gap-4">
               <section className="grid gap-3 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3 sm:grid-cols-2 lg:grid-cols-4">
-                <label className="text-[12px] font-medium text-[var(--text-tertiary)]">Клиент<input value={current.client || ''} onChange={event => updateCurrent({ client: event.target.value })} className="mt-1 h-10 w-full rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 text-[14px] text-[var(--text-primary)] outline-none focus:border-[var(--accent-teal)]" /></label>
-                <label className="text-[12px] font-medium text-[var(--text-tertiary)]">Объект<input value={current.object_name || ''} onChange={event => updateCurrent({ object_name: event.target.value })} className="mt-1 h-10 w-full rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 text-[14px] text-[var(--text-primary)] outline-none focus:border-[var(--accent-teal)]" /></label>
-                <label className="text-[12px] font-medium text-[var(--text-tertiary)]">Регион<input value={current.region || ''} onChange={event => updateCurrent({ region: event.target.value })} className="mt-1 h-10 w-full rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 text-[14px] text-[var(--text-primary)] outline-none focus:border-[var(--accent-teal)]" /></label>
+                <label className="text-[12px] font-medium text-[var(--text-tertiary)]">Клиент<input value={current.client || ''} onChange={event => updateCurrent({ client: event.target.value })} className="mt-1 h-11 w-full rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 text-[14px] text-[var(--text-primary)] outline-none focus:border-[var(--accent-teal)] sm:h-10" /></label>
+                <label className="text-[12px] font-medium text-[var(--text-tertiary)]">Объект<input value={current.object_name || ''} onChange={event => updateCurrent({ object_name: event.target.value })} className="mt-1 h-11 w-full rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 text-[14px] text-[var(--text-primary)] outline-none focus:border-[var(--accent-teal)] sm:h-10" /></label>
+                <label className="text-[12px] font-medium text-[var(--text-tertiary)]">Регион<input value={current.region || ''} onChange={event => updateCurrent({ region: event.target.value })} className="mt-1 h-11 w-full rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 text-[14px] text-[var(--text-primary)] outline-none focus:border-[var(--accent-teal)] sm:h-10" /></label>
                 <div className="grid grid-cols-2 gap-2">
-                  <label className="text-[12px] font-medium text-[var(--text-tertiary)]">Накл., %<input inputMode="decimal" value={current.overhead_rate} onChange={event => updateCurrent({ overhead_rate: event.target.value })} className="mt-1 h-10 w-full rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 text-[14px] text-[var(--text-primary)] outline-none focus:border-[var(--accent-teal)]" /></label>
-                  <label className="text-[12px] font-medium text-[var(--text-tertiary)]">НДС, %<input inputMode="decimal" value={current.vat_rate} onChange={event => updateCurrent({ vat_rate: event.target.value })} className="mt-1 h-10 w-full rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 text-[14px] text-[var(--text-primary)] outline-none focus:border-[var(--accent-teal)]" /></label>
+                  <label className="text-[12px] font-medium text-[var(--text-tertiary)]">Накл., %<input inputMode="decimal" value={current.overhead_rate} onChange={event => updateCurrent({ overhead_rate: event.target.value })} className="mt-1 h-11 w-full rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 text-[14px] text-[var(--text-primary)] outline-none focus:border-[var(--accent-teal)] sm:h-10" /></label>
+                  <label className="text-[12px] font-medium text-[var(--text-tertiary)]">НДС, %<input inputMode="decimal" value={current.vat_rate} onChange={event => updateCurrent({ vat_rate: event.target.value })} className="mt-1 h-11 w-full rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 text-[14px] text-[var(--text-primary)] outline-none focus:border-[var(--accent-teal)] sm:h-10" /></label>
                 </div>
               </section>
 
@@ -354,21 +359,21 @@ export default function EstimatesPage() {
                       const lineTotal = numberValue(position.quantity) * numberValue(position.price)
                       return (
                         <div key={position.id} className="grid gap-2 p-3 lg:grid-cols-[84px_minmax(220px,1fr)_70px_96px_118px_124px_40px] lg:items-center">
-                          <input value={position.code} onChange={event => updatePosition(section.id, position.id, { code: event.target.value })} placeholder="Код" className="h-9 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2 text-[13px] outline-none focus:border-[var(--accent-teal)]" />
+                          <input value={position.code} onChange={event => updatePosition(section.id, position.id, { code: event.target.value })} placeholder="Код" className="h-11 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2 text-[13px] outline-none focus:border-[var(--accent-teal)] lg:h-9" />
                           <div className="grid gap-2">
-                            <input value={position.name} onChange={event => updatePosition(section.id, position.id, { name: event.target.value })} placeholder="Название позиции" className="h-9 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2 text-[13px] outline-none focus:border-[var(--accent-teal)]" />
+                            <input value={position.name} onChange={event => updatePosition(section.id, position.id, { name: event.target.value })} placeholder="Название позиции" className="h-11 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2 text-[13px] outline-none focus:border-[var(--accent-teal)] lg:h-9" />
                             <input value={position.source || ''} onChange={event => updatePosition(section.id, position.id, { source: event.target.value })} placeholder="Источник цены" className="h-8 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-secondary)] px-2 text-[12px] text-[var(--text-secondary)] outline-none focus:border-[var(--accent-teal)] lg:hidden" />
                           </div>
                           <div className="grid grid-cols-3 gap-2 lg:contents">
-                            <input value={position.unit} onChange={event => updatePosition(section.id, position.id, { unit: event.target.value })} placeholder="Ед." className="h-9 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2 text-[13px] outline-none focus:border-[var(--accent-teal)]" />
-                            <input inputMode="decimal" value={position.quantity} onChange={event => updatePosition(section.id, position.id, { quantity: event.target.value })} className="h-9 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2 text-right text-[13px] outline-none focus:border-[var(--accent-teal)]" />
-                            <input inputMode="decimal" value={position.price} onChange={event => updatePosition(section.id, position.id, { price: event.target.value })} className="h-9 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2 text-right text-[13px] outline-none focus:border-[var(--accent-teal)]" />
+                            <input value={position.unit} onChange={event => updatePosition(section.id, position.id, { unit: event.target.value })} placeholder="Ед." className="h-11 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2 text-[13px] outline-none focus:border-[var(--accent-teal)] lg:h-9" />
+                            <input inputMode="decimal" value={position.quantity} onChange={event => updatePosition(section.id, position.id, { quantity: event.target.value })} className="h-11 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2 text-right text-[13px] outline-none focus:border-[var(--accent-teal)] lg:h-9" />
+                            <input inputMode="decimal" value={position.price} onChange={event => updatePosition(section.id, position.id, { price: event.target.value })} className="h-11 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2 text-right text-[13px] outline-none focus:border-[var(--accent-teal)] lg:h-9" />
                           </div>
                           <div className="flex items-center justify-between gap-2 lg:justify-end">
                             <span className="text-[12px] text-[var(--text-tertiary)] lg:hidden">Сумма</span>
                             <strong className="text-[14px] text-[var(--text-primary)]">{money(lineTotal)}</strong>
                           </div>
-                          <button onClick={() => removePosition(section.id, position.id)} className="flex h-9 w-full items-center justify-center rounded-[var(--radius-md)] text-red-600 hover:bg-red-50 lg:w-9" aria-label="Удалить позицию"><X size={15} /></button>
+                          <button onClick={() => removePosition(section.id, position.id)} className="flex h-11 w-full items-center justify-center rounded-[var(--radius-md)] text-red-600 hover:bg-red-50 lg:h-9 lg:w-9" aria-label="Удалить позицию"><X size={15} /></button>
                         </div>
                       )
                     })}
@@ -414,18 +419,18 @@ export default function EstimatesPage() {
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-[var(--bg-primary)]">
-      <div className="mx-auto max-w-[1120px] px-3 py-5 sm:px-6">
+    <div className="min-h-full bg-[var(--bg-primary)]">
+      <div className="mx-auto max-w-[1120px] px-3 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] pt-5 sm:px-6">
         <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-[26px] font-semibold tracking-tight text-[var(--text-primary)]">Сметы</h1>
             <p className="mt-1 text-[13px] text-[var(--text-tertiary)]">Профессиональный редактор с расчетом через backend API.</p>
           </div>
           <div className="flex items-center gap-2">
-            <span className={`hidden rounded-[var(--radius-pill)] px-2.5 py-1 text-[12px] font-medium sm:inline-flex ${apiState === 'online' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+            <span className={`inline-flex shrink-0 rounded-[var(--radius-pill)] px-2.5 py-1 text-[12px] font-medium ${apiState === 'online' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
               API {apiState === 'online' ? 'online' : apiState === 'checking' ? 'check' : 'offline'}
             </span>
-            <button onClick={handleNewEstimate} className="flex h-10 items-center gap-2 rounded-[var(--radius-md)] bg-[var(--accent-teal)] px-3 text-[13px] font-medium text-white hover:bg-[var(--accent-teal-hover)]">
+            <button onClick={handleNewEstimate} className="flex h-11 items-center gap-2 rounded-[var(--radius-md)] bg-[var(--accent-teal)] px-3 text-[13px] font-medium text-white hover:bg-[var(--accent-teal-hover)] sm:h-10">
               <Plus size={16} /> Новая смета
             </button>
           </div>
