@@ -11,10 +11,12 @@ import json
 import mimetypes
 import os
 import platform
+import random
 import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -158,6 +160,10 @@ class PermissionContractError(RuntimeError):
         self.classification = classification
         permissions = ", ".join(classification.get("forbidden_permissions") or [])
         super().__init__(f"read-only/no-push permission pack forbids requested runtime permissions: {permissions}")
+
+
+class LeaseHeartbeatError(RuntimeError):
+    """Raised when a running task can no longer renew its control-plane lease."""
 
 
 def utc_now() -> str:
@@ -491,6 +497,40 @@ def required_artifact_candidates(spec_path: str, worktree: Path | None, artifact
     return candidates
 
 
+def required_artifact_exact_path(spec_path: str, worktree: Path | None, artifact_dir: Path | None) -> Path:
+    path = Path(spec_path)
+    if path.is_absolute():
+        return path
+    if worktree:
+        return worktree / spec_path
+    if artifact_dir:
+        return artifact_dir / spec_path
+    return path
+
+
+def alternate_required_artifact_sources(spec_path: str, exact_path: Path, worktree: Path | None, artifact_dir: Path | None) -> list[Path]:
+    sources: list[Path] = []
+    for candidate in required_artifact_candidates(spec_path, worktree, artifact_dir):
+        try:
+            if candidate.resolve() == exact_path.resolve():
+                continue
+        except OSError:
+            pass
+        if candidate.exists():
+            sources.append(candidate)
+    return sources
+
+
+def copy_required_artifact_to_exact_path(source: Path, target: Path) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if source.is_dir():
+        if target.exists():
+            return
+        shutil.copytree(source, target)
+    else:
+        shutil.copy2(source, target)
+
+
 def canonical_run_artifact_dir(envelope: dict[str, Any]) -> str | None:
     for key_name in CANONICAL_RUN_ARTIFACT_DIR_KEYS:
         value = envelope_value(envelope, key_name)
@@ -587,18 +627,32 @@ def finalize_canonical_run_artifacts(
     }
 
 
-def verify_required_artifacts(envelope: dict[str, Any], worktree: Path | None, artifact_dir: Path | None) -> tuple[list[str], list[str]]:
+def verify_required_artifacts(envelope: dict[str, Any], worktree: Path | None, artifact_dir: Path | None) -> tuple[list[str], list[str], list[dict[str, str]]]:
     present: list[str] = []
     missing: list[str] = []
+    materialized: list[dict[str, str]] = []
     for spec in envelope_list(envelope, *REQUIRED_ARTIFACT_KEYS):
         spec_path = artifact_spec_path(spec)
         if not spec_path:
             continue
-        if any(candidate.exists() for candidate in required_artifact_candidates(spec_path, worktree, artifact_dir)):
+        exact_path = required_artifact_exact_path(spec_path, worktree, artifact_dir)
+        if exact_path.exists():
             present.append(spec_path)
-        else:
+            continue
+        sources = alternate_required_artifact_sources(spec_path, exact_path, worktree, artifact_dir)
+        copied = False
+        for source in sources:
+            try:
+                copy_required_artifact_to_exact_path(source, exact_path)
+            except OSError:
+                continue
+            materialized.append({"path": spec_path, "source": str(source), "target": str(exact_path)})
+            present.append(spec_path)
+            copied = True
+            break
+        if not copied:
             missing.append(spec_path)
-    return present, missing
+    return present, missing, materialized
 
 
 def backend_test_environment_spec(envelope: dict[str, Any]) -> dict[str, Any] | None:
@@ -784,7 +838,7 @@ def finalize_runner_contract(
     write_scope = envelope_list(envelope, "write_scope")
     final["write_scope"] = write_scope
 
-    required_present, required_missing = verify_required_artifacts(envelope, worktree, artifact_dir)
+    required_present, required_missing, required_materialized = verify_required_artifacts(envelope, worktree, artifact_dir)
     canonical_artifacts = finalize_canonical_run_artifacts(envelope, worktree, artifact_dir)
     if canonical_artifacts:
         required_present.extend(canonical_artifacts["canonical_run_artifacts_present"])
@@ -792,6 +846,7 @@ def finalize_runner_contract(
         final.update(canonical_artifacts)
     final["required_artifacts_present"] = required_present
     final["required_artifacts_missing"] = required_missing
+    final["required_artifacts_materialized"] = required_materialized
     final["effective_permissions"] = sanitized_permissions_for_envelope(envelope)
 
     read_only = envelope_truthy(envelope, "read_only")
@@ -898,7 +953,13 @@ class AgentHost:
         self.artifact_root = Path(args.artifact_root)
         self.heartbeat_interval = args.heartbeat_interval
         self.lease_refresh = args.lease_refresh
-        self.max_inflight = args.max_inflight
+        self.max_inflight = max(1, int(args.max_inflight))
+        self.lease_idle_min = max(0.2, float(getattr(args, "lease_idle_min", 1.0)))
+        self.lease_idle_max = max(self.lease_idle_min, float(getattr(args, "lease_idle_max", 15.0)))
+        self.lease_empty_backoff_factor = max(1.0, float(getattr(args, "lease_empty_backoff_factor", 1.35)))
+        self.lease_error_backoff = max(self.lease_idle_min, float(getattr(args, "lease_error_backoff", 5.0)))
+        jitter_seed = int(hashlib.sha256(self.agent_id.encode("utf-8")).hexdigest()[:12], 16)
+        self.poll_jitter = random.Random(jitter_seed)
         self.hostname = platform.node()
         self.pid = os.getpid()
         self.runner_status = self.detect_runner_status()
@@ -932,6 +993,24 @@ class AgentHost:
     def detect_runner_status(self) -> dict[str, dict[str, Any]]:
         status: dict[str, dict[str, Any]] = {}
         for runner in sorted(SUPPORTED_AI_RUNNERS):
+            if runner == "api":
+                configured = bool(os.environ.get("OPENAI_API_KEY") or os.environ.get("KOLIBRI_API_RUNNER_TOKEN"))
+                status[runner] = {
+                    "status": "available" if configured else "unavailable",
+                    "path": None,
+                    "configured_by": "environment" if configured else None,
+                    "checked_at": utc_now(),
+                }
+                continue
+            if runner == "local_llm":
+                configured = bool(os.environ.get("KOLIBRI_LOCAL_LLM_URL"))
+                status[runner] = {
+                    "status": "available" if configured else "unavailable",
+                    "path": None,
+                    "configured_by": "environment" if configured else None,
+                    "checked_at": utc_now(),
+                }
+                continue
             try:
                 path = shutil.which(runner)
             except RecursionError:
@@ -995,14 +1074,84 @@ class AgentHost:
         }
         return self.post(f"/v1/tasks/{task['task_id']}/heartbeat", body)
 
+    class TaskLeaseHeartbeat:
+        def __init__(
+            self,
+            host: "AgentHost",
+            task: dict[str, Any],
+            worktree: Path,
+            branch: str | None,
+            logs: dict[str, str],
+            pid: int | None = None,
+        ):
+            self.host = host
+            self.task = task
+            self.worktree = worktree
+            self.branch = branch
+            self.logs = logs
+            self.pid = pid
+            self.stop_event = threading.Event()
+            self.error: Exception | None = None
+            self.thread: threading.Thread | None = None
+
+        def __enter__(self) -> "AgentHost.TaskLeaseHeartbeat":
+            self._beat()
+            if self.error is not None:
+                raise LeaseHeartbeatError(f"lease heartbeat failed: {self.error}") from self.error
+            self.thread = threading.Thread(
+                target=self._loop,
+                name=f"kolibri-task-heartbeat-{self.task['task_id']}",
+                daemon=True,
+            )
+            self.thread.start()
+            return self
+
+        def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> bool:
+            self.stop_event.set()
+            if self.thread:
+                self.thread.join(timeout=5)
+            if exc_type is None and self.error is not None:
+                raise LeaseHeartbeatError(f"lease heartbeat failed: {self.error}") from self.error
+            return False
+
+        def _beat(self) -> None:
+            try:
+                self.host.task_heartbeat(self.task, self.worktree, self.branch, self.logs, self.pid)
+            except Exception as exc:  # surfaced by __exit__ for structured task failure
+                self.error = exc
+                self.stop_event.set()
+
+        def _loop(self) -> None:
+            while not self.stop_event.wait(max(0.1, float(self.host.lease_refresh))):
+                self._beat()
+                if self.error is not None:
+                    return
+
+    def long_running_heartbeat(
+        self,
+        task: dict[str, Any],
+        worktree: Path,
+        branch: str | None,
+        logs: dict[str, str],
+        pid: int | None = None,
+    ) -> "TaskLeaseHeartbeat":
+        return self.TaskLeaseHeartbeat(self, task, worktree, branch, logs, pid)
+
     def lease(self) -> dict[str, Any] | None:
         task = self.post("/v1/tasks/lease", {
             "node_id": self.node_id,
             "agent_id": self.agent_id,
             "capabilities": self.capabilities,
             "runners": self.runner_status,
+            "max_inflight": self.max_inflight,
         })
+        if isinstance(task, dict) and task.get("status") in {"no_task", "overloaded"} and not task.get("task_id"):
+            return None
         return sanitize_task_permissions(task) if isinstance(task, dict) else task
+
+    def idle_poll_sleep(self, empty_polls: int = 0) -> float:
+        base = min(self.lease_idle_max, self.lease_idle_min * (self.lease_empty_backoff_factor ** max(0, empty_polls)))
+        return self.poll_jitter.uniform(self.lease_idle_min, base)
 
     def run_command(
         self,
@@ -1025,14 +1174,15 @@ class AgentHost:
             stdout.flush()
             proc = subprocess.Popen(command, cwd=str(cwd), stdout=stdout, stderr=stderr, env=merged_env)
             last_refresh = 0.0
-            while proc.poll() is None:
-                if STOP:
-                    proc.terminate()
-                    raise RuntimeError("agent host received SIGTERM")
-                if time.time() - last_refresh >= self.lease_refresh:
-                    self.task_heartbeat(task, cwd, branch, logs, proc.pid)
-                    last_refresh = time.time()
-                time.sleep(2)
+            with self.long_running_heartbeat(task, cwd, branch, logs, proc.pid):
+                while proc.poll() is None:
+                    if STOP:
+                        proc.terminate()
+                        raise RuntimeError("agent host received SIGTERM")
+                    if time.time() - last_refresh >= self.lease_refresh:
+                        self.task_heartbeat(task, cwd, branch, logs, proc.pid)
+                        last_refresh = time.time()
+                    time.sleep(2)
             if proc.returncode != 0:
                 raise RuntimeError(f"command failed with rc={proc.returncode}: {display_command}")
 
@@ -1252,16 +1402,17 @@ class AgentHost:
         logs: dict[str, str],
     ) -> dict[str, Any]:
         try:
-            self.run_command(
-                command,
-                worktree,
-                stdout_path,
-                stderr_path,
-                task,
-                branch,
-                logs,
-                command_label=command_label,
-            )
+            with self.long_running_heartbeat(task, worktree, branch, logs):
+                self.run_command(
+                    command,
+                    worktree,
+                    stdout_path,
+                    stderr_path,
+                    task,
+                    branch,
+                    logs,
+                    command_label=command_label,
+                )
         except Exception as exc:
             error_type, message, retry = self.classify_runner_error(
                 str(exc),
@@ -1318,9 +1469,11 @@ class AgentHost:
         if runner not in SUPPORTED_AI_RUNNERS:
             raise RunnerExecutionError("runner_unavailable", runner, f"unsupported runner requested: {runner}")
         if runner == "api":
-            return self.run_api_text_runner(prompt)
+            with self.long_running_heartbeat(task, worktree, branch, logs):
+                return self.run_api_text_runner(prompt)
         if runner == "local_llm":
-            return self.run_local_llm_text_runner(prompt)
+            with self.long_running_heartbeat(task, worktree, branch, logs):
+                return self.run_local_llm_text_runner(prompt)
         executable = shutil.which(runner)
         if not executable:
             self.mark_runner_status(runner, "unavailable", "runner_unavailable")
@@ -1782,7 +1935,8 @@ class AgentHost:
     ) -> Path:
         command = os.environ.get("KOLIBRI_IMAGE_GENERATOR_CMD")
         if not command:
-            return self.run_openai_image_generation(prompt, output_path)
+            with self.long_running_heartbeat(task, worktree, None, logs):
+                return self.run_openai_image_generation(prompt, output_path)
         env = {
             "KOLIBRI_IMAGE_PROMPT": prompt,
             "KOLIBRI_IMAGE_OUTPUT_DIR": str(artifact_dir),
@@ -2400,6 +2554,13 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 result["blocked_reason"] = "backend_test_environment_failed"
                 result["next_recommended_task"] = "repair the declared backend test environment requirements or package list, then rerun verification"
                 result_path = self.write_result(artifact_dir, result)
+            elif isinstance(exc, LeaseHeartbeatError):
+                error_type = "lease_heartbeat_failed"
+                retry = False
+                result["status"] = "failed"
+                result["failure_reason"] = redact_sensitive_text(str(exc))
+                result["next_recommended_task"] = "repair task heartbeat connectivity to the Factory Control Plane before requeue"
+                result_path = self.write_result(artifact_dir, result)
             elif str(exc).startswith("review_clone_auth_failed:"):
                 error_type = "review_clone_auth_failed"
             else:
@@ -2413,6 +2574,7 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
     def loop(self) -> None:
         self.register()
         last_node_heartbeat = 0.0
+        empty_polls = 0
         while not STOP:
             if time.time() - last_node_heartbeat >= self.heartbeat_interval:
                 self.node_heartbeat()
@@ -2421,13 +2583,16 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 task = self.lease()
             except Exception as exc:
                 print(f"{utc_now()} lease_failed {exc}", flush=True)
-                time.sleep(5)
+                time.sleep(self.poll_jitter.uniform(self.lease_idle_min, self.lease_error_backoff))
                 continue
             if task:
+                empty_polls = 0
                 self.node_heartbeat(active_task=task["task_id"])
                 self.run_task(task)
                 self.node_heartbeat()
-            time.sleep(2)
+            else:
+                empty_polls += 1
+            time.sleep(self.idle_poll_sleep(empty_polls))
 
 
 def handle_stop(signum: int, frame: Any) -> None:
@@ -2449,6 +2614,10 @@ def main() -> int:
     parser.add_argument("--heartbeat-interval", type=int, default=int(os.environ.get("KOLIBRI_HEARTBEAT_INTERVAL", "10")))
     parser.add_argument("--lease-refresh", type=int, default=int(os.environ.get("KOLIBRI_LEASE_REFRESH", "20")))
     parser.add_argument("--max-inflight", type=int, default=int(os.environ.get("KOLIBRI_MAX_INFLIGHT", "1")))
+    parser.add_argument("--lease-idle-min", type=float, default=float(os.environ.get("KOLIBRI_LEASE_IDLE_MIN", "1.0")))
+    parser.add_argument("--lease-idle-max", type=float, default=float(os.environ.get("KOLIBRI_LEASE_IDLE_MAX", "15.0")))
+    parser.add_argument("--lease-empty-backoff-factor", type=float, default=float(os.environ.get("KOLIBRI_LEASE_EMPTY_BACKOFF_FACTOR", "1.35")))
+    parser.add_argument("--lease-error-backoff", type=float, default=float(os.environ.get("KOLIBRI_LEASE_ERROR_BACKOFF", "5.0")))
     args = parser.parse_args()
     signal.signal(signal.SIGTERM, handle_stop)
     signal.signal(signal.SIGINT, handle_stop)

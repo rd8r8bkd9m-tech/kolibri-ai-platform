@@ -9,10 +9,13 @@ client so it can run next to the legacy control plane without adding packages.
 from __future__ import annotations
 
 import argparse
+import errno
 import json
 import os
+import select
 import socket
 import sys
+import threading
 import time
 import uuid
 from datetime import datetime, timezone
@@ -57,7 +60,18 @@ NAMESPACE = os.environ.get("FACTORY_NAMESPACE", "kolibri_factory")
 REDIS_HOST = os.environ.get("FACTORY_REDIS_HOST", "127.0.0.1")
 REDIS_PORT = int(os.environ.get("FACTORY_REDIS_PORT", "6379"))
 LEASE_DURATION = int(os.environ.get("FACTORY_LEASE_DURATION", "60"))
+LEASE_HEARTBEAT_GRACE = int(os.environ.get("FACTORY_LEASE_HEARTBEAT_GRACE", str(LEASE_DURATION * 2)))
 MAX_RETRIES = int(os.environ.get("FACTORY_MAX_RETRIES", "3"))
+LEASE_REAPER_INTERVAL = float(os.environ.get("FACTORY_LEASE_REAPER_INTERVAL", "5"))
+LEASE_REAPER_BATCH_LIMIT = int(os.environ.get("FACTORY_LEASE_REAPER_BATCH_LIMIT", "250"))
+LEASE_QUEUE_SCAN_LIMIT = int(os.environ.get("FACTORY_LEASE_QUEUE_SCAN_LIMIT", "100"))
+TASK_LIST_DEFAULT_LIMIT = int(os.environ.get("FACTORY_TASK_LIST_DEFAULT_LIMIT", "1000"))
+TASK_LIST_MAX_LIMIT = int(os.environ.get("FACTORY_TASK_LIST_MAX_LIMIT", "5000"))
+MAX_HTTP_WORKERS = int(os.environ.get("FACTORY_MAX_HTTP_WORKERS", "64"))
+HTTP_REQUEST_BACKLOG = int(os.environ.get("FACTORY_HTTP_REQUEST_BACKLOG", "1024"))
+OVERLOAD_REQUEST_LINE_TIMEOUT = float(os.environ.get("FACTORY_OVERLOAD_REQUEST_LINE_TIMEOUT", "0.05"))
+LEASE_EMPTY_RETRY_AFTER = float(os.environ.get("FACTORY_LEASE_EMPTY_RETRY_AFTER", "1.0"))
+LEASE_OVERLOAD_RETRY_AFTER = float(os.environ.get("FACTORY_LEASE_OVERLOAD_RETRY_AFTER", "5.0"))
 FABRIC_API_VERSION = "2026-07-01"
 CANONICAL_RESPONSE_STATUSES = {"completed", "running", "blocked", "failed", "partial"}
 FALLBACK_REASON_TAXONOMY = {
@@ -88,6 +102,10 @@ STATE_RETRY = "retry_scheduled"
 STATE_DEAD = "dead_letter"
 TERMINAL_STATES = {STATE_COMPLETED, STATE_FAILED, STATE_CANCELLED, STATE_DEAD}
 BLOCKED_RUNNER_STATES = {"blocked", "degraded", "runner_auth_blocked", "unavailable"}
+
+
+class ClientDisconnected(Exception):
+    pass
 
 FABRIC_NODE_CATALOG = {
     "home": {
@@ -245,13 +263,51 @@ class Redis:
         self.host = host
         self.port = port
         self.timeout = timeout
+        self._local = threading.local()
 
     def command(self, *parts: Any) -> Any:
         payload = self._encode(parts)
-        with socket.create_connection((self.host, self.port), timeout=self.timeout) as sock:
+        try:
+            return self._command(payload)
+        except (OSError, RedisError):
+            self.close()
+            return self._command(payload)
+
+    def _command(self, payload: bytes) -> Any:
+        sock, reader = self._connection()
+        try:
             sock.sendall(payload)
-            reader = sock.makefile("rb")
             return self._read(reader)
+        except Exception:
+            self.close()
+            raise
+
+    def _connection(self) -> tuple[socket.socket, Any]:
+        sock = getattr(self._local, "sock", None)
+        reader = getattr(self._local, "reader", None)
+        if sock is None or reader is None:
+            sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
+            sock.settimeout(self.timeout)
+            reader = sock.makefile("rb")
+            self._local.sock = sock
+            self._local.reader = reader
+        return sock, reader
+
+    def close(self) -> None:
+        reader = getattr(self._local, "reader", None)
+        sock = getattr(self._local, "sock", None)
+        self._local.reader = None
+        self._local.sock = None
+        if reader is not None:
+            try:
+                reader.close()
+            except OSError:
+                pass
+        if sock is not None:
+            try:
+                sock.close()
+            except OSError:
+                pass
 
     @staticmethod
     def _encode(parts: tuple[Any, ...]) -> bytes:
@@ -371,6 +427,34 @@ def queue_ids() -> list[str]:
 
 def load_task(task_id: str) -> dict[str, Any] | None:
     return get_json(task_key(task_id))
+
+
+def task_status_view(task: dict[str, Any] | None, current: float | None = None) -> dict[str, Any] | None:
+    if not task:
+        return None
+    view = dict(task)
+    current_ts = now_ts() if current is None else current
+    lease_until = float(task.get("lease_until") or 0)
+    heartbeat_ts = parse_iso_ts(task.get("heartbeat_at"))
+    if task.get("state") in TERMINAL_STATES:
+        lease_status = "terminal"
+    elif lease_until <= 0:
+        lease_status = "unleased"
+    elif lease_until < current_ts:
+        lease_status = "lease_expired"
+    else:
+        lease_status = "leased"
+    if heartbeat_ts is None:
+        heartbeat_status = "missing"
+        heartbeat_age_seconds = None
+    else:
+        heartbeat_age_seconds = max(0, int(current_ts - heartbeat_ts))
+        heartbeat_status = "heartbeating" if heartbeat_age_seconds <= LEASE_HEARTBEAT_GRACE else "heartbeat_stale"
+    view["lease_status"] = lease_status
+    view["heartbeat_status"] = heartbeat_status
+    view["heartbeat_age_seconds"] = heartbeat_age_seconds
+    view["seconds_until_lease_expiry"] = None if lease_until <= 0 else int(lease_until - current_ts)
+    return view
 
 
 def canonical_response_envelope(
@@ -613,6 +697,11 @@ def remove_from_queue(task_id: str) -> None:
     redis.command("LREM", key("queue"), 0, task_id)
 
 
+def rotate_queue_item(task_id: str) -> None:
+    remove_from_queue(task_id)
+    enqueue(task_id)
+
+
 def normalize_task(envelope: dict[str, Any]) -> dict[str, Any]:
     task_id = envelope.get("task_id") or f"KOL-TASK-{uuid.uuid4().hex[:12]}"
     created = utc_now()
@@ -719,31 +808,86 @@ def compatible(task: dict[str, Any], node_id: str, capabilities: list[str], node
     return True
 
 
-def requeue_expired_leases() -> None:
+def _redis_set_nx_ex(redis_key: str, value: str, ttl_seconds: int) -> bool:
+    result = redis.command("SET", redis_key, value, "NX", "EX", max(1, ttl_seconds))
+    return result == "OK"
+
+
+def maybe_requeue_expired_leases() -> int:
+    lock_ttl = max(1, int(LEASE_REAPER_INTERVAL))
+    if not _redis_set_nx_ex(key("lease_reaper:lock"), str(now_ts()), lock_ttl):
+        return 0
+    return requeue_expired_leases(limit=LEASE_REAPER_BATCH_LIMIT)
+
+
+def requeue_expired_leases(limit: int | None = None) -> int:
     current = now_ts()
+    scanned = 0
+    changed = 0
     for task_id in all_task_ids():
+        if limit is not None and scanned >= limit:
+            break
+        scanned += 1
         task = load_task(task_id)
         if not task or task.get("state") not in {STATE_LEASED, STATE_RUNNING, STATE_REVIEW}:
             continue
         lease_until = float(task.get("lease_until") or 0)
         if lease_until >= current:
             continue
+        heartbeat_ts = parse_iso_ts(task.get("heartbeat_at"))
+        if heartbeat_ts is not None and current - heartbeat_ts <= LEASE_HEARTBEAT_GRACE:
+            task["state"] = STATE_RUNNING
+            task["lease_until"] = current + LEASE_DURATION
+            task["lease_status"] = "leased"
+            task["heartbeat_status"] = "heartbeating"
+            save_task(task)
+            continue
         if int(task.get("attempt", 0)) < int(task.get("max_retries", MAX_RETRIES)):
             task["state"] = STATE_RETRY
             task["lease_owner"] = None
             task["lease_until"] = None
+            task["lease_status"] = "lease_expired"
+            task["heartbeat_status"] = "heartbeat_stale"
             task["error_type"] = "lease_expired"
             task["error"] = "lease expired before task completion"
             save_task(task)
             task["state"] = STATE_QUEUED
             save_task(task)
             enqueue(task_id)
+            changed += 1
         else:
             task["state"] = STATE_DEAD
             task["error_type"] = "lease_expired"
             task["error"] = "lease expired and retry budget exhausted"
+            task["lease_status"] = "lease_expired"
+            task["heartbeat_status"] = "heartbeat_stale"
             save_task(task)
             redis.command("RPUSH", key("dead_letter"), task_id)
+            changed += 1
+    return changed
+
+
+def lease_next_task(node_id: str, agent_id: str, capabilities: list[str], node: dict[str, Any]) -> dict[str, Any] | None:
+    scan_limit = max(1, LEASE_QUEUE_SCAN_LIMIT)
+    for _ in range(scan_limit):
+        task_id = redis.command("LPOP", key("queue"))
+        if not task_id:
+            return None
+        task = load_task(task_id)
+        if not task or task.get("state") not in {STATE_QUEUED, STATE_REVIEW}:
+            continue
+        if not compatible(task, node_id, capabilities, node):
+            rotate_queue_item(task_id)
+            continue
+        task["state"] = STATE_LEASED
+        task["attempt"] = int(task.get("attempt", 0)) + 1
+        task["attempt_id"] = f"{task_id}-attempt-{task['attempt']}"
+        task["lease_owner"] = f"{node_id}:{agent_id}"
+        task["lease_until"] = now_ts() + LEASE_DURATION
+        task["heartbeat_at"] = utc_now()
+        save_task(task)
+        return task
+    return None
 
 
 def create_task(envelope: dict[str, Any]) -> dict[str, Any]:
@@ -788,11 +932,66 @@ def create_review_task(source_task: dict[str, Any], result: dict[str, Any]) -> d
 
 def response(handler: BaseHTTPRequestHandler, status: int, body: Any) -> None:
     payload = json.dumps(body, indent=2, sort_keys=True).encode("utf-8")
-    handler.send_response(status)
-    handler.send_header("Content-Type", "application/json")
-    handler.send_header("Content-Length", str(len(payload)))
-    handler.end_headers()
-    handler.wfile.write(payload)
+    try:
+        handler.send_response(status)
+        handler.send_header("Content-Type", "application/json")
+        handler.send_header("Content-Length", str(len(payload)))
+        handler.end_headers()
+        handler.wfile.write(payload)
+    except OSError as exc:
+        if is_client_disconnect(exc):
+            raise ClientDisconnected() from None
+        raise
+
+
+def is_client_disconnect(exc: OSError) -> bool:
+    disconnect_errnos = {errno.EPIPE, errno.ECONNRESET, errno.ECONNABORTED}
+    return isinstance(exc, (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)) or exc.errno in disconnect_errnos
+
+
+def lease_no_task_response(reason: str = "queue_empty") -> dict[str, Any]:
+    return {
+        "status": "no_task",
+        "task": None,
+        "reason": reason,
+        "detail": "no compatible task is currently available; retry with jittered backoff",
+        "retry_after_seconds": LEASE_EMPTY_RETRY_AFTER,
+        "lease_queue_scan_limit": LEASE_QUEUE_SCAN_LIMIT,
+    }
+
+
+def lease_overload_response(reason: str = "worker_limit_reached") -> dict[str, Any]:
+    return {
+        "status": "overloaded",
+        "task": None,
+        "error": "control_plane_overloaded",
+        "reason": reason,
+        "detail": "request worker limit reached; retry with jittered backoff",
+        "retry_after_seconds": LEASE_OVERLOAD_RETRY_AFTER,
+        "lease_queue_scan_limit": LEASE_QUEUE_SCAN_LIMIT,
+        "max_http_workers": MAX_HTTP_WORKERS,
+        "http_request_backlog": HTTP_REQUEST_BACKLOG,
+    }
+
+
+def classify_lease_canary_response(status_code: int, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    if 500 <= status_code <= 599:
+        return {
+            "status": "failed",
+            "route": "/v1/tasks/lease",
+            "reason": "lease_5xx",
+            "http_status": status_code,
+        }
+    if status_code == 200 and body and body.get("status") in {"no_task", "overloaded"}:
+        return {
+            "status": "passed" if body.get("status") == "no_task" else "blocked",
+            "route": "/v1/tasks/lease",
+            "reason": body.get("status"),
+            "http_status": status_code,
+        }
+    if status_code in {200, 204}:
+        return {"status": "passed", "route": "/v1/tasks/lease", "http_status": status_code}
+    return {"status": "failed", "route": "/v1/tasks/lease", "reason": "unexpected_status", "http_status": status_code}
 
 
 def read_body(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
@@ -800,6 +999,66 @@ def read_body(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
     if not length:
         return {}
     return json.loads(handler.rfile.read(length).decode("utf-8"))
+
+
+class BoundedThreadingHTTPServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def __init__(self, server_address: tuple[str, int], handler_class: type[BaseHTTPRequestHandler], max_workers: int = MAX_HTTP_WORKERS):
+        self.max_workers = max(1, max_workers)
+        self.request_queue_size = max(self.request_queue_size, self.max_workers, HTTP_REQUEST_BACKLOG)
+        super().__init__(server_address, handler_class)
+        self._worker_slots = threading.BoundedSemaphore(self.max_workers)
+
+    def process_request(self, request: Any, client_address: Any) -> None:
+        if not self._worker_slots.acquire(blocking=False):
+            self._send_overloaded(request)
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self._worker_slots.release()
+            raise
+
+    def process_request_thread(self, request: Any, client_address: Any) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._worker_slots.release()
+
+    @staticmethod
+    def _send_overloaded(request: Any) -> None:
+        status = 200 if _is_lease_request(request) else 503
+        reason = b"OK" if status == 200 else b"Service Unavailable"
+        body = json.dumps(lease_overload_response()).encode("utf-8")
+        try:
+            request.sendall(
+                b"HTTP/1.1 " + str(status).encode("ascii") + b" " + reason + b"\r\n"
+                b"Content-Type: application/json\r\n"
+                + f"Content-Length: {len(body)}\r\nConnection: close\r\n\r\n".encode("ascii")
+                + body
+            )
+        except OSError as exc:
+            if not is_client_disconnect(exc):
+                raise
+
+
+def _is_lease_request(request: Any) -> bool:
+    if hasattr(request, "fileno"):
+        try:
+            readable, _, _ = select.select([request], [], [], max(0.0, OVERLOAD_REQUEST_LINE_TIMEOUT))
+        except (OSError, ValueError):
+            return False
+        if not readable:
+            return False
+    try:
+        preview = request.recv(4096, socket.MSG_PEEK)
+    except (AttributeError, OSError):
+        return False
+    request_line = preview.split(b"\r\n", 1)[0]
+    parts = request_line.split()
+    return len(parts) >= 2 and parts[1].split(b"?", 1)[0] == b"/v1/tasks/lease"
 
 
 def parse_owner_ids(value: str) -> set[int]:
@@ -846,6 +1105,14 @@ def superfactory_status() -> dict[str, Any]:
         "nodes": nodes,
         "task_counts": counts,
         "queue": queue_ids(),
+        "capacity_controls": {
+            "lease_queue_scan_limit": LEASE_QUEUE_SCAN_LIMIT,
+            "lease_reaper_batch_limit": LEASE_REAPER_BATCH_LIMIT,
+            "lease_reaper_interval": LEASE_REAPER_INTERVAL,
+            "task_list_default_limit": TASK_LIST_DEFAULT_LIMIT,
+            "max_http_workers": MAX_HTTP_WORKERS,
+            "http_request_backlog": HTTP_REQUEST_BACKLOG,
+        },
     }
 
 
@@ -889,7 +1156,19 @@ class Handler(BaseHTTPRequestHandler):
                     status="completed",
                     node="main",
                     route_used="/v1/health",
-                    data={"redis": pong, "queue_backend": "redis", "time": utc_now(), "fabric_api_version": FABRIC_API_VERSION},
+                    data={
+                        "redis": pong,
+                        "queue_backend": "redis",
+                        "time": utc_now(),
+                        "fabric_api_version": FABRIC_API_VERSION,
+                        "capacity_controls": {
+                            "lease_queue_scan_limit": LEASE_QUEUE_SCAN_LIMIT,
+                            "lease_reaper_batch_limit": LEASE_REAPER_BATCH_LIMIT,
+                            "lease_reaper_interval": LEASE_REAPER_INTERVAL,
+                            "max_http_workers": MAX_HTTP_WORKERS,
+                            "http_request_backlog": HTTP_REQUEST_BACKLOG,
+                        },
+                    },
                     next_action="use /v1/fleet/route before dispatching work to a node",
                 ))
                 return
@@ -998,9 +1277,29 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/v1/tasks":
                 query = parse_qs(parsed.query)
                 wanted = query.get("state", [None])[0]
-                tasks = [load_task(task_id) for task_id in all_task_ids()]
+                try:
+                    limit = int(query.get("limit", [TASK_LIST_DEFAULT_LIMIT])[0])
+                except (TypeError, ValueError):
+                    limit = TASK_LIST_DEFAULT_LIMIT
+                limit = min(max(1, limit), TASK_LIST_MAX_LIMIT)
+                try:
+                    offset = max(0, int(query.get("offset", [0])[0] or 0))
+                except (TypeError, ValueError):
+                    offset = 0
+                task_ids = all_task_ids()
+                selected_ids = task_ids[offset:offset + limit]
+                tasks = [load_task(task_id) for task_id in selected_ids]
                 tasks = [task for task in tasks if task and (wanted is None or task.get("state") == wanted)]
-                response(self, 200, {"tasks": tasks, "queue": queue_ids()})
+                response(self, 200, {
+                    "tasks": [task_status_view(task) for task in tasks],
+                    "queue": queue_ids(),
+                    "pagination": {
+                        "offset": offset,
+                        "limit": limit,
+                        "returned": len(tasks),
+                        "total_task_ids": len(task_ids),
+                    },
+                })
                 return
             if path.startswith("/v1/tasks/"):
                 task_id = path.split("/", 3)[3]
@@ -1008,7 +1307,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not task:
                     response(self, 404, {"error": "task_not_found", "task_id": task_id})
                     return
-                response(self, 200, task)
+                response(self, 200, task_status_view(task))
                 return
             if path.startswith("/v1/superfactory/tasks/") and path.endswith("/artifacts"):
                 auth = validate_miniapp(self)
@@ -1050,7 +1349,7 @@ class Handler(BaseHTTPRequestHandler):
                     task_id=task_id,
                     node=(task.get("lease_owner") or "main").split(":", 1)[0],
                     route_used="/v1/agents/status",
-                    data={"task": task},
+                    data={"task": task_status_view(task)},
                     next_action="poll /v1/agents/artifacts/{task_id}" if task.get("state") in TERMINAL_STATES else "continue polling status",
                 ))
                 return
@@ -1061,8 +1360,13 @@ class Handler(BaseHTTPRequestHandler):
                 response(self, 200 if task else 404, envelope)
                 return
             response(self, 404, {"error": "not_found", "path": path})
+        except ClientDisconnected:
+            return
         except Exception as exc:  # pragma: no cover - surfaced in runtime logs
-            response(self, 500, {"error": "control_plane_error", "detail": str(exc)})
+            try:
+                response(self, 500, {"error": "control_plane_error", "detail": str(exc)})
+            except ClientDisconnected:
+                return
 
     def do_POST(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
@@ -1194,10 +1498,10 @@ class Handler(BaseHTTPRequestHandler):
                 })
                 return
             if path == "/v1/tasks/lease":
-                requeue_expired_leases()
+                maybe_requeue_expired_leases()
                 node_id = body["node_id"]
                 if redis.command("GET", drain_key(node_id)):
-                    response(self, 204, {})
+                    response(self, 200, lease_no_task_response("node_draining"))
                     return
                 capabilities = body.get("capabilities", [])
                 agent_id = body.get("agent_id", node_id)
@@ -1205,24 +1509,11 @@ class Handler(BaseHTTPRequestHandler):
                 if isinstance(body.get("runners"), dict):
                     node["runners"] = body["runners"]
                     set_json(node_key(node_id), node)
-                for task_id in queue_ids():
-                    task = load_task(task_id)
-                    if not task or task.get("state") not in {STATE_QUEUED, STATE_REVIEW}:
-                        remove_from_queue(task_id)
-                        continue
-                    if not compatible(task, node_id, capabilities, node):
-                        continue
-                    remove_from_queue(task_id)
-                    task["state"] = STATE_LEASED
-                    task["attempt"] = int(task.get("attempt", 0)) + 1
-                    task["attempt_id"] = f"{task_id}-attempt-{task['attempt']}"
-                    task["lease_owner"] = f"{node_id}:{agent_id}"
-                    task["lease_until"] = now_ts() + LEASE_DURATION
-                    task["heartbeat_at"] = utc_now()
-                    save_task(task)
-                    response(self, 200, task)
+                task = lease_next_task(node_id, agent_id, capabilities, node)
+                if task:
+                    response(self, 200, task_status_view(task))
                     return
-                response(self, 204, {})
+                response(self, 200, lease_no_task_response())
                 return
             if path.startswith("/v1/tasks/") and path.endswith("/heartbeat"):
                 task_id = path.split("/")[3]
@@ -1239,7 +1530,7 @@ class Handler(BaseHTTPRequestHandler):
                     task["branch"] = body.get("branch", task.get("branch"))
                     task["log_paths"] = body.get("log_paths", task.get("log_paths"))
                     save_task(task)
-                response(self, 200, task)
+                response(self, 200, task_status_view(task))
                 return
             if path.startswith("/v1/tasks/") and path.endswith("/complete"):
                 task_id = path.split("/")[3]
@@ -1257,7 +1548,7 @@ class Handler(BaseHTTPRequestHandler):
                 task["lease_until"] = None
                 save_task(task)
                 review_task = create_review_task(task, result) if has_pr else None
-                response(self, 200, {"task": task, "review_task": review_task})
+                response(self, 200, {"task": task_status_view(task), "review_task": review_task})
                 return
             if path.startswith("/v1/tasks/") and path.endswith("/annotate"):
                 task_id = path.split("/")[3]
@@ -1277,7 +1568,7 @@ class Handler(BaseHTTPRequestHandler):
                     review_task = create_review_task(task, result)
                 else:
                     save_task(task)
-                response(self, 200, {"task": task, "review_task": review_task})
+                response(self, 200, {"task": task_status_view(task), "review_task": review_task})
                 return
             if path.startswith("/v1/tasks/") and path.endswith("/fail"):
                 task_id = path.split("/")[3]
@@ -1300,7 +1591,7 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     task["state"] = STATE_FAILED
                     save_task(task)
-                response(self, 200, task)
+                response(self, 200, task_status_view(task))
                 return
             if path.startswith("/v1/tasks/") and path.endswith("/cancel"):
                 task_id = path.split("/")[3]
@@ -1313,7 +1604,7 @@ class Handler(BaseHTTPRequestHandler):
                 task["cancel_requested_at"] = utc_now()
                 task["lease_until"] = None
                 save_task(task)
-                response(self, 200, task)
+                response(self, 200, task_status_view(task))
                 return
             if path.startswith("/v1/agents/cancel/"):
                 task_id = path.split("/", 4)[4]
@@ -1343,17 +1634,32 @@ class Handler(BaseHTTPRequestHandler):
                 ))
                 return
             response(self, 404, {"error": "not_found", "path": path})
+        except ClientDisconnected:
+            return
         except Exception as exc:  # pragma: no cover - surfaced in runtime logs
-            response(self, 500, {"error": "control_plane_error", "detail": str(exc)})
+            try:
+                response(self, 500, {"error": "control_plane_error", "detail": str(exc)})
+            except ClientDisconnected:
+                return
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--bind", default=os.environ.get("FACTORY_BIND", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=int(os.environ.get("FACTORY_PORT", "9101")))
+    parser.add_argument("--max-http-workers", type=int, default=MAX_HTTP_WORKERS)
     args = parser.parse_args()
-    server = ThreadingHTTPServer((args.bind, args.port), Handler)
-    print(json.dumps({"event": "factory_control_started", "bind": args.bind, "port": args.port, "namespace": NAMESPACE}))
+    server = BoundedThreadingHTTPServer((args.bind, args.port), Handler, max_workers=args.max_http_workers)
+    print(json.dumps({
+        "event": "factory_control_started",
+        "bind": args.bind,
+        "port": args.port,
+        "namespace": NAMESPACE,
+        "max_http_workers": server.max_workers,
+        "http_request_backlog": server.request_queue_size,
+        "lease_queue_scan_limit": LEASE_QUEUE_SCAN_LIMIT,
+        "lease_reaper_batch_limit": LEASE_REAPER_BATCH_LIMIT,
+    }))
     server.serve_forever()
     return 0
 

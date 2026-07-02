@@ -137,3 +137,70 @@ def test_control_plane_runner_compatibility_filters_blocked_and_avoided_nodes():
         ["generic_implementation", "runner:mimo"],
         {"runners": {"mimo": {"status": "available"}}},
     ) is False
+
+
+def test_expired_running_task_with_fresh_heartbeat_is_renewed_not_dead_lettered(monkeypatch):
+    control = load_module(ROOT / "ops" / "factory_control.py")
+    now = datetime.now(timezone.utc)
+    task = {
+        "task_id": "LONG-RUN-1",
+        "state": control.STATE_RUNNING,
+        "attempt": 1,
+        "max_retries": 1,
+        "lease_until": now.timestamp() - 5,
+        "heartbeat_at": now.isoformat(),
+    }
+    saved = []
+    dead_letters = []
+
+    monkeypatch.setattr(control, "LEASE_DURATION", 1)
+    monkeypatch.setattr(control, "now_ts", lambda: now.timestamp())
+    monkeypatch.setattr(control, "all_task_ids", lambda: ["LONG-RUN-1"])
+    monkeypatch.setattr(control, "load_task", lambda task_id: task if task_id == "LONG-RUN-1" else None)
+    monkeypatch.setattr(control, "save_task", lambda value: saved.append(dict(value)))
+    monkeypatch.setattr(control, "enqueue", lambda task_id: None)
+
+    class Redis:
+        def command(self, *parts):
+            if parts[:2] == ("RPUSH", control.key("dead_letter")):
+                dead_letters.append(parts[2])
+
+    monkeypatch.setattr(control, "redis", Redis())
+
+    control.requeue_expired_leases()
+
+    assert saved
+    assert saved[-1]["state"] == control.STATE_RUNNING
+    assert saved[-1]["lease_until"] > now.timestamp()
+    assert saved[-1]["lease_status"] == "leased"
+    assert saved[-1]["heartbeat_status"] == "heartbeating"
+    assert dead_letters == []
+
+
+def test_task_status_view_exposes_lease_expired_and_heartbeating_states():
+    control = load_module(ROOT / "ops" / "factory_control.py")
+    now = datetime.now(timezone.utc)
+
+    running = control.task_status_view(
+        {
+            "task_id": "RUNNING-1",
+            "state": control.STATE_RUNNING,
+            "lease_until": now.timestamp() + 30,
+            "heartbeat_at": now.isoformat(),
+        },
+        now.timestamp(),
+    )
+    expired = control.task_status_view(
+        {
+            "task_id": "EXPIRED-1",
+            "state": control.STATE_RUNNING,
+            "lease_until": now.timestamp() - 30,
+            "heartbeat_at": (now - timedelta(seconds=control.LEASE_HEARTBEAT_GRACE + 5)).isoformat(),
+        },
+        now.timestamp(),
+    )
+
+    assert running["lease_status"] == "leased"
+    assert running["heartbeat_status"] == "heartbeating"
+    assert expired["lease_status"] == "lease_expired"
+    assert expired["heartbeat_status"] == "heartbeat_stale"
