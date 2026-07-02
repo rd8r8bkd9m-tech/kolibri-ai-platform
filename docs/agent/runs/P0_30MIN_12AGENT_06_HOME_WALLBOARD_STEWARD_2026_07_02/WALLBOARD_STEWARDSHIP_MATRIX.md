@@ -1,0 +1,16 @@
+# Wallboard Stewardship Matrix
+
+Status: `artifact_backed_gap_report`
+
+| Surface | Current evidence | Steward decision | Next action |
+| --- | --- | --- | --- |
+| Product React wallboard | `frontend/src/App.jsx` polls `/api/factory/status` every 15 seconds and renders fresh/degraded/stale/task queue cards in the `cluster` tab. | Contract exists in product code. No product change made. | Keep as existing product surface; rerun tests after `httpx` repair. |
+| Backend factory status adapter | `backend/factory_status.py` fetches `/v1/health`, `/v1/nodes`, and optionally `/v1/tasks`; it produces `node_freshness`, `queue_size`, RAM, CPU, and node card data. | Contract exists and syntax-checks. | Use approved venv/system package path, then rerun focused tests. |
+| Control Plane freshness release | `2026-07-01-p0-control-plane-node-health-freshness-gate/RESULT.md` says PR #97 made stale/degraded heartbeats override stored `health=online`, but the task itself failed exact artifact verification. | Useful patch was preserved in GitHub, but the run result was failed-useful. | Keep freshness behavior as source-of-truth only after merged/deployed proof; do not overstate historical task status. |
+| Post-merge canary runtime blockers | `2026-07-02-p0-post-merge-remote-canary-execution/RESULT.md` recorded Telegram inactive, stale Fabric `/v1` routes, missing `httpx`, and missing `gh`. | Initial post-merge canary was runtime-blocked. | Use later repair/canary artifacts for current state. |
+| Runtime blocker repair | `2026-07-02-p0-repair-post-merge-canary-runtime-blockers/RESULT.md` classified Telegram as owner-approval-required, Fabric runtime as stale, `httpx` as packaging blocker, `gh` as tooling blocker. | Classification complete; no unsafe mutation. | Continue with deploy canary evidence and Telegram no-mutation diagnostic. |
+| Factory Control deploy | `2026-07-02-p0-deploy-factory-control-and-telegram-gateway-canary-repair/RESULT.md` first failed and rolled back due to `ModuleNotFoundError: No module named 'telegram_superfactory'`. | Historical failed deploy preserved; do not use this as current green state. | Use later post-merge deploy canary. |
+| Factory Control post-merge deploy canary | `2026-07-02-p0-factory-control-post-merge-deploy-canary/RESULT.md` passed: service active/running and `/health`, `/v1/health`, `/v1/fabric/health`, `/v1/fabric/routes`, `/v1/fleet/nodes`, `/v1/models` all HTTP 200. | Current Factory Control route blocker appears repaired by this later canary. | Next exact task is Telegram no-mutation diagnostic. |
+| Telegram gateway wallboard dependency | The latest green deploy canary kept Telegram gateway inactive/dead and explicitly did not touch Telegram state. | Still blocked for any owner-visible Telegram status/control assumptions. | Run `P0_FACTORY_CONTROL_TELEGRAM_GATEWAY_OWNER_APPROVED_NO_MUTATION_DIAGNOSTIC_2026_07_02`. |
+| Home terminal wallboard | `P0_HOME_FACTORY_TERMINAL_UI_RU_2026_07_01` envelope requires `kolibri-factory-screen`, Russian UI, exact attach command, and canonical artifacts. `docs/agent/runs/2026-07-01-p0-home-factory-terminal-ui-ru/` is absent. Dispatcher queue still lists the task as `queued`. | Owner-visible Home tmux wallboard is not proven in this checkout. | Dispatch or rerun Home/fallback wallboard task, producing exact artifacts and attach command. |
+
