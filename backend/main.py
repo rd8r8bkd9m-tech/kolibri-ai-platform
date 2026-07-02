@@ -306,22 +306,32 @@ async def pipeline_health_endpoint():
 
 
 @app.get("/api/factory/status")
+@app.get("/factory/status")
 async def api_factory_status():
     try:
         return await fetch_factory_status()
     except Exception as exc:
         return JSONResponse(
-            status_code=503,
+            status_code=200,
             content={
                 "status": "degraded",
                 "source": "control-plane",
                 "error": str(exc),
+                "public_panel": {
+                    "status_contract": "ok",
+                    "degraded_payload_uses_http_200": True,
+                },
                 "total_nodes": 0,
                 "online_nodes": 0,
+                "fresh_nodes": 0,
+                "degraded_nodes": 0,
+                "stale_nodes": 0,
+                "node_freshness": {"fresh": 0, "degraded": 0, "stale": 0, "online": 0, "total": 0},
                 "free_ram_gb": 0,
                 "total_ram_gb": 0,
                 "avg_cpu_percent": 0,
                 "queue_size": 0,
+                "task_states": {},
                 "nodes": {},
                 "node_list": [],
                 "control_plane": {
@@ -340,6 +350,7 @@ async def api_factory_status():
 
 
 @app.get("/cluster/status")
+@app.get("/api/cluster/status")
 async def cluster_status():
     return await api_factory_status()
 
@@ -403,4 +414,3 @@ if frontend_path.exists():
         if file_path.exists() and file_path.is_file():
             return FileResponse(str(file_path))
         return FileResponse(str(frontend_path / "index.html"))
-

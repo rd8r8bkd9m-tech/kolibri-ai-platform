@@ -14,7 +14,8 @@ deploy_main() {
     scp -o ConnectTimeout=$SSH_TIMEOUT frontend/package.json kolibri-main:/opt/kolibri-ai/frontend/
     scp -o ConnectTimeout=$SSH_TIMEOUT frontend/vite.config.js kolibri-main:/opt/kolibri-ai/frontend/
     scp -o ConnectTimeout=$SSH_TIMEOUT frontend/index.html kolibri-main:/opt/kolibri-ai/frontend/
-    ssh -o ConnectTimeout=$SSH_TIMEOUT kolibri-main "cd /opt/kolibri-ai/frontend && npm run build 2>&1 && systemctl restart kolibri-ai && nginx -t && systemctl reload nginx"
+    scp -o ConnectTimeout=$SSH_TIMEOUT infra/network/nginx.conf kolibri-main:/tmp/kolibri-ai-nginx.conf
+    ssh -o ConnectTimeout=$SSH_TIMEOUT kolibri-main "set -e; ts=\$(date -u +%Y%m%dT%H%M%SZ); mkdir -p /opt/kolibri-ai/rollback; if [ -f /etc/nginx/sites-available/kolibri-ai ]; then cp /etc/nginx/sites-available/kolibri-ai /opt/kolibri-ai/rollback/kolibri-ai.nginx.\$ts.conf; fi; install -m 0644 /tmp/kolibri-ai-nginx.conf /etc/nginx/sites-available/kolibri-ai; ln -sfn /etc/nginx/sites-available/kolibri-ai /etc/nginx/sites-enabled/kolibri-ai; cd /opt/kolibri-ai/frontend && npm run build 2>&1 && systemctl restart kolibri-ai && nginx -t && systemctl reload nginx"
     echo "Main deployed ✓"
 }
 
