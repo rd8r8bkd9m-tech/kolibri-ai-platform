@@ -337,6 +337,8 @@ Health and discovery:
 - GET /v1/fleet/topology
 - GET /v1/fleet/route
 - GET /v1/fleet/capabilities
+- GET /v1/fleet/registry/hygiene
+- GET /v1/filesystem
 
 OpenAI-compatible model/agent registry:
 - GET /v1/models

@@ -28,6 +28,8 @@ SSH is not a control plane. SSH is emergency-only and may be used only for first
 | Safe relay | `POST /v1/fabric/relay` | Safe stub |
 | Safe bootstrap | `POST /v1/fabric/bootstrap` | Safe stub |
 | Key rotation policy | `GET /v1/fabric/keys/rotation` | Implemented |
+| Filesystem integrity metadata | `GET /v1/filesystem` | Implemented |
+| Fleet registry hygiene | `GET /v1/fleet/registry/hygiene` | Implemented |
 
 ## Fleet Identity
 

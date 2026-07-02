@@ -22,6 +22,8 @@ def test_prompt3_required_endpoint_surface_is_declared():
             "/v1/fleet/topology",
             "/v1/fleet/route",
             "/v1/fleet/capabilities",
+            "/v1/fleet/registry/hygiene",
+            "/v1/filesystem",
             "/v1/models",
             "/v1/agents/status/{task_id}",
             "/v1/agents/artifacts/{task_id}",

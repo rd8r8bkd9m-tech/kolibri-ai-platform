@@ -30,6 +30,8 @@ GET  /v1/fleet/nodes
 GET  /v1/fleet/topology
 GET  /v1/fleet/route
 GET  /v1/fleet/capabilities
+GET  /v1/fleet/registry/hygiene
+GET  /v1/filesystem
 GET  /v1/models
 POST /v1/responses
 POST /v1/chat/completions

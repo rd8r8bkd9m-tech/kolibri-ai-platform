@@ -17,6 +17,8 @@ These endpoints are implemented in `ops/factory_control.py`. Privileged operatio
 | `POST /v1/fabric/relay` | Safe relay contract for continuing through another Fabric API node. | Safe stub |
 | `POST /v1/fabric/bootstrap` | New server bootstrap contract without printing or returning credentials. | Safe stub |
 | `GET /v1/fabric/keys/rotation` | Node identity and key rotation policy. | Implemented |
+| `GET /v1/filesystem` | Read-only deployed file metadata for integrity and namespace checks. | Implemented |
+| `GET /v1/fleet/registry/hygiene` | Read-only fleet registry hygiene and namespace drift report. | Implemented |
 | `GET /v1/nodes`, `POST /v1/nodes/register`, `POST /v1/nodes/{node_id}/heartbeat`, `POST /v1/nodes/{node_id}/drain` | Agent Host identity, liveness, and operational state. | Implemented |
 | `POST /v1/tasks`, `POST /v1/tasks/lease`, `POST /v1/tasks/{task_id}/heartbeat`, `POST /v1/tasks/{task_id}/complete`, `POST /v1/tasks/{task_id}/fail`, `POST /v1/tasks/{task_id}/cancel` | API-first task control. | Implemented |
 
