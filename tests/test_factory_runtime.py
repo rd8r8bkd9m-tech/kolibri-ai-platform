@@ -1,6 +1,7 @@
 import importlib.util
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -91,6 +92,46 @@ def test_agent_host_supports_required_task_kinds():
     memory = (ROOT / "ops" / "orchestrator_memory.py").read_text(encoding="utf-8")
     assert "last_work_request" in memory
     assert "open_expectations" in memory
+
+
+def test_agent_host_filesystem_manifest_exposes_project_roots(tmp_path, monkeypatch):
+    agent = load_module(ROOT / "ops" / "agent_host.py")
+    work_root = tmp_path / "worktrees"
+    artifact_root = tmp_path / "artifacts"
+    runtime_repo = tmp_path / "runtime-repo"
+    owner_project = tmp_path / "owner-project"
+    extra_root = tmp_path / "readonly-root"
+    runtime_repo.mkdir()
+    owner_project.mkdir()
+    extra_root.mkdir()
+    monkeypatch.setenv("KOLIBRI_RUNTIME_REPO", str(runtime_repo))
+    monkeypatch.setenv("KOLIBRI_OWNER_PROJECT_PATH", str(owner_project))
+    monkeypatch.setenv("KOLIBRI_FILE_ROOTS", f"root={extra_root}:ro")
+
+    host = agent.AgentHost(SimpleNamespace(
+        control_url="http://control.local:9101",
+        control_urls="http://control.local:9101",
+        node_id="server kfrm",
+        agent_id="agent-test",
+        capabilities="read_only_probe",
+        repo_url="git@example.com:repo.git",
+        work_root=str(work_root),
+        artifact_root=str(artifact_root),
+        heartbeat_interval=10,
+        lease_refresh=5,
+        max_inflight=1,
+    ))
+
+    manifest = host.filesystem_manifest()
+    roots = {root["name"]: root for root in manifest["roots"]}
+
+    assert manifest["namespace_prefix"] == "/kolibri/nodes/server-kfrm"
+    assert manifest["mode"] == "mesh_api_namespace"
+    assert roots["worktrees"]["namespace"] == "/kolibri/nodes/server-kfrm/worktrees"
+    assert roots["artifacts"]["exists"] is True
+    assert roots["runtime-repo"]["path"] == str(runtime_repo)
+    assert roots["owner-project"]["path"] == str(owner_project)
+    assert roots["root"]["writable"] is False
 
 
 
