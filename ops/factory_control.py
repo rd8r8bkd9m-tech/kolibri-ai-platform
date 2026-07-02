@@ -73,6 +73,7 @@ HTTP_MAX_WORKERS = max(1, min(HTTP_MAX_WORKERS_CONFIGURED, HTTP_WORKER_THREAD_CE
 TASK_LIST_DEFAULT_LIMIT = int(os.environ.get("FACTORY_TASK_LIST_DEFAULT_LIMIT", "1000"))
 TASK_LIST_MAX_LIMIT = int(os.environ.get("FACTORY_TASK_LIST_MAX_LIMIT", "5000"))
 LEASE_EMPTY_RETRY_AFTER = float(os.environ.get("FACTORY_LEASE_EMPTY_RETRY_AFTER", "1.0"))
+LEASE_EMPTY_FAST_PATH_TTL = float(os.environ.get("FACTORY_LEASE_EMPTY_FAST_PATH_TTL", "0.25"))
 FABRIC_API_VERSION = "2026-07-01"
 CANONICAL_RESPONSE_STATUSES = {"completed", "running", "blocked", "failed", "partial"}
 FALLBACK_REASON_TAXONOMY = {
@@ -371,6 +372,29 @@ class Redis:
 
 
 redis = Redis()
+_lease_empty_fast_path_until = 0.0
+_lease_empty_fast_path_lock = threading.Lock()
+
+
+def invalidate_lease_empty_fast_path() -> None:
+    global _lease_empty_fast_path_until
+    with _lease_empty_fast_path_lock:
+        _lease_empty_fast_path_until = 0.0
+
+
+def lease_empty_fast_path_cached() -> bool:
+    if LEASE_EMPTY_FAST_PATH_TTL <= 0:
+        return False
+    with _lease_empty_fast_path_lock:
+        return now_ts() < _lease_empty_fast_path_until
+
+
+def remember_lease_empty_fast_path() -> None:
+    global _lease_empty_fast_path_until
+    if LEASE_EMPTY_FAST_PATH_TTL <= 0:
+        return
+    with _lease_empty_fast_path_lock:
+        _lease_empty_fast_path_until = now_ts() + LEASE_EMPTY_FAST_PATH_TTL
 
 
 def get_json(redis_key: str, default: Any = None) -> Any:
@@ -706,6 +730,7 @@ def save_task(task: dict[str, Any]) -> None:
     set_json(task_key(task["task_id"]), task)
     redis.command("SADD", key("task_ids"), task["task_id"])
     if task.get("state") in {STATE_QUEUED, STATE_REVIEW}:
+        invalidate_lease_empty_fast_path()
         redis.command("SADD", queued_task_ids_key(), task["task_id"])
     else:
         redis.command("SREM", queued_task_ids_key(), task["task_id"])
@@ -716,6 +741,7 @@ def save_task(task: dict[str, Any]) -> None:
 
 
 def enqueue(task_id: str) -> None:
+    invalidate_lease_empty_fast_path()
     redis.command("RPUSH", key("queue"), task_id)
 
 
@@ -1004,9 +1030,16 @@ def lease_persisted_queued_task(node_id: str, agent_id: str, capabilities: list[
 
 
 def lease_queue_empty() -> bool:
+    if lease_empty_fast_path_cached():
+        return True
     queue_count = int(redis.command("LLEN", key("queue")) or 0)
     queued_index_count = int(redis.command("SCARD", queued_task_ids_key()) or 0)
-    return queue_count == 0 and queued_index_count == 0
+    empty = queue_count == 0 and queued_index_count == 0
+    if empty:
+        remember_lease_empty_fast_path()
+    else:
+        invalidate_lease_empty_fast_path()
+    return empty
 
 
 def create_task(envelope: dict[str, Any]) -> dict[str, Any]:
@@ -1580,6 +1613,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path == "/v1/tasks/lease":
                 node_id = body["node_id"]
+                if not isinstance(body.get("runners"), dict) and lease_empty_fast_path_cached():
+                    response(self, 200, lease_no_task_response())
+                    return
                 if redis.command("GET", drain_key(node_id)):
                     response(self, 200, lease_no_task_response("node_draining"))
                     return

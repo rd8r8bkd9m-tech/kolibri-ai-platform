@@ -350,6 +350,71 @@ def test_empty_http_lease_fast_path_skips_reaper_and_node_load(monkeypatch):
     assert ("GET", control.node_key("empty-fast")) not in fake.commands
 
 
+def test_empty_lease_fast_path_cache_bypasses_redis_until_enqueue(monkeypatch):
+    control = load_control()
+    fake = InMemoryRedis()
+    monkeypatch.setattr(control, "redis", fake)
+    monkeypatch.setattr(control, "LEASE_EMPTY_FAST_PATH_TTL", 60.0)
+
+    assert control.lease_queue_empty() is True
+    assert ("LLEN", control.key("queue")) in fake.commands
+    assert ("SCARD", control.queued_task_ids_key()) in fake.commands
+
+    fake.commands.clear()
+    for _index in range(500):
+        assert control.lease_queue_empty() is True
+    assert fake.commands == []
+
+    control.create_task({
+        "task_id": "WAKE-EMPTY-CACHE",
+        "idempotency_key": "wake-empty-cache",
+        "kind": "read_only_probe",
+        "required_capability": "read_only_probe",
+    })
+
+    fake.commands.clear()
+    assert control.lease_queue_empty() is False
+    assert ("LLEN", control.key("queue")) in fake.commands
+
+
+def test_factory_http_server_completes_500_warmed_empty_lease_polls_without_redis_work(monkeypatch):
+    control = load_control()
+    fake = InMemoryRedis()
+    monkeypatch.setattr(control, "redis", fake)
+    monkeypatch.setattr(control, "LEASE_EMPTY_FAST_PATH_TTL", 60.0)
+
+    assert control.lease_queue_empty() is True
+    fake.commands.clear()
+
+    server = control.FactoryThreadingHTTPServer(("127.0.0.1", 0), control.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    url = f"http://127.0.0.1:{server.server_address[1]}/v1/tasks/lease"
+
+    def lease(index):
+        payload = json.dumps({
+            "node_id": f"empty-warmed-{index}",
+            "agent_id": f"agent-warmed-{index}",
+            "capabilities": ["read_only_probe"],
+        }).encode("utf-8")
+        request = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return response.status, json.loads(response.read().decode("utf-8"))
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=500) as pool:
+            results = list(pool.map(lease, range(500)))
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert all(status == 200 for status, _body in results)
+    assert all(body["status"] == "no_task" for _status, body in results)
+    assert fake.commands == []
+    assert server.max_workers <= 64
+
+
 def test_factory_http_server_completes_300_empty_lease_polls_without_transport_drop(monkeypatch):
     control = load_control()
     fake = InMemoryRedis()
