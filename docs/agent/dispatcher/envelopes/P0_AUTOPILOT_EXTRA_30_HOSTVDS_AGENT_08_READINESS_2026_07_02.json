@@ -1,0 +1,86 @@
+{
+  "task_id": "P0_AUTOPILOT_EXTRA_30_HOSTVDS_AGENT_08_READINESS_2026_07_02",
+  "idempotency_key": "mesh-agent-30:P0_AUTOPILOT_EXTRA_30_HOSTVDS_AGENT_08_READINESS_2026_07_02",
+  "kind": "owner_remote_task",
+  "priority": "P0",
+  "runner": "codex",
+  "agent_type": "server_side_mesh_worker_readiness_probe",
+  "agent_display_name": "Дмитрий - HostVDS Agent 08 Readiness Engineer",
+  "target_node": "mesh-agent-08",
+  "allowed_nodes": [
+    "mesh-agent-08"
+  ],
+  "required_capability": "generic_implementation",
+  "branch": "agent/P0_AUTOPILOT_EXTRA_30_HOSTVDS_AGENT_08_READINESS_2026_07_02/readiness",
+  "base_branch": "main",
+  "base_ref": "origin/main",
+  "max_retries": 0,
+  "objective": "Run a read-only readiness probe on this exact assigned server-side mesh worker, hostvds-agent-08 / mesh-agent-08. Do not modify product code, do not commit, do not push, do not restart services, do not print secrets, tokens, private keys, raw env, or credential contents. Work only in the temporary task worktree/artifact area created by Agent Host and write only the required docs/agent/runs artifacts listed in this envelope. Collect sanitized evidence for: current node identity and hostname; Control Plane API route reachability from this node using non-secret HTTP probes only; GitHub auth status classification using gh auth status if available, with all token/account-sensitive details redacted or summarized; disk status for / and the Agent Host worktree/artifact filesystem; runner status for codex and mimo using command availability/version and non-secret auth classification only; current Agent Host runner capability/permission readiness; blockers; safe repair task if any. Return structured JSON or concise structured text with fields: status, node, agent_name, readiness_for_factory_work, api_route, github_auth_status, disk, runner_status, blockers, artifacts, next_exact_task, russian_owner_summary. If a command could expose secrets, skip it and report skipped_for_secret_safety. No local Mac product code changes are allowed.",
+  "constraints": {
+    "mac_thin_client_only": true,
+    "server_execution_required": true,
+    "read_only_probe": true,
+    "product_code_modification_forbidden": true,
+    "test_code_modification_forbidden": true,
+    "destructive_git_commands_forbidden": true,
+    "git_reset_forbidden": true,
+    "git_clean_forbidden": true,
+    "force_push_forbidden": true,
+    "push_to_main_forbidden": true,
+    "commit_forbidden": true,
+    "service_restart_forbidden": true,
+    "secrets_redaction_required": true,
+    "do_not_print_env": true,
+    "do_not_print_keys_tokens_cookies_or_credentials": true,
+    "owner_facing_agent_names_must_be_russian": true,
+    "exact_run_artifacts_required": true,
+    "use_clean_remote_worktree": true,
+    "do_not_modify_dirty_runtime_repo": true
+  },
+  "write_scope": [
+    "docs/agent/runs/2026-07-02-p0-hostvds-agent-08-readiness/**"
+  ],
+  "forbidden_write_scope": [
+    ".github/**",
+    "backend/**",
+    "frontend/**",
+    "infra/**",
+    "ops/**",
+    "scripts/**",
+    "tests/**",
+    "docs/superfactory/**"
+  ],
+  "required_outputs": [
+    "docs/agent/runs/2026-07-02-p0-hostvds-agent-08-readiness/PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-hostvds-agent-08-readiness/ACTIONS.md",
+    "docs/agent/runs/2026-07-02-p0-hostvds-agent-08-readiness/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-hostvds-agent-08-readiness/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-hostvds-agent-08-readiness/NEXT.md",
+    "docs/agent/runs/2026-07-02-p0-hostvds-agent-08-readiness/READINESS_MATRIX.md",
+    "docs/agent/runs/2026-07-02-p0-hostvds-agent-08-readiness/REMOTE_RESULT.json"
+  ],
+  "verification_commands": [
+    "git diff --check",
+    "test -f docs/agent/runs/2026-07-02-p0-hostvds-agent-08-readiness/PLAN.md",
+    "test -f docs/agent/runs/2026-07-02-p0-hostvds-agent-08-readiness/ACTIONS.md",
+    "test -f docs/agent/runs/2026-07-02-p0-hostvds-agent-08-readiness/TESTS.md",
+    "test -f docs/agent/runs/2026-07-02-p0-hostvds-agent-08-readiness/RESULT.md",
+    "test -f docs/agent/runs/2026-07-02-p0-hostvds-agent-08-readiness/NEXT.md",
+    "test -f docs/agent/runs/2026-07-02-p0-hostvds-agent-08-readiness/READINESS_MATRIX.md",
+    "python3 -m json.tool docs/agent/runs/2026-07-02-p0-hostvds-agent-08-readiness/REMOTE_RESULT.json >/dev/null"
+  ],
+  "acceptance": [
+    "Remote execution happens on mesh-agent-08 / hostvds-agent-08, not on the Mac dispatcher.",
+    "No product code is modified locally or remotely.",
+    "No secrets, tokens, private keys, raw env, or credential values are printed.",
+    "No destructive git commands, no force push, and no push to main.",
+    "Result includes status, node, agent name, blockers, artifacts, and next exact task.",
+    "Russian owner-facing summary is included."
+  ],
+  "source": {
+    "kind": "control_plane_thin_dispatch",
+    "created_at": "2026-07-02T00:00:00Z",
+    "created_by_node": "mesh-agent-30",
+    "local_worktree_policy": "dispatcher envelope and result artifacts only; no product implementation on Mac"
+  }
+}

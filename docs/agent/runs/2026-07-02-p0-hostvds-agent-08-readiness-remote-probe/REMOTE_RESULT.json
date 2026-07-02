@@ -1,0 +1,116 @@
+{
+  "agent_host_runner_capability_permission_readiness": {
+    "approval_policy": "never",
+    "classification": "current_codex_session_can_execute_and_write_artifacts; persistent_agent_host_service_is_inactive",
+    "filesystem_sandbox": "unrestricted",
+    "network": "enabled",
+    "systemd_agent_host_service": "inactive"
+  },
+  "agent_name": "hostvds-agent-08 / mesh-agent-08",
+  "api_route": {
+    "classification": "control_plane_service_active_but_expected_fabric_api_route_not_reachable_on_127_0_0_1_9101",
+    "local_probe_results": [
+      {
+        "base_url": "http://127.0.0.1:9101",
+        "http": "all_expected_routes_unreachable",
+        "tcp": "connection_refused"
+      },
+      {
+        "base_url": "http://127.0.0.1:8000",
+        "http": "expected_routes_returned_404_application_json",
+        "tcp": "open"
+      }
+    ],
+    "service_probe": {
+      "agent-host": "inactive",
+      "kolibri-factory-control": "active"
+    }
+  },
+  "artifacts": [
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-30-hostvds-agent-08-readiness-remote-probe/RESULT.json",
+    "/var/lib/kolibri-agent/logical-workers/mesh-agent-08/artifacts/P0_AUTOPILOT_EXTRA_30_HOSTVDS_AGENT_08_READINESS_REMOTE_PROBE_2026_07_02/P0_AUTOPILOT_EXTRA_30_HOSTVDS_AGENT_08_READINESS_REMOTE_PROBE_2026_07_02-attempt-1/result.json"
+  ],
+  "blockers": [
+    {
+      "id": "control_plane_route_unreachable",
+      "severity": "p0_for_route_work",
+      "evidence": "127.0.0.1:9101 refused connections for expected health and Fabric routes while kolibri-factory-control reported active"
+    },
+    {
+      "id": "github_cli_missing",
+      "severity": "p1_for_pr_or_auth_status_work",
+      "evidence": "command -v gh returned missing"
+    },
+    {
+      "id": "agent_host_service_inactive",
+      "severity": "p1_for_persistent_runner_work",
+      "evidence": "systemctl is-active agent-host returned inactive"
+    },
+    {
+      "id": "mimo_auth_not_safely_classified",
+      "severity": "p2_for_mimo_work",
+      "evidence": "mimo binary and version are available, but account/config probes were skipped for secret safety"
+    }
+  ],
+  "checked_at_utc": "2026-07-02T03:01:29Z",
+  "disk": {
+    "classification": "healthy_capacity",
+    "root_filesystem": {
+      "available": "49G",
+      "filesystem": "/dev/vda1",
+      "mount": "/",
+      "size": "99G",
+      "use_percent": "48%",
+      "used": "45G"
+    }
+  },
+  "github_auth_status": {
+    "classification": "unknown_unavailable_gh_auth_status_could_not_run",
+    "details": "gh auth status requested by task, but gh binary is not installed on this node",
+    "gh_cli": "missing",
+    "sensitive_output_policy": "no_tokens_accounts_or_raw_credential_material_printed"
+  },
+  "next_exact_task": {
+    "id": "P0_REPAIR_HOSTVDS_AGENT_08_CONTROL_PLANE_ROUTE_AND_GH_CLI_READINESS_2026_07_02",
+    "summary": "Repair hostvds-agent-08 expected API route, GitHub CLI readiness, persistent Agent Host service, and safe MIMO auth classification, then rerun readiness."
+  },
+  "node": {
+    "expected_agent_name": "hostvds-agent-08",
+    "expected_logical_worker": "mesh-agent-08",
+    "identity_classification": "remote_worker_context_matches_assigned_mesh_agent_08_worktree; system hostname is generic kolibri",
+    "observed_hostname": "kolibri",
+    "observed_os": "Linux kolibri 6.8.0-36-generic Ubuntu 24.04 x86_64",
+    "observed_user": "root",
+    "worktree": "/var/lib/kolibri-agent/logical-workers/mesh-agent-08/worktrees/P0_AUTOPILOT_EXTRA_30_HOSTVDS_AGENT_08_READINESS_REMOTE_PROBE_2026_07_02/P0_AUTOPILOT_EXTRA_30_HOSTVDS_AGENT_08_READINESS_REMOTE_PROBE_2026_07_02-attempt-1/repo"
+  },
+  "readiness_for_factory_work": {
+    "can_reach_expected_local_control_plane_route": false,
+    "can_run_codex": true,
+    "can_run_mimo_binary": true,
+    "can_use_github_cli": false,
+    "can_write_run_artifacts": true,
+    "classification": "degraded_ready_for_local_codex_work_not_ready_for_control_plane_route_work",
+    "commit_or_push_performed": false,
+    "product_code_modified": false
+  },
+  "runner_status": {
+    "codex": {
+      "auth_classification": "configured_chatgpt_auth_tokens_present_redacted",
+      "binary": "/usr/local/bin/codex",
+      "doctor_classification": "configured_and_provider_reachable",
+      "version": "codex-cli 0.142.2"
+    },
+    "github_cli": {
+      "auth_classification": "unavailable",
+      "binary": "missing"
+    },
+    "mimo": {
+      "auth_classification": "unknown_not_probed_to_avoid_config_or_credential_disclosure",
+      "binary": "/usr/local/bin/mimo",
+      "version": "mimo 0.2.1"
+    }
+  },
+  "russian_owner_summary": "Проверка выполнена на назначенном рабочем дереве mesh-agent-08 / hostvds-agent-08. Диск в норме: занято 48%, свободно около 49G. Codex установлен и авторизация настроена, но ожидаемый локальный маршрут Control Plane/Fabric API на 127.0.0.1:9101 недоступен, хотя systemd-сервис kolibri-factory-control показывает active. GitHub CLI gh отсутствует, поэтому gh auth status выполнить нельзя. Agent Host service сейчас inactive. Узел пригоден для локальной работы Codex и записи артефактов, но не готов как полноценный factory runner через Control Plane до ремонта маршрута API, gh CLI и Agent Host.",
+  "status": "degraded",
+  "task_id": "P0_AUTOPILOT_EXTRA_30_HOSTVDS_AGENT_08_READINESS_REMOTE_PROBE_2026_07_02"
+}
