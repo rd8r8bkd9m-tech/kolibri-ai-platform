@@ -103,10 +103,10 @@ def _configured_api_tokens() -> set[str]:
 def _bearer_token(authorization: str | None) -> str | None:
     if not authorization:
         return None
-    scheme, _, token = authorization.partition(" ")
-    if scheme.lower() != "bearer" or not token.strip():
+    scheme, _, bearer_value = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not bearer_value.strip():
         return None
-    return token.strip()
+    return bearer_value.strip()
 
 def _is_private_api_authorized(authorization: str | None, x_kolibri_api_key: str | None) -> bool:
     configured_tokens = _configured_api_tokens()
