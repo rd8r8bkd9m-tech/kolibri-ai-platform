@@ -276,6 +276,9 @@ export default function App() {
   ]
 
   const birdState = loading ? "thinking" : connected ? "idle" : "error"
+  const freshNodeCount = clusterStatus?.node_freshness?.fresh ?? clusterStatus?.fresh_nodes ?? clusterStatus?.online_nodes
+  const totalNodeCount = clusterStatus?.node_freshness?.total ?? clusterStatus?.total_nodes
+  const onlineNodeCount = clusterStatus?.node_freshness?.online ?? clusterStatus?.online_nodes
 
   return (
     <ErrorBoundary>
@@ -310,7 +313,7 @@ export default function App() {
                 whileHover={{ x: 2 }} whileTap={{ scale: 0.98 }}>
                 {item.icon}{item.label}
                 {item.id === "cluster" && clusterStatus && (
-                  <span className="nav-badge">{clusterStatus.online_nodes}</span>
+                  <span className="nav-badge">{freshNodeCount}</span>
                 )}
               </motion.button>
             ))}
@@ -357,7 +360,7 @@ export default function App() {
                   {clusterStatus ? (
                     <span className="header-cluster">
                       <span className="pulse-dot" />
-                      {clusterStatus.online_nodes} узлов · {clusterStatus.free_ram_gb} GB RAM
+                      {freshNodeCount}/{totalNodeCount} свежих · {onlineNodeCount} онлайн · {clusterStatus.free_ram_gb} GB RAM
                     </span>
                   ) : "Загрузка..."}
                 </div>
@@ -389,7 +392,7 @@ export default function App() {
                           transition={{ delay: 0.3 }}>Kolibri AI</motion.h1>
                         <motion.p className="welcome-subtitle" initial={{ opacity: 0 }} animate={{ opacity: 1 }}
                           transition={{ delay: 0.4 }}>
-                          Фабрика Колибри · {clusterStatus ? `${clusterStatus.online_nodes}/${clusterStatus.total_nodes} узлов · ${clusterStatus.total_ram_gb} GB RAM` : "загрузка"}
+                          Фабрика Колибри · {clusterStatus ? `${freshNodeCount}/${totalNodeCount} свежих узлов · ${onlineNodeCount} онлайн · ${clusterStatus.total_ram_gb} GB RAM` : "загрузка"}
                         </motion.p>
                         <div className="quick-actions">
                           {quickActions.map((a, i) => (

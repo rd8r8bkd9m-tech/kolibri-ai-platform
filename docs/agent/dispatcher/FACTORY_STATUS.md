@@ -1,9 +1,25 @@
 # Factory Status
 
 Snapshot time:
-- 2026-07-01T09:15:43Z
+- 2026-07-02T03:06:04Z
 
 Latest update:
+- 2026-07-02T03:06:04Z:
+  Public-facing freshness repair is in progress on branch
+  `agent/P0_EXEC_MAIN_README_SITE_FRESHNESS_PR_2026_07_02/generic`.
+  Current `origin/main` is `f7ac32c` (`docs: dispatch factory control deploy
+  canary (#104)`), so the old README statement that the July 1 PR #85 release
+  gate remains active is stale. Main now includes PR #85, PR #89, PR #91, PR
+  #97 and the July 2 post-merge canary/deploy-canary documentation sequence
+  through #104. Site code consumes `/api/factory/status`; the first viewport is
+  being updated to display fresh heartbeat capacity separately from online node
+  count. Rendered public path check from this node: `https://kolibriai.ru/?telegram=1`
+  returns `200 text/html` with valid content delivery, but TLS hostname
+  validation for `kolibriai.ru` and `www.kolibriai.ru` does not match the
+  certificate, and forced `-k` access to `/api/factory/status` returned HTTP
+  400. Treat the public API route as not externally verified until the web
+  certificate/vhost repair is run; do not claim public factory status freshness
+  from the external path without a fresh successful curl.
 - 2026-07-01T15:58:10Z:
   START command executed by Mac dispatcher as task submission only. Control
   Plane accepted four P0 factory tasks:

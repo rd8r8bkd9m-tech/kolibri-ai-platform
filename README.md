@@ -102,16 +102,42 @@ cd frontend && npm install && npm run build
 CI also validates tracked JSON/YAML files, scans for common secret patterns, and
 blocks production secret-like paths in pull requests.
 
-## Release Train
+## Current Main Status
 
-The active main-branch sync train for July 1, 2026 is recorded in
-`docs/release/2026-07-01-main-readme-code-sync-release-train.md`.
+Freshness snapshot: 2026-07-02.
 
-Release rules for this train:
+Current `main` includes the July 2 factory-control repair sequence through
+`f7ac32c` (`docs: dispatch factory control deploy canary (#104)`). The earlier
+July 1 README release train is preserved as historical evidence in
+`docs/release/2026-07-01-main-readme-code-sync-release-train.md`; it is no
+longer the active public status.
 
-- Remote execution must happen on a server node, not on a Mac dispatcher.
+Recently merged public/runtime work now present on `main`:
+
+- API-first Fabric contracts and Prompt #3 surface from PR #85.
+- Telegram Superfactory bot and Mini App command layer from PR #89.
+- MIMO runner output/auth classification from PR #91.
+- Factory node heartbeat freshness classification from PR #97.
+- July 2 post-merge canary, rollback, import-path repair, and deploy-canary
+  documentation through PRs #100-#104.
+
+Owner-facing freshness rules:
+
+- `GET /api/factory/status` is the public factory-status contract consumed by
+  the site.
+- Fresh heartbeat capacity must be shown separately from degraded/stale cards.
+- The owner server set is 20 canonical servers; Control Plane may expose more
+  node cards because mesh, duplicate, stale, and metadata cards are still
+  visible for auditability.
+- Public status claims must cite a current rendered/API check or record the
+  exact blocker instead of carrying stale release-train language forward.
+
+Current release rules:
+
 - `main` must not be pushed directly.
 - Pull requests must stay focused; do not mix unrelated product, docs, and
   operations changes in one PR.
+- Remote execution should happen on server nodes for runtime/product changes;
+  local thin-client work is limited to dispatch, docs relays, and scoped PR
+  edits when the task explicitly asks for a PR.
 - Owner approval is required before merge.
-- PR #85 remains a release-gated item and must not be skipped.
