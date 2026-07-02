@@ -6,7 +6,7 @@ Delivery:
 
 - Pushed branch: `agent/P0_EXEC_API_FALLBACK_ROUTING_NO_DEAD_END_2026_07_02/generic`
 - Implementation commit: `2b3bf38 Add API fallback routing guard`
-- Current pushed head after artifact correction: `0ab7545 Record fallback routing branch delivery`
+- Follow-up commits only update run artifact delivery metadata.
 - PR creation URL: `https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/new/agent/P0_EXEC_API_FALLBACK_ROUTING_NO_DEAD_END_2026_07_02/generic`
 
 What now works:
