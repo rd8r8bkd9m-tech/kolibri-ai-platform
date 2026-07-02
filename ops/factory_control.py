@@ -50,6 +50,7 @@ def factory_ops_import_paths() -> list[Path]:
 for ops_path in reversed(factory_ops_import_paths()):
     if ops_path.exists() and str(ops_path) not in sys.path:
         sys.path.insert(0, str(ops_path))
+from paid_client_work import ClientWorkError, assert_safe_pipeline, build_pipeline
 from telegram_superfactory import plan_update_receiver, runner_policy, select_runner, validate_telegram_init_data
 
 
@@ -504,6 +505,37 @@ def task_artifact_envelope(task: dict[str, Any] | None, task_id: str) -> dict[st
         artifacts=artifacts,
         data={"task_state": task.get("state"), "result_reference": task.get("result_reference")},
         next_action="collect listed artifact paths from the authenticated artifact API" if artifacts else "wait for task completion or annotate result artifacts",
+    )
+
+
+def client_work_pipeline_response(body: dict[str, Any]) -> dict[str, Any]:
+    pipeline = build_pipeline(body)
+    assert_safe_pipeline(pipeline)
+    create_internal_tasks = bool(body.get("owner_approved_for_internal_tasks"))
+    created_tasks = []
+    if create_internal_tasks:
+        for envelope in pipeline["tasks"]:
+            created_tasks.append(create_task(envelope))
+    pipeline["task_creation"] = {
+        "created": create_internal_tasks,
+        "created_task_ids": [task["task_id"] for task in created_tasks],
+        "requires_owner_approval": not create_internal_tasks,
+        "public_actions_created": False,
+        "money_actions_created": False,
+    }
+    return canonical_response_envelope(
+        status="running" if create_internal_tasks else "blocked",
+        task_id=pipeline["intake"]["task_id"],
+        trace_id=body.get("trace_id") or pipeline["intake"]["task_id"],
+        node="main",
+        route_used="/v1/client-work/pipeline",
+        blocked_reason="" if create_internal_tasks else "admin_scope_denied",
+        repair_task="" if create_internal_tasks else {
+            "kind": "approve_paid_client_internal_tasks",
+            "action": "owner must approve internal branch/task creation; public client messages and money actions remain blocked",
+        },
+        next_action="poll created task ids and collect artifacts" if create_internal_tasks else "review quote, safety gates, branch and task envelopes; resubmit with owner_approved_for_internal_tasks=true",
+        data=pipeline,
     )
 
 
@@ -1136,6 +1168,21 @@ class Handler(BaseHTTPRequestHandler):
                     data={"task": task},
                     next_action="poll /v1/agents/status/{task_id}",
                 ))
+                return
+            if path == "/v1/client-work/pipeline":
+                try:
+                    envelope = client_work_pipeline_response(body)
+                except ClientWorkError as exc:
+                    response(self, 400, canonical_response_envelope(
+                        status="blocked",
+                        task_id=body.get("task_id") or "",
+                        route_used="/v1/client-work/pipeline",
+                        blocked_reason="unknown",
+                        repair_task={"kind": "repair_paid_client_intake", "action": str(exc)},
+                        next_action="resubmit with client_alias and request_summary; do not include secrets",
+                    ))
+                    return
+                response(self, 201 if envelope["data"]["task_creation"]["created"] else 202, envelope)
                 return
             if path in {"/v1/responses", "/v1/chat/completions"}:
                 response(self, 503, model_stub_envelope(body, endpoint=path))
