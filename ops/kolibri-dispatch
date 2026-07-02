@@ -21,6 +21,7 @@ from typing import Any
 
 
 DEFAULT_CONTROL_URL = os.environ.get("KOLIBRI_FACTORY_CONTROL_URL", "http://10.99.0.2:9101")
+DEFAULT_CONTROL_URLS = os.environ.get("KOLIBRI_FACTORY_CONTROL_URLS") or DEFAULT_CONTROL_URL
 DEFAULT_NODES = {
     "9fts": {"ssh": "root@94.183.235.154", "proxy_jump": "kolibri-home"},
     "new": {"ssh": "root@109.248.161.39", "proxy_jump": "kolibri-home"},
@@ -47,6 +48,7 @@ def blocked_envelope(reason: str, detail: str, control_url: str) -> dict[str, An
         "reason": reason,
         "detail": detail,
         "target_node": "control-plane",
+        "target_control_url": control_url,
         "fallback_nodes": ["home", "main", "9fts", "new"],
         "fallback_route": {"type": "fabric_api_relay", "endpoint": "/v1/fabric/relay"},
         "repair_task": {
@@ -56,6 +58,15 @@ def blocked_envelope(reason: str, detail: str, control_url: str) -> dict[str, An
         },
         "can_continue_elsewhere": True,
     }
+
+
+def normalize_control_urls(control_url: str, control_urls: str | None = None) -> list[str]:
+    urls = []
+    for value in [control_url, *(control_urls or "").split(",")]:
+        url = value.strip().rstrip("/")
+        if url and url not in urls:
+            urls.append(url)
+    return urls or [control_url.rstrip("/")]
 
 
 def http_json(method: str, url: str, body: dict[str, Any] | None = None, ok_empty: bool = False) -> Any:
@@ -69,10 +80,28 @@ def http_json(method: str, url: str, body: dict[str, Any] | None = None, ok_empt
             return json.loads(payload) if payload else {}
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", "replace")
+        base = url.split("/v1/", 1)[0].rstrip("/")
+        if exc.code in {404, 500, 502, 503, 504}:
+            raise FabricApiUnavailable(blocked_envelope("fabric_api_http_error", f"HTTP {exc.code}: {detail}", base)) from exc
         raise SystemExit(f"{method} {url} failed: HTTP {exc.code}: {detail}") from exc
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         base = url.split("/v1/", 1)[0].rstrip("/")
         raise FabricApiUnavailable(blocked_envelope("fabric_api_unreachable", str(exc), base)) from exc
+
+
+def control_request(args: argparse.Namespace, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
+    errors = []
+    for control_url in normalize_control_urls(args.control_url, getattr(args, "control_urls", None)):
+        try:
+            result = http_json(method, f"{control_url}{path}", body)
+            args.control_url = control_url
+            return result
+        except FabricApiUnavailable as exc:
+            errors.append(exc.envelope)
+    envelope = dict(errors[-1]) if errors else blocked_envelope("fabric_api_unreachable", "no control URLs configured", args.control_url)
+    envelope["attempted_control_urls"] = [error.get("target_control_url") or error.get("target_node") for error in errors]
+    envelope["attempts"] = [dict(error) for error in errors]
+    raise FabricApiUnavailable(envelope)
 
 
 def run_capture(command: list[str], timeout: int = 20) -> dict[str, Any]:
@@ -108,7 +137,8 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         "binaries": {},
     }
     try:
-        checks["control_plane"] = http_json("GET", f"{args.control_url}/health")
+        checks["control_plane"] = control_request(args, "GET", "/health")
+        checks["active_control_url"] = args.control_url
     except Exception as exc:
         checks["control_plane"] = {"ok": False, "error": str(exc)}
     for binary in ["git", "python3", "ssh", "scp"]:
@@ -121,7 +151,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
 
 def cmd_nodes(args: argparse.Namespace) -> int:
-    print_json(http_json("GET", f"{args.control_url}/v1/nodes"))
+    print_json(control_request(args, "GET", "/v1/nodes"))
     return 0
 
 
@@ -133,44 +163,44 @@ def load_envelope(path: str | None) -> dict[str, Any]:
 
 def cmd_submit(args: argparse.Namespace) -> int:
     envelope = load_envelope(args.file)
-    task = http_json("POST", f"{args.control_url}/v1/tasks", envelope)
+    task = control_request(args, "POST", "/v1/tasks", envelope)
     print_json(task)
     return 0
 
 
 def cmd_status(args: argparse.Namespace) -> int:
     if args.task_id:
-        print_json(http_json("GET", f"{args.control_url}/v1/tasks/{args.task_id}"))
+        print_json(control_request(args, "GET", f"/v1/tasks/{args.task_id}"))
     else:
-        print_json(http_json("GET", f"{args.control_url}/v1/tasks"))
+        print_json(control_request(args, "GET", "/v1/tasks"))
     return 0
 
 
 def cmd_collect(args: argparse.Namespace) -> int:
-    task = http_json("GET", f"{args.control_url}/v1/tasks/{args.task_id}")
+    task = control_request(args, "GET", f"/v1/tasks/{args.task_id}")
     print_json({"task_id": args.task_id, "state": task.get("state"), "result_reference": task.get("result_reference"), "result": task.get("result")})
     return 0
 
 
 def cmd_cancel(args: argparse.Namespace) -> int:
-    print_json(http_json("POST", f"{args.control_url}/v1/tasks/{args.task_id}/cancel", {"reason": args.reason}))
+    print_json(control_request(args, "POST", f"/v1/tasks/{args.task_id}/cancel", {"reason": args.reason}))
     return 0
 
 
 def cmd_drain(args: argparse.Namespace) -> int:
     if args.enable == args.disable:
         raise SystemExit("choose exactly one of --enable or --disable")
-    print_json(http_json("POST", f"{args.control_url}/v1/nodes/{args.node_id}/drain", {"drain": args.enable}))
+    print_json(control_request(args, "POST", f"/v1/nodes/{args.node_id}/drain", {"drain": args.enable}))
     return 0
 
 
 def cmd_fabric_routes(args: argparse.Namespace) -> int:
-    print_json(http_json("GET", f"{args.control_url}/v1/fabric/routes"))
+    print_json(control_request(args, "GET", "/v1/fabric/routes"))
     return 0
 
 
 def cmd_fabric_route(args: argparse.Namespace) -> int:
-    print_json(http_json("POST", f"{args.control_url}/v1/fabric/route", {
+    print_json(control_request(args, "POST", "/v1/fabric/route", {
         "target_node": args.target_node,
         "required_capability": args.required_capability,
     }))
@@ -240,15 +270,17 @@ def main(argv: list[str] | None = None) -> int:
     command_positions = [idx for idx, value in enumerate(argv) if value in commands]
     if not argv or not command_positions:
         return legacy_mode(argv)
-    if "--control-url" in argv[1:]:
-        idx = argv.index("--control-url")
-        if idx + 1 >= len(argv):
-            raise SystemExit("--control-url requires a value")
-        pair = argv[idx:idx + 2]
-        del argv[idx:idx + 2]
-        argv = pair + argv
+    for flag in ("--control-url", "--control-urls"):
+        if flag in argv[1:]:
+            idx = argv.index(flag)
+            if idx + 1 >= len(argv):
+                raise SystemExit(f"{flag} requires a value")
+            pair = argv[idx:idx + 2]
+            del argv[idx:idx + 2]
+            argv = pair + argv
     parser = argparse.ArgumentParser()
     parser.add_argument("--control-url", default=DEFAULT_CONTROL_URL)
+    parser.add_argument("--control-urls", default=DEFAULT_CONTROL_URLS)
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("doctor").set_defaults(func=cmd_doctor)
     sub.add_parser("nodes").set_defaults(func=cmd_nodes)

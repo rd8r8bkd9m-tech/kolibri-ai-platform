@@ -84,6 +84,67 @@ def test_dispatcher_unreachable_control_plane_uses_blocked_envelope():
 
     assert envelope["status"] == "blocked"
     assert envelope["reason"] == "fabric_api_unreachable"
+    assert envelope["target_control_url"] == "http://control:9101"
     assert envelope["fallback_route"]["endpoint"] == "/v1/fabric/relay"
     assert envelope["repair_task"]["kind"] == "repair_control_plane_api"
     assert envelope["can_continue_elsewhere"] is True
+
+
+def test_dispatcher_control_request_fails_over_to_next_control_url(monkeypatch):
+    dispatch = load_dispatch()
+    calls = []
+
+    def fake_http_json(method, url, body=None, ok_empty=False):
+        del ok_empty
+        calls.append((method, url, body))
+        if url.startswith("http://down"):
+            raise dispatch.FabricApiUnavailable(
+                dispatch.blocked_envelope("fabric_api_unreachable", "down", "http://down:9101")
+            )
+        return {"status": "ok", "url": url}
+
+    monkeypatch.setattr(dispatch, "http_json", fake_http_json)
+    args = type("Args", (), {
+        "control_url": "http://down:9101",
+        "control_urls": "http://down:9101,http://alive:9101",
+    })()
+
+    result = dispatch.control_request(args, "GET", "/v1/nodes")
+
+    assert result == {"status": "ok", "url": "http://alive:9101/v1/nodes"}
+    assert calls == [
+        ("GET", "http://down:9101/v1/nodes", None),
+        ("GET", "http://alive:9101/v1/nodes", None),
+    ]
+    assert args.control_url == "http://alive:9101"
+
+
+def test_dispatcher_control_request_reports_all_failed_control_urls(monkeypatch):
+    dispatch = load_dispatch()
+
+    def fake_http_json(method, url, body=None, ok_empty=False):
+        del method, body, ok_empty
+        base = url.split("/v1/", 1)[0]
+        raise dispatch.FabricApiUnavailable(
+            dispatch.blocked_envelope("fabric_api_unreachable", "down", base)
+        )
+
+    monkeypatch.setattr(dispatch, "http_json", fake_http_json)
+    args = type("Args", (), {
+        "control_url": "http://down-a:9101",
+        "control_urls": "http://down-a:9101,http://down-b:9101",
+    })()
+
+    try:
+        dispatch.control_request(args, "GET", "/v1/nodes")
+    except dispatch.FabricApiUnavailable as exc:
+        envelope = exc.envelope
+    else:
+        raise AssertionError("all failed control URLs should raise FabricApiUnavailable")
+
+    assert envelope["status"] == "blocked"
+    assert envelope["attempted_control_urls"] == ["http://down-a:9101", "http://down-b:9101"]
+    assert [attempt["target_control_url"] for attempt in envelope["attempts"]] == [
+        "http://down-a:9101",
+        "http://down-b:9101",
+    ]

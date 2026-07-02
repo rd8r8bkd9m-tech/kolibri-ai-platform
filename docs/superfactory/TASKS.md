@@ -59,6 +59,9 @@ Active dispatch:
   agents notify the owner through Telegram via Control Plane capability
   `telegram_owner_notify`, while keeping the raw bot token only in the
   canonical gateway secret environment.
+- `P0_CONTROL_PLANE_HA_RUNTIME_CONTRACT_PARITY_2026_07_02` must close live
+  runtime drift where standby/primary Control Plane routes lag behind the git
+  contract for `/v1/filesystem` and owner notification relay endpoints.
 
 ## P0: Unified OpenAI-Compatible Fabric API
 

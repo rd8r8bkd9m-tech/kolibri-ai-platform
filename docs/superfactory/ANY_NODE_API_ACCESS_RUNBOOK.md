@@ -27,6 +27,21 @@ GET /v1/fleet/route
 
 5. Если маршрут недоступен, вернуть structured blocked response и repair task.
 
+## HA Control Plane URLs
+
+Command nodes should use a comma-separated Control Plane list instead of a
+single hard-coded endpoint:
+
+```bash
+export KOLIBRI_FACTORY_CONTROL_URLS=http://10.99.0.2:9101,http://10.99.0.10:9101
+ops/kolibri-dispatch nodes
+ops/kolibri-dispatch submit --file docs/agent/dispatcher/envelopes/example.json
+```
+
+`ops/kolibri-dispatch` tries each URL in order and keeps the first healthy
+Control Plane as the active URL for the command. If all URLs fail, it returns a
+structured blocked envelope with every attempted control URL and repair action.
+
 ## Постановка задачи
 
 Все задачи создаются через:
