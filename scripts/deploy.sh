@@ -1,6 +1,6 @@
 #!/bin/bash
 # Kolibri AI Platform — Deploy script
-# Usage: ./scripts/deploy.sh [main|uiap|qjns|9fts|home|all]
+# Usage: ./scripts/deploy.sh [main|uiap|qjns|9fts|home|home-noc|network|all]
 
 set -e
 
@@ -45,6 +45,12 @@ deploy_home() {
     echo "Home deployed ✓"
 }
 
+deploy_home_noc() {
+    echo "=== Deploying Home NOC Control Center (port 9191) ==="
+    bash scripts/deploy-home-noc.sh
+    echo "Home NOC deployed ✓"
+}
+
 deploy_network() {
     echo "=== Deploying Kolibri Network to all servers ==="
     for srv in kolibri-main kolibri-uiap kolibri-qjns kolibri-9fts; do
@@ -60,6 +66,7 @@ case $SERVER in
     qjns)   deploy_qjns ;;
     9fts)   deploy_9fts ;;
     home)   deploy_home ;;
+    home-noc) deploy_home_noc ;;
     network) deploy_network ;;
     all)
         deploy_main
@@ -69,7 +76,7 @@ case $SERVER in
         echo "=== All deployed ==="
         ;;
     *)
-        echo "Usage: $0 [main|uiap|qjns|9fts|home|network|all]"
+        echo "Usage: $0 [main|uiap|qjns|9fts|home|home-noc|network|all]"
         exit 1
         ;;
 esac

@@ -19,6 +19,7 @@ land through focused pull requests with CI evidence and owner approval.
 | Factory control | `ops/factory_control.py`, `ops/agent_host.py` | Redis-backed task queue, leases, node heartbeat, review tasks, and agent execution contracts. |
 | Telegram gateway | `ops/telegram_gateway.py` | Owner-facing Telegram command and chat integration for factory workflows. |
 | Mesh bridge | `ops/mesh_control_bridge.py` | Local control bridge for mesh/factory node operations. |
+| Home NOC | `ops/noc_control_center_server.py`, `ops/noc_wallboard.html` | Home NOC Control Center — fleet monitoring dashboard (port 9191). |
 | Deployment | `scripts/deploy.sh`, `ops/systemd/` | Server deployment and systemd service units. |
 | Tests | `tests/`, `backend/tests/`, `frontend/tests/` | Python contract tests and frontend layout guards. |
 
@@ -45,6 +46,16 @@ The backend entry point is `backend/main.py`. Current local routes include:
 | `GET /api/pipeline/health` | Pipeline dependency health. |
 | `GET /api/factory/status` | Live factory status normalized for the frontend. |
 | `GET /cluster/status` | Legacy cluster status compatibility endpoint. |
+
+### Home NOC Control Center
+
+| Endpoint | Description |
+| --- | --- |
+| `GET http://127.0.0.1:9191/` | NOC wallboard dashboard (standalone HTML). |
+| `GET http://127.0.0.1:9191/api/snapshot` | Fleet snapshot: health, node/task counts by state. |
+| `GET http://127.0.0.1:9191/api/health` | NOC server health check. |
+
+> **Контроль:** порт 9191 — единственный порт NOC. Клиентский портал (8180) запрещён.
 
 The versioned router in `backend/routes_v1.py` is also included by the backend
 for `/v1` contracts.
@@ -97,6 +108,7 @@ Run the same categories that CI covers before opening or updating a PR:
 python3 -m compileall -q backend ops scripts
 python3 -m pytest -q
 cd frontend && npm install && npm run build
+bash scripts/verify-home-noc.sh   # Home NOC verification
 ```
 
 CI also validates tracked JSON/YAML files, scans for common secret patterns, and

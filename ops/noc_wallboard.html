@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kolibri AI — NOC Control Center</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0a0f14;--card:#111820;--border:#1e2a36;
+  --accent:#38bdf8;--green:#10b981;--yellow:#f59e0b;--red:#ef4444;--muted:#64748b;
+  --text:#e2e8f0;--dim:#94a3b8;
+}
+body{background:var(--bg);color:var(--text);font-family:'JetBrains Mono',monospace;font-size:14px;min-height:100vh}
+.header{padding:16px 24px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.header h1{font-size:18px;color:var(--accent);font-weight:600}
+.header .meta{color:var(--muted);font-size:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;padding:16px 24px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:16px}
+.card h2{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px}
+.stat{font-size:32px;font-weight:700;line-height:1.2}
+.stat.green{color:var(--green)}.stat.yellow{color:var(--yellow)}.stat.red{color:var(--red)}.stat.accent{color:var(--accent)}
+.stat-label{font-size:11px;color:var(--muted);margin-top:4px}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600}
+.badge.fresh{background:rgba(16,185,129,.15);color:var(--green)}
+.badge.stale{background:rgba(245,158,11,.15);color:var(--yellow)}
+.badge.offline{background:rgba(239,68,68,.15);color:var(--red)}
+.badge.running{background:rgba(56,189,248,.15);color:var(--accent)}
+.badge.queued{background:rgba(100,116,139,.15);color:var(--muted)}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{text-align:left;color:var(--muted);padding:6px 8px;border-bottom:1px solid var(--border);font-weight:500}
+td{padding:6px 8px;border-bottom:1px solid rgba(30,42,54,.5)}
+.footer{padding:12px 24px;border-top:1px solid var(--border);color:var(--muted);font-size:11px;display:flex;justify-content:space-between}
+.error-banner{background:rgba(239,68,68,.1);border:1px solid var(--red);border-radius:6px;padding:8px 16px;margin:16px 24px;color:var(--red);font-size:12px;display:none}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>Kolibri AI — NOC Control Center</h1>
+  <div class="meta">
+    <span id="clock"></span> |
+    <span id="factory-url">—</span>
+  </div>
+</div>
+<div id="error" class="error-banner"></div>
+<div class="grid">
+  <div class="card">
+    <h2>Состояние кластера</h2>
+    <div id="health" class="stat accent">—</div>
+    <div class="stat-label">Глобальное здоровье</div>
+  </div>
+  <div class="card">
+    <h2>Ноды</h2>
+    <div id="nodes-total" class="stat accent">—</div>
+    <div class="stat-label">Всего нод</div>
+    <div id="nodes-badges" class="row"></div>
+  </div>
+  <div class="card">
+    <h2>Задачи</h2>
+    <div id="tasks-total" class="stat accent">—</div>
+    <div class="stat-label">Всего задач</div>
+    <div id="tasks-badges" class="row"></div>
+  </div>
+  <div class="card">
+    <h2>Порт</h2>
+    <div class="stat green">9191</div>
+    <div class="stat-label">NOC Control Center (порт клиентского портала 8180 запрещён)</div>
+  </div>
+</div>
+<div style="padding:0 24px 16px">
+  <div class="card">
+    <h2>Ноды кластера</h2>
+    <table>
+      <thead><tr><th>Нода</th><th>Состояние</th><th>Последний heartbeat</th><th>Роль</th></tr></thead>
+      <tbody id="nodes-table"><tr><td colspan="4" style="color:var(--muted)">Загрузка...</td></tr></tbody>
+    </table>
+  </div>
+</div>
+<div style="padding:0 24px 16px">
+  <div class="card">
+    <h2>Последние задачи</h2>
+    <table>
+      <thead><tr><th>ID</th><th>Состояние</th><th>Нода</th><th>Создана</th></tr></thead>
+      <tbody id="tasks-table"><tr><td colspan="4" style="color:var(--muted)">Загрузка...</td></tr></tbody>
+    </table>
+  </div>
+</div>
+<div class="footer">
+  <span>Kolibri AI NOC Control Center — Home node</span>
+  <span id="last-update">—</span>
+</div>
+<script>
+const POLL_MS = 3000;
+const $ = s => document.getElementById(s);
+
+function renderState(state) {
+  const map = {
+    fresh: 'badge fresh', degraded: 'badge stale', stale: 'badge offline',
+    offline: 'badge offline', drained: 'badge stale', runner_blocked: 'badge offline',
+    running: 'badge running', queued: 'badge queued', leased: 'badge running',
+    completed: 'badge fresh', failed: 'badge offline', cancelled: 'badge stale',
+    dead_letter: 'badge offline', waiting_review: 'badge running', unknown: 'badge queued'
+  };
+  return map[state] || 'badge queued';
+}
+
+function tsAgo(ts) {
+  if (!ts) return '—';
+  const sec = Math.floor(Date.now() / 1000 - ts);
+  if (sec < 60) return sec + 'с назад';
+  if (sec < 3600) return Math.floor(sec / 60) + 'м назад';
+  return Math.floor(sec / 3600) + 'ч назад';
+}
+
+async function poll() {
+  try {
+    const resp = await fetch('/api/snapshot');
+    if (!resp.ok) throw new Error(resp.status);
+    const d = await resp.json();
+    $('error').style.display = 'none';
+
+    const h = d.health;
+    if (h && h.status) {
+      const hc = h.status === 'ok' ? 'green' : (h.status === 'degraded' ? 'yellow' : 'red');
+      $('health').className = 'stat ' + hc;
+      $('health').textContent = h.status.toUpperCase();
+    } else {
+      $('health').className = 'stat red';
+      $('health').textContent = 'НЕИЗВЕСТНО';
+    }
+
+    $('nodes-total').textContent = d.nodes_total;
+    $('tasks-total').textContent = d.tasks_total;
+    $('factory-url').textContent = d.factory_control_url;
+
+    let nb = '';
+    for (const [state, count] of Object.entries(d.nodes_by_state || {})) {
+      nb += `<span class="${renderState(state)}">${state}: ${count}</span>`;
+    }
+    $('nodes-badges').innerHTML = nb;
+
+    let tb = '';
+    for (const [state, count] of Object.entries(d.tasks_by_state || {})) {
+      tb += `<span class="${renderState(state)}">${state}: ${count}</span>`;
+    }
+    $('tasks-badges').innerHTML = tb;
+
+    let nr = '';
+    for (const n of (d.nodes || [])) {
+      nr += `<tr>
+        <td>${n.node_id || '—'}</td>
+        <td><span class="${renderState(n.state)}">${n.state || '—'}</span></td>
+        <td>${tsAgo(n.last_heartbeat)}</td>
+        <td>${n.display_name || n.role || '—'}</td>
+      </tr>`;
+    }
+    $('nodes-table').innerHTML = nr || '<tr><td colspan="4" style="color:var(--muted)">Нет данных</td></tr>';
+
+    let tr = '';
+    for (const t of (d.tasks || [])) {
+      tr += `<tr>
+        <td>${t.task_id || '—'}</td>
+        <td><span class="${renderState(t.state)}">${t.state || '—'}</span></td>
+        <td>${t.node_id || '—'}</td>
+        <td>${tsAgo(t.created_at)}</td>
+      </tr>`;
+    }
+    $('tasks-table').innerHTML = tr || '<tr><td colspan="4" style="color:var(--muted)">Нет данных</td></tr>';
+
+    $('last-update').textContent = 'Обновлено: ' + new Date().toLocaleTimeString('ru-RU');
+  } catch (e) {
+    $('error').textContent = 'Ошибка подключения к API: ' + e.message;
+    $('error').style.display = 'block';
+  }
+}
+
+function tick() {
+  $('clock').textContent = new Date().toLocaleTimeString('ru-RU');
+}
+setInterval(tick, 1000);
+tick();
+poll();
+setInterval(poll, POLL_MS);
+</script>
+</body>
+</html>

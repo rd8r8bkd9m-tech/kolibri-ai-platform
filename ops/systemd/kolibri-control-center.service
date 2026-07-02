@@ -1,0 +1,19 @@
+[Unit]
+Description=Kolibri AI Control Center — Home NOC server
+After=network-online.target kolibri-factory-control.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=KOLIBRI_NOC_PORT=9191
+Environment=KOLIBRI_FACTORY_CONTROL_URL=http://10.99.0.2:9101
+WorkingDirectory=/opt/kolibri-control-center
+ExecStart=/usr/bin/python3 /opt/kolibri-control-center/server.py
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
