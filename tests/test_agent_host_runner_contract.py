@@ -1,6 +1,7 @@
 import argparse
 import importlib.util
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -620,6 +621,52 @@ def test_no_push_task_cannot_publish_central_branch_after_artifact_verification(
     assert gated["push_blocked"] is True
     assert gated["push_block_reason"] == "no_push"
     assert "git push skipped by runner contract: no_push" in stdout_path.read_text(encoding="utf-8")
+
+
+def test_agent_host_runtime_preflight_proves_pr83_contract_without_launcher():
+    proc = subprocess.run(
+        ["bash", "scripts/preflight-agent-host-runtime.sh", str(ROOT)],
+        cwd=ROOT,
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+
+    assert "agent_host_pr83_runtime_preflight=ok" in proc.stdout
+
+
+def test_agent_host_runtime_preflight_proves_installed_launcher_copy(tmp_path):
+    launcher = tmp_path / "kolibri-agent-host"
+    launcher.write_text((ROOT / "ops" / "agent_host.py").read_text(encoding="utf-8"), encoding="utf-8")
+
+    proc = subprocess.run(
+        ["bash", "scripts/preflight-agent-host-runtime.sh", str(ROOT)],
+        cwd=ROOT,
+        check=True,
+        text=True,
+        capture_output=True,
+        env={
+            **os.environ,
+            "KOLIBRI_AGENT_HOST_LAUNCHER": str(launcher),
+            "KOLIBRI_AGENT_HOST_REQUIRE_LAUNCHER": "1",
+        },
+    )
+
+    assert "agent_host_pr83_runtime_preflight=ok" in proc.stdout
+
+
+def test_deploy_script_has_agent_host_canary_with_rollback():
+    deploy = (ROOT / "scripts" / "deploy.sh").read_text(encoding="utf-8")
+
+    assert "agent-host) deploy_agent_host ;;" in deploy
+    assert "./scripts/preflight-agent-host-runtime.sh" in deploy
+    assert "KOLIBRI_AGENT_HOST_REQUIRE_LAUNCHER=1" in deploy
+    assert "cp " in deploy
+    assert "backup_dir/kolibri-agent-host" in deploy
+    assert "'$AGENT_HOST_LAUNCHER'" in deploy
+    assert "agent_host_rollback_applied" in deploy
+    assert "systemctl restart '$AGENT_HOST_SERVICE'" in deploy
+    assert "systemctl is-active --quiet '$AGENT_HOST_SERVICE'" in deploy
 
 
 def test_publish_gate_skips_git_push_when_canonical_next_md_is_missing(tmp_path):
