@@ -1,86 +1,109 @@
 # PR83 Owner Decision Packet
 
-Updated: 2026-07-01T09:12:00Z
+Updated: 2026-07-02T00:00:00Z
 
-Purpose: give the owner a compact release-gate packet for PR #83 without
-performing owner-only GitHub actions from the Mac dispatcher.
+Purpose: preserve the PR #83 release-gate record and current post-merge deploy
+gate for Agent Host runner contract hardening.
 
 ## Current PR State
 
 - PR: https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/83
 - Title: `[p0] Harden Agent Host runner contract`
-- State: open
-- Draft: true
-- Mergeable: true
+- State: closed
+- Merged: true
+- Draft: false
 - Base: `main`
-- Base SHA: `6d0317c52a9694448ee2c352dc196ce7a27b9487`
+- Base SHA at merge record: `c915d9a0531ff72eff8856ac6cf7b91677dce0c7`
 - Head branch: `p0/agent-host-runner-contract-hardening-2026-06-30`
-- Head SHA: `81daf44dc842dce40d8547275f47b051871a2690`
-- Merge ref SHA: `ec509edce3728eb19aa59165c546f21e9e08a753`
+- Final head SHA: `1b2d34fb7d0dd1248457578291b23a2da1855b64`
+- Merge commit SHA: `3416ed1fefea3b399fee3d6f8de55a0ef0f02475`
+- Merged at: `2026-07-01T20:21:36Z`
 
 ## Evidence
 
 GitHub:
 
-- `Kolibri CI` run `28504679530` completed successfully for head
-  `81daf44dc842dce40d8547275f47b051871a2690`.
-- Job `ci` succeeded through Python compile, pytest, JS/TS checks,
-  JSON/YAML validation, secret scan, production secret path guard, and local
-  component smoke.
-- Combined commit statuses list is empty; GitHub Actions workflow evidence is
-  the source for CI status.
+- PR #83 connector metadata reports merged=true.
+- Connector review-thread read returned no unresolved review threads.
+- `git merge-base --is-ancestor 3416ed1fefea3b399fee3d6f8de55a0ef0f02475 origin/main`
+  returned `0`, proving the merge commit is contained by current `origin/main`.
+- GitHub compare from merge commit to `main` reports `ahead_by: 13`,
+  `behind_by: 0`; current `main` is a descendant of PR #83.
+- Combined commit status API returned no legacy statuses for final head or merge
+  commit; prior PR comments and PR body record successful GitHub Actions runs.
 
 Server:
 
-- Node: `primary-candidate`
-- Verified worktree:
-  `/var/lib/kolibri-agent/worktrees/P0_PR83_REVIEW_DIFF_CONTRACT_EXACT_ARTIFACT_CLEANUP_2026_07_01/P0_PR83_REVIEW_DIFF_CONTRACT_EXACT_ARTIFACT_CLEANUP_2026_07_01-attempt-1/repo`
-- Worktree HEAD: `81daf44dc842dce40d8547275f47b051871a2690`
+- Current task worktree:
+  `/var/lib/kolibri-agent/logical-workers/mesh-agent-12/worktrees/P0_EXEC_AGENT_HOST_CONTRACT_DEPLOY_READY_2026_07_02/P0_EXEC_AGENT_HOST_CONTRACT_DEPLOY_READY_2026_07_02-attempt-1/repo`
+- Worktree HEAD: `f7ac32c`
 - `python3 -m py_compile ops/agent_host.py tests/test_agent_host_runner_contract.py`: passed
-- `python3 -m pytest tests/test_agent_host_runner_contract.py -q`: `29 passed in 36.75s`
-- `git diff --check`: passed
-- Final git status: clean
+- `python3 -m pytest tests/test_agent_host_runner_contract.py -q`: `31 passed in 32.73s`
+- `python3 -m pytest tests/test_agent_host* -q`: `44 passed in 42.96s`
 
 Control Plane:
 
-- `P0_PR83_REVIEW_DIFF_CONTRACT_EXACT_ARTIFACT_CLEANUP_2026_07_01`: completed.
-- `P0_PR83_FINAL_MERGE_READINESS_VERIFICATION_2026_07_01`: failed with useful artifacts because the production runner still stayed on `main` and missed `PLAN.md`/`ACTIONS.md`.
+- This packet was refreshed by
+  `P0_EXEC_AGENT_HOST_CONTRACT_DEPLOY_READY_2026_07_02`.
 
 ## Scope
 
-Current PR #83 diff is scoped to Agent Host runner contract hardening:
+Merged PR #83 diff was scoped to Agent Host runner contract hardening:
 
 - `.gitignore`
 - `ops/agent_host.py`
 - `tests/test_agent_host_runner_contract.py`
 - `docs/agent/**` runner contract and run artifacts
 
-No `docs/superfactory/**` files are currently in the PR #83 diff.
+No additional merge action is required for PR #83.
 
-## Important Caveats
+## Deploy Gate
 
-- PR #83 is still draft.
-- PR body text is stale and still references older head/test evidence.
-- The current production Agent Host has not yet received the PR #83 fixes; this is why recent read-only/no-push tasks still showed `full_autonomy/git_push`, checkout drift, and brittle exact artifacts.
-- Mac dispatcher did not mark ready, approve, merge, push to `main`, or restart services.
+Deploy-ready source gate: passed.
 
-## Owner Options
+Runtime deploy gate: blocked until an operator with service access performs the
+scoped Agent Host binary/service refresh on each target node and runs the
+post-deploy canary. Do not merge or push to `main`; `main` already contains
+PR #83.
 
-Option A: owner approves release
+Exact repair/deploy command for a target node:
 
-1. Mark PR #83 ready for review if desired.
-2. Merge PR #83 into `main`.
-3. Deploy/restart Agent Host on target nodes.
-4. Submit `P0_AGENT_HOST_POST_MERGE_CONTRACT_CANARY_2026_07_01`.
+```bash
+set -euo pipefail
+cd /opt/kolibri-ai-platform
+git diff --quiet
+git diff --cached --quiet
+git fetch origin --prune
+git checkout main
+git pull --ff-only origin main
+python3 -m py_compile ops/agent_host.py tests/test_agent_host_runner_contract.py
+python3 -m pytest tests/test_agent_host_runner_contract.py -q
+sudo install -m 0755 ops/agent_host.py /usr/local/bin/kolibri-agent-host
+sudo install -m 0644 ops/systemd/kolibri-agent-host.service /etc/systemd/system/kolibri-agent-host.service
+sudo systemctl daemon-reload
+sudo systemctl restart kolibri-agent-host.service
+sudo systemctl is-active kolibri-agent-host.service
+```
 
-Option B: owner wants one more repair before merge
+Rollback command:
 
-1. Keep PR #83 draft.
-2. Dispatch a narrow PR-body/update or verifier-artifact repair task.
-3. Re-run current-head CI and deterministic server verification.
+```bash
+set -euo pipefail
+sudo cp /var/backups/kolibri-agent-host/kolibri-agent-host.before /usr/local/bin/kolibri-agent-host
+sudo cp /var/backups/kolibri-agent-host/kolibri-agent-host.service.before /etc/systemd/system/kolibri-agent-host.service
+sudo systemctl daemon-reload
+sudo systemctl restart kolibri-agent-host.service
+sudo systemctl is-active kolibri-agent-host.service
+```
+
+Create the backup directory and `.before` files immediately before deploy on
+the target node.
 
 ## Next Prepared Task
 
-`P0_AGENT_HOST_POST_MERGE_CONTRACT_CANARY_2026_07_01`
+`P0_AGENT_HOST_POST_MERGE_CONTRACT_DEPLOY_CANARY_2026_07_02`
 
-Submit only after PR #83 is merged into `main` and Agent Host is deployed/restarted from the merged code.
+Submit after Agent Host is restarted from current `main` on at least one target
+node. The canary should submit no-push/read-only, missing-artifact, write-scope,
+and canonical-run-artifact tasks and prove the result status and push fields are
+contract-correct.
