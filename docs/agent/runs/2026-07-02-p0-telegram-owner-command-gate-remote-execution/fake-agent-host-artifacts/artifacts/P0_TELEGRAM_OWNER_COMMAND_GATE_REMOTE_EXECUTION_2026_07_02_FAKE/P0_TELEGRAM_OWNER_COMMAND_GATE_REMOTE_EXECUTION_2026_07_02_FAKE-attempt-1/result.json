@@ -1,0 +1,67 @@
+{
+  "agent_id": "fake-agent-host-owner-command-gate",
+  "artifact_dir": "/var/lib/kolibri-agent/logical-workers/mesh-agent-20/worktrees/P0_TELEGRAM_OWNER_COMMAND_GATE_REMOTE_EXECUTION_2026_07_02/P0_TELEGRAM_OWNER_COMMAND_GATE_REMOTE_EXECUTION_2026_07_02-attempt-1/repo/docs/agent/runs/2026-07-02-p0-telegram-owner-command-gate-remote-execution/fake-agent-host-artifacts/artifacts/P0_TELEGRAM_OWNER_COMMAND_GATE_REMOTE_EXECUTION_2026_07_02_FAKE/P0_TELEGRAM_OWNER_COMMAND_GATE_REMOTE_EXECUTION_2026_07_02_FAKE-attempt-1",
+  "attempt_id": "P0_TELEGRAM_OWNER_COMMAND_GATE_REMOTE_EXECUTION_2026_07_02_FAKE-attempt-1",
+  "backend_test_environment": null,
+  "blocked_reason": null,
+  "branch": null,
+  "changed_files": [],
+  "effective_permissions": {
+    "git_push_allowed": false,
+    "permission_pack": null,
+    "permissions": []
+  },
+  "failure_reason": null,
+  "heartbeat_at": "2026-07-02T02:28:16.603496+00:00",
+  "hostname": "kolibri",
+  "kind": "owner_remote_task",
+  "log_paths": {
+    "stderr": "/var/lib/kolibri-agent/logical-workers/mesh-agent-20/worktrees/P0_TELEGRAM_OWNER_COMMAND_GATE_REMOTE_EXECUTION_2026_07_02/P0_TELEGRAM_OWNER_COMMAND_GATE_REMOTE_EXECUTION_2026_07_02-attempt-1/repo/docs/agent/runs/2026-07-02-p0-telegram-owner-command-gate-remote-execution/fake-agent-host-artifacts/artifacts/P0_TELEGRAM_OWNER_COMMAND_GATE_REMOTE_EXECUTION_2026_07_02_FAKE/P0_TELEGRAM_OWNER_COMMAND_GATE_REMOTE_EXECUTION_2026_07_02_FAKE-attempt-1/stderr.log",
+    "stdout": "/var/lib/kolibri-agent/logical-workers/mesh-agent-20/worktrees/P0_TELEGRAM_OWNER_COMMAND_GATE_REMOTE_EXECUTION_2026_07_02/P0_TELEGRAM_OWNER_COMMAND_GATE_REMOTE_EXECUTION_2026_07_02-attempt-1/repo/docs/agent/runs/2026-07-02-p0-telegram-owner-command-gate-remote-execution/fake-agent-host-artifacts/artifacts/P0_TELEGRAM_OWNER_COMMAND_GATE_REMOTE_EXECUTION_2026_07_02_FAKE/P0_TELEGRAM_OWNER_COMMAND_GATE_REMOTE_EXECUTION_2026_07_02_FAKE-attempt-1/stdout.log"
+  },
+  "next_recommended_task": null,
+  "node_id": "kolibri-server-agent-host",
+  "permission_pack_classification": {
+    "contract": "agent_host_permission_pack_runtime_gate",
+    "decision": "allowed",
+    "domain": "generic",
+    "evidence": [
+      {
+        "field": "read_only",
+        "value": "True"
+      },
+      {
+        "field": "no_push",
+        "value": "True"
+      }
+    ],
+    "forbidden_permissions": [],
+    "kind": "owner_remote_task",
+    "permission_packs": [
+      "no_push",
+      "read_only"
+    ],
+    "read_only_no_push": true,
+    "requested_permissions": []
+  },
+  "pid": 3887369,
+  "product_code_changed": false,
+  "product_code_modification_forbidden": true,
+  "push_attempted": false,
+  "push_block_reason": "no_push, read_only",
+  "push_blocked": true,
+  "read_only": true,
+  "required_artifacts_missing": [],
+  "required_artifacts_present": [],
+  "response": "Fake Telegram owner-command gate executed on the server Agent Host with fake Control Plane only.",
+  "result_path": "/var/lib/kolibri-agent/logical-workers/mesh-agent-20/worktrees/P0_TELEGRAM_OWNER_COMMAND_GATE_REMOTE_EXECUTION_2026_07_02/P0_TELEGRAM_OWNER_COMMAND_GATE_REMOTE_EXECUTION_2026_07_02-attempt-1/repo/docs/agent/runs/2026-07-02-p0-telegram-owner-command-gate-remote-execution/fake-agent-host-artifacts/artifacts/P0_TELEGRAM_OWNER_COMMAND_GATE_REMOTE_EXECUTION_2026_07_02_FAKE/P0_TELEGRAM_OWNER_COMMAND_GATE_REMOTE_EXECUTION_2026_07_02_FAKE-attempt-1/result.json",
+  "runner": "codex",
+  "status": "completed",
+  "task_id": "P0_TELEGRAM_OWNER_COMMAND_GATE_REMOTE_EXECUTION_2026_07_02_FAKE",
+  "tests_run": [],
+  "worktree": "/var/lib/kolibri-agent/logical-workers/mesh-agent-20/worktrees/P0_TELEGRAM_OWNER_COMMAND_GATE_REMOTE_EXECUTION_2026_07_02/P0_TELEGRAM_OWNER_COMMAND_GATE_REMOTE_EXECUTION_2026_07_02-attempt-1/repo/docs/agent/runs/2026-07-02-p0-telegram-owner-command-gate-remote-execution/fake-agent-host-artifacts/work/P0_TELEGRAM_OWNER_COMMAND_GATE_REMOTE_EXECUTION_2026_07_02_FAKE/P0_TELEGRAM_OWNER_COMMAND_GATE_REMOTE_EXECUTION_2026_07_02_FAKE-attempt-1/repo",
+  "write_scope": [
+    "docs/agent/runs/2026-07-02-p0-telegram-owner-command-gate-remote-execution/**"
+  ],
+  "write_scope_violations": []
+}

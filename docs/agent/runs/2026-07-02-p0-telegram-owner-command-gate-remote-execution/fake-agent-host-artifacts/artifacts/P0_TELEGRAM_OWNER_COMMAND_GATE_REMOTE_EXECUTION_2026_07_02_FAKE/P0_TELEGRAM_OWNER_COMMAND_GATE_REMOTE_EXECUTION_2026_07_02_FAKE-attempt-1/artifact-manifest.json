@@ -1,0 +1,22 @@
+[
+  {
+    "bytes": 1740,
+    "path": "/var/lib/kolibri-agent/logical-workers/mesh-agent-20/worktrees/P0_TELEGRAM_OWNER_COMMAND_GATE_REMOTE_EXECUTION_2026_07_02/P0_TELEGRAM_OWNER_COMMAND_GATE_REMOTE_EXECUTION_2026_07_02-attempt-1/repo/docs/agent/runs/2026-07-02-p0-telegram-owner-command-gate-remote-execution/fake-agent-host-artifacts/artifacts/P0_TELEGRAM_OWNER_COMMAND_GATE_REMOTE_EXECUTION_2026_07_02_FAKE/P0_TELEGRAM_OWNER_COMMAND_GATE_REMOTE_EXECUTION_2026_07_02_FAKE-attempt-1/artifact-manifest.json",
+    "sha256": "f1d3aa03ee6b2c13e892968c9ed1a435c3a9323b61912abb33623cfee421093a"
+  },
+  {
+    "bytes": 4151,
+    "path": "/var/lib/kolibri-agent/logical-workers/mesh-agent-20/worktrees/P0_TELEGRAM_OWNER_COMMAND_GATE_REMOTE_EXECUTION_2026_07_02/P0_TELEGRAM_OWNER_COMMAND_GATE_REMOTE_EXECUTION_2026_07_02-attempt-1/repo/docs/agent/runs/2026-07-02-p0-telegram-owner-command-gate-remote-execution/fake-agent-host-artifacts/artifacts/P0_TELEGRAM_OWNER_COMMAND_GATE_REMOTE_EXECUTION_2026_07_02_FAKE/P0_TELEGRAM_OWNER_COMMAND_GATE_REMOTE_EXECUTION_2026_07_02_FAKE-attempt-1/result.json",
+    "sha256": "cf254592b22619d5f924befc4b92a8f481f470e7f914516b6962a03d27f08308"
+  },
+  {
+    "bytes": 0,
+    "path": "/var/lib/kolibri-agent/logical-workers/mesh-agent-20/worktrees/P0_TELEGRAM_OWNER_COMMAND_GATE_REMOTE_EXECUTION_2026_07_02/P0_TELEGRAM_OWNER_COMMAND_GATE_REMOTE_EXECUTION_2026_07_02-attempt-1/repo/docs/agent/runs/2026-07-02-p0-telegram-owner-command-gate-remote-execution/fake-agent-host-artifacts/artifacts/P0_TELEGRAM_OWNER_COMMAND_GATE_REMOTE_EXECUTION_2026_07_02_FAKE/P0_TELEGRAM_OWNER_COMMAND_GATE_REMOTE_EXECUTION_2026_07_02_FAKE-attempt-1/stderr.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "bytes": 447,
+    "path": "/var/lib/kolibri-agent/logical-workers/mesh-agent-20/worktrees/P0_TELEGRAM_OWNER_COMMAND_GATE_REMOTE_EXECUTION_2026_07_02/P0_TELEGRAM_OWNER_COMMAND_GATE_REMOTE_EXECUTION_2026_07_02-attempt-1/repo/docs/agent/runs/2026-07-02-p0-telegram-owner-command-gate-remote-execution/fake-agent-host-artifacts/artifacts/P0_TELEGRAM_OWNER_COMMAND_GATE_REMOTE_EXECUTION_2026_07_02_FAKE/P0_TELEGRAM_OWNER_COMMAND_GATE_REMOTE_EXECUTION_2026_07_02_FAKE-attempt-1/stdout.log",
+    "sha256": "e1bdfbb20e0da731dbbe318f94f61634667232d7778981acf694585c442ec751"
+  }
+]
