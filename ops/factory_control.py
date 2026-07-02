@@ -74,6 +74,7 @@ TASK_LIST_DEFAULT_LIMIT = int(os.environ.get("FACTORY_TASK_LIST_DEFAULT_LIMIT", 
 TASK_LIST_MAX_LIMIT = int(os.environ.get("FACTORY_TASK_LIST_MAX_LIMIT", "5000"))
 LEASE_EMPTY_RETRY_AFTER = float(os.environ.get("FACTORY_LEASE_EMPTY_RETRY_AFTER", "1.0"))
 LEASE_EMPTY_FAST_PATH_TTL = float(os.environ.get("FACTORY_LEASE_EMPTY_FAST_PATH_TTL", "0.25"))
+LEASE_POLL_ACCESS_LOGS = os.environ.get("FACTORY_LEASE_POLL_ACCESS_LOGS", "0").strip().lower() in {"1", "true", "yes", "on"}
 FABRIC_API_VERSION = "2026-07-01"
 CANONICAL_RESPONSE_STATUSES = {"completed", "running", "blocked", "failed", "partial"}
 FALLBACK_REASON_TAXONOMY = {
@@ -374,6 +375,8 @@ class Redis:
 redis = Redis()
 _lease_empty_fast_path_until = 0.0
 _lease_empty_fast_path_lock = threading.Lock()
+_lease_no_task_payload_cache: dict[tuple[str, float, int], bytes] = {}
+_lease_no_task_payload_lock = threading.Lock()
 
 
 def invalidate_lease_empty_fast_path() -> None:
@@ -1084,6 +1087,10 @@ def create_review_task(source_task: dict[str, Any], result: dict[str, Any]) -> d
 
 def response(handler: BaseHTTPRequestHandler, status: int, body: Any) -> None:
     payload = json.dumps(body, indent=2, sort_keys=True).encode("utf-8")
+    response_bytes(handler, status, payload)
+
+
+def response_bytes(handler: BaseHTTPRequestHandler, status: int, payload: bytes) -> None:
     try:
         handler.send_response(status)
         handler.send_header("Content-Type", "application/json")
@@ -1110,6 +1117,25 @@ def lease_no_task_response(reason: str = "queue_empty") -> dict[str, Any]:
         "retry_after_seconds": LEASE_EMPTY_RETRY_AFTER,
         "lease_queue_scan_limit": LEASE_QUEUE_SCAN_LIMIT,
     }
+
+
+def lease_no_task_response_bytes(reason: str = "queue_empty") -> bytes:
+    cache_key = (reason, LEASE_EMPTY_RETRY_AFTER, LEASE_QUEUE_SCAN_LIMIT)
+    cached = _lease_no_task_payload_cache.get(cache_key)
+    if cached is not None:
+        return cached
+    payload = json.dumps(
+        lease_no_task_response(reason),
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    with _lease_no_task_payload_lock:
+        _lease_no_task_payload_cache[cache_key] = payload
+    return payload
+
+
+def response_no_task(handler: BaseHTTPRequestHandler, reason: str = "queue_empty") -> None:
+    response_bytes(handler, 200, lease_no_task_response_bytes(reason))
 
 
 def classify_lease_canary_response(status_code: int, body: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -1258,6 +1284,16 @@ def miniapp_task_envelope(body: dict[str, Any], auth: dict[str, Any]) -> dict[st
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "KolibriFactoryControl/0.1"
+
+    def log_request(self, code: int | str = "-", size: int | str = "-") -> None:
+        path = urlparse(self.path).path.rstrip("/") or "/"
+        try:
+            status_code = int(code)
+        except (TypeError, ValueError):
+            status_code = 0
+        if path == "/v1/tasks/lease" and 200 <= status_code < 300 and not LEASE_POLL_ACCESS_LOGS:
+            return
+        super().log_request(code, size)
 
     def log_message(self, fmt: str, *args: Any) -> None:
         sys.stderr.write("%s %s\n" % (utc_now(), fmt % args))
@@ -1614,15 +1650,15 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/v1/tasks/lease":
                 node_id = body["node_id"]
                 if not isinstance(body.get("runners"), dict) and lease_empty_fast_path_cached():
-                    response(self, 200, lease_no_task_response())
+                    response_no_task(self)
                     return
                 if redis.command("GET", drain_key(node_id)):
-                    response(self, 200, lease_no_task_response("node_draining"))
+                    response_no_task(self, "node_draining")
                     return
                 capabilities = body.get("capabilities", [])
                 agent_id = body.get("agent_id", node_id)
                 if not isinstance(body.get("runners"), dict) and lease_queue_empty():
-                    response(self, 200, lease_no_task_response())
+                    response_no_task(self)
                     return
                 maybe_requeue_expired_leases()
                 node = get_json(node_key(node_id), {"node_id": node_id, "capabilities": capabilities})
@@ -1633,7 +1669,7 @@ class Handler(BaseHTTPRequestHandler):
                 if task:
                     response(self, 200, task)
                     return
-                response(self, 200, lease_no_task_response())
+                response_no_task(self)
                 return
             if path.startswith("/v1/tasks/") and path.endswith("/heartbeat"):
                 task_id = path.split("/")[3]

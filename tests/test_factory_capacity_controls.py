@@ -415,6 +415,52 @@ def test_factory_http_server_completes_500_warmed_empty_lease_polls_without_redi
     assert server.max_workers <= 64
 
 
+def test_empty_lease_no_task_response_is_preencoded_compact_json(monkeypatch):
+    control = load_control()
+    monkeypatch.setattr(control, "LEASE_EMPTY_RETRY_AFTER", 1.25)
+    monkeypatch.setattr(control, "LEASE_QUEUE_SCAN_LIMIT", 17)
+
+    payload = control.lease_no_task_response_bytes()
+    decoded = json.loads(payload.decode("utf-8"))
+
+    assert decoded == control.lease_no_task_response()
+    assert b"\n" not in payload
+    assert b"  " not in payload
+    assert control.lease_no_task_response_bytes() is payload
+
+
+def test_successful_lease_poll_access_logs_are_suppressed_by_default(monkeypatch, capsys):
+    control = load_control()
+    fake = InMemoryRedis()
+    monkeypatch.setattr(control, "redis", fake)
+    monkeypatch.setattr(control, "LEASE_EMPTY_FAST_PATH_TTL", 60.0)
+
+    assert control.lease_queue_empty() is True
+    fake.commands.clear()
+
+    server = control.FactoryThreadingHTTPServer(("127.0.0.1", 0), control.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    url = f"http://127.0.0.1:{server.server_address[1]}/v1/tasks/lease"
+    payload = json.dumps({
+        "node_id": "empty-log-suppressed",
+        "agent_id": "agent-log-suppressed",
+        "capabilities": ["read_only_probe"],
+    }).encode("utf-8")
+    request = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
+
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            assert response.status == 200
+            assert json.loads(response.read().decode("utf-8"))["status"] == "no_task"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert "/v1/tasks/lease" not in capsys.readouterr().err
+
+
 def test_factory_http_server_completes_300_empty_lease_polls_without_transport_drop(monkeypatch):
     control = load_control()
     fake = InMemoryRedis()
