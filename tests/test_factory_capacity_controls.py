@@ -138,6 +138,39 @@ def test_lease_recovers_persisted_queued_task_when_queue_index_loses_one_entry(m
     assert "STRICT-9" in leased
 
 
+def test_lease_recovery_skips_incompatible_queued_prefix_without_starving_later_match(monkeypatch):
+    control = load_control()
+    fake = InMemoryRedis()
+    monkeypatch.setattr(control, "redis", fake)
+    monkeypatch.setattr(control, "LEASE_QUEUE_SCAN_LIMIT", 8)
+
+    for index in range(20):
+        control.create_task({
+            "task_id": f"AA-INCOMPAT-{index:02d}",
+            "idempotency_key": f"incompat-{index}",
+            "kind": "read_only_probe",
+            "required_capability": "other_capability",
+        })
+    match = control.create_task({
+        "task_id": "ZZ-STRICT-MATCH",
+        "idempotency_key": "strict-match",
+        "kind": "read_only_probe",
+        "required_capability": "read_only_probe",
+    })
+    fake.lists[control.key("queue")].remove(match["task_id"])
+
+    task = control.lease_next_task(
+        "logical-strict",
+        "agent-strict",
+        ["read_only_probe"],
+        {"node_id": "logical-strict", "capabilities": ["read_only_probe"]},
+    )
+
+    assert task is not None
+    assert task["task_id"] == "ZZ-STRICT-MATCH"
+    assert task["state"] == control.STATE_LEASED
+
+
 def test_lease_reaper_is_lock_gated_and_batched(monkeypatch):
     control = load_control()
     fake = InMemoryRedis()

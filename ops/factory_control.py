@@ -863,17 +863,16 @@ def _try_lease_task_id(task_id: str, node_id: str, agent_id: str, capabilities: 
 
 
 def lease_persisted_queued_task(node_id: str, agent_id: str, capabilities: list[str], node: dict[str, Any]) -> dict[str, Any] | None:
-    scanned = 0
+    attempted = 0
     for task_id in all_task_ids():
-        if scanned >= max(1, LEASE_QUEUE_SCAN_LIMIT):
-            break
         task = load_task(task_id)
         if not task or task.get("state") not in {STATE_QUEUED, STATE_REVIEW}:
             continue
-        scanned += 1
         if not compatible(task, node_id, capabilities, node):
-            rotate_queue_item(task_id)
             continue
+        if attempted >= max(1, LEASE_QUEUE_SCAN_LIMIT):
+            break
+        attempted += 1
         claimed = _try_lease_task_id(task_id, node_id, agent_id, capabilities, node)
         if claimed:
             remove_from_queue(task_id)
