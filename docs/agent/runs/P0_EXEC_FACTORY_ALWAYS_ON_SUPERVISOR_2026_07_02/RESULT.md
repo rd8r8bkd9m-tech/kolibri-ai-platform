@@ -4,11 +4,11 @@ Status: `pushed_pr_branch`
 
 Pushed branch:
 
-`agent/P0_EXEC_FACTORY_ALWAYS_ON_SUPERVISOR_2026_07_02/generic`
+`agent/P0_EXEC_FACTORY_ALWAYS_ON_SUPERVISOR_2026_07_02/generic-v2`
 
 PR creation URL:
 
-`https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/new/agent/P0_EXEC_FACTORY_ALWAYS_ON_SUPERVISOR_2026_07_02/generic`
+`https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/new/agent/P0_EXEC_FACTORY_ALWAYS_ON_SUPERVISOR_2026_07_02/generic-v2`
 
 What now works:
 
