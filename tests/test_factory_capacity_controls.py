@@ -1,6 +1,5 @@
 import argparse
 import importlib.util
-import json
 from pathlib import Path
 
 
@@ -107,6 +106,36 @@ def test_1000_logical_lease_polls_do_not_spawn_processes_or_scan_unbounded_queue
     assert not any(command[0] in {"Popen", "THREAD"} for command in fake.commands)
     lpop_count = sum(1 for command in fake.commands if command[0] == "LPOP")
     assert lpop_count == 1000
+
+
+def test_lease_recovers_persisted_queued_task_when_queue_index_loses_one_entry(monkeypatch):
+    control = load_control()
+    fake = InMemoryRedis()
+    monkeypatch.setattr(control, "redis", fake)
+    monkeypatch.setattr(control, "LEASE_QUEUE_SCAN_LIMIT", 8)
+
+    for index in range(10):
+        control.create_task({
+            "task_id": f"STRICT-{index}",
+            "idempotency_key": f"strict-{index}",
+            "kind": "read_only_probe",
+            "required_capability": "read_only_probe",
+        })
+    fake.lists[control.key("queue")].remove("STRICT-9")
+
+    leased = []
+    for index in range(10):
+        task = control.lease_next_task(
+            f"logical-{index}",
+            f"agent-{index}",
+            ["read_only_probe"],
+            {"node_id": f"logical-{index}", "capabilities": ["read_only_probe"]},
+        )
+        assert task is not None
+        leased.append(task["task_id"])
+
+    assert len(set(leased)) == 10
+    assert "STRICT-9" in leased
 
 
 def test_lease_reaper_is_lock_gated_and_batched(monkeypatch):
@@ -248,28 +277,11 @@ def test_response_write_broken_pipe_is_client_disconnect_not_500_loop():
         raise AssertionError("broken pipe must be classified as client disconnect")
 
 
-class CaptureRequest:
-    def __init__(self):
-        self.payload = b""
-
-    def sendall(self, payload):
-        self.payload += payload
-
-
-def test_overload_response_is_bounded_structured_json():
+def test_factory_control_does_not_install_runtime_503_worker_gate():
     control = load_control()
-    request = CaptureRequest()
 
-    control.BoundedThreadingHTTPServer._send_overloaded(request)
-    head, body = request.payload.split(b"\r\n\r\n", 1)
-
-    assert b"503 Service Unavailable" in head
-    assert b"Content-Type: application/json" in head
-    payload = json.loads(body.decode("utf-8"))
-    assert payload["status"] == "overloaded"
-    assert payload["task"] is None
-    assert payload["error"] == "control_plane_overloaded"
-    assert payload["retry_after_seconds"] >= 0
+    assert not hasattr(control, "BoundedThreadingHTTPServer")
+    assert not hasattr(control, "lease_overload_response")
 
 
 def test_lease_canary_classifier_fails_any_lease_5xx():
@@ -279,6 +291,34 @@ def test_lease_canary_classifier_fails_any_lease_5xx():
         classified = control.classify_lease_canary_response(status_code, {"status": "no_task"})
         assert classified["status"] == "failed"
         assert classified["reason"] == "lease_5xx"
+
+
+def test_lease_canary_classifier_fails_transport_status_zero():
+    control = load_control()
+
+    classified = control.classify_lease_canary_response(0, None)
+
+    assert classified["status"] == "failed"
+    assert classified["reason"] == "lease_transport_error"
+
+
+def test_lease_canary_stage_classifier_fails_under_leasing_and_empty_poll_transport_errors():
+    control = load_control()
+
+    under_leased = control.classify_lease_canary_stage(stage=1000, created_tasks=1000, leased_tasks=999)
+    assert under_leased["status"] == "failed"
+    assert under_leased["reason"] == "lease_under_completion"
+    assert under_leased["missing_leases"] == 1
+
+    empty_poll_transport = control.classify_lease_canary_stage(
+        stage=500,
+        created_tasks=500,
+        leased_tasks=500,
+        empty_poll_statuses=[200, 0, 200],
+    )
+    assert empty_poll_transport["status"] == "failed"
+    assert empty_poll_transport["reason"] == "empty_poll_transport_error"
+    assert empty_poll_transport["transport_error_count"] == 1
 
 
 def test_agent_host_poll_jitter_spreads_1000_logical_hosts_without_process_spawn(tmp_path, monkeypatch):

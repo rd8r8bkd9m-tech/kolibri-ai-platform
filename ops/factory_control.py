@@ -65,9 +65,7 @@ LEASE_REAPER_BATCH_LIMIT = int(os.environ.get("FACTORY_LEASE_REAPER_BATCH_LIMIT"
 LEASE_QUEUE_SCAN_LIMIT = int(os.environ.get("FACTORY_LEASE_QUEUE_SCAN_LIMIT", "100"))
 TASK_LIST_DEFAULT_LIMIT = int(os.environ.get("FACTORY_TASK_LIST_DEFAULT_LIMIT", "1000"))
 TASK_LIST_MAX_LIMIT = int(os.environ.get("FACTORY_TASK_LIST_MAX_LIMIT", "5000"))
-MAX_HTTP_WORKERS = int(os.environ.get("FACTORY_MAX_HTTP_WORKERS", "64"))
 LEASE_EMPTY_RETRY_AFTER = float(os.environ.get("FACTORY_LEASE_EMPTY_RETRY_AFTER", "1.0"))
-LEASE_OVERLOAD_RETRY_AFTER = float(os.environ.get("FACTORY_LEASE_OVERLOAD_RETRY_AFTER", "5.0"))
 FABRIC_API_VERSION = "2026-07-01"
 CANONICAL_RESPONSE_STATUSES = {"completed", "running", "blocked", "failed", "partial"}
 FALLBACK_REASON_TAXONOMY = {
@@ -364,6 +362,10 @@ def node_key(node_id: str) -> str:
 
 def drain_key(node_id: str) -> str:
     return key(f"drain:{node_id}")
+
+
+def task_claim_key(task_id: str) -> str:
+    return key(f"task_claim:{task_id}")
 
 
 def classify_node_freshness(node: dict[str, Any], current: float | None = None) -> dict[str, Any]:
@@ -828,21 +830,54 @@ def lease_next_task(node_id: str, agent_id: str, capabilities: list[str], node: 
     for _ in range(scan_limit):
         task_id = redis.command("LPOP", key("queue"))
         if not task_id:
-            return None
+            break
+        task = _try_lease_task_id(str(task_id), node_id, agent_id, capabilities, node)
+        if task:
+            return task
+    return lease_persisted_queued_task(node_id, agent_id, capabilities, node)
+
+
+def _try_lease_task_id(task_id: str, node_id: str, agent_id: str, capabilities: list[str], node: dict[str, Any]) -> dict[str, Any] | None:
+    task = load_task(task_id)
+    if not task or task.get("state") not in {STATE_QUEUED, STATE_REVIEW}:
+        return None
+    if not compatible(task, node_id, capabilities, node):
+        rotate_queue_item(task_id)
+        return None
+    if not _redis_set_nx_ex(task_claim_key(task_id), f"{node_id}:{agent_id}:{now_ts()}", LEASE_DURATION):
+        return None
+    task = load_task(task_id)
+    if not task or task.get("state") not in {STATE_QUEUED, STATE_REVIEW}:
+        return None
+    if not compatible(task, node_id, capabilities, node):
+        rotate_queue_item(task_id)
+        return None
+    task["state"] = STATE_LEASED
+    task["attempt"] = int(task.get("attempt", 0)) + 1
+    task["attempt_id"] = f"{task_id}-attempt-{task['attempt']}"
+    task["lease_owner"] = f"{node_id}:{agent_id}"
+    task["lease_until"] = now_ts() + LEASE_DURATION
+    task["heartbeat_at"] = utc_now()
+    save_task(task)
+    return task
+
+
+def lease_persisted_queued_task(node_id: str, agent_id: str, capabilities: list[str], node: dict[str, Any]) -> dict[str, Any] | None:
+    scanned = 0
+    for task_id in all_task_ids():
+        if scanned >= max(1, LEASE_QUEUE_SCAN_LIMIT):
+            break
         task = load_task(task_id)
         if not task or task.get("state") not in {STATE_QUEUED, STATE_REVIEW}:
             continue
+        scanned += 1
         if not compatible(task, node_id, capabilities, node):
             rotate_queue_item(task_id)
             continue
-        task["state"] = STATE_LEASED
-        task["attempt"] = int(task.get("attempt", 0)) + 1
-        task["attempt_id"] = f"{task_id}-attempt-{task['attempt']}"
-        task["lease_owner"] = f"{node_id}:{agent_id}"
-        task["lease_until"] = now_ts() + LEASE_DURATION
-        task["heartbeat_at"] = utc_now()
-        save_task(task)
-        return task
+        claimed = _try_lease_task_id(task_id, node_id, agent_id, capabilities, node)
+        if claimed:
+            remove_from_queue(task_id)
+            return claimed
     return None
 
 
@@ -916,20 +951,14 @@ def lease_no_task_response(reason: str = "queue_empty") -> dict[str, Any]:
     }
 
 
-def lease_overload_response(reason: str = "worker_limit_reached") -> dict[str, Any]:
-    return {
-        "status": "overloaded",
-        "task": None,
-        "error": "control_plane_overloaded",
-        "reason": reason,
-        "detail": "request worker limit reached; retry with jittered backoff",
-        "retry_after_seconds": LEASE_OVERLOAD_RETRY_AFTER,
-        "lease_queue_scan_limit": LEASE_QUEUE_SCAN_LIMIT,
-        "max_http_workers": MAX_HTTP_WORKERS,
-    }
-
-
 def classify_lease_canary_response(status_code: int, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    if status_code == 0:
+        return {
+            "status": "failed",
+            "route": "/v1/tasks/lease",
+            "reason": "lease_transport_error",
+            "http_status": status_code,
+        }
     if 500 <= status_code <= 599:
         return {
             "status": "failed",
@@ -949,52 +978,44 @@ def classify_lease_canary_response(status_code: int, body: dict[str, Any] | None
     return {"status": "failed", "route": "/v1/tasks/lease", "reason": "unexpected_status", "http_status": status_code}
 
 
+def classify_lease_canary_stage(
+    *,
+    stage: int,
+    created_tasks: int,
+    leased_tasks: int,
+    empty_poll_statuses: list[int] | None = None,
+) -> dict[str, Any]:
+    transport_errors = [status for status in empty_poll_statuses or [] if status == 0]
+    if leased_tasks < created_tasks:
+        return {
+            "status": "failed",
+            "reason": "lease_under_completion",
+            "stage": stage,
+            "created_tasks": created_tasks,
+            "leased_tasks": leased_tasks,
+            "missing_leases": created_tasks - leased_tasks,
+        }
+    if transport_errors:
+        return {
+            "status": "failed",
+            "reason": "empty_poll_transport_error",
+            "stage": stage,
+            "transport_error_count": len(transport_errors),
+        }
+    return {
+        "status": "passed",
+        "reason": "lease_stage_complete",
+        "stage": stage,
+        "created_tasks": created_tasks,
+        "leased_tasks": leased_tasks,
+    }
+
+
 def read_body(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
     length = int(handler.headers.get("Content-Length") or "0")
     if not length:
         return {}
     return json.loads(handler.rfile.read(length).decode("utf-8"))
-
-
-class BoundedThreadingHTTPServer(ThreadingHTTPServer):
-    daemon_threads = True
-
-    def __init__(self, server_address: tuple[str, int], handler_class: type[BaseHTTPRequestHandler], max_workers: int = MAX_HTTP_WORKERS):
-        self.max_workers = max(1, max_workers)
-        self.request_queue_size = max(self.request_queue_size, self.max_workers)
-        super().__init__(server_address, handler_class)
-        self._worker_slots = threading.BoundedSemaphore(self.max_workers)
-
-    def process_request(self, request: Any, client_address: Any) -> None:
-        if not self._worker_slots.acquire(blocking=False):
-            self._send_overloaded(request)
-            self.shutdown_request(request)
-            return
-        try:
-            super().process_request(request, client_address)
-        except Exception:
-            self._worker_slots.release()
-            raise
-
-    def process_request_thread(self, request: Any, client_address: Any) -> None:
-        try:
-            super().process_request_thread(request, client_address)
-        finally:
-            self._worker_slots.release()
-
-    @staticmethod
-    def _send_overloaded(request: Any) -> None:
-        body = json.dumps(lease_overload_response()).encode("utf-8")
-        try:
-            request.sendall(
-                b"HTTP/1.1 503 Service Unavailable\r\n"
-                b"Content-Type: application/json\r\n"
-                + f"Content-Length: {len(body)}\r\nConnection: close\r\n\r\n".encode("ascii")
-                + body
-            )
-        except OSError as exc:
-            if not is_client_disconnect(exc):
-                raise
 
 
 def parse_owner_ids(value: str) -> set[int]:
@@ -1579,15 +1600,13 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--bind", default=os.environ.get("FACTORY_BIND", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=int(os.environ.get("FACTORY_PORT", "9101")))
-    parser.add_argument("--max-http-workers", type=int, default=MAX_HTTP_WORKERS)
     args = parser.parse_args()
-    server = BoundedThreadingHTTPServer((args.bind, args.port), Handler, max_workers=args.max_http_workers)
+    server = ThreadingHTTPServer((args.bind, args.port), Handler)
     print(json.dumps({
         "event": "factory_control_started",
         "bind": args.bind,
         "port": args.port,
         "namespace": NAMESPACE,
-        "max_http_workers": server.max_workers,
         "lease_queue_scan_limit": LEASE_QUEUE_SCAN_LIMIT,
         "lease_reaper_batch_limit": LEASE_REAPER_BATCH_LIMIT,
     }))
