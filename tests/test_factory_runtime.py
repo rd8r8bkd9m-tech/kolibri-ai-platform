@@ -137,3 +137,25 @@ def test_control_plane_runner_compatibility_filters_blocked_and_avoided_nodes():
         ["generic_implementation", "runner:mimo"],
         {"runners": {"mimo": {"status": "available"}}},
     ) is False
+
+
+def test_control_plane_chat_runner_compatibility_requires_requested_runner():
+    control = load_module(ROOT / "ops" / "factory_control.py")
+    task = control.normalize_task({
+        "kind": "telegram_chat_response",
+        "runner": "codex",
+        "required_capability": "generic_implementation",
+    })
+
+    assert control.compatible(
+        task,
+        "codex-node",
+        ["generic_implementation", "runner:codex"],
+        {"runners": {"codex": {"status": "available"}}},
+    ) is True
+    assert control.compatible(
+        task,
+        "generic-only",
+        ["generic_implementation"],
+        {"runners": {"codex": {"status": "available"}}},
+    ) is False

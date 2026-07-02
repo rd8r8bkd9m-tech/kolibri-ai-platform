@@ -238,7 +238,7 @@ def test_greeting_is_chat_not_factory_task():
         "text": "привет",
     }
     envelope = gateway.build_chat_envelope(message, message["text"])
-    assert envelope["kind"] == "owner_remote_task"
+    assert envelope["kind"] == "telegram_chat_response"
     assert envelope["runner"] == "codex"
     assert envelope["target_node"] == "primary-candidate"
     assert envelope["required_capability"] == "generic_implementation"
@@ -447,7 +447,7 @@ def test_orchestrator_chat_envelope_carries_factory_snapshot():
     }
     snapshot = {"nodes": [{"node_id": "9fts", "health": "online"}], "task_counts": {"completed": 3}}
     envelope = gateway.build_chat_envelope(message, message["text"], snapshot)
-    assert envelope["kind"] == "owner_remote_task"
+    assert envelope["kind"] == "telegram_chat_response"
     assert envelope["factory_snapshot"] == snapshot
     assert envelope["message"] == "фабрика уже работает?"
     assert "фабрика уже работает?" in envelope["objective"]
@@ -710,6 +710,74 @@ def test_submit_text_task_control_plane_failure_is_human(tmp_path):
     assert state.data["memory"]["last_work_request"]["state"] == "failed"
 
 
+def test_status_without_task_id_uses_last_work_request(tmp_path):
+    gateway = load_gateway()
+
+    class Telegram:
+        def __init__(self):
+            self.messages = []
+
+        def send_message(self, chat_id, text):
+            self.messages.append((chat_id, text))
+
+    class Factory:
+        def get_task(self, task_id):
+            assert task_id == "TG-LAST"
+            return {
+                "task_id": task_id,
+                "state": "completed",
+                "envelope": {"kind": "owner_remote_task"},
+                "result": {"response": "Проект запущен: http://127.0.0.1:8180\nresult_path: /var/lib/secret/result.json"},
+            }
+
+    telegram = Telegram()
+    state = gateway.StateStore(tmp_path / "state.json")
+    gateway.record_work_task(state.data["memory"], "Запусти dev сервер", "TG-LAST", "running", "2026-07-02T10:00:00+00:00")
+    app = gateway.Gateway(telegram, Factory(), {100}, state, 1)
+    message = {"message_id": 60, "chat": {"id": 100, "type": "private"}, "from": {"id": 100}, "text": "/status"}
+    app.handle_command(message, "/status")
+
+    assert telegram.messages == [(100, "Готово. Проект запущен: http://127.0.0.1:8180")]
+    assert "/var/lib" not in telegram.messages[0][1]
+
+
+def test_artifacts_command_returns_safe_labels_without_secrets_or_paths(tmp_path):
+    gateway = load_gateway()
+
+    class Telegram:
+        def __init__(self):
+            self.messages = []
+
+        def send_message(self, chat_id, text):
+            self.messages.append((chat_id, text))
+
+    class Factory:
+        def get_artifacts(self, task_id):
+            assert task_id == "TG-LAST"
+            return {
+                "status": "completed",
+                "artifacts": [
+                    "/var/lib/kolibri-agent/artifacts/TG-LAST/result.json",
+                    "https://example.test/pr/123",
+                    "/tmp/.env",
+                    "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef",
+                ],
+                "data": {"result_reference": "/var/lib/kolibri-agent/artifacts/TG-LAST/result.json"},
+            }
+
+    telegram = Telegram()
+    state = gateway.StateStore(tmp_path / "state.json")
+    gateway.record_work_task(state.data["memory"], "Почини Telegram", "TG-LAST", "completed", "2026-07-02T10:00:00+00:00")
+    app = gateway.Gateway(telegram, Factory(), {100}, state, 1)
+    app.handle_command({"chat": {"id": 100}, "from": {"id": 100}}, "/artifacts")
+
+    message = telegram.messages[0][1]
+    assert "result.json" in message
+    assert "https://example.test/pr/123" in message
+    for forbidden in ["/var/lib", ".env", "123456789:", "TOKEN", "SECRET"]:
+        assert forbidden.lower() not in message.lower()
+
+
 def test_submit_image_task_queues_remote_generation(tmp_path):
     gateway = load_gateway()
 
@@ -852,7 +920,7 @@ def test_submit_chat_task_uses_remote_orchestrator_and_hides_intermediate_states
     message = {"message_id": 55, "chat": {"id": 100, "type": "private"}, "from": {"id": 100}, "text": "Что выполняешь?"}
     app.submit_chat_task(message, message["text"])
     assert factory.envelopes
-    assert factory.envelopes[0]["kind"] == "owner_remote_task"
+    assert factory.envelopes[0]["kind"] == "telegram_chat_response"
     assert factory.envelopes[0]["runner"] == "codex"
     assert factory.envelopes[0]["target_node"] == "home-live"
     assert telegram.actions == [(100, "typing")]

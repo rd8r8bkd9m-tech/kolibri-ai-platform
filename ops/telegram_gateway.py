@@ -415,6 +415,10 @@ class FactoryClient:
     def get_tasks(self) -> dict[str, Any]:
         return self.request("GET", "/v1/tasks")
 
+    def get_artifacts(self, task_id: str) -> dict[str, Any]:
+        quoted = urllib.parse.quote(task_id, safe="")
+        return self.request("GET", f"/v1/agents/artifacts/{quoted}")
+
     def cancel_task(self, task_id: str) -> dict[str, Any]:
         quoted = urllib.parse.quote(task_id, safe="")
         return self.request("POST", f"/v1/tasks/{quoted}/cancel", {"reason": "telegram cancel"})
@@ -555,7 +559,7 @@ def build_chat_envelope(message: dict[str, Any], text: str, snapshot: dict[str, 
     envelope = {
         "task_id": task_id,
         "idempotency_key": f"telegram-chat:{message['chat']['id']}:{message['message_id']}",
-        "kind": os.environ.get("TELEGRAM_CHAT_KIND", "owner_remote_task"),
+        "kind": os.environ.get("TELEGRAM_CHAT_KIND", "telegram_chat_response"),
         "required_capability": os.environ.get("TELEGRAM_CHAT_CAPABILITY", "generic_implementation"),
         "max_retries": 1,
         "message": text,
@@ -899,7 +903,14 @@ class Gateway:
     def submit_chat_task(self, message: dict[str, Any], text: str) -> None:
         chat_id = message["chat"]["id"]
         snapshot = self.conversation_snapshot()
-        task = self.factory.create_task(build_chat_envelope(message, text, snapshot))
+        envelope = build_chat_envelope(message, text, snapshot)
+        try:
+            task = self.factory.create_task(envelope)
+        except Exception:
+            reply = build_realtime_owner_reply(text, snapshot)
+            self.telegram.send_message(chat_id, reply)
+            self.remember_orchestrator_message(reply)
+            return
         initial_label = SIGNIFICANT_STATES.get(task.get("state"), task.get("state"))
         self.track(chat_id, task["task_id"], initial_label or "queued", mode="chat")
 
@@ -943,6 +954,45 @@ class Gateway:
         if not last_sent:
             self.state.save()
 
+    def task_id_from_command_arg(self, arg: str) -> str | None:
+        if arg:
+            return arg
+        last = (self.memory().get("last_work_request") or {}).get("task_id")
+        if last:
+            return str(last)
+        tracked = self.state.data.get("tracked") or {}
+        for task_id, record in reversed(list(tracked.items())):
+            if record.get("mode") != "chat":
+                return str(task_id)
+        return None
+
+    def latest_owner_task(self) -> dict[str, Any] | None:
+        try:
+            tasks = self.factory.get_tasks().get("tasks", [])
+        except Exception:
+            return None
+        visible = [task for task in tasks if owner_visible_task(task, self.state.data.get("common_chat_since"))]
+        if not visible:
+            return None
+        return max(visible, key=lambda task: iso_timestamp(task.get("updated_at") or task.get("created_at")))
+
+    def resolve_status_task(self, arg: str) -> dict[str, Any] | None:
+        task_id = self.task_id_from_command_arg(arg)
+        if task_id:
+            return self.factory.get_task(task_id)
+        return self.latest_owner_task()
+
+    def send_artifacts(self, chat_id: int, arg: str) -> None:
+        task_id = self.task_id_from_command_arg(arg)
+        if not task_id:
+            latest = self.latest_owner_task()
+            task_id = latest.get("task_id") if latest else None
+        if not task_id:
+            self.telegram.send_message(chat_id, "Пока не вижу задачи, по которой можно показать результат.")
+            return
+        artifacts = self.factory.get_artifacts(task_id)
+        self.telegram.send_message(chat_id, format_artifact_status(artifacts))
+
     def handle_command(self, message: dict[str, Any], text: str) -> None:
         chat_id = message["chat"]["id"]
         command, _, arg = text.partition(" ")
@@ -952,9 +1002,14 @@ class Gateway:
             self.telegram.send_message(chat_id, help_text())
         elif command == "/task" and arg:
             self.submit_text_task(message, arg)
-        elif command == "/status" and arg:
-            task = self.factory.get_task(arg)
-            self.telegram.send_message(chat_id, format_task_status(task))
+        elif command == "/status":
+            task = self.resolve_status_task(arg)
+            if task:
+                self.telegram.send_message(chat_id, format_task_status(task))
+            else:
+                self.telegram.send_message(chat_id, "Пока не вижу активных задач. Напишите задачу обычным текстом, и я возьму её в работу.")
+        elif command == "/artifacts":
+            self.send_artifacts(chat_id, arg)
         elif command == "/cancel" and arg:
             task = self.factory.cancel_task(arg)
             self.telegram.send_message(chat_id, format_task_status(task))
@@ -1318,6 +1373,44 @@ def extract_urls(text: str) -> list[str]:
         if match not in urls:
             urls.append(match)
     return urls
+
+
+def safe_artifact_label(value: Any) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip()
+    if TOKEN_LIKE_RE.search(text):
+        return None
+    lowered = text.lower()
+    if any(secret_word in lowered for secret_word in ("secret", "token", "passwd", "password", ".env", "_key")):
+        return None
+    if text.startswith(("http://", "https://")):
+        return text
+    name = Path(text).name
+    return name or None
+
+
+def format_artifact_status(payload: dict[str, Any]) -> str:
+    status = str(payload.get("status") or "")
+    artifacts = payload.get("artifacts") if isinstance(payload.get("artifacts"), list) else []
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    result_reference = safe_artifact_label(data.get("result_reference"))
+    labels = []
+    for artifact in artifacts:
+        label = safe_artifact_label(artifact)
+        if label and label not in labels:
+            labels.append(label)
+    if result_reference and result_reference not in labels:
+        labels.append(result_reference)
+    if labels:
+        lines = ["Нашёл результат задачи:"]
+        lines.extend(f"- {label}" for label in labels[:6])
+        if status == "partial":
+            lines.append("Часть артефактов ещё может появиться после завершения проверки.")
+        return "\n".join(lines)
+    if status == "blocked":
+        return "Не нашёл такую задачу в Control Plane. Проверьте короткий идентификатор или спросите статус последней задачи."
+    return "Артефакты для этой задачи пока не опубликованы. Я продолжу смотреть статус и верну результат, когда он появится."
 
 
 def _first_value(data: dict[str, Any], keys: tuple[str, ...]) -> Any:

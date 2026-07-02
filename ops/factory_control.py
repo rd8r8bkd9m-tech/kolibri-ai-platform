@@ -710,7 +710,7 @@ def compatible(task: dict[str, Any], node_id: str, capabilities: list[str], node
     if required and required not in capabilities:
         return False
     runner = str(envelope.get("runner") or "").strip().lower()
-    if envelope.get("kind") == "owner_remote_task" and runner:
+    if envelope.get("kind") in {"owner_remote_task", "telegram_chat_response", "orchestrator_chat_response"} and runner:
         if not runner_capability_names(runner).intersection(set(capabilities)):
             return False
         node_state = runner_state(node or {}, runner)
