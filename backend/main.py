@@ -10,7 +10,7 @@ from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
 
 import httpx
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, WebSocket, WebSocketDisconnect, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -92,6 +92,39 @@ class ToolCallRequest(BaseModel):
     message: str
     tools: Optional[List[Dict[str, Any]]] = None
 
+def _configured_api_tokens() -> set[str]:
+    tokens = {
+        os.getenv("KOLIBRI_API_TOKEN"),
+        os.getenv("KOLIBRI_ADMIN_TOKEN"),
+        os.getenv("KOLIBRI_PRIVATE_API_TOKEN"),
+    }
+    return {token.strip() for token in tokens if token and token.strip()}
+
+def _bearer_token(authorization: str | None) -> str | None:
+    if not authorization:
+        return None
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token.strip():
+        return None
+    return token.strip()
+
+def _is_private_api_authorized(authorization: str | None, x_kolibri_api_key: str | None) -> bool:
+    configured_tokens = _configured_api_tokens()
+    presented_tokens = {
+        token
+        for token in (_bearer_token(authorization), x_kolibri_api_key.strip() if x_kolibri_api_key else None)
+        if token
+    }
+    return bool(configured_tokens and configured_tokens.intersection(presented_tokens))
+
+async def require_private_api_auth(
+    authorization: str | None = Header(default=None),
+    x_kolibri_api_key: str | None = Header(default=None),
+):
+    if _is_private_api_authorized(authorization, x_kolibri_api_key):
+        return True
+    raise HTTPException(status_code=401, detail="Authentication required")
+
 def get_cache_key(messages: list, model: str) -> str:
     content = json.dumps([{"role": m.role, "content": m.content} for m in messages], sort_keys=True)
     return hashlib.sha256(f"{model}:{content}".encode()).hexdigest()
@@ -155,13 +188,13 @@ app.add_middleware(
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "provider_status": ai_manager.get_status()}
+    return {"status": "ok"}
 
-@app.get("/api/providers")
+@app.get("/api/providers", dependencies=[Depends(require_private_api_auth)])
 async def list_providers():
     return ai_manager.get_status()
 
-@app.get("/api/models")
+@app.get("/api/models", dependencies=[Depends(require_private_api_auth)])
 async def list_models():
     return {
         "models": ai_manager.get_model_catalog(),
@@ -226,7 +259,7 @@ async def websocket_chat(websocket: WebSocket):
     except WebSocketDisconnect:
         pass
 
-@app.post("/api/conversations")
+@app.post("/api/conversations", dependencies=[Depends(require_private_api_auth)])
 async def create_conversation(title: str = "New Chat"):
     conv_id = f"conv_{int(time.time() * 1000)}"
     conn = sqlite3.connect(str(DB_PATH))
@@ -238,7 +271,7 @@ async def create_conversation(title: str = "New Chat"):
     conn.close()
     return {"id": conv_id, "title": title}
 
-@app.get("/api/conversations")
+@app.get("/api/conversations", dependencies=[Depends(require_private_api_auth)])
 async def list_conversations():
     conn = sqlite3.connect(str(DB_PATH))
     c = conn.cursor()
@@ -247,7 +280,7 @@ async def list_conversations():
     conn.close()
     return [{"id": r[0], "title": r[1], "created_at": r[2], "updated_at": r[3]} for r in rows]
 
-@app.get("/api/conversations/{conv_id}/messages")
+@app.get("/api/conversations/{conv_id}/messages", dependencies=[Depends(require_private_api_auth)])
 async def get_messages(conv_id: str):
     conn = sqlite3.connect(str(DB_PATH))
     c = conn.cursor()
@@ -256,7 +289,7 @@ async def get_messages(conv_id: str):
     conn.close()
     return [{"role": r[0], "content": r[1], "provider": r[2], "created_at": r[3]} for r in rows]
 
-@app.delete("/api/conversations/{conv_id}")
+@app.delete("/api/conversations/{conv_id}", dependencies=[Depends(require_private_api_auth)])
 async def delete_conversation(conv_id: str):
     conn = sqlite3.connect(str(DB_PATH))
     c = conn.cursor()
@@ -266,21 +299,21 @@ async def delete_conversation(conv_id: str):
     conn.close()
     return {"deleted": True}
 
-@app.post("/api/tts")
+@app.post("/api/tts", dependencies=[Depends(require_private_api_auth)])
 async def text_to_speech(request: TTSRequest):
     result = await tts_engine.synthesize(request.text, request.voice)
     return result
 
-@app.get("/api/tts/voices")
+@app.get("/api/tts/voices", dependencies=[Depends(require_private_api_auth)])
 async def list_tts_voices():
     return await tts_engine.list_voices()
 
-@app.post("/api/search")
+@app.post("/api/search", dependencies=[Depends(require_private_api_auth)])
 async def web_search(request: SearchRequest):
     results = await web_engine.search(request.query, request.num_results)
     return {"results": results}
 
-@app.post("/api/tools")
+@app.post("/api/tools", dependencies=[Depends(require_private_api_auth)])
 async def tool_call(request: ToolCallRequest):
     result = await ai_manager.tool_call(
         message=request.message,
@@ -292,7 +325,7 @@ async def tool_call(request: ToolCallRequest):
 
 from pipeline import PipelineRequest, run_pipeline, pipeline_health
 
-@app.post("/api/pipeline")
+@app.post("/api/pipeline", dependencies=[Depends(require_private_api_auth)])
 async def pipeline_endpoint(request: PipelineRequest, req: Request):
     ip = req.client.host
     if not check_rate_limit(ip):
@@ -300,12 +333,21 @@ async def pipeline_endpoint(request: PipelineRequest, req: Request):
     result = await run_pipeline(request)
     return result.model_dump()
 
-@app.get("/api/pipeline/health")
+@app.get("/api/pipeline/health", dependencies=[Depends(require_private_api_auth)])
 async def pipeline_health_endpoint():
     return await pipeline_health()
 
 
-@app.get("/api/factory/status")
+@app.api_route(
+    "/api/v1/estimates{rest:path}",
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    dependencies=[Depends(require_private_api_auth)],
+)
+async def protected_estimates_api(rest: str = ""):
+    raise HTTPException(status_code=404, detail="Not found")
+
+
+@app.get("/api/factory/status", dependencies=[Depends(require_private_api_auth)])
 async def api_factory_status():
     try:
         return await fetch_factory_status()
@@ -339,11 +381,11 @@ async def api_factory_status():
         )
 
 
-@app.get("/cluster/status")
+@app.get("/cluster/status", dependencies=[Depends(require_private_api_auth)])
 async def cluster_status():
     return await api_factory_status()
 
-app.include_router(v1_router)
+app.include_router(v1_router, dependencies=[Depends(require_private_api_auth)])
 
 PROXY_ROUTES = {
     "/api/knowledge": {"target": "http://10.99.0.3:8002", "strip": "/api/knowledge", "add": "/rag"},
@@ -374,6 +416,12 @@ async def proxy_handler(prefix: str, path: str, request: Request):
     if not upstream:
         raise HTTPException(status_code=404, detail="Not found")
 
+    if not _is_private_api_authorized(
+        request.headers.get("authorization"),
+        request.headers.get("x-kolibri-api-key"),
+    ):
+        raise HTTPException(status_code=401, detail="Authentication required")
+
     target_url = f"{upstream}{add_path}{req_path[len(matched_prefix):]}"
 
     async with httpx.AsyncClient(timeout=120.0) as client:
@@ -403,4 +451,3 @@ if frontend_path.exists():
         if file_path.exists() and file_path.is_file():
             return FileResponse(str(file_path))
         return FileResponse(str(frontend_path / "index.html"))
-

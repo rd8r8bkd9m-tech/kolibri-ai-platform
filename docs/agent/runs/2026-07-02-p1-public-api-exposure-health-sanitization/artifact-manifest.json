@@ -1,0 +1,17 @@
+{
+  "task": "P1_KOLIBRIAI_RU_PUBLIC_API_EXPOSURE_HEALTH_SANITIZATION_2026_07_02",
+  "date": "2026-07-02",
+  "artifacts": [
+    "docs/agent/runs/2026-07-02-p1-public-api-exposure-health-sanitization/RESULT.md",
+    "docs/agent/runs/2026-07-02-p1-public-api-exposure-health-sanitization/TESTS.md",
+    "docs/agent/runs/2026-07-02-p1-public-api-exposure-health-sanitization/artifact-manifest.json"
+  ],
+  "code_changes": [
+    "backend/main.py",
+    "tests/test_public_api_security.py"
+  ],
+  "validation": [
+    ".venv/bin/python -m pytest tests/test_public_api_security.py tests/test_factory_status.py backend/tests/test_factory_status_fast_health.py -q"
+  ],
+  "live_runtime_mutated": false
+}
