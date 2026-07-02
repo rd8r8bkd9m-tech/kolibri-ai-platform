@@ -1,6 +1,10 @@
 # Result
 
-Status: completed as a scoped repository change; not deployed to live systemd.
+Status: completed as a scoped repository change and pushed task branch; not deployed to live systemd.
+
+Branch: `agent/P0_EXEC_MIMO_POOL_20_PER_SERVER_POLICY_AND_BOOTSTRAP_2026_07_02/generic`
+
+PR creation URL: `https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/new/agent/P0_EXEC_MIMO_POOL_20_PER_SERVER_POLICY_AND_BOOTSTRAP_2026_07_02/generic`
 
 What now works:
 
@@ -47,4 +51,4 @@ sudo systemctl restart kolibri-agent-host.service
 Remaining blocked:
 
 - Live deployment was intentionally not performed from this repository worktree.
-- No PR was opened by this node during this run.
+- The branch is pushed; PR creation remains the next GitHub UI/API action.
