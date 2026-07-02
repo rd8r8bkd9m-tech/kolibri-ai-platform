@@ -1,7 +1,9 @@
 # Fleet Project Context Rollout
 
 Status: rollout применен ко всем reachable узлам из текущей SSH-топологии.
-Остаточный blocker: `hostvds-agent-10` не отвечает по SSH с command node.
+Остаточный blocker: `hostvds-agent-10` не отвечает по SSH с command node;
+repair task `P0_REPAIR_HOSTVDS_AGENT_10_API_UNREACHABLE_2026_07_02`
+создан и отправлен через standby Control Plane.
 
 Дата: 2026-07-02.
 

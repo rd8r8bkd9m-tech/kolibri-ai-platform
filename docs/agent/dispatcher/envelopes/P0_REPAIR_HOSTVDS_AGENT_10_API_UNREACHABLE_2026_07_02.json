@@ -1,0 +1,103 @@
+{
+  "acceptance": [
+    "Structured blocked status is recorded with fallback nodes and can_continue_elsewhere=true.",
+    "Read-only diagnostics identify whether the blocker is host down, firewall, provider route, SSH, or Agent Host.",
+    "No paid provider action, billing change, server creation, server deletion, or credential exposure is performed.",
+    "If the node becomes reachable, rerun fleet project-context bootstrap and verify repo, memory, sync, Agent Host, and loopback MiMo Code.",
+    "Owner work remains routed through healthy fallback nodes while repair is pending."
+  ],
+  "agent_display_name": "Fleet Repair Operator",
+  "agent_type": "fleet_repair_operator",
+  "allowed_nodes": [
+    "main",
+    "server-kfrm",
+    "kolibri-9fts",
+    "kolibri-new",
+    "kolibri-uiap",
+    "kolibri-qjns"
+  ],
+  "base_ref": "main",
+  "blocked_status": {
+    "can_continue_elsewhere": true,
+    "condition": "ssh_failed",
+    "fallback_nodes": [
+      "main",
+      "server-kfrm",
+      "kolibri-9fts",
+      "kolibri-new",
+      "kolibri-uiap",
+      "kolibri-qjns"
+    ],
+    "fallback_route": {
+      "endpoint": "/v1/fabric/relay",
+      "type": "fabric_api_relay"
+    },
+    "next_action": "run read-only network, provider status, firewall, and Agent Host diagnostics through a reachable relay",
+    "node": "hostvds-agent-10",
+    "reason": "api_unreachable",
+    "repair_task": "P0_REPAIR_HOSTVDS_AGENT_10_API_UNREACHABLE_2026_07_02",
+    "status": "blocked",
+    "target_node": "hostvds-agent-10"
+  },
+  "branch": "codex/p0-repair-hostvds-agent-10-api-unreachable-2026-07-02",
+  "constraints": {
+    "budget_limit_usd": 200,
+    "do_not_change_billing": true,
+    "do_not_create_servers": true,
+    "do_not_delete_servers": true,
+    "no_paid_actions": true,
+    "read_only_required": true,
+    "secrets_redaction_required": true
+  },
+  "goal": "Restore Kolibri fleet route for hostvds-agent-10 without blocking owner work.",
+  "idempotency_key": "fleet-repair:hostvds-agent-10:api_unreachable:2026_07_02",
+  "kind": "owner_remote_task",
+  "max_retries": 1,
+  "objective": "Use read-only diagnostics from healthy fallback nodes to restore the protected Fabric/API route for hostvds-agent-10 (kolibri-hk-edge-load / 217.60.38.191). Do not perform paid provider actions or expose secrets. Keep owner work routed through fallback nodes while this repair runs.",
+  "preferred_nodes": [
+    "main",
+    "server-kfrm",
+    "kolibri-9fts",
+    "kolibri-new"
+  ],
+  "priority": "P0",
+  "repair": {
+    "action": "run read-only network, provider status, firewall, and Agent Host diagnostics through a reachable relay",
+    "address": "217.60.38.191",
+    "condition": "ssh_failed",
+    "evidence": {
+      "alias": "hostvds-agent-10",
+      "reachable": false,
+      "status": "ssh_failed"
+    },
+    "fallback_nodes": [
+      "main",
+      "server-kfrm",
+      "kolibri-9fts",
+      "kolibri-new",
+      "kolibri-uiap",
+      "kolibri-qjns"
+    ],
+    "kind": "repair_fleet_node_route",
+    "node_alias": "hostvds-agent-10",
+    "observed_at": "2026-07-02T15:55:00+00:00",
+    "reason": "api_unreachable",
+    "server_name": "kolibri-hk-edge-load"
+  },
+  "required_capability": "orchestrator",
+  "runner": "mimo",
+  "source": {
+    "created_at": "2026-07-02T15:55:00+00:00",
+    "kind": "fleet_repair_sweep"
+  },
+  "target_node": "main",
+  "task_id": "P0_REPAIR_HOSTVDS_AGENT_10_API_UNREACHABLE_2026_07_02",
+  "verification_commands": [
+    "test -s RESULT.md",
+    "test -s NEXT.md"
+  ],
+  "write_scope": [
+    "docs/agent/runs/2026-07-02-p0-repair-hostvds-agent-10-api-unreachable-2026-07-02/**",
+    "docs/ops/hostvds/**"
+  ]
+}

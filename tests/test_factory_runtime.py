@@ -2,6 +2,7 @@ import importlib.util
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -132,6 +133,42 @@ def test_agent_host_filesystem_manifest_exposes_project_roots(tmp_path, monkeypa
     assert roots["runtime-repo"]["path"] == str(runtime_repo)
     assert roots["owner-project"]["path"] == str(owner_project)
     assert roots["root"]["writable"] is False
+
+
+def test_agent_host_loop_skips_malformed_lease_response_without_crashing():
+    agent = load_module(ROOT / "ops" / "agent_host.py")
+    host = object.__new__(agent.AgentHost)
+    host.heartbeat_interval = 0
+    heartbeats = []
+    leases = [{"status": "blocked", "reason": "target_node_unavailable"}]
+    runs = []
+
+    def register():
+        return None
+
+    def node_heartbeat(active_task=None):
+        heartbeats.append(active_task)
+
+    def lease():
+        if leases:
+            return leases.pop(0)
+        agent.STOP = True
+        return None
+
+    host.register = register
+    host.node_heartbeat = node_heartbeat
+    host.lease = lease
+    host.run_task = runs.append
+
+    agent.STOP = False
+    try:
+        with patch.object(agent.time, "sleep", lambda _seconds: None):
+            host.loop()
+    finally:
+        agent.STOP = False
+
+    assert runs == []
+    assert all(active_task is None for active_task in heartbeats)
 
 
 

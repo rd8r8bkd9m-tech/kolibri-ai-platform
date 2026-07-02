@@ -2501,7 +2501,12 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 time.sleep(5)
                 continue
             if task:
-                self.node_heartbeat(active_task=task["task_id"])
+                task_id = task.get("task_id") if isinstance(task, dict) else None
+                if not task_id:
+                    print(f"{utc_now()} malformed_lease_response {redact_sensitive_text(json.dumps(task, sort_keys=True, default=str))}", flush=True)
+                    time.sleep(5)
+                    continue
+                self.node_heartbeat(active_task=task_id)
                 self.run_task(task)
                 self.node_heartbeat()
             time.sleep(2)

@@ -151,11 +151,11 @@ Implementation order:
 
 ## P0: Restore API Reachability For Timed-Out Nodes
 
-Status: pending.
+Status: partially implemented.
 
 Known deferred nodes:
 
-- `hostvds-agent-10 / 217.60.38.191`: direct SSH from Mac reports `Network is unreachable`; API route must classify with fallback and create repair task.
+- `hostvds-agent-10 / 217.60.38.191`: direct SSH/TCP/ICMP from Mac, main and highload is unreachable; `ops/fleet_repair_sweep.py` generated `P0_REPAIR_HOSTVDS_AGENT_10_API_UNREACHABLE_2026_07_02`, and the task was submitted through standby Control Plane `10.99.0.10:9101`.
 
 Expected behavior:
 
