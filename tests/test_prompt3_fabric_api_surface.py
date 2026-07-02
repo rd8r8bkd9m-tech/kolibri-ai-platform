@@ -29,6 +29,7 @@ def test_prompt3_required_endpoint_surface_is_declared():
         "POST": [
             "/v1/responses",
             "/v1/chat/completions",
+            "/v1/gomesh/dev/handoff",
             "/v1/agents/tasks",
             "/v1/agents/cancel/{task_id}",
             "/v1/admin/exec",

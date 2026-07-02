@@ -198,6 +198,7 @@ PROMPT3_REQUIRED_ENDPOINTS = {
     "POST": [
         "/v1/responses",
         "/v1/chat/completions",
+        "/v1/gomesh/dev/handoff",
         "/v1/agents/tasks",
         "/v1/agents/cancel/{task_id}",
         "/v1/admin/exec",
@@ -207,6 +208,50 @@ PROMPT3_REQUIRED_ENDPOINTS = {
         "/v1/admin/rotate-keys",
     ],
 }
+
+GOMESH_OWNER_RULES = {
+    "product_execution_required": True,
+    "status_only_result_is_failure": True,
+    "accepted_outputs": [
+        "working_live_repair_with_rollback",
+        "pushed_pr_branch_with_tests",
+        "deployable_artifact",
+        "exact_hard_blocker_with_unblock_command",
+    ],
+    "git": {
+        "no_push_to_main": True,
+        "no_force_push": True,
+        "no_auto_merge": True,
+        "no_destructive_commands": True,
+        "clean_remote_worktree_required_for_code_changes": True,
+    },
+    "secrets": {
+        "do_not_print_secrets": True,
+        "use_existing_env_or_config_only": True,
+        "redact_psk_private_key_token_cookie_password_env_values": True,
+    },
+    "evidence": {
+        "branch_required": True,
+        "tests_required": True,
+        "artifact_manifest_required": True,
+        "rollback_required_for_runtime_changes": True,
+        "owner_value_summary_required": True,
+    },
+}
+
+GOMESH_DEV_REQUIRED_ARTIFACTS = [
+    "docs/agent/runs/2026-07-02-p0-product-gomesh-app-dev-agent-handoff-pr/PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-product-gomesh-app-dev-agent-handoff-pr/ACTIONS.md",
+    "docs/agent/runs/2026-07-02-p0-product-gomesh-app-dev-agent-handoff-pr/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-product-gomesh-app-dev-agent-handoff-pr/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-product-gomesh-app-dev-agent-handoff-pr/NEXT.md",
+]
+
+GOMESH_DEV_DEFAULT_VERIFICATION = [
+    "git diff --check",
+    "python3 -m py_compile ops/factory_control.py",
+    "python3 -m pytest tests/test_factory_control_gomesh_handoff.py tests/test_prompt3_fabric_api_surface.py -q",
+]
 
 
 def utc_now() -> str:
@@ -415,6 +460,100 @@ def task_envelope_from_request(body: dict[str, Any], default_kind: str = "owner_
     envelope.setdefault("write_scope", [])
     envelope.setdefault("constraints", {})
     return envelope
+
+
+def gomesh_dev_handoff_envelope(body: dict[str, Any]) -> dict[str, Any]:
+    task_id = body.get("task_id") or "P0_PRODUCT_GOMESH_APP_DEV_AGENT_HANDOFF_PR_2026_07_02"
+    active_agent = body.get("active_agent") or {}
+    if not isinstance(active_agent, dict):
+        raise ValueError("active_agent must be an object when provided")
+    branch = body.get("branch") or active_agent.get("branch")
+    if not branch:
+        raise ValueError("branch is required for GoMesh development handoff")
+    objective = body.get("objective") or body.get("goal")
+    if not objective:
+        raise ValueError("objective is required for GoMesh development handoff")
+    target_node = body.get("target_node") or active_agent.get("node") or "primary-candidate"
+    target_worktree = body.get("worktree") or active_agent.get("cwd") or "/opt/kolibri/repo"
+    expected_output = body.get("expected_output") or "pushed_pr_branch_with_tests"
+    if expected_output not in GOMESH_OWNER_RULES["accepted_outputs"]:
+        raise ValueError("expected_output must be one of the accepted GoMesh production outputs")
+
+    constraints = dict(body.get("constraints") or {})
+    constraints.update(
+        {
+            "product_execution_required": True,
+            "status_only_result_forbidden": True,
+            "secrets_redaction_required": True,
+            "do_not_print_env_values": True,
+            "destructive_git_commands_forbidden": True,
+            "force_push_forbidden": True,
+            "push_to_main_forbidden": True,
+            "auto_merge_forbidden_without_owner_approval": True,
+            "clean_worktree_required_for_code_changes": True,
+            "rollback_plan_required_for_runtime_changes": True,
+            "artifact_discipline_required": True,
+        }
+    )
+
+    write_scope = ensure_list(body.get("write_scope")) or [
+        "ops/**",
+        "tests/**",
+        "frontend/**",
+        "backend/**",
+        "docs/agent/runs/2026-07-02-p0-product-gomesh-app-dev-agent-handoff-pr/**",
+    ]
+    required_artifacts = ensure_list(body.get("required_artifacts")) or list(GOMESH_DEV_REQUIRED_ARTIFACTS)
+    verification_commands = ensure_list(body.get("verification_commands")) or list(GOMESH_DEV_DEFAULT_VERIFICATION)
+    owner_rules = dict(GOMESH_OWNER_RULES)
+    owner_rules["expected_output"] = expected_output
+
+    return {
+        "task_id": task_id,
+        "idempotency_key": body.get("idempotency_key") or f"gomesh-dev-handoff:{task_id}",
+        "kind": "owner_remote_task",
+        "priority": body.get("priority") or "P0",
+        "required_capability": body.get("required_capability") or "generic_implementation",
+        "runner": body.get("runner") or "codex",
+        "agent_type": body.get("agent_type") or "gomesh_app_development_engineer",
+        "agent_display_name": body.get("agent_display_name") or "Николай — GoMesh App Engineer",
+        "target_node": target_node,
+        "preferred_nodes": ensure_list(body.get("preferred_nodes")) or [target_node, "home", "9fts"],
+        "allowed_nodes": ensure_list(body.get("allowed_nodes")) or [target_node, "home", "9fts"],
+        "avoid_nodes": ensure_list(body.get("avoid_nodes")) or ["main"],
+        "branch": branch,
+        "base_ref": body.get("base_ref") or "origin/main",
+        "worktree": target_worktree,
+        "objective": objective,
+        "owner_rules": owner_rules,
+        "constraints": constraints,
+        "write_scope": write_scope,
+        "required_artifacts": required_artifacts,
+        "verification_commands": verification_commands,
+        "required_result_fields": [
+            "task_id",
+            "node",
+            "agent_display_name",
+            "branch",
+            "pull_request_url",
+            "tests",
+            "artifact_paths",
+            "rollback",
+            "blockers",
+            "what_now_works_for_owner",
+            "next_action",
+        ],
+        "completion_gate": {
+            "status_only_reports_rejected": True,
+            "must_include_one_of": GOMESH_OWNER_RULES["accepted_outputs"],
+            "must_say_what_now_works_for_owner": True,
+        },
+        "source": {
+            "kind": "fabric_api_gomesh_dev_handoff",
+            "accepted_at": utc_now(),
+            "active_agent": active_agent,
+        },
+    }
 
 
 def fleet_capabilities(nodes: list[dict[str, Any]]) -> dict[str, Any]:
@@ -982,6 +1121,7 @@ class Handler(BaseHTTPRequestHandler):
                     "owner_rights": OWNER_RIGHTS_POLICY,
                     "node_identity": NODE_IDENTITY_ROTATION_POLICY,
                     "bootstrap": BOOTSTRAP_CONTRACT,
+                    "gomesh_dev_handoff": GOMESH_OWNER_RULES,
                 })
                 return
             if path == "/v1/fabric/routes":
@@ -1135,6 +1275,31 @@ class Handler(BaseHTTPRequestHandler):
                     route_used="/v1/agents/tasks",
                     data={"task": task},
                     next_action="poll /v1/agents/status/{task_id}",
+                ))
+                return
+            if path == "/v1/gomesh/dev/handoff":
+                try:
+                    envelope = gomesh_dev_handoff_envelope(body)
+                except ValueError as exc:
+                    response(self, 400, canonical_response_envelope(
+                        status="blocked",
+                        task_id=body.get("task_id") or "",
+                        route_used="/v1/gomesh/dev/handoff",
+                        blocked_reason="unknown",
+                        repair_task={"kind": "repair_gomesh_handoff_request", "error": str(exc)},
+                        next_action="resubmit with objective, branch and accepted expected_output",
+                    ))
+                    return
+                task = create_task(envelope)
+                response(self, 201, canonical_response_envelope(
+                    status="running",
+                    task_id=task["task_id"],
+                    trace_id=envelope.get("trace_id") or task["task_id"],
+                    node=envelope["target_node"],
+                    route_used="/v1/gomesh/dev/handoff",
+                    artifacts=envelope["required_artifacts"],
+                    data={"task": task, "owner_rules": envelope["owner_rules"], "completion_gate": envelope["completion_gate"]},
+                    next_action="lease this task to the active GoMesh Codex agent and require PR/tests/artifacts or exact blocker",
                 ))
                 return
             if path in {"/v1/responses", "/v1/chat/completions"}:
