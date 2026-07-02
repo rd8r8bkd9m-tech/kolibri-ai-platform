@@ -9,6 +9,7 @@ client so it can run next to the legacy control plane without adding packages.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import errno
 import json
 import os
@@ -66,6 +67,7 @@ LEASE_QUEUE_SCAN_LIMIT = int(os.environ.get("FACTORY_LEASE_QUEUE_SCAN_LIMIT", "1
 TASK_MUTATION_LOCK_TTL = int(os.environ.get("FACTORY_TASK_MUTATION_LOCK_TTL", "5"))
 TASK_MUTATION_LOCK_WAIT = float(os.environ.get("FACTORY_TASK_MUTATION_LOCK_WAIT", "2.0"))
 HTTP_REQUEST_QUEUE_SIZE = int(os.environ.get("FACTORY_HTTP_REQUEST_QUEUE_SIZE", "512"))
+HTTP_MAX_WORKERS = int(os.environ.get("FACTORY_HTTP_MAX_WORKERS", "256"))
 TASK_LIST_DEFAULT_LIMIT = int(os.environ.get("FACTORY_TASK_LIST_DEFAULT_LIMIT", "1000"))
 TASK_LIST_MAX_LIMIT = int(os.environ.get("FACTORY_TASK_LIST_MAX_LIMIT", "5000"))
 LEASE_EMPTY_RETRY_AFTER = float(os.environ.get("FACTORY_LEASE_EMPTY_RETRY_AFTER", "1.0"))
@@ -108,7 +110,24 @@ class ClientDisconnected(Exception):
 class FactoryThreadingHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
     block_on_close = False
-    request_queue_size = max(128, HTTP_REQUEST_QUEUE_SIZE)
+    request_queue_size = max(2048, HTTP_REQUEST_QUEUE_SIZE)
+
+    def __init__(self, server_address: tuple[str, int], handler_class: type[BaseHTTPRequestHandler]):
+        super().__init__(server_address, handler_class)
+        self._executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=max(1, HTTP_MAX_WORKERS),
+            thread_name_prefix="factory-control-http",
+        )
+
+    def process_request(self, request: Any, client_address: Any) -> None:
+        try:
+            self._executor.submit(self.process_request_thread, request, client_address)
+        except RuntimeError:
+            self.shutdown_request(request)
+
+    def server_close(self) -> None:
+        super().server_close()
+        self._executor.shutdown(wait=False)
 
 
 FABRIC_NODE_CATALOG = {
@@ -981,6 +1000,12 @@ def lease_persisted_queued_task(node_id: str, agent_id: str, capabilities: list[
     return None
 
 
+def lease_queue_empty() -> bool:
+    queue_count = int(redis.command("LLEN", key("queue")) or 0)
+    queued_index_count = int(redis.command("SCARD", queued_task_ids_key()) or 0)
+    return queue_count == 0 and queued_index_count == 0
+
+
 def create_task(envelope: dict[str, Any]) -> dict[str, Any]:
     task = normalize_task(envelope)
     idem_key = key(f"idempotency:{task['idempotency_key']}")
@@ -1551,13 +1576,16 @@ class Handler(BaseHTTPRequestHandler):
                 })
                 return
             if path == "/v1/tasks/lease":
-                maybe_requeue_expired_leases()
                 node_id = body["node_id"]
                 if redis.command("GET", drain_key(node_id)):
                     response(self, 200, lease_no_task_response("node_draining"))
                     return
                 capabilities = body.get("capabilities", [])
                 agent_id = body.get("agent_id", node_id)
+                if not isinstance(body.get("runners"), dict) and lease_queue_empty():
+                    response(self, 200, lease_no_task_response())
+                    return
+                maybe_requeue_expired_leases()
                 node = get_json(node_key(node_id), {"node_id": node_id, "capabilities": capabilities})
                 if isinstance(body.get("runners"), dict):
                     node["runners"] = body["runners"]
