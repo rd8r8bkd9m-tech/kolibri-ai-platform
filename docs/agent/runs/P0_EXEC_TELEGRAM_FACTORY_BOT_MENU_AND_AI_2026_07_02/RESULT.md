@@ -2,6 +2,12 @@
 
 Implemented the Telegram bot cleanup and factory integration on branch `agent/P0_EXEC_TELEGRAM_FACTORY_BOT_MENU_AND_AI_2026_07_02/generic`.
 
+Remote branch:
+
+- Pushed: `origin/agent/P0_EXEC_TELEGRAM_FACTORY_BOT_MENU_AND_AI_2026_07_02/generic`
+- PR creation URL: `https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/new/agent/P0_EXEC_TELEGRAM_FACTORY_BOT_MENU_AND_AI_2026_07_02/generic`
+- Direct PR creation was blocked locally because `gh` is not installed.
+
 What now works:
 
 - The default gateway cannot mutate the Telegram command/menu/profile surface with `setMyCommands`, `deleteMyCommands`, or `setChatMenuButton`.
