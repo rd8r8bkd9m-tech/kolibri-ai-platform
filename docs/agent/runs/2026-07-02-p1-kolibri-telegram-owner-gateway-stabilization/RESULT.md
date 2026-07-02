@@ -13,6 +13,12 @@ Changed files:
 - docs/agent/runs/2026-07-02-p1-kolibri-telegram-owner-gateway-stabilization/TESTS.md
 - docs/agent/runs/2026-07-02-p1-kolibri-telegram-owner-gateway-stabilization/RESULT.md
 - docs/agent/runs/2026-07-02-p1-kolibri-telegram-owner-gateway-stabilization/NEXT.md
+- docs/agent/runs/2026-07-02-p1-kolibri-telegram-owner-gateway-stabilization/TELEGRAM_GATEWAY_AUDIT.md
+- docs/agent/runs/2026-07-02-p1-kolibri-telegram-owner-gateway-stabilization/TELEGRAM_COMMAND_CONTRACT.md
+- docs/agent/runs/2026-07-02-p1-kolibri-telegram-owner-gateway-stabilization/TELEGRAM_STATUS_REPORTING_PLAN.md
+- docs/agent/runs/2026-07-02-p1-kolibri-telegram-owner-gateway-stabilization/TELEGRAM_ERROR_MODEL.md
+- docs/agent/runs/2026-07-02-p1-kolibri-telegram-owner-gateway-stabilization/TELEGRAM_LIVE_SMOKE_PLAN.md
+- docs/agent/runs/2026-07-02-p1-kolibri-telegram-owner-gateway-stabilization/PR_READY_CHECKLIST.md
 
 Verification:
 - `pytest -q tests/test_telegram_gateway.py tests/test_agent_host_telegram_chat.py`
@@ -27,6 +33,15 @@ Artifact paths:
 - docs/agent/runs/2026-07-02-p1-kolibri-telegram-owner-gateway-stabilization/TESTS.md
 - docs/agent/runs/2026-07-02-p1-kolibri-telegram-owner-gateway-stabilization/RESULT.md
 - docs/agent/runs/2026-07-02-p1-kolibri-telegram-owner-gateway-stabilization/NEXT.md
+- docs/agent/runs/2026-07-02-p1-kolibri-telegram-owner-gateway-stabilization/TELEGRAM_GATEWAY_AUDIT.md
+- docs/agent/runs/2026-07-02-p1-kolibri-telegram-owner-gateway-stabilization/TELEGRAM_COMMAND_CONTRACT.md
+- docs/agent/runs/2026-07-02-p1-kolibri-telegram-owner-gateway-stabilization/TELEGRAM_STATUS_REPORTING_PLAN.md
+- docs/agent/runs/2026-07-02-p1-kolibri-telegram-owner-gateway-stabilization/TELEGRAM_ERROR_MODEL.md
+- docs/agent/runs/2026-07-02-p1-kolibri-telegram-owner-gateway-stabilization/TELEGRAM_LIVE_SMOKE_PLAN.md
+- docs/agent/runs/2026-07-02-p1-kolibri-telegram-owner-gateway-stabilization/PR_READY_CHECKLIST.md
+
+Artifact gate:
+- Complete. Owner-required Telegram gateway artifacts were added in a docs-only follow-up pass.
 
 Next action:
 - Commit this branch after review, then run the same focused tests in the remote CI/factory environment.
