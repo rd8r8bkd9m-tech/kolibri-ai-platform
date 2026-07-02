@@ -21,11 +21,17 @@ Passed:
 git diff --check
 ```
 
-Not run locally:
+Passed in a temporary venv:
 
 ```text
-python3 -m pytest -q tests/test_factory_runtime.py
+/tmp/kolibri-pytest-venv/bin/python -m pytest -q tests/test_factory_runtime.py tests/test_agent_host_runner_contract.py tests/test_agent_host_direct_mimo.py
 ```
 
-Reason: the current Mac Python environment does not have `pytest` installed.
+Result:
 
+```text
+44 passed in 22.72s
+```
+
+Note: the system Python did not have `pytest`; a temporary venv under `/tmp` was
+used so the repository environment stayed clean.
