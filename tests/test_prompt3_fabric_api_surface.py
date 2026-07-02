@@ -43,8 +43,8 @@ def test_prompt3_required_endpoint_surface_is_declared():
 def test_fleet_aliases_return_catalog_topology_capabilities_and_routes():
     control = load_control()
     registered = [
-        {"node_id": "9fts", "health": "online", "capabilities": ["implementation", "model"]},
-        {"node_id": "qjns", "health": "online", "capabilities": ["review"]},
+        {"node_id": "9fts", "health": "online", "heartbeat_at": control.utc_now(), "capabilities": ["implementation", "model"]},
+        {"node_id": "qjns", "health": "online", "heartbeat_at": control.utc_now(), "capabilities": ["review"]},
     ]
     nodes = control.fabric_nodes(registered)
     capability_map = control.fleet_capabilities(nodes)["capabilities"]
@@ -56,6 +56,31 @@ def test_fleet_aliases_return_catalog_topology_capabilities_and_routes():
     assert {"from": "main", "to": "9fts", "type": "protected_fabric_api"} in topology["edges"]
     assert topology["relay_endpoint"] == "/v1/fabric/relay"
     assert route["route"]["endpoint"] == "/v1/nodes/9fts"
+
+
+def test_fabric_route_rejects_stale_home_direct_route():
+    control = load_control()
+    registered = [
+        {
+            "node_id": "home",
+            "health": "online",
+            "heartbeat_at": "2026-07-02T06:15:26+00:00",
+            "capabilities": ["home", "read_only_probe"],
+        },
+        {
+            "node_id": "primary-candidate",
+            "health": "online",
+            "heartbeat_at": control.utc_now(),
+            "capabilities": ["read_only_probe", "runner:codex"],
+        },
+    ]
+
+    route = control.fabric_route(target_node="home", registered_nodes=registered)
+
+    assert route["status"] == "blocked"
+    assert route["reason"] == "target_node_unavailable"
+    assert route["target_node"] == "home"
+    assert "primary-candidate" in route["fallback_nodes"]
 
 
 def test_model_responses_and_chat_completions_are_safe_blocked_stubs():
