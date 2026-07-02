@@ -62,6 +62,10 @@ Active dispatch:
 - `P0_CONTROL_PLANE_HA_RUNTIME_CONTRACT_PARITY_2026_07_02` must close live
   runtime drift where standby/primary Control Plane routes lag behind the git
   contract for `/v1/filesystem` and owner notification relay endpoints.
+- `P0_AGENT_HOST_MIMO_EMPTY_RESPONSE_CONTRACT_ROLLOUT_2026_07_02` must roll out
+  the Agent Host contract where successful-but-empty MIMO output becomes
+  `runner_contract_blocked` with `mimo_empty_response` artifacts, not a silent
+  runtime retry loop.
 
 ## P0: Unified OpenAI-Compatible Fabric API
 

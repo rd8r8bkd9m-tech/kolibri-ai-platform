@@ -1,0 +1,105 @@
+{
+  "task_id": "P0_AGENT_HOST_MIMO_EMPTY_RESPONSE_CONTRACT_ROLLOUT_2026_07_02",
+  "idempotency_key": "director:P0_AGENT_HOST_MIMO_EMPTY_RESPONSE_CONTRACT_ROLLOUT_2026_07_02",
+  "kind": "owner_remote_task",
+  "priority": "P0",
+  "required_capability": "implementation",
+  "runner": "mimo",
+  "mimo_mode": "auto",
+  "permission_pack": "factory_auto_permit",
+  "approval_mode": "auto_within_factory_rules",
+  "agent_type": "agent_host_runner_contract_engineer",
+  "agent_display_name": "Егор - инженер контракта Agent Host",
+  "target_node_pool": "fresh_runtime_agent_host_nodes",
+  "preferred_nodes": [
+    "qjns",
+    "main",
+    "9fts",
+    "new"
+  ],
+  "allowed_nodes": [
+    "qjns",
+    "main",
+    "9fts",
+    "new"
+  ],
+  "branch": "agent/P0_AGENT_HOST_MIMO_EMPTY_RESPONSE_CONTRACT_ROLLOUT_2026_07_02/mimo",
+  "base_ref": "origin/main",
+  "goal": "Довести MIMO runner contract до артефактов и repair tasks вместо молчаливых runtime errors.",
+  "objective": "Verify and roll out the Agent Host contract where a MIMO run that exits successfully without text output becomes a structured blocked result with blocked_reason=mimo_empty_response, result.json, artifact-manifest.json and no retry loop. After canary, rerun or supersede P0_CONTROL_PLANE_HA_RUNTIME_CONTRACT_PARITY_2026_07_02 so runtime parity work can produce artifacts.",
+  "read_first": [
+    "ops/agent_host.py",
+    "tests/test_agent_host_direct_mimo.py",
+    "docs/agent/dispatcher/envelopes/P0_CONTROL_PLANE_HA_RUNTIME_CONTRACT_PARITY_2026_07_02.json",
+    "docs/superfactory/FEDERATED_FRACTAL_CONTROL_PLANE.md",
+    "docs/superfactory/MIMO_AUTO_DEVELOPMENT_POLICY.md",
+    "docs/superfactory/FABRIC_NO_KOSTYL_POLICY.md"
+  ],
+  "observed_gap": {
+    "source_task_id": "P0_CONTROL_PLANE_HA_RUNTIME_CONTRACT_PARITY_2026_07_02",
+    "observed_errors": [
+      "mimo completed without text response",
+      "<urlopen error timed out>",
+      "required_artifacts_missing"
+    ],
+    "desired_behavior": "runner_contract_blocked with blocked_reason=mimo_empty_response or required_artifacts_missing, plus repair task and stable result artifacts"
+  },
+  "implementation_requirements": [
+    "Run focused tests or a deterministic harness for empty MIMO stdout.",
+    "Verify result.json and artifact-manifest.json are produced for empty MIMO output.",
+    "Verify fail payload uses error_type=runner_contract_blocked and retry=false for mimo_empty_response.",
+    "Prepare a canary rollout plan for Agent Host nodes before any service restart.",
+    "Do not mutate Telegram receiver, provider billing, secrets, or main branch.",
+    "After safe canary, rerun or create a superseding parity task for P0_CONTROL_PLANE_HA_RUNTIME_CONTRACT_PARITY_2026_07_02."
+  ],
+  "write_scope": [
+    "docs/agent/runs/2026-07-02-p0-agent-host-mimo-empty-response-contract-rollout/**",
+    "docs/superfactory/**",
+    "ops/**",
+    "tests/**"
+  ],
+  "required_outputs": [
+    "docs/agent/runs/2026-07-02-p0-agent-host-mimo-empty-response-contract-rollout/PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-agent-host-mimo-empty-response-contract-rollout/ACTIONS.md",
+    "docs/agent/runs/2026-07-02-p0-agent-host-mimo-empty-response-contract-rollout/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-agent-host-mimo-empty-response-contract-rollout/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-agent-host-mimo-empty-response-contract-rollout/NEXT.md",
+    "docs/agent/runs/2026-07-02-p0-agent-host-mimo-empty-response-contract-rollout/CANARY.md",
+    "docs/agent/runs/2026-07-02-p0-agent-host-mimo-empty-response-contract-rollout/ROLLBACK.md"
+  ],
+  "verification_commands": [
+    "python3 -m py_compile ops/agent_host.py",
+    "python3 -m pytest -q tests/test_agent_host_direct_mimo.py tests/test_agent_host_runner_contract.py",
+    "test -f docs/agent/runs/2026-07-02-p0-agent-host-mimo-empty-response-contract-rollout/PLAN.md",
+    "test -f docs/agent/runs/2026-07-02-p0-agent-host-mimo-empty-response-contract-rollout/ACTIONS.md",
+    "test -f docs/agent/runs/2026-07-02-p0-agent-host-mimo-empty-response-contract-rollout/TESTS.md",
+    "test -f docs/agent/runs/2026-07-02-p0-agent-host-mimo-empty-response-contract-rollout/RESULT.md",
+    "test -f docs/agent/runs/2026-07-02-p0-agent-host-mimo-empty-response-contract-rollout/NEXT.md",
+    "test -f docs/agent/runs/2026-07-02-p0-agent-host-mimo-empty-response-contract-rollout/CANARY.md",
+    "test -f docs/agent/runs/2026-07-02-p0-agent-host-mimo-empty-response-contract-rollout/ROLLBACK.md"
+  ],
+  "acceptance": [
+    "Empty MIMO output is no longer reported as a raw runtime_error.",
+    "Empty MIMO output produces a blocked result with blocked_reason=mimo_empty_response.",
+    "Required artifacts and result manifest are present for the failed attempt.",
+    "Control Plane can create or receive an exact repair task for the blocked runner contract.",
+    "The parity task has a safe rerun path after canary.",
+    "No secrets, Telegram receiver state, provider billing, destructive changes, direct main push or force push occur."
+  ],
+  "constraints": {
+    "remote_execution_required": true,
+    "canary_first": true,
+    "rollback_required": true,
+    "secrets_redaction_required": true,
+    "telegram_receiver_changes_forbidden": true,
+    "provider_paid_actions_forbidden": true,
+    "destructive_commands_forbidden_without_owner_approval": true,
+    "direct_main_push_forbidden": true,
+    "force_push_forbidden": true
+  },
+  "source": {
+    "kind": "director_agent_host_contract_dispatch",
+    "owner": "Vladislav",
+    "created_at": "2026-07-02T21:30:00+03:00"
+  }
+}

@@ -111,6 +111,51 @@ def test_direct_mimo_stdout_useful_json_completes_with_non_empty_response(tmp_pa
     ]
 
 
+def test_direct_mimo_empty_text_response_is_contract_blocked_not_runtime_retry(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setattr(agent_host.shutil, "which", lambda name: "/usr/bin/mimo" if name == "mimo" else None)
+    secret_prompt = "owner private parity details"
+
+    class Host(agent_host.AgentHost):
+        def __init__(self, args):
+            super().__init__(args)
+            self.posts = []
+
+        def post(self, path, body):
+            self.posts.append((path, body))
+            return body
+
+        def run_command(self, command, cwd, stdout_path, stderr_path, task, branch, logs, env=None, command_label=None):
+            del command, cwd, task, branch, logs, env
+            stdout_path.write_text(f"$ {command_label}\n", encoding="utf-8")
+            stderr_path.write_text("", encoding="utf-8")
+
+    host = Host(make_args(tmp_path))
+    host.run_task(make_direct_task("MIMO-EMPTY", secret_prompt))
+
+    assert not [path for path, _ in host.posts if path.endswith("/complete")]
+    fail_posts = [(path, body) for path, body in host.posts if path.endswith("/fail")]
+    assert len(fail_posts) == 1
+    fail_body = fail_posts[0][1]
+    assert fail_body["error_type"] == "runner_contract_blocked"
+    assert fail_body["retry"] is False
+    result = fail_body["result"]
+    assert result["status"] == "blocked"
+    assert result["runner"] == "mimo"
+    assert result["blocked_reason"] == "mimo_empty_response"
+    assert result["failure_reason"] == agent_host.MIMO_EMPTY_RESPONSE_TEXT
+    assert "repair MIMO output contract" in result["next_recommended_task"]
+    service_payload = json.dumps(fail_body, ensure_ascii=False)
+    assert secret_prompt not in service_payload
+    assert artifact_files(tmp_path, "MIMO-EMPTY") == [
+        "artifact-manifest.json",
+        "result.json",
+        "runner-contract.json",
+        "stderr.log",
+        "stdout.log",
+    ]
+
+
 def test_direct_mimo_http_401_is_runner_auth_failed_without_prompt_leak(tmp_path, monkeypatch):
     agent_host = load_agent_host()
     monkeypatch.setattr(agent_host.shutil, "which", lambda name: "/usr/bin/mimo" if name == "mimo" else None)

@@ -51,6 +51,7 @@ SAFE_MIMO_RESULT_FIELDS = {
     "tests",
     "text",
 }
+MIMO_EMPTY_RESPONSE_TEXT = "mimo completed without text response"
 SECRET_FIELD_HINTS = ("authorization", "cookie", "key", "password", "secret", "token")
 CONTRACT_STATUSES = {"completed", "blocked", "failed"}
 CONTRACT_RESULT_FIELDS = [
@@ -821,6 +822,8 @@ def next_recommended_task_for(blockers: list[str], envelope: dict[str, Any]) -> 
         return "repair Agent Host git credentials, then rerun the review task"
     if "backend_test_environment_failed" in joined:
         return "repair the declared backend test environment requirements or package list, then rerun verification"
+    if "mimo_empty_response" in joined:
+        return "repair MIMO output contract or route this task to another MIMO-capable node"
     return "inspect the runner contract blockers and resubmit with corrected constraints"
 
 
@@ -1371,7 +1374,8 @@ class AgentHost:
             raise
         payload = self.parse_json_response_payload(stdout_path)
         if not payload.get("response"):
-            raise RuntimeError(f"{empty_response_label} completed without text response")
+            payload["response"] = f"{empty_response_label} completed without text response"
+            payload["empty_response"] = True
         return payload
 
     def run_json_text_command(
@@ -1760,6 +1764,7 @@ class AgentHost:
             branch,
             logs,
         )
+        empty_response = bool(payload.get("empty_response"))
         runner_output = payload.get("runner_output") if isinstance(payload.get("runner_output"), dict) else {}
         result = {
             "node_id": self.node_id,
@@ -1775,7 +1780,7 @@ class AgentHost:
             "pull_request_url": runner_output.get("pull_request_url") or runner_output.get("pr_url"),
             "log_paths": logs,
             "result_path": str(artifact_dir / "result.json"),
-            "status": "completed",
+            "status": "blocked" if empty_response else "completed",
             "kind": task.get("kind") or envelope.get("kind") or "owner_remote_task",
             "runner": "mimo",
             "response": payload["response"],
@@ -1784,6 +1789,10 @@ class AgentHost:
             "next_action": runner_output.get("next_action"),
             "changed_files": runner_output.get("changed_files"),
         }
+        if empty_response:
+            result["blocked_reason"] = "mimo_empty_response"
+            result["failure_reason"] = MIMO_EMPTY_RESPONSE_TEXT
+            result["next_recommended_task"] = "repair MIMO output contract or route this task to another MIMO-capable node"
         if runner_output:
             result["runner_output"] = runner_output
         result = self.finalize_result(task, result, artifact_dir, worktree)
