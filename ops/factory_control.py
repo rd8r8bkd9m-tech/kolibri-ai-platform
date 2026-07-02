@@ -75,6 +75,7 @@ FALLBACK_REASON_TAXONOMY = {
 }
 NODE_DEGRADED_AFTER = int(os.environ.get("FACTORY_NODE_DEGRADED_AFTER", "30"))
 NODE_STALE_AFTER = int(os.environ.get("FACTORY_NODE_STALE_AFTER", "90"))
+TASK_STUCK_RUNNING_AFTER = int(os.environ.get("FACTORY_TASK_STUCK_RUNNING_AFTER", "1800"))
 
 STATE_QUEUED = "queued"
 STATE_LEASED = "leased"
@@ -369,6 +370,10 @@ def queue_ids() -> list[str]:
     return redis.command("LRANGE", key("queue"), 0, -1) or []
 
 
+def dead_letter_ids() -> list[str]:
+    return redis.command("LRANGE", key("dead_letter"), 0, -1) or []
+
+
 def load_task(task_id: str) -> dict[str, Any] | None:
     return get_json(task_key(task_id))
 
@@ -637,6 +642,188 @@ def normalize_task(envelope: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _task_node(task: dict[str, Any]) -> str | None:
+    lease_owner = str(task.get("lease_owner") or "")
+    if lease_owner:
+        return lease_owner.split(":", 1)[0]
+    envelope = task.get("envelope") if isinstance(task.get("envelope"), dict) else {}
+    return envelope.get("target_node") or envelope.get("required_node")
+
+
+def queue_guardian_repair_envelopes(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    repairs = []
+    seen: set[str] = set()
+    for finding in findings:
+        kind = str(finding.get("kind") or "queue_health_issue")
+        task_id = str(finding.get("task_id") or "queue")
+        repair_id = f"REPAIR-{kind.upper().replace('_', '-')}-{task_id}"
+        idem = f"queue-lease-guardian:{kind}:{task_id}"
+        if idem in seen:
+            continue
+        seen.add(idem)
+        repairs.append({
+            "task_id": repair_id,
+            "idempotency_key": idem,
+            "kind": "queue_lease_repair",
+            "required_capability": "control_plane",
+            "target_node": finding.get("node") or "main",
+            "source_task_id": finding.get("task_id"),
+            "repair_kind": kind,
+            "objective": finding.get("recommended_action") or "inspect queue/lease issue and apply the smallest safe repair",
+            "constraints": {
+                "no_secrets": True,
+                "no_destructive_git": True,
+                "no_force_push": True,
+                "no_push_to_main": True,
+                "prefer_api_first_control_plane": True,
+            },
+            "max_retries": 1,
+            "guardian_finding": finding,
+        })
+    return repairs
+
+
+def inspect_queue_lease_health(
+    *,
+    tasks: list[dict[str, Any]],
+    queue: list[str],
+    dead_letter: list[str] | None = None,
+    nodes: list[dict[str, Any]] | None = None,
+    current: float | None = None,
+) -> dict[str, Any]:
+    current_ts = now_ts() if current is None else current
+    task_by_id = {str(task.get("task_id")): task for task in tasks if task.get("task_id")}
+    queue_seen: set[str] = set()
+    queue_duplicates: list[str] = []
+    findings: list[dict[str, Any]] = []
+    states: dict[str, int] = {}
+    for task in tasks:
+        state = str(task.get("state") or "unknown")
+        states[state] = states.get(state, 0) + 1
+    for queued_id in queue:
+        if queued_id in queue_seen and queued_id not in queue_duplicates:
+            queue_duplicates.append(queued_id)
+            findings.append({
+                "severity": "warning",
+                "kind": "duplicate_queue_entry",
+                "task_id": queued_id,
+                "recommended_action": "remove duplicate queue list entries without deleting the task record",
+            })
+        queue_seen.add(queued_id)
+        task = task_by_id.get(queued_id)
+        if not task:
+            findings.append({
+                "severity": "warning",
+                "kind": "orphan_queue_entry",
+                "task_id": queued_id,
+                "recommended_action": "remove queue entry because the task record is missing",
+            })
+            continue
+        if task.get("state") not in {STATE_QUEUED, STATE_REVIEW}:
+            findings.append({
+                "severity": "warning",
+                "kind": "non_queued_task_in_queue",
+                "task_id": queued_id,
+                "state": task.get("state"),
+                "recommended_action": "remove queue entry or reconcile task state before leasing",
+            })
+    for task_id, task in task_by_id.items():
+        state = task.get("state")
+        if state in {STATE_QUEUED, STATE_REVIEW} and task_id not in queue_seen:
+            findings.append({
+                "severity": "critical",
+                "kind": "queued_task_missing_from_queue",
+                "task_id": task_id,
+                "state": state,
+                "recommended_action": "reinsert task id into the queue after confirming idempotency key ownership",
+            })
+        if state in {STATE_LEASED, STATE_RUNNING, STATE_REVIEW}:
+            lease_until = float(task.get("lease_until") or 0)
+            if lease_until and lease_until < current_ts:
+                retryable = int(task.get("attempt", 0)) < int(task.get("max_retries", MAX_RETRIES))
+                findings.append({
+                    "severity": "critical",
+                    "kind": "expired_lease",
+                    "task_id": task_id,
+                    "node": _task_node(task),
+                    "attempt": task.get("attempt"),
+                    "max_retries": task.get("max_retries"),
+                    "retryable": retryable,
+                    "recommended_action": "requeue expired lease" if retryable else "move exhausted lease to dead_letter",
+                })
+        if state == STATE_RUNNING:
+            heartbeat_ts = parse_iso_ts(task.get("heartbeat_at"))
+            if heartbeat_ts is None:
+                heartbeat_age = None
+            else:
+                heartbeat_age = max(0, int(current_ts - heartbeat_ts))
+            if heartbeat_age is None or heartbeat_age > TASK_STUCK_RUNNING_AFTER:
+                findings.append({
+                    "severity": "critical",
+                    "kind": "stuck_running_task",
+                    "task_id": task_id,
+                    "node": _task_node(task),
+                    "heartbeat_age_seconds": heartbeat_age,
+                    "recommended_action": "inspect agent heartbeat/artifacts, then requeue or dead-letter through control-plane policy",
+                })
+        if state == STATE_DEAD:
+            findings.append({
+                "severity": "info",
+                "kind": "dead_letter_task",
+                "task_id": task_id,
+                "node": _task_node(task),
+                "error_type": task.get("error_type"),
+                "recommended_action": "inspect terminal artifact/error and create an explicit retry task only after owner/operator decision",
+            })
+    for dead_id in dead_letter or []:
+        task = task_by_id.get(dead_id)
+        if not task:
+            findings.append({
+                "severity": "warning",
+                "kind": "orphan_dead_letter_entry",
+                "task_id": dead_id,
+                "recommended_action": "remove dead-letter entry because the task record is missing",
+            })
+        elif task.get("state") != STATE_DEAD:
+            findings.append({
+                "severity": "warning",
+                "kind": "non_dead_task_in_dead_letter",
+                "task_id": dead_id,
+                "state": task.get("state"),
+                "recommended_action": "reconcile dead-letter list with task terminal state",
+            })
+    stale_nodes = []
+    for node in nodes or []:
+        classified = classify_node_freshness(node, current_ts)
+        if classified.get("freshness") != "fresh":
+            stale_nodes.append(classified.get("node_id"))
+    status = "ok"
+    if any(item.get("severity") == "critical" for item in findings):
+        status = "repair_required"
+    elif findings:
+        status = "degraded"
+    return {
+        "status": status,
+        "checked_at": utc_now(),
+        "policy": {
+            "lease_duration_seconds": LEASE_DURATION,
+            "max_retries": MAX_RETRIES,
+            "stuck_running_after_seconds": TASK_STUCK_RUNNING_AFTER,
+            "dead_letter_state": STATE_DEAD,
+        },
+        "summary": {
+            "tasks": len(tasks),
+            "queue_entries": len(queue),
+            "dead_letter_entries": len(dead_letter or []),
+            "states": states,
+            "duplicate_queue_entries": queue_duplicates,
+            "stale_nodes": stale_nodes,
+        },
+        "findings": findings,
+        "repair_tasks": queue_guardian_repair_envelopes(findings),
+    }
+
+
 def ensure_list(value: Any) -> list[Any]:
     if value is None:
         return []
@@ -849,6 +1036,26 @@ def superfactory_status() -> dict[str, Any]:
     }
 
 
+def queue_guardian_snapshot() -> dict[str, Any]:
+    current = now_ts()
+    nodes = [classify_node_freshness(node, current) for node in registered_nodes()]
+    tasks = [task for task in (load_task(task_id) for task_id in all_task_ids()) if task]
+    return inspect_queue_lease_health(
+        tasks=tasks,
+        queue=queue_ids(),
+        dead_letter=dead_letter_ids(),
+        nodes=nodes,
+        current=current,
+    )
+
+
+def create_queue_guardian_repair_tasks(report: dict[str, Any]) -> list[dict[str, Any]]:
+    created = []
+    for envelope in report.get("repair_tasks") or []:
+        created.append(create_task(envelope))
+    return created
+
+
 def miniapp_task_envelope(body: dict[str, Any], auth: dict[str, Any]) -> dict[str, Any]:
     text = str(body.get("objective") or body.get("message") or "").strip()
     if not text:
@@ -1002,6 +1209,9 @@ class Handler(BaseHTTPRequestHandler):
                 tasks = [task for task in tasks if task and (wanted is None or task.get("state") == wanted)]
                 response(self, 200, {"tasks": tasks, "queue": queue_ids()})
                 return
+            if path == "/v1/tasks/guardian":
+                response(self, 200, queue_guardian_snapshot())
+                return
             if path.startswith("/v1/tasks/"):
                 task_id = path.split("/", 3)[3]
                 task = load_task(task_id)
@@ -1110,6 +1320,15 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/v1/tasks":
                 task = create_task(body)
                 response(self, 201, task)
+                return
+            if path == "/v1/tasks/guardian/repair":
+                report = queue_guardian_snapshot()
+                created = create_queue_guardian_repair_tasks(report)
+                response(self, 201, {
+                    "status": "repair_tasks_created" if created else "no_repair_tasks_needed",
+                    "created_tasks": created,
+                    "guardian": report,
+                })
                 return
             if path == "/v1/superfactory/tasks":
                 auth = validate_miniapp(self, body)

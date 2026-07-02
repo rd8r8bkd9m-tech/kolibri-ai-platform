@@ -1,5 +1,6 @@
 import importlib.util
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,3 +34,60 @@ def test_lease_expiry_calculation():
     lease_until = time.time() + control.LEASE_DURATION
     assert lease_until > time.time()
     assert control.LEASE_DURATION >= 60
+
+
+def test_queue_guardian_detects_expired_stuck_and_duplicate_entries():
+    control = load_control()
+    current = datetime(2026, 7, 2, 12, 0, tzinfo=timezone.utc).timestamp()
+    old_heartbeat = (datetime.fromtimestamp(current, timezone.utc) - timedelta(seconds=control.TASK_STUCK_RUNNING_AFTER + 5)).isoformat()
+    tasks = [
+        {
+            "task_id": "LEASE-1",
+            "state": control.STATE_RUNNING,
+            "attempt": 1,
+            "max_retries": 2,
+            "lease_owner": "9fts:agent",
+            "lease_until": current - 10,
+            "heartbeat_at": old_heartbeat,
+            "envelope": {},
+        },
+        {
+            "task_id": "QUEUE-1",
+            "state": control.STATE_QUEUED,
+            "attempt": 0,
+            "max_retries": 1,
+            "envelope": {},
+        },
+    ]
+
+    report = control.inspect_queue_lease_health(
+        tasks=tasks,
+        queue=["QUEUE-1", "QUEUE-1", "LEASE-1", "MISSING"],
+        dead_letter=[],
+        current=current,
+    )
+
+    kinds = {finding["kind"] for finding in report["findings"]}
+    assert report["status"] == "repair_required"
+    assert "expired_lease" in kinds
+    assert "stuck_running_task" in kinds
+    assert "duplicate_queue_entry" in kinds
+    assert "non_queued_task_in_queue" in kinds
+    assert "orphan_queue_entry" in kinds
+    assert report["summary"]["duplicate_queue_entries"] == ["QUEUE-1"]
+    assert any(task["kind"] == "queue_lease_repair" for task in report["repair_tasks"])
+
+
+def test_queue_guardian_generates_idempotent_repair_envelopes():
+    control = load_control()
+    findings = [
+        {"kind": "expired_lease", "task_id": "TASK-1", "node": "main", "recommended_action": "requeue expired lease"},
+        {"kind": "expired_lease", "task_id": "TASK-1", "node": "main", "recommended_action": "requeue expired lease"},
+    ]
+
+    repairs = control.queue_guardian_repair_envelopes(findings)
+
+    assert len(repairs) == 1
+    assert repairs[0]["idempotency_key"] == "queue-lease-guardian:expired_lease:TASK-1"
+    assert repairs[0]["target_node"] == "main"
+    assert repairs[0]["constraints"]["no_secrets"] is True
