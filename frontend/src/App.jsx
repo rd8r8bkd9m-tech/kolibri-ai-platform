@@ -143,6 +143,133 @@ function ClusterView({ status, onRefresh }) {
   )
 }
 
+function MonitorView({ monitor, onRefresh }) {
+  if (!monitor) return (
+    <div className="documents-panel">
+      <div className="skeleton-grid">
+        {[1,2,3].map(i => <Skeleton key={i} className="skeleton-card" />)}
+      </div>
+    </div>
+  )
+
+  const fleet = monitor.fleet || {}
+  const tasks = monitor.tasks || {}
+  const nodes = monitor.nodes || []
+  const wallboard = monitor.wallboard || {}
+  const prefs = monitor.preferences || {}
+
+  const TaskIcon = ({ state }) => {
+    const colors = {
+      queued: "var(--text-muted)", leased: "var(--warning)", running: "var(--accent)",
+      completed: "var(--success)", failed: "var(--error)", cancelled: "var(--text-muted)",
+      review: "var(--accent)", waiting_review: "var(--warning)",
+    }
+    return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={colors[state] || "var(--text-muted)"} strokeWidth="2">
+      <circle cx="12" cy="12" r="10"/>
+      {state === "completed" && <path d="M8 12l3 3 5-6"/>}
+      {state === "failed" && <path d="M15 9l-6 6M9 9l6 6"/>}
+      {state === "running" && <path d="M12 6v6l4 2"/>}
+      {state === "queued" && <rect x="8" y="8" width="8" height="8" rx="1"/>}
+    </svg>
+  }
+
+  return (
+    <motion.div key="monitor" className="documents-panel" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+      <div className="documents-header">
+        <h2>Диспетчер</h2>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+            {prefs.ai_runner || "mimo-auto"} · обновление {prefs.auto_refresh_seconds || 15}с
+          </span>
+          <button className="refresh-btn" onClick={onRefresh}>
+            <motion.svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+              whileHover={{ rotate: 180 }} transition={{ duration: 0.3 }}>
+              <polyline points="23,4 23,10 17,10"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+            </motion.svg>
+          </button>
+        </div>
+      </div>
+
+      <div className="cluster-stats">
+        {[
+          { label: "Узлов онлайн", value: `${fleet.fresh_nodes || 0}/${fleet.total_nodes || 0}`, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="2" width="6" height="6" rx="1"/><rect x="16" y="2" width="6" height="6" rx="1"/><rect x="9" y="16" width="6" height="6" rx="1"/></svg>, color: "var(--success)" },
+          { label: "Очередь", value: tasks.queue_size || 0, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>, color: "var(--accent)" },
+          { label: "Активные", value: tasks.active || 0, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>, color: "var(--warning)" },
+          { label: "Завершено", value: tasks.completed || 0, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>, color: "var(--success)" },
+          { label: "RAM", value: `${fleet.free_ram_gb || 0} GB`, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/></svg>, color: "var(--accent)" },
+        ].map((s, i) => (
+          <motion.div key={s.label} className="stat-card"
+            initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: i * 0.06, type: "spring", stiffness: 200 }}>
+            <div className="stat-icon">{s.icon}</div>
+            <div className="stat-value" style={{ color: s.color }}>{s.value}</div>
+            <div className="stat-label">{s.label}</div>
+          </motion.div>
+        ))}
+      </div>
+
+      <div className="documents-header" style={{ marginTop: "16px", marginBottom: "8px" }}>
+        <h3 style={{ fontSize: "16px", margin: 0 }}>Узлы фабрики</h3>
+      </div>
+      <div className="doc-list">
+        {nodes.map((node, i) => (
+          <motion.div key={node.node_id} className="doc-item node-card"
+            initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.1 + i * 0.05, type: "spring", stiffness: 150 }}
+            whileHover={{ scale: 1.01, x: 4 }}>
+            <div className="doc-icon" style={{
+              background: node.freshness === "fresh" ? "rgba(16,185,129,0.1)" : node.freshness === "degraded" ? "rgba(245,158,11,0.1)" : "rgba(239,68,68,0.1)",
+              color: node.freshness === "fresh" ? "var(--success)" : node.freshness === "degraded" ? "var(--warning)" : "var(--error)"
+            }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="2" width="20" height="20" rx="2"/><path d="M7 10h10M7 14h6"/></svg>
+            </div>
+            <div className="doc-info">
+              <div className="doc-name">{node.name || node.node_id}</div>
+              <div className="doc-meta">{node.role} · {node.status_label || node.freshness}</div>
+              {node.active_task && <div className="doc-meta" style={{ color: "var(--accent)", fontSize: "11px" }}>Задача: {node.active_task}</div>}
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontSize: "12px", fontWeight: "700", color: node.freshness === "fresh" ? "var(--success)" : node.freshness === "degraded" ? "var(--warning)" : "var(--error)" }}>
+                {node.status_label || node.freshness}
+              </div>
+              <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>{node.ram || ""}</div>
+              {node.cpu != null && <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>CPU {node.cpu}</div>}
+            </div>
+          </motion.div>
+        ))}
+      </div>
+
+      {wallboard.tasks && wallboard.tasks.length > 0 && (
+        <>
+          <div className="documents-header" style={{ marginTop: "16px", marginBottom: "8px" }}>
+            <h3 style={{ fontSize: "16px", margin: 0 }}>Задачи ({wallboard.task_count || wallboard.tasks.length})</h3>
+          </div>
+          <div className="doc-list">
+            {wallboard.tasks.slice(0, 20).map((task, i) => (
+              <motion.div key={task.task_id} className="doc-item"
+                initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.2 + i * 0.03 }} whileHover={{ x: 4 }}>
+                <div className="doc-icon" style={{ background: "rgba(139,92,246,0.1)", color: "var(--accent)" }}>
+                  <TaskIcon state={task.state} />
+                </div>
+                <div className="doc-info">
+                  <div className="doc-name" style={{ fontSize: "13px" }}>{task.task_id}</div>
+                  <div className="doc-meta">{task.kind} · {task.state_label || task.state}</div>
+                  {task.objective && <div className="doc-meta" style={{ fontSize: "11px", color: "var(--text-muted)" }}>{task.objective.substring(0, 80)}...</div>}
+                </div>
+                <div style={{ textAlign: "right", fontSize: "11px", color: "var(--text-muted)" }}>
+                  {task.node_id && <div>{task.node_id}</div>}
+                  {task.error_type && <div style={{ color: "var(--error)" }}>{task.error_type}</div>}
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </>
+      )}
+    </motion.div>
+  )
+}
+
 export default function App() {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState("")
@@ -159,6 +286,7 @@ export default function App() {
   const [docError, setDocError] = useState("")
   const [uploading, setUploading] = useState(false)
   const [clusterStatus, setClusterStatus] = useState(null)
+  const [monitorStatus, setMonitorStatus] = useState(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [searchResults, setSearchResults] = useState([])
   const [searchLoading, setSearchLoading] = useState(false)
@@ -178,7 +306,8 @@ export default function App() {
     fetch(`${API_BASE}/api/providers`).then(r => r.json()).then(setProviders).catch(() => {})
     connectWS()
     fetchCluster()
-    const ci = setInterval(fetchCluster, 15000)
+    fetchMonitor()
+    const ci = setInterval(() => { fetchCluster(); fetchMonitor() }, 15000)
     return () => { if (ws) ws.close(); clearInterval(ci) }
   }, [])
 
@@ -188,6 +317,13 @@ export default function App() {
     try {
       const r = await fetch(`${API_BASE}/api/factory/status`)
       setClusterStatus(await r.json())
+    } catch {}
+  }
+
+  const fetchMonitor = async () => {
+    try {
+      const r = await fetch(`${API_BASE}/api/home/monitor`)
+      setMonitorStatus(await r.json())
     } catch {}
   }
 
@@ -304,6 +440,7 @@ export default function App() {
               { id: "documents", label: "Документы", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg> },
               { id: "search", label: "Поиск", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> },
               { id: "cluster", label: "Сеть", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="2" width="6" height="6" rx="1"/><rect x="16" y="2" width="6" height="6" rx="1"/><rect x="9" y="16" width="6" height="6" rx="1"/><path d="M5 8v3a2 2 0 002 2h10a2 2 0 002-2V8"/></svg> },
+              { id: "monitor", label: "Диспетчер", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg> },
             ].map(item => (
               <motion.button key={item.id} className={`sidebar-nav-item ${activeTab === item.id ? "active" : ""}`}
                 onClick={() => { setActiveTab(item.id); setSidebar(false) }}
@@ -311,6 +448,9 @@ export default function App() {
                 {item.icon}{item.label}
                 {item.id === "cluster" && clusterStatus && (
                   <span className="nav-badge">{clusterStatus.online_nodes}</span>
+                )}
+                {item.id === "monitor" && monitorStatus && monitorStatus.tasks && (
+                  <span className="nav-badge">{monitorStatus.tasks.active || 0}</span>
                 )}
               </motion.button>
             ))}
@@ -354,7 +494,12 @@ export default function App() {
               <div>
                 <div className="header-title">Kolibri AI</div>
                 <div className="header-subtitle">
-                  {clusterStatus ? (
+                  {activeTab === "monitor" && monitorStatus ? (
+                    <span className="header-cluster">
+                      <span className="pulse-dot" />
+                      Диспетчер · {monitorStatus.fleet?.fresh_nodes || 0}/{monitorStatus.fleet?.total_nodes || 0} узлов · {monitorStatus.tasks?.active || 0} задач
+                    </span>
+                  ) : clusterStatus ? (
                     <span className="header-cluster">
                       <span className="pulse-dot" />
                       {clusterStatus.online_nodes} узлов · {clusterStatus.free_ram_gb} GB RAM
@@ -510,6 +655,8 @@ export default function App() {
               )}
 
               {activeTab === "cluster" && <ClusterView status={clusterStatus} onRefresh={fetchCluster} />}
+
+              {activeTab === "monitor" && <MonitorView monitor={monitorStatus} onRefresh={fetchMonitor} />}
 
               {activeTab === "search" && (
                 <motion.div key="search" className="documents-panel" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>

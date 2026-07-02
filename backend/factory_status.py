@@ -103,6 +103,7 @@ def _human_name(node: dict[str, Any]) -> str:
         "9fts": "Инженер",
         "uiap": "Знания",
         "qjns": "Тестировщик",
+        "home": "Связной",
     }
     return names.get(node_id, node.get("hostname") or node_id)
 

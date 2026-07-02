@@ -21,6 +21,7 @@ from tts import TTSEngine
 from stt import STTEngine
 from websearch import WebSearchEngine
 from factory_status import fetch_factory_status
+from home_monitor import fetch_home_monitor, fetch_wallboard, build_wallboard
 
 DB_PATH = Path("/opt/kolibri-ai/data/kolibri.db")
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -337,6 +338,22 @@ async def api_factory_status():
                 },
             },
         )
+
+
+@app.get("/api/home/monitor")
+async def home_monitor():
+    try:
+        return await fetch_home_monitor()
+    except Exception as exc:
+        return JSONResponse(status_code=503, content={"status": "degraded", "error": str(exc)})
+
+
+@app.get("/api/home/wallboard")
+async def home_wallboard():
+    try:
+        return await fetch_wallboard()
+    except Exception as exc:
+        return JSONResponse(status_code=503, content={"status": "degraded", "error": str(exc)})
 
 
 @app.get("/cluster/status")
