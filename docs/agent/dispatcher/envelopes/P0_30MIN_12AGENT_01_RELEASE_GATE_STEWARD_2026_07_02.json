@@ -1,0 +1,136 @@
+{
+  "task_id": "P0_30MIN_12AGENT_01_RELEASE_GATE_STEWARD_2026_07_02",
+  "idempotency_key": "P0_30MIN_12AGENT_01_RELEASE_GATE_STEWARD_2026_07_02",
+  "kind": "owner_remote_task",
+  "priority": "P0",
+  "required_capability": "review",
+  "runner": "codex",
+  "agent_type": "release_gate_steward",
+  "agent_display_name": "Алексей - Release Gate Steward",
+  "target_node_pool": "healthy_review_nodes",
+  "preferred_nodes": [
+    "primary-candidate",
+    "home",
+    "main"
+  ],
+  "allowed_nodes": [
+    "primary-candidate",
+    "home",
+    "main"
+  ],
+  "avoid_nodes": [
+    "qjns",
+    "uiap",
+    "new"
+  ],
+  "base_branch": "main",
+  "base_ref": "origin/main",
+  "base_sha_at_dispatch": "f7ac32c70406432a52752ca45d87e35d9f1facd3",
+  "max_retries": 0,
+  "create_review_on_complete": false,
+  "timebox_seconds": 1800,
+  "minimum_work_duration_seconds": 1800,
+  "goal": "Run a 30-minute remote release-gate stewardship pass and return exact next tasks and blockers without changing product code.",
+  "objective": "On a server/control node, spend the full 30-minute timebox auditing the current release gate state for Kolibri Factory. Inspect dispatcher logs, recent run artifacts, open P0 release blockers, Control Plane task state, and main/PR freshness evidence available on the server. Produce an owner-facing release gate steward report with exact next tasks, blockers, task IDs, artifact paths, and verification evidence. Do not implement product changes, do not push, do not merge, do not approve, do not deploy, and do not print secrets.",
+  "constraints": {
+    "mac_thin_client_only": true,
+    "server_execution_required": true,
+    "remote_timebox_required": true,
+    "timebox_violation_must_be_reported": true,
+    "read_only": true,
+    "review_only": true,
+    "no_push": true,
+    "git_push_forbidden": true,
+    "product_code_modification_forbidden": true,
+    "test_code_modification_forbidden": true,
+    "ci_modification_forbidden": true,
+    "documentation_artifacts_only": true,
+    "destructive_git_commands_forbidden": true,
+    "git_reset_forbidden": true,
+    "git_clean_forbidden": true,
+    "force_push_forbidden": true,
+    "push_to_main_forbidden": true,
+    "merge_forbidden": true,
+    "mark_ready_for_review_forbidden": true,
+    "approval_forbidden": true,
+    "close_pr_forbidden": true,
+    "deploy_forbidden": true,
+    "service_restart_forbidden": true,
+    "live_redis_mutation_forbidden": true,
+    "telegram_state_mutation_forbidden": true,
+    "secrets_redaction_required": true,
+    "do_not_print_env": true,
+    "do_not_print_keys_tokens_cookies_or_credentials": true,
+    "owner_facing_agent_names_must_be_russian": true,
+    "exact_run_artifacts_required": true
+  },
+  "write_scope": [
+    "docs/agent/runs/2026-07-02-p0-30min-12agent-01-release-gate-steward/**"
+  ],
+  "forbidden_write_scope": [
+    ".github/**",
+    "backend/**",
+    "frontend/**",
+    "infra/**",
+    "ops/**",
+    "scripts/**",
+    "tests/**",
+    "README.md"
+  ],
+  "canonical_run_artifact_dir": "docs/agent/runs/2026-07-02-p0-30min-12agent-01-release-gate-steward",
+  "required_outputs": [
+    "docs/agent/runs/2026-07-02-p0-30min-12agent-01-release-gate-steward/PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-30min-12agent-01-release-gate-steward/ACTIONS.md",
+    "docs/agent/runs/2026-07-02-p0-30min-12agent-01-release-gate-steward/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-30min-12agent-01-release-gate-steward/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-30min-12agent-01-release-gate-steward/NEXT.md",
+    "docs/agent/runs/2026-07-02-p0-30min-12agent-01-release-gate-steward/RELEASE_GATE_MATRIX.md",
+    "docs/agent/runs/2026-07-02-p0-30min-12agent-01-release-gate-steward/BLOCKERS.md"
+  ],
+  "read_first": [
+    "README.md",
+    "docs/agent/dispatcher/README.md",
+    "docs/agent/dispatcher/REMOTE_AGENTS.md",
+    "docs/agent/dispatcher/DISPATCH_LOG.md",
+    "docs/agent/dispatcher/REMOTE_RESULTS.md",
+    "docs/agent/dispatcher/FACTORY_STATUS.md",
+    "docs/superfactory/TASKS.md",
+    "docs/release/2026-07-01-main-readme-code-sync-release-train.md",
+    "docs/agent/runs/2026-07-02-p0-repair-post-merge-canary-runtime-blockers/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-repair-post-merge-canary-runtime-blockers/NEXT.md",
+    "docs/agent/runs/2026-07-02-p0-repair-post-merge-canary-runtime-blockers/POST_REPAIR_CANARY.md"
+  ],
+  "required_checks": [
+    "Record the remote server/control node identity and lease owner.",
+    "Record start and end timestamps and confirm at least 1800 seconds of remote work, or report runner timebox violation exactly.",
+    "Summarize current release-gate state from dispatcher logs and recent run artifacts.",
+    "List exact open blockers with source task IDs and artifact paths.",
+    "List exact next tasks with proposed task IDs, owners/roles, target node pool, acceptance criteria, and verification commands.",
+    "Verify no product, test, CI, runtime, service, Telegram, main branch, or secret state was changed.",
+    "Redact all credentials, tokens, cookies, chat IDs, and environment values from output."
+  ],
+  "verification_commands": [
+    "git diff --check",
+    "test -f docs/agent/runs/2026-07-02-p0-30min-12agent-01-release-gate-steward/PLAN.md",
+    "test -f docs/agent/runs/2026-07-02-p0-30min-12agent-01-release-gate-steward/ACTIONS.md",
+    "test -f docs/agent/runs/2026-07-02-p0-30min-12agent-01-release-gate-steward/TESTS.md",
+    "test -f docs/agent/runs/2026-07-02-p0-30min-12agent-01-release-gate-steward/RESULT.md",
+    "test -f docs/agent/runs/2026-07-02-p0-30min-12agent-01-release-gate-steward/NEXT.md",
+    "test -f docs/agent/runs/2026-07-02-p0-30min-12agent-01-release-gate-steward/RELEASE_GATE_MATRIX.md",
+    "test -f docs/agent/runs/2026-07-02-p0-30min-12agent-01-release-gate-steward/BLOCKERS.md",
+    "rg --no-ignore -n '[0-9]{6,}:[A-Za-z0-9_-]{20,}|[A-Za-z0-9_]*(TOKEN|SECRET|PASSWORD|COOKIE|API_KEY|CHAT_ID)=[^ ]+' docs/agent/runs/2026-07-02-p0-30min-12agent-01-release-gate-steward && exit 1 || true"
+  ],
+  "acceptance": [
+    "Remote execution happens on a server/control node, not local Mac implementation.",
+    "Agent works for the 30-minute timebox before final result, or runner timebox violation is reported.",
+    "No product code is changed.",
+    "No secrets are printed.",
+    "Result includes exact next tasks and blockers."
+  ],
+  "source": {
+    "kind": "mac_thin_client_dispatcher",
+    "owner": "Vladislav",
+    "created_at": "2026-07-02T00:56:20Z",
+    "local_ledger": "docs/agent/dispatcher/DISPATCH_LOG.md"
+  }
+}
