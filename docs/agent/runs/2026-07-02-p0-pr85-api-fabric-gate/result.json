@@ -1,0 +1,54 @@
+{
+  "task_id": "P0_AUTOPILOT_EXTRA_38_PR85_API_FABRIC_GATE_2026_07_02",
+  "status": "completed_with_environment_test_blocker",
+  "node": "kolibri",
+  "agent_name": "Алексей - API Fabric Release Gate",
+  "remote_execution": true,
+  "local_mac_product_code_modified": false,
+  "secrets_printed": false,
+  "destructive_git_commands": false,
+  "push_to_main": false,
+  "force_push": false,
+  "main_ref": "f7ac32c70406432a52752ca45d87e35d9f1facd3",
+  "pr85_branch_ref": "45388df7e66031f5256489de5dc871b3d71ad502",
+  "pr91_branch_ref": "465bd7e7272673d569bf4fa47b20e0fb4ba349a6",
+  "pr85_main_merge_commit": "1b08c43",
+  "pr91_main_merge_commit": "9000973",
+  "merge_decision": "merge_complete_on_main_do_not_merge_stale_branch_head",
+  "repair_decision": "no_pr85_product_repair_required_from_focused_gate",
+  "split_decision": "split_not_required",
+  "pr91_dependency_decision": "dependency_merged_to_main_runtime_canary_still_required",
+  "blockers": [
+    "Full pytest collection requires worker dependencies pydantic and httpx.",
+    "Stale PR #85 and PR #91 branch heads must not be merged into current main."
+  ],
+  "artifacts": [
+    "docs/agent/runs/2026-07-02-p0-pr85-api-fabric-gate/PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-pr85-api-fabric-gate/ACTIONS.md",
+    "docs/agent/runs/2026-07-02-p0-pr85-api-fabric-gate/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-pr85-api-fabric-gate/PR85_API_FABRIC_GATE_DECISION.md",
+    "docs/agent/runs/2026-07-02-p0-pr85-api-fabric-gate/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-pr85-api-fabric-gate/NEXT.md",
+    "docs/agent/runs/2026-07-02-p0-pr85-api-fabric-gate/OWNER_RU_SUMMARY.md",
+    "docs/agent/runs/2026-07-02-p0-pr85-api-fabric-gate/result.json"
+  ],
+  "verification": [
+    {
+      "command": "git diff --check origin/main...origin/p0/api-first-full-control-fabric-2026-07-01",
+      "result": "passed"
+    },
+    {
+      "command": "python3 -m py_compile ops/factory_control.py ops/kolibri-dispatch backend/main.py tests/test_fabric_control.py tests/test_prompt3_fabric_api_surface.py tests/test_agent_host_direct_mimo.py",
+      "result": "passed"
+    },
+    {
+      "command": "python3 -m pytest tests/test_fabric_control.py tests/test_prompt3_fabric_api_surface.py tests/test_agent_host_direct_mimo.py -q",
+      "result": "passed: 14 passed in 0.19s"
+    },
+    {
+      "command": "python3 -m pytest -q",
+      "result": "blocked: missing pydantic and httpx"
+    }
+  ],
+  "next_exact_task": "P0_POST_MERGE_FABRIC_AND_MIMO_CANARY_2026_07_02"
+}
