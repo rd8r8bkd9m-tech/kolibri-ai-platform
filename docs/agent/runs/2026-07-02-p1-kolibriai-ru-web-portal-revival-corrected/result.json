@@ -1,0 +1,58 @@
+{
+  "task_id": "P1_KOLIBRI_WEB_APP_PORTAL_REVIVAL_KOLIBRIAI_RU_CORRECTED_2026_07_02",
+  "branch": "p1/kolibriai-ru-web-portal-revival-2026-07-02",
+  "worker": {
+    "node_id": "mesh-agent-20",
+    "execution_class": "remote_factory_worker",
+    "worktree": "/var/lib/kolibri-agent/logical-workers/mesh-agent-20/worktrees/P1_KOLIBRI_WEB_APP_PORTAL_REVIVAL_KOLIBRIAI_RU_CORRECTED_2026_07_02/P1_KOLIBRI_WEB_APP_PORTAL_REVIVAL_KOLIBRIAI_RU_CORRECTED_2026_07_02-attempt-1/repo"
+  },
+  "status": "blocked_missing_selected_source",
+  "repo": {
+    "url": "git@github.com:rd8r8bkd9m-tech/kolibri-ai-platform.git",
+    "origin_main": "f7ac32c70406432a52752ca45d87e35d9f1facd3",
+    "requested_branch_created_from": "origin/main"
+  },
+  "selected_source": {
+    "required_path": "remote/kolibriai-frontend",
+    "present": false,
+    "remote_branch_scan_match_count": 0
+  },
+  "root_frontend": {
+    "present": true,
+    "edited": false,
+    "reason_not_used": "Owner instruction says root frontend/ is the wrong source unless explicit live deployment evidence proves otherwise."
+  },
+  "live_audit": {
+    "artifact_branch": "origin/agent/P0_AUTOPILOT_EXTRA_42_KOLIBRIAI_PUBLIC_SITE_GATE_2026_07_02/generic",
+    "result_artifacts": [
+      "docs/agent/runs/2026-07-02-p0-kolibriai-public-site-gate/RESULT.md",
+      "docs/agent/runs/2026-07-02-p0-kolibriai-public-site-gate/result.json"
+    ],
+    "domain": "kolibriai.ru",
+    "dns_a": "178.207.11.90",
+    "root_marker": "MikroTik File Sharing",
+    "tls_certificate_san": "DNS:hcs0844dw9m.routingthecloud.net",
+    "public_status": 400,
+    "conclusion": "Live audit does not authorize editing root frontend/; it shows wrong route/origin."
+  },
+  "changes": [
+    "docs/agent/runs/2026-07-02-p1-kolibriai-ru-web-portal-revival-corrected/BLOCKER.md",
+    "docs/agent/runs/2026-07-02-p1-kolibriai-ru-web-portal-revival-corrected/result.json"
+  ],
+  "safety": {
+    "root_frontend_edited": false,
+    "backend_contracts_changed": false,
+    "factory_status_shim_added": false,
+    "destructive_git_commands": false,
+    "local_mac_work": false,
+    "secrets_printed": false
+  },
+  "patch_plan": [
+    "Restore or provide remote/kolibriai-frontend in the clean task worktree.",
+    "Inspect selected-source audit artifacts and backend contracts.",
+    "Revive the first screen as an actual Kolibri AI app/chat portal.",
+    "Preserve backend contracts except a strictly required tiny factory-status compatibility shim.",
+    "Run focused build/PWA/smoke evidence from the selected source and record exact artifact paths.",
+    "Commit only selected-source and evidence files to the requested branch."
+  ]
+}
