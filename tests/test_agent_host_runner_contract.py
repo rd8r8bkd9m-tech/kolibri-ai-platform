@@ -543,6 +543,66 @@ def test_run_task_missing_required_artifact_posts_blocked_fail_not_complete(tmp_
     assert "required_artifacts_missing" in fail_body["result"]["blocked_reason"]
 
 
+def test_read_only_probe_no_clone_readiness_fallback_completes_with_git_blocker(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setattr(agent_host.shutil, "which", lambda name: "/usr/bin/git" if name == "git" else None)
+
+    def fake_run(command, cwd=None, text=None, capture_output=None, env=None, timeout=None, check=None):
+        assert command[:3] == ["/usr/bin/git", "ls-remote", "--heads"]
+        assert env["GIT_TERMINAL_PROMPT"] == "0"
+        assert timeout > 0
+        return subprocess.CompletedProcess(command, 128, "", "remote: Repository not found.\nfatal: Authentication failed\n")
+
+    monkeypatch.setattr(agent_host.subprocess, "run", fake_run)
+    host = make_host(agent_host, tmp_path, capabilities="read_only_probe")
+    task = make_task({
+        "kind": "read_only_probe",
+        "readiness_fallback_no_clone": True,
+        "required_node_checks": ["GitHub clone/fetch/auth classification without printing credentials"],
+    })
+    task["kind"] = "read_only_probe"
+
+    host.run_task(task)
+
+    complete_posts = [(path, body) for path, body in host.posts if path.endswith("/complete")]
+    assert len(complete_posts) == 1
+    result = complete_posts[0][1]["result"]
+    assert result["status"] == "completed"
+    assert result["readiness"]["contract"] == "no_clone_git_readiness_probe"
+    assert result["readiness"]["clone_attempted"] is False
+    assert result["readiness"]["status"] == "blocked"
+    assert result["readiness"]["error_type"] == "git_auth_or_access_blocked"
+    assert result["blockers"] == ["git_auth_or_access_blocked"]
+    assert "route clone-required work" in result["next_action"]
+    readiness_path = tmp_path / "artifacts" / "CONTRACT-1" / "CONTRACT-1-attempt-1" / "readiness.json"
+    assert readiness_path.is_file()
+    assert "SECRET" not in readiness_path.read_text(encoding="utf-8")
+
+
+def test_read_only_probe_no_clone_readiness_success_reports_refs(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setattr(agent_host.shutil, "which", lambda name: "/usr/bin/git" if name == "git" else None)
+
+    def fake_run(command, cwd=None, text=None, capture_output=None, env=None, timeout=None, check=None):
+        del cwd, text, capture_output, env, timeout, check
+        return subprocess.CompletedProcess(command, 0, "abc123\trefs/heads/main\n", "")
+
+    monkeypatch.setattr(agent_host.subprocess, "run", fake_run)
+    host = make_host(agent_host, tmp_path, capabilities="read_only_probe")
+    task = make_task({"kind": "read_only_probe", "check_git_readiness": True})
+    task["kind"] = "read_only_probe"
+
+    host.run_task(task)
+
+    complete_posts = [(path, body) for path, body in host.posts if path.endswith("/complete")]
+    assert len(complete_posts) == 1
+    result = complete_posts[0][1]["result"]
+    assert result["status"] == "completed"
+    assert result["readiness"]["status"] == "ready"
+    assert result["readiness"]["refs_seen"] == 1
+    assert result["blockers"] == []
+
+
 def test_publish_gate_skips_git_push_when_required_artifact_is_missing(tmp_path):
     agent_host = load_agent_host()
     host = make_host(agent_host, tmp_path, capabilities="impl_factory_smoke")

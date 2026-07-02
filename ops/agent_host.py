@@ -17,6 +17,7 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -132,6 +133,14 @@ SECRET_REDACTION_MARKERS = (
     "secret",
     "token",
 )
+NO_CLONE_READINESS_KEYS = (
+    "check_git_readiness",
+    "github_clone_readiness_required",
+    "git_clone_readiness_required",
+    "no_clone_readiness_fallback",
+    "readiness_fallback_no_clone",
+)
+GIT_PROBE_TIMEOUT_SECONDS = 30
 
 
 class BackendTestEnvironmentError(RuntimeError):
@@ -334,6 +343,40 @@ def redact_sensitive_text(text: str) -> str:
         else:
             redacted_lines.append(line)
     return "\n".join(redacted_lines)
+
+
+def redacted_repo_reference(repo_url: str) -> str:
+    parsed = urllib.parse.urlparse(repo_url)
+    if parsed.scheme and parsed.hostname:
+        return f"{parsed.scheme}://{parsed.hostname}{parsed.path}"
+    if "@" in repo_url and ":" in repo_url:
+        host_path = repo_url.split("@", 1)[1]
+        return f"git@{host_path}"
+    return "[repo]"
+
+
+def git_probe_error_type(output: str) -> str:
+    lowered = output.lower()
+    if any(marker in lowered for marker in ("authentication failed", "permission denied", "could not read from remote repository", "repository not found")):
+        return "git_auth_or_access_blocked"
+    if any(marker in lowered for marker in ("could not resolve host", "could not resolve hostname", "network is unreachable", "connection timed out", "failed to connect")):
+        return "git_network_blocked"
+    if any(marker in lowered for marker in ("no space left on device", "disk quota exceeded")):
+        return "git_disk_blocked"
+    if "not a git repository" in lowered:
+        return "git_environment_blocked"
+    return "git_unknown_blocked"
+
+
+def no_clone_readiness_requested(envelope: dict[str, Any]) -> bool:
+    if envelope_truthy(envelope, *NO_CLONE_READINESS_KEYS):
+        return True
+    for check in envelope_list(envelope, "required_node_checks", "readiness_checks"):
+        if isinstance(check, str):
+            lowered = check.lower()
+            if "github clone" in lowered or "git clone" in lowered or "clone/fetch/auth" in lowered:
+                return True
+    return False
 
 
 def sanitize_text_file(path: Path) -> None:
@@ -1493,9 +1536,23 @@ class AgentHost:
         return worktree, artifact_dir, logs
 
     def run_read_only_probe(self, task: dict[str, Any]) -> dict[str, Any]:
+        envelope = task_envelope(task)
         worktree, artifact_dir, logs = self.prepare_dirs(task)
         worktree.mkdir(parents=True, exist_ok=True)
+        stdout_path = Path(logs["stdout"])
+        stderr_path = Path(logs["stderr"])
         self.task_heartbeat(task, worktree, None, logs)
+        readiness: dict[str, Any] | None = None
+        blockers: list[str] = []
+        next_action: str | None = None
+        if no_clone_readiness_requested(envelope):
+            readiness = self.run_no_clone_git_readiness_probe(task, worktree, artifact_dir, stdout_path, stderr_path, logs)
+            if readiness.get("status") != "ready":
+                blocker = str(readiness.get("error_type") or "git_readiness_blocked")
+                blockers.append(blocker)
+                next_action = (
+                    "route clone-required work to another node and repair this node's GitHub clone/fetch/auth readiness"
+                )
         result = {
             "node_id": self.node_id,
             "hostname": self.hostname,
@@ -1513,10 +1570,105 @@ class AgentHost:
             "message": "read-only probe completed",
             "permission_pack_classification": classify_permission_pack(task),
         }
+        if readiness is not None:
+            result["readiness"] = readiness
+            result["blockers"] = blockers
+            result["next_action"] = next_action
         result = self.finalize_result(task, result, artifact_dir, worktree, changed_files=[])
         result_path = self.write_result(artifact_dir, result)
         result["result_path"] = str(result_path)
         return result
+
+    def run_no_clone_git_readiness_probe(
+        self,
+        task: dict[str, Any],
+        worktree: Path,
+        artifact_dir: Path,
+        stdout_path: Path,
+        stderr_path: Path,
+        logs: dict[str, str],
+    ) -> dict[str, Any]:
+        del logs
+        started_at = utc_now()
+        git = shutil.which("git")
+        readiness: dict[str, Any] = {
+            "contract": "no_clone_git_readiness_probe",
+            "task_id": task["task_id"],
+            "node_id": self.node_id,
+            "started_at": started_at,
+            "completed_at": None,
+            "clone_attempted": False,
+            "operation": "git ls-remote --heads",
+            "repo": redacted_repo_reference(self.repo_url),
+            "status": "blocked",
+            "error_type": None,
+            "artifact": str(artifact_dir / "readiness.json"),
+        }
+        if not git:
+            readiness.update({
+                "completed_at": utc_now(),
+                "error_type": "git_unavailable",
+                "next_recommended_task": "install git or route clone-required work to another ready node",
+            })
+            (artifact_dir / "readiness.json").write_text(json.dumps(readiness, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            return readiness
+
+        timeout = int(os.environ.get("KOLIBRI_GIT_READINESS_TIMEOUT", str(GIT_PROBE_TIMEOUT_SECONDS)))
+        env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+        command_label = f"{git} ls-remote --heads <repo>"
+        with stdout_path.open("ab") as stdout, stderr_path.open("ab") as stderr:
+            stdout.write(f"\n$ {command_label}\n".encode("utf-8"))
+            stdout.flush()
+            try:
+                proc = subprocess.run(
+                    [git, "ls-remote", "--heads", self.repo_url],
+                    cwd=str(worktree),
+                    text=True,
+                    capture_output=True,
+                    env=env,
+                    timeout=timeout,
+                    check=False,
+                )
+            except subprocess.TimeoutExpired as exc:
+                stderr.write(f"git readiness probe timed out after {timeout}s\n".encode("utf-8"))
+                combined_output = redact_sensitive_text(str(exc))
+                readiness.update({
+                    "completed_at": utc_now(),
+                    "returncode": None,
+                    "status": "blocked",
+                    "error_type": "git_network_blocked",
+                    "error": combined_output[-1000:] if combined_output else f"git ls-remote timed out after {timeout}s",
+                    "next_recommended_task": (
+                        "repair Agent Host GitHub network readiness or route clone-required work to a fallback node"
+                    ),
+                })
+                (artifact_dir / "readiness.json").write_text(json.dumps(readiness, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+                return readiness
+            stdout.write(redact_sensitive_text(proc.stdout).encode("utf-8"))
+            stderr.write(redact_sensitive_text(proc.stderr).encode("utf-8"))
+
+        combined_output = redact_sensitive_text(f"{proc.stdout}\n{proc.stderr}")
+        readiness["completed_at"] = utc_now()
+        readiness["returncode"] = proc.returncode
+        if proc.returncode == 0:
+            refs = [line for line in proc.stdout.splitlines() if line.strip()]
+            readiness.update({
+                "status": "ready",
+                "refs_seen": len(refs),
+                "next_recommended_task": None,
+            })
+        else:
+            error_type = git_probe_error_type(combined_output)
+            readiness.update({
+                "status": "blocked",
+                "error_type": error_type,
+                "error": combined_output[-1000:] if combined_output else f"git ls-remote failed with rc={proc.returncode}",
+                "next_recommended_task": (
+                    "repair Agent Host GitHub clone/fetch/auth readiness or route clone-required work to a fallback node"
+                ),
+            })
+        (artifact_dir / "readiness.json").write_text(json.dumps(readiness, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        return readiness
 
     def run_telegram_chat_response(self, task: dict[str, Any]) -> dict[str, Any]:
         envelope = task.get("envelope", {})
