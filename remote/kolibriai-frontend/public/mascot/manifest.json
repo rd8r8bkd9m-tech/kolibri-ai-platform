@@ -1,0 +1,41 @@
+{
+  "asset": "/mascot/kolibri-cartoon.json",
+  "type": "lottie",
+  "renderer": "canvas",
+  "fps": 24,
+  "size": {
+    "width": 512,
+    "height": 512
+  },
+  "states": {
+    "idle": {
+      "from": 0,
+      "to": 59
+    },
+    "ready": {
+      "from": 60,
+      "to": 119
+    },
+    "thinking": {
+      "from": 120,
+      "to": 179
+    },
+    "success": {
+      "from": 180,
+      "to": 239
+    },
+    "alert": {
+      "from": 240,
+      "to": 299
+    },
+    "error": {
+      "from": 240,
+      "to": 299
+    },
+    "sleeping": {
+      "from": 300,
+      "to": 359
+    }
+  },
+  "generated_at": "2026-06-27T20:21:24Z"
+}

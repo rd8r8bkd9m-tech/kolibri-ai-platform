@@ -1,0 +1,39 @@
+{
+  "task_id": "P1_KOLIBRIAI_RU_SOURCE_RECOVERY_AND_WEB_REVIVAL_2026_07_02",
+  "status": "completed",
+  "source_material_found": true,
+  "source_material_classification": "source_like_react_typescript_vite_pwa",
+  "source_path": "/srv/kolibri/kimi-agent-kolibrifin/kolibri-v2",
+  "repository_path": "remote/kolibriai-frontend",
+  "excluded_paths": [
+    "node_modules/",
+    "dist/"
+  ],
+  "root_frontend_edited": false,
+  "decompiled_or_guessed": false,
+  "mac_artifacts_used": false,
+  "validation": [
+    {
+      "command": "npm ci",
+      "cwd": "remote/kolibriai-frontend",
+      "status": "passed",
+      "notes": "Node engine warnings and npm audit findings observed."
+    },
+    {
+      "command": "npm run lint",
+      "cwd": "remote/kolibriai-frontend",
+      "status": "passed"
+    },
+    {
+      "command": "npm run build",
+      "cwd": "remote/kolibriai-frontend",
+      "status": "passed",
+      "notes": "Vite reports current Node 18.19.1 is below the requested Node 20.19+ or 22.12+ range, but the build completed."
+    }
+  ],
+  "remaining_caveats": [
+    "Validate deployment on Node 20.19+ or 22.12+ before production use.",
+    "Map frontend /api/v1 client calls against the production backend before public cutover.",
+    "Resolve npm audit findings in a dedicated dependency maintenance task."
+  ]
+}

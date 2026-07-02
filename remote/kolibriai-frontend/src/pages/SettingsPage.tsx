@@ -1,0 +1,370 @@
+import { useState, useEffect, useCallback } from 'react'
+import { User, Palette, Bell, Shield, Globe, Keyboard, LogOut, MessageCircleQuestion } from 'lucide-react'
+import { useLocation } from 'react-router'
+import { auth, type AuthUser } from '@/lib/api'
+
+const tabs = [
+  { id: 'profile', label: 'Профиль', icon: User },
+  { id: 'appearance', label: 'Внешний вид', icon: Palette },
+  { id: 'notifications', label: 'Уведомления', icon: Bell },
+  { id: 'security', label: 'Безопасность', icon: Shield },
+  { id: 'language', label: 'Язык', icon: Globe },
+  { id: 'shortcuts', label: 'Горячие клавиши', icon: Keyboard },
+  { id: 'help', label: 'Помощь', icon: MessageCircleQuestion },
+]
+
+function applyTheme(theme: string) {
+  const root = document.documentElement
+  if (theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+    root.classList.add('dark')
+  } else {
+    root.classList.remove('dark')
+  }
+}
+
+function Toggle({ storageKey, defaultOn = false }: { storageKey?: string; defaultOn?: boolean }) {
+  const [on, setOn] = useState(() => {
+    if (storageKey) {
+      const saved = localStorage.getItem(storageKey)
+      if (saved !== null) return saved === 'true'
+    }
+    return defaultOn
+  })
+
+  const toggle = useCallback(() => {
+    setOn(prev => {
+      const next = !prev
+      if (storageKey) localStorage.setItem(storageKey, String(next))
+      return next
+    })
+  }, [storageKey])
+
+  return (
+    <button
+      onClick={toggle}
+      className={`relative w-10 h-6 rounded-full transition-colors ${on ? 'bg-[var(--accent-teal)]' : 'bg-[var(--border-subtle)]'}`}
+    >
+      <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-transform ${on ? 'translate-x-4' : 'translate-x-0.5'}`} />
+    </button>
+  )
+}
+
+interface SettingsPageProps {
+  user?: AuthUser | null
+  onLogout?: () => void
+}
+
+export default function SettingsPage({ user, onLogout }: SettingsPageProps) {
+  const [activeTab, setActiveTab] = useState('profile')
+  const [name, setName] = useState(user?.name || '')
+  const [email, setEmail] = useState(user?.email || '')
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [passwordError, setPasswordError] = useState('')
+  const [passwordSaved, setPasswordSaved] = useState(false)
+  const [theme, setTheme] = useState(() => localStorage.getItem('kolibri-theme') || 'light')
+  const [accent, setAccent] = useState(() => localStorage.getItem('kolibri-accent') || '#3ABAB4')
+  const [language, setLanguage] = useState(() => localStorage.getItem('kolibri-language') || 'ru')
+  const [dateFormat, setDateFormat] = useState(() => localStorage.getItem('kolibri-date-format') || 'DD.MM.YYYY')
+  const [currency, setCurrency] = useState(() => localStorage.getItem('kolibri-currency') || 'RUB')
+  const location = useLocation()
+
+  useEffect(() => {
+    if (user) {
+      setName(user.name)
+      setEmail(user.email)
+    }
+  }, [user])
+
+  useEffect(() => {
+    applyTheme(theme)
+  }, [theme])
+
+  useEffect(() => {
+    document.documentElement.style.setProperty('--accent-teal', accent)
+  }, [accent])
+
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const handler = () => { if (theme === 'system') applyTheme('system') }
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [theme])
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    const tab = params.get('tab')
+    if (tab && tabs.some(item => item.id === tab)) {
+      setActiveTab(tab)
+    }
+  }, [location.search])
+
+  const handleSaveProfile = async () => {
+    setSaving(true)
+    setSaved(false)
+    try {
+      await auth.updateMe({ name, email })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } catch (e) {
+      console.error('Failed to save profile', e)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleChangePassword = async () => {
+    setPasswordError('')
+    setPasswordSaved(false)
+    if (!currentPassword || !newPassword) {
+      setPasswordError('Заполните оба поля')
+      return
+    }
+    if (newPassword.length < 6) {
+      setPasswordError('Минимум 6 символов')
+      return
+    }
+    try {
+      await auth.updateMe({ current_password: currentPassword, new_password: newPassword })
+      setPasswordSaved(true)
+      setCurrentPassword('')
+      setNewPassword('')
+      setTimeout(() => setPasswordSaved(false), 2000)
+    } catch {
+      setPasswordError('Неверный текущий пароль')
+    }
+  }
+
+  return (
+    <div className="h-full overflow-y-auto">
+      <div className="max-w-[800px] mx-auto px-4 sm:px-6 py-6">
+        <h1 className="text-[22px] sm:text-[26px] font-semibold text-[var(--text-primary)] tracking-tight mb-6">Настройки</h1>
+
+        <div className="flex flex-col md:flex-row gap-6">
+          {/* Sidebar */}
+          <nav className="md:w-48 flex-shrink-0">
+            <div className="flex md:flex-col gap-1 overflow-x-auto md:overflow-visible pb-2 md:pb-0">
+              {tabs.map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex items-center gap-2.5 px-3 py-2 rounded-[var(--radius-md)] text-[13px] whitespace-nowrap transition-colors ${
+                    activeTab === tab.id
+                      ? 'bg-[var(--accent-teal)]/10 text-[var(--accent-teal)] font-medium'
+                      : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
+                  }`}
+                >
+                  <tab.icon size={16} strokeWidth={1.8} />
+                  <span>{tab.label}</span>
+                </button>
+              ))}
+            </div>
+          </nav>
+
+          {/* Content */}
+          <div className="flex-1 min-w-0">
+            {activeTab === 'profile' && (
+              <div className="space-y-6">
+                <div>
+                  <h2 className="text-[16px] font-semibold text-[var(--text-primary)] mb-4">Профиль</h2>
+                  <div className="flex items-center gap-4 mb-6">
+                    <div className="w-16 h-16 rounded-full bg-[var(--accent-teal)]/10 flex items-center justify-center">
+                      <User size={24} className="text-[var(--accent-teal)]" strokeWidth={1.5} />
+                    </div>
+                    <div>
+                      <p className="text-[14px] font-medium text-[var(--text-primary)]">{user?.name || 'Гость'}</p>
+                      <p className="text-[12px] text-[var(--text-tertiary)]">{user?.email || 'Не авторизован'}</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="pb-4 border-b border-[var(--border-subtle)]">
+                  <label className="block text-[12px] text-[var(--text-tertiary)] mb-1.5">Имя</label>
+                  <input value={name} onChange={e => setName(e.target.value)} className="w-full h-9 px-3 bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-[var(--radius-md)] text-[13px] text-[var(--text-primary)] outline-none focus:border-[var(--accent-teal)] transition-colors" />
+                </div>
+                <div className="pb-4 border-b border-[var(--border-subtle)]">
+                  <label className="block text-[12px] text-[var(--text-tertiary)] mb-1.5">Email</label>
+                  <input value={email} onChange={e => setEmail(e.target.value)} type="email" className="w-full h-9 px-3 bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-[var(--radius-md)] text-[13px] text-[var(--text-primary)] outline-none focus:border-[var(--accent-teal)] transition-colors" />
+                </div>
+                <div className="flex items-center gap-3">
+                  <button onClick={handleSaveProfile} disabled={saving} className="h-9 px-4 bg-[var(--accent-teal)] text-white rounded-[var(--radius-md)] text-[13px] font-medium hover:bg-[var(--accent-teal-hover)] transition-colors disabled:opacity-50">
+                    {saving ? 'Сохранение...' : 'Сохранить'}
+                  </button>
+                  {saved && <span className="text-[13px] text-emerald-600">Сохранено</span>}
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'appearance' && (
+              <div className="space-y-6">
+                <h2 className="text-[16px] font-semibold text-[var(--text-primary)] mb-4">Внешний вид</h2>
+                <div>
+                  <label className="block text-[12px] text-[var(--text-tertiary)] mb-2">Тема</label>
+                  <div className="grid grid-cols-3 gap-3">
+                    {([['light', 'Светлая'], ['dark', 'Тёмная'], ['system', 'Системная']] as const).map(([value, label]) => (
+                      <button
+                        key={value}
+                        onClick={() => { setTheme(value); localStorage.setItem('kolibri-theme', value) }}
+                        className={`p-3 rounded-[var(--radius-lg)] border text-center text-[13px] transition-colors ${theme === value ? 'border-[var(--accent-teal)] bg-[var(--accent-teal)]/5 text-[var(--accent-teal)]' : 'border-[var(--border-subtle)] text-[var(--text-secondary)] hover:border-[var(--border-hover)]'}`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[12px] text-[var(--text-tertiary)] mb-2">Акцентный цвет</label>
+                  <div className="flex gap-3">
+                    {['#3ABAB4', '#9B8AF8', '#C2498C', '#3b82f6', '#10b981', '#f59e0b'].map(c => (
+                      <button key={c} onClick={() => { setAccent(c); localStorage.setItem('kolibri-accent', c) }} className={`w-8 h-8 rounded-full transition-transform hover:scale-110 ${accent === c ? 'ring-2 ring-offset-2 ring-[var(--text-primary)]' : ''}`} style={{ background: c }} />
+                    ))}
+                  </div>
+                </div>
+                <div className="flex items-center justify-between py-3 border-b border-[var(--border-subtle)]">
+                  <span className="text-[14px] text-[var(--text-primary)]">Уменьшить движение</span>
+                  <Toggle storageKey="kolibri-reduce-motion" />
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'notifications' && (
+              <div className="space-y-4">
+                <h2 className="text-[16px] font-semibold text-[var(--text-primary)] mb-4">Уведомления</h2>
+                {[
+                  { label: 'Push-уведомления', desc: 'Всплывающие уведомления в браузере', key: 'notif-push' },
+                  { label: 'Email-уведомления', desc: 'Письма о важных событиях', key: 'notif-email' },
+                  { label: 'Уведомления об агентах', desc: 'Статус агентов и задач', key: 'notif-agents' },
+                  { label: 'Уведомления о серверах', desc: 'Проблемы с нодами', key: 'notif-servers' },
+                  { label: 'Звуковые сигналы', desc: 'Звук при новых сообщениях', key: 'notif-sound' },
+                ].map(n => (
+                  <div key={n.label} className="flex items-center justify-between py-2">
+                    <div>
+                      <p className="text-[14px] text-[var(--text-primary)]">{n.label}</p>
+                      <p className="text-[12px] text-[var(--text-tertiary)]">{n.desc}</p>
+                    </div>
+                    <Toggle storageKey={n.key} defaultOn />
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {activeTab === 'security' && (
+              <div className="space-y-6">
+                <h2 className="text-[16px] font-semibold text-[var(--text-primary)] mb-4">Безопасность</h2>
+                <div className="p-4 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-secondary)]">
+                  <p className="text-[14px] font-medium text-[var(--text-primary)] mb-3">Смена пароля</p>
+                  <div className="space-y-3">
+                    <input type="password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} placeholder="Текущий пароль" className="w-full h-9 px-3 bg-white border border-[var(--border-subtle)] rounded-[var(--radius-md)] text-[13px] outline-none focus:border-[var(--accent-teal)]" />
+                    <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="Новый пароль (мин. 6 символов)" className="w-full h-9 px-3 bg-white border border-[var(--border-subtle)] rounded-[var(--radius-md)] text-[13px] outline-none focus:border-[var(--accent-teal)]" />
+                    {passwordError && <p className="text-[12px] text-red-500">{passwordError}</p>}
+                    {passwordSaved && <p className="text-[12px] text-emerald-600">Пароль изменён</p>}
+                    <button onClick={handleChangePassword} className="h-8 px-3 rounded-[var(--radius-md)] border border-[var(--border-subtle)] text-[13px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors">Изменить пароль</button>
+                  </div>
+                </div>
+                <div className="p-4 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-secondary)]">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[14px] font-medium text-[var(--text-primary)] mb-1">Двухфакторная аутентификация</p>
+                      <p className="text-[12px] text-[var(--text-tertiary)]">Защитите аккаунт дополнительным кодом</p>
+                    </div>
+                    <Toggle storageKey="kolibri-2fa" />
+                  </div>
+                </div>
+                {user && (
+                  <div className="p-4 rounded-[var(--radius-lg)] border border-red-200 bg-red-50">
+                    <p className="text-[14px] font-medium text-red-700 mb-2">Выход из аккаунта</p>
+                    <button onClick={onLogout} className="h-8 px-3 rounded-[var(--radius-md)] bg-red-500 text-white text-[13px] font-medium hover:bg-red-600 transition-colors flex items-center gap-1.5">
+                      <LogOut size={14} /> Выйти
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'language' && (
+              <div className="space-y-6">
+                <h2 className="text-[16px] font-semibold text-[var(--text-primary)] mb-4">Язык и регион</h2>
+                <div className="pb-4 border-b border-[var(--border-subtle)]">
+                  <label className="block text-[12px] text-[var(--text-tertiary)] mb-1.5">Язык интерфейса</label>
+                  <select value={language} onChange={e => { setLanguage(e.target.value); localStorage.setItem('kolibri-language', e.target.value) }} className="w-full h-9 px-3 bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-[var(--radius-md)] text-[13px] text-[var(--text-primary)] outline-none">
+                    <option value="ru">Русский</option>
+                    <option value="en">English</option>
+                  </select>
+                </div>
+                <div className="pb-4 border-b border-[var(--border-subtle)]">
+                  <label className="block text-[12px] text-[var(--text-tertiary)] mb-1.5">Формат даты</label>
+                  <select value={dateFormat} onChange={e => { setDateFormat(e.target.value); localStorage.setItem('kolibri-date-format', e.target.value) }} className="w-full h-9 px-3 bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-[var(--radius-md)] text-[13px] text-[var(--text-primary)] outline-none">
+                    <option>DD.MM.YYYY</option>
+                    <option>MM/DD/YYYY</option>
+                    <option>YYYY-MM-DD</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[12px] text-[var(--text-tertiary)] mb-1.5">Валюта</label>
+                  <select value={currency} onChange={e => { setCurrency(e.target.value); localStorage.setItem('kolibri-currency', e.target.value) }} className="w-full h-9 px-3 bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-[var(--radius-md)] text-[13px] text-[var(--text-primary)] outline-none">
+                    <option value="RUB">RUB (₽)</option>
+                    <option value="USD">USD ($)</option>
+                    <option value="EUR">EUR (€)</option>
+                  </select>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'shortcuts' && (
+              <div className="space-y-4">
+                <h2 className="text-[16px] font-semibold text-[var(--text-primary)] mb-4">Горячие клавиши</h2>
+                {[
+                  { action: 'Новый чат', key: 'Ctrl + K' },
+                  { action: 'Поиск', key: 'Ctrl + /' },
+                  { action: 'Отправить сообщение', key: 'Enter' },
+                  { action: 'Новая строка', key: 'Shift + Enter' },
+                  { action: 'Библиотека', key: 'Ctrl + L' },
+                  { action: 'Настройки', key: 'Ctrl + ,' },
+                ].map(s => (
+                  <div key={s.action} className="flex items-center justify-between py-2 border-b border-[var(--border-subtle)]">
+                    <span className="text-[14px] text-[var(--text-primary)]">{s.action}</span>
+                    <kbd className="px-2 py-1 bg-[var(--bg-elevated)] rounded-[var(--radius-sm)] text-[11px] font-mono text-[var(--text-secondary)]">{s.key}</kbd>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {activeTab === 'help' && (
+              <div className="space-y-4">
+                <h2 className="text-[16px] font-semibold text-[var(--text-primary)] mb-4">Помощь</h2>
+                <div className="space-y-3">
+                  <div className="p-4 rounded-[var(--radius-lg)] border border-[var(--border-subtle)]">
+                    <p className="text-[14px] font-medium text-[var(--text-primary)] mb-2">Частые шаги</p>
+                    <p className="text-[13px] text-[var(--text-tertiary)] leading-relaxed">
+                      Для быстрого старта используйте чат: введите задачу в поле, нажмите Enter и откройте смету/документ из готовых действий.
+                    </p>
+                  </div>
+                  <div className="p-4 rounded-[var(--radius-lg)] border border-[var(--border-subtle)]">
+                    <p className="text-[14px] font-medium text-[var(--text-primary)] mb-2">Поиск по данным</p>
+                    <p className="text-[13px] text-[var(--text-tertiary)] leading-relaxed">
+                      Ищите сметы и документы по названию, коду позиции или клиенту через глобальный поиск в шапке.
+                    </p>
+                  </div>
+                  <div className="p-4 rounded-[var(--radius-lg)] border border-[var(--border-subtle)]">
+                    <p className="text-[14px] font-medium text-[var(--text-primary)] mb-2">Поддержка</p>
+                    <p className="text-[13px] text-[var(--text-tertiary)] leading-relaxed">
+                      Если функционал не работает как ожидается, напишите в support@kolibri.ai с описанием шага, на котором возникла проблема.
+                    </p>
+                    <a
+                      href="mailto:support@kolibri.ai?subject=Колибри%20поддержка"
+                      className="mt-3 inline-flex items-center gap-2 px-3 py-2 rounded-[var(--radius-md)] text-[13px] bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors"
+                    >
+                      <MessageCircleQuestion size={15} strokeWidth={1.8} />
+                      support@kolibri.ai
+                    </a>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
