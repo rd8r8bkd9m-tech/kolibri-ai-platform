@@ -1,0 +1,64 @@
+{
+  "task_id": "P0_TELEGRAM_MAIN_RECEIVER_METADATA_ACCESS_AND_SINGLE_RECEIVER_CUTOVER_GATE_2026_07_02",
+  "status": "metadata_visibility_restored_single_receiver_candidate_selected",
+  "node": "kolibri",
+  "agent_display_name": "Марина - Main Telegram Receiver Metadata Gate",
+  "execution_class": "server_control_node",
+  "fresh_evidence": {
+    "checked_at": "2026-07-02T00:45:28Z",
+    "service": {
+      "name": "kolibri-telegram-gateway.service",
+      "load_state": "loaded",
+      "active_state": "active",
+      "sub_state": "running",
+      "main_pid_present": true,
+      "unit_file_state": "disabled",
+      "state_change_timestamp": "Thu 2026-07-02 00:01:25 UTC"
+    },
+    "state_file": {
+      "path": "/var/lib/kolibri-telegram-gateway/state.json",
+      "exists": true,
+      "json_valid": true,
+      "offset_present": true,
+      "tracked_count": 33,
+      "mtime": "2026-07-02 00:30:17.204597104 +0000",
+      "raw_content_printed": false
+    },
+    "bot_api_read_only": {
+      "getMe_ok": true,
+      "username": "kolibriai_bot",
+      "bot_id_redacted": true,
+      "getWebhookInfo_ok": true,
+      "webhook_url_empty": true,
+      "pending_update_count": 0,
+      "allowed_updates": [
+        "message"
+      ],
+      "last_error_date": null
+    }
+  },
+  "selected_receiver_candidate": {
+    "node": "main",
+    "observed_hostname": "kolibri",
+    "service": "kolibri-telegram-gateway.service",
+    "classification": "selected_active_single_receiver_candidate",
+    "future_start_restart_allowed_before_reconfirmation": false
+  },
+  "bot_api_mutated": false,
+  "service_mutated": false,
+  "secrets_printed": false,
+  "product_code_modified": false,
+  "blockers": [
+    {
+      "id": "unit-disabled",
+      "classification": "future_reboot_resilience_risk",
+      "evidence": "UnitFileState=disabled while service is currently active/running."
+    },
+    {
+      "id": "control-url-health",
+      "classification": "control_plane_runtime_repair_dependency",
+      "evidence": "ExecStart points at http://10.99.0.10:9101; prior July 2 rollback evidence says Factory Control/Fabric routes remain stale."
+    }
+  ],
+  "next_exact_task": "P0_TELEGRAM_MAIN_SINGLE_RECEIVER_IN_PLACE_REPAIR_GATE_2026_07_02"
+}
