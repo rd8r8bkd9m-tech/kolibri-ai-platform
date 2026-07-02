@@ -1,0 +1,23 @@
+[Unit]
+Description=Kolibri Home Factory Kiosk (Firefox fullscreen dashboard)
+Documentation=file:/var/lib/kolibri-agent/worktrees/P0_HOME_KIOSK_CONTROL_CENTER_INSTALL_TODAY_2026_07_02_RERUN2/P0_HOME_KIOSK_CONTROL_CENTER_INSTALL_TODAY_2026_07_02_RERUN2-attempt-1/repo/docs/agent-work/home-kiosk-control-center-20260702.md
+After=network-online.target graphical.target lightdm.service kolibri-factory-control.service kolibri-backend.service
+Wants=network-online.target graphical.target
+Requires=graphical.target
+
+[Service]
+Type=simple
+User=ladik
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/ladik/.Xauthority
+Environment=KOLIBRI_KIOSK_URL=http://127.0.0.1:8180
+Environment=KOLIBRI_KIOSK_DISPLAY=:0
+ExecStartPre=/usr/bin/bash -c 'for i in $(seq 1 30); do /usr/bin/xdpyinfo -display :0 >/dev/null 2>&1 && exit 0; sleep 2; done; echo "X display :0 not ready after 60s"; exit 1'
+ExecStart=/usr/local/bin/kolibri-home-kiosk-start
+Restart=always
+RestartSec=10
+KillMode=process
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=graphical.target
