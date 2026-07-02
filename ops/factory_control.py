@@ -368,6 +368,14 @@ def task_claim_key(task_id: str) -> str:
     return key(f"task_claim:{task_id}")
 
 
+def queued_task_ids_key() -> str:
+    return key("queued_task_ids")
+
+
+def active_lease_task_ids_key() -> str:
+    return key("active_lease_task_ids")
+
+
 def classify_node_freshness(node: dict[str, Any], current: float | None = None) -> dict[str, Any]:
     current_ts = now_ts() if current is None else current
     heartbeat_ts = parse_iso_ts(node.get("heartbeat_at"))
@@ -657,6 +665,14 @@ def save_task(task: dict[str, Any]) -> None:
     task["updated_at"] = utc_now()
     set_json(task_key(task["task_id"]), task)
     redis.command("SADD", key("task_ids"), task["task_id"])
+    if task.get("state") in {STATE_QUEUED, STATE_REVIEW}:
+        redis.command("SADD", queued_task_ids_key(), task["task_id"])
+    else:
+        redis.command("SREM", queued_task_ids_key(), task["task_id"])
+    if task.get("state") in {STATE_LEASED, STATE_RUNNING, STATE_REVIEW} and task.get("lease_until"):
+        redis.command("SADD", active_lease_task_ids_key(), task["task_id"])
+    else:
+        redis.command("SREM", active_lease_task_ids_key(), task["task_id"])
 
 
 def enqueue(task_id: str) -> None:
@@ -794,12 +810,17 @@ def requeue_expired_leases(limit: int | None = None) -> int:
     current = now_ts()
     scanned = 0
     changed = 0
-    for task_id in all_task_ids():
+    scan_limit = max(1, limit if limit is not None else LEASE_REAPER_BATCH_LIMIT)
+    candidates = redis.command("SRANDMEMBER", active_lease_task_ids_key(), scan_limit) or []
+    if isinstance(candidates, str):
+        candidates = [candidates]
+    for task_id in candidates:
         if limit is not None and scanned >= limit:
             break
         scanned += 1
         task = load_task(task_id)
         if not task or task.get("state") not in {STATE_LEASED, STATE_RUNNING, STATE_REVIEW}:
+            redis.command("SREM", active_lease_task_ids_key(), task_id)
             continue
         lease_until = float(task.get("lease_until") or 0)
         if lease_until >= current:
@@ -840,6 +861,7 @@ def lease_next_task(node_id: str, agent_id: str, capabilities: list[str], node: 
 def _try_lease_task_id(task_id: str, node_id: str, agent_id: str, capabilities: list[str], node: dict[str, Any]) -> dict[str, Any] | None:
     task = load_task(task_id)
     if not task or task.get("state") not in {STATE_QUEUED, STATE_REVIEW}:
+        redis.command("SREM", queued_task_ids_key(), task_id)
         return None
     if not compatible(task, node_id, capabilities, node):
         rotate_queue_item(task_id)
@@ -848,6 +870,7 @@ def _try_lease_task_id(task_id: str, node_id: str, agent_id: str, capabilities: 
         return None
     task = load_task(task_id)
     if not task or task.get("state") not in {STATE_QUEUED, STATE_REVIEW}:
+        redis.command("SREM", queued_task_ids_key(), task_id)
         return None
     if not compatible(task, node_id, capabilities, node):
         rotate_queue_item(task_id)
@@ -863,14 +886,14 @@ def _try_lease_task_id(task_id: str, node_id: str, agent_id: str, capabilities: 
 
 
 def lease_persisted_queued_task(node_id: str, agent_id: str, capabilities: list[str], node: dict[str, Any]) -> dict[str, Any] | None:
-    scanned = 0
-    for task_id in all_task_ids():
-        if scanned >= max(1, LEASE_QUEUE_SCAN_LIMIT):
-            break
+    candidates = redis.command("SRANDMEMBER", queued_task_ids_key(), max(1, LEASE_QUEUE_SCAN_LIMIT)) or []
+    if isinstance(candidates, str):
+        candidates = [candidates]
+    for task_id in candidates:
         task = load_task(task_id)
         if not task or task.get("state") not in {STATE_QUEUED, STATE_REVIEW}:
+            redis.command("SREM", queued_task_ids_key(), task_id)
             continue
-        scanned += 1
         if not compatible(task, node_id, capabilities, node):
             rotate_queue_item(task_id)
             continue

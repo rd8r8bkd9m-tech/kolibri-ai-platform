@@ -1,5 +1,7 @@
 import argparse
+import concurrent.futures
 import importlib.util
+import threading
 from pathlib import Path
 
 
@@ -28,51 +30,65 @@ class InMemoryRedis:
         self.sets = {}
         self.lists = {}
         self.commands = []
+        self.lock = threading.RLock()
 
     def command(self, *parts):
-        self.commands.append(parts)
-        op = str(parts[0]).upper()
-        if op == "GET":
-            return self.values.get(parts[1])
-        if op == "SET":
-            key, value = parts[1], parts[2]
-            flags = {str(part).upper() for part in parts[3:]}
-            if "NX" in flags and key in self.values:
-                return None
-            self.values[key] = value
-            return "OK"
-        if op == "SADD":
-            self.sets.setdefault(parts[1], set()).add(parts[2])
-            return 1
-        if op == "SMEMBERS":
-            return list(self.sets.get(parts[1], set()))
-        if op == "RPUSH":
-            self.lists.setdefault(parts[1], []).append(parts[2])
-            return len(self.lists[parts[1]])
-        if op == "LPOP":
-            items = self.lists.setdefault(parts[1], [])
-            return items.pop(0) if items else None
-        if op == "LREM":
-            list_key, count, value = parts[1], int(parts[2]), parts[3]
-            items = self.lists.setdefault(list_key, [])
-            removed = 0
-            kept = []
-            for item in items:
-                if item == value and (count == 0 or removed < abs(count)):
-                    removed += 1
-                    continue
-                kept.append(item)
-            self.lists[list_key] = kept
-            return removed
-        if op == "LRANGE":
-            items = self.lists.get(parts[1], [])
-            start, stop = int(parts[2]), int(parts[3])
-            if stop == -1:
-                return list(items[start:])
-            return list(items[start:stop + 1])
-        if op == "PING":
-            return "PONG"
-        raise AssertionError(f"unsupported redis command: {parts}")
+        with self.lock:
+            self.commands.append(parts)
+            op = str(parts[0]).upper()
+            if op == "GET":
+                return self.values.get(parts[1])
+            if op == "SET":
+                key, value = parts[1], parts[2]
+                flags = {str(part).upper() for part in parts[3:]}
+                if "NX" in flags and key in self.values:
+                    return None
+                self.values[key] = value
+                return "OK"
+            if op == "SADD":
+                before = len(self.sets.setdefault(parts[1], set()))
+                self.sets[parts[1]].add(parts[2])
+                return int(len(self.sets[parts[1]]) > before)
+            if op == "SREM":
+                items = self.sets.setdefault(parts[1], set())
+                if parts[2] not in items:
+                    return 0
+                items.remove(parts[2])
+                return 1
+            if op == "SMEMBERS":
+                return list(self.sets.get(parts[1], set()))
+            if op == "SRANDMEMBER":
+                items = sorted(self.sets.get(parts[1], set()))
+                if len(parts) == 2:
+                    return items[0] if items else None
+                return items[:max(0, int(parts[2]))]
+            if op == "RPUSH":
+                self.lists.setdefault(parts[1], []).append(parts[2])
+                return len(self.lists[parts[1]])
+            if op == "LPOP":
+                items = self.lists.setdefault(parts[1], [])
+                return items.pop(0) if items else None
+            if op == "LREM":
+                list_key, count, value = parts[1], int(parts[2]), parts[3]
+                items = self.lists.setdefault(list_key, [])
+                removed = 0
+                kept = []
+                for item in items:
+                    if item == value and (count == 0 or removed < abs(count)):
+                        removed += 1
+                        continue
+                    kept.append(item)
+                self.lists[list_key] = kept
+                return removed
+            if op == "LRANGE":
+                items = self.lists.get(parts[1], [])
+                start, stop = int(parts[2]), int(parts[3])
+                if stop == -1:
+                    return list(items[start:])
+                return list(items[start:stop + 1])
+            if op == "PING":
+                return "PONG"
+            raise AssertionError(f"unsupported redis command: {parts}")
 
 
 def test_1000_logical_lease_polls_do_not_spawn_processes_or_scan_unbounded_queue(monkeypatch):
@@ -136,6 +152,40 @@ def test_lease_recovers_persisted_queued_task_when_queue_index_loses_one_entry(m
 
     assert len(set(leased)) == 10
     assert "STRICT-9" in leased
+
+
+def test_concurrent_empty_lease_polls_return_no_task_without_historical_scan(monkeypatch):
+    control = load_control()
+    fake = InMemoryRedis()
+    monkeypatch.setattr(control, "redis", fake)
+    monkeypatch.setattr(control, "LEASE_QUEUE_SCAN_LIMIT", 8)
+
+    for index in range(1000):
+        task = control.normalize_task({
+            "task_id": f"HIST-{index}",
+            "idempotency_key": f"hist-{index}",
+        })
+        task["state"] = control.STATE_COMPLETED
+        control.save_task(task)
+    fake.commands.clear()
+
+    def empty_poll(index):
+        task = control.lease_next_task(
+            f"logical-empty-{index}",
+            f"agent-empty-{index}",
+            ["read_only_probe"],
+            {"node_id": f"logical-empty-{index}", "capabilities": ["read_only_probe"]},
+        )
+        return control.lease_no_task_response() if task is None else task
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=16) as pool:
+        envelopes = list(pool.map(empty_poll, range(64)))
+    assert control.maybe_requeue_expired_leases() == 0
+
+    assert all(envelope["status"] == "no_task" for envelope in envelopes)
+    assert all(envelope["task"] is None for envelope in envelopes)
+    assert not any(command == ("SMEMBERS", control.key("task_ids")) for command in fake.commands)
+    assert not any(command[0] == "LRANGE" for command in fake.commands)
 
 
 def test_lease_reaper_is_lock_gated_and_batched(monkeypatch):
