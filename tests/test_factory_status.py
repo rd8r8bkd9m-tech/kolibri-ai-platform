@@ -70,8 +70,13 @@ def test_frontend_uses_live_factory_status_endpoint():
 
     assert "/api/factory/status" in app_source
     assert "/cluster/status" not in app_source
+    assert "/api/knowledge/search" in app_source
+    assert "${API_BASE}/rag/search" not in app_source
     assert "на базе 5 серверов" not in app_source
     assert "Фабрика Колибри" in app_source
+    assert "kolibriai.ru" in app_source
+    assert "Чем могу помочь?" in app_source
+    assert "суверенная AI-фабрика" in app_source
     assert "Свежие" in app_source
     assert "Деградируют" in app_source
     assert "Устарели" in app_source

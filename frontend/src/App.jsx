@@ -8,6 +8,70 @@ import { KolibriBird } from "./components/KolibriBird"
 const IS_LOCAL = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
 const API_BASE = IS_LOCAL ? `http://${window.location.hostname}:8000` : ""
 const WS_HOST = IS_LOCAL ? `${window.location.hostname}:8000` : window.location.host
+const PUBLIC_DOMAIN = "kolibriai.ru"
+const FACTORY_STATUS_FALLBACK = {
+  status: "degraded",
+  source: "frontend-fallback",
+  total_nodes: 0,
+  online_nodes: 0,
+  fresh_nodes: 0,
+  degraded_nodes: 0,
+  stale_nodes: 0,
+  free_ram_gb: 0,
+  total_ram_gb: 0,
+  queue_size: 0,
+  node_freshness: { fresh: 0, degraded: 0, stale: 0, total: 0 },
+  nodes: {},
+}
+
+function normalizeProviders(payload) {
+  const raw = Array.isArray(payload) ? payload : payload?.providers || payload?.items || []
+  return raw.map((provider) => {
+    const name = provider.name || provider.id || provider.provider || "mimo"
+    const status = provider.status || (provider.available === false ? "offline" : "online")
+    return {
+      ...provider,
+      name,
+      status,
+      available: provider.available ?? status === "online",
+    }
+  })
+}
+
+function getFactoryCounts(status) {
+  const freshness = status?.node_freshness || {}
+  return {
+    fresh: freshness.fresh ?? status?.fresh_nodes ?? status?.online_nodes ?? 0,
+    degraded: freshness.degraded ?? status?.degraded_nodes ?? 0,
+    stale: freshness.stale ?? status?.stale_nodes ?? 0,
+    total: status?.total_nodes ?? freshness.total ?? 0,
+  }
+}
+
+function getTone(value) {
+  if (value === "online" || value === "success" || value === true) return "success"
+  if (value === "degraded" || value === "warning" || value === null) return "warning"
+  if (value === "error" || value === false) return "error"
+  return "neutral"
+}
+
+function StatusPill({ label, value, tone = "neutral" }) {
+  return (
+    <div className={`status-pill ${tone}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  )
+}
+
+function ServiceBanner({ tone = "info", title, children }) {
+  return (
+    <div className={`service-banner ${tone}`}>
+      <div className="service-banner-title">{title}</div>
+      <div className="service-banner-body">{children}</div>
+    </div>
+  )
+}
 
 class ErrorBoundary extends Component {
   constructor(props) { super(props); this.state = { error: null } }
@@ -69,7 +133,8 @@ function ClusterView({ status, onRefresh }) {
   )
   
   const nodeEntries = Array.isArray(status.nodes) ? status.nodes.map(node => [node.node_id || node.id || node.hostname, node]) : Object.entries(status.nodes || {})
-  const freshness = status.node_freshness || {}
+  const counts = getFactoryCounts(status)
+  const statusTone = getTone(status.status)
 
   const NodeIcon = ({ role }) => {
     const paths = {
@@ -86,7 +151,10 @@ function ClusterView({ status, onRefresh }) {
   return (
     <motion.div key="cluster" className="documents-panel" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
       <div className="documents-header">
-        <h2>Сеть Kolibri</h2>
+        <div className="documents-title">
+          <h2>Фабрика Kolibri</h2>
+          <p>Control Plane: {status.status || "unknown"} · источник {status.source || "неизвестен"}</p>
+        </div>
         <button className="refresh-btn" onClick={onRefresh}>
           <motion.svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
             whileHover={{ rotate: 180 }} transition={{ duration: 0.3 }}>
@@ -94,12 +162,18 @@ function ClusterView({ status, onRefresh }) {
           </motion.svg>
         </button>
       </div>
+
+      {status.status !== "online" && (
+        <ServiceBanner tone={statusTone === "error" ? "error" : "warning"} title="Фабрика отвечает не полностью">
+          Интерфейс показывает фактическое состояние из /api/factory/status и не скрывает деградацию узлов или очереди.
+        </ServiceBanner>
+      )}
       
       <div className="cluster-stats">
         {[
-          { label: "Свежие", value: `${freshness.fresh ?? status.fresh_nodes ?? status.online_nodes}/${status.total_nodes}`, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>, color: "var(--success)" },
-          { label: "Деградируют", value: freshness.degraded ?? status.degraded_nodes ?? 0, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>, color: "var(--warning)" },
-          { label: "Устарели", value: freshness.stale ?? status.stale_nodes ?? 0, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>, color: "var(--error)" },
+          { label: "Свежие", value: `${counts.fresh}/${counts.total}`, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>, color: "var(--success)" },
+          { label: "Деградируют", value: counts.degraded, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>, color: "var(--warning)" },
+          { label: "Устарели", value: counts.stale, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>, color: "var(--error)" },
           { label: "Задач в очереди", value: status.queue_size || 0, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>, color: "var(--accent)" },
         ].map((s, i) => (
           <motion.div key={s.label} className="stat-card"
@@ -150,6 +224,7 @@ export default function App() {
   const [ws, setWs] = useState(null)
   const [connected, setConnected] = useState(false)
   const [providers, setProviders] = useState([])
+  const [providerError, setProviderError] = useState("")
   const [selectedProvider, setSelectedProvider] = useState("mimo")
   const [sidebar, setSidebar] = useState(false)
   const [theme, setTheme] = useState(() => localStorage.getItem("kolibri-theme") || "dark")
@@ -157,11 +232,15 @@ export default function App() {
   const [documents, setDocuments] = useState([])
   const [docLoading, setDocLoading] = useState(false)
   const [docError, setDocError] = useState("")
+  const [knowledgeAvailable, setKnowledgeAvailable] = useState(null)
   const [uploading, setUploading] = useState(false)
   const [clusterStatus, setClusterStatus] = useState(null)
+  const [factoryError, setFactoryError] = useState("")
   const [searchQuery, setSearchQuery] = useState("")
   const [searchResults, setSearchResults] = useState([])
   const [searchLoading, setSearchLoading] = useState(false)
+  const [searchError, setSearchError] = useState("")
+  const wsRef = useRef(null)
   const messagesEnd = useRef(null)
   const inputRef = useRef(null)
   const fileInputRef = useRef(null)
@@ -174,30 +253,33 @@ export default function App() {
     document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme === "dark" ? "#0a0a0f" : "#f0f4f8")
   }, [theme])
 
-  useEffect(() => {
-    fetch(`${API_BASE}/api/providers`).then(r => r.json()).then(setProviders).catch(() => {})
-    connectWS()
-    fetchCluster()
-    const ci = setInterval(fetchCluster, 15000)
-    return () => { if (ws) ws.close(); clearInterval(ci) }
-  }, [])
-
   useEffect(() => { messagesEnd.current?.scrollIntoView({ behavior: "smooth" }) }, [messages])
 
-  const fetchCluster = async () => {
+  const fetchCluster = useCallback(async () => {
     try {
       const r = await fetch(`${API_BASE}/api/factory/status`)
-      setClusterStatus(await r.json())
-    } catch {}
-  }
+      const data = await r.json().catch(() => ({}))
+      setClusterStatus({ ...FACTORY_STATUS_FALLBACK, ...data })
+      setFactoryError(r.ok ? "" : data.detail || data.error || `/api/factory/status вернул HTTP ${r.status}`)
+    } catch (error) {
+      setClusterStatus(FACTORY_STATUS_FALLBACK)
+      setFactoryError(`Не удалось получить /api/factory/status: ${error.message}`)
+    }
+  }, [])
 
   const fetchDocuments = async () => {
     setDocLoading(true); setDocError("")
     try {
       const r = await fetch(`${API_BASE}/api/knowledge`)
-      const d = await r.json()
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(d.detail || d.error || `HTTP ${r.status}`)
+      setKnowledgeAvailable(true)
       setDocuments(d.documents || d.items || [])
-    } catch { setDocError("Не удалось загрузить документы") }
+    } catch (error) {
+      setKnowledgeAvailable(false)
+      setDocuments([])
+      setDocError(`База знаний сейчас недоступна: ${error.message}`)
+    }
     setDocLoading(false)
   }
 
@@ -205,12 +287,20 @@ export default function App() {
 
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0]; if (!file) return
+    if (knowledgeAvailable === false) {
+      setDocError("Загрузка отключена, пока /api/knowledge недоступен.")
+      return
+    }
     setUploading(true)
     try {
       const fd = new FormData(); fd.append("file", file)
-      await fetch(`${API_BASE}/api/knowledge/upload`, { method: "POST", body: fd })
+      const r = await fetch(`${API_BASE}/api/knowledge/upload`, { method: "POST", body: fd })
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
       await fetchDocuments()
-    } catch { setDocError("Ошибка загрузки") }
+    } catch (error) {
+      setKnowledgeAvailable(false)
+      setDocError(`Ошибка загрузки: ${error.message}`)
+    }
     setUploading(false)
   }
 
@@ -234,8 +324,27 @@ export default function App() {
       })
       setLoading(false)
     }
+    wsRef.current = socket
     setWs(socket)
   }, [])
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/providers`)
+      .then(async r => {
+        const payload = await r.json().catch(() => ({}))
+        if (!r.ok) throw new Error(payload.detail || payload.error || `HTTP ${r.status}`)
+        setProviders(normalizeProviders(payload))
+        setProviderError("")
+      })
+      .catch((error) => {
+        setProviderError(`Не удалось получить список моделей: ${error.message}`)
+        setProviders([{ name: "mimo", status: "unknown", available: true }])
+      })
+    connectWS()
+    fetchCluster()
+    const ci = setInterval(fetchCluster, 15000)
+    return () => { wsRef.current?.close(); clearInterval(ci) }
+  }, [connectWS, fetchCluster])
 
   const sendMessage = async () => {
     if (!input.trim() || loading) return
@@ -248,34 +357,46 @@ export default function App() {
     } else {
       try {
         const r = await fetch(`${API_BASE}/api/chat`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: newMsgs, provider: selectedProvider }) })
-        const d = await r.json()
-        setMessages([...newMsgs, { role: "assistant", content: d.response, provider: d.provider, timestamp: Date.now() }])
-      } catch { setMessages([...newMsgs, { role: "assistant", content: "Ошибка подключения к серверу.", timestamp: Date.now() }]) }
+        const d = await r.json().catch(() => ({}))
+        if (!r.ok) throw new Error(d.detail || d.error || `HTTP ${r.status}`)
+        setMessages([...newMsgs, { role: "assistant", content: d.response || d.content || "Готово.", provider: d.provider, timestamp: Date.now() }])
+      } catch (error) { setMessages([...newMsgs, { role: "assistant", content: `Ошибка подключения к серверу: ${error.message}`, timestamp: Date.now() }]) }
       setLoading(false)
     }
   }
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return
-    setSearchLoading(true)
+    setSearchLoading(true); setSearchError("")
     try {
-      const r = await fetch(`${API_BASE}/rag/search`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: searchQuery, limit: 5 }) })
-      const d = await r.json()
-      setSearchResults(d.results || [])
-    } catch { setSearchResults([]) }
+      const r = await fetch(`${API_BASE}/api/knowledge/search`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: searchQuery, limit: 5 }) })
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(d.detail || d.error || `HTTP ${r.status}`)
+      setKnowledgeAvailable(true)
+      setSearchResults(d.results || d.items || [])
+    } catch (error) {
+      setKnowledgeAvailable(false)
+      setSearchResults([])
+      setSearchError(`Семантический поиск недоступен: ${error.message}`)
+    }
     setSearchLoading(false)
   }
 
   const handleKeyDown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage() } }
 
   const quickActions = [
-    { icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>, title: "Чат с AI", desc: "Задайте вопрос", color: "blue", prompt: "" },
-    { icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>, title: "Смета", desc: "AI-генерация сметы", color: "purple", prompt: "Создай строительную смету для " },
-    { icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 002 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0022 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>, title: "Документы", desc: "Пакет документов", color: "green", prompt: "Создай полный пакет документов для " },
-    { id: "search", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>, title: "Поиск", desc: "База знаний", color: "orange", prompt: "" },
+    { icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>, title: "Создать смету на электромонтаж", desc: "Расчёт работ и материалов", color: "blue", prompt: "Создай строительную смету на электромонтаж для " },
+    { icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><path d="M9 15h6"/><path d="M9 18h4"/></svg>, title: "Написать договор подряда", desc: "Черновик под задачу", color: "green", prompt: "Напиши договор подряда для " },
+    { icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 3v18h18"/><rect x="7" y="10" width="3" height="7"/><rect x="12" y="6" width="3" height="11"/><rect x="17" y="13" width="3" height="4"/></svg>, title: "Сгенерировать отчёт", desc: "Структура и выводы", color: "purple", prompt: "Сгенерируй отчёт по теме " },
+    { icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/><path d="M8 11h6"/><path d="M11 8v6"/></svg>, title: "Проанализировать данные", desc: "Найти риски и закономерности", color: "orange", prompt: "Проанализируй данные: " },
   ]
 
   const birdState = loading ? "thinking" : connected ? "idle" : "error"
+  const factoryCounts = getFactoryCounts(clusterStatus)
+  const factoryTone = getTone(clusterStatus?.status)
+  const chatTone = connected ? "success" : "warning"
+  const knowledgeTone = getTone(knowledgeAvailable)
+  const providerCount = providers.filter(p => p.available).length
 
   return (
     <ErrorBoundary>
@@ -303,14 +424,14 @@ export default function App() {
               { id: "chat", label: "Чат", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg> },
               { id: "documents", label: "Документы", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg> },
               { id: "search", label: "Поиск", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> },
-              { id: "cluster", label: "Сеть", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="2" width="6" height="6" rx="1"/><rect x="16" y="2" width="6" height="6" rx="1"/><rect x="9" y="16" width="6" height="6" rx="1"/><path d="M5 8v3a2 2 0 002 2h10a2 2 0 002-2V8"/></svg> },
+              { id: "cluster", label: "Фабрика", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="2" width="6" height="6" rx="1"/><rect x="16" y="2" width="6" height="6" rx="1"/><rect x="9" y="16" width="6" height="6" rx="1"/><path d="M5 8v3a2 2 0 002 2h10a2 2 0 002-2V8"/></svg> },
             ].map(item => (
               <motion.button key={item.id} className={`sidebar-nav-item ${activeTab === item.id ? "active" : ""}`}
                 onClick={() => { setActiveTab(item.id); setSidebar(false) }}
                 whileHover={{ x: 2 }} whileTap={{ scale: 0.98 }}>
                 {item.icon}{item.label}
                 {item.id === "cluster" && clusterStatus && (
-                  <span className="nav-badge">{clusterStatus.online_nodes}</span>
+                  <span className={`nav-badge ${factoryTone}`}>{factoryCounts.fresh}</span>
                 )}
               </motion.button>
             ))}
@@ -322,6 +443,9 @@ export default function App() {
               {providers.filter(p => p.available).map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
               {providers.length === 0 && <option value="mimo">mimo-auto</option>}
             </select>
+            <div className="sidebar-hint">
+              {providerError || `${providerCount}/${providers.length || 1} моделей доступны`}
+            </div>
           </div>
 
           <div className="sidebar-section">
@@ -338,7 +462,7 @@ export default function App() {
               <motion.div className={`connection-dot ${connected ? "connected" : ""}`}
                 animate={connected ? { scale: [1, 1.3, 1] } : {}}
                 transition={{ duration: 2, repeat: Infinity }} />
-              {connected ? "Фабрика онлайн" : "Связь с фабрикой потеряна"}
+              {connected ? "Фабрика Колибри онлайн" : "Связь с фабрикой потеряна"}
             </div>
           </div>
         </aside>
@@ -356,10 +480,10 @@ export default function App() {
                 <div className="header-subtitle">
                   {clusterStatus ? (
                     <span className="header-cluster">
-                      <span className="pulse-dot" />
-                      {clusterStatus.online_nodes} узлов · {clusterStatus.free_ram_gb} GB RAM
+                      <span className={`pulse-dot ${factoryTone}`} />
+                      {PUBLIC_DOMAIN} · {factoryCounts.fresh}/{factoryCounts.total} свежих · {clusterStatus.queue_size || 0} в очереди
                     </span>
-                  ) : "Загрузка..."}
+                  ) : `${PUBLIC_DOMAIN} · проверка фабрики...`}
                 </div>
               </div>
             </div>
@@ -381,16 +505,27 @@ export default function App() {
                   <div className="messages">
                     {messages.length === 0 && (
                       <motion.div className="welcome" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.6 }}>
+                        <div className="welcome-domain-pill">{PUBLIC_DOMAIN}</div>
                         <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
                           transition={{ type: "spring", stiffness: 200, delay: 0.1 }}>
-                          <KolibriBird size={90} state="idle" />
+                          <KolibriBird size={118} state="idle" />
                         </motion.div>
                         <motion.h1 className="welcome-title" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: 0.3 }}>Kolibri AI</motion.h1>
+                          transition={{ delay: 0.3 }}>Чем могу помочь?</motion.h1>
                         <motion.p className="welcome-subtitle" initial={{ opacity: 0 }} animate={{ opacity: 1 }}
                           transition={{ delay: 0.4 }}>
-                          Фабрика Колибри · {clusterStatus ? `${clusterStatus.online_nodes}/${clusterStatus.total_nodes} узлов · ${clusterStatus.total_ram_gb} GB RAM` : "загрузка"}
+                          Kolibri AI — суверенная AI-фабрика для задач, документов, смет, кода и агентов.
                         </motion.p>
+                        <div className="welcome-status-row">
+                          <StatusPill label="Фабрика" value={clusterStatus ? `${factoryCounts.fresh}/${factoryCounts.total}` : "проверка"} tone={factoryTone} />
+                          <StatusPill label="Чат" value={connected ? "online" : "fallback"} tone={chatTone} />
+                          <StatusPill label="База знаний" value={knowledgeAvailable === true ? "online" : knowledgeAvailable === false ? "degraded" : "проверим"} tone={knowledgeTone} />
+                        </div>
+                        {(factoryError || providerError) && (
+                          <div className="welcome-runtime-note">
+                            {factoryError || providerError}
+                          </div>
+                        )}
                         <div className="quick-actions">
                           {quickActions.map((a, i) => (
                             <motion.button key={a.title} className="quick-action"
@@ -398,7 +533,6 @@ export default function App() {
                               transition={{ delay: 0.5 + i * 0.08, type: "spring", stiffness: 200 }}
                               whileHover={{ scale: 1.03, y: -3 }} whileTap={{ scale: 0.97 }}
                               onClick={() => {
-                                if (a.id === "search") { setActiveTab("search"); return }
                                 setInput(a.prompt); inputRef.current?.focus()
                               }}>
                               <div className={`quick-action-icon ${a.color}`}>{a.icon}</div>
@@ -448,7 +582,7 @@ export default function App() {
                   <div className="input-area">
                     <div className="input-wrapper">
                       <textarea ref={inputRef} value={input} onChange={e => setInput(e.target.value)} onKeyDown={handleKeyDown}
-                        placeholder="Спросите что угодно..." rows={1} disabled={loading}
+                        placeholder="Спросите Колибри..." rows={1} disabled={loading}
                         onInput={e => { e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px" }} />
                       <motion.button onClick={sendMessage} disabled={loading || !input.trim()} className="send-btn"
                         whileHover={{ scale: 1.08 }} whileTap={{ scale: 0.92 }}>
@@ -469,13 +603,23 @@ export default function App() {
               {activeTab === "documents" && (
                 <motion.div key="docs" className="documents-panel" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
                   <div className="documents-header">
-                    <h2>Документы</h2>
+                    <div className="documents-title">
+                      <h2>Документы</h2>
+                      <p>Публичный маршрут: /api/knowledge</p>
+                    </div>
                     <input ref={fileInputRef} type="file" onChange={handleFileUpload} style={{display:"none"}} accept=".pdf,.txt,.md,.doc,.docx,.csv,.json" />
-                    <motion.button className="upload-btn" onClick={() => fileInputRef.current?.click()} disabled={uploading}
+                    <motion.button className="upload-btn" onClick={() => fileInputRef.current?.click()} disabled={uploading || knowledgeAvailable === false}
                       whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
                       {uploading ? "Загрузка..." : "+ Загрузить"}
                     </motion.button>
                   </div>
+                  <ServiceBanner tone={knowledgeAvailable === false ? "warning" : knowledgeAvailable === true ? "success" : "info"} title="Состояние базы знаний">
+                    {knowledgeAvailable === true
+                      ? "RAG/knowledge отвечает через same-origin proxy."
+                      : knowledgeAvailable === false
+                        ? "RAG/knowledge сейчас недоступен; загрузка и список документов не маскируются под рабочие."
+                        : "Проверим /api/knowledge при открытии раздела."}
+                  </ServiceBanner>
                   {docError && <div className="doc-error">{docError}</div>}
                   {docLoading ? (
                     <div className="skeleton-list">{[1,2,3].map(i => <Skeleton key={i} className="skeleton-item" />)}</div>
@@ -484,8 +628,8 @@ export default function App() {
                       <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{opacity:0.3,marginBottom:16}}>
                         <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/>
                       </svg>
-                      <p>Нет документов</p>
-                      <p className="doc-empty-hint">Загрузите файлы для анализа</p>
+                      <p>{knowledgeAvailable === false ? "База знаний недоступна" : "Нет документов"}</p>
+                      <p className="doc-empty-hint">{knowledgeAvailable === false ? "Проверьте RAG-сервис и /api/knowledge proxy" : "Загрузите файлы для анализа"}</p>
                     </div>
                   ) : (
                     <div className="doc-list">
@@ -513,7 +657,15 @@ export default function App() {
 
               {activeTab === "search" && (
                 <motion.div key="search" className="documents-panel" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
-                  <div className="documents-header"><h2>Поиск</h2></div>
+                  <div className="documents-header">
+                    <div className="documents-title">
+                      <h2>Поиск</h2>
+                      <p>Frontend вызывает /api/knowledge/search; прямой /rag/search остаётся внутренним сервисным маршрутом.</p>
+                    </div>
+                  </div>
+                  <ServiceBanner tone={knowledgeAvailable === false ? "warning" : "info"} title="Семантический поиск">
+                    Поиск не рисует фиктивные результаты: если RAG не отвечает, раздел покажет ошибку и пустое состояние.
+                  </ServiceBanner>
                   <div style={{ marginBottom: "20px" }}>
                     <div className="input-wrapper" style={{ maxWidth: "600px" }}>
                       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" style={{ flexShrink: 0 }}>
@@ -536,6 +688,7 @@ export default function App() {
                       </motion.button>
                     </div>
                   </div>
+                  {searchError && <div className="doc-error">{searchError}</div>}
                   {searchLoading ? (
                     <div className="skeleton-list">{[1,2,3].map(i => <Skeleton key={i} className="skeleton-item" />)}</div>
                   ) : searchResults.length > 0 ? (
@@ -562,7 +715,7 @@ export default function App() {
                         <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
                       </svg>
                       <p>Семантический поиск</p>
-                      <p className="doc-empty-hint">Введите запрос для поиска по базе знаний</p>
+                      <p className="doc-empty-hint">{knowledgeAvailable === false ? "Сейчас недоступен /api/knowledge/search" : "Введите запрос для поиска по базе знаний"}</p>
                     </div>
                   )}
                 </motion.div>
