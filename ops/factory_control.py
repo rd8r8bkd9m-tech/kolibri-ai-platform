@@ -534,6 +534,12 @@ def _node_online(node: dict[str, Any]) -> bool:
     return node.get("health") == "online" and node.get("freshness", "fresh") == "fresh"
 
 
+def _fabric_node_with_freshness(node: dict[str, Any]) -> dict[str, Any]:
+    if "heartbeat_at" in node:
+        return classify_node_freshness(node)
+    return dict(node)
+
+
 def fabric_nodes(registered_nodes: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     merged = {node_id: dict(node) for node_id, node in FABRIC_NODE_CATALOG.items()}
     for registered in registered_nodes or []:
@@ -550,7 +556,7 @@ def fabric_nodes(registered_nodes: list[dict[str, Any]] | None = None) -> list[d
         node.setdefault("health", "unknown")
         node.setdefault("fallback_api_relay", "/v1/fabric/relay")
         node.setdefault("management_path", "protected_fabric_api")
-    return sorted((classify_node_freshness(node) for node in merged.values()), key=lambda item: item["node_id"])
+    return sorted((_fabric_node_with_freshness(node) for node in merged.values()), key=lambda item: item["node_id"])
 
 
 def fabric_route(
