@@ -66,6 +66,8 @@ class InMemoryRedis:
                 return 1
             if op == "SMEMBERS":
                 return list(self.sets.get(parts[1], set()))
+            if op == "SCARD":
+                return len(self.sets.get(parts[1], set()))
             if op == "SRANDMEMBER":
                 items = sorted(self.sets.get(parts[1], set()))
                 if len(parts) == 2:
@@ -77,6 +79,8 @@ class InMemoryRedis:
             if op == "LPOP":
                 items = self.lists.setdefault(parts[1], [])
                 return items.pop(0) if items else None
+            if op == "LLEN":
+                return len(self.lists.get(parts[1], []))
             if op == "LREM":
                 list_key, count, value = parts[1], int(parts[2]), parts[3]
                 items = self.lists.setdefault(list_key, [])
@@ -299,6 +303,72 @@ def test_factory_http_server_accepts_64_empty_lease_polls_without_worker_gate(mo
     assert not hasattr(control, "BoundedThreadingHTTPServer")
 
 
+def test_empty_http_lease_fast_path_skips_reaper_and_node_load(monkeypatch):
+    control = load_control()
+    fake = InMemoryRedis()
+    monkeypatch.setattr(control, "redis", fake)
+
+    server = control.FactoryThreadingHTTPServer(("127.0.0.1", 0), control.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    url = f"http://127.0.0.1:{server.server_address[1]}/v1/tasks/lease"
+    payload = json.dumps({
+        "node_id": "empty-fast",
+        "agent_id": "agent-empty-fast",
+        "capabilities": ["read_only_probe"],
+    }).encode("utf-8")
+    request = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
+
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert body["status"] == "no_task"
+    assert ("LLEN", control.key("queue")) in fake.commands
+    assert ("SCARD", control.queued_task_ids_key()) in fake.commands
+    assert not any(command[0] == "SET" and command[1] == control.key("lease_reaper:lock") for command in fake.commands)
+    assert ("GET", control.node_key("empty-fast")) not in fake.commands
+
+
+def test_factory_http_server_completes_300_empty_lease_polls_without_transport_drop(monkeypatch):
+    control = load_control()
+    fake = InMemoryRedis()
+    monkeypatch.setattr(control, "redis", fake)
+
+    server = control.FactoryThreadingHTTPServer(("127.0.0.1", 0), control.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    url = f"http://127.0.0.1:{server.server_address[1]}/v1/tasks/lease"
+
+    def lease(index):
+        payload = json.dumps({
+            "node_id": f"empty-high-{index}",
+            "agent_id": f"agent-high-{index}",
+            "capabilities": ["read_only_probe"],
+        }).encode("utf-8")
+        request = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return response.status, json.loads(response.read().decode("utf-8"))
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=300) as pool:
+            results = list(pool.map(lease, range(300)))
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert all(status == 200 for status, _body in results)
+    assert all(body["status"] == "no_task" for _status, body in results)
+    assert not any(command[0] == "SET" and command[1] == control.key("lease_reaper:lock") for command in fake.commands)
+    assert control.FactoryThreadingHTTPServer.request_queue_size >= 2048
+    assert not hasattr(control, "BoundedThreadingHTTPServer")
+
+
 def test_lease_reaper_is_lock_gated_and_batched(monkeypatch):
     control = load_control()
     fake = InMemoryRedis()
@@ -443,6 +513,7 @@ def test_factory_control_does_not_install_runtime_503_worker_gate():
 
     assert not hasattr(control, "BoundedThreadingHTTPServer")
     assert not hasattr(control, "lease_overload_response")
+    assert not hasattr(control, "LEASE_OVERLOAD_RETRY_AFTER")
 
 
 def test_lease_canary_classifier_fails_any_lease_5xx():
