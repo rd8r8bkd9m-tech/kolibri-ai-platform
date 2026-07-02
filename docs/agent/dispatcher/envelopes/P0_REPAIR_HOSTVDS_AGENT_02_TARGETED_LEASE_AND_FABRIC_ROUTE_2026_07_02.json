@@ -1,0 +1,66 @@
+{
+  "acceptance": [
+    "This is an execution task, not audit-only.",
+    "Do not target stale `agent-02`; use fresh `mesh-agent-02` only after confirming no active task, or use another fresh implementation node for the repair.",
+    "Preflight `/health`, `/v1/health`, `/v1/fabric/health`, `/v1/fabric/routes`, and `/v1/fabric/route` from the same route used by `ops/kolibri-dispatch`.",
+    "If `/v1/fabric/routes` or `/v1/fabric/route` return 404, perform a scoped reversible `kolibri-factory-control.service` deploy/restart only after backing up the live service file and confirming `/opt/kolibri-ai-platform/ops/factory_control.py` contains those handlers.",
+    "After route repair, run a read-only redacted readiness probe that actually leases on `mesh-agent-02`.",
+    "Do not print secrets, tokens, credential helper contents, private keys, cookies, or environment dumps.",
+    "No destructive git commands, no force push, no push to main, no merge.",
+    "Produce exact PLAN.md, ACTIONS.md, TESTS.md, RESULT.md, NEXT.md artifacts and include rollback command if any service was restarted."
+  ],
+  "constraints": {
+    "api_first_dispatch_required": true,
+    "auto_merge_forbidden": true,
+    "credential_creation_or_rotation_forbidden": true,
+    "destructive_git_commands_forbidden": true,
+    "force_push_forbidden": true,
+    "git_clean_forbidden": true,
+    "git_reset_forbidden": true,
+    "implementation_required_not_audit_only": true,
+    "interactive_auth_forbidden": true,
+    "no_fake_completed_status": true,
+    "product_code_modification_requires_branch_and_pr": true,
+    "push_to_main_forbidden": true,
+    "safe_service_repair_allowed_when_scoped_and_reversible": true,
+    "secrets_redaction_required": true
+  },
+  "goal": "Repair HostVDS agent-02 targeted lease and live Fabric route readiness: stale `agent-02` must not be targeted; `mesh-agent-02` readiness must be probed through a working API-first route or return an exact blocker.",
+  "idempotency_key": "P0_REPAIR_HOSTVDS_AGENT_02_TARGETED_LEASE_AND_FABRIC_ROUTE_2026_07_02",
+  "kind": "owner_remote_task",
+  "max_retries": 1,
+  "objective": "Preflight and repair the live Control Plane Fabric route surface if needed, then rerun a redacted readiness probe on `mesh-agent-02`. Use scoped reversible service repair only for `kolibri-factory-control.service`, with backup and rollback. Do not mutate product code in a dirty runtime checkout.",
+  "priority": "P0",
+  "required_capability": "generic_implementation",
+  "required_outputs": [
+    "docs/agent/runs/P0_REPAIR_HOSTVDS_AGENT_02_TARGETED_LEASE_AND_FABRIC_ROUTE_2026_07_02/PLAN.md",
+    "docs/agent/runs/P0_REPAIR_HOSTVDS_AGENT_02_TARGETED_LEASE_AND_FABRIC_ROUTE_2026_07_02/ACTIONS.md",
+    "docs/agent/runs/P0_REPAIR_HOSTVDS_AGENT_02_TARGETED_LEASE_AND_FABRIC_ROUTE_2026_07_02/TESTS.md",
+    "docs/agent/runs/P0_REPAIR_HOSTVDS_AGENT_02_TARGETED_LEASE_AND_FABRIC_ROUTE_2026_07_02/RESULT.md",
+    "docs/agent/runs/P0_REPAIR_HOSTVDS_AGENT_02_TARGETED_LEASE_AND_FABRIC_ROUTE_2026_07_02/NEXT.md"
+  ],
+  "source": {
+    "agent_name": "Дмитрий - HostVDS Agent-02 Route Repair",
+    "created_at": "2026-07-02T03:10:00Z",
+    "origin": "P0_EXEC_CANCELLED_HOSTVDS_AGENT_02_REPAIR_2026_07_02",
+    "requested_by": "Vladislav"
+  },
+  "target_node": "mesh-agent-02",
+  "task_id": "P0_REPAIR_HOSTVDS_AGENT_02_TARGETED_LEASE_AND_FABRIC_ROUTE_2026_07_02",
+  "verification_commands": [
+    "python3 ops/kolibri-dispatch nodes",
+    "python3 ops/kolibri-dispatch fabric-routes",
+    "python3 ops/kolibri-dispatch fabric-route mesh-agent-02 --required-capability generic_implementation",
+    "test -f docs/agent/runs/P0_REPAIR_HOSTVDS_AGENT_02_TARGETED_LEASE_AND_FABRIC_ROUTE_2026_07_02/PLAN.md",
+    "test -f docs/agent/runs/P0_REPAIR_HOSTVDS_AGENT_02_TARGETED_LEASE_AND_FABRIC_ROUTE_2026_07_02/ACTIONS.md",
+    "test -f docs/agent/runs/P0_REPAIR_HOSTVDS_AGENT_02_TARGETED_LEASE_AND_FABRIC_ROUTE_2026_07_02/TESTS.md",
+    "test -f docs/agent/runs/P0_REPAIR_HOSTVDS_AGENT_02_TARGETED_LEASE_AND_FABRIC_ROUTE_2026_07_02/RESULT.md",
+    "test -f docs/agent/runs/P0_REPAIR_HOSTVDS_AGENT_02_TARGETED_LEASE_AND_FABRIC_ROUTE_2026_07_02/NEXT.md",
+    "git diff --check"
+  ],
+  "write_scope": [
+    "docs/agent/",
+    "ops/",
+    "tests/"
+  ]
+}
