@@ -1,0 +1,117 @@
+{
+  "task_id": "P0_AUTOPILOT_EXTRA_24_HOSTVDS_AGENT_02_READINESS_2026_07_02",
+  "idempotency_key": "mesh-agent-24:P0_AUTOPILOT_EXTRA_24_HOSTVDS_AGENT_02_READINESS_2026_07_02",
+  "kind": "owner_remote_task",
+  "priority": "P0",
+  "required_capability": "generic_implementation",
+  "runner": "codex",
+  "agent_type": "hostvds_agent_readiness_probe",
+  "agent_display_name": "Дмитрий - HostVDS Agent-02 Readiness Probe",
+  "target_node": "mesh-agent-02",
+  "target_node_pool": "assigned_server_side_mesh_worker",
+  "preferred_nodes": [
+    "mesh-agent-02"
+  ],
+  "allowed_nodes": [
+    "mesh-agent-02"
+  ],
+  "avoid_nodes": [
+    "main",
+    "home",
+    "home-live",
+    "primary-candidate",
+    "qjns",
+    "uiap",
+    "new",
+    "mesh-agent-01",
+    "mesh-agent-03"
+  ],
+  "branch": "agent/P0_AUTOPILOT_EXTRA_24_HOSTVDS_AGENT_02_READINESS_2026_07_02/readiness",
+  "base_branch": "main",
+  "base_ref": "origin/main",
+  "max_retries": 0,
+  "create_review_on_complete": false,
+  "goal": "Probe hostvds-agent-02 readiness for factory work without changing product code or exposing secrets.",
+  "objective": "On the assigned server-side mesh worker `mesh-agent-02` / `hostvds-agent-02`, run a read-only readiness probe for factory work. Check Control Plane node identity, API route reachability, GitHub auth status without printing tokens, disk/resource state, Agent Host/runner status, and produce an exact repair task for any blocker. Do not modify product code, do not push Git, do not print secrets, and do not run destructive commands.",
+  "context": {
+    "owner": "Vladislav",
+    "repository": "rd8r8bkd9m-tech/kolibri-ai-platform",
+    "host_aliases": [
+      "hostvds-agent-02",
+      "agent-02",
+      "mesh-agent-02",
+      "kolibri-frontend-design"
+    ],
+    "source_node": "mesh-agent-24",
+    "local_dispatcher": "mac_thin_client_or_control_plane_lease"
+  },
+  "constraints": {
+    "mac_thin_client_only": true,
+    "server_execution_required": true,
+    "assigned_node_execution_required": "mesh-agent-02",
+    "read_only_probe": true,
+    "product_code_modification_forbidden": true,
+    "test_code_modification_forbidden": true,
+    "ci_modification_forbidden": true,
+    "destructive_git_commands_forbidden": true,
+    "git_reset_forbidden": true,
+    "git_clean_forbidden": true,
+    "force_push_forbidden": true,
+    "push_to_main_forbidden": true,
+    "git_push_forbidden": true,
+    "merge_forbidden": true,
+    "service_restart_forbidden": true,
+    "credential_creation_or_rotation_forbidden": true,
+    "login_or_interactive_auth_forbidden": true,
+    "secrets_redaction_required": true,
+    "do_not_print_env": true,
+    "do_not_print_keys_tokens_cookies_or_credentials": true,
+    "owner_facing_agent_names_must_be_russian": true,
+    "exact_run_artifacts_required": true
+  },
+  "write_scope": [
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-24-hostvds-agent-02-readiness/**"
+  ],
+  "required_outputs": [
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-24-hostvds-agent-02-readiness/PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-24-hostvds-agent-02-readiness/ACTIONS.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-24-hostvds-agent-02-readiness/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-24-hostvds-agent-02-readiness/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-24-hostvds-agent-02-readiness/NEXT.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-24-hostvds-agent-02-readiness/READINESS_MATRIX.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-24-hostvds-agent-02-readiness/REMOTE_RESULT.json"
+  ],
+  "probe_steps": [
+    "Confirm the task is executing on `mesh-agent-02` by recording node id, agent id, hostname, pid if available, and Control Plane lease owner.",
+    "Query Control Plane health and exact node card for `mesh-agent-02`; classify API route status without requiring Fabric routes if they return 404.",
+    "Check disk and memory with read-only commands; report only aggregate totals/free values.",
+    "Check Agent Host/runner status using node card, process/service status when available, and a bounded runner readiness check; do not restart services.",
+    "Check GitHub auth status with redacted commands only. Report `configured`, `missing`, `expired`, `network_blocked`, or `unknown`; do not print token values or credential helper contents.",
+    "Check whether this node should accept factory work now, including active task, freshness, draining state, disk threshold, runner capability, and GitHub auth.",
+    "Produce a Russian owner-facing summary plus a structured `REMOTE_RESULT.json` with status, node, agent name, blockers, artifacts, and next exact task."
+  ],
+  "verification_commands": [
+    "git diff --check",
+    "test -f docs/agent/runs/2026-07-02-p0-autopilot-extra-24-hostvds-agent-02-readiness/PLAN.md",
+    "test -f docs/agent/runs/2026-07-02-p0-autopilot-extra-24-hostvds-agent-02-readiness/ACTIONS.md",
+    "test -f docs/agent/runs/2026-07-02-p0-autopilot-extra-24-hostvds-agent-02-readiness/TESTS.md",
+    "test -f docs/agent/runs/2026-07-02-p0-autopilot-extra-24-hostvds-agent-02-readiness/RESULT.md",
+    "test -f docs/agent/runs/2026-07-02-p0-autopilot-extra-24-hostvds-agent-02-readiness/NEXT.md",
+    "test -f docs/agent/runs/2026-07-02-p0-autopilot-extra-24-hostvds-agent-02-readiness/READINESS_MATRIX.md",
+    "test -f docs/agent/runs/2026-07-02-p0-autopilot-extra-24-hostvds-agent-02-readiness/REMOTE_RESULT.json"
+  ],
+  "acceptance": [
+    "Remote execution happened on `mesh-agent-02` / `hostvds-agent-02`.",
+    "No product code was modified locally or remotely.",
+    "No secrets are printed.",
+    "No destructive git commands, no force push, no push to main.",
+    "Result includes status, node, agent name, blockers, artifacts, and next exact task.",
+    "Russian owner-facing summary is produced."
+  ],
+  "source": {
+    "kind": "mac_thin_client_dispatcher",
+    "owner": "Vladislav",
+    "created_at": "2026-07-02T02:58:00Z",
+    "local_ledger": "docs/agent/dispatcher/DISPATCH_LOG.md"
+  }
+}

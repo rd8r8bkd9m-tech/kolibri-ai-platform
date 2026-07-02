@@ -1,0 +1,80 @@
+{
+  "task_id": "P0_AUTOPILOT_EXTRA_24_HOSTVDS_AGENT_02_READINESS_2026_07_02",
+  "status": "blocked_not_ready_for_factory_work",
+  "node": "mesh-agent-02",
+  "host_aliases": [
+    "hostvds-agent-02",
+    "agent-02",
+    "mesh-agent-02",
+    "kolibri-frontend-design"
+  ],
+  "agent_display_name": "Дмитрий - HostVDS Agent-02 Readiness Probe",
+  "remote_execution": {
+    "control_plane_submit": "accepted",
+    "assigned_target": "mesh-agent-02",
+    "actual_control_plane_worktree": "mesh-agent-24",
+    "misrouted_task_cancelled": true,
+    "direct_ssh_probe": "timeout"
+  },
+  "readiness": {
+    "control_plane_mesh_card": "online",
+    "canonical_agent_02_card": "stale",
+    "api_route": "degraded",
+    "ssh_route": "timeout",
+    "disk": {
+      "free_bytes": 52322934784,
+      "total_bytes": 105590231040,
+      "status": "ready"
+    },
+    "runner_status": "card_ready_but_targeted_execution_blocked",
+    "github_auth_status": "unknown_route_blocked"
+  },
+  "blockers": [
+    {
+      "id": "B1",
+      "surface": "scheduler",
+      "classification": "targeted_lease_mismatch",
+      "evidence": "Envelope allowed only mesh-agent-02, but Control Plane task used mesh-agent-24 artifact/worktree paths."
+    },
+    {
+      "id": "B2",
+      "surface": "host_route",
+      "classification": "ssh_route_timeout",
+      "evidence": "Bounded non-interactive SSH to hostvds-agent-02 / 213.232.204.223:22 timed out."
+    },
+    {
+      "id": "B3",
+      "surface": "fabric_api",
+      "classification": "fabric_routes_missing",
+      "evidence": "GET /v1/fabric/routes returned HTTP 404 from the active Control Plane URL."
+    },
+    {
+      "id": "B4",
+      "surface": "github_auth",
+      "classification": "unknown_until_route_repaired",
+      "evidence": "GitHub auth cannot be checked on hostvds-agent-02 without a working host route; no secrets were printed."
+    }
+  ],
+  "artifacts": [
+    "docs/agent/dispatcher/envelopes/P0_AUTOPILOT_EXTRA_24_HOSTVDS_AGENT_02_READINESS_2026_07_02.json",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-24-hostvds-agent-02-readiness/PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-24-hostvds-agent-02-readiness/ACTIONS.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-24-hostvds-agent-02-readiness/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-24-hostvds-agent-02-readiness/READINESS_MATRIX.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-24-hostvds-agent-02-readiness/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-24-hostvds-agent-02-readiness/NEXT.md",
+    "docs/agent/runs/2026-07-02-p0-autopilot-extra-24-hostvds-agent-02-readiness/REMOTE_RESULT.json"
+  ],
+  "next_exact_task": "P0_REPAIR_HOSTVDS_AGENT_02_TARGETED_LEASE_AND_ROUTE_2026_07_02",
+  "owner_summary_ru": "hostvds-agent-02 виден как свежий mesh-agent-02 с достаточными ресурсами и runner capabilities, но фабричную работу ему назначать рано: targeted lease ушел в mesh-agent-24, прямой SSH маршрут timed out, Fabric routes 404, GitHub auth на самом узле не проверен. Следующий шаг - ремонт targeted lease/API/SSH route и затем redacted GitHub auth probe.",
+  "forbidden_modifications": {
+    "product_code": false,
+    "tests": false,
+    "ci": false,
+    "secrets": false,
+    "git_push": false,
+    "force_push": false,
+    "push_to_main": false,
+    "destructive_git": false
+  }
+}
