@@ -2,6 +2,12 @@
 
 Status: `implemented_verified`
 
+Delivery:
+
+- Pushed branch: `agent/P0_EXEC_API_FALLBACK_ROUTING_NO_DEAD_END_2026_07_02/generic`
+- Commit: `2b3bf38 Add API fallback routing guard`
+- PR creation URL: `https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/new/agent/P0_EXEC_API_FALLBACK_ROUTING_NO_DEAD_END_2026_07_02/generic`
+
 What now works:
 
 - `/v1/agents/tasks` performs API-first route classification before creating a task.
@@ -22,10 +28,10 @@ Changed files:
 
 Remaining blocked:
 
-- No deployment or PR push was performed from this lease.
+- No runtime deployment was performed from this lease.
+- Pull request opening remains a separate GitHub UI or `gh pr create` action if the control plane wants an actual PR object rather than a pushed branch.
 - Runtime deployment remains a separate owner/control-plane action.
 
 Rollback:
 
 - Revert this branch's changes to `ops/factory_control.py` and `tests/test_prompt3_fabric_api_surface.py`.
-
