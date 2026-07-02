@@ -1,0 +1,28 @@
+{
+  "action": "installed|updated|noop",
+  "install_path": "/var/lib/kolibri-agent/skills/<skill>",
+  "installed_at": "ISO-8601 UTC timestamp",
+  "installed_file_count": 2,
+  "network_sources_allowed": false,
+  "post_manifest": {
+    "description": "Skill description from registry metadata",
+    "files": [
+      {
+        "bytes": 123,
+        "path": "SKILL.md",
+        "sha256": "per-file sha256"
+      }
+    ],
+    "installed_at": "ISO-8601 UTC timestamp",
+    "name": "skill-name",
+    "sha256": "bundle tree sha256",
+    "source_path": "/local/approved/source/skill-name",
+    "version": "1.0.0"
+  },
+  "previous_manifest": null,
+  "sha256": "bundle tree sha256",
+  "skill": "skill-name",
+  "source_path": "/local/approved/source/skill-name",
+  "status": "completed",
+  "version": "1.0.0"
+}

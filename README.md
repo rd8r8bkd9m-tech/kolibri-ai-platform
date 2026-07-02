@@ -89,6 +89,21 @@ Factory control sidecar:
 python3 ops/factory_control.py --host 127.0.0.1 --port 8765
 ```
 
+### Skills Sync
+
+Remote workers can install approved skill bundles from a local registry without
+fetching arbitrary internet code:
+
+```bash
+python3 ops/skill_sync.py build-registry --source-root /srv/kolibri/skills-src --output /srv/kolibri/skills-registry.json
+python3 ops/skill_sync.py install --registry /srv/kolibri/skills-registry.json --skill product-design --install-root /var/lib/kolibri-agent/skills --source-root /srv/kolibri/skills-src --proof /var/lib/kolibri-agent/artifacts/skill-sync-proof.json
+python3 ops/skill_sync.py update --registry /srv/kolibri/skills-registry.json --skill product-design --install-root /var/lib/kolibri-agent/skills --source-root /srv/kolibri/skills-src --proof /var/lib/kolibri-agent/artifacts/skill-sync-proof.json
+```
+
+The registry records each skill version, file list, and bundle SHA-256. Install
+and update re-hash the local bundle before copying, reject network sources, copy
+atomically, refuse downgrades by default, and write an artifact proof JSON.
+
 ## Verification
 
 Run the same categories that CI covers before opening or updating a PR:

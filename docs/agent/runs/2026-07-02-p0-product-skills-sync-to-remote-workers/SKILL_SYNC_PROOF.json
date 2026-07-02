@@ -1,0 +1,33 @@
+{
+  "action": "installed",
+  "install_path": "/tmp/tmp.YaQi0lr8xZ/install/product-design",
+  "installed_at": "2026-07-02T03:11:22.115667+00:00",
+  "installed_file_count": 2,
+  "network_sources_allowed": false,
+  "post_manifest": {
+    "description": "sample proof skill",
+    "files": [
+      {
+        "bytes": 23,
+        "path": "SKILL.md",
+        "sha256": "16b536a2a67e5894ddf33bd549dcd44ad68c9ce23c2c075277b16aab482e7177"
+      },
+      {
+        "bytes": 79,
+        "path": "skill.json",
+        "sha256": "e4e97dae22528f9205da5dfa8bc27bdff036fbce65dcf74269c6195bcc2595f3"
+      }
+    ],
+    "installed_at": "2026-07-02T03:11:22.115667+00:00",
+    "name": "product-design",
+    "sha256": "bb1fe5635876b287884697466ab5c71ee45afb071c508a58b3dff7cfbce81b0d",
+    "source_path": "/tmp/tmp.YaQi0lr8xZ/source/product-design",
+    "version": "1.0.0"
+  },
+  "previous_manifest": null,
+  "sha256": "bb1fe5635876b287884697466ab5c71ee45afb071c508a58b3dff7cfbce81b0d",
+  "skill": "product-design",
+  "source_path": "/tmp/tmp.YaQi0lr8xZ/source/product-design",
+  "status": "completed",
+  "version": "1.0.0"
+}
