@@ -1,0 +1,85 @@
+{
+  "task_id": "P0_REVENUE_LAUNCH_REMOTE_TASKS_2026_07_02",
+  "idempotency_key": "mac-dispatcher:P0_REVENUE_LAUNCH_REMOTE_TASKS_2026_07_02",
+  "priority": "P0",
+  "created_at": "2026-07-02",
+  "agent_type": "revenue_launch_operator",
+  "agent_display_name": "Revenue Launch Operator",
+  "objective": "Create the next owner-controlled revenue launch artifacts for landing copy, offer copy, CRM seed, lead queue refresh, AI estimate demo assets, and order intake/factory routing. Do not spend money, sign contracts, send mass outreach, mutate public accounts, touch payment/bank/tax/security settings, or publish/send external materials without owner confirmation or an explicit existing delegation gate.",
+  "branch": "p0/revenue-launch-remote-tasks-2026-07-02",
+  "base_branch": "main",
+  "constraints": {
+    "docs_only": true,
+    "no_money_spend": true,
+    "no_contract_signing": true,
+    "no_mass_external_outreach": true,
+    "no_public_button_clicks_without_owner_gate": true,
+    "no_payment_bank_tax_passport_password_2fa_security_actions": true,
+    "no_client_private_data_in_github": true,
+    "no_secret_printing": true,
+    "kwork_safe_chat_only_policy_required": true
+  },
+  "read_first": [
+    "docs/business/revenue/REVENUE_SOURCE_INDEX_2026-07-02.md",
+    "docs/business/revenue/OWNER_REVENUE_PACKET_2026-07-02.md",
+    "docs/business/revenue/GO_TO_MARKET_14_DAY_PLAN_2026-07-02.md",
+    "docs/business/revenue/REVENUE_BACKLOG_AND_REMOTE_TASKS_2026-07-02.md",
+    "docs/business/revenue/SALES_MATERIALS_SEED_2026-07-02.md"
+  ],
+  "subtasks": [
+    {
+      "task_id": "P0_REVENUE_LANDING_AND_OFFER_COPY_2026_07_02",
+      "objective": "Create public-ready but unpublished landing copy and offer copy for Telegram AI bots, AI document/estimate automation, bot audit/repair, API/webhook integration and Mini App/PWA prototypes.",
+      "deliverables": [
+        "docs/business/revenue/landing/OFFER_LANDING_COPY.md",
+        "docs/business/revenue/landing/OFFER_FAQ.md",
+        "docs/business/revenue/landing/INTAKE_FORM_FIELDS.md",
+        "docs/business/revenue/landing/PUBLICATION_CHECKLIST.md"
+      ]
+    },
+    {
+      "task_id": "P0_REVENUE_CRM_AND_LEAD_QUEUE_2026_07_02",
+      "objective": "Create repo-local CRM seed and refresh safe Kwork lead queue from existing Kwork docs without sending messages.",
+      "deliverables": [
+        "docs/business/revenue/crm/LEADS.md",
+        "docs/business/revenue/crm/KWORK_WAVE_A_REFRESH.md",
+        "docs/business/revenue/crm/DAILY_REVENUE_REPORT_TEMPLATE.md"
+      ]
+    },
+    {
+      "task_id": "P0_REVENUE_DEMO_ASSETS_AI_ESTIMATES_2026_07_02",
+      "objective": "Create synthetic demo artifacts for the AI documents/estimates offer using existing estimate/document/PDF assets.",
+      "deliverables": [
+        "docs/business/revenue/demos/ai-estimates/DEMO_SCRIPT.md",
+        "docs/business/revenue/demos/ai-estimates/SYNTHETIC_CLIENT_BRIEF.md",
+        "docs/business/revenue/demos/ai-estimates/DELIVERY_CHECKLIST.md"
+      ]
+    },
+    {
+      "task_id": "P0_REVENUE_ORDER_INTAKE_FACTORY_ROUTING_2026_07_02",
+      "objective": "Create safe order intake templates and factory task routing templates for future paid Kwork/B2B orders.",
+      "deliverables": [
+        "docs/business/revenue/orders/TEMPLATE_INTAKE.md",
+        "docs/business/revenue/orders/TEMPLATE_SCOPE.md",
+        "docs/business/revenue/orders/TEMPLATE_FACTORY_TASK.md",
+        "docs/business/revenue/orders/TEMPLATE_DELIVERY_CHECKLIST.md",
+        "docs/business/revenue/orders/TEMPLATE_CLIENT_REPLY_DRAFTS.md"
+      ]
+    }
+  ],
+  "verification": [
+    "test -f docs/business/revenue/landing/OFFER_LANDING_COPY.md",
+    "test -f docs/business/revenue/crm/LEADS.md",
+    "test -f docs/business/revenue/demos/ai-estimates/DEMO_SCRIPT.md",
+    "test -f docs/business/revenue/orders/TEMPLATE_INTAKE.md",
+    "git diff --check -- docs/business/revenue docs/agent/dispatcher/envelopes/P0_REVENUE_LAUNCH_REMOTE_TASKS_2026_07_02.json",
+    "rg --no-ignore -n '[0-9]{6,}:[A-Za-z0-9_-]{20,}|[A-Za-z0-9_]*(TOKEN|SECRET|PASSWORD|COOKIE|API_KEY|CHAT_ID)=[^ ]+' docs/business/revenue docs/agent/dispatcher/envelopes/P0_REVENUE_LAUNCH_REMOTE_TASKS_2026_07_02.json && exit 1 || true"
+  ],
+  "acceptance_criteria": [
+    "Owner can review and approve landing/offers before publication.",
+    "CRM and lead queue exist locally without private client data.",
+    "AI estimate demo uses only synthetic data.",
+    "Order intake templates can route future paid work into Kolibri Factory.",
+    "No external action, payment action, account mutation, public publication or mass outreach is performed."
+  ]
+}
