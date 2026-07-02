@@ -35,7 +35,7 @@ def test_default_telegram_client_blocks_delivery_state_mutation(monkeypatch):
 
     monkeypatch.setattr(gateway.urllib.request, "urlopen", fail_urlopen)
     client = gateway.TelegramClient("fake-token")
-    for method in gateway.DELIVERY_STATE_MUTATION_METHODS:
+    for method in gateway.FORBIDDEN_DEFAULT_TELEGRAM_METHODS:
         try:
             client.call(method)
         except RuntimeError as exc:
@@ -345,6 +345,55 @@ def test_owner_remote_task_completion_returns_clean_url_result():
     assert "Проверки живые" in message
     for forbidden in ["SECRET", "TOKEN", "result_path", "/var/lib"]:
         assert forbidden not in message
+
+
+def test_artifact_command_returns_sanitized_artifact_summary(tmp_path):
+    gateway = load_gateway()
+    token_like_artifact = ":".join(("123456789", "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef"))
+
+    class Telegram:
+        def __init__(self):
+            self.messages = []
+
+        def send_message(self, chat_id, text):
+            self.messages.append((chat_id, text))
+
+    class Factory:
+        def get_artifacts(self, task_id):
+            assert task_id == "TG-ART-1"
+            return {
+                "status": "completed",
+                "artifacts": [
+                    "docs/agent/runs/TG-ART-1/RESULT.md",
+                    "/var/lib/kolibri-agent/artifacts/TG-ART-1/result.json",
+                    "secret-token.txt",
+                    token_like_artifact,
+                ],
+                "next_action": "collect listed artifact paths from the authenticated artifact API",
+            }
+
+    telegram = Telegram()
+    state = gateway.StateStore(tmp_path / "state.json")
+    app = gateway.Gateway(telegram, Factory(), {100}, state, 1)
+    message = {"message_id": 60, "chat": {"id": 100, "type": "private"}, "from": {"id": 100}, "text": "/artifacts TG-ART-1"}
+
+    app.handle_command(message, message["text"])
+
+    assert telegram.messages == [(
+        100,
+        "Артефакты готовы:\n"
+        "- docs/agent/runs/TG-ART-1/RESULT.md\n"
+        "Следующий шаг: collect listed artifact paths from the authenticated artifact API",
+    )]
+    for forbidden in ["/var/lib", "secret", "123456789:"]:
+        assert forbidden not in telegram.messages[0][1].lower()
+
+
+def test_artifact_formatter_handles_missing_artifacts_without_metadata():
+    gateway = load_gateway()
+    message = gateway.format_artifacts_status({"status": "partial", "artifacts": []})
+    assert message == "Артефакты пока не опубликованы. Я продолжу отслеживать задачу и пришлю результат после завершения."
+    assert "task_id" not in message
 
 
 def test_gomesh_speed_gate_report_becomes_clean_russian_telegram_card():

@@ -38,6 +38,8 @@ from orchestrator_memory import (
 
 STOP = False
 DELIVERY_STATE_MUTATION_METHODS = frozenset({"deleteWebhook", "setWebhook", "logOut", "close"})
+BOT_PROFILE_MUTATION_METHODS = frozenset({"setMyCommands", "deleteMyCommands", "setChatMenuButton"})
+FORBIDDEN_DEFAULT_TELEGRAM_METHODS = DELIVERY_STATE_MUTATION_METHODS | BOT_PROFILE_MUTATION_METHODS
 SIGNIFICANT_STATES = {
     "queued": "QUEUED",
     "leased": "RUNNING",
@@ -282,8 +284,8 @@ class TelegramClient:
         self.allow_delivery_state_mutation = allow_delivery_state_mutation
 
     def call(self, method: str, payload: dict[str, Any] | None = None, timeout: int = 35) -> dict[str, Any]:
-        if method in DELIVERY_STATE_MUTATION_METHODS and not self.allow_delivery_state_mutation:
-            raise RuntimeError(f"telegram delivery-state mutation is not allowed from gateway startup: {method}")
+        if method in FORBIDDEN_DEFAULT_TELEGRAM_METHODS and not self.allow_delivery_state_mutation:
+            raise RuntimeError(f"telegram bot/profile mutation is not allowed from the default gateway: {method}")
         data = urllib.parse.urlencode(payload or {}).encode("utf-8")
         req = urllib.request.Request(f"{self.base_url}/{method}", data=data, method="POST")
         with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -414,6 +416,10 @@ class FactoryClient:
 
     def get_tasks(self) -> dict[str, Any]:
         return self.request("GET", "/v1/tasks")
+
+    def get_artifacts(self, task_id: str) -> dict[str, Any]:
+        quoted = urllib.parse.quote(task_id, safe="")
+        return self.request("GET", f"/v1/agents/artifacts/{quoted}")
 
     def cancel_task(self, task_id: str) -> dict[str, Any]:
         quoted = urllib.parse.quote(task_id, safe="")
@@ -955,6 +961,9 @@ class Gateway:
         elif command == "/status" and arg:
             task = self.factory.get_task(arg)
             self.telegram.send_message(chat_id, format_task_status(task))
+        elif command == "/artifacts" and arg:
+            artifacts = self.factory.get_artifacts(arg)
+            self.telegram.send_message(chat_id, format_artifacts_status(artifacts))
         elif command == "/cancel" and arg:
             task = self.factory.cancel_task(arg)
             self.telegram.send_message(chat_id, format_task_status(task))
@@ -1147,6 +1156,41 @@ def format_task_status(task: dict[str, Any]) -> str:
     pr_url = result.get("pull_request_url") or result.get("pr_url")
     if pr_url:
         lines.append(f"PR готов: {pr_url}")
+    return "\n".join(lines)
+
+
+def _safe_artifact_label(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    if not stripped:
+        return None
+    lowered = stripped.lower()
+    if any(secret_word in lowered for secret_word in ("secret", "token", "password", "passwd", ".env")):
+        return None
+    if TOKEN_LIKE_RE.search(stripped):
+        return None
+    if stripped.startswith("/var/lib/kolibri-agent/"):
+        return None
+    return stripped
+
+
+def format_artifacts_status(envelope: dict[str, Any]) -> str:
+    status = envelope.get("status") or "partial"
+    artifacts = [
+        label
+        for label in (_safe_artifact_label(item) for item in envelope.get("artifacts") or [])
+        if label
+    ]
+    if status == "blocked":
+        return "Артефакты пока не найдены. Проверьте task_id или дождитесь завершения задачи."
+    if not artifacts:
+        return "Артефакты пока не опубликованы. Я продолжу отслеживать задачу и пришлю результат после завершения."
+    lines = ["Артефакты готовы:"]
+    lines.extend(f"- {item}" for item in artifacts[:8])
+    next_action = envelope.get("next_action")
+    if isinstance(next_action, str) and next_action:
+        lines.append(f"Следующий шаг: {next_action}")
     return "\n".join(lines)
 
 
