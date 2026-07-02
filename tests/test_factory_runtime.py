@@ -79,6 +79,47 @@ def test_control_plane_counts_fresh_degraded_and_stale_nodes():
     assert control.node_health_counts(nodes) == {"fresh": 1, "degraded": 1, "stale": 1, "online": 1, "total": 3}
 
 
+def test_fleet_guardian_snapshot_counts_only_fresh_capacity_and_repairs_gaps():
+    control = load_module(ROOT / "ops" / "factory_control.py")
+    now = datetime.now(timezone.utc)
+    snapshot = control.fleet_guardian_snapshot(
+        [
+            {
+                "node_id": "mesh-agent-02",
+                "health": "online",
+                "heartbeat_at": (now - timedelta(seconds=5)).isoformat(),
+                "capabilities": ["implementation", "runner:codex", "runner:mimo"],
+            },
+            {
+                "node_id": "home-live",
+                "health": "online",
+                "heartbeat_at": (now - timedelta(seconds=600)).isoformat(),
+                "capabilities": ["home", "telegram"],
+            },
+        ],
+        current_ts=now.timestamp(),
+    )
+
+    by_id = {node["node_id"]: node for node in snapshot["canonical_servers"]}
+    assert snapshot["target_servers"] == 20
+    assert snapshot["canonical_server_count"] == 20
+    assert by_id["agent-02"]["state"] == "full"
+    assert by_id["agent-02"]["safe_capacity"] == 20
+    assert by_id["home"]["state"] == "stale"
+    assert by_id["home"]["blocker"] == "stale_card"
+    assert by_id["main"]["state"] == "unreachable"
+    assert snapshot["working_servers"] == 1
+    assert snapshot["fallback_nodes"] == ["mesh-agent-02"]
+    assert any(card["node_id"] == "home-live" for card in snapshot["stale_cards"])
+    assert any(
+        task["target_node"] == "home"
+        and task["blocker"] == "stale_card"
+        and task["fallback_nodes"] == ["mesh-agent-02"]
+        for task in snapshot["repair_tasks"]
+    )
+    assert any(task["target_node"] == "main" and task["blocker"] == "api_unreachable" for task in snapshot["repair_tasks"])
+
+
 def test_agent_host_supports_required_task_kinds():
     agent = (ROOT / "ops" / "agent_host.py").read_text(encoding="utf-8")
     assert "impl_factory_smoke" in agent

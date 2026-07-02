@@ -65,8 +65,16 @@ FALLBACK_REASON_TAXONOMY = {
     "vpn_down",
     "firewall",
     "disk_full",
+    "memory_pressure",
     "auth_failed",
     "dns",
+    "agent_host_down",
+    "control_plane_registration_stale",
+    "github_auth_failed",
+    "runner_auth_failed",
+    "mimo_provider_denied",
+    "service_failed",
+    "stale_card",
     "target_node_unavailable",
     "no_node_matches_capability",
     "model_runtime_unavailable",
@@ -75,6 +83,46 @@ FALLBACK_REASON_TAXONOMY = {
 }
 NODE_DEGRADED_AFTER = int(os.environ.get("FACTORY_NODE_DEGRADED_AFTER", "30"))
 NODE_STALE_AFTER = int(os.environ.get("FACTORY_NODE_STALE_AFTER", "90"))
+FLEET_TARGET_CANONICAL_SERVERS = 20
+FLEET_GUARDIAN_CANONICAL_SERVERS = (
+    "home",
+    "main",
+    "uiap",
+    "qjns",
+    "9fts",
+    "new",
+    "agent-01",
+    "agent-02",
+    "agent-03",
+    "agent-04",
+    "agent-05",
+    "agent-06",
+    "agent-07",
+    "agent-08",
+    "agent-09",
+    "highload",
+    "paris",
+    "primary",
+    "reserve242",
+    "server-kfrm",
+)
+FLEET_GUARDIAN_ALIASES = {
+    "primary": {"primary", "primary-candidate", "mesh-primary"},
+    "home": {"home", "home-live", "mesh-home"},
+    "9fts": {"9fts", "mesh-9fts"},
+    "main": {"main", "mesh-main"},
+    "new": {"new", "mesh-new"},
+    "qjns": {"qjns", "mesh-qjns"},
+    "uiap": {"uiap", "mesh-uiap"},
+    "reserve242": {"reserve242", "mesh-reserve242"},
+    "server-kfrm": {"server-kfrm", "mesh-server-kfrm"},
+    "highload": {"highload", "mesh-highload"},
+    "paris": {"paris", "mesh-paris"},
+}
+for _agent_index in range(1, 10):
+    _agent_id = f"agent-{_agent_index:02d}"
+    FLEET_GUARDIAN_ALIASES[_agent_id] = {_agent_id, f"mesh-{_agent_id}"}
+del _agent_index, _agent_id
 
 STATE_QUEUED = "queued"
 STATE_LEASED = "leased"
@@ -436,6 +484,164 @@ def fleet_topology(nodes: list[dict[str, Any]]) -> dict[str, Any]:
         "nodes": nodes,
         "edges": edges,
         "relay_endpoint": "/v1/fabric/relay",
+    }
+
+
+def guardian_aliases_for(canonical_id: str) -> set[str]:
+    return set(FLEET_GUARDIAN_ALIASES.get(canonical_id, {canonical_id}))
+
+
+def guardian_canonical_for(node_id: str) -> str | None:
+    for canonical_id in FLEET_GUARDIAN_CANONICAL_SERVERS:
+        if node_id in guardian_aliases_for(canonical_id):
+            return canonical_id
+    if node_id.startswith("mesh-"):
+        stripped = node_id.removeprefix("mesh-")
+        if stripped in FLEET_GUARDIAN_CANONICAL_SERVERS:
+            return stripped
+    if node_id in FLEET_GUARDIAN_CANONICAL_SERVERS:
+        return node_id
+    return None
+
+
+def _guardian_evidence_rank(node: dict[str, Any]) -> tuple[int, int]:
+    freshness = node.get("freshness")
+    health = node.get("health")
+    if freshness == "fresh" and health == "online":
+        freshness_rank = 4
+    elif freshness == "fresh":
+        freshness_rank = 3
+    elif freshness == "degraded":
+        freshness_rank = 2
+    elif freshness == "stale":
+        freshness_rank = 1
+    else:
+        freshness_rank = 0
+    capability_rank = len(node.get("capabilities") or [])
+    return freshness_rank, capability_rank
+
+
+def _guardian_blocker_for(node: dict[str, Any] | None) -> str:
+    if not node:
+        return "api_unreachable"
+    if node.get("freshness") == "stale":
+        return "stale_card"
+    if node.get("freshness") == "degraded":
+        return "control_plane_registration_stale"
+    health = node.get("health")
+    if health in {"offline", "unreachable"}:
+        return "api_unreachable"
+    if health in {"failed", "error"}:
+        return "service_failed"
+    return "unknown"
+
+
+def _guardian_state(node: dict[str, Any] | None) -> str:
+    if not node:
+        return "unreachable"
+    freshness = node.get("freshness")
+    health = node.get("health")
+    if freshness == "stale":
+        return "stale"
+    if freshness == "degraded":
+        return "degraded"
+    if freshness == "fresh" and health == "online":
+        capabilities = set(node.get("capabilities") or [])
+        runners = node.get("runners") or {}
+        has_runner_capability = bool({"runner:codex", "runner:mimo"} & capabilities)
+        has_runner_status = any(
+            isinstance(status, dict) and status.get("status") == "available"
+            for status in runners.values()
+        )
+        if has_runner_capability or has_runner_status:
+            return "full"
+        return "partial"
+    return "degraded"
+
+
+def fleet_guardian_snapshot(
+    registered_nodes: list[dict[str, Any]] | None = None,
+    *,
+    current_ts: float | None = None,
+) -> dict[str, Any]:
+    current = now_ts() if current_ts is None else current_ts
+    classified_nodes = []
+    for node in registered_nodes or []:
+        node_id = str(node.get("node_id") or node.get("id") or "")
+        if not node_id:
+            continue
+        classified = classify_node_freshness(dict(node, node_id=node_id), current)
+        classified["canonical_node_id"] = guardian_canonical_for(node_id)
+        classified_nodes.append(classified)
+
+    evidence_by_canonical: dict[str, list[dict[str, Any]]] = {node_id: [] for node_id in FLEET_GUARDIAN_CANONICAL_SERVERS}
+    stale_cards = []
+    for node in classified_nodes:
+        canonical_id = node.get("canonical_node_id")
+        if canonical_id:
+            evidence_by_canonical.setdefault(canonical_id, []).append(node)
+        if node.get("freshness") == "stale":
+            stale_cards.append({
+                "node_id": node["node_id"],
+                "canonical_node_id": canonical_id or "",
+                "heartbeat_age_seconds": node.get("heartbeat_age_seconds"),
+                "reason": "stale_card",
+            })
+
+    canonical = []
+    repair_tasks = []
+    fallback_nodes = []
+    counts = {"full": 0, "partial": 0, "degraded": 0, "unreachable": 0, "stale": 0}
+    for canonical_id in FLEET_GUARDIAN_CANONICAL_SERVERS:
+        evidence = sorted(evidence_by_canonical.get(canonical_id, []), key=_guardian_evidence_rank, reverse=True)
+        best = evidence[0] if evidence else None
+        state = _guardian_state(best)
+        counts[state] += 1
+        if state in {"full", "partial"} and best:
+            fallback_nodes.append(best["node_id"])
+        blocker = "" if state in {"full", "partial"} else _guardian_blocker_for(best)
+        item = {
+            "node_id": canonical_id,
+            "state": state,
+            "evidence_node_id": best.get("node_id") if best else "",
+            "health": best.get("health") if best else "unreachable",
+            "freshness": best.get("freshness") if best else "unreachable",
+            "capabilities": best.get("capabilities", []) if best else [],
+            "blocker": blocker,
+            "safe_capacity": 20 if state == "full" else (1 if state == "partial" else 0),
+        }
+        canonical.append(item)
+        if blocker:
+            repair_tasks.append({
+                "task_id": f"REPAIR-FLEET-{canonical_id.upper()}",
+                "kind": "fleet_online_repair",
+                "target_node": canonical_id,
+                "blocker": blocker,
+                "idempotency_key": f"fleet-online:{canonical_id}:{blocker}",
+                "fallback_nodes": fallback_nodes[:3],
+                "action": "restore fresh heartbeat, Agent Host readiness, Fabric route, and runner/resource classification",
+            })
+
+    for task in repair_tasks:
+        if not task["fallback_nodes"]:
+            task["fallback_nodes"] = fallback_nodes[:3]
+    active_repairs = [task for task in repair_tasks if task["fallback_nodes"]]
+    return {
+        "policy": "fleet_always_online",
+        "target_servers": FLEET_TARGET_CANONICAL_SERVERS,
+        "canonical_server_count": len(FLEET_GUARDIAN_CANONICAL_SERVERS),
+        "working_servers": counts["full"] + counts["partial"],
+        "full_servers": counts["full"],
+        "partial_servers": counts["partial"],
+        "degraded_servers": counts["degraded"],
+        "unreachable_servers": counts["unreachable"],
+        "stale_servers": counts["stale"],
+        "stale_cards": stale_cards,
+        "canonical_servers": canonical,
+        "repair_tasks": repair_tasks,
+        "active_repairs": active_repairs,
+        "fallback_nodes": fallback_nodes,
+        "next_action": "dispatch repair_tasks for non-full canonical servers and route owner work to fallback_nodes",
     }
 
 
@@ -954,6 +1160,18 @@ class Handler(BaseHTTPRequestHandler):
                     route_used="/v1/fleet/capabilities",
                     data=fleet_capabilities(nodes),
                     next_action="include required_capability in /v1/agents/tasks when dispatching work",
+                ))
+                return
+            if path == "/v1/fleet/guardian":
+                snapshot = fleet_guardian_snapshot(registered_nodes())
+                status = "completed" if not snapshot["repair_tasks"] else "partial"
+                response(self, 200, canonical_response_envelope(
+                    status=status,
+                    route_used="/v1/fleet/guardian",
+                    fallback_nodes=snapshot["fallback_nodes"],
+                    repair_task=snapshot["repair_tasks"],
+                    data=snapshot,
+                    next_action=snapshot["next_action"],
                 ))
                 return
             if path == "/v1/models":
