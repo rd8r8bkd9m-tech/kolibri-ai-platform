@@ -50,7 +50,7 @@ SAFE_MIMO_RESULT_FIELDS = {
     "text",
 }
 SECRET_FIELD_HINTS = ("authorization", "cookie", "key", "password", "secret", "token")
-CONTRACT_STATUSES = {"completed", "blocked", "failed"}
+CONTRACT_STATUSES = {"completed", "blocked", "failed", "partial"}
 CONTRACT_RESULT_FIELDS = [
     "task_id",
     "status",
@@ -2342,7 +2342,7 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
             result = finalize_runner_contract(task, result, artifact_dir, worktree=worktree)
             result_path = self.write_result(artifact_dir, result)
             result["result_path"] = str(result_path)
-            if result["status"] == "completed":
+            if result["status"] in {"completed", "partial"}:
                 self.complete(task, result, result_path)
             else:
                 error = result.get("blocked_reason") or result.get("failure_reason") or "runner contract prevented completion"

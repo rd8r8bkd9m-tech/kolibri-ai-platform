@@ -250,6 +250,45 @@ def test_missing_required_artifact_blocks_completion(tmp_path):
     assert "required_artifacts_missing" in result["blocked_reason"]
 
 
+def test_partial_result_status_is_preserved_and_completed_once(tmp_path):
+    agent_host = load_agent_host()
+
+    class Host(agent_host.AgentHost):
+        def __init__(self):
+            super().__init__(make_args(tmp_path))
+            self.completed = []
+            self.failed = []
+
+        def complete(self, task, result, result_path):
+            self.completed.append((task, result, result_path))
+
+        def fail(self, task, error_type, error, result, result_path, retry=True):
+            self.failed.append((task, error_type, error, result, result_path, retry))
+
+        def run_read_only_probe(self, task):
+            worktree, artifact_dir, logs = self.prepare_dirs(task)
+            worktree.mkdir(parents=True, exist_ok=True)
+            result = {
+                "task_id": task["task_id"],
+                "kind": "read_only_probe",
+                "status": "partial",
+                "changed_files": [],
+                "log_paths": logs,
+                "result_path": str(artifact_dir / "result.json"),
+            }
+            result_path = self.write_result(artifact_dir, result)
+            result["result_path"] = str(result_path)
+            return result
+
+    task = make_task({"kind": "read_only_probe"})
+    host = Host()
+    host.run_task(task)
+
+    assert len(host.completed) == 1
+    assert host.completed[0][1]["status"] == "partial"
+    assert host.failed == []
+
+
 def write_run_artifacts(run_dir, filenames=None):
     filenames = filenames or agent_host_files()
     run_dir.mkdir(parents=True, exist_ok=True)
