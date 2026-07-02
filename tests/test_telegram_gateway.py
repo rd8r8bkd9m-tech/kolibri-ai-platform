@@ -915,3 +915,113 @@ def test_submit_chat_task_streams_partial_response_with_edit(tmp_path, monkeypat
 
     assert telegram.messages == [(100, "Думаю над ответом.")]
     assert telegram.edits == [(100, 11, "Ответ готов.")]
+
+
+def test_submit_chat_task_control_plane_failure_is_redacted_human_message(tmp_path):
+    gateway = load_gateway()
+
+    class Telegram:
+        def __init__(self):
+            self.messages = []
+
+        def send_message(self, chat_id, text):
+            self.messages.append((chat_id, text))
+
+    class Factory:
+        def create_task(self, envelope):
+            raise RuntimeError(
+                "POST /v1/tasks failed for task_id=TGCHAT-20260702120000 node=primary "
+                "path=/var/lib/kolibri-agent/private token=123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef"
+            )
+
+        def nodes(self):
+            return {"nodes": []}
+
+        def get_tasks(self):
+            return {"tasks": [], "queue": []}
+
+    telegram = Telegram()
+    state = gateway.StateStore(tmp_path / "state.json")
+    app = gateway.Gateway(telegram, Factory(), {100}, state, 1)
+    message = {"message_id": 60, "chat": {"id": 100, "type": "private"}, "from": {"id": 100}, "text": "как дела?"}
+
+    app.submit_chat_task(message, message["text"])
+
+    assert len(telegram.messages) == 1
+    reply = telegram.messages[0][1]
+    assert "Control Plane" in reply
+    assert "чат-задачу" in reply
+    for forbidden in ["task_id", "TGCHAT", "node=", "/var/lib", "123456789:", "token"]:
+        assert forbidden not in reply
+
+
+def test_owner_commands_return_summaries_without_internal_ids(tmp_path):
+    gateway = load_gateway()
+
+    class Telegram:
+        def __init__(self):
+            self.messages = []
+
+        def send_message(self, chat_id, text):
+            self.messages.append((chat_id, text))
+
+    class Factory:
+        def nodes(self):
+            return {
+                "nodes": [
+                    {
+                        "node_id": "primary-candidate",
+                        "agent_id": "agent-host-primary",
+                        "pid": 4242,
+                        "health": "online",
+                        "current_task": "TG-20260702120100-secret",
+                        "runners": {"codex": {"status": "available"}},
+                    },
+                    {
+                        "node_id": "node-private",
+                        "agent_id": "agent-host-private",
+                        "pid": 5252,
+                        "health": "offline",
+                        "draining": True,
+                    },
+                ]
+            }
+
+        def get_tasks(self):
+            return {
+                "queue": ["TG-20260702120200-private-owner-task"],
+                "tasks": [
+                    {"task_id": "TG-20260702120200-private-owner-task", "state": "queued"},
+                    {"task_id": "TGCHAT-20260702120300-private-chat", "state": "running"},
+                    {"task_id": "TG-20260702120400-private-failed", "state": "failed"},
+                    {"task_id": "TG-20260702120500-private-done", "state": "completed"},
+                ],
+            }
+
+    telegram = Telegram()
+    state = gateway.StateStore(tmp_path / "state.json")
+    app = gateway.Gateway(telegram, Factory(), {100}, state, 1)
+    base = {"message_id": 61, "chat": {"id": 100, "type": "private"}, "from": {"id": 100}}
+
+    app.handle_command({**base, "text": "/nodes"}, "/nodes")
+    app.handle_command({**base, "text": "/agents"}, "/agents")
+    app.handle_command({**base, "text": "/queue"}, "/queue")
+
+    assert len(telegram.messages) == 3
+    combined = "\n".join(text for _, text in telegram.messages)
+    assert "Команда: онлайн 1 из 2." in combined
+    assert "Агент-хосты на связи: 1 из 2." in combined
+    assert "Очередь: 1." in combined
+    assert "Требуют разбора: 1." in combined
+    for forbidden in [
+        "primary-candidate",
+        "node-private",
+        "agent-host",
+        "pid",
+        "TG-202607",
+        "TGCHAT",
+        "private-owner",
+        "/var/lib",
+        "task_id",
+    ]:
+        assert forbidden not in combined

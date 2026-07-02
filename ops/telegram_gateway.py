@@ -899,7 +899,13 @@ class Gateway:
     def submit_chat_task(self, message: dict[str, Any], text: str) -> None:
         chat_id = message["chat"]["id"]
         snapshot = self.conversation_snapshot()
-        task = self.factory.create_task(build_chat_envelope(message, text, snapshot))
+        try:
+            task = self.factory.create_task(build_chat_envelope(message, text, snapshot))
+        except Exception:
+            reply = "Я услышал сообщение, но Control Plane сейчас не принял чат-задачу. Зафиксировал сбой и отвечу после восстановления контура."
+            self.telegram.send_message(chat_id, reply)
+            self.remember_orchestrator_message(reply)
+            return
         initial_label = SIGNIFICANT_STATES.get(task.get("state"), task.get("state"))
         self.track(chat_id, task["task_id"], initial_label or "queued", mode="chat")
 
@@ -968,13 +974,13 @@ class Gateway:
             self.telegram.send_message(chat_id, format_task_status(task))
         elif command == "/nodes":
             nodes = self.factory.nodes().get("nodes", [])
-            self.telegram.send_message(chat_id, "\n".join(format_node(node) for node in nodes) or "nodes: empty")
+            self.telegram.send_message(chat_id, format_nodes_summary(nodes))
         elif command == "/agents":
             nodes = self.factory.nodes().get("nodes", [])
-            self.telegram.send_message(chat_id, "\n".join(f"{n.get('node_id')}: {n.get('agent_id')} pid={n.get('pid')} health={n.get('health')}" for n in nodes) or "agents: empty")
+            self.telegram.send_message(chat_id, format_agents_summary(nodes))
         elif command == "/queue":
             tasks = self.factory.get_tasks()
-            self.telegram.send_message(chat_id, f"queue: {len(tasks.get('queue', []))}\n" + "\n".join(tasks.get("queue", [])))
+            self.telegram.send_message(chat_id, format_queue_summary(tasks))
         else:
             self.telegram.send_message(chat_id, help_text())
 
@@ -1092,6 +1098,52 @@ def format_node(node: dict[str, Any]) -> str:
     age = card.get("heartbeat_age_seconds")
     age_text = "unknown" if age is None else f"{age}s"
     return f"{card['name']} — {card['role']}\nСостояние: {card['health']} ({freshness}, heartbeat {age_text})\nЗадача: {card['responsibility']}"
+
+
+def format_nodes_summary(nodes: list[dict[str, Any]]) -> str:
+    if not nodes:
+        return "Команда сейчас не отдала список исполнителей. Я продолжу проверку через Control Plane."
+    online = sum(1 for node in nodes if node.get("health") == "online" and not node.get("draining"))
+    busy = sum(1 for node in nodes if node.get("current_task") or node.get("lease"))
+    blocked = sum(1 for node in nodes if node.get("health") not in {None, "online"} or node.get("draining"))
+    lines = [f"Команда: онлайн {online} из {len(nodes)}."]
+    if busy:
+        lines.append(f"В работе у исполнителей: {busy}.")
+    if blocked:
+        lines.append(f"Требуют внимания: {blocked}.")
+    return " ".join(lines)
+
+
+def format_agents_summary(nodes: list[dict[str, Any]]) -> str:
+    if not nodes:
+        return "Сейчас не вижу активных агент-хостов через Control Plane."
+    online = sum(1 for node in nodes if node.get("health") == "online")
+    runner_ready = 0
+    for node in nodes:
+        runners = node.get("runners") if isinstance(node.get("runners"), dict) else {}
+        if any(str((state or {}).get("status") if isinstance(state, dict) else state or "available").lower() == "available" for state in runners.values()):
+            runner_ready += 1
+    if runner_ready:
+        return f"Агент-хосты на связи: {online} из {len(nodes)}. Готовы выполнять AI-задачи: {runner_ready}."
+    return f"Агент-хосты на связи: {online} из {len(nodes)}. Готовность runner-ов уточняю."
+
+
+def format_queue_summary(tasks_payload: dict[str, Any]) -> str:
+    queue = tasks_payload.get("queue") or []
+    tasks = tasks_payload.get("tasks") or []
+    counts: dict[str, int] = {}
+    for task in tasks:
+        state = str(task.get("state") or "unknown")
+        counts[state] = counts.get(state, 0) + 1
+    parts = [f"Очередь: {len(queue)}."]
+    active = sum(counts.get(state, 0) for state in ("leased", "running", "review", "waiting_review"))
+    if active:
+        parts.append(f"В работе или проверке: {active}.")
+    if counts.get("failed") or counts.get("dead_letter"):
+        parts.append(f"Требуют разбора: {counts.get('failed', 0) + counts.get('dead_letter', 0)}.")
+    if counts.get("completed"):
+        parts.append(f"Завершено в текущем снимке: {counts['completed']}.")
+    return " ".join(parts)
 
 
 def human_task_state(state: str | None) -> str:
