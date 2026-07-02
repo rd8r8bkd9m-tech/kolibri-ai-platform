@@ -109,6 +109,36 @@ def test_1000_logical_lease_polls_do_not_spawn_processes_or_scan_unbounded_queue
     assert lpop_count == 1000
 
 
+def test_lease_recovers_persisted_queued_task_when_queue_index_loses_one_entry(monkeypatch):
+    control = load_control()
+    fake = InMemoryRedis()
+    monkeypatch.setattr(control, "redis", fake)
+    monkeypatch.setattr(control, "LEASE_QUEUE_SCAN_LIMIT", 8)
+
+    for index in range(10):
+        control.create_task({
+            "task_id": f"STRICT-{index}",
+            "idempotency_key": f"strict-{index}",
+            "kind": "read_only_probe",
+            "required_capability": "read_only_probe",
+        })
+    fake.lists[control.key("queue")].remove("STRICT-9")
+
+    leased = []
+    for index in range(10):
+        task = control.lease_next_task(
+            f"logical-{index}",
+            f"agent-{index}",
+            ["read_only_probe"],
+            {"node_id": f"logical-{index}", "capabilities": ["read_only_probe"]},
+        )
+        assert task is not None
+        leased.append(task["task_id"])
+
+    assert len(set(leased)) == 10
+    assert "STRICT-9" in leased
+
+
 def test_lease_reaper_is_lock_gated_and_batched(monkeypatch):
     control = load_control()
     fake = InMemoryRedis()
@@ -279,6 +309,34 @@ def test_lease_canary_classifier_fails_any_lease_5xx():
         classified = control.classify_lease_canary_response(status_code, {"status": "no_task"})
         assert classified["status"] == "failed"
         assert classified["reason"] == "lease_5xx"
+
+
+def test_lease_canary_classifier_fails_transport_status_zero():
+    control = load_control()
+
+    classified = control.classify_lease_canary_response(0, None)
+
+    assert classified["status"] == "failed"
+    assert classified["reason"] == "lease_transport_error"
+
+
+def test_lease_canary_stage_classifier_fails_under_leasing_and_empty_poll_transport_errors():
+    control = load_control()
+
+    under_leased = control.classify_lease_canary_stage(stage=1000, created_tasks=1000, leased_tasks=999)
+    assert under_leased["status"] == "failed"
+    assert under_leased["reason"] == "lease_under_completion"
+    assert under_leased["missing_leases"] == 1
+
+    empty_poll_transport = control.classify_lease_canary_stage(
+        stage=500,
+        created_tasks=500,
+        leased_tasks=500,
+        empty_poll_statuses=[200, 0, 200],
+    )
+    assert empty_poll_transport["status"] == "failed"
+    assert empty_poll_transport["reason"] == "empty_poll_transport_error"
+    assert empty_poll_transport["transport_error_count"] == 1
 
 
 def test_agent_host_poll_jitter_spreads_1000_logical_hosts_without_process_spawn(tmp_path, monkeypatch):
