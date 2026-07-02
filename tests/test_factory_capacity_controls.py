@@ -474,52 +474,37 @@ def test_factory_http_server_completes_1000_warmed_empty_lease_polls_without_red
     assert server.max_workers <= 64
 
 
-class PeekableLeaseSocket:
-    def __init__(self):
-        body = b'{"node_id":"empty","agent_id":"agent","capabilities":["read_only_probe"]}'
-        self.request = (
-            b"POST /v1/tasks/lease HTTP/1.1\r\n"
-            b"Host: control\r\n"
-            b"Content-Length: " + str(len(body)).encode("ascii") + b"\r\n"
-            b"\r\n" + body
-        )
-        self.sent = b""
-        self.closed = False
-        self.timeout = None
-
-    def settimeout(self, value):
-        self.timeout = value
-
-    def recv(self, size, flags=0):
-        if flags:
-            return self.request[:size]
-        chunk = self.request[:size]
-        self.request = self.request[len(chunk):]
-        return chunk
-
-    def sendall(self, payload):
-        self.sent += payload
-
-    def close(self):
-        self.closed = True
-
-
-def test_warmed_empty_lease_poll_can_return_no_task_before_worker_executor(monkeypatch):
+def test_warmed_empty_lease_poll_still_enters_worker_executor(monkeypatch):
     control = load_control()
     fake = InMemoryRedis()
     monkeypatch.setattr(control, "redis", fake)
     monkeypatch.setattr(control, "LEASE_EMPTY_FAST_PATH_TTL", 60.0)
 
     assert control.lease_queue_empty() is True
-    fake.commands.clear()
-    request = PeekableLeaseSocket()
+    handled = []
 
-    assert control.maybe_respond_empty_lease_poll_from_accept_loop(request) is True
-    assert request.closed is True
-    head, body = request.sent.split(b"\r\n\r\n", 1)
-    assert b"HTTP/1.0 200 OK" in head
-    assert json.loads(body.decode("utf-8"))["status"] == "no_task"
-    assert fake.commands == []
+    class RecordingExecutor:
+        _max_workers = 1
+
+        def submit(self, func, request, client_address):
+            handled.append((func, request, client_address))
+
+        def shutdown(self, wait=False):
+            pass
+
+    server = control.FactoryThreadingHTTPServer(("127.0.0.1", 0), control.Handler)
+    try:
+        server._executor.shutdown(wait=False)
+        server._executor = RecordingExecutor()
+        request = object()
+
+        server.process_request(request, ("127.0.0.1", 12345))
+
+        assert handled == [(server.process_request_thread, request, ("127.0.0.1", 12345))]
+        assert not hasattr(control, "maybe_respond_empty_lease_poll_from_accept_loop")
+        assert not hasattr(control, "complete_http_request_length")
+    finally:
+        server.server_close()
 
 
 def test_empty_lease_no_task_response_is_preencoded_compact_json(monkeypatch):
