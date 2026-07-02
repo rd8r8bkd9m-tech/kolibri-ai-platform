@@ -408,7 +408,7 @@ Next action: tune exit selection and rerun the 300+ Mbps gate before enabling se
         assert forbidden.lower() not in message.lower()
 
 
-def test_gateway_auto_tracks_fresh_owner_tasks_for_common_chat(tmp_path):
+def test_gateway_auto_tracks_fresh_owner_tasks_after_owner_session_baseline(tmp_path):
     gateway = load_gateway()
 
     class Telegram:
@@ -430,11 +430,127 @@ def test_gateway_auto_tracks_fresh_owner_tasks_for_common_chat(tmp_path):
 
     state = gateway.StateStore(tmp_path / "state.json")
     state.data["owner_chat_id"] = 100
-    state.data["common_chat_since"] = "2026-06-27T09:00:00+00:00"
+    state.data["owner_session_since"] = "2026-06-27T09:00:00+00:00"
     app = gateway.Gateway(Telegram(), Factory(), {100}, state, 1)
     app.auto_track_owner_tasks()
     assert state.data["tracked"]["KOL-OWNER-1"]["chat_id"] == 100
     assert state.data["tracked"]["KOL-OWNER-1"]["last_state"] == "WATCHING"
+
+
+def test_gateway_does_not_auto_track_owner_history_without_session_baseline(tmp_path):
+    gateway = load_gateway()
+
+    class Telegram:
+        def __init__(self):
+            self.messages = []
+
+        def send_message(self, chat_id, text):
+            self.messages.append((chat_id, text))
+
+    class Factory:
+        def get_tasks(self):
+            return {
+                "tasks": [
+                    {
+                        "task_id": "OLD-OWNER-1",
+                        "state": "completed",
+                        "created_at": "2026-06-27T09:10:54+00:00",
+                        "envelope": {"kind": "owner_remote_task"},
+                        "result": {"response": "Готово. node: private artifact: /var/lib/kolibri-agent/result.json"},
+                    }
+                ],
+                "queue": [],
+            }
+
+        def get_task(self, task_id):
+            raise AssertionError(f"historical task must not be polled: {task_id}")
+
+    telegram = Telegram()
+    state = gateway.StateStore(tmp_path / "state.json")
+    state.data["owner_chat_id"] = 100
+    state.data["common_chat_since"] = "2026-06-27T09:00:00+00:00"
+    state.data.pop("owner_session_since", None)
+    app = gateway.Gateway(telegram, Factory(), {100}, state, 1)
+
+    app.poll_task_transitions()
+
+    assert state.data["tracked"] == {}
+    assert telegram.messages == []
+
+
+def test_gateway_auto_tracks_only_tasks_fresh_since_owner_session(tmp_path):
+    gateway = load_gateway()
+
+    class Telegram:
+        def send_message(self, chat_id, text):
+            pass
+
+    class Factory:
+        def get_tasks(self):
+            return {
+                "tasks": [
+                    {
+                        "task_id": "OLD-OWNER-1",
+                        "state": "running",
+                        "created_at": "2026-07-02T11:59:59+00:00",
+                        "envelope": {"kind": "owner_remote_task"},
+                    },
+                    {
+                        "task_id": "NEW-OWNER-1",
+                        "state": "running",
+                        "created_at": "2026-07-02T12:00:01+00:00",
+                        "envelope": {"kind": "owner_remote_task"},
+                    },
+                    {
+                        "task_id": "TGCHAT-20260702120002-chat",
+                        "state": "running",
+                        "created_at": "2026-07-02T12:00:02+00:00",
+                        "envelope": {"kind": "owner_remote_task"},
+                    },
+                ],
+                "queue": [],
+            }
+
+    state = gateway.StateStore(tmp_path / "state.json")
+    state.data["owner_chat_id"] = 100
+    state.data["owner_session_since"] = "2026-07-02T12:00:00+00:00"
+    app = gateway.Gateway(Telegram(), Factory(), {100}, state, 1)
+
+    app.auto_track_owner_tasks()
+
+    assert sorted(state.data["tracked"]) == ["NEW-OWNER-1"]
+
+
+def test_gateway_ignores_unauthorized_and_non_private_messages_without_reply_spam(tmp_path):
+    gateway = load_gateway()
+
+    class Telegram:
+        def __init__(self):
+            self.messages = []
+
+        def send_message(self, chat_id, text):
+            self.messages.append((chat_id, text))
+
+    class Factory:
+        def create_task(self, envelope):
+            raise AssertionError("unauthorized messages must not create tasks")
+
+        def nodes(self):
+            raise AssertionError("unauthorized messages must not query nodes")
+
+        def get_tasks(self):
+            raise AssertionError("unauthorized messages must not query tasks")
+
+    telegram = Telegram()
+    state = gateway.StateStore(tmp_path / "state.json")
+    app = gateway.Gateway(telegram, Factory(), {100}, state, 1)
+
+    app.handle_message({"message_id": 1, "chat": {"id": -10, "type": "group"}, "from": {"id": 100}, "text": "/help"})
+    app.handle_message({"message_id": 2, "chat": {"id": 200, "type": "private"}, "from": {"id": 200}, "text": "/help"})
+
+    assert telegram.messages == []
+    assert "owner_chat_id" not in state.data
+    assert "owner_session_since" not in state.data
 
 
 def test_orchestrator_chat_envelope_carries_factory_snapshot():
@@ -998,6 +1114,24 @@ def test_owner_commands_return_summaries_without_internal_ids(tmp_path):
                 ],
             }
 
+        def get_task(self, task_id):
+            assert task_id == "TG-20260702120500-private-done"
+            return {
+                "task_id": task_id,
+                "state": "completed",
+                "envelope": {"kind": "owner_remote_task"},
+                "result": {
+                    "response": (
+                        "Проект запущен: http://127.0.0.1:8180\n"
+                        "task_id: TG-20260702120500-private-done\n"
+                        "node: primary-candidate\n"
+                        "agent: agent-host-private\n"
+                        "result_path: /var/lib/kolibri-agent/private/result.json\n"
+                        "token: 123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef"
+                    )
+                },
+            }
+
     telegram = Telegram()
     state = gateway.StateStore(tmp_path / "state.json")
     app = gateway.Gateway(telegram, Factory(), {100}, state, 1)
@@ -1006,13 +1140,15 @@ def test_owner_commands_return_summaries_without_internal_ids(tmp_path):
     app.handle_command({**base, "text": "/nodes"}, "/nodes")
     app.handle_command({**base, "text": "/agents"}, "/agents")
     app.handle_command({**base, "text": "/queue"}, "/queue")
+    app.handle_command({**base, "text": "/status TG-20260702120500-private-done"}, "/status TG-20260702120500-private-done")
 
-    assert len(telegram.messages) == 3
+    assert len(telegram.messages) == 4
     combined = "\n".join(text for _, text in telegram.messages)
     assert "Команда: онлайн 1 из 2." in combined
     assert "Агент-хосты на связи: 1 из 2." in combined
     assert "Очередь: 1." in combined
     assert "Требуют разбора: 1." in combined
+    assert "http://127.0.0.1:8180" in combined
     for forbidden in [
         "primary-candidate",
         "node-private",
@@ -1023,5 +1159,7 @@ def test_owner_commands_return_summaries_without_internal_ids(tmp_path):
         "private-owner",
         "/var/lib",
         "task_id",
+        "123456789:",
+        "token",
     ]:
         assert forbidden not in combined

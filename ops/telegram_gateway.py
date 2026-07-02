@@ -773,7 +773,8 @@ class StateStore:
             data = json.loads(self.path.read_text(encoding="utf-8"))
         data.setdefault("offset", None)
         data.setdefault("tracked", {})
-        data.setdefault("common_chat_since", os.environ.get("TELEGRAM_COMMON_CHAT_SINCE", utc_now()))
+        if os.environ.get("TELEGRAM_COMMON_CHAT_SINCE") and not data.get("owner_session_since"):
+            data["owner_session_since"] = os.environ["TELEGRAM_COMMON_CHAT_SINCE"]
         ensure_memory(data)
         return data
 
@@ -795,9 +796,7 @@ class Gateway:
         return chat.get("type") == "private" and int(user.get("id", 0)) in self.owner_ids
 
     def reject(self, message: dict[str, Any]) -> None:
-        chat_id = message.get("chat", {}).get("id")
-        if chat_id:
-            self.telegram.send_message(chat_id, "Доступ запрещен.")
+        del message
 
     def track(self, chat_id: int, task_id: str, state: str, mode: str = "task") -> None:
         self.state.data.setdefault("tracked", {})[task_id] = {"chat_id": chat_id, "last_state": state, "mode": mode}
@@ -992,6 +991,7 @@ class Gateway:
         if not text:
             return
         self.state.data["owner_chat_id"] = message["chat"]["id"]
+        self.state.data.setdefault("owner_session_since", utc_now())
         if text.startswith("/"):
             self.remember_owner_message(text, "command")
             self.handle_command(message, text)
@@ -1020,7 +1020,9 @@ class Gateway:
         except Exception:
             return
         tracked = self.state.data.setdefault("tracked", {})
-        since = self.state.data.get("common_chat_since")
+        since = self.state.data.get("owner_session_since")
+        if not since:
+            return
         for task in tasks:
             task_id = task.get("task_id")
             if not task_id or task_id in tracked:
