@@ -66,15 +66,15 @@ Host kolibri-home-root home-root coordinator-root home.kolibri.internal-root
 Host kolibri-home home coordinator plastilin home.kolibri.internal coordinator.kolibri.internal
   HostName 10.99.0.1
   User ladik
-  ProxyJump kolibri-main
 
 Host kolibri-uiap uiap rag kolibri-rag-knowledge kolibri-rag-knowledge-direct uiap.kolibri.internal rag.kolibri.internal
   HostName 31.57.26.151
   User root
 
 Host kolibri-qjns qjns tools kolibri-tools-executor kolibri-tools-executor-direct qjns.kolibri.internal tools.kolibri.internal
-  HostName 217.60.63.97
+  HostName 10.99.0.4
   User root
+  ProxyJump kolibri-home
 
 Host kolibri-9fts 9fts inference kolibri-inference-recovery kolibri-inference-recovery-direct 9fts.kolibri.internal inference.kolibri.internal
   HostName 94.183.235.154
