@@ -15,6 +15,10 @@ def test_build_factory_status_normalizes_control_plane_nodes():
                 "node_id": "primary-candidate",
                 "hostname": "kolibri",
                 "health": "online",
+                "region": "eu-central",
+                "provider": "hetzner",
+                "cluster": "control",
+                "cell": "core-a",
                 "heartbeat_at": (now - timedelta(seconds=5)).isoformat(),
                 "agent_id": "agent-host-primary",
                 "pid": 120138,
@@ -26,7 +30,21 @@ def test_build_factory_status_normalizes_control_plane_nodes():
             {"node_id": "new", "health": "offline", "capabilities": ["review"], "ram": {}, "disk": {}},
         ]
     }
-    result = build_factory_status(payload, {"tasks": [{"state": "queued"}, {"state": "running"}]}, {"status": "ok", "queue_backend": "redis", "time": now.isoformat()})
+    result = build_factory_status(
+        payload,
+        {
+            "tasks": [
+                {"task_id": "P0_REPAIR_RUNNER", "state": "running", "kind": "runner_repair", "node_id": "primary-candidate"},
+                {
+                    "task_id": "P0_AUTH_BLOCK",
+                    "state": "auth_failed",
+                    "result": {"blocked_reason": "runner_auth_blocked"},
+                    "agent_id": "agent-host-primary",
+                },
+            ]
+        },
+        {"status": "ok", "queue_backend": "redis", "time": now.isoformat(), "telegram_ha": {"primary": "active", "standby": "ready"}},
+    )
 
     assert result["status"] == "online"
     assert result["total_nodes"] == 2
@@ -34,10 +52,18 @@ def test_build_factory_status_normalizes_control_plane_nodes():
     assert result["fresh_nodes"] == 1
     assert result["degraded_nodes"] == 0
     assert result["stale_nodes"] == 1
-    assert result["queue_size"] == 2
+    assert result["offline_nodes"] == 1
+    assert result["queue_size"] == 1
     assert result["nodes"]["primary-candidate"]["role"] == "Директор"
     assert result["nodes"]["primary-candidate"]["ram_total_gb"] > 0
     assert result["control_plane"]["status"] == "ok"
+    assert result["topology_levels"] == ["global", "region", "provider", "cluster", "cell", "node", "agent", "task"]
+    assert result["topology"]["rollup"]["total"] == 2
+    assert result["topology"]["children"][0]["level"] == "region"
+    assert result["active_repair_count"] == 1
+    assert result["runner_auth_block_count"] == 1
+    assert result["telegram_ha"]["status"] == "ready"
+    assert result["owner_attention"]["runner_auth_blocks"] == 1
 
 
 def test_stale_heartbeat_online_mismatch_is_not_counted_online():
@@ -62,7 +88,7 @@ def test_stale_heartbeat_online_mismatch_is_not_counted_online():
     assert node["freshness"] == "stale"
     assert node["status"] == "stale"
     assert result["online_nodes"] == 0
-    assert result["node_freshness"] == {"fresh": 0, "degraded": 0, "stale": 1, "online": 0, "total": 1}
+    assert result["node_freshness"] == {"fresh": 0, "degraded": 0, "stale": 1, "online": 0, "offline": 0, "total": 1}
 
 
 def test_frontend_uses_live_factory_status_endpoint():
@@ -71,7 +97,11 @@ def test_frontend_uses_live_factory_status_endpoint():
     assert "/api/factory/status" in app_source
     assert "/cluster/status" not in app_source
     assert "на базе 5 серверов" not in app_source
-    assert "Фабрика Колибри" in app_source
+    assert "Kolibri AI Control Center" in app_source
+    assert "Control Plane" in app_source
+    assert "Owner Attention" in app_source
+    assert "topology" in app_source
+    assert "provider → cluster → cell" in app_source
     assert "Свежие" in app_source
     assert "Деградируют" in app_source
     assert "Устарели" in app_source

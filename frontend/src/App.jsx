@@ -59,85 +59,243 @@ function Skeleton({ className }) {
   return <div className={`skeleton ${className || ""}`} />
 }
 
+function iconPath(name) {
+  const paths = {
+    activity: "M22 12h-4l-3 8L9 4l-3 8H2",
+    server: "M4 4h16v6H4zM4 14h16v6H4zM7 7h.01M7 17h.01",
+    queue: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01",
+    shield: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z",
+    alert: "M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0zM12 9v4M12 17h.01",
+    search: "M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z",
+    refresh: "M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15",
+    chevron: "M9 18l6-6-6-6",
+  }
+  return paths[name]
+}
+
+function Icon({ name, size = 18 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d={iconPath(name)} />
+    </svg>
+  )
+}
+
+function flattenTopology(node, depth = 0, rows = []) {
+  if (!node) return rows
+  rows.push({ ...node, depth })
+  ;(node.children || []).forEach(child => flattenTopology(child, depth + 1, rows))
+  return rows
+}
+
+function findTopologyNode(node, id) {
+  if (!node) return null
+  if (node.id === id) return node
+  for (const child of node.children || []) {
+    const found = findTopologyNode(child, id)
+    if (found) return found
+  }
+  return null
+}
+
 function ClusterView({ status, onRefresh }) {
+  const [selectedId, setSelectedId] = useState("global:kolibri-ai")
+  const [query, setQuery] = useState("")
+  const [page, setPage] = useState(0)
+
   if (!status) return (
-    <div className="documents-panel">
+    <div className="noc-shell">
       <div className="skeleton-grid">
-        {[1,2,3].map(i => <Skeleton key={i} className="skeleton-card" />)}
+        {[1,2,3,4].map(i => <Skeleton key={i} className="skeleton-card" />)}
       </div>
     </div>
   )
-  
-  const nodeEntries = Array.isArray(status.nodes) ? status.nodes.map(node => [node.node_id || node.id || node.hostname, node]) : Object.entries(status.nodes || {})
-  const freshness = status.node_freshness || {}
 
-  const NodeIcon = ({ role }) => {
-    const paths = {
-      training: "M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2zM22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z",
-      "api-gateway": "M12 2a10 10 0 100 20 10 10 0 000-20zM2 12h20M12 2a15 15 0 014 10 15 15 0 01-4 10 15 15 0 01-4-10A15 15 0 0112 2z",
-      rag: "M4 19.5A2.5 2.5 0 016.5 17H20zM6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z",
-      agent: "M12 2a2 2 0 100 4 2 2 0 000-4zM6 11h12a2 2 0 012 2v7a2 2 0 01-2 2H6a2 2 0 01-2-2v-7a2 2 0 012-2z",
-      inference: "M13 2L3 14h9l-1 8 10-12h-9l1-8z",
-    }
-    const d = paths[role] || paths["api-gateway"]
-    return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d={d}/></svg>
+  const freshness = status.node_freshness || {}
+  const attention = status.owner_attention || {}
+  const queue = status.queue_pressure || {}
+  const telegram = status.telegram_ha || {}
+  const topology = status.topology || null
+  const selected = findTopologyNode(topology, selectedId) || topology
+  const allRows = flattenTopology(topology).filter(row => row.level !== "task")
+  const children = selected?.children || []
+  const aggregateRows = children.filter(row => row.level !== "task")
+  const nodeList = Array.isArray(status.node_list) ? status.node_list : Object.values(status.nodes || {})
+  const normalizedQuery = query.trim().toLowerCase()
+  const searchedNodes = normalizedQuery
+    ? nodeList.filter(node => [
+      node.node_id,
+      node.name,
+      node.hostname,
+      node.agent_id,
+      node.role,
+      node.status,
+      node.freshness,
+      node.topology?.region,
+      node.topology?.provider,
+      node.topology?.cluster,
+      node.topology?.cell,
+    ].some(value => String(value || "").toLowerCase().includes(normalizedQuery)))
+    : []
+  const pageSize = 25
+  const pageCount = Math.max(1, Math.ceil(searchedNodes.length / pageSize))
+  const pageNodes = searchedNodes.slice(page * pageSize, page * pageSize + pageSize)
+  const tasks = [...(status.active_tasks || []), ...(status.active_repairs || []), ...(status.runner_auth_blocks || [])]
+    .filter((task, index, list) => list.findIndex(item => item.task_id === task.task_id) === index)
+    .slice(0, 12)
+
+  const healthCards = [
+    { label: "Control Plane", value: status.control_plane?.status || status.status || "unknown", tone: status.status === "online" ? "good" : "bad", icon: "activity" },
+    { label: "Fleet Total", value: status.total_nodes ?? 0, tone: "neutral", icon: "server" },
+    { label: "Свежие", value: `${freshness.fresh ?? status.fresh_nodes ?? 0}/${status.total_nodes ?? 0}`, tone: "good", icon: "activity" },
+    { label: "Деградируют", value: freshness.degraded ?? status.degraded_nodes ?? 0, tone: "warn", icon: "alert" },
+    { label: "Устарели", value: freshness.stale ?? status.stale_nodes ?? 0, tone: "bad", icon: "alert" },
+    { label: "Offline", value: freshness.offline ?? status.offline_nodes ?? 0, tone: "bad", icon: "server" },
+    { label: "Queue Pressure", value: queue.level || "normal", detail: `${status.queue_size || 0} queued/running`, tone: queue.level === "critical" || queue.level === "high" ? "bad" : queue.level === "elevated" ? "warn" : "neutral", icon: "queue" },
+    { label: "Owner Attention", value: attention.count ?? 0, tone: (attention.count || 0) > 0 ? "bad" : "good", icon: "shield" },
+  ]
+
+  const selectAggregate = (id) => {
+    setSelectedId(id)
+    setPage(0)
   }
-  
+
   return (
-    <motion.div key="cluster" className="documents-panel" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
-      <div className="documents-header">
-        <h2>Сеть Kolibri</h2>
-        <button className="refresh-btn" onClick={onRefresh}>
-          <motion.svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-            whileHover={{ rotate: 180 }} transition={{ duration: 0.3 }}>
-            <polyline points="23,4 23,10 17,10"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
-          </motion.svg>
-        </button>
+    <motion.div key="cluster" className="noc-shell" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+      <div className="noc-header">
+        <div>
+          <div className="noc-eyebrow">Kolibri AI Control Center</div>
+          <h1>Server NOC Home</h1>
+          <p>Control Plane health, fleet pressure, active work, repair blocks, Telegram HA, and owner attention.</p>
+        </div>
+        <button className="refresh-btn" onClick={onRefresh} title="Refresh NOC status"><Icon name="refresh" size={16} /></button>
       </div>
-      
-      <div className="cluster-stats">
-        {[
-          { label: "Свежие", value: `${freshness.fresh ?? status.fresh_nodes ?? status.online_nodes}/${status.total_nodes}`, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>, color: "var(--success)" },
-          { label: "Деградируют", value: freshness.degraded ?? status.degraded_nodes ?? 0, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>, color: "var(--warning)" },
-          { label: "Устарели", value: freshness.stale ?? status.stale_nodes ?? 0, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>, color: "var(--error)" },
-          { label: "Задач в очереди", value: status.queue_size || 0, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>, color: "var(--accent)" },
-        ].map((s, i) => (
-          <motion.div key={s.label} className="stat-card"
-            initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: i * 0.08, type: "spring", stiffness: 200 }}>
-            <div className="stat-icon">{s.icon}</div>
-            <div className="stat-value" style={{ color: s.color }}>{s.value}</div>
-            <div className="stat-label">{s.label}</div>
+
+      <div className="noc-kpi-grid">
+        {healthCards.map((card, i) => (
+          <motion.div key={card.label} className={`noc-kpi ${card.tone}`}
+            initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}>
+            <div className="noc-kpi-icon"><Icon name={card.icon} size={16} /></div>
+            <div className="noc-kpi-value">{card.value}</div>
+            <div className="noc-kpi-label">{card.label}</div>
+            {card.detail && <div className="noc-kpi-detail">{card.detail}</div>}
           </motion.div>
         ))}
       </div>
-      
-      <div className="doc-list">
-        {nodeEntries.map(([name, node], i) => (
-          <motion.div key={name} className="doc-item node-card"
-            initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: 0.3 + i * 0.06, type: "spring", stiffness: 150 }}
-            whileHover={{ scale: 1.01, x: 4 }}>
-            <div className="doc-icon" style={{
-              background: node.status === "online" ? "rgba(16,185,129,0.1)" : "rgba(239,68,68,0.1)",
-              color: node.status === "online" ? "var(--success)" : "var(--error)"
-            }}>
-              <NodeIcon role={node.role} />
+
+      <div className="noc-attention-strip">
+        <span>Active tasks <strong>{status.active_task_count || 0}</strong></span>
+        <span>Active repairs <strong>{status.active_repair_count || 0}</strong></span>
+        <span>Runner/auth blocks <strong>{status.runner_auth_block_count || 0}</strong></span>
+        <span>Telegram HA <strong>{telegram.status || "unknown"}</strong></span>
+      </div>
+
+      <div className="noc-workspace">
+        <section className="noc-topology">
+          <div className="noc-section-head">
+            <div>
+              <h2>Aggregate Topology</h2>
+              <p>global → region → provider → cluster → cell → node → agent → task</p>
             </div>
-            <div className="doc-info">
-              <div className="doc-name" style={{ textTransform: "capitalize" }}>{name}</div>
-              <div className="doc-meta">{node.role} · {node.hostname || node.ip || node.agent_id || "internal"}</div>
+          </div>
+          <div className="noc-breadcrumb">
+            {(selected?.path || ["kolibri-ai"]).map((part, index, parts) => (
+              <button key={`${part}-${index}`} onClick={() => {
+                const row = allRows.find(item => (item.path || []).join("/") === parts.slice(0, index + 1).join("/"))
+                if (row) selectAggregate(row.id)
+              }}>{part}</button>
+            ))}
+          </div>
+          <div className="noc-aggregate-list">
+            {(aggregateRows.length ? aggregateRows : [selected]).map(row => {
+              const rollup = row.rollup || {}
+              return (
+                <button key={row.id} className={`noc-aggregate-row ${selected?.id === row.id ? "active" : ""}`} onClick={() => selectAggregate(row.id)}>
+                  <span className="noc-row-chevron"><Icon name="chevron" size={14} /></span>
+                  <span className="noc-row-main">
+                    <strong>{row.name}</strong>
+                    <small>{row.level}</small>
+                  </span>
+                  <span>{rollup.total || 0} nodes</span>
+                  <span className="good">{rollup.fresh || 0} fresh</span>
+                  <span className="warn">{rollup.degraded || 0} degraded</span>
+                  <span className="bad">{(rollup.stale || 0) + (rollup.offline || 0)} stale/offline</span>
+                  <span>{rollup.active_tasks || 0} active</span>
+                </button>
+              )
+            })}
+          </div>
+        </section>
+
+        <aside className="noc-side">
+          <div className="noc-section-head compact"><h2>Owner Attention</h2></div>
+          <div className="noc-owner-grid">
+            {[
+              ["Stale", attention.stale_nodes || 0],
+              ["Degraded", attention.degraded_nodes || 0],
+              ["Offline", attention.offline_nodes || 0],
+              ["Repairs", attention.active_repairs || 0],
+              ["Auth", attention.runner_auth_blocks || 0],
+            ].map(([label, value]) => <div key={label}><strong>{value}</strong><span>{label}</span></div>)}
+          </div>
+          <div className="noc-telegram">
+            <strong>Telegram HA</strong>
+            <span>primary: {telegram.primary || "unknown"}</span>
+            <span>standby: {telegram.standby || "unknown"}</span>
+            <span>promotion: {telegram.promotion || "unknown"}</span>
+          </div>
+        </aside>
+      </div>
+
+      <div className="noc-workspace bottom">
+        <section className="noc-table-panel">
+          <div className="noc-section-head">
+            <div>
+              <h2>Drilldown Search</h2>
+              <p>Search paginates nodes for 100k+ server fleets instead of rendering a flat root table.</p>
             </div>
-            <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: "12px", fontWeight: "700", color: node.status === "online" ? "var(--success)" : "var(--error)" }}>{node.freshness || node.status}</div>
-              <div style={{ fontSize: "13px", fontWeight: "600" }}>CPU {node.cpu == null ? "n/a" : node.cpu}</div>
-              <div className="ram-bar">
-                <div className="ram-bar-fill" style={{ width: `${node.ram_total_gb ? Math.min(100, ((node.ram_total_gb - node.ram_available_gb) / node.ram_total_gb) * 100) : Math.min(100, (parseFloat(node.ram || 0) / 16) * 100)}%` }} />
+            <div className="noc-search">
+              <Icon name="search" size={16} />
+              <input value={query} onChange={e => { setQuery(e.target.value); setPage(0) }} placeholder="node, agent, provider, health..." />
+            </div>
+          </div>
+          {normalizedQuery ? (
+            <>
+              <div className="noc-node-table">
+                {pageNodes.map(node => (
+                  <div key={node.node_id} className="noc-node-row">
+                    <strong>{node.node_id}</strong>
+                    <span>{node.role || "agent"}</span>
+                    <span>{node.topology?.provider || "provider"} / {node.topology?.cluster || "cluster"} / {node.topology?.cell || "cell"}</span>
+                    <span className={node.freshness === "fresh" ? "good" : node.freshness === "degraded" ? "warn" : "bad"}>{node.freshness || node.status}</span>
+                    <span>CPU {node.cpu == null ? "n/a" : node.cpu}</span>
+                    <span>{node.ram || "RAM n/a"}</span>
+                  </div>
+                ))}
               </div>
-              <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>{node.ram || `${node.ram_available_gb || 0}/${node.ram_total_gb || 0} GB`}</div>
-            </div>
-          </motion.div>
-        ))}
+              <div className="noc-pagination">
+                <button disabled={page === 0} onClick={() => setPage(Math.max(0, page - 1))}>Previous</button>
+                <span>Page {page + 1} / {pageCount} · {searchedNodes.length} matches</span>
+                <button disabled={page + 1 >= pageCount} onClick={() => setPage(Math.min(pageCount - 1, page + 1))}>Next</button>
+              </div>
+            </>
+          ) : (
+            <div className="noc-empty-state">Select an aggregate above or search before loading node-level rows.</div>
+          )}
+        </section>
+
+        <aside className="noc-side">
+          <div className="noc-section-head compact"><h2>Active Work</h2></div>
+          <div className="noc-task-list">
+            {tasks.length ? tasks.map(task => (
+              <div key={task.task_id} className="noc-task-row">
+                <strong>{task.task_id}</strong>
+                <span>{task.state} · {task.kind}</span>
+                {task.blocked_reason && <small>{task.blocked_reason}</small>}
+              </div>
+            )) : <div className="noc-empty-state small">No active tasks or repair/auth blocks reported.</div>}
+          </div>
+        </aside>
       </div>
     </motion.div>
   )
@@ -153,7 +311,7 @@ export default function App() {
   const [selectedProvider, setSelectedProvider] = useState("mimo")
   const [sidebar, setSidebar] = useState(false)
   const [theme, setTheme] = useState(() => localStorage.getItem("kolibri-theme") || "dark")
-  const [activeTab, setActiveTab] = useState("chat")
+  const [activeTab, setActiveTab] = useState("cluster")
   const [documents, setDocuments] = useState([])
   const [docLoading, setDocLoading] = useState(false)
   const [docError, setDocError] = useState("")
@@ -269,10 +427,9 @@ export default function App() {
   const handleKeyDown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage() } }
 
   const quickActions = [
-    { icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>, title: "Чат с AI", desc: "Задайте вопрос", color: "blue", prompt: "" },
-    { icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>, title: "Смета", desc: "AI-генерация сметы", color: "purple", prompt: "Создай строительную смету для " },
-    { icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 002 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0022 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>, title: "Документы", desc: "Пакет документов", color: "green", prompt: "Создай полный пакет документов для " },
-    { id: "search", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>, title: "Поиск", desc: "База знаний", color: "orange", prompt: "" },
+    { id: "cluster", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="2" width="6" height="6" rx="1"/><rect x="16" y="2" width="6" height="6" rx="1"/><rect x="9" y="16" width="6" height="6" rx="1"/><path d="M5 8v3a2 2 0 002 2h10a2 2 0 002-2V8"/></svg>, title: "Control Center", desc: "NOC monitor", color: "blue", prompt: "" },
+    { icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>, title: "Чат с AI", desc: "Operator query", color: "green", prompt: "" },
+    { id: "search", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>, title: "Поиск", desc: "Knowledge base", color: "orange", prompt: "" },
   ]
 
   const birdState = loading ? "thinking" : connected ? "idle" : "error"
@@ -287,7 +444,7 @@ export default function App() {
             <div className="sidebar-logo">
               <KolibriBird size={36} state={birdState} />
               <span className="sidebar-logo-text">Kolibri</span>
-              <span className="sidebar-logo-badge">AI</span>
+              <span className="sidebar-logo-badge">NOC</span>
             </div>
             <motion.button className="new-chat-btn" onClick={() => { setMessages([]); setActiveTab("chat") }}
               whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
@@ -300,10 +457,10 @@ export default function App() {
 
           <nav className="sidebar-nav">
             {[
+              { id: "cluster", label: "Control Center", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="2" width="6" height="6" rx="1"/><rect x="16" y="2" width="6" height="6" rx="1"/><rect x="9" y="16" width="6" height="6" rx="1"/><path d="M5 8v3a2 2 0 002 2h10a2 2 0 002-2V8"/></svg> },
               { id: "chat", label: "Чат", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg> },
               { id: "documents", label: "Документы", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg> },
               { id: "search", label: "Поиск", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> },
-              { id: "cluster", label: "Сеть", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="2" width="6" height="6" rx="1"/><rect x="16" y="2" width="6" height="6" rx="1"/><rect x="9" y="16" width="6" height="6" rx="1"/><path d="M5 8v3a2 2 0 002 2h10a2 2 0 002-2V8"/></svg> },
             ].map(item => (
               <motion.button key={item.id} className={`sidebar-nav-item ${activeTab === item.id ? "active" : ""}`}
                 onClick={() => { setActiveTab(item.id); setSidebar(false) }}
@@ -352,12 +509,12 @@ export default function App() {
                 </svg>
               </button>
               <div>
-                <div className="header-title">Kolibri AI</div>
+                <div className="header-title">Kolibri AI Control Center</div>
                 <div className="header-subtitle">
                   {clusterStatus ? (
                     <span className="header-cluster">
                       <span className="pulse-dot" />
-                      {clusterStatus.online_nodes} узлов · {clusterStatus.free_ram_gb} GB RAM
+                      {clusterStatus.online_nodes}/{clusterStatus.total_nodes} online · queue {clusterStatus.queue_size || 0} · attention {clusterStatus.owner_attention?.count || 0}
                     </span>
                   ) : "Загрузка..."}
                 </div>
@@ -389,7 +546,7 @@ export default function App() {
                           transition={{ delay: 0.3 }}>Kolibri AI</motion.h1>
                         <motion.p className="welcome-subtitle" initial={{ opacity: 0 }} animate={{ opacity: 1 }}
                           transition={{ delay: 0.4 }}>
-                          Фабрика Колибри · {clusterStatus ? `${clusterStatus.online_nodes}/${clusterStatus.total_nodes} узлов · ${clusterStatus.total_ram_gb} GB RAM` : "загрузка"}
+                          Control Plane · {clusterStatus ? `${clusterStatus.online_nodes}/${clusterStatus.total_nodes} online · ${clusterStatus.total_ram_gb} GB RAM` : "loading"}
                         </motion.p>
                         <div className="quick-actions">
                           {quickActions.map((a, i) => (
@@ -398,7 +555,7 @@ export default function App() {
                               transition={{ delay: 0.5 + i * 0.08, type: "spring", stiffness: 200 }}
                               whileHover={{ scale: 1.03, y: -3 }} whileTap={{ scale: 0.97 }}
                               onClick={() => {
-                                if (a.id === "search") { setActiveTab("search"); return }
+                                if (a.id === "search" || a.id === "cluster") { setActiveTab(a.id); return }
                                 setInput(a.prompt); inputRef.current?.focus()
                               }}>
                               <div className={`quick-action-icon ${a.color}`}>{a.icon}</div>
