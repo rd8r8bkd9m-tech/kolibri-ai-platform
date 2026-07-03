@@ -1,9 +1,10 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router'
 import { Paperclip, ArrowUp, Mic, User, ChevronDown, ChevronUp, Plus } from 'lucide-react'
 import { chat, estimates, documents, type ChatAction } from '@/lib/api'
 import MascotAnimation from '@/components/MascotAnimation'
 import StatusBird, { type BirdState } from '@/components/StatusBird'
+import { detectChatIntent, shouldShowIntent } from '@/lib/chatIntent'
 
 function ReasoningBlock({ text }: { text: string }) {
   const [open, setOpen] = useState(false)
@@ -35,10 +36,9 @@ interface Message {
 }
 
 const WELCOME_SUGGESTIONS = [
-  'Создать смету на электромонтаж дома 120 м²',
-  'Написать договор подряда',
-  'Проанализировать продажи за квартал',
-  'Сгенерировать техническое задание',
+  'Создать смету на электромонтаж',
+  'Подготовить договор подряда',
+  'Разобрать продажи за квартал',
 ]
 
 const CHAT_TIMEOUT_MS = 20000
@@ -67,6 +67,8 @@ export default function ChatPage() {
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const navigate = useNavigate()
+  const intent = useMemo(() => detectChatIntent(input), [input])
+  const showIntent = shouldShowIntent(input)
 
   const handleNewChat = () => {
     setMessages([])
@@ -160,35 +162,37 @@ export default function ChatPage() {
     <div className="flex h-full min-h-0 flex-col bg-[var(--bg-primary)]">
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
         {messages.length === 0 ? (
-          <div className="mx-auto flex min-h-full max-w-[760px] flex-col px-4 pb-6 pt-[clamp(1rem,8dvh,4.5rem)]">
+          <div className="mx-auto flex min-h-full max-w-[760px] flex-col px-4 pb-6 pt-[clamp(2rem,10dvh,5rem)]">
             <div className="flex flex-1 flex-col items-center justify-center pb-8 text-center">
               <div className="relative mb-5">
                 <div className="absolute inset-2 rounded-full bg-[var(--accent-teal)]/10 blur-2xl" />
                 <MascotAnimation state={focused ? 'ready' : 'idle'} className="relative h-28 w-28 sm:h-32 sm:w-32" alt="Колибри" />
               </div>
-              <div className="mb-3 inline-flex items-center gap-2 rounded-[var(--radius-pill)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]/90 px-3 py-1.5 text-[13px] font-medium text-[var(--text-secondary)] shadow-[var(--shadow-sm)] backdrop-blur-xl">
-                <span className="h-2 w-2 rounded-full bg-[var(--accent-teal)]" />
-                Колибри готов помочь
+              <div className="mb-4 inline-flex min-h-9 items-center gap-2 rounded-[var(--radius-pill)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]/90 px-4 text-[14px] font-medium text-[var(--text-secondary)] shadow-[0_10px_32px_rgba(15,23,42,0.08)] backdrop-blur-xl">
+                <span className="h-2 w-2 rounded-full bg-[var(--accent-teal)]" aria-hidden="true" />
+                Колибри AI · рабочий режим
               </div>
-              <h1 className="max-w-[540px] text-[30px] font-semibold leading-tight tracking-normal text-[var(--text-primary)] sm:text-[36px]">
-                Чем могу помочь?
+              <h1 className="max-w-[540px] text-[32px] font-semibold leading-[1.08] tracking-normal text-[var(--text-primary)] sm:text-[38px]">
+                Чем помочь?
               </h1>
-              <p className="mt-3 max-w-[460px] text-[16px] leading-6 text-[var(--text-secondary)]">
-                Задайте вопрос, создайте смету или попросите подготовить документ.
+              <p className="mt-3 max-w-[430px] text-[16px] leading-6 text-[var(--text-secondary)]">
+                Напишите обычной фразой. Колибри поймет маршрут и покажет направления по смыслу запроса.
               </p>
 
-              <div className="mt-6 grid w-full max-w-[560px] gap-2 sm:grid-cols-2">
-                {WELCOME_SUGGESTIONS.map((s) => (
-                  <button
-                    type="button"
-                    key={s}
-                    onClick={() => handleSendMessage(s)}
-                    className="min-h-[54px] rounded-[22px] border border-[var(--border-subtle)] bg-[var(--bg-surface)]/90 px-4 py-3 text-left text-[15px] leading-snug text-[var(--text-primary)] shadow-[var(--shadow-sm)] backdrop-blur-xl transition-colors hover:border-[var(--border-hover)] hover:bg-[var(--bg-hover)]"
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
+              {!showIntent && (
+                <div className="mt-6 flex w-full max-w-[560px] flex-wrap justify-center gap-2">
+                  {WELCOME_SUGGESTIONS.map((s) => (
+                    <button
+                      type="button"
+                      key={s}
+                      onClick={() => handleSendMessage(s)}
+                      className="rounded-[var(--radius-pill)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]/85 px-3.5 py-2 text-[14px] leading-5 text-[var(--text-secondary)] shadow-[var(--shadow-sm)] backdrop-blur-xl transition-colors hover:border-[var(--border-hover)] hover:text-[var(--text-primary)]"
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         ) : (
@@ -277,11 +281,35 @@ export default function ChatPage() {
         )}
       </div>
 
-      <div className="flex-shrink-0 border-t border-white/40 bg-[var(--bg-primary)]/80 px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 backdrop-blur-2xl">
+      <div className="flex-shrink-0 border-t border-white/40 bg-[var(--bg-primary)]/72 px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 backdrop-blur-2xl">
         <div className="mx-auto max-w-[760px]">
+          {showIntent && (
+            <div className="mb-2 rounded-[24px] border border-[var(--border-subtle)] bg-[var(--bg-surface)]/90 p-3 shadow-[0_12px_34px_rgba(15,23,42,0.08)] backdrop-blur-xl" aria-live="polite">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[14px] font-semibold leading-5 text-[var(--text-primary)]">{intent.title}</p>
+                  <p className="mt-0.5 text-[12px] leading-4 text-[var(--text-secondary)]">{intent.subtitle}</p>
+                </div>
+              </div>
+              <div className="mt-2 grid grid-cols-3 gap-1.5">
+                {intent.directions.map((direction) => (
+                  <button
+                    type="button"
+                    key={direction.label}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => setInput((current) => `${current.trim()} ${direction.label.toLowerCase()}`.trim())}
+                    className="min-h-[48px] rounded-[16px] border border-white/70 bg-[var(--bg-surface)]/85 px-2 py-1.5 text-left transition-colors hover:border-[var(--border-hover)] hover:bg-[var(--bg-surface)]"
+                  >
+                    <span className="block truncate text-[12px] font-medium leading-4 text-[var(--text-primary)]">{direction.label}</span>
+                    <span className="block truncate text-[11px] leading-4 text-[var(--text-tertiary)]">{direction.detail}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <div
-            className={`relative rounded-[28px] border bg-[var(--bg-surface)]/90 shadow-[0_14px_44px_rgba(15,23,42,0.10)] backdrop-blur-xl transition-all duration-200 ${
-              focused ? 'border-[var(--accent-teal)] shadow-[0_0_0_3px_rgba(58,186,180,0.12),0_14px_44px_rgba(15,23,42,0.10)]' : 'border-white/70'
+            className={`relative rounded-[30px] border bg-[var(--bg-surface)]/92 shadow-[0_18px_50px_rgba(15,23,42,0.12)] backdrop-blur-2xl transition-all duration-200 ${
+              focused ? 'border-[var(--accent-teal)] shadow-[0_0_0_3px_rgba(58,186,180,0.12),0_18px_50px_rgba(15,23,42,0.12)]' : 'border-white/70'
             }`}
           >
             <textarea
@@ -293,8 +321,8 @@ export default function ChatPage() {
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(input) } }}
               placeholder="Спросите Колибри..."
               rows={1}
-              className="w-full resize-none bg-transparent px-4 pb-14 pt-4 text-[16px] leading-6 text-[var(--text-primary)] outline-none placeholder:text-[var(--text-tertiary)]"
-              style={{ minHeight: 68 }}
+              className="w-full resize-none bg-transparent px-4 pb-14 pt-4 text-[17px] leading-6 text-[var(--text-primary)] outline-none placeholder:text-[var(--text-tertiary)]"
+              style={{ minHeight: 72 }}
             />
             <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between">
               <div className="flex items-center gap-1">

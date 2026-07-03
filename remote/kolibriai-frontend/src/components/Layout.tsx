@@ -120,6 +120,24 @@ export default function Layout({ user, onLogout }: LayoutProps) {
   const isHome = location.pathname === '/'
   const isChat = location.pathname === '/chat'
 
+  useEffect(() => {
+    const syncViewportHeight = () => {
+      const height = window.visualViewport?.height || window.innerHeight
+      document.documentElement.style.setProperty('--kolibri-visual-height', `${height}px`)
+    }
+
+    syncViewportHeight()
+    window.addEventListener('resize', syncViewportHeight)
+    window.visualViewport?.addEventListener('resize', syncViewportHeight)
+    window.visualViewport?.addEventListener('scroll', syncViewportHeight)
+    return () => {
+      window.removeEventListener('resize', syncViewportHeight)
+      window.visualViewport?.removeEventListener('resize', syncViewportHeight)
+      window.visualViewport?.removeEventListener('scroll', syncViewportHeight)
+      document.documentElement.style.removeProperty('--kolibri-visual-height')
+    }
+  }, [])
+
   const closeMobileMenu = () => setMobileMenuOpen(false)
 
   const openRecentItem = (item: LibraryItem) => {
@@ -153,7 +171,7 @@ export default function Layout({ user, onLogout }: LayoutProps) {
   }
 
   return (
-    <div className="flex h-[100dvh] w-full overflow-hidden bg-[var(--bg-primary)]">
+    <div className="flex h-[var(--kolibri-visual-height,100dvh)] w-full overflow-hidden bg-[var(--bg-primary)]">
       {/* ===== DESKTOP SIDEBAR ===== */}
       {!isHome && (
         <aside className="hidden md:flex flex-col w-[var(--sidebar-width)] h-full border-r border-[var(--border-subtle)] bg-[var(--bg-secondary)] flex-shrink-0">
@@ -277,13 +295,15 @@ export default function Layout({ user, onLogout }: LayoutProps) {
           <Menu size={22} strokeWidth={1.8} />
         </button>
         <div className="flex min-w-0 flex-1 justify-center">
-          <div className="flex min-w-0 items-center gap-2 rounded-[var(--radius-pill)] border border-white/50 bg-white/70 px-3 py-1.5 shadow-[0_8px_24px_rgba(15,23,42,0.08)] backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.08]">
-            <MascotAnimation state={isChat ? 'ready' : 'idle'} className="h-6 w-6" decorative />
+          <div className="flex min-w-0 items-center gap-2 rounded-[var(--radius-pill)] border border-white/60 bg-white/76 px-3.5 py-1.5 shadow-[0_10px_28px_rgba(15,23,42,0.08)] backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.08]">
+            <MascotAnimation state={isChat || isHome ? 'ready' : 'idle'} className="h-6 w-6" decorative />
             <div className="min-w-0 leading-none">
               <span className="block truncate text-[15px] font-semibold text-[var(--text-primary)]">
-                {isChat ? 'Колибри Pro' : 'Колибри'}
+                Колибри AI
               </span>
-              {isChat && <span className="block text-[10px] font-medium text-[var(--accent-teal)]">онлайн</span>}
+              <span className="block text-[10px] font-medium text-[var(--accent-teal)]">
+                {isChat || isHome ? 'рабочий режим' : 'проект'}
+              </span>
             </div>
           </div>
         </div>

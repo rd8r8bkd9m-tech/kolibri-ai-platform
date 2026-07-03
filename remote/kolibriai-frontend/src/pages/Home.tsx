@@ -1,90 +1,13 @@
-import { useState, useRef, useEffect } from 'react'
-import { useNavigate, useOutletContext } from 'react-router'
-import {
-  Paperclip,
-  ArrowUp,
-  Mic,
-  Plus,
-  Calculator,
-  FileText,
-  Bot,
-  MessageSquare,
-  Library,
-  Search,
-  Settings,
-  ChevronRight,
-} from 'lucide-react'
-import StatusBird from '@/components/StatusBird'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { useNavigate } from 'react-router'
+import { ArrowUp, Mic, Paperclip, Plus } from 'lucide-react'
 import MascotAnimation from '@/components/MascotAnimation'
-import { estimates, documents, agents, library, type Estimate, type Document, type LibraryItem, type Agent } from '@/lib/api'
-import type { LayoutOutletContext } from '@/components/Layout'
-import { formatDate, formatCurrency } from '@/lib/utils'
+import { detectChatIntent, shouldShowIntent } from '@/lib/chatIntent'
 
-const quickActions = [
-  'Создать смету на электромонтаж',
-  'Написать договор подряда',
-  'Сгенерировать отчёт',
-  'Проанализировать данные',
-]
-
-type Module = {
-  id: 'chat' | 'estimates' | 'documents' | 'agents' | 'library' | 'settings' | 'search'
-  label: string
-  icon: typeof MessageSquare
-  description: string
-  route: '/chat' | '/estimates' | '/documents' | '/agents' | '/library' | '/settings' | 'search'
-}
-
-const modules: Module[] = [
-  {
-    id: 'chat',
-    label: 'Чат',
-    icon: MessageSquare,
-    description: 'Веди диалог и запускай действия сразу из ответа',
-    route: '/chat',
-  },
-  {
-    id: 'estimates',
-    label: 'Сметы',
-    icon: Calculator,
-    description: 'Скидки, расчёты, экспорт, версия в рабочем режиме',
-    route: '/estimates',
-  },
-  {
-    id: 'documents',
-    label: 'Документы',
-    icon: FileText,
-    description: 'Редакторы и шаблоны в связке со сметами',
-    route: '/documents',
-  },
-  {
-    id: 'agents',
-    label: 'Агенты',
-    icon: Bot,
-    description: 'Управление задачами и статуса выполнения',
-    route: '/agents',
-  },
-  {
-    id: 'library',
-    label: 'Библиотека',
-    icon: Library,
-    description: 'История проектов и подборки материалов',
-    route: '/library',
-  },
-  {
-    id: 'settings',
-    label: 'Настройки',
-    icon: Settings,
-    description: 'Профиль, тема, оповещения, безопасность',
-    route: '/settings',
-  },
-  { 
-    id: 'search',
-    label: 'Поиск',
-    icon: Search,
-    description: 'Найди сметы, документы и шаблоны',
-    route: 'search',
-  },
+const STARTER_PROMPTS = [
+  'Собери смету на электромонтаж квартиры',
+  'Подготовь договор подряда',
+  'Разбери продажи за неделю',
 ]
 
 export default function Home() {
@@ -92,372 +15,157 @@ export default function Home() {
   const [focused, setFocused] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const navigate = useNavigate()
-
-  const [recentEstimates, setRecentEstimates] = useState<Estimate[]>([])
-  const [recentDocuments, setRecentDocuments] = useState<Document[]>([])
-  const [recentLibrary, setRecentLibrary] = useState<LibraryItem[]>([])
-  const [recentAgents, setRecentAgents] = useState<Agent[]>([])
-  const [stats, setStats] = useState({ estimates: 0, documents: 0, agents: 0 })
-  const [loading, setLoading] = useState(true)
-  const layout = useOutletContext<LayoutOutletContext | null>()
-  const openGlobalSearch = layout?.openSearch ?? (() => navigate('/library'))
+  const intent = useMemo(() => detectChatIntent(input), [input])
+  const showIntent = shouldShowIntent(input)
 
   useEffect(() => {
-    let alive = true
+    const ta = textareaRef.current
+    if (!ta) return
+    ta.style.height = 'auto'
+    ta.style.height = `${Math.min(ta.scrollHeight, 136)}px`
+  }, [input])
 
-    const load = async () => {
-      try {
-        const [est, doc, ag, lib] = await Promise.all([
-          estimates.list({ page_size: 5 }),
-          documents.list({ page_size: 5 }),
-          agents.list({ page_size: 5 }),
-          library.list({ page_size: 5 }),
-        ])
-        if (!alive) return
-
-        setRecentEstimates(est.items)
-        setRecentDocuments(doc.items)
-        setRecentAgents(ag.items)
-        setRecentLibrary(lib.items)
-        setStats({ estimates: est.total, documents: doc.total, agents: ag.items.length })
-      } catch {
-        // no-op
-      } finally {
-        if (alive) setLoading(false)
-      }
-    }
-
-    load()
-    return () => { alive = false }
-  }, [])
-
-  const navigateTo = (path: string) => {
-    if (path === 'search') {
-      openGlobalSearch()
-      return
-    }
-    navigate(path)
-  }
-
-  const handleSend = () => {
-    if (!input.trim()) return
-    const prompt = input.trim()
+  const sendPrompt = (prompt: string) => {
+    const text = prompt.trim()
+    if (!text) return
+    sessionStorage.setItem('kolibri_initial_prompt', text)
     setInput('')
-    sessionStorage.setItem('kolibri_initial_prompt', prompt)
     navigate('/chat')
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSend()
+  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault()
+      sendPrompt(input)
     }
-  }
-
-  const handleQuickPrompt = (prompt: string) => {
-    sessionStorage.setItem('kolibri_initial_prompt', prompt)
-    navigate('/chat')
-  }
-
-  const moduleById = (id: string) => {
-    if (id === 'estimates') {
-      if (!recentEstimates.length) return 'Пока нет сохранённых смет'
-      return recentEstimates[0]?.title || 'Последняя смета'
-    }
-    if (id === 'documents') {
-      if (!recentDocuments.length) return 'Пока нет документов'
-      return recentDocuments[0]?.title || 'Последний документ'
-    }
-    if (id === 'agents') {
-      if (!recentAgents.length) return 'Сейчас нет активных агентов'
-      return `${recentAgents[0]?.name || 'Агент'} · ${recentAgents[0]?.status || 'неизвестен'}`
-    }
-    if (id === 'library') {
-      if (!recentLibrary.length) return 'Сейчас библиотека пуста'
-      return recentLibrary[0]?.title || 'Последний элемент'
-    }
-    if (id === 'search') {
-      return `Смет: ${stats.estimates} · Документов: ${stats.documents}`
-    }
-    return 'Откройте поток рабочего режима'
   }
 
   return (
-    <div className="min-h-[100dvh]">
-      {/* Desktop version unchanged */}
-      <div className="hidden md:block">
-        <div className="flex flex-col items-center min-h-[100dvh] px-4 pt-[12dvh] pb-20 sm:pt-[15vh] relative">
-          <div className="mb-6 opacity-0 animate-wakeUp">
-            <StatusBird state={focused ? 'ready' : 'idle'} size="lg" />
-          </div>
+    <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[var(--bg-primary)]">
+      <main className="flex min-h-0 flex-1 flex-col items-center px-4 pb-[168px] pt-[clamp(2.25rem,12dvh,6rem)] text-center">
+        <div className="relative mb-5">
+          <div className="absolute inset-3 rounded-full bg-[var(--accent-teal)]/10 blur-2xl" />
+          <MascotAnimation state={focused || showIntent ? 'ready' : 'idle'} className="relative h-[104px] w-[104px] sm:h-32 sm:w-32" alt="Колибри" />
+        </div>
 
-          <h1 className="text-[28px] sm:text-[32px] font-semibold text-[var(--text-primary)] tracking-tight mb-8 animate-slideUp animation-delay-100">
-            Чем могу помочь?
-          </h1>
+        <div className="mb-4 inline-flex min-h-9 items-center rounded-[var(--radius-pill)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]/90 px-4 text-[14px] font-medium text-[var(--text-secondary)] shadow-[0_10px_32px_rgba(15,23,42,0.08)] backdrop-blur-xl">
+          Колибри AI · рабочий режим
+        </div>
 
-          <div className="w-full max-w-[680px] animate-slideUp animation-delay-200">
-            <div
-              className={`relative bg-[var(--bg-surface)] rounded-[var(--radius-xl)] border transition-all duration-200 ${
-                focused
-                  ? 'border-[var(--accent-teal)] shadow-[0_0_0_3px_rgba(58,186,180,0.1)]'
-                  : 'border-[var(--border-subtle)] shadow-[var(--shadow-md)]'
-              }`}
-            >
-              <textarea
-                ref={textareaRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onFocus={() => setFocused(true)}
-                onBlur={() => setFocused(false)}
-                onKeyDown={handleKeyDown}
-                placeholder="Спросите Колибри..."
-                rows={1}
-                className="w-full px-4 pt-3.5 pb-12 bg-transparent text-[15px] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] resize-none outline-none leading-relaxed"
-                style={{ minHeight: 56, maxHeight: 160 }}
-              />
-              <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between">
-                <div className="flex items-center gap-1">
-                  <button title="Скоро" className="w-8 h-8 flex items-center justify-center rounded-[var(--radius-md)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors opacity-50 cursor-not-allowed">
-                    <Plus size={18} strokeWidth={1.8} />
-                  </button>
-                  <button title="Скоро" className="w-8 h-8 flex items-center justify-center rounded-[var(--radius-md)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors opacity-50 cursor-not-allowed">
-                    <Paperclip size={18} strokeWidth={1.8} />
-                  </button>
-                  <button title="Скоро" className="w-8 h-8 flex items-center justify-center rounded-[var(--radius-md)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors opacity-50 cursor-not-allowed">
-                    <Mic size={18} strokeWidth={1.8} />
-                  </button>
-                </div>
-                <button
-                  onClick={handleSend}
-                  disabled={!input.trim()}
-                  className={`w-8 h-8 flex items-center justify-center rounded-full transition-all duration-200 ${
-                    input.trim()
-                      ? 'bg-[var(--accent-teal)] text-white shadow-md hover:bg-[var(--accent-teal-hover)]'
-                      : 'bg-[var(--bg-elevated)] text-[var(--text-tertiary)]'
-                  }`}
-                >
-                  <ArrowUp size={16} strokeWidth={2.5} />
-                </button>
-              </div>
-            </div>
+        <h1 className="max-w-[520px] text-[32px] font-semibold leading-[1.08] tracking-normal text-[var(--text-primary)] sm:text-[38px]">
+          Чем помочь?
+        </h1>
+        <p className="mt-3 max-w-[390px] text-[16px] leading-6 text-[var(--text-secondary)] sm:text-[17px]">
+          Напишите обычной фразой. Колибри сам поймет, нужен ли расчет, документ, поиск или план.
+        </p>
 
-            <div className="flex flex-wrap justify-center gap-2 mt-4">
-              {quickActions.map((action) => (
-                <button
-                  key={action}
-                  onClick={() => handleQuickPrompt(action)}
-                  className="px-3 py-1.5 rounded-[var(--radius-pill)] border border-[var(--border-subtle)] text-[13px] text-[var(--text-secondary)] hover:border-[var(--border-hover)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
-                >
-                  {action}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {(stats.estimates > 0 || recentEstimates.length > 0) && (
-            <div className="w-full max-w-[680px] mt-10 animate-slideUp animation-delay-300">
-              <div className="grid grid-cols-3 gap-3 mb-6">
-                {[
-                  { icon: Calculator, label: 'Смет', value: stats.estimates, color: 'var(--accent-teal)' },
-                  { icon: FileText, label: 'Документов', value: stats.documents, color: 'var(--accent-lavender)' },
-                  { icon: Bot, label: 'Агентов', value: stats.agents, color: 'var(--accent-amber)' },
-                ].map((s) => (
+        <section className="mt-6 w-full max-w-[560px]" aria-live="polite">
+          {showIntent && !focused ? (
+            <div className="rounded-[24px] border border-[var(--border-subtle)] bg-[var(--bg-surface)]/90 p-3 text-left shadow-[0_14px_40px_rgba(15,23,42,0.08)] backdrop-blur-xl">
+              <p className="text-[15px] font-semibold leading-5 text-[var(--text-primary)]">{intent.title}</p>
+              <p className="mt-1 text-[13px] leading-5 text-[var(--text-secondary)]">{intent.subtitle}</p>
+              <div className="mt-3 grid grid-cols-3 gap-1.5">
+                {intent.directions.map((direction) => (
                   <button
-                    key={s.label}
-                    onClick={() => navigate(s.label === 'Смет' ? '/estimates' : s.label === 'Документов' ? '/documents' : '/agents')}
-                    className="flex items-center gap-3 p-3 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] hover:border-[var(--border-hover)] hover:shadow-[var(--shadow-sm)] transition-all"
+                    type="button"
+                    key={direction.label}
+                    onClick={() => setInput((current) => `${current.trim()} ${direction.label.toLowerCase()}`.trim())}
+                    className="min-h-[50px] rounded-[16px] border border-white/70 bg-[var(--bg-surface)]/85 px-2 py-1.5 text-left transition-colors hover:border-[var(--border-hover)] hover:bg-[var(--bg-surface)]"
                   >
-                    <div className="w-9 h-9 rounded-[var(--radius-md)] flex items-center justify-center" style={{ background: `${s.color}15`, color: s.color }}>
-                      <s.icon size={18} strokeWidth={1.8} />
-                    </div>
-                    <div className="text-left">
-                      <p className="text-[18px] font-semibold text-[var(--text-primary)]">{s.value}</p>
-                      <p className="text-[11px] text-[var(--text-tertiary)]">{s.label}</p>
-                    </div>
+                    <span className="block truncate text-[12px] font-medium leading-4 text-[var(--text-primary)]">{direction.label}</span>
+                    <span className="block truncate text-[11px] leading-4 text-[var(--text-tertiary)]">{direction.detail}</span>
                   </button>
                 ))}
               </div>
+            </div>
+          ) : !showIntent ? (
+            <div className="flex flex-wrap justify-center gap-2">
+              {STARTER_PROMPTS.map((prompt) => (
+                <button
+                  type="button"
+                  key={prompt}
+                  onClick={() => sendPrompt(prompt)}
+                  className="rounded-[var(--radius-pill)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]/85 px-3.5 py-2 text-[14px] leading-5 text-[var(--text-secondary)] shadow-[var(--shadow-sm)] backdrop-blur-xl transition-colors hover:border-[var(--border-hover)] hover:text-[var(--text-primary)]"
+                >
+                  {prompt}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </section>
+      </main>
 
-              {recentEstimates.length > 0 && (
-                <div>
-                  <p className="text-[11px] font-medium text-[var(--text-tertiary)] uppercase tracking-wider mb-2">Недавние сметы</p>
-                  <div className="space-y-1.5">
-                    {recentEstimates.map((est) => (
-                      <button
-                        key={est.id}
-                        onClick={() => navigate(`/estimates?edit=${est.id}`)}
-                        className="w-full flex items-center justify-between p-3 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] hover:border-[var(--border-hover)] hover:bg-[var(--bg-hover)] transition-all text-left"
-                      >
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[13px] font-medium text-[var(--text-primary)] truncate">{est.title}</p>
-                          <p className="text-[11px] text-[var(--text-tertiary)]">{est.client || '—'} · {formatDate(est.created_at)}</p>
-                        </div>
-                        <span className="text-[14px] font-semibold text-[var(--text-primary)] ml-3">{formatCurrency(est.total)}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
+      <footer className="absolute inset-x-0 bottom-0 z-30 border-t border-white/40 bg-[var(--bg-primary)]/72 px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 backdrop-blur-2xl">
+        <div className="mx-auto max-w-[760px]">
+          {showIntent && focused && (
+            <div className="mb-2 rounded-[24px] border border-[var(--border-subtle)] bg-[var(--bg-surface)]/90 p-3 text-left shadow-[0_12px_34px_rgba(15,23,42,0.08)] backdrop-blur-xl" aria-live="polite">
+              <p className="text-[14px] font-semibold leading-5 text-[var(--text-primary)]">{intent.title}</p>
+              <p className="mt-0.5 text-[12px] leading-4 text-[var(--text-secondary)]">{intent.subtitle}</p>
+              <div className="mt-2 grid grid-cols-3 gap-1.5">
+                {intent.directions.map((direction) => (
+                  <button
+                    type="button"
+                    key={direction.label}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => setInput((current) => `${current.trim()} ${direction.label.toLowerCase()}`.trim())}
+                    className="min-h-[48px] rounded-[16px] border border-white/70 bg-[var(--bg-surface)]/85 px-2 py-1.5 text-left transition-colors hover:border-[var(--border-hover)] hover:bg-[var(--bg-surface)]"
+                  >
+                    <span className="block truncate text-[12px] font-medium leading-4 text-[var(--text-primary)]">{direction.label}</span>
+                    <span className="block truncate text-[11px] leading-4 text-[var(--text-tertiary)]">{direction.detail}</span>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
-
-          <p className="absolute bottom-4 text-[11px] text-[var(--text-tertiary)] animate-slideUp animation-delay-400">
-            AI генерирует содержимое. Проверяйте важную информацию.
-          </p>
-        </div>
-      </div>
-
-      {/* Mobile single-screen experience */}
-      <div className="md:hidden min-h-[100dvh] bg-[var(--bg-primary)] pb-[calc(env(safe-area-inset-bottom)+1.5rem)]">
-        <section className="px-4 pt-8 pb-4">
-          <div className="mb-5 flex justify-center">
-            <div className="relative">
-              <div className="absolute inset-2 rounded-full bg-[var(--accent-teal)]/10 blur-2xl" />
-              <MascotAnimation state={focused ? 'ready' : 'idle'} className="relative h-28 w-28" alt="Колибри" />
-            </div>
-          </div>
-          <h1 className="text-center text-[32px] leading-tight font-semibold tracking-normal text-[var(--text-primary)]">Чем могу помочь?</h1>
-          <p className="mx-auto mt-2 max-w-[340px] text-center text-[16px] leading-6 text-[var(--text-secondary)]">
-            Колибри умеет вести диалог, находить материалы и запускать рабочие действия.
-          </p>
-
           <div
-            className={`relative mt-5 rounded-[28px] border bg-[var(--bg-surface)]/90 shadow-[0_14px_44px_rgba(15,23,42,0.10)] backdrop-blur-xl transition-all duration-200 ${
+            className={`relative rounded-[30px] border bg-[var(--bg-surface)]/92 shadow-[0_18px_50px_rgba(15,23,42,0.12)] backdrop-blur-2xl transition-all duration-200 ${
               focused
-                ? 'border-[var(--accent-teal)] shadow-[0_0_0_3px_rgba(58,186,180,0.12),0_14px_44px_rgba(15,23,42,0.10)]'
+                ? 'border-[var(--accent-teal)] shadow-[0_0_0_3px_rgba(58,186,180,0.12),0_18px_50px_rgba(15,23,42,0.12)]'
                 : 'border-white/70'
             }`}
           >
             <textarea
               ref={textareaRef}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(event) => setInput(event.target.value)}
               onFocus={() => setFocused(true)}
               onBlur={() => setFocused(false)}
               onKeyDown={handleKeyDown}
               placeholder="Спросите Колибри..."
               rows={1}
-              className="w-full resize-none bg-transparent px-4 pb-14 pt-4 text-[18px] leading-relaxed text-[var(--text-primary)] outline-none placeholder:text-[var(--text-tertiary)]"
-              style={{ minHeight: 68, maxHeight: 180 }}
+              className="w-full resize-none bg-transparent px-4 pb-14 pt-4 text-[17px] leading-6 text-[var(--text-primary)] outline-none placeholder:text-[var(--text-tertiary)]"
+              style={{ minHeight: 72 }}
             />
             <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between">
               <div className="flex items-center gap-1">
-                <button type="button" title="Скоро" className="flex h-10 w-10 cursor-not-allowed items-center justify-center rounded-full text-[var(--text-tertiary)] opacity-55">
-                  <Plus size={20} strokeWidth={1.8} />
+                <button type="button" title="Добавить" className="flex h-11 w-11 cursor-not-allowed items-center justify-center rounded-full text-[var(--text-tertiary)] opacity-55">
+                  <Plus size={19} strokeWidth={1.8} />
                 </button>
-                <button type="button" title="Скоро" className="flex h-10 w-10 cursor-not-allowed items-center justify-center rounded-full text-[var(--text-tertiary)] opacity-55">
-                  <Paperclip size={20} strokeWidth={1.8} />
+                <button type="button" title="Файл" className="flex h-11 w-11 cursor-not-allowed items-center justify-center rounded-full text-[var(--text-tertiary)] opacity-55">
+                  <Paperclip size={19} strokeWidth={1.8} />
                 </button>
-                <button type="button" title="Скоро" className="flex h-10 w-10 cursor-not-allowed items-center justify-center rounded-full text-[var(--text-tertiary)] opacity-55">
-                  <Mic size={20} strokeWidth={1.8} />
+                <button type="button" title="Голос" className="flex h-11 w-11 cursor-not-allowed items-center justify-center rounded-full text-[var(--text-tertiary)] opacity-55">
+                  <Mic size={19} strokeWidth={1.8} />
                 </button>
               </div>
               <button
                 type="button"
-                onClick={handleSend}
+                onClick={() => sendPrompt(input)}
                 disabled={!input.trim()}
                 aria-label="Отправить"
-                className={`flex h-10 w-10 items-center justify-center rounded-full transition-all ${
+                className={`flex h-11 w-11 items-center justify-center rounded-full transition-all ${
                   input.trim()
-                    ? 'bg-[var(--accent-teal)] text-white shadow-[0_8px_20px_rgba(58,186,180,0.28)]'
+                    ? 'bg-[var(--accent-teal)] text-white shadow-[0_8px_22px_rgba(58,186,180,0.30)] hover:bg-[var(--accent-teal-hover)]'
                     : 'bg-[var(--bg-elevated)] text-[var(--text-tertiary)]'
                 }`}
               >
-                <ArrowUp size={19} strokeWidth={2.5} />
+                <ArrowUp size={18} strokeWidth={2.5} />
               </button>
             </div>
           </div>
-
-          <div className="mt-3 flex flex-wrap gap-2">
-            {quickActions.map((action) => (
-              <button
-                type="button"
-                key={action}
-                onClick={() => handleQuickPrompt(action)}
-                className="rounded-[var(--radius-pill)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]/90 px-3.5 py-2 text-[15px] text-[var(--text-secondary)] shadow-[var(--shadow-sm)]"
-              >
-                {action}
-              </button>
-            ))}
-          </div>
-          <p className="mt-3 text-[13px] text-[var(--text-tertiary)]">AI может ошибаться — проверяйте финальную информацию.</p>
-        </section>
-
-        <section className="px-4">
-          <div className="grid grid-cols-3 gap-2">
-            {[
-              { icon: Calculator, label: 'Смет', value: stats.estimates, color: 'var(--accent-teal)' },
-              { icon: FileText, label: 'Док', value: stats.documents, color: 'var(--accent-lavender)' },
-              { icon: Bot, label: 'Агент', value: stats.agents, color: 'var(--accent-amber)' },
-            ].map((item) => {
-              const Icon = item.icon
-              return (
-                <div key={item.label} className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3">
-                  <div
-                    className="w-9 h-9 rounded-[var(--radius-md)] flex items-center justify-center mb-2"
-                    style={{ background: `${item.color}15`, color: item.color }}
-                  >
-                    <Icon size={18} strokeWidth={1.8} />
-                  </div>
-                  <p className="text-[20px] font-semibold leading-none text-[var(--text-primary)]">
-                    {loading ? '—' : item.value}
-                  </p>
-                  <p className="text-[13px] text-[var(--text-tertiary)] mt-1">{item.label}</p>
-                </div>
-              )
-            })}
-          </div>
-        </section>
-
-        <section className="px-4 mt-3 space-y-2">
-          {modules.map((module) => {
-            const ModuleIcon = module.icon
-            return (
-              <button
-                type="button"
-                key={module.id}
-                onClick={() => navigateTo(module.route)}
-                className="w-full rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3.5 text-left"
-              >
-                <div className="flex items-start gap-3">
-                  <div className="w-11 h-11 rounded-[var(--radius-md)] bg-[var(--bg-elevated)] text-[var(--text-secondary)] flex items-center justify-center flex-shrink-0">
-                    <ModuleIcon size={20} strokeWidth={1.8} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[17px] font-medium text-[var(--text-primary)]">{module.label}</p>
-                    <p className="text-[14px] text-[var(--text-tertiary)] mt-0.5 leading-snug">{module.description}</p>
-                    <p className="text-[14px] text-[var(--text-secondary)] mt-1.5">
-                      {module.id === 'chat'
-                        ? 'Открыть диалог'
-                        : moduleById(module.id === 'search' ? 'search' : module.id)}
-                    </p>
-                  </div>
-                  <ChevronRight size={19} className="text-[var(--text-tertiary)] mt-1" />
-                </div>
-              </button>
-            )
-          })}
-        </section>
-
-        {(!loading && recentEstimates.length > 0) && (
-          <section className="px-4 mt-3 space-y-1.5">
-            <p className="text-[13px] font-medium text-[var(--text-tertiary)] uppercase tracking-wider">Недавние сметы</p>
-            {recentEstimates.map((est) => (
-              <button
-                key={est.id}
-                onClick={() => navigate(`/estimates?edit=${est.id}`)}
-                className="w-full flex items-center justify-between px-3.5 py-3 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]"
-              >
-                <div className="min-w-0">
-                  <p className="text-[15px] text-[var(--text-primary)] truncate">{est.title}</p>
-                  <p className="text-[13px] text-[var(--text-tertiary)] truncate">{est.client || '—'} · {formatDate(est.created_at)}</p>
-                </div>
-                <span className="text-[15px] font-semibold text-[var(--text-primary)] ml-3">{formatCurrency(est.total)}</span>
-              </button>
-            ))}
-          </section>
-        )}
-      </div>
+          <p className="mt-2 text-center text-[11px] leading-4 text-[var(--text-tertiary)]">AI может ошибаться. Проверяйте важную информацию.</p>
+        </div>
+      </footer>
     </div>
   )
 }
