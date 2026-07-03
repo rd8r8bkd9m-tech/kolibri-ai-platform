@@ -87,6 +87,9 @@ STATE_CANCELLED = "cancelled"
 STATE_RETRY = "retry_scheduled"
 STATE_DEAD = "dead_letter"
 TERMINAL_STATES = {STATE_COMPLETED, STATE_FAILED, STATE_CANCELLED, STATE_DEAD}
+LEASED_ACTIVE_STATES = {STATE_LEASED, STATE_RUNNING, STATE_REVIEW}
+QUEUE_ACTIVE_STATES = {STATE_QUEUED, STATE_RETRY, STATE_WAITING_REVIEW}
+ACTIVE_STATES = LEASED_ACTIVE_STATES | QUEUE_ACTIVE_STATES
 BLOCKED_RUNNER_STATES = {"blocked", "degraded", "runner_auth_blocked", "unavailable"}
 
 FABRIC_NODE_CATALOG = {
@@ -302,6 +305,14 @@ def set_json(redis_key: str, value: Any) -> None:
     redis.command("SET", redis_key, json.dumps(value, sort_keys=True, separators=(",", ":")))
 
 
+def redis_command_or_default(default: Any, *parts: Any) -> Any:
+    try:
+        result = redis.command(*parts)
+    except (OSError, RedisError, ValueError, TypeError):
+        return default
+    return default if result is None else result
+
+
 def task_key(task_id: str) -> str:
     return key(f"task:{task_id}")
 
@@ -352,8 +363,47 @@ def node_health_counts(nodes: list[dict[str, Any]]) -> dict[str, int]:
 
 
 def all_task_ids() -> list[str]:
-    values = redis.command("SMEMBERS", key("task_ids")) or []
-    return sorted(values)
+    return reconciled_task_ids()
+
+
+def task_ids_from_records() -> list[str]:
+    ids: set[str] = set()
+    cursor = "0"
+    prefix = key("task:")
+    while True:
+        result = redis_command_or_default(["0", []], "SCAN", cursor, "MATCH", f"{prefix}*", "COUNT", 1000)
+        if not isinstance(result, list) or len(result) != 2:
+            return sorted(ids)
+        cursor = str(result[0])
+        for redis_key in result[1] or []:
+            if isinstance(redis_key, str) and redis_key.startswith(prefix):
+                task_id = redis_key[len(prefix):]
+                if task_id:
+                    ids.add(task_id)
+        if cursor == "0":
+            return sorted(ids)
+
+
+def task_ids_from_index(index_name: str) -> list[str]:
+    redis_key = key(index_name)
+    kind = str(redis_command_or_default("", "TYPE", redis_key) or "")
+    if kind == "set":
+        return sorted(redis_command_or_default([], "SMEMBERS", redis_key) or [])
+    if kind == "list":
+        return redis_command_or_default([], "LRANGE", redis_key, 0, -1) or []
+    if kind == "zset":
+        return redis_command_or_default([], "ZRANGE", redis_key, 0, -1) or []
+    return []
+
+
+def reconciled_task_ids() -> list[str]:
+    ids: set[str] = set(redis_command_or_default([], "SMEMBERS", key("task_ids")) or [])
+    ids.update(queue_ids())
+    ids.update(task_ids_from_index("queue_active_index"))
+    ids.update(task_ids_from_records())
+    if ids:
+        redis_command_or_default(None, "SADD", key("task_ids"), *sorted(ids))
+    return sorted(ids)
 
 
 def registered_nodes() -> list[dict[str, Any]]:
@@ -371,6 +421,124 @@ def queue_ids() -> list[str]:
 
 def load_task(task_id: str) -> dict[str, Any] | None:
     return get_json(task_key(task_id))
+
+
+def load_tasks() -> list[dict[str, Any]]:
+    tasks = []
+    for task_id in all_task_ids():
+        task = load_task(task_id)
+        if task:
+            tasks.append(task)
+    return tasks
+
+
+def task_lease_fresh(task: dict[str, Any], current: float) -> bool:
+    lease_until = task.get("lease_until")
+    try:
+        if lease_until is not None and float(lease_until) >= current:
+            return True
+    except (TypeError, ValueError):
+        pass
+    heartbeat_ts = parse_iso_ts(task.get("heartbeat_at"))
+    if heartbeat_ts is None:
+        return False
+    return current - heartbeat_ts <= LEASE_DURATION
+
+
+def task_is_currently_active(task: dict[str, Any], current: float | None = None) -> bool:
+    state = str(task.get("state") or "")
+    if state in TERMINAL_STATES:
+        return False
+    if state in QUEUE_ACTIVE_STATES:
+        return True
+    if state in LEASED_ACTIVE_STATES:
+        return task_lease_fresh(task, now_ts() if current is None else current)
+    return bool(state)
+
+
+def task_is_repair(task: dict[str, Any]) -> bool:
+    envelope = task.get("envelope") if isinstance(task.get("envelope"), dict) else {}
+    if task.get("repair_task") or envelope.get("repair_task"):
+        return True
+    values = [
+        task.get("task_id"),
+        task.get("kind"),
+        task.get("objective"),
+        task.get("title"),
+        envelope.get("kind"),
+        envelope.get("objective"),
+        envelope.get("title"),
+    ]
+    return any("repair" in str(value).lower() for value in values if value)
+
+
+def compact_task(task: dict[str, Any]) -> dict[str, Any]:
+    envelope = task.get("envelope") if isinstance(task.get("envelope"), dict) else {}
+    return {
+        "task_id": task.get("task_id"),
+        "state": task.get("state"),
+        "kind": task.get("kind") or envelope.get("kind"),
+        "lease_owner": task.get("lease_owner"),
+        "lease_until": task.get("lease_until"),
+        "heartbeat_at": task.get("heartbeat_at"),
+        "updated_at": task.get("updated_at"),
+        "attempt": task.get("attempt"),
+        "error_type": task.get("error_type"),
+        "target_node": envelope.get("target_node") or envelope.get("required_node"),
+    }
+
+
+def task_summary(tasks: list[dict[str, Any]], current: float | None = None) -> dict[str, Any]:
+    current_ts = now_ts() if current is None else current
+    counts: dict[str, int] = {}
+    active_total = 0
+    running_total = 0
+    queued_total = 0
+    repair_total = 0
+    stale_active_records = 0
+    for task in tasks:
+        state = str(task.get("state") or "unknown")
+        counts[state] = counts.get(state, 0) + 1
+        active = task_is_currently_active(task, current_ts)
+        if active:
+            active_total += 1
+            if state in LEASED_ACTIVE_STATES:
+                running_total += 1
+            if state in QUEUE_ACTIVE_STATES:
+                queued_total += 1
+            if task_is_repair(task):
+                repair_total += 1
+        elif state in ACTIVE_STATES:
+            stale_active_records += 1
+    failed_total = counts.get(STATE_FAILED, 0) + counts.get(STATE_DEAD, 0)
+    return {
+        "total": len(tasks),
+        "counts": counts,
+        "counts_by_state": counts,
+        "active_total": active_total,
+        "running_total": running_total,
+        "queued_total": queued_total,
+        "failed_total": failed_total,
+        "repair_total": repair_total,
+        "stale_active_records": stale_active_records,
+    }
+
+
+def task_list_payload(
+    *,
+    wanted_state: str | None = None,
+    compact: bool = False,
+    include_summary: bool = False,
+) -> dict[str, Any]:
+    tasks = [task for task in load_tasks() if wanted_state is None or task.get("state") == wanted_state]
+    payload: dict[str, Any] = {
+        "tasks": [compact_task(task) for task in tasks] if compact else tasks,
+        "queue": queue_ids(),
+    }
+    if include_summary:
+        payload["summary"] = task_summary(tasks)
+        payload.update(payload["summary"])
+    return payload
 
 
 def canonical_response_envelope(
@@ -828,7 +996,7 @@ def superfactory_status() -> dict[str, Any]:
         node = get_json(node_key(node_id), {})
         node["draining"] = bool(redis.command("GET", drain_key(node_id)))
         nodes.append(node)
-    tasks = [task for task in (load_task(task_id) for task_id in all_task_ids()) if task]
+    tasks = load_tasks()
     counts: dict[str, int] = {}
     for task in tasks:
         state = str(task.get("state") or "unknown")
@@ -998,9 +1166,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/v1/tasks":
                 query = parse_qs(parsed.query)
                 wanted = query.get("state", [None])[0]
-                tasks = [load_task(task_id) for task_id in all_task_ids()]
-                tasks = [task for task in tasks if task and (wanted is None or task.get("state") == wanted)]
-                response(self, 200, {"tasks": tasks, "queue": queue_ids()})
+                compact = query.get("compact", ["0"])[0].lower() in {"1", "true", "yes"}
+                include_summary = query.get("summary", ["0"])[0].lower() in {"1", "true", "yes"}
+                response(self, 200, task_list_payload(wanted_state=wanted, compact=compact, include_summary=include_summary))
                 return
             if path.startswith("/v1/tasks/"):
                 task_id = path.split("/", 3)[3]
