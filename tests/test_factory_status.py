@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
-from factory_status import build_factory_status
+from factory_status import build_factory_status, build_fleet_summary_snapshot
 
 
 def test_build_factory_status_normalizes_control_plane_nodes():
@@ -75,3 +75,75 @@ def test_frontend_uses_live_factory_status_endpoint():
     assert "Свежие" in app_source
     assert "Деградируют" in app_source
     assert "Устарели" in app_source
+
+
+def test_fleet_summary_snapshot_returns_nonzero_nodes_with_counts_and_queue():
+    now = datetime.now(timezone.utc)
+    nodes_payload = {
+        "nodes": [
+            {
+                "node_id": "primary-candidate",
+                "hostname": "kolibri",
+                "health": "online",
+                "heartbeat_at": (now - timedelta(seconds=5)).isoformat(),
+                "capabilities": ["primary", "implementation"],
+                "cpu": 12,
+                "ram": {"MemTotal": "16384000 kB", "MemAvailable": "14000000 kB"},
+                "disk": {"free": 50000000000, "total": 100000000000},
+            },
+            {
+                "node_id": "9fts",
+                "health": "online",
+                "heartbeat_at": (now - timedelta(seconds=10)).isoformat(),
+                "capabilities": ["implementation"],
+                "cpu": 5,
+                "ram": {"MemTotal": "8192000 kB", "MemAvailable": "6000000 kB"},
+                "disk": {"free": 30000000000, "total": 60000000000},
+            },
+        ]
+    }
+    tasks_payload = {
+        "tasks": [
+            {"task_id": "T1", "state": "queued", "kind": "impl", "runner": "mimo"},
+            {"task_id": "T2", "state": "running", "kind": "review", "runner": "mimo"},
+            {"task_id": "T3", "state": "completed", "kind": "impl", "runner": "mimo"},
+        ]
+    }
+    health_payload = {"status": "ok", "queue_backend": "redis", "time": now.isoformat()}
+    snapshot = build_fleet_summary_snapshot(nodes_payload, tasks_payload, health_payload)
+
+    assert snapshot["snapshot"] is True
+    assert snapshot["total_nodes"] == 2
+    assert snapshot["online_nodes"] >= 1
+    assert snapshot["total_nodes"] >= 2
+    assert "task_states" in snapshot
+    assert snapshot["task_states"]["queued"] == 1
+    assert snapshot["task_states"]["running"] == 1
+    assert snapshot["task_states"]["completed"] == 1
+    assert snapshot["queue_size"] >= 2
+    assert len(snapshot["task_queue"]) == 2
+    assert snapshot["task_queue"][0]["state"] in {"queued", "running"}
+    assert snapshot["free_ram_gb"] > 0
+    assert snapshot["total_ram_gb"] > 0
+    assert "nodes" in snapshot
+    assert len(snapshot["nodes"]) == 2
+    assert snapshot["node_freshness"]["total"] == 2
+    assert snapshot["generated_at"]
+
+
+def test_fleet_summary_snapshot_degraded_with_zero_tasks():
+    now = datetime.now(timezone.utc)
+    nodes_payload = {"nodes": [{"node_id": "only", "health": "offline", "capabilities": [], "ram": {}, "disk": {}}]}
+    snapshot = build_fleet_summary_snapshot(nodes_payload, {"tasks": []}, {"status": "ok", "time": now.isoformat()})
+
+    assert snapshot["snapshot"] is True
+    assert snapshot["total_nodes"] == 1
+    assert snapshot["task_queue"] == []
+    assert snapshot["task_states"] == {}
+    assert len(snapshot["nodes"]) == 1
+
+
+def test_backend_main_exports_snapshot_endpoint():
+    main_source = (Path(__file__).resolve().parents[1] / "backend" / "main.py").read_text(encoding="utf-8")
+    assert "/api/snapshot" in main_source
+    assert "fetch_fleet_summary_snapshot" in main_source

@@ -20,7 +20,7 @@ from providers import AIProviderManager
 from tts import TTSEngine
 from stt import STTEngine
 from websearch import WebSearchEngine
-from factory_status import fetch_factory_status
+from factory_status import fetch_factory_status, fetch_fleet_summary_snapshot
 
 DB_PATH = Path("/opt/kolibri-ai/data/kolibri.db")
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -335,6 +335,32 @@ async def api_factory_status():
                     },
                     "can_continue_elsewhere": True,
                 },
+            },
+        )
+
+
+@app.get("/api/snapshot")
+async def api_snapshot():
+    try:
+        return await fetch_fleet_summary_snapshot()
+    except Exception as exc:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "snapshot": True,
+                "status": "degraded",
+                "source": "control-plane",
+                "error": str(exc),
+                "total_nodes": 0,
+                "online_nodes": 0,
+                "free_ram_gb": 0,
+                "total_ram_gb": 0,
+                "avg_cpu_percent": 0,
+                "queue_size": 0,
+                "task_states": {},
+                "task_queue": [],
+                "node_freshness": {"fresh": 0, "degraded": 0, "stale": 0, "online": 0, "total": 0},
+                "nodes": [],
             },
         )
 

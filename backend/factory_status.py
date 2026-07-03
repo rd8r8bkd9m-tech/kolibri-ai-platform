@@ -211,6 +211,67 @@ def build_factory_status(nodes_payload: Any, tasks_payload: Any | None = None, h
     }
 
 
+SNAPSHOT_MAX_NODES = int(os.getenv("FLEET_SNAPSHOT_MAX_NODES", "20"))
+
+
+def build_fleet_summary_snapshot(
+    nodes_payload: Any,
+    tasks_payload: Any | None = None,
+    health_payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    full = build_factory_status(nodes_payload, tasks_payload, health_payload)
+    node_list = full.get("node_list", [])[:SNAPSHOT_MAX_NODES]
+    tasks = _extract_tasks(tasks_payload)
+    task_queue = [
+        {
+            "task_id": t.get("task_id") or t.get("id"),
+            "kind": t.get("kind"),
+            "state": t.get("state"),
+            "runner": t.get("runner"),
+        }
+        for t in tasks
+        if t.get("state") in {"queued", "leased", "running"}
+    ]
+    return {
+        "snapshot": True,
+        "generated_at": full["generated_at"],
+        "source": full["source"],
+        "status": full["status"],
+        "total_nodes": full["total_nodes"],
+        "online_nodes": full["online_nodes"],
+        "fresh_nodes": full["fresh_nodes"],
+        "degraded_nodes": full["degraded_nodes"],
+        "stale_nodes": full["stale_nodes"],
+        "node_freshness": full["node_freshness"],
+        "free_ram_gb": full["free_ram_gb"],
+        "total_ram_gb": full["total_ram_gb"],
+        "avg_cpu_percent": full["avg_cpu_percent"],
+        "queue_size": full["queue_size"],
+        "task_states": full["task_states"],
+        "task_queue": task_queue,
+        "nodes": node_list,
+    }
+
+
+async def fetch_fleet_summary_snapshot() -> dict[str, Any]:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(4.0, connect=2.0)) as client:
+        health_response = await client.get(_control_plane_v1_url("/health"))
+        nodes_response = await client.get(_control_plane_v1_url("/nodes"))
+        health_response.raise_for_status()
+        nodes_response.raise_for_status()
+
+    tasks_payload: Any = {"tasks": []}
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(1.5, connect=1.0)) as client:
+            tasks_response = await client.get(_control_plane_v1_url("/tasks"))
+            if tasks_response.status_code == 200:
+                tasks_payload = tasks_response.json()
+    except Exception:
+        tasks_payload = {"tasks": []}
+
+    return build_fleet_summary_snapshot(nodes_response.json(), tasks_payload, health_response.json())
+
+
 async def fetch_factory_status() -> dict[str, Any]:
     async with httpx.AsyncClient(timeout=httpx.Timeout(4.0, connect=2.0)) as client:
         health_response = await client.get(_control_plane_v1_url("/health"))
