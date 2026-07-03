@@ -15,9 +15,14 @@
   `PLAN.md`, `ACTIONS.md`, `RESULT.md`, `NEXT.md`, and `ROLLBACK.md`.
 - Added a dispatchable next envelope at
   `docs/agent/dispatcher/envelopes/P0_HOME_KIOSK_REPAIR_REMOTE_2026_07_03.json`.
+- Ran targeted repository validation for whitespace, required artifact
+  presence, envelope JSON validity, embedded route JSON validity, and
+  token-like secret patterns.
 - Kept this task docs/envelope-only. No Home kiosk command, browser command,
   tmux mutation, MikroTik command, GoMesh dataplane command, service restart,
   credential read, or production route change was executed.
+- Committed and pushed the branch
+  `agent/P0_HOME_KIOSK_ROUTE_ESCALATION_20260703_1839/codex` to `origin`.
 
 Prepared route:
 
