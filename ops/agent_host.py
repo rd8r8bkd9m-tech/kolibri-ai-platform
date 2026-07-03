@@ -57,6 +57,7 @@ CONTRACT_RESULT_FIELDS = [
     "artifact_dir",
     "required_artifacts_present",
     "required_artifacts_missing",
+    "required_artifacts_empty",
     "write_scope",
     "write_scope_violations",
     "read_only",
@@ -491,6 +492,13 @@ def required_artifact_candidates(spec_path: str, worktree: Path | None, artifact
     return candidates
 
 
+def non_empty_file(path: Path) -> bool:
+    try:
+        return path.is_file() and path.stat().st_size > 0
+    except OSError:
+        return False
+
+
 def canonical_run_artifact_dir(envelope: dict[str, Any]) -> str | None:
     for key_name in CANONICAL_RUN_ARTIFACT_DIR_KEYS:
         value = envelope_value(envelope, key_name)
@@ -523,7 +531,7 @@ def canonical_run_artifact_paths(run_dir: str) -> list[str]:
 
 
 def complete_run_artifact_dir(base_dir: Path) -> bool:
-    return all((base_dir / filename).is_file() for filename in CANONICAL_RUN_ARTIFACT_FILES)
+    return all(non_empty_file(base_dir / filename) for filename in CANONICAL_RUN_ARTIFACT_FILES)
 
 
 def copy_complete_run_artifact_alias(alias_dir: Path, canonical_dir_path: Path) -> None:
@@ -565,10 +573,13 @@ def finalize_canonical_run_artifacts(
 
     present: list[str] = []
     missing: list[str] = []
+    empty: list[str] = []
     for artifact_path in canonical_run_artifact_paths(run_dir):
         resolved = resolve_artifact_dir_spec(artifact_path, worktree, artifact_dir)
-        if resolved.is_file():
+        if non_empty_file(resolved):
             present.append(artifact_path)
+        elif resolved.is_file():
+            empty.append(artifact_path)
         else:
             missing.append(artifact_path)
 
@@ -584,21 +595,72 @@ def finalize_canonical_run_artifacts(
         "canonical_run_artifact_alias_log": alias_log,
         "canonical_run_artifacts_present": present,
         "canonical_run_artifacts_missing": missing,
+        "canonical_run_artifacts_empty": empty,
     }
 
 
-def verify_required_artifacts(envelope: dict[str, Any], worktree: Path | None, artifact_dir: Path | None) -> tuple[list[str], list[str]]:
+def verify_required_artifacts(
+    envelope: dict[str, Any],
+    worktree: Path | None,
+    artifact_dir: Path | None,
+) -> tuple[list[str], list[str], list[str]]:
     present: list[str] = []
     missing: list[str] = []
+    empty: list[str] = []
     for spec in envelope_list(envelope, *REQUIRED_ARTIFACT_KEYS):
         spec_path = artifact_spec_path(spec)
         if not spec_path:
             continue
-        if any(candidate.exists() for candidate in required_artifact_candidates(spec_path, worktree, artifact_dir)):
+        first_existing = None
+        for candidate in required_artifact_candidates(spec_path, worktree, artifact_dir):
+            if candidate.exists():
+                first_existing = candidate
+                break
+        if first_existing is None:
+            missing.append(spec_path)
+        elif non_empty_file(first_existing):
             present.append(spec_path)
         else:
-            missing.append(spec_path)
-    return present, missing
+            empty.append(spec_path)
+    return present, missing, empty
+
+
+def mirror_file_into_artifact_dir(source: Path, artifact_dir: Path, relative_path: str) -> None:
+    if Path(relative_path).is_absolute() or not non_empty_file(source):
+        return
+    target = artifact_dir / relative_path
+    if source.resolve() == target.resolve():
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, target)
+
+
+def mirror_result_artifacts_into_artifact_dir(artifact_dir: Path, result: dict[str, Any]) -> None:
+    worktree_value = result.get("worktree")
+    if not isinstance(worktree_value, str) or not worktree_value:
+        return
+    worktree = Path(worktree_value)
+    if not worktree.exists():
+        return
+
+    mirrored = set()
+    for spec_path in ensure_list(result.get("required_artifacts_present")):
+        if not isinstance(spec_path, str) or Path(spec_path).is_absolute():
+            continue
+        source = worktree / spec_path
+        mirror_file_into_artifact_dir(source, artifact_dir, spec_path)
+        mirrored.add(spec_path)
+
+    for spec_path in ensure_list(result.get("canonical_run_artifacts_present")):
+        if not isinstance(spec_path, str) or Path(spec_path).is_absolute():
+            continue
+        source = worktree / spec_path
+        mirror_file_into_artifact_dir(source, artifact_dir, spec_path)
+        if spec_path not in mirrored:
+            mirrored.add(spec_path)
+        filename = Path(spec_path).name
+        if filename in CANONICAL_RUN_ARTIFACT_FILES:
+            mirror_file_into_artifact_dir(source, artifact_dir, filename)
 
 
 def backend_test_environment_spec(envelope: dict[str, Any]) -> dict[str, Any] | None:
@@ -738,7 +800,7 @@ def next_recommended_task_for(blockers: list[str], envelope: dict[str, Any]) -> 
     joined = " ".join(blockers)
     if "unsupported_task_kind" in joined or "unsupported_required_capability" in joined:
         return "enable a supported read-only runner for this task kind before resubmitting"
-    if "required_artifacts_missing" in joined:
+    if "required_artifacts_missing" in joined or "required_artifacts_empty" in joined:
         return "rerun the task with corrected required_artifacts paths or produce the missing outputs"
     if "write_scope_violations" in joined:
         return "resubmit with a precise write_scope or move outputs into the allowed artifact paths"
@@ -784,14 +846,16 @@ def finalize_runner_contract(
     write_scope = envelope_list(envelope, "write_scope")
     final["write_scope"] = write_scope
 
-    required_present, required_missing = verify_required_artifacts(envelope, worktree, artifact_dir)
+    required_present, required_missing, required_empty = verify_required_artifacts(envelope, worktree, artifact_dir)
     canonical_artifacts = finalize_canonical_run_artifacts(envelope, worktree, artifact_dir)
     if canonical_artifacts:
         required_present.extend(canonical_artifacts["canonical_run_artifacts_present"])
         required_missing.extend(canonical_artifacts["canonical_run_artifacts_missing"])
+        required_empty.extend(canonical_artifacts["canonical_run_artifacts_empty"])
         final.update(canonical_artifacts)
     final["required_artifacts_present"] = required_present
     final["required_artifacts_missing"] = required_missing
+    final["required_artifacts_empty"] = required_empty
     final["effective_permissions"] = sanitized_permissions_for_envelope(envelope)
 
     read_only = envelope_truthy(envelope, "read_only")
@@ -842,6 +906,8 @@ def finalize_runner_contract(
         blockers.append("artifact_dir_missing")
     if required_missing:
         blockers.append("required_artifacts_missing")
+    if required_empty:
+        blockers.append("required_artifacts_empty")
     if write_scope_violations:
         blockers.append("write_scope_violations")
     if read_only and changed_product:
@@ -1438,6 +1504,7 @@ class AgentHost:
                 self.cleanup_backend_test_environment(metadata)
 
     def write_result(self, artifact_dir: Path, result: dict[str, Any]) -> Path:
+        mirror_result_artifacts_into_artifact_dir(artifact_dir, result)
         result_path = artifact_dir / "result.json"
         result_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         manifest = []

@@ -1,0 +1,97 @@
+{
+  "task_id": "P0_HOME_AGENT_HOST_NONEMPTY_ARTIFACT_CONTRACT_CANARY_2026_07_03",
+  "idempotency_key": "P0_HOME_AGENT_HOST_NONEMPTY_ARTIFACT_CONTRACT_CANARY_2026_07_03",
+  "kind": "owner_remote_task",
+  "priority": "P0",
+  "required_capability": "generic_implementation",
+  "runner": "codex",
+  "agent_type": "runtime_contract_canary",
+  "agent_display_name": "Антон - Agent Host Artifact Contract Canary",
+  "target_node_pool": "healthy_runtime_deploy_nodes",
+  "preferred_nodes": [
+    "home"
+  ],
+  "allowed_nodes": [
+    "home"
+  ],
+  "avoid_nodes": [
+    "main",
+    "qjns",
+    "uiap",
+    "new"
+  ],
+  "branch": "agent/P0_HOME_AGENT_HOST_NONEMPTY_ARTIFACT_CONTRACT_CANARY_2026_07_03/canary",
+  "base_branch": "main",
+  "base_ref": "origin/main",
+  "max_retries": 0,
+  "create_review_on_complete": false,
+  "goal": "After the Agent Host non-empty artifact contract PR is merged and deliberately deployed, run a Home canary that proves empty required artifacts block completion and non-empty canonical run artifacts are manifest-visible.",
+  "objective": "Prepare and run a post-deploy canary only after the runtime Agent Host has been patched by a separate deploy task. Do not restart services from this canary. Submit a controlled task with an intentionally empty required artifact and confirm the result reports required_artifacts_empty and blocks completion, then submit a non-empty canonical artifact task and confirm PLAN.md, ACTIONS.md, TESTS.md, RESULT.md, and NEXT.md are mirrored into artifact_dir and listed in artifact-manifest.json.",
+  "context": {
+    "owner": "Vladislav",
+    "repository": "rd8r8bkd9m-tech/kolibri-ai-platform",
+    "source_task": "P0_AGENT_HOST_NONEMPTY_ARTIFACT_CONTRACT_PUBLISH_PR_GATE_PRIMARY_20260703T114900Z",
+    "previous_failed_but_useful_task": "P0_HOME_AGENT_HOST_NONEMPTY_ARTIFACT_CONTRACT_REPAIR_MAIN_20260703T110000Z",
+    "requires_prior_steps": [
+      "Merge the non-empty artifact contract PR.",
+      "Run a separate, owner-approved deploy task that patches the live Home Agent Host runtime.",
+      "Verify the patched Agent Host process is the active runtime before this canary starts."
+    ]
+  },
+  "constraints": {
+    "runtime_restart_forbidden": true,
+    "deploy_forbidden": true,
+    "provider_lifecycle_forbidden": true,
+    "product_code_modification_forbidden": true,
+    "test_code_modification_forbidden": true,
+    "ci_modification_forbidden": true,
+    "destructive_git_commands_forbidden": true,
+    "git_reset_forbidden": true,
+    "git_clean_forbidden": true,
+    "force_push_forbidden": true,
+    "push_to_main_forbidden": true,
+    "merge_forbidden": true,
+    "secrets_redaction_required": true,
+    "do_not_print_env": true,
+    "do_not_print_keys_tokens_cookies_or_credentials": true,
+    "exact_run_artifacts_required": true
+  },
+  "write_scope": [
+    "docs/agent/runs/2026-07-03-p0-home-agent-host-nonempty-artifact-contract-canary/**"
+  ],
+  "required_outputs": [
+    "docs/agent/runs/2026-07-03-p0-home-agent-host-nonempty-artifact-contract-canary/PLAN.md",
+    "docs/agent/runs/2026-07-03-p0-home-agent-host-nonempty-artifact-contract-canary/ACTIONS.md",
+    "docs/agent/runs/2026-07-03-p0-home-agent-host-nonempty-artifact-contract-canary/TESTS.md",
+    "docs/agent/runs/2026-07-03-p0-home-agent-host-nonempty-artifact-contract-canary/RESULT.md",
+    "docs/agent/runs/2026-07-03-p0-home-agent-host-nonempty-artifact-contract-canary/NEXT.md"
+  ],
+  "canary_steps": [
+    "Confirm this canary is running after merge and after a separate deploy task activated the patched Agent Host.",
+    "Submit a controlled task whose required_artifacts contains an intentionally empty PLAN.md.",
+    "Confirm the task blocks and reports required_artifacts_empty with the exact PLAN.md relative path.",
+    "Submit a controlled task that writes non-empty PLAN.md, ACTIONS.md, TESTS.md, RESULT.md, and NEXT.md under its canonical run directory.",
+    "Confirm result.json reports no required_artifacts_missing and no required_artifacts_empty.",
+    "Confirm artifact-manifest.json includes the nested canonical files and flat PLAN.md, ACTIONS.md, TESTS.md, RESULT.md, and NEXT.md copies.",
+    "Record canary evidence without restarting Agent Host or deploying code."
+  ],
+  "verification_commands": [
+    "test -s docs/agent/runs/2026-07-03-p0-home-agent-host-nonempty-artifact-contract-canary/PLAN.md",
+    "test -s docs/agent/runs/2026-07-03-p0-home-agent-host-nonempty-artifact-contract-canary/ACTIONS.md",
+    "test -s docs/agent/runs/2026-07-03-p0-home-agent-host-nonempty-artifact-contract-canary/TESTS.md",
+    "test -s docs/agent/runs/2026-07-03-p0-home-agent-host-nonempty-artifact-contract-canary/RESULT.md",
+    "test -s docs/agent/runs/2026-07-03-p0-home-agent-host-nonempty-artifact-contract-canary/NEXT.md"
+  ],
+  "acceptance": [
+    "The empty required artifact canary blocks completion.",
+    "The blocked result includes required_artifacts_empty and does not classify the empty file as present.",
+    "The non-empty canonical artifact canary completes its artifact contract.",
+    "The artifact manifest lists mirrored nested and flat canonical files.",
+    "No service restart, deploy, provider lifecycle operation, main push, force push, or secret exposure occurs in this canary."
+  ],
+  "source": {
+    "kind": "mac_thin_client_dispatcher",
+    "owner": "Vladislav",
+    "created_at": "2026-07-03T11:49:00Z"
+  }
+}

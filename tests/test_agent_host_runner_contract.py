@@ -250,6 +250,54 @@ def test_missing_required_artifact_blocks_completion(tmp_path):
     assert "required_artifacts_missing" in result["blocked_reason"]
 
 
+def test_empty_required_artifact_blocks_completion(tmp_path):
+    agent_host = load_agent_host()
+    worktree, artifact_dir = make_paths(tmp_path)
+    required = worktree / "docs" / "agent" / "RESULT.md"
+    required.parent.mkdir(parents=True)
+    required.write_text("", encoding="utf-8")
+    task = make_task({"required_artifacts": ["docs/agent/RESULT.md"]})
+
+    result = agent_host.finalize_runner_contract(
+        task,
+        {"task_id": task["task_id"], "status": "completed", "changed_files": ["docs/agent/RESULT.md"]},
+        artifact_dir,
+        worktree=worktree,
+        changed_files=["docs/agent/RESULT.md"],
+    )
+
+    assert result["status"] == "blocked"
+    assert result["required_artifacts_present"] == []
+    assert result["required_artifacts_missing"] == []
+    assert result["required_artifacts_empty"] == ["docs/agent/RESULT.md"]
+    assert "required_artifacts_empty" in result["blocked_reason"]
+
+
+def test_required_artifact_resolution_prefers_worktree_empty_file(tmp_path):
+    agent_host = load_agent_host()
+    worktree, artifact_dir = make_paths(tmp_path)
+    spec_path = "docs/agent/RESULT.md"
+    worktree_required = worktree / spec_path
+    artifact_required = artifact_dir / spec_path
+    worktree_required.parent.mkdir(parents=True)
+    artifact_required.parent.mkdir(parents=True)
+    worktree_required.write_text("", encoding="utf-8")
+    artifact_required.write_text("artifact fallback should not win\n", encoding="utf-8")
+    task = make_task({"required_artifacts": [spec_path]})
+
+    result = agent_host.finalize_runner_contract(
+        task,
+        {"task_id": task["task_id"], "status": "completed", "changed_files": [spec_path]},
+        artifact_dir,
+        worktree=worktree,
+        changed_files=[spec_path],
+    )
+
+    assert result["status"] == "blocked"
+    assert result["required_artifacts_present"] == []
+    assert result["required_artifacts_empty"] == [spec_path]
+
+
 def write_run_artifacts(run_dir, filenames=None):
     filenames = filenames or agent_host_files()
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -342,6 +390,28 @@ def test_canonical_run_artifact_contract_blocks_missing_next_md(tmp_path):
     assert "required_artifacts_missing" in result["blocked_reason"]
 
 
+def test_canonical_run_artifact_contract_blocks_empty_plan_md(tmp_path):
+    agent_host = load_agent_host()
+    worktree, artifact_dir = make_paths(tmp_path)
+    run_dir = "docs/agent/runs/2026-07-01-contract"
+    write_run_artifacts(worktree / run_dir)
+    (worktree / run_dir / "PLAN.md").write_text("", encoding="utf-8")
+    task = make_task({"canonical_run_artifact_dir": run_dir})
+
+    result = agent_host.finalize_runner_contract(
+        task,
+        {"task_id": task["task_id"], "status": "completed", "changed_files": []},
+        artifact_dir,
+        worktree=worktree,
+        changed_files=[],
+    )
+
+    assert result["status"] == "blocked"
+    assert result["canonical_run_artifacts_empty"] == [f"{run_dir}/PLAN.md"]
+    assert result["required_artifacts_empty"] == [f"{run_dir}/PLAN.md"]
+    assert "required_artifacts_empty" in result["blocked_reason"]
+
+
 def test_complete_explicit_run_artifact_alias_is_logged_and_materialized(tmp_path):
     agent_host = load_agent_host()
     worktree, artifact_dir = make_paths(tmp_path)
@@ -372,6 +442,38 @@ def test_complete_explicit_run_artifact_alias_is_logged_and_materialized(tmp_pat
         "action": "copied_to_canonical",
     }]
     assert (artifact_dir / "run-artifact-aliases.json").is_file()
+
+
+def test_write_result_mirrors_canonical_worktree_artifacts_before_manifest(tmp_path):
+    agent_host = load_agent_host()
+    host = make_host(agent_host, tmp_path)
+    worktree, artifact_dir = make_paths(tmp_path / "manifest")
+    run_dir = "docs/agent/runs/2026-07-01-contract"
+    write_run_artifacts(worktree / run_dir)
+    task = make_task({"canonical_run_artifact_dir": run_dir})
+
+    result = agent_host.finalize_runner_contract(
+        task,
+        {
+            "task_id": task["task_id"],
+            "status": "completed",
+            "changed_files": [f"{run_dir}/RESULT.md"],
+            "worktree": str(worktree),
+        },
+        artifact_dir,
+        worktree=worktree,
+        changed_files=[f"{run_dir}/RESULT.md"],
+    )
+    result_path = host.write_result(artifact_dir, result)
+
+    assert result_path == artifact_dir / "result.json"
+    for filename in agent_host.CANONICAL_RUN_ARTIFACT_FILES:
+        assert (artifact_dir / run_dir / filename).read_text(encoding="utf-8") == f"{filename}\n"
+        assert (artifact_dir / filename).read_text(encoding="utf-8") == f"{filename}\n"
+    manifest = json.loads((artifact_dir / "artifact-manifest.json").read_text(encoding="utf-8"))
+    manifest_paths = {item["path"] for item in manifest}
+    assert str(artifact_dir / run_dir / "PLAN.md") in manifest_paths
+    assert str(artifact_dir / "PLAN.md") in manifest_paths
 
 
 def test_owner_remote_task_with_mimo_invokes_mimo_not_codex(tmp_path, monkeypatch):
