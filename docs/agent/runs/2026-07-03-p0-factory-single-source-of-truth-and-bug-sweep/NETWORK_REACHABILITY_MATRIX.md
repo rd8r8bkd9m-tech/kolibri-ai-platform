@@ -77,6 +77,8 @@ Additional checks from `primary-candidate` and Home both route toward `217.60.38
 
 No alternate `agent-10` IP was found in repo inventory, SSH topology or docs.
 
+This does not block the logical `mesh-agent-10` worker. `mesh-agent-10` is currently a fresh online logical worker on hostname `kolibri` with Fabric API management and available `codex`/`mimo` runners. It is not an SSH route to physical `agent-10`.
+
 Runtime diagnostics fix:
 
 - Registry keeps `agent-10` visible as a canonical server.

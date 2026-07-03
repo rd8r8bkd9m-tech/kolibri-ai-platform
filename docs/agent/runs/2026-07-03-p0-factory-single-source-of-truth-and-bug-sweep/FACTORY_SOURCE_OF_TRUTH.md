@@ -29,3 +29,9 @@ Agents must read registry and Fabric API before answering technical questions ab
 
 These numbers are evidence from 2026-07-03 live probes and must be refreshed after deployment.
 
+## Agent-10 Naming Rule
+
+- `agent-10`: physical canonical server, external IP `217.60.38.191`, currently quarantined as provider/network unreachable.
+- `mesh-agent-10`: logical worker, currently fresh online on hostname `kolibri`, managed through protected Fabric API.
+
+Agents must not answer that `agent-10` is online because `mesh-agent-10` is online. They may reroute work to `mesh-agent-10` only when the task does not require the physical Hong Kong/agent-10 server.

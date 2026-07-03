@@ -28,4 +28,18 @@ Canonical registry lives in `ops/factory_registry.py`.
 - Runtime stale records observed: 103.
 - Runtime logical workers observed in CP: 101.
 
+## Logical Worker Clarification
+
+`mesh-agent-10` is a logical worker record, not an alias for physical `agent-10`.
+
+Current evidence from Control Plane on 2026-07-03:
+
+- `mesh-agent-10`: fresh, online, `safe_to_schedule=true`.
+- Hostname: `kolibri`.
+- Management path: protected Fabric API.
+- Runners reported: `codex` available, `mimo` available.
+- Artifact root observed: `/var/lib/kolibri-agent/logical-workers/mesh-agent-10/artifacts`.
+
+Physical `agent-10` remains the canonical server record for external IP `217.60.38.191` and is quarantined until provider/network reachability is restored.
+
 Do not invent mappings for records outside the registry. Unknown records must be reported by `/v1/fleet/drift`.
