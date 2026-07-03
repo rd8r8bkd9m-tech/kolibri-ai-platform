@@ -89,3 +89,13 @@
 - Risk: low; metadata only plus local/generated SSH config.
 - Rollback: restore `/var/backups/kolibri-ssh-access-registry-20260703T161203Z`.
 - Result: live `/v1/fleet/registry` returns `ssh_access`; `ssh kolibri-home`, `ssh kolibri-main`, and `ssh kolibri-qjns` work by key.
+
+## SSH Trust Bootstrap
+
+- Issue: the command node could not reliably enter every root-managed canonical server by one alias/key format.
+- Root cause: local deploy public keys were not consistently present in target `/root/.ssh/authorized_keys`, and external-only VPS records needed the `main` jump path from the command node.
+- Files changed: live SSH trust on reachable targets with per-host `authorized_keys` backups; documentation matrix updated.
+- Test added: sequential alias verification from the command node for all 21 canonical server aliases.
+- Risk: medium; root SSH trust was changed on reachable infrastructure, with backups made before edits.
+- Rollback: restore the per-host `/root/.ssh/authorized_keys.backup-kolibri-bootstrap-*` file on the affected host.
+- Result: 20 of 21 canonical server aliases work from the command node by key. `agent-10` remains unreachable before auth due provider/network route failure.

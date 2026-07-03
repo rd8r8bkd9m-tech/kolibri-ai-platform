@@ -39,10 +39,11 @@
 
 ## Root SSH Trust Bootstrap
 
-- Reason: canonical path metadata is now live and `home`, `main`, `qjns` work by key, but most target root accounts still reject the deploy key.
-- Next task: per-host authorized-key bootstrap from the correct trust path, with backup before any edit.
+- Status: completed for reachable canonical servers.
+- Result: 20 of 21 canonical server aliases work from the command node by public-key SSH. The target accounts were bootstrapped through the established trust path with `authorized_keys` backups before edits.
+- Remaining exception: `agent-10`, because the provider/network route to `217.60.38.191` is unavailable before SSH authentication starts.
 - Priority: P0.
-- Owner approval needed: yes before changing root SSH trust broadly.
+- Owner approval needed: no further action unless key rotation or rollback is requested.
 
 ## Agent-10 Network
 

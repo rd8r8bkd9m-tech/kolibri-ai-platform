@@ -1,6 +1,6 @@
 # Network Reachability Matrix
 
-Snapshot: 2026-07-03T13:47Z.
+Snapshot: 2026-07-03T16:26Z.
 
 Scope: canonical physical/hybrid/execution servers from `CANONICAL_NODE_REGISTRY`, not logical worker records.
 
@@ -14,7 +14,8 @@ Scope: canonical physical/hybrid/execution servers from `CANONICAL_NODE_REGISTRY
 - Stale but network-reachable reserve/agent servers: `agent-01` through `agent-09`, `highload`, `paris`, `reserve242`.
 - Offline or network-blocked: `agent-10`.
 - `agent-10` is now quarantined in registry diagnostics as `provider_network_unreachable`.
-- Public-key SSH from the command node is blocked on every checked root target except Home via the repaired `ladik` key path.
+- Public-key SSH from the command node works on 20 of 21 canonical servers through the unified alias topology.
+- The only SSH-unreachable canonical server is `agent-10`; failure is network/provider reachability, not key auth.
 
 ICMP is not authoritative. `primary-candidate` rejects ping but serves TCP/HTTP on the expected service ports.
 
@@ -23,25 +24,25 @@ ICMP is not authoritative. `primary-candidate` rejects ping but serves TCP/HTTP 
 | Node | Internal IP | External IP | CP status | Network evidence | SSH key auth | Final status | Repair action |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | home | 10.99.0.1 | 178.207.11.90 | fresh online | internal/external ping ok, SSH TCP ok | ok as `ladik` | online | keep Home key path and kiosk rollback |
-| main | 10.99.0.2 | 104.253.43.117 | fresh online | internal/external ping ok, `10.99.0.2:9101` TCP ok | blocked for root | online, SSH trust blocked | repair root/deploy key trust or use Fabric API only |
-| primary-candidate | 10.99.0.10 | 78.17.4.108 | fresh online | service ports 5173/9101/19131/19132 ok internally; 5173/19131/19132 ok externally; ICMP blocked | blocked for root | online, SSH trust blocked | keep API as primary path; repair deploy key trust separately |
-| uiap | 10.99.0.3 | 31.57.26.151 | fresh degraded | internal/external ping ok, SSH TCP ok | blocked for root | degraded | repair node health/agent host and root/deploy key trust |
-| qjns | 10.99.0.4 | 217.60.63.97 | fresh degraded | internal/external ping ok, SSH TCP ok | blocked for root | degraded | repair node health/agent host and root/deploy key trust |
-| 9fts | 10.99.0.5 | 94.183.235.154 | fresh online | internal/external ping ok, SSH TCP ok | blocked for root | online, SSH trust blocked | repair root/deploy key trust; do not fake Codex runner |
-| new | 10.99.0.6 | 109.248.161.39 | fresh degraded | SSH TCP ok; ICMP blocked | blocked for root | degraded | repair node health/agent host and root/deploy key trust |
-| server-kfrm | | 217.60.63.31 | fresh online | external ping ok, SSH TCP ok | blocked for root | online, SSH trust blocked | repair root/deploy key trust |
-| reserve242 | | 31.57.26.242 | stale | external ping ok, SSH TCP ok | blocked for root | stale reachable | classify reserve state; bootstrap agent or retire |
-| highload | | 45.38.139.182 | stale | SSH TCP ok; ICMP blocked | blocked for root | stale reachable | classify reserve state; bootstrap agent or retire |
-| paris | | 95.182.83.60 | stale | external ping ok, SSH TCP ok | blocked for root | stale reachable | classify reserve state; bootstrap agent or retire |
-| agent-01 | | 31.57.27.128 | stale | external ping ok, SSH TCP ok | blocked for root | stale reachable | classify reserve state; bootstrap agent or retire |
-| agent-02 | | 213.232.204.223 | stale | external ping ok, SSH TCP ok | blocked for root | stale reachable | classify reserve state; bootstrap agent or retire |
-| agent-03 | | 188.130.206.204 | stale | external ping ok, SSH TCP ok | blocked for root | stale reachable | classify reserve state; bootstrap agent or retire |
-| agent-04 | | 31.59.41.146 | stale | external ping ok, SSH TCP ok | blocked for root | stale reachable | classify reserve state; bootstrap agent or retire |
-| agent-05 | | 31.56.196.10 | stale | external ping ok, SSH TCP ok | blocked for root | stale reachable | classify reserve state; bootstrap agent or retire |
-| agent-06 | | 45.39.33.252 | stale | external ping ok, SSH TCP ok | blocked for root | stale reachable | classify reserve state; bootstrap agent or retire |
-| agent-07 | | 46.8.225.34 | stale | external ping ok, SSH TCP ok | blocked for root | stale reachable | classify reserve state; bootstrap agent or retire |
-| agent-08 | | 31.59.105.200 | stale | external ping ok, SSH TCP ok | blocked for root | stale reachable | classify reserve state; bootstrap agent or retire |
-| agent-09 | | 95.182.84.254 | stale | external ping ok, SSH TCP ok | blocked for root | stale reachable | classify reserve state; bootstrap agent or retire |
+| main | 10.99.0.2 | 104.253.43.117 | fresh online | internal/external ping ok, `10.99.0.2:9101` TCP ok | ok as `root` via `kolibri-main` | online | keep unified key path |
+| primary-candidate | 10.99.0.10 | 78.17.4.108 | fresh online | service ports 5173/9101/19131/19132 ok internally; 5173/19131/19132 ok externally; ICMP blocked | ok as `root` via `kolibri-primary-candidate` | online | keep API as primary path |
+| uiap | 10.99.0.3 | 31.57.26.151 | fresh degraded | internal/external ping ok, SSH TCP ok | ok as `root` via `kolibri-uiap` | degraded | repair node health/agent host |
+| qjns | 10.99.0.4 | 217.60.63.97 | fresh degraded | internal/external ping ok, SSH TCP ok | ok as `root` via `kolibri-qjns` | degraded | repair node health/agent host |
+| 9fts | 10.99.0.5 | 94.183.235.154 | fresh online | internal/external ping ok, SSH TCP ok | ok as `root` via `kolibri-9fts` | online | do not fake Codex runner |
+| new | 10.99.0.6 | 109.248.161.39 | fresh degraded | SSH TCP ok; ICMP blocked | ok as `root` via `kolibri-new` | degraded | repair node health/agent host |
+| server-kfrm | | 217.60.63.31 | fresh online | external ping ok, SSH TCP ok | ok as `root` via `server-kfrm` | online | keep unified key path |
+| reserve242 | | 31.57.26.242 | stale | external ping ok, SSH TCP ok | ok as `root` via `reserve242` | stale reachable | classify reserve state; bootstrap agent or retire |
+| highload | | 45.38.139.182 | stale | SSH TCP ok; ICMP blocked | ok as `root` via `highload` | stale reachable | classify reserve state; bootstrap agent or retire |
+| paris | | 95.182.83.60 | stale | external ping ok, SSH TCP ok | ok as `root` via `paris` | stale reachable | classify reserve state; bootstrap agent or retire |
+| agent-01 | | 31.57.27.128 | stale | external ping ok, SSH TCP ok | ok as `root` via `agent-01` | stale reachable | classify reserve state; bootstrap agent or retire |
+| agent-02 | | 213.232.204.223 | stale | external ping ok, SSH TCP ok | ok as `root` via `agent-02` | stale reachable | classify reserve state; bootstrap agent or retire |
+| agent-03 | | 188.130.206.204 | stale | external ping ok, SSH TCP ok | ok as `root` via `agent-03` | stale reachable | classify reserve state; bootstrap agent or retire |
+| agent-04 | | 31.59.41.146 | stale | external ping ok, SSH TCP ok | ok as `root` via `agent-04` | stale reachable | classify reserve state; bootstrap agent or retire |
+| agent-05 | | 31.56.196.10 | stale | external ping ok, SSH TCP ok | ok as `root` via `agent-05` | stale reachable | classify reserve state; bootstrap agent or retire |
+| agent-06 | | 45.39.33.252 | stale | external ping ok, SSH TCP ok | ok as `root` via `agent-06` | stale reachable | classify reserve state; bootstrap agent or retire |
+| agent-07 | | 46.8.225.34 | stale | external ping ok, SSH TCP ok | ok as `root` via `agent-07` | stale reachable | classify reserve state; bootstrap agent or retire |
+| agent-08 | | 31.59.105.200 | stale | external ping ok, SSH TCP ok | ok as `root` via `agent-08` | stale reachable | classify reserve state; bootstrap agent or retire |
+| agent-09 | | 95.182.84.254 | stale | external ping ok, SSH TCP ok | ok as `root` via `agent-09` | stale reachable | classify reserve state; bootstrap agent or retire |
 | agent-10 | | 217.60.38.191 | registry-only, missing heartbeat | no ping, no SSH TCP, upstream `46.8.226.1` returns host unreachable | blocked/unreachable | quarantined: provider_network_unreachable | provider/network repair or retire from registry after owner approval |
 
 ## Service Ports Verified
@@ -94,7 +95,7 @@ Rollback backup for the registry deploy:
 
 ## Repair Tasks
 
-1. `P0_REPAIR_FACTORY_SSH_TRUST_BOOTSTRAP_20260703`: restore command-node deploy public-key trust or replace it with an audited Fabric bootstrap path across root-managed servers. Do not print secrets. Back up `authorized_keys` before edits.
+1. `P0_REPAIR_FACTORY_SSH_TRUST_BOOTSTRAP_20260703`: completed for reachable servers; keep backups and audit trail. Future key changes must use the same backed-up, per-host bootstrap path.
 2. `P0_REPAIR_AGENT10_NETWORK_OR_RETIRE_20260703`: verify provider console/network route for `217.60.38.191`; either restore SSH/network reachability or retire/quarantine the canonical record with owner approval.
 3. `P0_REPAIR_DEGRADED_EXECUTION_NODES_20260703`: repair `uiap`, `qjns`, and `new` health/agent-host state before scheduling heavy work.
 4. `P0_CLASSIFY_STALE_RESERVE_SERVERS_20260703`: classify `agent-01..agent-09`, `highload`, `paris`, and `reserve242` as retired, planned, quarantined or broken.
@@ -103,7 +104,7 @@ Rollback backup for the registry deploy:
 
 - Do not classify ICMP failure alone as offline.
 - Do not mark a server scheduleable unless Control Plane heartbeat is fresh and node health is online/non-degraded.
-- Do not claim SSH management works when public-key auth fails.
+- Do not claim SSH management works unless alias-based public-key auth has been verified from the command node.
 - Do not delete stale records during this sweep.
 
 ## SSH Identity Standardization Update
@@ -125,11 +126,29 @@ Bootstrap access confirmed:
 | `ssh kolibri-home` | ok, `plastilin`, `ladik`, agent active |
 | `ssh kolibri-main` | ok, `kolibri-main-api`, `root`, agent active |
 | `ssh kolibri-qjns` | ok, `kolibri-tools-executor`, `root`, agent active |
+| `ssh kolibri-primary-candidate` | ok, `kolibri`, `root`, agent active |
+| `ssh kolibri-uiap` | ok, `kolibri-rag-knowledge`, `root`, agent active |
+| `ssh kolibri-9fts` | ok, `kolibri-inference-recovery`, `root`, agent active |
+| `ssh kolibri-new` | ok, `kolibri-worker-backup`, `root`, agent active |
+| `ssh reserve242` | ok, `kolibri-qa-security`, `root`, agent active |
+| `ssh highload` | ok, `kolibri-ci-build-highload`, `root`, agent active |
+| `ssh agent-01` | ok, `kolibri-backend-lead`, `root`, agent active |
+| `ssh agent-02` | ok, `kolibri-frontend-design`, `root`, agent active |
+| `ssh agent-03` | ok, `kolibri-infra-network`, `root`, agent reachable |
+| `ssh agent-04` | ok, `kolibri-qa-browser`, `root`, agent active |
+| `ssh agent-05` | ok, `kolibri-security-audit`, `root`, agent active |
+| `ssh agent-06` | ok, `kolibri-docs-knowledge`, `root`, agent active |
+| `ssh agent-07` | ok, `kolibri-formulalm-eval`, `root`, agent active |
+| `ssh agent-08` | ok, `kolibri-rag-eval`, `root`, agent active |
+| `ssh agent-09` | ok, `kolibri-release-canary`, `root`, agent active |
+| `ssh paris` | ok, `kolibri-paris-build-reserve`, `root`, agent active |
+| `ssh server-kfrm` | ok, `server-kfrm`, `root`, agent active |
+| `ssh agent-10` | failed, network route/provider unreachable |
 
 Current key gap:
 
-- The remaining target servers are reachable through the standardized jump path where TCP allows it, but root deploy-key auth is not yet installed on the target hosts.
-- Next repair action is per-host authorized-key bootstrap with backup, not route guessing.
+- No remaining SSH key-auth gap was found on reachable canonical servers.
+- `agent-10` cannot be bootstrapped by SSH until provider/network reachability for `217.60.38.191` is restored or its canonical IP is changed.
 
 Rollback backup for live registry metadata deploy:
 
