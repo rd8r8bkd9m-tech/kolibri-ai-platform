@@ -32,7 +32,7 @@
 
 ## Full MIMO Rollout
 
-- Reason: MIMO availability appears broad in CP records, but end-to-end task completion across target fleet is not proven.
+- Reason: MIMO availability appears broad in CP records, but end-to-end task completion across target fleet is not proven. A bounded canary task reported completed, but the artifact file was not collectable from the reported result path during this sweep.
 - Next task: `P0_MIMO_BOUNDED_CANARY_WITH_ARTIFACTS_20260703`, with result artifacts and no mass requeue.
 - Priority: P0.
 - Owner approval needed: yes for broad rollout.
