@@ -1,7 +1,7 @@
 # Result
 
-Status: code and documentation sweep completed locally in isolated worktree.
-PR status: blocked by GitHub write access. `git push -u origin p0/factory-single-source-of-truth-and-bug-sweep-2026-07-03` failed because the SSH key is marked read-only.
+Status: source-of-truth code, diagnostics, canary verification and scoped production deploy completed.
+PR: https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/162
 
 ## Delivered
 
@@ -15,7 +15,10 @@ PR status: blocked by GitHub write access. `git push -u origin p0/factory-single
   - no `mesh-agent-*` to `agent-*` alias drift.
 - Tests proving the above behavior.
 - Local branch contains the full code, tests and documentation sweep.
+- Production Control Plane deployed with rollback backup at `/var/backups/kolibri-p0-sot-20260703T123840Z`.
+- Backend factory status proxy now returns live Control Plane truth instead of degraded zero-node fallback.
+- Queue diagnostics are bounded and return quickly on the live queue.
 
 ## Current Runtime Readiness
 
-P0 readiness remains partial until this branch is deployed and live endpoints are verified. The code foundation is improved, but Home kiosk, Telegram owner path, active summary deploy and full MIMO rollout still need end-to-end proof.
+P0 readiness is improved but not fully complete. Home kiosk deploy tasks are now leaseable through canonical `home`, but remain queued because the Home execution path is not taking leases. SSH/network to Home is reachable, but current keys are rejected. A repair task was created: `P0_REPAIR_HOME_AGENT_HOST_LEASE_PATH_20260703T1245Z`.

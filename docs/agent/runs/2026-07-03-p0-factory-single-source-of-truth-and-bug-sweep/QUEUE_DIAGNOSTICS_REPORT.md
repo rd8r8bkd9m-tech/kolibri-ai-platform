@@ -6,9 +6,11 @@ This branch adds `queue_diagnostics()` and `GET /v1/tasks/queue/diagnostics`.
 
 ## Live Snapshot Used
 
-- Queue total from live summary endpoint: 18.
-- Blocked from live diagnostics embedded in task summary: 9.
+- Queue total after production deploy: 17.
+- Leaseable after production deploy: 17.
+- Blocked after production deploy: 0.
 - Total task IDs: 21964.
+- Endpoint latency after bounding state scan: about 0.22s in the live check.
 
 ## Example Observed Reasons
 
@@ -17,5 +19,4 @@ This branch adds `queue_diagnostics()` and `GET /v1/tasks/queue/diagnostics`.
 - `node_draining` for drained target.
 - `missing_runner_capability` where runner capability is absent.
 
-After deployment, this report must be regenerated from the new endpoint.
-
+Deployment check passed against `http://10.99.0.10:9101/v1/tasks/queue/diagnostics`.

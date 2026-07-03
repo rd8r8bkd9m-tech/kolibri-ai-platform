@@ -40,3 +40,22 @@
 - Rollback: revert branch.
 - Result: summary/compact callers can request bounded output.
 
+## Backend Factory Status Proxy
+
+- Issue: owner-facing `/api/factory/status` returned 503 and zero nodes.
+- Root cause: backend used an old Control Plane URL/parser path and did not understand canonical health/fleet envelopes.
+- Files changed: `backend/factory_status.py`, `tests/test_factory_status.py`.
+- Test added: Fabric envelope plus queue diagnostics parser.
+- Risk: medium; backend read-only status path.
+- Rollback: restore `/var/backups/kolibri-p0-sot-20260703T123840Z/staging-backend/factory_status.py` and remove the backend URL drop-in.
+- Result: live endpoint returns 200 with 135 nodes, 30 online, queue 17, blocked 0.
+
+## Queue Diagnostics Performance
+
+- Issue: live diagnostics could time out by scanning every historical task ID.
+- Root cause: diagnostics loaded 21,964 task records to compute global state counts.
+- Files changed: `ops/factory_control.py`.
+- Test added: existing queue diagnostics regression plus live production check.
+- Risk: low; read-only endpoint now reports queue-state counts instead of full historical state counts.
+- Rollback: restore backed up `factory_control.py`.
+- Result: live diagnostics response dropped to about 0.22s.

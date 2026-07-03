@@ -9,10 +9,10 @@
 
 ## Home Kiosk End-To-End
 
-- Reason: frontend URLs returned 200, but Home deploy tasks remained queued.
-- Next task: repair or reroute Home kiosk deploy tasks and prove result artifacts.
+- Reason: Home deploy tasks are leaseable after the Control Plane deploy, but remain queued because the Home execution path is not taking leases. SSH to Home network endpoints is reachable, but current keys are rejected.
+- Next task: `P0_REPAIR_HOME_AGENT_HOST_LEASE_PATH_20260703T1245Z`; then complete the Home kiosk tasks and prove result artifacts.
 - Priority: P0.
-- Owner approval needed: no for diagnostics; yes for deploy/restart if risky.
+- Owner approval needed: yes if Home SSH identity or service restart is required.
 
 ## Telegram Bot End-To-End
 
@@ -34,4 +34,3 @@
 - Next task: canary batch with result artifacts and no mass requeue.
 - Priority: P0.
 - Owner approval needed: yes for broad rollout.
-
