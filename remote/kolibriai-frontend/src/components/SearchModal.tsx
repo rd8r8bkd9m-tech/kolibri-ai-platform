@@ -86,13 +86,13 @@ export default function SearchModal({ open, onClose }: SearchModalProps) {
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-end justify-center bg-black/35 p-0 sm:items-start sm:p-4 sm:pt-[15vh]"
+      className="fixed inset-0 z-[70] flex items-end justify-center bg-black/25 p-0 sm:items-start sm:bg-black/30 sm:p-4 sm:pt-[12vh]"
       onClick={onClose}
       role="presentation"
     >
       <div
         ref={dialogRef}
-        className="max-h-[min(82dvh,640px)] w-full overflow-hidden rounded-t-[28px] border border-white/20 bg-[var(--bg-primary)]/95 shadow-2xl backdrop-blur-xl sm:max-w-[560px] sm:rounded-[var(--radius-xl)]"
+        className="max-h-[min(82dvh,640px)] w-full overflow-hidden rounded-t-[28px] border border-white/30 bg-[var(--bg-primary)]/95 shadow-2xl backdrop-blur-xl sm:max-w-[560px] sm:rounded-[var(--radius-xl)]"
         onClick={e => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -100,14 +100,17 @@ export default function SearchModal({ open, onClose }: SearchModalProps) {
       >
         <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-[var(--border-hover)] sm:hidden" />
         <div className="flex items-center gap-3 border-b border-[var(--border-subtle)] px-4 py-3">
-          <Search size={16} className="text-[var(--text-tertiary)] flex-shrink-0" />
-          <input
-            ref={inputRef}
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            placeholder="Поиск"
-            className="min-h-11 min-w-0 flex-1 bg-transparent text-[14px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-tertiary)]"
-          />
+          <Search size={17} className="text-[var(--text-secondary)] flex-shrink-0" />
+          <div className="min-w-0 flex-1">
+            <div className="text-[12px] font-medium text-[var(--text-secondary)] sm:hidden">Поиск</div>
+            <input
+              ref={inputRef}
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Сметы, документы, позиции"
+              className="min-h-9 w-full bg-transparent text-[16px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-tertiary)] sm:text-[14px]"
+            />
+          </div>
           <button onClick={onClose} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]" aria-label="Закрыть поиск">
             <X size={16} />
           </button>

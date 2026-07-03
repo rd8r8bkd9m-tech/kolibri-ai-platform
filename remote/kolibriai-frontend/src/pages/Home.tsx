@@ -15,6 +15,7 @@ import {
   ChevronRight,
 } from 'lucide-react'
 import StatusBird from '@/components/StatusBird'
+import MascotAnimation from '@/components/MascotAnimation'
 import { estimates, documents, agents, library, type Estimate, type Document, type LibraryItem, type Agent } from '@/lib/api'
 import type { LayoutOutletContext } from '@/components/Layout'
 import { formatDate, formatCurrency } from '@/lib/utils'
@@ -307,18 +308,24 @@ export default function Home() {
       </div>
 
       {/* Mobile single-screen experience */}
-      <div className="md:hidden min-h-[100dvh] bg-[var(--bg-primary)] pb-8">
-        <section className="px-4 pt-7 pb-3">
-          <div className="flex justify-center mb-5">
-            <StatusBird state={focused ? 'ready' : 'idle'} size="xl" />
+      <div className="md:hidden min-h-[100dvh] bg-[var(--bg-primary)] pb-[calc(env(safe-area-inset-bottom)+1.5rem)]">
+        <section className="px-4 pt-8 pb-4">
+          <div className="mb-5 flex justify-center">
+            <div className="relative">
+              <div className="absolute inset-2 rounded-full bg-[var(--accent-teal)]/10 blur-2xl" />
+              <MascotAnimation state={focused ? 'ready' : 'idle'} className="relative h-28 w-28" alt="Колибри" />
+            </div>
           </div>
-          <h1 className="text-center text-[32px] leading-[1.1] font-semibold text-[var(--text-primary)]">Чем могу помочь?</h1>
+          <h1 className="text-center text-[32px] leading-tight font-semibold tracking-normal text-[var(--text-primary)]">Чем могу помочь?</h1>
+          <p className="mx-auto mt-2 max-w-[340px] text-center text-[16px] leading-6 text-[var(--text-secondary)]">
+            Колибри умеет вести диалог, находить материалы и запускать рабочие действия.
+          </p>
 
           <div
-            className={`relative mt-5 bg-[var(--bg-surface)] rounded-[var(--radius-xl)] border transition-all duration-200 ${
+            className={`relative mt-5 rounded-[28px] border bg-[var(--bg-surface)]/90 shadow-[0_14px_44px_rgba(15,23,42,0.10)] backdrop-blur-xl transition-all duration-200 ${
               focused
-                ? 'border-[var(--accent-teal)] shadow-[0_0_0_3px_rgba(58,186,180,0.1)]'
-                : 'border-[var(--border-subtle)] shadow-sm'
+                ? 'border-[var(--accent-teal)] shadow-[0_0_0_3px_rgba(58,186,180,0.12),0_14px_44px_rgba(15,23,42,0.10)]'
+                : 'border-white/70'
             }`}
           >
             <textarea
@@ -330,18 +337,18 @@ export default function Home() {
               onKeyDown={handleKeyDown}
               placeholder="Спросите Колибри..."
               rows={1}
-              className="w-full px-4 pt-4 pb-14 bg-transparent text-[18px] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] resize-none outline-none leading-relaxed"
+              className="w-full resize-none bg-transparent px-4 pb-14 pt-4 text-[18px] leading-relaxed text-[var(--text-primary)] outline-none placeholder:text-[var(--text-tertiary)]"
               style={{ minHeight: 68, maxHeight: 180 }}
             />
             <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between">
               <div className="flex items-center gap-1">
-                <button type="button" title="Скоро" className="w-10 h-10 flex items-center justify-center rounded-[var(--radius-md)] text-[var(--text-tertiary)] opacity-50 cursor-not-allowed">
+                <button type="button" title="Скоро" className="flex h-10 w-10 cursor-not-allowed items-center justify-center rounded-full text-[var(--text-tertiary)] opacity-55">
                   <Plus size={20} strokeWidth={1.8} />
                 </button>
-                <button type="button" title="Скоро" className="w-10 h-10 flex items-center justify-center rounded-[var(--radius-md)] text-[var(--text-tertiary)] opacity-50 cursor-not-allowed">
+                <button type="button" title="Скоро" className="flex h-10 w-10 cursor-not-allowed items-center justify-center rounded-full text-[var(--text-tertiary)] opacity-55">
                   <Paperclip size={20} strokeWidth={1.8} />
                 </button>
-                <button type="button" title="Скоро" className="w-10 h-10 flex items-center justify-center rounded-[var(--radius-md)] text-[var(--text-tertiary)] opacity-50 cursor-not-allowed">
+                <button type="button" title="Скоро" className="flex h-10 w-10 cursor-not-allowed items-center justify-center rounded-full text-[var(--text-tertiary)] opacity-55">
                   <Mic size={20} strokeWidth={1.8} />
                 </button>
               </div>
@@ -350,9 +357,9 @@ export default function Home() {
                 onClick={handleSend}
                 disabled={!input.trim()}
                 aria-label="Отправить"
-                className={`w-10 h-10 flex items-center justify-center rounded-full transition-all ${
+                className={`flex h-10 w-10 items-center justify-center rounded-full transition-all ${
                   input.trim()
-                    ? 'bg-[var(--accent-teal)] text-white shadow-md'
+                    ? 'bg-[var(--accent-teal)] text-white shadow-[0_8px_20px_rgba(58,186,180,0.28)]'
                     : 'bg-[var(--bg-elevated)] text-[var(--text-tertiary)]'
                 }`}
               >
@@ -367,7 +374,7 @@ export default function Home() {
                 type="button"
                 key={action}
                 onClick={() => handleQuickPrompt(action)}
-                className="px-3.5 py-2 rounded-[var(--radius-pill)] bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-[15px] text-[var(--text-secondary)]"
+                className="rounded-[var(--radius-pill)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]/90 px-3.5 py-2 text-[15px] text-[var(--text-secondary)] shadow-[var(--shadow-sm)]"
               >
                 {action}
               </button>
