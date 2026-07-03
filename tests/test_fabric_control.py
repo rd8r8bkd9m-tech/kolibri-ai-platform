@@ -95,6 +95,42 @@ def test_fabric_route_blocks_missing_capability_even_when_health_is_routable():
     assert route["fallback_nodes"] == []
 
 
+def test_fabric_route_target_node_uses_authoritative_record_outside_fallback_sample():
+    control = load_control()
+    sampled_nodes = [
+        {"node_id": f"sample-{index:02d}", "health": "online", "capabilities": ["runner:mimo"]}
+        for index in range(40)
+    ]
+
+    without_authoritative_target = control.fabric_route(
+        target_node="new",
+        required_capability="runner:mimo",
+        registered_nodes=sampled_nodes,
+        fallback_limit=26,
+    )
+    route = control.fabric_route(
+        target_node="new",
+        required_capability="runner:mimo",
+        registered_nodes=sampled_nodes,
+        target_node_record={
+            "node_id": "new",
+            "health": "online",
+            "active_task": None,
+            "capabilities": ["runner:mimo"],
+        },
+        fallback_limit=26,
+    )
+
+    assert without_authoritative_target["status"] == "blocked"
+    assert without_authoritative_target["reason"] == "target_node_unavailable"
+    assert len(without_authoritative_target["fallback_nodes"]) == 26
+    assert route["status"] == "ok"
+    assert route["route"]["target_node"] == "new"
+    assert route["route"]["endpoint"] == "/v1/nodes/new"
+    assert len(route["fallback_nodes"]) == 26
+    assert "new" not in route["fallback_nodes"]
+
+
 def test_fabric_route_returns_structured_blocked_status_with_fallback_and_repair_task():
     control = load_control()
     route = control.fabric_route(
