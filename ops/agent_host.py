@@ -55,6 +55,8 @@ CONTRACT_RESULT_FIELDS = [
     "status",
     "changed_files",
     "artifact_dir",
+    "package_policy",
+    "package_policy_violations",
     "required_artifacts_present",
     "required_artifacts_missing",
     "write_scope",
@@ -132,6 +134,44 @@ SECRET_REDACTION_MARKERS = (
     "secret",
     "token",
 )
+PACKAGE_MANAGER_LAW_VERSION = "2026-07-03"
+PACKAGE_CHANGE_ENVELOPE_KEYS = ("package_changes", "package_policy")
+PACKAGE_ECOSYSTEMS = {
+    "apt",
+    "binary",
+    "cargo",
+    "dpkg",
+    "go",
+    "npm",
+    "npx",
+    "pip",
+    "pipx",
+    "pnpm",
+    "service_bootstrap",
+    "uv",
+    "yarn",
+}
+PACKAGE_INSTALL_SCOPES = {"ephemeral_task_env", "node_service", "global"}
+PACKAGE_GLOBAL_SCOPES = {"node_service", "global"}
+PACKAGE_APPROVAL_TIERS = {"none", "reviewer", "owner", "owner_p0", "security"}
+PACKAGE_REQUIRED_FIELDS = (
+    "ecosystem",
+    "package",
+    "version",
+    "source_registry",
+    "purpose",
+    "target_nodes",
+    "install_scope",
+    "canary",
+    "rollback",
+    "verification_commands",
+    "provenance_security_license",
+    "owner_approval_tier",
+    "cleanup_drift_plan",
+)
+PACKAGE_QUARANTINE_APPROVAL_TIERS = {"owner_p0", "security"}
+DENIED_PACKAGE_SPEC_MARKERS = ("git+", "file:", "http://")
+INLINE_CREDENTIAL_MARKERS = ("://", "@")
 
 
 class BackendTestEnvironmentError(RuntimeError):
@@ -158,6 +198,15 @@ class PermissionContractError(RuntimeError):
         self.classification = classification
         permissions = ", ".join(classification.get("forbidden_permissions") or [])
         super().__init__(f"read-only/no-push permission pack forbids requested runtime permissions: {permissions}")
+
+
+class PackagePolicyError(RuntimeError):
+    """Raised when a package change envelope violates the package manager law."""
+
+    def __init__(self, package_policy: dict[str, Any]):
+        self.package_policy = package_policy
+        violations = ", ".join(package_policy.get("violations") or [])
+        super().__init__(f"package manager law violation: {violations}")
 
 
 def utc_now() -> str:
@@ -363,6 +412,213 @@ def envelope_dict(envelope: dict[str, Any], *keys: str) -> dict[str, Any] | None
         if isinstance(value, dict):
             return value
     return None
+
+
+def package_changes_from_envelope(envelope: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_changes: list[Any] = []
+    for key_name in PACKAGE_CHANGE_ENVELOPE_KEYS:
+        value = envelope_value(envelope, key_name)
+        if isinstance(value, dict) and isinstance(value.get("changes"), list):
+            raw_changes.extend(value["changes"])
+        elif isinstance(value, list):
+            raw_changes.extend(value)
+        elif isinstance(value, dict):
+            raw_changes.append(value)
+
+    changes: list[dict[str, Any]] = []
+    for item in raw_changes:
+        if isinstance(item, dict):
+            changes.append(item)
+        else:
+            changes.append({"package": str(item)})
+    return changes
+
+
+def _change_name(change: dict[str, Any], index: int) -> str:
+    package = change.get("package")
+    if isinstance(package, str) and package.strip():
+        return package.strip()
+    return f"change[{index}]"
+
+
+def _bounded_or_exact_version(value: Any) -> bool:
+    if not isinstance(value, str) or not value.strip():
+        return False
+    text = value.strip()
+    if any(marker in text for marker in ("*", "latest", "x")):
+        return False
+    return any(text.startswith(prefix) for prefix in ("==", "=", "~=", "^", ">=", "<=", ">", "<")) or any(
+        char.isdigit() for char in text
+    )
+
+
+def _non_empty_list(value: Any) -> bool:
+    return isinstance(value, list) and bool(value) and all(isinstance(item, str) and item.strip() for item in value)
+
+
+def _configured(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, tuple, set, dict)):
+        return bool(value)
+    return bool(value)
+
+
+def _has_credential_url(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    text = value.strip()
+    if not all(marker in text for marker in INLINE_CREDENTIAL_MARKERS):
+        return False
+    scheme, rest = text.split("://", 1)
+    return bool(scheme and "@" in rest and rest.split("@", 1)[0])
+
+
+def _security_license_check_present(value: Any) -> bool:
+    if isinstance(value, dict):
+        return all(truthy(value.get(key)) for key in ("provenance", "security", "license"))
+    if isinstance(value, str):
+        lowered = value.lower()
+        return all(marker in lowered for marker in ("provenance", "security", "license"))
+    return False
+
+
+def _package_command_strings(change: dict[str, Any]) -> list[str]:
+    commands: list[str] = []
+    for key_name in ("install_commands", "bootstrap_commands", "commands", "verification_commands"):
+        for item in ensure_list(change.get(key_name)):
+            if isinstance(item, str):
+                commands.append(item)
+    return commands
+
+
+def _looks_like_curl_pipe_shell(command: str) -> bool:
+    compact = " ".join(command.lower().split())
+    return ("curl" in compact or "wget" in compact) and "|" in compact and any(
+        shell in compact for shell in ("bash", "sh", "zsh")
+    )
+
+
+def _looks_like_secret_printing(command: str) -> bool:
+    compact = " ".join(command.lower().split())
+    secret_markers = ("api_key", "authorization", "bearer", "password", "secret", "token")
+    if "cat /etc/kolibri/mimocode.env" in compact:
+        return True
+    if compact.startswith("printenv") or compact == "env":
+        return any(marker in compact for marker in secret_markers) or compact in {"printenv", "env"}
+    return ("echo $" in compact or "printf $" in compact) and any(marker in compact for marker in secret_markers)
+
+
+def package_policy_for_task(task: dict[str, Any]) -> dict[str, Any]:
+    envelope = task_envelope(task)
+    changes = package_changes_from_envelope(envelope)
+    violations: list[str] = []
+    normalized_changes: list[dict[str, Any]] = []
+    mac_remote = platform.system().lower() == "darwin"
+
+    for index, change in enumerate(changes):
+        name = _change_name(change, index)
+        normalized = dict(change)
+        normalized_changes.append(normalized)
+
+        for field in PACKAGE_REQUIRED_FIELDS:
+            if field not in change or change.get(field) in (None, "", []):
+                violations.append(f"{name}:missing_{field}")
+
+        ecosystem = str(change.get("ecosystem") or "").strip().lower()
+        install_scope = str(change.get("install_scope") or "").strip().lower()
+        approval_tier = str(change.get("owner_approval_tier") or "").strip().lower()
+        package_spec = str(change.get("package") or "")
+        source_registry = str(change.get("source_registry") or "")
+        version = change.get("version")
+        target_nodes = change.get("target_nodes")
+        verification_commands = change.get("verification_commands")
+
+        if ecosystem and ecosystem not in PACKAGE_ECOSYSTEMS:
+            violations.append(f"{name}:unsupported_ecosystem:{ecosystem}")
+        if install_scope and install_scope not in PACKAGE_INSTALL_SCOPES:
+            violations.append(f"{name}:unsupported_install_scope:{install_scope}")
+        if approval_tier and approval_tier not in PACKAGE_APPROVAL_TIERS:
+            violations.append(f"{name}:unsupported_owner_approval_tier:{approval_tier}")
+        if not _bounded_or_exact_version(version):
+            violations.append(f"{name}:version_must_be_exact_or_bounded")
+        if not _non_empty_list(target_nodes):
+            violations.append(f"{name}:target_nodes_required")
+        if not _non_empty_list(verification_commands):
+            violations.append(f"{name}:verification_commands_required")
+        if _has_credential_url(source_registry) or _has_credential_url(package_spec):
+            violations.append(f"{name}:inline_credential_url_denied")
+        if source_registry.startswith("http://"):
+            violations.append(f"{name}:plain_http_registry_denied")
+        if truthy(change.get("unmanaged_mutation")):
+            violations.append(f"{name}:unmanaged_mutation_denied")
+        if truthy(change.get("prints_secrets")):
+            violations.append(f"{name}:secret_printing_denied")
+        for command in _package_command_strings(change):
+            if _looks_like_curl_pipe_shell(command):
+                violations.append(f"{name}:curl_pipe_shell_denied")
+            if _looks_like_secret_printing(command):
+                violations.append(f"{name}:secret_printing_denied")
+
+        lowered_spec = package_spec.lower()
+        explicit_quarantine = truthy(change.get("quarantined")) or truthy(change.get("explicit_approval"))
+        if any(marker in lowered_spec for marker in DENIED_PACKAGE_SPEC_MARKERS):
+            if not explicit_quarantine or approval_tier not in PACKAGE_QUARANTINE_APPROVAL_TIERS:
+                violations.append(f"{name}:git_file_http_package_spec_denied")
+
+        if ecosystem in {"apt", "dpkg", "service_bootstrap", "binary"} and install_scope == "ephemeral_task_env":
+            violations.append(f"{name}:system_ecosystem_cannot_be_ephemeral")
+        if install_scope in PACKAGE_GLOBAL_SCOPES:
+            if not _configured(change.get("canary")):
+                violations.append(f"{name}:system_global_service_requires_canary")
+            batch_size = change.get("batch_size", 1)
+            if not isinstance(batch_size, int) or batch_size < 1 or batch_size > 5:
+                violations.append(f"{name}:batch_size_must_be_1_to_5")
+            if not _configured(change.get("managed_marker")):
+                violations.append(f"{name}:managed_marker_required")
+            if not _configured(change.get("rollback")):
+                violations.append(f"{name}:rollback_required")
+            if not _configured(change.get("drift_repair_policy")) and not _configured(change.get("cleanup_drift_plan")):
+                violations.append(f"{name}:drift_repair_policy_required")
+        if install_scope == "ephemeral_task_env":
+            if not truthy(change.get("isolated")):
+                violations.append(f"{name}:ephemeral_package_must_be_isolated")
+            if truthy(change.get("mutates_node_system_state")):
+                violations.append(f"{name}:ephemeral_package_must_not_mutate_node_system_state")
+        if mac_remote and install_scope in PACKAGE_GLOBAL_SCOPES | {"ephemeral_task_env"}:
+            violations.append(f"{name}:remote_agent_package_installs_on_mac_denied")
+        if not _security_license_check_present(change.get("provenance_security_license")):
+            violations.append(f"{name}:provenance_security_license_check_required")
+
+        if package_spec == "@mimo-ai/cli":
+            if ecosystem != "npm":
+                violations.append(f"{name}:mimo_cli_must_use_npm_registry_package")
+            if "npm" not in source_registry.lower() and "registry.npmjs.org" not in source_registry.lower():
+                violations.append(f"{name}:mimo_cli_must_use_npm_registry")
+            service = change.get("service") if isinstance(change.get("service"), dict) else {}
+            bind_host = str(service.get("bind_host") or change.get("bind_host") or "")
+            env_path = str(service.get("env_path") or change.get("env_path") or "")
+            env_mode = str(service.get("env_mode") or change.get("env_mode") or "")
+            raw_secret_output = truthy(change.get("raw_secret_output")) or truthy(service.get("raw_secret_output"))
+            if bind_host not in {"127.0.0.1", "::1", "localhost"}:
+                violations.append(f"{name}:mimo_service_must_be_loopback_only")
+            if env_path != "/etc/kolibri/mimocode.env":
+                violations.append(f"{name}:mimo_env_path_must_be_/etc/kolibri/mimocode.env")
+            if env_mode != "0600":
+                violations.append(f"{name}:mimo_env_mode_must_be_0600")
+            if raw_secret_output:
+                violations.append(f"{name}:raw_secret_output_denied")
+
+    policy = {
+        "contract": "kolibri_package_manager_law",
+        "version": PACKAGE_MANAGER_LAW_VERSION,
+        "decision": "blocked" if violations else "allowed",
+        "changes": normalized_changes,
+        "violations": sorted(dict.fromkeys(violations)),
+    }
+    return policy
 
 
 def artifact_spec_path(spec: Any) -> str | None:
@@ -750,6 +1006,8 @@ def next_recommended_task_for(blockers: list[str], envelope: dict[str, Any]) -> 
         return "repair Agent Host git credentials, then rerun the review task"
     if "backend_test_environment_failed" in joined:
         return "repair the declared backend test environment requirements or package list, then rerun verification"
+    if "package_policy_violations" in joined:
+        return "resubmit through a Control Plane envelope with compliant package_changes or explicit owner/security quarantine approval"
     return "inspect the runner contract blockers and resubmit with corrected constraints"
 
 
@@ -793,6 +1051,9 @@ def finalize_runner_contract(
     final["required_artifacts_present"] = required_present
     final["required_artifacts_missing"] = required_missing
     final["effective_permissions"] = sanitized_permissions_for_envelope(envelope)
+    package_policy = package_policy_for_task(task)
+    final["package_policy"] = package_policy
+    final["package_policy_violations"] = package_policy["violations"]
 
     read_only = envelope_truthy(envelope, "read_only")
     product_forbidden = envelope_truthy(envelope, *PRODUCT_CODE_FORBIDDEN_FLAGS)
@@ -842,6 +1103,8 @@ def finalize_runner_contract(
         blockers.append("artifact_dir_missing")
     if required_missing:
         blockers.append("required_artifacts_missing")
+    if package_policy["violations"]:
+        blockers.append("package_policy_violations")
     if write_scope_violations:
         blockers.append("write_scope_violations")
     if read_only and changed_product:
@@ -1477,6 +1740,12 @@ class AgentHost:
         if classification["decision"] == "blocked":
             raise PermissionContractError(classification)
         return classification
+
+    def validate_package_policy_contract(self, task: dict[str, Any]) -> dict[str, Any]:
+        package_policy = package_policy_for_task(task)
+        if package_policy["decision"] == "blocked":
+            raise PackagePolicyError(package_policy)
+        return package_policy
 
     def prepare_dirs(self, task: dict[str, Any]) -> tuple[Path, Path, dict[str, str]]:
         task_id = task["task_id"]
@@ -2301,6 +2570,7 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 return
 
             permission_pack_classification = self.validate_runtime_permission_contract(task)
+            package_policy = self.validate_package_policy_contract(task)
             kind = task.get("kind")
             if kind == "impl_factory_smoke":
                 result = self.run_impl_factory_smoke(task)
@@ -2321,6 +2591,7 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
             else:
                 raise RuntimeError(f"unsupported task kind reached dispatch: {kind}")
             result.setdefault("permission_pack_classification", permission_pack_classification)
+            result.setdefault("package_policy", package_policy)
             result_path = Path(result["result_path"])
             artifact_dir = result_path.parent
             worktree_value = result.get("worktree")
@@ -2358,6 +2629,30 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
             result = finalize_runner_contract(task, result, artifact_dir, failure_reason=str(exc))
             result_path = self.write_result(artifact_dir, result)
             self.fail(task, "permission_contract_violation", str(exc), result, result_path, retry=False)
+        except PackagePolicyError as exc:
+            task_id = task["task_id"]
+            attempt_id = task.get("attempt_id") or f"{task_id}-attempt-{task.get('attempt', 1)}"
+            artifact_dir = self.artifact_root / task_id / attempt_id
+            artifact_dir.mkdir(parents=True, exist_ok=True)
+            result = {
+                "node_id": self.node_id,
+                "hostname": self.hostname,
+                "task_id": task_id,
+                "agent_id": self.agent_id,
+                "attempt_id": attempt_id,
+                "pid": self.pid,
+                "status": "blocked",
+                "error_type": "package_policy_violation",
+                "error": str(exc),
+                "completed_at": utc_now(),
+                "package_policy": exc.package_policy,
+                "package_policy_violations": exc.package_policy["violations"],
+                "blocked_reason": "package_policy_violations",
+                "next_recommended_task": "resubmit with compliant package_changes before any package manager command runs",
+            }
+            result = finalize_runner_contract(task, result, artifact_dir, failure_reason=str(exc))
+            result_path = self.write_result(artifact_dir, result)
+            self.fail(task, "package_policy_violation", str(exc), result, result_path, retry=False)
         except Exception as exc:
             task_id = task["task_id"]
             attempt_id = task.get("attempt_id") or f"{task_id}-attempt-{task.get('attempt', 1)}"

@@ -154,6 +154,34 @@ Example:
 }
 ```
 
+## Package Manager Law
+
+All package manager changes must be declared in the task envelope as
+`package_changes` or `package_policy.changes` before any package manager command
+is run. The canonical law is `docs/superfactory/PACKAGE_MANAGER_LAW.md`.
+
+The runner finalizer records:
+
+- `package_policy`
+- `package_policy_violations`
+
+Any violation makes the result `blocked`. At dispatch time, a package-policy
+violation prevents the task runner from executing and reports
+`error_type: package_policy_violation`.
+
+The law covers `apt`, `dpkg`, `npm`, `npx`, `pnpm`, `yarn`, `pip`, `pipx`, `uv`,
+`go`, `cargo`, binary downloads, service bootstrap packages, global installs,
+and node service installs.
+
+For system/global/service installs, the envelope must include canary first,
+`batch_size <= 5`, rollback, managed marker, and drift/repair policy. Ephemeral
+test packages must be isolated in task-local venv/node_modules/cache state and
+must not mutate node system state.
+
+`@mimo-ai/cli` is allowed only as an npm registry package through the law. Its
+service must be loopback-only, use `/etc/kolibri/mimocode.env` with mode `0600`,
+and never print raw secrets.
+
 ## Canonical Run Artifacts
 
 Owner-facing remote task runs that publish a docs run directory must declare one
