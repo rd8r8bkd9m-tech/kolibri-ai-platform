@@ -6,11 +6,22 @@ This branch adds `queue_diagnostics()` and `GET /v1/tasks/queue/diagnostics`.
 
 ## Live Snapshot Used
 
-- Queue total after final Home E2E check: 13.
-- Leaseable after final Home E2E check: 13.
+- Queue total after network repair task creation: 19.
+- Leaseable after network repair task creation: 19.
 - Blocked after production deploy: 0.
-- Total task IDs: 21965.
+- Total task IDs: 21978.
 - Endpoint latency after bounding state scan: about 0.22s in the live check.
+
+## Network Repair Tasks Created
+
+- `P0_REPAIR_FACTORY_SSH_TRUST_BOOTSTRAP_20260703`
+- `P0_REPAIR_AGENT10_NETWORK_OR_RETIRE_20260703`
+- `P0_REPAIR_DEGRADED_EXECUTION_NODES_20260703`
+- `P0_CLASSIFY_STALE_RESERVE_SERVERS_20260703`
+- `P0_PROVE_TELEGRAM_ACTIVE_OWNER_PATH_20260703`
+- `P0_MIMO_BOUNDED_CANARY_WITH_ARTIFACTS_20260703`
+
+Some read-only Agent Host completions produced generic completion artifacts only. The evidence-bearing all-server matrix for this sweep is `NETWORK_REACHABILITY_MATRIX.md`.
 
 ## Example Observed Reasons
 

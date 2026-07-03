@@ -18,8 +18,8 @@
 
 ## Telegram Bot End-To-End
 
-- Reason: local gateway was standby/inactive; failover guard observed primary healthy, but owner chat path was not proven here.
-- Next task: prove active primary receiver path and response artifact.
+- Reason: local gateway was standby/inactive; failover guard observed primary healthy. A read-only task was created and completed, but its artifact was generic Agent Host completion rather than owner-message evidence.
+- Next task: prove active primary receiver path with a content-bearing, redacted response artifact.
 - Priority: P0.
 - Owner approval needed: no for read-only proof.
 
@@ -33,6 +33,20 @@
 ## Full MIMO Rollout
 
 - Reason: MIMO availability appears broad in CP records, but end-to-end task completion across target fleet is not proven.
-- Next task: canary batch with result artifacts and no mass requeue.
+- Next task: `P0_MIMO_BOUNDED_CANARY_WITH_ARTIFACTS_20260703`, with result artifacts and no mass requeue.
 - Priority: P0.
 - Owner approval needed: yes for broad rollout.
+
+## Root SSH Trust Bootstrap
+
+- Reason: TCP/SSH is open on most physical servers, but command-node public-key auth is rejected for checked root targets.
+- Next task: `P0_REPAIR_FACTORY_SSH_TRUST_BOOTSTRAP_20260703`; use owner-approved bootstrap or audited Fabric replacement, with `authorized_keys` backup before any edit.
+- Priority: P0.
+- Owner approval needed: yes before changing root SSH trust broadly.
+
+## Agent-10 Network
+
+- Reason: `agent-10` is canonical but missing from Control Plane and unreachable at `217.60.38.191`.
+- Next task: `P0_REPAIR_AGENT10_NETWORK_OR_RETIRE_20260703`.
+- Priority: P0.
+- Owner approval needed: yes before retiring the record.
