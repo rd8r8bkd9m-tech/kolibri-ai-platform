@@ -59,3 +59,13 @@
 - Risk: low; read-only endpoint now reports queue-state counts instead of full historical state counts.
 - Rollback: restore backed up `factory_control.py`.
 - Result: live diagnostics response dropped to about 0.22s.
+
+## Incomplete Fleet Registry API
+
+- Issue: `/v1/fleet/registry` omitted reserve/agent physical servers, so agents could still receive an incomplete server foundation.
+- Root cause: `fabric_node_catalog()` filtered canonical nodes to fallback/service nodes only.
+- Files changed: `ops/factory_registry.py`, `tests/test_factory_registry.py`.
+- Test added: `test_fabric_node_catalog_exposes_full_canonical_server_inventory`.
+- Risk: low; read-only API now exposes documented canonical records and does not mark them online or scheduleable.
+- Rollback: restore `/var/backups/kolibri-p0-network-foundation-20260703T134617Z/factory_registry.py` and restart `kolibri-factory-control.service`.
+- Result: live `/v1/fleet/registry` returns 21 canonical nodes and includes `agent-10`, `reserve242`, reserve servers and reserve agents.

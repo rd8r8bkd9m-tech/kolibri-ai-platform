@@ -485,7 +485,6 @@ def fabric_node_catalog() -> dict[str, dict[str, Any]]:
             }
         )
         for node_id, data in CANONICAL_NODE_REGISTRY.items()
-        if data.get("fallback_eligible") or data.get("services")
     }
 
 

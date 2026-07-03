@@ -10,8 +10,15 @@ python3 -m py_compile backend/factory_status.py ops/factory_registry.py ops/fact
 ## Result
 
 - `py_compile`: passed.
-- Targeted pytest: `40 passed`.
+- Targeted pytest: `41 passed`.
 - GitHub Actions `Kolibri CI` passed for initial PR commit `86ae29f`; later pushed commits are awaiting/without reported workflow run at the time of this update.
+
+## Network Registry Fix Suite
+
+- Command: `/tmp/kolibri-p0-venv/bin/python -m py_compile ops/factory_registry.py ops/factory_control.py`
+- Result: passed.
+- Command: `/tmp/kolibri-p0-venv/bin/python -m pytest -q tests/test_factory_registry.py tests/test_fabric_control.py tests/test_prompt3_fabric_api_surface.py`
+- Result: 20 passed.
 
 ## Not Run
 

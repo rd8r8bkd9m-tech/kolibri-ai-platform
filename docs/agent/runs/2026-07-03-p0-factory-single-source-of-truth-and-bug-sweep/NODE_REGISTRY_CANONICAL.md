@@ -23,8 +23,9 @@ Canonical registry lives in `ops/factory_registry.py`.
 
 - Canonical physical records in registry: 21.
 - Runtime CP records observed: 135.
+- Runtime canonical physical servers represented in Control Plane: 20.
+- Runtime missing canonical server: agent-10.
 - Runtime stale records observed: 103.
 - Runtime logical workers observed in CP: 101.
 
 Do not invent mappings for records outside the registry. Unknown records must be reported by `/v1/fleet/drift`.
-

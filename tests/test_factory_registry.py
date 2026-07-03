@@ -43,6 +43,16 @@ def test_capability_aliases_are_explicit_and_bounded():
     assert registry.capability_satisfied("review", ["runner:codex"]) is False
 
 
+def test_fabric_node_catalog_exposes_full_canonical_server_inventory():
+    registry = load_registry()
+    catalog = registry.fabric_node_catalog()
+
+    assert set(catalog) == set(registry.CANONICAL_NODE_REGISTRY)
+    assert "agent-10" in catalog
+    assert catalog["agent-10"]["external_ips"] == ["217.60.38.191"]
+    assert catalog["agent-10"]["safe_to_schedule"] is False
+
+
 def test_fleet_summary_separates_physical_logical_and_stale_records():
     registry = load_registry()
     summary = registry.fleet_summary(

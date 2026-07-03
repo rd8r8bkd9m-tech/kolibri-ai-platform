@@ -18,9 +18,11 @@ PR: https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/162
 - Production Control Plane deployed with rollback backup at `/var/backups/kolibri-p0-sot-20260703T123840Z`.
 - Backend factory status proxy now returns live Control Plane truth instead of degraded zero-node fallback.
 - Queue diagnostics are bounded and return quickly on the live queue.
+- Network foundation matrix created for all 21 canonical servers.
+- `/v1/fleet/registry` now exposes the full canonical server inventory instead of only fallback/service nodes.
 
 ## Current Runtime Readiness
 
 P0 readiness is improved but not fully complete. Home kiosk E2E is complete: `P0_REPAIR_HOME_AGENT_HOST_LEASE_PATH_20260703T1245Z`, `P0_HOME_NOC_CLICKABLE_KIOSK_DEPLOY_HOME_20260703T100000Z`, and `P0_HOME_NOC_CLICKABLE_KIOSK_DEPLOY_HOME_LIVE_20260703T100100Z` are completed. Artifact: `/var/lib/kolibri-agent/artifacts/P0_HOME_NOC_CLICKABLE_KIOSK_E2E_20260703/result.json`.
 
-Remaining proof gaps: Telegram active owner path and stale logical worker classification.
+Remaining proof gaps: Telegram active owner path, stale logical worker classification, command-node SSH trust bootstrap for root-managed physical servers, and `agent-10` network/provider repair or retirement.
