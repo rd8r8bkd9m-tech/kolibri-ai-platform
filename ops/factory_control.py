@@ -89,6 +89,7 @@ STATE_DEAD = "dead_letter"
 TERMINAL_STATES = {STATE_COMPLETED, STATE_FAILED, STATE_CANCELLED, STATE_DEAD}
 BLOCKED_RUNNER_STATES = {"blocked", "degraded", "runner_auth_blocked", "unavailable"}
 ROUTABLE_NODE_HEALTH = {"fresh", "ok", "online", "running"}
+FABRIC_ROUTE_FALLBACK_LIMIT = int(os.environ.get("FABRIC_ROUTE_FALLBACK_LIMIT", "26"))
 
 FABRIC_NODE_CATALOG = {
     "home": {
@@ -366,6 +367,17 @@ def registered_nodes() -> list[dict[str, Any]]:
     return nodes
 
 
+def registered_node(node_id: str | None) -> dict[str, Any] | None:
+    if not node_id:
+        return None
+    node = get_json(node_key(str(node_id)))
+    if not node:
+        return None
+    node.setdefault("node_id", str(node_id))
+    node["draining"] = bool(redis.command("GET", drain_key(str(node_id))))
+    return node
+
+
 def queue_ids() -> list[str]:
     return redis.command("LRANGE", key("queue"), 0, -1) or []
 
@@ -535,10 +547,14 @@ def _node_online(node: dict[str, Any]) -> bool:
     return not node.get("draining") and str(node.get("health") or "").lower() in ROUTABLE_NODE_HEALTH
 
 
+def _node_id(node: dict[str, Any]) -> str:
+    return str(node.get("node_id") or node.get("id") or "")
+
+
 def fabric_nodes(registered_nodes: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     merged = {node_id: dict(node) for node_id, node in FABRIC_NODE_CATALOG.items()}
     for registered in registered_nodes or []:
-        node_id = str(registered.get("node_id") or registered.get("id") or "")
+        node_id = _node_id(registered)
         if not node_id:
             continue
         catalog = merged.get(node_id, {"node_id": node_id, "api_paths": ["fabric_api", "fallback_relay"], "ssh": "emergency_bootstrap_diagnostic_only"})
@@ -559,12 +575,21 @@ def fabric_route(
     target_node: str | None = None,
     required_capability: str | None = None,
     registered_nodes: list[dict[str, Any]] | None = None,
+    target_node_record: dict[str, Any] | None = None,
+    fallback_limit: int = FABRIC_ROUTE_FALLBACK_LIMIT,
 ) -> dict[str, Any]:
     nodes = fabric_nodes(registered_nodes)
     online = [node for node in nodes if _node_online(node)]
+    indexed_nodes = {_node_id(node): node for node in nodes}
     candidates = nodes
     if target_node:
-        candidates = [node for node in candidates if node.get("node_id") == target_node]
+        target_record = target_node_record if _node_id(target_node_record or {}) == target_node else None
+        target = None
+        if target_record:
+            target = next((node for node in fabric_nodes([target_record]) if _node_id(node) == target_node), None)
+        if not target:
+            target = indexed_nodes.get(target_node)
+        candidates = [target] if target else []
     if required_capability:
         candidates = [node for node in candidates if required_capability in (node.get("capabilities") or [])]
     direct = next((node for node in candidates if _node_online(node)), None)
@@ -573,7 +598,7 @@ def fabric_route(
         for node in online
         if node.get("node_id") != target_node
         and (not required_capability or required_capability in (node.get("capabilities") or []))
-    ]
+    ][:max(0, fallback_limit)]
     if direct:
         return {
             "status": "ok",
@@ -931,10 +956,12 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path == "/v1/fleet/route":
                 query = parse_qs(parsed.query)
+                target_node = query.get("target_node", [None])[0]
                 route = fabric_route(
-                    target_node=query.get("target_node", [None])[0],
+                    target_node=target_node,
                     required_capability=query.get("required_capability", [None])[0],
                     registered_nodes=registered_nodes(),
+                    target_node_record=registered_node(target_node),
                 )
                 status = "completed" if route.get("status") == "ok" else "blocked"
                 response(self, 200 if status == "completed" else 503, canonical_response_envelope(
@@ -1149,6 +1176,7 @@ class Handler(BaseHTTPRequestHandler):
                     target_node=body.get("target_node"),
                     required_capability=body.get("required_capability"),
                     registered_nodes=registered_nodes(),
+                    target_node_record=registered_node(body.get("target_node")),
                 )
                 response(self, 200 if route.get("status") == "ok" else 503, route)
                 return
@@ -1157,6 +1185,7 @@ class Handler(BaseHTTPRequestHandler):
                     target_node=body.get("target_node"),
                     required_capability=body.get("required_capability"),
                     registered_nodes=registered_nodes(),
+                    target_node_record=registered_node(body.get("target_node")),
                 )
                 if route.get("status") != "ok" and not route.get("can_continue_elsewhere"):
                     response(self, 503, route)
