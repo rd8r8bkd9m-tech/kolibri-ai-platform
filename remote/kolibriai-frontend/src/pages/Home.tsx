@@ -5,6 +5,7 @@ import {
   ArrowUp,
   Mic,
   Plus,
+  Compass,
   Calculator,
   FileText,
   Bot,
@@ -101,6 +102,52 @@ export default function Home() {
   const [loading, setLoading] = useState(true)
   const layout = useOutletContext<LayoutOutletContext | null>()
   const openGlobalSearch = layout?.openSearch ?? (() => navigate('/library'))
+
+  const adaptiveDirection = (() => {
+    if (loading) {
+      return {
+        label: 'Синхронизация',
+        title: 'Проверяю рабочую область',
+        detail: 'Подтягиваю сметы, документы и агентов.',
+        action: 'Открыть чат',
+        route: '/chat',
+      }
+    }
+    if (recentEstimates.length > 0) {
+      return {
+        label: 'Рабочее продолжение',
+        title: 'Продолжите последнюю смету',
+        detail: `${recentEstimates[0].title} · ${formatCurrency(recentEstimates[0].total)}`,
+        action: 'Открыть сметы',
+        route: '/estimates',
+      }
+    }
+    if (recentDocuments.length > 0) {
+      return {
+        label: 'Документы',
+        title: 'Вернитесь к последнему документу',
+        detail: recentDocuments[0].title,
+        action: 'Открыть документы',
+        route: '/documents',
+      }
+    }
+    if (stats.agents > 0) {
+      return {
+        label: 'Агенты',
+        title: 'Проверьте активные задачи',
+        detail: 'Есть агенты, по которым можно сверить состояние работ.',
+        action: 'Открыть агентов',
+        route: '/agents',
+      }
+    }
+    return {
+      label: 'Первый шаг',
+      title: 'Опишите задачу одним сообщением',
+      detail: 'Колибри предложит следующее действие и сохранит результат в рабочем контуре.',
+      action: 'Начать чат',
+      route: '/chat',
+    }
+  })()
 
   useEffect(() => {
     let alive = true
@@ -252,6 +299,22 @@ export default function Home() {
                 </button>
               ))}
             </div>
+
+            <button
+              type="button"
+              onClick={() => navigate(adaptiveDirection.route)}
+              className="mt-5 flex w-full items-start gap-3 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 py-3 text-left shadow-[var(--shadow-sm)] transition-all hover:border-[var(--border-hover)] hover:bg-[var(--bg-hover)]"
+            >
+              <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-teal)]/10 text-[var(--accent-teal)]">
+                <Compass size={19} strokeWidth={1.8} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[11px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">{adaptiveDirection.label}</span>
+                <span className="mt-0.5 block text-[14px] font-semibold text-[var(--text-primary)]">{adaptiveDirection.title}</span>
+                <span className="mt-0.5 block truncate text-[13px] text-[var(--text-secondary)]">{adaptiveDirection.detail}</span>
+              </span>
+              <span className="mt-1 shrink-0 text-[13px] font-medium text-[var(--accent-teal)]">{adaptiveDirection.action}</span>
+            </button>
           </div>
 
           {(stats.estimates > 0 || recentEstimates.length > 0) && (
@@ -381,6 +444,22 @@ export default function Home() {
             ))}
           </div>
           <p className="mt-3 text-[13px] text-[var(--text-tertiary)]">AI может ошибаться — проверяйте финальную информацию.</p>
+
+          <button
+            type="button"
+            onClick={() => navigate(adaptiveDirection.route)}
+            className="mt-4 flex w-full items-start gap-3 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3.5 text-left shadow-[var(--shadow-sm)]"
+          >
+            <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-teal)]/10 text-[var(--accent-teal)]">
+              <Compass size={19} strokeWidth={1.8} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[12px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">{adaptiveDirection.label}</span>
+              <span className="mt-0.5 block text-[16px] font-semibold leading-tight text-[var(--text-primary)]">{adaptiveDirection.title}</span>
+              <span className="mt-1 block text-[14px] leading-snug text-[var(--text-secondary)]">{adaptiveDirection.detail}</span>
+              <span className="mt-2 block text-[14px] font-medium text-[var(--accent-teal)]">{adaptiveDirection.action}</span>
+            </span>
+          </button>
         </section>
 
         <section className="px-4">

@@ -1,0 +1,62 @@
+{
+  "consoleMessages": [],
+  "pageErrors": [],
+  "network": [
+    {
+      "method": "GET",
+      "path": "/api/v1/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/estimates",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/documents",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agents",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/library",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/library",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/health",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/estimates",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/estimates/EST-PILOT-20260703",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/estimates/EST-PILOT-20260703",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/ai/analyze-estimate",
+      "status": 200
+    }
+  ],
+  "failures": []
+}
