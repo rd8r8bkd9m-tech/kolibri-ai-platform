@@ -22,6 +22,7 @@ PR: https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/162
 - `/v1/fleet/registry` now exposes the full canonical server inventory instead of only fallback/service nodes.
 - Six targeted repair/follow-up tasks were created in Control Plane for SSH trust, `agent-10`, degraded execution nodes, stale reserve classification, Telegram proof and bounded MIMO canary.
 - `agent-10` diagnostics corrected: registry-only records no longer count as Control Plane-present; `agent-10` is quarantined as `provider_network_unreachable`.
+- SSH identity standardization started: `ssh_access` metadata is live in `/v1/fleet/registry`; `home`, `main`, and `qjns` are confirmed reachable by key through canonical aliases.
 
 ## Current Runtime Readiness
 

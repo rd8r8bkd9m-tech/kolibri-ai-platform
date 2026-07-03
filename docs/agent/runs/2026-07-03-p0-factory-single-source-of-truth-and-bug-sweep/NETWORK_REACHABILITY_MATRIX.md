@@ -105,3 +105,32 @@ Rollback backup for the registry deploy:
 - Do not mark a server scheduleable unless Control Plane heartbeat is fresh and node health is online/non-degraded.
 - Do not claim SSH management works when public-key auth fails.
 - Do not delete stale records during this sweep.
+
+## SSH Identity Standardization Update
+
+Snapshot: 2026-07-03T16:12Z.
+
+Canonical `ssh_access` metadata is now exposed by `/v1/fleet/registry` for every server:
+
+- `home`: `direct_internal`, target `10.99.0.1`, user `ladik`, identity `kolibri_home_repair_20260703_ed25519`.
+- `main`: `internal_via_home`, target `10.99.0.2`, user `root`, identity `kolibri_ai_platform_deploy_ed25519`.
+- `qjns`: `internal_via_home`, target `10.99.0.4`, user `root`, identity `kolibri_ai_platform_deploy_ed25519`.
+- `uiap`, `9fts`, `new`, `primary-candidate`: `internal_via_main`, target is the registry internal IP, user `root`.
+- reserve/agent external-only servers: `external_via_main`, target is the registry external IP, user `root`.
+
+Bootstrap access confirmed:
+
+| Alias | Result |
+| --- | --- |
+| `ssh kolibri-home` | ok, `plastilin`, `ladik`, agent active |
+| `ssh kolibri-main` | ok, `kolibri-main-api`, `root`, agent active |
+| `ssh kolibri-qjns` | ok, `kolibri-tools-executor`, `root`, agent active |
+
+Current key gap:
+
+- The remaining target servers are reachable through the standardized jump path where TCP allows it, but root deploy-key auth is not yet installed on the target hosts.
+- Next repair action is per-host authorized-key bootstrap with backup, not route guessing.
+
+Rollback backup for live registry metadata deploy:
+
+- `/var/backups/kolibri-ssh-access-registry-20260703T161203Z`

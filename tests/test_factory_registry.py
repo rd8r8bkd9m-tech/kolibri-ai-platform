@@ -54,6 +54,9 @@ def test_fabric_node_catalog_exposes_full_canonical_server_inventory():
     assert catalog["agent-10"]["source"] == "registry_catalog"
     assert catalog["agent-10"]["lifecycle"] == "quarantined"
     assert catalog["agent-10"]["network_status_override"] == "provider_network_unreachable"
+    assert catalog["agent-10"]["ssh_access"]["mode"] == "external_via_main"
+    assert catalog["qjns"]["ssh_access"]["mode"] == "internal_via_home"
+    assert catalog["uiap"]["ssh_access"]["mode"] == "internal_via_main"
 
 
 def test_fleet_summary_separates_physical_logical_and_stale_records():

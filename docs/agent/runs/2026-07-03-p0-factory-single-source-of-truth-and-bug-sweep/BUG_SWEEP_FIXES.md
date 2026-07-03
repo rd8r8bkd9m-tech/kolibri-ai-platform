@@ -79,3 +79,13 @@
 - Risk: low; read-only diagnostics and non-scheduleable quarantine metadata only.
 - Rollback: restore `/var/backups/kolibri-agent10-drift-fix-20260703T140705Z` and `/var/backups/kolibri-agent10-quarantine-20260703T140745Z`.
 - Result: live `/v1/fleet/drift` reports `agent-10` as missing and registry-only; live `/v1/fleet/registry` marks it `quarantined`, `provider_network_unreachable`, `safe_to_schedule=false`.
+
+## SSH Access Path Metadata
+
+- Issue: agents and owner commands had to remember ad hoc external/internal SSH paths.
+- Root cause: registry did not expose canonical SSH access mode, jump host, target IP and identity policy.
+- Files changed: `ops/factory_registry.py`, SSH topology generator.
+- Test added: registry exposes `ssh_access` for representative direct, internal-via-home, internal-via-main and external-via-main nodes.
+- Risk: low; metadata only plus local/generated SSH config.
+- Rollback: restore `/var/backups/kolibri-ssh-access-registry-20260703T161203Z`.
+- Result: live `/v1/fleet/registry` returns `ssh_access`; `ssh kolibri-home`, `ssh kolibri-main`, and `ssh kolibri-qjns` work by key.

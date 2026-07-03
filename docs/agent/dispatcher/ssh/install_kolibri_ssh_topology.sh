@@ -51,12 +51,14 @@ Host github.com
   User git
 
 Host kolibri-primary-codex primary-codex primary-candidate kolibri-primary-candidate control-standby primary.kolibri.internal primary-candidate.kolibri.internal
-  HostName 78.17.4.108
+  HostName 10.99.0.10
   User root
+  ProxyJump kolibri-main
 
 Host kolibri-main main control kolibri-main-api kolibri-main-api-direct main.kolibri.internal control.kolibri.internal
-  HostName 104.253.43.117
+  HostName 10.99.0.2
   User root
+  ProxyJump kolibri-home
 
 Host kolibri-home-root home-root coordinator-root home.kolibri.internal-root
   HostName 10.99.0.1
@@ -68,8 +70,9 @@ Host kolibri-home home coordinator plastilin home.kolibri.internal coordinator.k
   User ladik
 
 Host kolibri-uiap uiap rag kolibri-rag-knowledge kolibri-rag-knowledge-direct uiap.kolibri.internal rag.kolibri.internal
-  HostName 31.57.26.151
+  HostName 10.99.0.3
   User root
+  ProxyJump kolibri-main
 
 Host kolibri-qjns qjns tools kolibri-tools-executor kolibri-tools-executor-direct qjns.kolibri.internal tools.kolibri.internal
   HostName 10.99.0.4
@@ -77,68 +80,84 @@ Host kolibri-qjns qjns tools kolibri-tools-executor kolibri-tools-executor-direc
   ProxyJump kolibri-home
 
 Host kolibri-9fts 9fts inference kolibri-inference-recovery kolibri-inference-recovery-direct 9fts.kolibri.internal inference.kolibri.internal
-  HostName 94.183.235.154
+  HostName 10.99.0.5
   User root
+  ProxyJump kolibri-main
 
 Host kolibri-new new worker-backup kolibri-worker-backup kolibri-worker-backup-direct new.kolibri.internal worker-backup.kolibri.internal
-  HostName 109.248.161.39
+  HostName 10.99.0.6
   User root
+  ProxyJump kolibri-main
 
 Host reserve242 kolibri-qa-security qa-security reserve242.kolibri.internal
   HostName 31.57.26.242
   User root
+  ProxyJump kolibri-main
 
 Host hostvds-highload highload kolibri-ci-build-highload ci-build-highload highload.kolibri.internal
   HostName 45.38.139.182
   User root
+  ProxyJump kolibri-main
 
 Host hostvds-agent-01 agent-01 kolibri-backend-lead backend-lead
   HostName 31.57.27.128
   User root
+  ProxyJump kolibri-main
 
 Host hostvds-agent-02 agent-02 kolibri-frontend-design frontend-design
   HostName 213.232.204.223
   User root
+  ProxyJump kolibri-main
 
 Host hostvds-agent-03 agent-03 kolibri-infra-network infra-network
   HostName 188.130.206.204
   User root
+  ProxyJump kolibri-main
 
 Host hostvds-agent-04 agent-04 kolibri-qa-browser qa-browser
   HostName 31.59.41.146
   User root
+  ProxyJump kolibri-main
 
 Host hostvds-agent-05 agent-05 kolibri-security-audit security-audit
   HostName 31.56.196.10
   User root
+  ProxyJump kolibri-main
 
 Host hostvds-agent-06 agent-06 kolibri-docs-knowledge docs-knowledge
   HostName 45.39.33.252
   User root
+  ProxyJump kolibri-main
 
 Host hostvds-agent-07 agent-07 kolibri-formulalm-eval formulalm-eval
   HostName 46.8.225.34
   User root
+  ProxyJump kolibri-main
 
 Host hostvds-agent-08 agent-08 kolibri-rag-eval rag-eval
   HostName 31.59.105.200
   User root
+  ProxyJump kolibri-main
 
 Host hostvds-agent-09 agent-09 kolibri-release-canary release-canary
   HostName 95.182.84.254
   User root
+  ProxyJump kolibri-main
 
 Host hostvds-agent-10 agent-10
   HostName 217.60.38.191
   User root
+  ProxyJump kolibri-main
 
 Host hostvds-paris-highload paris kolibri-paris-build-reserve paris-build-reserve
   HostName 95.182.83.60
   User root
+  ProxyJump kolibri-main
 
 Host server-kfrm kfrm heavy-tests heavy-tests.kolibri.internal
   HostName 217.60.63.31
   User root
+  ProxyJump kolibri-main
 EOF
 } > "${tmp_config}"
 

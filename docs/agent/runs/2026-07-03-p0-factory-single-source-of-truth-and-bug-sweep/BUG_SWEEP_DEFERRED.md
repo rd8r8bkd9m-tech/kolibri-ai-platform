@@ -39,8 +39,8 @@
 
 ## Root SSH Trust Bootstrap
 
-- Reason: TCP/SSH is open on most physical servers, but command-node public-key auth is rejected for checked root targets.
-- Next task: `P0_REPAIR_FACTORY_SSH_TRUST_BOOTSTRAP_20260703`; use owner-approved bootstrap or audited Fabric replacement, with `authorized_keys` backup before any edit.
+- Reason: canonical path metadata is now live and `home`, `main`, `qjns` work by key, but most target root accounts still reject the deploy key.
+- Next task: per-host authorized-key bootstrap from the correct trust path, with backup before any edit.
 - Priority: P0.
 - Owner approval needed: yes before changing root SSH trust broadly.
 

@@ -176,6 +176,51 @@ for index, external_ip in enumerate(
         )
 
 
+def _ssh_access_for_node(node_id: str, data: dict[str, Any]) -> dict[str, Any]:
+    internal_ips = data.get("internal_ips") or []
+    external_ips = data.get("external_ips") or []
+    if node_id == "home":
+        return {
+            "mode": "direct_internal",
+            "target": internal_ips[0],
+            "user": "ladik",
+            "jump": None,
+            "identity": "kolibri_home_repair_20260703_ed25519",
+            "fallback_target": external_ips[0] if external_ips else None,
+        }
+    if node_id == "main":
+        return {
+            "mode": "internal_via_home",
+            "target": internal_ips[0],
+            "user": "root",
+            "jump": "kolibri-home",
+            "identity": "kolibri_ai_platform_deploy_ed25519",
+            "fallback_target": external_ips[0] if external_ips else None,
+        }
+    if internal_ips:
+        jump = "kolibri-home" if node_id == "qjns" else "kolibri-main"
+        return {
+            "mode": f"internal_via_{jump.removeprefix('kolibri-')}",
+            "target": internal_ips[0],
+            "user": "root",
+            "jump": jump,
+            "identity": "kolibri_ai_platform_deploy_ed25519",
+            "fallback_target": external_ips[0] if external_ips else None,
+        }
+    return {
+        "mode": "external_via_main",
+        "target": external_ips[0] if external_ips else None,
+        "user": "root",
+        "jump": "kolibri-main",
+        "identity": "kolibri_ai_platform_deploy_ed25519",
+        "fallback_target": None,
+    }
+
+
+for _node_id, _node_data in CANONICAL_NODE_REGISTRY.items():
+    _node_data["ssh_access"] = _ssh_access_for_node(_node_id, _node_data)
+
+
 NODE_ALIAS_MAP: dict[str, str] = {
     "home-live": "home",
     "primary": "primary-candidate",
@@ -494,6 +539,7 @@ def fabric_node_catalog() -> dict[str, dict[str, Any]]:
                 "lifecycle": data.get("lifecycle", "active"),
                 "network_status_override": data.get("network_status_override"),
                 "repair_required": data.get("repair_required"),
+                "ssh_access": data.get("ssh_access"),
             }
         )
         for node_id, data in CANONICAL_NODE_REGISTRY.items()
