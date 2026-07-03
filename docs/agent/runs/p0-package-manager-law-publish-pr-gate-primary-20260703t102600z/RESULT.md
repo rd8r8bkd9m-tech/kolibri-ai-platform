@@ -1,8 +1,14 @@
 # P0 Package Manager Law Publish PR Gate Result
 
-Status: publish gate in progress.
+Status: complete.
 
 Branch: `codex/p0_factory_package_manager_law_and_gate_primary_20260703t101100z`
+
+Draft PR:
+
+```text
+https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/157
+```
 
 Implementation commit verified before publish-gate artifact commit:
 
@@ -22,4 +28,20 @@ Implementation diff from `origin/main`:
 - `ops/agent_host.py`
 - `tests/test_agent_host_runner_contract.py`
 
-Focused validation passed. PR URL, final branch SHA, and CI status are recorded after push/PR creation.
+Focused validation passed.
+
+Publish-gate artifact commit before this result update:
+
+```text
+5b637e910b77801f52a88d3710058f90892764b5 docs: add package manager law publish gate artifacts
+```
+
+GitHub PR state observed after opening:
+
+- PR #157 is open and draft.
+- Base: `main`.
+- Head: `codex/p0_factory_package_manager_law_and_gate_primary_20260703t101100z`.
+- Mergeable: `true`.
+- Kolibri CI run `28655154172` was `in_progress` when checked.
+
+The final task response records the post-result-update branch SHA and latest available CI status.
