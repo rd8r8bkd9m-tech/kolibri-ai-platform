@@ -15,6 +15,7 @@ import socket
 import sys
 import time
 import uuid
+from collections import Counter
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -50,6 +51,22 @@ def factory_ops_import_paths() -> list[Path]:
 for ops_path in reversed(factory_ops_import_paths()):
     if ops_path.exists() and str(ops_path) not in sys.path:
         sys.path.insert(0, str(ops_path))
+from factory_registry import (
+    CAPABILITY_ALIASES,
+    PORT_REGISTRY,
+    RUNNER_REGISTRY,
+    SERVICE_ENDPOINT_REGISTRY,
+    SOURCE_OF_TRUTH_VERSION,
+    capability_satisfied,
+    canonical_node_id,
+    decorate_node,
+    fabric_node_catalog,
+    fleet_drift,
+    fleet_summary,
+    node_aliases,
+    target_node_matches,
+    validate_registry,
+)
 from telegram_superfactory import plan_update_receiver, runner_policy, select_runner, validate_telegram_init_data
 
 
@@ -87,52 +104,20 @@ STATE_CANCELLED = "cancelled"
 STATE_RETRY = "retry_scheduled"
 STATE_DEAD = "dead_letter"
 TERMINAL_STATES = {STATE_COMPLETED, STATE_FAILED, STATE_CANCELLED, STATE_DEAD}
-BLOCKED_RUNNER_STATES = {"blocked", "degraded", "runner_auth_blocked", "unavailable"}
-
-FABRIC_NODE_CATALOG = {
-    "home": {
-        "node_id": "home",
-        "role": "command_node_gateway",
-        "display_name": "Связной",
-        "api_paths": ["fabric_api", "fallback_relay"],
-        "ssh": "emergency_bootstrap_diagnostic_only",
-    },
-    "main": {
-        "node_id": "main",
-        "role": "control_plane",
-        "display_name": "Директор",
-        "api_paths": ["fabric_api", "control_plane_api", "artifact_api"],
-        "ssh": "emergency_bootstrap_diagnostic_only",
-    },
-    "uiap": {
-        "node_id": "uiap",
-        "role": "knowledge_model_node",
-        "display_name": "Знания",
-        "api_paths": ["fabric_api", "fallback_relay"],
-        "ssh": "emergency_bootstrap_diagnostic_only",
-    },
-    "qjns": {
-        "node_id": "qjns",
-        "role": "remote_agent",
-        "display_name": "Тестировщик",
-        "api_paths": ["fabric_api", "agent_host_api", "fallback_relay"],
-        "ssh": "emergency_bootstrap_diagnostic_only",
-    },
-    "9fts": {
-        "node_id": "9fts",
-        "role": "implementation_model_node",
-        "display_name": "Инженер",
-        "api_paths": ["fabric_api", "agent_host_api", "model_node_api", "fallback_relay"],
-        "ssh": "emergency_bootstrap_diagnostic_only",
-    },
-    "new": {
-        "node_id": "new",
-        "role": "review_agent",
-        "display_name": "Ревьюер",
-        "api_paths": ["fabric_api", "agent_host_api", "fallback_relay"],
-        "ssh": "emergency_bootstrap_diagnostic_only",
-    },
+BLOCKED_RUNNER_STATES = {
+    "blocked",
+    "degraded",
+    "runner_access_denied",
+    "runner_auth_blocked",
+    "runner_auth_failed",
+    "runner_policy_blocked",
+    "runner_unavailable",
+    "unavailable",
 }
+DEFAULT_TASK_LIST_LIMIT = int(os.environ.get("FACTORY_TASK_LIST_LIMIT", "200"))
+MAX_TASK_LIST_LIMIT = int(os.environ.get("FACTORY_TASK_LIST_MAX_LIMIT", "1000"))
+
+FABRIC_NODE_CATALOG = fabric_node_catalog()
 
 OWNER_RIGHTS_POLICY = {
     "policy_id": "kolibri-owner-full-control-api",
@@ -531,7 +516,7 @@ def fabric_blocked_envelope(
 
 
 def _node_online(node: dict[str, Any]) -> bool:
-    return node.get("health") == "online"
+    return node.get("health") == "online" and node.get("freshness", "fresh") == "fresh" and not node.get("draining")
 
 
 def fabric_nodes(registered_nodes: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
@@ -540,7 +525,12 @@ def fabric_nodes(registered_nodes: list[dict[str, Any]] | None = None) -> list[d
         node_id = str(registered.get("node_id") or registered.get("id") or "")
         if not node_id:
             continue
-        catalog = merged.get(node_id, {"node_id": node_id, "api_paths": ["fabric_api", "fallback_relay"], "ssh": "emergency_bootstrap_diagnostic_only"})
+        canonical = canonical_node_id(node_id)
+        catalog = merged.get(canonical if canonical in merged and node_id.startswith("mesh-") else node_id, {
+            "node_id": node_id,
+            "api_paths": ["fabric_api", "fallback_relay"],
+            "ssh": "emergency_bootstrap_diagnostic_only",
+        })
         catalog.update(registered)
         catalog.setdefault("display_name", registered.get("hostname") or node_id)
         catalog.setdefault("api_paths", ["fabric_api", "fallback_relay"])
@@ -550,7 +540,7 @@ def fabric_nodes(registered_nodes: list[dict[str, Any]] | None = None) -> list[d
         node.setdefault("health", "unknown")
         node.setdefault("fallback_api_relay", "/v1/fabric/relay")
         node.setdefault("management_path", "protected_fabric_api")
-    return sorted(merged.values(), key=lambda item: item["node_id"])
+    return sorted((decorate_node(node) for node in merged.values()), key=lambda item: item["node_id"])
 
 
 def fabric_route(
@@ -563,15 +553,15 @@ def fabric_route(
     online = [node for node in nodes if _node_online(node)]
     candidates = nodes
     if target_node:
-        candidates = [node for node in candidates if node.get("node_id") == target_node]
+        candidates = [node for node in candidates if target_node_matches(target_node, node.get("node_id"))]
     if required_capability:
-        candidates = [node for node in candidates if required_capability in (node.get("capabilities") or [])]
+        candidates = [node for node in candidates if capability_satisfied(required_capability, node.get("capabilities") or [])]
     direct = next((node for node in candidates if _node_online(node)), None)
     fallback_nodes = [
         node["node_id"]
         for node in online
-        if node.get("node_id") != target_node
-        and (not required_capability or required_capability in (node.get("capabilities") or []))
+        if not target_node_matches(target_node, node.get("node_id"))
+        and (not required_capability or capability_satisfied(required_capability, node.get("capabilities") or []))
     ]
     if direct:
         return {
@@ -673,7 +663,13 @@ def runner_state(node: dict[str, Any], runner: str) -> str | None:
 
 def mark_node_runner_failure(task: dict[str, Any], body: dict[str, Any]) -> None:
     error_type = body.get("error_type")
-    if error_type not in {"runner_auth_blocked", "runner_unavailable"}:
+    if error_type not in {
+        "runner_access_denied",
+        "runner_auth_blocked",
+        "runner_auth_failed",
+        "runner_policy_blocked",
+        "runner_unavailable",
+    }:
         return
     result = body.get("result") if isinstance(body.get("result"), dict) else {}
     envelope = task.get("envelope", {})
@@ -687,7 +683,7 @@ def mark_node_runner_failure(task: dict[str, Any], body: dict[str, Any]) -> None
     node = get_json(node_key(node_id), {"node_id": node_id})
     runners = node.get("runners") if isinstance(node.get("runners"), dict) else {}
     runners[str(runner)] = {
-        "status": "blocked" if error_type == "runner_auth_blocked" else "unavailable",
+        "status": "blocked" if error_type != "runner_unavailable" else "unavailable",
         "error_type": error_type,
         "updated_at": utc_now(),
     }
@@ -698,25 +694,188 @@ def mark_node_runner_failure(task: dict[str, Any], body: dict[str, Any]) -> None
 def compatible(task: dict[str, Any], node_id: str, capabilities: list[str], node: dict[str, Any] | None = None) -> bool:
     envelope = task.get("envelope", {})
     target_node = envelope.get("target_node") or envelope.get("required_node")
-    if target_node and target_node != node_id:
-        return False
     allowed = envelope.get("allowed_nodes")
-    if allowed and node_id not in allowed:
+    target_matches = not target_node or target_node_matches(target_node, node_id)
+    allowed_matches = not allowed or any(target_node_matches(allowed_node, node_id) for allowed_node in ensure_list(allowed))
+    if target_node and not target_matches and not (allowed and allowed_matches):
+        return False
+    if allowed and not allowed_matches:
         return False
     avoided = set(str(item) for item in ensure_list(envelope.get("avoid_nodes") or envelope.get("avoided_nodes")))
-    if node_id in avoided:
+    if node_id in avoided or any(target_node_matches(avoided_node, node_id) for avoided_node in avoided):
         return False
     required = envelope.get("required_capability")
-    if required and required not in capabilities:
+    if required and not capability_satisfied(required, capabilities):
         return False
     runner = str(envelope.get("runner") or "").strip().lower()
-    if envelope.get("kind") == "owner_remote_task" and runner:
+    if runner:
         if not runner_capability_names(runner).intersection(set(capabilities)):
             return False
         node_state = runner_state(node or {}, runner)
         if node_state in BLOCKED_RUNNER_STATES:
             return False
     return True
+
+
+def task_node_blockers(task: dict[str, Any], node: dict[str, Any]) -> list[str]:
+    blockers: list[str] = []
+    envelope = task.get("envelope", {})
+    node_id = str(node.get("node_id") or "")
+    state = task.get("state")
+    if state not in {STATE_QUEUED, STATE_REVIEW}:
+        blockers.append("task_not_queued")
+    if node.get("draining"):
+        blockers.append("node_draining")
+    freshness = node.get("freshness", "fresh")
+    if freshness == "stale" or node.get("health") == "stale":
+        blockers.append("node_stale")
+    elif freshness == "degraded" or node.get("health") == "degraded":
+        blockers.append("node_degraded")
+    elif node.get("health") not in {"online", None, "unknown"}:
+        blockers.append("node_offline")
+
+    allowed = ensure_list(envelope.get("allowed_nodes"))
+    target_node = envelope.get("target_node") or envelope.get("required_node")
+    allowed_matches = not allowed or any(target_node_matches(allowed_node, node_id) for allowed_node in allowed)
+    target_matches = not target_node or target_node_matches(target_node, node_id)
+    if allowed and not allowed_matches:
+        blockers.append("node_not_allowed")
+    if target_node and not target_matches and not allowed_matches:
+        blockers.append("target_mismatch")
+
+    avoided = ensure_list(envelope.get("avoid_nodes") or envelope.get("avoided_nodes"))
+    if any(target_node_matches(avoided_node, node_id) for avoided_node in avoided):
+        blockers.append("node_avoided")
+
+    capabilities = node.get("capabilities") or []
+    required = envelope.get("required_capability")
+    if required and not capability_satisfied(required, capabilities):
+        blockers.append("missing_capability")
+
+    runner = str(envelope.get("runner") or "").strip().lower()
+    if runner:
+        if not runner_capability_names(runner).intersection(set(capabilities)):
+            blockers.append("missing_runner_capability")
+        node_state = runner_state(node, runner)
+        if node_state in BLOCKED_RUNNER_STATES:
+            blockers.append("runner_blocked")
+    return blockers
+
+
+def task_lease_diagnosis(task: dict[str, Any], nodes: list[dict[str, Any]]) -> dict[str, Any]:
+    envelope = task.get("envelope", {})
+    candidates = []
+    blocked_candidates = []
+    for node in nodes:
+        blockers = task_node_blockers(task, node)
+        node_id = node.get("node_id")
+        candidate = {
+            "node_id": node_id,
+            "canonical_node_id": node.get("canonical_node_id") or canonical_node_id(node_id),
+            "health": node.get("health"),
+            "freshness": node.get("freshness", "fresh"),
+            "blockers": blockers,
+        }
+        if blockers:
+            blocked_candidates.append(candidate)
+        else:
+            candidates.append(candidate)
+
+    reason = "leaseable" if candidates else "no_matching_node"
+    if not candidates:
+        flattened = [blocker for candidate in blocked_candidates for blocker in candidate["blockers"]]
+        priority = [
+            "task_not_queued",
+            "target_mismatch",
+            "node_not_allowed",
+            "missing_capability",
+            "missing_runner_capability",
+            "runner_blocked",
+            "node_draining",
+            "node_stale",
+            "node_degraded",
+            "node_offline",
+        ]
+        reason = next((item for item in priority if item in flattened), reason)
+
+    return {
+        "task_id": task.get("task_id"),
+        "state": task.get("state"),
+        "target_node": envelope.get("target_node") or envelope.get("required_node"),
+        "allowed_nodes": ensure_list(envelope.get("allowed_nodes")),
+        "required_capability": envelope.get("required_capability"),
+        "runner": envelope.get("runner"),
+        "status": "leaseable" if candidates else "blocked",
+        "reason": reason,
+        "matching_nodes": candidates,
+        "blocked_candidates": blocked_candidates[:20],
+        "can_reroute": bool(candidates),
+    }
+
+
+def queue_diagnostics() -> dict[str, Any]:
+    queue = queue_ids()
+    queue_counts = Counter(queue)
+    duplicate_slots = {task_id: count for task_id, count in queue_counts.items() if count > 1}
+    unique_queue = list(dict.fromkeys(queue))
+    nodes = fabric_nodes(registered_nodes())
+    diagnostics = []
+    state_counts: dict[str, int] = {}
+    queue_state_counts: dict[str, int] = {}
+    missing_queue_records = []
+    for task_id in all_task_ids():
+        task = load_task(task_id)
+        if not task:
+            continue
+        state = str(task.get("state") or "unknown")
+        state_counts[state] = state_counts.get(state, 0) + 1
+    for task_id in unique_queue:
+        task = load_task(task_id)
+        if not task:
+            missing_queue_records.append(task_id)
+            continue
+        state = str(task.get("state") or "unknown")
+        queue_state_counts[state] = queue_state_counts.get(state, 0) + 1
+        diagnostics.append(task_lease_diagnosis(task, nodes))
+    leaseable = [item for item in diagnostics if item["status"] == "leaseable"]
+    blocked = [item for item in diagnostics if item["status"] == "blocked"]
+    queued_state_minus_queue = max(0, state_counts.get(STATE_QUEUED, 0) + state_counts.get(STATE_REVIEW, 0) - len(unique_queue))
+    return {
+        "source_of_truth_version": SOURCE_OF_TRUTH_VERSION,
+        "generated_at": utc_now(),
+        "queue_total": len(queue),
+        "queue_unique": len(unique_queue),
+        "queue_duplicate_slots": duplicate_slots,
+        "task_ids_total": sum(state_counts.values()),
+        "state_counts": state_counts,
+        "queue_state_counts": queue_state_counts,
+        "leaseable": len(leaseable),
+        "blocked": len(blocked),
+        "missing_queue_records": missing_queue_records[:50],
+        "missing_queue_records_total": len(missing_queue_records),
+        "queued_state_minus_queue": queued_state_minus_queue,
+        "lease_diagnostics": diagnostics,
+    }
+
+
+def bounded_tasks(tasks: list[dict[str, Any]], query: dict[str, list[str]]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    try:
+        limit = int(query.get("limit", [DEFAULT_TASK_LIST_LIMIT])[0])
+    except (TypeError, ValueError):
+        limit = DEFAULT_TASK_LIST_LIMIT
+    limit = max(1, min(limit, MAX_TASK_LIST_LIMIT))
+    try:
+        offset = int(query.get("offset", ["0"])[0])
+    except (TypeError, ValueError):
+        offset = 0
+    offset = max(0, offset)
+    return tasks[offset:offset + limit], {
+        "matched_total": len(tasks),
+        "returned": min(limit, max(0, len(tasks) - offset)),
+        "limit": limit,
+        "offset": offset,
+        "total_task_ids": len(all_task_ids()),
+    }
 
 
 def requeue_expired_leases() -> None:
@@ -906,9 +1065,9 @@ class Handler(BaseHTTPRequestHandler):
                 for node_id in sorted(redis.command("SMEMBERS", key("node_ids")) or []):
                     node = get_json(node_key(node_id), {})
                     node["draining"] = bool(redis.command("GET", drain_key(node_id)))
-                    nodes.append(classify_node_freshness(node, current))
+                    nodes.append(decorate_node(classify_node_freshness(node, current)))
                 counts = node_health_counts(nodes)
-                response(self, 200, {"nodes": nodes, "counts": counts, "freshness": counts})
+                response(self, 200, {"nodes": nodes, "counts": counts, "freshness": counts, "summary": fleet_summary(nodes)})
                 return
             if path == "/v1/fleet/nodes":
                 nodes = fabric_nodes(registered_nodes())
@@ -917,6 +1076,48 @@ class Handler(BaseHTTPRequestHandler):
                     route_used="/v1/fleet/nodes",
                     data={"nodes": nodes},
                     next_action="select a target node or ask /v1/fleet/route for a safe route",
+                ))
+                return
+            if path == "/v1/fleet/summary":
+                nodes = fabric_nodes(registered_nodes())
+                response(self, 200, canonical_response_envelope(
+                    status="completed",
+                    route_used="/v1/fleet/summary",
+                    data={"summary": fleet_summary(nodes), "source_of_truth_version": SOURCE_OF_TRUTH_VERSION},
+                    next_action="use /v1/fleet/nodes for detailed node records or /v1/tasks/queue/diagnostics for queue state",
+                ))
+                return
+            if path == "/v1/fleet/registry":
+                response(self, 200, canonical_response_envelope(
+                    status="completed",
+                    route_used="/v1/fleet/registry",
+                    data={
+                        "source_of_truth_version": SOURCE_OF_TRUTH_VERSION,
+                        "nodes": FABRIC_NODE_CATALOG,
+                        "capability_aliases": {key: sorted(value) for key, value in CAPABILITY_ALIASES.items()},
+                        "runners": RUNNER_REGISTRY,
+                        "services": SERVICE_ENDPOINT_REGISTRY,
+                        "ports": PORT_REGISTRY,
+                    },
+                    next_action="validate with /v1/registry/validate before rollout",
+                ))
+                return
+            if path == "/v1/fleet/drift":
+                nodes = fabric_nodes(registered_nodes())
+                response(self, 200, canonical_response_envelope(
+                    status="completed",
+                    route_used="/v1/fleet/drift",
+                    data=fleet_drift(nodes),
+                    next_action="create repair tasks for stale, unknown, or missing records",
+                ))
+                return
+            if path == "/v1/registry/validate":
+                errors = validate_registry()
+                response(self, 200 if not errors else 500, canonical_response_envelope(
+                    status="completed" if not errors else "failed",
+                    route_used="/v1/registry/validate",
+                    data={"ok": not errors, "errors": errors, "source_of_truth_version": SOURCE_OF_TRUTH_VERSION},
+                    next_action="keep registry as the first read for technical answers" if not errors else "fix registry errors before rollout",
                 ))
                 return
             if path == "/v1/fleet/topology":
@@ -1000,7 +1201,26 @@ class Handler(BaseHTTPRequestHandler):
                 wanted = query.get("state", [None])[0]
                 tasks = [load_task(task_id) for task_id in all_task_ids()]
                 tasks = [task for task in tasks if task and (wanted is None or task.get("state") == wanted)]
+                if query.get("summary") or query.get("compact") or query.get("limit") or query.get("offset"):
+                    page, pagination = bounded_tasks(tasks, query)
+                    if query.get("compact"):
+                        page = [
+                            {
+                                "task_id": task.get("task_id"),
+                                "state": task.get("state"),
+                                "target_node": (task.get("envelope") or {}).get("target_node"),
+                                "required_capability": (task.get("envelope") or {}).get("required_capability"),
+                                "runner": (task.get("envelope") or {}).get("runner"),
+                                "updated_at": task.get("updated_at"),
+                            }
+                            for task in page
+                        ]
+                    response(self, 200, {"tasks": page, "queue": queue_ids(), "pagination": pagination, "diagnostics": queue_diagnostics()})
+                    return
                 response(self, 200, {"tasks": tasks, "queue": queue_ids()})
+                return
+            if path == "/v1/tasks/queue/diagnostics":
+                response(self, 200, queue_diagnostics())
                 return
             if path.startswith("/v1/tasks/"):
                 task_id = path.split("/", 3)[3]

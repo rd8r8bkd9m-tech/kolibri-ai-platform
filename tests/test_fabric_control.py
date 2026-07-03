@@ -69,6 +69,26 @@ def test_fabric_route_returns_structured_blocked_status_with_fallback_and_repair
     assert route["can_continue_elsewhere"] is True
 
 
+def test_fabric_summary_registry_and_drift_use_single_source_of_truth():
+    control = load_control()
+    nodes = control.fabric_nodes(
+        [
+            {"node_id": "home-live", "health": "online", "freshness": "fresh", "capabilities": ["home"]},
+            {"node_id": "mesh-agent-01", "health": "online", "freshness": "fresh", "capabilities": ["runner:mimo"]},
+            {"node_id": "stale-old", "health": "stale", "freshness": "stale"},
+        ]
+    )
+    summary = control.fleet_summary(nodes)
+    drift = control.fleet_drift(nodes)
+
+    assert control.validate_registry() == []
+    assert summary["logical_workers_total"] == 1
+    assert summary["physical_servers_total"] >= 1
+    assert "stale-old" in drift["control_plane_records_not_in_registry"]
+    assert "frontend_dev" in control.SERVICE_ENDPOINT_REGISTRY
+    assert 5173 in control.PORT_REGISTRY
+
+
 def test_owner_policy_requires_auth_scope_logging_and_rotation():
     control = load_control()
 

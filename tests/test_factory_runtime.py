@@ -137,3 +137,60 @@ def test_control_plane_runner_compatibility_filters_blocked_and_avoided_nodes():
         ["generic_implementation", "runner:mimo"],
         {"runners": {"mimo": {"status": "available"}}},
     ) is False
+
+
+def test_control_plane_matches_canonical_mesh_aliases_without_agent_alias_drift():
+    control = load_module(ROOT / "ops" / "factory_control.py")
+    home_task = control.normalize_task({"target_node": "home-live"})
+    agent_task = control.normalize_task({"target_node": "mesh-agent-01"})
+
+    assert control.compatible(home_task, "mesh-home", [], {"health": "online"}) is True
+    assert control.compatible(home_task, "home", [], {"health": "online"}) is True
+    assert control.compatible(agent_task, "agent-01", [], {"health": "online"}) is False
+
+
+def test_control_plane_allows_explicit_allowed_node_fallback_from_target():
+    control = load_module(ROOT / "ops" / "factory_control.py")
+    task = control.normalize_task({
+        "target_node": "home-live",
+        "allowed_nodes": ["home-live", "home"],
+        "required_capability": "home",
+    })
+
+    assert control.compatible(task, "home", ["home"], {"health": "online"}) is True
+    assert control.compatible(task, "qjns", ["home"], {"health": "online"}) is False
+
+
+def test_control_plane_capability_aliases_cover_devops_and_github_review():
+    control = load_module(ROOT / "ops" / "factory_control.py")
+
+    devops_task = control.normalize_task({"required_capability": "devops"})
+    review_task = control.normalize_task({"required_capability": "github_review"})
+
+    assert control.compatible(devops_task, "main", ["permission:*"], {"health": "online"}) is True
+    assert control.compatible(review_task, "new", ["generic_review"], {"health": "online"}) is True
+    assert control.compatible(review_task, "main", ["runner:codex"], {"health": "online"}) is False
+
+
+def test_control_plane_queue_diagnosis_explains_unleaseable_tasks():
+    control = load_module(ROOT / "ops" / "factory_control.py")
+    task = control.normalize_task({
+        "task_id": "DIAG-1",
+        "target_node": "new",
+        "allowed_nodes": ["new"],
+        "required_capability": "review",
+        "runner": "codex",
+    })
+    node = {
+        "node_id": "new",
+        "health": "online",
+        "freshness": "fresh",
+        "capabilities": ["generic_review"],
+        "runners": {"codex": {"status": "blocked"}},
+    }
+
+    diagnosis = control.task_lease_diagnosis(task, [node])
+
+    assert diagnosis["status"] == "blocked"
+    assert diagnosis["reason"] in {"missing_runner_capability", "runner_blocked"}
+    assert diagnosis["blocked_candidates"][0]["blockers"] == ["missing_runner_capability", "runner_blocked"]
