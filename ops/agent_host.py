@@ -617,6 +617,32 @@ def verify_required_artifacts(envelope: dict[str, Any], worktree: Path | None, a
     return present, missing
 
 
+def required_artifact_contract_paths(envelope: dict[str, Any]) -> list[str]:
+    paths: list[str] = []
+    for spec in envelope_list(envelope, *REQUIRED_ARTIFACT_KEYS):
+        spec_path = artifact_spec_path(spec)
+        if spec_path:
+            paths.append(spec_path)
+    run_dir = canonical_run_artifact_dir(envelope)
+    if run_dir:
+        paths.extend(canonical_run_artifact_paths(run_dir))
+    return list(dict.fromkeys(paths))
+
+
+def owner_remote_task_prompt_with_artifact_contract(prompt: str, envelope: dict[str, Any]) -> str:
+    paths = required_artifact_contract_paths(envelope)
+    if not paths:
+        return prompt
+    path_lines = "\n".join(f"- {path}" for path in paths)
+    return (
+        f"{prompt.rstrip()}\n\n"
+        "Artifact contract:\n"
+        "Create or update non-empty files at these exact paths, relative to the repository worktree, before finalizing. "
+        "Do not substitute a nearby directory, a differently named run folder, or prose-only output.\n"
+        f"{path_lines}"
+    )
+
+
 def result_artifact_text(filename: str, result: dict[str, Any]) -> str | None:
     if filename == "result.json":
         return json.dumps(result, indent=2, sort_keys=True) + "\n"
@@ -1738,6 +1764,57 @@ class AgentHost:
                 base_ref=checkout_base,
             )
 
+    @staticmethod
+    def usable_git_worktree(worktree: Path) -> bool:
+        return worktree.is_dir() and (worktree / ".git").exists() and any(worktree.iterdir())
+
+    def owner_remote_bootstrap_source(self) -> str:
+        runtime_repo = os.environ.get("KOLIBRI_RUNTIME_REPO")
+        if runtime_repo:
+            runtime_path = Path(runtime_repo).expanduser()
+            if runtime_path.is_dir() and (runtime_path / ".git").exists():
+                return str(runtime_path)
+        return os.environ.get("KOLIBRI_REPO_URL") or self.repo_url
+
+    def bootstrap_owner_remote_worktree(
+        self,
+        task: dict[str, Any],
+        worktree: Path,
+        stdout_path: Path,
+        stderr_path: Path,
+        branch: str | None,
+        base_ref: str | None,
+        logs: dict[str, str],
+    ) -> None:
+        if self.usable_git_worktree(worktree):
+            return
+        if worktree.exists():
+            shutil.rmtree(worktree)
+        worktree.parent.mkdir(parents=True, exist_ok=True)
+        source = self.owner_remote_bootstrap_source()
+        git_env = {"GIT_TERMINAL_PROMPT": "0"}
+        checkout_base = base_ref or "HEAD"
+        try:
+            self.run_command(["git", "clone", source, str(worktree)], worktree.parent, stdout_path, stderr_path, task, branch, logs, git_env)
+            if branch or base_ref:
+                self.run_command(["git", "fetch", "origin"], worktree, stdout_path, stderr_path, task, branch, logs, git_env)
+            if branch:
+                self.run_command(["git", "checkout", "-B", branch, checkout_base], worktree, stdout_path, stderr_path, task, branch, logs, git_env)
+            elif base_ref:
+                self.run_command(["git", "checkout", checkout_base], worktree, stdout_path, stderr_path, task, branch, logs, git_env)
+        except Exception as exc:
+            raise WorktreeCheckoutError(
+                f"worktree_bootstrap_failed: unable to bootstrap owner_remote_task worktree from runtime repo or repo URL for base_ref={checkout_base} branch={branch or ''}",
+                branch=branch,
+                base_ref=checkout_base,
+            ) from exc
+        if not self.usable_git_worktree(worktree):
+            raise WorktreeCheckoutError(
+                f"worktree_bootstrap_failed: bootstrap produced empty or non-git owner_remote_task worktree for base_ref={checkout_base} branch={branch or ''}",
+                branch=branch,
+                base_ref=checkout_base,
+            )
+
     def run_read_only_probe(self, task: dict[str, Any]) -> dict[str, Any]:
         worktree, artifact_dir, logs = self.prepare_dirs(task)
         worktree.mkdir(parents=True, exist_ok=True)
@@ -1829,9 +1906,10 @@ class AgentHost:
 
     def run_owner_remote_task(self, task: dict[str, Any]) -> dict[str, Any]:
         envelope = task.get("envelope", {})
-        prompt = (envelope.get("objective") or envelope.get("message") or "").strip()
-        if not prompt:
+        base_prompt = (envelope.get("objective") or envelope.get("message") or "").strip()
+        if not base_prompt:
             raise RuntimeError("owner_remote_task missing objective")
+        prompt = owner_remote_task_prompt_with_artifact_contract(base_prompt, envelope)
         runner = requested_runner_for_envelope(envelope, "mimo") or "mimo"
         if runner not in SUPPORTED_AI_RUNNERS:
             raise RunnerExecutionError("runner_unavailable", runner, f"unsupported runner requested: {runner}")
@@ -1842,7 +1920,15 @@ class AgentHost:
             worktree.parent.mkdir(parents=True, exist_ok=True)
             self.checkout_worktree(task, worktree, stdout_path, stderr_path, envelope.get("branch"), envelope.get("base_ref", "origin/main"), logs)
         else:
-            worktree.mkdir(parents=True, exist_ok=True)
+            self.bootstrap_owner_remote_worktree(
+                task,
+                worktree,
+                stdout_path,
+                stderr_path,
+                envelope.get("branch"),
+                envelope.get("base_ref"),
+                logs,
+            )
         self.task_heartbeat(task, worktree, envelope.get("branch"), logs)
         response_text = self.run_requested_ai_runner(
             runner,

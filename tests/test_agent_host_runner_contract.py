@@ -78,6 +78,17 @@ def write_local_python_package(package_root, package_name):
     (package_dir / "__init__.py").write_text("VALUE = 'backend-env-ok'\n", encoding="utf-8")
 
 
+def write_runtime_repo(repo_root):
+    repo_root.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q"], cwd=repo_root, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=repo_root, check=True)
+    subprocess.run(["git", "config", "user.name", "Test Runner"], cwd=repo_root, check=True)
+    (repo_root / "README.md").write_text("runtime repo\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=repo_root, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "seed runtime repo"], cwd=repo_root, check=True)
+    return repo_root
+
+
 def finalize(agent_host, tmp_path, envelope=None, changed_files=None, push_attempted=None):
     worktree, artifact_dir = make_paths(tmp_path)
     task = make_task(envelope or {})
@@ -260,6 +271,59 @@ def test_required_result_json_can_complete_from_artifact_dir(tmp_path):
     assert result["required_artifacts_present"] == ["result.json"]
     assert result["required_artifacts_missing"] == []
     assert result["materialized_result_artifacts"] == ["result.json"]
+
+
+def test_owner_remote_task_bootstraps_empty_worktree_and_accepts_exact_required_artifacts(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    runtime_repo = write_runtime_repo(tmp_path / "runtime-repo")
+    monkeypatch.setenv("KOLIBRI_RUNTIME_REPO", str(runtime_repo))
+    monkeypatch.setattr(agent_host.shutil, "which", lambda name: "/usr/bin/codex" if name == "codex" else None)
+
+    class Host(agent_host.AgentHost):
+        def __init__(self):
+            super().__init__(make_args(tmp_path, capabilities="generic_implementation,runner:codex"))
+            self.posts = []
+            self.runner_cwds = []
+            self.runner_prompts = []
+
+        def post(self, path, body):
+            self.posts.append((path, body))
+            return body
+
+        def run_command(self, command, cwd, stdout_path, stderr_path, task, branch, logs, env=None, command_label=None):
+            if command[:2] == ["git", "clone"]:
+                return super().run_command(command, cwd, stdout_path, stderr_path, task, branch, logs, env, command_label)
+            assert command[:2] == ["/usr/bin/codex", "exec"]
+            self.runner_cwds.append(cwd)
+            self.runner_prompts.append(command[-1])
+            required = cwd / "docs" / "agent" / "runs" / "boot" / "RESULT.md"
+            required.parent.mkdir(parents=True)
+            required.write_text("codex wrote exact required artifact\n", encoding="utf-8")
+            stdout_path.write_text(json.dumps({"part": {"type": "text", "text": "done"}}) + "\n", encoding="utf-8")
+            stderr_path.write_text("", encoding="utf-8")
+
+    task = make_task({
+        "kind": "owner_remote_task",
+        "required_capability": "generic_implementation",
+        "runner": "codex",
+        "objective": "Repair the thing",
+        "required_artifacts": ["docs/agent/runs/boot/RESULT.md"],
+    })
+    task["kind"] = "owner_remote_task"
+
+    host = Host()
+    host.run_task(task)
+
+    assert len(host.runner_cwds) == 1
+    worktree = host.runner_cwds[0]
+    assert (worktree / ".git").exists()
+    assert (worktree / "README.md").read_text(encoding="utf-8") == "runtime repo\n"
+    assert "docs/agent/runs/boot/RESULT.md" in host.runner_prompts[0]
+    complete_body = [body for path, body in host.posts if path.endswith("/complete")][0]
+    result = complete_body["result"]
+    assert result["status"] == "completed"
+    assert result["required_artifacts_present"] == ["docs/agent/runs/boot/RESULT.md"]
+    assert result["required_artifacts_missing"] == []
 
 
 def test_required_result_and_next_markdown_materialize_from_result_payload(tmp_path):
@@ -464,6 +528,8 @@ def test_owner_remote_task_with_mimo_invokes_mimo_not_codex(tmp_path, monkeypatc
 
 def test_owner_remote_task_runner_auth_failure_is_structured_and_redacted(tmp_path, monkeypatch):
     agent_host = load_agent_host()
+    runtime_repo = write_runtime_repo(tmp_path / "runtime-repo")
+    monkeypatch.setenv("KOLIBRI_RUNTIME_REPO", str(runtime_repo))
     monkeypatch.setattr(agent_host.shutil, "which", lambda name: "/usr/bin/codex" if name == "codex" else None)
     leaked = "refresh_token=SECRET_REFRESH_TOKEN_123"
 
@@ -477,6 +543,8 @@ def test_owner_remote_task_runner_auth_failure_is_structured_and_redacted(tmp_pa
             return body
 
         def run_command(self, command, cwd, stdout_path, stderr_path, task, branch, logs, env=None, command_label=None):
+            if command[:2] == ["git", "clone"]:
+                return super().run_command(command, cwd, stdout_path, stderr_path, task, branch, logs, env, command_label)
             del command, cwd, stdout_path, task, branch, logs, env
             stderr_path.write_text(f"401 unauthorized {leaked}\n", encoding="utf-8")
             raise RuntimeError(f"command failed with rc=1: {command_label}")
@@ -689,6 +757,8 @@ def test_run_task_missing_required_artifact_posts_blocked_fail_not_complete(tmp_
 
 def test_runner_auth_blocker_includes_repair_task_and_rerun_route(tmp_path, monkeypatch):
     agent_host = load_agent_host()
+    runtime_repo = write_runtime_repo(tmp_path / "runtime-repo")
+    monkeypatch.setenv("KOLIBRI_RUNTIME_REPO", str(runtime_repo))
     monkeypatch.setattr(agent_host.shutil, "which", lambda name: "/usr/bin/codex" if name == "codex" else None)
 
     class Host(agent_host.AgentHost):
@@ -701,6 +771,8 @@ def test_runner_auth_blocker_includes_repair_task_and_rerun_route(tmp_path, monk
             return body
 
         def run_command(self, command, cwd, stdout_path, stderr_path, task, branch, logs, env=None, command_label=None):
+            if command[:2] == ["git", "clone"]:
+                return super().run_command(command, cwd, stdout_path, stderr_path, task, branch, logs, env, command_label)
             del command, cwd, stdout_path, task, branch, logs, env, command_label
             stderr_path.write_text("401 unauthorized refresh_token=SECRET\n", encoding="utf-8")
             raise RuntimeError("command failed with rc=1: codex exec")
