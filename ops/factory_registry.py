@@ -185,7 +185,7 @@ def _ssh_access_for_node(node_id: str, data: dict[str, Any]) -> dict[str, Any]:
             "target": internal_ips[0],
             "user": "ladik",
             "jump": None,
-            "identity": "kolibri_home_repair_20260703_ed25519",
+            "identity": "kolibri_ai_platform_deploy_ed25519",
             "fallback_target": external_ips[0] if external_ips else None,
         }
     if node_id == "main":

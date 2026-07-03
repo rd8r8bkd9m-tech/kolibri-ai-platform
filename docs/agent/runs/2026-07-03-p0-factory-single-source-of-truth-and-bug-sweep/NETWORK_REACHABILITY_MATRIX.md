@@ -115,7 +115,7 @@ Snapshot: 2026-07-03T16:12Z.
 
 Canonical `ssh_access` metadata is now exposed by `/v1/fleet/registry` for every server:
 
-- `home`: `direct_internal`, target `10.99.0.1`, user `ladik`, identity `kolibri_home_repair_20260703_ed25519`.
+- `home`: `direct_internal`, target `10.99.0.1`, user `ladik`, identity `kolibri_ai_platform_deploy_ed25519`.
 - `main`: `internal_via_home`, target `10.99.0.2`, user `root`, identity `kolibri_ai_platform_deploy_ed25519`.
 - `qjns`: `internal_via_home`, target `10.99.0.4`, user `root`, identity `kolibri_ai_platform_deploy_ed25519`.
 - `uiap`, `9fts`, `new`, `primary-candidate`: `internal_via_main`, target is the registry internal IP, user `root`.

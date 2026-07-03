@@ -26,6 +26,7 @@ python3 -m py_compile backend/factory_status.py ops/factory_registry.py ops/fact
 - Result: 20 aliases passed by public-key SSH from the command node.
 - Failed: `agent-10` only; failure occurs before authentication with `No route to host` / stdio forwarding failure through the `main` jump path.
 - Confirmed aliases: `kolibri-home`, `kolibri-main`, `kolibri-qjns`, `kolibri-primary-candidate`, `kolibri-uiap`, `kolibri-9fts`, `kolibri-new`, `reserve242`, `highload`, `agent-01`, `agent-02`, `agent-03`, `agent-04`, `agent-05`, `agent-06`, `agent-07`, `agent-08`, `agent-09`, `paris`, `server-kfrm`.
+- Forced canonical key check: `kolibri_ai_platform_deploy_ed25519` authenticates to Home as `ladik` and to 19 other reachable physical servers as `root`.
 
 ## Not Run
 
