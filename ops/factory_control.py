@@ -839,7 +839,6 @@ def queue_diagnostics() -> dict[str, Any]:
         diagnostics.append(task_lease_diagnosis(task, nodes))
     leaseable = [item for item in diagnostics if item["status"] == "leaseable"]
     blocked = [item for item in diagnostics if item["status"] == "blocked"]
-    queued_state_minus_queue = max(0, state_counts.get(STATE_QUEUED, 0) + state_counts.get(STATE_REVIEW, 0) - len(unique_queue))
     return {
         "source_of_truth_version": SOURCE_OF_TRUTH_VERSION,
         "generated_at": utc_now(),
