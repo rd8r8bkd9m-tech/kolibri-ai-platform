@@ -516,7 +516,7 @@ def fleet_summary(nodes: list[dict[str, Any]]) -> dict[str, int]:
     counts["physical_servers_total"] = len(canonical_physical)
     counts["logical_workers_total"] = len(logical_workers)
     counts["aliases_total"] = counts["mesh_alias"]
-    counts["stale_records"] = counts["stale_record"] + counts["stale"]
+    counts["stale_records"] = max(counts["stale_record"], counts["stale"])
     counts["unknown_records"] = counts["unknown"]
     counts["canary_records"] = counts["canary_record"]
     counts["smoke_records"] = counts["smoke_record"]

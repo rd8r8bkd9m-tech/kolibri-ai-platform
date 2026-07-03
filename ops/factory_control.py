@@ -521,16 +521,19 @@ def _node_online(node: dict[str, Any]) -> bool:
 
 def fabric_nodes(registered_nodes: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     merged = {node_id: dict(node) for node_id, node in FABRIC_NODE_CATALOG.items()}
+    current = now_ts()
     for registered in registered_nodes or []:
+        if registered.get("heartbeat_at") or registered.get("health"):
+            registered = classify_node_freshness(registered, current)
         node_id = str(registered.get("node_id") or registered.get("id") or "")
         if not node_id:
             continue
         canonical = canonical_node_id(node_id)
-        catalog = merged.get(canonical if canonical in merged and node_id.startswith("mesh-") else node_id, {
+        catalog = dict(merged.get(canonical if canonical in merged and node_id.startswith("mesh-") else node_id, {
             "node_id": node_id,
             "api_paths": ["fabric_api", "fallback_relay"],
             "ssh": "emergency_bootstrap_diagnostic_only",
-        })
+        }))
         catalog.update(registered)
         catalog.setdefault("display_name", registered.get("hostname") or node_id)
         catalog.setdefault("api_paths", ["fabric_api", "fallback_relay"])

@@ -64,6 +64,34 @@ def _parse_iso_ts(value: Any) -> float | None:
         return None
 
 
+def _envelope_data(payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {}
+    data = payload.get("data")
+    return data if isinstance(data, dict) else {}
+
+
+def _extract_nodes(nodes_payload: Any) -> list[dict[str, Any]]:
+    if isinstance(nodes_payload, list):
+        return [node for node in nodes_payload if isinstance(node, dict)]
+    if not isinstance(nodes_payload, dict):
+        return []
+    candidates = nodes_payload.get("nodes")
+    if candidates is None:
+        candidates = _envelope_data(nodes_payload).get("nodes")
+    if isinstance(candidates, dict):
+        return [node for node in candidates.values() if isinstance(node, dict)]
+    if isinstance(candidates, list):
+        return [node for node in candidates if isinstance(node, dict)]
+    return []
+
+
+def _health_data(health_payload: dict[str, Any] | None) -> dict[str, Any]:
+    payload = health_payload or {}
+    data = _envelope_data(payload)
+    return data or payload
+
+
 def _node_freshness(node: dict[str, Any], generated_at: str | None = None) -> tuple[str, int | None]:
     current = _parse_iso_ts(generated_at) or datetime.now(timezone.utc).timestamp()
     heartbeat = _parse_iso_ts(node.get("heartbeat_at"))
@@ -158,9 +186,25 @@ def _extract_tasks(tasks_payload: Any) -> list[dict[str, Any]]:
     return []
 
 
+def _extract_queue_stats(tasks_payload: Any) -> dict[str, Any]:
+    if not isinstance(tasks_payload, dict):
+        return {}
+    diagnostics = tasks_payload.get("diagnostics")
+    if isinstance(diagnostics, dict):
+        return diagnostics
+    data = _envelope_data(tasks_payload)
+    diagnostics = data.get("diagnostics")
+    if isinstance(diagnostics, dict):
+        return diagnostics
+    if any(key in tasks_payload for key in ("queue_total", "leaseable", "blocked", "state_counts")):
+        return tasks_payload
+    return {}
+
+
 def build_factory_status(nodes_payload: Any, tasks_payload: Any | None = None, health_payload: dict[str, Any] | None = None) -> dict[str, Any]:
-    raw_nodes = nodes_payload.get("nodes", []) if isinstance(nodes_payload, dict) else nodes_payload if isinstance(nodes_payload, list) else []
-    generated_at = (health_payload or {}).get("time") or datetime.now(timezone.utc).isoformat()
+    raw_nodes = _extract_nodes(nodes_payload)
+    health_data = _health_data(health_payload)
+    generated_at = health_data.get("time") or (health_payload or {}).get("time") or datetime.now(timezone.utc).isoformat()
     node_list = [_node_card(node, generated_at) for node in raw_nodes if isinstance(node, dict)]
     nodes = {node["node_id"]: node for node in node_list}
     online_nodes = [node for node in node_list if node.get("status") == "online"]
@@ -171,19 +215,32 @@ def build_factory_status(nodes_payload: Any, tasks_payload: Any | None = None, h
     available_ram_kb = sum(_parse_mem_kb((node.get("ram") or {}).get("MemAvailable")) for node in raw_nodes if isinstance(node, dict))
     cpu_values = [node.get("cpu") for node in raw_nodes if isinstance(node, dict) and isinstance(node.get("cpu"), (int, float))]
     tasks = _extract_tasks(tasks_payload)
+    queue_stats = _extract_queue_stats(tasks_payload)
     task_states: dict[str, int] = {}
     for task in tasks:
         state = str(task.get("state") or "unknown")
         task_states[state] = task_states.get(state, 0) + 1
+    if not task_states and isinstance(queue_stats.get("state_counts"), dict):
+        task_states = {str(key): int(value) for key, value in queue_stats["state_counts"].items()}
+    health_status = (health_payload or {}).get("status", "unknown")
+    control_status = "ok" if health_status in {"ok", "completed"} else health_status
+    queue_size = 0
+    if isinstance(queue_stats.get("queue_total"), int):
+        queue_size = int(queue_stats["queue_total"])
+    elif task_states:
+        queue_size = sum(task_states.get(state, 0) for state in ("queued", "leased", "running"))
+    else:
+        queue_size = int(health_data.get("queue") or 0)
     return {
         "status": "online" if online_nodes else "degraded",
         "source": "control-plane",
         "generated_at": generated_at,
         "control_plane": {
             "url": CONTROL_PLANE_URL,
-            "status": (health_payload or {}).get("status", "unknown"),
-            "queue_backend": (health_payload or {}).get("queue_backend"),
-            "redis": (health_payload or {}).get("redis"),
+            "status": control_status,
+            "queue_backend": health_data.get("queue_backend"),
+            "redis": health_data.get("redis"),
+            "fabric_api_version": health_data.get("fabric_api_version"),
         },
         "total_nodes": len(node_list),
         "online_nodes": len(online_nodes),
@@ -200,12 +257,9 @@ def build_factory_status(nodes_payload: Any, tasks_payload: Any | None = None, h
         "free_ram_gb": _gb_from_kb(available_ram_kb),
         "total_ram_gb": _gb_from_kb(total_ram_kb),
         "avg_cpu_percent": round(sum(cpu_values) / len(cpu_values), 1) if cpu_values else 0,
-        "queue_size": (
-            sum(task_states.get(state, 0) for state in ("queued", "leased", "running"))
-            if task_states
-            else int((health_payload or {}).get("queue") or 0)
-        ),
+        "queue_size": queue_size,
         "task_states": task_states,
+        "queue_diagnostics": queue_stats,
         "nodes": nodes,
         "node_list": node_list,
     }
@@ -214,14 +268,18 @@ def build_factory_status(nodes_payload: Any, tasks_payload: Any | None = None, h
 async def fetch_factory_status() -> dict[str, Any]:
     async with httpx.AsyncClient(timeout=httpx.Timeout(4.0, connect=2.0)) as client:
         health_response = await client.get(_control_plane_v1_url("/health"))
-        nodes_response = await client.get(_control_plane_v1_url("/nodes"))
+        nodes_response = await client.get(_control_plane_v1_url("/fleet/nodes"))
+        if nodes_response.status_code == 404:
+            nodes_response = await client.get(_control_plane_v1_url("/nodes"))
         health_response.raise_for_status()
         nodes_response.raise_for_status()
 
     tasks_payload: Any = {"tasks": []}
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(1.5, connect=1.0)) as client:
-            tasks_response = await client.get(_control_plane_v1_url("/tasks"))
+        async with httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=1.0)) as client:
+            tasks_response = await client.get(_control_plane_v1_url("/tasks/queue/diagnostics"))
+            if tasks_response.status_code == 404:
+                tasks_response = await client.get(_control_plane_v1_url("/tasks?summary=1&compact=1&limit=50"))
             if tasks_response.status_code == 200:
                 tasks_payload = tasks_response.json()
     except Exception:

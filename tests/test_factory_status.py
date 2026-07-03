@@ -65,6 +65,49 @@ def test_stale_heartbeat_online_mismatch_is_not_counted_online():
     assert result["node_freshness"] == {"fresh": 0, "degraded": 0, "stale": 1, "online": 0, "total": 1}
 
 
+def test_build_factory_status_reads_fabric_envelope_and_queue_diagnostics():
+    now = datetime.now(timezone.utc)
+    result = build_factory_status(
+        {
+            "status": "completed",
+            "data": {
+                "nodes": [
+                    {
+                        "node_id": "primary-candidate",
+                        "health": "online",
+                        "freshness": "fresh",
+                        "heartbeat_at": (now - timedelta(seconds=3)).isoformat(),
+                        "capabilities": ["primary"],
+                    }
+                ]
+            },
+        },
+        {
+            "queue_total": 18,
+            "leaseable": 8,
+            "blocked": 10,
+            "state_counts": {"queued": 18, "completed": 2},
+        },
+        {
+            "status": "completed",
+            "data": {
+                "redis": "PONG",
+                "queue_backend": "redis",
+                "time": now.isoformat(),
+                "fabric_api_version": "2026-07-01",
+            },
+        },
+    )
+
+    assert result["status"] == "online"
+    assert result["total_nodes"] == 1
+    assert result["online_nodes"] == 1
+    assert result["queue_size"] == 18
+    assert result["queue_diagnostics"]["blocked"] == 10
+    assert result["control_plane"]["status"] == "ok"
+    assert result["control_plane"]["redis"] == "PONG"
+
+
 def test_frontend_uses_live_factory_status_endpoint():
     app_source = (Path(__file__).resolve().parents[1] / "frontend" / "src" / "App.jsx").read_text(encoding="utf-8")
 

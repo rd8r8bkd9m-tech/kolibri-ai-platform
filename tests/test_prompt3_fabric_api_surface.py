@@ -1,5 +1,6 @@
 import importlib.util
 from pathlib import Path
+from datetime import datetime, timezone
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,9 +43,10 @@ def test_prompt3_required_endpoint_surface_is_declared():
 
 def test_fleet_aliases_return_catalog_topology_capabilities_and_routes():
     control = load_control()
+    now = datetime.now(timezone.utc).isoformat()
     registered = [
-        {"node_id": "9fts", "health": "online", "capabilities": ["implementation", "model"]},
-        {"node_id": "qjns", "health": "online", "capabilities": ["review"]},
+        {"node_id": "9fts", "health": "online", "heartbeat_at": now, "capabilities": ["implementation", "model"]},
+        {"node_id": "qjns", "health": "online", "heartbeat_at": now, "capabilities": ["review"]},
     ]
     nodes = control.fabric_nodes(registered)
     capability_map = control.fleet_capabilities(nodes)["capabilities"]

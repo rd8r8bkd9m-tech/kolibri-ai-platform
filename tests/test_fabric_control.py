@@ -1,6 +1,7 @@
 import importlib.machinery
 import importlib.util
 from pathlib import Path
+from datetime import datetime, timedelta, timezone
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -38,9 +39,10 @@ def test_fabric_catalog_represents_every_server_through_api_or_relay():
 
 def test_fabric_route_returns_direct_route_when_target_is_online():
     control = load_control()
+    now = datetime.now(timezone.utc)
     route = control.fabric_route(
         target_node="9fts",
-        registered_nodes=[{"node_id": "9fts", "health": "online", "capabilities": ["implementation"]}],
+        registered_nodes=[{"node_id": "9fts", "health": "online", "heartbeat_at": now.isoformat(), "capabilities": ["implementation"]}],
     )
 
     assert route["status"] == "ok"
@@ -51,12 +53,13 @@ def test_fabric_route_returns_direct_route_when_target_is_online():
 
 def test_fabric_route_returns_structured_blocked_status_with_fallback_and_repair_task():
     control = load_control()
+    now = datetime.now(timezone.utc)
     route = control.fabric_route(
         target_node="9fts",
         required_capability="implementation",
         registered_nodes=[
-            {"node_id": "9fts", "health": "offline", "capabilities": ["implementation"]},
-            {"node_id": "new", "health": "online", "capabilities": ["implementation", "review"]},
+            {"node_id": "9fts", "health": "offline", "heartbeat_at": now.isoformat(), "capabilities": ["implementation"]},
+            {"node_id": "new", "health": "online", "heartbeat_at": now.isoformat(), "capabilities": ["implementation", "review"]},
         ],
     )
 
@@ -87,6 +90,52 @@ def test_fabric_summary_registry_and_drift_use_single_source_of_truth():
     assert "stale-old" in drift["control_plane_records_not_in_registry"]
     assert "frontend_dev" in control.SERVICE_ENDPOINT_REGISTRY
     assert 5173 in control.PORT_REGISTRY
+
+
+def test_fabric_nodes_apply_freshness_before_summary_counts():
+    control = load_control()
+    now = datetime.now(timezone.utc)
+    nodes = control.fabric_nodes(
+        [
+            {
+                "node_id": "9fts",
+                "health": "online",
+                "heartbeat_at": (now - timedelta(seconds=600)).isoformat(),
+                "capabilities": ["implementation"],
+            }
+        ]
+    )
+    node = next(item for item in nodes if item["node_id"] == "9fts")
+    summary = control.fleet_summary(nodes)
+
+    assert node["reported_health"] == "online"
+    assert node["freshness"] == "stale"
+    assert node["health"] == "stale"
+    assert summary["stale_records"] >= 1
+    assert summary["stale_records"] == summary["stale_record"]
+
+
+def test_fabric_nodes_do_not_mutate_canonical_record_when_alias_arrives():
+    control = load_control()
+    now = datetime.now(timezone.utc).isoformat()
+    nodes = control.fabric_nodes(
+        [
+            {"node_id": "home", "health": "online", "heartbeat_at": now, "capabilities": ["home", "runner:mimo"]},
+            {"node_id": "home-live", "health": "online", "heartbeat_at": now, "capabilities": ["home"]},
+            {"node_id": "mesh-home", "health": "online", "heartbeat_at": now, "capabilities": ["mesh"]},
+        ]
+    )
+    by_id = {node["node_id"]: node for node in nodes}
+    task = control.normalize_task({
+        "target_node": "home-live",
+        "allowed_nodes": ["home-live", "home"],
+        "required_capability": "home",
+        "runner": "mimo",
+    })
+
+    assert "home" in by_id
+    assert "runner:mimo" in by_id["home"]["capabilities"]
+    assert control.compatible(task, "home", by_id["home"]["capabilities"], by_id["home"]) is True
 
 
 def test_owner_policy_requires_auth_scope_logging_and_rotation():
