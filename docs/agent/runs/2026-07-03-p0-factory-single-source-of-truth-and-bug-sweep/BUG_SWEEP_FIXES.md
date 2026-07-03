@@ -69,3 +69,13 @@
 - Risk: low; read-only API now exposes documented canonical records and does not mark them online or scheduleable.
 - Rollback: restore `/var/backups/kolibri-p0-network-foundation-20260703T134617Z/factory_registry.py` and restart `kolibri-factory-control.service`.
 - Result: live `/v1/fleet/registry` returns 21 canonical nodes and includes `agent-10`, `reserve242`, reserve servers and reserve agents.
+
+## Agent-10 Registry-Only Masking
+
+- Issue: after the full registry API fix, `agent-10` was visible in fleet APIs but still had no real Control Plane heartbeat, which could hide the provider/network outage.
+- Root cause: drift diagnostics counted synthetic registry catalog records as Control Plane-present records.
+- Files changed: `ops/factory_registry.py`, `ops/factory_control.py`, `tests/test_factory_registry.py`, `tests/test_fabric_control.py`.
+- Test added: registry-only records remain missing in Control Plane until a heartbeat arrives.
+- Risk: low; read-only diagnostics and non-scheduleable quarantine metadata only.
+- Rollback: restore `/var/backups/kolibri-agent10-drift-fix-20260703T140705Z` and `/var/backups/kolibri-agent10-quarantine-20260703T140745Z`.
+- Result: live `/v1/fleet/drift` reports `agent-10` as missing and registry-only; live `/v1/fleet/registry` marks it `quarantined`, `provider_network_unreachable`, `safe_to_schedule=false`.

@@ -92,6 +92,15 @@ def test_fabric_summary_registry_and_drift_use_single_source_of_truth():
     assert 5173 in control.PORT_REGISTRY
 
 
+def test_fabric_drift_keeps_registry_only_nodes_missing_until_heartbeat_arrives():
+    control = load_control()
+    nodes = control.fabric_nodes([])
+    drift = control.fleet_drift(nodes)
+
+    assert "agent-10" in drift["registry_nodes_missing_in_control_plane"]
+    assert "agent-10" in drift["registry_only_records"]
+
+
 def test_fabric_nodes_apply_freshness_before_summary_counts():
     control = load_control()
     now = datetime.now(timezone.utc)

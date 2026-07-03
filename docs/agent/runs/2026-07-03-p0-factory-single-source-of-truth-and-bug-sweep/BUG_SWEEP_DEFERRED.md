@@ -46,7 +46,7 @@
 
 ## Agent-10 Network
 
-- Reason: `agent-10` is canonical but missing from Control Plane and unreachable at `217.60.38.191`.
-- Next task: `P0_REPAIR_AGENT10_NETWORK_OR_RETIRE_20260703`.
+- Reason: `agent-10` is canonical but has no real Control Plane heartbeat and is unreachable at `217.60.38.191`; both primary and Home traces fail at upstream `46.8.226.1` with host unreachable.
+- Next task: provider-console/network repair or owner-approved retirement. Registry diagnostics already quarantine it as `provider_network_unreachable`.
 - Priority: P0.
 - Owner approval needed: yes before retiring the record.

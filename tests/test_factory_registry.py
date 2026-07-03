@@ -51,6 +51,9 @@ def test_fabric_node_catalog_exposes_full_canonical_server_inventory():
     assert "agent-10" in catalog
     assert catalog["agent-10"]["external_ips"] == ["217.60.38.191"]
     assert catalog["agent-10"]["safe_to_schedule"] is False
+    assert catalog["agent-10"]["source"] == "registry_catalog"
+    assert catalog["agent-10"]["lifecycle"] == "quarantined"
+    assert catalog["agent-10"]["network_status_override"] == "provider_network_unreachable"
 
 
 def test_fleet_summary_separates_physical_logical_and_stale_records():
@@ -84,3 +87,12 @@ def test_fleet_drift_marks_unknown_and_stale_reported_online_records():
     assert "unknown-node" in drift["control_plane_records_not_in_registry"]
     assert "old" in drift["stale_reported_online"]
     assert drift["duplicate_canonical_records"]["home"] == ["home", "mesh-home"]
+
+
+def test_fleet_drift_does_not_count_registry_only_records_as_control_plane_present():
+    registry = load_registry()
+    catalog = registry.fabric_node_catalog()
+    drift = registry.fleet_drift(list(catalog.values()))
+
+    assert "agent-10" in drift["registry_nodes_missing_in_control_plane"]
+    assert "agent-10" in drift["registry_only_records"]

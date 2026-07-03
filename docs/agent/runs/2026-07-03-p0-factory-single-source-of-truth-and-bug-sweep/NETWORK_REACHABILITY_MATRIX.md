@@ -13,6 +13,7 @@ Scope: canonical physical/hybrid/execution servers from `CANONICAL_NODE_REGISTRY
 - Fresh but degraded/not schedulable servers: `new`, `qjns`, `uiap`.
 - Stale but network-reachable reserve/agent servers: `agent-01` through `agent-09`, `highload`, `paris`, `reserve242`.
 - Offline or network-blocked: `agent-10`.
+- `agent-10` is now quarantined in registry diagnostics as `provider_network_unreachable`.
 - Public-key SSH from the command node is blocked on every checked root target except Home via the repaired `ladik` key path.
 
 ICMP is not authoritative. `primary-candidate` rejects ping but serves TCP/HTTP on the expected service ports.
@@ -41,7 +42,7 @@ ICMP is not authoritative. `primary-candidate` rejects ping but serves TCP/HTTP 
 | agent-07 | | 46.8.225.34 | stale | external ping ok, SSH TCP ok | blocked for root | stale reachable | classify reserve state; bootstrap agent or retire |
 | agent-08 | | 31.59.105.200 | stale | external ping ok, SSH TCP ok | blocked for root | stale reachable | classify reserve state; bootstrap agent or retire |
 | agent-09 | | 95.182.84.254 | stale | external ping ok, SSH TCP ok | blocked for root | stale reachable | classify reserve state; bootstrap agent or retire |
-| agent-10 | | 217.60.38.191 | missing | no ping, no SSH TCP, no route to host | blocked/unreachable | offline or network-blocked | provider/network repair or retire from registry after owner approval |
+| agent-10 | | 217.60.38.191 | registry-only, missing heartbeat | no ping, no SSH TCP, upstream `46.8.226.1` returns host unreachable | blocked/unreachable | quarantined: provider_network_unreachable | provider/network repair or retire from registry after owner approval |
 
 ## Service Ports Verified
 
@@ -68,6 +69,24 @@ Live verification after deploy:
 - `agent-10` present: yes.
 - `reserve242` present: yes.
 - `/v1/registry/validate`: completed with no errors.
+
+## Agent-10 Incident Update
+
+Additional checks from `primary-candidate` and Home both route toward `217.60.38.191` and fail at upstream `46.8.226.1` with Destination Host Unreachable / `!H`.
+
+No alternate `agent-10` IP was found in repo inventory, SSH topology or docs.
+
+Runtime diagnostics fix:
+
+- Registry keeps `agent-10` visible as a canonical server.
+- `/v1/fleet/drift` now reports `agent-10` in `registry_nodes_missing_in_control_plane`.
+- `/v1/fleet/drift` now reports `agent-10` in `registry_only_records`.
+- `/v1/fleet/registry` marks `agent-10` as `lifecycle=quarantined`, `network_status_override=provider_network_unreachable`, `safe_to_schedule=false`.
+
+Rollback backups:
+
+- `/var/backups/kolibri-agent10-drift-fix-20260703T140705Z`
+- `/var/backups/kolibri-agent10-quarantine-20260703T140745Z`
 
 Rollback backup for the registry deploy:
 

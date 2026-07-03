@@ -539,6 +539,7 @@ def fabric_nodes(registered_nodes: list[dict[str, Any]] | None = None) -> list[d
             "ssh": "emergency_bootstrap_diagnostic_only",
         }))
         catalog.update(registered)
+        catalog["source"] = "control_plane"
         catalog.setdefault("display_name", registered.get("hostname") or node_id)
         catalog.setdefault("api_paths", ["fabric_api", "fallback_relay"])
         catalog["ssh"] = "emergency_bootstrap_diagnostic_only"

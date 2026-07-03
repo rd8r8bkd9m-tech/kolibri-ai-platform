@@ -166,6 +166,14 @@ for index, external_ip in enumerate(
         "fallback_eligible": False,
         "services": [],
     }
+    if node_id == "agent-10":
+        CANONICAL_NODE_REGISTRY[node_id].update(
+            {
+                "lifecycle": "quarantined",
+                "network_status_override": "provider_network_unreachable",
+                "repair_required": "verify provider console or retire after owner approval",
+            }
+        )
 
 
 NODE_ALIAS_MAP: dict[str, str] = {
@@ -482,6 +490,10 @@ def fabric_node_catalog() -> dict[str, dict[str, Any]]:
                 "api_paths": data["api_paths"],
                 "internal_ips": data.get("internal_ips", []),
                 "external_ips": data.get("external_ips", []),
+                "source": "registry_catalog",
+                "lifecycle": data.get("lifecycle", "active"),
+                "network_status_override": data.get("network_status_override"),
+                "repair_required": data.get("repair_required"),
             }
         )
         for node_id, data in CANONICAL_NODE_REGISTRY.items()
@@ -528,6 +540,7 @@ def fleet_drift(nodes: list[dict[str, Any]]) -> dict[str, Any]:
         node["canonical_node_id"]
         for node in decorated
         if node["canonical_node_id"] in CANONICAL_NODE_REGISTRY
+        and node.get("source") != "registry_catalog"
     }
     by_canonical: dict[str, list[str]] = defaultdict(list)
     unknown_records: list[str] = []
@@ -545,6 +558,12 @@ def fleet_drift(nodes: list[dict[str, Any]]) -> dict[str, Any]:
     }
     return {
         "registry_nodes_missing_in_control_plane": sorted(set(CANONICAL_NODE_REGISTRY) - present_canonical),
+        "registry_only_records": sorted(
+            node["node_id"]
+            for node in decorated
+            if node["canonical_node_id"] in CANONICAL_NODE_REGISTRY
+            and node.get("source") == "registry_catalog"
+        ),
         "control_plane_records_not_in_registry": sorted(unknown_records),
         "stale_reported_online": sorted(stale_reported_online),
         "duplicate_canonical_records": duplicates,
