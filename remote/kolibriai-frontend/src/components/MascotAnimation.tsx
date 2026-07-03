@@ -2,7 +2,7 @@ import { cn } from '@/lib/utils'
 
 export type MascotState = 'idle' | 'ready' | 'thinking' | 'success' | 'alert' | 'error' | 'warning' | 'writing' | 'learning' | 'sleeping'
 
-const MASCOT_ASSET = '/kolibri-bird.png'
+const MASCOT_ASSET = `${import.meta.env.BASE_URL}kolibri-bird.png`
 
 const fallbackMotion: Record<Exclude<MascotState, 'warning' | 'writing' | 'learning'>, string> = {
   idle: 'kolibri-mascot-idle',
@@ -52,7 +52,7 @@ export default function MascotAnimation({
       <img
         src={MASCOT_ASSET}
         alt=""
-        className="h-full w-full object-contain"
+        className="h-full w-full object-contain [image-rendering:auto]"
         draggable={false}
       />
     </span>

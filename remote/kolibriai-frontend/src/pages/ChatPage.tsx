@@ -157,101 +157,131 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col md:h-full">
+    <div className="flex h-full min-h-0 flex-col bg-[var(--bg-primary)]">
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
         {messages.length === 0 ? (
-          <div className="flex min-h-full flex-col items-center justify-center px-4 py-6">
-            <MascotAnimation state="idle" className="mb-4 h-16 w-16" decorative />
-            <p className="text-[15px] text-[var(--text-secondary)] mb-6">Начните новый разговор</p>
-            <div className="flex flex-wrap justify-center gap-2 max-w-[500px]">
-              {WELCOME_SUGGESTIONS.map((s) => (
-                <button
-                  type="button"
-                  key={s}
-                  onClick={() => handleSendMessage(s)}
-                  className="min-h-11 px-3 py-2 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] text-[13px] text-[var(--text-secondary)] hover:border-[var(--border-hover)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors text-left break-words"
-                >
-                  {s}
-                </button>
-              ))}
+          <div className="mx-auto flex min-h-full max-w-[760px] flex-col px-4 pb-6 pt-[clamp(1rem,8dvh,4.5rem)]">
+            <div className="flex flex-1 flex-col items-center justify-center pb-8 text-center">
+              <div className="relative mb-5">
+                <div className="absolute inset-2 rounded-full bg-[var(--accent-teal)]/10 blur-2xl" />
+                <MascotAnimation state={focused ? 'ready' : 'idle'} className="relative h-28 w-28 sm:h-32 sm:w-32" alt="Колибри" />
+              </div>
+              <div className="mb-3 inline-flex items-center gap-2 rounded-[var(--radius-pill)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]/90 px-3 py-1.5 text-[13px] font-medium text-[var(--text-secondary)] shadow-[var(--shadow-sm)] backdrop-blur-xl">
+                <span className="h-2 w-2 rounded-full bg-[var(--accent-teal)]" />
+                Колибри готов помочь
+              </div>
+              <h1 className="max-w-[540px] text-[30px] font-semibold leading-tight tracking-normal text-[var(--text-primary)] sm:text-[36px]">
+                Чем могу помочь?
+              </h1>
+              <p className="mt-3 max-w-[460px] text-[16px] leading-6 text-[var(--text-secondary)]">
+                Задайте вопрос, создайте смету или попросите подготовить документ.
+              </p>
+
+              <div className="mt-6 grid w-full max-w-[560px] gap-2 sm:grid-cols-2">
+                {WELCOME_SUGGESTIONS.map((s) => (
+                  <button
+                    type="button"
+                    key={s}
+                    onClick={() => handleSendMessage(s)}
+                    className="min-h-[54px] rounded-[22px] border border-[var(--border-subtle)] bg-[var(--bg-surface)]/90 px-4 py-3 text-left text-[15px] leading-snug text-[var(--text-primary)] shadow-[var(--shadow-sm)] backdrop-blur-xl transition-colors hover:border-[var(--border-hover)] hover:bg-[var(--bg-hover)]"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         ) : (
-          <div className="max-w-[720px] mx-auto py-4 space-y-1">
-            <div className="sticky top-0 z-10 flex justify-end px-4 pb-2">
+          <div className="mx-auto max-w-[760px] space-y-1 px-0 py-3 sm:px-4">
+            <div className="sticky top-0 z-10 flex justify-end px-4 pb-2 pt-1">
               <button
                 type="button"
                 onClick={handleNewChat}
-                className="flex min-h-10 items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-md)] text-[13px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] border border-[var(--border-subtle)] hover:border-[var(--border-hover)] transition-colors bg-[var(--bg-primary)]/90 backdrop-blur-md"
+                className="flex min-h-10 items-center gap-1.5 rounded-[var(--radius-pill)] border border-white/50 bg-[var(--bg-primary)]/80 px-3 py-1.5 text-[13px] font-medium text-[var(--text-secondary)] shadow-[var(--shadow-sm)] backdrop-blur-xl transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
               >
-                <Plus size={14} strokeWidth={2} />
+                <Plus size={15} strokeWidth={2} />
                 Новый чат
               </button>
             </div>
+
             {messages.map((msg) => (
               <div
                 key={msg.id}
-                className={`flex gap-3 px-4 py-3 ${msg.role === 'assistant' ? 'bg-[var(--bg-secondary)]' : ''}`}
+                className={`flex px-4 py-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
               >
-                <div className="flex-shrink-0 w-7 h-7 mt-0.5">
-                  {msg.role === 'user' ? (
-                    <div className="w-7 h-7 rounded-full bg-[var(--bg-elevated)] flex items-center justify-center">
-                      <User size={14} strokeWidth={2} className="text-[var(--text-secondary)]" />
+                {msg.role === 'assistant' ? (
+                  <div className="flex w-full max-w-[680px] gap-3">
+                    <div className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-[var(--bg-surface)] shadow-[0_4px_16px_rgba(58,186,180,0.16)]">
+                      <MascotAnimation state="ready" className="h-8 w-8" decorative />
                     </div>
-                  ) : (
-                    <MascotAnimation state="ready" className="h-7 w-7" decorative />
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  {msg.reasoning && <ReasoningBlock text={msg.reasoning} />}
-                  <p className="text-[14px] text-[var(--text-primary)] leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{msg.content}</p>
-                  {msg.actions && msg.actions.length > 0 && (
-                    <div className="flex flex-wrap gap-2 mt-3">
-                      {msg.actions.map((action, i) => (
-                        <button
-                          key={i}
-                          type="button"
-                          onClick={() => handleAction(action)}
-                          className="min-h-10 px-3 rounded-[var(--radius-md)] bg-[var(--accent-teal)] text-white text-[13px] font-medium hover:bg-[var(--accent-teal-hover)] transition-colors"
-                        >
-                          {action.label}
-                        </button>
-                      ))}
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-1 text-[13px] font-medium text-[var(--text-tertiary)]">Колибри</div>
+                      {msg.reasoning && <ReasoningBlock text={msg.reasoning} />}
+                      <p className="whitespace-pre-wrap break-words text-[16px] leading-7 text-[var(--text-primary)] [overflow-wrap:anywhere]">
+                        {msg.content}
+                      </p>
+                      {msg.actions && msg.actions.length > 0 && (
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          {msg.actions.map((action, i) => (
+                            <button
+                              key={i}
+                              type="button"
+                              onClick={() => handleAction(action)}
+                              className="min-h-11 rounded-[var(--radius-pill)] bg-[var(--accent-teal)] px-4 text-[14px] font-medium text-white shadow-[0_8px_20px_rgba(58,186,180,0.24)] transition-colors hover:bg-[var(--accent-teal-hover)]"
+                            >
+                              {action.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
+                  </div>
+                ) : (
+                  <div className="flex max-w-[86%] items-start gap-2 sm:max-w-[72%]">
+                    <div className="rounded-[24px] bg-[var(--accent-teal)] px-4 py-3 text-left text-[16px] leading-6 text-white shadow-[0_8px_24px_rgba(58,186,180,0.20)]">
+                      <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{msg.content}</p>
+                    </div>
+                    <div className="mt-1 hidden h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[var(--bg-elevated)] text-[var(--text-secondary)] sm:flex">
+                      <User size={15} strokeWidth={2} />
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
+
             {loading && (
-              <div className="flex gap-3 px-4 py-3 bg-[var(--bg-secondary)]">
-                <StatusBird state={birdState} size="sm" />
-                <div className="min-w-0">
-                  <p className="text-[14px] text-[var(--text-tertiary)]">Думаю...</p>
-                  <p className="text-[12px] text-[var(--text-tertiary)]">Если сервер не ответит, запрос остановится автоматически.</p>
+              <div className="flex px-4 py-3">
+                <div className="flex max-w-[680px] gap-3">
+                  <StatusBird state={birdState} size="sm" className="mt-0.5" />
+                  <div className="min-w-0 rounded-[24px] bg-[var(--bg-secondary)] px-4 py-3">
+                    <p className="text-[16px] font-medium leading-6 text-[var(--text-primary)]">Думаю...</p>
+                    <p className="mt-1 text-[13px] leading-5 text-[var(--text-tertiary)]">Если сервер не ответит, запрос остановится автоматически.</p>
+                  </div>
                 </div>
               </div>
             )}
+
             {!loading && lastFailedPrompt && (
               <div className="px-4 py-3">
                 <button
                   type="button"
                   onClick={() => handleSendMessage(lastFailedPrompt)}
-                  className="min-h-11 rounded-[var(--radius-md)] border border-[var(--border-subtle)] px-4 text-[14px] font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                  className="min-h-11 rounded-[var(--radius-pill)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 text-[14px] font-medium text-[var(--text-secondary)] shadow-[var(--shadow-sm)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
                 >
                   Повторить запрос
                 </button>
               </div>
             )}
-            <div ref={bottomRef} />
+            <div ref={bottomRef} className="h-4" />
           </div>
         )}
       </div>
 
-      <div className="flex-shrink-0 border-t border-[var(--border-subtle)] bg-[var(--bg-primary)]/95 p-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] backdrop-blur-xl">
-        <div className="max-w-[720px] mx-auto">
+      <div className="flex-shrink-0 border-t border-white/40 bg-[var(--bg-primary)]/80 px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 backdrop-blur-2xl">
+        <div className="mx-auto max-w-[760px]">
           <div
-            className={`relative bg-[var(--bg-surface)] rounded-[var(--radius-xl)] border transition-all duration-200 ${
-              focused ? 'border-[var(--accent-teal)] shadow-[0_0_0_3px_rgba(58,186,180,0.1)]' : 'border-[var(--border-subtle)] shadow-[var(--shadow-sm)]'
+            className={`relative rounded-[28px] border bg-[var(--bg-surface)]/90 shadow-[0_14px_44px_rgba(15,23,42,0.10)] backdrop-blur-xl transition-all duration-200 ${
+              focused ? 'border-[var(--accent-teal)] shadow-[0_0_0_3px_rgba(58,186,180,0.12),0_14px_44px_rgba(15,23,42,0.10)]' : 'border-white/70'
             }`}
           >
             <textarea
@@ -263,16 +293,16 @@ export default function ChatPage() {
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(input) } }}
               placeholder="Спросите Колибри..."
               rows={1}
-              className="w-full px-4 pt-3.5 pb-12 bg-transparent text-[15px] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] resize-none outline-none leading-relaxed"
-              style={{ minHeight: 56 }}
+              className="w-full resize-none bg-transparent px-4 pb-14 pt-4 text-[16px] leading-6 text-[var(--text-primary)] outline-none placeholder:text-[var(--text-tertiary)]"
+              style={{ minHeight: 68 }}
             />
             <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between">
               <div className="flex items-center gap-1">
-                <button type="button" title="Скоро" className="flex h-11 w-11 items-center justify-center rounded-[var(--radius-md)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors opacity-50 cursor-not-allowed">
-                  <Paperclip size={18} strokeWidth={1.8} />
+                <button type="button" title="Скоро" className="flex h-11 w-11 cursor-not-allowed items-center justify-center rounded-full text-[var(--text-tertiary)] opacity-55 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]">
+                  <Paperclip size={19} strokeWidth={1.8} />
                 </button>
-                <button type="button" title="Скоро" className="flex h-11 w-11 items-center justify-center rounded-[var(--radius-md)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors opacity-50 cursor-not-allowed">
-                  <Mic size={18} strokeWidth={1.8} />
+                <button type="button" title="Скоро" className="flex h-11 w-11 cursor-not-allowed items-center justify-center rounded-full text-[var(--text-tertiary)] opacity-55 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]">
+                  <Mic size={19} strokeWidth={1.8} />
                 </button>
               </div>
               <button
@@ -281,14 +311,16 @@ export default function ChatPage() {
                 disabled={!input.trim() || loading}
                 aria-label="Отправить"
                 className={`flex h-11 w-11 items-center justify-center rounded-full transition-all ${
-                  input.trim() && !loading ? 'bg-[var(--accent-teal)] text-white hover:bg-[var(--accent-teal-hover)]' : 'bg-[var(--bg-elevated)] text-[var(--text-tertiary)]'
+                  input.trim() && !loading
+                    ? 'bg-[var(--accent-teal)] text-white shadow-[0_8px_20px_rgba(58,186,180,0.28)] hover:bg-[var(--accent-teal-hover)]'
+                    : 'bg-[var(--bg-elevated)] text-[var(--text-tertiary)]'
                 }`}
               >
-                <ArrowUp size={16} strokeWidth={2.5} />
+                <ArrowUp size={18} strokeWidth={2.5} />
               </button>
             </div>
           </div>
-          <p className="text-center text-[11px] text-[var(--text-tertiary)] mt-2">AI может ошибаться. Проверяйте важную информацию.</p>
+          <p className="mt-2 text-center text-[11px] leading-4 text-[var(--text-tertiary)]">AI может ошибаться. Проверяйте важную информацию.</p>
         </div>
       </div>
     </div>

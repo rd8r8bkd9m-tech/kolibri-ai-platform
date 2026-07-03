@@ -265,7 +265,7 @@ export default function Layout({ user, onLogout }: LayoutProps) {
       )}
 
       {/* ===== MOBILE HEADER ===== */}
-      <header className="fixed left-0 right-0 top-0 z-40 flex h-[var(--mobile-header-height)] items-end justify-between gap-3 border-b border-[var(--border-subtle)] bg-[var(--bg-primary)]/95 px-3 pb-2 pt-[env(safe-area-inset-top)] backdrop-blur-md md:hidden">
+      <header className="fixed left-0 right-0 top-0 z-40 flex h-[var(--mobile-header-height)] items-end justify-between gap-3 border-b border-white/50 bg-[var(--bg-primary)]/80 px-3 pb-2 pt-[env(safe-area-inset-top)] backdrop-blur-xl md:hidden">
         <button
           type="button"
           onClick={() => setMobileMenuOpen(true)}
@@ -276,9 +276,16 @@ export default function Layout({ user, onLogout }: LayoutProps) {
         >
           <Menu size={22} strokeWidth={1.8} />
         </button>
-        <div className="flex min-w-0 items-center gap-2.5">
-          <MascotAnimation state="idle" className="h-8 w-8" decorative />
-          <span className="truncate text-[17px] font-medium">Колибри</span>
+        <div className="flex min-w-0 flex-1 justify-center">
+          <div className="flex min-w-0 items-center gap-2 rounded-[var(--radius-pill)] border border-white/50 bg-white/70 px-3 py-1.5 shadow-[0_8px_24px_rgba(15,23,42,0.08)] backdrop-blur-xl dark:border-white/10 dark:bg-white/[0.08]">
+            <MascotAnimation state={isChat ? 'ready' : 'idle'} className="h-6 w-6" decorative />
+            <div className="min-w-0 leading-none">
+              <span className="block truncate text-[15px] font-semibold text-[var(--text-primary)]">
+                {isChat ? 'Колибри Pro' : 'Колибри'}
+              </span>
+              {isChat && <span className="block text-[10px] font-medium text-[var(--accent-teal)]">онлайн</span>}
+            </div>
+          </div>
         </div>
         <button
           type="button"
