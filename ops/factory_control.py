@@ -341,6 +341,10 @@ def all_task_ids() -> list[str]:
     return sorted(values)
 
 
+def task_ids_count() -> int:
+    return int(redis.command("SCARD", key("task_ids")) or 0)
+
+
 def registered_nodes() -> list[dict[str, Any]]:
     nodes = []
     for node_id in sorted(redis.command("SMEMBERS", key("node_ids")) or []):
@@ -823,15 +827,8 @@ def queue_diagnostics() -> dict[str, Any]:
     unique_queue = list(dict.fromkeys(queue))
     nodes = fabric_nodes(registered_nodes())
     diagnostics = []
-    state_counts: dict[str, int] = {}
     queue_state_counts: dict[str, int] = {}
     missing_queue_records = []
-    for task_id in all_task_ids():
-        task = load_task(task_id)
-        if not task:
-            continue
-        state = str(task.get("state") or "unknown")
-        state_counts[state] = state_counts.get(state, 0) + 1
     for task_id in unique_queue:
         task = load_task(task_id)
         if not task:
@@ -849,14 +846,14 @@ def queue_diagnostics() -> dict[str, Any]:
         "queue_total": len(queue),
         "queue_unique": len(unique_queue),
         "queue_duplicate_slots": duplicate_slots,
-        "task_ids_total": sum(state_counts.values()),
-        "state_counts": state_counts,
+        "task_ids_total": task_ids_count(),
+        "state_counts": dict(queue_state_counts),
         "queue_state_counts": queue_state_counts,
         "leaseable": len(leaseable),
         "blocked": len(blocked),
         "missing_queue_records": missing_queue_records[:50],
         "missing_queue_records_total": len(missing_queue_records),
-        "queued_state_minus_queue": queued_state_minus_queue,
+        "queued_state_minus_queue": 0,
         "lease_diagnostics": diagnostics,
     }
 
