@@ -79,6 +79,69 @@ def test_control_plane_counts_fresh_degraded_and_stale_nodes():
     assert control.node_health_counts(nodes) == {"fresh": 1, "degraded": 1, "stale": 1, "online": 1, "total": 3}
 
 
+def test_control_plane_uses_fresh_task_heartbeat_for_running_node_card():
+    control = load_module(ROOT / "ops" / "factory_control.py")
+    now = datetime.now(timezone.utc)
+    current = now.timestamp()
+    node = control.classify_node_freshness(
+        {
+            "node_id": "worker-1",
+            "health": "online",
+            "heartbeat_at": (now - timedelta(seconds=600)).isoformat(),
+        },
+        current,
+    )
+    task = {
+        "task_id": "P0-ACTIVE-1",
+        "state": control.STATE_RUNNING,
+        "lease_owner": "worker-1:agent-host-worker-1",
+        "heartbeat_at": (now - timedelta(seconds=5)).isoformat(),
+        "lease_until": current + 60,
+    }
+
+    active = control.active_tasks_by_node([task], current)
+    reconciled = control.reconcile_node_with_active_task(node, active.get("worker-1"), current)
+
+    assert reconciled["node_freshness"] == "stale"
+    assert reconciled["node_heartbeat_age_seconds"] == 600
+    assert reconciled["freshness"] == "fresh"
+    assert reconciled["health"] == "online"
+    assert reconciled["status"] == "running_with_stale_node_heartbeat"
+    assert reconciled["active_task"] == "P0-ACTIVE-1"
+    assert reconciled["active_task_heartbeat_age_seconds"] == 5
+    assert control.node_health_counts([reconciled]) == {"fresh": 1, "degraded": 0, "stale": 0, "online": 1, "total": 1}
+
+
+def test_control_plane_does_not_mask_dead_node_with_expired_task_heartbeat():
+    control = load_module(ROOT / "ops" / "factory_control.py")
+    now = datetime.now(timezone.utc)
+    current = now.timestamp()
+    node = control.classify_node_freshness(
+        {
+            "node_id": "worker-1",
+            "health": "online",
+            "heartbeat_at": (now - timedelta(seconds=600)).isoformat(),
+        },
+        current,
+    )
+    task = {
+        "task_id": "P0-EXPIRED-1",
+        "state": control.STATE_RUNNING,
+        "lease_owner": "worker-1:agent-host-worker-1",
+        "heartbeat_at": (now - timedelta(seconds=5)).isoformat(),
+        "lease_until": current - 1,
+    }
+
+    active = control.active_tasks_by_node([task], current)
+    reconciled = control.reconcile_node_with_active_task(node, active.get("worker-1"), current)
+
+    assert active == {}
+    assert reconciled["freshness"] == "stale"
+    assert reconciled["health"] == "stale"
+    assert "active_task" not in reconciled
+    assert control.node_health_counts([reconciled]) == {"fresh": 0, "degraded": 0, "stale": 1, "online": 0, "total": 1}
+
+
 def test_agent_host_supports_required_task_kinds():
     agent = (ROOT / "ops" / "agent_host.py").read_text(encoding="utf-8")
     assert "impl_factory_smoke" in agent

@@ -87,6 +87,7 @@ STATE_CANCELLED = "cancelled"
 STATE_RETRY = "retry_scheduled"
 STATE_DEAD = "dead_letter"
 TERMINAL_STATES = {STATE_COMPLETED, STATE_FAILED, STATE_CANCELLED, STATE_DEAD}
+ACTIVE_TASK_STATES = {STATE_LEASED, STATE_RUNNING, STATE_REVIEW}
 BLOCKED_RUNNER_STATES = {"blocked", "degraded", "runner_auth_blocked", "unavailable"}
 
 FABRIC_NODE_CATALOG = {
@@ -349,6 +350,76 @@ def node_health_counts(nodes: list[dict[str, Any]]) -> dict[str, int]:
         if node.get("health") == "online":
             counts["online"] += 1
     return counts
+
+
+def heartbeat_age_seconds(value: Any, current: float | None = None) -> int | None:
+    heartbeat_ts = parse_iso_ts(value)
+    if heartbeat_ts is None:
+        return None
+    current_ts = now_ts() if current is None else current
+    return max(0, int(current_ts - heartbeat_ts))
+
+
+def task_lease_active(task: dict[str, Any], current: float | None = None) -> bool:
+    current_ts = now_ts() if current is None else current
+    try:
+        return float(task.get("lease_until") or 0) >= current_ts
+    except (TypeError, ValueError):
+        return False
+
+
+def task_has_fresh_heartbeat(task: dict[str, Any], current: float | None = None) -> bool:
+    if task.get("state") not in ACTIVE_TASK_STATES:
+        return False
+    age = heartbeat_age_seconds(task.get("heartbeat_at"), current)
+    return age is not None and age <= NODE_STALE_AFTER and task_lease_active(task, current)
+
+
+def task_lease_node_id(task: dict[str, Any]) -> str | None:
+    lease_owner = str(task.get("lease_owner") or "")
+    node_id = lease_owner.split(":", 1)[0].strip()
+    return node_id or None
+
+
+def active_tasks_by_node(tasks: list[dict[str, Any]], current: float | None = None) -> dict[str, dict[str, Any]]:
+    current_ts = now_ts() if current is None else current
+    active: dict[str, dict[str, Any]] = {}
+    for task in tasks:
+        if not task_has_fresh_heartbeat(task, current_ts):
+            continue
+        node_id = task_lease_node_id(task)
+        if not node_id:
+            continue
+        current_task = active.get(node_id)
+        task_ts = parse_iso_ts(task.get("heartbeat_at")) or 0
+        current_task_ts = parse_iso_ts(current_task.get("heartbeat_at")) if current_task else 0
+        if current_task is None or task_ts > (current_task_ts or 0):
+            active[node_id] = task
+    return active
+
+
+def reconcile_node_with_active_task(node: dict[str, Any], task: dict[str, Any] | None, current: float | None = None) -> dict[str, Any]:
+    if not task:
+        return node
+    current_ts = now_ts() if current is None else current
+    task_age = heartbeat_age_seconds(task.get("heartbeat_at"), current_ts)
+    reconciled = dict(node)
+    original_freshness = str(node.get("freshness") or "stale")
+    original_health = str(node.get("health") or "unknown")
+    reconciled.setdefault("node_freshness", original_freshness)
+    reconciled.setdefault("node_health", original_health)
+    reconciled.setdefault("node_heartbeat_age_seconds", node.get("heartbeat_age_seconds"))
+    reconciled["reconciled_from_task_heartbeat"] = True
+    reconciled["active_task"] = task.get("task_id")
+    reconciled["active_task_state"] = task.get("state")
+    reconciled["active_task_heartbeat_at"] = task.get("heartbeat_at")
+    reconciled["active_task_heartbeat_age_seconds"] = task_age
+    reconciled["active_task_lease_until"] = task.get("lease_until")
+    if original_freshness != "fresh":
+        reconciled["health"] = "online"
+        reconciled["freshness"] = "fresh"
+        reconciled["status"] = f"running_with_{original_freshness}_node_heartbeat"
+    return reconciled
 
 
 def all_task_ids() -> list[str]:
@@ -903,10 +974,13 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/v1/nodes":
                 nodes = []
                 current = now_ts()
+                tasks = [task for task in (load_task(task_id) for task_id in all_task_ids()) if task]
+                active_by_node = active_tasks_by_node(tasks, current)
                 for node_id in sorted(redis.command("SMEMBERS", key("node_ids")) or []):
                     node = get_json(node_key(node_id), {})
                     node["draining"] = bool(redis.command("GET", drain_key(node_id)))
-                    nodes.append(classify_node_freshness(node, current))
+                    classified = classify_node_freshness(node, current)
+                    nodes.append(reconcile_node_with_active_task(classified, active_by_node.get(node_id), current))
                 counts = node_health_counts(nodes)
                 response(self, 200, {"nodes": nodes, "counts": counts, "freshness": counts})
                 return
