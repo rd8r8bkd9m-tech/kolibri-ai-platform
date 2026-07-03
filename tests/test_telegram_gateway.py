@@ -65,7 +65,7 @@ def test_default_gateway_startup_is_non_mutating_with_unsafe_webhook_env(monkeyp
             events.append(("factory_client", control_url, control_urls))
 
     class FakeGateway:
-        def __init__(self, telegram, factory, owner_ids, state, poll_timeout):
+        def __init__(self, telegram, factory, owner_ids, state, poll_timeout, gateway_role="primary"):
             events.append(("gateway_init", owner_ids, poll_timeout))
 
         def run(self):
@@ -117,7 +117,7 @@ def test_default_gateway_startup_without_webhook_env_starts_existing_polling_rec
             events.append(("factory_client", control_url, control_urls))
 
     class FakeGateway:
-        def __init__(self, telegram, factory, owner_ids, state, poll_timeout):
+        def __init__(self, telegram, factory, owner_ids, state, poll_timeout, gateway_role="primary"):
             events.append(("gateway_init", owner_ids, poll_timeout))
 
         def run(self):

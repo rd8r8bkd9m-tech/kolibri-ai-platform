@@ -34,6 +34,14 @@ from orchestrator_memory import (
     record_task_transition,
     record_work_task,
 )
+from telegram_failover_guard import (
+    GATEWAY_ROLE_PRIMARY,
+    GATEWAY_ROLE_STANDBY,
+    detect_dual_receiver,
+    load_failover_state,
+    validate_gateway_startup,
+    format_failover_status,
+)
 
 
 STOP = False
@@ -782,12 +790,13 @@ class StateStore:
 
 
 class Gateway:
-    def __init__(self, telegram: TelegramClient, factory: FactoryClient, owner_ids: set[int], state: StateStore, poll_timeout: int):
+    def __init__(self, telegram: TelegramClient, factory: FactoryClient, owner_ids: set[int], state: StateStore, poll_timeout: int, gateway_role: str = GATEWAY_ROLE_PRIMARY):
         self.telegram = telegram
         self.factory = factory
         self.owner_ids = owner_ids
         self.state = state
         self.poll_timeout = poll_timeout
+        self.gateway_role = gateway_role
 
     def authorized(self, message: dict[str, Any]) -> bool:
         user = message.get("from") or {}
@@ -1068,6 +1077,17 @@ class Gateway:
                 self.state.save()
 
     def run_once(self) -> None:
+        failover_state = load_failover_state(self.state.path.parent / "failover.json")
+        detection = detect_dual_receiver(
+            primary_polling=self.gateway_role == GATEWAY_ROLE_PRIMARY,
+            standby_polling=self.gateway_role == GATEWAY_ROLE_STANDBY,
+            webhook_active=False,
+        )
+        if not detection["ok"]:
+            print(json.dumps({"event": "ha_dual_receiver_violation", "violations": detection["violations"]}, sort_keys=True), file=sys.stderr)
+            return
+        if self.gateway_role == GATEWAY_ROLE_STANDBY and failover_state.primary_healthy:
+            return
         updates = self.telegram.get_updates(self.state.data.get("offset"), self.poll_timeout)
         for update in updates:
             self.state.data["offset"] = int(update["update_id"]) + 1
@@ -1409,7 +1429,21 @@ def main() -> int:
     print(json.dumps({"event": "telegram_receiver_plan", **redacted_receiver_status(receiver_plan)}, sort_keys=True))
     if not receiver_plan.should_poll:
         raise SystemExit(f"canonical Telegram receiver refused to start polling: {receiver_plan.conflict or receiver_plan.startup_action}")
-    gateway = Gateway(telegram, FactoryClient(args.control_url, args.control_urls), owner_ids, StateStore(Path(args.state_file)), args.poll_timeout)
+    state_path = Path(args.state_file)
+    failover_state = load_failover_state(state_path.parent / "failover.json")
+    gateway_role = os.environ.get("TELEGRAM_GATEWAY_ROLE", GATEWAY_ROLE_PRIMARY)
+    primary_healthy = failover_state.primary_healthy
+    startup_validation = validate_gateway_startup(
+        role=gateway_role,
+        update_receiver="polling",
+        webhook_url=None,
+        primary_healthy=primary_healthy,
+    )
+    print(json.dumps({"event": "telegram_ha_startup_validation", **startup_validation}, sort_keys=True))
+    if not startup_validation["ok"]:
+        violations = startup_validation["violations"]
+        raise SystemExit(f"HA guard rejected gateway startup: {violations}")
+    gateway = Gateway(telegram, FactoryClient(args.control_url, args.control_urls), owner_ids, StateStore(state_path), args.poll_timeout, gateway_role=gateway_role)
     gateway.run()
     return 0
 
