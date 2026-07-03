@@ -7,3 +7,7 @@
 - Added this publish-gate artifact set at the required exact path.
 - Reran focused verification from the repair worktree.
 - Confirmed `gh` is unavailable in this environment: `/bin/bash: line 1: gh: command not found`.
+- Committed repair and artifacts as `adf3a760cf5da4a9fa172036c03aaa218a1b7bc2`.
+- Pushed branch `codex/p0-home-lease-capability-artifact-contract-repair-scope-fix-20260703t111200z` to `origin` without force.
+- Opened draft PR `https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/158` against `main`.
+- Checked GitHub commit status for `adf3a760cf5da4a9fa172036c03aaa218a1b7bc2`; no status contexts were returned at that time.
