@@ -137,3 +137,71 @@ def test_control_plane_runner_compatibility_filters_blocked_and_avoided_nodes():
         ["generic_implementation", "runner:mimo"],
         {"runners": {"mimo": {"status": "available"}}},
     ) is False
+
+
+def test_control_plane_runner_compatibility_blocks_runner_auth_blocked():
+    control = load_module(ROOT / "ops" / "factory_control.py")
+    task = control.normalize_task({
+        "kind": "owner_remote_task",
+        "runner": "codex",
+        "required_capability": "generic_implementation",
+    })
+    assert control.compatible(
+        task,
+        "drifted-node",
+        ["generic_implementation", "runner:codex"],
+        {"runners": {"codex": {"status": "runner_auth_blocked"}}},
+    ) is False
+    assert control.compatible(
+        task,
+        "healthy-node",
+        ["generic_implementation", "runner:codex"],
+        {"runners": {"codex": {"status": "available"}}},
+    ) is True
+
+
+def test_control_plane_fleet_runner_audit_detects_auth_drift():
+    control = load_module(ROOT / "ops" / "factory_control.py")
+    nodes = [
+        {
+            "node_id": "main",
+            "health": "online",
+            "runners": {
+                "codex": {"status": "available"},
+                "mimo": {"status": "available"},
+            },
+        },
+        {
+            "node_id": "9fts",
+            "health": "online",
+            "runners": {
+                "codex": {"status": "runner_auth_blocked", "missing_auth_env": ["OPENAI_API_KEY"], "error_type": "runner_auth_blocked"},
+                "mimo": {"status": "available"},
+            },
+        },
+    ]
+    audit = control.fleet_runner_audit(nodes)
+    assert audit["summary"]["total_nodes"] == 2
+    assert audit["summary"]["blocked_runners"] == 1
+    assert audit["summary"]["available_runners"] == 3
+    drifted_9fts = [n for n in audit["nodes"] if n["node_id"] == "9fts"][0]
+    codex_detail = [r for r in drifted_9fts["runners"] if r["runner"] == "codex"][0]
+    assert codex_detail["drifted"] is True
+    assert codex_detail["missing_auth_env"] == ["OPENAI_API_KEY"]
+
+
+def test_control_plane_fleet_runner_audit_reports_healthy_fleet():
+    control = load_module(ROOT / "ops" / "factory_control.py")
+    nodes = [
+        {
+            "node_id": "main",
+            "health": "online",
+            "runners": {
+                "codex": {"status": "available"},
+                "mimo": {"status": "available"},
+            },
+        },
+    ]
+    audit = control.fleet_runner_audit(nodes)
+    assert audit["summary"]["blocked_runners"] == 0
+    assert "fleet runner auth is healthy" in audit["next_action"]

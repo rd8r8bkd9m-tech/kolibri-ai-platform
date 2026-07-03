@@ -425,6 +425,53 @@ def fleet_capabilities(nodes: list[dict[str, Any]]) -> dict[str, Any]:
     return {"capabilities": by_capability, "nodes": nodes}
 
 
+def fleet_runner_audit(registered_nodes: list[dict[str, Any]]) -> dict[str, Any]:
+    runner_names = ["api", "codex", "local_llm", "mimo"]
+    nodes_audit = []
+    blocked_count = 0
+    available_count = 0
+    for node in registered_nodes:
+        node_id = node.get("node_id", "unknown")
+        runners = node.get("runners") if isinstance(node.get("runners"), dict) else {}
+        runner_details = []
+        for runner in runner_names:
+            runner_info = runners.get(runner) if isinstance(runners.get(runner), dict) else {}
+            state = str(runner_info.get("status") or "unknown").lower()
+            missing_auth = runner_info.get("missing_auth_env", [])
+            error_type = runner_info.get("error_type")
+            node_health = node.get("health") or "unknown"
+            is_blocked = state in BLOCKED_RUNNER_STATES
+            if is_blocked:
+                blocked_count += 1
+            elif state == "available":
+                available_count += 1
+            runner_details.append({
+                "runner": runner,
+                "status": state,
+                "missing_auth_env": missing_auth if isinstance(missing_auth, list) else [],
+                "error_type": error_type,
+                "drifted": is_blocked or bool(missing_auth),
+            })
+        nodes_audit.append({
+            "node_id": node_id,
+            "health": node_health,
+            "runners": runner_details,
+        })
+    return {
+        "nodes": nodes_audit,
+        "summary": {
+            "total_nodes": len(nodes_audit),
+            "blocked_runners": blocked_count,
+            "available_runners": available_count,
+        },
+        "next_action": (
+            "repair runner auth on blocked nodes and resubmit"
+            if blocked_count
+            else "fleet runner auth is healthy"
+        ),
+    }
+
+
 def fleet_topology(nodes: list[dict[str, Any]]) -> dict[str, Any]:
     edges = [{"from": "home", "to": "main", "type": "command_api"}]
     edges.extend(
@@ -954,6 +1001,17 @@ class Handler(BaseHTTPRequestHandler):
                     route_used="/v1/fleet/capabilities",
                     data=fleet_capabilities(nodes),
                     next_action="include required_capability in /v1/agents/tasks when dispatching work",
+                ))
+                return
+            if path == "/v1/fleet/runner-audit":
+                nodes = fabric_nodes(registered_nodes())
+                audit = fleet_runner_audit(nodes)
+                has_blocked = audit["summary"]["blocked_runners"] > 0
+                response(self, 200 if not has_blocked else 207, canonical_response_envelope(
+                    status="completed" if not has_blocked else "blocked",
+                    route_used="/v1/fleet/runner-audit",
+                    data=audit,
+                    next_action=audit["next_action"],
                 ))
                 return
             if path == "/v1/models":

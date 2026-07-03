@@ -123,6 +123,12 @@ RUNNER_AUTH_FAILURE_MARKERS = (
     "refresh token",
     "unauthorized",
 )
+
+RUNNER_AUTH_ENV_VARS: dict[str, tuple[str, ...]] = {
+    "api": ("OPENAI_API_KEY", "KOLIBRI_API_RUNNER_TOKEN"),
+    "codex": ("OPENAI_API_KEY",),
+    "local_llm": ("KOLIBRI_LOCAL_LLM_URL",),
+}
 SECRET_REDACTION_MARKERS = (
     "api_key",
     "authorization",
@@ -936,9 +942,22 @@ class AgentHost:
                 path = shutil.which(runner)
             except RecursionError:
                 path = None
+            auth_env = RUNNER_AUTH_ENV_VARS.get(runner, ())
+            missing_auth = [name for name in auth_env if not os.environ.get(name)]
+            if path and not missing_auth:
+                runner_status = "available"
+                error_type = None
+            elif path and missing_auth:
+                runner_status = "runner_auth_blocked"
+                error_type = "runner_auth_blocked"
+            else:
+                runner_status = "unavailable"
+                error_type = None
             status[runner] = {
-                "status": "available" if path else "unavailable",
+                "status": runner_status,
                 "path": path,
+                "missing_auth_env": missing_auth,
+                "error_type": error_type,
                 "checked_at": utc_now(),
             }
         return status

@@ -23,6 +23,7 @@ VALID_RECEIVER_MODES = {"polling", "webhook", "disabled"}
 RUNNER_ORDER = ("codex", "mimo", "api", "local_llm")
 SECRET_ENV_NAMES = {
     "api": ("OPENAI_API_KEY", "KOLIBRI_API_RUNNER_TOKEN"),
+    "codex": ("OPENAI_API_KEY",),
     "local_llm": ("KOLIBRI_LOCAL_LLM_URL",),
 }
 

@@ -75,3 +75,21 @@ def test_runner_policy_reports_missing_api_auth_without_secret_values():
     assert "OPENAI_API_KEY" in text
     assert "KOLIBRI_API_RUNNER_TOKEN" in text
     assert "sk-" not in text
+
+
+def test_runner_policy_reports_codex_auth_missing_when_env_unset():
+    contracts = load_contracts()
+    result = contracts.runner_policy({"KOLIBRI_RUNNER_POLICY": "codex,mimo,api,local_llm"})
+    codex_diag = next(d for d in result["diagnostics"] if d["runner"] == "codex")
+    assert codex_diag["available"] is False
+    assert "OPENAI_API_KEY" in codex_diag["missing_configuration"]
+    text = json.dumps(result)
+    assert "sk-" not in text
+
+
+def test_runner_policy_codex_available_when_key_set():
+    contracts = load_contracts()
+    result = contracts.runner_policy({"KOLIBRI_RUNNER_POLICY": "codex", "OPENAI_API_KEY": "test-key"})
+    codex_diag = next(d for d in result["diagnostics"] if d["runner"] == "codex")
+    assert codex_diag["available"] is True
+    assert codex_diag["missing_configuration"] == []

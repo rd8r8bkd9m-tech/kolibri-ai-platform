@@ -918,3 +918,41 @@ def test_backend_verification_environment_setup_failure_is_structured_blocker(tm
     assert fail_body["result"]["status"] == "blocked"
     assert fail_body["result"]["blocked_reason"] == "backend_test_environment_failed"
     assert "backend test environment" in fail_body["result"]["next_recommended_task"]
+
+
+def test_detect_runner_status_marks_codex_auth_blocked_when_key_missing(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setattr(agent_host.shutil, "which", lambda name: f"/usr/bin/{name}" if name in {"codex", "mimo"} else None)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    args = make_args(tmp_path, capabilities="generic_implementation,runner:codex,runner:mimo")
+    host = agent_host.AgentHost(args)
+
+    assert host.runner_status["codex"]["status"] == "runner_auth_blocked"
+    assert host.runner_status["codex"]["error_type"] == "runner_auth_blocked"
+    assert "OPENAI_API_KEY" in host.runner_status["codex"]["missing_auth_env"]
+    assert host.runner_status["mimo"]["status"] == "available"
+    assert host.runner_status["mimo"]["path"] == "/usr/bin/mimo"
+
+
+def test_detect_runner_status_marks_runners_available_when_binary_and_auth_present(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setattr(agent_host.shutil, "which", lambda name: f"/usr/bin/{name}" if name in {"codex", "mimo", "api"} else None)
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key-not-leaked")
+    monkeypatch.setenv("KOLIBRI_API_RUNNER_TOKEN", "test-token-not-leaked")
+    monkeypatch.delenv("KOLIBRI_LOCAL_LLM_URL", raising=False)
+
+    args = make_args(tmp_path, capabilities="generic_implementation,runner:codex,runner:mimo,runner:api")
+    host = agent_host.AgentHost(args)
+
+    assert host.runner_status["codex"]["status"] == "available"
+    assert host.runner_status["mimo"]["status"] == "available"
+    assert host.runner_status["api"]["status"] == "available"
+
+
+def test_runner_auth_env_vars_constant_includes_codex():
+    agent_host = load_agent_host()
+    assert "codex" in agent_host.RUNNER_AUTH_ENV_VARS
+    assert "OPENAI_API_KEY" in agent_host.RUNNER_AUTH_ENV_VARS["codex"]
+    assert "api" in agent_host.RUNNER_AUTH_ENV_VARS
+    assert "local_llm" in agent_host.RUNNER_AUTH_ENV_VARS
