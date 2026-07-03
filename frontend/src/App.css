@@ -570,6 +570,40 @@ button {
   font-size: 13px;
 }
 
+.factory-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.factory-metrics div {
+  min-width: 0;
+  padding: 10px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-soft);
+}
+
+.factory-metrics strong,
+.factory-metrics span {
+  display: block;
+  text-align: center;
+}
+
+.factory-metrics strong {
+  color: var(--text-primary);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.factory-metrics span {
+  margin-top: 5px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 800;
+}
+
 .secondary-action,
 .ghost-action,
 .primary-action {

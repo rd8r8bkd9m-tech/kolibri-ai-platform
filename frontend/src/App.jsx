@@ -7,6 +7,7 @@ import { KolibriBird } from "./components/KolibriBird"
 
 const IS_LOCAL = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
 const API_BASE = IS_LOCAL ? `http://${window.location.hostname}:8000` : ""
+const FACTORY_STATUS_ENDPOINT = "/api/factory/status"
 
 const MODES = [
   { id: "fast", label: "Быстро", hint: "короткий ответ" },
@@ -204,6 +205,8 @@ export default function App() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [backendState, setBackendState] = useState({ kind: "idle", label: "Backend не проверен", detail: "Запросов на старте нет" })
   const [providers, setProviders] = useState([])
+  const [factoryStatus, setFactoryStatus] = useState(null)
+  const [factoryLoading, setFactoryLoading] = useState(false)
   const [searchResults, setSearchResults] = useState([])
   const [lastChecked, setLastChecked] = useState("")
   const messagesEnd = useRef(null)
@@ -244,6 +247,23 @@ export default function App() {
       label: "Backend отвечает",
       detail: list.length ? `Доступно провайдеров: ${list.map((item) => item.name || item.id || item).join(", ")}` : "Ответ получен, список провайдеров пуст",
     })
+  }
+
+  const checkFactoryStatus = async () => {
+    setFactoryLoading(true)
+    const result = await safeJsonFetch(FACTORY_STATUS_ENDPOINT)
+    setLastChecked(new Date().toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }))
+    setFactoryLoading(false)
+
+    if (!result.ok) {
+      const detail = buildFailureMessage(result, "статус фабрики")
+      setFactoryStatus({ error: detail, data: null })
+      setBackendState({ kind: "error", label: `Фабрика HTTP ${result.status || "offline"}`, detail })
+      return
+    }
+
+    setFactoryStatus({ error: "", data: result.data || {} })
+    setBackendState({ kind: "online", label: "Фабрика отвечает", detail: "Получен живой статус серверов Kolibri" })
   }
 
   const runSearch = async (query) => {
@@ -475,6 +495,30 @@ export default function App() {
                 <button className="secondary-action" onClick={checkBackend} disabled={backendState.kind === "checking"}>
                   <Icon name="refresh" />
                   {backendState.kind === "checking" ? "Проверяю..." : "Проверить backend"}
+                </button>
+              </section>
+
+              <section className="backend-card">
+                <div className="backend-title">
+                  <Icon name="layers" />
+                  <span>Фабрика Колибри</span>
+                </div>
+                <p>{factoryStatus?.error || "Живой статус серверов запрашивается только вручную."}</p>
+                <div className="factory-metrics" aria-label="Свежесть серверов фабрики">
+                  {[
+                    ["Свежие", factoryStatus?.data?.node_freshness?.fresh ?? factoryStatus?.data?.fresh_nodes ?? 0],
+                    ["Деградируют", factoryStatus?.data?.node_freshness?.degraded ?? factoryStatus?.data?.degraded_nodes ?? 0],
+                    ["Устарели", factoryStatus?.data?.node_freshness?.stale ?? factoryStatus?.data?.stale_nodes ?? 0],
+                  ].map(([label, value]) => (
+                    <div key={label}>
+                      <strong>{value}</strong>
+                      <span>{label}</span>
+                    </div>
+                  ))}
+                </div>
+                <button className="secondary-action" onClick={checkFactoryStatus} disabled={factoryLoading}>
+                  <Icon name="refresh" />
+                  {factoryLoading ? "Обновляю..." : "Обновить фабрику"}
                 </button>
               </section>
 
