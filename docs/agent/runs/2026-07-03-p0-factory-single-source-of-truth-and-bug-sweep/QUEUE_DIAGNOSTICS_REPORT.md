@@ -6,10 +6,10 @@ This branch adds `queue_diagnostics()` and `GET /v1/tasks/queue/diagnostics`.
 
 ## Live Snapshot Used
 
-- Queue total after production deploy: 17.
-- Leaseable after production deploy: 17.
+- Queue total after final Home E2E check: 13.
+- Leaseable after final Home E2E check: 13.
 - Blocked after production deploy: 0.
-- Total task IDs: 21964.
+- Total task IDs: 21965.
 - Endpoint latency after bounding state scan: about 0.22s in the live check.
 
 ## Example Observed Reasons

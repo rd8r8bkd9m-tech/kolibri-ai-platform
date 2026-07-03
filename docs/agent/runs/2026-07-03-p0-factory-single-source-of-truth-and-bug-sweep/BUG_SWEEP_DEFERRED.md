@@ -2,17 +2,19 @@
 
 ## Backend Factory Status Proxy
 
-- Reason: live backend returned degraded with zero nodes while Control Plane was healthy.
-- Next task: repair backend `/api/factory/status` proxy to consume Fabric API truth.
+- Status: completed in this sweep.
+- Result: `/api/factory/status` now consumes canonical Control Plane health, fleet summary and queue diagnostics instead of returning a zero-node degraded fallback when Control Plane is healthy.
 - Priority: P0.
-- Owner approval needed: no, if read-only and canary deployed.
+- Owner approval needed: no further action unless rollback is requested.
 
 ## Home Kiosk End-To-End
 
-- Reason: Home deploy tasks are leaseable after the Control Plane deploy, but remain queued because the Home execution path is not taking leases. SSH to Home network endpoints is reachable, but current keys are rejected.
-- Next task: `P0_REPAIR_HOME_AGENT_HOST_LEASE_PATH_20260703T1245Z`; then complete the Home kiosk tasks and prove result artifacts.
+- Status: completed after Home access was repaired.
+- Result: Home Control Center serves clickable drill-down NOC from `http://127.0.0.1:9191`; kiosk service points at that URL.
+- Artifact: `/var/lib/kolibri-agent/artifacts/P0_HOME_NOC_CLICKABLE_KIOSK_E2E_20260703/result.json`.
+- Rollback: restore `/opt/kolibri-control-center/server.py.backup-p0-clickable-noc-20260703T1300Z` and restart `kolibri-control-center.service`.
 - Priority: P0.
-- Owner approval needed: yes if Home SSH identity or service restart is required.
+- Owner approval needed: no further action unless rollback is requested.
 
 ## Telegram Bot End-To-End
 
