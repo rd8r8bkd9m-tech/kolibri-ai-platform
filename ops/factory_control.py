@@ -671,6 +671,13 @@ def runner_state(node: dict[str, Any], runner: str) -> str | None:
     return None
 
 
+def node_capabilities(capabilities: list[str], node: dict[str, Any] | None = None) -> set[str]:
+    effective = {str(item) for item in ensure_list(capabilities)}
+    if isinstance(node, dict):
+        effective.update(str(item) for item in ensure_list(node.get("capabilities")))
+    return effective
+
+
 def mark_node_runner_failure(task: dict[str, Any], body: dict[str, Any]) -> None:
     error_type = body.get("error_type")
     if error_type not in {"runner_auth_blocked", "runner_unavailable"}:
@@ -697,6 +704,7 @@ def mark_node_runner_failure(task: dict[str, Any], body: dict[str, Any]) -> None
 
 def compatible(task: dict[str, Any], node_id: str, capabilities: list[str], node: dict[str, Any] | None = None) -> bool:
     envelope = task.get("envelope", {})
+    effective_capabilities = node_capabilities(capabilities, node)
     target_node = envelope.get("target_node") or envelope.get("required_node")
     if target_node and target_node != node_id:
         return False
@@ -707,11 +715,11 @@ def compatible(task: dict[str, Any], node_id: str, capabilities: list[str], node
     if node_id in avoided:
         return False
     required = envelope.get("required_capability")
-    if required and required not in capabilities:
+    if required and required not in effective_capabilities:
         return False
     runner = str(envelope.get("runner") or "").strip().lower()
     if envelope.get("kind") == "owner_remote_task" and runner:
-        if not runner_capability_names(runner).intersection(set(capabilities)):
+        if not runner_capability_names(runner).intersection(effective_capabilities):
             return False
         node_state = runner_state(node or {}, runner)
         if node_state in BLOCKED_RUNNER_STATES:

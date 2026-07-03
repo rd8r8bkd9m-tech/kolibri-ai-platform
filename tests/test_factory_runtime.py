@@ -137,3 +137,32 @@ def test_control_plane_runner_compatibility_filters_blocked_and_avoided_nodes():
         ["generic_implementation", "runner:mimo"],
         {"runners": {"mimo": {"status": "available"}}},
     ) is False
+
+
+def test_control_plane_lease_uses_registered_node_capabilities_when_request_omits_them():
+    control = load_module(ROOT / "ops" / "factory_control.py")
+    task = control.normalize_task({
+        "kind": "owner_remote_task",
+        "runner": "codex",
+        "required_capability": "generic_implementation",
+        "target_node": "home-live",
+    })
+
+    assert control.compatible(
+        task,
+        "home-live",
+        [],
+        {
+            "capabilities": ["generic_implementation", "runner:codex"],
+            "runners": {"codex": {"status": "available"}},
+        },
+    ) is True
+    assert control.compatible(
+        task,
+        "home-live",
+        [],
+        {
+            "capabilities": ["generic_implementation", "runner:codex"],
+            "runners": {"codex": {"status": "blocked"}},
+        },
+    ) is False
