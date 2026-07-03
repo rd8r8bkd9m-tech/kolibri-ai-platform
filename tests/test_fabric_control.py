@@ -38,15 +38,61 @@ def test_fabric_catalog_represents_every_server_through_api_or_relay():
 
 def test_fabric_route_returns_direct_route_when_target_is_online():
     control = load_control()
+
+    for health in ["fresh", "online", "ok", "running"]:
+        route = control.fabric_route(
+            target_node="9fts",
+            registered_nodes=[{"node_id": "9fts", "health": health, "capabilities": ["implementation"]}],
+        )
+
+        assert route["status"] == "ok"
+        assert route["route"]["type"] == "direct_fabric_api"
+        assert route["route"]["target_node"] == "9fts"
+        assert route["can_continue_elsewhere"] is True
+
+
+def test_fabric_route_blocks_stale_degraded_offline_and_drained_targets():
+    control = load_control()
+
+    for health in ["stale", "degraded", "offline", "drained"]:
+        route = control.fabric_route(
+            target_node="9fts",
+            required_capability="implementation",
+            registered_nodes=[
+                {"node_id": "9fts", "health": health, "capabilities": ["implementation"]},
+                {"node_id": "new", "health": "ok", "capabilities": ["implementation", "review"]},
+            ],
+        )
+
+        assert route["status"] == "blocked"
+        assert route["reason"] == "target_node_unavailable"
+        assert route["fallback_nodes"] == ["new"]
+
     route = control.fabric_route(
         target_node="9fts",
-        registered_nodes=[{"node_id": "9fts", "health": "online", "capabilities": ["implementation"]}],
+        required_capability="implementation",
+        registered_nodes=[
+            {"node_id": "9fts", "health": "online", "draining": True, "capabilities": ["implementation"]},
+            {"node_id": "new", "health": "running", "capabilities": ["implementation", "review"]},
+        ],
     )
 
-    assert route["status"] == "ok"
-    assert route["route"]["type"] == "direct_fabric_api"
-    assert route["route"]["target_node"] == "9fts"
-    assert route["can_continue_elsewhere"] is True
+    assert route["status"] == "blocked"
+    assert route["reason"] == "target_node_unavailable"
+    assert route["fallback_nodes"] == ["new"]
+
+
+def test_fabric_route_blocks_missing_capability_even_when_health_is_routable():
+    control = load_control()
+    route = control.fabric_route(
+        target_node="9fts",
+        required_capability="review",
+        registered_nodes=[{"node_id": "9fts", "health": "running", "capabilities": ["implementation"]}],
+    )
+
+    assert route["status"] == "blocked"
+    assert route["reason"] == "target_node_unavailable"
+    assert route["fallback_nodes"] == []
 
 
 def test_fabric_route_returns_structured_blocked_status_with_fallback_and_repair_task():

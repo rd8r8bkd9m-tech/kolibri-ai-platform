@@ -88,6 +88,7 @@ STATE_RETRY = "retry_scheduled"
 STATE_DEAD = "dead_letter"
 TERMINAL_STATES = {STATE_COMPLETED, STATE_FAILED, STATE_CANCELLED, STATE_DEAD}
 BLOCKED_RUNNER_STATES = {"blocked", "degraded", "runner_auth_blocked", "unavailable"}
+ROUTABLE_NODE_HEALTH = {"fresh", "ok", "online", "running"}
 
 FABRIC_NODE_CATALOG = {
     "home": {
@@ -531,7 +532,7 @@ def fabric_blocked_envelope(
 
 
 def _node_online(node: dict[str, Any]) -> bool:
-    return node.get("health") == "online"
+    return not node.get("draining") and str(node.get("health") or "").lower() in ROUTABLE_NODE_HEALTH
 
 
 def fabric_nodes(registered_nodes: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:

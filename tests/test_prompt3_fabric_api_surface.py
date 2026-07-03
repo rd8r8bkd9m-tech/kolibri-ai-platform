@@ -43,8 +43,8 @@ def test_prompt3_required_endpoint_surface_is_declared():
 def test_fleet_aliases_return_catalog_topology_capabilities_and_routes():
     control = load_control()
     registered = [
-        {"node_id": "9fts", "health": "online", "capabilities": ["implementation", "model"]},
-        {"node_id": "qjns", "health": "online", "capabilities": ["review"]},
+        {"node_id": "9fts", "health": "ok", "capabilities": ["implementation", "model"]},
+        {"node_id": "qjns", "health": "running", "capabilities": ["review"]},
     ]
     nodes = control.fabric_nodes(registered)
     capability_map = control.fleet_capabilities(nodes)["capabilities"]
@@ -56,6 +56,34 @@ def test_fleet_aliases_return_catalog_topology_capabilities_and_routes():
     assert {"from": "main", "to": "9fts", "type": "protected_fabric_api"} in topology["edges"]
     assert topology["relay_endpoint"] == "/v1/fabric/relay"
     assert route["route"]["endpoint"] == "/v1/nodes/9fts"
+
+
+def test_fabric_route_health_vocabulary_keeps_stale_states_blocked():
+    control = load_control()
+
+    for health in ["online", "ok", "running"]:
+        route = control.fabric_route(
+            target_node="9fts",
+            required_capability="implementation",
+            registered_nodes=[{"node_id": "9fts", "health": health, "capabilities": ["implementation"]}],
+        )
+
+        assert route["status"] == "ok"
+        assert route["route"]["endpoint"] == "/v1/nodes/9fts"
+
+    for health in ["stale", "degraded", "offline", "drained"]:
+        route = control.fabric_route(
+            target_node="9fts",
+            required_capability="implementation",
+            registered_nodes=[
+                {"node_id": "9fts", "health": health, "capabilities": ["implementation"]},
+                {"node_id": "new", "health": "online", "capabilities": ["implementation"]},
+            ],
+        )
+
+        assert route["status"] == "blocked"
+        assert route["reason"] == "target_node_unavailable"
+        assert route["fallback_nodes"] == ["new"]
 
 
 def test_model_responses_and_chat_completions_are_safe_blocked_stubs():
