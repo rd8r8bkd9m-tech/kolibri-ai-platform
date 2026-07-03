@@ -105,3 +105,28 @@ def test_frontend_uses_live_factory_status_endpoint():
     assert "Свежие" in app_source
     assert "Деградируют" in app_source
     assert "Устарели" in app_source
+
+
+def test_frontend_home_noc_controls_are_clickable_drilldowns():
+    repo_root = Path(__file__).resolve().parents[1]
+    app_source = (repo_root / "frontend" / "src" / "App.jsx").read_text(encoding="utf-8")
+    css_source = (repo_root / "frontend" / "src" / "App.css").read_text(encoding="utf-8")
+
+    assert "readNocParams" in app_source
+    assert 'params.set("noc"' in app_source
+    assert 'params.set("aggregate"' in app_source
+    assert 'params.set("filter"' in app_source
+    assert 'data-noc-control="problem-server-row"' in app_source
+    assert 'data-noc-control="task-row"' in app_source
+    assert 'data-noc-control="incident-row"' in app_source
+    assert 'aria-label={`Open server ${node.node_id}`}' in app_source
+    assert "nodeFilterActive" in app_source
+    assert 'view: "agents"' in app_source
+    assert 'filter: "agents"' in app_source
+    assert ".slice(0, 8)" in app_source
+    assert ".slice(0, 12)" in app_source
+    assert "Search paginates nodes for 100k+ server fleets" in app_source
+
+    assert "cursor: pointer" in css_source
+    assert ".noc-control:focus-visible" in css_source
+    assert ".noc-drilldown-banner" in css_source

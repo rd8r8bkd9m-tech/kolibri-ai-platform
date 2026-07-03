@@ -98,10 +98,50 @@ function findTopologyNode(node, id) {
   return null
 }
 
+function readNocParams() {
+  const params = new URLSearchParams(window.location.search)
+  return {
+    aggregate: params.get("aggregate") || "global:kolibri-ai",
+    view: params.get("noc") || "fleet",
+    target: params.get("target") || "",
+    filter: params.get("filter") || "",
+    q: params.get("q") || "",
+    page: Math.max(0, Number.parseInt(params.get("page") || "0", 10) || 0),
+  }
+}
+
+function taskLabel(task) {
+  return task?.task_id || task?.id || task?.kind || "task"
+}
+
 function ClusterView({ status, onRefresh }) {
-  const [selectedId, setSelectedId] = useState("global:kolibri-ai")
-  const [query, setQuery] = useState("")
-  const [page, setPage] = useState(0)
+  const initialNocParams = readNocParams()
+  const [selectedId, setSelectedId] = useState(initialNocParams.aggregate)
+  const [query, setQuery] = useState(initialNocParams.q)
+  const [page, setPage] = useState(initialNocParams.page)
+  const [drilldown, setDrilldown] = useState({
+    view: initialNocParams.view,
+    target: initialNocParams.target,
+    filter: initialNocParams.filter,
+    label: initialNocParams.target || initialNocParams.filter || "Fleet overview",
+  })
+
+  useEffect(() => {
+    const onPopState = () => {
+      const params = readNocParams()
+      setSelectedId(params.aggregate)
+      setQuery(params.q)
+      setPage(params.page)
+      setDrilldown({
+        view: params.view,
+        target: params.target,
+        filter: params.filter,
+        label: params.target || params.filter || "Fleet overview",
+      })
+    }
+    window.addEventListener("popstate", onPopState)
+    return () => window.removeEventListener("popstate", onPopState)
+  }, [])
 
   if (!status) return (
     <div className="noc-shell">
@@ -122,6 +162,18 @@ function ClusterView({ status, onRefresh }) {
   const aggregateRows = children.filter(row => row.level !== "task")
   const nodeList = Array.isArray(status.node_list) ? status.node_list : Object.values(status.nodes || {})
   const normalizedQuery = query.trim().toLowerCase()
+  const nodeMatchesFilter = (node, filter) => {
+    if (!filter) return false
+    if (filter === "fresh") return node.freshness === "fresh"
+    if (filter === "degraded") return node.freshness === "degraded"
+    if (filter === "stale") return node.freshness === "stale"
+    if (filter === "offline") return node.status === "offline" || node.reported_health === "offline" || node.freshness === "offline"
+    if (filter === "problems") return ["degraded", "stale", "offline"].includes(node.freshness) || node.status === "offline" || node.reported_health === "offline"
+    if (filter === "agents") return Boolean(node.agent_id)
+    if (filter === "control-plane") return node.role === "Директор" || String(node.node_id || "").includes("primary") || String(node.name || "").toLowerCase().includes("control")
+    return false
+  }
+  const nodeFilterActive = ["fresh", "degraded", "stale", "offline", "problems", "agents", "control-plane"].includes(drilldown.filter)
   const searchedNodes = normalizedQuery
     ? nodeList.filter(node => [
       node.node_id,
@@ -136,28 +188,67 @@ function ClusterView({ status, onRefresh }) {
       node.topology?.cluster,
       node.topology?.cell,
     ].some(value => String(value || "").toLowerCase().includes(normalizedQuery)))
+    : nodeFilterActive
+      ? nodeList.filter(node => nodeMatchesFilter(node, drilldown.filter))
     : []
   const pageSize = 25
   const pageCount = Math.max(1, Math.ceil(searchedNodes.length / pageSize))
   const pageNodes = searchedNodes.slice(page * pageSize, page * pageSize + pageSize)
-  const tasks = [...(status.active_tasks || []), ...(status.active_repairs || []), ...(status.runner_auth_blocks || [])]
-    .filter((task, index, list) => list.findIndex(item => item.task_id === task.task_id) === index)
+  const agentCount = nodeList.filter(node => Boolean(node.agent_id)).length
+  const activeTasks = status.active_tasks || []
+  const activeRepairs = status.active_repairs || []
+  const authBlocks = status.runner_auth_blocks || []
+  const tasks = [...activeTasks, ...activeRepairs, ...authBlocks]
+    .filter((task, index, list) => list.findIndex(item => taskLabel(item) === taskLabel(task)) === index)
     .slice(0, 12)
+  const problemNodes = nodeList
+    .filter(node => nodeMatchesFilter(node, "problems"))
+    .slice(0, 8)
+  const incidentRows = [
+    { id: "degraded", label: "Degraded servers", value: attention.degraded_nodes || freshness.degraded || 0, view: "alerts", filter: "degraded" },
+    { id: "stale", label: "Stale servers", value: attention.stale_nodes || freshness.stale || 0, view: "alerts", filter: "stale" },
+    { id: "offline", label: "Offline servers", value: attention.offline_nodes || freshness.offline || 0, view: "alerts", filter: "offline" },
+    { id: "repairs", label: "Active repairs", value: status.active_repair_count || 0, view: "repairs", filter: "repairs" },
+    { id: "auth", label: "Runner/auth blocks", value: status.runner_auth_block_count || 0, view: "alerts", filter: "auth" },
+  ].filter(row => row.value > 0)
+
+  const writeNocUrl = ({ aggregate = selectedId, view = drilldown.view, target = drilldown.target, filter = drilldown.filter, q = query, nextPage = page }, replace = false) => {
+    const params = new URLSearchParams(window.location.search)
+    params.set("tab", "cluster")
+    params.set("noc", view || "fleet")
+    if (aggregate) params.set("aggregate", aggregate); else params.delete("aggregate")
+    if (target) params.set("target", target); else params.delete("target")
+    if (filter) params.set("filter", filter); else params.delete("filter")
+    if (q) params.set("q", q); else params.delete("q")
+    if (nextPage > 0) params.set("page", String(nextPage)); else params.delete("page")
+    const nextUrl = `${window.location.pathname}?${params.toString()}${window.location.hash}`
+    window.history[replace ? "replaceState" : "pushState"]({}, "", nextUrl)
+  }
+
+  const selectDrilldown = ({ view, target = "", filter = "", q = "", label, aggregate = selectedId }) => {
+    setSelectedId(aggregate)
+    setQuery(q)
+    setPage(0)
+    setDrilldown({ view, target, filter, label: label || target || filter || view })
+    writeNocUrl({ aggregate, view, target, filter, q, nextPage: 0 })
+  }
 
   const healthCards = [
-    { label: "Control Plane", value: status.control_plane?.status || status.status || "unknown", tone: status.status === "online" ? "good" : "bad", icon: "activity" },
-    { label: "Fleet Total", value: status.total_nodes ?? 0, tone: "neutral", icon: "server" },
-    { label: "Свежие", value: `${freshness.fresh ?? status.fresh_nodes ?? 0}/${status.total_nodes ?? 0}`, tone: "good", icon: "activity" },
-    { label: "Деградируют", value: freshness.degraded ?? status.degraded_nodes ?? 0, tone: "warn", icon: "alert" },
-    { label: "Устарели", value: freshness.stale ?? status.stale_nodes ?? 0, tone: "bad", icon: "alert" },
-    { label: "Offline", value: freshness.offline ?? status.offline_nodes ?? 0, tone: "bad", icon: "server" },
-    { label: "Queue Pressure", value: queue.level || "normal", detail: `${status.queue_size || 0} queued/running`, tone: queue.level === "critical" || queue.level === "high" ? "bad" : queue.level === "elevated" ? "warn" : "neutral", icon: "queue" },
-    { label: "Owner Attention", value: attention.count ?? 0, tone: (attention.count || 0) > 0 ? "bad" : "good", icon: "shield" },
+    { label: "Control Plane", value: status.control_plane?.status || status.status || "unknown", tone: status.status === "online" ? "good" : "bad", icon: "activity", view: "control-plane", filter: "control-plane" },
+    { label: "Fleet Total", value: status.total_nodes ?? 0, tone: "neutral", icon: "server", view: "servers", filter: "problems", detail: "drill into problem servers" },
+    { label: "Свежие", value: `${freshness.fresh ?? status.fresh_nodes ?? 0}/${status.total_nodes ?? 0}`, tone: "good", icon: "activity", view: "servers", filter: "fresh" },
+    { label: "Деградируют", value: freshness.degraded ?? status.degraded_nodes ?? 0, tone: "warn", icon: "alert", view: "alerts", filter: "degraded" },
+    { label: "Устарели", value: freshness.stale ?? status.stale_nodes ?? 0, tone: "bad", icon: "alert", view: "alerts", filter: "stale" },
+    { label: "Offline", value: freshness.offline ?? status.offline_nodes ?? 0, tone: "bad", icon: "server", view: "alerts", filter: "offline" },
+    { label: "Queue Pressure", value: queue.level || "normal", detail: `${status.queue_size || 0} queued/running`, tone: queue.level === "critical" || queue.level === "high" ? "bad" : queue.level === "elevated" ? "warn" : "neutral", icon: "queue", view: "queues", target: "factory-queue" },
+    { label: "Owner Attention", value: attention.count ?? 0, tone: (attention.count || 0) > 0 ? "bad" : "good", icon: "shield", view: "alerts", filter: "problems" },
   ]
 
   const selectAggregate = (id) => {
     setSelectedId(id)
     setPage(0)
+    setDrilldown({ view: "topology", target: id, filter: "", label: id })
+    writeNocUrl({ aggregate: id, view: "topology", target: id, filter: "", q: "", nextPage: 0 })
   }
 
   return (
@@ -173,21 +264,31 @@ function ClusterView({ status, onRefresh }) {
 
       <div className="noc-kpi-grid">
         {healthCards.map((card, i) => (
-          <motion.div key={card.label} className={`noc-kpi ${card.tone}`}
+          <motion.button key={card.label} type="button" className={`noc-kpi noc-control ${card.tone}`}
+            aria-label={`Open ${card.label} drilldown`}
+            data-noc-control={`kpi-${card.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+            onClick={() => selectDrilldown({ view: card.view, target: card.target || "", filter: card.filter || "", label: card.label })}
             initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}>
             <div className="noc-kpi-icon"><Icon name={card.icon} size={16} /></div>
             <div className="noc-kpi-value">{card.value}</div>
             <div className="noc-kpi-label">{card.label}</div>
             {card.detail && <div className="noc-kpi-detail">{card.detail}</div>}
-          </motion.div>
+          </motion.button>
         ))}
       </div>
 
       <div className="noc-attention-strip">
-        <span>Active tasks <strong>{status.active_task_count || 0}</strong></span>
-        <span>Active repairs <strong>{status.active_repair_count || 0}</strong></span>
-        <span>Runner/auth blocks <strong>{status.runner_auth_block_count || 0}</strong></span>
-        <span>Telegram HA <strong>{telegram.status || "unknown"}</strong></span>
+        <button type="button" className="noc-control" onClick={() => selectDrilldown({ view: "tasks", target: "active", label: "Active tasks" })} aria-label="Open active tasks drilldown">Active tasks <strong>{status.active_task_count || 0}</strong></button>
+        <button type="button" className="noc-control" onClick={() => selectDrilldown({ view: "agents", target: "registered", filter: "agents", label: "Agents" })} aria-label="Open agents drilldown">Agents <strong>{agentCount}</strong></button>
+        <button type="button" className="noc-control" onClick={() => selectDrilldown({ view: "repairs", target: "active", label: "Active repairs" })} aria-label="Open active repairs drilldown">Active repairs <strong>{status.active_repair_count || 0}</strong></button>
+        <button type="button" className="noc-control" onClick={() => selectDrilldown({ view: "alerts", target: "runner-auth", filter: "auth", label: "Runner/auth blocks" })} aria-label="Open runner and auth blocks drilldown">Runner/auth blocks <strong>{status.runner_auth_block_count || 0}</strong></button>
+        <button type="button" className="noc-control" onClick={() => selectDrilldown({ view: "control-plane", target: "telegram-ha", label: "Telegram HA" })} aria-label="Open Telegram HA drilldown">Telegram HA <strong>{telegram.status || "unknown"}</strong></button>
+      </div>
+
+      <div className="noc-drilldown-banner" role="status" aria-live="polite" data-noc-drilldown>
+        <strong>Drilldown</strong>
+        <span>{drilldown.label}</span>
+        <small>view={drilldown.view}{drilldown.filter ? ` · filter=${drilldown.filter}` : ""}{drilldown.target ? ` · target=${drilldown.target}` : ""}</small>
       </div>
 
       <div className="noc-workspace">
@@ -210,7 +311,7 @@ function ClusterView({ status, onRefresh }) {
             {(aggregateRows.length ? aggregateRows : [selected]).map(row => {
               const rollup = row.rollup || {}
               return (
-                <button key={row.id} className={`noc-aggregate-row ${selected?.id === row.id ? "active" : ""}`} onClick={() => selectAggregate(row.id)}>
+                <button key={row.id} type="button" className={`noc-aggregate-row noc-control ${selected?.id === row.id ? "active" : ""}`} onClick={() => selectAggregate(row.id)} aria-label={`Open ${row.level} drilldown for ${row.name}`} data-noc-control="aggregate-row">
                   <span className="noc-row-chevron"><Icon name="chevron" size={14} /></span>
                   <span className="noc-row-main">
                     <strong>{row.name}</strong>
@@ -231,18 +332,40 @@ function ClusterView({ status, onRefresh }) {
           <div className="noc-section-head compact"><h2>Owner Attention</h2></div>
           <div className="noc-owner-grid">
             {[
-              ["Stale", attention.stale_nodes || 0],
-              ["Degraded", attention.degraded_nodes || 0],
-              ["Offline", attention.offline_nodes || 0],
-              ["Repairs", attention.active_repairs || 0],
-              ["Auth", attention.runner_auth_blocks || 0],
-            ].map(([label, value]) => <div key={label}><strong>{value}</strong><span>{label}</span></div>)}
+              ["Stale", attention.stale_nodes || 0, "stale", "alerts"],
+              ["Degraded", attention.degraded_nodes || 0, "degraded", "alerts"],
+              ["Offline", attention.offline_nodes || 0, "offline", "alerts"],
+              ["Repairs", attention.active_repairs || 0, "repairs", "repairs"],
+              ["Auth", attention.runner_auth_blocks || 0, "auth", "alerts"],
+            ].map(([label, value, filter, view]) => (
+              <button key={label} type="button" className="noc-control" onClick={() => selectDrilldown({ view, target: label.toLowerCase(), filter, label })} aria-label={`Open ${label} attention drilldown`}>
+                <strong>{value}</strong><span>{label}</span>
+              </button>
+            ))}
           </div>
-          <div className="noc-telegram">
+          <button type="button" className="noc-telegram noc-control" onClick={() => selectDrilldown({ view: "control-plane", target: "telegram-ha", label: "Telegram HA" })} aria-label="Open Telegram HA control plane drilldown">
             <strong>Telegram HA</strong>
             <span>primary: {telegram.primary || "unknown"}</span>
             <span>standby: {telegram.standby || "unknown"}</span>
             <span>promotion: {telegram.promotion || "unknown"}</span>
+          </button>
+          <div className="noc-section-head compact"><h2>Problem Servers</h2></div>
+          <div className="noc-problem-list">
+            {problemNodes.length ? problemNodes.map(node => (
+              <button key={node.node_id} type="button" className="noc-problem-row noc-control" data-noc-control="problem-server-row" onClick={() => selectDrilldown({ view: "servers", target: node.node_id, filter: "problems", q: node.node_id, label: node.node_id })} aria-label={`Open problem server ${node.node_id}`}>
+                <strong>{node.node_id}</strong>
+                <span>{node.freshness || node.status || "unknown"} · {node.topology?.provider || "provider"} / {node.topology?.cluster || "cluster"}</span>
+              </button>
+            )) : <div className="noc-empty-state small">No degraded, stale, or offline servers reported.</div>}
+          </div>
+          <div className="noc-section-head compact"><h2>Incident Queue</h2></div>
+          <div className="noc-problem-list">
+            {incidentRows.length ? incidentRows.map(row => (
+              <button key={row.id} type="button" className="noc-problem-row noc-control" data-noc-control="incident-row" onClick={() => selectDrilldown({ view: row.view, target: row.id, filter: row.filter, label: row.label })} aria-label={`Open incident ${row.label}`}>
+                <strong>{row.label}</strong>
+                <span>{row.value} affected</span>
+              </button>
+            )) : <div className="noc-empty-state small">No incident rows reported.</div>}
           </div>
         </aside>
       </div>
@@ -256,27 +379,32 @@ function ClusterView({ status, onRefresh }) {
             </div>
             <div className="noc-search">
               <Icon name="search" size={16} />
-              <input value={query} onChange={e => { setQuery(e.target.value); setPage(0) }} placeholder="node, agent, provider, health..." />
+              <input value={query} onChange={e => {
+                setQuery(e.target.value)
+                setPage(0)
+                setDrilldown({ view: "servers", target: e.target.value, filter: "", label: e.target.value || "Node search" })
+                writeNocUrl({ view: "servers", target: e.target.value, filter: "", q: e.target.value, nextPage: 0 }, true)
+              }} placeholder="node, agent, provider, health..." aria-label="Search node and agent drilldowns" />
             </div>
           </div>
-          {normalizedQuery ? (
+          {(normalizedQuery || nodeFilterActive) ? (
             <>
               <div className="noc-node-table">
                 {pageNodes.map(node => (
-                  <div key={node.node_id} className="noc-node-row">
+                  <button key={node.node_id} type="button" className="noc-node-row noc-control" data-noc-control="node-row" onClick={() => selectDrilldown({ view: "servers", target: node.node_id, filter: drilldown.filter, q: node.node_id, label: node.node_id })} aria-label={`Open server ${node.node_id}`}>
                     <strong>{node.node_id}</strong>
                     <span>{node.role || "agent"}</span>
                     <span>{node.topology?.provider || "provider"} / {node.topology?.cluster || "cluster"} / {node.topology?.cell || "cell"}</span>
                     <span className={node.freshness === "fresh" ? "good" : node.freshness === "degraded" ? "warn" : "bad"}>{node.freshness || node.status}</span>
                     <span>CPU {node.cpu == null ? "n/a" : node.cpu}</span>
                     <span>{node.ram || "RAM n/a"}</span>
-                  </div>
+                  </button>
                 ))}
               </div>
               <div className="noc-pagination">
-                <button disabled={page === 0} onClick={() => setPage(Math.max(0, page - 1))}>Previous</button>
+                <button disabled={page === 0} onClick={() => { const nextPage = Math.max(0, page - 1); setPage(nextPage); writeNocUrl({ nextPage }, true) }}>Previous</button>
                 <span>Page {page + 1} / {pageCount} · {searchedNodes.length} matches</span>
-                <button disabled={page + 1 >= pageCount} onClick={() => setPage(Math.min(pageCount - 1, page + 1))}>Next</button>
+                <button disabled={page + 1 >= pageCount} onClick={() => { const nextPage = Math.min(pageCount - 1, page + 1); setPage(nextPage); writeNocUrl({ nextPage }, true) }}>Next</button>
               </div>
             </>
           ) : (
@@ -288,11 +416,11 @@ function ClusterView({ status, onRefresh }) {
           <div className="noc-section-head compact"><h2>Active Work</h2></div>
           <div className="noc-task-list">
             {tasks.length ? tasks.map(task => (
-              <div key={task.task_id} className="noc-task-row">
-                <strong>{task.task_id}</strong>
+              <button key={taskLabel(task)} type="button" className="noc-task-row noc-control" data-noc-control="task-row" onClick={() => selectDrilldown({ view: String(task.kind || "").includes("repair") ? "repairs" : "tasks", target: taskLabel(task), label: taskLabel(task) })} aria-label={`Open task ${taskLabel(task)}`}>
+                <strong>{taskLabel(task)}</strong>
                 <span>{task.state} · {task.kind}</span>
                 {task.blocked_reason && <small>{task.blocked_reason}</small>}
-              </div>
+              </button>
             )) : <div className="noc-empty-state small">No active tasks or repair/auth blocks reported.</div>}
           </div>
         </aside>
