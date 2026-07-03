@@ -1,0 +1,71 @@
+{
+  "agent_id": "home-agent-host",
+  "capabilities": [
+    "read_only_probe",
+    "runner:mimo",
+    "generic_implementation"
+  ],
+  "checks": [
+    {
+      "check": "factory_control_health",
+      "detail": "Factory control plane responds to /v1/health",
+      "status": "fail"
+    },
+    {
+      "check": "home_node_registered",
+      "detail": "Home node registered with agent_host_api capability",
+      "status": "fail"
+    },
+    {
+      "check": "home_heartbeat_fresh",
+      "detail": "Home node heartbeat is fresh and reports online",
+      "status": "fail"
+    },
+    {
+      "check": "fleet_route_home",
+      "detail": "Fleet routing can reach Home node",
+      "status": "fail"
+    },
+    {
+      "check": "lease_request",
+      "detail": "Lease request with node_id=home and runner:mimo capability",
+      "status": "fail"
+    }
+  ],
+  "control_url": "http://127.0.0.1:9101",
+  "fleet_routing": {
+    "status": "unreachable"
+  },
+  "lease_request_evidence": {
+    "endpoint": "http://127.0.0.1:9101/v1/tasks/lease",
+    "http_status": 0,
+    "request_body": {
+      "agent_id": "home-agent-host",
+      "capabilities": [
+        "read_only_probe",
+        "runner:mimo",
+        "generic_implementation"
+      ],
+      "node_id": "home",
+      "runners": {
+        "mimo": {
+          "path": "/usr/local/bin/mimo",
+          "status": "available"
+        }
+      }
+    }
+  },
+  "node_id": "home",
+  "service_status": {
+    "factory_control_health": {
+      "status": "unreachable"
+    },
+    "node_registered": false
+  },
+  "summary": {
+    "all_checks_passed": false,
+    "home_execution_path_repaired": false
+  },
+  "task_id": "P0_REPAIR_HOME_AGENT_HOST_LEASE_PATH_20260703T1245Z",
+  "verification_at": "2026-07-03T12:55:20.255925+00:00"
+}

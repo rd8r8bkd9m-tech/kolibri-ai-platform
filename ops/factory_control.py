@@ -92,9 +92,9 @@ BLOCKED_RUNNER_STATES = {"blocked", "degraded", "runner_auth_blocked", "unavaila
 FABRIC_NODE_CATALOG = {
     "home": {
         "node_id": "home",
-        "role": "command_node_gateway",
+        "role": "command_node_gateway_agent_host",
         "display_name": "Связной",
-        "api_paths": ["fabric_api", "fallback_relay"],
+        "api_paths": ["fabric_api", "agent_host_api", "fallback_relay"],
         "ssh": "emergency_bootstrap_diagnostic_only",
     },
     "main": {

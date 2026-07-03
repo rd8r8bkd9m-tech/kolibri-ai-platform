@@ -40,8 +40,11 @@ deploy_9fts() {
 }
 
 deploy_home() {
-    echo "=== Deploying Home (Training Hub) ==="
+    echo "=== Deploying Home (Agent Host + Training Hub) ==="
     scp -r -o ConnectTimeout=$SSH_TIMEOUT -P 2222 scripts/training/ ladik@178.207.11.90:/home/ladik/kolibri-training/
+    scp -o ConnectTimeout=$SSH_TIMEOUT -P 2222 ops/agent_host.py ladik@178.207.11.90:/opt/kolibri-agent-host/agent_host.py
+    scp -o ConnectTimeout=$SSH_TIMEOUT -P 2222 ops/factory_control.py ladik@178.207.11.90:/opt/kolibri-agent-host/factory_control.py
+    ssh -o ConnectTimeout=$SSH_TIMEOUT -p 2222 ladik@178.207.11.90 "KOLIBRI_NODE_ID=home KOLIBRI_AGENT_ID=home-agent-host KOLIBRI_FACTORY_CONTROL_URL=http://10.99.0.2:9101 KOLIBRI_AGENT_CAPABILITIES=read_only_probe,runner:mimo,generic_implementation python3 /opt/kolibri-agent-host/agent_host.py --node-id home --agent-id home-agent-host --control-url http://10.99.0.2:9101 --capabilities read_only_probe,runner:mimo,generic_implementation &"
     echo "Home deployed ✓"
 }
 

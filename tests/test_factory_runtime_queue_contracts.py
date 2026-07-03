@@ -33,3 +33,62 @@ def test_lease_expiry_calculation():
     lease_until = time.time() + control.LEASE_DURATION
     assert lease_until > time.time()
     assert control.LEASE_DURATION >= 60
+
+
+def test_home_node_has_agent_host_api():
+    control = load_control()
+    nodes = control.fabric_nodes([])
+    home = next((n for n in nodes if n['node_id'] == 'home'), None)
+    assert home is not None, 'home node missing from fabric catalog'
+    assert 'agent_host_api' in home.get('api_paths', []), f'home node missing agent_host_api: {home}'
+
+
+def test_home_compatible_owner_remote_task_with_runner_mimo():
+    control = load_control()
+    task = control.normalize_task({
+        'task_id': 'HOME-LEASE-1',
+        'kind': 'owner_remote_task',
+        'runner': 'mimo',
+        'target_node': 'home',
+        'required_capability': 'generic_implementation',
+        'objective': 'deploy kiosk to home',
+    })
+    caps = ['read_only_probe', 'runner:mimo', 'generic_implementation']
+    assert control.compatible(task, 'home', caps), \
+        'home node should be compatible with owner_remote_task targeting home with runner:mimo'
+
+
+def test_home_compatible_rejects_wrong_target_node():
+    control = load_control()
+    task = control.normalize_task({
+        'task_id': 'HOME-LEASE-2',
+        'kind': 'owner_remote_task',
+        'runner': 'mimo',
+        'target_node': '9fts',
+        'required_capability': 'generic_implementation',
+    })
+    caps = ['read_only_probe', 'runner:mimo', 'generic_implementation']
+    assert not control.compatible(task, 'home', caps), \
+        'home should not be compatible with task targeted to 9fts'
+
+
+def test_home_compatible_rejects_missing_required_capability():
+    control = load_control()
+    task = control.normalize_task({
+        'task_id': 'HOME-LEASE-3',
+        'kind': 'owner_remote_task',
+        'runner': 'mimo',
+        'target_node': 'home',
+        'required_capability': 'missing_capability',
+    })
+    caps = ['read_only_probe', 'runner:mimo', 'generic_implementation']
+    assert not control.compatible(task, 'home', caps), \
+        'home should not be compatible when required_capability is missing'
+
+
+def test_runner_capability_names_mimo():
+    control = load_control()
+    names = control.runner_capability_names('mimo')
+    assert 'runner:mimo' in names
+    assert 'runner_mimo' in names
+    assert 'mimo_runner' in names
