@@ -422,6 +422,12 @@ class FactoryClient:
     def nodes(self) -> dict[str, Any]:
         return self.request("GET", "/v1/nodes")
 
+    def fleet_summary(self) -> dict[str, Any]:
+        return self.request("GET", "/v1/fleet/summary", timeout=6)
+
+    def fleet_incidents(self) -> dict[str, Any]:
+        return self.request("GET", "/v1/fleet/incidents", timeout=6)
+
 
 def compact_factory_snapshot(factory: FactoryClient) -> dict[str, Any]:
     snapshot: dict[str, Any] = {
@@ -432,10 +438,13 @@ def compact_factory_snapshot(factory: FactoryClient) -> dict[str, Any]:
         "task_counts": {},
         "queue_length": 0,
         "active_tasks": [],
+        "incidents": [],
         "warnings": [],
     }
     try:
-        nodes = factory.nodes().get("nodes", [])
+        summary = factory.fleet_summary()
+        data = summary.get("data", {})
+        nodes = data.get("nodes", [])
         snapshot["nodes"] = [
             {
                 "node_id": node.get("node_id"),
@@ -450,29 +459,55 @@ def compact_factory_snapshot(factory: FactoryClient) -> dict[str, Any]:
             for node in nodes
         ]
         snapshot["team"] = [node_card(node) for node in nodes]
+        snapshot["task_counts"] = data.get("task_counts", {})
+        snapshot["queue_length"] = data.get("queue_length", 0)
+        snapshot["active_tasks"] = data.get("active_tasks", [])[:8]
     except Exception as exc:
-        snapshot["warnings"].append(f"nodes_unavailable:{type(exc).__name__}")
+        snapshot["warnings"].append(f"fleet_summary_unavailable:{type(exc).__name__}")
+        try:
+            nodes = factory.nodes().get("nodes", [])
+            snapshot["nodes"] = [
+                {
+                    "node_id": node.get("node_id"),
+                    "health": node.get("health"),
+                    "capabilities": node.get("capabilities", []),
+                    "runners": node.get("runners", {}),
+                    "draining": bool(node.get("draining")),
+                    "heartbeat_at": node.get("heartbeat_at"),
+                    "freshness": node.get("freshness"),
+                    "heartbeat_age_seconds": node.get("heartbeat_age_seconds"),
+                }
+                for node in nodes
+            ]
+            snapshot["team"] = [node_card(node) for node in nodes]
+        except Exception as exc2:
+            snapshot["warnings"].append(f"nodes_unavailable:{type(exc2).__name__}")
+        try:
+            payload = factory.get_tasks()
+            tasks = payload.get("tasks", [])
+            snapshot["queue_length"] = len(payload.get("queue", []))
+            counts: dict[str, int] = {}
+            active = []
+            for task in tasks:
+                state = str(task.get("state") or "unknown")
+                counts[state] = counts.get(state, 0) + 1
+                if state not in TERMINAL_TASK_STATES:
+                    envelope = task.get("envelope") or {}
+                    active.append({
+                        "state": state,
+                        "kind": task.get("kind") or envelope.get("kind"),
+                        "target_node": envelope.get("target_node"),
+                        "review_node": envelope.get("review_node"),
+                    })
+            snapshot["task_counts"] = counts
+            snapshot["active_tasks"] = active[:8]
+        except Exception as exc3:
+            snapshot["warnings"].append(f"tasks_unavailable:{type(exc3).__name__}")
     try:
-        payload = factory.get_tasks()
-        tasks = payload.get("tasks", [])
-        snapshot["queue_length"] = len(payload.get("queue", []))
-        counts: dict[str, int] = {}
-        active = []
-        for task in tasks:
-            state = str(task.get("state") or "unknown")
-            counts[state] = counts.get(state, 0) + 1
-            if state not in TERMINAL_TASK_STATES:
-                envelope = task.get("envelope") or {}
-                active.append({
-                    "state": state,
-                    "kind": task.get("kind") or envelope.get("kind"),
-                    "target_node": envelope.get("target_node"),
-                    "review_node": envelope.get("review_node"),
-                })
-        snapshot["task_counts"] = counts
-        snapshot["active_tasks"] = active[:8]
+        incidents_resp = factory.fleet_incidents()
+        snapshot["incidents"] = incidents_resp.get("data", {}).get("incidents", [])
     except Exception as exc:
-        snapshot["warnings"].append(f"tasks_unavailable:{type(exc).__name__}")
+        snapshot["warnings"].append(f"fleet_incidents_unavailable:{type(exc).__name__}")
     return snapshot
 
 

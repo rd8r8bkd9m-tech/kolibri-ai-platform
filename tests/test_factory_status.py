@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
-from factory_status import build_factory_status
+from factory_status import build_factory_status, build_factory_status_from_summary
 
 
 def test_build_factory_status_normalizes_control_plane_nodes():
@@ -75,3 +75,56 @@ def test_frontend_uses_live_factory_status_endpoint():
     assert "Свежие" in app_source
     assert "Деградируют" in app_source
     assert "Устарели" in app_source
+
+
+def test_build_factory_status_from_summary_normalizes_fleet_data():
+    now = datetime.now(timezone.utc)
+    raw_nodes = [
+        {
+            "node_id": "primary-candidate",
+            "health": "online",
+            "freshness": "fresh",
+            "heartbeat_age_seconds": 5,
+            "capabilities": ["primary", "implementation"],
+            "runners": {},
+            "draining": False,
+        },
+        {
+            "node_id": "new",
+            "health": "stale",
+            "freshness": "stale",
+            "heartbeat_age_seconds": 120,
+            "capabilities": ["review"],
+            "runners": {},
+            "draining": False,
+        },
+    ]
+    task_states = {"running": 1, "queued": 2, "completed": 5}
+    result = build_factory_status_from_summary(raw_nodes, task_states, 3, {"status": "ok", "time": now.isoformat()})
+
+    assert result["status"] == "online"
+    assert result["total_nodes"] == 2
+    assert result["online_nodes"] == 1
+    assert result["fresh_nodes"] == 1
+    assert result["stale_nodes"] == 1
+    assert result["queue_size"] == 3
+    assert result["task_states"] == {"running": 1, "queued": 2, "completed": 5}
+    assert result["nodes"]["primary-candidate"]["role"] == "Директор"
+    assert result["control_plane"]["status"] == "ok"
+
+
+def test_build_factory_status_from_summary_returns_degraded_when_no_online():
+    raw_nodes = [
+        {
+            "node_id": "stale-worker",
+            "health": "stale",
+            "freshness": "stale",
+            "heartbeat_age_seconds": 120,
+            "capabilities": ["implementation"],
+            "runners": {},
+            "draining": False,
+        },
+    ]
+    result = build_factory_status_from_summary(raw_nodes, {}, 0, {"status": "ok"})
+    assert result["status"] == "degraded"
+    assert result["online_nodes"] == 0

@@ -191,6 +191,8 @@ PROMPT3_REQUIRED_ENDPOINTS = {
         "/v1/fleet/topology",
         "/v1/fleet/route",
         "/v1/fleet/capabilities",
+        "/v1/fleet/summary",
+        "/v1/fleet/incidents",
         "/v1/models",
         "/v1/agents/status/{task_id}",
         "/v1/agents/artifacts/{task_id}",
@@ -423,6 +425,114 @@ def fleet_capabilities(nodes: list[dict[str, Any]]) -> dict[str, Any]:
         for capability in node.get("capabilities") or []:
             by_capability.setdefault(capability, []).append(node["node_id"])
     return {"capabilities": by_capability, "nodes": nodes}
+
+
+def fleet_summary(registered_nodes_list: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    nodes = fabric_nodes(registered_nodes_list)
+    current = now_ts()
+    counts = {"fresh": 0, "degraded": 0, "stale": 0, "online": 0, "total": len(nodes)}
+    node_summaries: list[dict[str, Any]] = []
+    for node in nodes:
+        classified = classify_node_freshness(node, current)
+        freshness = classified.get("freshness", "stale")
+        if freshness in counts:
+            counts[freshness] += 1
+        if classified.get("health") == "online":
+            counts["online"] += 1
+        node_summaries.append({
+            "node_id": classified.get("node_id"),
+            "display_name": classified.get("display_name") or classified.get("node_id"),
+            "health": classified.get("health", "unknown"),
+            "freshness": freshness,
+            "heartbeat_age_seconds": classified.get("heartbeat_age_seconds"),
+            "draining": bool(classified.get("draining")),
+            "capabilities": classified.get("capabilities", []),
+            "runners": classified.get("runners", {}),
+        })
+    task_ids = all_task_ids()
+    task_counts: dict[str, int] = {}
+    active_tasks: list[dict[str, Any]] = []
+    for task_id in task_ids:
+        task = load_task(task_id)
+        if not task:
+            continue
+        state = str(task.get("state") or "unknown")
+        task_counts[state] = task_counts.get(state, 0) + 1
+        if state not in TERMINAL_STATES:
+            envelope = task.get("envelope") or {}
+            active_tasks.append({
+                "state": state,
+                "kind": task.get("kind") or envelope.get("kind"),
+                "target_node": envelope.get("target_node"),
+                "review_node": envelope.get("review_node"),
+            })
+        if len(active_tasks) >= 8:
+            break
+    return {
+        "nodes": node_summaries,
+        "counts": counts,
+        "task_counts": task_counts,
+        "queue_length": len(queue_ids()),
+        "active_tasks": active_tasks[:8],
+        "generated_at": utc_now(),
+    }
+
+
+def fleet_incidents(registered_nodes_list: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    nodes = fabric_nodes(registered_nodes_list)
+    current = now_ts()
+    incidents: list[dict[str, Any]] = []
+    for node in nodes:
+        classified = classify_node_freshness(node, current)
+        freshness = classified.get("freshness", "stale")
+        node_id = classified.get("node_id", "unknown")
+        if freshness == "stale":
+            incidents.append({
+                "kind": "node_stale",
+                "node_id": node_id,
+                "display_name": classified.get("display_name") or node_id,
+                "heartbeat_age_seconds": classified.get("heartbeat_age_seconds"),
+                "severity": "high",
+                "message": f"Node {node_id} heartbeat stale — no response in {classified.get('heartbeat_age_seconds', 'unknown')}s",
+            })
+        elif freshness == "degraded":
+            incidents.append({
+                "kind": "node_degraded",
+                "node_id": node_id,
+                "display_name": classified.get("display_name") or node_id,
+                "heartbeat_age_seconds": classified.get("heartbeat_age_seconds"),
+                "severity": "medium",
+                "message": f"Node {node_id} heartbeat degraded — response delay {classified.get('heartbeat_age_seconds', 'unknown')}s",
+            })
+        runners = classified.get("runners", {})
+        for runner_name, runner_info in runners.items():
+            runner_status = runner_info.get("status") if isinstance(runner_info, dict) else None
+            if runner_status in BLOCKED_RUNNER_STATES:
+                incidents.append({
+                    "kind": "runner_blocked",
+                    "node_id": node_id,
+                    "display_name": classified.get("display_name") or node_id,
+                    "runner": runner_name,
+                    "severity": "medium",
+                    "message": f"Runner {runner_name} on node {node_id} is {runner_status}",
+                })
+    task_ids = all_task_ids()
+    for task_id in task_ids[:50]:
+        task = load_task(task_id)
+        if not task:
+            continue
+        state = str(task.get("state") or "unknown")
+        if state in {STATE_FAILED, STATE_DEAD}:
+            envelope = task.get("envelope") or {}
+            incidents.append({
+                "kind": "task_failed",
+                "task_id": task_id,
+                "state": state,
+                "node_id": envelope.get("target_node"),
+                "severity": "high" if state == STATE_DEAD else "medium",
+                "message": f"Task {task_id} ended in {state}",
+            })
+    return incidents
 
 
 def fleet_topology(nodes: list[dict[str, Any]]) -> dict[str, Any]:
@@ -954,6 +1064,24 @@ class Handler(BaseHTTPRequestHandler):
                     route_used="/v1/fleet/capabilities",
                     data=fleet_capabilities(nodes),
                     next_action="include required_capability in /v1/agents/tasks when dispatching work",
+                ))
+                return
+            if path == "/v1/fleet/summary":
+                summary = fleet_summary(registered_nodes())
+                response(self, 200, canonical_response_envelope(
+                    status="completed",
+                    route_used="/v1/fleet/summary",
+                    data=summary,
+                    next_action="use fleet summary for snapshot root view without unbounded node enumeration",
+                ))
+                return
+            if path == "/v1/fleet/incidents":
+                incidents = fleet_incidents(registered_nodes())
+                response(self, 200, canonical_response_envelope(
+                    status="completed",
+                    route_used="/v1/fleet/incidents",
+                    data={"incidents": incidents, "count": len(incidents)},
+                    next_action="review incidents and escalate high-severity items",
                 ))
                 return
             if path == "/v1/models":

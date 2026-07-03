@@ -499,6 +499,39 @@ def test_compact_factory_snapshot_has_director_and_team_cards():
     gateway = load_gateway()
 
     class Factory:
+        def fleet_summary(self):
+            return {
+                "data": {
+                    "nodes": [{"node_id": "9fts", "health": "online", "capabilities": ["implementation"], "runners": {}, "draining": False}],
+                    "counts": {"fresh": 1, "online": 1, "degraded": 0, "stale": 0, "total": 6},
+                    "task_counts": {"running": 1},
+                    "queue_length": 1,
+                    "active_tasks": [{"state": "running", "kind": "implementation", "target_node": "9fts"}],
+                    "generated_at": "2026-07-03T00:00:00+00:00",
+                }
+            }
+
+        def fleet_incidents(self):
+            return {"data": {"incidents": [], "count": 0}}
+
+    snapshot = gateway.compact_factory_snapshot(Factory())
+    assert snapshot["orchestrator"]["name"] == "Директор"
+    assert snapshot["team"][0]["name"] == "Инженер"
+    assert snapshot["queue_length"] == 1
+    assert snapshot["task_counts"]["running"] == 1
+    assert snapshot["incidents"] == []
+
+
+def test_compact_factory_snapshot_falls_back_to_nodes_on_fleet_summary_error():
+    gateway = load_gateway()
+
+    class Factory:
+        def fleet_summary(self):
+            raise ConnectionError("fleet summary unreachable")
+
+        def fleet_incidents(self):
+            raise ConnectionError("fleet incidents unreachable")
+
         def nodes(self):
             return {"nodes": [{"node_id": "9fts", "health": "online", "capabilities": ["implementation"]}]}
 
@@ -510,6 +543,8 @@ def test_compact_factory_snapshot_has_director_and_team_cards():
     assert snapshot["team"][0]["name"] == "Инженер"
     assert snapshot["queue_length"] == 1
     assert snapshot["task_counts"]["running"] == 1
+    assert any("fleet_summary_unavailable" in w for w in snapshot["warnings"])
+    assert snapshot["incidents"] == []
 
 
 

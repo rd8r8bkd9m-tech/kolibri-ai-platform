@@ -212,10 +212,29 @@ def build_factory_status(nodes_payload: Any, tasks_payload: Any | None = None, h
 
 
 async def fetch_factory_status() -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=httpx.Timeout(4.0, connect=2.0)) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(6.0, connect=2.0)) as client:
         health_response = await client.get(_control_plane_v1_url("/health"))
-        nodes_response = await client.get(_control_plane_v1_url("/nodes"))
         health_response.raise_for_status()
+        health_data = health_response.json()
+
+    fleet_summary_data: Any = None
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(4.0, connect=2.0)) as client:
+            summary_response = await client.get(_control_plane_v1_url("/fleet/summary"))
+            if summary_response.status_code == 200:
+                summary_envelope = summary_response.json()
+                fleet_summary_data = summary_envelope.get("data", {})
+    except Exception:
+        fleet_summary_data = None
+
+    if fleet_summary_data:
+        raw_nodes = fleet_summary_data.get("nodes", [])
+        task_states = fleet_summary_data.get("task_counts", {})
+        queue_length = fleet_summary_data.get("queue_length", 0)
+        return build_factory_status_from_summary(raw_nodes, task_states, queue_length, health_data)
+
+    async with httpx.AsyncClient(timeout=httpx.Timeout(4.0, connect=2.0)) as client:
+        nodes_response = await client.get(_control_plane_v1_url("/nodes"))
         nodes_response.raise_for_status()
 
     tasks_payload: Any = {"tasks": []}
@@ -227,4 +246,49 @@ async def fetch_factory_status() -> dict[str, Any]:
     except Exception:
         tasks_payload = {"tasks": []}
 
-    return build_factory_status(nodes_response.json(), tasks_payload, health_response.json())
+    return build_factory_status(nodes_response.json(), tasks_payload, health_data)
+
+
+def build_factory_status_from_summary(
+    raw_nodes: list[dict[str, Any]],
+    task_states: dict[str, int],
+    queue_length: int,
+    health_payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    generated_at = (health_payload or {}).get("time") or datetime.now(timezone.utc).isoformat()
+    node_list = [_node_card(node, generated_at) for node in raw_nodes if isinstance(node, dict)]
+    nodes = {node["node_id"]: node for node in node_list}
+    online_nodes = [node for node in node_list if node.get("status") == "online"]
+    fresh_nodes = [node for node in node_list if node.get("freshness") == "fresh"]
+    degraded_nodes = [node for node in node_list if node.get("freshness") == "degraded"]
+    stale_nodes = [node for node in node_list if node.get("freshness") == "stale"]
+    return {
+        "status": "online" if online_nodes else "degraded",
+        "source": "control-plane",
+        "generated_at": generated_at,
+        "control_plane": {
+            "url": CONTROL_PLANE_URL,
+            "status": (health_payload or {}).get("status", "unknown"),
+            "queue_backend": (health_payload or {}).get("queue_backend"),
+            "redis": (health_payload or {}).get("redis"),
+        },
+        "total_nodes": len(node_list),
+        "online_nodes": len(online_nodes),
+        "fresh_nodes": len(fresh_nodes),
+        "degraded_nodes": len(degraded_nodes),
+        "stale_nodes": len(stale_nodes),
+        "node_freshness": {
+            "fresh": len(fresh_nodes),
+            "degraded": len(degraded_nodes),
+            "stale": len(stale_nodes),
+            "online": len(online_nodes),
+            "total": len(node_list),
+        },
+        "free_ram_gb": 0,
+        "total_ram_gb": 0,
+        "avg_cpu_percent": 0,
+        "queue_size": queue_length,
+        "task_states": task_states,
+        "nodes": nodes,
+        "node_list": node_list,
+    }

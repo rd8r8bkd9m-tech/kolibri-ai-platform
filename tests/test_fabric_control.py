@@ -87,3 +87,60 @@ def test_dispatcher_unreachable_control_plane_uses_blocked_envelope():
     assert envelope["fallback_route"]["endpoint"] == "/v1/fabric/relay"
     assert envelope["repair_task"]["kind"] == "repair_control_plane_api"
     assert envelope["can_continue_elsewhere"] is True
+
+
+def test_fleet_summary_returns_bounded_node_and_task_data():
+    control = load_control()
+    registered = [
+        {"node_id": "9fts", "health": "online", "heartbeat_at": control.utc_now(), "capabilities": ["implementation"]},
+        {"node_id": "new", "health": "online", "heartbeat_at": control.utc_now(), "capabilities": ["review"]},
+    ]
+    summary = control.fleet_summary(registered)
+
+    assert "nodes" in summary
+    assert "counts" in summary
+    assert "task_counts" in summary
+    assert "queue_length" in summary
+    assert "active_tasks" in summary
+    assert "generated_at" in summary
+    assert summary["counts"]["total"] >= 6
+    assert summary["counts"]["online"] >= 2
+    assert isinstance(summary["task_counts"], dict)
+    assert isinstance(summary["queue_length"], int)
+    assert isinstance(summary["active_tasks"], list)
+
+
+def test_fleet_summary_node_has_required_fields():
+    control = load_control()
+    summary = control.fleet_summary([{"node_id": "9fts", "health": "online", "heartbeat_at": control.utc_now()}])
+    node_9fts = next((n for n in summary["nodes"] if n["node_id"] == "9fts"), None)
+    assert node_9fts is not None
+    assert "health" in node_9fts
+    assert "freshness" in node_9fts
+    assert "draining" in node_9fts
+    assert "capabilities" in node_9fts
+    assert "runners" in node_9fts
+
+
+def test_fleet_incidents_detects_stale_node():
+    control = load_control()
+    stale_time = control.utc_now().replace("T", "T00:00:00")
+    registered = [
+        {"node_id": "9fts", "health": "online", "heartbeat_at": stale_time, "capabilities": ["implementation"]},
+    ]
+    incidents = control.fleet_incidents(registered)
+    stale_incidents = [i for i in incidents if i["kind"] == "node_stale" and i["node_id"] == "9fts"]
+    assert len(stale_incidents) >= 1
+    assert stale_incidents[0]["severity"] == "high"
+
+
+def test_fleet_incidents_returns_list():
+    control = load_control()
+    incidents = control.fleet_incidents([])
+    assert isinstance(incidents, list)
+
+
+def test_prompt3_required_endpoints_include_fleet_summary_and_incidents():
+    control = load_control()
+    assert "/v1/fleet/summary" in control.PROMPT3_REQUIRED_ENDPOINTS["GET"]
+    assert "/v1/fleet/incidents" in control.PROMPT3_REQUIRED_ENDPOINTS["GET"]
