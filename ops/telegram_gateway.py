@@ -10,6 +10,7 @@ import mimetypes
 import os
 import re
 import signal
+import socket
 import sys
 import time
 import unicodedata
@@ -149,6 +150,10 @@ OWNER_RUNTIME_FAILURE_MARKERS = (
 TOKEN_LIKE_RE = re.compile(
     r"(?i)(?:\b\d{6,}:[A-Za-z0-9_-]{20,}\b|\b(?:ghp|github_pat|xox[baprs]|sk)-[A-Za-z0-9_-]{16,}\b|\b[A-Fa-f0-9]{40,}\b)"
 )
+REDIS_URL_RE = re.compile(r"\b(redis(?:s)?://)(?:[^@\s/]+@)?([^\s]+)")
+SECRET_ASSIGNMENT_RE = re.compile(
+    r"(?i)\b([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASS|API_KEY|CHAT_ID|REDIS_URL)[A-Z0-9_]*=)([^\s]+)"
+)
 IMMEDIATE_CHAT_MARKERS = (
     "как дела",
     "как ты",
@@ -167,6 +172,14 @@ IMMEDIATE_CHAT_MARKERS = (
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def redact_secret_text(text: Any) -> str:
+    scrubbed = str(text)
+    scrubbed = TOKEN_LIKE_RE.sub("[REDACTED]", scrubbed)
+    scrubbed = REDIS_URL_RE.sub(r"\1[REDACTED]@\2", scrubbed)
+    scrubbed = SECRET_ASSIGNMENT_RE.sub(r"\1[REDACTED]", scrubbed)
+    return scrubbed
 
 
 def parse_owner_ids(value: str) -> set[int]:
@@ -768,6 +781,124 @@ def help_text() -> str:
     )
 
 
+class RedisError(RuntimeError):
+    pass
+
+
+class RedisClient:
+    def __init__(self, redis_url: str, timeout: float = 5.0):
+        parsed = urllib.parse.urlparse(redis_url)
+        if parsed.scheme not in {"redis", "rediss"}:
+            raise ValueError("redis URL must use redis:// or rediss://")
+        self.host = parsed.hostname or "localhost"
+        self.port = parsed.port or 6379
+        self.username = urllib.parse.unquote(parsed.username) if parsed.username else None
+        self.password = urllib.parse.unquote(parsed.password) if parsed.password else None
+        self.db = int((parsed.path or "/0").strip("/") or "0")
+        self.timeout = timeout
+
+    def command(self, *parts: Any) -> Any:
+        with socket.create_connection((self.host, self.port), timeout=self.timeout) as sock:
+            reader = sock.makefile("rb")
+            if self.password:
+                auth_parts: tuple[Any, ...] = ("AUTH", self.username, self.password) if self.username else ("AUTH", self.password)
+                sock.sendall(self._encode(auth_parts))
+                self._read(reader)
+            if self.db:
+                sock.sendall(self._encode(("SELECT", self.db)))
+                self._read(reader)
+            sock.sendall(self._encode(parts))
+            return self._read(reader)
+
+    @staticmethod
+    def _encode(parts: tuple[Any, ...]) -> bytes:
+        out = [f"*{len(parts)}\r\n".encode()]
+        for part in parts:
+            data = str(part).encode("utf-8")
+            out.append(f"${len(data)}\r\n".encode())
+            out.append(data + b"\r\n")
+        return b"".join(out)
+
+    def _read(self, reader: Any) -> Any:
+        prefix = reader.read(1)
+        if not prefix:
+            raise RedisError("empty redis response")
+        line = reader.readline().rstrip(b"\r\n")
+        if prefix == b"+":
+            return line.decode("utf-8")
+        if prefix == b"-":
+            raise RedisError(line.decode("utf-8", "replace"))
+        if prefix == b":":
+            return int(line)
+        if prefix == b"$":
+            length = int(line)
+            if length == -1:
+                return None
+            data = reader.read(length)
+            reader.read(2)
+            return data.decode("utf-8")
+        if prefix == b"*":
+            count = int(line)
+            if count == -1:
+                return None
+            return [self._read(reader) for _ in range(count)]
+        raise RedisError(f"unknown redis response prefix: {prefix!r}")
+
+
+class TelegramHACoordinator:
+    def __init__(
+        self,
+        redis_client: RedisClient,
+        gateway_id: str,
+        prefix: str = "kolibri:telegram:ha",
+        lease_ttl_ms: int = 45000,
+    ):
+        self.redis = redis_client
+        self.gateway_id = gateway_id
+        self.prefix = prefix.rstrip(":")
+        self.lease_ttl_ms = lease_ttl_ms
+
+    def key(self, name: str) -> str:
+        return f"{self.prefix}:{name}"
+
+    def acquire_polling_lease(self) -> bool:
+        lease_key = self.key("polling_lease")
+        existing = self.redis.command("GET", lease_key)
+        if existing == self.gateway_id:
+            self.redis.command("PEXPIRE", lease_key, self.lease_ttl_ms)
+            return True
+        result = self.redis.command("SET", lease_key, self.gateway_id, "NX", "PX", self.lease_ttl_ms)
+        return result == "OK"
+
+    def offset(self) -> int | None:
+        raw = self.redis.command("GET", self.key("offset"))
+        return int(raw) if raw is not None else None
+
+    def acknowledge_offset(self, offset: int) -> None:
+        current = self.offset()
+        if current is None or offset > current:
+            self.redis.command("SET", self.key("offset"), offset)
+
+    def enqueue_notification(self, record: dict[str, Any]) -> dict[str, Any]:
+        payload = json.dumps(record, sort_keys=True, separators=(",", ":"))
+        self.redis.command("RPUSH", self.key("notification_spool"), payload)
+        return record
+
+    def pending_notifications(self) -> list[dict[str, Any]]:
+        raw_items = self.redis.command("LRANGE", self.key("notification_spool"), 0, -1) or []
+        records = []
+        for raw in raw_items:
+            try:
+                records.append(json.loads(raw))
+            except json.JSONDecodeError:
+                continue
+        return records
+
+    def acknowledge_notification(self, record: dict[str, Any]) -> None:
+        payload = json.dumps(record, sort_keys=True, separators=(",", ":"))
+        self.redis.command("LREM", self.key("notification_spool"), 1, payload)
+
+
 class StateStore:
     def __init__(self, path: Path):
         self.path = path
@@ -783,6 +914,7 @@ class StateStore:
         data.setdefault("tracked", {})
         data.setdefault("common_chat_since", os.environ.get("TELEGRAM_COMMON_CHAT_SINCE", utc_now()))
         ensure_memory(data)
+        data.setdefault("notification_spool", [])
         return data
 
     def save(self) -> None:
@@ -790,13 +922,23 @@ class StateStore:
 
 
 class Gateway:
-    def __init__(self, telegram: TelegramClient, factory: FactoryClient, owner_ids: set[int], state: StateStore, poll_timeout: int, gateway_role: str = GATEWAY_ROLE_PRIMARY):
+    def __init__(
+        self,
+        telegram: TelegramClient,
+        factory: FactoryClient,
+        owner_ids: set[int],
+        state: StateStore,
+        poll_timeout: int,
+        gateway_role: str = GATEWAY_ROLE_PRIMARY,
+        coordinator: TelegramHACoordinator | None = None,
+    ):
         self.telegram = telegram
         self.factory = factory
         self.owner_ids = owner_ids
         self.state = state
         self.poll_timeout = poll_timeout
         self.gateway_role = gateway_role
+        self.coordinator = coordinator
 
     def authorized(self, message: dict[str, Any]) -> bool:
         user = message.get("from") or {}
@@ -807,6 +949,46 @@ class Gateway:
         chat_id = message.get("chat", {}).get("id")
         if chat_id:
             self.telegram.send_message(chat_id, "Доступ запрещен.")
+
+    def enqueue_notification(self, chat_id: int, text: str) -> dict[str, Any]:
+        record = {
+            "id": f"{int(time.time() * 1000)}:{os.getpid()}:{chat_id}",
+            "chat_id": int(chat_id),
+            "text": text[:3900],
+            "created_at": utc_now(),
+        }
+        if self.coordinator:
+            return self.coordinator.enqueue_notification(record)
+        self.state.data.setdefault("notification_spool", []).append(record)
+        self.state.save()
+        return record
+
+    def acknowledge_notification(self, record: dict[str, Any]) -> None:
+        if self.coordinator:
+            self.coordinator.acknowledge_notification(record)
+            return
+        spool = self.state.data.setdefault("notification_spool", [])
+        self.state.data["notification_spool"] = [item for item in spool if item.get("id") != record.get("id")]
+        self.state.save()
+
+    def pending_notifications(self) -> list[dict[str, Any]]:
+        if self.coordinator:
+            return self.coordinator.pending_notifications()
+        return list(self.state.data.get("notification_spool") or [])
+
+    def notify_owner(self, chat_id: int, text: str) -> dict[str, Any]:
+        record = self.enqueue_notification(chat_id, text)
+        result = self.telegram.send_message(chat_id, record["text"])
+        self.acknowledge_notification(record)
+        return result
+
+    def flush_notification_spool(self) -> None:
+        for record in self.pending_notifications():
+            try:
+                self.telegram.send_message(int(record["chat_id"]), str(record["text"])[:3900])
+                self.acknowledge_notification(record)
+            except Exception:
+                break
 
     def track(self, chat_id: int, task_id: str, state: str, mode: str = "task") -> None:
         self.state.data.setdefault("tracked", {})[task_id] = {"chat_id": chat_id, "last_state": state, "mode": mode}
@@ -847,7 +1029,7 @@ class Gateway:
                 return message_id
             except Exception:
                 pass
-        sent = self.telegram.send_message(chat_id, text)
+        sent = self.notify_owner(chat_id, text)
         if isinstance(sent, dict) and sent.get("message_id"):
             return int(sent["message_id"])
         return message_id
@@ -875,14 +1057,14 @@ class Gateway:
             record_work_task(self.memory(), text, envelope["task_id"], "failed", utc_now())
             self.state.save()
             reply = "Я услышал задачу, но Control Plane сейчас не принял её в очередь. Зафиксировал сбой и разбираю отдельно."
-            self.telegram.send_message(message["chat"]["id"], reply)
+            self.notify_owner(message["chat"]["id"], reply)
             self.remember_orchestrator_message(reply)
             return
         self.track(message["chat"]["id"], task["task_id"], task["state"])
         record_work_task(self.memory(), text, task["task_id"], task["state"], utc_now())
         self.state.save()
         reply = build_task_ack_reply(text, snapshot, task)
-        self.telegram.send_message(message["chat"]["id"], reply)
+        self.notify_owner(message["chat"]["id"], reply)
         self.remember_orchestrator_message(reply)
 
     def submit_image_task(self, message: dict[str, Any], text: str) -> None:
@@ -895,14 +1077,14 @@ class Gateway:
             record_work_task(self.memory(), text, envelope["task_id"], "failed", utc_now())
             self.state.save()
             reply = "Я понял запрос на изображение, но фабрика сейчас не приняла задачу. Зафиксировал сбой и разберу отдельно."
-            self.telegram.send_message(chat_id, reply)
+            self.notify_owner(chat_id, reply)
             self.remember_orchestrator_message(reply)
             return
         self.track(chat_id, task["task_id"], task["state"], mode="image")
         record_work_task(self.memory(), text, task["task_id"], task["state"], utc_now())
         self.state.save()
         reply = "Принял. Запускаю генерацию изображения и пришлю сюда готовую картинку."
-        self.telegram.send_message(chat_id, reply)
+        self.notify_owner(chat_id, reply)
         self.remember_orchestrator_message(reply)
 
     def submit_chat_task(self, message: dict[str, Any], text: str) -> None:
@@ -958,15 +1140,15 @@ class Gateway:
         command = command.split("@", 1)[0]
         arg = arg.strip()
         if command in {"/start", "/help"}:
-            self.telegram.send_message(chat_id, help_text())
+            self.notify_owner(chat_id, help_text())
         elif command == "/task" and arg:
             self.submit_text_task(message, arg)
         elif command == "/status" and arg:
             task = self.factory.get_task(arg)
-            self.telegram.send_message(chat_id, format_task_status(task))
+            self.notify_owner(chat_id, format_task_status(task))
         elif command == "/cancel" and arg:
             task = self.factory.cancel_task(arg)
-            self.telegram.send_message(chat_id, format_task_status(task))
+            self.notify_owner(chat_id, format_task_status(task))
         elif command == "/retry" and arg:
             old = self.factory.get_task(arg)
             envelope = dict(old.get("envelope") or {})
@@ -974,18 +1156,18 @@ class Gateway:
             envelope["idempotency_key"] = f"retry:{arg}:{int(time.time())}"
             task = self.factory.create_task(envelope)
             self.track(chat_id, task["task_id"], task["state"])
-            self.telegram.send_message(chat_id, format_task_status(task))
+            self.notify_owner(chat_id, format_task_status(task))
         elif command == "/nodes":
             nodes = self.factory.nodes().get("nodes", [])
-            self.telegram.send_message(chat_id, "\n".join(format_node(node) for node in nodes) or "nodes: empty")
+            self.notify_owner(chat_id, "\n".join(format_node(node) for node in nodes) or "nodes: empty")
         elif command == "/agents":
             nodes = self.factory.nodes().get("nodes", [])
-            self.telegram.send_message(chat_id, "\n".join(f"{n.get('node_id')}: {n.get('agent_id')} pid={n.get('pid')} health={n.get('health')}" for n in nodes) or "agents: empty")
+            self.notify_owner(chat_id, "\n".join(f"{n.get('node_id')}: {n.get('agent_id')} pid={n.get('pid')} health={n.get('health')}" for n in nodes) or "agents: empty")
         elif command == "/queue":
             tasks = self.factory.get_tasks()
-            self.telegram.send_message(chat_id, f"queue: {len(tasks.get('queue', []))}\n" + "\n".join(tasks.get("queue", [])))
+            self.notify_owner(chat_id, f"queue: {len(tasks.get('queue', []))}\n" + "\n".join(tasks.get("queue", [])))
         else:
-            self.telegram.send_message(chat_id, help_text())
+            self.notify_owner(chat_id, help_text())
 
     def handle_message(self, message: dict[str, Any]) -> None:
         if not self.authorized(message):
@@ -1008,7 +1190,7 @@ class Gateway:
             self.remember_owner_message(text, "chat")
             snapshot = self.conversation_snapshot()
             reply = build_realtime_owner_reply(text, snapshot)
-            self.telegram.send_message(message["chat"]["id"], reply)
+            self.notify_owner(message["chat"]["id"], reply)
             self.remember_orchestrator_message(reply)
         else:
             self.remember_owner_message(text, "chat")
@@ -1055,7 +1237,7 @@ class Gateway:
                         reply = self.send_image_result(int(record["chat_id"]), task)
                     except Exception:
                         reply = "Картинка сгенерирована, но Telegram не смог её принять. Я зафиксировал сбой доставки."
-                        self.telegram.send_message(int(record["chat_id"]), reply)
+                        self.notify_owner(int(record["chat_id"]), reply)
                     record_task_transition(self.memory(), task, label, utc_now())
                     record_orchestrator_message(self.memory(), reply, utc_now())
                     self.state.data["tracked"].pop(task_id, None)
@@ -1063,21 +1245,36 @@ class Gateway:
                     continue
                 if mode == "image" and label == "FAILED":
                     reply = "Сейчас не смог сгенерировать изображение. Я зафиксировал сбой и продолжу восстановление."
-                    self.telegram.send_message(int(record["chat_id"]), reply)
+                    self.notify_owner(int(record["chat_id"]), reply)
                     record_task_transition(self.memory(), task, label, utc_now())
                     record_orchestrator_message(self.memory(), reply, utc_now())
                     self.state.data["tracked"].pop(task_id, None)
                     self.state.save()
                     continue
                 reply = format_transition(label, task, mode)
-                self.telegram.send_message(int(record["chat_id"]), reply)
+                self.notify_owner(int(record["chat_id"]), reply)
                 record_task_transition(self.memory(), task, label, utc_now())
                 record_orchestrator_message(self.memory(), reply, utc_now())
                 self.state.data["tracked"][task_id]["last_state"] = label
                 self.state.save()
 
+    def polling_offset(self) -> int | None:
+        if self.coordinator:
+            redis_offset = self.coordinator.offset()
+            if redis_offset is not None:
+                return redis_offset
+        return self.state.data.get("offset")
+
+    def acknowledge_update(self, update_id: int) -> None:
+        next_offset = int(update_id) + 1
+        self.state.data["offset"] = next_offset
+        self.state.save()
+        if self.coordinator:
+            self.coordinator.acknowledge_offset(next_offset)
+
     def run_once(self) -> None:
         failover_state = load_failover_state(self.state.path.parent / "failover.json")
+        self.flush_notification_spool()
         detection = detect_dual_receiver(
             primary_polling=self.gateway_role == GATEWAY_ROLE_PRIMARY,
             standby_polling=self.gateway_role == GATEWAY_ROLE_STANDBY,
@@ -1088,13 +1285,15 @@ class Gateway:
             return
         if self.gateway_role == GATEWAY_ROLE_STANDBY and failover_state.primary_healthy:
             return
-        updates = self.telegram.get_updates(self.state.data.get("offset"), self.poll_timeout)
+        if self.coordinator and not self.coordinator.acquire_polling_lease():
+            print(json.dumps({"event": "telegram_ha_polling_lease_standby", "gateway_role": self.gateway_role}, sort_keys=True), file=sys.stderr)
+            return
+        updates = self.telegram.get_updates(self.polling_offset(), self.poll_timeout)
         for update in updates:
-            self.state.data["offset"] = int(update["update_id"]) + 1
             message = update.get("message")
             if message:
                 self.handle_message(message)
-        self.state.save()
+            self.acknowledge_update(int(update["update_id"]))
         self.poll_task_transitions()
 
     def run(self) -> None:
@@ -1102,7 +1301,7 @@ class Gateway:
             try:
                 self.run_once()
             except Exception as exc:  # pragma: no cover - surfaced in systemd logs
-                print(json.dumps({"event": "telegram_gateway_error", "error": str(exc), "time": utc_now()}), file=sys.stderr)
+                print(json.dumps({"event": "telegram_gateway_error", "error": redact_secret_text(exc), "time": utc_now()}), file=sys.stderr)
                 time.sleep(5)
 
 
@@ -1417,6 +1616,9 @@ def main() -> int:
     parser.add_argument("--control-urls", default=os.environ.get("KOLIBRI_FACTORY_CONTROL_URLS") or os.environ.get("KOLIBRI_FACTORY_CONTROL_URL", "http://10.99.0.2:9101"))
     parser.add_argument("--state-file", default=os.environ.get("TELEGRAM_GATEWAY_STATE", "/var/lib/kolibri-telegram-gateway/state.json"))
     parser.add_argument("--poll-timeout", type=int, default=int(os.environ.get("TELEGRAM_POLL_TIMEOUT", "25")))
+    parser.add_argument("--ha-redis-url", default=os.environ.get("TELEGRAM_HA_REDIS_URL") or os.environ.get("KOLIBRI_REDIS_URL"))
+    parser.add_argument("--ha-redis-prefix", default=os.environ.get("TELEGRAM_HA_REDIS_PREFIX", "kolibri:telegram:ha"))
+    parser.add_argument("--gateway-id", default=os.environ.get("TELEGRAM_GATEWAY_ID"))
     args = parser.parse_args()
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
     owner_ids = parse_owner_ids(os.environ.get("TELEGRAM_OWNER_IDS", ""))
@@ -1443,7 +1645,31 @@ def main() -> int:
     if not startup_validation["ok"]:
         violations = startup_validation["violations"]
         raise SystemExit(f"HA guard rejected gateway startup: {violations}")
-    gateway = Gateway(telegram, FactoryClient(args.control_url, args.control_urls), owner_ids, StateStore(state_path), args.poll_timeout, gateway_role=gateway_role)
+    coordinator = None
+    if args.ha_redis_url:
+        gateway_id = args.gateway_id or f"{gateway_role}:{socket.gethostname()}:{os.getpid()}"
+        try:
+            redis_client = RedisClient(args.ha_redis_url, timeout=float(os.environ.get("TELEGRAM_HA_REDIS_TIMEOUT", "5")))
+            coordinator = TelegramHACoordinator(
+                redis_client,
+                gateway_id,
+                prefix=args.ha_redis_prefix,
+                lease_ttl_ms=int(os.environ.get("TELEGRAM_HA_LEASE_TTL_MS", "45000")),
+            )
+            print(json.dumps({"event": "telegram_ha_redis_coordination_enabled", "gateway_role": gateway_role}, sort_keys=True))
+        except Exception as exc:
+            print(json.dumps({"event": "telegram_ha_redis_coordination_unavailable", "error": redact_secret_text(exc), "fallback": "local_state_file"}, sort_keys=True), file=sys.stderr)
+    gateway_kwargs = {"gateway_role": gateway_role}
+    if coordinator is not None:
+        gateway_kwargs["coordinator"] = coordinator
+    gateway = Gateway(
+        telegram,
+        FactoryClient(args.control_url, args.control_urls),
+        owner_ids,
+        StateStore(state_path),
+        args.poll_timeout,
+        **gateway_kwargs,
+    )
     gateway.run()
     return 0
 

@@ -349,7 +349,8 @@ def test_owner_remote_task_completion_returns_clean_url_result():
 
 def test_gomesh_speed_gate_report_becomes_clean_russian_telegram_card():
     gateway = load_gateway()
-    owner_sample = """
+    token_like = "123456789:" + "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef"
+    owner_sample = f"""
 task_id: P0_TELEGRAM_GOMESH_REPORT_MESSAGE_FORMAT_2026_07_01
 node: server-9fts
 agent: agent-host-9fts
@@ -358,7 +359,7 @@ stdout:
   raw speedtest output omitted
 stderr:
   warning: retry noise
-secret token: 123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef
+secret token: {token_like}
 
 Kolibri GoMesh speed/status report
 Home endpoint: home.kolibri.local:9443
@@ -708,6 +709,146 @@ def test_submit_text_task_control_plane_failure_is_human(tmp_path):
     app.submit_text_task(message, message["text"])
     assert telegram.messages == [(100, "Я услышал задачу, но Control Plane сейчас не принял её в очередь. Зафиксировал сбой и разбираю отдельно.")]
     assert state.data["memory"]["last_work_request"]["state"] == "failed"
+
+
+def test_run_once_acknowledges_offset_only_after_successful_handling(tmp_path):
+    gateway = load_gateway()
+
+    class Telegram:
+        def __init__(self):
+            self.offsets = []
+
+        def get_updates(self, offset, timeout):
+            self.offsets.append(offset)
+            return [{"update_id": 10, "message": {"message_id": 1, "chat": {"id": 100, "type": "private"}, "from": {"id": 100}, "text": "привет"}}]
+
+        def send_message(self, chat_id, text):
+            return {"message_id": 1}
+
+    class Factory:
+        def get_tasks(self):
+            return {"tasks": [], "queue": []}
+
+    state = gateway.StateStore(tmp_path / "state.json")
+    app = gateway.Gateway(Telegram(), Factory(), {100}, state, 1)
+    calls = {"count": 0}
+
+    def flaky_handler(message):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise RuntimeError("handler failed")
+
+    app.handle_message = flaky_handler
+
+    try:
+        app.run_once()
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("handler failure should surface so offset is not acknowledged")
+    assert state.data["offset"] is None
+
+    app.run_once()
+    assert state.data["offset"] == 11
+
+
+def test_run_once_uses_redis_offset_and_polling_lease(tmp_path):
+    gateway = load_gateway()
+
+    class Telegram:
+        def __init__(self):
+            self.calls = []
+
+        def get_updates(self, offset, timeout):
+            self.calls.append((offset, timeout))
+            return [{"update_id": 20}]
+
+    class Factory:
+        def get_tasks(self):
+            return {"tasks": [], "queue": []}
+
+    class Coordinator:
+        def __init__(self):
+            self.acked = []
+            self.lease = True
+
+        def pending_notifications(self):
+            return []
+
+        def acquire_polling_lease(self):
+            return self.lease
+
+        def offset(self):
+            return 19
+
+        def acknowledge_offset(self, offset):
+            self.acked.append(offset)
+
+    telegram = Telegram()
+    coordinator = Coordinator()
+    state = gateway.StateStore(tmp_path / "state.json")
+    app = gateway.Gateway(telegram, Factory(), {100}, state, 1, coordinator=coordinator)
+
+    app.run_once()
+    assert telegram.calls == [(19, 1)]
+    assert coordinator.acked == [21]
+
+    coordinator.lease = False
+    app.run_once()
+    assert telegram.calls == [(19, 1)]
+
+
+def test_notification_spool_survives_send_failure_and_replays(tmp_path):
+    gateway = load_gateway()
+
+    class Telegram:
+        def __init__(self):
+            self.messages = []
+            self.fail = True
+
+        def send_message(self, chat_id, text):
+            if self.fail:
+                self.fail = False
+                raise RuntimeError("telegram send failed")
+            self.messages.append((chat_id, text))
+            return {"message_id": 2}
+
+    class Factory:
+        pass
+
+    telegram = Telegram()
+    state = gateway.StateStore(tmp_path / "state.json")
+    app = gateway.Gateway(telegram, Factory(), {100}, state, 1)
+
+    try:
+        app.notify_owner(100, "durable message")
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("first send should fail")
+    assert state.data["notification_spool"][0]["text"] == "durable message"
+
+    app.flush_notification_spool()
+    assert telegram.messages == [(100, "durable message")]
+    assert state.data["notification_spool"] == []
+
+
+def test_redact_secret_text_covers_tokens_assignments_and_redis_urls():
+    gateway = load_gateway()
+    token_like = "123456789:" + "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef"
+    redis_url = "redis://" + "user:password" + "@redis.example:6379/0"
+    token_key = "TELEGRAM_BOT_" + "TOKEN"
+    chat_id_key = "TELEGRAM_OWNER_" + "CHAT_ID"
+    text = (
+        f"{token_key}={token_like} "
+        f"{chat_id_key}=123456789 "
+        f"{redis_url}"
+    )
+    redacted = gateway.redact_secret_text(text)
+    assert "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef" not in redacted
+    assert "123456789" not in redacted
+    assert "password" not in redacted
+    assert "redis://[REDACTED]@redis.example:6379/0" in redacted
 
 
 def test_submit_image_task_queues_remote_generation(tmp_path):

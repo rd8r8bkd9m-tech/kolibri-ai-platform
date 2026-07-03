@@ -7,52 +7,71 @@
 | Check | Command | Expected |
 |-------|---------|----------|
 | Guard module importable | `python3 -c "from ops.telegram_failover_guard import *"` | No import error |
-| Tests pass | `python3 -m pytest tests/test_telegram_failover_guard.py -v` | All pass |
-| No secrets in artifacts | `grep -rn "token\|secret\|key" ops/telegram_failover_guard.py` | Only in regex patterns |
+| Gateway and guard tests pass | `python3 -m pytest tests/test_telegram_gateway.py tests/test_telegram_failover_guard.py -q` | All pass |
+| Changed runtime files compile | `python3 -m py_compile ops/telegram_gateway.py ops/telegram_failover_guard.py` | No compile error |
+| No secrets in artifacts | `grep -rn "token\|secret\|key" ops/telegram_failover_guard.py ops/telegram_gateway.py` | Only code/redaction patterns, no live values |
 
-### Runtime Verification
+## Runtime Verification
 
-#### 1. Single Receiver Enforcement
+### 1. Single Receiver Enforcement
 
-**Primary Gateway (Active):**
+Primary gateway:
+
 ```bash
-# Verify primary is polling
 systemctl is-active kolibri-telegram-gateway.service
-# Expected: active
-
-# Verify receiver mode
-journalctl -u kolibri-telegram-gateway.service -n 5 --no-pager | grep receiver
-# Expected: "telegram_receiver_plan" with "should_poll": true
+journalctl -u kolibri-telegram-gateway.service -n 20 --no-pager | grep -E "telegram_receiver_plan|telegram_ha"
 ```
 
-**Standby Gateway (Passive):**
-```bash
-# Verify standby is NOT polling
-ps aux | grep "kolibri-telegram-standby" | grep -v grep
-# Expected: no output
+Expected:
+- primary service is active;
+- `telegram_receiver_plan` reports polling allowed;
+- `telegram_ha_startup_validation` reports `ok: true`;
+- logs do not print bot tokens, Redis URLs with credentials, owner ids, or chat ids.
 
-# Verify send-only mode
+Standby gateway:
+
+```bash
+ps aux | grep -E "kolibri-telegram.*standby|getUpdates" | grep -v grep
 systemctl status kolibri-telegram-state-replica.timer
-# Expected: active (timer for state replication)
 ```
 
-**Dual Receiver Detection:**
+Expected:
+- no standby `getUpdates` receiver while the primary is healthy;
+- standby may run send-only spool replay or state replication without consuming updates.
+
+Dual receiver guard:
+
 ```bash
-# Run guard check
 python3 -c "
 from ops.telegram_failover_guard import detect_dual_receiver
 result = detect_dual_receiver(primary_polling=True, standby_polling=False, webhook_active=False)
-print(f'Single receiver: {result[\"ok\"]}')
-print(f'Active count: {result[\"active_count\"]}')
+print(result)
+assert result['ok']
 "
-# Expected: Single receiver: True, Active count: 1
 ```
 
-#### 2. State Replication Freshness
+### 2. Redis HA Lease, Offset, and Notification Spool
 
-**Hash Verification:**
+When `TELEGRAM_HA_REDIS_URL` is configured, Redis is the durable HA state store. Use local Redis tooling only from hosts already authorized for Redis. Do not print Redis URLs or credentials.
+
 ```bash
-# Compare state hashes
+redis-cli GET kolibri:telegram:ha:polling_lease
+redis-cli GET kolibri:telegram:ha:offset
+redis-cli LLEN kolibri:telegram:ha:notification_spool
+```
+
+Expected:
+- one polling lease owner while active polling is running;
+- offset is numeric and monotonic;
+- notification spool normally returns `0`, or drains after Telegram delivery recovers.
+
+The gateway commits `update_id + 1` only after `handle_message()` returns successfully. Handler failure leaves the offset unchanged so Telegram can redeliver the update to the next healthy poller.
+
+### 3. File-State Fallback
+
+If Redis coordination is unavailable, startup logs `telegram_ha_redis_coordination_unavailable` with a redacted error and falls back to the local state file. This is acceptable for single-receiver recovery, but multi-node HA should restore Redis coordination before promotion.
+
+```bash
 python3 -c "
 from ops.telegram_failover_guard import verify_state_replication
 from pathlib import Path
@@ -60,148 +79,91 @@ result = verify_state_replication(
     Path('/var/lib/kolibri-telegram-gateway/state.json'),
     Path('/var/lib/kolibri-telegram-standby/state.json')
 )
-print(f'Replication OK: {result[\"ok\"]}')
-print(f'Match: {result[\"match\"]}')
+print(result)
 "
-# Expected: Replication OK: True, Match: True
 ```
 
-**State File Freshness:**
-```bash
-# Check state file modification time
-ls -la /var/lib/kolibri-telegram-gateway/state.json
-ls -la /var/lib/kolibri-telegram-standby/state.json
-# Expected: Both files recently modified (< 60s)
-```
+Expected for file fallback: `ok: true` before standby promotion.
 
-#### 3. Primary Health Monitoring
+### 4. Primary Health Monitoring
 
-**Heartbeat Check:**
 ```bash
-# Check heartbeat file
 ls -la /var/lib/kolibri-telegram-gateway/*.heartbeat
 cat /var/lib/kolibri-telegram-gateway/*.heartbeat | python3 -m json.tool
-# Expected: heartbeat_at within last 120s
 ```
 
-**Health Status:**
+Expected: heartbeat timestamp is fresh according to the configured threshold.
+
 ```bash
-# Run health check
 python3 -c "
 from ops.telegram_failover_guard import check_primary_health
 import time
 health = check_primary_health(health_data={'health': 'online', 'heartbeat_at': str(time.time())})
-print(f'Primary healthy: {health[\"ok\"]}')
-print(f'Health status: {health[\"health_status\"]}')
-print(f'Heartbeat fresh: {health[\"heartbeat_fresh\"]}')
+print(health)
+assert health['ok']
 "
-# Expected: Primary healthy: True
 ```
 
-#### 4. Gateway Startup Validation
+### 5. Startup Validation
 
-**Primary Startup:**
 ```bash
-# Verify primary can start as polling
 python3 -c "
 from ops.telegram_failover_guard import validate_gateway_startup
-result = validate_gateway_startup('primary', 'polling', None)
-print(f'Startup valid: {result[\"ok\"]}')
-print(f'Violations: {result[\"violations\"]}')
+primary = validate_gateway_startup('primary', 'polling', None)
+standby = validate_gateway_startup('standby', 'polling', None, primary_healthy=True)
+print(primary)
+print(standby)
+assert primary['ok']
+assert not standby['ok']
 "
-# Expected: Startup valid: True
 ```
 
-**Standby Startup:**
-```bash
-# Verify standby cannot start as polling while primary healthy
-python3 -c "
-from ops.telegram_failover_guard import validate_gateway_startup
-result = validate_gateway_startup('standby', 'polling', None, primary_healthy=True)
-print(f'Startup valid: {result[\"ok\"]}')
-print(f'Violations: {result[\"violations\"]}')
-"
-# Expected: Startup valid: False (standby_polling_while_primary_healthy)
-```
+Expected: primary polling is valid; standby polling is rejected while primary is healthy.
 
-#### 5. Failover Promotion Gating
+### 6. Promotion Gating
 
-**Promotion Eligibility:**
 ```bash
-# Check if promotion is eligible
 python3 -c "
-from ops.telegram_failover_guard import (
-    load_failover_state,
-    evaluate_failover_promotion,
-    check_primary_health
-)
-from pathlib import Path
+from ops.telegram_failover_guard import FailoverState, evaluate_failover_promotion
 import time
-
-state = load_failover_state(Path('/var/lib/kolibri-telegram-gateway/failover.json'))
-health = check_primary_health(health_data={'health': 'offline', 'heartbeat_at': str(time.time() - 300)})
-result = evaluate_failover_promotion(state, health, now=time.time())
-print(f'Should promote: {result[\"should_promote\"]}')
-print(f'Reason: {result[\"reason\"]}')
-"
-# Expected: Should promote: True (when primary unhealthy and cooldown passed)
-```
-
-**Cooldown Enforcement:**
-```bash
-# Verify cooldown prevents rapid promotion
-python3 -c "
-from ops.telegram_failover_guard import (
-    load_failover_state,
-    evaluate_failover_promotion,
-    save_failover_state,
-    FailoverState
-)
-from pathlib import Path
-import time
-
-state = FailoverState(
-    last_promotion_attempt=time.time() - 60,
-    replication_verified=True
-)
-save_failover_state(state, Path('/tmp/test_failover.json'))
+state = FailoverState(last_promotion_attempt=time.time() - 400, replication_verified=True)
 result = evaluate_failover_promotion(state, {'ok': False}, now=time.time())
-print(f'Should promote: {result[\"should_promote\"]}')
-print(f'Reason: {result[\"reason\"]}')
+print(result)
+assert result['should_promote']
 "
-# Expected: Should promote: False, Reason: cooldown_active
 ```
 
-### Post-Verification Commands
+Expected: promotion is eligible only when primary health is bad, cooldown passed, promotion is not blocked, and replication is verified or Redis HA state is available.
+
+## Post-Verification Commands
 
 ```bash
-# Run all guard tests
-python3 -m pytest tests/test_telegram_failover_guard.py -v
-
-# Check test coverage
-python3 -m pytest tests/test_telegram_failover_guard.py --cov=ops/telegram_failover_guard --cov-report=term-missing
-
-# Verify no secrets in output
-grep -rn "TELEGRAM_BOT_TOKEN\|owner_id\|chat_id" ops/telegram_failover_guard.py
-# Expected: No matches (only regex patterns for redaction)
+python3 -m py_compile ops/telegram_gateway.py ops/telegram_failover_guard.py
+python3 -m pytest tests/test_telegram_gateway.py tests/test_telegram_failover_guard.py -q
+grep -rn "TELEGRAM_BOT_TOKEN\|owner_id\|chat_id\|redis://" ops/telegram_failover_guard.py ops/telegram_gateway.py docs/ops/TELEGRAM_HA_FAILOVER_RUNBOOK.md docs/ops/TELEGRAM_HA_RUNTIME_VERIFICATION.md
 ```
+
+Expected: compile succeeds, tests pass, grep shows only code/config names and placeholder examples with no live values.
 
 ## Acceptance Criteria Verification
 
 | Criterion | Verification | Status |
 |-----------|--------------|--------|
-| changed_files includes all artifacts | `git diff --name-only` shows guard, tests, runbook, verification doc | ✅ |
-| tests_run non-empty with failover guard tests | `pytest tests/test_telegram_failover_guard.py` | ✅ |
-| State replication fresh and hash-matched | `verify_state_replication()` returns ok=True | ✅ |
-| No second active receiver while primary healthy | `detect_dual_receiver()` returns ok=True | ✅ |
-| No secrets in logs/artifacts | `grep` finds no tokens/keys in output | ✅ |
-| required_artifacts_missing empty | All 4 artifacts present | ✅ |
+| Single active polling lease | `TelegramHACoordinator.acquire_polling_lease()` and focused gateway tests | Verified |
+| Standby no-conflict receiver | startup validation and standby lease-denial behavior | Verified |
+| Redis-backed offset state | `TelegramHACoordinator.offset()` and `acknowledge_offset()` | Verified |
+| Offset ack after successful handling only | `test_run_once_acknowledges_offset_only_after_successful_handling` | Verified |
+| Durable owner notification spool | `notification_spool` Redis/local queue and replay test | Verified |
+| Startup/log redaction | `redact_secret_text()` token, assignment, and Redis URL test | Verified |
+| Required run artifacts | PLAN/ACTIONS/TESTS/RESULT/NEXT under the task run directory | Verified by task artifact creation |
 
 ## Artifact Inventory
 
-```
-ops/telegram_failover_guard.py          # HA guard module
-tests/test_telegram_failover_guard.py   # Guard unit tests (34 tests)
-docs/TELEGRAM_HA_FAILOVER_RUNBOOK.md    # Operational runbook
-docs/TELEGRAM_HA_RUNTIME_VERIFICATION.md # This verification doc
+```text
+ops/telegram_gateway.py
+ops/telegram_failover_guard.py
+tests/test_telegram_gateway.py
+tests/test_telegram_failover_guard.py
+docs/ops/TELEGRAM_HA_FAILOVER_RUNBOOK.md
+docs/ops/TELEGRAM_HA_RUNTIME_VERIFICATION.md
 ```
