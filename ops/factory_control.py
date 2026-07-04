@@ -67,6 +67,8 @@ LEASE_QUEUE_SCAN_LIMIT = int(os.environ.get("FACTORY_LEASE_QUEUE_SCAN_LIMIT", "1
 TASK_LIST_DEFAULT_LIMIT = int(os.environ.get("FACTORY_TASK_LIST_DEFAULT_LIMIT", "1000"))
 TASK_LIST_MAX_LIMIT = int(os.environ.get("FACTORY_TASK_LIST_MAX_LIMIT", "5000"))
 MAX_HTTP_WORKERS = int(os.environ.get("FACTORY_MAX_HTTP_WORKERS", "64"))
+HTTP_REQUEST_BACKLOG = int(os.environ.get("FACTORY_HTTP_REQUEST_BACKLOG", "1024"))
+OVERLOAD_REQUEST_LINE_TIMEOUT = float(os.environ.get("FACTORY_OVERLOAD_REQUEST_LINE_TIMEOUT", "0.05"))
 LEASE_EMPTY_RETRY_AFTER = float(os.environ.get("FACTORY_LEASE_EMPTY_RETRY_AFTER", "1.0"))
 LEASE_OVERLOAD_RETRY_AFTER = float(os.environ.get("FACTORY_LEASE_OVERLOAD_RETRY_AFTER", "5.0"))
 FABRIC_API_VERSION = "2026-07-01"
@@ -927,6 +929,7 @@ def lease_overload_response(reason: str = "worker_limit_reached") -> dict[str, A
         "retry_after_seconds": LEASE_OVERLOAD_RETRY_AFTER,
         "lease_queue_scan_limit": LEASE_QUEUE_SCAN_LIMIT,
         "max_http_workers": MAX_HTTP_WORKERS,
+        "http_request_backlog": HTTP_REQUEST_BACKLOG,
     }
 
 
@@ -962,7 +965,7 @@ class BoundedThreadingHTTPServer(ThreadingHTTPServer):
 
     def __init__(self, server_address: tuple[str, int], handler_class: type[BaseHTTPRequestHandler], max_workers: int = MAX_HTTP_WORKERS):
         self.max_workers = max(1, max_workers)
-        self.request_queue_size = max(self.request_queue_size, self.max_workers)
+        self.request_queue_size = max(self.request_queue_size, self.max_workers, HTTP_REQUEST_BACKLOG)
         super().__init__(server_address, handler_class)
         self._worker_slots = threading.BoundedSemaphore(self.max_workers)
 
@@ -1003,7 +1006,7 @@ class BoundedThreadingHTTPServer(ThreadingHTTPServer):
 def _is_lease_request(request: Any) -> bool:
     if hasattr(request, "fileno"):
         try:
-            readable, _, _ = select.select([request], [], [], 0)
+            readable, _, _ = select.select([request], [], [], max(0.0, OVERLOAD_REQUEST_LINE_TIMEOUT))
         except (OSError, ValueError):
             return False
         if not readable:
@@ -1066,6 +1069,8 @@ def superfactory_status() -> dict[str, Any]:
             "lease_reaper_batch_limit": LEASE_REAPER_BATCH_LIMIT,
             "lease_reaper_interval": LEASE_REAPER_INTERVAL,
             "task_list_default_limit": TASK_LIST_DEFAULT_LIMIT,
+            "max_http_workers": MAX_HTTP_WORKERS,
+            "http_request_backlog": HTTP_REQUEST_BACKLOG,
         },
     }
 
@@ -1119,6 +1124,8 @@ class Handler(BaseHTTPRequestHandler):
                             "lease_queue_scan_limit": LEASE_QUEUE_SCAN_LIMIT,
                             "lease_reaper_batch_limit": LEASE_REAPER_BATCH_LIMIT,
                             "lease_reaper_interval": LEASE_REAPER_INTERVAL,
+                            "max_http_workers": MAX_HTTP_WORKERS,
+                            "http_request_backlog": HTTP_REQUEST_BACKLOG,
                         },
                     },
                     next_action="use /v1/fleet/route before dispatching work to a node",
@@ -1608,6 +1615,7 @@ def main() -> int:
         "port": args.port,
         "namespace": NAMESPACE,
         "max_http_workers": server.max_workers,
+        "http_request_backlog": server.request_queue_size,
         "lease_queue_scan_limit": LEASE_QUEUE_SCAN_LIMIT,
         "lease_reaper_batch_limit": LEASE_REAPER_BATCH_LIMIT,
     }))

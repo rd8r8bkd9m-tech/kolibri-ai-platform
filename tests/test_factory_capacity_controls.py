@@ -1,6 +1,8 @@
 import argparse
 import importlib.util
 import json
+import socket
+import threading
 from pathlib import Path
 
 
@@ -291,6 +293,41 @@ def test_lease_overload_response_is_http_200_idle_backoff_envelope():
     assert payload["task"] is None
     assert payload["error"] == "control_plane_overloaded"
     assert payload["retry_after_seconds"] == control.LEASE_OVERLOAD_RETRY_AFTER
+
+
+def test_bounded_server_backlog_absorbs_stage250_without_raising_worker_cap():
+    control = load_control()
+    server = control.BoundedThreadingHTTPServer(("127.0.0.1", 0), control.Handler, max_workers=16)
+    try:
+        assert server.max_workers == 16
+        assert server.request_queue_size >= 250
+        assert server.request_queue_size >= control.HTTP_REQUEST_BACKLOG
+    finally:
+        server.server_close()
+
+
+def test_lease_overload_waits_briefly_for_request_line_before_classifying():
+    control = load_control()
+    server_sock, client_sock = socket.socketpair()
+    response_chunks = []
+
+    def client_send_and_read():
+        client_sock.sendall(b"POST /v1/tasks/lease HTTP/1.1\r\nHost: test\r\n\r\n")
+        response_chunks.append(client_sock.recv(4096))
+
+    reader = threading.Thread(target=client_send_and_read)
+    reader.start()
+    try:
+        control.BoundedThreadingHTTPServer._send_overloaded(server_sock)
+        reader.join(timeout=1)
+        assert not reader.is_alive()
+        payload = b"".join(response_chunks)
+        head, body = payload.split(b"\r\n\r\n", 1)
+        assert b"200 OK" in head
+        assert json.loads(body.decode("utf-8"))["status"] == "overloaded"
+    finally:
+        server_sock.close()
+        client_sock.close()
 
 
 def test_lease_canary_classifier_fails_any_lease_5xx():
