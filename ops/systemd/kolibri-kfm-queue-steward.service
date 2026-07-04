@@ -1,0 +1,11 @@
+[Unit]
+Description=Kolibri KFM Queue Steward
+After=network-online.target kolibri-agent-host.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Environment=KOLIBRI_FACTORY_CONTROL_URLS=http://10.99.0.1:9101,http://10.99.0.10:9101,http://10.99.0.2:9101
+Environment=KOLIBRI_KFM_STEWARD_TIMEOUT=4
+ExecStart=/usr/local/bin/kolibri-kfm-queue-steward
