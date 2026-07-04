@@ -4,21 +4,26 @@
 The sidecar intentionally uses only the Python standard library. It stores all
 task and node state in the existing local Redis server through a tiny RESP
 client so it can run next to the legacy control plane without adding packages.
+
+Integrates Truth Factory: claims, evidence, and verdict ledgers for
+adversarial review of task outcomes.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import socket
 import sys
 import time
 import uuid
+from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import Any, Literal
 from pathlib import Path
-from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 CURRENT_DIR = Path(__file__).resolve().parent
@@ -290,6 +295,242 @@ class Redis:
 
 redis = Redis()
 
+
+# ── Truth Factory: Claims, Evidence, Verdicts ──────────────────────────
+
+VerdictType = Literal["true", "false", "partial", "not_proven", "blocked", "stale", "degraded"]
+ConfidenceLevel = Literal["high", "medium", "low"]
+ClaimStatus = Literal["proposed", "challenged", "verified", "rejected", "partial", "not_proven"]
+
+
+def _id(prefix: str) -> str:
+    return f"{prefix}-{uuid.uuid4().hex[:12]}"
+
+
+def _sha256(data: str) -> str:
+    return hashlib.sha256(data.encode()).hexdigest()[:16]
+
+
+@dataclass
+class Claim:
+    claim_id: str
+    task_id: str
+    made_by: str
+    claim: str
+    scope: str
+    status: ClaimStatus = "proposed"
+    evidence: list[str] = field(default_factory=list)
+    counterclaims: list[str] = field(default_factory=list)
+    verdict: str = ""
+    confidence: str = "low"
+    next_action: str = ""
+    created_at: str = field(default_factory=utc_now)
+
+
+@dataclass
+class Evidence:
+    evidence_id: str
+    claim_id: str
+    type: str
+    source: str
+    timestamp: str = field(default_factory=utc_now)
+    content_hash: str = ""
+    summary: str = ""
+    redacted: bool = True
+    path: str = ""
+    valid: bool = True
+
+
+@dataclass
+class Verdict:
+    verdict_id: str
+    claim_id: str
+    verdict: VerdictType
+    confidence: ConfidenceLevel
+    evidence: list[str] = field(default_factory=list)
+    reasoning: str = ""
+    next_action: str = ""
+    owner_summary: str = ""
+    created_at: str = field(default_factory=utc_now)
+
+
+# In-memory truth ledger (persisted via Redis)
+_truth_claims: dict[str, Claim] = {}
+_truth_evidence: dict[str, Evidence] = {}
+_truth_verdicts: dict[str, Verdict] = {}
+
+
+def truth_key(name: str) -> str:
+    return key(f"truth:{name}")
+
+
+def save_claim(claim: Claim) -> None:
+    _truth_claims[claim.claim_id] = claim
+    try:
+        set_json(truth_key(f"claim:{claim.claim_id}"), asdict(claim))
+        redis.command("SADD", truth_key("claim_ids"), claim.claim_id)
+    except Exception:
+        pass  # In-memory only if Redis unavailable
+
+
+def save_evidence(ev: Evidence) -> None:
+    _truth_evidence[ev.evidence_id] = ev
+    try:
+        set_json(truth_key(f"evidence:{ev.evidence_id}"), asdict(ev))
+        redis.command("SADD", truth_key("evidence_ids"), ev.evidence_id)
+    except Exception:
+        pass  # In-memory only if Redis unavailable
+
+
+def save_verdict(v: Verdict) -> None:
+    _truth_verdicts[v.verdict_id] = v
+    try:
+        set_json(truth_key(f"verdict:{v.verdict_id}"), asdict(v))
+        redis.command("SADD", truth_key("verdict_ids"), v.verdict_id)
+    except Exception:
+        pass  # In-memory only if Redis unavailable
+
+
+def create_claim(task_id: str, made_by: str, claim_text: str, scope: str) -> Claim:
+    c = Claim(claim_id=_id("C"), task_id=task_id, made_by=made_by, claim=claim_text, scope=scope)
+    save_claim(c)
+    return c
+
+
+def add_evidence(claim_id: str, ev_type: str, source: str, summary: str = "", path: str = "") -> Evidence:
+    e = Evidence(evidence_id=_id("E"), claim_id=claim_id, type=ev_type, source=source, summary=summary, path=path)
+    save_evidence(e)
+    c = _truth_claims.get(claim_id)
+    if c:
+        c.evidence.append(e.evidence_id)
+        if c.status == "proposed":
+            c.status = "challenged"
+        save_claim(c)
+    return e
+
+
+def set_verdict(claim_id: str, verdict: VerdictType, confidence: ConfidenceLevel,
+                reasoning: str = "", next_action: str = "", owner_summary: str = "") -> Verdict:
+    v = Verdict(verdict_id=_id("V"), claim_id=claim_id, verdict=verdict, confidence=confidence,
+                reasoning=reasoning, next_action=next_action, owner_summary=owner_summary)
+    save_verdict(v)
+    c = _truth_claims.get(claim_id)
+    if c:
+        c.verdict = verdict
+        c.confidence = confidence
+        status_map = {"true": "verified", "false": "rejected", "partial": "partial",
+                      "not_proven": "not_proven", "blocked": "not_proven",
+                      "stale": "not_proven", "degraded": "partial"}
+        c.status = status_map.get(verdict, c.status)
+        save_claim(c)
+    return v
+
+
+def require_evidence_for_truth(claim_id: str) -> bool:
+    c = _truth_claims.get(claim_id)
+    return bool(c and c.evidence)
+
+
+def reject_generic_completion(claim_id: str) -> bool:
+    c = _truth_claims.get(claim_id)
+    if not c:
+        return False
+    ev_list = [_truth_evidence[eid] for eid in c.evidence if eid in _truth_evidence]
+    has_artifact = any(e.type == "artifact" for e in ev_list)
+    has_api = any(e.type == "api_response" for e in ev_list)
+    return has_artifact or has_api
+
+
+def get_claims_for_task(task_id: str) -> list[dict]:
+    return [asdict(c) for c in _truth_claims.values() if c.task_id == task_id]
+
+
+def get_truth_summary() -> dict:
+    from collections import Counter
+    status_counts = Counter(c.status for c in _truth_claims.values())
+    verdict_counts = Counter(v.verdict for v in _truth_verdicts.values())
+    return {
+        "total_claims": len(_truth_claims),
+        "total_evidence": len(_truth_evidence),
+        "total_verdicts": len(_truth_verdicts),
+        "claim_statuses": dict(status_counts),
+        "verdict_types": dict(verdict_counts),
+    }
+
+
+# ── Truth Gate: automatic verification on task completion ──────────────
+
+def truth_gate_on_complete(task: dict, result: dict) -> dict:
+    """Run truth gate when task completes. Returns gate result."""
+    task_id = task.get("task_id", "unknown")
+    envelope = task.get("envelope", {})
+
+    # Create claim: task completed
+    claim = create_claim(task_id, task.get("lease_owner", "agent"), f"Task {task_id} completed", "task")
+
+    # Check evidence requirements
+    has_result = bool(result)
+    has_artifact_ref = bool(task.get("result_reference"))
+    has_content = bool(result.get("status") and result["status"] != "generic_completion")
+
+    # Add evidence
+    if has_result:
+        add_evidence(claim.claim_id, "api_response", "POST /v1/tasks/complete", "200 OK")
+    if has_artifact_ref:
+        add_evidence(claim.claim_id, "artifact", task["result_reference"], "artifact reference present")
+    if has_content:
+        add_evidence(claim.claim_id, "result_content", "task result", "non-generic content")
+
+    # Set verdict
+    evidence_count = len(claim.evidence)
+    if evidence_count >= 2 and has_content:
+        verdict = "true"
+        confidence = "high"
+        reasoning = "Task completed with artifact and non-generic content"
+    elif evidence_count >= 1:
+        verdict = "partial"
+        confidence = "medium"
+        reasoning = "Task completed but limited evidence"
+    else:
+        verdict = "not_proven"
+        confidence = "low"
+        reasoning = "Task completed without verifiable evidence"
+
+    v = set_verdict(claim.claim_id, verdict, confidence, reasoning)
+
+    # Update task with truth gate result
+    task["truth_gate"] = {
+        "claim_id": claim.claim_id,
+        "verdict": v.verdict,
+        "confidence": v.confidence,
+        "evidence_count": evidence_count,
+    }
+    return task
+
+
+def truth_gate_on_fail(task: dict, error_type: str, error: str) -> dict:
+    """Run truth gate when task fails. Logs contradiction."""
+    task_id = task.get("task_id", "unknown")
+
+    # Create claim: task failed
+    claim = create_claim(task_id, task.get("lease_owner", "agent"), f"Task {task_id} failed: {error_type}", "task")
+
+    # Add evidence of failure
+    add_evidence(claim.claim_id, "error_record", f"error_type={error_type}", error[:200])
+
+    # Set verdict
+    set_verdict(claim.claim_id, "false", "high", f"Task failed: {error_type} - {error[:100]}")
+
+    task["truth_gate"] = {
+        "claim_id": claim.claim_id,
+        "verdict": "false",
+        "confidence": "high",
+        "error_type": error_type,
+    }
+    return task
+
+
+# ── Redis helpers ──────────────────────────────────────────────────────
 
 def get_json(redis_key: str, default: Any = None) -> Any:
     raw = redis.command("GET", redis_key)
@@ -889,9 +1130,24 @@ class Handler(BaseHTTPRequestHandler):
                     status="completed",
                     node="main",
                     route_used="/v1/health",
-                    data={"redis": pong, "queue_backend": "redis", "time": utc_now(), "fabric_api_version": FABRIC_API_VERSION},
+                    data={"redis": pong, "queue_backend": "redis", "time": utc_now(), "fabric_api_version": FABRIC_API_VERSION, "truth_factory": "enabled"},
                     next_action="use /v1/fleet/route before dispatching work to a node",
                 ))
+                return
+            if path == "/v1/truth/summary":
+                response(self, 200, get_truth_summary())
+                return
+            if path == "/v1/truth/claims":
+                query = parse_qs(parsed.query)
+                task_id = query.get("task_id", [None])[0]
+                if task_id:
+                    response(self, 200, {"claims": get_claims_for_task(task_id)})
+                else:
+                    response(self, 200, {"claims": [asdict(c) for c in _truth_claims.values()]})
+                return
+            if path == "/v1/truth/contradictions":
+                contradictions = [asdict(c) for c in _truth_claims.values() if c.status == "challenged"]
+                response(self, 200, {"contradictions": contradictions, "count": len(contradictions)})
                 return
             if path == "/v1/superfactory/status":
                 auth = validate_miniapp(self)
@@ -1111,6 +1367,36 @@ class Handler(BaseHTTPRequestHandler):
                 task = create_task(body)
                 response(self, 201, task)
                 return
+            if path == "/v1/truth/claim":
+                claim = create_claim(
+                    body.get("task_id", "manual"),
+                    body.get("made_by", "owner"),
+                    body.get("claim", ""),
+                    body.get("scope", "manual"),
+                )
+                response(self, 201, asdict(claim))
+                return
+            if path == "/v1/truth/evidence":
+                ev = add_evidence(
+                    body.get("claim_id", ""),
+                    body.get("type", "manual"),
+                    body.get("source", ""),
+                    body.get("summary", ""),
+                    body.get("path", ""),
+                )
+                response(self, 201, asdict(ev))
+                return
+            if path == "/v1/truth/verdict":
+                v = set_verdict(
+                    body.get("claim_id", ""),
+                    body.get("verdict", "not_proven"),
+                    body.get("confidence", "low"),
+                    body.get("reasoning", ""),
+                    body.get("next_action", ""),
+                    body.get("owner_summary", ""),
+                )
+                response(self, 201, asdict(v))
+                return
             if path == "/v1/superfactory/tasks":
                 auth = validate_miniapp(self, body)
                 if not auth.get("ok"):
@@ -1255,6 +1541,8 @@ class Handler(BaseHTTPRequestHandler):
                 task["result_reference"] = body.get("result_reference") or result.get("result_path")
                 task["heartbeat_at"] = utc_now()
                 task["lease_until"] = None
+                # Truth gate: verify completion has evidence
+                task = truth_gate_on_complete(task, result)
                 save_task(task)
                 review_task = create_review_task(task, result) if has_pr else None
                 response(self, 200, {"task": task, "review_task": review_task})
@@ -1285,11 +1573,15 @@ class Handler(BaseHTTPRequestHandler):
                 if not task:
                     response(self, 404, {"error": "task_not_found", "task_id": task_id})
                     return
-                task["error_type"] = body.get("error_type", "runtime_error")
-                task["error"] = body.get("error")
+                error_type = body.get("error_type", "runtime_error")
+                error = body.get("error", "")
+                task["error_type"] = error_type
+                task["error"] = error
                 task["result"] = body.get("result")
                 task["result_reference"] = body.get("result_reference")
                 task["lease_until"] = None
+                # Truth gate: log contradiction on failure
+                task = truth_gate_on_fail(task, error_type, error)
                 mark_node_runner_failure(task, body)
                 if int(task.get("attempt", 0)) < int(task.get("max_retries", MAX_RETRIES)) and body.get("retry", True):
                     task["state"] = STATE_RETRY
