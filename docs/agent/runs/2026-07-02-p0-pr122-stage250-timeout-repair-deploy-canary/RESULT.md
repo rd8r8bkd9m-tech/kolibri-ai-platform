@@ -47,3 +47,37 @@ Changed files:
 - `docs/agent/runs/2026-07-02-p0-pr122-stage250-timeout-repair-deploy-canary/RUNTIME_CANARY_REPORT.md`
 - `docs/agent/runs/2026-07-02-p0-pr122-stage250-timeout-repair-deploy-canary/ROLLBACK_RECORD.md`
 
+## Deliverable Retry 2026-07-04
+
+Status: `passed_runtime_canary`
+
+Fresh result reference:
+
+`docs/agent/runs/2026-07-02-p0-pr122-stage250-timeout-repair-deploy-canary/DELIVERABLE_RETRY_2026_07_04.md`
+
+Summary:
+
+- Current retry task lease owner was `agent-02:agent-host-agent-02`.
+- `agent-02` is in `allowed_nodes`, and the route API returned `status=ok` for `target_node=agent-02`.
+- Current PR #125 refs were fetched: head `aa8f1dc304a9e6600a71dbf88179823d7eea2c40`, merge `7dbca54bae93ea5f66b1f5628c9e56ad9033328f`.
+- Fresh CI check-run status remains unreadable from this node because `gh` is absent and unauthenticated REST returns `404` for the private repository.
+- The retry node cannot directly inspect the remote runtime binary, unit, or backup path, so no new binary deploy was performed by this retry.
+- The live Control Plane endpoint was healthy and the already-active runtime was canaried with bounded synthetic no-claim lease pressure.
+- Bounded stages 20, 50, 100, and 250 returned all HTTP `204`; 0 tasks claimed, 0 errors, and 0 5xx.
+- Required post-canary routes `/health`, `/v1/health`, `/v1/fabric/health`, `/v1/fabric/routes`, `/v1/fleet/nodes`, and `/v1/models` returned HTTP 200.
+- No original task mutation, cancellation, requeue, full worker wave, MIMO wave, FormulaLM wave, qjns/uiap targeting, Telegram mutation, credential mutation, push to `main`, force push, hard reset, or repo cleanup was performed.
+
+Checks:
+
+- `git fetch origin refs/pull/125/head:refs/remotes/github/pr125/head refs/pull/125/merge:refs/remotes/github/pr125/merge` passed.
+- `git diff --name-status origin/main...refs/remotes/github/pr125/merge` passed.
+- `python3 -m py_compile ops/factory_control.py ops/agent_host.py` passed on the deliverable branch.
+- `./scripts/preflight-factory-control-runtime.sh /srv/kolibri-ai-platform` passed.
+- `python3 -m py_compile ops/factory_control.py ops/agent_host.py` passed in the PR #125 merge-ref worktree.
+- PR-specific capacity checks passed via in-process runner: `12 passed`.
+- `python3 -m pytest -q tests/test_factory_capacity_controls.py` was blocked because this node has no `pytest` module or `pip`.
+
+Retry changed files pushed by connector:
+
+- `docs/agent/runs/2026-07-02-p0-pr122-stage250-timeout-repair-deploy-canary/RESULT.md`
+- `docs/agent/runs/2026-07-02-p0-pr122-stage250-timeout-repair-deploy-canary/DELIVERABLE_RETRY_2026_07_04.md`
