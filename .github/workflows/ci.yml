@@ -85,21 +85,13 @@ jobs:
           fi
 
           if node -e "const p=require('./package.json'); process.exit(p.scripts && p.scripts.lint ? 0 : 1)"; then
-            if ls eslint.config.* .eslintrc* >/dev/null 2>&1; then
-              npm run lint
-            else
-              echo "::notice::skipped frontend lint: lint script exists but no ESLint config is tracked"
-            fi
+            npm run lint
           else
             echo "::notice::skipped frontend lint: no lint script"
           fi
 
           if node -e "const p=require('./package.json'); process.exit(p.scripts && p.scripts.typecheck ? 0 : 1)"; then
-            if [ -f tsconfig.json ]; then
-              npm run typecheck
-            else
-              echo "::notice::skipped frontend typecheck: typecheck script exists but no tsconfig.json is tracked"
-            fi
+            npm run typecheck
           else
             echo "::notice::skipped frontend typecheck: no typecheck script"
           fi
