@@ -1,0 +1,20 @@
+[Unit]
+Description=Kolibri ChatGPT Action Gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=KOLIBRI_CHATGPT_ACTION_HOST=127.0.0.1
+Environment=KOLIBRI_CHATGPT_ACTION_PORT=9197
+Environment=KOLIBRI_FACTORY_CONTROL_URLS=http://10.99.0.10:9101,http://10.99.0.2:9101,http://10.99.0.1:9101
+Environment=KOLIBRI_CHATGPT_ACTION_TIMEOUT=4
+EnvironmentFile=-/etc/kolibri/chatgpt-action-gateway.env
+ExecStart=/usr/bin/python3 /srv/kolibri-ai-platform/ops/chatgpt_action_gateway.py
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
