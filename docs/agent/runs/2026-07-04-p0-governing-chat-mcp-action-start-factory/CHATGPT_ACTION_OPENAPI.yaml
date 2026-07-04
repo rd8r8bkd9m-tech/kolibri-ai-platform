@@ -1,0 +1,91 @@
+openapi: 3.1.0
+info:
+  title: Kolibri Factory ChatGPT Action Gateway
+  version: 2026-07-04
+servers:
+  - url: https://example.kolibri.local
+security:
+  - bearerAuth: []
+paths:
+  /v1/action/health:
+    get:
+      operationId: actionHealth
+      responses:
+        "200": {description: Gateway health.}
+  /v1/factory/start:
+    post:
+      operationId: startFactory
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        "202": {description: Factory start accepted.}
+        "503": {description: Control Plane blocked.}
+  /v1/director/tick:
+    post:
+      operationId: directorTick
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        "200": {description: Director tick result.}
+  /v1/fleet/status:
+    get:
+      operationId: fleetStatus
+      responses:
+        "200": {description: Fleet status.}
+  /v1/queue/status:
+    get:
+      operationId: queueStatus
+      responses:
+        "200": {description: Queue status.}
+  /v1/tasks/submit:
+    post:
+      operationId: submitTask
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        "201": {description: Task created.}
+        "202": {description: Approval required.}
+  /v1/tasks/{task_id}/status:
+    get:
+      operationId: taskStatus
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200": {description: Task status.}
+  /v1/tasks/{task_id}/artifacts:
+    get:
+      operationId: taskArtifacts
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200": {description: Task artifacts.}
+  /v1/approvals/request:
+    post:
+      operationId: requestApproval
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        "202": {description: Approval request created.}
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
