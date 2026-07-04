@@ -44,7 +44,7 @@ Changed files in this repo:
 
 Commit/PR evidence:
 
-- Commit: pending before final commit.
-- Push: pending before final push.
-- PR: pending lookup after push.
-
+- Branch pushed: `codex/pr122-lease-stage250-backpressure-repair`.
+- PR evidence: GitHub connector verified PR #125 changed-file list includes all seven required run artifacts plus `ops/factory_control.py` and `tests/test_factory_capacity_controls.py`.
+- PR URL: `https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/125`.
+- Final pushed commit is reported in the completion response after this artifact update is committed.
