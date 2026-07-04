@@ -169,9 +169,9 @@ for index, external_ip in enumerate(
     if node_id == "agent-10":
         CANONICAL_NODE_REGISTRY[node_id].update(
             {
-                "lifecycle": "quarantined",
-                "network_status_override": "provider_network_unreachable",
-                "repair_required": "verify provider console or retire after owner approval",
+                "internal_ips": ["10.99.0.18"],
+                "api_paths": ["fabric_api", "agent_host_api", "fallback_relay"],
+                "services": ["agent_host"],
             }
         )
 

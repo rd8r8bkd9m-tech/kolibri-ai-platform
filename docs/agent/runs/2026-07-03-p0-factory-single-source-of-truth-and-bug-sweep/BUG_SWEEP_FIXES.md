@@ -98,4 +98,14 @@
 - Test added: sequential alias verification from the command node for all 21 canonical server aliases.
 - Risk: medium; root SSH trust was changed on reachable infrastructure, with backups made before edits.
 - Rollback: restore the per-host `/root/.ssh/authorized_keys.backup-kolibri-bootstrap-*` file on the affected host.
-- Result: 20 of 21 canonical server aliases work from the command node by key. `agent-10` remains unreachable before auth due provider/network route failure.
+- Result: 21 of 21 canonical server aliases work from the command node by key. `agent-10` uses the internal mesh target `10.99.0.18`.
+
+## Agent-10 Mesh Management Route
+
+- Issue: physical `agent-10` was incorrectly documented and registered as quarantined after the mesh route came back.
+- Root cause: registry only knew the external IP `217.60.38.191`; live SSH and heartbeat use `10.99.0.18` over `wg-kolibri`.
+- Files changed: `ops/factory_registry.py`, SSH topology generator, source-of-truth docs, tests.
+- Test added: `agent-10` registry asserts internal IP `10.99.0.18` and `internal_via_main` SSH access.
+- Risk: low; source-of-truth and generated SSH target update only.
+- Rollback: restore previous registry and SSH topology if `10.99.0.18` stops heartbeating.
+- Result: `ssh agent-10` reaches `kolibri-hk-edge-load` as `root`; Agent Host is active.

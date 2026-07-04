@@ -145,7 +145,7 @@ Host hostvds-agent-09 agent-09 kolibri-release-canary release-canary
   ProxyJump kolibri-main
 
 Host hostvds-agent-10 agent-10
-  HostName 217.60.38.191
+  HostName 10.99.0.18
   User root
   ProxyJump kolibri-main
 
@@ -191,7 +191,7 @@ if [ "$(id -u)" -eq 0 ]; then
 46.8.225.34 agent-07.kolibri.internal kolibri-formulalm-eval
 31.59.105.200 agent-08.kolibri.internal kolibri-rag-eval
 95.182.84.254 agent-09.kolibri.internal kolibri-release-canary
-217.60.38.191 agent-10.kolibri.internal
+10.99.0.18 agent-10.kolibri.internal kolibri-hk-edge-load
 95.182.83.60 paris.kolibri.internal kolibri-paris-build-reserve
 217.60.63.31 heavy-tests.kolibri.internal server-kfrm
 # END KOLIBRI FACTORY TOPOLOGY

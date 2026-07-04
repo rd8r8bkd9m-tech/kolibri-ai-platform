@@ -31,7 +31,7 @@ These numbers are evidence from 2026-07-03 live probes and must be refreshed aft
 
 ## Agent-10 Naming Rule
 
-- `agent-10`: physical canonical server, external IP `217.60.38.191`, currently quarantined as provider/network unreachable.
+- `agent-10`: physical canonical server, internal IP `10.99.0.18`, external IP `217.60.38.191`, currently fresh online through the mesh management path.
 - `mesh-agent-10`: logical worker, currently fresh online on hostname `kolibri`, managed through protected Fabric API.
 
-Agents must not answer that `agent-10` is online because `mesh-agent-10` is online. They may reroute work to `mesh-agent-10` only when the task does not require the physical Hong Kong/agent-10 server.
+Agents must not confuse `agent-10` with `mesh-agent-10`. Physical `agent-10` is managed through `10.99.0.18`; `mesh-agent-10` is a separate logical worker.

@@ -47,7 +47,8 @@
 
 ## Agent-10 Network
 
-- Reason: `agent-10` is canonical but has no real Control Plane heartbeat and is unreachable at `217.60.38.191`; both primary and Home traces fail at upstream `46.8.226.1` with host unreachable.
-- Next task: provider-console/network repair or owner-approved retirement. Registry diagnostics already quarantine it as `provider_network_unreachable`.
+- Status: completed for management access.
+- Result: physical `agent-10` is fresh/online at internal mesh IP `10.99.0.18`; `ssh agent-10` works as `root` and Agent Host is active.
+- Remaining exception: direct external access to `217.60.38.191` is source-dependent and should not be the primary management route.
 - Priority: P0.
-- Owner approval needed: yes before retiring the record.
+- Owner approval needed: no for mesh management; yes before changing provider/network settings.

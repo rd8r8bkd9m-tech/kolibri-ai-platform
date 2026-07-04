@@ -50,11 +50,13 @@ def test_fabric_node_catalog_exposes_full_canonical_server_inventory():
     assert set(catalog) == set(registry.CANONICAL_NODE_REGISTRY)
     assert "agent-10" in catalog
     assert catalog["agent-10"]["external_ips"] == ["217.60.38.191"]
+    assert catalog["agent-10"]["internal_ips"] == ["10.99.0.18"]
     assert catalog["agent-10"]["safe_to_schedule"] is False
     assert catalog["agent-10"]["source"] == "registry_catalog"
-    assert catalog["agent-10"]["lifecycle"] == "quarantined"
-    assert catalog["agent-10"]["network_status_override"] == "provider_network_unreachable"
-    assert catalog["agent-10"]["ssh_access"]["mode"] == "external_via_main"
+    assert catalog["agent-10"]["lifecycle"] == "active"
+    assert catalog["agent-10"]["network_status_override"] is None
+    assert catalog["agent-10"]["ssh_access"]["mode"] == "internal_via_main"
+    assert catalog["agent-10"]["ssh_access"]["target"] == "10.99.0.18"
     assert catalog["home"]["ssh_access"]["identity"] == "kolibri_ai_platform_deploy_ed25519"
     assert catalog["qjns"]["ssh_access"]["mode"] == "internal_via_home"
     assert catalog["uiap"]["ssh_access"]["mode"] == "internal_via_main"

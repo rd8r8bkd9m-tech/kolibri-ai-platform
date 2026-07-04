@@ -24,7 +24,7 @@ Canonical registry lives in `ops/factory_registry.py`.
 - Canonical physical records in registry: 21.
 - Runtime CP records observed: 135.
 - Runtime canonical physical servers represented in Control Plane: 20.
-- Runtime missing canonical server: agent-10.
+- Runtime missing canonical server: none.
 - Runtime stale records observed: 103.
 - Runtime logical workers observed in CP: 101.
 
@@ -40,6 +40,6 @@ Current evidence from Control Plane on 2026-07-03:
 - Runners reported: `codex` available, `mimo` available.
 - Artifact root observed: `/var/lib/kolibri-agent/logical-workers/mesh-agent-10/artifacts`.
 
-Physical `agent-10` remains the canonical server record for external IP `217.60.38.191` and is quarantined until provider/network reachability is restored.
+Physical `agent-10` remains the canonical server record for internal IP `10.99.0.18` and external IP `217.60.38.191`; it is distinct from logical `mesh-agent-10`.
 
 Do not invent mappings for records outside the registry. Unknown records must be reported by `/v1/fleet/drift`.

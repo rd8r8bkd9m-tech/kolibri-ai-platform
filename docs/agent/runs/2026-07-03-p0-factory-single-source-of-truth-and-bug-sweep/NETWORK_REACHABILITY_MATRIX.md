@@ -1,21 +1,20 @@
 # Network Reachability Matrix
 
-Snapshot: 2026-07-03T16:26Z.
+Snapshot: 2026-07-04T07:06Z.
 
 Scope: canonical physical/hybrid/execution servers from `CANONICAL_NODE_REGISTRY`, not logical worker records.
 
 ## Summary
 
 - Canonical servers in registry: 21.
-- Canonical servers currently represented in Control Plane: 20.
-- Missing from Control Plane: `agent-10`.
-- Fresh/online or service-proven servers: `9fts`, `home`, `main`, `primary-candidate`, `server-kfrm`.
+- Canonical servers currently represented in Control Plane: 21.
+- Missing from Control Plane: none.
+- Fresh/online or service-proven servers: `9fts`, `agent-10`, `home`, `main`, `primary-candidate`, `server-kfrm`.
 - Fresh but degraded/not schedulable servers: `new`, `qjns`, `uiap`.
 - Stale but network-reachable reserve/agent servers: `agent-01` through `agent-09`, `highload`, `paris`, `reserve242`.
-- Offline or network-blocked: `agent-10`.
-- `agent-10` is now quarantined in registry diagnostics as `provider_network_unreachable`.
-- Public-key SSH from the command node works on 20 of 21 canonical servers through the unified alias topology.
-- The only SSH-unreachable canonical server is `agent-10`; failure is network/provider reachability, not key auth.
+- Offline or network-blocked: none among canonical physical servers.
+- `agent-10` is now reachable through WireGuard as `10.99.0.18`; external public IP `217.60.38.191` is still not a reliable direct management path from every source.
+- Public-key SSH from the command node works on 21 of 21 canonical servers through the unified alias topology.
 
 ICMP is not authoritative. `primary-candidate` rejects ping but serves TCP/HTTP on the expected service ports.
 
@@ -43,7 +42,7 @@ ICMP is not authoritative. `primary-candidate` rejects ping but serves TCP/HTTP 
 | agent-07 | | 46.8.225.34 | stale | external ping ok, SSH TCP ok | ok as `root` via `agent-07` | stale reachable | classify reserve state; bootstrap agent or retire |
 | agent-08 | | 31.59.105.200 | stale | external ping ok, SSH TCP ok | ok as `root` via `agent-08` | stale reachable | classify reserve state; bootstrap agent or retire |
 | agent-09 | | 95.182.84.254 | stale | external ping ok, SSH TCP ok | ok as `root` via `agent-09` | stale reachable | classify reserve state; bootstrap agent or retire |
-| agent-10 | | 217.60.38.191 | registry-only, missing heartbeat | no ping, no SSH TCP, upstream `46.8.226.1` returns host unreachable | blocked/unreachable | quarantined: provider_network_unreachable | provider/network repair or retire from registry after owner approval |
+| agent-10 | 10.99.0.18 | 217.60.38.191 | fresh online | WireGuard route ok, agent host active; direct external TCP is source-dependent | ok as `root` via `agent-10` | online | keep internal mesh route as canonical management path |
 
 ## Service Ports Verified
 
@@ -73,18 +72,23 @@ Live verification after deploy:
 
 ## Agent-10 Incident Update
 
-Additional checks from `primary-candidate` and Home both route toward `217.60.38.191` and fail at upstream `46.8.226.1` with Destination Host Unreachable / `!H`.
+Updated 2026-07-04: physical `agent-10` is online again through the mesh route.
 
-No alternate `agent-10` IP was found in repo inventory, SSH topology or docs.
+- Hostname: `kolibri-hk-edge-load`.
+- Internal IP: `10.99.0.18`.
+- External IP: `217.60.38.191`.
+- Agent Host: active.
+- SSH: `ssh agent-10` works as `root` with `kolibri_ai_platform_deploy_ed25519`.
+- Canonical management path: `10.99.0.18` via `kolibri-main`.
+- External direct TCP remains source-dependent and must not be the primary management path.
 
-This does not block the logical `mesh-agent-10` worker. `mesh-agent-10` is currently a fresh online logical worker on hostname `kolibri` with Fabric API management and available `codex`/`mimo` runners. It is not an SSH route to physical `agent-10`.
+`mesh-agent-10` remains a separate logical worker on hostname `kolibri`. It is not an alias for physical `agent-10`.
 
 Runtime diagnostics fix:
 
-- Registry keeps `agent-10` visible as a canonical server.
-- `/v1/fleet/drift` now reports `agent-10` in `registry_nodes_missing_in_control_plane`.
-- `/v1/fleet/drift` now reports `agent-10` in `registry_only_records`.
-- `/v1/fleet/registry` marks `agent-10` as `lifecycle=quarantined`, `network_status_override=provider_network_unreachable`, `safe_to_schedule=false`.
+- Registry keeps `agent-10` visible as a canonical physical server.
+- `/v1/nodes` reports `agent-10` as fresh/online.
+- `/v1/fleet/registry` records `agent-10` internal IP `10.99.0.18`, external IP `217.60.38.191`, lifecycle `active`.
 
 Rollback backups:
 
@@ -98,7 +102,7 @@ Rollback backup for the registry deploy:
 ## Repair Tasks
 
 1. `P0_REPAIR_FACTORY_SSH_TRUST_BOOTSTRAP_20260703`: completed for reachable servers; keep backups and audit trail. Future key changes must use the same backed-up, per-host bootstrap path.
-2. `P0_REPAIR_AGENT10_NETWORK_OR_RETIRE_20260703`: verify provider console/network route for `217.60.38.191`; either restore SSH/network reachability or retire/quarantine the canonical record with owner approval.
+2. `P0_REPAIR_AGENT10_NETWORK_OR_RETIRE_20260703`: completed by restoring the mesh management route; keep direct external reachability as a lower-priority provider check.
 3. `P0_REPAIR_DEGRADED_EXECUTION_NODES_20260703`: repair `uiap`, `qjns`, and `new` health/agent-host state before scheduling heavy work.
 4. `P0_CLASSIFY_STALE_RESERVE_SERVERS_20260703`: classify `agent-01..agent-09`, `highload`, `paris`, and `reserve242` as retired, planned, quarantined or broken.
 
@@ -118,8 +122,8 @@ Canonical `ssh_access` metadata is now exposed by `/v1/fleet/registry` for every
 - `home`: `direct_internal`, target `10.99.0.1`, user `ladik`, identity `kolibri_ai_platform_deploy_ed25519`.
 - `main`: `internal_via_home`, target `10.99.0.2`, user `root`, identity `kolibri_ai_platform_deploy_ed25519`.
 - `qjns`: `internal_via_home`, target `10.99.0.4`, user `root`, identity `kolibri_ai_platform_deploy_ed25519`.
-- `uiap`, `9fts`, `new`, `primary-candidate`: `internal_via_main`, target is the registry internal IP, user `root`.
-- reserve/agent external-only servers: `external_via_main`, target is the registry external IP, user `root`.
+- `uiap`, `9fts`, `new`, `primary-candidate`, `agent-10`: `internal_via_main`, target is the registry internal IP, user `root`.
+- reserve/agent external-only servers except `agent-10`: `external_via_main`, target is the registry external IP, user `root`.
 
 Bootstrap access confirmed:
 
@@ -145,12 +149,12 @@ Bootstrap access confirmed:
 | `ssh agent-09` | ok, `kolibri-release-canary`, `root`, agent active |
 | `ssh paris` | ok, `kolibri-paris-build-reserve`, `root`, agent active |
 | `ssh server-kfrm` | ok, `server-kfrm`, `root`, agent active |
-| `ssh agent-10` | failed, network route/provider unreachable |
+| `ssh agent-10` | ok, `kolibri-hk-edge-load`, `root`, agent active |
 
 Current key gap:
 
-- No remaining SSH key-auth gap was found on reachable canonical servers.
-- `agent-10` cannot be bootstrapped by SSH until provider/network reachability for `217.60.38.191` is restored or its canonical IP is changed.
+- No remaining SSH key-auth gap was found on canonical servers.
+- `agent-10` management must use the internal mesh target `10.99.0.18`; direct external `217.60.38.191` is not reliable from every source.
 
 Rollback backup for live registry metadata deploy:
 
