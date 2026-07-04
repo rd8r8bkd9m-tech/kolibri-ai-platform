@@ -137,3 +137,69 @@ def test_control_plane_runner_compatibility_filters_blocked_and_avoided_nodes():
         ["generic_implementation", "runner:mimo"],
         {"runners": {"mimo": {"status": "available"}}},
     ) is False
+
+
+def test_dead_letter_rerun_requeues_task():
+    control = load_module(ROOT / "ops" / "factory_control.py")
+    task = control.normalize_task({
+        "task_id": "DEAD-RERUN-1",
+        "idempotency_key": "dead-rerun-1",
+        "kind": "read_only_probe",
+    })
+    task["state"] = control.STATE_DEAD
+    task["error_type"] = "lease_expired"
+    task["error"] = "lease expired and retry budget exhausted"
+    task["attempt"] = 3
+    task["attempt_id"] = "DEAD-RERUN-1-attempt-3"
+    task["lease_owner"] = "home:agent-host-home"
+    task["lease_until"] = 9999999999.0
+    control.save_task(task)
+    control.redis.command("RPUSH", control.key("dead_letter"), "DEAD-RERUN-1")
+
+    result = control.rerun_dead_letter_task("DEAD-RERUN-1")
+    assert result is not None
+    assert result["state"] == control.STATE_QUEUED
+    assert result["attempt"] == 0
+    assert result["attempt_id"] is None
+    assert result["lease_owner"] is None
+    assert result["lease_until"] is None
+    assert result["error_type"] is None
+    assert result["error"] is None
+    assert "DEAD-RERUN-1" not in control.dead_letter_ids()
+
+
+def test_dead_letter_rerun_returns_none_for_missing_task():
+    control = load_module(ROOT / "ops" / "factory_control.py")
+    assert control.rerun_dead_letter_task("NONEXISTENT") is None
+
+
+def test_dead_letter_rerun_returns_none_for_non_dead_task():
+    control = load_module(ROOT / "ops" / "factory_control.py")
+    task = control.normalize_task({
+        "task_id": "ALIVE-1",
+        "idempotency_key": "alive-1",
+        "kind": "read_only_probe",
+    })
+    task["state"] = control.STATE_QUEUED
+    control.save_task(task)
+    assert control.rerun_dead_letter_task("ALIVE-1") is None
+
+
+def test_dead_letter_ids_lists_dead_tasks():
+    control = load_module(ROOT / "ops" / "factory_control.py")
+    for tid in ["DL-1", "DL-2"]:
+        task = control.normalize_task({"task_id": tid, "idempotency_key": tid, "kind": "read_only_probe"})
+        task["state"] = control.STATE_DEAD
+        control.save_task(task)
+        control.redis.command("RPUSH", control.key("dead_letter"), tid)
+    ids = control.dead_letter_ids()
+    assert "DL-1" in ids
+    assert "DL-2" in ids
+
+
+def test_factory_control_source_has_dead_letter_rerun_endpoint():
+    source = (ROOT / "ops" / "factory_control.py").read_text(encoding="utf-8")
+    assert "/v1/tasks/dead-letter" in source
+    assert "/rerun" in source
+    assert "rerun_dead_letter_task" in source
+    assert "dead_letter_ids" in source

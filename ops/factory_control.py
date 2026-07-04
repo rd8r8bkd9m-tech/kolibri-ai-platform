@@ -369,6 +369,30 @@ def queue_ids() -> list[str]:
     return redis.command("LRANGE", key("queue"), 0, -1) or []
 
 
+def dead_letter_ids() -> list[str]:
+    return redis.command("LRANGE", key("dead_letter"), 0, -1) or []
+
+
+def rerun_dead_letter_task(task_id: str) -> dict[str, Any] | None:
+    task = load_task(task_id)
+    if not task or task.get("state") != STATE_DEAD:
+        return None
+    task["state"] = STATE_RETRY
+    task["attempt"] = 0
+    task["attempt_id"] = None
+    task["lease_owner"] = None
+    task["lease_until"] = None
+    task["heartbeat_at"] = None
+    task["error_type"] = None
+    task["error"] = None
+    save_task(task)
+    task["state"] = STATE_QUEUED
+    save_task(task)
+    enqueue(task_id)
+    redis.command("LREM", key("dead_letter"), 0, task_id)
+    return task
+
+
 def load_task(task_id: str) -> dict[str, Any] | None:
     return get_json(task_key(task_id))
 
@@ -1001,6 +1025,54 @@ class Handler(BaseHTTPRequestHandler):
                 tasks = [load_task(task_id) for task_id in all_task_ids()]
                 tasks = [task for task in tasks if task and (wanted is None or task.get("state") == wanted)]
                 response(self, 200, {"tasks": tasks, "queue": queue_ids()})
+                return
+            if path == "/v1/tasks/dead-letter":
+                ids = dead_letter_ids()
+                tasks = []
+                for tid in ids:
+                    task = load_task(tid)
+                    if task:
+                        tasks.append(task)
+                response(self, 200, canonical_response_envelope(
+                    status="completed",
+                    route_used="/v1/tasks/dead-letter",
+                    data={"dead_letter_ids": ids, "tasks": tasks},
+                    next_action="POST /v1/tasks/{task_id}/rerun to re-queue a dead letter task, or cancel via /v1/tasks/{task_id}/cancel",
+                ))
+                return
+            if path.startswith("/v1/tasks/") and path.endswith("/rerun"):
+                task_id = path.split("/", 3)[3]
+                task = rerun_dead_letter_task(task_id)
+                if not task:
+                    task = load_task(task_id)
+                    if not task:
+                        response(self, 404, canonical_response_envelope(
+                            status="blocked",
+                            task_id=task_id,
+                            route_used="/v1/tasks/rerun",
+                            blocked_reason="unknown",
+                            repair_task={"kind": "verify_agent_task_id", "task_id": task_id},
+                            next_action="verify task id before retrying rerun",
+                        ))
+                        return
+                    response(self, 409, canonical_response_envelope(
+                        status="blocked",
+                        task_id=task_id,
+                        node=(task.get("lease_owner") or "main").split(":", 1)[0],
+                        route_used="/v1/tasks/rerun",
+                        blocked_reason="task_not_in_dead_letter",
+                        repair_task={"kind": "verify_task_state", "task_id": task_id, "current_state": task.get("state")},
+                        next_action="only dead_letter tasks can be rerun; check task state at /v1/agents/status/{task_id}",
+                    ))
+                    return
+                response(self, 200, canonical_response_envelope(
+                    status="running",
+                    task_id=task_id,
+                    node=(task.get("lease_owner") or "main").split(":", 1)[0],
+                    route_used="/v1/tasks/rerun",
+                    data={"task": task},
+                    next_action="poll /v1/agents/status/{task_id}",
+                ))
                 return
             if path.startswith("/v1/tasks/"):
                 task_id = path.split("/", 3)[3]
