@@ -1,0 +1,286 @@
+openapi: 3.1.0
+info:
+  title: Kolibri Control Gateway Action
+  version: 2026-07-04
+  description: GPT Action schema for the Kolibri Control Gateway.
+servers:
+  - url: https://action.kolibriai.ru
+security:
+  - bearerAuth: []
+paths:
+  /v1/action/health:
+    get:
+      operationId: kolibriActionHealth
+      summary: Check gateway and Control Plane health.
+      responses:
+        "200":
+          description: Health response.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GatewayResponse"
+  /v1/factory/start:
+    post:
+      operationId: kolibriFactoryStart
+      summary: Start a bounded read-only factory canary.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartFactoryRequest"
+      responses:
+        "202":
+          description: Factory canary submitted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StartFactoryResponse"
+        "503":
+          description: Control Plane blocked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /v1/director/tick:
+    post:
+      operationId: kolibriDirectorTick
+      summary: Run a safe director planning tick.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DirectorTickRequest"
+      responses:
+        "200":
+          description: Director tick response.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DirectorTickResponse"
+  /v1/fleet/status:
+    get:
+      operationId: kolibriFleetStatus
+      summary: Read fleet status through Control Plane.
+      responses:
+        "200":
+          description: Fleet status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FleetStatusResponse"
+  /v1/queue/status:
+    get:
+      operationId: kolibriQueueStatus
+      summary: Read task queue diagnostics through Control Plane.
+      responses:
+        "200":
+          description: Queue status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QueueStatusResponse"
+  /v1/tasks/submit:
+    post:
+      operationId: kolibriTaskSubmit
+      summary: Submit a bounded task through Control Plane.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskSubmitRequest"
+      responses:
+        "201":
+          description: Task submitted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskStatusResponse"
+  /v1/tasks/{task_id}/status:
+    get:
+      operationId: kolibriTaskStatus
+      summary: Read task status.
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Task status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskStatusResponse"
+  /v1/tasks/{task_id}/artifacts:
+    get:
+      operationId: kolibriTaskArtifacts
+      summary: Read task artifacts.
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Artifact list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArtifactListResponse"
+  /v1/github/prs:
+    get:
+      operationId: kolibriGithubPrs
+      summary: Read GitHub PR status when a safe backend is bound.
+      responses:
+        "200":
+          description: PR list or partial blocker.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GatewayResponse"
+  /v1/approvals/request:
+    post:
+      operationId: kolibriRequestApproval
+      summary: Create an owner approval request for dangerous actions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApprovalRequest"
+      responses:
+        "202":
+          description: Approval request created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GatewayResponse"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    GatewayResponse:
+      type: object
+      required:
+        - status
+        - request_id
+        - task_id
+        - control_plane_used
+        - artifacts
+        - blocked_reason
+        - fallback_nodes
+        - repair_task
+        - next_action
+      properties:
+        status:
+          type: string
+          enum: [completed, running, blocked, failed, partial]
+        request_id:
+          type: string
+        task_id:
+          type: string
+        control_plane_used:
+          type: string
+        artifacts:
+          type: array
+          items: {}
+        blocked_reason:
+          type: string
+        fallback_nodes:
+          type: array
+          items: {}
+        repair_task: {}
+        next_action:
+          type: string
+        data: {}
+    StartFactoryRequest:
+      type: object
+      properties:
+        autopilot:
+          type: string
+          enum: [A1, A2]
+          default: A1
+        runner:
+          type: string
+          enum: [codex, mimo, api, local_llm]
+          default: codex
+        mode:
+          type: string
+          enum: [canary, dry_run]
+          default: canary
+        submit_canary:
+          type: boolean
+          default: true
+        target_node:
+          type: string
+        required_capability:
+          type: string
+          default: generic_implementation
+    StartFactoryResponse:
+      allOf:
+        - $ref: "#/components/schemas/GatewayResponse"
+    DirectorTickRequest:
+      type: object
+      properties:
+        tick_id:
+          type: string
+        scope:
+          type: string
+          default: status_only
+    DirectorTickResponse:
+      allOf:
+        - $ref: "#/components/schemas/GatewayResponse"
+    TaskSubmitRequest:
+      type: object
+      required: [kind]
+      properties:
+        kind:
+          type: string
+        objective:
+          type: string
+        runner:
+          type: string
+        target_node:
+          type: string
+        required_capability:
+          type: string
+        constraints:
+          type: object
+        write_scope:
+          type: array
+          items:
+            type: string
+    TaskStatusResponse:
+      allOf:
+        - $ref: "#/components/schemas/GatewayResponse"
+    FleetStatusResponse:
+      allOf:
+        - $ref: "#/components/schemas/GatewayResponse"
+    QueueStatusResponse:
+      allOf:
+        - $ref: "#/components/schemas/GatewayResponse"
+    ArtifactListResponse:
+      allOf:
+        - $ref: "#/components/schemas/GatewayResponse"
+    ApprovalRequest:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+        reason:
+          type: string
+        target:
+          type: string
+        risk:
+          type: string
+    ErrorResponse:
+      allOf:
+        - $ref: "#/components/schemas/GatewayResponse"
