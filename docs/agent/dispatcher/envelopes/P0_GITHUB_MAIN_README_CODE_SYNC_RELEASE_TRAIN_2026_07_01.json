@@ -1,0 +1,117 @@
+{
+  "task_id": "P0_GITHUB_MAIN_README_CODE_SYNC_RELEASE_TRAIN_2026_07_01",
+  "idempotency_key": "mac-dispatcher:P0_GITHUB_MAIN_README_CODE_SYNC_RELEASE_TRAIN_2026_07_01",
+  "kind": "owner_remote_task",
+  "priority": "P0",
+  "required_capability": "implementation",
+  "runner": "codex",
+  "agent_type": "github_release_train_curator",
+  "agent_display_name": "Мария — GitHub Release Curator",
+  "target_node": "primary-candidate",
+  "target_node_pool": "healthy_server_implementation_nodes",
+  "preferred_nodes": [
+    "primary-candidate",
+    "main",
+    "home"
+  ],
+  "allowed_nodes": [
+    "primary-candidate",
+    "main",
+    "home"
+  ],
+  "max_retries": 1,
+  "goal": "Bring the GitHub repository toward a current main branch: README.md and production code on main are old, so create a safe remote release train that updates README/code through PRs, CI and owner merge gates.",
+  "objective": "On a server node, compare origin/main README.md/code with the current Kolibri Factory source-of-truth PRs and dispatcher docs. Identify why main is stale, update README and docs on a dedicated branch, prepare the code release path for ready PRs, fix small release blockers where allowed, and open/update draft PR(s). Do not push directly to main. Do not merge or mark ready without owner approval.",
+  "constraints": {
+    "mac_implementation_forbidden": true,
+    "server_execution_required": true,
+    "github_source_of_truth_required": true,
+    "use_clean_remote_worktree": true,
+    "do_not_modify_dirty_runtime_repo": true,
+    "push_to_main_forbidden": true,
+    "merge_forbidden_without_owner_approval": true,
+    "mark_ready_forbidden_without_owner_approval": true,
+    "approve_forbidden": true,
+    "force_push_forbidden": true,
+    "destructive_git_commands_forbidden": true,
+    "git_reset_forbidden": true,
+    "git_clean_forbidden": true,
+    "deploy_forbidden": true,
+    "service_restart_forbidden": true,
+    "secrets_redaction_required": true,
+    "avoid_unrelated_scope": true,
+    "split_unrelated_changes": true,
+    "owner_facing_agent_names_must_be_russian": true
+  },
+  "read_first": [
+    "README.md",
+    "docs/agent/dispatcher/OWNER_CANONICAL_INSTRUCTIONS.md",
+    "docs/superfactory/Kolibri_All_Prompts.md",
+    "docs/superfactory/FLEET_ALWAYS_ONLINE_POLICY.md",
+    "docs/agent/dispatcher/QUEUE.md",
+    "docs/agent/dispatcher/REMOTE_RESULTS.md",
+    "docs/agent/dispatcher/FACTORY_STATUS.md",
+    ".github/workflows/ci.yml",
+    "ops/factory_control.py",
+    "ops/agent_host.py",
+    "ops/kolibri-dispatch"
+  ],
+  "review_prs": [
+    83,
+    85,
+    89,
+    90,
+    91,
+    92,
+    93,
+    94
+  ],
+  "expected_actions": [
+    "Fetch origin/main and all relevant PR heads into a clean remote worktree.",
+    "Classify which PRs are ready, blocked, docs-only, or require repair.",
+    "Update README.md on a dedicated branch so main-facing documentation reflects Mac thin-client, Control Plane, Agent Host, API-first Fabric, always-online fleet, Home UI and agent mesh.",
+    "For PR #85, respect release gate: fix only doc whitespace if needed, rerun checks, and keep merge gated by owner approval.",
+    "Do not mix Telegram, billing, Kwork/business, runner hardening and Fabric API changes into one PR unless the release plan explicitly marks them as already separated.",
+    "Open or update draft PR(s) with clear Russian/English summary, test evidence and next owner decision.",
+    "If GitHub push fails from server, classify blocker and prepare relay instructions/artifacts instead of claiming completion."
+  ],
+  "write_scope": [
+    "README.md",
+    "docs/agent/runs/2026-07-01-p0-github-main-readme-code-sync-release-train/**",
+    "docs/agent/intelligence/2026-07-01-github-main-readme-code-sync-release-train/**",
+    "docs/superfactory/TASKS.md"
+  ],
+  "required_outputs": [
+    "docs/agent/runs/2026-07-01-p0-github-main-readme-code-sync-release-train/PLAN.md",
+    "docs/agent/runs/2026-07-01-p0-github-main-readme-code-sync-release-train/ACTIONS.md",
+    "docs/agent/runs/2026-07-01-p0-github-main-readme-code-sync-release-train/TESTS.md",
+    "docs/agent/runs/2026-07-01-p0-github-main-readme-code-sync-release-train/RESULT.md",
+    "docs/agent/runs/2026-07-01-p0-github-main-readme-code-sync-release-train/NEXT.md",
+    "docs/agent/intelligence/2026-07-01-github-main-readme-code-sync-release-train/MAIN_STALENESS_REPORT.md",
+    "docs/agent/intelligence/2026-07-01-github-main-readme-code-sync-release-train/PR_RELEASE_TRAIN_MATRIX.md",
+    "docs/agent/intelligence/2026-07-01-github-main-readme-code-sync-release-train/README_UPDATE_SUMMARY.md",
+    "docs/agent/intelligence/2026-07-01-github-main-readme-code-sync-release-train/NEXT_OWNER_DECISIONS.md"
+  ],
+  "verification_commands": [
+    "git diff --check",
+    "python3 -m py_compile ops/factory_control.py ops/agent_host.py ops/kolibri-dispatch || true",
+    "python3 -m pytest tests/test_fabric_control.py tests/test_prompt3_fabric_api_surface.py -q || classify missing tests/deps",
+    "gh pr view relevant PRs if gh is available, otherwise use git ls-remote and GitHub API/connector if available"
+  ],
+  "acceptance": [
+    "Remote execution happens on a server node, not Mac.",
+    "Main branch is not pushed to directly and not merged without owner approval.",
+    "README.md update branch/PR is created or a concrete blocker is reported.",
+    "Open PRs are classified in a release train matrix.",
+    "PR #85 release gate blocker is included and not ignored.",
+    "No unrelated changes are mixed into one PR.",
+    "Tests/CI evidence or exact blocker classification is recorded.",
+    "Final result includes branch/PR URL if created, tests, blockers and next owner decision."
+  ],
+  "source": {
+    "kind": "mac_thin_client_dispatcher",
+    "owner": "Vladislav",
+    "created_at": "2026-07-01T19:20:00+03:00",
+    "local_ledger": "docs/agent/dispatcher/DISPATCH_LOG.md"
+  }
+}

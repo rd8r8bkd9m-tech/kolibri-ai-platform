@@ -181,3 +181,43 @@ def test_parse_codex_agent_message_jsonl(tmp_path):
 
     assert agent_host.AgentHost.parse_json_text_response(stdout) == "Живой ответ директора."
 
+
+def test_api_runner_missing_auth_is_reported_without_prompt(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setenv("KOLIBRI_TELEGRAM_RUNNER", "api")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("KOLIBRI_API_RUNNER_TOKEN", raising=False)
+
+    class Host(agent_host.AgentHost):
+        def post(self, path, body):
+            return body
+
+    host = Host(make_args(tmp_path))
+    try:
+        host.run_telegram_chat_response(make_chat_task("TGCHAT-API", "секретный текст владельца"))
+    except RuntimeError as exc:
+        message = str(exc)
+        assert "api runner auth is not configured" in message
+        assert "секретный текст владельца" not in message
+    else:
+        raise AssertionError("expected RuntimeError")
+
+
+def test_local_llm_runner_missing_url_is_reported_without_prompt(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setenv("KOLIBRI_TELEGRAM_RUNNER", "local_llm")
+    monkeypatch.delenv("KOLIBRI_LOCAL_LLM_URL", raising=False)
+
+    class Host(agent_host.AgentHost):
+        def post(self, path, body):
+            return body
+
+    host = Host(make_args(tmp_path))
+    try:
+        host.run_telegram_chat_response(make_chat_task("TGCHAT-LOCAL", "приватный вопрос"))
+    except RuntimeError as exc:
+        message = str(exc)
+        assert "local_llm runner is not configured" in message
+        assert "приватный вопрос" not in message
+    else:
+        raise AssertionError("expected RuntimeError")

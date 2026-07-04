@@ -1,0 +1,47 @@
+{
+  "task_id": "P0_FACTORY_CONTROL_POST_MERGE_DEPLOY_CANARY_2026_07_02",
+  "status": "passed",
+  "node": "kolibri",
+  "target_repo_path": "/opt/kolibri-ai-platform",
+  "service": {
+    "name": "kolibri-factory-control.service",
+    "active_state": "active",
+    "sub_state": "running",
+    "pid": 3588876,
+    "exec_start": "/usr/bin/python3 /opt/kolibri-ai-platform/ops/factory_control.py",
+    "working_directory": "/opt/kolibri-ai-platform"
+  },
+  "preflight": {
+    "path": "/opt/kolibri-ai-platform/scripts/preflight-factory-control-runtime.sh",
+    "target": "/opt/kolibri-ai-platform",
+    "result": "factory_control_runtime_preflight=ok",
+    "ran_before_restart": true
+  },
+  "route_matrix": [
+    {"path": "/health", "http": 200, "result": "pass"},
+    {"path": "/v1/health", "http": 200, "result": "pass"},
+    {"path": "/v1/fabric/health", "http": 200, "result": "pass"},
+    {"path": "/v1/fabric/routes", "http": 200, "result": "pass"},
+    {"path": "/v1/fleet/nodes", "http": 200, "result": "pass"},
+    {"path": "/v1/models", "http": 200, "result": "pass"}
+  ],
+  "backup_path": "/var/backups/kolibri-runtime/20260701T214949Z-P0_FACTORY_CONTROL_POST_MERGE_DEPLOY_CANARY_2026_07_02",
+  "rollback_state": "not_needed",
+  "telegram_touched": false,
+  "telegram_gateway_state": {
+    "active_state": "inactive",
+    "sub_state": "dead",
+    "pid": 0
+  },
+  "forbidden_repo_modifications": {
+    "product_code": false,
+    "tests": false,
+    "ci": false,
+    "main_branch": false,
+    "secrets": false,
+    "telegram_state": false
+  },
+  "blockers": [],
+  "next_exact_task": "P0_FACTORY_CONTROL_TELEGRAM_GATEWAY_OWNER_APPROVED_NO_MUTATION_DIAGNOSTIC_2026_07_02"
+}
+

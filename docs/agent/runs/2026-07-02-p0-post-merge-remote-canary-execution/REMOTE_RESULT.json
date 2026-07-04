@@ -1,0 +1,81 @@
+{
+  "task_id": "P0_POST_MERGE_REMOTE_CANARY_EXECUTION_2026_07_02",
+  "status": "runtime_blocked_after_test_canary",
+  "node": "kolibri",
+  "agent_display_name": "Сергей - Remote Canary Steward",
+  "branch": "agent/P0_POST_MERGE_REMOTE_CANARY_EXECUTION_2026_07_02/canary",
+  "main_sha_verified_before_classification": true,
+  "main_sha": "c97a0f50e14e3c2c20babfd13fbeb045400f66f2",
+  "artifacts": [
+    "docs/agent/runs/2026-07-02-p0-post-merge-remote-canary-execution/PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-post-merge-remote-canary-execution/ACTIONS.md",
+    "docs/agent/runs/2026-07-02-p0-post-merge-remote-canary-execution/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-post-merge-remote-canary-execution/POST_MERGE_CANARY_MATRIX.md",
+    "docs/agent/runs/2026-07-02-p0-post-merge-remote-canary-execution/RUNTIME_BLOCKERS.md",
+    "docs/agent/runs/2026-07-02-p0-post-merge-remote-canary-execution/OPEN_PR_QUEUE_MATRIX.md",
+    "docs/agent/runs/2026-07-02-p0-post-merge-remote-canary-execution/NEXT.md",
+    "docs/agent/runs/2026-07-02-p0-post-merge-remote-canary-execution/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-post-merge-remote-canary-execution/REMOTE_RESULT.json"
+  ],
+  "canary_checks": {
+    "agent_host": "test_backed_pass_live_service_active",
+    "mimo": "test_backed_pass",
+    "control_plane_freshness": "health_pass_api_surface_blocked",
+    "fabric_api": "contract_pass_live_route_blocked",
+    "telegram_runtime": "contract_pass_live_runtime_blocked",
+    "github_pr_queue": "ref_visibility_pass_live_metadata_blocked"
+  },
+  "verification": {
+    "focused_pytest": "89 passed in 40.05s",
+    "factory_control_health": {
+      "status": "ok",
+      "redis": "PONG",
+      "spool_count": 0,
+      "spool_replayed": 0,
+      "time": "2026-07-01T21:07:56.908979+00:00"
+    },
+    "pull_refs_visible": 68
+  },
+  "blockers": [
+    {
+      "id": "B1",
+      "surface": "telegram_runtime",
+      "evidence": "kolibri-telegram-gateway.service ActiveState=inactive SubState=dead ExecMainPID=0",
+      "next_action": "run a no-mutation Telegram gateway restoration/diagnostic task on a server node"
+    },
+    {
+      "id": "B2",
+      "surface": "fabric_api_live_route",
+      "evidence": "HTTP 404 for /v1/fabric/health, /v1/fleet, and /v1/status on 10.99.0.10:9101",
+      "next_action": "identify authoritative Fabric API listener or repair /v1 route mounting"
+    },
+    {
+      "id": "B3",
+      "surface": "control_plane_freshness_tests",
+      "evidence": "ModuleNotFoundError: No module named 'httpx'",
+      "next_action": "sync server Python test dependencies and rerun factory-status tests"
+    },
+    {
+      "id": "B4",
+      "surface": "github_pr_queue",
+      "evidence": "gh executable unavailable; git refs only",
+      "next_action": "perform GitHub metadata recheck from an authenticated node"
+    }
+  ],
+  "forbidden_actions_confirmed_absent": [
+    "product_code_modified",
+    "tests_modified",
+    "ci_modified",
+    "services_modified",
+    "telegram_settings_modified",
+    "secrets_printed",
+    "main_modified",
+    "pr_merged",
+    "pr_marked_ready",
+    "pr_approved",
+    "pr_closed",
+    "force_pushed",
+    "pushed_to_main"
+  ],
+  "next_exact_task": "P0_REPAIR_POST_MERGE_CANARY_RUNTIME_BLOCKERS_2026_07_02"
+}

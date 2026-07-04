@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Kolibri dispatcher CLI.
 
-Subcommands operate against the persistent Factory Control Plane. If invoked
-with the legacy option-based arguments, this script keeps the previous one-shot
-SSH launch behavior for compatibility.
+Subcommands operate against the persistent Factory Control Plane through the
+protected Fabric API. SSH compatibility is retained only for emergency,
+bootstrap, and diagnostic use.
 """
 
 from __future__ import annotations
@@ -27,12 +27,35 @@ DEFAULT_NODES = {
 }
 
 
+class FabricApiUnavailable(RuntimeError):
+    def __init__(self, envelope: dict[str, Any]):
+        super().__init__(envelope["reason"])
+        self.envelope = envelope
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
 def print_json(value: Any) -> None:
     print(json.dumps(value, indent=2, sort_keys=True))
+
+
+def blocked_envelope(reason: str, detail: str, control_url: str) -> dict[str, Any]:
+    return {
+        "status": "blocked",
+        "reason": reason,
+        "detail": detail,
+        "target_node": "control-plane",
+        "fallback_nodes": ["home", "main", "9fts", "new"],
+        "fallback_route": {"type": "fabric_api_relay", "endpoint": "/v1/fabric/relay"},
+        "repair_task": {
+            "kind": "repair_control_plane_api",
+            "target_node": "control-plane",
+            "action": f"restore Fabric API reachability for {control_url} or retry through a registered relay",
+        },
+        "can_continue_elsewhere": True,
+    }
 
 
 def http_json(method: str, url: str, body: dict[str, Any] | None = None, ok_empty: bool = False) -> Any:
@@ -47,6 +70,9 @@ def http_json(method: str, url: str, body: dict[str, Any] | None = None, ok_empt
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", "replace")
         raise SystemExit(f"{method} {url} failed: HTTP {exc.code}: {detail}") from exc
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        base = url.split("/v1/", 1)[0].rstrip("/")
+        raise FabricApiUnavailable(blocked_envelope("fabric_api_unreachable", str(exc), base)) from exc
 
 
 def run_capture(command: list[str], timeout: int = 20) -> dict[str, Any]:
@@ -138,6 +164,19 @@ def cmd_drain(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_fabric_routes(args: argparse.Namespace) -> int:
+    print_json(http_json("GET", f"{args.control_url}/v1/fabric/routes"))
+    return 0
+
+
+def cmd_fabric_route(args: argparse.Namespace) -> int:
+    print_json(http_json("POST", f"{args.control_url}/v1/fabric/route", {
+        "target_node": args.target_node,
+        "required_capability": args.required_capability,
+    }))
+    return 0
+
+
 def legacy_mode(argv: list[str]) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--node-id", required=True)
@@ -197,7 +236,7 @@ def legacy_mode(argv: list[str]) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    commands = {"doctor", "nodes", "submit", "status", "collect", "cancel", "drain"}
+    commands = {"doctor", "nodes", "submit", "status", "collect", "cancel", "drain", "fabric-routes", "fabric-route"}
     command_positions = [idx for idx, value in enumerate(argv) if value in commands]
     if not argv or not command_positions:
         return legacy_mode(argv)
@@ -231,8 +270,17 @@ def main(argv: list[str] | None = None) -> int:
     drain.add_argument("--enable", action="store_true")
     drain.add_argument("--disable", action="store_true")
     drain.set_defaults(func=cmd_drain)
+    sub.add_parser("fabric-routes").set_defaults(func=cmd_fabric_routes)
+    fabric_route = sub.add_parser("fabric-route")
+    fabric_route.add_argument("target_node", nargs="?")
+    fabric_route.add_argument("--required-capability")
+    fabric_route.set_defaults(func=cmd_fabric_route)
     args = parser.parse_args(argv)
-    return args.func(args)
+    try:
+        return args.func(args)
+    except FabricApiUnavailable as exc:
+        print_json(exc.envelope)
+        return 2
 
 
 if __name__ == "__main__":

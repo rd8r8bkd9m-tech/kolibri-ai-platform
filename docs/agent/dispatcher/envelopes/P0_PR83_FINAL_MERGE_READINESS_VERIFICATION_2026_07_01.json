@@ -1,0 +1,150 @@
+{
+  "task_id": "P0_PR83_FINAL_MERGE_READINESS_VERIFICATION_2026_07_01",
+  "idempotency_key": "mac-dispatcher:P0_PR83_FINAL_MERGE_READINESS_VERIFICATION_2026_07_01",
+  "kind": "owner_remote_task",
+  "required_capability": "generic_implementation",
+  "runner": "codex",
+  "agent_type": "pr83_final_merge_readiness_verification",
+  "agent_display_name": "Олег — PR83 Release Reviewer",
+  "target_node": "primary-candidate",
+  "target_node_pool": "healthy server review nodes",
+  "preferred_nodes": [
+    "primary-candidate",
+    "home"
+  ],
+  "allowed_nodes": [
+    "primary-candidate",
+    "home"
+  ],
+  "avoid_nodes": [
+    "new",
+    "main",
+    "qjns",
+    "uiap"
+  ],
+  "branch": "p0/agent-host-runner-contract-hardening-2026-06-30",
+  "base_branch": "main",
+  "base_ref": "origin/main",
+  "start_commit": "81daf44dc842dce40d8547275f47b051871a2690",
+  "base_commit": "6d0317c52a9694448ee2c352dc196ce7a27b9487",
+  "related_pr": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/83",
+  "max_retries": 1,
+  "objective": "Perform a final server-side, read-only merge-readiness verification for PR #83 after the review-diff contract repair and exact artifact cleanup. Verify the current branch head against origin/main, confirm CI evidence, run focused server checks where dependencies are available, classify residual risks, and produce exact run artifacts for the owner. Do not merge, approve, mark ready, push, restart services, or mutate runtime state.",
+  "constraints": {
+    "mac_thin_client_only": true,
+    "server_execution_required": true,
+    "read_only": true,
+    "documentation_artifacts_only": true,
+    "product_code_modification_forbidden": true,
+    "test_code_modification_forbidden": true,
+    "destructive_git_commands_forbidden": true,
+    "dirty_worktree_checkout_forbidden": true,
+    "force_push_forbidden": true,
+    "git_push_forbidden": true,
+    "no_push": true,
+    "push_to_main_forbidden": true,
+    "git_push_allowed": false,
+    "merge_forbidden": true,
+    "approve_pr_forbidden": true,
+    "mark_pr_ready_for_review_forbidden": true,
+    "service_restart_forbidden": true,
+    "live_runtime_mutation_forbidden": true,
+    "telegram_getupdates_forbidden": true,
+    "telegram_webhook_changes_forbidden": true,
+    "telegram_command_menu_changes_forbidden": true,
+    "secrets_redaction_required": true,
+    "owner_facing_agent_names_must_be_russian": true,
+    "exact_run_artifacts_required": true
+  },
+  "known_evidence": {
+    "pr83_url": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/83",
+    "pr83_base": "main",
+    "pr83_head": "81daf44dc842dce40d8547275f47b051871a2690",
+    "origin_main": "6d0317c52a9694448ee2c352dc196ce7a27b9487",
+    "github_actions": {
+      "run_id": 28504679530,
+      "workflow": "Kolibri CI",
+      "run_number": 358,
+      "conclusion": "success",
+      "job": "ci"
+    },
+    "repaired_chain": [
+      "P0_PR83_REVIEW_PR_READ_ONLY_DIFF_CONTRACT_REPAIR_2026_07_01 fixed review_pr changed_files vs reviewed_diff_files behavior and pushed e2e27313e88ed8f285ccb057263dae6a5c447d2d.",
+      "P0_PR83_REVIEW_DIFF_CONTRACT_EXACT_ARTIFACT_CLEANUP_2026_07_01 normalized exact artifacts and pushed 81daf44dc842dce40d8547275f47b051871a2690.",
+      "GitHub Actions run 28504679530 succeeded for 81daf44dc842dce40d8547275f47b051871a2690."
+    ],
+    "prior_review_issue": "Older final review task used stale head dfbc7fc and found a true read-only review false-blocker, now repaired on the PR branch."
+  },
+  "read_first": [
+    "ops/agent_host.py",
+    "ops/factory_control.py",
+    "tests/test_agent_host_runner_contract.py",
+    "docs/agent/AGENT_RUNNER_CONTRACT.md",
+    "docs/agent/runs/2026-07-01-p0-pr83-review-pr-read-only-diff-contract-repair/RESULT.md",
+    "docs/agent/runs/2026-07-01-p0-pr83-review-pr-read-only-diff-contract-repair/NEXT.md"
+  ],
+  "write_scope": [
+    "docs/agent/runs/2026-07-01-p0-pr83-final-merge-readiness-verification/PLAN.md",
+    "docs/agent/runs/2026-07-01-p0-pr83-final-merge-readiness-verification/ACTIONS.md",
+    "docs/agent/runs/2026-07-01-p0-pr83-final-merge-readiness-verification/TESTS.md",
+    "docs/agent/runs/2026-07-01-p0-pr83-final-merge-readiness-verification/RESULT.md",
+    "docs/agent/runs/2026-07-01-p0-pr83-final-merge-readiness-verification/NEXT.md"
+  ],
+  "forbidden_write_scope": [
+    ".github/**",
+    "backend/**",
+    "frontend/**",
+    "infra/**",
+    "ops/**",
+    "scripts/**",
+    "tests/**",
+    "docs/agent/AGENT_RUNNER_CONTRACT.md",
+    "docs/superfactory/**",
+    "docs/agent/dispatcher/**"
+  ],
+  "required_outputs": [
+    "docs/agent/runs/2026-07-01-p0-pr83-final-merge-readiness-verification/PLAN.md",
+    "docs/agent/runs/2026-07-01-p0-pr83-final-merge-readiness-verification/ACTIONS.md",
+    "docs/agent/runs/2026-07-01-p0-pr83-final-merge-readiness-verification/TESTS.md",
+    "docs/agent/runs/2026-07-01-p0-pr83-final-merge-readiness-verification/RESULT.md",
+    "docs/agent/runs/2026-07-01-p0-pr83-final-merge-readiness-verification/NEXT.md"
+  ],
+  "canonical_run_artifact_dir": "docs/agent/runs/2026-07-01-p0-pr83-final-merge-readiness-verification",
+  "required_behavior": [
+    "Use a safe server worktree or temp clone; do not checkout a dirty worktree.",
+    "Fetch origin/main and PR #83 branch; verify branch head is 81daf44dc842dce40d8547275f47b051871a2690 or record if it moved.",
+    "Review the diff from origin/main to PR #83 head and classify changed files by subsystem.",
+    "Confirm GitHub Actions run 28504679530 is successful for the current head, or record GitHub-access limitation.",
+    "Run focused checks if the server dependency environment supports them: python3 -m py_compile ops/agent_host.py, test -f tests/test_agent_host_runner_contract.py, python3 -m pytest tests/test_agent_host_runner_contract.py -q.",
+    "If a dependency or environment check is unavailable, classify it as an environment limitation rather than claiming pass.",
+    "Produce exact PLAN/ACTIONS/TESTS/RESULT/NEXT artifacts under the canonical run directory.",
+    "RESULT.md must say whether PR #83 is merge-ready, merge-ready-with-owner-approval, blocked, or needs another repair.",
+    "NEXT.md must recommend the next Control Plane task: either post-merge Agent Host canary, another repair, or owner merge decision.",
+    "Do not commit, push, merge, approve, mark ready, restart services, mutate live runtime, or call Telegram APIs."
+  ],
+  "verification_commands": [
+    "git diff --check",
+    "test -f docs/agent/runs/2026-07-01-p0-pr83-final-merge-readiness-verification/PLAN.md",
+    "test -f docs/agent/runs/2026-07-01-p0-pr83-final-merge-readiness-verification/ACTIONS.md",
+    "test -f docs/agent/runs/2026-07-01-p0-pr83-final-merge-readiness-verification/TESTS.md",
+    "test -f docs/agent/runs/2026-07-01-p0-pr83-final-merge-readiness-verification/RESULT.md",
+    "test -f docs/agent/runs/2026-07-01-p0-pr83-final-merge-readiness-verification/NEXT.md",
+    "git status --short",
+    "git diff --name-only 81daf44dc842dce40d8547275f47b051871a2690..HEAD | grep -Ev '^docs/agent/runs/2026-07-01-p0-pr83-final-merge-readiness-verification/(PLAN.md|ACTIONS.md|TESTS.md|RESULT.md|NEXT.md)$' && exit 1 || true",
+    "rg --no-ignore -n '[0-9]{6,}:[A-Za-z0-9_-]{20,}|[A-Za-z0-9_]*(TOKEN|SECRET|PASSWORD|COOKIE|API_KEY|CHAT_ID)=[^ ]+' docs/agent/runs/2026-07-01-p0-pr83-final-merge-readiness-verification && exit 1 || true"
+  ],
+  "acceptance": [
+    "Exact five run artifacts exist under docs/agent/runs/2026-07-01-p0-pr83-final-merge-readiness-verification/.",
+    "RESULT.md includes PR URL, current head SHA, base SHA, GitHub Actions evidence, focused server check evidence or explicit environment limitations, changed-file scope summary, residual risks and merge-readiness classification.",
+    "NEXT.md contains the next recommended Control Plane task for post-merge canary, another repair, or owner merge decision.",
+    "No product code, tests, CI, superfactory docs, dispatcher files or runtime services are changed.",
+    "No git push, merge, approval, force push, main update or mark-ready action is attempted.",
+    "Remote result reports task_id, node, Russian agent display name, PR #83 URL, artifacts, tests, blockers and next action."
+  ],
+  "source": {
+    "kind": "mac_thin_client_dispatcher",
+    "owner": "Vladislav",
+    "created_at": "2026-07-01T08:55:00Z",
+    "local_ledger": "docs/agent/dispatcher/DISPATCH_LOG.md"
+  }
+}

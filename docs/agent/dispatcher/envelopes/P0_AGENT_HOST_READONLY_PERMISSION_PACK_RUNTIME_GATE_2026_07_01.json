@@ -1,0 +1,116 @@
+{
+  "task_id": "P0_AGENT_HOST_READONLY_PERMISSION_PACK_RUNTIME_GATE_2026_07_01",
+  "idempotency_key": "mac-dispatcher:P0_AGENT_HOST_READONLY_PERMISSION_PACK_RUNTIME_GATE_2026_07_01",
+  "kind": "owner_remote_task",
+  "priority": "P0",
+  "required_capability": "review",
+  "runner": "codex",
+  "agent_type": "agent_host_contract_reviewer",
+  "agent_display_name": "Олег — Agent Host Contract Reviewer",
+  "target_node": "primary-candidate",
+  "target_node_pool": "healthy_runner_contract_nodes",
+  "preferred_nodes": [
+    "primary-candidate",
+    "home",
+    "main"
+  ],
+  "allowed_nodes": [
+    "primary-candidate",
+    "home",
+    "main"
+  ],
+  "max_retries": 1,
+  "goal": "Verify and repair the Agent Host runtime contract so read-only/no-push task envelopes cannot be executed with full_autonomy/git_push/write_worktree permissions.",
+  "objective": "Run a server-side review of the deployed Agent Host generic runner and the current PR #83 runner-contract branch. The latest GoMesh read-only supervision task completed without changes, but result.json still showed permission_packs=['full_autonomy'] and permissions including git_push/write_worktree for a read_only envelope. Determine whether the deployed runtime is missing the PR #83 fix, whether PR #83 is sufficient, or whether an additional repair PR is required. Do not mutate production services. Do not deploy or restart Agent Host. Product code changes are allowed only on a dedicated repair branch if the review proves PR #83 does not already cover the runtime gap.",
+  "triggering_evidence": {
+    "source_task": "P0_GOMESH_READONLY_ROLLUP_AND_SUBAGENT_CONTROL_2026_07_01",
+    "source_result": "/var/lib/kolibri-agent/artifacts/P0_GOMESH_READONLY_ROLLUP_AND_SUBAGENT_CONTROL_2026_07_01/P0_GOMESH_READONLY_ROLLUP_AND_SUBAGENT_CONTROL_2026_07_01-attempt-1/result.json",
+    "observed_permission_packs": [
+      "full_autonomy"
+    ],
+    "observed_forbidden_permissions_for_read_only": [
+      "git_push",
+      "write_worktree"
+    ],
+    "source_changed_files": [],
+    "source_pushed": false
+  },
+  "constraints": {
+    "mac_implementation_forbidden": true,
+    "server_execution_required": true,
+    "use_clean_remote_worktree": true,
+    "do_not_modify_dirty_runtime_repo": true,
+    "push_to_main_forbidden": true,
+    "force_push_forbidden": true,
+    "destructive_git_commands_forbidden": true,
+    "git_reset_forbidden": true,
+    "git_clean_forbidden": true,
+    "deploy_forbidden": true,
+    "service_restart_forbidden": true,
+    "secrets_redaction_required": true,
+    "runtime_mutation_forbidden": true,
+    "review_first": true,
+    "implementation_allowed_only_if_gap_not_covered_by_pr83": true,
+    "owner_facing_agent_names_must_be_russian": true
+  },
+  "review_targets": {
+    "deployed_runtime_files": [
+      "/opt/kolibri-ai-platform/ops/agent_host.py",
+      "/opt/kolibri/repo/ops/agent_host.py"
+    ],
+    "primary_pr": 83,
+    "base_branch": "main",
+    "expected_contract": "read_only or git_push_forbidden envelopes must not receive full_autonomy, git_push, write_worktree, service_restart, deploy, or other write permissions in the final permission pack."
+  },
+  "read_first": [
+    "docs/agent/dispatcher/OWNER_CANONICAL_INSTRUCTIONS.md",
+    "docs/superfactory/Kolibri_All_Prompts.md",
+    "docs/agent/AGENT_RUNNER_CONTRACT.md",
+    "ops/agent_host.py",
+    "tests/test_agent_host_runner_contract.py",
+    "docs/agent/dispatcher/QUEUE.md",
+    "docs/agent/dispatcher/DISPATCH_LOG.md"
+  ],
+  "expected_actions": [
+    "Inspect the source result.json from the GoMesh read-only task and confirm the permission-pack violation without printing secrets.",
+    "Compare deployed Agent Host behavior with PR #83 head if accessible.",
+    "Run focused tests or static harnesses for permission sanitization.",
+    "If PR #83 already fixes the issue, report that the blocker is deployment/post-merge canary rather than new code.",
+    "If PR #83 does not fix it, create a dedicated repair branch and draft PR limited to Agent Host permission-pack enforcement and tests.",
+    "Do not restart or deploy Agent Host in this task.",
+    "Create exact canonical run artifacts with decision and next canary/deploy task."
+  ],
+  "write_scope": [
+    "ops/agent_host.py",
+    "tests/test_agent_host_runner_contract.py",
+    "docs/agent/AGENT_RUNNER_CONTRACT.md",
+    "docs/agent/runs/2026-07-01-p0-agent-host-readonly-permission-pack-runtime-gate/**"
+  ],
+  "required_outputs": [
+    "docs/agent/runs/2026-07-01-p0-agent-host-readonly-permission-pack-runtime-gate/PLAN.md",
+    "docs/agent/runs/2026-07-01-p0-agent-host-readonly-permission-pack-runtime-gate/ACTIONS.md",
+    "docs/agent/runs/2026-07-01-p0-agent-host-readonly-permission-pack-runtime-gate/TESTS.md",
+    "docs/agent/runs/2026-07-01-p0-agent-host-readonly-permission-pack-runtime-gate/RESULT.md",
+    "docs/agent/runs/2026-07-01-p0-agent-host-readonly-permission-pack-runtime-gate/NEXT.md"
+  ],
+  "verification_commands": [
+    "python3 -m py_compile ops/agent_host.py tests/test_agent_host_runner_contract.py",
+    "python3 -m pytest tests/test_agent_host_runner_contract.py -q",
+    "git diff --check",
+    "test -f docs/agent/runs/2026-07-01-p0-agent-host-readonly-permission-pack-runtime-gate/RESULT.md"
+  ],
+  "acceptance": [
+    "Remote execution happens on a server node, not Mac.",
+    "The GoMesh read-only permission-pack evidence is explicitly classified.",
+    "The decision is explicit: already_fixed_by_pr83_needs_deploy_canary, repair_pr_created, blocked, or false_positive.",
+    "No runtime deploy/restart/service mutation happens.",
+    "If code changes are made, they are limited to Agent Host runner contract scope and tests.",
+    "Final result includes branch/PR if created, tests, blockers and next exact runtime canary/deploy task."
+  ],
+  "source": {
+    "kind": "mac_thin_client_dispatcher",
+    "owner": "Vladislav",
+    "created_at": "2026-07-01T19:52:00+03:00",
+    "local_ledger": "docs/agent/dispatcher/DISPATCH_LOG.md"
+  }
+}

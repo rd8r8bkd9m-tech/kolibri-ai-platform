@@ -7,6 +7,8 @@ from typing import Any
 import httpx
 
 CONTROL_PLANE_URL = os.getenv("KOLIBRI_FACTORY_CONTROL_URL", "http://control.kolibri.internal:9101")
+NODE_DEGRADED_AFTER = int(os.getenv("FACTORY_NODE_DEGRADED_AFTER", "30"))
+NODE_STALE_AFTER = int(os.getenv("FACTORY_NODE_STALE_AFTER", "90"))
 
 
 def _control_plane_v1_url(path: str) -> str:
@@ -47,6 +49,34 @@ def _gb_from_bytes(value: Any) -> float:
     return round(float(value) / 1024 / 1024 / 1024, 1)
 
 
+def _parse_iso_ts(value: Any) -> float | None:
+    if not value:
+        return None
+    try:
+        text = str(value)
+        if text.endswith("Z"):
+            text = f"{text[:-1]}+00:00"
+        parsed = datetime.fromisoformat(text)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.timestamp()
+    except (TypeError, ValueError):
+        return None
+
+
+def _node_freshness(node: dict[str, Any], generated_at: str | None = None) -> tuple[str, int | None]:
+    current = _parse_iso_ts(generated_at) or datetime.now(timezone.utc).timestamp()
+    heartbeat = _parse_iso_ts(node.get("heartbeat_at"))
+    if heartbeat is None:
+        return "stale", None
+    age = max(0, int(current - heartbeat))
+    if age > NODE_STALE_AFTER:
+        return "stale", age
+    if age > NODE_DEGRADED_AFTER:
+        return "degraded", age
+    return "fresh", age
+
+
 def _role_from_capabilities(capabilities: list[str]) -> str:
     caps = set(capabilities or [])
     if "primary" in caps:
@@ -77,19 +107,29 @@ def _human_name(node: dict[str, Any]) -> str:
     return names.get(node_id, node.get("hostname") or node_id)
 
 
-def _node_card(node: dict[str, Any]) -> dict[str, Any]:
+def _node_card(node: dict[str, Any], generated_at: str | None = None) -> dict[str, Any]:
     ram = node.get("ram") or {}
     disk = node.get("disk") or {}
     capabilities = node.get("capabilities") or []
     total_kb = _parse_mem_kb(ram.get("MemTotal") if isinstance(ram, dict) else None)
     available_kb = _parse_mem_kb(ram.get("MemAvailable") if isinstance(ram, dict) else None)
     node_id = str(node.get("node_id") or node.get("id") or "unknown")
+    freshness = node.get("freshness")
+    heartbeat_age = node.get("heartbeat_age_seconds")
+    if freshness not in {"fresh", "degraded", "stale"}:
+        freshness, heartbeat_age = _node_freshness(node, generated_at)
+    reported_health = node.get("reported_health") or node.get("health") or "unknown"
+    status = reported_health if freshness == "fresh" else freshness
     return {
         "id": node_id,
         "node_id": node_id,
         "name": _human_name(node),
         "hostname": node.get("hostname") or node_id,
-        "status": node.get("health") or "unknown",
+        "status": status,
+        "health": status,
+        "reported_health": reported_health,
+        "freshness": freshness,
+        "heartbeat_age_seconds": heartbeat_age,
         "role": _role_from_capabilities(capabilities),
         "agent_id": node.get("agent_id"),
         "pid": node.get("pid"),
@@ -120,9 +160,13 @@ def _extract_tasks(tasks_payload: Any) -> list[dict[str, Any]]:
 
 def build_factory_status(nodes_payload: Any, tasks_payload: Any | None = None, health_payload: dict[str, Any] | None = None) -> dict[str, Any]:
     raw_nodes = nodes_payload.get("nodes", []) if isinstance(nodes_payload, dict) else nodes_payload if isinstance(nodes_payload, list) else []
-    node_list = [_node_card(node) for node in raw_nodes if isinstance(node, dict)]
+    generated_at = (health_payload or {}).get("time") or datetime.now(timezone.utc).isoformat()
+    node_list = [_node_card(node, generated_at) for node in raw_nodes if isinstance(node, dict)]
     nodes = {node["node_id"]: node for node in node_list}
     online_nodes = [node for node in node_list if node.get("status") == "online"]
+    fresh_nodes = [node for node in node_list if node.get("freshness") == "fresh"]
+    degraded_nodes = [node for node in node_list if node.get("freshness") == "degraded"]
+    stale_nodes = [node for node in node_list if node.get("freshness") == "stale"]
     total_ram_kb = sum(_parse_mem_kb((node.get("ram") or {}).get("MemTotal")) for node in raw_nodes if isinstance(node, dict))
     available_ram_kb = sum(_parse_mem_kb((node.get("ram") or {}).get("MemAvailable")) for node in raw_nodes if isinstance(node, dict))
     cpu_values = [node.get("cpu") for node in raw_nodes if isinstance(node, dict) and isinstance(node.get("cpu"), (int, float))]
@@ -134,7 +178,7 @@ def build_factory_status(nodes_payload: Any, tasks_payload: Any | None = None, h
     return {
         "status": "online" if online_nodes else "degraded",
         "source": "control-plane",
-        "generated_at": (health_payload or {}).get("time") or datetime.now(timezone.utc).isoformat(),
+        "generated_at": generated_at,
         "control_plane": {
             "url": CONTROL_PLANE_URL,
             "status": (health_payload or {}).get("status", "unknown"),
@@ -143,6 +187,16 @@ def build_factory_status(nodes_payload: Any, tasks_payload: Any | None = None, h
         },
         "total_nodes": len(node_list),
         "online_nodes": len(online_nodes),
+        "fresh_nodes": len(fresh_nodes),
+        "degraded_nodes": len(degraded_nodes),
+        "stale_nodes": len(stale_nodes),
+        "node_freshness": {
+            "fresh": len(fresh_nodes),
+            "degraded": len(degraded_nodes),
+            "stale": len(stale_nodes),
+            "online": len(online_nodes),
+            "total": len(node_list),
+        },
         "free_ram_gb": _gb_from_kb(available_ram_kb),
         "total_ram_gb": _gb_from_kb(total_ram_kb),
         "avg_cpu_percent": round(sum(cpu_values) / len(cpu_values), 1) if cpu_values else 0,

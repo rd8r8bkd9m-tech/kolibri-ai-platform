@@ -1,0 +1,160 @@
+{
+  "task_id": "P0_GITHUB_RELEASE_STEWARD_PR_QUEUE_DRAIN_2026_07_01",
+  "idempotency_key": "mac-dispatcher:P0_GITHUB_RELEASE_STEWARD_PR_QUEUE_DRAIN_2026_07_01",
+  "kind": "owner_remote_task",
+  "priority": "P0",
+  "required_capability": "review",
+  "runner": "codex",
+  "agent_type": "github_release_steward",
+  "agent_display_name": "Сергей — GitHub Release Steward",
+  "target_node": "primary-candidate",
+  "target_node_pool": "healthy_review_nodes",
+  "preferred_nodes": [
+    "primary-candidate",
+    "home",
+    "main"
+  ],
+  "allowed_nodes": [
+    "primary-candidate",
+    "home",
+    "main"
+  ],
+  "avoid_nodes_until_repaired": [
+    "qjns",
+    "uiap"
+  ],
+  "max_retries": 1,
+  "goal": "Stop the Kolibri PR queue from piling up by running a remote GitHub release-steward pass over all open PRs and producing exact merge, repair, split, and blocked next actions.",
+  "objective": "On a server/control node, inspect the open GitHub pull request queue after PR #95 was merged to main. Classify every open PR by release action, identify which PRs can be safely owner-gated next, which require repair, which must be split, and which are blocked. Do not implement product code, do not merge, do not mark ready, do not approve, and do not push to main.",
+  "context": {
+    "owner": "Vladislav",
+    "repository": "rd8r8bkd9m-tech/kolibri-ai-platform",
+    "main_recent_merge": {
+      "pr": 95,
+      "merge_commit_sha": "a0d34d6d97a1a2af90463a1205649a24b4a178d7",
+      "result": "README on main refreshed; post-merge CI succeeded"
+    },
+    "known_open_pr_count_before_task": 37,
+    "current_p0_order": [
+      "honest runner and Agent Host permission contract",
+      "GitHub discipline and release queue",
+      "API-first Fabric",
+      "fleet health and always-online guardian",
+      "Telegram/factory command center",
+      "MIMO/local model/skills mesh"
+    ]
+  },
+  "constraints": {
+    "mac_implementation_forbidden": true,
+    "server_execution_required": true,
+    "review_only": true,
+    "product_code_modification_forbidden": true,
+    "use_clean_remote_worktree": true,
+    "do_not_modify_dirty_runtime_repo": true,
+    "push_to_main_forbidden": true,
+    "merge_forbidden": true,
+    "mark_ready_forbidden": true,
+    "approve_forbidden": true,
+    "close_pr_forbidden": true,
+    "force_push_forbidden": true,
+    "destructive_git_commands_forbidden": true,
+    "git_reset_forbidden": true,
+    "git_clean_forbidden": true,
+    "secrets_redaction_required": true,
+    "runtime_mutation_forbidden": true,
+    "no_fake_green_status": true
+  },
+  "read_first": [
+    "docs/agent/dispatcher/OWNER_CANONICAL_INSTRUCTIONS.md",
+    "docs/superfactory/Kolibri_All_Prompts.md",
+    "docs/agent/dispatcher/QUEUE.md",
+    "docs/agent/dispatcher/DISPATCH_LOG.md",
+    "README.md"
+  ],
+  "github_scope": {
+    "inspect_all_open_prs": true,
+    "include_priority_prs": [
+      83,
+      85,
+      88,
+      89,
+      90,
+      91,
+      92,
+      93,
+      94,
+      96
+    ],
+    "include_historical_large_prs": [
+      46,
+      61,
+      65,
+      74,
+      81,
+      84,
+      86,
+      87
+    ],
+    "ci_required_for_merge_ready": true,
+    "main_freshness_required": true
+  },
+  "classification_rules": [
+    "Classify each PR as merge_ready_after_owner_review, repair_required, split_required, blocked, stale_superseded, docs_only_candidate, release_artifact_only_candidate, or needs_deeper_review.",
+    "Treat runner/Agent Host PRs as higher priority than broad feature PRs.",
+    "Treat PR #46 as too large unless proven split-safe.",
+    "Do not classify a draft PR as merge-ready unless the exact owner gate and CI evidence are documented.",
+    "Do not use broad full-suite failure as a blocker unless the failure is relevant to the PR scope.",
+    "Record exact missing tests or inaccessible GitHub/CI/API reason instead of vague unavailable language.",
+    "Recommend the next 5 concrete remote tasks in execution order."
+  ],
+  "required_outputs": [
+    "docs/agent/runs/2026-07-01-p0-github-release-steward-pr-queue-drain/PLAN.md",
+    "docs/agent/runs/2026-07-01-p0-github-release-steward-pr-queue-drain/ACTIONS.md",
+    "docs/agent/runs/2026-07-01-p0-github-release-steward-pr-queue-drain/TESTS.md",
+    "docs/agent/runs/2026-07-01-p0-github-release-steward-pr-queue-drain/RESULT.md",
+    "docs/agent/runs/2026-07-01-p0-github-release-steward-pr-queue-drain/NEXT.md",
+    "docs/agent/runs/2026-07-01-p0-github-release-steward-pr-queue-drain/PR_QUEUE_MATRIX.md",
+    "docs/agent/runs/2026-07-01-p0-github-release-steward-pr-queue-drain/MERGE_CANDIDATES.md",
+    "docs/agent/runs/2026-07-01-p0-github-release-steward-pr-queue-drain/REPAIR_QUEUE.md",
+    "docs/agent/runs/2026-07-01-p0-github-release-steward-pr-queue-drain/SPLIT_REQUIRED.md",
+    "docs/agent/runs/2026-07-01-p0-github-release-steward-pr-queue-drain/MAIN_FRESHNESS_POLICY.md"
+  ],
+  "matrix_columns": [
+    "pr_number",
+    "title",
+    "base",
+    "head",
+    "draft",
+    "changed_files_count",
+    "subsystems",
+    "ci_state",
+    "mergeability",
+    "release_action",
+    "risk",
+    "blockers",
+    "next_exact_task"
+  ],
+  "verification_commands": [
+    "python3 -m json.tool docs/agent/dispatcher/envelopes/P0_GITHUB_RELEASE_STEWARD_PR_QUEUE_DRAIN_2026_07_01.json >/dev/null",
+    "git diff --check",
+    "test -f docs/agent/runs/2026-07-01-p0-github-release-steward-pr-queue-drain/RESULT.md",
+    "test -f docs/agent/runs/2026-07-01-p0-github-release-steward-pr-queue-drain/PR_QUEUE_MATRIX.md",
+    "test -f docs/agent/runs/2026-07-01-p0-github-release-steward-pr-queue-drain/NEXT.md"
+  ],
+  "acceptance": [
+    "Remote execution happens on a server/control node.",
+    "All open PRs are inspected or exact GitHub access blockers are recorded.",
+    "The matrix identifies merge, repair, split, blocked, stale, and deeper-review groups.",
+    "The report gives the next 5 exact remote tasks in order.",
+    "No product code is modified.",
+    "No PR is merged, approved, closed, marked ready, or pushed to main by this task.",
+    "No secrets are printed.",
+    "The final result explains why main became stale before PR #95 and how release stewardship prevents recurrence."
+  ],
+  "source": {
+    "kind": "mac_thin_client_dispatcher",
+    "owner": "Vladislav",
+    "created_at": "2026-07-01T19:12:00Z",
+    "local_ledger": "docs/agent/dispatcher/DISPATCH_LOG.md"
+  }
+}

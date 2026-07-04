@@ -1,0 +1,199 @@
+{
+  "task_id": "P0_POST_MERGE_REMOTE_CANARY_EXECUTION_2026_07_02",
+  "idempotency_key": "P0_POST_MERGE_REMOTE_CANARY_EXECUTION_2026_07_02",
+  "kind": "owner_remote_task",
+  "priority": "P0",
+  "required_capability": "generic_implementation",
+  "runner": "codex",
+  "agent_type": "post_merge_remote_canary",
+  "agent_display_name": "Сергей - Post-Merge Canary Steward",
+  "target_node": "primary-candidate",
+  "target_node_pool": "healthy_agent_host_nodes",
+  "preferred_nodes": [
+    "primary-candidate",
+    "home",
+    "mesh-agent-01"
+  ],
+  "allowed_nodes": [
+    "primary-candidate",
+    "home",
+    "mesh-agent-01"
+  ],
+  "avoid_nodes": [
+    "main",
+    "qjns",
+    "uiap",
+    "new"
+  ],
+  "branch": "agent/P0_POST_MERGE_REMOTE_CANARY_EXECUTION_2026_07_02/canary",
+  "base_branch": "main",
+  "base_ref": "origin/main",
+  "max_retries": 1,
+  "create_review_on_complete": false,
+  "goal": "Run the first post-merge remote canary pass after the July 1 release train landed in main.",
+  "objective": "On a server/control node, verify current main at c97a0f50, execute/read-only-classify post-merge canaries for Agent Host runner contract, MIMO runner, Control Plane freshness, API-first Fabric endpoints, Telegram receiver safety, and the remaining GitHub PR queue. Produce complete exact artifacts. Do not modify product code, merge PRs, mark PRs ready, close PRs, force-push, or push to main.",
+  "context": {
+    "owner": "Vladislav",
+    "repository": "rd8r8bkd9m-tech/kolibri-ai-platform",
+    "current_main": "c97a0f50e14e3c2c20babfd13fbeb045400f66f2",
+    "recently_merged_prs": [
+      83,
+      85,
+      89,
+      91,
+      92,
+      95,
+      96,
+      97,
+      98,
+      99
+    ],
+    "open_pr_count_at_dispatch": 30,
+    "draft_pr_count_at_dispatch": 17,
+    "previous_task": "P0_POST_MERGE_CANARY_AND_PR_QUEUE_DRAIN_2026_07_01",
+    "previous_task_result": "failed_useful_missing_exact_artifacts",
+    "previous_task_missing": [
+      "PLAN.md",
+      "ACTIONS.md",
+      "POST_MERGE_CANARY_MATRIX.md",
+      "OPEN_PR_QUEUE_MATRIX.md",
+      "NEXT_RELEASE_TRAIN.md"
+    ],
+    "known_runtime_risks": [
+      "Control Plane granted full_autonomy/git_push to a review/no-merge task after PR #96 landed, so deployed runtime may still be stale or permission sanitization incomplete.",
+      "mesh-agent-01 MIMO runner reported Network request failed in the previous task.",
+      "main Codex runner previously failed with token_expired / refresh token already used.",
+      "qjns GitHub credential and MIMO provider access remain blocked."
+    ]
+  },
+  "constraints": {
+    "mac_thin_client_only": true,
+    "server_execution_required": true,
+    "runtime_canary": true,
+    "review_only": true,
+    "product_code_modification_forbidden": true,
+    "test_code_modification_forbidden": true,
+    "destructive_git_commands_forbidden": true,
+    "git_reset_forbidden": true,
+    "git_clean_forbidden": true,
+    "force_push_forbidden": true,
+    "push_to_main_forbidden": true,
+    "merge_forbidden": true,
+    "mark_ready_for_review_forbidden": true,
+    "approval_forbidden": true,
+    "close_pr_forbidden": true,
+    "service_restart_forbidden_in_this_task": true,
+    "live_telegram_mutation_forbidden": true,
+    "secrets_redaction_required": true,
+    "do_not_print_env": true,
+    "do_not_print_keys_tokens_cookies_or_credentials": true,
+    "owner_facing_agent_names_must_be_russian": true,
+    "exact_run_artifacts_required": true,
+    "use_clean_remote_worktree": true,
+    "do_not_modify_dirty_runtime_repo": true
+  },
+  "write_scope": [
+    "docs/agent/runs/2026-07-02-p0-post-merge-remote-canary-execution/**"
+  ],
+  "forbidden_write_scope": [
+    ".github/**",
+    "backend/**",
+    "frontend/**",
+    "infra/**",
+    "ops/**",
+    "scripts/**",
+    "tests/**",
+    "docs/superfactory/**"
+  ],
+  "required_outputs": [
+    "docs/agent/runs/2026-07-02-p0-post-merge-remote-canary-execution/PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-post-merge-remote-canary-execution/ACTIONS.md",
+    "docs/agent/runs/2026-07-02-p0-post-merge-remote-canary-execution/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-post-merge-remote-canary-execution/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-post-merge-remote-canary-execution/NEXT.md",
+    "docs/agent/runs/2026-07-02-p0-post-merge-remote-canary-execution/POST_MERGE_CANARY_MATRIX.md",
+    "docs/agent/runs/2026-07-02-p0-post-merge-remote-canary-execution/OPEN_PR_QUEUE_MATRIX.md",
+    "docs/agent/runs/2026-07-02-p0-post-merge-remote-canary-execution/RUNTIME_BLOCKERS.md",
+    "docs/agent/runs/2026-07-02-p0-post-merge-remote-canary-execution/NEXT_REMOTE_TASKS.md"
+  ],
+  "canary_scope": [
+    {
+      "id": "agent_host_runner_contract",
+      "checks": [
+        "Verify deployed Control Plane/Agent Host runtime is based on main containing PR #83 and PR #96 or classify stale_deploy.",
+        "Submit or simulate a bounded read-only/no-merge owner_remote_task and record effective permission_pack/granted_permissions.",
+        "Prove review-only tasks do not receive full_autonomy/git_push, or classify the exact runtime blocker.",
+        "Prove missing exact artifact cannot complete, and result_reference exists for failed attempts."
+      ]
+    },
+    {
+      "id": "mimo_runner",
+      "checks": [
+        "Run a bounded direct MIMO success probe if provider/network is available.",
+        "If unavailable, classify network/provider/auth/policy blocker without printing secrets.",
+        "Do not fan out to qjns until credential/provider blockers are resolved."
+      ]
+    },
+    {
+      "id": "control_plane_freshness",
+      "checks": [
+        "Read Control Plane health and node/fleet status.",
+        "Verify stale heartbeats are not counted as fully online after PR #97, or classify stale_deploy/runtime blocker.",
+        "Record total nodes, online/fresh/stale counts if available."
+      ]
+    },
+    {
+      "id": "fabric_api",
+      "checks": [
+        "Verify API-first Fabric routes introduced by PR #85 are present in current main/runtime or classify deploy gap.",
+        "Check read-only health/fleet/model/task endpoints where safely reachable.",
+        "Do not execute privileged admin mutations."
+      ]
+    },
+    {
+      "id": "telegram_runtime",
+      "checks": [
+        "Verify PR #89 is in main.",
+        "Run read-only Telegram receiver/single-owner safety checks only; do not delete webhook, send live spam, rotate tokens, or mutate Bot API configuration.",
+        "Classify whether a live cutover canary task is required."
+      ]
+    },
+    {
+      "id": "github_release_queue",
+      "checks": [
+        "Recheck open PR count and draft count if GitHub access is available.",
+        "Classify remaining open PRs as merge-ready, repair-needed, split-required, stale, or blocked.",
+        "Do not mark ready, merge, close, approve, or force-push any PR."
+      ]
+    }
+  ],
+  "verification_commands": [
+    "git diff --check",
+    "test -f docs/agent/runs/2026-07-02-p0-post-merge-remote-canary-execution/PLAN.md",
+    "test -f docs/agent/runs/2026-07-02-p0-post-merge-remote-canary-execution/ACTIONS.md",
+    "test -f docs/agent/runs/2026-07-02-p0-post-merge-remote-canary-execution/TESTS.md",
+    "test -f docs/agent/runs/2026-07-02-p0-post-merge-remote-canary-execution/RESULT.md",
+    "test -f docs/agent/runs/2026-07-02-p0-post-merge-remote-canary-execution/NEXT.md",
+    "test -f docs/agent/runs/2026-07-02-p0-post-merge-remote-canary-execution/POST_MERGE_CANARY_MATRIX.md",
+    "test -f docs/agent/runs/2026-07-02-p0-post-merge-remote-canary-execution/OPEN_PR_QUEUE_MATRIX.md",
+    "test -f docs/agent/runs/2026-07-02-p0-post-merge-remote-canary-execution/RUNTIME_BLOCKERS.md",
+    "test -f docs/agent/runs/2026-07-02-p0-post-merge-remote-canary-execution/NEXT_REMOTE_TASKS.md",
+    "rg --no-ignore -n '[0-9]{6,}:[A-Za-z0-9_-]{20,}|[A-Za-z0-9_]*(TOKEN|SECRET|PASSWORD|COOKIE|API_KEY|CHAT_ID)=[^ ]+' docs/agent/runs/2026-07-02-p0-post-merge-remote-canary-execution && exit 1 || true"
+  ],
+  "acceptance": [
+    "Remote execution happens on a server/control node, not local Mac implementation.",
+    "Current main SHA is verified before canary classification.",
+    "All nine required run artifacts exist exactly.",
+    "Post-merge canary matrix covers Agent Host, MIMO, Control Plane freshness, Fabric API, Telegram runtime, and GitHub PR queue.",
+    "Runtime blockers are classified with exact evidence and no fake completed status.",
+    "No product code, tests, CI, services, Telegram settings, secrets, or main branch are modified.",
+    "No PR is merged, marked ready, approved, closed, force-pushed, or pushed to main.",
+    "Final result includes task_id, node, Russian agent display name, artifacts, canary checks, blockers, and next exact task."
+  ],
+  "source": {
+    "kind": "mac_thin_client_dispatcher",
+    "owner": "Vladislav",
+    "created_at": "2026-07-02T00:00:00+03:00",
+    "local_ledger": "docs/agent/dispatcher/DISPATCH_LOG.md"
+  }
+}

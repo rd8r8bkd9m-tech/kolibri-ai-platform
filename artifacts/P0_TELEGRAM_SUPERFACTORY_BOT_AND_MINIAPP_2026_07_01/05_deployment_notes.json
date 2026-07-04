@@ -1,0 +1,16 @@
+{
+  "artifact": "deployment_notes",
+  "branch_policy": "server branch only; do not push main; do not force push",
+  "live_restart": [
+    "sudo systemctl daemon-reload",
+    "sudo systemctl restart kolibri-factory-control.service",
+    "sudo systemctl restart kolibri-agent-host.service",
+    "sudo systemctl restart kolibri-telegram-gateway.service"
+  ],
+  "rollback": [
+    "sudo systemctl stop kolibri-telegram-gateway.service",
+    "check out previous server release branch",
+    "sudo systemctl restart kolibri-factory-control.service kolibri-telegram-gateway.service"
+  ],
+  "do_not": ["start a Mac-local poller", "run a second getUpdates receiver", "print secrets"]
+}
