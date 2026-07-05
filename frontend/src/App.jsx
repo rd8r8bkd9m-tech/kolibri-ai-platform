@@ -176,7 +176,7 @@ export default function App() {
   }, [theme])
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/providers`).then(r => r.json()).then(setProviders).catch(() => {})
+    fetch(`${API_BASE}/api/providers`).then(r => r.json()).then(d => setProviders(d.items || d)).catch(() => {})
     connectWS()
     fetchCluster()
     const ci = setInterval(fetchCluster, 15000)
