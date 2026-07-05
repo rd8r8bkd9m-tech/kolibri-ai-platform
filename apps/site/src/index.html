@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Kolibri Control Station</title>
+    <meta
+      name="description"
+      content="Kolibri Control Station: Rust-first self-hosted AI Factory OS для VPS-кластера, агентов, задач, sandbox, событий и релизов."
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <strong>Kolibri</strong>
+      <nav aria-label="Основные разделы">
+        <a href="#architecture">Архитектура</a>
+        <a href="#quickstart">Запуск</a>
+        <a href="#security">Безопасность</a>
+        <a href="#release">Release</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">kolibriai.ru</p>
+          <h1>Kolibri Control Station</h1>
+          <p>
+            Rust-first self-hosted AI Factory OS для управления VPS-кластером,
+            агентами, задачами разработки, событиями, sandbox-исполнением,
+            артефактами и аудитом.
+          </p>
+          <div class="actions">
+            <a class="primary" href="#quickstart">Быстрый старт</a>
+            <a href="#release">Foundation v0.1.0</a>
+          </div>
+        </div>
+        <img
+          class="console-shot"
+          src="./kolibri-console.svg"
+          alt="Схема Control Station: Tauri UI, locald, control plane, NATS, агенты и sandbox"
+        />
+      </section>
+
+      <section id="architecture" class="band">
+        <h2>Архитектура</h2>
+        <div class="grid">
+          <article>
+            <h3>Tauri Station</h3>
+            <p>UI не исполняет shell напрямую и общается с локальным daemon.</p>
+          </article>
+          <article>
+            <h3>Rust Control Plane</h3>
+            <p>Axum/Tokio foundation для nodes, agents, tasks, events и audit.</p>
+          </article>
+          <article>
+            <h3>NATS JetStream</h3>
+            <p>Единая event-шина для task.created, task.assigned и audit flow.</p>
+          </article>
+          <article>
+            <h3>Sandbox + Policy</h3>
+            <p>Default deny, allowlist-команды, redaction секретов и PTY-gate.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="quickstart" class="split">
+        <div>
+          <h2>Быстрый старт</h2>
+          <p>Foundation собирается локально одной цепочкой проверок.</p>
+        </div>
+        <pre><code>make dev-up
+make control-plane
+make scheduler
+make locald
+make agent
+make station
+make test</code></pre>
+      </section>
+
+      <section id="security" class="band">
+        <h2>Security baseline</h2>
+        <ul>
+          <li>Секреты не логируются и не попадают в события.</li>
+          <li>Опасные действия проходят через policy engine.</li>
+          <li>Команды исполняются только через sandbox abstraction.</li>
+          <li>Реальный PTY shell в v1 отключён или требует approval.</li>
+        </ul>
+      </section>
+
+      <section id="release" class="split">
+        <div>
+          <h2>Release v0.1.0-foundation</h2>
+          <p>
+            В релиз входят Rust workspace, Tauri/React station, locald,
+            control-plane skeleton, agent/scheduler foundation, infra, docs,
+            CI gates и release manifest.
+          </p>
+        </div>
+        <a class="primary" href="https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform">GitHub</a>
+      </section>
+    </main>
+  </body>
+</html>

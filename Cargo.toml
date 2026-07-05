@@ -1,0 +1,19 @@
+[workspace]
+members = [
+  "crates/kolibri-core",
+  "crates/kolibri-locald",
+  "crates/kolibri-events",
+  "crates/kolibri-policy",
+  "crates/kolibri-proto",
+  "crates/kolibri-secrets",
+  "crates/kolibri-sandbox",
+  "crates/kolibri-telemetry",
+  "crates/kolibri-pty",
+  "services/locald",
+  "services/control-plane",
+  "services/agent",
+  "services/scheduler",
+  "services/artifact-service",
+  "services/model-gateway"
+]
+resolver = "2"

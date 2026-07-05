@@ -1,0 +1,124 @@
+{
+  "name": "kolibri-control-station-foundation",
+  "version": "0.1.0-foundation",
+  "task_ids": [
+    "kolibri-foundation-release-v1",
+    "kolibri-full-release-kolibriai-ru-regru-browser"
+  ],
+  "objective": "Rust-first self-hosted AI Factory OS foundation for Kolibri Control Station",
+  "branch": "p0/free-low-cost-model-provider-registry-20260704",
+  "commit_sha_short_at_manifest_time": "255bac097",
+  "status": "foundation_verified_with_external_release_blockers",
+  "generated_at_utc": "2026-07-05T10:16:40Z",
+  "release_bundle_sha256": "127fb047618a085d8cd000efe5739a85c75d4b195bbedacd81866bcd33e77286",
+  "release_bundle_scope": "content hash over tracked release artifacts excluding release/manifest.json, release/final-report.md and release/artifact-manifest.json to avoid self-referential hashing",
+  "scope": [
+    "Rust workspace with core, events, policy, proto, secrets, sandbox, telemetry, PTY and locald crates",
+    "Rust service skeletons for locald, control-plane, agent, scheduler, artifact-service and model-gateway",
+    "Tauri 2 plus React/TypeScript Control Station shell",
+    "Static public site and GitHub Pages workflow for kolibriai.ru",
+    "Docker Compose/NATS/PostgreSQL dev infra skeleton",
+    "systemd and Ubuntu Frame deployment documentation",
+    "release, architecture, security, event, MCP and deployment documentation",
+    "factory thread bridge to Home and visible MimoCode server proxy threads"
+  ],
+  "artifacts": [
+    "README.md",
+    "Cargo.toml",
+    "Cargo.lock",
+    "package.json",
+    "pnpm-workspace.yaml",
+    "Makefile",
+    ".env.example",
+    "rust-toolchain.toml",
+    ".github/workflows/ci.yml",
+    ".github/workflows/pages.yml",
+    "CNAME",
+    "apps/station",
+    "apps/site",
+    "crates/kolibri-core",
+    "crates/kolibri-events",
+    "crates/kolibri-policy",
+    "crates/kolibri-proto",
+    "crates/kolibri-secrets",
+    "crates/kolibri-sandbox",
+    "crates/kolibri-telemetry",
+    "crates/kolibri-pty",
+    "crates/kolibri-locald",
+    "services/locald",
+    "services/control-plane",
+    "services/agent",
+    "services/scheduler",
+    "services/artifact-service",
+    "services/model-gateway",
+    "proto",
+    "migrations",
+    "infra",
+    "docs",
+    "release",
+    "release/artifact-manifest.json"
+  ],
+  "verified_commands": [
+    {
+      "command": "cargo fmt --check",
+      "result": "passed"
+    },
+    {
+      "command": "cargo clippy --workspace -- -D warnings",
+      "result": "passed"
+    },
+    {
+      "command": "cargo test --workspace",
+      "result": "passed"
+    },
+    {
+      "command": "pnpm build && pnpm typecheck && pnpm test",
+      "result": "passed"
+    },
+    {
+      "command": "make test",
+      "result": "passed"
+    }
+  ],
+  "e2e_evidence": [
+    "crates/kolibri-locald/tests/e2e_flow.rs verifies health, agent enroll, heartbeat, task submit, task lease, task complete, artifact listing and terminal denial without approval/task binding",
+    "services/artifact-service/src/main.rs hashes payloads with SHA-256 and rejects artifacts without task_run_id"
+  ],
+  "artifact_manifest": {
+    "path": "release/artifact-manifest.json",
+    "algorithm": "sha256",
+    "generated_at_utc": "2026-07-05T10:16:40Z"
+  },
+  "factory_threads_attached": [
+    "Home",
+    "Paris",
+    "agent-04",
+    "agent-05",
+    "agent-06",
+    "agent-07",
+    "agent-08",
+    "agent-09",
+    "agent-10",
+    "Highload",
+    "Reserve242",
+    "9fts"
+  ],
+  "factory_attach_acknowledged": [
+    "Paris",
+    "agent-06",
+    "9fts delegated container"
+  ],
+  "known_external_blockers": [
+    "Docker daemon is not available in this local environment, so make dev-up/NATS/PostgreSQL runtime was not verified here",
+    "REG.RU DNS changes require an existing browser session and must stop with USER_ACTION_REQUIRED if login, password, SMS, 2FA or CAPTCHA appears",
+    "Production VPS IP for api.kolibriai.ru is not confirmed in this worktree, so api DNS must remain pending",
+    "GitHub Pages publication and live DNS verification require pushing this branch and enabling Pages in the GitHub repository"
+  ],
+  "security_notes": [
+    "No API keys or tokens are included in the release manifest",
+    "Secrets are represented by references and redacted values",
+    "UI does not execute shell directly",
+    "Terminal is disabled/gated without task-bound approval",
+    "Policy and sandbox abstractions default to denial for unsafe commands"
+  ]
+}

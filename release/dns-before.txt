@@ -1,0 +1,1 @@
+DNS backup has not been captured yet. REG.RU requires an existing browser session and manual owner presence if login, 2FA, SMS or CAPTCHA appears.

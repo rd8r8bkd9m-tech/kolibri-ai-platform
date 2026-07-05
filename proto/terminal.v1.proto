@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package kolibri.terminal.v1;
+
+service TerminalService {
+  rpc OpenPty (OpenPtyRequest) returns (OpenPtyResponse);
+  rpc StreamPty (StreamPtyRequest) returns (stream PtyFrame);
+  rpc ClosePty (ClosePtyRequest) returns (ClosePtyResponse);
+}
+
+message OpenPtyRequest {
+  string task_id = 1;
+  string actor = 2;
+}
+
+message OpenPtyResponse {
+  string pty_session_id = 1;
+  bool accepted = 2;
+  string reason = 3;
+}
+
+message StreamPtyRequest {
+  string pty_session_id = 1;
+}
+
+message PtyFrame {
+  string data = 1;
+}
+
+message ClosePtyRequest {
+  string pty_session_id = 1;
+}
+
+message ClosePtyResponse {
+  bool closed = 1;
+}

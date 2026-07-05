@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package kolibri.node.v1;
+
+service NodeService {
+  rpc RegisterNode (RegisterNodeRequest) returns (RegisterNodeResponse);
+  rpc GetNode (GetNodeRequest) returns (GetNodeResponse);
+  rpc ListNodes (google.protobuf.Empty) returns (ListNodesResponse);
+}
+
+message RegisterNodeRequest {
+  string hostname = 1;
+  string region = 2;
+  string ip = 3;
+}
+
+message RegisterNodeResponse {
+  string node_id = 1;
+  bool accepted = 2;
+}
+
+message GetNodeRequest {
+  string node_id = 1;
+}
+
+message GetNodeResponse {
+  string node_id = 1;
+  string hostname = 2;
+  string status = 3;
+}
+
+message ListNodesResponse {
+  repeated GetNodeResponse nodes = 1;
+}
+
+import "google/protobuf/empty.proto";

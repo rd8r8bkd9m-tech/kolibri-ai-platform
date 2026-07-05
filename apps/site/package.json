@@ -1,0 +1,12 @@
+{
+  "name": "@kolibri/site",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "lint": "node scripts/validate.mjs",
+    "typecheck": "node scripts/validate.mjs",
+    "test": "node scripts/validate.mjs"
+  }
+}

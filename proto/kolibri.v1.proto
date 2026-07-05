@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package kolibri.v1;
+
+import "google/protobuf/empty.proto";
+
+message HealthResponse {
+  string status = 1;
+  string version = 2;
+}

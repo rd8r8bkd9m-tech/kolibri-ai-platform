@@ -1,0 +1,73 @@
+syntax = "proto3";
+
+package kolibri.agent.v1;
+
+service AgentService {
+  rpc EnrollAgent (EnrollAgentRequest) returns (EnrollAgentResponse);
+  rpc Heartbeat (AgentHeartbeatRequest) returns (AgentHeartbeatResponse);
+  rpc ReportCapabilities (AgentCapabilitiesRequest) returns (AgentCapabilitiesResponse);
+  rpc StreamEvents (AgentEventStreamRequest) returns (stream AgentEvent);
+  rpc AssignTask (AssignTaskRequest) returns (AssignTaskResponse);
+  rpc CancelTask (CancelTaskRequest) returns (CancelTaskResponse);
+}
+
+message EnrollAgentRequest {
+  string control_plane_url = 1;
+  string node_id = 2;
+  string agent_name = 3;
+  string token = 4;
+}
+
+message EnrollAgentResponse {
+  string agent_id = 1;
+  bool accepted = 2;
+  string error = 3;
+}
+
+message AgentHeartbeatRequest {
+  string agent_id = 1;
+  string node_id = 2;
+}
+
+message AgentHeartbeatResponse {
+  bool accepted = 1;
+  string status = 2;
+}
+
+message AgentCapabilitiesRequest {
+  string agent_id = 1;
+  repeated string capabilities = 2;
+}
+
+message AgentCapabilitiesResponse {
+  bool accepted = 1;
+}
+
+message AgentEventStreamRequest {
+  string agent_id = 1;
+}
+
+message AgentEvent {
+  string subject = 1;
+  string payload_json = 2;
+  string trace_id = 3;
+}
+
+message AssignTaskRequest {
+  string agent_id = 1;
+  string task_id = 2;
+}
+
+message AssignTaskResponse {
+  bool accepted = 1;
+  string error = 2;
+}
+
+message CancelTaskRequest {
+  string agent_id = 1;
+  string task_id = 2;
+}
+
+message CancelTaskResponse {
+  bool accepted = 1;
+}

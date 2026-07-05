@@ -99,6 +99,31 @@ python3 -m pytest -q
 cd frontend && npm install && npm run build
 ```
 
+## Kolibri Control Station (Foundation)
+
+This repository now also carries the foundation scaffold for:
+
+- Rust monorepo modules (`crates/*`)
+- Rust service binaries (`services/*`)
+- gRPC/protobuf contracts (`proto/*`)
+- Dev infra (`infra/docker-compose.dev.yml`, NATS JetStream)
+- Control Station shell (`apps/station`)
+
+Quick local bootstrap for foundation:
+
+```bash
+cp .env.example .env
+make dev-up
+make locald
+make control-plane
+make scheduler
+make agent
+```
+
+Полезно:
+- `make test` — прогнать Rust тесты workspace
+- `make release` — подготовить пакет release-артефактов
+
 CI also validates tracked JSON/YAML files, scans for common secret patterns, and
 blocks production secret-like paths in pull requests.
 

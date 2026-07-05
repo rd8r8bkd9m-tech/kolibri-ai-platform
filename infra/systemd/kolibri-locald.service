@@ -1,0 +1,22 @@
+[Unit]
+Description=Kolibri Local Daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/kolibri
+ExecStart=/usr/local/bin/kolibri-locald --config /etc/kolibri/locald.toml
+Restart=always
+User=kolibri
+Group=kolibri
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/kolibri
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

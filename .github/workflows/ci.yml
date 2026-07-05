@@ -23,6 +23,28 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install system build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+
+      - name: Set up Rust
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup show
+          rustup component add rustfmt clippy
+
+      - name: Rust foundation checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --check
+          cargo clippy --workspace -- -D warnings
+          cargo test --workspace
+
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
@@ -60,11 +82,31 @@ jobs:
           python -m pip install pytest
           python -m pytest -q
 
+      - name: Set up Node for workspace
+        if: ${{ hashFiles('package.json') != '' }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Corepack
+        if: ${{ hashFiles('package.json') != '' }}
+        run: corepack enable
+
+      - name: pnpm workspace checks
+        if: ${{ hashFiles('pnpm-workspace.yaml') != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm install --ignore-scripts --frozen-lockfile
+          pnpm build
+          pnpm typecheck
+          pnpm test
+
       - name: Set up Node
         if: ${{ hashFiles('frontend/package.json') != '' }}
         uses: actions/setup-node@v6
         with:
-          node-version: "22"
+          node-version: "24"
 
       - name: JavaScript and TypeScript checks
         if: ${{ hashFiles('frontend/package.json') != '' }}

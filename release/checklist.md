@@ -1,0 +1,35 @@
+# Checklist релиза Foundation
+
+- [x] Базовый Rust workspace создан
+- [x] `kolibri-core` доменные модели, события и redaction-layer добавлены
+- [x] `kolibri-events` subject mapping и event validation добавлены
+- [x] `kolibri-policy` default-deny и approval cases покрыты тестами
+- [x] `kolibri-sandbox` mock/local allowlist abstraction покрыт тестами
+- [x] `kolibri-secrets` redaction tests добавлены
+- [x] `kolibri-telemetry` tracing foundation добавлен
+- [x] `kolibri-pty` безопасный PTY foundation добавлен
+- [x] `kolibri-locald` стартует, отвечает `/health` и проходит HTTP E2E flow
+- [x] task submit -> lease -> complete -> artifacts проверен в E2E
+- [x] Terminal opening без task/approval запрещен в E2E
+- [x] `artifact-service` считает настоящий SHA-256 и отклоняет пустой `task_run_id`
+- [x] Tauri/React Station shell собирается через `pnpm build`
+- [x] Public site для GitHub Pages добавлен
+- [x] `.github/workflows/ci.yml` переведен на Node 24/actions v5/v6 и Rust gates
+- [x] `.github/workflows/pages.yml` добавлен
+- [x] `CNAME` для `kolibriai.ru` добавлен
+- [x] DNS-инструкции и safe REG.RU rules сохранены
+- [x] systemd и Ubuntu Frame docs добавлены
+- [x] architecture/security/event/MCP/development/release docs добавлены
+- [x] factory bridge отправлен в Home и видимые MimoCode server threads
+- [x] `cargo fmt --check` прошел
+- [x] `cargo clippy --workspace -- -D warnings` прошел
+- [x] `cargo test --workspace` прошел
+- [x] `pnpm build && pnpm typecheck && pnpm test` прошел
+- [x] `make test` прошел
+- [x] Release manifest обновлен с SHA256 bundle hash
+- [x] Artifact manifest с пофайловыми SHA256 хэшами добавлен (`release/artifact-manifest.json`)
+- [x] Final report обновлен
+- [ ] `make dev-up` runtime verified with Docker daemon
+- [ ] GitHub Pages опубликован из GitHub Actions
+- [ ] `kolibriai.ru` и `www.kolibriai.ru` проверены после DNS propagation
+- [ ] `api.kolibriai.ru` подключен к подтвержденному production VPS IP

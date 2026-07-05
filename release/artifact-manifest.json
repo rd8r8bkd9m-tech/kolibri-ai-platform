@@ -1,0 +1,108 @@
+{
+  "name": "kolibri-foundation-artifact-manifest",
+  "version": "0.1.0-foundation",
+  "generated_at_utc": "2026-07-05T10:16:40Z",
+  "algorithm": "sha256",
+  "entries": [
+    {
+      "path": "README.md",
+      "sha256": "4f95adc6c067a4db2d3e5d784c912b51e3eafec292f7db3a8b672819f8a97f22"
+    },
+    {
+      "path": "Cargo.toml",
+      "sha256": "e966472efe122cb435766859310d2e31fb00a433a179ef6b75a4b95c69f5fa62"
+    },
+    {
+      "path": "Cargo.lock",
+      "sha256": "f14454ca6d94811a7d6d4e9e2329d69d82dab68d1d116570d5c4f6b3a0305c1f"
+    },
+    {
+      "path": "package.json",
+      "sha256": "732fcaac1de46faae6df387b511969691192ab1b0eefefbddc6dd65a03ef3021"
+    },
+    {
+      "path": "pnpm-workspace.yaml",
+      "sha256": "bea704eb6f74a5c026718988f9080741b79ef74d5f423b0f917aa30e7b55fa31"
+    },
+    {
+      "path": "Makefile",
+      "sha256": "4b493ad9200bf6ed18bb151f15a19d4e6acf293b6be9519d4a0f1a2cfad486d6"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "sha256": "8a0a3a2e130b44c5c7598d93d146c76d4e9f7ee338b96206e968b6d8f6874d75"
+    },
+    {
+      "path": ".github/workflows/pages.yml",
+      "sha256": "46ff8e77c6e117c0f58a4c485bdcd36bd48593707262aa9ec8a4b6815ccef1c1"
+    },
+    {
+      "path": "CNAME",
+      "sha256": "920cc6969350a66534790b0ba5de2c26bb430d21d9e16e07953c31f68c126a82"
+    },
+    {
+      "path": "release/checklist.md",
+      "sha256": "6ce01a0c705544c9f51c6ab8cf9268be6362d30ff601d9e61ee25b373a0f5b21"
+    },
+    {
+      "path": "release/dns-before.txt",
+      "sha256": "fe98ef93f90ea720cb6811a7a33ca9cfb0234451363e49d25625ec4cd474ef3e"
+    },
+    {
+      "path": "release/dns-after.txt",
+      "sha256": "dddc6a2c83f3c11414045bc5853ce9bcc2b2be0cfaa9653dbb6dd94466ab1c9d"
+    },
+    {
+      "path": "release/dns-instructions.md",
+      "sha256": "211a3ffd94ce77f2f409cc7658b3625791d84aa35cfdc12a1f6dcc933360f1e6"
+    },
+    {
+      "path": "release/final-report.md",
+      "sha256": "20a3c4913f03949c024d9df69e6d9212cf01fef1e45696b8ce35ec5b2b31b9a0"
+    },
+    {
+      "path": "release/manifest.json",
+      "sha256": "fe0480056efee66ff3761d73ea24ffa6a89b6124c545076370dd5f156d4af30e"
+    },
+    {
+      "path": "apps/site/dist/index.html",
+      "sha256": "70b0c81a871e490c4b2b64f468a583cffc98a244ef51edd7e06030531907dc27"
+    },
+    {
+      "path": "apps/station/dist/index.html",
+      "sha256": "8e5760f963e251a218a1835a6d95a04fd9ed8f03ffc951c7b74e7b3a05f71d3f"
+    },
+    {
+      "path": "apps/station/dist/assets/index-DikSiPhx.css",
+      "sha256": "b549cb37b4d4bd1797ddf2ba0214be8fa126c1edb678e62b8b9e68ea663ae150"
+    },
+    {
+      "path": "apps/station/dist/assets/index-CxJQAKbo.js",
+      "sha256": "13882ff72f05c2f25948509336a6d95eadf8ac9c3386b21f5ba170d93a169734"
+    },
+    {
+      "path": "docs/architecture.md",
+      "sha256": "64b8dff97f62270055f38225dcd7d8647597831c32be7edcd474b7532cd5c8a3"
+    },
+    {
+      "path": "docs/security-model.md",
+      "sha256": "9a465f5105f257068e81f2ee1536f04b72996260f5df354f11aef407283381d1"
+    },
+    {
+      "path": "docs/event-model.md",
+      "sha256": "d13433ecef31141163afdf2f1ab0a854245fa6b8a0faf57d8b22f46053700687"
+    },
+    {
+      "path": "docs/development.md",
+      "sha256": "8dfe2207635e3856fceacf248e25c1ede342f37e8d93ff3c2506b271ede9fd6a"
+    },
+    {
+      "path": "docs/deployment-kiosk.md",
+      "sha256": "7ca8497968c8771e993954cb28e0100f17d5116f692664723a3afada6f046c15"
+    },
+    {
+      "path": "docs/mcp-strategy.md",
+      "sha256": "6dde2787900a55d77023e9ffc625b04da33428932d80b64b011804db3aa966c4"
+    }
+  ]
+}

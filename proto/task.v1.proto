@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package kolibri.task.v1;
+
+service TaskService {
+  rpc CreateTask (CreateTaskRequest) returns (CreateTaskResponse);
+  rpc GetTask (GetTaskRequest) returns (GetTaskResponse);
+  rpc ListTasks (google.protobuf.Empty) returns (ListTasksResponse);
+  rpc StartTask (StartTaskRequest) returns (StartTaskResponse);
+  rpc CancelTask (CancelTaskRequest) returns (CancelTaskResponse);
+  rpc StreamTaskEvents (StreamTaskEventsRequest) returns (stream TaskEvent);
+}
+
+message CreateTaskRequest {
+  string project_id = 1;
+  string title = 2;
+  string description = 3;
+  string created_by = 4;
+}
+
+message CreateTaskResponse {
+  string task_id = 1;
+  string status = 2;
+}
+
+message GetTaskRequest { string task_id = 1; }
+message GetTaskResponse { string task_id = 1; string status = 2; }
+message ListTasksResponse { repeated GetTaskResponse tasks = 1; }
+message StartTaskRequest { string task_id = 1; }
+message StartTaskResponse { bool accepted = 1; }
+message CancelTaskRequest { string task_id = 1; }
+message CancelTaskResponse { bool accepted = 1; }
+message StreamTaskEventsRequest { string task_id = 1; }
+message TaskEvent {
+  string subject = 1;
+  string payload_json = 2;
+  string trace_id = 3;
+}
+
+import "google/protobuf/empty.proto";

@@ -1,0 +1,22 @@
+[Unit]
+Description=Kolibri VPS Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/kolibri
+ExecStart=/usr/local/bin/kolibri-agent --control-plane http://127.0.0.1:8080
+Restart=always
+User=kolibri
+Group=kolibri
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/kolibri
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

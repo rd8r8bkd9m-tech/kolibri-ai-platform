@@ -1,0 +1,33 @@
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: kolibri
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  nats:
+    image: nats:2.10
+    command: [ "-js", "-DV", "-c", "/etc/nats/nats-server.conf" ]
+    restart: unless-stopped
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    volumes:
+      - ./infra/nats/nats-server.conf:/etc/nats/nats-server.conf:ro
+
+  nats-box:
+    image: natsio/nats-box:latest
+    command: sleep infinity
+    depends_on:
+      - nats
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+

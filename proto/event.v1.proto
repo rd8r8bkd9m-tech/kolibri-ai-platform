@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package kolibri.event.v1;
+
+service EventService {
+  rpc PublishEvent (PublishEventRequest) returns (PublishEventResponse);
+  rpc StreamEvents (google.protobuf.Empty) returns (stream PublishedEvent);
+}
+
+message PublishEventRequest {
+  string subject = 1;
+  string payload_json = 2;
+  string trace_id = 3;
+}
+
+message PublishEventResponse {
+  bool accepted = 1;
+}
+
+message PublishedEvent {
+  string id = 1;
+  string subject = 2;
+  string event_type = 3;
+  string payload_json = 4;
+}
+
+import "google/protobuf/empty.proto";
