@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && cp CNAME dist/CNAME",
     "lint": "eslint .",
     "preview": "vite preview",
     "test:mobile-layout": "node tests/mobile_layout_guard.mjs"

@@ -15,3 +15,31 @@ declared-backend-test-env/
 data/
 *.log
 .DS_Store
+
+# Build artifacts
+build/
+target/
+*.pcm
+*.pcm.tmp
+*.o
+*.d
+*.dia
+*.hmap
+*.swiftmodule/
+*.xcuserstate
+*.xctest*/
+*.appex/
+*.app/
+*.xcactivitylog
+*.msgpack
+*.plist
+
+# Runtime
+.codex-runtime/
+.codex/
+.factory/
+.mimocode/
+.playwright-cli/
+*.js
+!frontend/src/**/*.js
+!frontend/vite.config.js
