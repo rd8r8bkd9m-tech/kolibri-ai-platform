@@ -189,3 +189,7 @@ Deploy plan is ready in `release/deploy-plan.md`. No deploy was performed. GitHu
 3. Run staged secret/path checks.
 4. Commit with `chore(calibri-v1): establish release candidate foundation` if approved and safe.
 5. Ask for explicit approval before push, Pages deploy, DNS, API deploy, or bootstrap.
+
+## Working factory status
+
+The current output is a working release candidate, not a live production factory. See `release/working-factory-status.md` for the exact split between working local contracts, known gaps, and approval-gated steps required to make the factory live.
