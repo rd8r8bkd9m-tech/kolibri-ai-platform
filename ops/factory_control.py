@@ -11,6 +11,16 @@ adversarial review of task outcomes.
 
 from __future__ import annotations
 
+import sys
+import os
+
+# Ensure this module is registered in sys.modules so dataclass processing
+# works when loaded via spec_from_file_location with a custom name.
+try:
+    _mod = sys.modules[__name__]
+except KeyError:
+    sys.modules[__name__] = type(sys)(__name__)
+
 import argparse
 import hashlib
 import json
