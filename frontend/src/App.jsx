@@ -216,6 +216,7 @@ export default function App() {
   }
 
   const connectWS = useCallback(() => {
+    if (IS_GITHUB_PAGES) return
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:"
     let socket
     try { socket = new WebSocket(`${proto}//${WS_HOST}/ws/chat`) } catch { return }
@@ -248,9 +249,11 @@ export default function App() {
       ws.send(JSON.stringify({ messages: newMsgs.map(m => ({ role: m.role, content: m.content })), provider: selectedProvider }))
     } else {
       try {
-        const r = await fetch(`${API_BASE}/api/chat`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: newMsgs, provider: selectedProvider }) })
+        const lastUserMsg = newMsgs.filter(m => m.role === "user").pop()
+        const r = await fetch(`${API_BASE}/api/v1/chat`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: lastUserMsg?.content || "", model: selectedProvider }) })
         const d = await r.json()
-        setMessages([...newMsgs, { role: "assistant", content: d.response, provider: d.provider, timestamp: Date.now() }])
+        const reply = d.assistant_message?.content || d.response || "Нет ответа"
+        setMessages([...newMsgs, { role: "assistant", content: reply, provider: selectedProvider, timestamp: Date.now() }])
       } catch { setMessages([...newMsgs, { role: "assistant", content: "Ошибка подключения к серверу.", timestamp: Date.now() }]) }
       setLoading(false)
     }
