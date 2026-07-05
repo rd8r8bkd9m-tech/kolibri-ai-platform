@@ -1,0 +1,47 @@
+Captured: 2026-07-05
+Worktree: /Users/kolibri/Documents/Codex/kolibri-ai-platform
+
+branch:
+p0/codex-sidebar-thread-bootstrap-20260704
+
+head:
+e8f36fdc7
+
+git status --short:
+ M .gitignore
+?? .kolibri/
+?? AGENTS.md
+?? apps/
+?? docs/BOOTSTRAP_TRUTH.md
+?? docs/CONTROL_PLANE_AGENT_MODEL.md
+?? docs/PROJECT_MAP.md
+?? docs/SOURCE_OF_TRUTH.md
+?? release/final-report.md
+?? release/initial-state.md
+?? tests/test_kolibri_invention_synthesis.py
+
+git log --oneline -n 20:
+e8f36fdc7 fix: chat API format and WebSocket graceful degradation
+56d944aa2 fix: handle API response format for providers
+5ebfc8a7a fix: connect frontend to backend on GitHub Pages
+fb6b8a9e5 fix: set base path for GitHub Pages deployment
+b29043370 fix: use npm install instead of npm ci for GitHub Pages build
+1d4caa5ec fix: register module in sys.modules for dataclass compatibility
+05465033d P0: GitHub Pages deployment for kolibriai.ru
+e74a91895 Merge remote-tracking branch 'origin/main' into p0/codex-sidebar-thread-bootstrap-20260704
+c41626211 fix: Copy CNAME to dist during build for GitHub Pages
+5c4d4ad49 P0: Add GitHub Pages deployment workflow and DNS instructions
+723676de9 Merge pull request #169 from rd8r8bkd9m-tech/p0/truth-factory-anti-agent-council-20260704
+dccdd7fd6 Merge origin/main into truth-factory branch
+fb7ed80f2 Integrate truth ledgers into factory_control.py
+190ad484a P0: Truth Factory - anti-agent council and evidence ledger
+858ec40fe Merge pull request #168 from rd8r8bkd9m-tech/p0/physical-foundation-21-servers-mac-router-usb-kit-20260704
+41d24d97e P0: Define physical foundation for 21 servers, Mac, router and USB operator kit
+3ce233f9c p0: recover Telegram HA failover guard and wire into gateway runtime
+6a6b6d528 p0: recover telegram HA failover guard and wire into gateway runtime
+f7ac32c70 docs: dispatch factory control deploy canary (#104)
+d19d2f735 p0: repair Factory Control runtime import path (#103)
+
+git diff --stat:
+ .gitignore | 11 +++++++++++
+ 1 file changed, 11 insertions(+)

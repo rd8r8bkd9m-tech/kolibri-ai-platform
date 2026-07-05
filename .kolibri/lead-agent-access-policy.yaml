@@ -1,0 +1,37 @@
+version: 1
+project: KolibriAI Platform
+workspace: Calibri V1 transition branch
+operator_mode: lead_agent
+autonomous_allowed:
+  repo_read: true
+  repo_write: true
+  project_local_config: true
+  git_status_diff_log: true
+  create_docs: true
+  run_build_tests: true
+  inspect_bootstrap: true
+  inspect_fabric_api: true
+  inspect_superfactory: true
+  server_non_destructive_diagnostics: true
+protected_requires_user_approval:
+  destructive_bootstrap: true
+  production_deploy_without_rollback: true
+  dns_changes: true
+  reg_ru_changes: true
+  force_push: true
+  delete_repo_or_history: true
+  delete_database: true
+  delete_volumes: true
+  delete_artifacts: true
+  rotate_secrets: true
+  firewall_changes: true
+  server_reinstall_or_reboot: true
+always_forbidden:
+  log_raw_secrets: true
+  commit_raw_secrets: true
+  bypass_2fa_or_captcha: true
+  store_passwords: true
+  give_worker_agents_ssh: true
+  ui_direct_shell: true
+  llm_direct_shell: true
+  uncontrolled_bootstrap: true

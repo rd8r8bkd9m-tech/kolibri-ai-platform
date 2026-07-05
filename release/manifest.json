@@ -1,0 +1,72 @@
+{
+  "name": "kolibri-ai-platform-calibri-v1-transition",
+  "version": "0.1.0-calibri-v1-transition",
+  "branch": "p0/codex-sidebar-thread-bootstrap-20260704",
+  "commit_sha_short_at_manifest_time": "e8f36fdc7",
+  "generated_at_utc": "2026-07-05T00:00:00Z",
+  "status": "transition_source_of_truth_prepared",
+  "scope": [
+    "branch-local lead-agent policy",
+    "source-of-truth documentation",
+    "project map",
+    "Calibri V1 transition architecture",
+    "repository cleanup plan",
+    "Control Plane foundation and agent model docs",
+    "GitHub presentation and Pages prep",
+    "private ops templates",
+    "VS Code project tasks"
+  ],
+  "verified_commands": [
+    {
+      "command": "jq empty release/manifest.json .vscode/tasks.json .vscode/settings.json .vscode/extensions.json",
+      "result": "passed"
+    },
+    {
+      "command": "backend/venv/bin/python -m compileall -q backend ops scripts",
+      "result": "passed"
+    },
+    {
+      "command": "backend/venv/bin/python -m pytest -q tests/test_factory_control_superfactory.py tests/test_telegram_superfactory_miniapp.py tests/test_telegram_superfactory_contracts.py",
+      "result": "passed"
+    },
+    {
+      "command": "backend/venv/bin/python -m pytest -q tests/test_factory_control_superfactory.py tests/test_telegram_superfactory_miniapp.py tests/test_telegram_superfactory_contracts.py tests/test_prompt3_fabric_api_surface.py",
+      "result": "passed"
+    },
+    {
+      "command": "backend/venv/bin/python -m pytest -q",
+      "result": "passed_210_tests"
+    },
+    {
+      "command": "cd frontend && npm run build",
+      "result": "passed_with_nonfatal_chunk_size_warning"
+    },
+    {
+      "command": "backend/venv/bin/python -m compileall -q ops/factory_control.py ops/telegram_superfactory.py tests/test_factory_control_superfactory.py",
+      "result": "passed"
+    }
+  ],
+  "protected_not_performed": [
+    "dns_changes",
+    "reg_ru_changes",
+    "production_deploy",
+    "destructive_bootstrap",
+    "firewall_changes",
+    "server_reboot_or_reinstall",
+    "secret_rotation"
+  ],
+  "security_notes": [
+    "ops/telegram.env was not read or printed",
+    "private/runtime outputs are ignored",
+    "worker agents must use API contracts, not SSH"
+  ],
+  "phase_2": [
+    "security-publication-check",
+    "github-presentation-readme-polish",
+    "github-pages-prep-status",
+    "control-plane-gap-report",
+    "agent-runtime-gap-report",
+    "deploy-plan-with-approval-gates",
+    "git-checkpoint-preparation"
+  ]
+}

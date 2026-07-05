@@ -1,67 +1,59 @@
-# Kolibri AI Platform
-
-Kolibri AI Platform is the control, chat, and factory automation surface for the
-Kolibri server fleet. The current main branch contains a FastAPI backend, React
-frontend, Redis-backed factory control-plane sidecars, Telegram/factory
-orchestration utilities, deployment scripts, and regression tests for the active
-runtime contracts.
-
-This repository is operated through protected release trains. Do not push
 directly to `main`. Product, documentation, and factory-runtime changes should
-land through focused pull requests with CI evidence and owner approval.
+# KolibriAI Platform
 
-## Current Components
+KolibriAI Platform is a self-hosted AI Factory for controlled autonomous software development: tasks, agents, runner policy, artifacts, release evidence, and owner-approved operations in one auditable control surface.
+
+Calibri V1 is the current release-candidate foundation. It is not a production deployment claim. It is a controlled branch state prepared for GitHub review, GitHub Pages publication, and later `kolibriai.ru` DNS/deploy actions after explicit approval.
+
+## Why AI Factory
+
+An agent dashboard usually shows conversations or individual runs. KolibriAI Platform treats AI work as factory production:
+
+- tasks are submitted, routed, leased, reviewed, and completed;
+- agents report status through API contracts;
+- artifacts and logs are first-class release evidence;
+- dangerous actions are blocked until approval;
+- public product docs are separated from private operations and secrets.
+
+## Architecture
+
+```text
+Owner / Lead Operator
+  ↓
+Frontend + Telegram / Superfactory entrypoints
+  ↓
+FastAPI Backend + Fabric API
+  ↓
+Factory Control / Task State / Runner Policy
+  ↓
+Agent Hosts and Worker Runtimes
+  ↓
+Artifacts / Logs / Status / Release Evidence
+```
+
+Worker agents must use API contracts. SSH is reserved for owner/lead diagnostics, bootstrap, and emergency recovery; it is not the worker-agent control plane.
+
+## Current Status
+
+- Status: `0.1.0-calibri-v1-transition` release candidate foundation.
+- Branch: `p0/codex-sidebar-thread-bootstrap-20260704`.
+- Public site target: `kolibriai.ru` planned through GitHub Pages.
+- DNS/REG.RU/backend deploy/bootstrap: approval-gated and not performed by this preparation pass.
+
+## Components
 
 | Area | Path | Purpose |
 | --- | --- | --- |
-| Backend API | `backend/` | FastAPI chat, provider catalog, conversations, TTS/STT, web search, pipeline, and factory status endpoints. |
-| Frontend | `frontend/` | React 19 and Vite application for the Kolibri chat and factory status UI. |
-| Factory control | `ops/factory_control.py`, `ops/agent_host.py` | Redis-backed task queue, leases, node heartbeat, review tasks, and agent execution contracts. |
-| Telegram gateway | `ops/telegram_gateway.py` | Owner-facing Telegram command and chat integration for factory workflows. |
-| Mesh bridge | `ops/mesh_control_bridge.py` | Local control bridge for mesh/factory node operations. |
-| Deployment | `scripts/deploy.sh`, `ops/systemd/` | Server deployment and systemd service units. |
-| Tests | `tests/`, `backend/tests/`, `frontend/tests/` | Python contract tests and frontend layout guards. |
+| Backend API | `backend/` | FastAPI chat, provider catalog, conversations, TTS/STT, web search, pipeline, factory status. |
+| Frontend / Pages site | `frontend/` | React/Vite UI and GitHub Pages build output. |
+| Factory control | `ops/factory_control.py` | Redis-backed task queue, leases, node heartbeat, Fabric routes, Superfactory status. |
+| Agent host | `ops/agent_host.py` | Agent execution contract, artifact handling, permission checks. |
+| Telegram / Superfactory | `ops/telegram_gateway.py`, `ops/telegram_superfactory.py` | Owner command layer, Mini App auth, runner policy. |
+| Mesh bridge | `ops/mesh_control_bridge.py` | Local bridge for mesh/factory node operations. |
+| Release evidence | `release/` | Manifests, reports, deployment plan, checkpoints. |
+| Source of truth | `.kolibri/`, `docs/SOURCE_OF_TRUTH.md` | Agent onboarding and operating policy. |
 
-## Backend API
-
-The backend entry point is `backend/main.py`. Current local routes include:
-
-| Endpoint | Description |
-| --- | --- |
-| `GET /api/health` | Backend health and provider status. |
-| `GET /api/providers` | Configured AI provider status. |
-| `GET /api/models` | Model catalog and active system prompt. |
-| `POST /api/chat` | Cached chat generation through the provider manager. |
-| `WS /ws/chat` | Streaming-style websocket chat exchange. |
-| `POST /api/conversations` | Create a stored conversation. |
-| `GET /api/conversations` | List stored conversations. |
-| `GET /api/conversations/{conv_id}/messages` | Read stored conversation messages. |
-| `DELETE /api/conversations/{conv_id}` | Delete a stored conversation. |
-| `POST /api/tts` | Text-to-speech generation. |
-| `GET /api/tts/voices` | TTS voice catalog. |
-| `POST /api/search` | Web search helper. |
-| `POST /api/tools` | Tool-call helper endpoint. |
-| `POST /api/pipeline` | Unified pipeline execution. |
-| `GET /api/pipeline/health` | Pipeline dependency health. |
-| `GET /api/factory/status` | Live factory status normalized for the frontend. |
-| `GET /cluster/status` | Legacy cluster status compatibility endpoint. |
-
-The versioned router in `backend/routes_v1.py` is also included by the backend
-for `/v1` contracts.
-
-### Fabric Control API
-
-| Endpoint | Описание |
-| --- | --- |
-| `GET /v1/fabric/health` | Health защищенного Fabric API |
-| `GET /v1/fabric/policy` | Owner rights, auth/authz/scope/logging/rotation policy |
-| `GET /v1/fabric/routes` | Представление всех серверов через API или fallback relay |
-| `POST /v1/fabric/route` | Direct route или structured blocked status |
-| `POST /v1/fabric/relay` | Safe relay contract |
-| `POST /v1/fabric/bootstrap` | Контракт bootstrap нового сервера без вывода секретов |
-| `GET /v1/fabric/keys/rotation` | Node identity и key rotation policy |
-
-## Quick Start
+## Quickstart
 
 Backend:
 
@@ -83,35 +75,44 @@ npm run dev
 
 Factory control sidecar:
 
-Основной путь управления фабрикой — защищенный Fabric API control plane. SSH не является control plane и допускается только для bootstrap, emergency recovery и диагностики, когда API недоступен или еще не установлен. Контракт API-first управления описан в [docs/fabric-api-first-control.md](docs/fabric-api-first-control.md).
-
 ```bash
-python3 ops/factory_control.py --host 127.0.0.1 --port 8765
+backend/venv/bin/python ops/factory_control.py --host 127.0.0.1 --port 8765
 ```
 
-## Verification
-
-Run the same categories that CI covers before opening or updating a PR:
+Verification slice used for Phase 2:
 
 ```bash
-python3 -m compileall -q backend ops scripts
-python3 -m pytest -q
-cd frontend && npm install && npm run build
+jq empty release/manifest.json .vscode/tasks.json .vscode/settings.json .vscode/extensions.json
+backend/venv/bin/python -m pytest -q tests/test_factory_control_superfactory.py tests/test_telegram_superfactory_miniapp.py tests/test_telegram_superfactory_contracts.py
 ```
 
-CI also validates tracked JSON/YAML files, scans for common secret patterns, and
-blocks production secret-like paths in pull requests.
+## Roadmap
 
-## Release Train
+1. Stabilize the Calibri V1 release-candidate documentation and publication hygiene.
+2. Preserve current `/v1/fabric/*` contracts while mapping desired `/v1/tasks`, `/v1/agents`, `/v1/artifacts`, and `/v1/approvals` endpoints.
+3. Add compatibility tests before endpoint migration.
+4. Publish GitHub Pages after approval.
+5. Change `kolibriai.ru` DNS and deploy `api.kolibriai.ru` only after explicit approval.
 
-The active main-branch sync train for July 1, 2026 is recorded in
-`docs/release/2026-07-01-main-readme-code-sync-release-train.md`.
+## Security
 
-Release rules for this train:
+- Raw secrets are not public docs or release artifacts.
+- `ops/telegram.env`, `.env*`, private keys, credentials, logs, and runtime outputs are ignored or protected.
+- Destructive bootstrap, production deploy, DNS, REG.RU, firewall, server reboot/reinstall, force push, and data deletion require explicit approval.
+- CI includes JSON/YAML validation, secret scanning, and production secret path guard.
 
-- Remote execution must happen on a server node, not on a Mac dispatcher.
-- `main` must not be pushed directly.
-- Pull requests must stay focused; do not mix unrelated product, docs, and
-  operations changes in one PR.
-- Owner approval is required before merge.
-- PR #85 remains a release-gated item and must not be skipped.
+## Documentation
+
+- [docs/SOURCE_OF_TRUTH.md](docs/SOURCE_OF_TRUTH.md)
+- [docs/CALIBRI_V1_ARCHITECTURE.md](docs/CALIBRI_V1_ARCHITECTURE.md)
+- [docs/CONTROL_PLANE_AGENT_MODEL.md](docs/CONTROL_PLANE_AGENT_MODEL.md)
+- [docs/API_COMPATIBILITY_MAP.md](docs/API_COMPATIBILITY_MAP.md)
+- [docs/GITHUB_PRESENTATION.md](docs/GITHUB_PRESENTATION.md)
+- [docs/deployment-github-pages.md](docs/deployment-github-pages.md)
+- [release/final-report.md](release/final-report.md)
+
+## Release Status
+
+Current release candidate evidence lives in [release/manifest.json](release/manifest.json), [release/checklist.md](release/checklist.md), and [release/final-report.md](release/final-report.md).
+
+Public site target: `https://kolibriai.ru` after GitHub Pages and DNS approval.

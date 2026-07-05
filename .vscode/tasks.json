@@ -1,0 +1,19 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Kolibri: Python compileall",
+      "type": "shell",
+      "command": "backend/venv/bin/python -m compileall -q backend ops scripts",
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Kolibri: Superfactory tests",
+      "type": "shell",
+      "command": "backend/venv/bin/python -m pytest -q tests/test_factory_control_superfactory.py tests/test_telegram_superfactory_miniapp.py tests/test_telegram_superfactory_contracts.py",
+      "group": "test",
+      "problemMatcher": []
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "editor.formatOnSave": false,
+  "files.exclude": {
+    "logs": true,
+    "output": true,
+    "node_modules": true,
+    "**/__pycache__": true,
+    "**/.pytest_cache": true
+  }
+}
