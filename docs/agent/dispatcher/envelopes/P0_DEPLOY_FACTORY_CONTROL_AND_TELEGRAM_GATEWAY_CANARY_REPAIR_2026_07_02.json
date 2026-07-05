@@ -1,0 +1,185 @@
+{
+  "task_id": "P0_DEPLOY_FACTORY_CONTROL_AND_TELEGRAM_GATEWAY_CANARY_REPAIR_2026_07_02",
+  "idempotency_key": "P0_DEPLOY_FACTORY_CONTROL_AND_TELEGRAM_GATEWAY_CANARY_REPAIR_2026_07_02",
+  "kind": "owner_remote_task",
+  "priority": "P0",
+  "required_capability": "generic_implementation",
+  "runner": "codex",
+  "agent_type": "runtime_deploy_repair",
+  "agent_display_name": "Илья - Runtime Deploy Steward",
+  "target_node_pool": "healthy_runtime_deploy_nodes",
+  "preferred_nodes": [
+    "home",
+    "primary-candidate",
+    "main",
+    "mesh-agent-01"
+  ],
+  "allowed_nodes": [
+    "home",
+    "primary-candidate",
+    "main",
+    "mesh-agent-01"
+  ],
+  "avoid_nodes": [
+    "qjns",
+    "uiap",
+    "new"
+  ],
+  "branch": "agent/P0_DEPLOY_FACTORY_CONTROL_AND_TELEGRAM_GATEWAY_CANARY_REPAIR_2026_07_02/runtime",
+  "base_branch": "main",
+  "base_ref": "origin/main",
+  "max_retries": 1,
+  "create_review_on_complete": false,
+  "goal": "Deploy or restart only approved existing Kolibri runtime services so post-merge Fabric API and Telegram gateway canaries reflect current main.",
+  "objective": "On a server/control node, repair the live runtime drift found after PR #85/#89/#100: Factory Control live listeners must expose the merged Fabric API routes, Telegram must keep exactly one canonical receiver, server test dependencies must use an approved environment path, and GitHub PR metadata must be read through a safe authorized route. Do not edit product code in this task.",
+  "context": {
+    "owner": "Vladislav",
+    "repository": "rd8r8bkd9m-tech/kolibri-ai-platform",
+    "current_main": "51b1620cd89634590d401aaa4c5aba16c16507a7",
+    "source_canary_task": "P0_POST_MERGE_REMOTE_CANARY_EXECUTION_2026_07_02",
+    "source_repair_task": "P0_REPAIR_POST_MERGE_CANARY_RUNTIME_BLOCKERS_2026_07_02",
+    "source_repair_status": "partially_repaired_precisely_classified",
+    "owner_runtime_instruction": "Owner asked to start the factory, fix the factory panel, fix Telegram, keep main fresh, and supervise subagents.",
+    "known_blockers": [
+      "B1: kolibri-telegram-gateway.service inactive/dead on probed node; must not create a second Telegram receiver.",
+      "B2: live /health and /v1/health work, but /v1/fabric/*, /v1/fleet/nodes, and /v1/models return 404 on probed listeners.",
+      "B3: httpx missing in system Python; pip --user blocked by externally managed Python.",
+      "B4: gh missing on server node; GitHub PR metadata path unavailable there."
+    ]
+  },
+  "constraints": {
+    "mac_thin_client_only": true,
+    "server_execution_required": true,
+    "runtime_repair_allowed": true,
+    "runtime_deploy_from_merged_main_allowed": true,
+    "product_code_modification_forbidden": true,
+    "test_code_modification_forbidden": true,
+    "ci_modification_forbidden": true,
+    "docs_artifact_writes_allowed": true,
+    "destructive_git_commands_forbidden": true,
+    "git_reset_forbidden": true,
+    "git_clean_forbidden": true,
+    "force_push_forbidden": true,
+    "push_to_main_forbidden": true,
+    "merge_forbidden": true,
+    "mark_ready_for_review_forbidden": true,
+    "approval_forbidden": true,
+    "close_pr_forbidden": true,
+    "dirty_runtime_checkout_forbidden": true,
+    "use_safe_deploy_worktree_or_clean_runtime_repo_only": true,
+    "secrets_redaction_required": true,
+    "do_not_print_env": true,
+    "do_not_print_keys_tokens_cookies_or_credentials": true,
+    "telegram_single_receiver_required": true,
+    "telegram_live_message_send_forbidden": true,
+    "telegram_token_rotation_forbidden": true,
+    "telegram_delete_webhook_forbidden": true,
+    "telegram_set_webhook_forbidden": true,
+    "telegram_get_updates_manual_probe_forbidden": true,
+    "telegram_read_only_getme_getwebhookinfo_allowed_with_redaction": true,
+    "owner_approval_for_existing_service_restart": true,
+    "allowed_service_actions": [
+      "status",
+      "show",
+      "cat",
+      "restart_existing_unit_after_preflight",
+      "start_existing_unit_after_preflight"
+    ],
+    "allowed_service_units": [
+      "kolibri-factory-control.service",
+      "kolibri-telegram-gateway.service",
+      "kolibri-agent-host.service",
+      "kolibri-mesh-control-bridge.service"
+    ],
+    "owner_facing_agent_names_must_be_russian": true,
+    "exact_run_artifacts_required": true
+  },
+  "write_scope": [
+    "docs/agent/runs/2026-07-02-p0-deploy-factory-control-and-telegram-gateway-canary-repair/**"
+  ],
+  "forbidden_write_scope": [
+    ".github/**",
+    "backend/**",
+    "frontend/**",
+    "infra/**",
+    "ops/**",
+    "scripts/**",
+    "tests/**",
+    "docs/superfactory/**"
+  ],
+  "required_outputs": [
+    "docs/agent/runs/2026-07-02-p0-deploy-factory-control-and-telegram-gateway-canary-repair/PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-deploy-factory-control-and-telegram-gateway-canary-repair/ACTIONS.md",
+    "docs/agent/runs/2026-07-02-p0-deploy-factory-control-and-telegram-gateway-canary-repair/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-deploy-factory-control-and-telegram-gateway-canary-repair/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-deploy-factory-control-and-telegram-gateway-canary-repair/NEXT.md",
+    "docs/agent/runs/2026-07-02-p0-deploy-factory-control-and-telegram-gateway-canary-repair/RUNTIME_DEPLOY_MATRIX.md",
+    "docs/agent/runs/2026-07-02-p0-deploy-factory-control-and-telegram-gateway-canary-repair/POST_DEPLOY_CANARY.md"
+  ],
+  "repair_scope": [
+    {
+      "id": "fabric-runtime",
+      "instructions": [
+        "Identify the authoritative live Factory Control listener for owner/API requests.",
+        "Verify runtime code or deploy source is at merged origin/main without dirty checkout.",
+        "If safe, restart only the existing Factory Control service and verify /health, /v1/health, /v1/fabric/health, /v1/fabric/routes, /v1/fleet/nodes, and /v1/models.",
+        "If runtime code is stale and dirty, do not checkout over it; create a safe deploy-worktree or classify exact blocker."
+      ]
+    },
+    {
+      "id": "telegram-runtime",
+      "instructions": [
+        "Prove the canonical Telegram receiver owner before starting or restarting any gateway.",
+        "Do not start a second Telegram receiver.",
+        "If canonical receiver is already healthy on another node, classify the inactive local service as non-canonical and do not start it.",
+        "If the canonical receiver is this node and preflight is safe, start or restart only the existing kolibri-telegram-gateway.service.",
+        "Do not send messages, delete/set webhooks, rotate tokens, print token-like values, or manually call getUpdates."
+      ]
+    },
+    {
+      "id": "server-test-env",
+      "instructions": [
+        "Use an approved venv or existing project test environment to satisfy httpx for canary tests.",
+        "Do not modify requirements files or product code.",
+        "Rerun factory-status freshness tests if the environment repair succeeds."
+      ]
+    },
+    {
+      "id": "github-metadata",
+      "instructions": [
+        "Use an existing authorized GitHub API/gh path if available without printing credentials.",
+        "Do not run interactive login or create accounts.",
+        "If gh is missing and no API path is available, classify exact node tooling task."
+      ]
+    }
+  ],
+  "verification_commands": [
+    "git diff --check",
+    "test -f docs/agent/runs/2026-07-02-p0-deploy-factory-control-and-telegram-gateway-canary-repair/PLAN.md",
+    "test -f docs/agent/runs/2026-07-02-p0-deploy-factory-control-and-telegram-gateway-canary-repair/ACTIONS.md",
+    "test -f docs/agent/runs/2026-07-02-p0-deploy-factory-control-and-telegram-gateway-canary-repair/TESTS.md",
+    "test -f docs/agent/runs/2026-07-02-p0-deploy-factory-control-and-telegram-gateway-canary-repair/RESULT.md",
+    "test -f docs/agent/runs/2026-07-02-p0-deploy-factory-control-and-telegram-gateway-canary-repair/NEXT.md",
+    "test -f docs/agent/runs/2026-07-02-p0-deploy-factory-control-and-telegram-gateway-canary-repair/RUNTIME_DEPLOY_MATRIX.md",
+    "test -f docs/agent/runs/2026-07-02-p0-deploy-factory-control-and-telegram-gateway-canary-repair/POST_DEPLOY_CANARY.md",
+    "rg --no-ignore -n '[0-9]{6,}:[A-Za-z0-9_-]{20,}|[A-Za-z0-9_]*(TOKEN|SECRET|PASSWORD|COOKIE|API_KEY|CHAT_ID)=[^ ]+' docs/agent/runs/2026-07-02-p0-deploy-factory-control-and-telegram-gateway-canary-repair && exit 1 || true"
+  ],
+  "acceptance": [
+    "Remote execution happens on a server/control node, not local Mac implementation.",
+    "Live Factory Control route state is either repaired to current main or classified with exact deploy/listener blocker.",
+    "Telegram receiver remains single-owner; no second receiver is started.",
+    "No Telegram Bot API state mutation occurs except ordinary operation of an already canonical service after approved preflight.",
+    "Server test environment is repaired through an approved venv/path or precisely classified.",
+    "GitHub PR metadata route is repaired or precisely classified.",
+    "No product code, tests, CI files, Telegram tokens, secrets, or main branch are modified.",
+    "All exact run artifacts exist.",
+    "Final result includes task_id, node, Russian agent display name, runtime deploy matrix, post-deploy canary, blockers, and next exact task."
+  ],
+  "source": {
+    "kind": "mac_thin_client_dispatcher",
+    "owner": "Vladislav",
+    "created_at": "2026-07-02T00:24:00+03:00",
+    "local_ledger": "docs/agent/dispatcher/DISPATCH_LOG.md"
+  }
+}
+

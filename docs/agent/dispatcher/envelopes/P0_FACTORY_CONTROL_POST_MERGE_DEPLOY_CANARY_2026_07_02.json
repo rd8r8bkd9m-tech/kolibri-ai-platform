@@ -1,0 +1,130 @@
+{
+  "task_id": "P0_FACTORY_CONTROL_POST_MERGE_DEPLOY_CANARY_2026_07_02",
+  "idempotency_key": "P0_FACTORY_CONTROL_POST_MERGE_DEPLOY_CANARY_2026_07_02",
+  "kind": "owner_remote_task",
+  "priority": "P0",
+  "required_capability": "generic_implementation",
+  "runner": "codex",
+  "agent_type": "runtime_deploy_canary",
+  "agent_display_name": "Антон - Factory Control Deploy Canary",
+  "target_node_pool": "healthy_runtime_deploy_nodes",
+  "preferred_nodes": [
+    "primary-candidate",
+    "home",
+    "mesh-agent-01"
+  ],
+  "allowed_nodes": [
+    "primary-candidate",
+    "home",
+    "mesh-agent-01"
+  ],
+  "avoid_nodes": [
+    "main",
+    "qjns",
+    "uiap",
+    "new"
+  ],
+  "branch": "agent/P0_FACTORY_CONTROL_POST_MERGE_DEPLOY_CANARY_2026_07_02/deploy-canary",
+  "base_branch": "main",
+  "base_ref": "origin/main",
+  "max_retries": 0,
+  "create_review_on_complete": false,
+  "goal": "Run a safe post-merge Factory Control deploy canary after PR #103 fixed the runtime import-path contract.",
+  "objective": "On a server/control node, deploy the already-merged Factory Control runtime repair only if the target repo path preflight passes. Backup current runtime state, restart only kolibri-factory-control.service, verify Fabric API routes, and rollback immediately if health or route checks fail. Do not touch Telegram.",
+  "context": {
+    "owner": "Vladislav",
+    "repository": "rd8r8bkd9m-tech/kolibri-ai-platform",
+    "current_main": "d19d2f73512ef73311d35b5e97a79db59e4ea522",
+    "merged_pr": 103,
+    "merged_pr_title": "p0: repair Factory Control runtime import path",
+    "previous_failed_runtime_task": "P0_DEPLOY_FACTORY_CONTROL_AND_TELEGRAM_GATEWAY_CANARY_REPAIR_2026_07_02",
+    "required_preflight": "scripts/preflight-factory-control-runtime.sh",
+    "previous_rollback_backup": "/var/backups/kolibri-runtime/20260701T2130Z/kolibri-factory-control.before"
+  },
+  "constraints": {
+    "mac_thin_client_only": true,
+    "server_execution_required": true,
+    "runtime_deploy_allowed": true,
+    "product_code_modification_forbidden": true,
+    "test_code_modification_forbidden": true,
+    "ci_modification_forbidden": true,
+    "destructive_git_commands_forbidden": true,
+    "git_reset_forbidden": true,
+    "git_clean_forbidden": true,
+    "force_push_forbidden": true,
+    "push_to_main_forbidden": true,
+    "merge_forbidden": true,
+    "dirty_runtime_checkout_forbidden": true,
+    "use_safe_deploy_worktree_or_clean_runtime_repo_only": true,
+    "backup_before_runtime_change_required": true,
+    "rollback_on_failed_health_required": true,
+    "telegram_receiver_mutation_forbidden": true,
+    "telegram_live_message_send_forbidden": true,
+    "telegram_service_action_forbidden": true,
+    "secrets_redaction_required": true,
+    "do_not_print_env": true,
+    "do_not_print_keys_tokens_cookies_or_credentials": true,
+    "allowed_service_actions": [
+      "status",
+      "show",
+      "cat",
+      "restart_existing_unit_after_preflight"
+    ],
+    "allowed_service_units": [
+      "kolibri-factory-control.service"
+    ],
+    "owner_facing_agent_names_must_be_russian": true,
+    "exact_run_artifacts_required": true
+  },
+  "write_scope": [
+    "docs/agent/runs/2026-07-02-p0-factory-control-post-merge-deploy-canary/**"
+  ],
+  "required_outputs": [
+    "docs/agent/runs/2026-07-02-p0-factory-control-post-merge-deploy-canary/PLAN.md",
+    "docs/agent/runs/2026-07-02-p0-factory-control-post-merge-deploy-canary/ACTIONS.md",
+    "docs/agent/runs/2026-07-02-p0-factory-control-post-merge-deploy-canary/TESTS.md",
+    "docs/agent/runs/2026-07-02-p0-factory-control-post-merge-deploy-canary/RESULT.md",
+    "docs/agent/runs/2026-07-02-p0-factory-control-post-merge-deploy-canary/NEXT.md",
+    "docs/agent/runs/2026-07-02-p0-factory-control-post-merge-deploy-canary/DEPLOY_CANARY_MATRIX.md",
+    "docs/agent/runs/2026-07-02-p0-factory-control-post-merge-deploy-canary/ROLLBACK.md"
+  ],
+  "runtime_steps": [
+    "Identify the authoritative deployed repo path without modifying dirty runtime checkout.",
+    "Ensure the deployed repo or safe deploy worktree is at current origin/main d19d2f73512ef73311d35b5e97a79db59e4ea522.",
+    "Run scripts/preflight-factory-control-runtime.sh against the exact deployed repo path.",
+    "If preflight fails, do not restart; classify exact blocker.",
+    "Backup current systemd unit and Factory Control runtime files.",
+    "Apply the merged unit/runtime contract only after preflight passes.",
+    "Restart only kolibri-factory-control.service.",
+    "Verify /health, /v1/health, /v1/fabric/health, /v1/fabric/routes, /v1/fleet/nodes, and /v1/models.",
+    "Rollback immediately if service is not active/running or any required route fails.",
+    "Do not touch Telegram service, webhook, getUpdates, messages, token, or receiver ownership."
+  ],
+  "verification_commands": [
+    "git diff --check",
+    "test -f docs/agent/runs/2026-07-02-p0-factory-control-post-merge-deploy-canary/PLAN.md",
+    "test -f docs/agent/runs/2026-07-02-p0-factory-control-post-merge-deploy-canary/ACTIONS.md",
+    "test -f docs/agent/runs/2026-07-02-p0-factory-control-post-merge-deploy-canary/TESTS.md",
+    "test -f docs/agent/runs/2026-07-02-p0-factory-control-post-merge-deploy-canary/RESULT.md",
+    "test -f docs/agent/runs/2026-07-02-p0-factory-control-post-merge-deploy-canary/NEXT.md",
+    "test -f docs/agent/runs/2026-07-02-p0-factory-control-post-merge-deploy-canary/DEPLOY_CANARY_MATRIX.md",
+    "test -f docs/agent/runs/2026-07-02-p0-factory-control-post-merge-deploy-canary/ROLLBACK.md"
+  ],
+  "acceptance": [
+    "Remote execution happens on a server/control node, not local Mac.",
+    "Preflight runs on the actual target repo path before any restart.",
+    "Only kolibri-factory-control.service is restarted, and only after preflight passes.",
+    "Telegram is not touched.",
+    "Backup and rollback paths are recorded.",
+    "Routes /health, /v1/health, /v1/fabric/health, /v1/fabric/routes, /v1/fleet/nodes, and /v1/models are verified or rollback is applied.",
+    "No product code, tests, CI files, main branch, secrets, or Telegram state are modified.",
+    "Final result includes status, node, service state, route matrix, rollback state, blockers, and next exact task."
+  ],
+  "source": {
+    "kind": "mac_thin_client_dispatcher",
+    "owner": "Vladislav",
+    "created_at": "2026-07-02T00:50:00+03:00",
+    "local_ledger": "docs/agent/dispatcher/DISPATCH_LOG.md"
+  }
+}
+

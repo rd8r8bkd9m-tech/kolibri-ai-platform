@@ -1,0 +1,28 @@
+{
+  "task_id": "P0_PR85_PROMPT3_FABRIC_API_SURFACE_REPAIR_2026_07_01",
+  "status": "implemented_verified",
+  "node": "kolibri",
+  "agent_display_name": "Сергей — Fabric API Engineer",
+  "branch": "p0/api-first-full-control-fabric-2026-07-01",
+  "base_head_before_repair": "9690361f02addeff37771c52fd37878aef455e13",
+  "repair_commit": "see_git_commit_containing_this_artifact",
+  "push_performed": false,
+  "blockers": [],
+  "artifact_paths": [
+    "docs/agent/runs/2026-07-01-p0-pr85-prompt3-fabric-api-surface-repair/PLAN.md",
+    "docs/agent/runs/2026-07-01-p0-pr85-prompt3-fabric-api-surface-repair/ACTIONS.md",
+    "docs/agent/runs/2026-07-01-p0-pr85-prompt3-fabric-api-surface-repair/TESTS.md",
+    "docs/agent/runs/2026-07-01-p0-pr85-prompt3-fabric-api-surface-repair/RESULT.md",
+    "docs/agent/runs/2026-07-01-p0-pr85-prompt3-fabric-api-surface-repair/NEXT.md",
+    "docs/agent/runs/2026-07-01-p0-pr85-prompt3-fabric-api-surface-repair/README.md",
+    "docs/agent/runs/2026-07-01-p0-pr85-prompt3-fabric-api-surface-repair/result.json",
+    "docs/agent/runs/2026-07-01-p0-pr85-prompt3-fabric-api-surface-repair/artifact-manifest.json"
+  ],
+  "tests": [
+    "python3 -m pytest tests/test_fabric_control.py tests/test_prompt3_fabric_api_surface.py -q -> 11 passed",
+    "/tmp/kolibri-p0-pr85-prompt3-venv/bin/python -m pytest -q -> 71 passed, 1 warning",
+    "python3 -m py_compile ops/factory_control.py -> passed",
+    "git diff --check -> passed"
+  ],
+  "next_exact_task": "P0_PR85_RELEASE_GATE_AFTER_PROMPT3_SURFACE_REPAIR_2026_07_01"
+}

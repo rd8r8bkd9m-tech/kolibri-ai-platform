@@ -1,0 +1,60 @@
+{
+  "task_id": "2026-06-30-full-project-scan-for-chatgpt",
+  "idempotency_key": "2026-06-30-full-project-scan-for-chatgpt",
+  "kind": "owner_remote_task",
+  "priority": "P0",
+  "required_capability": "generic_implementation",
+  "max_retries": 1,
+  "goal": "Run a full read-only Kolibri project scan for ChatGPT context on a server node through Control Plane, not on Mac.",
+  "objective": "Create docs/agent/intelligence/2026-06-30-full-project-scan-for-chatgpt/ with PROJECT_DIGEST_FOR_CHATGPT.md, BRANCH_MATRIX.md, DIRTY_TREE_REPORT.md, SUBSYSTEM_MAP.md, CI_GITHUB_REPORT.md, RISK_REGISTER.md, NEXT_TASKS.md. The scan must be read-only and server-side. Analyze current working tree and dirty diff, all local branches, all remote branches, main, primary-candidate, qjns, all worktrees, GitHub remotes, PR/CI/GitHub Actions if accessible, docs, README, scripts, Docker/Compose/Kubernetes/systemd/bootstrap, Control Plane, Agent Host, FormulaLM, Telegram reports, deterministic estimates, billing, frontend/PWA, API/backend, Rust/Python/Node parts, and AI/LLM provider stack including OpenAI-compatible, Kimi, MiMo/Mimo, Yandex, Google/Gemini, Ollama, vLLM, LiteLLM, MCP, RAG, embeddings, image generation. Use temp mirror clone or safe worktree for branch analysis. Do not checkout branches in dirty worktree. Do not fix anything. Do not modify product code. Do not push/reset/clean/force-push. Redact secrets. If GitHub/clone/auth/network fails, classify the reason and continue with available local refs. The main artifact PROJECT_DIGEST_FOR_CHATGPT.md must be Russian and include the full requested 30-point project context plus the YAML block specified by the owner.",
+  "source": {
+    "requested_by": "Vladislav",
+    "origin": "mac-thin-client-control-plane-submission-attempt",
+    "local_handoff_dir": "docs/agent/intelligence/2026-06-30-full-project-scan-for-chatgpt",
+    "submission_status_path": "docs/agent/intelligence/2026-06-30-full-project-scan-for-chatgpt/SUBMISSION_STATUS.md"
+  },
+  "constraints": {
+    "autopilot_level": "A1/A2",
+    "server_execution_required": true,
+    "mac_thin_client_only": true,
+    "read_only": true,
+    "code_implementation_forbidden": true,
+    "product_code_modification_forbidden": true,
+    "secrets_redaction_required": true,
+    "destructive_git_commands_forbidden": true,
+    "git_reset_forbidden": true,
+    "git_clean_forbidden": true,
+    "git_push_forbidden": true,
+    "force_push_forbidden": true,
+    "dirty_worktree_checkout_forbidden": true,
+    "use_temp_mirror_or_safe_worktree_for_branch_analysis": true,
+    "continue_with_local_refs_if_remote_access_fails": true
+  },
+  "required_outputs": [
+    "docs/agent/intelligence/2026-06-30-full-project-scan-for-chatgpt/PROJECT_DIGEST_FOR_CHATGPT.md",
+    "docs/agent/intelligence/2026-06-30-full-project-scan-for-chatgpt/BRANCH_MATRIX.md",
+    "docs/agent/intelligence/2026-06-30-full-project-scan-for-chatgpt/DIRTY_TREE_REPORT.md",
+    "docs/agent/intelligence/2026-06-30-full-project-scan-for-chatgpt/SUBSYSTEM_MAP.md",
+    "docs/agent/intelligence/2026-06-30-full-project-scan-for-chatgpt/CI_GITHUB_REPORT.md",
+    "docs/agent/intelligence/2026-06-30-full-project-scan-for-chatgpt/RISK_REGISTER.md",
+    "docs/agent/intelligence/2026-06-30-full-project-scan-for-chatgpt/NEXT_TASKS.md"
+  ],
+  "acceptance": [
+    "Executor confirms it is not macOS before scanning.",
+    "Scan runs on a server node through Control Plane.",
+    "No product code is modified.",
+    "No destructive git command is run.",
+    "No branch checkout occurs in a dirty worktree.",
+    "Branch analysis uses temp mirror clone or safe worktree.",
+    "Secrets, tokens, keys, cookies, credentials and env values are redacted.",
+    "GitHub/clone/auth/network failures are classified and local refs are used as fallback.",
+    "PROJECT_DIGEST_FOR_CHATGPT.md is written in Russian and includes the owner-requested YAML block.",
+    "Final task result includes status, server node, artifact directory, digest path, branch count, dirty tree status, top blockers, next recommended task, and the full digest text."
+  ],
+  "digest_yaml_required": {
+    "project": "Kolibri Factory",
+    "task_id": "2026-06-30-full-project-scan-for-chatgpt",
+    "thin_client_invariant": true,
+    "server_execution_required": true
+  }
+}

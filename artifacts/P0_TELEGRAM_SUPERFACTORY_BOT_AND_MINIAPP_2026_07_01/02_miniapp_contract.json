@@ -1,0 +1,11 @@
+{
+  "artifact": "miniapp_contract",
+  "entrypoint": "frontend/public/telegram-miniapp.html",
+  "auth": {
+    "header": "X-Telegram-Init-Data",
+    "validation": "Telegram Web App initData HMAC-SHA256",
+    "authorization": ["TELEGRAM_OWNER_IDS", "TELEGRAM_ADMIN_IDS"]
+  },
+  "states": ["loading", "error", "empty", "success"],
+  "visual_baseline": "Kolibri glass panel, sky accent and compact operational dashboard"
+}

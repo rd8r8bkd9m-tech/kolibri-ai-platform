@@ -1,0 +1,25 @@
+{
+  "artifact_paths": [
+    "docs/superfactory/P0_API_FIRST_FULL_CONTROL_FABRIC_2026_07_01.md",
+    "docs/superfactory/P0_API_FIRST_FULL_CONTROL_FABRIC_FINALIZE_2026_07_01.md",
+    "docs/superfactory/P0_API_FIRST_FULL_CONTROL_FABRIC_CONTRACT_ALIGN_2026_07_01.md",
+    "docs/agent/runs/2026-07-01-p0-api-first-full-control-fabric/README.md",
+    "docs/agent/runs/2026-07-01-p0-api-first-full-control-fabric/VERIFICATION.md",
+    "docs/agent/runs/2026-07-01-p0-api-first-full-control-fabric/artifact-manifest.json",
+    "docs/agent/runs/2026-07-01-p0-api-first-full-control-fabric/result.json"
+  ],
+  "blockers": [],
+  "branch": "p0/api-first-full-control-fabric-2026-07-01",
+  "commit": "reported-after-commit-and-push",
+  "next_action": "Push docs-only artifact alignment to existing PR #85 branch without force.",
+  "node": "kolibri",
+  "pr_url": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/85",
+  "russian_agent_display_name": "Инженер",
+  "task_id": "P0_API_FIRST_FULL_CONTROL_FABRIC_CONTRACT_ALIGN_2026_07_01",
+  "tests": [
+    "pass: required artifact path checks",
+    "pass: git diff --name-only origin/p0/api-first-full-control-fabric-2026-07-01 -- ':!docs/**' produced no product-code paths",
+    "pass: /tmp/kolibri-p0-fabric-venv/bin/python -m pytest tests/test_fabric_control.py -q -> 5 passed in 0.12s",
+    "pass: /tmp/kolibri-p0-fabric-venv/bin/python -m pytest -q -> 65 passed, 1 warning in 4.13s"
+  ]
+}

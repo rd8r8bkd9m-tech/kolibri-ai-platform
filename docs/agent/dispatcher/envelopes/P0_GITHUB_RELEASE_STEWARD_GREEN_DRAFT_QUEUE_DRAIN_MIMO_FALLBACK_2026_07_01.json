@@ -1,0 +1,91 @@
+{
+  "task_id": "P0_GITHUB_RELEASE_STEWARD_GREEN_DRAFT_QUEUE_DRAIN_MIMO_FALLBACK_2026_07_01",
+  "idempotency_key": "P0_GITHUB_RELEASE_STEWARD_GREEN_DRAFT_QUEUE_DRAIN_MIMO_FALLBACK_2026_07_01",
+  "kind": "owner_remote_task",
+  "priority": "P0",
+  "required_capability": "generic_implementation",
+  "runner": "mimo",
+  "agent_type": "github_release_steward",
+  "agent_display_name": "Ирина - GitHub Release Steward",
+  "target_node": "mesh-agent-01",
+  "target_node_pool": "online_mimo_review_fallback",
+  "branch": "agent/P0_GITHUB_RELEASE_STEWARD_GREEN_DRAFT_QUEUE_DRAIN_MIMO_FALLBACK_2026_07_01/review",
+  "base_ref": "origin/codex/factory-dispatcher-ledger-2026-07-01",
+  "max_retries": 1,
+  "goal": "MIMO fallback release-steward pass for green draft PRs after main Codex auth failed.",
+  "objective": "Using the provided GitHub snapshot and any accessible repository context, classify green draft PRs #83, #85, #88, #89, #91, #92, #96, and #97. Produce exact release queue artifacts, owner merge batch proposal, release order, and post-merge canary plan. Do not implement product code and do not mark ready, merge, approve, close, or push to main.",
+  "context": {
+    "owner": "Vladislav",
+    "repository": "rd8r8bkd9m-tech/kolibri-ai-platform",
+    "fallback_reason": "main Codex runner failed with token_expired / refresh token already used; this task uses MIMO on mesh-agent-01 instead.",
+    "current_main": "a0d34d6d97a1a2af90463a1205649a24b4a178d7",
+    "open_prs": 38,
+    "draft_prs": 25,
+    "ready_prs": 13,
+    "priority_snapshot": [
+      {"pr": 83, "draft": true, "mergeable": true, "state": "clean", "head": "3560af06", "checks": "ci:success", "title": "[p0] Harden Agent Host runner contract"},
+      {"pr": 85, "draft": true, "mergeable": true, "state": "clean", "head": "30b7e5dc", "checks": "ci:success", "title": "Finalize API-first full-control Fabric"},
+      {"pr": 88, "draft": true, "mergeable": true, "state": "clean", "head": "d4559722", "checks": "ci:success,ci:success", "title": "docs: add factory dispatcher ledger"},
+      {"pr": 89, "draft": true, "mergeable": true, "state": "clean", "head": "e14aae21", "checks": "ci:success", "title": "P0: Telegram Superfactory bot and Mini App command layer"},
+      {"pr": 91, "draft": true, "mergeable": true, "state": "clean", "head": "35054449", "checks": "ci:success", "title": "Fix MIMO runner output and auth classification"},
+      {"pr": 92, "draft": true, "mergeable": true, "state": "clean", "head": "5a33c3fc", "checks": "ci:success", "title": "Document fleet role and capability inventory"},
+      {"pr": 96, "draft": true, "mergeable": true, "state": "clean", "head": "42625cad", "checks": "ci:success", "title": "[codex] Enforce read-only Agent Host permission packs"},
+      {"pr": 97, "draft": true, "mergeable": true, "state": "clean", "head": "f542c5c7", "checks": "ci:success", "title": "[codex] Classify stale factory node heartbeats"}
+    ]
+  },
+  "constraints": {
+    "mac_implementation_forbidden": true,
+    "server_execution_required": true,
+    "review_only": true,
+    "product_code_modification_forbidden": true,
+    "secrets_redaction_required": true,
+    "destructive_git_commands_forbidden": true,
+    "git_reset_forbidden": true,
+    "git_clean_forbidden": true,
+    "force_push_forbidden": true,
+    "push_to_main_forbidden": true,
+    "mark_ready_for_review_forbidden": true,
+    "merge_forbidden": true,
+    "approval_forbidden": true,
+    "close_pr_forbidden": true,
+    "use_clean_remote_worktree": true,
+    "do_not_modify_dirty_runtime_repo": true
+  },
+  "write_scope": [
+    "docs/agent/runs/2026-07-01-p0-github-release-steward-green-draft-queue-drain-mimo-fallback/**"
+  ],
+  "required_outputs": [
+    "docs/agent/runs/2026-07-01-p0-github-release-steward-green-draft-queue-drain-mimo-fallback/PLAN.md",
+    "docs/agent/runs/2026-07-01-p0-github-release-steward-green-draft-queue-drain-mimo-fallback/ACTIONS.md",
+    "docs/agent/runs/2026-07-01-p0-github-release-steward-green-draft-queue-drain-mimo-fallback/TESTS.md",
+    "docs/agent/runs/2026-07-01-p0-github-release-steward-green-draft-queue-drain-mimo-fallback/RESULT.md",
+    "docs/agent/runs/2026-07-01-p0-github-release-steward-green-draft-queue-drain-mimo-fallback/NEXT.md",
+    "docs/agent/runs/2026-07-01-p0-github-release-steward-green-draft-queue-drain-mimo-fallback/GREEN_DRAFT_PR_MATRIX.md",
+    "docs/agent/runs/2026-07-01-p0-github-release-steward-green-draft-queue-drain-mimo-fallback/RELEASE_TRAIN_ORDER.md",
+    "docs/agent/runs/2026-07-01-p0-github-release-steward-green-draft-queue-drain-mimo-fallback/OWNER_MERGE_BATCH_PROPOSAL.md",
+    "docs/agent/runs/2026-07-01-p0-github-release-steward-green-draft-queue-drain-mimo-fallback/POST_MERGE_CANARY_PLAN.md"
+  ],
+  "verification_commands": [
+    "python3 -m json.tool docs/agent/dispatcher/envelopes/P0_GITHUB_RELEASE_STEWARD_GREEN_DRAFT_QUEUE_DRAIN_MIMO_FALLBACK_2026_07_01.json >/dev/null",
+    "git diff --check",
+    "test -f docs/agent/runs/2026-07-01-p0-github-release-steward-green-draft-queue-drain-mimo-fallback/RESULT.md",
+    "test -f docs/agent/runs/2026-07-01-p0-github-release-steward-green-draft-queue-drain-mimo-fallback/GREEN_DRAFT_PR_MATRIX.md",
+    "test -f docs/agent/runs/2026-07-01-p0-github-release-steward-green-draft-queue-drain-mimo-fallback/RELEASE_TRAIN_ORDER.md",
+    "test -f docs/agent/runs/2026-07-01-p0-github-release-steward-green-draft-queue-drain-mimo-fallback/OWNER_MERGE_BATCH_PROPOSAL.md",
+    "test -f docs/agent/runs/2026-07-01-p0-github-release-steward-green-draft-queue-drain-mimo-fallback/POST_MERGE_CANARY_PLAN.md"
+  ],
+  "acceptance": [
+    "Remote execution happens on mesh-agent-01 through MIMO, not local Mac.",
+    "The task creates exact release-steward artifacts under the MIMO fallback run directory.",
+    "The task classifies each priority PR and proposes a safe release order.",
+    "No product code is modified.",
+    "No PR is marked ready, approved, merged, closed, force-pushed, or pushed to main.",
+    "No secrets are printed."
+  ],
+  "source": {
+    "kind": "mac_thin_client_dispatcher",
+    "owner": "Vladislav",
+    "created_at": "2026-07-01T20:23:00Z",
+    "local_ledger": "docs/agent/dispatcher/DISPATCH_LOG.md"
+  }
+}

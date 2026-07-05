@@ -1,0 +1,140 @@
+{
+  "task_id": "P0_TELEGRAM_AUTH_PR90_CANONICAL_ARTIFACTS_AND_ENV_VERIFIER_2026_07_01",
+  "idempotency_key": "mac-dispatcher:P0_TELEGRAM_AUTH_PR90_CANONICAL_ARTIFACTS_AND_ENV_VERIFIER_2026_07_01",
+  "kind": "owner_remote_task",
+  "required_capability": "generic_implementation",
+  "runner": "codex",
+  "agent_type": "telegram_auth_pr90_artifact_env_verifier",
+  "agent_display_name": "Олег — Telegram Auth Release Verifier",
+  "target_node": "primary-candidate",
+  "target_node_pool": "healthy server implementation nodes",
+  "preferred_nodes": [
+    "primary-candidate",
+    "home"
+  ],
+  "allowed_nodes": [
+    "primary-candidate",
+    "home"
+  ],
+  "avoid_nodes": [
+    "main",
+    "qjns",
+    "uiap"
+  ],
+  "branch": "p0/telegram-miniapp-owner-auth-contract-2026-07-01",
+  "base_branch": "p0/telegram-miniapp-owner-auth-contract-2026-07-01",
+  "base_ref": "origin/p0/telegram-miniapp-owner-auth-contract-2026-07-01",
+  "start_commit": "378b19db9ca2b509d140ab241a67268f291b4c45",
+  "related_pr": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/90",
+  "max_retries": 1,
+  "create_review_on_complete": true,
+  "objective": "Finalize PR #90 contract only. Add exact canonical run artifacts PLAN.md, ACTIONS.md, TESTS.md, RESULT.md and NEXT.md for the Telegram Mini App owner-auth branch, preserve existing backend/test implementation, verify the root auth test in a temporary dependency-satisfied backend test environment, push only the PR #90 branch, and report CI/PR status. Do not change frontend, ops, live Telegram runtime, webhook, menu, payments, Business, Guest Mode or Bot-to-Bot behavior.",
+  "constraints": {
+    "mac_thin_client_only": true,
+    "server_execution_required": true,
+    "product_code_changes_allowed_on_server_branch_only": true,
+    "destructive_git_commands_forbidden": true,
+    "dirty_worktree_checkout_forbidden": true,
+    "force_push_forbidden": true,
+    "push_to_main_forbidden": true,
+    "git_push_allowed_only_to_task_branch": true,
+    "use_temp_mirror_or_safe_worktree_for_branch_analysis": true,
+    "frontend_changes_forbidden": true,
+    "ops_changes_forbidden": true,
+    "runtime_service_changes_forbidden": true,
+    "live_telegram_mutation_forbidden": true,
+    "telegram_getupdates_forbidden": true,
+    "telegram_webhook_changes_forbidden": true,
+    "telegram_command_menu_changes_forbidden": true,
+    "telegram_token_printing_forbidden": true,
+    "owner_chat_id_printing_forbidden": true,
+    "private_message_printing_forbidden": true,
+    "secrets_redaction_required": true,
+    "task_mutation_api_forbidden": true,
+    "money_payment_bank_tax_actions_forbidden": true,
+    "business_guest_bot_bot_to_bot_forbidden": true,
+    "exact_run_artifacts_required": true,
+    "owner_facing_agent_names_must_be_russian": true
+  },
+  "known_evidence": {
+    "source_tasks": [
+      "P0_TELEGRAM_MINIAPP_OWNER_AUTH_CONTRACT_2026_07_01",
+      "P0_TELEGRAM_MINIAPP_OWNER_AUTH_VERIFIER_REPAIR_2026_07_01"
+    ],
+    "current_branch_head": "378b19db9ca2b509d140ab241a67268f291b4c45",
+    "draft_pr": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/pull/90",
+    "useful_commits": [
+      "3d221079 Add Telegram Mini App owner auth contract",
+      "8c256d2b Repair Telegram Mini App verifier contract",
+      "378b19db Record Telegram verifier repair PR"
+    ],
+    "remaining_blockers": [
+      "Control Plane verifier failed because system Python lacks fastapi from backend/requirements.txt.",
+      "Branch contains docs/agent/runs/.../01_scope.txt through 05_remote_result.json, but canonical completion artifacts must be PLAN.md, ACTIONS.md, TESTS.md, RESULT.md and NEXT.md."
+    ],
+    "verified_useful_tests": [
+      "python3 -m pytest tests/test_telegram_gateway.py -q -> 31 passed on system Python",
+      ".venv/bin/python -m pytest tests/test_telegram_miniapp_auth.py -q -> 8 passed after installing backend/requirements.txt and pytest",
+      ".venv/bin/python -m pytest tests/test_telegram_gateway.py -q -> 31 passed after installing backend/requirements.txt and pytest"
+    ]
+  },
+  "read_first": [
+    "docs/agent/runs/2026-07-01-p0-telegram-miniapp-owner-auth-contract/01_scope.txt",
+    "docs/agent/runs/2026-07-01-p0-telegram-miniapp-owner-auth-contract/02_contract.txt",
+    "docs/agent/runs/2026-07-01-p0-telegram-miniapp-owner-auth-contract/03_tests.txt",
+    "docs/agent/runs/2026-07-01-p0-telegram-miniapp-owner-auth-contract/04_redaction.txt",
+    "docs/agent/runs/2026-07-01-p0-telegram-miniapp-owner-auth-contract/05_remote_result.json",
+    "tests/test_telegram_miniapp_auth.py",
+    "backend/tests/test_telegram_miniapp_auth.py",
+    "backend/telegram_miniapp_auth.py",
+    "backend/requirements.txt"
+  ],
+  "write_scope": [
+    "docs/agent/runs/2026-07-01-p0-telegram-miniapp-owner-auth-contract/**"
+  ],
+  "forbidden_write_scope": [
+    "backend/**",
+    "tests/**",
+    "frontend/**",
+    "ops/**",
+    "infra/**",
+    ".github/**",
+    "docs/superfactory/**",
+    "docs/agent/dispatcher/**"
+  ],
+  "required_behavior": [
+    "Add exact canonical artifacts PLAN.md, ACTIONS.md, TESTS.md, RESULT.md and NEXT.md under docs/agent/runs/2026-07-01-p0-telegram-miniapp-owner-auth-contract/.",
+    "Do not remove the existing numbered docs unless there is a clear reason; canonical aliases may summarize or point to them.",
+    "Do not change backend or test implementation in this task; this is docs/artifact and verification only.",
+    "Run a dependency-satisfied verifier using a temporary ignored virtualenv or equivalent backend test environment, then remove the environment before commit.",
+    "Record the system Python dependency blocker honestly: system Python currently lacks fastapi, so raw python3 verifier is not authoritative for backend tests on this node.",
+    "Push only branch p0/telegram-miniapp-owner-auth-contract-2026-07-01 with normal non-force push.",
+    "Report PR #90 URL, branch head, tests, blockers and next task."
+  ],
+  "verification_commands": [
+    "git diff --check",
+    "test -f docs/agent/runs/2026-07-01-p0-telegram-miniapp-owner-auth-contract/PLAN.md",
+    "test -f docs/agent/runs/2026-07-01-p0-telegram-miniapp-owner-auth-contract/ACTIONS.md",
+    "test -f docs/agent/runs/2026-07-01-p0-telegram-miniapp-owner-auth-contract/TESTS.md",
+    "test -f docs/agent/runs/2026-07-01-p0-telegram-miniapp-owner-auth-contract/RESULT.md",
+    "test -f docs/agent/runs/2026-07-01-p0-telegram-miniapp-owner-auth-contract/NEXT.md",
+    "python3 -m venv .verify-venv; .verify-venv/bin/python -m pip install -q -r backend/requirements.txt pytest && .verify-venv/bin/python -m pytest tests/test_telegram_miniapp_auth.py -q && .verify-venv/bin/python -m pytest tests/test_telegram_gateway.py -q; rc=$?; rm -rf .verify-venv; exit $rc",
+    "test ! -d .verify-venv",
+    "git diff --name-only 378b19db9ca2b509d140ab241a67268f291b4c45..HEAD | grep -E '^(backend/|tests/|frontend/|ops/|infra/|\\.github/|docs/superfactory/|docs/agent/dispatcher/)' && exit 1 || true",
+    "rg --no-ignore -n '[0-9]{6,}:[A-Za-z0-9_-]{20,}|[A-Za-z0-9_]*(TOKEN|SECRET|PASSWORD|COOKIE|API_KEY|CHAT_ID)=[^ ]+' docs/agent/runs/2026-07-01-p0-telegram-miniapp-owner-auth-contract && exit 1 || true"
+  ],
+  "acceptance": [
+    "PR #90 branch contains exact PLAN.md, ACTIONS.md, TESTS.md, RESULT.md and NEXT.md artifacts.",
+    "No backend, tests, frontend, ops, runtime service, webhook, live receiver, command menu, payment, Business, Guest Mode or Bot-to-Bot files are changed by this task.",
+    "Dependency-satisfied root verifier test passes in temporary backend test environment and the environment is removed before commit.",
+    "System Python dependency gap is recorded as a server test-environment blocker, not hidden.",
+    "Branch p0/telegram-miniapp-owner-auth-contract-2026-07-01 is pushed normally; no push to main and no force push.",
+    "Remote result reports task_id, node, Russian agent display name, PR #90 URL, branch head, tests, blockers and next remote dispatch command."
+  ],
+  "source": {
+    "kind": "mac_thin_client_dispatcher",
+    "owner": "Vladislav",
+    "created_at": "2026-07-01T07:04:00Z",
+    "local_ledger": "docs/agent/dispatcher/DISPATCH_LOG.md"
+  }
+}

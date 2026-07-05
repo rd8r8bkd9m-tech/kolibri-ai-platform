@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -17,10 +18,12 @@ def test_control_plane_v1_url_accepts_root_and_v1(monkeypatch):
 
 
 def test_queue_size_falls_back_to_health_payload_when_tasks_are_skipped():
+    now = datetime.now(timezone.utc)
     status = build_factory_status(
-        {"nodes": [{"node_id": "primary-candidate", "health": "online", "capabilities": ["primary"]}]},
+        {"nodes": [{"node_id": "primary-candidate", "health": "online", "heartbeat_at": (now - timedelta(seconds=2)).isoformat(), "capabilities": ["primary"]}]},
         {"tasks": []},
-        {"status": "ok", "queue": 7, "queue_backend": "redis"},
+        {"status": "ok", "queue": 7, "queue_backend": "redis", "time": now.isoformat()},
     )
     assert status["queue_size"] == 7
     assert status["online_nodes"] == 1
+    assert status["node_freshness"]["fresh"] == 1
