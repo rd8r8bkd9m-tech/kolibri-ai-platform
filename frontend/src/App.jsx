@@ -6,8 +6,9 @@ import "./App.css"
 import { KolibriBird } from "./components/KolibriBird"
 
 const IS_LOCAL = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
-const API_BASE = IS_LOCAL ? `http://${window.location.hostname}:8000` : ""
-const WS_HOST = IS_LOCAL ? `${window.location.hostname}:8000` : window.location.host
+const IS_GITHUB_PAGES = window.location.hostname.includes("github.io")
+const API_BASE = IS_LOCAL ? `http://${window.location.hostname}:8000` : IS_GITHUB_PAGES ? "https://kolibriai.ru" : ""
+const WS_HOST = IS_LOCAL ? `${window.location.hostname}:8000` : IS_GITHUB_PAGES ? "kolibriai.ru" : window.location.host
 
 class ErrorBoundary extends Component {
   constructor(props) { super(props); this.state = { error: null } }
