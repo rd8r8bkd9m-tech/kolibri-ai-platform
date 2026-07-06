@@ -1,0 +1,21 @@
+{
+  "productName": "Kolibri OS",
+  "identifier": "com.kolibri.os",
+  "build": {
+    "frontendDist": "../frontend/dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "cd ../frontend && npm run dev",
+    "beforeBuildCommand": "cd ../frontend && npm run build"
+  },
+  "app": {
+    "title": "Kolibri OS",
+    "windows": [
+      {
+        "title": "Kolibri OS — Fleet Dashboard",
+        "width": 1200,
+        "height": 800,
+        "resizable": true
+      }
+    ]
+  }
+}
