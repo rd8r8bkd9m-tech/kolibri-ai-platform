@@ -1,0 +1,12 @@
+[Unit]
+Description=Kolibri distributed mesh registry
+After=network-online.target wg-quick@wg-kolibri.service
+Wants=network-online.target
+Requires=wg-quick@wg-kolibri.service
+[Service]
+ExecStart=/usr/bin/python3 /usr/local/lib/kolibri/mesh_registry.py
+Restart=always
+RestartSec=3
+Environment=KOLIBRI_MESH_REGISTRY_PORT=9291
+[Install]
+WantedBy=multi-user.target

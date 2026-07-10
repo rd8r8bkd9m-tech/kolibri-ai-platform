@@ -1,0 +1,15 @@
+[Unit]
+Description=Kolibri trusted mesh node policy
+After=network-online.target wg-quick@wg-kolibri.service
+Wants=network-online.target
+Requires=wg-quick@wg-kolibri.service
+PartOf=wg-quick@wg-kolibri.service
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/kolibri-mesh-node-policy apply
+ExecStop=/usr/local/sbin/kolibri-mesh-node-policy remove
+Environment=KOLIBRI_MESH_IF=wg-kolibri
+Environment=KOLIBRI_UPLINK_IF=eth0
+[Install]
+WantedBy=multi-user.target

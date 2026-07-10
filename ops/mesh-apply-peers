@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+IF=${KOLIBRI_MESH_IF:-wg-kolibri}
+for f in /etc/wireguard/kolibri-peers.d/*.conf; do
+  [ -f "$f" ] || continue
+  pub=$(awk -F' = ' '/^PublicKey = /{print $2; exit}' "$f")
+  ip=$(awk -F' = ' '/^AllowedIPs = /{print $2; exit}' "$f" | cut -d/ -f1)
+  endpoint=$(awk -F' = ' '/^Endpoint = /{print $2; exit}' "$f")
+  [ -n "$pub" ] && [ -n "$ip" ] || continue
+  if [ -n "$endpoint" ]; then
+    wg set "$IF" peer "$pub" endpoint "$endpoint" allowed-ips "$ip/32" persistent-keepalive 25
+  else
+    wg set "$IF" peer "$pub" allowed-ips "$ip/32" persistent-keepalive 25
+  fi
+done
