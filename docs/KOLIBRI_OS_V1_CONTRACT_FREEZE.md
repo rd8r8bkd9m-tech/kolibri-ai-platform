@@ -28,6 +28,12 @@ and the Rust Control Plane. It does not claim that a production rollout or a
    compatibility aliases until two release waves have consumed the V1 surface.
 9. The known-good Mac-to-fleet bootstrap and mesh are external infrastructure
    invariants. Product rollout must not rewrite that network configuration.
+10. `home` is the only canonical Control Plane identity. `main`, `primary`,
+    `primary-candidate` and historical Control Plane endpoints are never
+    scheduler or release fallbacks; healthy instances may participate only as
+    workers. Runtime endpoints are resolved from the signed fleet manifest or
+    service environment. Provider fallback is an Execution Plane concern and
+    must never change Control Plane identity.
 
 The machine-readable definitions are in
 `contracts/kolibri-os-v1/domain.schema.json`; the frozen public HTTP surface is

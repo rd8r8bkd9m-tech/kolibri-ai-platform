@@ -9,6 +9,8 @@ KolibriAI Platform is an AI factory control surface: chat, provider routing, fac
 Calibri V1 is the forward direction. In this branch, Calibri V1 means aligning the active Python/React runtime with the same rules as the Rust foundation:
 
 - API-first control plane;
+- one canonical Control Plane on `home`; legacy `main`/`primary` control
+  endpoints are not used as fallbacks;
 - worker agents through API contracts, not SSH;
 - traceable tasks, heartbeats, logs, artifacts, and approvals;
 - protected bootstrap, deploy, DNS, and secrets;
@@ -29,6 +31,7 @@ Do not treat the two worktrees as interchangeable. Merge or cherry-pick only aft
 | Backend API | `backend/` | active FastAPI runtime |
 | Frontend | `frontend/` | active React UI |
 | Factory control | `ops/factory_control.py` | active Redis-backed control sidecar |
+| Control Plane placement | `docs/CONTROL_PLANE_HOME_CANONICAL.md` | canonical Home-only identity and migration rules |
 | Agent host | `ops/agent_host.py` | active agent execution contract |
 | Telegram/Superfactory | `ops/telegram_superfactory.py`, `docs/telegram-superfactory.md` | owner command layer |
 | Fabric API docs | `docs/fabric-api-first-control.md` | current API-first operating doctrine |
