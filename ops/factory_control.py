@@ -542,6 +542,21 @@ def truth_gate_on_fail(task: dict, error_type: str, error: str) -> dict:
     return task
 
 
+def enforce_completion_truth_state(task: dict[str, Any], desired_state: str) -> dict[str, Any]:
+    """Prevent a terminal completion claim when its evidence is insufficient."""
+    verdict = (task.get("truth_gate") or {}).get("verdict")
+    if desired_state == STATE_COMPLETED and verdict != "true":
+        task["state"] = STATE_WAITING_REVIEW
+        task["error_type"] = "completion_not_verified"
+        task["error"] = "completion evidence did not pass the truth gate"
+    else:
+        task["state"] = desired_state
+        if desired_state == STATE_COMPLETED:
+            task["error_type"] = None
+            task["error"] = None
+    return task
+
+
 # ── Redis helpers ──────────────────────────────────────────────────────
 
 def get_json(redis_key: str, default: Any = None) -> Any:
@@ -1703,13 +1718,14 @@ class Handler(BaseHTTPRequestHandler):
                 result = body.get("result", body)
                 needs_review = task.get("envelope", {}).get("create_review_on_complete")
                 has_pr = bool(result.get("pull_request_url") or result.get("pr_url"))
-                task["state"] = STATE_COMPLETED if (not needs_review or has_pr) else STATE_WAITING_REVIEW
+                desired_state = STATE_COMPLETED if (not needs_review or has_pr) else STATE_WAITING_REVIEW
                 task["result"] = result
                 task["result_reference"] = body.get("result_reference") or result.get("result_path")
                 task["heartbeat_at"] = utc_now()
                 task["lease_until"] = None
                 # Truth gate: verify completion has evidence
                 task = truth_gate_on_complete(task, result)
+                task = enforce_completion_truth_state(task, desired_state)
                 save_task(task)
                 review_task = create_review_task(task, result) if has_pr else None
                 response(self, 200, {"task": task, "review_task": review_task})

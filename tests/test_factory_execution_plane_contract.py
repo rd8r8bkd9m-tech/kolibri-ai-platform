@@ -207,3 +207,17 @@ def test_lease_claim_and_attempt_fence_prevent_duplicate_or_late_writes(monkeypa
     assert control.lease_fence_error(task, {**valid, "attempt_id": "TASK-1-attempt-2"}) == "attempt_id_mismatch"
     assert control.lease_fence_error(task, {**valid, "node_id": "agent-03"}) == "lease_node_mismatch"
     assert control.lease_fence_error(task, {**valid, "agent_id": "other"}) == "lease_agent_mismatch"
+
+
+def test_unverified_completion_cannot_enter_terminal_completed_state():
+    control = load_module("factory_control_completion_truth_contract", ROOT / "ops" / "factory_control.py")
+
+    insufficient = {"task_id": "TASK-LOW", "truth_gate": {"verdict": "not_proven"}}
+    gated = control.enforce_completion_truth_state(insufficient, control.STATE_COMPLETED)
+    assert gated["state"] == control.STATE_WAITING_REVIEW
+    assert gated["error_type"] == "completion_not_verified"
+
+    verified = {"task_id": "TASK-OK", "truth_gate": {"verdict": "true"}, "error": "old"}
+    completed = control.enforce_completion_truth_state(verified, control.STATE_COMPLETED)
+    assert completed["state"] == control.STATE_COMPLETED
+    assert completed["error"] is None
