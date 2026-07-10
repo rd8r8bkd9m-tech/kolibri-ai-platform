@@ -106,6 +106,9 @@ BACKEND_TEST_ENV_KEYS = (
 )
 BACKEND_TEST_ENV_TYPES = {"backend_python", "python_backend"}
 SUPPORTED_AI_RUNNERS = {"api", "codex", "local_llm", "mimo"}
+MIMO_AUTO25_MODEL = "mimo/mimo-auto"
+MIMO_AUTO25_DISPLAY_NAME = "Mimo Auto 2.5"
+MIMO_AUTO25_CLI_CONTRACT = "mimo-auto25-no-user-auth-v1"
 RUNNER_AUTH_FAILURE_MARKERS = (
     "401",
     "403",
@@ -162,6 +165,45 @@ class PermissionContractError(RuntimeError):
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def mimo_auto25_runner_contract() -> dict[str, Any]:
+    """Return the public, non-secret Mimo runner contract advertised to Control Plane."""
+    return {
+        "provider": "mimo",
+        "model": MIMO_AUTO25_MODEL,
+        "display_name": MIMO_AUTO25_DISPLAY_NAME,
+        "model_version": "2.5",
+        "cli_contract": MIMO_AUTO25_CLI_CONTRACT,
+        "authorization_mode": "no_user_auth",
+        "user_authorization_required": False,
+        "permission_mode": "auto_approve_with_task_contract",
+        "output_format": "json",
+        "worktree_scoped": True,
+    }
+
+
+def mimo_auto25_command(executable: str, title: str, prompt: str, worktree: Path) -> tuple[list[str], str]:
+    """Build the canonical Mimo Auto 2.5 invocation without logging prompt or paths."""
+    command = [
+        executable,
+        "run",
+        "--format",
+        "json",
+        "--model",
+        MIMO_AUTO25_MODEL,
+        "--dangerously-skip-permissions",
+        "--dir",
+        str(worktree),
+        "--title",
+        title,
+        prompt,
+    ]
+    command_label = (
+        f"{executable} run --format json --model {MIMO_AUTO25_MODEL} "
+        f"--dangerously-skip-permissions --dir <task-worktree> --title {title} <prompt>"
+    )
+    return command, command_label
 
 
 def request(method: str, url: str, body: dict[str, Any] | None = None, timeout: int = 20) -> Any:
@@ -941,6 +983,8 @@ class AgentHost:
                 "path": path,
                 "checked_at": utc_now(),
             }
+            if runner == "mimo":
+                status[runner].update(mimo_auto25_runner_contract())
         return status
 
     def capabilities_with_runners(self) -> list[str]:
@@ -959,6 +1003,20 @@ class AgentHost:
             "error_type": error_type,
             "updated_at": utc_now(),
         })
+
+    def validated_mimo_worktree(self, worktree: Path) -> Path:
+        candidate = worktree.resolve()
+        if not candidate.is_dir() or not path_is_under(candidate, self.work_root):
+            raise RunnerExecutionError(
+                "runner_worktree_boundary_violation",
+                "mimo",
+                "mimo runner worktree is outside the Agent Host task root",
+                retry=False,
+            )
+        return candidate
+
+    def mimo_auto25_invocation(self, executable: str, title: str, prompt: str, worktree: Path) -> tuple[list[str], str]:
+        return mimo_auto25_command(executable, title, prompt, self.validated_mimo_worktree(worktree))
 
     def register(self) -> None:
         body = {
@@ -1330,8 +1388,7 @@ class AgentHost:
             command = [executable, "exec", "--json", "--skip-git-repo-check", "--sandbox", "danger-full-access", prompt]
             command_label = f"{executable} exec --json --skip-git-repo-check --sandbox danger-full-access <prompt>"
         else:
-            command = [executable, "run", "--format", "json", "--title", title, prompt]
-            command_label = f"{executable} run --format json --title {title} <prompt>"
+            command, command_label = self.mimo_auto25_invocation(executable, title, prompt, worktree)
 
         try:
             return self.run_json_text_command(
@@ -1622,6 +1679,8 @@ class AgentHost:
             "runner": runner,
             "response": response_text,
         }
+        if runner == "mimo":
+            result["runner_contract"] = mimo_auto25_runner_contract()
         result = self.finalize_result(task, result, artifact_dir, worktree, changed_files=[])
         result_path = self.write_result(artifact_dir, result)
         result["result_path"] = str(result_path)
@@ -1644,6 +1703,7 @@ class AgentHost:
             "attempt_id": task.get("attempt_id"),
             "runner": "mimo",
             "started_at": utc_now(),
+            **mimo_auto25_runner_contract(),
         }
         (artifact_dir / "runner-contract.json").write_text(
             json.dumps(runner_artifact, indent=2, sort_keys=True) + "\n",
@@ -1652,9 +1712,15 @@ class AgentHost:
         mimo = shutil.which("mimo")
         if not mimo:
             raise RunnerExecutionError("runner_unavailable", "mimo", "mimo executable is not available on this node")
+        command, command_label = self.mimo_auto25_invocation(
+            mimo,
+            f"owner-task-{task['task_id']}",
+            prompt,
+            worktree,
+        )
         payload = self.run_json_payload_command(
-            [mimo, "run", "--format", "json", "--title", f"owner-task-{task['task_id']}", prompt],
-            f"{mimo} run --format json --title owner-task-{task['task_id']} <prompt>",
+            command,
+            command_label,
             "mimo",
             worktree,
             stdout_path,
@@ -1681,6 +1747,7 @@ class AgentHost:
             "status": "completed",
             "kind": task.get("kind") or envelope.get("kind") or "owner_remote_task",
             "runner": "mimo",
+            "runner_contract": mimo_auto25_runner_contract(),
             "response": payload["response"],
             "tests": runner_output.get("tests"),
             "blockers": runner_output.get("blockers"),

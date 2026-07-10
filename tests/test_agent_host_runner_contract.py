@@ -408,11 +408,55 @@ def test_owner_remote_task_with_mimo_invokes_mimo_not_codex(tmp_path, monkeypatc
     command, command_label = host.commands[0]
     assert command[0] == "/usr/bin/mimo"
     assert command[1:4] == ["run", "--format", "json"]
+    assert command[command.index("--model") + 1] == "mimo/mimo-auto"
+    assert "--dangerously-skip-permissions" in command
+    assert Path(command[command.index("--dir") + 1]).is_relative_to(tmp_path / "work")
+    assert all(flag not in command for flag in ("--password", "--session", "--continue"))
     assert "/usr/bin/codex" not in command
-    assert command_label == "/usr/bin/mimo run --format json --title owner-task-CONTRACT-1 <prompt>"
+    assert command_label == (
+        "/usr/bin/mimo run --format json --model mimo/mimo-auto "
+        "--dangerously-skip-permissions --dir <task-worktree> --title owner-task-CONTRACT-1 <prompt>"
+    )
     complete_posts = [(path, body) for path, body in host.posts if path.endswith("/complete")]
     assert len(complete_posts) == 1
     assert complete_posts[0][1]["result"]["runner"] == "mimo"
+    assert complete_posts[0][1]["result"]["runner_contract"]["display_name"] == "Mimo Auto 2.5"
+    assert complete_posts[0][1]["result"]["runner_contract"]["user_authorization_required"] is False
+
+
+def test_mimo_runner_manifest_advertises_auto25_without_user_authorization(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setattr(agent_host.shutil, "which", lambda name: "/usr/bin/mimo" if name == "mimo" else None)
+
+    host = make_host(agent_host, tmp_path, capabilities="generic_implementation")
+
+    manifest = host.runner_status["mimo"]
+    assert manifest["status"] == "available"
+    assert manifest["model"] == "mimo/mimo-auto"
+    assert manifest["display_name"] == "Mimo Auto 2.5"
+    assert manifest["model_version"] == "2.5"
+    assert manifest["authorization_mode"] == "no_user_auth"
+    assert manifest["user_authorization_required"] is False
+    assert manifest["permission_mode"] == "auto_approve_with_task_contract"
+    assert manifest["output_format"] == "json"
+    assert manifest["worktree_scoped"] is True
+
+
+def test_mimo_auto25_rejects_worktree_outside_agent_host_task_root(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setattr(agent_host.shutil, "which", lambda name: "/usr/bin/mimo" if name == "mimo" else None)
+    host = make_host(agent_host, tmp_path, capabilities="generic_implementation,runner:mimo")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+
+    try:
+        host.mimo_auto25_invocation("/usr/bin/mimo", "outside", "do work", outside)
+    except agent_host.RunnerExecutionError as exc:
+        assert exc.error_type == "runner_worktree_boundary_violation"
+        assert exc.runner == "mimo"
+        assert exc.retry is False
+    else:
+        raise AssertionError("Mimo invocation accepted a directory outside the task worktree root")
 
 
 def test_owner_remote_task_runner_auth_failure_is_structured_and_redacted(tmp_path, monkeypatch):

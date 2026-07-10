@@ -236,6 +236,32 @@ The Agent Host may call `/complete` only after the contract finalizer confirms:
 Otherwise the Agent Host must call `/fail` with a structured contract result and
 `error_type: runner_contract_blocked` for blocked states.
 
+## Mimo Auto 2.5 Runner
+
+`runner: "mimo"` uses the non-interactive Mimo Auto 2.5 CLI contract on every
+Agent Host that advertises `runner:mimo`:
+
+```text
+mimo run --format json --model mimo/mimo-auto \
+  --dangerously-skip-permissions --dir <task-worktree> \
+  --title <task-title> <prompt>
+```
+
+The task envelope never supplies a password, session, login command, or user
+credential. Node registration and heartbeat runner manifests advertise
+`authorization_mode: "no_user_auth"`, `user_authorization_required: false`, the
+exact upstream model, JSON output, and the worktree-scoped execution mode.
+
+Skipping interactive permission prompts does not bypass the Agent Host safety
+contract. Before invocation, the resolved `--dir` must be inside the configured
+Agent Host task root. Existing read-only, no-push, write-scope, required-artifact,
+redaction, and completion gates remain authoritative. Prompts and concrete
+worktree paths are replaced with placeholders in command logs.
+
+Provider-side HTTP 401/403 or policy failures remain structured blockers. They
+must be redacted and reported through `/fail`; the Agent Host must not fall back
+silently to Codex or another runner.
+
 ## Valid Envelope Examples
 
 ### Read-Only Probe With Required Artifact

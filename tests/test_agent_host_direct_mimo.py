@@ -60,13 +60,15 @@ def test_direct_mimo_stdout_useful_json_completes_with_non_empty_response(tmp_pa
         def __init__(self, args):
             super().__init__(args)
             self.posts = []
+            self.commands = []
 
         def post(self, path, body):
             self.posts.append((path, body))
             return body
 
         def run_command(self, command, cwd, stdout_path, stderr_path, task, branch, logs, env=None, command_label=None):
-            del command, cwd, task, branch, logs, env
+            del cwd, task, branch, logs, env
+            self.commands.append((command, command_label))
             stdout_path.write_text(
                 f"$ {command_label}\n"
                 + json.dumps(
@@ -89,6 +91,13 @@ def test_direct_mimo_stdout_useful_json_completes_with_non_empty_response(tmp_pa
     host = Host(make_args(tmp_path))
     host.run_task(make_direct_task("MIMO-SUCCESS"))
 
+    command, command_label = host.commands[0]
+    assert command[command.index("--model") + 1] == "mimo/mimo-auto"
+    assert "--dangerously-skip-permissions" in command
+    assert Path(command[command.index("--dir") + 1]).is_relative_to(tmp_path / "work")
+    assert "--password" not in command
+    assert "repair the contract" not in command_label
+
     complete_posts = [(path, body) for path, body in host.posts if path.endswith("/complete")]
     fail_posts = [(path, body) for path, body in host.posts if path.endswith("/fail")]
     assert len(complete_posts) == 1
@@ -96,6 +105,7 @@ def test_direct_mimo_stdout_useful_json_completes_with_non_empty_response(tmp_pa
     result = complete_posts[0][1]["result"]
     assert result["status"] == "completed"
     assert result["runner"] == "mimo"
+    assert result["runner_contract"]["cli_contract"] == "mimo-auto25-no-user-auth-v1"
     assert result["response"]
     assert result["branch"] == "agent/P0/impl/direct-mimo"
     assert result["pull_request_url"] == "https://github.example/pull/1"
@@ -109,6 +119,10 @@ def test_direct_mimo_stdout_useful_json_completes_with_non_empty_response(tmp_pa
         "stderr.log",
         "stdout.log",
     ]
+    runner_contract_path = tmp_path / "artifacts" / "MIMO-SUCCESS" / "MIMO-SUCCESS-attempt-1" / "runner-contract.json"
+    runner_contract = json.loads(runner_contract_path.read_text(encoding="utf-8"))
+    assert runner_contract["model"] == "mimo/mimo-auto"
+    assert runner_contract["user_authorization_required"] is False
 
 
 def test_direct_mimo_http_401_is_runner_auth_failed_without_prompt_leak(tmp_path, monkeypatch):
