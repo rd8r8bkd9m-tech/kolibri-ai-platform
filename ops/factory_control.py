@@ -72,6 +72,8 @@ NAMESPACE = os.environ.get("FACTORY_NAMESPACE", "kolibri_factory")
 REDIS_HOST = os.environ.get("FACTORY_REDIS_HOST", "127.0.0.1")
 REDIS_PORT = int(os.environ.get("FACTORY_REDIS_PORT", "6379"))
 LEASE_DURATION = int(os.environ.get("FACTORY_LEASE_DURATION", "60"))
+LEASE_CLAIM_TTL = int(os.environ.get("FACTORY_LEASE_CLAIM_TTL", "15"))
+REQUIRE_LEASE_FENCING = os.environ.get("FACTORY_REQUIRE_LEASE_FENCING", "1").strip().lower() not in {"0", "false", "no"}
 MAX_RETRIES = int(os.environ.get("FACTORY_MAX_RETRIES", "3"))
 FABRIC_API_VERSION = "2026-07-01"
 CANONICAL_RESPONSE_STATUSES = {"completed", "running", "blocked", "failed", "partial"}
@@ -885,6 +887,55 @@ def remove_from_queue(task_id: str) -> None:
     redis.command("LREM", key("queue"), 0, task_id)
 
 
+def lease_claim_key(task_id: str) -> str:
+    return key(f"lease_claim:{task_id}")
+
+
+def acquire_lease_claim(task_id: str, claim_id: str) -> bool:
+    return redis.command("SET", lease_claim_key(task_id), claim_id, "NX", "EX", LEASE_CLAIM_TTL) == "OK"
+
+
+def release_lease_claim(task_id: str, claim_id: str) -> None:
+    # Delete only our own short-lived claim. The Lua compare-and-delete keeps a
+    # delayed worker from removing a newer claim after its TTL elapsed.
+    redis.command(
+        "EVAL",
+        "if redis.call('get',KEYS[1]) == ARGV[1] then return redis.call('del',KEYS[1]) else return 0 end",
+        1,
+        lease_claim_key(task_id),
+        claim_id,
+    )
+
+
+def lease_fence_error(task: dict[str, Any], body: dict[str, Any]) -> str | None:
+    if not REQUIRE_LEASE_FENCING:
+        return None
+    expected_attempt = str(task.get("attempt_id") or "")
+    if not expected_attempt or str(body.get("attempt_id") or "") != expected_attempt:
+        return "attempt_id_mismatch"
+    lease_owner = str(task.get("lease_owner") or "")
+    expected_node, _, expected_agent = lease_owner.partition(":")
+    if not expected_node or str(body.get("node_id") or "") != expected_node:
+        return "lease_node_mismatch"
+    if expected_agent and str(body.get("agent_id") or "") != expected_agent:
+        return "lease_agent_mismatch"
+    return None
+
+
+def reject_invalid_lease_fence(handler: BaseHTTPRequestHandler, task: dict[str, Any], body: dict[str, Any]) -> bool:
+    reason = lease_fence_error(task, body)
+    if reason is None:
+        return False
+    response(handler, 409, {
+        "error": "lease_fence_rejected",
+        "reason": reason,
+        "task_id": task.get("task_id"),
+        "state": task.get("state"),
+        "attempt_id": task.get("attempt_id"),
+    })
+    return True
+
+
 def normalize_task(envelope: dict[str, Any]) -> dict[str, Any]:
     task_id = envelope.get("task_id") or f"KOL-TASK-{uuid.uuid4().hex[:12]}"
     created = utc_now()
@@ -1592,22 +1643,31 @@ class Handler(BaseHTTPRequestHandler):
                     node["runners"] = body["runners"]
                     set_json(node_key(node_id), node)
                 for task_id in queue_ids():
-                    task = load_task(task_id)
-                    if not task or task.get("state") not in {STATE_QUEUED, STATE_REVIEW}:
+                    claim_id = f"{node_id}:{agent_id}:{uuid.uuid4().hex}"
+                    if not acquire_lease_claim(task_id, claim_id):
+                        continue
+                    try:
+                        # Reload only after acquiring the per-task claim. This
+                        # fences concurrent workers that read the same queue
+                        # snapshot without requiring a global scheduler lock.
+                        task = load_task(task_id)
+                        if not task or task.get("state") not in {STATE_QUEUED, STATE_REVIEW}:
+                            remove_from_queue(task_id)
+                            continue
+                        if not compatible(task, node_id, capabilities, node):
+                            continue
+                        task["state"] = STATE_LEASED
+                        task["attempt"] = int(task.get("attempt", 0)) + 1
+                        task["attempt_id"] = f"{task_id}-attempt-{task['attempt']}"
+                        task["lease_owner"] = f"{node_id}:{agent_id}"
+                        task["lease_until"] = now_ts() + LEASE_DURATION
+                        task["heartbeat_at"] = utc_now()
+                        save_task(task)
                         remove_from_queue(task_id)
-                        continue
-                    if not compatible(task, node_id, capabilities, node):
-                        continue
-                    remove_from_queue(task_id)
-                    task["state"] = STATE_LEASED
-                    task["attempt"] = int(task.get("attempt", 0)) + 1
-                    task["attempt_id"] = f"{task_id}-attempt-{task['attempt']}"
-                    task["lease_owner"] = f"{node_id}:{agent_id}"
-                    task["lease_until"] = now_ts() + LEASE_DURATION
-                    task["heartbeat_at"] = utc_now()
-                    save_task(task)
-                    response(self, 200, task)
-                    return
+                        response(self, 200, task)
+                        return
+                    finally:
+                        release_lease_claim(task_id, claim_id)
                 response(self, 204, {})
                 return
             if path.startswith("/v1/tasks/") and path.endswith("/heartbeat"):
@@ -1615,6 +1675,8 @@ class Handler(BaseHTTPRequestHandler):
                 task = load_task(task_id)
                 if not task:
                     response(self, 404, {"error": "task_not_found", "task_id": task_id})
+                    return
+                if reject_invalid_lease_fence(self, task, body):
                     return
                 if task.get("state") not in TERMINAL_STATES:
                     task["state"] = body.get("state") or STATE_RUNNING
@@ -1632,6 +1694,11 @@ class Handler(BaseHTTPRequestHandler):
                 task = load_task(task_id)
                 if not task:
                     response(self, 404, {"error": "task_not_found", "task_id": task_id})
+                    return
+                if reject_invalid_lease_fence(self, task, body):
+                    return
+                if task.get("state") in TERMINAL_STATES:
+                    response(self, 200, {"task": task, "review_task": None})
                     return
                 result = body.get("result", body)
                 needs_review = task.get("envelope", {}).get("create_review_on_complete")
@@ -1672,6 +1739,11 @@ class Handler(BaseHTTPRequestHandler):
                 task = load_task(task_id)
                 if not task:
                     response(self, 404, {"error": "task_not_found", "task_id": task_id})
+                    return
+                if reject_invalid_lease_fence(self, task, body):
+                    return
+                if task.get("state") in TERMINAL_STATES:
+                    response(self, 200, task)
                     return
                 error_type = body.get("error_type", "runtime_error")
                 error = body.get("error", "")

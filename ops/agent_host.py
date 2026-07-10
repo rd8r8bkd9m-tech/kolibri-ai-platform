@@ -1055,6 +1055,9 @@ class AgentHost:
             self.node_heartbeat(active_task=task["task_id"])
         body = {
             "state": "running",
+            "attempt_id": task.get("attempt_id"),
+            "node_id": self.node_id,
+            "agent_id": self.agent_id,
             "pid": pid or self.pid,
             "worktree": str(worktree),
             "branch": branch,
@@ -1525,12 +1528,18 @@ class AgentHost:
 
     def complete(self, task: dict[str, Any], result: dict[str, Any], result_path: Path) -> None:
         self.post(f"/v1/tasks/{task['task_id']}/complete", {
+            "attempt_id": task.get("attempt_id"),
+            "node_id": self.node_id,
+            "agent_id": self.agent_id,
             "result_reference": str(result_path),
             "result": result,
         })
 
     def fail(self, task: dict[str, Any], error_type: str, error: str, result: dict[str, Any] | None, result_path: Path | None, retry: bool = True) -> None:
         self.post(f"/v1/tasks/{task['task_id']}/fail", {
+            "attempt_id": task.get("attempt_id"),
+            "node_id": self.node_id,
+            "agent_id": self.agent_id,
             "error_type": error_type,
             "error": error,
             "result": result,

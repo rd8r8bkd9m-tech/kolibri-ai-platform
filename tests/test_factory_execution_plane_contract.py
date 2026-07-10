@@ -81,6 +81,31 @@ def test_failover_is_request_local_and_canonical_recovers(tmp_path, monkeypatch)
     assert attempts == ["http://control:9101/v1/health"]
 
 
+def test_agent_host_fences_heartbeat_completion_and_failure(tmp_path):
+    agent_host = load_module("agent_host_fencing_contract", ROOT / "ops" / "agent_host.py")
+
+    class Host(agent_host.AgentHost):
+        def __init__(self, args):
+            super().__init__(args)
+            self.posts = []
+
+        def post(self, path, body):
+            self.posts.append((path, body))
+            return body
+
+    host = Host(agent_args(tmp_path))
+    host._last_node_heartbeat = agent_host.time.time()
+    task = {"task_id": "FENCED-1", "attempt_id": "FENCED-1-attempt-2"}
+    host.task_heartbeat(task, tmp_path, None, {})
+    host.complete(task, {"status": "completed"}, tmp_path / "result.json")
+    host.fail(task, "test", "failed", None, None, retry=False)
+
+    for _, body in host.posts:
+        assert body["attempt_id"] == "FENCED-1-attempt-2"
+        assert body["node_id"] == "agent-02"
+        assert body["agent_id"] == "agent-host-agent-02"
+
+
 def test_registered_nodes_are_batched_and_stale_nodes_are_not_routable(monkeypatch):
     control = load_module("factory_control_execution_contract", ROOT / "ops" / "factory_control.py")
     now = control.now_ts()
@@ -138,3 +163,47 @@ def test_save_task_maintains_bounded_active_lease_index(monkeypatch):
     task["state"] = control.STATE_COMPLETED
     control.save_task(task)
     assert ("SREM", control.key("active_lease_ids"), "LEASE-1") in fake.calls
+
+
+def test_lease_claim_and_attempt_fence_prevent_duplicate_or_late_writes(monkeypatch):
+    control = load_module("factory_control_fencing_contract", ROOT / "ops" / "factory_control.py")
+
+    class FakeRedis:
+        def __init__(self):
+            self.calls = []
+
+        def command(self, *parts):
+            self.calls.append(parts)
+            return "OK" if parts[0] == "SET" else 1
+
+    fake = FakeRedis()
+    monkeypatch.setattr(control, "redis", fake)
+    monkeypatch.setattr(control, "REQUIRE_LEASE_FENCING", True)
+
+    assert control.acquire_lease_claim("TASK-1", "claim-a") is True
+    control.release_lease_claim("TASK-1", "claim-a")
+    assert fake.calls[0] == (
+        "SET",
+        control.lease_claim_key("TASK-1"),
+        "claim-a",
+        "NX",
+        "EX",
+        control.LEASE_CLAIM_TTL,
+    )
+    assert fake.calls[1][0] == "EVAL"
+    assert "redis.call('get'" in fake.calls[1][1]
+
+    task = {
+        "task_id": "TASK-1",
+        "attempt_id": "TASK-1-attempt-3",
+        "lease_owner": "agent-02:agent-host-agent-02",
+    }
+    valid = {
+        "attempt_id": "TASK-1-attempt-3",
+        "node_id": "agent-02",
+        "agent_id": "agent-host-agent-02",
+    }
+    assert control.lease_fence_error(task, valid) is None
+    assert control.lease_fence_error(task, {**valid, "attempt_id": "TASK-1-attempt-2"}) == "attempt_id_mismatch"
+    assert control.lease_fence_error(task, {**valid, "node_id": "agent-03"}) == "lease_node_mismatch"
+    assert control.lease_fence_error(task, {**valid, "agent_id": "other"}) == "lease_agent_mismatch"
