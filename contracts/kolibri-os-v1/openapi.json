@@ -1,0 +1,426 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Kolibri AI OS API",
+    "version": "1.0.0-contract-freeze",
+    "description": "Frozen public and owner-control surface. A listed operation is a compatibility target, not a production rollout claim."
+  },
+  "servers": [
+    { "url": "https://kolibriai.ru", "description": "Public shell and same-origin API" }
+  ],
+  "tags": [
+    { "name": "responses" },
+    { "name": "continuity" },
+    { "name": "execution" },
+    { "name": "runtime" },
+    { "name": "canvas" },
+    { "name": "documents" },
+    { "name": "automations" },
+    { "name": "owner-control" }
+  ],
+  "paths": {
+    "/v1/responses": {
+      "post": {
+        "tags": ["responses"],
+        "operationId": "createResponse",
+        "requestBody": { "$ref": "#/components/requestBodies/Mutation" },
+        "responses": { "202": { "$ref": "#/components/responses/Accepted" } },
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
+    "/v1/responses/{response_id}": {
+      "get": {
+        "tags": ["responses"],
+        "operationId": "getResponse",
+        "parameters": [{ "$ref": "#/components/parameters/ResponseId" }],
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
+    "/v1/responses/{response_id}/cancel": {
+      "post": {
+        "tags": ["responses"],
+        "operationId": "cancelResponse",
+        "parameters": [{ "$ref": "#/components/parameters/ResponseId" }],
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
+    "/v1/responses/{response_id}/events": {
+      "get": {
+        "tags": ["responses"],
+        "operationId": "streamResponseEvents",
+        "parameters": [{ "$ref": "#/components/parameters/ResponseId" }],
+        "responses": {
+          "200": {
+            "description": "Server-sent response events",
+            "content": { "text/event-stream": { "schema": { "type": "string" } } }
+          }
+        },
+        "x-kolibri-implementation": "target"
+      }
+    },
+    "/v1/chat/completions": {
+      "post": {
+        "tags": ["responses"],
+        "operationId": "createChatCompletionCompatibility",
+        "requestBody": { "$ref": "#/components/requestBodies/Mutation" },
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-implementation": "target"
+      }
+    },
+    "/v1/models": {
+      "get": {
+        "tags": ["responses"],
+        "operationId": "listModels",
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-public-model": "kolibri",
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
+    "/v1/projects": {
+      "get": {
+        "tags": ["continuity"],
+        "operationId": "listProjects",
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-implementation": "compatibility"
+      },
+      "post": {
+        "tags": ["continuity"],
+        "operationId": "createProject",
+        "requestBody": { "$ref": "#/components/requestBodies/Mutation" },
+        "responses": { "201": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
+    "/v1/projects/{project_id}": {
+      "get": {
+        "tags": ["continuity"],
+        "operationId": "getProject",
+        "parameters": [{ "$ref": "#/components/parameters/ProjectId" }],
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
+    "/v1/projects/{project_id}/workstreams": {
+      "get": {
+        "tags": ["continuity"],
+        "operationId": "listWorkstreams",
+        "parameters": [{ "$ref": "#/components/parameters/ProjectId" }],
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-implementation": "compatibility"
+      },
+      "post": {
+        "tags": ["continuity"],
+        "operationId": "createWorkstream",
+        "parameters": [{ "$ref": "#/components/parameters/ProjectId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/Mutation" },
+        "responses": { "201": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
+    "/v1/workstreams/{workstream_id}/backlog": {
+      "get": {
+        "tags": ["continuity"],
+        "operationId": "listBacklog",
+        "parameters": [{ "$ref": "#/components/parameters/WorkstreamId" }],
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-implementation": "compatibility"
+      },
+      "post": {
+        "tags": ["continuity"],
+        "operationId": "createBacklogItem",
+        "parameters": [{ "$ref": "#/components/parameters/WorkstreamId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/Mutation" },
+        "responses": { "201": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
+    "/v1/workstreams/{workstream_id}/checkpoints": {
+      "get": {
+        "tags": ["continuity"],
+        "operationId": "listCheckpoints",
+        "parameters": [{ "$ref": "#/components/parameters/WorkstreamId" }],
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-implementation": "compatibility"
+      },
+      "post": {
+        "tags": ["continuity"],
+        "operationId": "createCheckpoint",
+        "parameters": [{ "$ref": "#/components/parameters/WorkstreamId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/Mutation" },
+        "responses": { "201": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
+    "/v1/resume": {
+      "post": {
+        "tags": ["continuity"],
+        "operationId": "resumeWorkstream",
+        "requestBody": { "$ref": "#/components/requestBodies/Mutation" },
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-rule": "create a new project only when create_new=true",
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
+    "/v1/plans": {
+      "get": {
+        "tags": ["execution"],
+        "operationId": "listPlans",
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-implementation": "target"
+      },
+      "post": {
+        "tags": ["execution"],
+        "operationId": "createPlan",
+        "requestBody": { "$ref": "#/components/requestBodies/Mutation" },
+        "responses": { "201": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-schema": "domain.schema.json#/$defs/SwarmPlan",
+        "x-kolibri-implementation": "target"
+      }
+    },
+    "/v1/tasks": {
+      "get": {
+        "tags": ["execution"],
+        "operationId": "listTasks",
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-implementation": "compatibility"
+      },
+      "post": {
+        "tags": ["execution"],
+        "operationId": "createTask",
+        "requestBody": { "$ref": "#/components/requestBodies/Mutation" },
+        "responses": { "202": { "$ref": "#/components/responses/Accepted" } },
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
+    "/v1/tasks/{task_id}/events": {
+      "get": {
+        "tags": ["execution"],
+        "operationId": "listTaskEvents",
+        "parameters": [{ "$ref": "#/components/parameters/TaskId" }],
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-implementation": "target"
+      },
+      "post": {
+        "tags": ["execution"],
+        "operationId": "appendTaskEvent",
+        "parameters": [{ "$ref": "#/components/parameters/TaskId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/Mutation" },
+        "responses": { "201": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-implementation": "target"
+      }
+    },
+    "/v1/artifacts": {
+      "get": {
+        "tags": ["canvas"],
+        "operationId": "listArtifacts",
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-implementation": "target"
+      },
+      "post": {
+        "tags": ["canvas"],
+        "operationId": "registerArtifact",
+        "requestBody": { "$ref": "#/components/requestBodies/Mutation" },
+        "responses": { "201": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
+    "/v1/approvals": {
+      "get": {
+        "tags": ["owner-control"],
+        "operationId": "listApprovals",
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-implementation": "target"
+      },
+      "post": {
+        "tags": ["owner-control"],
+        "operationId": "requestApproval",
+        "requestBody": { "$ref": "#/components/requestBodies/Mutation" },
+        "responses": { "201": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-implementation": "target"
+      }
+    },
+    "/v1/capabilities": {
+      "get": {
+        "tags": ["runtime"],
+        "operationId": "listCapabilities",
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-implementation": "target"
+      }
+    },
+    "/v1/tools": {
+      "get": {
+        "tags": ["runtime"],
+        "operationId": "listTools",
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-implementation": "target"
+      }
+    },
+    "/v1/providers": {
+      "get": {
+        "tags": ["owner-control"],
+        "operationId": "listProviders",
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-visibility": "owner-only",
+        "x-kolibri-implementation": "target"
+      }
+    },
+    "/v1/runtime/dags": {
+      "get": {
+        "tags": ["runtime"],
+        "operationId": "listRuntimeDags",
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-implementation": "target"
+      }
+    },
+    "/v1/runtime/actors": {
+      "get": {
+        "tags": ["runtime"],
+        "operationId": "listRuntimeActors",
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
+    "/v1/runtime/pools": {
+      "get": {
+        "tags": ["runtime"],
+        "operationId": "listRuntimePools",
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-implementation": "target"
+      }
+    },
+    "/v1/runtime/summary": {
+      "get": {
+        "tags": ["runtime"],
+        "operationId": "getRuntimeSummary",
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-rule": "real telemetry only; no mock healthy counts",
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
+    "/v1/canvases": {
+      "get": {
+        "tags": ["canvas"],
+        "operationId": "listCanvases",
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-implementation": "target"
+      },
+      "post": {
+        "tags": ["canvas"],
+        "operationId": "createCanvas",
+        "requestBody": { "$ref": "#/components/requestBodies/Mutation" },
+        "responses": { "201": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-schema": "domain.schema.json#/$defs/Canvas",
+        "x-kolibri-implementation": "target"
+      }
+    },
+    "/v1/previews": {
+      "post": {
+        "tags": ["canvas"],
+        "operationId": "createPreview",
+        "requestBody": { "$ref": "#/components/requestBodies/Mutation" },
+        "responses": { "202": { "$ref": "#/components/responses/Accepted" } },
+        "x-kolibri-implementation": "target"
+      }
+    },
+    "/v1/browser-sessions": {
+      "post": {
+        "tags": ["canvas"],
+        "operationId": "createBrowserSession",
+        "requestBody": { "$ref": "#/components/requestBodies/Mutation" },
+        "responses": { "202": { "$ref": "#/components/responses/Accepted" } },
+        "x-kolibri-implementation": "target"
+      }
+    },
+    "/v1/estimates": {
+      "post": {
+        "tags": ["documents"],
+        "operationId": "createEstimate",
+        "requestBody": { "$ref": "#/components/requestBodies/Mutation" },
+        "responses": { "202": { "$ref": "#/components/responses/Accepted" } },
+        "x-kolibri-rule": "money totals are deterministic",
+        "x-kolibri-implementation": "target"
+      }
+    },
+    "/v1/documents": {
+      "post": {
+        "tags": ["documents"],
+        "operationId": "createDocument",
+        "requestBody": { "$ref": "#/components/requestBodies/Mutation" },
+        "responses": { "202": { "$ref": "#/components/responses/Accepted" } },
+        "x-kolibri-implementation": "target"
+      }
+    },
+    "/v1/builds": {
+      "post": {
+        "tags": ["execution"],
+        "operationId": "createBuild",
+        "requestBody": { "$ref": "#/components/requestBodies/Mutation" },
+        "responses": { "202": { "$ref": "#/components/responses/Accepted" } },
+        "x-kolibri-implementation": "target"
+      }
+    },
+    "/v1/automations": {
+      "get": {
+        "tags": ["automations"],
+        "operationId": "listAutomations",
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-implementation": "target"
+      },
+      "post": {
+        "tags": ["automations"],
+        "operationId": "createAutomation",
+        "requestBody": { "$ref": "#/components/requestBodies/Mutation" },
+        "responses": { "201": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-schema": "domain.schema.json#/$defs/Automation",
+        "x-kolibri-implementation": "target"
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "ProjectId": { "name": "project_id", "in": "path", "required": true, "schema": { "type": "string" } },
+      "WorkstreamId": { "name": "workstream_id", "in": "path", "required": true, "schema": { "type": "string" } },
+      "ResponseId": { "name": "response_id", "in": "path", "required": true, "schema": { "type": "string" } },
+      "TaskId": { "name": "task_id", "in": "path", "required": true, "schema": { "type": "string" } }
+    },
+    "requestBodies": {
+      "Mutation": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": { "idempotency_key": { "type": "string", "minLength": 8 } },
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "Success": {
+        "description": "Versioned durable response",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Envelope" } } }
+      },
+      "Accepted": {
+        "description": "Accepted into durable scheduling; not a completion claim",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Envelope" } } }
+      }
+    },
+    "schemas": {
+      "Envelope": {
+        "type": "object",
+        "required": ["schema_version"],
+        "properties": {
+          "schema_version": { "type": "string" },
+          "id": { "type": "string" },
+          "status": { "type": "string" },
+          "trace_id": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    }
+  }
+}

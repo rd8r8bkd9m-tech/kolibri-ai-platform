@@ -1,0 +1,349 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kolibriai.ru/contracts/kolibri-os-v1/domain.schema.json",
+  "title": "Kolibri OS V1 durable domain records",
+  "oneOf": [
+    { "$ref": "#/$defs/Event" },
+    { "$ref": "#/$defs/ContextPack" },
+    { "$ref": "#/$defs/SwarmPlan" },
+    { "$ref": "#/$defs/LogicalActor" },
+    { "$ref": "#/$defs/Artifact" },
+    { "$ref": "#/$defs/Canvas" },
+    { "$ref": "#/$defs/Automation" },
+    { "$ref": "#/$defs/LearningCandidate" }
+  ],
+  "$defs": {
+    "Identifier": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]+$"
+    },
+    "Timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "Metadata": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "RecordHeader": {
+      "type": "object",
+      "required": ["schema_version", "id", "created_at", "updated_at"],
+      "properties": {
+        "schema_version": { "type": "string", "pattern": "^kolibri\\..+\\.v1$" },
+        "id": { "$ref": "#/$defs/Identifier" },
+        "created_at": { "$ref": "#/$defs/Timestamp" },
+        "updated_at": { "$ref": "#/$defs/Timestamp" }
+      }
+    },
+    "Provenance": {
+      "type": "object",
+      "required": ["actor", "policy_version"],
+      "properties": {
+        "actor": { "type": "string", "minLength": 1 },
+        "policy_version": { "type": "string", "minLength": 1 },
+        "provider": { "type": ["string", "null"] },
+        "model": { "type": ["string", "null"] },
+        "node_id": { "type": ["string", "null"] },
+        "attempt_id": { "type": ["string", "null"] }
+      },
+      "additionalProperties": true
+    },
+    "Event": {
+      "allOf": [
+        { "$ref": "#/$defs/RecordHeader" },
+        {
+          "type": "object",
+          "required": ["type", "source", "subject", "trace_id", "sequence", "occurred_at", "data", "provenance"],
+          "properties": {
+            "schema_version": { "const": "kolibri.event.v1" },
+            "type": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]+$" },
+            "source": { "type": "string", "minLength": 1 },
+            "subject": { "type": "string", "minLength": 1 },
+            "trace_id": { "$ref": "#/$defs/Identifier" },
+            "sequence": { "type": "integer", "minimum": 1 },
+            "occurred_at": { "$ref": "#/$defs/Timestamp" },
+            "data": { "$ref": "#/$defs/Metadata" },
+            "provenance": { "$ref": "#/$defs/Provenance" }
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "ContextPack": {
+      "allOf": [
+        { "$ref": "#/$defs/RecordHeader" },
+        {
+          "type": "object",
+          "required": ["project_id", "workstream_id", "backlog", "decisions", "checkpoints"],
+          "properties": {
+            "schema_version": { "const": "kolibri.context-pack.v1" },
+            "project_id": { "$ref": "#/$defs/Identifier" },
+            "workstream_id": { "$ref": "#/$defs/Identifier" },
+            "binding": {
+              "type": "object",
+              "properties": {
+                "channel": { "enum": ["codex", "mimo-code", "mimo-chat", "telegram", "web", "api"] },
+                "external_id": { "type": "string" }
+              },
+              "required": ["channel", "external_id"],
+              "additionalProperties": false
+            },
+            "backlog": { "type": "array", "items": { "$ref": "#/$defs/Metadata" } },
+            "decisions": { "type": "array", "items": { "$ref": "#/$defs/Metadata" } },
+            "checkpoints": { "type": "array", "items": { "$ref": "#/$defs/Metadata" } },
+            "active_step_id": { "type": ["string", "null"] }
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "RetryPolicy": {
+      "type": "object",
+      "required": ["max_attempts", "backoff_seconds"],
+      "properties": {
+        "max_attempts": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "backoff_seconds": { "type": "number", "minimum": 0 },
+        "retryable_reasons": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "ResourceRequest": {
+      "type": "object",
+      "properties": {
+        "class": { "enum": ["cpu", "memory", "model", "browser", "build", "apple-build", "gpu", "network"] },
+        "slots": { "type": "integer", "minimum": 1 },
+        "memory_mb": { "type": "integer", "minimum": 0 },
+        "timeout_seconds": { "type": "integer", "minimum": 1 }
+      },
+      "required": ["class", "slots"],
+      "additionalProperties": false
+    },
+    "PlanNode": {
+      "type": "object",
+      "required": ["id", "kind", "objective", "state", "dependencies", "acceptance", "required_capabilities", "resources", "retry_policy"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Identifier" },
+        "kind": { "enum": ["planner", "worker", "reducer", "verifier", "approval", "release"] },
+        "objective": { "type": "string", "minLength": 1, "maxLength": 50000 },
+        "state": {
+          "enum": ["pending", "ready", "leased", "running", "review", "retry", "blocked", "completed", "dead", "cancelled"]
+        },
+        "dependencies": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/Identifier" } },
+        "acceptance": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "required_capabilities": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+        "resources": { "type": "array", "items": { "$ref": "#/$defs/ResourceRequest" } },
+        "retry_policy": { "$ref": "#/$defs/RetryPolicy" },
+        "approval_policy": { "enum": ["none", "owner", "security", "financial", "production"] },
+        "write_scope": { "type": "array", "items": { "type": "string" } },
+        "worktree_required": { "type": "boolean" },
+        "reducer_group": { "type": ["string", "null"] },
+        "verifier_gates": { "type": "array", "items": { "type": "string" } },
+        "lease_owner": { "type": ["string", "null"] },
+        "attempt_id": { "type": ["string", "null"] },
+        "lease_until": { "anyOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] }
+      },
+      "additionalProperties": true
+    },
+    "SwarmPlan": {
+      "allOf": [
+        { "$ref": "#/$defs/RecordHeader" },
+        {
+          "type": "object",
+          "required": ["trace_id", "project_id", "objective", "state", "nodes", "max_logical_actors", "physical_slot_limits"],
+          "properties": {
+            "schema_version": { "const": "kolibri.swarm-plan.v1" },
+            "trace_id": { "$ref": "#/$defs/Identifier" },
+            "project_id": { "$ref": "#/$defs/Identifier" },
+            "workstream_id": { "anyOf": [{ "$ref": "#/$defs/Identifier" }, { "type": "null" }] },
+            "objective": { "type": "string", "minLength": 1 },
+            "state": { "enum": ["draft", "queued", "running", "verifying", "completed", "failed", "cancelled"] },
+            "nodes": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/PlanNode" } },
+            "max_logical_actors": { "type": "integer", "minimum": 1, "maximum": 100000 },
+            "physical_slot_limits": {
+              "type": "object",
+              "additionalProperties": { "type": "integer", "minimum": 0 }
+            }
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "MailboxMessage": {
+      "type": "object",
+      "required": ["id", "sequence", "kind", "payload", "enqueued_at"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Identifier" },
+        "sequence": { "type": "integer", "minimum": 1 },
+        "kind": { "type": "string" },
+        "payload": { "$ref": "#/$defs/Metadata" },
+        "enqueued_at": { "$ref": "#/$defs/Timestamp" }
+      },
+      "additionalProperties": false
+    },
+    "LogicalActor": {
+      "allOf": [
+        { "$ref": "#/$defs/RecordHeader" },
+        {
+          "type": "object",
+          "required": ["actor_class", "state", "capabilities", "mailbox", "checkpoint"],
+          "properties": {
+            "schema_version": { "const": "kolibri.actor.v1" },
+            "actor_class": { "type": "string", "minLength": 1 },
+            "state": { "enum": ["idle", "runnable", "leased", "running", "checkpointing", "waiting", "failed", "stopped"] },
+            "capabilities": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+            "mailbox": { "type": "array", "items": { "$ref": "#/$defs/MailboxMessage" } },
+            "checkpoint": { "$ref": "#/$defs/Metadata" },
+            "resource_lease_ids": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/Identifier" } }
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "Artifact": {
+      "allOf": [
+        { "$ref": "#/$defs/RecordHeader" },
+        {
+          "type": "object",
+          "required": ["kind", "state", "media_type", "content_hash", "size_bytes", "uri", "provenance"],
+          "properties": {
+            "schema_version": { "const": "kolibri.artifact.v1" },
+            "kind": {
+              "enum": ["website", "webapp", "browser-session", "pdf", "pdf-x", "xlsx", "docx", "estimate", "image", "audio", "video", "code", "diff", "build", "test-report", "terminal-log", "plan", "automation"]
+            },
+            "state": { "enum": ["declared", "materializing", "ready", "verified", "failed", "expired", "quarantined"] },
+            "media_type": { "type": "string", "minLength": 1 },
+            "content_hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+            "size_bytes": { "type": "integer", "minimum": 0 },
+            "uri": { "type": "string", "minLength": 1 },
+            "lineage": { "type": "array", "items": { "$ref": "#/$defs/Identifier" } },
+            "provenance": { "$ref": "#/$defs/Provenance" },
+            "verdict": { "enum": ["unverified", "passed", "failed", "quarantined"] }
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "CanvasNode": {
+      "type": "object",
+      "required": ["id", "renderer", "artifact_id", "position"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Identifier" },
+        "renderer": { "type": "string", "minLength": 1 },
+        "artifact_id": { "$ref": "#/$defs/Identifier" },
+        "position": {
+          "type": "object",
+          "required": ["x", "y"],
+          "properties": { "x": { "type": "number" }, "y": { "type": "number" } },
+          "additionalProperties": false
+        },
+        "settings": { "$ref": "#/$defs/Metadata" }
+      },
+      "additionalProperties": true
+    },
+    "Canvas": {
+      "allOf": [
+        { "$ref": "#/$defs/RecordHeader" },
+        {
+          "type": "object",
+          "required": ["project_id", "title", "nodes", "edges"],
+          "properties": {
+            "schema_version": { "const": "kolibri.canvas.v1" },
+            "project_id": { "$ref": "#/$defs/Identifier" },
+            "title": { "type": "string", "minLength": 1 },
+            "nodes": { "type": "array", "items": { "$ref": "#/$defs/CanvasNode" } },
+            "edges": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["id", "source", "target"],
+                "properties": {
+                  "id": { "$ref": "#/$defs/Identifier" },
+                  "source": { "$ref": "#/$defs/Identifier" },
+                  "target": { "$ref": "#/$defs/Identifier" },
+                  "kind": { "type": "string" }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "AutomationStep": {
+      "type": "object",
+      "required": ["id", "kind", "config", "retry_policy"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Identifier" },
+        "kind": { "enum": ["model", "api", "browser", "document", "factory-task", "condition", "parallel", "approval"] },
+        "config": { "$ref": "#/$defs/Metadata" },
+        "retry_policy": { "$ref": "#/$defs/RetryPolicy" }
+      },
+      "additionalProperties": true
+    },
+    "Automation": {
+      "allOf": [
+        { "$ref": "#/$defs/RecordHeader" },
+        {
+          "type": "object",
+          "required": ["name", "version", "enabled", "trigger", "steps", "approval_policy"],
+          "properties": {
+            "schema_version": { "const": "kolibri.automation.v1" },
+            "name": { "type": "string", "minLength": 1 },
+            "version": { "type": "integer", "minimum": 1 },
+            "enabled": { "type": "boolean" },
+            "trigger": {
+              "type": "object",
+              "required": ["kind"],
+              "properties": { "kind": { "enum": ["manual", "schedule", "webhook", "event", "file"] } },
+              "additionalProperties": true
+            },
+            "steps": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/AutomationStep" } },
+            "approval_policy": { "enum": ["none", "owner", "per-side-effect"] }
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "SanitizationReport": {
+      "type": "object",
+      "required": ["status", "redacted_fields", "scanner_version"],
+      "properties": {
+        "status": { "enum": ["passed", "rejected"] },
+        "redacted_fields": { "type": "array", "items": { "type": "string" } },
+        "scanner_version": { "type": "string", "minLength": 1 },
+        "reason": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "LearningCandidate": {
+      "allOf": [
+        { "$ref": "#/$defs/RecordHeader" },
+        {
+          "type": "object",
+          "required": ["source_trace_id", "capability", "artifact_hashes", "consent", "license", "retention_class", "sanitization", "quality_verdict", "promotion_status"],
+          "properties": {
+            "schema_version": { "const": "kolibri.learning-candidate.v1" },
+            "source_trace_id": { "$ref": "#/$defs/Identifier" },
+            "capability": { "type": "string", "minLength": 1 },
+            "artifact_hashes": { "type": "array", "items": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } },
+            "consent": { "enum": ["explicit", "contractual", "public-permitted", "denied", "unknown"] },
+            "license": { "enum": ["permitted", "restricted", "negative", "unknown"] },
+            "retention_class": { "enum": ["ephemeral", "project", "training-approved", "legal-hold"] },
+            "sanitization": { "$ref": "#/$defs/SanitizationReport" },
+            "quality_verdict": { "enum": ["pending", "passed", "failed"] },
+            "promotion_status": { "enum": ["candidate", "training", "evaluating", "canary-1", "canary-10", "canary-50", "production", "rejected", "rolled-back"] },
+            "credit_assignment": { "$ref": "#/$defs/Metadata" }
+          },
+          "allOf": [
+            { "not": { "properties": { "consent": { "const": "denied" } }, "required": ["consent"] } },
+            { "not": { "properties": { "license": { "const": "negative" } }, "required": ["license"] } }
+          ],
+          "additionalProperties": true
+        }
+      ]
+    }
+  }
+}
