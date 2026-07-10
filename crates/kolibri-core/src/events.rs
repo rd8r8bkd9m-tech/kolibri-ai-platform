@@ -1,3 +1,4 @@
+use crate::wire::v1_schema_version;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -13,6 +14,23 @@ pub enum KolibriEvent {
     AgentHeartbeat,
     AgentCapabilitiesUpdated,
     AgentStatusChanged,
+    ProjectCreated,
+    WorkstreamUpdated,
+    CheckpointCreated,
+    PlanCreated,
+    SwarmPlanCreated,
+    ActorReady,
+    ActorLeased,
+    ActorLeaseRenewed,
+    ActorLeaseExpired,
+    ActorRequeued,
+    ActorCompleted,
+    ActorFailed,
+    VerifierApproved,
+    VerifierRejected,
+    MailboxMessageEnqueued,
+    MailboxMessageAcknowledged,
+    MailboxCheckpointed,
     TaskCreated,
     TaskAssigned,
     TaskStarted,
@@ -37,6 +55,21 @@ pub enum KolibriEvent {
     ModelRequested,
     ModelCompleted,
     ModelFailed,
+    ProviderAttemptStarted,
+    ProviderAttemptSucceeded,
+    ProviderAttemptFailed,
+    FormulaTraceCaptured,
+    LearningCandidateCreated,
+    LearningCandidateEligible,
+    LearningCandidateExcluded,
+    ArtifactRendered,
+    PreviewStarted,
+    PreviewReady,
+    PreviewStopped,
+    BrowserSessionStarted,
+    BrowserSessionCompleted,
+    AutomationTriggered,
+    AutomationCompleted,
     AuditRecorded,
 }
 
@@ -50,6 +83,23 @@ impl KolibriEvent {
             KolibriEvent::AgentHeartbeat => "agent.heartbeat",
             KolibriEvent::AgentCapabilitiesUpdated => "agent.capabilities.updated",
             KolibriEvent::AgentStatusChanged => "agent.status.changed",
+            KolibriEvent::ProjectCreated => "project.created",
+            KolibriEvent::WorkstreamUpdated => "workstream.updated",
+            KolibriEvent::CheckpointCreated => "checkpoint.created",
+            KolibriEvent::PlanCreated => "plan.created",
+            KolibriEvent::SwarmPlanCreated => "swarm.plan.created",
+            KolibriEvent::ActorReady => "actor.ready",
+            KolibriEvent::ActorLeased => "actor.leased",
+            KolibriEvent::ActorLeaseRenewed => "actor.lease.renewed",
+            KolibriEvent::ActorLeaseExpired => "actor.lease.expired",
+            KolibriEvent::ActorRequeued => "actor.requeued",
+            KolibriEvent::ActorCompleted => "actor.completed",
+            KolibriEvent::ActorFailed => "actor.failed",
+            KolibriEvent::VerifierApproved => "verifier.approved",
+            KolibriEvent::VerifierRejected => "verifier.rejected",
+            KolibriEvent::MailboxMessageEnqueued => "mailbox.message.enqueued",
+            KolibriEvent::MailboxMessageAcknowledged => "mailbox.message.acknowledged",
+            KolibriEvent::MailboxCheckpointed => "mailbox.checkpointed",
             KolibriEvent::TaskCreated => "task.created",
             KolibriEvent::TaskAssigned => "task.assigned",
             KolibriEvent::TaskStarted => "task.started",
@@ -74,6 +124,21 @@ impl KolibriEvent {
             KolibriEvent::ModelRequested => "model.requested",
             KolibriEvent::ModelCompleted => "model.completed",
             KolibriEvent::ModelFailed => "model.failed",
+            KolibriEvent::ProviderAttemptStarted => "provider.attempt.started",
+            KolibriEvent::ProviderAttemptSucceeded => "provider.attempt.succeeded",
+            KolibriEvent::ProviderAttemptFailed => "provider.attempt.failed",
+            KolibriEvent::FormulaTraceCaptured => "formulalm.trace.captured",
+            KolibriEvent::LearningCandidateCreated => "learning.candidate.created",
+            KolibriEvent::LearningCandidateEligible => "learning.candidate.eligible",
+            KolibriEvent::LearningCandidateExcluded => "learning.candidate.excluded",
+            KolibriEvent::ArtifactRendered => "artifact.rendered",
+            KolibriEvent::PreviewStarted => "preview.started",
+            KolibriEvent::PreviewReady => "preview.ready",
+            KolibriEvent::PreviewStopped => "preview.stopped",
+            KolibriEvent::BrowserSessionStarted => "browser.session.started",
+            KolibriEvent::BrowserSessionCompleted => "browser.session.completed",
+            KolibriEvent::AutomationTriggered => "automation.triggered",
+            KolibriEvent::AutomationCompleted => "automation.completed",
             KolibriEvent::AuditRecorded => "audit.recorded",
         }
     }
@@ -87,6 +152,21 @@ impl KolibriEvent {
             | KolibriEvent::AgentHeartbeat
             | KolibriEvent::AgentCapabilitiesUpdated
             | KolibriEvent::AgentStatusChanged => "kolibri.agent",
+            KolibriEvent::ProjectCreated => "kolibri.project",
+            KolibriEvent::WorkstreamUpdated => "kolibri.workstream",
+            KolibriEvent::CheckpointCreated => "kolibri.checkpoint",
+            KolibriEvent::PlanCreated | KolibriEvent::SwarmPlanCreated => "kolibri.plan",
+            KolibriEvent::ActorReady
+            | KolibriEvent::ActorLeased
+            | KolibriEvent::ActorLeaseRenewed
+            | KolibriEvent::ActorLeaseExpired
+            | KolibriEvent::ActorRequeued
+            | KolibriEvent::ActorCompleted
+            | KolibriEvent::ActorFailed => "kolibri.actor",
+            KolibriEvent::VerifierApproved | KolibriEvent::VerifierRejected => "kolibri.verifier",
+            KolibriEvent::MailboxMessageEnqueued
+            | KolibriEvent::MailboxMessageAcknowledged
+            | KolibriEvent::MailboxCheckpointed => "kolibri.mailbox",
             KolibriEvent::TaskCreated
             | KolibriEvent::TaskAssigned
             | KolibriEvent::TaskStarted
@@ -102,7 +182,9 @@ impl KolibriEvent {
             KolibriEvent::SandboxCreated
             | KolibriEvent::SandboxDestroyed
             | KolibriEvent::SandboxViolation => "kolibri.sandbox",
-            KolibriEvent::ArtifactCreated | KolibriEvent::ArtifactUploaded => "kolibri.artifact",
+            KolibriEvent::ArtifactCreated
+            | KolibriEvent::ArtifactUploaded
+            | KolibriEvent::ArtifactRendered => "kolibri.artifact",
             KolibriEvent::PolicyEvaluated => "kolibri.policy",
             KolibriEvent::SecretRequested
             | KolibriEvent::SecretDenied
@@ -110,6 +192,22 @@ impl KolibriEvent {
             KolibriEvent::ModelRequested
             | KolibriEvent::ModelCompleted
             | KolibriEvent::ModelFailed => "kolibri.model",
+            KolibriEvent::ProviderAttemptStarted
+            | KolibriEvent::ProviderAttemptSucceeded
+            | KolibriEvent::ProviderAttemptFailed => "kolibri.provider",
+            KolibriEvent::FormulaTraceCaptured => "kolibri.formulalm",
+            KolibriEvent::LearningCandidateCreated
+            | KolibriEvent::LearningCandidateEligible
+            | KolibriEvent::LearningCandidateExcluded => "kolibri.learning",
+            KolibriEvent::PreviewStarted
+            | KolibriEvent::PreviewReady
+            | KolibriEvent::PreviewStopped => "kolibri.preview",
+            KolibriEvent::BrowserSessionStarted | KolibriEvent::BrowserSessionCompleted => {
+                "kolibri.browser"
+            }
+            KolibriEvent::AutomationTriggered | KolibriEvent::AutomationCompleted => {
+                "kolibri.automation"
+            }
             KolibriEvent::AuditRecorded => "kolibri.audit",
         }
     }
@@ -117,6 +215,8 @@ impl KolibriEvent {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventEnvelope {
+    #[serde(default = "v1_schema_version")]
+    pub schema_version: u32,
     pub id: Uuid,
     pub stream: String,
     pub subject: String,
@@ -124,6 +224,8 @@ pub struct EventEnvelope {
     pub aggregate_id: Option<Uuid>,
     pub payload_json: Value,
     pub trace_id: Option<String>,
+    #[serde(default)]
+    pub idempotency_key: String,
     pub correlation_id: Option<String>,
     pub actor: Option<String>,
     pub created_at: DateTime<Utc>,
@@ -139,6 +241,13 @@ pub fn subject_for(event_type: &str) -> &'static str {
     match event_type {
         e if e.starts_with("node.") => "kolibri.node",
         e if e.starts_with("agent.") => "kolibri.agent",
+        e if e.starts_with("project.") => "kolibri.project",
+        e if e.starts_with("workstream.") => "kolibri.workstream",
+        e if e.starts_with("checkpoint.") => "kolibri.checkpoint",
+        e if e.starts_with("plan.") || e.starts_with("swarm.") => "kolibri.plan",
+        e if e.starts_with("actor.") => "kolibri.actor",
+        e if e.starts_with("verifier.") => "kolibri.verifier",
+        e if e.starts_with("mailbox.") => "kolibri.mailbox",
         e if e.starts_with("task.") => "kolibri.task",
         e if e.starts_with("command.") => "kolibri.command",
         e if e.starts_with("sandbox.") => "kolibri.sandbox",
@@ -146,6 +255,12 @@ pub fn subject_for(event_type: &str) -> &'static str {
         e if e.starts_with("policy.") => "kolibri.policy",
         e if e.starts_with("secret.") => "kolibri.secret",
         e if e.starts_with("model.") => "kolibri.model",
+        e if e.starts_with("provider.") => "kolibri.provider",
+        e if e.starts_with("formulalm.") => "kolibri.formulalm",
+        e if e.starts_with("learning.") => "kolibri.learning",
+        e if e.starts_with("preview.") => "kolibri.preview",
+        e if e.starts_with("browser.") => "kolibri.browser",
+        e if e.starts_with("automation.") => "kolibri.automation",
         e if e.starts_with("audit.") => "kolibri.audit",
         _ => "kolibri.events",
     }
@@ -167,5 +282,14 @@ mod tests {
     fn event_enum_matches_wire_names() {
         assert_eq!(KolibriEvent::TaskCompleted.as_str(), "task.completed");
         assert_eq!(KolibriEvent::ModelFailed.subject(), "kolibri.model");
+        assert_eq!(
+            KolibriEvent::ActorLeaseExpired.as_str(),
+            "actor.lease.expired"
+        );
+        assert_eq!(KolibriEvent::VerifierApproved.subject(), "kolibri.verifier");
+        assert_eq!(
+            KolibriEvent::MailboxCheckpointed.subject(),
+            "kolibri.mailbox"
+        );
     }
 }

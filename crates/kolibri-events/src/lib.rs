@@ -42,15 +42,18 @@ impl EventEnvelope {
         aggregate_id: Option<uuid::Uuid>,
         actor: Option<String>,
     ) -> Self {
+        let id = uuid::Uuid::new_v4();
         Self {
             inner: CoreEventEnvelope {
-                id: uuid::Uuid::new_v4(),
+                schema_version: 1,
+                id,
                 stream: "kolibri-events".to_string(),
                 subject: event.subject().to_string(),
                 event_type: event.as_str().to_string(),
                 aggregate_id,
                 payload_json: serde_json::json!({}),
-                trace_id: None,
+                trace_id: Some(format!("trace:{id}")),
+                idempotency_key: format!("event:{id}"),
                 correlation_id: None,
                 actor,
                 created_at: Utc::now(),
@@ -130,6 +133,23 @@ pub fn parse_wire_event(
         "agent.heartbeat" => KolibriEvent::AgentHeartbeat,
         "agent.capabilities.updated" => KolibriEvent::AgentCapabilitiesUpdated,
         "agent.status.changed" => KolibriEvent::AgentStatusChanged,
+        "project.created" => KolibriEvent::ProjectCreated,
+        "workstream.updated" => KolibriEvent::WorkstreamUpdated,
+        "checkpoint.created" => KolibriEvent::CheckpointCreated,
+        "plan.created" => KolibriEvent::PlanCreated,
+        "swarm.plan.created" => KolibriEvent::SwarmPlanCreated,
+        "actor.ready" => KolibriEvent::ActorReady,
+        "actor.leased" => KolibriEvent::ActorLeased,
+        "actor.lease.renewed" => KolibriEvent::ActorLeaseRenewed,
+        "actor.lease.expired" => KolibriEvent::ActorLeaseExpired,
+        "actor.requeued" => KolibriEvent::ActorRequeued,
+        "actor.completed" => KolibriEvent::ActorCompleted,
+        "actor.failed" => KolibriEvent::ActorFailed,
+        "verifier.approved" => KolibriEvent::VerifierApproved,
+        "verifier.rejected" => KolibriEvent::VerifierRejected,
+        "mailbox.message.enqueued" => KolibriEvent::MailboxMessageEnqueued,
+        "mailbox.message.acknowledged" => KolibriEvent::MailboxMessageAcknowledged,
+        "mailbox.checkpointed" => KolibriEvent::MailboxCheckpointed,
         "task.created" => KolibriEvent::TaskCreated,
         "task.assigned" => KolibriEvent::TaskAssigned,
         "task.started" => KolibriEvent::TaskStarted,
@@ -154,6 +174,21 @@ pub fn parse_wire_event(
         "model.requested" => KolibriEvent::ModelRequested,
         "model.completed" => KolibriEvent::ModelCompleted,
         "model.failed" => KolibriEvent::ModelFailed,
+        "provider.attempt.started" => KolibriEvent::ProviderAttemptStarted,
+        "provider.attempt.succeeded" => KolibriEvent::ProviderAttemptSucceeded,
+        "provider.attempt.failed" => KolibriEvent::ProviderAttemptFailed,
+        "formulalm.trace.captured" => KolibriEvent::FormulaTraceCaptured,
+        "learning.candidate.created" => KolibriEvent::LearningCandidateCreated,
+        "learning.candidate.eligible" => KolibriEvent::LearningCandidateEligible,
+        "learning.candidate.excluded" => KolibriEvent::LearningCandidateExcluded,
+        "artifact.rendered" => KolibriEvent::ArtifactRendered,
+        "preview.started" => KolibriEvent::PreviewStarted,
+        "preview.ready" => KolibriEvent::PreviewReady,
+        "preview.stopped" => KolibriEvent::PreviewStopped,
+        "browser.session.started" => KolibriEvent::BrowserSessionStarted,
+        "browser.session.completed" => KolibriEvent::BrowserSessionCompleted,
+        "automation.triggered" => KolibriEvent::AutomationTriggered,
+        "automation.completed" => KolibriEvent::AutomationCompleted,
         "audit.recorded" => KolibriEvent::AuditRecorded,
         _ => return Err(KolibriEventParseError(event_type.to_string())),
     };
@@ -168,6 +203,8 @@ mod tests {
         let envelope = EventEnvelope::new(KolibriEvent::TaskCreated, None, Some("test".into()))
             .set_trace("trace-01");
         assert!(envelope.subject().starts_with("kolibri."));
+        assert_eq!(envelope.inner.schema_version, 1);
+        assert!(!envelope.inner.idempotency_key.is_empty());
         assert_eq!(envelope.inner.event_type, "task.created");
         assert!(validate_trace_id(envelope.inner.trace_id.as_deref()));
     }
@@ -185,5 +222,20 @@ mod tests {
         let parsed = parse_wire_event("task.completed").expect("parsed");
         assert_eq!(parsed.as_str(), "task.completed");
         assert_eq!(parsed.subject(), "kolibri.task");
+
+        let actor = parse_wire_event("actor.leased").expect("actor event");
+        assert_eq!(actor.subject(), "kolibri.actor");
+        let expired = parse_wire_event("actor.lease.expired").expect("lease expiry event");
+        assert_eq!(expired.subject(), "kolibri.actor");
+        let verifier = parse_wire_event("verifier.approved").expect("verifier event");
+        assert_eq!(verifier.subject(), "kolibri.verifier");
+        let mailbox = parse_wire_event("mailbox.checkpointed").expect("mailbox event");
+        assert_eq!(mailbox.subject(), "kolibri.mailbox");
+        let learning = parse_wire_event("learning.candidate.eligible").expect("learning event");
+        assert_eq!(learning.subject(), "kolibri.learning");
+        assert_eq!(
+            event_subject_for("provider.attempt.failed"),
+            "kolibri.provider"
+        );
     }
 }

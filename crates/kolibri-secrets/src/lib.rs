@@ -36,8 +36,10 @@ impl SecretProvider for EnvSecretProvider {
 }
 
 pub fn make_requested_event(task_id: Option<&str>, secret: &SecretRef) -> EventEnvelope {
+    let id = uuid::Uuid::new_v4();
     EventEnvelope {
-        id: uuid::Uuid::new_v4(),
+        schema_version: 1,
+        id,
         stream: "kolibri.secret".into(),
         subject: "secret.requested".into(),
         event_type: "secret.requested".into(),
@@ -48,7 +50,8 @@ pub fn make_requested_event(task_id: Option<&str>, secret: &SecretRef) -> EventE
             "path": secret.path,
             "scope": secret.scope,
         }),
-        trace_id: None,
+        trace_id: Some(format!("trace:{id}")),
+        idempotency_key: format!("secret.requested:{id}"),
         correlation_id: None,
         actor: Some("policy-engine".into()),
         created_at: chrono::Utc::now(),
@@ -56,8 +59,10 @@ pub fn make_requested_event(task_id: Option<&str>, secret: &SecretRef) -> EventE
 }
 
 pub fn make_granted_event(task_id: Option<&str>, secret: &SecretRef) -> EventEnvelope {
+    let id = uuid::Uuid::new_v4();
     EventEnvelope {
-        id: uuid::Uuid::new_v4(),
+        schema_version: 1,
+        id,
         stream: "kolibri.secret".into(),
         subject: "secret.granted".into(),
         event_type: "secret.granted".into(),
@@ -68,7 +73,8 @@ pub fn make_granted_event(task_id: Option<&str>, secret: &SecretRef) -> EventEnv
             "path": secret.path,
             "scope": secret.scope,
         }),
-        trace_id: None,
+        trace_id: Some(format!("trace:{id}")),
+        idempotency_key: format!("secret.granted:{id}"),
         correlation_id: None,
         actor: Some("policy-engine".into()),
         created_at: chrono::Utc::now(),
@@ -76,8 +82,10 @@ pub fn make_granted_event(task_id: Option<&str>, secret: &SecretRef) -> EventEnv
 }
 
 pub fn make_denied_event(task_id: Option<&str>, secret: &SecretRef, reason: &str) -> EventEnvelope {
+    let id = uuid::Uuid::new_v4();
     EventEnvelope {
-        id: uuid::Uuid::new_v4(),
+        schema_version: 1,
+        id,
         stream: "kolibri.secret".into(),
         subject: "secret.denied".into(),
         event_type: "secret.denied".into(),
@@ -89,7 +97,8 @@ pub fn make_denied_event(task_id: Option<&str>, secret: &SecretRef, reason: &str
             "scope": secret.scope,
             "reason": reason,
         }),
-        trace_id: None,
+        trace_id: Some(format!("trace:{id}")),
+        idempotency_key: format!("secret.denied:{id}"),
         correlation_id: None,
         actor: Some("policy-engine".into()),
         created_at: chrono::Utc::now(),
