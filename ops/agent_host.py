@@ -943,6 +943,8 @@ class AgentHost:
         self.max_inflight = args.max_inflight
         self.hostname = platform.node()
         self.pid = os.getpid()
+        self._last_node_heartbeat = 0.0
+        self._registered = False
         self.runner_status = self.detect_runner_status()
         self.capabilities = self.capabilities_with_runners()
         self.work_root.mkdir(parents=True, exist_ok=True)
@@ -955,9 +957,10 @@ class AgentHost:
         return self._request_with_failover("GET", path)
 
     def _ordered_control_urls(self) -> list[str]:
-        urls = [self.control_url]
-        urls.extend(url for url in self.control_urls if url != self.control_url)
-        return urls
+        # Always retry the configured canonical Control Plane first. A
+        # successful fallback is request-local and must not permanently pin a
+        # worker to a stale standby after the canonical API recovers.
+        return list(self.control_urls)
 
     def _request_with_failover(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
         last_exc: Exception | None = None
@@ -1029,6 +1032,7 @@ class AgentHost:
             **machine_stats(),
         }
         self.post("/v1/nodes/register", body)
+        self._registered = True
 
     def node_heartbeat(self, active_task: str | None = None) -> None:
         body = {
@@ -1042,8 +1046,13 @@ class AgentHost:
             **machine_stats(),
         }
         self.post(f"/v1/nodes/{self.node_id}/heartbeat", body)
+        self._last_node_heartbeat = time.time()
 
     def task_heartbeat(self, task: dict[str, Any], worktree: Path, branch: str | None, logs: dict[str, str], pid: int | None = None) -> dict[str, Any]:
+        # Long tasks still refresh their node card. Otherwise a healthy busy
+        # worker is classified as stale and removed from routing.
+        if time.time() - self._last_node_heartbeat >= self.heartbeat_interval:
+            self.node_heartbeat(active_task=task["task_id"])
         body = {
             "state": "running",
             "pid": pid or self.pid,
@@ -2478,12 +2487,19 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
             self.fail(task, error_type, redact_sensitive_text(str(exc)), result, result_path, retry=retry)
 
     def loop(self) -> None:
-        self.register()
-        last_node_heartbeat = 0.0
         while not STOP:
-            if time.time() - last_node_heartbeat >= self.heartbeat_interval:
-                self.node_heartbeat()
-                last_node_heartbeat = time.time()
+            try:
+                if not self._registered:
+                    self.register()
+                if time.time() - self._last_node_heartbeat >= self.heartbeat_interval:
+                    self.node_heartbeat()
+            except Exception as exc:
+                # A temporary Control Plane outage must not create a systemd
+                # restart storm across the whole fleet.
+                self._registered = False
+                print(f"{utc_now()} control_plane_heartbeat_failed {exc}", flush=True)
+                time.sleep(5)
+                continue
             try:
                 task = self.lease()
             except Exception as exc:

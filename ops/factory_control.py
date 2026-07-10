@@ -549,6 +549,19 @@ def get_json(redis_key: str, default: Any = None) -> Any:
     return json.loads(raw)
 
 
+def get_json_many(redis_keys: list[str]) -> list[Any]:
+    """Fetch a Redis collection in one round trip.
+
+    Fleet and task views are polled continuously by both the UI and workers.
+    Batching avoids turning a status request into hundreds of Redis
+    connections when historical node cards are present.
+    """
+    if not redis_keys:
+        return []
+    values = redis.command("MGET", *redis_keys) or []
+    return [json.loads(value) if value is not None else None for value in values]
+
+
 def set_json(redis_key: str, value: Any) -> None:
     redis.command("SET", redis_key, json.dumps(value, sort_keys=True, separators=(",", ":")))
 
@@ -608,11 +621,15 @@ def all_task_ids() -> list[str]:
 
 
 def registered_nodes() -> list[dict[str, Any]]:
+    node_ids = sorted(redis.command("SMEMBERS", key("node_ids")) or [])
+    raw_nodes = get_json_many([node_key(node_id) for node_id in node_ids])
+    drains = redis.command("MGET", *[drain_key(node_id) for node_id in node_ids]) if node_ids else []
+    current = now_ts()
     nodes = []
-    for node_id in sorted(redis.command("SMEMBERS", key("node_ids")) or []):
-        node = get_json(node_key(node_id), {})
-        node["draining"] = bool(redis.command("GET", drain_key(node_id)))
-        nodes.append(node)
+    for node_id, raw_node, draining in zip(node_ids, raw_nodes, drains):
+        node = raw_node or {"node_id": node_id}
+        node["draining"] = bool(draining)
+        nodes.append(classify_node_freshness(node, current))
     return nodes
 
 
@@ -854,6 +871,10 @@ def save_task(task: dict[str, Any]) -> None:
     task["updated_at"] = utc_now()
     set_json(task_key(task["task_id"]), task)
     redis.command("SADD", key("task_ids"), task["task_id"])
+    if task.get("state") in {STATE_LEASED, STATE_RUNNING, STATE_REVIEW}:
+        redis.command("SADD", key("active_lease_ids"), task["task_id"])
+    else:
+        redis.command("SREM", key("active_lease_ids"), task["task_id"])
 
 
 def enqueue(task_id: str) -> None:
@@ -970,11 +991,34 @@ def compatible(task: dict[str, Any], node_id: str, capabilities: list[str], node
     return True
 
 
+def ensure_active_lease_index() -> None:
+    """Migrate legacy leased tasks into the bounded active-lease index once."""
+    marker = key("active_lease_index_v1")
+    if redis.command("GET", marker):
+        return
+    task_ids = all_task_ids()
+    active_ids: list[str] = []
+    for start in range(0, len(task_ids), 500):
+        page_ids = task_ids[start:start + 500]
+        tasks = get_json_many([task_key(task_id) for task_id in page_ids])
+        active_ids.extend(
+            task_id
+            for task_id, task in zip(page_ids, tasks)
+            if task and task.get("state") in {STATE_LEASED, STATE_RUNNING, STATE_REVIEW}
+        )
+    if active_ids:
+        redis.command("SADD", key("active_lease_ids"), *active_ids)
+    redis.command("SET", marker, utc_now())
+
+
 def requeue_expired_leases() -> None:
+    ensure_active_lease_index()
     current = now_ts()
-    for task_id in all_task_ids():
+    active_ids = sorted(redis.command("SMEMBERS", key("active_lease_ids")) or [])
+    for task_id in active_ids:
         task = load_task(task_id)
         if not task or task.get("state") not in {STATE_LEASED, STATE_RUNNING, STATE_REVIEW}:
+            redis.command("SREM", key("active_lease_ids"), task_id)
             continue
         lease_until = float(task.get("lease_until") or 0)
         if lease_until >= current:
@@ -1167,14 +1211,41 @@ class Handler(BaseHTTPRequestHandler):
                 response(self, 200, superfactory_status())
                 return
             if path == "/v1/nodes":
+                query = parse_qs(parsed.query)
+                limit = min(max(int(query.get("limit", ["50"])[0]), 1), 250)
+                offset = max(int(query.get("offset", ["0"])[0]), 0)
                 nodes = []
                 current = now_ts()
-                for node_id in sorted(redis.command("SMEMBERS", key("node_ids")) or []):
-                    node = get_json(node_key(node_id), {})
-                    node["draining"] = bool(redis.command("GET", drain_key(node_id)))
+                node_ids = sorted(redis.command("SMEMBERS", key("node_ids")) or [])
+                total_indexed = len(node_ids)
+                page_ids = node_ids[offset:offset + limit]
+                page_nodes = get_json_many([node_key(node_id) for node_id in page_ids])
+                drains = redis.command("MGET", *[drain_key(node_id) for node_id in page_ids]) if page_ids else []
+                for node_id, raw_node, draining in zip(page_ids, page_nodes, drains):
+                    node = raw_node or {"node_id": node_id}
+                    node["draining"] = bool(draining)
                     nodes.append(classify_node_freshness(node, current))
                 counts = node_health_counts(nodes)
-                response(self, 200, {"nodes": nodes, "counts": counts, "freshness": counts})
+                response(self, 200, {
+                    "nodes": nodes,
+                    "counts": counts,
+                    "freshness": counts,
+                    "pagination": {
+                        "limit": limit,
+                        "offset": offset,
+                        "returned": len(nodes),
+                        "total_indexed": total_indexed,
+                    },
+                })
+                return
+            if path.startswith("/v1/nodes/"):
+                node_id = path.split("/", 3)[3]
+                node = get_json(node_key(node_id), {})
+                if not node:
+                    response(self, 404, {"error": "node_not_found", "node_id": node_id})
+                    return
+                node["draining"] = bool(redis.command("GET", drain_key(node_id)))
+                response(self, 200, classify_node_freshness(node))
                 return
             if path == "/v1/fleet/nodes":
                 nodes = fabric_nodes(registered_nodes())
@@ -1264,9 +1335,28 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/v1/tasks":
                 query = parse_qs(parsed.query)
                 wanted = query.get("state", [None])[0]
-                tasks = [load_task(task_id) for task_id in all_task_ids()]
+                limit = min(max(int(query.get("limit", ["100"])[0]), 1), 250)
+                offset = max(int(query.get("offset", ["0"])[0]), 0)
+                task_ids = list(reversed(all_task_ids()))
+                total_indexed = len(task_ids)
+                if wanted is None:
+                    task_ids = task_ids[offset:offset + limit]
+                tasks = [load_task(task_id) for task_id in task_ids]
                 tasks = [task for task in tasks if task and (wanted is None or task.get("state") == wanted)]
-                response(self, 200, {"tasks": tasks, "queue": queue_ids()})
+                if wanted is not None:
+                    tasks = tasks[offset:offset + limit]
+                queue = queue_ids()
+                response(self, 200, {
+                    "tasks": tasks,
+                    "queue": queue[:250],
+                    "pagination": {
+                        "limit": limit,
+                        "offset": offset,
+                        "returned": len(tasks),
+                        "total_indexed": total_indexed,
+                    },
+                    "queue_total": len(queue),
+                })
                 return
             if path.startswith("/v1/tasks/"):
                 task_id = path.split("/", 3)[3]
