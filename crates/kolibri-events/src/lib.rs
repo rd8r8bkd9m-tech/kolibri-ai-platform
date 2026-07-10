@@ -1,10 +1,12 @@
-use chrono::Utc;
-use kolibri_core::events::{
-    subject_for as core_subject_for, EventEnvelope as CoreEventEnvelope, KolibriEvent,
-};
+use kolibri_core::events::{subject_for as core_subject_for, EventDraft, KolibriEvent};
 use serde::{Deserialize, Serialize};
 
+pub use kolibri_core::event_store::{
+    DurableHomeEventStore, EventStoreError, HomeAppendCredential, HomeAuthorityConfig,
+    VerifiedEventEnvelope,
+};
 pub use kolibri_core::events::subject_for as event_subject_for;
+pub use kolibri_core::events::EventEnvelope;
 
 pub const KOLIBRI_STREAM_TASKS: &str = "KOLIBRI_TASKS";
 pub const KOLIBRI_STREAM_EVENTS: &str = "KOLIBRI_EVENTS";
@@ -30,55 +32,24 @@ impl Stream {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct EventEnvelope {
-    #[serde(flatten)]
-    pub inner: CoreEventEnvelope,
+pub fn new_event_draft(
+    event: KolibriEvent,
+    aggregate_id: Option<uuid::Uuid>,
+    actor: Option<String>,
+) -> EventDraft {
+    EventDraft::for_event(
+        event,
+        aggregate_id,
+        actor.unwrap_or_else(|| "kolibri-events".to_string()),
+    )
 }
 
-impl EventEnvelope {
-    pub fn new(
-        event: KolibriEvent,
-        aggregate_id: Option<uuid::Uuid>,
-        actor: Option<String>,
-    ) -> Self {
-        let id = uuid::Uuid::new_v4();
-        Self {
-            inner: CoreEventEnvelope {
-                schema_version: 1,
-                id,
-                stream: "kolibri-events".to_string(),
-                subject: event.subject().to_string(),
-                event_type: event.as_str().to_string(),
-                aggregate_id,
-                payload_json: serde_json::json!({}),
-                trace_id: Some(format!("trace:{id}")),
-                idempotency_key: format!("event:{id}"),
-                correlation_id: None,
-                actor,
-                created_at: Utc::now(),
-            },
-        }
-    }
-
-    pub fn with_payload<T: Serialize>(mut self, payload: &T) -> Result<Self, serde_json::Error> {
-        self.inner.payload_json = serde_json::to_value(payload)?;
-        Ok(self)
-    }
-
-    pub fn set_trace(mut self, trace_id: impl Into<String>) -> Self {
-        self.inner.trace_id = Some(trace_id.into());
-        self
-    }
-
-    pub fn set_correlation(mut self, correlation_id: impl Into<String>) -> Self {
-        self.inner.correlation_id = Some(correlation_id.into());
-        self
-    }
-
-    pub fn subject(&self) -> &str {
-        &self.inner.subject
-    }
+pub fn with_payload<T: Serialize>(
+    mut draft: EventDraft,
+    payload: &T,
+) -> Result<EventDraft, serde_json::Error> {
+    draft.payload_json = serde_json::to_value(payload)?;
+    Ok(draft)
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -114,7 +85,7 @@ pub enum EventTypeError {
 pub fn validate_trace_id(trace_id: Option<&str>) -> bool {
     match trace_id {
         Some(value) => !value.trim().is_empty(),
-        None => true,
+        None => false,
     }
 }
 
@@ -199,14 +170,17 @@ pub fn parse_wire_event(
 mod tests {
     use super::*;
     #[test]
-    fn envelope_has_subject_prefix() {
-        let envelope = EventEnvelope::new(KolibriEvent::TaskCreated, None, Some("test".into()))
-            .set_trace("trace-01");
-        assert!(envelope.subject().starts_with("kolibri."));
-        assert_eq!(envelope.inner.schema_version, 1);
-        assert!(!envelope.inner.idempotency_key.is_empty());
-        assert_eq!(envelope.inner.event_type, "task.created");
-        assert!(validate_trace_id(envelope.inner.trace_id.as_deref()));
+    fn draft_has_no_fabricated_authority_or_sequence() {
+        let draft = new_event_draft(KolibriEvent::TaskCreated, None, Some("test".into()));
+        assert!(draft.subject.starts_with("kolibri."));
+        assert!(!draft.idempotency_key.is_empty());
+        assert_eq!(draft.event_type, "task.created");
+        assert!(validate_trace_id(Some(draft.trace_id.as_str())));
+        assert_eq!(draft.provenance.actor, "test");
+        let wire = serde_json::to_value(&draft).unwrap();
+        assert!(wire.get("source").is_none());
+        assert!(wire.get("sequence").is_none());
+        draft.validate().expect("valid event draft");
     }
 
     #[test]

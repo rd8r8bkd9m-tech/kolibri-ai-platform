@@ -6,21 +6,28 @@ use uuid::Uuid;
 pub mod artifacts;
 pub mod continuity;
 pub mod envelope;
+pub mod event_store;
 pub mod events;
 pub mod learning;
 pub mod models;
 pub mod policy;
 pub mod swarm;
+pub mod v1;
 pub mod wire;
 
 pub use crate::artifacts::*;
 pub use crate::continuity::*;
-pub use crate::events::{subject_for, EventEnvelope, KolibriEvent};
+pub use crate::event_store::*;
+pub use crate::events::{
+    subject_for, validate_identifier, EventAuthority, EventAuthorityStatus, EventDraft,
+    EventEnvelope, EventEnvelopeError, EventProvenance, IdentifierError, KolibriEvent,
+};
 pub use crate::learning::*;
 pub use crate::models::{
     Artifact, CommandRun, ModelRun, PolicyDecision, SecretRef, SecretValue, Task, TaskRun,
 };
 pub use crate::swarm::*;
+pub use crate::v1::*;
 pub use crate::wire::*;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]

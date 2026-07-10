@@ -19,6 +19,65 @@ pub enum PlanNodeKind {
     Publisher,
 }
 
+/// Explicit projection from a complete public V1 state into the narrower
+/// scheduler state machine. Transitional projections are never silent: the
+/// caller must decide whether the documented information loss is acceptable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum V1SchedulerProjection<T> {
+    Exact(T),
+    Transitional { nearest: T, reason: &'static str },
+    Unsupported { reason: &'static str },
+}
+
+/// Public plan-node kinds frozen by `domain.schema.json`.
+///
+/// This is intentionally separate from [`PlanNodeKind`]: mapper/tool/renderer
+/// roles remain scheduler details and are lowered to `worker` only at the V1
+/// compatibility boundary.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum V1PlanNodeKind {
+    Planner,
+    Worker,
+    Reducer,
+    Verifier,
+    Approval,
+    Release,
+}
+
+impl From<PlanNodeKind> for V1PlanNodeKind {
+    fn from(value: PlanNodeKind) -> Self {
+        match value {
+            PlanNodeKind::Planner => Self::Planner,
+            PlanNodeKind::Worker
+            | PlanNodeKind::Mapper
+            | PlanNodeKind::Tool
+            | PlanNodeKind::Renderer => Self::Worker,
+            PlanNodeKind::Reducer => Self::Reducer,
+            PlanNodeKind::Verifier => Self::Verifier,
+            PlanNodeKind::Publisher => Self::Release,
+        }
+    }
+}
+
+impl V1PlanNodeKind {
+    pub fn scheduler_projection(self) -> V1SchedulerProjection<PlanNodeKind> {
+        match self {
+            Self::Planner => V1SchedulerProjection::Exact(PlanNodeKind::Planner),
+            Self::Worker => V1SchedulerProjection::Transitional {
+                nearest: PlanNodeKind::Worker,
+                reason: "V1 worker collapses worker, mapper, tool and renderer scheduler kinds",
+            },
+            Self::Reducer => V1SchedulerProjection::Exact(PlanNodeKind::Reducer),
+            Self::Verifier => V1SchedulerProjection::Exact(PlanNodeKind::Verifier),
+            Self::Release => V1SchedulerProjection::Exact(PlanNodeKind::Publisher),
+            Self::Approval => V1SchedulerProjection::Unsupported {
+                reason: "approval is enforced by policy and has no standalone scheduler kind",
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum PlanNodeState {
@@ -32,6 +91,66 @@ pub enum PlanNodeState {
     Blocked,
     Failed,
     Cancelled,
+}
+
+/// Public plan-node states frozen by `domain.schema.json`.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum V1PlanNodeState {
+    Pending,
+    Ready,
+    Leased,
+    Running,
+    Review,
+    Retry,
+    Blocked,
+    Completed,
+    Dead,
+    Cancelled,
+}
+
+impl From<PlanNodeState> for V1PlanNodeState {
+    fn from(value: PlanNodeState) -> Self {
+        match value {
+            PlanNodeState::Pending | PlanNodeState::WaitingDependencies => Self::Pending,
+            PlanNodeState::Ready => Self::Ready,
+            PlanNodeState::Running => Self::Running,
+            PlanNodeState::Reducing | PlanNodeState::Verifying => Self::Review,
+            PlanNodeState::Completed => Self::Completed,
+            PlanNodeState::Blocked => Self::Blocked,
+            PlanNodeState::Failed => Self::Dead,
+            PlanNodeState::Cancelled => Self::Cancelled,
+        }
+    }
+}
+
+impl V1PlanNodeState {
+    pub fn scheduler_projection(self) -> V1SchedulerProjection<PlanNodeState> {
+        match self {
+            Self::Pending => V1SchedulerProjection::Transitional {
+                nearest: PlanNodeState::Pending,
+                reason: "V1 pending collapses pending and waiting-dependencies scheduler states",
+            },
+            Self::Ready => V1SchedulerProjection::Exact(PlanNodeState::Ready),
+            Self::Running => V1SchedulerProjection::Exact(PlanNodeState::Running),
+            Self::Review => V1SchedulerProjection::Transitional {
+                nearest: PlanNodeState::Verifying,
+                reason: "V1 review collapses reducing and verifying scheduler states",
+            },
+            Self::Blocked => V1SchedulerProjection::Exact(PlanNodeState::Blocked),
+            Self::Completed => V1SchedulerProjection::Exact(PlanNodeState::Completed),
+            Self::Dead => V1SchedulerProjection::Exact(PlanNodeState::Failed),
+            Self::Cancelled => V1SchedulerProjection::Exact(PlanNodeState::Cancelled),
+            Self::Leased => V1SchedulerProjection::Transitional {
+                nearest: PlanNodeState::Running,
+                reason: "lease ownership is represented by ActorLease, not PlanNodeState",
+            },
+            Self::Retry => V1SchedulerProjection::Transitional {
+                nearest: PlanNodeState::Ready,
+                reason: "retry budget and attempt are represented outside PlanNodeState",
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -375,6 +494,66 @@ pub enum LogicalActorState {
     Blocked,
     Failed,
     Cancelled,
+}
+
+/// Public logical-actor states frozen by `domain.schema.json`.
+/// Scheduler-only reducer/verifier phases remain represented internally.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum V1ActorState {
+    Idle,
+    Runnable,
+    Leased,
+    Running,
+    Checkpointing,
+    Waiting,
+    Failed,
+    Stopped,
+}
+
+impl From<LogicalActorState> for V1ActorState {
+    fn from(value: LogicalActorState) -> Self {
+        match value {
+            LogicalActorState::Pending => Self::Idle,
+            LogicalActorState::WaitingDependencies | LogicalActorState::Blocked => Self::Waiting,
+            LogicalActorState::Ready => Self::Runnable,
+            LogicalActorState::Running
+            | LogicalActorState::Reducing
+            | LogicalActorState::Verifying => Self::Running,
+            LogicalActorState::Failed => Self::Failed,
+            LogicalActorState::Completed | LogicalActorState::Cancelled => Self::Stopped,
+        }
+    }
+}
+
+impl V1ActorState {
+    pub fn scheduler_projection(self) -> V1SchedulerProjection<LogicalActorState> {
+        match self {
+            Self::Idle => V1SchedulerProjection::Exact(LogicalActorState::Pending),
+            Self::Runnable => V1SchedulerProjection::Exact(LogicalActorState::Ready),
+            Self::Running => V1SchedulerProjection::Transitional {
+                nearest: LogicalActorState::Running,
+                reason: "V1 running collapses running, reducing and verifying actor states",
+            },
+            Self::Waiting => V1SchedulerProjection::Transitional {
+                nearest: LogicalActorState::WaitingDependencies,
+                reason: "V1 waiting collapses dependency waiting and blocked actor states",
+            },
+            Self::Failed => V1SchedulerProjection::Exact(LogicalActorState::Failed),
+            Self::Leased => V1SchedulerProjection::Transitional {
+                nearest: LogicalActorState::Running,
+                reason: "lease ownership is represented by current_lease",
+            },
+            Self::Checkpointing => V1SchedulerProjection::Transitional {
+                nearest: LogicalActorState::Running,
+                reason: "checkpointing is represented by mailbox checkpoint state",
+            },
+            Self::Stopped => V1SchedulerProjection::Transitional {
+                nearest: LogicalActorState::Cancelled,
+                reason: "V1 stopped does not distinguish completed from cancelled",
+            },
+        }
+    }
 }
 
 impl LogicalActorState {
@@ -829,6 +1008,56 @@ pub enum PlanExecutionState {
     Completed,
     Blocked,
     Failed,
+}
+
+/// Public SwarmPlan states frozen by `domain.schema.json`.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum V1SwarmPlanState {
+    Draft,
+    Queued,
+    Running,
+    Verifying,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+impl From<PlanExecutionState> for V1SwarmPlanState {
+    fn from(value: PlanExecutionState) -> Self {
+        match value {
+            PlanExecutionState::Running => Self::Running,
+            PlanExecutionState::Reducing | PlanExecutionState::Verifying => Self::Verifying,
+            PlanExecutionState::Completed => Self::Completed,
+            PlanExecutionState::Blocked | PlanExecutionState::Failed => Self::Failed,
+        }
+    }
+}
+
+impl V1SwarmPlanState {
+    pub fn scheduler_projection(self) -> V1SchedulerProjection<PlanExecutionState> {
+        match self {
+            Self::Running => V1SchedulerProjection::Exact(PlanExecutionState::Running),
+            Self::Verifying => V1SchedulerProjection::Transitional {
+                nearest: PlanExecutionState::Verifying,
+                reason: "V1 verifying collapses reducing and verifying scheduler phases",
+            },
+            Self::Completed => V1SchedulerProjection::Exact(PlanExecutionState::Completed),
+            Self::Failed => V1SchedulerProjection::Transitional {
+                nearest: PlanExecutionState::Failed,
+                reason: "V1 failed collapses blocked and failed scheduler terminal states",
+            },
+            Self::Draft => V1SchedulerProjection::Unsupported {
+                reason: "draft plans are not materialized in the scheduler",
+            },
+            Self::Queued => V1SchedulerProjection::Unsupported {
+                reason: "queue ownership is represented by the dispatch layer",
+            },
+            Self::Cancelled => V1SchedulerProjection::Unsupported {
+                reason: "the scheduler terminal aggregate has no distinct cancelled state",
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

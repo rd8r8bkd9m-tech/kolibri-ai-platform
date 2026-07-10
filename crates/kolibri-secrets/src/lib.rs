@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use kolibri_core::events::EventEnvelope;
+use kolibri_core::events::{EventDraft, EventProvenance};
 use kolibri_core::models::{SecretRef, SecretValue};
 use thiserror::Error;
 
@@ -35,74 +35,61 @@ impl SecretProvider for EnvSecretProvider {
     }
 }
 
-pub fn make_requested_event(task_id: Option<&str>, secret: &SecretRef) -> EventEnvelope {
-    let id = uuid::Uuid::new_v4();
-    EventEnvelope {
-        schema_version: 1,
-        id,
-        stream: "kolibri.secret".into(),
-        subject: "secret.requested".into(),
-        event_type: "secret.requested".into(),
-        aggregate_id: None,
-        payload_json: serde_json::json!({
+pub fn make_requested_event(task_id: Option<&str>, secret: &SecretRef) -> EventDraft {
+    make_secret_event(
+        "secret.requested",
+        task_id,
+        serde_json::json!({
             "task_id": task_id,
             "provider": secret.provider,
             "path": secret.path,
             "scope": secret.scope,
         }),
-        trace_id: Some(format!("trace:{id}")),
-        idempotency_key: format!("secret.requested:{id}"),
-        correlation_id: None,
-        actor: Some("policy-engine".into()),
-        created_at: chrono::Utc::now(),
-    }
+    )
 }
 
-pub fn make_granted_event(task_id: Option<&str>, secret: &SecretRef) -> EventEnvelope {
-    let id = uuid::Uuid::new_v4();
-    EventEnvelope {
-        schema_version: 1,
-        id,
-        stream: "kolibri.secret".into(),
-        subject: "secret.granted".into(),
-        event_type: "secret.granted".into(),
-        aggregate_id: None,
-        payload_json: serde_json::json!({
+pub fn make_granted_event(task_id: Option<&str>, secret: &SecretRef) -> EventDraft {
+    make_secret_event(
+        "secret.granted",
+        task_id,
+        serde_json::json!({
             "task_id": task_id,
             "provider": secret.provider,
             "path": secret.path,
             "scope": secret.scope,
         }),
-        trace_id: Some(format!("trace:{id}")),
-        idempotency_key: format!("secret.granted:{id}"),
-        correlation_id: None,
-        actor: Some("policy-engine".into()),
-        created_at: chrono::Utc::now(),
-    }
+    )
 }
 
-pub fn make_denied_event(task_id: Option<&str>, secret: &SecretRef, reason: &str) -> EventEnvelope {
-    let id = uuid::Uuid::new_v4();
-    EventEnvelope {
-        schema_version: 1,
-        id,
-        stream: "kolibri.secret".into(),
-        subject: "secret.denied".into(),
-        event_type: "secret.denied".into(),
-        aggregate_id: None,
-        payload_json: serde_json::json!({
+pub fn make_denied_event(task_id: Option<&str>, secret: &SecretRef, reason: &str) -> EventDraft {
+    make_secret_event(
+        "secret.denied",
+        task_id,
+        serde_json::json!({
             "task_id": task_id,
             "provider": secret.provider,
             "path": secret.path,
             "scope": secret.scope,
             "reason": reason,
         }),
-        trace_id: Some(format!("trace:{id}")),
-        idempotency_key: format!("secret.denied:{id}"),
-        correlation_id: None,
-        actor: Some("policy-engine".into()),
-        created_at: chrono::Utc::now(),
-    }
+    )
+}
+
+fn make_secret_event(
+    event_type: &str,
+    task_id: Option<&str>,
+    payload: serde_json::Value,
+) -> EventDraft {
+    let mut draft = EventDraft::new(
+        event_type,
+        task_id.map_or_else(|| "secret/policy".to_string(), |id| format!("task/{id}")),
+        format!("trace:{}", uuid::Uuid::new_v4()),
+        payload,
+        EventProvenance::v1("policy-engine", "v1"),
+        chrono::Utc::now(),
+    );
+    draft.idempotency_key = format!("{event_type}:{}", uuid::Uuid::new_v4());
+    draft
 }
 
 #[cfg(test)]
@@ -142,5 +129,7 @@ mod tests {
         let raw = serde_json::to_string(&event).unwrap();
         assert!(!raw.contains("top-secret"));
         assert!(raw.contains("projects/alpha/db"));
+        assert!(!raw.contains("\"sequence\""));
+        assert!(!raw.contains("\"source\""));
     }
 }
