@@ -1,43 +1,39 @@
 #!/usr/bin/env python3
-"""Kolibri Factory physical foundation registry.
+"""Dynamic Kolibri fleet inventory backed by Home Control Plane membership.
 
-Defines the 21 canonical physical servers, command nodes, network nodes,
-and operator assets. This is the single source of truth for what exists
-in the physical infrastructure.
+Physical workers are never declared in this module.  The replicated mesh
+manifest is the authority for active physical membership; Agent Host
+registration and fresh heartbeats determine whether a canonical member may be
+scheduled.  Redis-only identities remain historical audit records.
+Home is the sole Control Plane authority.  Every other registered server is
+classified as an execution/model/reserve worker from its advertised
+capabilities.
 """
 
 from __future__ import annotations
 
+import json
+import os
 from dataclasses import dataclass, field
-from typing import Literal
+from pathlib import Path
+from typing import Any, Iterable, Literal
+from urllib.parse import urlencode
+from urllib.request import urlopen
+
+try:
+    from control_plane_endpoint import DEFAULT_MESH_MANIFEST, resolve_home_control_plane_url
+except ImportError:  # pragma: no cover - package import
+    from ops.control_plane_endpoint import DEFAULT_MESH_MANIFEST, resolve_home_control_plane_url
+
 
 AssetClass = Literal[
     "physical_server",
     "command_node",
     "network_node",
     "operator_kit",
-    "logical_worker",
-    "mesh_alias",
 ]
 
-ServerRole = Literal[
-    "control",
-    "execution",
-    "hybrid",
-    "reserve",
-    "model",
-    "tool",
-    "rag",
-    "home_noc",
-]
-
-Lifecycle = Literal[
-    "active",
-    "degraded",
-    "stale",
-    "quarantined",
-    "retired",
-]
+Lifecycle = Literal["active", "degraded", "stale", "quarantined", "retired"]
 
 
 @dataclass
@@ -54,153 +50,184 @@ class AssetRecord:
     lifecycle: Lifecycle = "active"
     safe_to_schedule: bool = True
     next_action: str = ""
+    api_port: int | None = None
 
 
-# ── 21 Canonical Physical Servers ──────────────────────────────────────
-
-CANONICAL_SERVERS: list[AssetRecord] = [
-    AssetRecord("home", "plastilin", "physical_server",
-                aliases=["kolibri-home", "coordinator"],
-                role="hybrid", internal_ip="10.99.0.1", external_ip="178.207.11.90",
-                ssh_alias="kolibri-home", ssh_user="ladik"),
-    AssetRecord("main", "kolibri-main-api", "physical_server",
-                aliases=["kolibri-main"],
-                role="control", internal_ip="10.99.0.2", external_ip="104.253.43.117",
-                ssh_alias="kolibri-main"),
-    AssetRecord("primary-candidate", "kolibri", "physical_server",
-                aliases=["kolibri-primary-codex", "primary"],
-                role="hybrid", internal_ip="10.99.0.10", external_ip="78.17.4.108",
-                ssh_alias="kolibri-primary-codex"),
-    AssetRecord("uiap", "kolibri-rag-knowledge", "physical_server",
-                aliases=["kolibri-uiap", "rag"],
-                role="rag", internal_ip="10.99.0.3", external_ip="31.57.26.151",
-                ssh_alias="kolibri-uiap"),
-    AssetRecord("qjns", "kolibri-tools-executor", "physical_server",
-                aliases=["kolibri-qjns"],
-                role="tool", internal_ip="10.99.0.4", external_ip="217.60.63.97",
-                ssh_alias="kolibri-qjns"),
-    AssetRecord("9fts", "kolibri-inference-recovery", "physical_server",
-                aliases=["kolibri-9fts", "inference"],
-                role="model", internal_ip="10.99.0.5", external_ip="94.183.235.154",
-                ssh_alias="kolibri-9fts"),
-    AssetRecord("new", "kolibri-worker-backup", "physical_server",
-                aliases=["kolibri-new", "worker-backup"],
-                role="reserve", internal_ip="10.99.0.6", external_ip="109.248.161.39",
-                ssh_alias="kolibri-new"),
-    AssetRecord("server-kfrm", "server-kfrm", "physical_server",
-                aliases=[],
-                role="execution", internal_ip="10.99.0.7", external_ip="217.60.63.31",
-                ssh_alias="server-kfrm"),
-    AssetRecord("reserve242", "kolibri-qa-security", "physical_server",
-                aliases=["reserve"],
-                role="reserve", external_ip="31.57.26.242",
-                ssh_alias="reserve242"),
-    AssetRecord("highload", "kolibri-ci-build-highload", "physical_server",
-                aliases=["hostvds-highload"],
-                role="execution", external_ip="45.38.139.182",
-                ssh_alias="hostvds-highload"),
-    AssetRecord("paris", "kolibri-paris-build-reserve", "physical_server",
-                aliases=["hostvds-paris-highload"],
-                role="reserve", external_ip="95.182.83.60",
-                ssh_alias="hostvds-paris-highload"),
-    AssetRecord("agent-01", "kolibri-backend-lead", "physical_server",
-                aliases=["hostvds-agent-01"],
-                role="execution", external_ip="31.57.27.128",
-                ssh_alias="hostvds-agent-01"),
-    AssetRecord("agent-02", "kolibri-frontend-design", "physical_server",
-                aliases=["hostvds-agent-02"],
-                role="execution", external_ip="213.232.204.223",
-                ssh_alias="hostvds-agent-02"),
-    AssetRecord("agent-03", "kolibri-infra-network", "physical_server",
-                aliases=["hostvds-agent-03"],
-                role="execution", external_ip="188.130.206.204",
-                ssh_alias="hostvds-agent-03"),
-    AssetRecord("agent-04", "kolibri-qa-browser", "physical_server",
-                aliases=["hostvds-agent-04"],
-                role="execution", external_ip="31.59.41.146",
-                ssh_alias="hostvds-agent-04"),
-    AssetRecord("agent-05", "kolibri-security-audit", "physical_server",
-                aliases=["hostvds-agent-05"],
-                role="execution", external_ip="31.56.196.10",
-                ssh_alias="hostvds-agent-05"),
-    AssetRecord("agent-06", "kolibri-docs-knowledge", "physical_server",
-                aliases=["hostvds-agent-06"],
-                role="execution", external_ip="94.183.236.19",
-                ssh_alias="hostvds-agent-06"),
-    AssetRecord("agent-07", "kolibri-formulalm-eval", "physical_server",
-                aliases=["hostvds-agent-07"],
-                role="model", external_ip="31.56.225.35",
-                ssh_alias="hostvds-agent-07"),
-    AssetRecord("agent-08", "kolibri-rag-eval", "physical_server",
-                aliases=["hostvds-agent-08"],
-                role="rag", external_ip="94.183.229.121",
-                ssh_alias="hostvds-agent-08"),
-    AssetRecord("agent-09", "kolibri-release-canary", "physical_server",
-                aliases=["hostvds-agent-09"],
-                role="execution", external_ip="45.38.137.104",
-                ssh_alias="hostvds-agent-09"),
-    AssetRecord("agent-10", "kolibri-hk-edge-load", "physical_server",
-                aliases=["hostvds-agent-10"],
-                role="execution", external_ip="217.60.38.191",
-                ssh_alias="hostvds-agent-10",
-                lifecycle="quarantined",
-                safe_to_schedule=False,
-                next_action="restore provider connectivity"),
-]
-
-# ── Command Nodes ──────────────────────────────────────────────────────
-
+# Operator/network assets are not factory membership and remain explicit.
 COMMAND_NODES: list[AssetRecord] = [
-    AssetRecord("mac-owner", "MacBook-Air-Vladislav", "command_node",
-                role="owner_command_client", internal_ip="10.99.0.100",
-                safe_to_schedule=False,
-                next_action="not required for factory runtime"),
+    AssetRecord(
+        "mac-owner",
+        "MacBook-Air-Vladislav",
+        "command_node",
+        role="owner_command_client",
+        safe_to_schedule=False,
+        next_action="not a factory worker",
+    ),
 ]
-
-# ── Network Nodes ──────────────────────────────────────────────────────
 
 NETWORK_NODES: list[AssetRecord] = [
-    AssetRecord("mikrotik-router", "MikroTik hAP ac^2", "network_node",
-                role="home_network_router|vpn_gateway",
-                internal_ip="10.99.99.1", external_ip="178.207.11.90",
-                safe_to_schedule=False,
-                next_action="monitor only, no changes without approval"),
+    AssetRecord(
+        "mikrotik-router",
+        "MikroTik",
+        "network_node",
+        role="home_network_router|vpn_gateway",
+        safe_to_schedule=False,
+        next_action="monitor only; changes require owner approval",
+    ),
 ]
-
-# ── Operator Assets ────────────────────────────────────────────────────
 
 OPERATOR_ASSETS: list[AssetRecord] = [
-    AssetRecord("usb-operator-kit", "Kolibri SSH Key + Recovery Docs", "operator_kit",
-                role="emergency_recovery_package",
-                safe_to_schedule=False,
-                next_action="maintain offline recovery runbook"),
+    AssetRecord(
+        "usb-operator-kit",
+        "Kolibri recovery kit",
+        "operator_kit",
+        role="emergency_recovery_package",
+        safe_to_schedule=False,
+        next_action="maintain offline recovery runbook",
+    ),
 ]
 
 
-def all_assets() -> list[AssetRecord]:
-    """Return all registered assets."""
-    return (
-        CANONICAL_SERVERS
-        + COMMAND_NODES
-        + NETWORK_NODES
-        + OPERATOR_ASSETS
+def _mesh_addresses(manifest_path: str | Path | None = None) -> dict[str, str]:
+    path = Path(
+        manifest_path
+        or os.environ.get("KOLIBRI_MESH_MEMBERSHIP_MANIFEST")
+        or DEFAULT_MESH_MANIFEST
     )
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        return {}
+    peers = payload.get("peers", {}) if isinstance(payload, dict) else {}
+    records = peers.values() if isinstance(peers, dict) else peers if isinstance(peers, list) else []
+    result: dict[str, str] = {}
+    for peer in records:
+        if not isinstance(peer, dict):
+            continue
+        node_id = str(peer.get("node_id") or "").strip()
+        mesh_ip = str(peer.get("mesh_ip") or "").strip()
+        if node_id and mesh_ip:
+            result[node_id] = mesh_ip
+    return result
 
 
-def canonical_server_count() -> int:
-    """Return the number of canonical physical servers."""
-    return len(CANONICAL_SERVERS)
+def _role_for(node_id: str, capabilities: set[str]) -> str:
+    if node_id == "home":
+        return "control"
+    # A worker cannot promote itself to Control Plane through registration.
+    if capabilities & {"formulalm", "model", "training", "inference"}:
+        return "model"
+    if capabilities & {"reserve", "backup"}:
+        return "reserve"
+    return "execution"
 
 
-def scheduleable_servers() -> list[AssetRecord]:
-    """Return servers safe for task scheduling."""
-    return [s for s in CANONICAL_SERVERS if s.safe_to_schedule]
+def records_from_membership(
+    nodes: Iterable[dict[str, Any]],
+    *,
+    mesh_addresses: dict[str, str] | None = None,
+) -> list[AssetRecord]:
+    """Convert truthful Control Plane node records into schedulable assets."""
+
+    addresses = mesh_addresses or {}
+    result: list[AssetRecord] = []
+    seen: set[str] = set()
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        if node.get("membership_scope") not in {None, "active"}:
+            continue
+        node_id = str(node.get("node_id") or "").strip()
+        if not node_id or node_id in seen:
+            continue
+        seen.add(node_id)
+        capabilities = {
+            str(item).strip().lower()
+            for item in node.get("capabilities", [])
+            if str(item).strip()
+        }
+        health = str(node.get("health") or "unknown").strip().lower()
+        draining = bool(node.get("draining"))
+        membership_state = str(node.get("membership_state") or "registered")
+        schedulable = node.get("schedulable") is True
+        if membership_state == "missing_agent_host_registration" or health == "quarantined":
+            lifecycle: Lifecycle = "quarantined"
+        elif schedulable:
+            lifecycle = "active"
+        elif health in {"online", "healthy", "ready", "degraded"}:
+            lifecycle = "degraded"
+        else:
+            lifecycle = "stale"
+        canonical_name = str(node.get("hostname") or node.get("display_name") or node_id).strip()
+        result.append(
+            AssetRecord(
+                node_id=node_id,
+                canonical_name=canonical_name,
+                asset_class="physical_server",
+                aliases=[],
+                role=_role_for(node_id, capabilities),
+                internal_ip=addresses.get(node_id),
+                lifecycle=lifecycle,
+                safe_to_schedule=schedulable and not draining,
+                next_action=(
+                    ""
+                    if schedulable and not draining
+                    else "undrain after verification"
+                    if draining
+                    else "restore canonical Agent Host registration"
+                    if lifecycle == "quarantined"
+                    else "restore Agent Host heartbeat"
+                ),
+                api_port=9101 if node_id == "home" else None,
+            )
+        )
+    return sorted(result, key=lambda item: (item.node_id != "home", item.node_id))
+
+
+def load_registered_servers(
+    control_url: str | None = None,
+    *,
+    manifest_path: str | Path | None = None,
+    opener=urlopen,
+) -> list[AssetRecord]:
+    """Read the full, paginated membership snapshot from canonical Home."""
+
+    base_url = resolve_home_control_plane_url(control_url, manifest_path=manifest_path)
+    nodes: list[dict[str, Any]] = []
+    offset = 0
+    limit = 250
+    while True:
+        query = urlencode({"scope": "active", "limit": limit, "offset": offset})
+        with opener(f"{base_url}/v1/nodes?{query}", timeout=5) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        page = payload.get("nodes", []) if isinstance(payload, dict) else []
+        if not isinstance(page, list):
+            raise ValueError("home_membership_payload_invalid")
+        nodes.extend(item for item in page if isinstance(item, dict))
+        pagination = payload.get("pagination", {}) if isinstance(payload, dict) else {}
+        returned = int(pagination.get("returned", len(page)))
+        total = int(pagination.get("total_indexed", len(nodes)))
+        offset += returned
+        if returned == 0 or offset >= total:
+            break
+    return records_from_membership(nodes, mesh_addresses=_mesh_addresses(manifest_path))
+
+
+def all_assets(servers: Iterable[AssetRecord] | None = None) -> list[AssetRecord]:
+    current_servers = list(servers) if servers is not None else load_registered_servers()
+    return current_servers + COMMAND_NODES + NETWORK_NODES + OPERATOR_ASSETS
+
+
+def canonical_server_count(servers: Iterable[AssetRecord] | None = None) -> int:
+    return len(list(servers) if servers is not None else load_registered_servers())
+
+
+def scheduleable_servers(servers: Iterable[AssetRecord] | None = None) -> list[AssetRecord]:
+    current_servers = list(servers) if servers is not None else load_registered_servers()
+    return [server for server in current_servers if server.safe_to_schedule]
 
 
 if __name__ == "__main__":
-    print(f"Canonical servers: {canonical_server_count()}")
-    print(f"Command nodes: {len(COMMAND_NODES)}")
-    print(f"Network nodes: {len(NETWORK_NODES)}")
-    print(f"Operator assets: {len(OPERATOR_ASSETS)}")
-    print(f"Total assets: {len(all_assets())}")
-    print(f"Scheduleable: {len(scheduleable_servers())}")
+    snapshot = load_registered_servers()
+    print(f"Registered physical servers: {len(snapshot)}")
+    print(f"Scheduleable: {len(scheduleable_servers(snapshot))}")

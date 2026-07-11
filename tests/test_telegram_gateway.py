@@ -2,6 +2,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -61,7 +63,7 @@ def test_default_gateway_startup_is_non_mutating_with_unsafe_webhook_env(monkeyp
             raise AssertionError("startup must not start polling before Gateway.run owns the receiver")
 
     class FakeFactoryClient:
-        def __init__(self, control_url, control_urls):
+        def __init__(self, control_url, control_urls=None):
             events.append(("factory_client", control_url, control_urls))
 
     class FakeGateway:
@@ -76,11 +78,17 @@ def test_default_gateway_startup_is_non_mutating_with_unsafe_webhook_env(monkeyp
 
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "fake-token")
     monkeypatch.setenv("TELEGRAM_OWNER_IDS", "100")
+    monkeypatch.setenv("KOLIBRI_FACTORY_CONTROL_URL", "http://home-control:9101")
     monkeypatch.setenv("TELEGRAM_WEBHOOK_URL", "https://unsafe.example/hook")
     monkeypatch.setenv("TELEGRAM_DELETE_WEBHOOK", "1")
     monkeypatch.setenv("TELEGRAM_DROP_PENDING_UPDATES", "1")
     monkeypatch.setattr(sys, "argv", ["telegram_gateway.py", "--state-file", str(tmp_path / "state.json"), "--poll-timeout", "1"])
     monkeypatch.setattr(gateway.urllib.request, "urlopen", fail_urlopen)
+    monkeypatch.setattr(
+        gateway,
+        "resolve_home_control_plane_url",
+        lambda control_url, control_urls=None: control_url,
+    )
     monkeypatch.setattr(gateway, "TelegramClient", FakeTelegramClient)
     monkeypatch.setattr(gateway, "FactoryClient", FakeFactoryClient)
     monkeypatch.setattr(gateway, "Gateway", FakeGateway)
@@ -113,7 +121,7 @@ def test_default_gateway_startup_without_webhook_env_starts_existing_polling_rec
             raise AssertionError("startup must not poll until Gateway.run owns the receiver")
 
     class FakeFactoryClient:
-        def __init__(self, control_url, control_urls):
+        def __init__(self, control_url, control_urls=None):
             events.append(("factory_client", control_url, control_urls))
 
     class FakeGateway:
@@ -128,11 +136,17 @@ def test_default_gateway_startup_without_webhook_env_starts_existing_polling_rec
 
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "fake-token")
     monkeypatch.setenv("TELEGRAM_OWNER_IDS", "100")
+    monkeypatch.setenv("KOLIBRI_FACTORY_CONTROL_URL", "http://home-control:9101")
     monkeypatch.delenv("TELEGRAM_WEBHOOK_URL", raising=False)
     monkeypatch.delenv("TELEGRAM_ALLOW_WEBHOOK_DELETE", raising=False)
     monkeypatch.delenv("TELEGRAM_DROP_PENDING_UPDATES", raising=False)
     monkeypatch.setattr(sys, "argv", ["telegram_gateway.py", "--state-file", str(tmp_path / "state.json"), "--poll-timeout", "1"])
     monkeypatch.setattr(gateway.urllib.request, "urlopen", fail_urlopen)
+    monkeypatch.setattr(
+        gateway,
+        "resolve_home_control_plane_url",
+        lambda control_url, control_urls=None: control_url,
+    )
     monkeypatch.setattr(gateway, "TelegramClient", FakeTelegramClient)
     monkeypatch.setattr(gateway, "FactoryClient", FakeFactoryClient)
     monkeypatch.setattr(gateway, "Gateway", FakeGateway)
@@ -176,24 +190,14 @@ def test_webhook_deletion_is_owner_approved_migration_only(monkeypatch):
         raise AssertionError("webhook deletion did not require owner approval")
 
 
-def test_factory_client_fails_over_between_control_plane_urls(monkeypatch):
+def test_factory_client_rejects_multiple_control_plane_authorities():
     gateway = load_gateway()
-    calls = []
 
-    def fake_request(method, url, body=None, timeout=35):
-        calls.append((method, url, body, timeout))
-        if url.startswith("http://down"):
-            raise RuntimeError("down")
-        return {"status": "ok"}
-
-    monkeypatch.setattr(gateway, "json_request", fake_request)
-    client = gateway.FactoryClient("http://down:9101", "http://down:9101,http://alive:9101")
-    assert client.nodes() == {"status": "ok"}
-    assert calls[0][1] == "http://down:9101/v1/nodes"
-    assert calls[1][1] == "http://alive:9101/v1/nodes"
-    assert client.control_url == "http://alive:9101"
-    client.get_tasks()
-    assert calls[-1][1] == "http://alive:9101/v1/tasks"
+    with pytest.raises(RuntimeError, match="multiple_control_plane_authorities_forbidden"):
+        gateway.FactoryClient(
+            "http://home-control:9101",
+            "http://home-control:9101,http://legacy-control:9101",
+        )
 
 
 def test_plain_text_message_builds_structured_factory_task():
@@ -208,7 +212,7 @@ def test_plain_text_message_builds_structured_factory_task():
     assert envelope["kind"] == "owner_remote_task"
     assert "target_node" not in envelope
     assert envelope["required_capability"] == "generic_implementation"
-    assert envelope["review_node"] == "new"
+    assert "review_node" not in envelope
     assert envelope["create_review_on_complete"] is False
     assert envelope["source"]["message_id"] == 42
     assert "TELEGRAM_BOT_TOKEN" not in envelope
@@ -240,7 +244,7 @@ def test_greeting_is_chat_not_factory_task():
     envelope = gateway.build_chat_envelope(message, message["text"])
     assert envelope["kind"] == "owner_remote_task"
     assert envelope["runner"] == "codex"
-    assert envelope["target_node"] == "primary-candidate"
+    assert "target_node" not in envelope
     assert envelope["required_capability"] == "generic_implementation"
     assert "без заготовок" in envelope["objective"]
     assert envelope["source"]["message_id"] == 44
@@ -265,12 +269,56 @@ def test_image_request_builds_telegram_image_task():
     assert gateway.wants_image_generation(message["text"]) is True
     envelope = gateway.build_image_envelope(message, message["text"], {"nodes": []})
     assert envelope["kind"] == "telegram_image_generation"
-    assert envelope["required_capability"] == "generic_implementation"
-    assert envelope["target_node"] == "primary-candidate"
+    assert envelope["required_capability"] == "image_generation"
+    assert "target_node" not in envelope
+    assert "runner" not in envelope
     assert envelope["message"] == message["text"]
     assert envelope["prompt"] == message["text"]
     assert envelope["task_id"].startswith("TGIMG-")
     assert "image_url" in envelope["objective"]
+
+
+def test_image_request_selects_live_image_capable_member_from_snapshot():
+    gateway = load_gateway()
+    message = {
+        "message_id": 581,
+        "chat": {"id": 100, "type": "private"},
+        "from": {"id": 100},
+        "text": "Нарисуй птичку Колибри",
+    }
+    snapshot = {
+        "nodes": [
+            {"node_id": "stale-image", "health": "offline", "capabilities": ["image_generation"]},
+            {"node_id": "generic", "health": "online", "capabilities": ["generic_implementation"]},
+            {"node_id": "image-worker-22", "health": "online", "capabilities": ["image_generation"]},
+        ]
+    }
+
+    envelope = gateway.build_image_envelope(message, message["text"], snapshot)
+
+    assert envelope["target_node"] == "image-worker-22"
+    assert envelope["required_capability"] == "image_generation"
+
+
+def test_chat_snapshot_without_matching_capability_leaves_routing_to_home():
+    gateway = load_gateway()
+    message = {
+        "message_id": 582,
+        "chat": {"id": 100, "type": "private"},
+        "from": {"id": 100},
+        "text": "привет",
+    }
+    snapshot = {
+        "nodes": [
+            {"node_id": "codex-without-task-cap", "health": "online", "capabilities": ["runner:codex"]},
+        ]
+    }
+
+    envelope = gateway.build_chat_envelope(message, message["text"], snapshot)
+
+    assert "target_node" not in envelope
+    assert envelope["runner"] == "codex"
+    assert envelope["required_capability"] == "generic_implementation"
 
 
 def test_explicit_telegram_node_env_pins_task(monkeypatch):

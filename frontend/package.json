@@ -8,11 +8,17 @@
     "build": "vite build && cp CNAME dist/CNAME",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test:mobile-layout": "node tests/mobile_layout_guard.mjs"
+    "test:protocol": "node tests/kolibri_os_contract.mjs",
+    "test:architecture": "node tests/component_architecture.mjs",
+    "test:typed-gateway": "node tests/kolibri_typed_gateway.mjs",
+    "test:mobile-layout": "node tests/mobile_layout_guard.mjs",
+    "test:workspace": "node tests/focused_workspace.mjs",
+    "test": "npm run test:protocol && npm run test:architecture && npm run test:typed-gateway && npm run test:mobile-layout && npm run test:workspace"
   },
   "dependencies": {
     "clsx": "^2.1.1",
     "framer-motion": "^12.40.0",
+    "lucide-react": "^1.24.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-markdown": "^10.1.0",

@@ -1,15 +1,7 @@
 #!/bin/sh
 set -eu
-IF=${KOLIBRI_MESH_IF:-wg-kolibri}
-for f in /etc/wireguard/kolibri-peers.d/*.conf; do
-  [ -f "$f" ] || continue
-  pub=$(awk -F' = ' '/^PublicKey = /{print $2; exit}' "$f")
-  ip=$(awk -F' = ' '/^AllowedIPs = /{print $2; exit}' "$f" | cut -d/ -f1)
-  endpoint=$(awk -F' = ' '/^Endpoint = /{print $2; exit}' "$f")
-  [ -n "$pub" ] && [ -n "$ip" ] || continue
-  if [ -n "$endpoint" ]; then
-    wg set "$IF" peer "$pub" endpoint "$endpoint" allowed-ips "$ip/32" persistent-keepalive 25
-  else
-    wg set "$IF" peer "$pub" allowed-ips "$ip/32" persistent-keepalive 25
-  fi
-done
+
+# The Python implementation validates every fragment and only removes keys
+# previously tracked as registry-managed; unrelated WireGuard peers survive.
+REGISTRY_IMPL=${KOLIBRI_MESH_REGISTRY_IMPL:-/usr/local/lib/kolibri/mesh_registry.py}
+exec /usr/bin/python3 "$REGISTRY_IMPL" apply "$@"

@@ -40,9 +40,10 @@ def test_prompt3_required_endpoint_surface_is_declared():
     }
 
 
-def test_fleet_aliases_return_catalog_topology_capabilities_and_routes():
+def test_fleet_aliases_return_dynamic_membership_topology_capabilities_and_routes():
     control = load_control()
     registered = [
+        {"node_id": "home", "health": "online", "capabilities": ["control_plane"]},
         {"node_id": "9fts", "health": "online", "capabilities": ["implementation", "model"]},
         {"node_id": "qjns", "health": "online", "capabilities": ["review"]},
     ]
@@ -51,9 +52,15 @@ def test_fleet_aliases_return_catalog_topology_capabilities_and_routes():
     topology = control.fleet_topology(nodes)
     route = control.fabric_route(target_node="9fts", required_capability="implementation", registered_nodes=registered)
 
-    assert {"home", "main", "uiap", "qjns", "9fts", "new"} <= {node["node_id"] for node in nodes}
+    assert {node["node_id"] for node in nodes} == {"home", "9fts", "qjns"}
+    assert next(node for node in nodes if node["node_id"] == "home")["role"] == "control_plane"
+    assert all(
+        node["role"] != "control_plane"
+        for node in nodes
+        if node["node_id"] != "home"
+    )
     assert capability_map["implementation"] == ["9fts"]
-    assert {"from": "main", "to": "9fts", "type": "protected_fabric_api"} in topology["edges"]
+    assert {"from": "home", "to": "9fts", "type": "protected_fabric_api"} in topology["edges"]
     assert topology["relay_endpoint"] == "/v1/fabric/relay"
     assert route["route"]["endpoint"] == "/v1/nodes/9fts"
 
@@ -66,7 +73,8 @@ def test_model_responses_and_chat_completions_are_safe_blocked_stubs():
         assert envelope["route_used"] == endpoint
         assert envelope["blocked_reason"] == "model_runtime_unavailable"
         assert envelope["repair_task"]["kind"] == "repair_model_runtime_route"
-        assert "9fts" in envelope["fallback_nodes"]
+        assert envelope["fallback_nodes"] == []
+        assert "9fts" not in str(envelope)
 
 
 def test_agents_aliases_normalize_envelope_and_artifacts():

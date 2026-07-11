@@ -1,0 +1,40 @@
+{
+  "schema_version": "kolibri.release-policy.v1",
+  "services": [
+    "kolibri-backend.service"
+  ],
+  "default_services": [
+    "kolibri-backend.service"
+  ],
+  "pre_health": [
+    {
+      "name": "backend-baseline",
+      "argv": [
+        "/usr/bin/curl",
+        "--fail",
+        "--silent",
+        "--show-error",
+        "--max-time",
+        "5",
+        "http://127.0.0.1:8001/api/health"
+      ],
+      "timeout_seconds": 10
+    }
+  ],
+  "post_health": [
+    {
+      "name": "backend-activated",
+      "argv": [
+        "/usr/bin/curl",
+        "--fail",
+        "--silent",
+        "--show-error",
+        "--max-time",
+        "5",
+        "http://127.0.0.1:8001/api/health"
+      ],
+      "timeout_seconds": 10
+    }
+  ],
+  "service_timeout_seconds": 30
+}

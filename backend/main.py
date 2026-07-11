@@ -4,25 +4,44 @@ import time
 import json
 import hashlib
 import sqlite3
-import asyncio
+import uuid
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Literal
 from contextlib import asynccontextmanager
 
-import httpx
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
+from fastapi import Depends, FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
-from providers import AIProviderManager
+from capability_gateway import CapabilityRequestError, get_capability_gateway
+from providers import AIProviderManager, ProviderGatewayError
 from tts import TTSEngine
 from stt import STTEngine
 from websearch import WebSearchEngine
-from factory_status import fetch_factory_status
+from factory_status import CONTROL_PLANE_URL, fetch_factory_status
+from execution_api import require_execution_auth, router as execution_router
+from public_responses_api import (
+    configure_public_response_executor,
+    router as public_responses_router,
+)
+from public_estimate_api import router as public_estimate_router
+from data_paths import DB_PATH
+from pipeline import PipelineRequest, run_pipeline, pipeline_health
+from public_chat_stream import (
+    PublicChatStreamError,
+    public_chat_event_stream,
+    stream_timeout_seconds,
+    verified_public_payload,
+)
+from vertical_tasks import (
+    VerticalTask,
+    build_vertical_result,
+    failed_vertical_result,
+    prepare_vertical_task,
+)
 
-DB_PATH = Path("/opt/kolibri-ai/data/kolibri.db")
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 def init_db():
@@ -64,6 +83,15 @@ tts_engine = TTSEngine()
 stt_engine = STTEngine()
 web_engine = WebSearchEngine()
 
+
+async def execute_public_response(**kwargs):
+    """Use the same verified provider gateway for the canonical V1 Shell."""
+
+    return await ai_manager.generate(**kwargs)
+
+
+configure_public_response_executor(execute_public_response)
+
 class ChatMessage(BaseModel):
     role: str
     content: str
@@ -72,10 +100,12 @@ class ChatRequest(BaseModel):
     messages: List[ChatMessage]
     model: Optional[str] = None
     provider: Optional[str] = None
+    execution_mode: Literal["fast", "codex"] = "fast"
     temperature: Optional[float] = 0.7
     max_tokens: Optional[int] = 2048
     system_prompt: Optional[str] = None
     enable_thinking: Optional[bool] = False
+    task: Optional[VerticalTask] = None
 
 class TTSRequest(BaseModel):
     text: str
@@ -92,9 +122,25 @@ class ToolCallRequest(BaseModel):
     message: str
     tools: Optional[List[Dict[str, Any]]] = None
 
-def get_cache_key(messages: list, model: str) -> str:
-    content = json.dumps([{"role": m.role, "content": m.content} for m in messages], sort_keys=True)
-    return hashlib.sha256(f"{model}:{content}".encode()).hexdigest()
+def get_cache_key(messages: list[dict[str, Any]], model: str, settings: dict[str, Any]) -> str:
+    content = json.dumps(
+        {"model": model, "messages": messages, "settings": settings},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def validate_public_chat_messages(messages: list[dict[str, Any]]) -> None:
+    if not messages or len(messages) > 100:
+        raise HTTPException(status_code=422, detail="messages must contain between 1 and 100 items")
+    try:
+        size = len(json.dumps(messages, ensure_ascii=False).encode("utf-8"))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="messages are not JSON serializable") from exc
+    if size > 1024 * 1024:
+        raise HTTPException(status_code=413, detail="chat input exceeds 1 MiB")
 
 def check_rate_limit(ip: str, limit: int = 60, window: int = 60) -> bool:
     conn = sqlite3.connect(str(DB_PATH))
@@ -145,74 +191,234 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Kolibri AI", version="1.0.0", lifespan=lifespan)
 
+cors_origins = [
+    origin.strip().rstrip("/")
+    for origin in os.environ.get(
+        "KOLIBRI_CORS_ORIGINS",
+        "https://kolibriai.ru,https://www.kolibriai.ru,http://127.0.0.1:4174,http://localhost:4174",
+    ).split(",")
+    if origin.strip() and origin.strip() != "*"
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "Last-Event-ID"],
 )
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "provider_status": ai_manager.get_status()}
+    return {"status": "ok", "model": "kolibri"}
 
-@app.get("/api/providers")
+@app.get("/api/providers", dependencies=[Depends(require_execution_auth)])
 async def list_providers():
     return ai_manager.get_status()
 
 @app.get("/api/models")
 async def list_models():
     return {
-        "models": ai_manager.get_model_catalog(),
-        "system_prompt": ai_manager.get_system_prompt(),
+        "object": "list",
+        "models": ["kolibri"],
+        "data": [{"id": "kolibri", "object": "model", "owned_by": "kolibri"}],
+        "supported_execution_modes": ["fast", "codex"],
     }
 
+
+@app.get("/v1/models")
+async def list_openai_models():
+    """Public model catalog; durable execution routes remain authenticated."""
+    return {
+        "object": "list",
+        "data": [{"id": "kolibri", "object": "model", "created": 0, "owned_by": "kolibri-ai-os"}],
+        "schema_version": "kolibri.execution.v1",
+        "supported_execution_modes": ["fast", "codex"],
+    }
+
+
+@app.get("/v1/capabilities")
+async def list_public_capabilities():
+    """Expose sanitized capability declarations, never credentials or topology."""
+    return get_capability_gateway().envelope()
+
+@app.post("/api/v1/chat")
 @app.post("/api/chat")
 async def chat(request: ChatRequest, req: Request):
     ip = req.client.host
     if not check_rate_limit(ip):
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
 
-    model = request.model or "auto"
-    provider = request.provider
-
-    cache_key = get_cache_key(request.messages, model)
-    cached = get_cached_response(cache_key)
-    if cached:
-        return {
-            "response": cached["response"],
-            "provider": cached["provider"],
-            "cached": True
-        }
+    model = "kolibri"
+    # Provider identity is an internal routing decision.  The compatibility
+    # field is accepted for old clients but never grants provider selection.
+    provider = None
 
     messages = [{"role": m.role, "content": m.content} for m in request.messages]
     if request.system_prompt:
         messages.insert(0, {"role": "system", "content": request.system_prompt})
+    vertical_calculation = None
+    if request.task is not None:
+        vertical_instructions, vertical_calculation = prepare_vertical_task(request.task)
+        messages.insert(0, {"role": "system", "content": vertical_instructions})
+    validate_public_chat_messages(messages)
+    cache_key = get_cache_key(messages, model, {
+        "temperature": request.temperature,
+        "max_tokens": request.max_tokens,
+        "enable_thinking": request.enable_thinking,
+        "execution_mode": request.execution_mode,
+    })
+    # The legacy cache stores text only. Typed tasks carry calculation and
+    # materialization evidence, so reusing a text-only row would fabricate an
+    # incomplete task envelope. Keep typed requests on the verified live path.
+    cached = get_cached_response(cache_key) if request.task is None else None
+    if cached:
+        return {
+            "response": cached["response"],
+            "model": "kolibri",
+            "technical": {"cache": {"hit": True}},
+            "cached": True
+        }
 
-    result = await ai_manager.generate(
-        messages=messages,
-        model=model,
-        provider=provider,
-        temperature=request.temperature,
-        max_tokens=request.max_tokens,
-        enable_thinking=request.enable_thinking or False,
+    try:
+        result = await ai_manager.generate(
+            messages=messages,
+            model=model,
+            provider=provider,
+            temperature=request.temperature,
+            max_tokens=request.max_tokens,
+            enable_thinking=request.enable_thinking or False,
+            execution_mode=request.execution_mode,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ProviderGatewayError as exc:
+        content = {
+            "error": {"type": "provider_unavailable", "message": "Kolibri could not produce a verified answer"},
+            "model": "kolibri",
+            "technical": {"provider_routing": exc.technical},
+        }
+        if request.task is not None:
+            content["task"] = failed_vertical_result(request.task, "provider_unavailable")
+        return JSONResponse(status_code=503, content=content)
+
+    selected_provider = result["technical"]["provider_routing"].get("selected_provider") or ""
+    if request.task is None:
+        cache_response(cache_key, result["response"], selected_provider)
+        return {**result, "cached": False}
+    return {
+        **result,
+        "task": build_vertical_result(request.task, result, vertical_calculation),
+        "cached": False,
+    }
+
+
+@app.post("/api/v1/ai/chat/stream")
+@app.post("/api/v1/chat/stream")
+@app.post("/api/chat/stream")
+async def stream_public_chat(
+    request: ChatRequest,
+    req: Request,
+    timeout_seconds: float | None = Query(default=None, ge=1, le=300),
+):
+    """Stream real chat lifecycle events and one verified terminal answer.
+
+    Provider output is not token-streamed by the current gateway, so this
+    compatibility route does not manufacture deltas.  It flushes acceptance
+    and execution progress immediately, then publishes the complete answer
+    only after the existing content-bound verifier contract passes.
+    """
+
+    client_ip = req.client.host if req.client else "unknown"
+    if not check_rate_limit(client_ip):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+
+    messages = [{"role": message.role, "content": message.content} for message in request.messages]
+    if request.system_prompt:
+        messages.insert(0, {"role": "system", "content": request.system_prompt})
+    vertical_calculation = None
+    if request.task is not None:
+        vertical_instructions, vertical_calculation = prepare_vertical_task(request.task)
+        messages.insert(0, {"role": "system", "content": vertical_instructions})
+    validate_public_chat_messages(messages)
+
+    async def execute() -> dict[str, Any]:
+        try:
+            result = await ai_manager.generate(
+                messages=messages,
+                model="kolibri",
+                provider=None,
+                temperature=request.temperature,
+                max_tokens=request.max_tokens,
+                enable_thinking=request.enable_thinking or False,
+                execution_mode=request.execution_mode,
+            )
+        except ValueError as exc:
+            raise PublicChatStreamError(
+                "invalid_request",
+                "The public chat request is invalid",
+            ) from exc
+        except ProviderGatewayError as exc:
+            raise PublicChatStreamError(
+                "provider_unavailable",
+                "Kolibri could not produce a verified answer",
+                retryable=True,
+            ) from exc
+
+        # Validate before any cache write.  The legacy text-only cache cannot
+        # prove a terminal SSE answer, so streams always use the live verified
+        # path and cache only the newly evidence-bound plain-chat result.
+        verified_public_payload(result)
+        if request.task is None:
+            selected_provider = result["technical"]["provider_routing"].get("selected_provider") or ""
+            cache_key = get_cache_key(messages, "kolibri", {
+                "temperature": request.temperature,
+                "max_tokens": request.max_tokens,
+                "enable_thinking": request.enable_thinking,
+                "execution_mode": request.execution_mode,
+            })
+            cache_response(cache_key, result["response"], selected_provider)
+            return {**result, "cached": False}
+        return {
+            **result,
+            "task": build_vertical_result(request.task, result, vertical_calculation),
+            "cached": False,
+        }
+
+    stream_id = f"stream_{uuid.uuid4().hex}"
+    return StreamingResponse(
+        public_chat_event_stream(
+            stream_id=stream_id,
+            execution_mode=request.execution_mode,
+            execute=execute,
+            timeout_seconds=stream_timeout_seconds(timeout_seconds),
+        ),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-store, no-transform",
+            "X-Accel-Buffering": "no",
+        },
     )
-
-    cache_response(cache_key, result["response"], result["provider"])
-    return {**result, "cached": False}
 
 @app.websocket("/ws/chat")
 async def websocket_chat(websocket: WebSocket):
     await websocket.accept()
+    client_ip = websocket.client.host if websocket.client else "unknown"
     try:
         while True:
             data = await websocket.receive_json()
+            if not check_rate_limit(client_ip, limit=30, window=60):
+                await websocket.send_json({"error": "rate_limit_exceeded"})
+                continue
             messages = data.get("messages", [])
-            model = data.get("model", "auto")
+            model = "kolibri"
 
             if not messages:
                 await websocket.send_json({"error": "No messages provided"})
+                continue
+            try:
+                validate_public_chat_messages(messages)
+            except HTTPException as exc:
+                await websocket.send_json({"error": str(exc.detail), "status_code": exc.status_code})
                 continue
 
             result = await ai_manager.generate(
@@ -226,7 +432,7 @@ async def websocket_chat(websocket: WebSocket):
     except WebSocketDisconnect:
         pass
 
-@app.post("/api/conversations")
+@app.post("/api/conversations", dependencies=[Depends(require_execution_auth)])
 async def create_conversation(title: str = "New Chat"):
     conv_id = f"conv_{int(time.time() * 1000)}"
     conn = sqlite3.connect(str(DB_PATH))
@@ -238,7 +444,7 @@ async def create_conversation(title: str = "New Chat"):
     conn.close()
     return {"id": conv_id, "title": title}
 
-@app.get("/api/conversations")
+@app.get("/api/conversations", dependencies=[Depends(require_execution_auth)])
 async def list_conversations():
     conn = sqlite3.connect(str(DB_PATH))
     c = conn.cursor()
@@ -247,7 +453,7 @@ async def list_conversations():
     conn.close()
     return [{"id": r[0], "title": r[1], "created_at": r[2], "updated_at": r[3]} for r in rows]
 
-@app.get("/api/conversations/{conv_id}/messages")
+@app.get("/api/conversations/{conv_id}/messages", dependencies=[Depends(require_execution_auth)])
 async def get_messages(conv_id: str):
     conn = sqlite3.connect(str(DB_PATH))
     c = conn.cursor()
@@ -256,7 +462,7 @@ async def get_messages(conv_id: str):
     conn.close()
     return [{"role": r[0], "content": r[1], "provider": r[2], "created_at": r[3]} for r in rows]
 
-@app.delete("/api/conversations/{conv_id}")
+@app.delete("/api/conversations/{conv_id}", dependencies=[Depends(require_execution_auth)])
 async def delete_conversation(conv_id: str):
     conn = sqlite3.connect(str(DB_PATH))
     c = conn.cursor()
@@ -266,7 +472,7 @@ async def delete_conversation(conv_id: str):
     conn.close()
     return {"deleted": True}
 
-@app.post("/api/tts")
+@app.post("/api/tts", dependencies=[Depends(require_execution_auth)])
 async def text_to_speech(request: TTSRequest):
     result = await tts_engine.synthesize(request.text, request.voice)
     return result
@@ -275,24 +481,31 @@ async def text_to_speech(request: TTSRequest):
 async def list_tts_voices():
     return await tts_engine.list_voices()
 
-@app.post("/api/search")
+@app.post("/api/search", dependencies=[Depends(require_execution_auth)])
 async def web_search(request: SearchRequest):
     results = await web_engine.search(request.query, request.num_results)
     return {"results": results}
 
-@app.post("/api/tools")
+@app.post("/api/tools", dependencies=[Depends(require_execution_auth)])
 async def tool_call(request: ToolCallRequest):
-    result = await ai_manager.tool_call(
-        message=request.message,
-        tools=request.tools or []
-    )
-    return result
+    try:
+        return await ai_manager.tool_call(
+            message=request.message,
+            tools=request.tools or []
+        )
+    except CapabilityRequestError as exc:
+        raise HTTPException(status_code=422, detail=exc.public_detail()) from exc
+    except ProviderGatewayError as exc:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "Kolibri could not produce a verified tool response",
+                "model": "kolibri",
+                "technical": {"provider_routing": exc.technical},
+            },
+        )
 
-
-
-from pipeline import PipelineRequest, run_pipeline, pipeline_health
-
-@app.post("/api/pipeline")
+@app.post("/api/pipeline", dependencies=[Depends(require_execution_auth)])
 async def pipeline_endpoint(request: PipelineRequest, req: Request):
     ip = req.client.host
     if not check_rate_limit(ip):
@@ -300,7 +513,7 @@ async def pipeline_endpoint(request: PipelineRequest, req: Request):
     result = await run_pipeline(request)
     return result.model_dump()
 
-@app.get("/api/pipeline/health")
+@app.get("/api/pipeline/health", dependencies=[Depends(require_execution_auth)])
 async def pipeline_health_endpoint():
     return await pipeline_health()
 
@@ -308,7 +521,14 @@ async def pipeline_health_endpoint():
 @app.get("/api/factory/status")
 async def api_factory_status():
     try:
-        return await fetch_factory_status()
+        status = await fetch_factory_status()
+        # Same-origin public Shell receives operational aggregates only. Node
+        # identities, addresses and per-worker internals remain owner-only.
+        return {
+            key: value
+            for key, value in status.items()
+            if key not in {"nodes", "node_list", "servers", "fallback_nodes"}
+        }
     except Exception as exc:
         return JSONResponse(
             status_code=503,
@@ -327,80 +547,37 @@ async def api_factory_status():
                 "control_plane": {
                     "status": "blocked",
                     "reason": "control_plane_api_unreachable",
-                    "fallback_route": {"type": "fabric_api_relay", "endpoint": "/v1/fabric/relay"},
-                    "fallback_nodes": ["home", "main", "9fts", "new"],
+                    "canonical_url": CONTROL_PLANE_URL,
+                    "fail_closed": True,
                     "repair_task": {
                         "kind": "repair_control_plane_api",
-                        "action": "restore Fabric API reachability or route through a registered relay",
+                        "action": "restore the canonical Home Control Plane API",
                     },
-                    "can_continue_elsewhere": True,
+                    "can_continue_elsewhere": False,
                 },
             },
         )
 
 
-@app.get("/cluster/status")
+@app.get("/cluster/status", dependencies=[Depends(require_execution_auth)])
 async def cluster_status():
     return await api_factory_status()
 
 app.include_router(v1_router)
+app.include_router(public_responses_router)
+app.include_router(public_estimate_router)
+app.include_router(execution_router)
 
-PROXY_ROUTES = {
-    "/api/knowledge": {"target": "http://10.99.0.3:8002", "strip": "/api/knowledge", "add": "/rag"},
-    "/api/agent": {"target": "http://10.99.0.4:8003", "strip": "/api/agent", "add": "/agent"},
-    "/api/inference": {"target": "http://10.99.0.5:8001", "strip": "/api/inference", "add": "/inference"},
-    "/cluster": {"target": "http://127.0.0.1:9001", "strip": "/cluster", "add": ""},
-}
-
-@app.api_route("/{prefix}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
-async def proxy_handler(prefix: str, path: str, request: Request):
-    req_path = f"/{prefix}/{path}"
-    upstream = None
-    matched_prefix = None
-
-    for route_prefix, route_cfg in PROXY_ROUTES.items():
-        if req_path.startswith(route_prefix):
-            upstream = route_cfg["target"]
-            matched_prefix = route_prefix
-            add_path = route_cfg.get("add", "")
-            break
-        if req_path.startswith(route_prefix):
-            break
-
-    # Skip v1 routes - they are handled by specific handlers
-    if req_path.startswith("/api/v1/"):
-        raise HTTPException(status_code=404, detail="Not found")
-    
-    if not upstream:
-        raise HTTPException(status_code=404, detail="Not found")
-
-    target_url = f"{upstream}{add_path}{req_path[len(matched_prefix):]}"
-
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        body = await request.body()
-        headers = {k: v for k, v in request.headers.items() if k.lower() not in ("host", "transfer-encoding")}
-        resp = await client.request(
-            method=request.method,
-            url=target_url,
-            headers=headers,
-            content=body,
-            params=dict(request.query_params),
-        )
-
-    return Response(
-        content=resp.content,
-        status_code=resp.status_code,
-        headers={k: v for k, v in resp.headers.items() if k.lower() not in ("transfer-encoding", "content-encoding", "content-length")},
-    )
-
-frontend_path = Path("/opt/kolibri-ai/frontend/dist")
+frontend_path = Path(
+    os.environ.get("KOLIBRI_FRONTEND_DIST", "/opt/kolibri-ai/current/frontend/dist")
+)
 if frontend_path.exists():
+    frontend_root = frontend_path.resolve()
     app.mount("/assets", StaticFiles(directory=str(frontend_path / "assets")), name="assets")
 
     @app.get("/{full_path:path}")
     async def serve_frontend(full_path: str):
-        file_path = frontend_path / full_path
-        if file_path.exists() and file_path.is_file():
+        file_path = (frontend_root / full_path).resolve()
+        if file_path.is_relative_to(frontend_root) and file_path.exists() and file_path.is_file():
             return FileResponse(str(file_path))
-        return FileResponse(str(frontend_path / "index.html"))
-
+        return FileResponse(str(frontend_root / "index.html"))

@@ -1,91 +1,90 @@
 #!/usr/bin/env python3
-"""Kolibri Mimo Client — единый интерфейс для связи с API-агентами.
+"""Compatibility client for the single public Kolibri model.
 
-Использование:
-    from mimo_client import MimoClient
-    client = MimoClient()
-    result = await client.chat("9fts", "обучи модель")
+Provider and worker selection are internal Factory concerns.  This module no
+longer carries a static node catalog or contacts Mimo/Codex workers directly.
 """
 
 from __future__ import annotations
 
-import os
 import json
+import os
 import urllib.request
-import urllib.error
+import warnings
 
 
-class MimoClient:
-    AGENTS = {
-        "home": {"url": "http://192.168.88.210:9101", "key_env": "KOLIBRI_CP_KEY"},
-        "main": {"url": "http://10.99.0.2:8000", "key_env": "KOLIBRI_API_KEY"},
-        "uiap": {"url": "http://10.99.0.3:8002", "key_env": "KOLIBRI_RAG_KEY"},
-        "qjns": {"url": "http://10.99.0.4:8003", "key_env": "KOLIBRI_TOOLS_KEY"},
-        "9fts": {"url": "http://10.99.0.5:8001", "key_env": "KOLIBRI_INFERENCE_KEY"},
-        "new": {"url": "http://10.99.0.6:8001", "key_env": "KOLIBRI_WORKER_KEY"},
-    }
+class KolibriClient:
+    def __init__(self, base_url: str | None = None, api_key: str | None = None):
+        self.base_url = (
+            base_url
+            or os.environ.get("KOLIBRI_API_URL")
+            or "https://kolibriai.ru"
+        ).rstrip("/")
+        self.api_key = api_key if api_key is not None else os.environ.get("KOLIBRI_API_KEY", "")
 
-    def __init__(self):
-        self.keys = {}
-        for name, config in self.AGENTS.items():
-            key = os.environ.get(config["key_env"], "")
-            if key:
-                self.keys[name] = key
+    def _request(self, path: str, payload: dict | None = None, *, timeout: int = 120) -> dict:
+        data = json.dumps(payload).encode("utf-8") if payload is not None else None
+        headers = {"Accept": "application/json"}
+        if payload is not None:
+            headers["Content-Type"] = "application/json"
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        request = urllib.request.Request(
+            f"{self.base_url}{path}",
+            data=data,
+            headers=headers,
+            method="POST" if payload is not None else "GET",
+        )
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
 
-    def chat(self, server: str, prompt: str, model: str = "mimo") -> str:
-        if server not in self.AGENTS:
-            raise ValueError(f"Unknown server: {server}")
-
-        agent = self.AGENTS[server]
-        key = self.keys.get(server, "")
-
-        payload = json.dumps({
-            "model": model,
-            "messages": [{"role": "user", "content": prompt}],
-        }).encode("utf-8")
-
-        req = urllib.request.Request(
-            f"{agent['url']}/v1/chat/completions",
-            data=payload,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {key}",
-            },
+    def respond(self, prompt: str) -> dict:
+        return self._request(
+            "/v1/responses",
+            {"model": "kolibri", "input": prompt},
         )
 
-        try:
-            resp = urllib.request.urlopen(req, timeout=30)
-            result = json.loads(resp.read().decode())
-            return result["choices"][0]["message"]["content"]
-        except Exception as e:
-            return f"Error: {e}"
+    def chat(self, prompt: str) -> str:
+        response = self.respond(prompt)
+        if isinstance(response.get("output_text"), str):
+            return response["output_text"]
+        output = response.get("output", [])
+        for item in output if isinstance(output, list) else []:
+            for content in item.get("content", []) if isinstance(item, dict) else []:
+                if isinstance(content, dict) and isinstance(content.get("text"), str):
+                    return content["text"]
+        raise ValueError("kolibri_response_missing_output_text")
 
-    def health(self, server: str) -> dict:
-        if server not in self.AGENTS:
-            return {"error": f"Unknown server: {server}"}
+    def health(self) -> dict:
+        return self._request("/v1/health", timeout=5)
 
-        agent = self.AGENTS[server]
-        try:
-            resp = urllib.request.urlopen(f"{agent['url']}/v1/health", timeout=5)
-            return json.loads(resp.read().decode())
-        except Exception as e:
-            return {"error": str(e)}
+
+class MimoClient(KolibriClient):
+    """Deprecated name retained without direct-provider semantics."""
+
+    def chat(self, server_or_prompt: str, prompt: str | None = None, model: str = "kolibri") -> str:
+        warnings.warn(
+            "MimoClient is deprecated; use KolibriClient and public model 'kolibri'",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        if model != "kolibri":
+            raise ValueError("public_model_must_be_kolibri")
+        if prompt is not None and server_or_prompt not in {"home", "kolibri"}:
+            raise ValueError("direct_worker_selection_forbidden")
+        return super().chat(prompt if prompt is not None else server_or_prompt)
 
     def list_agents(self) -> list[dict]:
-        result = []
-        for name, config in self.AGENTS.items():
-            result.append({
-                "name": name,
-                "url": config["url"],
-                "key_configured": bool(self.keys.get(name)),
-            })
-        return result
+        return [
+            {
+                "name": "kolibri",
+                "url": self.base_url,
+                "provider_hidden": True,
+                "key_configured": bool(self.api_key),
+            }
+        ]
 
 
 if __name__ == "__main__":
-    client = MimoClient()
-    print("Kolibri Mimo Client")
-    print("=" * 40)
-    for agent in client.list_agents():
-        status = "✓" if agent["key_configured"] else "✗"
-        print(f"  {status} {agent['name']}: {agent['url']}")
+    client = KolibriClient()
+    print(json.dumps({"model": "kolibri", "url": client.base_url}, ensure_ascii=False))

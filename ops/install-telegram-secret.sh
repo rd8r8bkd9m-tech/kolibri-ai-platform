@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CONTROL_PLANE_SSH_ALIAS="${CONTROL_PLANE_SSH_ALIAS:-kolibri-main-api}"
+CONTROL_PLANE_SSH_ALIAS="${CONTROL_PLANE_SSH_ALIAS:-kolibri-home}"
 
-if [[ "${CONTROL_PLANE_SSH_ALIAS}" == "kolibri-main-api" ]]; then
-  SSH_TARGET=(ssh -tt -J kolibri-home root@10.99.0.2)
-else
-  SSH_TARGET=(ssh -tt "${CONTROL_PLANE_SSH_ALIAS}")
+if [[ "${CONTROL_PLANE_SSH_ALIAS}" != "kolibri-home" ]]; then
+  echo "telegram secret installation is Home-only; refusing non-Home target" >&2
+  exit 2
 fi
+SSH_TARGET=(ssh -tt "${CONTROL_PLANE_SSH_ALIAS}")
 
 "${SSH_TARGET[@]}" '
   set -euo pipefail

@@ -56,10 +56,14 @@ def test_openapi_freezes_unified_surface_and_single_public_model():
         "/v1/documents",
         "/v1/builds",
         "/v1/automations",
+        "/v1/approvals/{approval_id}",
+        "/v1/releases/{release_id}/nodes/{node_id}/health",
     }
     assert required.issubset(paths)
     assert paths["/v1/models"]["get"]["x-kolibri-public-model"] == "kolibri"
     assert paths["/v1/runtime/summary"]["get"]["x-kolibri-rule"].startswith("real telemetry")
+    assert paths["/v1/approvals"]["post"]["x-kolibri-authority"] == "owner sshsig required"
+    assert paths["/v1/releases/{release_id}/nodes/{node_id}/health"]["get"]["x-kolibri-truth-rule"].startswith("derived only")
 
 
 def test_contract_freeze_separates_bootstrap_connectivity_from_execution_truth():
@@ -67,3 +71,22 @@ def test_contract_freeze_separates_bootstrap_connectivity_from_execution_truth()
     assert "known-good Mac-to-fleet bootstrap" in text
     assert "real capability execution" in text
     assert "A heartbeat, accepted HTTP request or provider response alone is not proof" in text
+
+
+def test_native_tool_contract_separates_skills_and_requires_live_jsonl_probe():
+    contract = load_json("openapi.json")
+    definitions = load_json("domain.schema.json")["$defs"]
+    tool_rule = contract["paths"]["/v1/tools"]["get"]["x-kolibri-truth-rule"]
+    assert "native tools only" in tool_rule
+    assert "NativeToolRuntimeProbe" in definitions
+
+    registry = json.loads((ROOT / "backend" / "kolibri-tools.json").read_text(encoding="utf-8"))
+    tools = {item["id"]: item for item in registry["tools"]}
+    assert set(tools) == {"tool:code_inspection", "tool:web_search"}
+    assert tools["tool:code_inspection"]["requires_event_probe"] is True
+    assert tools["tool:web_search"]["requires_event_probe"] is False
+    assert tools["tool:web_search"]["execution_backend"] == "controlled_http_gateway"
+    assert tools["tool:web_search"]["policy_version"] == "kolibri.web-search-policy.v1"
+    assert "web_search_preview" in tools["tool:web_search"]["aliases"]
+    assert "command_execution" in tools["tool:code_inspection"]["event_aliases"]
+    assert "web_search" in tools["tool:web_search"]["event_aliases"]

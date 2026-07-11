@@ -16,10 +16,17 @@ def load_agent_host():
 
 
 def make_args(tmp_path):
+    mesh_manifest = tmp_path / "mesh-peers.json"
+    mesh_manifest.parent.mkdir(parents=True, exist_ok=True)
+    mesh_manifest.write_text(
+        json.dumps({"peers": [{"node_id": "home", "mesh_ip": "10.99.0.1"}]}),
+        encoding="utf-8",
+    )
     return argparse.Namespace(
-        control_url="http://127.0.0.1:9101",
-        node_id="primary-candidate",
-        agent_id="agent-host-primary",
+        control_url="http://10.99.0.1:9101",
+        mesh_membership_manifest=str(mesh_manifest),
+        node_id="worker-test",
+        agent_id="agent-host-test",
         capabilities="generic_implementation",
         repo_url="https://example.invalid/repo.git",
         work_root=str(tmp_path / "work"),
@@ -203,3 +210,214 @@ def test_direct_mimo_http_403_illegal_access_is_policy_blocked_without_prompt_le
         "stderr.log",
         "stdout.log",
     ]
+
+
+def test_direct_mimo_zero_exit_json_risk_event_is_policy_blocked(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setattr(agent_host.shutil, "which", lambda name: "/usr/bin/mimo" if name == "mimo" else None)
+
+    class Host(agent_host.AgentHost):
+        def __init__(self, args):
+            super().__init__(args)
+            self.posts = []
+
+        def post(self, path, body):
+            self.posts.append((path, body))
+            return body
+
+        def run_command(self, command, cwd, stdout_path, stderr_path, task, branch, logs, env=None, command_label=None):
+            del command, cwd, task, branch, logs, env
+            event = {
+                "type": "error",
+                "error": {
+                    "name": "APIError",
+                    "data": {
+                        "message": "Request blocked by risk control",
+                        "statusCode": 400,
+                        "isRetryable": False,
+                        "responseHeaders": {"authorization": "must-not-leak"},
+                        "responseBody": "provider-internal-body",
+                    },
+                },
+            }
+            stdout_path.write_text(f"$ {command_label}\n" + json.dumps(event) + "\n", encoding="utf-8")
+            stderr_path.write_text("", encoding="utf-8")
+
+    host = Host(make_args(tmp_path))
+    host.run_task(make_direct_task("MIMO-RISK-JSON", "harmless prompt"))
+
+    fail_body = [(path, body) for path, body in host.posts if path.endswith("/fail")][0][1]
+    assert fail_body["error_type"] == "provider_risk_control"
+    assert fail_body["retry"] is False
+    assert host.runner_status["mimo"]["status"] == "blocked"
+    assert host.runner_status["mimo"]["error_type"] == "provider_risk_control"
+    assert "runner:mimo" not in host.capabilities
+    host.node_heartbeat()
+    heartbeat = [(path, body) for path, body in host.posts if path.endswith("/heartbeat")][-1][1]
+    assert heartbeat["runners"]["mimo"]["status"] == "blocked"
+    serialized = json.dumps(fail_body, ensure_ascii=False)
+    assert "must-not-leak" not in serialized
+    assert "provider-internal-body" not in serialized
+
+
+def test_orchestrator_chat_result_preserves_runner_for_factory_verification(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setattr(agent_host.shutil, "which", lambda name: "/usr/bin/mimo" if name == "mimo" else None)
+
+    class Host(agent_host.AgentHost):
+        def post(self, _path, body):
+            return body
+
+        def run_requested_ai_runner(self, runner, *_args, **_kwargs):
+            assert runner == "mimo"
+            return "MIMO_FACTORY_OK"
+
+    host = Host(make_args(tmp_path))
+    task = make_direct_task("MIMO-ORCHESTRATOR")
+    task["kind"] = "orchestrator_chat_response"
+    task["envelope"] = {
+        "kind": "orchestrator_chat_response",
+        "runner": "mimo",
+        "message": "Ответь только MIMO_FACTORY_OK",
+        "constraints": {"read_only": True},
+        "write_scope": [],
+    }
+    result = host.run_telegram_chat_response(task)
+    assert result["status"] == "completed"
+    assert result["runner"] == "mimo"
+    assert result["response"] == "MIMO_FACTORY_OK"
+    assert result["runner_contract"]["model"] == "mimo/mimo-auto"
+
+
+def test_orchestrator_mimo_uses_readonly_file_transport_and_cleans_prompt(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setattr(agent_host.shutil, "which", lambda name: "/usr/bin/mimo" if name == "mimo" else None)
+    secret = "private owner prompt must not enter argv"
+    observed_prompt_path = None
+
+    class Host(agent_host.AgentHost):
+        def post(self, _path, body):
+            return body
+
+        def run_command(self, command, cwd, stdout_path, stderr_path, task, branch, logs, env=None, command_label=None):
+            nonlocal observed_prompt_path
+            del cwd, task, branch, logs, env
+            assert secret not in command
+            assert secret not in str(command_label)
+            assert "--dangerously-skip-permissions" not in command
+            assert command[command.index("--agent") + 1] == "plan"
+            observed_prompt_path = Path(command[command.index("--file") + 1])
+            assert observed_prompt_path.read_text(encoding="utf-8").find(secret) >= 0
+            stdout_path.write_text(
+                json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": "SAFE"}}) + "\n",
+                encoding="utf-8",
+            )
+            stderr_path.write_text("", encoding="utf-8")
+
+    host = Host(make_args(tmp_path))
+    task = make_direct_task("MIMO-FILE-TRANSPORT")
+    task["kind"] = "orchestrator_chat_response"
+    task["envelope"] = {
+        "kind": "orchestrator_chat_response",
+        "runner": "mimo",
+        "message": secret,
+        "constraints": {"read_only": True},
+        "write_scope": [],
+    }
+    result = host.run_telegram_chat_response(task)
+    assert result["response"] == "SAFE"
+    assert observed_prompt_path is not None
+    assert not observed_prompt_path.exists()
+    assert result["runner_contract"]["prompt_transport"] == "file"
+    assert result["runner_contract"]["sandbox"] == "read-only"
+
+
+def test_factory_codex_uses_stdin_readonly_contract_and_cleans_prompt(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setattr(
+        agent_host,
+        "resolve_home_control_plane_url",
+        lambda *_args, **_kwargs: "http://127.0.0.1:9101",
+    )
+    monkeypatch.setattr(
+        agent_host.shutil,
+        "which",
+        lambda name: "/usr/local/bin/codex" if name == "codex" else None,
+    )
+    monkeypatch.setattr(
+        agent_host.AgentHost,
+        "detect_codex_runner_status",
+        lambda _self, path: {
+            "status": "available",
+            "path": path,
+            "login_status": "authenticated",
+            "probe": {"model": "gpt-5.5", "sandbox": "read-only", "status": "passed"},
+        },
+    )
+    observed_prompt = None
+
+    class Host(agent_host.AgentHost):
+        def post(self, _path, body):
+            return body
+
+        def run_command(
+            self, command, cwd, stdout_path, stderr_path, task, branch, logs,
+            env=None, command_label=None, stdin_path=None,
+        ):
+            del self, cwd, task, branch, logs, env
+            nonlocal observed_prompt
+            assert command[-1] == "-"
+            assert command[command.index("--sandbox") + 1] == "read-only"
+            assert command[command.index("--model") + 1] == "gpt-5.5"
+            assert "--ephemeral" in command
+            assert "--ignore-user-config" in command
+            assert "--ignore-rules" in command
+            assert command[command.index("--color") + 1] == "never"
+            assert "danger-full-access" not in command
+            assert command_label.endswith("<prompt-file>")
+            assert stdin_path is not None
+            observed_prompt = stdin_path.read_text(encoding="utf-8")
+            stdout_path.write_text(
+                json.dumps({
+                    "type": "item.completed",
+                    "item": {"type": "agent_message", "text": "SAFE CODEX"},
+                }) + "\n",
+                encoding="utf-8",
+            )
+            stderr_path.write_text("", encoding="utf-8")
+
+    host = Host(make_args(tmp_path))
+    task = make_direct_task("CODEX-FACTORY-READONLY")
+    task["kind"] = "owner_remote_task"
+    task["envelope"] = {
+        "kind": "owner_remote_task",
+        "runner": "codex",
+        "objective": "private factory prompt",
+        "constraints": {"read_only": True},
+        "write_scope": [],
+    }
+    result = host.run_owner_remote_task(task)
+
+    assert observed_prompt == "private factory prompt"
+    assert result["response"] == "SAFE CODEX"
+    assert not (Path(result["worktree"]) / ".kolibri-provider-prompt").exists()
+    assert result["runner_contract"]["factory_provider_contract"] == "kolibri.factory-provider.readonly.v1"
+    assert result["runner_contract"]["prompt_transport"] == "stdin"
+    assert result["runner_contract"]["sandbox"] == "read-only"
+
+
+def test_home_factory_provider_task_is_distinct_from_legacy_direct_mimo_task():
+    agent_host = load_agent_host()
+    factory_task = make_direct_task("FACTORY-PROVIDER-ROUTING")
+    factory_task["envelope"].update({
+        "constraints": {"read_only": True},
+        "write_scope": [],
+        "source": {
+            "kind": "kolibri_provider_gateway",
+            "control_plane": "home",
+            "response_id": "resp-safe",
+        },
+    })
+
+    assert agent_host.is_factory_provider_task(factory_task) is True
+    assert agent_host.is_factory_provider_task(make_direct_task("LEGACY-DIRECT")) is False

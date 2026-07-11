@@ -8,6 +8,9 @@
   "servers": [
     { "url": "https://kolibriai.ru", "description": "Public shell and same-origin API" }
   ],
+  "security": [
+    { "BearerAuth": [] }
+  ],
   "tags": [
     { "name": "responses" },
     { "name": "continuity" },
@@ -16,15 +19,47 @@
     { "name": "canvas" },
     { "name": "documents" },
     { "name": "automations" },
+    { "name": "learning" },
     { "name": "owner-control" }
   ],
   "paths": {
+    "/v1/public/session": {
+      "post": {
+        "tags": ["responses"],
+        "operationId": "createPublicSession",
+        "security": [],
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-session": "short-lived same-origin HttpOnly SameSite=Strict; only token SHA-256 is stored"
+      },
+      "get": {
+        "tags": ["responses"],
+        "operationId": "getPublicSession",
+        "security": [{ "PublicSession": [] }],
+        "responses": { "200": { "$ref": "#/components/responses/Success" } }
+      }
+    },
     "/v1/responses": {
       "post": {
         "tags": ["responses"],
         "operationId": "createResponse",
-        "requestBody": { "$ref": "#/components/requestBodies/Mutation" },
-        "responses": { "202": { "$ref": "#/components/responses/Accepted" } },
+        "security": [{ "BearerAuth": [] }, { "PublicSession": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ResponseCreate" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "OpenAI-compatible Response JSON or typed Responses SSE",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Envelope" } },
+              "text/event-stream": { "schema": { "type": "string" } }
+            }
+          },
+          "201": { "$ref": "#/components/responses/Success" }
+        },
+        "x-kolibri-provider-selection": "server-policy-only",
+        "x-kolibri-tool-completion-gate": "non-empty answer plus provider evidence plus deterministic verifier evidence",
+        "x-kolibri-public-session-tool-scope": "only response-scoped tool:web_search through the controlled allowlisted HTTP gateway; no shell or generic URL fetch",
         "x-kolibri-implementation": "compatibility"
       }
     },
@@ -32,6 +67,7 @@
       "get": {
         "tags": ["responses"],
         "operationId": "getResponse",
+        "security": [{ "BearerAuth": [] }, { "PublicSession": [] }],
         "parameters": [{ "$ref": "#/components/parameters/ResponseId" }],
         "responses": { "200": { "$ref": "#/components/responses/Success" } },
         "x-kolibri-implementation": "compatibility"
@@ -41,6 +77,7 @@
       "post": {
         "tags": ["responses"],
         "operationId": "cancelResponse",
+        "security": [{ "BearerAuth": [] }, { "PublicSession": [] }],
         "parameters": [{ "$ref": "#/components/parameters/ResponseId" }],
         "responses": { "200": { "$ref": "#/components/responses/Success" } },
         "x-kolibri-implementation": "compatibility"
@@ -53,11 +90,14 @@
         "parameters": [{ "$ref": "#/components/parameters/ResponseId" }],
         "responses": {
           "200": {
-            "description": "Server-sent response events",
-            "content": { "text/event-stream": { "schema": { "type": "string" } } }
+            "description": "Server-sent response events or a JSON snapshot when SSE is not requested",
+            "content": {
+              "text/event-stream": { "schema": { "type": "string" } },
+              "application/json": { "schema": { "$ref": "#/components/schemas/Envelope" } }
+            }
           }
         },
-        "x-kolibri-implementation": "target"
+        "x-kolibri-implementation": "compatibility"
       }
     },
     "/v1/chat/completions": {
@@ -66,7 +106,7 @@
         "operationId": "createChatCompletionCompatibility",
         "requestBody": { "$ref": "#/components/requestBodies/Mutation" },
         "responses": { "200": { "$ref": "#/components/responses/Success" } },
-        "x-kolibri-implementation": "target"
+        "x-kolibri-implementation": "compatibility"
       }
     },
     "/v1/models": {
@@ -75,6 +115,7 @@
         "operationId": "listModels",
         "responses": { "200": { "$ref": "#/components/responses/Success" } },
         "x-kolibri-public-model": "kolibri",
+        "x-kolibri-provider-routes": "internal-only",
         "x-kolibri-implementation": "compatibility"
       }
     },
@@ -231,30 +272,57 @@
         "tags": ["owner-control"],
         "operationId": "listApprovals",
         "responses": { "200": { "$ref": "#/components/responses/Success" } },
-        "x-kolibri-implementation": "target"
+        "x-kolibri-implementation": "compatibility"
       },
       "post": {
         "tags": ["owner-control"],
         "operationId": "requestApproval",
         "requestBody": { "$ref": "#/components/requestBodies/Mutation" },
         "responses": { "201": { "$ref": "#/components/responses/Success" } },
-        "x-kolibri-implementation": "target"
+        "x-kolibri-authority": "owner sshsig required",
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
+    "/v1/approvals/{approval_id}": {
+      "get": {
+        "tags": ["owner-control"],
+        "operationId": "getApproval",
+        "parameters": [{ "$ref": "#/components/parameters/ApprovalId" }],
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
+    "/v1/releases/{release_id}/nodes/{node_id}/health": {
+      "get": {
+        "tags": ["owner-control"],
+        "operationId": "getReleaseNodeHealth",
+        "parameters": [
+          { "$ref": "#/components/parameters/ReleaseId" },
+          { "$ref": "#/components/parameters/NodeId" }
+        ],
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-truth-rule": "derived only from completed fenced task evidence",
+        "x-kolibri-implementation": "compatibility"
       }
     },
     "/v1/capabilities": {
       "get": {
         "tags": ["runtime"],
         "operationId": "listCapabilities",
-        "responses": { "200": { "$ref": "#/components/responses/Success" } },
-        "x-kolibri-implementation": "target"
+        "parameters": [{ "$ref": "#/components/parameters/RefreshProbe" }],
+        "responses": { "200": { "$ref": "#/components/responses/CapabilityList" } },
+        "x-kolibri-truth-rule": "manifest metadata plus live runner availability; never mock",
+        "x-kolibri-implementation": "compatibility"
       }
     },
     "/v1/tools": {
       "get": {
         "tags": ["runtime"],
         "operationId": "listTools",
-        "responses": { "200": { "$ref": "#/components/responses/Success" } },
-        "x-kolibri-implementation": "target"
+        "parameters": [{ "$ref": "#/components/parameters/RefreshProbe" }],
+        "responses": { "200": { "$ref": "#/components/responses/CapabilityList" } },
+        "x-kolibri-truth-rule": "native tools only; controlled HTTP tools execute through allowlisted policy gateways; skills remain planner capabilities; degraded and unavailable tools cannot execute",
+        "x-kolibri-implementation": "compatibility"
       }
     },
     "/v1/providers": {
@@ -361,6 +429,88 @@
         "x-kolibri-implementation": "target"
       }
     },
+    "/v1/learning/status": {
+      "get": {
+        "tags": ["learning"],
+        "operationId": "getLearningBoundaryStatus",
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-request-path-training": false,
+        "x-kolibri-auto-promote": false,
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
+    "/v1/learning/intakes": {
+      "get": {
+        "tags": ["learning"],
+        "operationId": "listLearningIntakes",
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-rejection-rule": "secret, PII, missing consent, non-permitted license or failed verifier never enters the candidate queue",
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
+    "/v1/learning/intakes/{intake_id}": {
+      "get": {
+        "tags": ["learning"],
+        "operationId": "getLearningIntake",
+        "parameters": [{ "$ref": "#/components/parameters/LearningIntakeId" }],
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
+    "/v1/learning/queue/process": {
+      "post": {
+        "tags": ["learning"],
+        "operationId": "processLearningQueue",
+        "requestBody": { "$ref": "#/components/requestBodies/Mutation" },
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-boundary": "separate worker operation; never invoked by synchronous response handling",
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
+    "/v1/learning/candidates": {
+      "get": {
+        "tags": ["learning"],
+        "operationId": "listLearningCandidates",
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-implementation": "compatibility"
+      },
+      "post": {
+        "tags": ["learning"],
+        "operationId": "createLearningCandidateCompatibility",
+        "requestBody": { "$ref": "#/components/requestBodies/Mutation" },
+        "responses": { "201": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-schema": "domain.schema.json#/$defs/LearningCandidate",
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
+    "/v1/learning/candidates/{candidate_id}": {
+      "get": {
+        "tags": ["learning"],
+        "operationId": "getLearningCandidate",
+        "parameters": [{ "$ref": "#/components/parameters/LearningCandidateId" }],
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
+    "/v1/learning/candidates/{candidate_id}/transitions": {
+      "get": {
+        "tags": ["learning"],
+        "operationId": "listLearningCandidateTransitions",
+        "parameters": [{ "$ref": "#/components/parameters/LearningCandidateId" }],
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-implementation": "compatibility"
+      },
+      "post": {
+        "tags": ["learning"],
+        "operationId": "transitionLearningCandidate",
+        "parameters": [{ "$ref": "#/components/parameters/LearningCandidateId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/Mutation" },
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-state-machine": "candidate -> training -> evaluating -> canary-1 -> canary-10 -> canary-50 -> production; explicit rollback",
+        "x-kolibri-auto-promote": false,
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
     "/v1/automations": {
       "get": {
         "tags": ["automations"],
@@ -379,11 +529,35 @@
     }
   },
   "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "opaque Kolibri API key",
+        "description": "Required for durable execution, project, artifact, learning and owner-control data. The API fails closed when no server credential is configured."
+      },
+      "PublicSession": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "kolibri_public_session",
+        "description": "Short-lived opaque browser session, bound to exact Origin and an ephemeral project/response scope."
+      }
+    },
     "parameters": {
       "ProjectId": { "name": "project_id", "in": "path", "required": true, "schema": { "type": "string" } },
       "WorkstreamId": { "name": "workstream_id", "in": "path", "required": true, "schema": { "type": "string" } },
       "ResponseId": { "name": "response_id", "in": "path", "required": true, "schema": { "type": "string" } },
-      "TaskId": { "name": "task_id", "in": "path", "required": true, "schema": { "type": "string" } }
+      "LearningIntakeId": { "name": "intake_id", "in": "path", "required": true, "schema": { "type": "string" } },
+      "LearningCandidateId": { "name": "candidate_id", "in": "path", "required": true, "schema": { "type": "string" } },
+      "TaskId": { "name": "task_id", "in": "path", "required": true, "schema": { "type": "string" } },
+      "ApprovalId": { "name": "approval_id", "in": "path", "required": true, "schema": { "type": "string" } },
+      "ReleaseId": { "name": "release_id", "in": "path", "required": true, "schema": { "type": "string" } },
+      "NodeId": { "name": "node_id", "in": "path", "required": true, "schema": { "type": "string" } },
+      "RefreshProbe": {
+        "name": "refresh", "in": "query", "required": false,
+        "schema": { "type": "boolean", "default": false },
+        "description": "Bypass the short inventory cache, re-read safe metadata, and run read-only native-tool JSONL probes."
+      }
     },
     "requestBodies": {
       "Mutation": {
@@ -407,9 +581,38 @@
       "Accepted": {
         "description": "Accepted into durable scheduling; not a completion claim",
         "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Envelope" } } }
+      },
+      "CapabilityList": {
+        "description": "Truthful runtime-probed capability inventory",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CapabilityList" } } }
       }
     },
     "schemas": {
+      "ResponseCreate": {
+        "type": "object",
+        "required": ["model", "input"],
+        "properties": {
+          "model": { "const": "kolibri" },
+          "input": {
+            "oneOf": [
+              { "type": "string" },
+              { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+            ]
+          },
+          "stream": { "type": "boolean", "default": false },
+          "previous_response_id": { "type": ["string", "null"] },
+          "execution_mode": { "type": "string", "enum": ["fast", "codex"], "default": "fast" },
+          "task": { "type": ["object", "null"], "additionalProperties": true },
+          "tools": {
+            "type": "array",
+            "maxItems": 16,
+            "items": { "type": "object", "additionalProperties": true },
+            "description": "Validated capability declarations. web_search/web_search_preview execute through the controlled HTTP gateway."
+          },
+          "idempotency_key": { "type": ["string", "null"], "maxLength": 300 }
+        },
+        "additionalProperties": true
+      },
       "Envelope": {
         "type": "object",
         "required": ["schema_version"],
@@ -420,6 +623,65 @@
           "trace_id": { "type": "string" }
         },
         "additionalProperties": true
+      },
+      "CapabilityRecord": {
+        "type": "object",
+        "required": ["id", "object", "kind", "name", "status", "availability_reason", "invocable", "source"],
+        "properties": {
+          "id": { "type": "string" },
+          "object": { "const": "capability" },
+          "kind": { "enum": ["capability", "plugin", "skill", "tool"] },
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "status": { "enum": ["available", "degraded", "unavailable"] },
+          "availability_reason": { "type": "string" },
+          "invocable": { "type": "boolean" },
+          "native_tool": { "type": "boolean" },
+          "read_only": { "type": "boolean" },
+          "event_aliases": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+          "runtime_probe": {
+            "type": "object",
+            "required": ["status", "reason", "observed_event_types", "observed_tool_names", "tool_event_count", "verifier_verdict"],
+            "properties": {
+              "status": { "enum": ["available", "degraded", "unavailable"] },
+              "reason": { "type": "string" },
+              "observed_event_types": { "type": "array", "items": { "type": "string" } },
+              "observed_tool_names": { "type": "array", "items": { "type": "string" } },
+              "tool_event_count": { "type": "integer", "minimum": 0 },
+              "verifier_verdict": { "enum": ["not_run", "passed", "failed"] },
+              "evidence_binding_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+              "error_types": { "type": "array", "items": { "type": "string" } }
+            },
+            "additionalProperties": false
+          },
+          "source": {
+            "type": "object",
+            "required": ["type", "manifest_sha256"],
+            "properties": {
+              "type": { "type": "string" },
+              "manifest_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "CapabilityList": {
+        "type": "object",
+        "required": ["schema_version", "object", "status", "data", "summary", "probes"],
+        "properties": {
+          "schema_version": { "const": "kolibri.capabilities.v1" },
+          "object": { "const": "list" },
+          "status": { "enum": ["available", "degraded", "unavailable"] },
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/CapabilityRecord" } },
+          "summary": {
+            "type": "object",
+            "required": ["total", "available", "degraded", "unavailable"],
+            "additionalProperties": { "type": "integer", "minimum": 0 }
+          },
+          "probes": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+        },
+        "additionalProperties": false
       }
     }
   }

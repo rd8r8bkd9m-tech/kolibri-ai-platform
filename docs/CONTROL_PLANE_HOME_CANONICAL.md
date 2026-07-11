@@ -29,6 +29,28 @@ mesh. It changes application routing and authority only.
   expose an actionable degraded state. They do not silently route to a legacy
   Control Plane.
 
+## Canonical fleet view
+
+The live `peers` projection in Home's replicated mesh manifest is the
+authority for physical factory membership. Redis `node_ids` and Agent Host
+cards are runtime observations and an append-only audit source; they cannot
+add a physical server to the scheduler.
+
+- `GET /v1/nodes` and `GET /v1/nodes?scope=active` return exactly one row per
+  canonical manifest member.
+- A canonical member without a fresh Agent Host observation remains visible as
+  `quarantined`, `freshness=stale`, `schedulable=false`; it is never reported
+  online.
+- `scope=audit` returns Redis-only legacy, duplicate and shadow identities as
+  archived historical records. `scope=all` returns both projections for an
+  operator investigation.
+- Fleet routing, leases, provider candidates, release inventory and
+  `/api/factory/status` consume only `scope=active`.
+- No reconciliation deletes historical Redis evidence. Removal from active
+  membership happens through the authenticated mesh tombstone protocol.
+- If the manifest is missing, malformed or ambiguous, membership reads return
+  an explicit unavailable state and task leasing fails closed.
+
 ## Migration rule
 
 1. Take read-only inventory and checksum snapshots of current Home services.
@@ -41,4 +63,3 @@ mesh. It changes application routing and authority only.
 
 Provider routing remains independent: Mimo, Codex and other execution providers
 may fail over according to policy while task authority stays on Home.
-

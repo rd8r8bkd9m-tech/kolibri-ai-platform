@@ -1,0 +1,12 @@
+[Unit]
+Description=Run the canonical Home lease watchdog every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Persistent=true
+Unit=kolibri-factory-lease-watchdog.service
+
+[Install]
+WantedBy=timers.target

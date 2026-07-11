@@ -9,6 +9,11 @@ if [[ ! -f "${ROOT}/ops/factory_control.py" ]]; then
   exit 1
 fi
 
+if [[ ! -f "${ROOT}/ops/fleet_membership.py" ]]; then
+  echo "fleet_membership_missing:${ROOT}/ops/fleet_membership.py" >&2
+  exit 1
+fi
+
 if [[ ! -f "${ROOT}/ops/telegram_superfactory.py" ]]; then
   echo "telegram_superfactory_missing:${ROOT}/ops/telegram_superfactory.py" >&2
   exit 1
@@ -64,9 +69,18 @@ missing_fabric = sorted(path for path in required_fabric if f'path == "{path}"' 
 if missing_fabric:
     raise SystemExit(f"factory_control_fabric_routes_missing:{missing_fabric}")
 
-nodes = module.fabric_nodes([])
-if {"home", "main", "uiap", "qjns", "9fts", "new"} - {node["node_id"] for node in nodes}:
-    raise SystemExit("factory_control_fabric_catalog_incomplete")
+registered = [
+    {"node_id": "home", "hostname": "home", "health": "online", "capabilities": ["control_plane"]},
+    {"node_id": "preflight-worker", "hostname": "worker", "health": "online", "capabilities": ["implementation"]},
+]
+nodes = module.fabric_nodes(registered)
+by_id = {node["node_id"]: node for node in nodes}
+if set(by_id) != {"home", "preflight-worker"}:
+    raise SystemExit("factory_control_membership_projection_invalid")
+if by_id["home"]["role"] != "control_plane":
+    raise SystemExit("factory_control_home_authority_missing")
+if by_id["preflight-worker"]["role"] == "control_plane":
+    raise SystemExit("factory_control_non_home_authority_detected")
 
 print("factory_control_runtime_preflight=ok")
 PY

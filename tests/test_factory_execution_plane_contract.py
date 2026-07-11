@@ -1,6 +1,9 @@
 import argparse
 import importlib.util
+import json
 from pathlib import Path
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,9 +18,15 @@ def load_module(name: str, path: Path):
 
 
 def agent_args(tmp_path):
+    manifest = tmp_path / "mesh-peers.json"
+    manifest.write_text(
+        json.dumps({"peers": [{"node_id": "home", "mesh_ip": "10.99.0.1"}]}),
+        encoding="utf-8",
+    )
     return argparse.Namespace(
-        control_url="http://control:9101",
-        control_urls="http://control:9101,http://standby:9101",
+        control_url="http://10.99.0.1:9101",
+        control_urls="http://10.99.0.1:9101",
+        mesh_membership_manifest=str(manifest),
         node_id="agent-02",
         agent_id="agent-host-agent-02",
         capabilities="generic_implementation,read_only_probe",
@@ -53,32 +62,13 @@ def test_task_heartbeat_keeps_busy_node_fresh(tmp_path, monkeypatch):
     assert host.posts[1][0] == "/v1/tasks/LONG-RUN-1/heartbeat"
 
 
-def test_failover_is_request_local_and_canonical_recovers(tmp_path, monkeypatch):
-    agent_host = load_module("agent_host_failover_contract", ROOT / "ops" / "agent_host.py")
-    host = agent_host.AgentHost(agent_args(tmp_path))
-    attempts = []
-    primary_available = False
+def test_multiple_control_plane_authorities_are_rejected(tmp_path):
+    agent_host = load_module("agent_host_home_only_contract", ROOT / "ops" / "agent_host.py")
+    args = agent_args(tmp_path)
+    args.control_urls = "http://home-control:9101,http://legacy-control:9101"
 
-    def fake_request(method, url, body=None):
-        del method, body
-        attempts.append(url)
-        if url.startswith("http://control:9101") and not primary_available:
-            raise OSError("primary unavailable")
-        return {"url": url}
-
-    monkeypatch.setattr(agent_host, "request", fake_request)
-    first = host.get("/v1/health")
-    assert first["url"].startswith("http://standby:9101")
-    assert attempts == [
-        "http://control:9101/v1/health",
-        "http://standby:9101/v1/health",
-    ]
-
-    primary_available = True
-    attempts.clear()
-    second = host.get("/v1/health")
-    assert second["url"].startswith("http://control:9101")
-    assert attempts == ["http://control:9101/v1/health"]
+    with pytest.raises(RuntimeError, match="multiple_control_plane_authorities_forbidden"):
+        agent_host.AgentHost(args)
 
 
 def test_agent_host_fences_heartbeat_completion_and_failure(tmp_path):
@@ -106,7 +96,19 @@ def test_agent_host_fences_heartbeat_completion_and_failure(tmp_path):
         assert body["agent_id"] == "agent-host-agent-02"
 
 
-def test_registered_nodes_are_batched_and_stale_nodes_are_not_routable(monkeypatch):
+def test_registered_nodes_are_batched_and_stale_nodes_are_not_routable(tmp_path, monkeypatch):
+    manifest = tmp_path / "fleet-peers.json"
+    manifest.write_text(
+        json.dumps({
+            "peers": [
+                {"node_id": "home", "mesh_ip": "10.99.0.1"},
+                {"node_id": "fresh", "mesh_ip": "10.99.0.2"},
+                {"node_id": "stale", "mesh_ip": "10.99.0.3"},
+            ]
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("KOLIBRI_MESH_MEMBERSHIP_MANIFEST", str(manifest))
     control = load_module("factory_control_execution_contract", ROOT / "ops" / "factory_control.py")
     now = control.now_ts()
 
@@ -134,7 +136,11 @@ def test_registered_nodes_are_batched_and_stale_nodes_are_not_routable(monkeypat
     nodes = control.registered_nodes()
 
     assert len(fake.calls) == 3
-    assert {node["node_id"]: node["health"] for node in nodes} == {"fresh": "online", "stale": "stale"}
+    assert {node["node_id"]: node["health"] for node in nodes} == {
+        "home": "quarantined",
+        "fresh": "online",
+        "stale": "stale",
+    }
     route = control.fabric_route(target_node="stale", required_capability="build", registered_nodes=nodes)
     assert route["status"] == "blocked"
     assert route["fallback_nodes"] == ["fresh"]

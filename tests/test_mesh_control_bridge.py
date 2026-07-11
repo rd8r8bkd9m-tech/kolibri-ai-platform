@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -65,7 +67,7 @@ def test_chat_only_message_is_ignored_without_creating_task(tmp_path, monkeypatc
     assert result == {"chat_only": True, "status": "ignored"}
 
 
-def test_sync_mesh_nodes_registers_shadow_nodes(tmp_path, monkeypatch):
+def test_sync_mesh_nodes_keeps_observations_local_without_shadow_registration(tmp_path, monkeypatch):
     bridge = load_bridge(tmp_path, monkeypatch)
     posts = []
 
@@ -87,7 +89,17 @@ def test_sync_mesh_nodes_registers_shadow_nodes(tmp_path, monkeypatch):
     state = {}
     assert bridge.sync_mesh_nodes(state) == 2
     assert state["mesh_nodes"]["home"]["status"] == "online"
-    assert posts[0][0] == "/v1/nodes/register"
-    assert posts[0][1]["node_id"] == "mesh-home"
-    assert posts[0][1]["health"] == "online"
-    assert posts[1][1]["health"] == "degraded"
+    assert state["mesh_nodes"]["cold"]["status"] == "offline"
+    assert posts == []
+
+
+def test_bridge_rejects_multiple_control_plane_authorities_before_network(tmp_path, monkeypatch):
+    monkeypatch.setenv("KOLIBRI_FACTORY_CONTROL_URL", "http://home-control:9101")
+    monkeypatch.setenv(
+        "KOLIBRI_FACTORY_CONTROL_URLS",
+        "http://home-control:9101,http://legacy-control:9101",
+    )
+    bridge = load_bridge(tmp_path, monkeypatch)
+
+    with pytest.raises(RuntimeError, match="multiple_control_plane_authorities_forbidden"):
+        bridge.control_url()

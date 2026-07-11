@@ -1,0 +1,33 @@
+{
+  "schema_version": "kolibri.native-tools.v1",
+  "tools": [
+    {
+      "id": "tool:code_inspection",
+      "name": "code_inspection",
+      "kind": "tool",
+      "description": "Read-only shell and code inspection through the Codex native shell tool.",
+      "status": "available",
+      "providers": ["codex"],
+      "aliases": ["code_inspection", "shell_read_only"],
+      "event_aliases": ["shell", "command_execution", "command.exec"],
+      "requires_event_probe": true,
+      "read_only": true,
+      "probe_prompt": "Inspect the current working directory using exactly one read-only shell command: pwd. Then answer exactly OK.",
+      "probe_instructions": "Native tool probe. You must invoke the shell tool. Do not modify files and do not access the network."
+    },
+    {
+      "id": "tool:web_search",
+      "name": "web_search",
+      "kind": "tool",
+      "description": "Controlled web search through Kolibri's allowlisted HTTP gateway with citations and provenance.",
+      "status": "available",
+      "providers": ["gateway"],
+      "aliases": ["web_search", "web_search_preview", "search_web"],
+      "event_aliases": ["web_search", "web.run"],
+      "requires_event_probe": false,
+      "read_only": true,
+      "execution_backend": "controlled_http_gateway",
+      "policy_version": "kolibri.web-search-policy.v1"
+    }
+  ]
+}

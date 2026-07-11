@@ -1,58 +1,93 @@
 #!/usr/bin/env python3
-"""Register all 21 servers in the Control Plane."""
+"""Verify automatic fleet registration through canonical Home.
 
+The historical hard-coded 21-node POST loop has been retired.  New servers
+self-register when the unified provisioner starts Agent Host, while mesh
+membership is replicated independently.  This compatibility command now
+proves that every current mesh member has appeared in Home membership and
+never manufactures an online heartbeat.
+"""
+
+from __future__ import annotations
+
+import argparse
 import json
-import urllib.request
-import urllib.error
 import sys
+import time
+from pathlib import Path
 
-CONTROL_PLANE = "http://192.168.88.210:9101"
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-SERVERS = [
-    {"node_id": "home", "hostname": "plastilin", "role": "command_node_gateway", "ip": "10.99.0.1", "capabilities": ["mesh", "redis", "control_plane"]},
-    {"node_id": "main", "hostname": "kolibri-main-api", "role": "control_plane", "ip": "10.99.0.2", "capabilities": ["control_plane", "api_gateway", "nginx"]},
-    {"node_id": "primary", "hostname": "kolibri", "role": "hybrid", "ip": "10.99.0.10", "capabilities": ["codex", "mimo", "runner:codex", "runner:mimo"]},
-    {"node_id": "uiap", "hostname": "kolibri-rag-knowledge", "role": "knowledge_model_node", "ip": "10.99.0.3", "capabilities": ["rag", "knowledge", "chromadb"]},
-    {"node_id": "qjns", "hostname": "kolibri-tools-executor", "role": "remote_agent", "ip": "10.99.0.4", "capabilities": ["tools", "executor", "bash"]},
-    {"node_id": "9fts", "hostname": "kolibri-inference-recovery", "role": "implementation_model_node", "ip": "10.99.0.5", "capabilities": ["inference", "model", "formulalm"]},
-    {"node_id": "new", "hostname": "kolibri-worker-backup", "role": "review_agent", "ip": "10.99.0.6", "capabilities": ["worker", "backup", "review"]},
-    {"node_id": "server-kfrm", "hostname": "server-kfrm", "role": "execution", "ip": "10.99.0.31", "capabilities": ["execution", "heavy_tests"]},
-    {"node_id": "reserve242", "hostname": "kolibri-qa-security", "role": "reserve", "ip": "10.99.0.21", "capabilities": ["qa", "security"]},
-    {"node_id": "highload", "hostname": "kolibri-ci-build-highload", "role": "execution", "ip": "10.99.0.19", "capabilities": ["ci", "build", "highload"]},
-    {"node_id": "paris", "hostname": "kolibri-paris-build-reserve", "role": "reserve", "ip": "10.99.0.20", "capabilities": ["reserve", "build"]},
-    {"node_id": "agent-01", "hostname": "kolibri-backend-lead", "role": "execution", "ip": "10.99.0.8", "capabilities": ["backend", "python", "fastapi"]},
-    {"node_id": "agent-02", "hostname": "kolibri-frontend-design", "role": "execution", "ip": "10.99.0.9", "capabilities": ["frontend", "react", "typescript"]},
-    {"node_id": "agent-03", "hostname": "kolibri-infra-network", "role": "execution", "ip": "10.99.0.11", "capabilities": ["infra", "network", "devops"]},
-    {"node_id": "agent-04", "hostname": "kolibri-qa-browser", "role": "execution", "ip": "10.99.0.12", "capabilities": ["qa", "browser", "playwright"]},
-    {"node_id": "agent-05", "hostname": "kolibri-security-audit", "role": "execution", "ip": "10.99.0.13", "capabilities": ["security", "audit", "scanner"]},
-    {"node_id": "agent-06", "hostname": "kolibri-docs-knowledge", "role": "execution", "ip": "10.99.0.14", "capabilities": ["docs", "knowledge", "writing"]},
-    {"node_id": "agent-07", "hostname": "kolibri-formulalm-eval", "role": "model", "ip": "10.99.0.15", "capabilities": ["formulalm", "model", "training"]},
-    {"node_id": "agent-08", "hostname": "kolibri-rag-eval", "role": "model", "ip": "10.99.0.16", "capabilities": ["rag", "eval", "benchmark"]},
-    {"node_id": "agent-09", "hostname": "kolibri-release-canary", "role": "execution", "ip": "10.99.0.17", "capabilities": ["release", "canary", "deploy"]},
-    {"node_id": "agent-10", "hostname": "kolibri-hk-edge-load", "role": "execution", "ip": "10.99.0.18", "capabilities": ["edge", "load", "balancing"]},
-]
+from ops.control_plane_endpoint import DEFAULT_MESH_MANIFEST  # noqa: E402
+from ops.factory_registry import load_registered_servers  # noqa: E402
 
-def register_server(server: dict) -> bool:
-    url = f"{CONTROL_PLANE}/v1/nodes/register"
-    data = json.dumps(server).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
-    try:
-        resp = urllib.request.urlopen(req, timeout=5)
-        result = json.loads(resp.read().decode())
-        print(f"  ✓ {server['node_id']}: {result.get('status', 'ok')}")
-        return True
-    except Exception as e:
-        print(f"  ✗ {server['node_id']}: {e}")
-        return False
 
-def main():
-    print("Registering 21 servers in Control Plane...")
-    success = 0
-    for server in SERVERS:
-        if register_server(server):
-            success += 1
-    print(f"\nResult: {success}/{len(SERVERS)} registered")
-    return 0 if success == len(SERVERS) else 1
+def mesh_node_ids(path: Path) -> set[str]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    peers = payload.get("peers", {}) if isinstance(payload, dict) else {}
+    records = peers.values() if isinstance(peers, dict) else peers if isinstance(peers, list) else []
+    return {
+        str(peer.get("node_id") or "").strip()
+        for peer in records
+        if isinstance(peer, dict) and str(peer.get("node_id") or "").strip()
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--control-url")
+    parser.add_argument("--manifest", type=Path, default=DEFAULT_MESH_MANIFEST)
+    parser.add_argument("--wait-seconds", type=int, default=0)
+    args = parser.parse_args(argv)
+    if args.wait_seconds < 0 or args.wait_seconds > 600:
+        parser.error("--wait-seconds must be between 0 and 600")
+
+    expected = mesh_node_ids(args.manifest)
+    deadline = time.monotonic() + args.wait_seconds
+    while True:
+        registered = load_registered_servers(
+            args.control_url,
+            manifest_path=args.manifest,
+        )
+        actual = {record.node_id for record in registered}
+        missing = sorted(expected - actual)
+        stale = sorted(
+            record.node_id
+            for record in registered
+            if record.node_id in expected and not record.safe_to_schedule
+        )
+        if not missing and not stale:
+            print(
+                json.dumps(
+                    {
+                        "status": "ok",
+                        "authority": "home",
+                        "mesh_members": len(expected),
+                        "registered_fresh": len(expected),
+                    },
+                    sort_keys=True,
+                )
+            )
+            return 0
+        if time.monotonic() >= deadline:
+            print(
+                json.dumps(
+                    {
+                        "status": "degraded",
+                        "authority": "home",
+                        "mesh_members": len(expected),
+                        "missing_registration": missing,
+                        "stale_registration": stale,
+                    },
+                    sort_keys=True,
+                ),
+                file=sys.stderr,
+            )
+            return 1
+        time.sleep(2)
+
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

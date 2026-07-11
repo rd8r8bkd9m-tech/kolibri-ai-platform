@@ -1,9 +1,5 @@
-import os
-import tempfile
-import asyncio
-from pathlib import Path
+from data_paths import TTS_DIR
 
-TTS_DIR = Path("/opt/kolibri-ai/data/tts")
 TTS_DIR.mkdir(parents=True, exist_ok=True)
 
 

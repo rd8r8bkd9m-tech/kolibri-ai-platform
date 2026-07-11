@@ -36,10 +36,17 @@ def make_task(envelope=None):
 
 
 def make_args(tmp_path, capabilities="read_only_probe"):
+    mesh_manifest = tmp_path / "mesh-peers.json"
+    mesh_manifest.parent.mkdir(parents=True, exist_ok=True)
+    mesh_manifest.write_text(
+        json.dumps({"peers": [{"node_id": "home", "mesh_ip": "10.99.0.1"}]}),
+        encoding="utf-8",
+    )
     return argparse.Namespace(
-        control_url="http://127.0.0.1:9101",
-        node_id="primary-candidate",
-        agent_id="agent-host-primary",
+        control_url="http://10.99.0.1:9101",
+        mesh_membership_manifest=str(mesh_manifest),
+        node_id="worker-test",
+        agent_id="agent-host-test",
         capabilities=capabilities,
         repo_url="https://example.invalid/repo.git",
         work_root=str(tmp_path / "work"),
@@ -462,6 +469,16 @@ def test_mimo_auto25_rejects_worktree_outside_agent_host_task_root(tmp_path, mon
 def test_owner_remote_task_runner_auth_failure_is_structured_and_redacted(tmp_path, monkeypatch):
     agent_host = load_agent_host()
     monkeypatch.setattr(agent_host.shutil, "which", lambda name: "/usr/bin/codex" if name == "codex" else None)
+    monkeypatch.setattr(
+        agent_host.AgentHost,
+        "detect_codex_runner_status",
+        lambda _self, path: {
+            "status": "available",
+            "path": path,
+            "login_status": "authenticated",
+            "probe": {"model": "gpt-5.5", "sandbox": "read-only", "status": "passed"},
+        },
+    )
     leaked = "refresh_token=SECRET_REFRESH_TOKEN_123"
 
     class Host(agent_host.AgentHost):
@@ -473,8 +490,11 @@ def test_owner_remote_task_runner_auth_failure_is_structured_and_redacted(tmp_pa
             self.posts.append((path, body))
             return body
 
-        def run_command(self, command, cwd, stdout_path, stderr_path, task, branch, logs, env=None, command_label=None):
-            del command, cwd, stdout_path, task, branch, logs, env
+        def run_command(
+            self, command, cwd, stdout_path, stderr_path, task, branch, logs,
+            env=None, command_label=None, stdin_path=None,
+        ):
+            del command, cwd, stdout_path, task, branch, logs, env, stdin_path
             stderr_path.write_text(f"401 unauthorized {leaked}\n", encoding="utf-8")
             raise RuntimeError(f"command failed with rc=1: {command_label}")
 
@@ -492,15 +512,83 @@ def test_owner_remote_task_runner_auth_failure_is_structured_and_redacted(tmp_pa
     fail_posts = [(path, body) for path, body in host.posts if path.endswith("/fail")]
     assert len(fail_posts) == 1
     fail_body = fail_posts[0][1]
-    assert fail_body["error_type"] == "runner_auth_blocked"
+    assert fail_body["error_type"] == "runner_auth_failed"
     assert fail_body["retry"] is False
     assert fail_body["result"]["status"] == "blocked"
     assert fail_body["result"]["runner"] == "codex"
-    assert fail_body["result"]["blocked_reason"] == "runner_auth_blocked"
+    assert fail_body["result"]["blocked_reason"] == "runner_auth_failed"
     serialized = json.dumps(fail_body, ensure_ascii=False)
     assert "SECRET_REFRESH_TOKEN_123" not in serialized
     stderr_path = tmp_path / "artifacts" / "CONTRACT-1" / "CONTRACT-1-attempt-1" / "stderr.log"
     assert "SECRET_REFRESH_TOKEN_123" not in stderr_path.read_text(encoding="utf-8")
+
+
+def test_codex_newer_cli_400_is_outdated_not_auth_blocked(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setattr(agent_host.shutil, "which", lambda name: "/usr/bin/codex" if name == "codex" else None)
+    monkeypatch.setattr(
+        agent_host.AgentHost,
+        "detect_codex_runner_status",
+        lambda _self, path: {
+            "status": "available",
+            "path": path,
+            "login_status": "authenticated",
+            "probe": {"model": "gpt-5.5", "sandbox": "read-only", "status": "passed"},
+        },
+    )
+
+    class Host(agent_host.AgentHost):
+        def __init__(self):
+            super().__init__(make_args(tmp_path, capabilities="generic_implementation,runner:codex"))
+            self.posts = []
+            self.runner_command = None
+
+        def post(self, path, body):
+            self.posts.append((path, body))
+            return body
+
+        def run_command(
+            self, command, cwd, stdout_path, stderr_path, task, branch, logs,
+            env=None, command_label=None, stdin_path=None,
+        ):
+            del cwd, task, branch, logs, env, command_label
+            self.runner_command = command
+            assert stdin_path is not None
+            stdout_path.write_text(
+                json.dumps({
+                    "type": "error",
+                    "error": {
+                        "data": {
+                            "statusCode": 400,
+                            "message": "HTTP 400: this model requires a newer version of Codex; authentication succeeded",
+                        }
+                    },
+                }) + "\n",
+                encoding="utf-8",
+            )
+            stderr_path.write_text("request failed with HTTP 400\n", encoding="utf-8")
+            raise RuntimeError("command failed with rc=1")
+
+    host = Host()
+    task = make_task({
+        "kind": "owner_remote_task",
+        "required_capability": "generic_implementation",
+        "runner": "codex",
+        "objective": "Use the pinned Codex model",
+    })
+    task["kind"] = "owner_remote_task"
+
+    host.run_task(task)
+
+    assert host.runner_command[host.runner_command.index("--model") + 1] == "gpt-5.5"
+    assert "gpt-5.6-sol" not in host.runner_command
+    fail_body = next(body for path, body in host.posts if path.endswith("/fail"))
+    assert fail_body["error_type"] == "provider_runner_outdated"
+    assert fail_body["result"]["runner"] == "codex"
+    assert fail_body["result"]["blocked_reason"] == "provider_runner_outdated"
+    assert host.runner_status["codex"]["status"] == "unavailable"
+    assert host.runner_status["codex"]["error_type"] == "provider_runner_outdated"
+    assert "runner:codex" not in host.capabilities
 
 
 def test_owner_remote_task_mimo_unavailable_does_not_fallback_to_codex(tmp_path, monkeypatch):
@@ -544,6 +632,27 @@ def test_runner_contract_result_schema_fields_are_always_present(tmp_path):
 
     for field in agent_host.CONTRACT_RESULT_FIELDS:
         assert field in result
+
+
+def test_runner_contract_blocks_result_from_a_different_runner(tmp_path):
+    agent_host = load_agent_host()
+    worktree, artifact_dir = make_paths(tmp_path)
+    task = make_task({"kind": "owner_remote_task", "runner": "codex"})
+    task["kind"] = "owner_remote_task"
+
+    result = agent_host.finalize_runner_contract(
+        task,
+        {"task_id": task["task_id"], "status": "completed", "runner": "mimo", "changed_files": []},
+        artifact_dir,
+        worktree=worktree,
+        changed_files=[],
+    )
+
+    assert result["status"] == "blocked"
+    assert result["requested_runner"] == "codex"
+    assert result["runner"] == "mimo"
+    assert result["runner_binding_verified"] is False
+    assert "runner_result_mismatch" in result["blocked_reason"]
 
 
 def test_run_task_unsupported_kind_posts_blocked_fail_not_complete(tmp_path):

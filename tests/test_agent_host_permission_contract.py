@@ -15,9 +15,9 @@ def load_agent_host():
     return module
 
 
-def make_args(tmp_path):
+def make_args(tmp_path, control_url):
     return argparse.Namespace(
-        control_url="http://127.0.0.1:9101",
+        control_url=control_url,
         node_id="server-node-1",
         agent_id="agent-host-server-node-1",
         capabilities="generic_implementation,read_only_probe",
@@ -36,7 +36,9 @@ class RecordingHost:
         return body
 
 
-def test_gomesh_read_only_permission_pack_evidence_is_classified(tmp_path):
+def test_gomesh_read_only_permission_pack_evidence_is_classified(
+    tmp_path, canonical_home_control_plane
+):
     agent_host = load_agent_host()
 
     class Host(RecordingHost, agent_host.AgentHost):
@@ -44,7 +46,7 @@ def test_gomesh_read_only_permission_pack_evidence_is_classified(tmp_path):
             super().__init__(args)
             self.posts = []
 
-    host = Host(make_args(tmp_path))
+    host = Host(make_args(tmp_path, canonical_home_control_plane))
     task = {
         "task_id": "GOMESH-RO-1",
         "kind": "read_only_probe",
@@ -72,7 +74,9 @@ def test_gomesh_read_only_permission_pack_evidence_is_classified(tmp_path):
     assert persisted["permission_pack_classification"] == classification
 
 
-def test_read_only_no_push_envelope_blocks_write_worktree_and_git_push_runtime(tmp_path):
+def test_read_only_no_push_envelope_blocks_write_worktree_and_git_push_runtime(
+    tmp_path, canonical_home_control_plane
+):
     agent_host = load_agent_host()
 
     class Host(RecordingHost, agent_host.AgentHost):
@@ -86,7 +90,7 @@ def test_read_only_no_push_envelope_blocks_write_worktree_and_git_push_runtime(t
             self.impl_called = True
             raise AssertionError("write-capable runner must not execute")
 
-    host = Host(make_args(tmp_path))
+    host = Host(make_args(tmp_path, canonical_home_control_plane))
     task = {
         "task_id": "GOMESH-RO-BLOCK-1",
         "kind": "impl_factory_smoke",

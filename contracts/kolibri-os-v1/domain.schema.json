@@ -50,6 +50,85 @@
       },
       "additionalProperties": true
     },
+    "CapabilityStatus": {
+      "enum": ["available", "degraded", "unavailable"]
+    },
+    "NativeToolRuntimeProbe": {
+      "type": "object",
+      "required": ["status", "reason", "observed_event_types", "observed_tool_names", "tool_event_count", "verifier_verdict"],
+      "properties": {
+        "status": { "$ref": "#/$defs/CapabilityStatus" },
+        "reason": { "type": "string", "minLength": 1 },
+        "observed_event_types": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+        "observed_tool_names": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+        "tool_event_count": { "type": "integer", "minimum": 0 },
+        "verifier_verdict": { "enum": ["not_run", "passed", "failed"] },
+        "evidence_binding_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "error_types": { "type": "array", "uniqueItems": true, "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "CapabilityRecord": {
+      "type": "object",
+      "required": ["id", "object", "kind", "name", "status", "availability_reason", "invocable", "source"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Identifier" },
+        "object": { "const": "capability" },
+        "kind": { "enum": ["capability", "plugin", "skill", "tool"] },
+        "name": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "description": { "type": "string", "maxLength": 1000 },
+        "status": { "$ref": "#/$defs/CapabilityStatus" },
+        "availability_reason": { "type": "string", "minLength": 1 },
+        "invocable": { "type": "boolean" },
+        "native_tool": { "type": "boolean" },
+        "read_only": { "type": "boolean" },
+        "event_aliases": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+        "runtime_probe": { "$ref": "#/$defs/NativeToolRuntimeProbe" },
+        "source": {
+          "type": "object",
+          "required": ["type", "manifest_sha256"],
+          "properties": {
+            "type": { "enum": ["codex_skill_frontmatter", "codex_plugin_manifest", "kolibri_runtime_capability_manifest"] },
+            "manifest_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "ToolCallProvenance": {
+      "type": "object",
+      "required": ["call_id", "provider", "tool", "event_type", "status", "event_sha256"],
+      "properties": {
+        "call_id": { "$ref": "#/$defs/Identifier" },
+        "provider": { "type": "string", "minLength": 1 },
+        "tool": { "type": "string", "minLength": 1 },
+        "event_type": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["running", "succeeded", "failed"] },
+        "event_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "input_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "output_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      },
+      "additionalProperties": false
+    },
+    "VerifierEvidence": {
+      "type": "object",
+      "required": ["type", "verifier", "verdict", "binding_sha256", "checks", "requested_tool_ids", "verified_tool_call_ids"],
+      "properties": {
+        "type": { "const": "deterministic_verifier" },
+        "verifier": { "const": "kolibri.gateway.contract.v1" },
+        "verdict": { "enum": ["passed", "failed"] },
+        "binding_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "checks": {
+          "type": "object",
+          "required": ["non_empty_answer", "provider_evidence_bound", "requested_capabilities_available", "requested_tools_executed"],
+          "additionalProperties": { "type": "boolean" }
+        },
+        "requested_tool_ids": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+        "verified_tool_call_ids": { "type": "array", "uniqueItems": true, "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
     "Event": {
       "allOf": [
         { "$ref": "#/$defs/RecordHeader" },

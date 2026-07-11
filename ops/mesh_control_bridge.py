@@ -7,14 +7,21 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
+try:
+    from ops.control_plane_endpoint import resolve_home_control_plane_url
+except ImportError:  # installed standalone beside this script
+    from control_plane_endpoint import resolve_home_control_plane_url
+
 MESH_CHAT = os.environ.get('KOLIBRI_MESH_CHAT_URL', 'http://10.99.0.1:8082')
 MESH_COORD = os.environ.get('KOLIBRI_MESH_COORD_URL', 'http://10.99.0.1:8080')
-CONTROL = os.environ.get('KOLIBRI_FACTORY_CONTROL_URL', 'http://10.99.0.2:9101')
+CONTROL_URL_OVERRIDE = os.environ.get('KOLIBRI_FACTORY_CONTROL_URL')
+CONTROL_URLS_OVERRIDE = os.environ.get('KOLIBRI_FACTORY_CONTROL_URLS')
 AGENT_ID = os.environ.get('KOLIBRI_MESH_BRIDGE_AGENT_ID', 'orchestrator')
 STATE_PATH = Path(os.environ.get('KOLIBRI_MESH_BRIDGE_STATE', '/var/lib/kolibri-mesh-bridge/state.json'))
 LOG_PATH = Path(os.environ.get('KOLIBRI_MESH_BRIDGE_LOG', '/var/log/kolibri/mesh-control-bridge.jsonl'))
 DEFAULT_EXECUTOR = os.environ.get('KOLIBRI_MESH_DEFAULT_EXECUTOR', 'home-live')
 POLL_SECONDS = float(os.environ.get('KOLIBRI_MESH_BRIDGE_POLL_SECONDS', '5'))
+_CONTROL_URL = None
 
 STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
 LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -57,18 +64,32 @@ def request_json(method, url, payload=None, timeout=8):
         return json.loads(body) if body else None
 
 
+def control_url():
+    global _CONTROL_URL
+    if _CONTROL_URL is None:
+        _CONTROL_URL = resolve_home_control_plane_url(CONTROL_URL_OVERRIDE, CONTROL_URLS_OVERRIDE)
+    return _CONTROL_URL
+
+
 def post_control(path, payload):
-    return request_json('POST', CONTROL + path, payload, timeout=12)
+    return request_json('POST', control_url() + path, payload, timeout=12)
 
 
 def sync_mesh_nodes(state):
+    """Record legacy coordinator observations without creating fleet members.
+
+    Physical membership is owned by the replicated mesh manifest.  The old
+    coordinator used to create ``mesh-*`` shadow Agent Host cards on every
+    poll, which inflated the active fleet indefinitely.  We retain these
+    observations in the bridge audit state only.
+    """
+
     nodes = request_json('GET', MESH_COORD + '/api/nodes', timeout=8) or []
     active = {}
     for node in nodes:
         node_id = str(node.get('id') or '').strip()
         if not node_id:
             continue
-        shadow_id = 'mesh-' + node_id
         active[node_id] = {
             'node_id': node_id,
             'ip': node.get('ip'),
@@ -76,22 +97,6 @@ def sync_mesh_nodes(state):
             'last_seen': node.get('last_seen'),
             'role': node.get('role'),
         }
-        payload = {
-            'node_id': shadow_id,
-            'agent_id': f'mesh-{node_id}',
-            'hostname': node.get('name') or node_id,
-            'capabilities': ['mesh', 'mesh_node'],
-            'health': 'online' if node.get('status') == 'online' else 'degraded',
-            'mesh': True,
-            'mesh_source_node_id': node_id,
-            'mesh_ip': node.get('ip'),
-            'mesh_last_seen': node.get('last_seen'),
-            'mesh_role': node.get('role'),
-        }
-        try:
-            post_control('/v1/nodes/register', payload)
-        except Exception as exc:
-            log('control_register_failed', node_id=node_id, error=repr(exc))
     state['mesh_nodes'] = active
     return len(active)
 
@@ -144,8 +149,9 @@ def create_task_from_message(msg):
 
 
 def main():
+    canonical_control_url = control_url()
     state = load_state()
-    log('bridge_started', mesh_chat=MESH_CHAT, mesh_coord=MESH_COORD, control=CONTROL, agent_id=AGENT_ID)
+    log('bridge_started', mesh_chat=MESH_CHAT, mesh_coord=MESH_COORD, control=canonical_control_url, agent_id=AGENT_ID)
     while True:
         try:
             node_count = sync_mesh_nodes(state)

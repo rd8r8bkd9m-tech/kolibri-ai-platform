@@ -1,16 +1,17 @@
 [Unit]
 Description=Kolibri Mesh to Control Plane Bridge
-After=network-online.target kolibri-factory-control.service
-Wants=network-online.target
+After=network-online.target kolibri-mesh-registry.service kolibri-factory-control.service
+Wants=network-online.target kolibri-mesh-registry.service
 
 [Service]
 Type=simple
 Environment=KOLIBRI_MESH_CHAT_URL=http://10.99.0.1:8082
 Environment=KOLIBRI_MESH_COORD_URL=http://10.99.0.1:8080
-Environment=KOLIBRI_FACTORY_CONTROL_URL=http://10.99.0.2:9101
+Environment=KOLIBRI_MESH_MEMBERSHIP_MANIFEST=/var/lib/kolibri-mesh/peers.json
 Environment=KOLIBRI_MESH_BRIDGE_AGENT_ID=orchestrator
 Environment=KOLIBRI_MESH_DEFAULT_EXECUTOR=home-live
-ExecStart=/usr/local/bin/kolibri-mesh-control-bridge
+WorkingDirectory=/opt/kolibri-ai-platform
+ExecStart=/usr/bin/python3 /opt/kolibri-ai-platform/ops/mesh_control_bridge.py
 Restart=always
 RestartSec=5
 KillSignal=SIGTERM

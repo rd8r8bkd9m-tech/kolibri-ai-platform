@@ -3,6 +3,8 @@ from fastapi.responses import JSONResponse, StreamingResponse
 import httpx
 import json
 
+from factory_status import fetch_factory_status
+
 app = FastAPI()
 
 BACKEND = "http://127.0.0.1:8000"
@@ -53,7 +55,27 @@ async def benchmark_history():
 
 @app.get("/api/v1/swarm/runtime/status")
 async def swarm_status():
-    return {"status": "active", "nodes": 4, "agents": ["main", "uiap", "qjns", "9fts"]}
+    try:
+        snapshot = await fetch_factory_status()
+    except Exception:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "degraded",
+                "source": "control-plane/home",
+                "reason": "canonical_home_control_plane_unavailable",
+            },
+        )
+    return {
+        "status": snapshot.get("status", "degraded"),
+        "source": "control-plane/home",
+        "nodes": snapshot.get("total_nodes", 0),
+        "online_nodes": snapshot.get("online_nodes", 0),
+        "fresh_nodes": snapshot.get("fresh_nodes", 0),
+        "degraded_nodes": snapshot.get("degraded_nodes", 0),
+        "stale_nodes": snapshot.get("stale_nodes", 0),
+        "queue_size": snapshot.get("queue_size", 0),
+    }
 
 @app.get("/api/v1/ai/training/queue/status")
 async def training_status():

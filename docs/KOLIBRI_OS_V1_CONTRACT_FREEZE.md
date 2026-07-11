@@ -34,6 +34,17 @@ and the Rust Control Plane. It does not claim that a production rollout or a
     workers. Runtime endpoints are resolved from the signed fleet manifest or
     service environment. Provider fallback is an Execution Plane concern and
     must never change Control Plane identity.
+11. Durable projects, responses, task transitions, artifacts, learning data,
+    runtime controls and owner operations require an authenticated API
+    principal. The compatibility API fails closed when no bearer credential is
+    configured. The public Shell uses a short-lived opaque HttpOnly session
+    bound to exact Origin and may create/read only its own ephemeral project
+    and responses. Only the session-token hash is stored. It never receives
+    durable project, artifact, runtime, learning or owner authority merely
+    because it is same-origin.
+12. A task may enter `leased`, `running` or `completed` only for the matching
+    `attempt_id` and `lease_owner`. `completed` additionally requires
+    content-bound evidence and a passed verifier bound to that attempt.
 
 The machine-readable definitions are in
 `contracts/kolibri-os-v1/domain.schema.json`; the frozen public HTTP surface is
@@ -152,6 +163,23 @@ all allowed routes are exhausted or an approval is required. Internal model
 promotion is evidence-gated at `1% -> 10% -> 50% -> 100%`, with explicit
 rollback metadata and an external fallback retained.
 
+### Controlled web evidence
+
+`tool:web_search` is a response-scoped read-only capability, not generic
+outbound network access. Kolibri accepts a bounded query and executes it only
+through fixed HTTPS provider endpoints. Destination DNS, every redirect and
+every citation host are checked against private, loopback, link-local and
+metadata ranges; timeout, redirect count, response bytes, result count and
+provider context are capped. Provider failures are classified and fall through
+the allowlisted route. The answering model receives bounded search evidence
+marked as untrusted and never receives a shell or arbitrary URL-fetch tool.
+
+The execution record binds response/task, authenticated principal, optional
+project/workstream and public-session identity by hashes. Public results expose
+citations and content hashes, while FormulaLM receives only the sanitized tool
+tap (query/result/citation hashes and source hosts), candidate-only with no
+request-path training or automatic promotion.
+
 ## FormulaLM learning boundary
 
 The synchronous tap records provenance, policy, normalized decisions and
@@ -174,7 +202,8 @@ content are rejected before entering the learning queue.
 
 | V1 route | Compatibility source | Migration rule |
 | --- | --- | --- |
-| `POST /v1/responses` | chat/pipeline and `/v1/agents/tasks` | Creates durable response + task DAG; no direct provider bypass. |
+| `POST /v1/public/session` | new scoped browser gateway | Issues an expiring HttpOnly SameSite session after exact-Origin and rate checks; no owner credential reaches the browser. |
+| `POST /v1/responses` | chat/pipeline and `/v1/agents/tasks` | Canonical OpenAI-compatible JSON/Responses-SSE path. Bearer creates durable work; a public session is idempotent and confined to its ephemeral project. |
 | `GET /v1/responses/{id}` | task status helpers | Terminal state requires verifier evidence. |
 | `POST /v1/responses/{id}/cancel` | task cancellation | Idempotent; revokes active leases. |
 | `GET /v1/models` | current model catalog | Public catalog exposes `kolibri`; provenance remains operator-visible. |

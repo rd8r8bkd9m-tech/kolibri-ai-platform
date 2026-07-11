@@ -1,17 +1,42 @@
 from __future__ import annotations
 
 import os
+import importlib.util
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import httpx
 
-CONTROL_PLANE_URL = os.getenv("KOLIBRI_FACTORY_CONTROL_URL", "http://control.kolibri.internal:9101")
+try:
+    from ops.control_plane_endpoint import ControlPlaneEndpointError, resolve_home_control_plane_url
+except ModuleNotFoundError:
+    # ``uvicorn main:app`` is also supported from inside backend/. Load the
+    # same shared resolver by its repository path without duplicating policy.
+    endpoint_path = Path(__file__).resolve().parents[1] / "ops" / "control_plane_endpoint.py"
+    endpoint_spec = importlib.util.spec_from_file_location("kolibri_shared_control_plane_endpoint", endpoint_path)
+    if endpoint_spec is None or endpoint_spec.loader is None:
+        raise
+    endpoint_module = importlib.util.module_from_spec(endpoint_spec)
+    endpoint_spec.loader.exec_module(endpoint_module)
+    ControlPlaneEndpointError = endpoint_module.ControlPlaneEndpointError
+    resolve_home_control_plane_url = endpoint_module.resolve_home_control_plane_url
+
+try:
+    CONTROL_PLANE_URL: str | None = resolve_home_control_plane_url()
+    CONTROL_PLANE_RESOLUTION_STATUS = "resolved_home"
+except ControlPlaneEndpointError:
+    # Import/startup remains possible so health can report the fault, but no
+    # request is ever sent to loopback, main, primary, or another fallback.
+    CONTROL_PLANE_URL = None
+    CONTROL_PLANE_RESOLUTION_STATUS = "canonical_home_unresolved"
 NODE_DEGRADED_AFTER = int(os.getenv("FACTORY_NODE_DEGRADED_AFTER", "30"))
 NODE_STALE_AFTER = int(os.getenv("FACTORY_NODE_STALE_AFTER", "90"))
 
 
 def _control_plane_v1_url(path: str) -> str:
+    if not CONTROL_PLANE_URL:
+        raise RuntimeError("canonical_home_control_plane_unresolved")
     base = CONTROL_PLANE_URL.rstrip("/")
     suffix = path if path.startswith("/") else f"/{path}"
     if base.endswith("/v1"):
@@ -79,8 +104,6 @@ def _node_freshness(node: dict[str, Any], generated_at: str | None = None) -> tu
 
 def _role_from_capabilities(capabilities: list[str]) -> str:
     caps = set(capabilities or [])
-    if "primary" in caps:
-        return "Директор"
     if "orchestrator" in caps:
         return "Оркестратор"
     if "implementation" in caps or "generic_implementation" in caps:
@@ -94,17 +117,19 @@ def _role_from_capabilities(capabilities: list[str]) -> str:
     return "Наблюдатель"
 
 
+def _role_from_node(node: dict[str, Any], capabilities: list[str]) -> str:
+    node_id = str(node.get("node_id") or node.get("id") or "")
+    declared = str(node.get("role") or "").strip().lower()
+    if node_id == "home":
+        return "Control Plane"
+    if declared == "control_plane":
+        return "Worker"
+    return _role_from_capabilities(capabilities)
+
+
 def _human_name(node: dict[str, Any]) -> str:
     node_id = str(node.get("node_id") or node.get("id") or "node")
-    names = {
-        "primary-candidate": "Директор",
-        "main": "Координатор",
-        "new": "Ревьюер",
-        "9fts": "Инженер",
-        "uiap": "Знания",
-        "qjns": "Тестировщик",
-    }
-    return names.get(node_id, node.get("hostname") or node_id)
+    return str(node.get("display_name") or node.get("hostname") or node_id)
 
 
 def _node_card(node: dict[str, Any], generated_at: str | None = None) -> dict[str, Any]:
@@ -119,7 +144,9 @@ def _node_card(node: dict[str, Any], generated_at: str | None = None) -> dict[st
     if freshness not in {"fresh", "degraded", "stale"}:
         freshness, heartbeat_age = _node_freshness(node, generated_at)
     reported_health = node.get("reported_health") or node.get("health") or "unknown"
-    status = reported_health if freshness == "fresh" else freshness
+    membership_state = str(node.get("membership_state") or "registered")
+    quarantined = membership_state == "missing_agent_host_registration" or node.get("lifecycle") == "quarantined"
+    status = "quarantined" if quarantined else reported_health if freshness == "fresh" else freshness
     return {
         "id": node_id,
         "node_id": node_id,
@@ -130,11 +157,12 @@ def _node_card(node: dict[str, Any], generated_at: str | None = None) -> dict[st
         "reported_health": reported_health,
         "freshness": freshness,
         "heartbeat_age_seconds": heartbeat_age,
-        "role": _role_from_capabilities(capabilities),
+        "role": _role_from_node(node, capabilities),
         "agent_id": node.get("agent_id"),
         "pid": node.get("pid"),
         "cpu": node.get("cpu"),
-        "ip": node.get("internal_ip") or node.get("ip") or node.get("hostname") or node_id,
+        "ip": node.get("mesh_ip") or node.get("internal_ip") or node.get("ip") or node.get("hostname") or node_id,
+        "mesh_ip": node.get("mesh_ip") or node.get("internal_ip"),
         "ram": f"{_gb_from_kb(available_kb)}/{_gb_from_kb(total_kb)} GB",
         "ram_total_gb": _gb_from_kb(total_kb),
         "ram_available_gb": _gb_from_kb(available_kb),
@@ -143,6 +171,12 @@ def _node_card(node: dict[str, Any], generated_at: str | None = None) -> dict[st
         "capabilities": capabilities,
         "heartbeat_at": node.get("heartbeat_at"),
         "active_task": node.get("active_task"),
+        "registered": node.get("registered") is True,
+        "schedulable": node.get("schedulable") is True,
+        "lifecycle": node.get("lifecycle"),
+        "membership_scope": node.get("membership_scope") or "active",
+        "membership_state": membership_state,
+        "quarantine_reason": node.get("quarantine_reason"),
     }
 
 
@@ -167,6 +201,9 @@ def build_factory_status(nodes_payload: Any, tasks_payload: Any | None = None, h
     fresh_nodes = [node for node in node_list if node.get("freshness") == "fresh"]
     degraded_nodes = [node for node in node_list if node.get("freshness") == "degraded"]
     stale_nodes = [node for node in node_list if node.get("freshness") == "stale"]
+    quarantined_nodes = [node for node in node_list if node.get("status") == "quarantined"]
+    schedulable_nodes = [node for node in node_list if node.get("schedulable") is True]
+    membership = nodes_payload.get("membership", {}) if isinstance(nodes_payload, dict) else {}
     total_ram_kb = sum(_parse_mem_kb((node.get("ram") or {}).get("MemTotal")) for node in raw_nodes if isinstance(node, dict))
     available_ram_kb = sum(_parse_mem_kb((node.get("ram") or {}).get("MemAvailable")) for node in raw_nodes if isinstance(node, dict))
     cpu_values = [node.get("cpu") for node in raw_nodes if isinstance(node, dict) and isinstance(node.get("cpu"), (int, float))]
@@ -190,6 +227,10 @@ def build_factory_status(nodes_payload: Any, tasks_payload: Any | None = None, h
         "fresh_nodes": len(fresh_nodes),
         "degraded_nodes": len(degraded_nodes),
         "stale_nodes": len(stale_nodes),
+        "quarantined_nodes": len(quarantined_nodes),
+        "schedulable_nodes": len(schedulable_nodes),
+        "historical_nodes": int(membership.get("historical_total") or 0),
+        "membership": membership,
         "node_freshness": {
             "fresh": len(fresh_nodes),
             "degraded": len(degraded_nodes),
@@ -214,17 +255,10 @@ def build_factory_status(nodes_payload: Any, tasks_payload: Any | None = None, h
 async def fetch_factory_status() -> dict[str, Any]:
     async with httpx.AsyncClient(timeout=httpx.Timeout(4.0, connect=2.0)) as client:
         health_response = await client.get(_control_plane_v1_url("/health"))
-        nodes_response = await client.get(_control_plane_v1_url("/nodes"))
+        nodes_response = await client.get(_control_plane_v1_url("/nodes?scope=active&limit=250"))
+        tasks_response = await client.get(_control_plane_v1_url("/tasks"))
         health_response.raise_for_status()
         nodes_response.raise_for_status()
+        tasks_response.raise_for_status()
 
-    tasks_payload: Any = {"tasks": []}
-    try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(1.5, connect=1.0)) as client:
-            tasks_response = await client.get(_control_plane_v1_url("/tasks"))
-            if tasks_response.status_code == 200:
-                tasks_payload = tasks_response.json()
-    except Exception:
-        tasks_payload = {"tasks": []}
-
-    return build_factory_status(nodes_response.json(), tasks_payload, health_response.json())
+    return build_factory_status(nodes_response.json(), tasks_response.json(), health_response.json())

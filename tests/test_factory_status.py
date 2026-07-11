@@ -35,9 +35,37 @@ def test_build_factory_status_normalizes_control_plane_nodes():
     assert result["degraded_nodes"] == 0
     assert result["stale_nodes"] == 1
     assert result["queue_size"] == 2
-    assert result["nodes"]["primary-candidate"]["role"] == "Директор"
+    assert result["nodes"]["primary-candidate"]["role"] == "Инженер"
     assert result["nodes"]["primary-candidate"]["ram_total_gb"] > 0
     assert result["control_plane"]["status"] == "ok"
+
+
+def test_only_home_is_presented_as_control_plane():
+    now = datetime.now(timezone.utc)
+    result = build_factory_status(
+        {
+            "nodes": [
+                {
+                    "node_id": "home",
+                    "role": "control_plane",
+                    "health": "online",
+                    "heartbeat_at": now.isoformat(),
+                },
+                {
+                    "node_id": "main",
+                    "role": "control_plane",
+                    "health": "online",
+                    "heartbeat_at": now.isoformat(),
+                    "capabilities": ["implementation"],
+                },
+            ]
+        },
+        {"tasks": []},
+        {"status": "ok", "time": now.isoformat()},
+    )
+
+    assert result["nodes"]["home"]["role"] == "Control Plane"
+    assert result["nodes"]["main"]["role"] == "Worker"
 
 
 def test_stale_heartbeat_online_mismatch_is_not_counted_online():
@@ -65,13 +93,56 @@ def test_stale_heartbeat_online_mismatch_is_not_counted_online():
     assert result["node_freshness"] == {"fresh": 0, "degraded": 0, "stale": 1, "online": 0, "total": 1}
 
 
-def test_frontend_uses_live_factory_status_endpoint():
-    app_source = (Path(__file__).resolve().parents[1] / "frontend" / "src" / "App.jsx").read_text(encoding="utf-8")
+def test_factory_status_uses_canonical_membership_and_exposes_quarantine_counts():
+    result = build_factory_status(
+        {
+            "scope": "active",
+            "membership": {
+                "canonical_total": 21,
+                "registered_total": 20,
+                "missing_total": 1,
+                "historical_total": 31,
+            },
+            "nodes": [
+                {
+                    "node_id": "worker-20",
+                    "mesh_ip": "10.99.0.21",
+                    "health": "quarantined",
+                    "reported_health": "missing",
+                    "freshness": "stale",
+                    "registered": False,
+                    "schedulable": False,
+                    "lifecycle": "quarantined",
+                    "membership_scope": "active",
+                    "membership_state": "missing_agent_host_registration",
+                }
+            ],
+        },
+        {"tasks": []},
+        {"status": "ok"},
+    )
 
-    assert "/api/factory/status" in app_source
-    assert "/cluster/status" not in app_source
-    assert "на базе 5 серверов" not in app_source
-    assert "Фабрика Колибри" in app_source
-    assert "Свежие" in app_source
-    assert "Деградируют" in app_source
-    assert "Устарели" in app_source
+    assert result["total_nodes"] == 1
+    assert result["quarantined_nodes"] == 1
+    assert result["historical_nodes"] == 31
+    assert result["nodes"]["worker-20"]["status"] == "quarantined"
+    assert result["nodes"]["worker-20"]["ip"] == "10.99.0.21"
+    assert result["membership"]["canonical_total"] == 21
+
+
+def test_frontend_uses_live_factory_status_endpoint():
+    frontend = Path(__file__).resolve().parents[1] / "frontend" / "src"
+    app_source = (frontend / "App.jsx").read_text(encoding="utf-8")
+    control_source = (frontend / "control" / "ControlShell.jsx").read_text(
+        encoding="utf-8"
+    )
+    api_source = (frontend / "runtime" / "kolibriApi.js").read_text(encoding="utf-8")
+
+    assert "/api/factory/status" in api_source
+    assert "/cluster/status" not in app_source + control_source + api_source
+    assert "на базе 5 серверов" not in app_source + control_source
+    assert "<ControlShell />" in app_source
+    assert "loadControlSnapshot" in control_source
+    assert "Фактическое состояние" in control_source
+    assert "без mock-значений" in control_source
+    assert "Degraded" in control_source

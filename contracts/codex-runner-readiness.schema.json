@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kolibriai.ru/contracts/codex-runner-readiness.schema.json",
+  "title": "Kolibri Codex runner readiness evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "node_id",
+    "checked_at",
+    "access_mode",
+    "status",
+    "login_status",
+    "probe"
+  ],
+  "properties": {
+    "schema_version": {"const": "kolibri.codex-readiness.v1"},
+    "node_id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,128}$"},
+    "checked_at": {"type": "string", "format": "date-time"},
+    "access_mode": {"enum": ["local_service_account", "trusted_broker", "disabled", "unconfigured"]},
+    "status": {"enum": ["available", "blocked", "degraded", "unavailable"]},
+    "login_status": {"enum": ["authenticated", "unauthenticated", "not_checked"]},
+    "error_type": {"type": ["string", "null"], "maxLength": 96},
+    "broker_ref": {
+      "type": "string",
+      "enum": ["runner-broker://home/codex", "runner-broker://mac/codex"]
+    },
+    "probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model", "sandbox", "status"],
+      "properties": {
+        "model": {"const": "gpt-5.5"},
+        "sandbox": {"const": "read-only"},
+        "status": {"enum": ["not_run", "passed", "failed"]},
+        "duration_ms": {"type": "integer", "minimum": 0, "maximum": 60000},
+        "output_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    }
+  }
+}

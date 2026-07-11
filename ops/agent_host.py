@@ -11,16 +11,42 @@ import json
 import mimetypes
 import os
 import platform
+import re
 import shutil
 import signal
 import subprocess
-import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+try:
+    from ops.control_plane_endpoint import resolve_home_control_plane_url
+except ImportError:  # installed standalone beside this script
+    from control_plane_endpoint import resolve_home_control_plane_url
+
+try:
+    from ops.release_helper import (
+        RELEASE_CAPABILITY,
+        RELEASE_TASK_KINDS,
+        ReleaseHelperClient,
+        ReleaseInstallError,
+    )
+except ImportError:  # installed standalone beside this script
+    from release_helper import (
+        RELEASE_CAPABILITY,
+        RELEASE_TASK_KINDS,
+        ReleaseHelperClient,
+        ReleaseInstallError,
+    )
+
+try:
+    from ops.runner_access import RunnerAccessError, load_runner_access_manifest
+except ImportError:  # installed standalone beside this script
+    from runner_access import RunnerAccessError, load_runner_access_manifest
 
 
 STOP = False
@@ -53,6 +79,9 @@ CONTRACT_STATUSES = {"completed", "blocked", "failed"}
 CONTRACT_RESULT_FIELDS = [
     "task_id",
     "status",
+    "requested_runner",
+    "runner",
+    "runner_binding_verified",
     "changed_files",
     "artifact_dir",
     "required_artifacts_present",
@@ -82,7 +111,7 @@ SUPPORTED_TASK_KINDS = {
     "review_pr",
     "telegram_chat_response",
     "telegram_image_generation",
-}
+} | set(RELEASE_TASK_KINDS)
 NO_PUSH_FLAGS = ("git_push_forbidden", "no_push", "read_only")
 PRODUCT_CODE_FORBIDDEN_FLAGS = ("product_code_modification_forbidden", "read_only")
 REQUIRED_ARTIFACT_KEYS = ("required_outputs", "required_artifacts")
@@ -109,23 +138,9 @@ SUPPORTED_AI_RUNNERS = {"api", "codex", "local_llm", "mimo"}
 MIMO_AUTO25_MODEL = "mimo/mimo-auto"
 MIMO_AUTO25_DISPLAY_NAME = "Mimo Auto 2.5"
 MIMO_AUTO25_CLI_CONTRACT = "mimo-auto25-no-user-auth-v1"
-RUNNER_AUTH_FAILURE_MARKERS = (
-    "401",
-    "403",
-    "api key",
-    "auth",
-    "authorization",
-    "credential",
-    "expired token",
-    "forbidden",
-    "invalid token",
-    "login required",
-    "not logged in",
-    "oauth",
-    "permission denied",
-    "refresh token",
-    "unauthorized",
-)
+FACTORY_PROVIDER_CONTRACT = "kolibri.factory-provider.readonly.v1"
+CODEX_TASK_MODEL = "gpt-5.5"
+CODEX_READINESS_MARKER = "KOLIBRI_CODEX_READY"
 SECRET_REDACTION_MARKERS = (
     "api_key",
     "authorization",
@@ -180,7 +195,39 @@ def mimo_auto25_runner_contract() -> dict[str, Any]:
         "permission_mode": "auto_approve_with_task_contract",
         "output_format": "json",
         "worktree_scoped": True,
+        "factory_provider_contract": FACTORY_PROVIDER_CONTRACT,
+        "prompt_transport": "file",
+        "sandbox": "read-only",
     }
+
+
+def codex_factory_runner_contract() -> dict[str, Any]:
+    """Return the safe contract required by the Home provider gateway."""
+
+    return {
+        "provider": "codex",
+        "model": CODEX_TASK_MODEL,
+        "display_name": "Codex authenticated runner",
+        "authorization_mode": "node_managed",
+        "authorization_flow": "browser_device",
+        "user_authorization_required": False,
+        "permission_mode": "task_contract",
+        "output_format": "jsonl",
+        "worktree_scoped": True,
+        "factory_provider_contract": FACTORY_PROVIDER_CONTRACT,
+        "prompt_transport": "stdin",
+        "sandbox": "read-only",
+    }
+
+
+def is_factory_provider_task(task: dict[str, Any]) -> bool:
+    envelope = task_envelope(task)
+    source = envelope.get("source") if isinstance(envelope.get("source"), dict) else {}
+    return (
+        str(task.get("kind") or envelope.get("kind") or "") == "owner_remote_task"
+        and source.get("kind") == "kolibri_provider_gateway"
+        and source.get("control_plane") == "home"
+    )
 
 
 def mimo_auto25_command(executable: str, title: str, prompt: str, worktree: Path) -> tuple[list[str], str]:
@@ -202,6 +249,37 @@ def mimo_auto25_command(executable: str, title: str, prompt: str, worktree: Path
     command_label = (
         f"{executable} run --format json --model {MIMO_AUTO25_MODEL} "
         f"--dangerously-skip-permissions --dir <task-worktree> --title {title} <prompt>"
+    )
+    return command, command_label
+
+
+def mimo_auto25_readonly_command(
+    executable: str,
+    title: str,
+    prompt_path: Path,
+    worktree: Path,
+) -> tuple[list[str], str]:
+    """Build the factory chat route without placing customer input in argv."""
+    command = [
+        executable,
+        "run",
+        "Выполни инструкцию из прикреплённого файла. Не изменяй файлы.",
+        "--format",
+        "json",
+        "--model",
+        MIMO_AUTO25_MODEL,
+        "--agent",
+        "plan",
+        "--dir",
+        str(worktree),
+        "--title",
+        title,
+        "--file",
+        str(prompt_path),
+    ]
+    command_label = (
+        f"{executable} run <attached-instruction> --format json --model {MIMO_AUTO25_MODEL} "
+        f"--agent plan --dir <task-worktree> --title {title} --file <prompt-file>"
     )
     return command, command_label
 
@@ -367,6 +445,14 @@ def runner_capability(runner: str) -> str:
     return f"runner:{runner}"
 
 
+def is_declared_runner_capability(capability: str) -> bool:
+    normalized = str(capability or "").strip().lower()
+    return any(
+        normalized in {f"runner:{runner}", f"runner_{runner}", f"{runner}_runner"}
+        for runner in SUPPORTED_AI_RUNNERS
+    )
+
+
 def redact_sensitive_text(text: str) -> str:
     redacted_lines: list[str] = []
     for line in text.splitlines():
@@ -385,11 +471,6 @@ def sanitize_text_file(path: Path) -> None:
     redacted = redact_sensitive_text(text)
     if redacted != text:
         path.write_text(redacted + ("\n" if text.endswith("\n") else ""), encoding="utf-8")
-
-
-def runner_auth_blocked(stderr_text: str) -> bool:
-    lowered = stderr_text.lower()
-    return any(marker in lowered for marker in RUNNER_AUTH_FAILURE_MARKERS)
 
 
 def envelope_list(envelope: dict[str, Any], *keys: str) -> list[Any]:
@@ -817,6 +898,13 @@ def finalize_runner_contract(
     final.setdefault("task_id", task["task_id"])
     final.setdefault("kind", kind)
     final["artifact_dir"] = str(artifact_dir)
+    requested_runner = requested_runner_for_envelope(envelope)
+    result_runner = str(final.get("runner") or "").strip().lower() or None
+    final["requested_runner"] = requested_runner
+    final["runner"] = result_runner
+    final["runner_binding_verified"] = (
+        None if requested_runner is None else result_runner == requested_runner
+    )
 
     effective_changed = changed_files
     if effective_changed is None:
@@ -892,6 +980,8 @@ def finalize_runner_contract(
         blockers.append("product_code_modification_forbidden")
     if forbidden_push and attempted:
         blockers.append("forbidden_push_attempted")
+    if requested_runner is not None and result_runner != requested_runner:
+        blockers.append("runner_result_mismatch")
 
     if blockers:
         final["status"] = "blocked"
@@ -927,52 +1017,62 @@ def unsupported_task_result(task: dict[str, Any], artifact_dir: Path, reason: st
 
 class AgentHost:
     def __init__(self, args: argparse.Namespace):
-        control_urls_arg = getattr(args, "control_urls", None) or args.control_url
-        self.control_urls = [url.strip().rstrip("/") for url in control_urls_arg.split(",") if url.strip()]
-        if not self.control_urls:
-            self.control_urls = [args.control_url.rstrip("/")]
-        self.control_url = self.control_urls[0]
+        self.control_url = resolve_home_control_plane_url(
+            getattr(args, "control_url", None),
+            getattr(args, "control_urls", None),
+            manifest_path=getattr(args, "mesh_membership_manifest", None),
+        )
         self.node_id = args.node_id
         self.agent_id = args.agent_id or f"{args.node_id}-agent-host"
-        self.capabilities = [item for item in args.capabilities.split(",") if item]
+        self.configured_capabilities = [
+            item
+            for item in args.capabilities.split(",")
+            if item and item != RELEASE_CAPABILITY and not is_declared_runner_capability(item)
+        ]
+        self.capabilities = list(self.configured_capabilities)
         self.repo_url = args.repo_url
         self.work_root = Path(args.work_root)
         self.artifact_root = Path(args.artifact_root)
         self.heartbeat_interval = args.heartbeat_interval
         self.lease_refresh = args.lease_refresh
         self.max_inflight = args.max_inflight
+        try:
+            labels = json.loads(getattr(args, "labels_json", None) or "{}")
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("KOLIBRI_NODE_LABELS_JSON is invalid") from exc
+        if not isinstance(labels, dict) or any(
+            not isinstance(key, str) or not isinstance(value, (str, int, float, bool))
+            for key, value in labels.items()
+        ):
+            raise RuntimeError("KOLIBRI_NODE_LABELS_JSON must be a flat object")
+        self.labels = labels
         self.hostname = platform.node()
         self.pid = os.getpid()
         self._last_node_heartbeat = 0.0
         self._registered = False
-        self.runner_status = self.detect_runner_status()
-        self.capabilities = self.capabilities_with_runners()
         self.work_root.mkdir(parents=True, exist_ok=True)
         self.artifact_root.mkdir(parents=True, exist_ok=True)
+        self.release_helper: ReleaseHelperClient | None = None
+        self.release_installer_status: dict[str, Any] = {
+            "status": "unavailable",
+            "capability": RELEASE_CAPABILITY,
+            "reasons": ["release_installer_not_initialized"],
+        }
+        self.refresh_release_installer_capability()
+        try:
+            self.runner_access = load_runner_access_manifest()
+            self.runner_access_error = None
+        except RunnerAccessError as exc:
+            self.runner_access = None
+            self.runner_access_error = exc.code
+        self.runner_status = self.detect_runner_status()
+        self.capabilities = self.capabilities_with_runners()
 
     def post(self, path: str, body: dict[str, Any]) -> Any:
-        return self._request_with_failover("POST", path, body)
+        return request("POST", f"{self.control_url}{path}", body)
 
     def get(self, path: str) -> Any:
-        return self._request_with_failover("GET", path)
-
-    def _ordered_control_urls(self) -> list[str]:
-        # Always retry the configured canonical Control Plane first. A
-        # successful fallback is request-local and must not permanently pin a
-        # worker to a stale standby after the canonical API recovers.
-        return list(self.control_urls)
-
-    def _request_with_failover(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
-        last_exc: Exception | None = None
-        for control_url in self._ordered_control_urls():
-            try:
-                result = request(method, f"{control_url}{path}", body)
-                self.control_url = control_url
-                return result
-            except Exception as exc:
-                last_exc = exc
-        assert last_exc is not None
-        raise last_exc
+        return request("GET", f"{self.control_url}{path}")
 
     def detect_runner_status(self) -> dict[str, dict[str, Any]]:
         status: dict[str, dict[str, Any]] = {}
@@ -981,23 +1081,230 @@ class AgentHost:
                 path = shutil.which(runner)
             except RecursionError:
                 path = None
-            status[runner] = {
-                "status": "available" if path else "unavailable",
-                "path": path,
-                "checked_at": utc_now(),
-            }
+            if runner == "codex":
+                status[runner] = self.detect_codex_runner_status(path)
+            elif (
+                runner == "mimo"
+                and self.runner_access is not None
+                and self.runner_access["runners"]["mimo"].get("mode") == "disabled"
+            ):
+                status[runner] = {
+                    "status": "disabled",
+                    "path": path,
+                    "checked_at": utc_now(),
+                    "error_type": "runner_disabled",
+                }
+            else:
+                status[runner] = {
+                    "status": "available" if path else "unavailable",
+                    "path": path,
+                    "checked_at": utc_now(),
+                }
             if runner == "mimo":
                 status[runner].update(mimo_auto25_runner_contract())
+            elif runner == "codex":
+                status[runner].update(codex_factory_runner_contract())
         return status
 
+    @staticmethod
+    def _codex_probe_environment() -> dict[str, str]:
+        allowed = (
+            "PATH", "HOME", "CODEX_HOME", "LANG", "LC_ALL", "SSL_CERT_FILE",
+            "SSL_CERT_DIR", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY",
+        )
+        return {name: os.environ[name] for name in allowed if os.environ.get(name)}
+
+    def detect_codex_runner_status(self, executable: str | None) -> dict[str, Any]:
+        checked_at = utc_now()
+        base: dict[str, Any] = {
+            "status": "unavailable",
+            "path": executable,
+            "checked_at": checked_at,
+            "readiness_contract": "kolibri.codex-readiness.v1",
+            "login_status": "not_checked",
+            "probe": {
+                "model": CODEX_TASK_MODEL,
+                "sandbox": "read-only",
+                "status": "not_run",
+            },
+        }
+        if self.runner_access is None:
+            return {**base, "error_type": self.runner_access_error or "runner_access_manifest_missing"}
+        policy = self.runner_access["runners"]["codex"]
+        mode = policy.get("mode")
+        base["access_mode"] = mode
+        if mode == "disabled":
+            return {**base, "error_type": "runner_disabled"}
+        if mode == "trusted_broker":
+            # A broker declaration is safe to replicate, but is not by itself
+            # execution evidence. The future broker adapter must replace this
+            # with a bounded live attestation before capability publication.
+            return {
+                **base,
+                "status": "degraded",
+                "error_type": "runner_broker_attestation_required",
+                "broker_ref": policy["broker_ref"],
+                "authorization_ref": policy["authorization_ref"],
+            }
+        if not executable:
+            return {**base, "error_type": "runner_unavailable"}
+
+        environment = self._codex_probe_environment()
+        login_timeout = min(10, int(policy["probe"]["timeout_seconds"]))
+        try:
+            login = subprocess.run(
+                [executable, "login", "status"],
+                cwd=self.work_root,
+                capture_output=True,
+                text=True,
+                timeout=login_timeout,
+                check=False,
+                env=environment,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return {**base, "error_type": "runner_login_status_failed"}
+        login_summary = f"{login.stdout}\n{login.stderr}".lower()
+        if login.returncode != 0 or "logged in" not in login_summary:
+            return {
+                **base,
+                "status": "blocked",
+                "login_status": "unauthenticated",
+                "error_type": "runner_auth_blocked",
+            }
+
+        base["login_status"] = "authenticated"
+        timeout = int(policy["probe"]["timeout_seconds"])
+        command = [
+            executable,
+            "exec",
+            "--json",
+            "--ephemeral",
+            "--skip-git-repo-check",
+            "--ignore-user-config",
+            "--ignore-rules",
+            "--color",
+            "never",
+            "--sandbox",
+            "read-only",
+            "-C",
+            str(self.work_root),
+            "-c",
+            'shell_environment_policy.inherit="none"',
+            "--model",
+            CODEX_TASK_MODEL,
+            "-",
+        ]
+        prompt = f"Reply with exactly {CODEX_READINESS_MARKER} and nothing else."
+        started = time.monotonic()
+        try:
+            probe = subprocess.run(
+                command,
+                cwd=self.work_root,
+                input=prompt,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+                env=environment,
+            )
+        except subprocess.TimeoutExpired:
+            return {
+                **base,
+                "error_type": "runner_probe_timeout",
+                "probe": {**base["probe"], "status": "failed", "duration_ms": timeout * 1000},
+            }
+        except OSError:
+            return {**base, "error_type": "runner_probe_failed"}
+        duration_ms = int((time.monotonic() - started) * 1000)
+        combined = f"{probe.stdout}\n{probe.stderr}"
+        if probe.returncode != 0:
+            error_type, _message, _retry = self.classify_runner_error("codex", "probe_failed", combined)
+            state = "blocked" if error_type in {
+                "runner_auth_failed", "runner_access_denied", "runner_auth_blocked",
+            } else "unavailable"
+            return {
+                **base,
+                "status": state,
+                "error_type": error_type,
+                "probe": {**base["probe"], "status": "failed", "duration_ms": duration_ms},
+            }
+        with tempfile.TemporaryDirectory(prefix="codex-readiness-", dir=self.work_root) as temp_dir:
+            output_path = Path(temp_dir) / "stdout.jsonl"
+            output_path.write_text(probe.stdout, encoding="utf-8")
+            response_text = self.parse_json_text_response(output_path).strip()
+        if response_text != CODEX_READINESS_MARKER:
+            return {
+                **base,
+                "error_type": "runner_probe_output_mismatch",
+                "probe": {**base["probe"], "status": "failed", "duration_ms": duration_ms},
+            }
+        return {
+            **base,
+            "status": "available",
+            "error_type": None,
+            "probe": {
+                **base["probe"],
+                "status": "passed",
+                "duration_ms": duration_ms,
+                "output_sha256": hashlib.sha256(response_text.encode("utf-8")).hexdigest(),
+            },
+        }
+
     def capabilities_with_runners(self) -> list[str]:
-        capabilities = list(dict.fromkeys(self.capabilities))
+        capabilities = list(dict.fromkeys(self.configured_capabilities))
         for runner, state in self.runner_status.items():
             if state.get("status") == "available":
                 cap = runner_capability(runner)
                 if cap not in capabilities:
                     capabilities.append(cap)
+        if self.release_installer_status.get("status") == "available":
+            capabilities.append(RELEASE_CAPABILITY)
         return capabilities
+
+    def codex_readiness_evidence(self) -> dict[str, Any]:
+        """Return the redacted, schema-bounded readiness record for Home."""
+
+        state = self.runner_status.get("codex", {})
+        probe_state = state.get("probe") if isinstance(state.get("probe"), dict) else {}
+        probe: dict[str, Any] = {
+            "model": CODEX_TASK_MODEL,
+            "sandbox": "read-only",
+            "status": str(probe_state.get("status") or "not_run"),
+        }
+        if isinstance(probe_state.get("duration_ms"), int):
+            probe["duration_ms"] = probe_state["duration_ms"]
+        output_sha256 = str(probe_state.get("output_sha256") or "")
+        if re.fullmatch(r"[a-f0-9]{64}", output_sha256):
+            probe["output_sha256"] = output_sha256
+        evidence: dict[str, Any] = {
+            "schema_version": "kolibri.codex-readiness.v1",
+            "node_id": self.node_id,
+            "checked_at": str(state.get("checked_at") or utc_now()),
+            "access_mode": str(state.get("access_mode") or "unconfigured"),
+            "status": str(state.get("status") or "unavailable"),
+            "login_status": str(state.get("login_status") or "not_checked"),
+            "error_type": state.get("error_type"),
+            "probe": probe,
+        }
+        broker_ref = state.get("broker_ref")
+        if broker_ref in {"runner-broker://home/codex", "runner-broker://mac/codex"}:
+            evidence["broker_ref"] = broker_ref
+        return evidence
+
+    def refresh_release_installer_capability(self) -> None:
+        try:
+            if self.release_helper is None:
+                self.release_helper = ReleaseHelperClient.from_environment()
+            self.release_installer_status = self.release_helper.prerequisite_status()
+        except ReleaseInstallError as exc:
+            self.release_helper = None
+            self.release_installer_status = {
+                "status": "unavailable",
+                "capability": RELEASE_CAPABILITY,
+                "reasons": [exc.code],
+            }
+        if hasattr(self, "runner_status"):
+            self.capabilities = self.capabilities_with_runners()
 
     def mark_runner_status(self, runner: str, status: str, error_type: str | None = None) -> None:
         current = self.runner_status.setdefault(runner, {})
@@ -1006,6 +1313,32 @@ class AgentHost:
             "error_type": error_type,
             "updated_at": utc_now(),
         })
+
+    def persist_runner_failure(self, exc: RunnerExecutionError) -> None:
+        """Keep a failed runner out of scheduling until an explicit repair/probe.
+
+        The Control Plane also records the failure, but Agent Host heartbeats
+        are authoritative for live capability state.  Persisting it locally
+        prevents the next heartbeat from accidentally undoing quarantine.
+        """
+        blocked_errors = {
+            "runner_auth_blocked",
+            "runner_auth_failed",
+            "runner_access_denied",
+            "runner_policy_blocked",
+            "provider_risk_control",
+        }
+        status = (
+            "blocked"
+            if exc.error_type in blocked_errors
+            else "unavailable"
+            if exc.error_type in {"runner_unavailable", "provider_runner_outdated"}
+            else None
+        )
+        if status is None:
+            return
+        self.mark_runner_status(exc.runner, status, exc.error_type)
+        self.capabilities = self.capabilities_with_runners()
 
     def validated_mimo_worktree(self, worktree: Path) -> Path:
         candidate = worktree.resolve()
@@ -1022,6 +1355,7 @@ class AgentHost:
         return mimo_auto25_command(executable, title, prompt, self.validated_mimo_worktree(worktree))
 
     def register(self) -> None:
+        self.refresh_release_installer_capability()
         body = {
             "node_id": self.node_id,
             "hostname": self.hostname,
@@ -1029,12 +1363,16 @@ class AgentHost:
             "pid": self.pid,
             "capabilities": self.capabilities,
             "runners": self.runner_status,
+            "runner_readiness": {"codex": self.codex_readiness_evidence()},
+            "release_installer": self.release_installer_status,
+            "labels": self.labels,
             **machine_stats(),
         }
         self.post("/v1/nodes/register", body)
         self._registered = True
 
     def node_heartbeat(self, active_task: str | None = None) -> None:
+        self.refresh_release_installer_capability()
         body = {
             "node_id": self.node_id,
             "hostname": self.hostname,
@@ -1042,6 +1380,9 @@ class AgentHost:
             "pid": self.pid,
             "capabilities": self.capabilities,
             "runners": self.runner_status,
+            "runner_readiness": {"codex": self.codex_readiness_evidence()},
+            "release_installer": self.release_installer_status,
+            "labels": self.labels,
             "active_task": active_task,
             **machine_stats(),
         }
@@ -1066,11 +1407,14 @@ class AgentHost:
         return self.post(f"/v1/tasks/{task['task_id']}/heartbeat", body)
 
     def lease(self) -> dict[str, Any] | None:
+        self.refresh_release_installer_capability()
         task = self.post("/v1/tasks/lease", {
             "node_id": self.node_id,
             "agent_id": self.agent_id,
             "capabilities": self.capabilities,
             "runners": self.runner_status,
+            "runner_readiness": {"codex": self.codex_readiness_evidence()},
+            "release_installer": self.release_installer_status,
         })
         return sanitize_task_permissions(task) if isinstance(task, dict) else task
 
@@ -1085,6 +1429,7 @@ class AgentHost:
         logs: dict[str, str],
         env: dict[str, str] | None = None,
         command_label: str | None = None,
+        stdin_path: Path | None = None,
     ) -> None:
         merged_env = os.environ.copy()
         if env:
@@ -1093,7 +1438,19 @@ class AgentHost:
         with stdout_path.open("ab") as stdout, stderr_path.open("ab") as stderr:
             stdout.write(f"\n$ {display_command}\n".encode("utf-8"))
             stdout.flush()
-            proc = subprocess.Popen(command, cwd=str(cwd), stdout=stdout, stderr=stderr, env=merged_env)
+            stdin_stream = stdin_path.open("rb") if stdin_path is not None else None
+            try:
+                proc = subprocess.Popen(
+                    command,
+                    cwd=str(cwd),
+                    stdin=stdin_stream,
+                    stdout=stdout,
+                    stderr=stderr,
+                    env=merged_env,
+                )
+            finally:
+                if stdin_stream is not None:
+                    stdin_stream.close()
             last_refresh = 0.0
             while proc.poll() is None:
                 if STOP:
@@ -1253,6 +1610,7 @@ class AgentHost:
         text_parts: list[str] = []
         deltas: list[str] = []
         useful_objects: list[dict[str, Any]] = []
+        runner_errors: list[dict[str, Any]] = []
         for line in stdout_path.read_text(encoding="utf-8", errors="ignore").splitlines():
             line = line.strip()
             if not line.startswith("{"):
@@ -1263,6 +1621,17 @@ class AgentHost:
                 continue
             if not isinstance(event, dict):
                 continue
+
+            error = event.get("error")
+            if str(event.get("type") or "").lower() == "error" and isinstance(error, dict):
+                data = error.get("data") if isinstance(error.get("data"), dict) else {}
+                runner_errors.append({
+                    "name": str(error.get("name") or "runner_error"),
+                    "message": redact_sensitive_text(str(data.get("message") or error.get("message") or "runner error")),
+                    "status_code": data.get("statusCode") or data.get("status_code"),
+                    "provider_code": data.get("code") if isinstance(data.get("code"), (str, int)) else None,
+                    "retryable": data.get("isRetryable") if "isRetryable" in data else data.get("retryable"),
+                })
 
             event_final, event_parts, event_deltas = cls._extract_json_event_text(event)
             final_messages.extend(event_final)
@@ -1284,7 +1653,7 @@ class AgentHost:
             if not isinstance(text, str) or not text.strip():
                 text = json.dumps(output, ensure_ascii=False, sort_keys=True)
             return {"response": text.strip(), "runner_output": output}
-        return {"response": ""}
+        return {"response": "", **({"runner_error": runner_errors[-1]} if runner_errors else {})}
 
     @classmethod
     def parse_json_text_response(cls, stdout_path: Path) -> str:
@@ -1299,76 +1668,113 @@ class AgentHost:
         return "\n".join(chunks)
 
     @staticmethod
-    def classify_runner_error(error: str, runner_output: str) -> tuple[str, str, bool]:
+    def classify_runner_error(runner: str, error: str, runner_output: str) -> tuple[str, str, bool]:
+        runner = str(runner or "unknown").strip().lower()
         combined = f"{error}\n{runner_output}".lower()
+        if (
+            "requires a newer version" in combined
+            or "newer version of codex" in combined
+            or "upgrade codex" in combined
+            or "update codex" in combined
+            or "codex cli is out of date" in combined
+        ):
+            return (
+                "provider_runner_outdated",
+                f"{runner} runner must be upgraded before this model can execute",
+                False,
+            )
+        if "illegal_access" in combined:
+            return "runner_policy_blocked", f"{runner} runner request was blocked by policy: illegal_access", False
+        if (
+            "risk control" in combined
+            or "risk_control" in combined
+            or '"provider_code": 441' in combined
+            or '"provider_code": "441"' in combined
+        ):
+            return "provider_risk_control", f"{runner} runner request was blocked by provider risk control", False
         if "http 401" in combined or " 401" in combined or "unauthorized" in combined:
-            return "runner_auth_failed", "mimo runner authentication failed with HTTP 401", False
+            return "runner_auth_failed", f"{runner} runner authentication failed with HTTP 401", False
         if "http 403" in combined or " 403" in combined or "forbidden" in combined or "illegal_access" in combined:
             if "illegal_access" in combined:
-                return "runner_policy_blocked", "mimo runner request was blocked by policy: illegal_access", False
-            return "runner_access_denied", "mimo runner access denied with HTTP 403", False
+                return "runner_policy_blocked", f"{runner} runner request was blocked by policy: illegal_access", False
+            return "runner_access_denied", f"{runner} runner access denied with HTTP 403", False
         return "runtime_error", error, True
 
     def run_json_payload_command(
         self,
         command: list[str],
         command_label: str,
-        empty_response_label: str,
+        runner: str,
         worktree: Path,
         stdout_path: Path,
         stderr_path: Path,
         task: dict[str, Any],
         branch: str | None,
         logs: dict[str, str],
+        stdin_path: Path | None = None,
     ) -> dict[str, Any]:
         try:
+            command_options: dict[str, Any] = {"command_label": command_label}
+            if stdin_path is not None:
+                command_options["stdin_path"] = stdin_path
             self.run_command(
-                command,
-                worktree,
-                stdout_path,
-                stderr_path,
-                task,
-                branch,
-                logs,
-                command_label=command_label,
+                command, worktree, stdout_path, stderr_path, task, branch, logs,
+                **command_options,
             )
         except Exception as exc:
             error_type, message, retry = self.classify_runner_error(
+                runner,
                 str(exc),
                 self._read_runner_output_for_error(stdout_path, stderr_path),
             )
             if error_type != "runtime_error":
                 sanitize_text_file(stdout_path)
                 sanitize_text_file(stderr_path)
-                raise RunnerExecutionError(error_type, "mimo", message, retry=retry) from exc
+                raise RunnerExecutionError(error_type, runner, message, retry=retry) from exc
             raise
         payload = self.parse_json_response_payload(stdout_path)
         if not payload.get("response"):
-            raise RuntimeError(f"{empty_response_label} completed without text response")
+            structured_error = payload.get("runner_error")
+            if isinstance(structured_error, dict):
+                classification_input = json.dumps(structured_error, ensure_ascii=False, sort_keys=True)
+                error_type, message, retry = self.classify_runner_error(
+                    runner,
+                    str(structured_error.get("message") or runner),
+                    classification_input,
+                )
+                raise RunnerExecutionError(
+                    error_type,
+                    runner,
+                    message,
+                    retry=retry,
+                )
+            raise RuntimeError(f"{runner} completed without text response")
         return payload
 
     def run_json_text_command(
         self,
         command: list[str],
         command_label: str,
-        empty_response_label: str,
+        runner: str,
         worktree: Path,
         stdout_path: Path,
         stderr_path: Path,
         task: dict[str, Any],
         branch: str | None,
         logs: dict[str, str],
+        stdin_path: Path | None = None,
     ) -> str:
         payload = self.run_json_payload_command(
             command,
             command_label,
-            empty_response_label,
+            runner,
             worktree,
             stdout_path,
             stderr_path,
             task,
             branch,
             logs,
+            stdin_path=stdin_path,
         )
         return str(payload.get("response") or "")
 
@@ -1391,16 +1797,68 @@ class AgentHost:
             return self.run_api_text_runner(prompt)
         if runner == "local_llm":
             return self.run_local_llm_text_runner(prompt)
+        readiness = self.runner_status.get(runner, {})
+        if runner == "codex" and readiness.get("status") != "available":
+            error_type = str(readiness.get("error_type") or "runner_readiness_failed")
+            raise RunnerExecutionError(
+                error_type,
+                runner,
+                f"{runner} readiness gate is not available on this node",
+                retry=False,
+            )
         executable = shutil.which(runner)
         if not executable:
             self.mark_runner_status(runner, "unavailable", "runner_unavailable")
             raise RunnerExecutionError("runner_unavailable", runner, f"{runner} executable is not available on this node")
 
+        prompt_path: Path | None = None
+        envelope = task_envelope(task)
+        constraints = envelope.get("constraints") if isinstance(envelope.get("constraints"), dict) else {}
+        readonly_factory_route = (
+            str(task.get("kind") or envelope.get("kind") or "") in {
+                "owner_remote_task", "orchestrator_chat_response", "telegram_chat_response",
+            }
+            and constraints.get("read_only") is True
+            and not envelope.get("write_scope")
+        )
         if runner == "codex":
-            command = [executable, "exec", "--json", "--skip-git-repo-check", "--sandbox", "danger-full-access", prompt]
-            command_label = f"{executable} exec --json --skip-git-repo-check --sandbox danger-full-access <prompt>"
+            prompt_path = worktree / ".kolibri-provider-prompt"
+            prompt_path.write_text(prompt, encoding="utf-8")
+            prompt_path.chmod(0o600)
+            if readonly_factory_route:
+                command = [
+                    executable, "exec", "--json", "--ephemeral", "--skip-git-repo-check",
+                    "--ignore-user-config", "--ignore-rules", "--color", "never",
+                    "--sandbox", "read-only", "--model", CODEX_TASK_MODEL, "-",
+                ]
+                command_label = (
+                    f"{executable} exec --json --ephemeral --skip-git-repo-check "
+                    f"--ignore-user-config --ignore-rules --color never --sandbox read-only "
+                    f"--model {CODEX_TASK_MODEL} - <prompt-file>"
+                )
+            else:
+                command = [
+                    executable, "exec", "--json", "--ephemeral", "--skip-git-repo-check",
+                    "--color", "never", "--sandbox", "danger-full-access",
+                    "--model", CODEX_TASK_MODEL, "-",
+                ]
+                command_label = (
+                    f"{executable} exec --json --ephemeral --skip-git-repo-check --color never "
+                    f"--sandbox danger-full-access --model {CODEX_TASK_MODEL} - <prompt-file>"
+                )
         else:
-            command, command_label = self.mimo_auto25_invocation(executable, title, prompt, worktree)
+            if readonly_factory_route:
+                prompt_path = worktree / ".kolibri-provider-prompt"
+                prompt_path.write_text(prompt, encoding="utf-8")
+                prompt_path.chmod(0o600)
+                command, command_label = mimo_auto25_readonly_command(
+                    executable,
+                    title,
+                    prompt_path,
+                    worktree,
+                )
+            else:
+                command, command_label = self.mimo_auto25_invocation(executable, title, prompt, worktree)
 
         try:
             return self.run_json_text_command(
@@ -1413,16 +1871,35 @@ class AgentHost:
                 task,
                 branch,
                 logs,
+                stdin_path=prompt_path if runner == "codex" else None,
             )
+        except RunnerExecutionError as exc:
+            # Keep the local heartbeat authoritative after a provider/auth
+            # failure.  Without this update the Control Plane quarantine was
+            # immediately overwritten by the next heartbeat, because the
+            # runner was still advertised as "available" merely because its
+            # executable existed on disk.
+            self.persist_runner_failure(exc)
+            raise
         except RuntimeError as exc:
-            stderr_text = stderr_path.read_text(encoding="utf-8", errors="replace") if stderr_path.exists() else ""
-            auth_blocked = runner_auth_blocked(stderr_text) or runner_auth_blocked(str(exc))
+            error_type, message, retry = self.classify_runner_error(
+                runner,
+                str(exc),
+                self._read_runner_output_for_error(stdout_path, stderr_path),
+            )
             sanitize_text_file(stdout_path)
             sanitize_text_file(stderr_path)
-            if auth_blocked:
-                self.mark_runner_status(runner, "blocked", "runner_auth_blocked")
-                raise RunnerExecutionError("runner_auth_blocked", runner, f"{runner} auth blocked on this node") from exc
+            if error_type != "runtime_error":
+                classified = RunnerExecutionError(error_type, runner, message, retry=retry)
+                self.persist_runner_failure(classified)
+                raise classified from exc
             raise
+        finally:
+            if prompt_path is not None:
+                try:
+                    prompt_path.unlink()
+                except FileNotFoundError:
+                    pass
 
     def prepare_backend_test_environment(
         self,
@@ -1593,6 +2070,80 @@ class AgentHost:
         result["result_path"] = str(result_path)
         return result
 
+    def run_release_bundle_task(self, task: dict[str, Any]) -> dict[str, Any]:
+        worktree, artifact_dir, logs = self.prepare_dirs(task)
+        worktree.mkdir(parents=True, exist_ok=True)
+        self.task_heartbeat(task, worktree, None, logs)
+        kind = str(task.get("kind") or "")
+        try:
+            if self.release_helper is None:
+                raise ReleaseInstallError(
+                    "release_installer_prerequisites_unavailable",
+                    evidence={"prerequisite_status": self.release_installer_status},
+                )
+            def release_progress() -> None:
+                heartbeat = self.task_heartbeat(task, worktree, None, logs)
+                if heartbeat.get("state") in {"cancelled", "failed", "dead_letter"}:
+                    raise ReleaseInstallError("release_task_cancelled")
+
+            release_result = self.release_helper.execute(
+                kind,
+                task_envelope(task),
+                artifact_dir,
+                progress_callback=release_progress,
+            )
+            if not isinstance(release_result, dict):
+                raise ReleaseInstallError("release_result_invalid")
+            envelope = task_envelope(task)
+            expected_release_id = str(
+                envelope.get("release_id")
+                if kind == "release_bundle_apply"
+                else envelope.get("rollback_to_release_id")
+            )
+            health = release_result.get("release_health")
+            if (
+                release_result.get("status") != "completed"
+                or not isinstance(health, dict)
+                or health.get("status") != "healthy"
+                or health.get("release_id") != expected_release_id
+                or health.get("manifest_digest") != envelope.get("manifest_digest")
+            ):
+                raise ReleaseInstallError("release_health_evidence_invalid")
+        except ReleaseInstallError as exc:
+            release_result = {
+                **exc.evidence,
+                "status": "failed",
+                "kind": kind,
+                "error_type": exc.code,
+                "failure_reason": exc.code,
+                "retryable": exc.retryable,
+            }
+        result = {
+            "node_id": self.node_id,
+            "hostname": self.hostname,
+            "task_id": task["task_id"],
+            "agent_id": self.agent_id,
+            "attempt_id": task.get("attempt_id"),
+            "pid": self.pid,
+            "heartbeat_at": utc_now(),
+            "worktree": str(worktree),
+            "branch": None,
+            "log_paths": {
+                **logs,
+                "release_installer": str(artifact_dir / "release-installer.jsonl"),
+            },
+            "result_path": str(artifact_dir / "result.json"),
+            "changed_files": [],
+            **release_result,
+        }
+        preserved_failure_reason = result.get("failure_reason")
+        result = self.finalize_result(task, result, artifact_dir, worktree, changed_files=[])
+        if preserved_failure_reason:
+            result["failure_reason"] = preserved_failure_reason
+        result_path = self.write_result(artifact_dir, result)
+        result["result_path"] = str(result_path)
+        return result
+
     def run_telegram_chat_response(self, task: dict[str, Any]) -> dict[str, Any]:
         envelope = task.get("envelope", {})
         message = (envelope.get("message") or "").strip()
@@ -1649,8 +2200,13 @@ class AgentHost:
             "result_path": str(artifact_dir / "result.json"),
             "status": "completed",
             "kind": envelope.get("kind", "orchestrator_chat_response"),
+            "runner": runner,
             "response": response_text,
         }
+        if runner == "mimo":
+            result["runner_contract"] = mimo_auto25_runner_contract()
+        elif runner == "codex":
+            result["runner_contract"] = codex_factory_runner_contract()
         result = self.finalize_result(task, result, artifact_dir, worktree, changed_files=[])
         result_path = self.write_result(artifact_dir, result)
         result["result_path"] = str(result_path)
@@ -1699,6 +2255,8 @@ class AgentHost:
         }
         if runner == "mimo":
             result["runner_contract"] = mimo_auto25_runner_contract()
+        elif runner == "codex":
+            result["runner_contract"] = codex_factory_runner_contract()
         result = self.finalize_result(task, result, artifact_dir, worktree, changed_files=[])
         result_path = self.write_result(artifact_dir, result)
         result["result_path"] = str(result_path)
@@ -2387,11 +2945,20 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
 
             permission_pack_classification = self.validate_runtime_permission_contract(task)
             kind = task.get("kind")
-            if kind == "impl_factory_smoke":
+            envelope = task_envelope(task)
+            factory_provider_task = is_factory_provider_task(task)
+            if kind in RELEASE_TASK_KINDS:
+                result = self.run_release_bundle_task(task)
+            elif kind == "impl_factory_smoke":
                 result = self.run_impl_factory_smoke(task)
             elif kind == "impl_retry_error_clearance":
                 result = self.run_impl_retry_error_clearance(task)
-            elif kind in MIMO_DIRECT_KINDS and requested_runner_for_envelope(task_envelope(task), "mimo") == "mimo":
+            elif factory_provider_task:
+                # Provider prompts are response generation, never code
+                # implementation.  Keep both Mimo and Codex on the uniform
+                # read-only file/stdin path advertised to Home.
+                result = self.run_owner_remote_task(task)
+            elif kind in MIMO_DIRECT_KINDS and requested_runner_for_envelope(envelope, "mimo") == "mimo":
                 result = self.run_direct_mimo_task(task)
             elif kind == "owner_remote_task":
                 result = self.run_owner_remote_task(task)
@@ -2410,15 +2977,26 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
             artifact_dir = result_path.parent
             worktree_value = result.get("worktree")
             worktree = Path(worktree_value) if isinstance(worktree_value, str) and worktree_value else None
+            preserved_failure_reason = result.get("failure_reason")
             result = finalize_runner_contract(task, result, artifact_dir, worktree=worktree)
+            if kind in RELEASE_TASK_KINDS and preserved_failure_reason:
+                result["failure_reason"] = preserved_failure_reason
             result_path = self.write_result(artifact_dir, result)
             result["result_path"] = str(result_path)
             if result["status"] == "completed":
                 self.complete(task, result, result_path)
             else:
                 error = result.get("blocked_reason") or result.get("failure_reason") or "runner contract prevented completion"
-                error_type = "runner_contract_blocked" if result["status"] == "blocked" else "runtime_error"
-                retry = result["status"] == "failed" and int(task.get("attempt", 0)) < int(task.get("max_retries", 3))
+                error_type = (
+                    "runner_contract_blocked"
+                    if result["status"] == "blocked"
+                    else str(result.get("error_type") or "runtime_error")
+                )
+                retry = (
+                    result["status"] == "failed"
+                    and bool(result.get("retryable", True))
+                    and int(task.get("attempt", 0)) < int(task.get("max_retries", 3))
+                )
                 self.fail(task, error_type, error, result, result_path, retry=retry)
         except PermissionContractError as exc:
             task_id = task["task_id"]
@@ -2461,6 +3039,7 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 "result_path": str(artifact_dir / "result.json"),
             }
             if isinstance(exc, RunnerExecutionError):
+                self.persist_runner_failure(exc)
                 result["status"] = "blocked"
                 result["runner"] = exc.runner
             result = finalize_runner_contract(task, result, artifact_dir, failure_reason=str(exc))
@@ -2472,11 +3051,20 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 result["status"] = "blocked"
                 result["blocked_reason"] = exc.error_type
                 result["failure_reason"] = redact_sensitive_text(str(exc))
-                result["next_recommended_task"] = (
-                    f"repair {exc.runner} auth on this node or route to another online node with {runner_capability(exc.runner)}"
-                    if exc.error_type in {"runner_auth_blocked", "runner_auth_failed", "runner_access_denied", "runner_policy_blocked"}
-                    else f"route to another online node with {runner_capability(exc.runner)} or install the requested runner"
-                )
+                if exc.error_type == "provider_runner_outdated":
+                    result["next_recommended_task"] = (
+                        f"upgrade {exc.runner} on this node, rerun readiness, then restore {runner_capability(exc.runner)}"
+                    )
+                elif exc.error_type in {
+                    "runner_auth_blocked", "runner_auth_failed", "runner_access_denied", "runner_policy_blocked",
+                }:
+                    result["next_recommended_task"] = (
+                        f"repair {exc.runner} auth on this node or route to another online node with {runner_capability(exc.runner)}"
+                    )
+                else:
+                    result["next_recommended_task"] = (
+                        f"route to another online node with {runner_capability(exc.runner)} or install the requested runner"
+                    )
                 result_path = self.write_result(artifact_dir, result)
             elif isinstance(exc, BackendTestEnvironmentError) or str(exc).startswith("backend_test_environment_failed:"):
                 error_type = "backend_test_environment_failed"
@@ -2530,8 +3118,8 @@ def handle_stop(signum: int, frame: Any) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--control-url", default=os.environ.get("KOLIBRI_FACTORY_CONTROL_URL", "http://10.99.0.2:9101"))
-    parser.add_argument("--control-urls", default=os.environ.get("KOLIBRI_FACTORY_CONTROL_URLS") or os.environ.get("KOLIBRI_FACTORY_CONTROL_URL", "http://10.99.0.2:9101"))
+    parser.add_argument("--control-url", default=os.environ.get("KOLIBRI_FACTORY_CONTROL_URL"))
+    parser.add_argument("--control-urls", default=os.environ.get("KOLIBRI_FACTORY_CONTROL_URLS"))
     parser.add_argument("--node-id", default=os.environ.get("KOLIBRI_NODE_ID", platform.node()))
     parser.add_argument("--agent-id", default=os.environ.get("KOLIBRI_AGENT_ID"))
     parser.add_argument("--capabilities", default=os.environ.get("KOLIBRI_AGENT_CAPABILITIES", "read_only_probe"))
@@ -2541,7 +3129,9 @@ def main() -> int:
     parser.add_argument("--heartbeat-interval", type=int, default=int(os.environ.get("KOLIBRI_HEARTBEAT_INTERVAL", "10")))
     parser.add_argument("--lease-refresh", type=int, default=int(os.environ.get("KOLIBRI_LEASE_REFRESH", "20")))
     parser.add_argument("--max-inflight", type=int, default=int(os.environ.get("KOLIBRI_MAX_INFLIGHT", "1")))
+    parser.add_argument("--labels-json", default=os.environ.get("KOLIBRI_NODE_LABELS_JSON", "{}"))
     args = parser.parse_args()
+    args.control_url = resolve_home_control_plane_url(args.control_url, args.control_urls)
     signal.signal(signal.SIGTERM, handle_stop)
     signal.signal(signal.SIGINT, handle_stop)
     AgentHost(args).loop()

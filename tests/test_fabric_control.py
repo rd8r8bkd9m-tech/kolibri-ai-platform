@@ -1,5 +1,6 @@
 import importlib.machinery
 import importlib.util
+import json
 from pathlib import Path
 
 
@@ -24,16 +25,42 @@ def load_dispatch():
     return module
 
 
-def test_fabric_catalog_represents_every_server_through_api_or_relay():
+def test_fabric_membership_is_registration_driven_and_home_is_only_control_plane():
     control = load_control()
-    nodes = {node["node_id"]: node for node in control.fabric_nodes([])}
+    assert control.fabric_nodes([]) == []
+    registered = [
+        {"node_id": "home", "hostname": "plastilin", "health": "online"},
+        {"node_id": "main", "hostname": "main", "health": "online", "role": "control_plane"},
+        {"node_id": "dynamic-worker", "health": "online", "capabilities": ["implementation"]},
+    ]
+    nodes = {node["node_id"]: node for node in control.fabric_nodes(registered)}
 
-    assert {"home", "main", "uiap", "qjns", "9fts", "new"} <= set(nodes)
+    assert set(nodes) == {"home", "main", "dynamic-worker"}
+    assert nodes["home"]["role"] == "control_plane"
+    assert "control_plane_api" in nodes["home"]["api_paths"]
+    assert nodes["main"]["role"] == "worker"
+    assert nodes["main"]["authority_rejected"] is True
+    assert "control_plane_api" not in nodes["main"]["api_paths"]
     for node in nodes.values():
         assert node["management_path"] == "protected_fabric_api"
         assert node["fallback_api_relay"] == "/v1/fabric/relay"
         assert node["ssh"] == "emergency_bootstrap_diagnostic_only"
         assert "fabric_api" in node["api_paths"] or "fallback_relay" in node["api_paths"]
+
+
+def test_fabric_topology_has_home_as_the_only_authoritative_source():
+    control = load_control()
+    topology = control.fleet_topology(control.fabric_nodes([
+        {"node_id": "home", "health": "online"},
+        {"node_id": "main", "health": "online"},
+        {"node_id": "new-worker", "health": "online"},
+    ]))
+
+    assert topology["nodes"]
+    assert topology["edges"]
+    assert all(edge["from"] == "home" for edge in topology["edges"])
+    assert all(edge["to"] != "home" for edge in topology["edges"])
+    assert any(edge["to"] == "main" for edge in topology["edges"])
 
 
 def test_fabric_route_returns_direct_route_when_target_is_online():
@@ -84,6 +111,26 @@ def test_dispatcher_unreachable_control_plane_uses_blocked_envelope():
 
     assert envelope["status"] == "blocked"
     assert envelope["reason"] == "fabric_api_unreachable"
-    assert envelope["fallback_route"]["endpoint"] == "/v1/fabric/relay"
+    assert envelope["fallback_nodes"] == []
+    assert envelope["fallback_route"] is None
     assert envelope["repair_task"]["kind"] == "repair_control_plane_api"
-    assert envelope["can_continue_elsewhere"] is True
+    assert envelope["can_continue_elsewhere"] is False
+
+
+def test_dispatcher_rejects_multiple_control_plane_authorities_before_network(monkeypatch, capsys):
+    dispatch = load_dispatch()
+    monkeypatch.setenv("KOLIBRI_FACTORY_CONTROL_URL", "http://home-control:9101")
+    monkeypatch.setenv(
+        "KOLIBRI_FACTORY_CONTROL_URLS",
+        "http://home-control:9101,http://legacy-control:9101",
+    )
+
+    def fail_urlopen(*_args, **_kwargs):
+        raise AssertionError("network must not be called")
+
+    monkeypatch.setattr(dispatch.urllib.request, "urlopen", fail_urlopen)
+
+    assert dispatch.main(["nodes"]) == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["reason"] == "canonical_home_control_plane_unresolved"
+    assert "multiple_control_plane_authorities_forbidden" in payload["detail"]

@@ -3,6 +3,8 @@ import base64
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 TINY_PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
@@ -16,7 +18,9 @@ def load_agent_host():
     return module
 
 
-def test_agent_host_generates_telegram_image_with_configured_command(tmp_path, monkeypatch):
+def test_agent_host_generates_telegram_image_with_configured_command(
+    tmp_path, monkeypatch, canonical_home_control_plane
+):
     agent_host = load_agent_host()
     command = (
         "python3 -c \"import base64, os, pathlib; "
@@ -35,7 +39,7 @@ def test_agent_host_generates_telegram_image_with_configured_command(tmp_path, m
             return body
 
     args = argparse.Namespace(
-        control_url="http://127.0.0.1:9101",
+        control_url=canonical_home_control_plane,
         node_id="primary-candidate",
         agent_id="agent-host-primary",
         capabilities="image_generation",
@@ -71,20 +75,11 @@ def test_agent_host_generates_telegram_image_with_configured_command(tmp_path, m
     assert any(path.endswith("/heartbeat") for path, _ in host.posts)
 
 
-def test_agent_host_control_plane_failover(tmp_path, monkeypatch):
+def test_agent_host_rejects_legacy_control_plane_failover(tmp_path):
     agent_host = load_agent_host()
-    calls = []
-
-    def fake_request(method, url, body=None, timeout=20):
-        calls.append((method, url, body, timeout))
-        if url.startswith("http://down"):
-            raise RuntimeError("down")
-        return {"ok": True}
-
-    monkeypatch.setattr(agent_host, "request", fake_request)
     args = argparse.Namespace(
-        control_url="http://down:9101",
-        control_urls="http://down:9101,http://alive:9101",
+        control_url="http://home-control:9101",
+        control_urls="http://home-control:9101,http://legacy-control:9101",
         node_id="primary-candidate",
         agent_id="agent-host-primary",
         capabilities="generic_implementation",
@@ -95,10 +90,6 @@ def test_agent_host_control_plane_failover(tmp_path, monkeypatch):
         lease_refresh=20,
         max_inflight=1,
     )
-    host = agent_host.AgentHost(args)
-    assert host.get("/health") == {"ok": True}
-    assert calls[0][1] == "http://down:9101/health"
-    assert calls[1][1] == "http://alive:9101/health"
-    assert host.control_url == "http://alive:9101"
-    host.post("/v1/tasks/lease", {"node_id": "primary-candidate"})
-    assert calls[-1][1] == "http://alive:9101/v1/tasks/lease"
+
+    with pytest.raises(RuntimeError, match="multiple_control_plane_authorities_forbidden"):
+        agent_host.AgentHost(args)

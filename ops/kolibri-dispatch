@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Kolibri dispatcher CLI.
 
-Subcommands operate against the persistent Factory Control Plane through the
-protected Fabric API. SSH compatibility is retained only for emergency,
-bootstrap, and diagnostic use.
+Subcommands operate against the persistent Home Control Plane through the
+protected Fabric API. Legacy direct-SSH worker dispatch is fail-closed.
 """
 
 from __future__ import annotations
@@ -15,26 +14,19 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-
-DEFAULT_CONTROL_URL = os.environ.get("KOLIBRI_FACTORY_CONTROL_URL", "http://10.99.0.2:9101")
-DEFAULT_NODES = {
-    "9fts": {"ssh": "root@94.183.235.154", "proxy_jump": "kolibri-home"},
-    "new": {"ssh": "root@109.248.161.39", "proxy_jump": "kolibri-home"},
-}
+try:
+    from ops.control_plane_endpoint import ControlPlaneEndpointError, resolve_home_control_plane_url
+except ImportError:  # installed standalone beside this script
+    from control_plane_endpoint import ControlPlaneEndpointError, resolve_home_control_plane_url
 
 
 class FabricApiUnavailable(RuntimeError):
     def __init__(self, envelope: dict[str, Any]):
         super().__init__(envelope["reason"])
         self.envelope = envelope
-
-
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def print_json(value: Any) -> None:
@@ -47,14 +39,14 @@ def blocked_envelope(reason: str, detail: str, control_url: str) -> dict[str, An
         "reason": reason,
         "detail": detail,
         "target_node": "control-plane",
-        "fallback_nodes": ["home", "main", "9fts", "new"],
-        "fallback_route": {"type": "fabric_api_relay", "endpoint": "/v1/fabric/relay"},
+        "fallback_nodes": [],
+        "fallback_route": None,
         "repair_task": {
             "kind": "repair_control_plane_api",
             "target_node": "control-plane",
-            "action": f"restore Fabric API reachability for {control_url} or retry through a registered relay",
+            "action": f"restore canonical Home Fabric API reachability for {control_url}",
         },
-        "can_continue_elsewhere": True,
+        "can_continue_elsewhere": False,
     }
 
 
@@ -83,38 +75,24 @@ def run_capture(command: list[str], timeout: int = 20) -> dict[str, Any]:
         return {"ok": False, "returncode": None, "stdout": "", "stderr": str(exc)}
 
 
-def ssh_command(node: dict[str, str], remote: str) -> list[str]:
-    command = [
-        "ssh",
-        "-o", "BatchMode=yes",
-        "-o", "PasswordAuthentication=no",
-        "-o", "KbdInteractiveAuthentication=no",
-        "-o", "PreferredAuthentications=publickey",
-        "-o", "ConnectTimeout=15",
-        "-o", "StrictHostKeyChecking=accept-new",
-    ]
-    if node.get("proxy_jump"):
-        command.extend(["-J", node["proxy_jump"]])
-    command.extend([node["ssh"], remote])
-    return command
-
-
 def cmd_doctor(args: argparse.Namespace) -> int:
     checks = {
         "repository": run_capture(["git", "rev-parse", "--show-toplevel"]),
         "github_auth": run_capture(["gh", "auth", "status"]),
         "control_plane": None,
-        "nodes": {},
+        "nodes": None,
         "binaries": {},
     }
     try:
         checks["control_plane"] = http_json("GET", f"{args.control_url}/health")
     except Exception as exc:
         checks["control_plane"] = {"ok": False, "error": str(exc)}
-    for binary in ["git", "python3", "ssh", "scp"]:
+    try:
+        checks["nodes"] = http_json("GET", f"{args.control_url}/v1/nodes")
+    except Exception as exc:
+        checks["nodes"] = {"ok": False, "error": str(exc)}
+    for binary in ["git", "python3", "gh"]:
         checks["binaries"][binary] = run_capture(["command", "-v", binary]) if False else run_capture(["sh", "-c", f"command -v {binary}"])
-    for node_id, node in DEFAULT_NODES.items():
-        checks["nodes"][node_id] = run_capture(ssh_command(node, "hostname; python3 --version; git --version"), timeout=30)
     print_json(checks)
     control_ok = isinstance(checks["control_plane"], dict) and checks["control_plane"].get("status") == "ok"
     return 0 if checks["repository"]["ok"] and control_ok else 1
@@ -178,60 +156,14 @@ def cmd_fabric_route(args: argparse.Namespace) -> int:
 
 
 def legacy_mode(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--node-id", required=True)
-    parser.add_argument("--ssh", required=True, dest="ssh_dest")
-    parser.add_argument("--proxy-jump", default="")
-    parser.add_argument("--agent-id", required=True)
-    parser.add_argument("--task-id", required=True)
-    parser.add_argument("--worktree", required=True)
-    parser.add_argument("--branch", required=True)
-    parser.add_argument("--heartbeat", required=True)
-    parser.add_argument("--log", required=True, dest="log_path")
-    parser.add_argument("--result", required=True, dest="result_path")
-    parser.add_argument("--script", required=True, dest="script_path")
-    parser.add_argument("--record", default="")
-    args = parser.parse_args(argv)
-    script_path = Path(args.script_path)
-    if not script_path.is_file():
-        raise SystemExit(f"script not found: {script_path}")
-    safe_id = "".join(ch if ch.isalnum() or ch in "_.-" else "-" for ch in f"{args.task_id}-{args.agent_id}")
-    remote_script = f"/tmp/kolibri-dispatch-{safe_id}.sh"
-    ssh_opts = [
-        "-o", "BatchMode=yes",
-        "-o", "PasswordAuthentication=no",
-        "-o", "KbdInteractiveAuthentication=no",
-        "-o", "PreferredAuthentications=publickey",
-        "-o", "ConnectTimeout=15",
-        "-o", "StrictHostKeyChecking=accept-new",
-    ]
-    scp_opts = ssh_opts.copy()
-    if args.proxy_jump:
-        ssh_opts = ["-J", args.proxy_jump] + ssh_opts
-        scp_opts = ["-o", f"ProxyJump={args.proxy_jump}"] + scp_opts
-    def q(value: str) -> str:
-        return subprocess.check_output(["printf", "%q", value], text=True)
-    mkdir_cmd = (
-        f"mkdir -p {q(str(Path(args.heartbeat).parent))} {q(str(Path(args.log_path).parent))} "
-        f"{q(str(Path(args.result_path).parent))} {q(str(Path(args.worktree).parent))} && rm -f {q(remote_script)}"
-    )
-    subprocess.run(["ssh", *ssh_opts, args.ssh_dest, mkdir_cmd], check=True)
-    subprocess.run(["scp", *scp_opts, str(script_path), f"{args.ssh_dest}:{remote_script}"], check=True, stdout=subprocess.DEVNULL)
-    launch_cmd = (
-        f"chmod 700 {q(remote_script)} && nohup env "
-        f"NODE_ID={q(args.node_id)} AGENT_ID={q(args.agent_id)} TASK_ID={q(args.task_id)} "
-        f"WORKTREE={q(args.worktree)} BRANCH={q(args.branch)} HEARTBEAT_PATH={q(args.heartbeat)} "
-        f"LOG_PATH={q(args.log_path)} RESULT_PATH={q(args.result_path)} "
-        f"bash {q(remote_script)} >>{q(args.log_path)} 2>&1 < /dev/null & printf \"%s\\n\" \"$!\""
-    )
-    pid = subprocess.check_output(["ssh", *ssh_opts, args.ssh_dest, launch_cmd], text=True).strip()
-    if args.record:
-        record_path = Path(args.record)
-        record_path.parent.mkdir(parents=True, exist_ok=True)
-        record = vars(args) | {"pid": pid, "started_at": utc_now(), "remote_script": remote_script}
-        record_path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print(pid)
-    return 0
+    del argv
+    print_json({
+        "status": "blocked",
+        "reason": "legacy_direct_ssh_dispatch_disabled",
+        "can_continue_elsewhere": False,
+        "next_action": "submit a task envelope with `kolibri-dispatch submit --file <envelope.json>`",
+    })
+    return 2
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -248,7 +180,7 @@ def main(argv: list[str] | None = None) -> int:
         del argv[idx:idx + 2]
         argv = pair + argv
     parser = argparse.ArgumentParser()
-    parser.add_argument("--control-url", default=DEFAULT_CONTROL_URL)
+    parser.add_argument("--control-url", default=os.environ.get("KOLIBRI_FACTORY_CONTROL_URL"))
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("doctor").set_defaults(func=cmd_doctor)
     sub.add_parser("nodes").set_defaults(func=cmd_nodes)
@@ -276,6 +208,14 @@ def main(argv: list[str] | None = None) -> int:
     fabric_route.add_argument("--required-capability")
     fabric_route.set_defaults(func=cmd_fabric_route)
     args = parser.parse_args(argv)
+    try:
+        args.control_url = resolve_home_control_plane_url(
+            args.control_url,
+            os.environ.get("KOLIBRI_FACTORY_CONTROL_URLS"),
+        )
+    except ControlPlaneEndpointError as exc:
+        print_json(blocked_envelope("canonical_home_control_plane_unresolved", str(exc), "home"))
+        return 2
     try:
         return args.func(args)
     except FabricApiUnavailable as exc:

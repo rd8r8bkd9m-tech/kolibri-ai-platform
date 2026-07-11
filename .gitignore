@@ -58,3 +58,4 @@ frontend/test-results/
 *.js
 !frontend/src/**/*.js
 !frontend/vite.config.js
+!frontend/public/sw.js

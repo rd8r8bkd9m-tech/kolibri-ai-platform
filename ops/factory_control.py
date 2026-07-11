@@ -25,8 +25,13 @@ import argparse
 import hashlib
 import json
 import os
+import queue
+import re
 import socket
+import subprocess
 import sys
+import tempfile
+import threading
 import time
 import uuid
 from dataclasses import dataclass, field, asdict
@@ -34,7 +39,7 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Literal
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 CURRENT_DIR = Path(__file__).resolve().parent
 
@@ -66,6 +71,20 @@ for ops_path in reversed(factory_ops_import_paths()):
     if ops_path.exists() and str(ops_path) not in sys.path:
         sys.path.insert(0, str(ops_path))
 from telegram_superfactory import plan_update_receiver, runner_policy, select_runner, validate_telegram_init_data
+from release_authority import (
+    OWNER_APPROVAL_ATTESTATION_SCHEMA,
+    OWNER_APPROVAL_NAMESPACE,
+    OWNER_APPROVAL_SCHEMA,
+    RELEASE_CAPABILITY,
+    RELEASE_TASK_KINDS,
+    ReleaseAuthorityError,
+    approval_attestation_digest,
+    canonical_owner_approval_attestation,
+    canonical_owner_approval_bytes as authority_owner_approval_bytes,
+    canonical_owner_approval_payload as authority_owner_approval_payload,
+    validate_approval_for_task,
+)
+from fleet_membership import MembershipError, MeshMembershipSource
 
 
 NAMESPACE = os.environ.get("FACTORY_NAMESPACE", "kolibri_factory")
@@ -92,6 +111,12 @@ FALLBACK_REASON_TAXONOMY = {
 }
 NODE_DEGRADED_AFTER = int(os.environ.get("FACTORY_NODE_DEGRADED_AFTER", "30"))
 NODE_STALE_AFTER = int(os.environ.get("FACTORY_NODE_STALE_AFTER", "90"))
+TASK_HEARTBEAT_STALE_AFTER = int(os.environ.get("FACTORY_TASK_HEARTBEAT_STALE_AFTER", "3600"))
+OWNER_APPROVAL_MAX_TTL = int(os.environ.get("FACTORY_OWNER_APPROVAL_MAX_TTL", "86400"))
+OWNER_ALLOWED_SIGNERS = Path(os.environ.get(
+    "FACTORY_OWNER_ALLOWED_SIGNERS",
+    "/etc/kolibri/owner_allowed_signers",
+))
 
 STATE_QUEUED = "queued"
 STATE_LEASED = "leased"
@@ -106,50 +131,15 @@ STATE_DEAD = "dead_letter"
 TERMINAL_STATES = {STATE_COMPLETED, STATE_FAILED, STATE_CANCELLED, STATE_DEAD}
 BLOCKED_RUNNER_STATES = {"blocked", "degraded", "runner_auth_blocked", "unavailable"}
 
-FABRIC_NODE_CATALOG = {
-    "home": {
-        "node_id": "home",
-        "role": "command_node_gateway",
-        "display_name": "Связной",
-        "api_paths": ["fabric_api", "fallback_relay"],
-        "ssh": "emergency_bootstrap_diagnostic_only",
-    },
-    "main": {
-        "node_id": "main",
-        "role": "control_plane",
-        "display_name": "Директор",
-        "api_paths": ["fabric_api", "control_plane_api", "artifact_api"],
-        "ssh": "emergency_bootstrap_diagnostic_only",
-    },
-    "uiap": {
-        "node_id": "uiap",
-        "role": "knowledge_model_node",
-        "display_name": "Знания",
-        "api_paths": ["fabric_api", "fallback_relay"],
-        "ssh": "emergency_bootstrap_diagnostic_only",
-    },
-    "qjns": {
-        "node_id": "qjns",
-        "role": "remote_agent",
-        "display_name": "Тестировщик",
-        "api_paths": ["fabric_api", "agent_host_api", "fallback_relay"],
-        "ssh": "emergency_bootstrap_diagnostic_only",
-    },
-    "9fts": {
-        "node_id": "9fts",
-        "role": "implementation_model_node",
-        "display_name": "Инженер",
-        "api_paths": ["fabric_api", "agent_host_api", "model_node_api", "fallback_relay"],
-        "ssh": "emergency_bootstrap_diagnostic_only",
-    },
-    "new": {
-        "node_id": "new",
-        "role": "review_agent",
-        "display_name": "Ревьюер",
-        "api_paths": ["fabric_api", "agent_host_api", "fallback_relay"],
-        "ssh": "emergency_bootstrap_diagnostic_only",
-    },
-}
+
+class IdempotencyConflict(ValueError):
+    def __init__(self, idempotency_key: str, existing_task_id: str):
+        super().__init__("idempotency_key_payload_conflict")
+        self.idempotency_key = idempotency_key
+        self.existing_task_id = existing_task_id
+
+DEFAULT_WORKER_API_PATHS = ["fabric_api", "agent_host_api", "fallback_relay"]
+HOME_CONTROL_PLANE_API_PATHS = ["fabric_api", "control_plane_api", "artifact_api"]
 
 OWNER_RIGHTS_POLICY = {
     "policy_id": "kolibri-owner-full-control-api",
@@ -249,6 +239,224 @@ def parse_iso_ts(value: Any) -> float | None:
         return None
 
 
+def _safe_record_id(value: Any, field_name: str) -> str:
+    text = str(value or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,159}", text):
+        raise ValueError(f"invalid_{field_name}")
+    return text
+
+
+def owner_approval_key(approval_id: str) -> str:
+    return key(f"owner_approval:{approval_id}")
+
+
+def release_task_ids_key(release_id: str) -> str:
+    return key(f"release:{release_id}:task_ids")
+
+
+def canonical_owner_approval_payload(body: dict[str, Any]) -> dict[str, Any]:
+    return authority_owner_approval_payload(
+        body,
+        now=now_ts(),
+        max_ttl_seconds=OWNER_APPROVAL_MAX_TTL,
+    )
+
+
+def canonical_owner_approval_bytes(payload: dict[str, Any]) -> bytes:
+    return authority_owner_approval_bytes(payload)
+
+
+def verify_owner_approval(body: dict[str, Any]) -> dict[str, Any]:
+    payload = canonical_owner_approval_payload(body)
+    signature = body.get("signature")
+    if not isinstance(signature, str) or not signature.startswith("-----BEGIN SSH SIGNATURE-----"):
+        raise ValueError("owner_approval_signature_missing")
+    if len(signature.encode("utf-8")) > 32 * 1024:
+        raise ValueError("owner_approval_signature_too_large")
+    if not OWNER_ALLOWED_SIGNERS.is_file():
+        raise ValueError("owner_allowed_signers_unavailable")
+    signature_path: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            prefix="kolibri-owner-approval-",
+            suffix=".sig",
+            delete=False,
+        ) as handle:
+            handle.write(signature)
+            signature_path = handle.name
+        os.chmod(signature_path, 0o600)
+        completed = subprocess.run(
+            [
+                "ssh-keygen", "-Y", "verify",
+                "-f", str(OWNER_ALLOWED_SIGNERS),
+                "-I", payload["signer_identity"],
+                "-n", OWNER_APPROVAL_NAMESPACE,
+                "-s", signature_path,
+            ],
+            input=canonical_owner_approval_bytes(payload),
+            capture_output=True,
+            check=False,
+            timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ValueError("owner_approval_verifier_unavailable") from exc
+    finally:
+        if signature_path:
+            try:
+                Path(signature_path).unlink()
+            except OSError:
+                pass
+    if completed.returncode != 0:
+        raise ValueError("owner_approval_signature_invalid")
+    created_at = utc_now()
+    attestation = {
+        "schema_version": OWNER_APPROVAL_ATTESTATION_SCHEMA,
+        "payload": payload,
+        "signature": signature,
+    }
+    return {
+        **payload,
+        "status": payload["decision"],
+        "approved_by": {
+            "role": "owner",
+            "identity": payload["signer_identity"],
+        },
+        "signature": {
+            "format": "sshsig",
+            "namespace": OWNER_APPROVAL_NAMESPACE,
+            "sha256": hashlib.sha256(signature.encode("utf-8")).hexdigest(),
+        },
+        "attestation": attestation,
+        "attestation_digest": approval_attestation_digest(attestation),
+        "created_at": created_at,
+    }
+
+
+def save_owner_approval(record: dict[str, Any]) -> None:
+    expires_ts = parse_iso_ts(record.get("expires_at"))
+    if expires_ts is None:
+        raise ValueError("owner_approval_expiry_invalid")
+    existing = get_json(owner_approval_key(record["approval_id"]), {})
+    if existing and existing.get("attestation_digest") != record.get("attestation_digest"):
+        raise ValueError("owner_approval_id_collision")
+    ttl = max(1, min(OWNER_APPROVAL_MAX_TTL, int(expires_ts - now_ts())))
+    redis.command(
+        "SET",
+        owner_approval_key(record["approval_id"]),
+        json.dumps(record, sort_keys=True, separators=(",", ":")),
+        "EX",
+        ttl,
+    )
+    redis.command("SADD", key("owner_approval_ids"), record["approval_id"])
+
+
+def list_owner_approvals() -> list[dict[str, Any]]:
+    approval_ids = sorted(redis.command("SMEMBERS", key("owner_approval_ids")) or [])
+    values = get_json_many([owner_approval_key(approval_id) for approval_id in approval_ids])
+    return sorted(
+        (value for value in values if isinstance(value, dict)),
+        key=lambda item: str(item.get("created_at") or ""),
+        reverse=True,
+    )
+
+
+def verify_stored_owner_approval(record: dict[str, Any]) -> dict[str, Any]:
+    try:
+        attestation = canonical_owner_approval_attestation(
+            record.get("attestation"),
+            now=now_ts(),
+            max_ttl_seconds=OWNER_APPROVAL_MAX_TTL,
+        )
+    except ReleaseAuthorityError as exc:
+        raise ValueError(str(exc)) from exc
+    if record.get("attestation_digest") != approval_attestation_digest(attestation):
+        raise ValueError("owner_approval_attestation_digest_mismatch")
+    verified = verify_owner_approval({**attestation["payload"], "signature": attestation["signature"]})
+    if (
+        verified["approval_id"] != record.get("approval_id")
+        or verified["attestation_digest"] != record.get("attestation_digest")
+    ):
+        raise ValueError("owner_approval_record_mismatch")
+    return verified
+
+
+def authorize_release_task(envelope: dict[str, Any]) -> dict[str, Any]:
+    value = dict(envelope)
+    approval_id = _safe_record_id(value.get("approval_id"), "approval_id")
+    stored = get_json(owner_approval_key(approval_id), {})
+    if not stored:
+        raise ValueError("release_owner_approval_not_found")
+    approval = verify_stored_owner_approval(stored)
+    artifact_uri = str(value.get("artifact_uri") or "")
+    parsed_artifact = urlparse(artifact_uri)
+    if (
+        parsed_artifact.scheme != "artifact"
+        or parsed_artifact.query
+        or parsed_artifact.fragment
+        or parsed_artifact.username
+        or parsed_artifact.password
+    ):
+        raise ValueError("release_artifact_transport_forbidden")
+    signature = value.get("signature")
+    if not isinstance(signature, dict):
+        raise ValueError("release_task_signature_contract_invalid")
+    value["signature"] = {
+        "format": signature.get("format"),
+        "namespace": signature.get("namespace"),
+        "signer_identity": signature.get("signer_identity"),
+    }
+    try:
+        validate_approval_for_task(approval, value)
+    except ReleaseAuthorityError as exc:
+        raise ValueError(str(exc)) from exc
+    value["approval_attestation"] = approval["attestation"]
+    value["approval_attestation_digest"] = approval["attestation_digest"]
+    return value
+
+
+def release_health(release_id: str, node_id: str) -> dict[str, Any]:
+    release_id = _safe_record_id(release_id, "release_id")
+    node_id = _safe_record_id(node_id, "node_id")
+    task_ids = redis.command("SMEMBERS", release_task_ids_key(release_id)) or []
+    tasks = [task for task in get_json_many([task_key(task_id) for task_id in task_ids]) if task]
+    matching = []
+    for task in tasks:
+        envelope = task.get("envelope") if isinstance(task.get("envelope"), dict) else {}
+        target = str(envelope.get("target_node") or "")
+        task_release = str(envelope.get("release_id") or envelope.get("rollback_to_release_id") or "")
+        if target == node_id and task_release == release_id:
+            matching.append(task)
+    matching.sort(key=lambda item: str(item.get("updated_at") or item.get("created_at") or ""), reverse=True)
+    if not matching:
+        return {
+            "status": "unknown",
+            "release_id": release_id,
+            "node_id": node_id,
+            "reason": "release_task_not_found",
+        }
+    latest = matching[0]
+    result = latest.get("result") if isinstance(latest.get("result"), dict) else {}
+    health = result.get("release_health") if isinstance(result.get("release_health"), dict) else {}
+    manifest_digest = str(result.get("manifest_digest") or health.get("manifest_digest") or "")
+    healthy = (
+        latest.get("state") == STATE_COMPLETED
+        and result.get("status") == "completed"
+        and health.get("status") == "healthy"
+        and bool(manifest_digest)
+    )
+    return {
+        "status": "healthy" if healthy else "pending" if latest.get("state") not in TERMINAL_STATES else "failed",
+        "release_id": release_id,
+        "node_id": node_id,
+        "manifest_digest": manifest_digest,
+        "task_id": latest.get("task_id"),
+        "task_state": latest.get("state"),
+        "checked_at": utc_now(),
+    }
+
+
 def key(name: str) -> str:
     return f"{NAMESPACE}:{name}"
 
@@ -258,17 +466,60 @@ class RedisError(RuntimeError):
 
 
 class Redis:
-    def __init__(self, host: str = REDIS_HOST, port: int = REDIS_PORT, timeout: float = 5.0):
+    def __init__(
+        self,
+        host: str = REDIS_HOST,
+        port: int = REDIS_PORT,
+        timeout: float = 5.0,
+        pool_size: int = 64,
+    ):
         self.host = host
         self.port = port
         self.timeout = timeout
+        self.pool_size = max(1, int(pool_size))
+        self._pool: queue.LifoQueue[tuple[socket.socket, Any]] = queue.LifoQueue(self.pool_size)
+        self._slots = threading.BoundedSemaphore(self.pool_size)
+
+    def _connect(self) -> tuple[socket.socket, Any]:
+        sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
+        sock.settimeout(self.timeout)
+        return sock, sock.makefile("rb")
+
+    @staticmethod
+    def _close(connection: tuple[socket.socket, Any]) -> None:
+        sock, reader = connection
+        try:
+            reader.close()
+        except OSError:
+            pass
+        try:
+            sock.close()
+        except OSError:
+            pass
 
     def command(self, *parts: Any) -> Any:
         payload = self._encode(parts)
-        with socket.create_connection((self.host, self.port), timeout=self.timeout) as sock:
-            sock.sendall(payload)
-            reader = sock.makefile("rb")
-            return self._read(reader)
+        last_error: Exception | None = None
+        for _attempt in range(2):
+            with self._slots:
+                try:
+                    connection = self._pool.get_nowait()
+                except queue.Empty:
+                    connection = self._connect()
+                sock, reader = connection
+                try:
+                    sock.sendall(payload)
+                    result = self._read(reader)
+                except (OSError, RedisError, ValueError) as exc:
+                    last_error = exc
+                    self._close(connection)
+                    continue
+                try:
+                    self._pool.put_nowait(connection)
+                except queue.Full:  # pragma: no cover - defensive only
+                    self._close(connection)
+                return result
+        raise RedisError(f"redis command failed after reconnect: {last_error}") from last_error
 
     @staticmethod
     def _encode(parts: tuple[Any, ...]) -> bytes:
@@ -306,6 +557,14 @@ class Redis:
 
 
 redis = Redis()
+mesh_membership = MeshMembershipSource()
+
+
+def configure_mesh_membership(path: str | Path) -> None:
+    """Replace the manifest source (used by tests and controlled startup)."""
+
+    global mesh_membership
+    mesh_membership = MeshMembershipSource(path)
 
 
 # ── Truth Factory: Claims, Evidence, Verdicts ──────────────────────────
@@ -637,17 +896,224 @@ def all_task_ids() -> list[str]:
     return sorted(values)
 
 
-def registered_nodes() -> list[dict[str, Any]]:
+def audit_registered_nodes(current: float | None = None) -> list[dict[str, Any]]:
+    """Return every Agent Host card retained in Redis for audit purposes."""
+
     node_ids = sorted(redis.command("SMEMBERS", key("node_ids")) or [])
     raw_nodes = get_json_many([node_key(node_id) for node_id in node_ids])
     drains = redis.command("MGET", *[drain_key(node_id) for node_id in node_ids]) if node_ids else []
-    current = now_ts()
+    observed_at = now_ts() if current is None else current
     nodes = []
     for node_id, raw_node, draining in zip(node_ids, raw_nodes, drains):
-        node = raw_node or {"node_id": node_id}
+        record_present = isinstance(raw_node, dict)
+        node = dict(raw_node) if record_present else {}
+        # The Redis set member is the immutable audit identity.  A payload may
+        # not impersonate another canonical member by changing ``node_id``.
+        node["node_id"] = node_id
+        node["runtime_record_present"] = record_present
         node["draining"] = bool(draining)
-        nodes.append(classify_node_freshness(node, current))
+        nodes.append(classify_node_freshness(node, observed_at))
     return nodes
+
+
+def build_canonical_fleet_view(
+    *,
+    audit_nodes: list[dict[str, Any]] | None = None,
+    current: float | None = None,
+) -> dict[str, Any]:
+    """Reconcile mesh authority with Redis observations without deleting audit.
+
+    The active list always has exactly one row per live mesh peer.  A peer
+    without an Agent Host observation is represented by a non-schedulable,
+    quarantined placeholder.  Redis-only identities are retained solely in
+    ``historical``.
+    """
+
+    snapshot = mesh_membership.load()
+    observed_at = now_ts() if current is None else current
+    audit = audit_registered_nodes(observed_at) if audit_nodes is None else [dict(item) for item in audit_nodes]
+    audit_by_id = {
+        str(node.get("node_id") or ""): node
+        for node in audit
+        if str(node.get("node_id") or "")
+    }
+    canonical_ids = set(snapshot.by_id)
+    active: list[dict[str, Any]] = []
+    registered_total = 0
+    missing_total = 0
+
+    for member in snapshot.members:
+        raw = audit_by_id.get(member.node_id)
+        if raw is None or raw.get("runtime_record_present") is False:
+            missing_total += 1
+            active.append({
+                "node_id": member.node_id,
+                "hostname": member.node_id,
+                "mesh_ip": member.mesh_ip,
+                "internal_ip": member.mesh_ip,
+                "capabilities": [],
+                "runners": {},
+                "health": "quarantined",
+                "reported_health": "missing",
+                "freshness": "stale",
+                "heartbeat_age_seconds": None,
+                "heartbeat_at": None,
+                "draining": False,
+                "registered": False,
+                "schedulable": False,
+                "lifecycle": "quarantined",
+                "membership_scope": "active",
+                "membership_state": "missing_agent_host_registration",
+                "quarantine_reason": "canonical_member_missing_agent_host_registration",
+            })
+            continue
+
+        registered_total += 1
+        node = dict(raw)
+        # ``audit_nodes`` is an injection seam for pure tests, so ensure its
+        # records receive the same freshness classification as Redis records.
+        if node.get("freshness") not in {"fresh", "degraded", "stale"}:
+            node = classify_node_freshness(node, observed_at)
+        node.update({
+            "node_id": member.node_id,
+            "mesh_ip": member.mesh_ip,
+            "internal_ip": member.mesh_ip,
+            "registered": True,
+            "membership_scope": "active",
+            "membership_state": "registered",
+            "archived": False,
+        })
+        ready_health = str(node.get("health") or "").lower() in {"online", "healthy", "ready"}
+        node["schedulable"] = bool(
+            node.get("freshness") == "fresh"
+            and ready_health
+            and not node.get("draining")
+        )
+        if node["schedulable"]:
+            node["lifecycle"] = "active"
+        elif node.get("freshness") == "stale":
+            node["lifecycle"] = "stale"
+        else:
+            node["lifecycle"] = "degraded"
+        active.append(node)
+
+    historical: list[dict[str, Any]] = []
+    for raw in audit:
+        node_id = str(raw.get("node_id") or "")
+        if node_id in canonical_ids:
+            continue
+        node = dict(raw)
+        if node.get("freshness") not in {"fresh", "degraded", "stale"}:
+            node = classify_node_freshness(node, observed_at)
+        node.update({
+            "node_id": node_id,
+            "registered": node.get("runtime_record_present") is not False,
+            "schedulable": False,
+            "membership_scope": "audit",
+            "membership_state": "archived",
+            "lifecycle": "archived",
+            "archived": True,
+            "archive_reason": "not_in_canonical_mesh_manifest",
+        })
+        historical.append(node)
+
+    active.sort(key=lambda item: (item.get("node_id") != "home", str(item.get("node_id"))))
+    historical.sort(key=lambda item: str(item.get("node_id")))
+    membership = {
+        **snapshot.metadata(),
+        "registered_total": registered_total,
+        "missing_total": missing_total,
+        "historical_total": len(historical),
+        "archived_total": len(historical),
+        "schedulable_total": sum(1 for node in active if node.get("schedulable") is True),
+    }
+    return {"active": active, "historical": historical, "membership": membership}
+
+
+def registered_nodes() -> list[dict[str, Any]]:
+    """Return canonical active membership only (including safe placeholders)."""
+
+    return build_canonical_fleet_view()["active"]
+
+
+def node_membership_annotation(node_id: str) -> dict[str, Any]:
+    """Classify a runtime observation without allowing it to create membership."""
+
+    snapshot = mesh_membership.load()
+    member = snapshot.by_id.get(node_id) if node_id == str(node_id).strip() else None
+    if member is None:
+        return {
+            "membership_scope": "audit",
+            "membership_state": "archived",
+            "archived": True,
+            "schedulable": False,
+            "archive_reason": "not_in_canonical_mesh_manifest",
+        }
+    return {
+        "membership_scope": "active",
+        "membership_state": "registered",
+        "archived": False,
+        "mesh_ip": member.mesh_ip,
+        "internal_ip": member.mesh_ip,
+    }
+
+
+def canonical_nodes_payload(
+    scope: str = "active",
+    *,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict[str, Any]:
+    """Build the paginated public/audit membership contract."""
+
+    if scope not in {"active", "audit", "all"}:
+        raise ValueError("node_membership_scope_invalid")
+    view = build_canonical_fleet_view()
+    selected = (
+        view["active"]
+        if scope == "active"
+        else view["historical"]
+        if scope == "audit"
+        else view["active"] + view["historical"]
+    )
+    bounded_limit = min(max(int(limit), 1), 250)
+    bounded_offset = max(int(offset), 0)
+    page = selected[bounded_offset:bounded_offset + bounded_limit]
+    counts = node_health_counts(selected)
+    return {
+        "nodes": page,
+        "scope": scope,
+        "counts": counts,
+        "freshness": counts,
+        "active_counts": node_health_counts(view["active"]),
+        "audit_counts": node_health_counts(view["historical"]),
+        "membership": view["membership"],
+        "pagination": {
+            "limit": bounded_limit,
+            "offset": bounded_offset,
+            "returned": len(page),
+            "total_indexed": len(selected),
+        },
+    }
+
+
+def lease_node_eligibility(node_id: str) -> dict[str, Any]:
+    """Fail closed unless a fresh Agent Host is an exact canonical member."""
+
+    membership = node_membership_annotation(node_id)
+    if membership.get("membership_scope") != "active":
+        return {"eligible": False, "reason": "node_not_in_canonical_mesh_membership"}
+    if redis.command("GET", drain_key(node_id)):
+        return {"eligible": False, "reason": "node_draining"}
+    node = get_json(node_key(node_id), {})
+    if not node:
+        return {"eligible": False, "reason": "canonical_node_not_registered"}
+    classified = classify_node_freshness({**node, "node_id": node_id})
+    if classified.get("freshness") != "fresh":
+        return {"eligible": False, "reason": "canonical_node_heartbeat_not_fresh", "node": classified}
+    if str(classified.get("health") or "").lower() not in {"online", "healthy", "ready"}:
+        return {"eligible": False, "reason": "canonical_node_not_healthy", "node": classified}
+    return {"eligible": True, "reason": "canonical_node_ready", "node": node}
 
 
 def queue_ids() -> list[str]:
@@ -679,7 +1145,7 @@ def canonical_response_envelope(
         "task_id": task_id or "",
         "trace_id": trace_id or task_id or "",
         "status": status,
-        "node": node or "main",
+        "node": node or "home",
         "route_used": route_used or "protected_fabric_api",
         "fallback_nodes": fallback_nodes or [],
         "artifacts": artifacts or [],
@@ -694,7 +1160,9 @@ def task_envelope_from_request(body: dict[str, Any], default_kind: str = "owner_
     envelope = dict(body)
     envelope.setdefault("kind", default_kind)
     envelope.setdefault("source", "fabric_api")
-    envelope.setdefault("command_node", body.get("command_node") or body.get("source") or "unknown")
+    # This process is allowed to run only on canonical Home. Request payloads
+    # cannot claim another Control Plane identity.
+    envelope["command_node"] = "home"
     envelope.setdefault("requested_role", "remote_agent")
     envelope.setdefault("fallback_allowed", True)
     envelope.setdefault("write_scope", [])
@@ -711,12 +1179,11 @@ def fleet_capabilities(nodes: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def fleet_topology(nodes: list[dict[str, Any]]) -> dict[str, Any]:
-    edges = [{"from": "home", "to": "main", "type": "command_api"}]
-    edges.extend(
-        {"from": "main", "to": node["node_id"], "type": "protected_fabric_api"}
+    edges = [
+        {"from": "home", "to": node["node_id"], "type": "protected_fabric_api"}
         for node in nodes
-        if node["node_id"] != "main"
-    )
+        if node["node_id"] != "home"
+    ]
     return {
         "nodes": nodes,
         "edges": edges,
@@ -733,7 +1200,7 @@ def model_stub_envelope(body: dict[str, Any], *, endpoint: str) -> dict[str, Any
         trace_id=trace_id,
         node=body.get("target_node") or "model-node",
         route_used=endpoint,
-        fallback_nodes=["9fts", "uiap"],
+        fallback_nodes=[],
         blocked_reason="model_runtime_unavailable",
         repair_task={
             "kind": "repair_model_runtime_route",
@@ -751,7 +1218,7 @@ def admin_denied_envelope(body: dict[str, Any], *, endpoint: str) -> dict[str, A
         status="blocked",
         task_id=task_id,
         trace_id=trace_id,
-        node=body.get("target_node") or "main",
+        node=body.get("target_node") or "home",
         route_used=endpoint,
         blocked_reason="admin_scope_denied",
         repair_task={
@@ -785,7 +1252,7 @@ def task_artifact_envelope(task: dict[str, Any] | None, task_id: str) -> dict[st
     return canonical_response_envelope(
         status="completed" if artifacts else "partial",
         task_id=task_id,
-        node=(task.get("lease_owner") or "main").split(":", 1)[0],
+        node=(task.get("lease_owner") or "home").split(":", 1)[0],
         artifacts=artifacts,
         data={"task_state": task.get("state"), "result_reference": task.get("result_reference")},
         next_action="collect listed artifact paths from the authenticated artifact API" if artifacts else "wait for task completion or annotate result artifacts",
@@ -816,21 +1283,39 @@ def fabric_blocked_envelope(
 
 
 def _node_online(node: dict[str, Any]) -> bool:
+    if "schedulable" in node and node.get("schedulable") is not True:
+        return False
     return node.get("health") == "online"
 
 
 def fabric_nodes(registered_nodes: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
-    merged = {node_id: dict(node) for node_id, node in FABRIC_NODE_CATALOG.items()}
+    # Callers supply the canonical mesh-derived view.  Missing canonical
+    # members remain visible as quarantined placeholders; Redis-only audit
+    # identities never reach this function through ``registered_nodes()``.
+    merged: dict[str, dict[str, Any]] = {}
     for registered in registered_nodes or []:
         node_id = str(registered.get("node_id") or registered.get("id") or "")
         if not node_id:
             continue
-        catalog = merged.get(node_id, {"node_id": node_id, "api_paths": ["fabric_api", "fallback_relay"], "ssh": "emergency_bootstrap_diagnostic_only"})
-        catalog.update(registered)
-        catalog.setdefault("display_name", registered.get("hostname") or node_id)
-        catalog.setdefault("api_paths", ["fabric_api", "fallback_relay"])
-        catalog["ssh"] = "emergency_bootstrap_diagnostic_only"
-        merged[node_id] = catalog
+        node = {"node_id": node_id}
+        node.update(registered)
+        node.setdefault("display_name", registered.get("hostname") or node_id)
+        if node_id == "home":
+            node["role"] = "control_plane"
+            node["api_paths"] = list(HOME_CONTROL_PLANE_API_PATHS)
+        else:
+            if node.get("role") == "control_plane":
+                node["authority_rejected"] = True
+            node["role"] = str(node.get("role") or "worker")
+            if node["role"] == "control_plane":
+                node["role"] = "worker"
+            node.setdefault("api_paths", list(DEFAULT_WORKER_API_PATHS))
+            node["api_paths"] = [
+                path for path in node["api_paths"]
+                if path not in {"control_plane_api", "artifact_api"}
+            ]
+        node["ssh"] = "emergency_bootstrap_diagnostic_only"
+        merged[node_id] = node
     for node in merged.values():
         node.setdefault("health", "unknown")
         node.setdefault("fallback_api_relay", "/v1/fabric/relay")
@@ -900,6 +1385,31 @@ def enqueue(task_id: str) -> None:
 
 def remove_from_queue(task_id: str) -> None:
     redis.command("LREM", key("queue"), 0, task_id)
+
+
+def cancel_task_record(task: dict[str, Any], body: dict[str, Any]) -> dict[str, Any]:
+    if task.get("state") in TERMINAL_STATES:
+        return task
+    was_active = task.get("state") in {STATE_LEASED, STATE_RUNNING, STATE_REVIEW}
+    remove_from_queue(task["task_id"])
+    task["state"] = STATE_CANCELLED
+    task["cancel_requested_at"] = utc_now()
+    task["cancel_requested_by"] = str(body.get("requested_by") or "owner")[:80]
+    task["cancel_reason"] = str(body.get("reason") or "release_fence")[:500]
+    task["cancel_fence_id"] = uuid.uuid4().hex
+    task["cancel_was_active"] = was_active
+    task["lease_until"] = None
+    if not was_active:
+        task["cancel_acknowledged_at"] = utc_now()
+    save_task(task)
+    return task
+
+
+def acknowledge_cancelled_task(task: dict[str, Any]) -> dict[str, Any]:
+    if task.get("state") == STATE_CANCELLED and not task.get("cancel_acknowledged_at"):
+        task["cancel_acknowledged_at"] = utc_now()
+        save_task(task)
+    return task
 
 
 def lease_claim_key(task_id: str) -> str:
@@ -1009,9 +1519,32 @@ def runner_state(node: dict[str, Any], runner: str) -> str | None:
     return None
 
 
+def runner_result_binding_error(task: dict[str, Any], body: dict[str, Any]) -> dict[str, str] | None:
+    envelope = task.get("envelope") if isinstance(task.get("envelope"), dict) else {}
+    requested = str(envelope.get("runner") or "").strip().lower()
+    if not requested:
+        return None
+    result = body.get("result") if isinstance(body.get("result"), dict) else body
+    actual = str(result.get("runner") or "").strip().lower()
+    if actual == requested:
+        return None
+    return {
+        "error": "runner_result_mismatch",
+        "requested_runner": requested,
+        "result_runner": actual or "missing",
+    }
+
+
 def mark_node_runner_failure(task: dict[str, Any], body: dict[str, Any]) -> None:
     error_type = body.get("error_type")
-    if error_type not in {"runner_auth_blocked", "runner_unavailable"}:
+    blocked_failures = {
+        "runner_auth_blocked",
+        "runner_auth_failed",
+        "runner_access_denied",
+        "runner_policy_blocked",
+        "provider_risk_control",
+    }
+    if error_type not in blocked_failures | {"runner_unavailable", "provider_runner_outdated"}:
         return
     result = body.get("result") if isinstance(body.get("result"), dict) else {}
     envelope = task.get("envelope", {})
@@ -1025,7 +1558,7 @@ def mark_node_runner_failure(task: dict[str, Any], body: dict[str, Any]) -> None
     node = get_json(node_key(node_id), {"node_id": node_id})
     runners = node.get("runners") if isinstance(node.get("runners"), dict) else {}
     runners[str(runner)] = {
-        "status": "blocked" if error_type == "runner_auth_blocked" else "unavailable",
+        "status": "blocked" if error_type in blocked_failures else "unavailable",
         "error_type": error_type,
         "updated_at": utc_now(),
     }
@@ -1048,7 +1581,7 @@ def compatible(task: dict[str, Any], node_id: str, capabilities: list[str], node
     if required and required not in capabilities:
         return False
     runner = str(envelope.get("runner") or "").strip().lower()
-    if envelope.get("kind") == "owner_remote_task" and runner:
+    if runner:
         if not runner_capability_names(runner).intersection(set(capabilities)):
             return False
         node_state = runner_state(node or {}, runner)
@@ -1077,48 +1610,261 @@ def ensure_active_lease_index() -> None:
     redis.command("SET", marker, utc_now())
 
 
-def requeue_expired_leases() -> None:
+def active_lease_ids() -> list[str]:
+    ensure_active_lease_index()
+    return sorted(redis.command("SMEMBERS", key("active_lease_ids")) or [])
+
+
+def _task_heartbeat_age_seconds(task: dict[str, Any], current: datetime | None = None) -> float | None:
+    raw = task.get("heartbeat_at")
+    if not raw:
+        return None
+    try:
+        value = str(raw).replace("Z", "+00:00")
+        observed = datetime.fromisoformat(value)
+        if observed.tzinfo is None:
+            observed = observed.replace(tzinfo=timezone.utc)
+        return max(0.0, ((current or datetime.now(timezone.utc)) - observed).total_seconds())
+    except (TypeError, ValueError):
+        return None
+
+
+def requeue_expired_leases(limit: int | None = None) -> dict[str, Any]:
     ensure_active_lease_index()
     current = now_ts()
-    active_ids = sorted(redis.command("SMEMBERS", key("active_lease_ids")) or [])
-    for task_id in active_ids:
+    lease_ids = active_lease_ids()
+    bounded_limit = None if limit is None else max(0, int(limit))
+    selected_ids = lease_ids if bounded_limit is None else lease_ids[:bounded_limit]
+    summary: dict[str, Any] = {
+        "task_total": len(all_task_ids()),
+        "lease_index_total": len(lease_ids),
+        "scan_limit": bounded_limit,
+        "scan_truncated": bounded_limit is not None and len(lease_ids) > bounded_limit,
+        "checked": 0,
+        "expired": 0,
+        "requeued": [],
+        "dead_lettered": [],
+        "skipped": [],
+    }
+    for task_id in selected_ids:
         task = load_task(task_id)
         if not task or task.get("state") not in {STATE_LEASED, STATE_RUNNING, STATE_REVIEW}:
             redis.command("SREM", key("active_lease_ids"), task_id)
             continue
-        lease_until = float(task.get("lease_until") or 0)
+        summary["checked"] += 1
+        try:
+            lease_until = float(task.get("lease_until") or 0)
+        except (TypeError, ValueError):
+            summary["skipped"].append({"task_id": task_id, "reason": "invalid_lease_until"})
+            continue
         if lease_until >= current:
             continue
+        summary["expired"] += 1
+        task["lease_owner"] = None
+        task["lease_until"] = None
         if int(task.get("attempt", 0)) < int(task.get("max_retries", MAX_RETRIES)):
             task["state"] = STATE_RETRY
-            task["lease_owner"] = None
-            task["lease_until"] = None
             task["error_type"] = "lease_expired"
             task["error"] = "lease expired before task completion"
             save_task(task)
             task["state"] = STATE_QUEUED
             save_task(task)
+            remove_from_queue(task_id)
             enqueue(task_id)
+            summary["requeued"].append(task_id)
         else:
             task["state"] = STATE_DEAD
             task["error_type"] = "lease_expired"
             task["error"] = "lease expired and retry budget exhausted"
             save_task(task)
             redis.command("RPUSH", key("dead_letter"), task_id)
+            summary["dead_lettered"].append(task_id)
+    summary["requeued_total"] = len(summary["requeued"])
+    summary["dead_lettered_total"] = len(summary["dead_lettered"])
+    summary["skipped_total"] = len(summary["skipped"])
+    return summary
+
+
+def sweep_stuck_tasks(limit: int | None = None, stale_after: int | None = None) -> dict[str, Any]:
+    threshold = max(1, int(stale_after if stale_after is not None else TASK_HEARTBEAT_STALE_AFTER))
+    lease_ids = active_lease_ids()
+    bounded_limit = None if limit is None else max(0, int(limit))
+    selected_ids = lease_ids if bounded_limit is None else lease_ids[:bounded_limit]
+    summary: dict[str, Any] = {
+        "task_total": len(all_task_ids()),
+        "lease_index_total": len(lease_ids),
+        "scan_limit": bounded_limit,
+        "stale_after_seconds": threshold,
+        "scan_truncated": bounded_limit is not None and len(lease_ids) > bounded_limit,
+        "checked": 0,
+        "stuck": 0,
+        "requeued": [],
+        "dead_lettered": [],
+        "skipped": [],
+    }
+    current = datetime.now(timezone.utc)
+    for task_id in selected_ids:
+        task = load_task(task_id)
+        if not task or task.get("state") not in {STATE_LEASED, STATE_RUNNING, STATE_REVIEW}:
+            redis.command("SREM", key("active_lease_ids"), task_id)
+            continue
+        summary["checked"] += 1
+        age = _task_heartbeat_age_seconds(task, current)
+        if age is None:
+            summary["skipped"].append({"task_id": task_id, "reason": "missing_or_invalid_heartbeat"})
+            continue
+        if age <= threshold:
+            continue
+        summary["stuck"] += 1
+        task["lease_owner"] = None
+        task["lease_until"] = None
+        task["error_type"] = "stuck_no_heartbeat"
+        if int(task.get("attempt", 0)) < int(task.get("max_retries", MAX_RETRIES)):
+            task["state"] = STATE_RETRY
+            task["error"] = f"task heartbeat stale for {int(age)}s"
+            save_task(task)
+            task["state"] = STATE_QUEUED
+            save_task(task)
+            remove_from_queue(task_id)
+            enqueue(task_id)
+            summary["requeued"].append({"task_id": task_id, "heartbeat_age_seconds": int(age)})
+        else:
+            task["state"] = STATE_DEAD
+            task["error"] = f"task heartbeat stale for {int(age)}s and retry budget exhausted"
+            save_task(task)
+            redis.command("RPUSH", key("dead_letter"), task_id)
+            summary["dead_lettered"].append({"task_id": task_id, "heartbeat_age_seconds": int(age)})
+    summary["requeued_total"] = len(summary["requeued"])
+    summary["dead_lettered_total"] = len(summary["dead_lettered"])
+    summary["skipped_total"] = len(summary["skipped"])
+    return summary
+
+
+def queue_maintenance_diagnostics(stale_after: int | None = None) -> dict[str, Any]:
+    threshold = max(1, int(stale_after if stale_after is not None else TASK_HEARTBEAT_STALE_AFTER))
+    lease_ids = active_lease_ids()
+    current_ts = now_ts()
+    current_dt = datetime.now(timezone.utc)
+    expired = 0
+    stuck = 0
+    for task_id in lease_ids:
+        task = load_task(task_id)
+        if not task or task.get("state") not in {STATE_LEASED, STATE_RUNNING, STATE_REVIEW}:
+            continue
+        try:
+            if float(task.get("lease_until") or 0) < current_ts:
+                expired += 1
+        except (TypeError, ValueError):
+            pass
+        age = _task_heartbeat_age_seconds(task, current_dt)
+        if age is not None and age > threshold:
+            stuck += 1
+    return {
+        "redis": "PONG",
+        "task_total": len(all_task_ids()),
+        "queue_total": len(queue_ids()),
+        "lease_index_total": len(lease_ids),
+        "expired_leases": expired,
+        "stuck_heartbeat_tasks": stuck,
+        "stale_after_seconds": threshold,
+    }
+
+
+def failure_task_listing(error_type: str, limit: int) -> dict[str, Any]:
+    matched: list[dict[str, Any]] = []
+    for task_id in all_task_ids():
+        task = load_task(task_id)
+        if task and str(task.get("error_type") or "") == error_type:
+            matched.append({
+                "task_id": task.get("task_id"),
+                "state": task.get("state"),
+                "error_type": task.get("error_type"),
+                "error": task.get("error"),
+                "updated_at": task.get("updated_at"),
+            })
+    matched.sort(key=lambda item: str(item.get("updated_at") or ""), reverse=True)
+    bounded = max(0, min(int(limit), 250))
+    returned = matched[:bounded]
+    return {
+        "error_type": error_type,
+        "total": len(matched),
+        "returned": len(returned),
+        "truncated": len(matched) > len(returned),
+        "tasks": returned,
+    }
 
 
 def create_task(envelope: dict[str, Any]) -> dict[str, Any]:
+    if envelope.get("kind") in RELEASE_TASK_KINDS:
+        envelope = authorize_release_task(envelope)
     task = normalize_task(envelope)
     idem_key = key(f"idempotency:{task['idempotency_key']}")
-    existing = redis.command("GET", idem_key)
-    if existing:
-        existing_task = load_task(existing)
-        if existing_task:
-            return existing_task
-    save_task(task)
-    redis.command("SET", idem_key, task["task_id"])
-    enqueue(task["task_id"])
-    return task
+    request_hash = hashlib.sha256(
+        json.dumps(envelope, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    claim = json.dumps(
+        {"request_hash": request_hash, "task_id": task["task_id"]},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    release_id = ""
+    if task.get("kind") in RELEASE_TASK_KINDS:
+        release_id = str(
+            envelope.get("release_id")
+            or envelope.get("rollback_to_release_id")
+            or ""
+        ).strip()
+    task_json = json.dumps(task, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    release_index_key = release_task_ids_key(release_id) if release_id else key("release:no_index")
+    script = (
+        "local existing=redis.call('GET',KEYS[1]);"
+        "if existing then return {0,existing}; end;"
+        "redis.call('SET',KEYS[1],ARGV[1]);"
+        "redis.call('SET',KEYS[2],ARGV[2]);"
+        "redis.call('SADD',KEYS[3],ARGV[3]);"
+        "redis.call('RPUSH',KEYS[4],ARGV[3]);"
+        "if ARGV[4]=='1' then redis.call('SADD',KEYS[5],ARGV[3]); end;"
+        "return {1,ARGV[2]};"
+    )
+    result = redis.command(
+        "EVAL",
+        script,
+        5,
+        idem_key,
+        task_key(task["task_id"]),
+        key("task_ids"),
+        key("queue"),
+        release_index_key,
+        claim,
+        task_json,
+        task["task_id"],
+        "1" if release_id else "0",
+    )
+    if not isinstance(result, list) or len(result) != 2:
+        raise RuntimeError("idempotency_claim_failed")
+    if int(result[0]) == 1:
+        return json.loads(result[1])
+
+    existing_raw = str(result[1])
+    try:
+        existing_claim = json.loads(existing_raw)
+    except json.JSONDecodeError:
+        existing_claim = {"task_id": existing_raw, "request_hash": None}
+    existing_task_id = str(existing_claim.get("task_id") or "")
+    existing_task = load_task(existing_task_id) if existing_task_id else None
+    existing_hash = existing_claim.get("request_hash")
+    if existing_hash is None and existing_task:
+        existing_hash = hashlib.sha256(
+            json.dumps(
+                existing_task.get("envelope") or {},
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+    if existing_hash != request_hash or not existing_task:
+        raise IdempotencyConflict(str(task["idempotency_key"]), existing_task_id)
+    return existing_task
 
 
 def create_review_task(source_task: dict[str, Any], result: dict[str, Any]) -> dict[str, Any] | None:
@@ -1133,7 +1879,6 @@ def create_review_task(source_task: dict[str, Any], result: dict[str, Any]) -> d
         "task_id": review_id,
         "idempotency_key": f"review:{source_task['task_id']}",
         "kind": "review_pr",
-        "target_node": envelope.get("review_node", "new"),
         "required_capability": "review",
         "source_task_id": source_task["task_id"],
         "pull_request_url": pr_url,
@@ -1141,6 +1886,9 @@ def create_review_task(source_task: dict[str, Any], result: dict[str, Any]) -> d
         "base_ref": envelope.get("base_ref", "origin/main"),
         "max_retries": envelope.get("review_max_retries", MAX_RETRIES),
     }
+    review_node = envelope.get("review_node")
+    if review_node:
+        review_envelope["target_node"] = review_node
     review = create_task(review_envelope)
     review["state"] = STATE_REVIEW if review["state"] == STATE_QUEUED else review["state"]
     save_task(review)
@@ -1184,11 +1932,8 @@ def validate_miniapp(handler: BaseHTTPRequestHandler, body: dict[str, Any] | Non
 
 
 def superfactory_status() -> dict[str, Any]:
-    nodes = []
-    for node_id in sorted(redis.command("SMEMBERS", key("node_ids")) or []):
-        node = get_json(node_key(node_id), {})
-        node["draining"] = bool(redis.command("GET", drain_key(node_id)))
-        nodes.append(node)
+    fleet = build_canonical_fleet_view()
+    nodes = fleet["active"]
     tasks = [task for task in (load_task(task_id) for task_id in all_task_ids()) if task]
     counts: dict[str, int] = {}
     for task in tasks:
@@ -1205,6 +1950,8 @@ def superfactory_status() -> dict[str, Any]:
         },
         "runner_policy": runner_policy(),
         "nodes": nodes,
+        "membership": fleet["membership"],
+        "historical_nodes": len(fleet["historical"]),
         "task_counts": counts,
         "queue": queue_ids(),
     }
@@ -1248,11 +1995,32 @@ class Handler(BaseHTTPRequestHandler):
                 pong = redis.command("PING")
                 response(self, 200, canonical_response_envelope(
                     status="completed",
-                    node="main",
+                    node="home",
                     route_used="/v1/health",
                     data={"redis": pong, "queue_backend": "redis", "time": utc_now(), "fabric_api_version": FABRIC_API_VERSION, "truth_factory": "enabled"},
                     next_action="use /v1/fleet/route before dispatching work to a node",
                 ))
+                return
+            if path == "/v1/approvals":
+                approvals = list_owner_approvals()
+                response(self, 200, {"approvals": approvals, "count": len(approvals)})
+                return
+            if path.startswith("/v1/approvals/"):
+                approval_id = _safe_record_id(unquote(path.split("/", 3)[3]), "approval_id")
+                approval = get_json(owner_approval_key(approval_id), {})
+                if not approval:
+                    response(self, 404, {"error": "approval_not_found", "approval_id": approval_id})
+                    return
+                response(self, 200, approval)
+                return
+            if path.startswith("/v1/releases/") and path.endswith("/health"):
+                parts = path.split("/")
+                if len(parts) != 7 or parts[4] != "nodes":
+                    response(self, 404, {"error": "invalid_release_health_path"})
+                    return
+                health = release_health(unquote(parts[3]), unquote(parts[5]))
+                status_code = 404 if health["status"] == "unknown" else 200
+                response(self, status_code, health)
                 return
             if path == "/v1/truth/summary":
                 response(self, 200, get_truth_summary())
@@ -1278,40 +2046,38 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path == "/v1/nodes":
                 query = parse_qs(parsed.query)
-                limit = min(max(int(query.get("limit", ["50"])[0]), 1), 250)
-                offset = max(int(query.get("offset", ["0"])[0]), 0)
-                nodes = []
-                current = now_ts()
-                node_ids = sorted(redis.command("SMEMBERS", key("node_ids")) or [])
-                total_indexed = len(node_ids)
-                page_ids = node_ids[offset:offset + limit]
-                page_nodes = get_json_many([node_key(node_id) for node_id in page_ids])
-                drains = redis.command("MGET", *[drain_key(node_id) for node_id in page_ids]) if page_ids else []
-                for node_id, raw_node, draining in zip(page_ids, page_nodes, drains):
-                    node = raw_node or {"node_id": node_id}
-                    node["draining"] = bool(draining)
-                    nodes.append(classify_node_freshness(node, current))
-                counts = node_health_counts(nodes)
-                response(self, 200, {
-                    "nodes": nodes,
-                    "counts": counts,
-                    "freshness": counts,
-                    "pagination": {
-                        "limit": limit,
-                        "offset": offset,
-                        "returned": len(nodes),
-                        "total_indexed": total_indexed,
-                    },
-                })
+                scope = str(query.get("scope", ["active"])[0]).strip().lower()
+                try:
+                    payload = canonical_nodes_payload(
+                        scope,
+                        limit=int(query.get("limit", ["50"])[0]),
+                        offset=int(query.get("offset", ["0"])[0]),
+                    )
+                except ValueError as exc:
+                    response(self, 400, {"error": str(exc)})
+                    return
+                response(self, 200, payload)
                 return
             if path.startswith("/v1/nodes/"):
-                node_id = path.split("/", 3)[3]
-                node = get_json(node_key(node_id), {})
-                if not node:
+                query = parse_qs(parsed.query)
+                scope = str(query.get("scope", ["active"])[0]).strip().lower()
+                if scope not in {"active", "audit", "all"}:
+                    response(self, 400, {"error": "node_membership_scope_invalid"})
+                    return
+                node_id = unquote(path.split("/", 3)[3])
+                view = build_canonical_fleet_view()
+                candidates = (
+                    view["active"]
+                    if scope == "active"
+                    else view["historical"]
+                    if scope == "audit"
+                    else view["active"] + view["historical"]
+                )
+                node = next((item for item in candidates if item.get("node_id") == node_id), None)
+                if node is None:
                     response(self, 404, {"error": "node_not_found", "node_id": node_id})
                     return
-                node["draining"] = bool(redis.command("GET", drain_key(node_id)))
-                response(self, 200, classify_node_freshness(node))
+                response(self, 200, node)
                 return
             if path == "/v1/fleet/nodes":
                 nodes = fabric_nodes(registered_nodes())
@@ -1341,7 +2107,7 @@ class Handler(BaseHTTPRequestHandler):
                 status = "completed" if route.get("status") == "ok" else "blocked"
                 response(self, 200 if status == "completed" else 503, canonical_response_envelope(
                     status=status,
-                    node=route.get("route", {}).get("target_node") or route.get("target_node") or "main",
+                    node=route.get("route", {}).get("target_node") or route.get("target_node") or "home",
                     route_used="/v1/fleet/route",
                     fallback_nodes=route.get("fallback_nodes", []),
                     blocked_reason=route.get("reason", ""),
@@ -1424,6 +2190,18 @@ class Handler(BaseHTTPRequestHandler):
                     "queue_total": len(queue),
                 })
                 return
+            if path == "/v1/tasks/queue/diagnostics":
+                query = parse_qs(parsed.query)
+                stale_after_raw = query.get("stale_after_seconds", [None])[0]
+                stale_after = int(stale_after_raw) if stale_after_raw is not None else None
+                response(self, 200, queue_maintenance_diagnostics(stale_after))
+                return
+            if path == "/v1/tasks/failures":
+                query = parse_qs(parsed.query)
+                error_type = str(query.get("error_type", ["deliverable_gate_failed"])[0] or "deliverable_gate_failed")
+                limit = min(max(int(query.get("limit", ["50"])[0]), 0), 250)
+                response(self, 200, failure_task_listing(error_type, limit))
+                return
             if path.startswith("/v1/tasks/"):
                 task_id = path.split("/", 3)[3]
                 task = load_task(task_id)
@@ -1470,7 +2248,7 @@ class Handler(BaseHTTPRequestHandler):
                 response(self, 200, canonical_response_envelope(
                     status="completed" if task.get("state") in TERMINAL_STATES else "running",
                     task_id=task_id,
-                    node=(task.get("lease_owner") or "main").split(":", 1)[0],
+                    node=(task.get("lease_owner") or "home").split(":", 1)[0],
                     route_used="/v1/agents/status",
                     data={"task": task},
                     next_action="poll /v1/agents/artifacts/{task_id}" if task.get("state") in TERMINAL_STATES else "continue polling status",
@@ -1483,6 +2261,12 @@ class Handler(BaseHTTPRequestHandler):
                 response(self, 200 if task else 404, envelope)
                 return
             response(self, 404, {"error": "not_found", "path": path})
+        except MembershipError as exc:
+            response(self, 503, {
+                "error": "canonical_mesh_membership_unavailable",
+                "detail": str(exc),
+                "scheduler": "fail_closed",
+            })
         except Exception as exc:  # pragma: no cover - surfaced in runtime logs
             response(self, 500, {"error": "control_plane_error", "detail": str(exc)})
 
@@ -1491,6 +2275,15 @@ class Handler(BaseHTTPRequestHandler):
         path = parsed.path.rstrip("/") or "/"
         try:
             body = read_body(self)
+            if path == "/v1/approvals":
+                try:
+                    approval = verify_owner_approval(body)
+                    save_owner_approval(approval)
+                except ValueError as exc:
+                    response(self, 422, {"error": str(exc)})
+                    return
+                response(self, 201, approval)
+                return
             if path == "/v1/nodes/register":
                 node_id = body["node_id"]
                 node = {
@@ -1505,10 +2298,12 @@ class Handler(BaseHTTPRequestHandler):
                     "ram": body.get("ram"),
                     "disk": body.get("disk"),
                     "agent_id": body.get("agent_id"),
+                    "labels": body.get("labels") if isinstance(body.get("labels"), dict) else {},
                 }
                 set_json(node_key(node_id), node)
                 redis.command("SADD", key("node_ids"), node_id)
-                response(self, 200, node)
+                annotation = node_membership_annotation(node_id)
+                response(self, 200, {**node, **annotation})
                 return
             if path.startswith("/v1/nodes/") and path.endswith("/heartbeat"):
                 node_id = path.split("/")[3]
@@ -1518,7 +2313,8 @@ class Handler(BaseHTTPRequestHandler):
                 node["heartbeat_at"] = utc_now()
                 set_json(node_key(node_id), node)
                 redis.command("SADD", key("node_ids"), node_id)
-                response(self, 200, node)
+                annotation = node_membership_annotation(node_id)
+                response(self, 200, {**node, **annotation})
                 return
             if path.startswith("/v1/nodes/") and path.endswith("/drain"):
                 node_id = path.split("/")[3]
@@ -1530,8 +2326,35 @@ class Handler(BaseHTTPRequestHandler):
                 response(self, 200, {"node_id": node_id, "draining": drain})
                 return
             if path == "/v1/tasks":
-                task = create_task(body)
+                try:
+                    task = create_task(body)
+                except IdempotencyConflict as exc:
+                    response(self, 409, {
+                        "error": str(exc),
+                        "idempotency_key": exc.idempotency_key,
+                        "existing_task_id": exc.existing_task_id,
+                    })
+                    return
+                except ValueError as exc:
+                    response(self, 422, {"error": str(exc)})
+                    return
                 response(self, 201, task)
+                return
+            if path == "/v1/tasks/reap-expired":
+                limit = body.get("limit")
+                response(self, 200, requeue_expired_leases(int(limit) if limit is not None else None))
+                return
+            if path == "/v1/tasks/sweep-stuck":
+                limit = body.get("limit")
+                stale_after = body.get("stale_after_seconds")
+                response(
+                    self,
+                    200,
+                    sweep_stuck_tasks(
+                        int(limit) if limit is not None else None,
+                        int(stale_after) if stale_after is not None else None,
+                    ),
+                )
                 return
             if path == "/v1/truth/claim":
                 claim = create_claim(
@@ -1583,7 +2406,7 @@ class Handler(BaseHTTPRequestHandler):
                     status="running",
                     task_id=task["task_id"],
                     trace_id=envelope.get("trace_id") or task["task_id"],
-                    node=envelope.get("target_node") or "main",
+                    node=envelope.get("target_node") or "home",
                     route_used="/v1/agents/tasks",
                     data={"task": task},
                     next_action="poll /v1/agents/status/{task_id}",
@@ -1648,12 +2471,15 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/v1/tasks/lease":
                 requeue_expired_leases()
                 node_id = body["node_id"]
-                if redis.command("GET", drain_key(node_id)):
+                eligibility = lease_node_eligibility(node_id)
+                if eligibility.get("eligible") is not True:
+                    # Preserve the Redis audit card, but a legacy/duplicate,
+                    # missing, drained, or stale identity receives no work.
                     response(self, 204, {})
                     return
                 capabilities = body.get("capabilities", [])
                 agent_id = body.get("agent_id", node_id)
-                node = get_json(node_key(node_id), {"node_id": node_id, "capabilities": capabilities})
+                node = eligibility["node"]
                 if isinstance(body.get("runners"), dict):
                     node["runners"] = body["runners"]
                     set_json(node_key(node_id), node)
@@ -1712,7 +2538,12 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 if reject_invalid_lease_fence(self, task, body):
                     return
+                binding_error = runner_result_binding_error(task, body)
+                if binding_error:
+                    response(self, 409, binding_error)
+                    return
                 if task.get("state") in TERMINAL_STATES:
+                    task = acknowledge_cancelled_task(task)
                     response(self, 200, {"task": task, "review_task": None})
                     return
                 result = body.get("result", body)
@@ -1758,7 +2589,12 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 if reject_invalid_lease_fence(self, task, body):
                     return
+                binding_error = runner_result_binding_error(task, body)
+                if binding_error:
+                    response(self, 409, binding_error)
+                    return
                 if task.get("state") in TERMINAL_STATES:
+                    task = acknowledge_cancelled_task(task)
                     response(self, 200, task)
                     return
                 error_type = body.get("error_type", "runtime_error")
@@ -1788,11 +2624,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not task:
                     response(self, 404, {"error": "task_not_found", "task_id": task_id})
                     return
-                remove_from_queue(task_id)
-                task["state"] = STATE_CANCELLED
-                task["cancel_requested_at"] = utc_now()
-                task["lease_until"] = None
-                save_task(task)
+                task = cancel_task_record(task, body)
                 response(self, 200, task)
                 return
             if path.startswith("/v1/agents/cancel/"):
@@ -1808,21 +2640,23 @@ class Handler(BaseHTTPRequestHandler):
                         next_action="verify task id before retrying cancellation",
                     ))
                     return
-                remove_from_queue(task_id)
-                task["state"] = STATE_CANCELLED
-                task["cancel_requested_at"] = utc_now()
-                task["lease_until"] = None
-                save_task(task)
+                task = cancel_task_record(task, body)
                 response(self, 200, canonical_response_envelope(
                     status="completed",
                     task_id=task_id,
-                    node=(task.get("lease_owner") or "main").split(":", 1)[0],
+                    node=(task.get("lease_owner") or "home").split(":", 1)[0],
                     route_used="/v1/agents/cancel",
                     data={"task": task},
                     next_action="poll /v1/agents/status/{task_id} to confirm terminal state",
                 ))
                 return
             response(self, 404, {"error": "not_found", "path": path})
+        except MembershipError as exc:
+            response(self, 503, {
+                "error": "canonical_mesh_membership_unavailable",
+                "detail": str(exc),
+                "scheduler": "fail_closed",
+            })
         except Exception as exc:  # pragma: no cover - surfaced in runtime logs
             response(self, 500, {"error": "control_plane_error", "detail": str(exc)})
 

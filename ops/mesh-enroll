@@ -1,29 +1,7 @@
 #!/bin/sh
 set -eu
-BASE=/etc/wireguard/kolibri-peers.d
-IF=${KOLIBRI_MESH_IF:-wg-kolibri}
-IF=${KOLIBRI_MESH_IF:-wg-kolibri}
-case "${1:-}" in
-  allocate)
-    install -d -m 700 "$BASE"
-    # 1-21 are the established fleet, 100/200 are client reservations.
-    for n in $(seq 22 99); do
-      ip="10.99.0.$n"
-      [ -e "$BASE/$ip.conf" ] || { echo "$ip"; exit 0; }
-    done
-    echo 'mesh address pool exhausted' >&2; exit 1
-    ;;
-  enroll)
-    [ "$#" -eq 5 ] || { echo 'usage: mesh-enroll enroll NODE_ID PUBLIC_KEY MESH_IP ENDPOINT' >&2; exit 2; }
-    node=$2; pub=$3; ip=$4; endpoint=$5
-    case "$ip" in 10.99.0.*) ;; *) echo 'mesh IP must be 10.99.0.x' >&2; exit 2;; esac
-    install -d -m 700 "$BASE"
-    tmp=$(mktemp "$BASE/.peer.XXXXXX")
-    trap 'rm -f "$tmp"' EXIT
-    printf '# %s\n[Peer]\nPublicKey = %s\nEndpoint = %s\nAllowedIPs = %s/32\nPersistentKeepalive = 25\n' "$node" "$pub" "$endpoint" "$ip" >"$tmp"
-    local_ip=$(ip -4 -o addr show "$IF" | awk '{print $4}' | cut -d/ -f1)
-    payload=$(printf '{"node_id":"%s","public_key":"%s","mesh_ip":"%s","endpoint":"%s"}' "$node" "$pub" "$ip" "$endpoint")
-    curl -fsS -X POST "http://$local_ip:9291/v1/mesh/peers" -H 'Content-Type: application/json' -d "$payload" >/dev/null
-    ;;
-  *) echo 'usage: mesh-enroll allocate | enroll NODE_ID PUBLIC_KEY MESH_IP ENDPOINT' >&2; exit 2;;
-esac
+
+# Keep the established command surface used by bootstrap, but delegate JSON,
+# authentication, validation and network I/O to the audited Python registry.
+REGISTRY_IMPL=${KOLIBRI_MESH_REGISTRY_IMPL:-/usr/local/lib/kolibri/mesh_registry.py}
+exec /usr/bin/python3 "$REGISTRY_IMPL" client "$@"

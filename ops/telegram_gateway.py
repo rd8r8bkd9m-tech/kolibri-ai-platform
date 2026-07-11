@@ -20,6 +20,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+try:
+    from ops.control_plane_endpoint import resolve_home_control_plane_url
+except ImportError:  # installed standalone beside this script
+    from control_plane_endpoint import resolve_home_control_plane_url
+
 CURRENT_DIR = Path(__file__).resolve().parent
 if str(CURRENT_DIR) not in sys.path:
     sys.path.insert(0, str(CURRENT_DIR))
@@ -393,26 +398,10 @@ class TelegramClient:
 
 class FactoryClient:
     def __init__(self, control_url: str, control_urls: str | None = None):
-        urls = [url.strip().rstrip("/") for url in (control_urls or control_url).split(",") if url.strip()]
-        self.control_urls = urls or [control_url.rstrip("/")]
-        self.control_url = self.control_urls[0]
-
-    def ordered_control_urls(self) -> list[str]:
-        urls = [self.control_url]
-        urls.extend(url for url in self.control_urls if url != self.control_url)
-        return urls
+        self.control_url = resolve_home_control_plane_url(control_url, control_urls)
 
     def request(self, method: str, path: str, body: dict[str, Any] | None = None, timeout: int = 35) -> Any:
-        last_exc: Exception | None = None
-        for control_url in self.ordered_control_urls():
-            try:
-                result = json_request(method, f"{control_url}{path}", body, timeout=timeout)
-                self.control_url = control_url
-                return result
-            except Exception as exc:
-                last_exc = exc
-        assert last_exc is not None
-        raise last_exc
+        return json_request(method, f"{self.control_url}{path}", body, timeout=timeout)
 
     def create_task(self, envelope: dict[str, Any]) -> dict[str, Any]:
         return self.request("POST", "/v1/tasks", envelope)
@@ -428,7 +417,7 @@ class FactoryClient:
         return self.request("POST", f"/v1/tasks/{quoted}/cancel", {"reason": "telegram cancel"})
 
     def nodes(self) -> dict[str, Any]:
-        return self.request("GET", "/v1/nodes")
+        return self.request("GET", "/v1/nodes?scope=active&limit=250")
 
 
 def compact_factory_snapshot(factory: FactoryClient) -> dict[str, Any]:
@@ -488,8 +477,14 @@ def runner_capability_names(runner: str) -> set[str]:
     return {f"runner:{runner}", f"runner_{runner}", f"{runner}_runner"}
 
 
-def runner_node_available(node: dict[str, Any], runner: str) -> bool:
+def node_available_for_execution(node: dict[str, Any]) -> bool:
     if node.get("health") != "online" or node.get("draining"):
+        return False
+    return True
+
+
+def runner_node_available(node: dict[str, Any], runner: str) -> bool:
+    if not node_available_for_execution(node):
         return False
     capabilities = set(node.get("capabilities") or [])
     if not runner_capability_names(runner).intersection(capabilities):
@@ -503,13 +498,37 @@ def runner_node_available(node: dict[str, Any], runner: str) -> bool:
     return True
 
 
-def select_runner_node(snapshot: dict[str, Any], runner: str, avoided: list[str] | None = None) -> str | None:
+def select_execution_node(
+    snapshot: dict[str, Any],
+    *,
+    required_capability: str | None = None,
+    runner: str | None = None,
+    avoided: list[str] | None = None,
+) -> str | None:
+    """Select only a live member advertising the requested runtime contract.
+
+    The Home Control Plane remains authoritative when no local snapshot is
+    available: callers omit ``target_node`` and let the same capability and
+    runner constraints drive lease scheduling.  A historical hostname is
+    never synthesized as a fallback.
+    """
+
     avoided_set = set(avoided or [])
     for node in snapshot.get("nodes") or []:
         node_id = node.get("node_id")
-        if node_id and node_id not in avoided_set and runner_node_available(node, runner):
-            return str(node_id)
+        if not node_id or node_id in avoided_set or not node_available_for_execution(node):
+            continue
+        capabilities = set(node.get("capabilities") or [])
+        if required_capability and required_capability not in capabilities:
+            continue
+        if runner and not runner_node_available(node, runner):
+            continue
+        return str(node_id)
     return None
+
+
+def select_runner_node(snapshot: dict[str, Any], runner: str, avoided: list[str] | None = None) -> str | None:
+    return select_execution_node(snapshot, runner=runner, avoided=avoided)
 
 
 def build_task_envelope(message: dict[str, Any], text: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -524,7 +543,6 @@ def build_task_envelope(message: dict[str, Any], text: str, context: dict[str, A
         "idempotency_key": f"telegram:{message['chat']['id']}:{message['message_id']}",
         "kind": os.environ.get("TELEGRAM_TASK_KIND", "owner_remote_task"),
         "required_capability": os.environ.get("TELEGRAM_TASK_CAPABILITY", "generic_implementation"),
-        "review_node": "new",
         "create_review_on_complete": False,
         "branch": f"agent/{task_id}/impl/{branch_slug}",
         "base_branch": "main",
@@ -560,11 +578,12 @@ def build_chat_envelope(message: dict[str, Any], text: str, snapshot: dict[str, 
         f"Контекст фабрики: {json.dumps(context, ensure_ascii=False, sort_keys=True)}\n"
         f"Сообщение владельца: {text}"
     )
+    required_capability = os.environ.get("TELEGRAM_CHAT_CAPABILITY", "generic_implementation")
     envelope = {
         "task_id": task_id,
         "idempotency_key": f"telegram-chat:{message['chat']['id']}:{message['message_id']}",
         "kind": os.environ.get("TELEGRAM_CHAT_KIND", "owner_remote_task"),
-        "required_capability": os.environ.get("TELEGRAM_CHAT_CAPABILITY", "generic_implementation"),
+        "required_capability": required_capability,
         "max_retries": 1,
         "message": text,
         "objective": objective,
@@ -580,9 +599,12 @@ def build_chat_envelope(message: dict[str, Any], text: str, snapshot: dict[str, 
     }
     target_node = os.environ.get("TELEGRAM_CHAT_NODE")
     if not target_node and context.get("nodes"):
-        target_node = select_runner_node(context, runner, envelope.get("avoid_nodes"))
-    if not target_node and not context.get("nodes"):
-        target_node = "primary-candidate"
+        target_node = select_execution_node(
+            context,
+            required_capability=required_capability,
+            runner=runner,
+            avoided=envelope.get("avoid_nodes"),
+        )
     if target_node:
         envelope["target_node"] = target_node
     return envelope
@@ -599,16 +621,17 @@ def build_image_envelope(message: dict[str, Any], text: str, snapshot: dict[str,
         f"Контекст фабрики: {json.dumps(context, ensure_ascii=False, sort_keys=True)}\n"
         f"Запрос владельца: {text}"
     )
+    required_capability = os.environ.get("TELEGRAM_IMAGE_CAPABILITY", "image_generation")
+    runner = str(os.environ.get("TELEGRAM_IMAGE_RUNNER") or "").strip().lower()
     envelope = {
         "task_id": task_id,
         "idempotency_key": f"telegram-image:{message['chat']['id']}:{message['message_id']}",
         "kind": os.environ.get("TELEGRAM_IMAGE_KIND", "telegram_image_generation"),
-        "required_capability": os.environ.get("TELEGRAM_IMAGE_CAPABILITY", "generic_implementation"),
+        "required_capability": required_capability,
         "max_retries": int(os.environ.get("TELEGRAM_IMAGE_MAX_RETRIES", "1")),
         "message": text,
         "prompt": text,
         "objective": prompt,
-        "runner": os.environ.get("TELEGRAM_IMAGE_RUNNER", "image"),
         "factory_snapshot": context,
         "source": {
             "kind": "telegram",
@@ -618,7 +641,16 @@ def build_image_envelope(message: dict[str, Any], text: str, snapshot: dict[str,
             "accepted_at": utc_now(),
         },
     }
-    target_node = os.environ.get("TELEGRAM_IMAGE_NODE", os.environ.get("TELEGRAM_CHAT_NODE", "primary-candidate"))
+    if runner:
+        envelope["runner"] = runner
+    target_node = os.environ.get("TELEGRAM_IMAGE_NODE")
+    if not target_node and context.get("nodes"):
+        target_node = select_execution_node(
+            context,
+            required_capability=required_capability,
+            runner=runner or None,
+            avoided=envelope.get("avoid_nodes"),
+        )
     if target_node:
         envelope["target_node"] = target_node
     return envelope
@@ -1413,11 +1445,12 @@ def handle_stop(signum: int, frame: Any) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--control-url", default=os.environ.get("KOLIBRI_FACTORY_CONTROL_URL", "http://10.99.0.2:9101"))
-    parser.add_argument("--control-urls", default=os.environ.get("KOLIBRI_FACTORY_CONTROL_URLS") or os.environ.get("KOLIBRI_FACTORY_CONTROL_URL", "http://10.99.0.2:9101"))
+    parser.add_argument("--control-url", default=os.environ.get("KOLIBRI_FACTORY_CONTROL_URL"))
+    parser.add_argument("--control-urls", default=os.environ.get("KOLIBRI_FACTORY_CONTROL_URLS"))
     parser.add_argument("--state-file", default=os.environ.get("TELEGRAM_GATEWAY_STATE", "/var/lib/kolibri-telegram-gateway/state.json"))
     parser.add_argument("--poll-timeout", type=int, default=int(os.environ.get("TELEGRAM_POLL_TIMEOUT", "25")))
     args = parser.parse_args()
+    args.control_url = resolve_home_control_plane_url(args.control_url, args.control_urls)
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
     owner_ids = parse_owner_ids(os.environ.get("TELEGRAM_OWNER_IDS", ""))
     if not owner_ids:
@@ -1443,7 +1476,7 @@ def main() -> int:
     if not startup_validation["ok"]:
         violations = startup_validation["violations"]
         raise SystemExit(f"HA guard rejected gateway startup: {violations}")
-    gateway = Gateway(telegram, FactoryClient(args.control_url, args.control_urls), owner_ids, StateStore(state_path), args.poll_timeout, gateway_role=gateway_role)
+    gateway = Gateway(telegram, FactoryClient(args.control_url), owner_ids, StateStore(state_path), args.poll_timeout, gateway_role=gateway_role)
     gateway.run()
     return 0
 

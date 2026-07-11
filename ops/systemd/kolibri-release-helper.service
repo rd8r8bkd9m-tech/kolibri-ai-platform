@@ -1,0 +1,30 @@
+[Unit]
+Description=Kolibri privileged release helper
+Requires=kolibri-release-helper.socket
+After=kolibri-release-helper.socket
+
+[Service]
+Type=simple
+User=root
+Group=root
+Environment=PYTHONPATH=/usr/local/lib/kolibri
+Environment=KOLIBRI_ARTIFACT_ROOT=/var/lib/kolibri-release/artifacts
+Environment=KOLIBRI_RELEASE_ROOT=/opt/kolibri-ai/releases
+Environment=KOLIBRI_RELEASE_CURRENT_LINK=/opt/kolibri-ai/current
+Environment=KOLIBRI_RELEASE_ALLOWED_SIGNERS=/etc/kolibri/release_allowed_signers
+Environment=KOLIBRI_OWNER_APPROVAL_ALLOWED_SIGNERS=/etc/kolibri/owner_allowed_signers
+Environment=KOLIBRI_RELEASE_POLICY=/etc/kolibri/release-policy.json
+Environment=KOLIBRI_RELEASE_HELPER_ALLOWED_USER=kolibri-agent
+ExecStart=/usr/bin/python3 /usr/local/lib/kolibri/release_helper.py --serve-systemd
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/kolibri-ai /var/lib/kolibri-release/artifacts /run/kolibri-release
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+UMask=0077

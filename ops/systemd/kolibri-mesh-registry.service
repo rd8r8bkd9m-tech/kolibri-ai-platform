@@ -1,12 +1,39 @@
 [Unit]
-Description=Kolibri distributed mesh registry
-After=network-online.target wg-quick@wg-kolibri.service
-Wants=network-online.target
+Description=Kolibri authenticated distributed mesh registrar
+Documentation=file:/usr/local/share/doc/kolibri/DISTRIBUTED_MESH_MEMBERSHIP.md
+After=network-online.target time-sync.target wg-quick@wg-kolibri.service
+Wants=network-online.target time-sync.target
 Requires=wg-quick@wg-kolibri.service
+
 [Service]
-ExecStart=/usr/bin/python3 /usr/local/lib/kolibri/mesh_registry.py
+Type=simple
+User=root
+Group=root
+UMask=0077
+StateDirectory=kolibri-mesh
+StateDirectoryMode=0700
+LoadCredential=mesh-identity:/etc/kolibri/mesh-identity
+Environment=KOLIBRI_MESH_REGISTRY_PORT=9291
+Environment=KOLIBRI_MESH_IDENTITY_FILE=%d/mesh-identity
+Environment=KOLIBRI_MESH_OWNER_TRUST_DIR=/etc/kolibri/mesh-trust/owners
+Environment=KOLIBRI_MESH_REGISTRAR_TRUST_DIR=/etc/kolibri/mesh-trust/registrars
+EnvironmentFile=-/etc/kolibri/mesh-registry.conf
+ExecStart=/usr/bin/python3 /usr/local/lib/kolibri/mesh_registry.py serve
 Restart=always
 RestartSec=3
-Environment=KOLIBRI_MESH_REGISTRY_PORT=9291
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+CapabilityBoundingSet=CAP_NET_ADMIN
+AmbientCapabilities=CAP_NET_ADMIN
+ReadWritePaths=/var/lib/kolibri-mesh /etc/wireguard/kolibri-peers.d
+
 [Install]
 WantedBy=multi-user.target

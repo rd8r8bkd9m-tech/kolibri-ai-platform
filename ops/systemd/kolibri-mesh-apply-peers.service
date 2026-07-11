@@ -3,9 +3,10 @@ Description=Kolibri persistent mesh peer enrollment
 After=wg-quick@wg-kolibri.service
 Requires=wg-quick@wg-kolibri.service
 PartOf=wg-quick@wg-kolibri.service
+Before=kolibri-mesh-registry.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
 ExecStart=/usr/local/sbin/kolibri-mesh-apply-peers
 [Install]
-WantedBy=multi-user.target
+WantedBy=multi-user.target wg-quick@wg-kolibri.service
