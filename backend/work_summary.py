@@ -146,6 +146,11 @@ def _safe_public_source_host(value: Any) -> str | None:
     try:
         address = ipaddress.ip_address(host)
     except ValueError:
+        # A four-label all-numeric hostname is an invalid IPv4 literal, not a
+        # public DNS name.  The browser validator applies the same boundary.
+        labels = host.split(".")
+        if len(labels) == 4 and all(label.isdigit() for label in labels):
+            return None
         return host
     return host if address.is_global else None
 
@@ -303,6 +308,25 @@ def _estimate_source_blocked(task: Any) -> bool:
     return verification.get("source_coverage_complete") is False or has_coverage_missing
 
 
+def _estimate_preliminary(task: Any) -> bool:
+    if not isinstance(task, dict):
+        return False
+    result = task.get("result") if isinstance(task.get("result"), dict) else {}
+    return (
+        result.get("type") == "deterministic_estimate"
+        and str(result.get("status") or "").strip().lower() == "preliminary"
+    )
+
+
+def _estimate_verified(task: Any) -> bool:
+    if not isinstance(task, dict):
+        return True
+    result = task.get("result") if isinstance(task.get("result"), dict) else {}
+    if result.get("type") != "deterministic_estimate":
+        return True
+    return str(result.get("status") or "").strip().lower() == "verified"
+
+
 def _verification_passed(verification: Any) -> bool:
     if not isinstance(verification, dict):
         return False
@@ -325,6 +349,7 @@ def build_work_summary(
     response_completed = response_status == "completed"
     needs_input = _task_needs_input(task)
     source_blocked = needs_input or _estimate_source_blocked(task)
+    preliminary_estimate = _estimate_preliminary(task)
     task_completed = _task_completed(task)
     completed = response_completed and task_completed and not source_blocked
     intent = _task_intent(task)
@@ -383,11 +408,16 @@ def build_work_summary(
             else "Часть обязательных ссылок на источники отсутствует; требуется дополнение."
         )
     elif hosts:
-        source_status: SummaryStatus = "passed" if completed else "failed"
+        source_status: SummaryStatus = (
+            "incomplete" if preliminary_estimate
+            else "passed" if completed
+            else "failed"
+        )
         date_detail = f" · даты: {', '.join(source_dates)}" if source_dates else ""
         source_detail = (
-            f"Источники: {source_count} · {', '.join(hosts)}"
-            f"{date_detail}."
+            f"{'Источники указаны' if preliminary_estimate else 'Источники'}: "
+            f"{source_count} · {', '.join(hosts)}{date_detail}."
+            + (" Независимая проверка не завершена." if preliminary_estimate else "")
         )
     elif requested:
         source_status = "failed" if terminal else "pending"
@@ -401,7 +431,7 @@ def build_work_summary(
     items.append(source_item)
 
     passed = _verification_passed(verification)
-    verified_complete = completed and passed
+    verified_complete = completed and passed and _estimate_verified(task)
     if source_blocked:
         check_status: SummaryStatus = "blocked"
         check_detail = (
@@ -409,6 +439,9 @@ def build_work_summary(
             if needs_input
             else "Проверка результата заблокирована неполным покрытием источников."
         )
+    elif preliminary_estimate:
+        check_status = "incomplete"
+        check_detail = "Денежный итог пересчитан; независимая проверка источников не завершена."
     elif terminal:
         check_status: SummaryStatus = "passed" if passed else "failed"
         check_detail = "Проверка результата пройдена." if passed else "Проверка результата не пройдена."
@@ -424,6 +457,9 @@ def build_work_summary(
             if needs_input
             else "Предварительный расчёт подготовлен; обязательные источники нужно дополнить."
         )
+    elif preliminary_estimate:
+        verdict_status = "incomplete"
+        verdict_detail = "Предварительная смета готова; окончательная проверка источников не завершена."
     elif not terminal:
         verdict_status: SummaryStatus = "pending"
         verdict_detail = "Итог появится после проверки."

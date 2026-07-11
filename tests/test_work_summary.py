@@ -139,11 +139,17 @@ def test_preliminary_estimate_projects_source_domains_and_price_dates():
         verification={"status": "passed"},
     )
     source = next(item for item in summary["items"] if item["kind"] == "source")
-    assert source["status"] == "passed"
-    assert "Источники: 2" in source["detail"]
+    assert source["status"] == "incomplete"
+    assert "Источники указаны: 2" in source["detail"]
     assert "minstroyrf.gov.ru" in source["detail"]
     assert "supplier.example" in source["detail"]
     assert "2026-Q2" in source["detail"]
+    by_kind = {item["kind"]: item for item in summary["items"]}
+    assert by_kind["check"]["status"] == "incomplete"
+    assert "независимая проверка" in by_kind["check"]["detail"]
+    assert by_kind["verdict"]["status"] == "incomplete"
+    assert "Предварительная смета" in by_kind["verdict"]["detail"]
+    assert "Проверенный результат готов" not in json.dumps(summary, ensure_ascii=False)
     assert source["sources"] == [
         {
             "url": "https://minstroyrf.gov.ru/prices",
@@ -188,6 +194,33 @@ def test_estimate_missing_required_sources_remains_blocked():
     assert by_kind["check"]["status"] == "blocked"
     assert by_kind["verdict"]["status"] == "incomplete"
     assert "Проверенный результат готов" not in json.dumps(summary, ensure_ascii=False)
+
+
+def test_source_projection_rejects_invalid_numeric_host_and_invalid_date():
+    summary = build_work_summary(
+        response_status="completed",
+        task={
+            "intent": "estimate",
+            "status": "completed",
+            "result": {
+                "type": "deterministic_estimate",
+                "status": "preliminary",
+                "estimate": {"lines": [{"provenance": {
+                    "source_url": "https://source.example/catalog",
+                    "captured_at": "2026-99-99",
+                }}]},
+                "verification": {"source_coverage_complete": True, "coverage_missing": []},
+            },
+        },
+        citations=[{"url": "https://999.999.999.999/catalog"}],
+        verification={"status": "passed"},
+    )
+    source = next(item for item in summary["items"] if item["kind"] == "source")
+    assert all(item["domain"] != "999.999.999.999" for item in source.get("sources", []))
+    assert source["sources"] == [{
+        "url": "https://source.example/catalog",
+        "domain": "source.example",
+    }]
 
 
 def test_in_progress_summary_has_truthful_nonterminal_states():
