@@ -396,7 +396,15 @@ def _require_session(request: Request, *, mutating: bool) -> dict[str, Any]:
     token = request.cookies.get(COOKIE_NAME, "")
     session = _STORE.resolve(token)
     if session is None:
-        raise HTTPException(status_code=401, detail="public_session_required_or_expired")
+        # An expired session is an authentication state transition, never a
+        # cacheable API result.  This also prevents a retired browser cache or
+        # intermediary from replaying the marker after the Shell has issued a
+        # fresh cookie and retried the idempotent request.
+        raise HTTPException(
+            status_code=401,
+            detail="public_session_required_or_expired",
+            headers={"Cache-Control": "no-store"},
+        )
     _validate_session_origin(request, session, required=mutating)
     return session
 

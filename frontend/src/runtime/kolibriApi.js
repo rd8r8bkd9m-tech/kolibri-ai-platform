@@ -286,8 +286,8 @@ export function normalizeNodes(payload) {
 
 export function normalizeModels(payload) {
   const data = unwrapData(payload);
-  const raw = data?.data || data?.models || payload?.models || (Array.isArray(payload) ? payload : []);
-  return Array.isArray(raw) ? raw : [];
+  const candidates = [payload?.data, data?.data, data?.models, payload?.models, data, payload];
+  return candidates.find(Array.isArray) || [];
 }
 
 export function normalizeCapabilities(payload) {
@@ -325,15 +325,35 @@ export async function loadControlSnapshot(signal) {
   };
 }
 
-export async function loadSupportedExecutionModes(signal) {
-  const { payload } = await firstAvailable(API_ENDPOINTS.models, { signal });
+function executionModesFromCatalog(payload) {
   const data = unwrapData(payload);
   const advertised = [
     ...(Array.isArray(payload?.supported_execution_modes) ? payload.supported_execution_modes : []),
     ...(Array.isArray(data?.supported_execution_modes) ? data.supported_execution_modes : []),
     ...normalizeModels(payload).flatMap((model) => Array.isArray(model?.supported_execution_modes) ? model.supported_execution_modes : []),
   ];
-  const supported = [...new Set(advertised.filter((mode) => ["fast", "codex"].includes(mode)))];
+  return [...new Set(advertised.filter((mode) => ["fast", "codex"].includes(mode)))];
+}
+
+export async function loadSupportedExecutionModes(signal) {
+  const primary = await firstAvailable(API_ENDPOINTS.models, { signal, cache: "no-store" });
+  let supported = executionModesFromCatalog(primary.payload);
+
+  // A retired service worker used to cache every /v1/* GET, including the
+  // model catalog. During its final controlled page lifetime it can still
+  // return an older successful /v1/models response. Confirm a catalog that
+  // omits Codex through the uncached /api compatibility route before hiding
+  // the mode; /api/* was explicitly excluded by that worker.
+  const compatibilityPath = API_ENDPOINTS.models.find((path) => path !== primary.endpoint);
+  if (!supported.includes("codex") && compatibilityPath) {
+    try {
+      const compatibility = await requestJson(compatibilityPath, { signal, cache: "no-store" });
+      supported = [...new Set([...supported, ...executionModesFromCatalog(compatibility.payload)])];
+    } catch (error) {
+      if (signal?.aborted || error?.name === "AbortError") throw error;
+    }
+  }
+
   return supported.includes("fast") ? supported : ["fast", ...supported];
 }
 

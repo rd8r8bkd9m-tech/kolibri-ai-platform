@@ -6,10 +6,18 @@ export function useExecutionModeSupport() {
 
   useEffect(() => {
     const controller = new AbortController();
+    let active = true;
     loadSupportedExecutionModes(controller.signal)
-      .then(setExecutionModes)
-      .catch(() => setExecutionModes(["fast"]));
-    return () => controller.abort();
+      .then((modes) => {
+        if (active) setExecutionModes(modes);
+      })
+      .catch((error) => {
+        if (active && error?.name !== "AbortError") setExecutionModes(["fast"]);
+      });
+    return () => {
+      active = false;
+      controller.abort();
+    };
   }, []);
 
   return executionModes;

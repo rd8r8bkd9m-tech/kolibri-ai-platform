@@ -11,6 +11,7 @@ import {
   buildEstimateTask,
   buildSiteTask,
   loadSupportedExecutionModes,
+  normalizeModels,
   normalizeTypedTaskEnvelope,
   resetPublicSessionForTests,
   sendKolibriRequest,
@@ -258,15 +259,47 @@ try {
     return response(200, { models: [{ id: "kolibri" }] });
   };
   assert.deepEqual(await loadSupportedExecutionModes(), ["fast"], "Codex must stay disabled without an advertised capability");
-  assert.deepEqual(calls.map((call) => call.url), ["/v1/models"]);
+  assert.deepEqual(calls.map((call) => call.url), ["/v1/models", "/api/models"]);
 
   calls.length = 0;
-  globalThis.fetch = async (url) => {
-    calls.push({ url });
-    return response(200, { models: [{ id: "kolibri", supported_execution_modes: ["fast", "codex"] }] });
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, cache: options?.cache });
+    return response(200, {
+      object: "list",
+      data: [{ id: "kolibri", object: "model", owned_by: "kolibri-ai-os" }],
+      schema_version: "kolibri.execution.v1",
+      supported_execution_modes: ["fast", "codex"],
+    });
   };
   assert.deepEqual(await loadSupportedExecutionModes(), ["fast", "codex"]);
-  assert.deepEqual(calls.map((call) => call.url), ["/v1/models"]);
+  assert.deepEqual(calls, [{ url: "/v1/models", cache: "no-store" }]);
+
+  calls.length = 0;
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, cache: options?.cache });
+    if (url === "/v1/models") {
+      return response(200, {
+        object: "list",
+        data: [{ id: "kolibri", object: "model", owned_by: "kolibri-ai-os" }],
+      });
+    }
+    return response(200, {
+      object: "list",
+      data: [{ id: "kolibri", object: "model", owned_by: "kolibri" }],
+      supported_execution_modes: ["fast", "codex"],
+    });
+  };
+  assert.deepEqual(await loadSupportedExecutionModes(), ["fast", "codex"], "a stale canonical catalog must be confirmed through the compatibility route");
+  assert.deepEqual(calls, [
+    { url: "/v1/models", cache: "no-store" },
+    { url: "/api/models", cache: "no-store" },
+  ]);
+
+  const openAiCatalog = {
+    object: "list",
+    data: [{ id: "kolibri", object: "model", supported_execution_modes: ["fast", "codex"] }],
+  };
+  assert.deepEqual(normalizeModels(openAiCatalog), openAiCatalog.data, "the OpenAI object=list shape must preserve data[] models");
 
   calls.length = 0;
   resetPublicSessionForTests();

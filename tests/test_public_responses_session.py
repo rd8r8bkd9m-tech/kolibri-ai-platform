@@ -160,8 +160,12 @@ def test_expired_session_is_rejected(tmp_path):
     assert current.headers["cache-control"] == "no-store"
     public_responses_api._STORE.expire_session_for_test(session["id"])
 
-    assert client.get("/v1/public/session").status_code == 401
-    assert post_response(client, "hello", key="expired-request").status_code == 401
+    expired_discovery = client.get("/v1/public/session")
+    assert expired_discovery.status_code == 401
+    assert expired_discovery.headers["cache-control"] == "no-store"
+    expired_response = post_response(client, "hello", key="expired-request")
+    assert expired_response.status_code == 401
+    assert expired_response.headers["cache-control"] == "no-store"
 
 
 def test_public_cookie_has_no_projects_artifacts_or_admin_authority(tmp_path):
