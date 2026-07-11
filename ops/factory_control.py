@@ -92,6 +92,13 @@ from fleet_membership import MembershipError, MeshMembershipSource
 NAMESPACE = os.environ.get("FACTORY_NAMESPACE", "kolibri_factory")
 REDIS_HOST = os.environ.get("FACTORY_REDIS_HOST", "127.0.0.1")
 REDIS_PORT = int(os.environ.get("FACTORY_REDIS_PORT", "6379"))
+CANARY_READ_ONLY = os.environ.get("FACTORY_CANARY_READ_ONLY", "0").strip().lower() in {
+    "1", "true", "yes",
+}
+ACTIVE_RELEASE_ID = str(os.environ.get("KOLIBRI_ACTIVE_RELEASE_ID") or "").strip()
+CANARY_REDIS_READ_COMMANDS = frozenset({
+    "GET", "LRANGE", "MGET", "PING", "SMEMBERS", "ZREVRANGE",
+})
 LEASE_DURATION = int(os.environ.get("FACTORY_LEASE_DURATION", "60"))
 LEASE_CLAIM_TTL = int(os.environ.get("FACTORY_LEASE_CLAIM_TTL", "15"))
 REQUIRE_LEASE_FENCING = os.environ.get("FACTORY_REQUIRE_LEASE_FENCING", "1").strip().lower() not in {"0", "false", "no"}
@@ -659,6 +666,9 @@ class Redis:
             pass
 
     def command(self, *parts: Any) -> Any:
+        command_name = str(parts[0] if parts else "").strip().upper()
+        if CANARY_READ_ONLY and command_name not in CANARY_REDIS_READ_COMMANDS:
+            raise RedisError("factory_canary_read_only_command_forbidden")
         payload = self._encode(parts)
         last_error: Exception | None = None
         for _attempt in range(2):
@@ -2376,6 +2386,8 @@ def compatible(
 
 def ensure_active_lease_index() -> None:
     """Migrate legacy leased tasks into the bounded active-lease index once."""
+    if CANARY_READ_ONLY:
+        return
     marker = key("active_lease_index_v1")
     if redis.command("GET", marker):
         return
@@ -3106,7 +3118,16 @@ class Handler(BaseHTTPRequestHandler):
                     status="completed",
                     node="home",
                     route_used="/v1/health",
-                    data={"redis": pong, "queue_backend": "redis", "time": utc_now(), "fabric_api_version": FABRIC_API_VERSION, "truth_factory": "enabled"},
+                    data={
+                        "redis": pong,
+                        "queue_backend": "redis",
+                        "time": utc_now(),
+                        "fabric_api_version": FABRIC_API_VERSION,
+                        "truth_factory": "enabled",
+                        "state_namespace": NAMESPACE,
+                        "active_release_id": ACTIVE_RELEASE_ID or None,
+                        "canary_read_only": CANARY_READ_ONLY,
+                    },
                     next_action="use /v1/fleet/route before dispatching work to a node",
                 ))
                 return
@@ -3421,6 +3442,12 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/") or "/"
+        if CANARY_READ_ONLY:
+            response(self, 405, {
+                "error": "factory_canary_read_only",
+                "path": path,
+            })
+            return
         try:
             body = read_body(self)
             if path == "/v1/approvals":

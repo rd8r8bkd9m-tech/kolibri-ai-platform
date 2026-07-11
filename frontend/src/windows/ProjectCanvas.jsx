@@ -1,6 +1,7 @@
 import { ExternalLink, FileText } from "lucide-react";
 import { EstimateWorkspace } from "./EstimateWorkspace";
 import { StatusBadge } from "./shared/StatusBadge";
+import { WorkSummary } from "./shared/WorkSummary";
 
 const EXPORT_KINDS = ["pdf", "xlsx", "docx"];
 
@@ -21,6 +22,7 @@ export function ProjectCanvas({ canvas, detached = false, onCalculate, onDetach,
   const artifacts = canvas.artifacts || canvas.task?.artifacts || [];
   const text = canvas.draftText ?? canvas.text ?? canvas.task?.result?.text ?? "";
   const metadata = canvas.metadata || {};
+  const readiness = canvas.readiness || (canvas.task?.result?.type === "estimate_readiness" ? canvas.task.result.readiness : null);
 
   return (
     <section className={`project-canvas ${detached ? "is-detached" : ""}`} data-canvas-kind={canvas.kind}>
@@ -34,9 +36,18 @@ export function ProjectCanvas({ canvas, detached = false, onCalculate, onDetach,
       </header>
       {canvas.kind === "estimate" ? (
         <>
-          <div className="estimate-metadata">
-            <label>Регион<input onChange={(event) => onUpdate({ metadata: { ...metadata, region: event.target.value } })} placeholder="Например, Москва" value={metadata.region || ""} /></label>
-            <label>Источник цен<input onChange={(event) => onUpdate({ metadata: { ...metadata, provenance: event.target.value } })} placeholder="manual / каталог / поставщик" value={metadata.provenance || "manual"} /></label>
+          <div className={`estimate-metadata ${readiness ? "is-readiness" : ""}`}>
+            {readiness ? (
+              <>
+                <div><small>Регион</small><strong>{readiness.known_facts?.region || "Требует подтверждения"}</strong></div>
+                <div><small>Денежный итог</small><strong>Не рассчитан</strong></div>
+              </>
+            ) : (
+              <>
+                <label>Регион<input onChange={(event) => onUpdate({ metadata: { ...metadata, region: event.target.value } })} placeholder="Например, Москва" value={metadata.region || ""} /></label>
+                <label>Источник цен<input onChange={(event) => onUpdate({ metadata: { ...metadata, provenance: event.target.value } })} placeholder="норматив / каталог / договор" value={metadata.provenance || "manual"} /></label>
+              </>
+            )}
             <div className="estimate-export-placeholders" aria-label="Экспорт сметы">
               {EXPORT_KINDS.map((kind) => {
                 const artifact = artifacts.find((item) => item.deliverable_type === kind || item.kind === kind);
@@ -44,7 +55,7 @@ export function ProjectCanvas({ canvas, detached = false, onCalculate, onDetach,
               })}
             </div>
           </div>
-          <EstimateWorkspace onCalculate={onCalculate} payload={canvas} />
+          <EstimateWorkspace onCalculate={onCalculate} onOpenArtifact={onOpenArtifact} onUpdate={onUpdate} payload={canvas} />
         </>
       ) : (
         <>
@@ -60,6 +71,7 @@ export function ProjectCanvas({ canvas, detached = false, onCalculate, onDetach,
           {!!artifacts.length && <CanvasArtifacts artifacts={artifacts} onOpen={onOpenArtifact} />}
         </>
       )}
+      <WorkSummary summary={canvas.workSummary} />
       {canvas.error && <div className="inline-error">{canvas.error}</div>}
     </section>
   );

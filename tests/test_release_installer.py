@@ -266,6 +266,7 @@ def test_apply_verifies_worker_signature_switches_atomically_and_is_idempotent(
     assert first["manifest_digest"] == digest
     assert first["release_health"]["status"] == "healthy"
     assert first["release_health"]["manifest_digest"] == digest
+    assert first["agent_host_runtime"]["included"] is False
     assert installer.config.current_link.resolve().name == "release-1"
     assert second["status"] == "completed"
     assert second["idempotent_reapply"] is True
@@ -285,6 +286,79 @@ def test_apply_verifies_worker_signature_switches_atomically_and_is_idempotent(
     log_text = (evidence / "release-installer.jsonl").read_text(encoding="utf-8")
     assert artifact_uri not in log_text
     assert "detached-sshsig" not in log_text
+
+
+def test_signed_agent_host_payload_emits_activation_handoff_evidence(
+    release_module, tmp_path, monkeypatch
+):
+    release = release_module
+    installer, _ = make_installer(release, tmp_path)
+    artifact_uri = "artifact://bundles/agent-host-v2.tar.gz"
+    bundle = installer.config.artifact_root / "bundles" / "agent-host-v2.tar.gz"
+    bundle.parent.mkdir()
+    runtime_bytes = b"#!/usr/bin/python3\nprint('agent-host-v2')\n"
+    response_profile_bytes = (
+        Path(release.__file__).parent / "mimo" / "kolibri-response-only.md"
+    ).read_bytes()
+    _, digest = build_bundle(
+        release,
+        bundle,
+        "agent-host-v2",
+        artifact_uri,
+        files={
+            "ops/agent_host.py": (runtime_bytes, 0o755),
+            "ops/mimo/kolibri-response-only.md": (response_profile_bytes, 0o644),
+        },
+    )
+    evidence = installer.config.artifact_root / "tasks" / "agent-host-v2"
+    evidence.mkdir(parents=True)
+    patch_signature_verifier(monkeypatch, release)
+
+    result = installer.execute(
+        "release_bundle_apply",
+        task_envelope("agent-host-v2", artifact_uri, digest),
+        evidence,
+    )
+
+    assert result["agent_host_runtime"] == {
+        "included": True,
+        "runtime_path": "ops/agent_host.py",
+        "runtime_sha256": hashlib.sha256(runtime_bytes).hexdigest(),
+        "response_profile_included": True,
+        "response_profile_path": "ops/mimo/kolibri-response-only.md",
+        "response_profile_sha256": hashlib.sha256(response_profile_bytes).hexdigest(),
+        "release_id": "agent-host-v2",
+        "manifest_digest": digest,
+    }
+
+
+def test_signed_agent_host_payload_without_response_profile_is_rejected(
+    release_module, tmp_path, monkeypatch
+):
+    release = release_module
+    installer, _ = make_installer(release, tmp_path)
+    artifact_uri = "artifact://bundles/agent-host-missing-profile.tar.gz"
+    bundle = installer.config.artifact_root / "bundles" / "agent-host-missing-profile.tar.gz"
+    bundle.parent.mkdir()
+    _, digest = build_bundle(
+        release,
+        bundle,
+        "agent-host-missing-profile",
+        artifact_uri,
+        files={"ops/agent_host.py": (b"#!/usr/bin/python3\n", 0o755)},
+    )
+    evidence = installer.config.artifact_root / "tasks" / "agent-host-missing-profile"
+    evidence.mkdir(parents=True)
+    patch_signature_verifier(monkeypatch, release)
+
+    with pytest.raises(release.ReleaseInstallError) as failure:
+        installer.execute(
+            "release_bundle_apply",
+            task_envelope("agent-host-missing-profile", artifact_uri, digest),
+            evidence,
+        )
+
+    assert failure.value.code == "release_agent_host_profile_missing"
 
 
 def test_real_openssh_signature_is_verified_end_to_end(release_module, tmp_path):
@@ -612,6 +686,135 @@ def test_failed_post_health_rolls_current_symlink_back_atomically(release_module
     assert (installer.config.release_root / "bad-release").is_dir()
 
 
+def test_failed_candidate_health_never_switches_current_or_restarts_services(
+    release_module,
+    tmp_path,
+    monkeypatch,
+):
+    release = release_module
+    installer, artifact_uri, digest, evidence = prepare_release_case(
+        release,
+        tmp_path,
+        release_id="candidate-release",
+    )
+    old_release = installer.config.release_root / "old-release"
+    old_release.mkdir()
+    installer.config.current_link.symlink_to(old_release)
+    candidate_check = write_executable(
+        tmp_path / "candidate-check",
+        "raise SystemExit(1)",
+    )
+    policy = json.loads(installer.config.policy_path.read_text(encoding="utf-8"))
+    policy["pre_activate"] = [{
+        "name": "candidate",
+        "argv": [str(candidate_check), "{release_dir}"],
+        "timeout_seconds": 1,
+    }]
+    installer.config.policy_path.write_text(json.dumps(policy), encoding="utf-8")
+    patch_signature_verifier(monkeypatch, release)
+    monkeypatch.setattr(
+        installer,
+        "_restart_services",
+        lambda *args, **kwargs: pytest.fail("candidate failure must precede service restart"),
+    )
+
+    with pytest.raises(release.ReleaseInstallError, match="release_candidate_health_failed") as captured:
+        installer.execute(
+            "release_bundle_apply",
+            task_envelope("candidate-release", artifact_uri, digest),
+            evidence,
+        )
+
+    assert installer.config.current_link.resolve() == old_release.resolve()
+    assert (installer.config.release_root / "candidate-release").is_dir()
+    assert captured.value.evidence["rollback"] == {
+        "status": "not_required",
+        "reason": "activation_not_started",
+    }
+    assert captured.value.evidence["health_checks"]["candidate"][0]["status"] == "failed"
+
+
+def test_candidate_policy_requires_complete_fixed_service_profile(release_module, tmp_path):
+    release = release_module
+    installer, health = make_installer(release, tmp_path)
+    policy = json.loads(installer.config.policy_path.read_text(encoding="utf-8"))
+    policy.update({
+        "services": ["one.service", "two.service"],
+        "default_services": ["one.service", "two.service"],
+        "pre_activate": [{
+            "name": "candidate",
+            "argv": [str(health), "{release_dir}"],
+            "timeout_seconds": 5,
+        }],
+    })
+    installer.config.policy_path.write_text(json.dumps(policy), encoding="utf-8")
+    loaded = release.load_release_policy(installer.config.policy_path)
+
+    with pytest.raises(release.ReleaseInstallError, match="release_service_profile_mismatch"):
+        installer._selected_services(("one.service",), loaded)
+    assert installer._selected_services(None, loaded) == ("one.service", "two.service")
+
+
+def test_worker_rejects_signed_bundle_missing_local_required_payload(
+    release_module,
+    tmp_path,
+    monkeypatch,
+):
+    release = release_module
+    installer, artifact_uri, digest, evidence = prepare_release_case(
+        release,
+        tmp_path,
+        release_id="incomplete-profile",
+    )
+    policy = json.loads(installer.config.policy_path.read_text(encoding="utf-8"))
+    policy["required_payload_paths"] = ["ops/factory_control.py"]
+    installer.config.policy_path.write_text(json.dumps(policy), encoding="utf-8")
+    patch_signature_verifier(monkeypatch, release)
+
+    with pytest.raises(release.ReleaseInstallError, match="release_required_payload_missing"):
+        installer.execute(
+            "release_bundle_apply",
+            task_envelope("incomplete-profile", artifact_uri, digest),
+            evidence,
+        )
+
+    assert not os.path.lexists(installer.config.current_link)
+    assert not (installer.config.release_root / "incomplete-profile").exists()
+
+
+def test_worker_binds_required_release_marker_to_signed_release_id(
+    release_module,
+    tmp_path,
+    monkeypatch,
+):
+    release = release_module
+    installer, _ = make_installer(release, tmp_path)
+    policy = json.loads(installer.config.policy_path.read_text(encoding="utf-8"))
+    policy["required_payload_paths"] = ["RELEASE_ID"]
+    installer.config.policy_path.write_text(json.dumps(policy), encoding="utf-8")
+    artifact_uri = "artifact://marker-mismatch.tar.gz"
+    bundle = installer.config.artifact_root / "marker-mismatch.tar.gz"
+    _, digest = build_bundle(
+        release,
+        bundle,
+        "marker-release",
+        artifact_uri,
+        files={"RELEASE_ID": (b"different-release\n", 0o644)},
+    )
+    evidence = installer.config.artifact_root / "marker-task"
+    evidence.mkdir()
+    patch_signature_verifier(monkeypatch, release)
+
+    with pytest.raises(release.ReleaseInstallError, match="release_id_marker_invalid"):
+        installer.execute(
+            "release_bundle_apply",
+            task_envelope("marker-release", artifact_uri, digest),
+            evidence,
+        )
+
+    assert not os.path.lexists(installer.config.current_link)
+
+
 def test_health_check_retries_same_fixed_argv_until_it_passes(
     release_module,
     tmp_path,
@@ -718,6 +921,36 @@ def test_health_check_exhausts_single_total_timeout_and_fails_closed(
     assert release.HEALTH_RETRY_DELAY_SECONDS <= 0.5
     assert "argv" not in result[0]
     assert str(health_script) not in json.dumps(result)
+
+
+def test_legacy_compatibility_exit_is_success_only_for_explicit_rollback(
+    release_module,
+    tmp_path,
+    monkeypatch,
+):
+    release = release_module
+    health_script = write_executable(tmp_path / "rollback-compat", "raise SystemExit(10)")
+    check = release.HealthCheck(
+        name="post:control-plane",
+        argv=(str(health_script), "{release_kind}"),
+        timeout_seconds=1,
+    )
+    monkeypatch.setattr(
+        release.ReleaseInstaller,
+        "_run_bounded_process",
+        classmethod(lambda cls, argv, timeout, progress: 10),
+    )
+
+    rollback = release.ReleaseInstaller._run_health_checks(
+        (check,),
+        release.ProgressReporter(None),
+        replacements={"{release_kind}": "rollback"},
+    )
+
+    assert rollback[0]["name"] == "post:control-plane"
+    assert rollback[0]["status"] == "passed"
+    assert rollback[0]["attempts"] == 1
+    assert rollback[0]["compatibility_mode"] == "legacy-rollback-contract"
 
 
 def test_explicit_rollback_kind_switches_to_signed_target(release_module, tmp_path, monkeypatch):

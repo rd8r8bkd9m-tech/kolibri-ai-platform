@@ -88,11 +88,16 @@ def test_new_node_bootstrap_installs_identical_agent_and_resolver_sources():
     provision = (ROOT / "scripts" / "provision-server.sh").read_text(encoding="utf-8")
 
     assert '"$SOURCE_ROOT/ops/agent_host.py"' in provision
+    assert '"$SOURCE_ROOT/ops/mimo/kolibri-response-only.md"' in provision
     assert '"$SOURCE_ROOT/ops/control_plane_endpoint.py"' in provision
     assert '"$SOURCE_ROOT/ops/release_authority.py"' in provision
     assert '"$SOURCE_ROOT/ops/release_helper.py"' in provision
     assert '"$SOURCE_ROOT/ops/release_installer.py"' in provision
     assert "install -m755 /tmp/kolibri-agent-host /usr/local/bin/kolibri-agent-host" in provision
+    assert (
+        "install -m644 /tmp/kolibri-response-only.md "
+        "/usr/local/lib/kolibri/mimo/kolibri-response-only.md"
+    ) in provision
     assert "install -m644 /tmp/control_plane_endpoint.py /usr/local/lib/kolibri/control_plane_endpoint.py" in provision
     assert "install -m644 /tmp/release_authority.py /usr/local/lib/kolibri/release_authority.py" in provision
     assert "install -m644 /tmp/release_helper.py /usr/local/lib/kolibri/release_helper.py" in provision

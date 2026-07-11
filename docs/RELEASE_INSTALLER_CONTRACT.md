@@ -109,11 +109,25 @@ timeouts and their stdout/stderr is discarded rather than copied into logs.
   "schema_version": "kolibri.release-policy.v1",
   "services": ["kolibri-ai.service"],
   "default_services": [],
+  "required_payload_paths": ["backend/main.py", "frontend/dist/index.html"],
   "pre_health": [
     {
       "name": "backend-baseline",
       "argv": ["/usr/local/lib/kolibri/check-backend-health"],
       "timeout_seconds": 15
+    }
+  ],
+  "pre_activate": [
+    {
+      "name": "candidate-control-plane",
+      "argv": [
+        "/usr/bin/python3",
+        "/usr/local/lib/kolibri/home_control_plane_canary.py",
+        "candidate",
+        "--release-dir",
+        "{release_dir}"
+      ],
+      "timeout_seconds": 45
     }
   ],
   "post_health": [
@@ -132,6 +146,23 @@ executables are forbidden. Task fields such as `command`, `commands`, `shell`,
 `script`, or task-provided health commands are rejected at any nesting depth
 and never executed. Health executables must be absolute, executable, trusted
 regular files.
+
+`pre_activate` is optional for compatibility. When present, every check runs
+after immutable publication but before the `current` symlink can move. The
+installer replaces only the exact `{release_dir}` argv token with the verified
+direct-child release path. A candidate failure performs no service action and
+requires no rollback because activation never started. A policy with
+`pre_activate` also requires the exact default service profile; task-controlled
+service subsets are rejected. `required_payload_paths` is likewise local and
+fail-closed, while every required byte and path remains bound by the signed
+manifest.
+
+The Home policy also passes the exact `{release_kind}` token to its fixed
+Control Plane gate. Exit code `10` is accepted only when that token was
+replaced with `rollback`; the sanitized health result then records
+`compatibility_mode=legacy-rollback-contract`. The same exit during apply is a
+failure. This is the narrow first-migration bridge for a signed known-good CP
+that predates release identity/read-only health fields.
 
 ## Completion evidence
 

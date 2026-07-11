@@ -97,6 +97,21 @@ def issue_session(client: TestClient) -> dict:
     return response.json()
 
 
+def test_cold_session_discovery_is_a_non_cacheable_inactive_200(tmp_path):
+    app, _ = make_app(tmp_path)
+    client = TestClient(app)
+
+    response = client.get("/v1/public/session")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert response.json() == {
+        "object": "public.session",
+        "active": False,
+        "model": "kolibri",
+    }
+
+
 def post_response(client: TestClient, text: str, *, key: str, **extra):
     return client.post(
         "/v1/responses",
@@ -456,8 +471,35 @@ def test_responses_sse_uses_official_typed_event_names(tmp_path):
     assert "event: response.in_progress" in response.text
     assert "event: response.output_text.delta" in response.text
     assert '"delta":"verified:fast"' in response.text
+    assert "event: response.reasoning_summary_part.added" in response.text
+    assert "event: response.reasoning_summary_text.delta" in response.text
+    assert "event: response.reasoning_summary_text.done" in response.text
+    assert "event: response.reasoning_summary_part.done" in response.text
     assert "event: response.completed" in response.text
     assert "data: [DONE]" not in response.text
+
+
+def test_response_exposes_only_safe_summary_metadata_and_reasoning_item(tmp_path):
+    app, _ = make_app(tmp_path)
+    client = TestClient(app)
+    issue_session(client)
+
+    response = post_response(client, "private prompt", key="safe-work-summary")
+
+    assert response.status_code == 200
+    payload = response.json()
+    compact = json.loads(payload["metadata"]["kolibri_work_summary"])
+    assert compact["mode"] == "summary_only"
+    assert [item["kind"] for item in compact["items"]] == [
+        "plan", "tool", "source", "check", "verdict",
+    ]
+    reasoning = next(item for item in payload["output"] if item["type"] == "reasoning")
+    assert reasoning["summary"]
+    serialized = json.dumps({"metadata": payload["metadata"], "reasoning": reasoning})
+    assert "private prompt" not in serialized
+    assert "selected_provider" not in serialized
+    assert "provider_model" not in serialized
+    assert "raw_reasoning" not in serialized
 
 
 def test_live_regression_chat_and_arithmetic_are_posted_to_responses_not_blank(tmp_path):
@@ -494,6 +536,17 @@ def test_codex_mode_and_typed_estimate_preserve_deterministic_money(tmp_path):
             "title": "Кухня",
             "currency": "RUB",
             "minor_unit": 2,
+            "region": "Москва",
+            "normative_basis": {
+                "calculation_method": "resource",
+                "normative_basis_ref": "TEST-NORMATIVE-BASE-2026",
+                "normative_edition": "Тестовая редакция 2026-01-01",
+                "price_level_date": "2026-01-01",
+                "region": "Москва",
+                "index_document_refs": [],
+                "tax_scope_ref": "TEST-TAX-SCOPE-2026",
+                "contract_scope_ref": "TEST-CONTRACT-SCOPE-2026",
+            },
             "lines": [{
                 "id": "labor-1",
                 "description": "Монтаж",
@@ -501,7 +554,16 @@ def test_codex_mode_and_typed_estimate_preserve_deterministic_money(tmp_path):
                 "unit": "м2",
                 "quantity": "2",
                 "unit_price_minor": 15_000,
-                "provenance": {"source": "manual"},
+                "provenance": {
+                    "source": "normative",
+                    "source_ref": "TEST-PRICE-SOURCE-LABOR",
+                    "captured_at": "2026-01-01",
+                    "applicable_region": "Москва",
+                    "price_level_date": "2026-01-01",
+                    "basis_ref": "TEST-BASIS-LABOR",
+                    "quantity_source": "project",
+                    "quantity_source_ref": "TEST-PROJECT-SHEET-LABOR",
+                },
             }],
             "overhead_rate_bps": 1_000,
             "tax_rate_bps": 2_000,

@@ -35,6 +35,7 @@ const componentModules = new Map([
   ["../src/windows/PdfViewer.jsx", /export function PdfViewer/],
   ["../src/windows/ProjectWorkspace.jsx", /export function ProjectWorkspace/],
   ["../src/windows/shared/StatusBadge.jsx", /export function StatusBadge/],
+  ["../src/windows/shared/WorkSummary.jsx", /export function WorkSummary/],
   ["../src/control/ControlShell.jsx", /export function ControlShell/],
 ]);
 

@@ -91,17 +91,21 @@ export function estimateCanvas(projectId) {
   };
 }
 
-export function taskCanvas({ id, intent, title, status, text, task, artifacts, endpoint }) {
+export function taskCanvas({ id, intent, title, status, text, task, artifacts, endpoint, workSummary }) {
   const estimate = intent === "estimate" ? task?.result?.estimate : null;
+  const readiness = intent === "estimate" && task?.result?.type === "estimate_readiness"
+    ? task.result.readiness
+    : null;
   return {
     id: `canvas:${id}`,
     kind: intent,
-    title: estimate?.title || title,
+    title: estimate?.title || readiness?.title || title,
     status,
     text,
     task,
     artifacts,
     endpoint,
+    workSummary,
     ...(estimate ? {
       ...estimate,
       metadata: {
@@ -109,6 +113,13 @@ export function taskCanvas({ id, intent, title, status, text, task, artifacts, e
         provenance: estimate.source_summary || "Цены требуют проверки",
       },
       persistence: task?.persistence || null,
+    } : {}),
+    ...(readiness ? {
+      readiness,
+      metadata: {
+        region: readiness.known_facts?.region || "Требует подтверждения",
+        provenance: "Денежный расчёт заблокирован до проверки источников",
+      },
     } : {}),
     version: task?.persistence?.version || 1,
     createdAt: new Date().toISOString(),

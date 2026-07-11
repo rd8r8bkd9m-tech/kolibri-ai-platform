@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { buildDeterministicEstimateTask, sendKolibriRequest } from "../runtime/kolibriApi";
+import { recordEstimateRevisionFeedback } from "./estimateFeedback";
 import { mergeArtifacts, projectMessage } from "./projectModel";
 
 function patchCanvas(canvases, canvasId, patch) {
@@ -28,6 +29,7 @@ export function useEstimateRuntime({ setProjectBusy, updateProject }) {
         lines: spec.lines.map((line) => ({ ...line, unitPriceMinor: line.unit_price_minor })),
         overheadRateBps: spec.overhead_rate_bps,
         taxRateBps: spec.tax_rate_bps,
+        normativeBasis: spec.normative_basis,
         requestedArtifacts: ["pdf"],
       });
       const response = await sendKolibriRequest({
@@ -42,21 +44,23 @@ export function useEstimateRuntime({ setProjectBusy, updateProject }) {
       });
       const status = response.task?.status || "failed";
       const estimate = response.task?.result?.estimate;
+      const readiness = response.task?.result?.type === "estimate_readiness" ? response.task.result.readiness : null;
+      await recordEstimateRevisionFeedback(spec, response.task);
       updateProject(projectId, (current) => ({
         ...current,
         canvases: (current.canvases || []).map((canvas) => canvas.id === canvasId ? {
           ...canvas,
-          ...(estimate || spec),
-          title: estimate?.title || spec.title,
+          ...(readiness ? { readiness } : (estimate || spec)),
+          title: estimate?.title || readiness?.title || spec.title,
           status,
           task: response.task,
           text: response.text,
           endpoint: response.endpoint,
           artifacts: response.artifacts,
-          persistence: response.task?.persistence || canvas.persistence || null,
+          persistence: readiness ? null : response.task?.persistence || canvas.persistence || null,
           metadata: {
-            region: estimate?.region || spec.region || "Не указан",
-            provenance: estimate?.source_summary || spec.source_summary || "Цены требуют проверки",
+            region: estimate?.region || readiness?.known_facts?.region || spec.region || "Не указан",
+            provenance: estimate?.source_summary || (readiness ? "Денежный расчёт заблокирован до проверки источников" : spec.source_summary) || "Цены требуют проверки",
           },
           version: response.task?.persistence?.version || canvas.version || 1,
         } : canvas),

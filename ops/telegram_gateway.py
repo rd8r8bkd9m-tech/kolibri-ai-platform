@@ -5,12 +5,15 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import json
 import mimetypes
 import os
 import re
 import signal
+import stat
 import sys
+import tempfile
 import time
 import unicodedata
 import urllib.error
@@ -45,7 +48,6 @@ from telegram_failover_guard import (
     detect_dual_receiver,
     load_failover_state,
     validate_gateway_startup,
-    format_failover_status,
 )
 
 
@@ -168,6 +170,44 @@ IMMEDIATE_CHAT_MARKERS = (
     "помнишь",
     "память",
 )
+DEFAULT_BACKEND_URL = "http://127.0.0.1:8001"
+DEFAULT_OWNER_TOKEN_FILE = "/etc/kolibri/owner-api-token"
+PROCESSED_UPDATE_LIMIT = 4096
+PROCESSED_MESSAGE_LIMIT = 4096
+WEB_FRESHNESS_MARKERS = (
+    "сегодня",
+    "сейчас",
+    "актуаль",
+    "последн",
+    "новост",
+    "погод",
+    "пробк",
+    "расписан",
+    "курс ",
+    "цена",
+    "стоимост",
+    "в наличии",
+    "где купить",
+    "рекоменд",
+    "посовет",
+    "что лучше",
+    "какие лучше",
+    "лучше поставить",
+    "лучше выбрать",
+    "какие выбрать",
+    "какой выбрать",
+    "какую выбрать",
+    "что выбрать",
+    "какие поставить",
+    "best ",
+    "recommend",
+    "latest",
+    "current ",
+    "today",
+    "weather",
+    "news",
+    "price",
+)
 
 
 def utc_now() -> str:
@@ -279,6 +319,229 @@ def json_request(method: str, url: str, body: dict[str, Any] | None = None, time
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", "replace")
         raise RuntimeError(f"{method} {url} failed: HTTP {exc.code}: {detail}") from exc
+
+
+class ResponsesClientError(RuntimeError):
+    """Normalized owner-safe failure from the unified Responses API."""
+
+    def __init__(self, code: str, *, http_status: int | None = None):
+        super().__init__(code)
+        self.code = _safe_error_code(code)
+        self.http_status = http_status
+
+
+def _safe_error_code(value: Any, fallback: str = "responses_unavailable") -> str:
+    code = re.sub(r"[^a-z0-9_.:-]+", "_", str(value or "").strip().lower()).strip("_.:-")
+    return (code or fallback)[:96]
+
+
+def load_owner_bearer_token(path: str | Path) -> str:
+    """Read the owner bearer from a protected file without logging its value.
+
+    Production uses a root-owned, group-readable ``0640`` file for the
+    ``kolibri`` service.  A user-owned ``0600`` file is also accepted for local
+    development and tests.  Symlinks, group-writable files and every
+    world-accessible mode fail closed.
+    """
+
+    candidate = Path(path).expanduser()
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(candidate, flags)
+    except OSError as exc:
+        raise ResponsesClientError("owner_bearer_file_unreadable") from exc
+    try:
+        info = os.fstat(descriptor)
+        mode = stat.S_IMODE(info.st_mode)
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_uid not in {0, os.getuid()}
+            or mode & 0o027
+            or not mode & 0o400
+            or not 8 <= info.st_size <= 4096
+        ):
+            raise ResponsesClientError("owner_bearer_file_unsafe")
+        try:
+            with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
+                descriptor = -1
+                raw = handle.read(4097)
+        except (OSError, UnicodeError) as exc:
+            raise ResponsesClientError("owner_bearer_file_unreadable") from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    token = raw.strip()
+    if not token or len(token) > 2048 or any(ch.isspace() for ch in token):
+        raise ResponsesClientError("owner_bearer_file_invalid")
+    return token
+
+
+def normalize_backend_url(value: str | None) -> str:
+    raw = str(value or DEFAULT_BACKEND_URL).strip().rstrip("/")
+    parsed = urllib.parse.urlsplit(raw)
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError("invalid Kolibri backend URL")
+    return raw
+
+
+def response_output_text(payload: dict[str, Any]) -> str:
+    direct = payload.get("output_text")
+    if isinstance(direct, str) and direct.strip():
+        return direct.strip()
+    parts: list[str] = []
+    for item in payload.get("output") or []:
+        if not isinstance(item, dict):
+            continue
+        for content in item.get("content") or []:
+            if not isinstance(content, dict):
+                continue
+            if content.get("type") not in {"output_text", "text"}:
+                continue
+            text = content.get("text")
+            if isinstance(text, str) and text.strip():
+                parts.append(text.strip())
+    return "\n".join(parts).strip()
+
+
+def response_error_code(payload: dict[str, Any]) -> str:
+    error = payload.get("error")
+    if isinstance(error, dict):
+        return _safe_error_code(error.get("code") or error.get("type"))
+    if isinstance(error, str):
+        return _safe_error_code(error)
+    incomplete = payload.get("incomplete_details")
+    if isinstance(incomplete, dict):
+        return _safe_error_code(incomplete.get("reason"), "response_incomplete")
+    status = _safe_error_code(payload.get("status"), "response_without_output")
+    return "response_without_output" if status == "completed" else status
+
+
+def needs_web_search(text: str) -> bool:
+    lowered = " ".join(text.casefold().split())
+    return any(marker in lowered for marker in WEB_FRESHNESS_MARKERS)
+
+
+class ResponsesClient:
+    """Thin OpenAI-compatible client for Home's unified backend."""
+
+    def __init__(
+        self,
+        backend_url: str = DEFAULT_BACKEND_URL,
+        owner_token_file: str | Path = DEFAULT_OWNER_TOKEN_FILE,
+        *,
+        timeout: int = 120,
+        poll_interval: float = 0.5,
+    ):
+        self.backend_url = normalize_backend_url(backend_url)
+        self.owner_token_file = Path(owner_token_file).expanduser()
+        self.timeout = max(1, int(timeout))
+        self.poll_interval = max(0.05, float(poll_interval))
+
+    def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        body: dict[str, Any] | None = None,
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
+        token = load_owner_bearer_token(self.owner_token_file)
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        }
+        if idempotency_key:
+            headers["Idempotency-Key"] = idempotency_key
+        data = None if body is None else json.dumps(
+            body, ensure_ascii=False, separators=(",", ":"),
+        ).encode("utf-8")
+        request = urllib.request.Request(
+            f"{self.backend_url}{path}", data=data, method=method, headers=headers,
+        )
+
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, *_args: Any, **_kwargs: Any) -> None:
+                return None
+
+        try:
+            with urllib.request.build_opener(NoRedirect()).open(request, timeout=self.timeout) as response:
+                raw = response.read().decode("utf-8")
+                payload = json.loads(raw) if raw else {}
+        except urllib.error.HTTPError as exc:
+            try:
+                raw_error = json.loads(exc.read().decode("utf-8", "replace"))
+            except (json.JSONDecodeError, UnicodeError):
+                raw_error = {}
+            detail = raw_error.get("detail") if isinstance(raw_error, dict) else None
+            if isinstance(detail, dict):
+                detail = detail.get("code") or detail.get("type")
+            error = raw_error.get("error") if isinstance(raw_error, dict) else None
+            if isinstance(error, dict):
+                error = error.get("code") or error.get("type")
+            raise ResponsesClientError(
+                _safe_error_code(error or detail, f"responses_http_{exc.code}"),
+                http_status=exc.code,
+            ) from exc
+        except (OSError, TimeoutError, urllib.error.URLError) as exc:
+            raise ResponsesClientError("responses_backend_unavailable") from exc
+        except (json.JSONDecodeError, UnicodeError) as exc:
+            raise ResponsesClientError("responses_invalid_json") from exc
+        if not isinstance(payload, dict):
+            raise ResponsesClientError("responses_invalid_payload")
+        return payload
+
+    def create_response(
+        self,
+        *,
+        text: str,
+        chat_id: int,
+        message_id: int,
+        previous_response_id: str | None = None,
+        web_search: bool = False,
+    ) -> dict[str, Any]:
+        idempotency_key = f"telegram-response:{chat_id}:{message_id}"
+        body: dict[str, Any] = {
+            "model": "kolibri",
+            "input": text,
+            "stream": False,
+            "idempotency_key": idempotency_key,
+            "metadata": {
+                "source": "telegram",
+                "chat_id_sha256": hashlib.sha256(str(chat_id).encode("utf-8")).hexdigest(),
+                "message_id": message_id,
+            },
+        }
+        if previous_response_id:
+            body["previous_response_id"] = previous_response_id
+        if web_search:
+            body["tools"] = [{"type": "web_search", "search_context_size": "medium"}]
+        payload = self._request(
+            "POST", "/v1/responses", body=body, idempotency_key=idempotency_key,
+        )
+        deadline = time.monotonic() + self.timeout
+        while str(payload.get("status") or "").lower() in {
+            "queued", "planning", "running", "verifying", "in_progress",
+        }:
+            response_id = payload.get("id")
+            if not response_id or time.monotonic() >= deadline:
+                raise ResponsesClientError("response_timeout")
+            time.sleep(self.poll_interval)
+            payload = self._request(
+                "GET", f"/v1/responses/{urllib.parse.quote(str(response_id), safe='')}",
+            )
+        output_text = response_output_text(payload)
+        if str(payload.get("status") or "").lower() != "completed" or not output_text:
+            raise ResponsesClientError(response_error_code(payload))
+        payload["output_text"] = output_text
+        return payload
 
 
 class TelegramClient:
@@ -440,6 +703,7 @@ def compact_factory_snapshot(factory: FactoryClient) -> dict[str, Any]:
                 "capabilities": node.get("capabilities", []),
                 "runners": node.get("runners", {}),
                 "draining": bool(node.get("draining")),
+                "schedulable": bool(node.get("schedulable", True)),
                 "heartbeat_at": node.get("heartbeat_at"),
                 "freshness": node.get("freshness"),
                 "heartbeat_age_seconds": node.get("heartbeat_age_seconds"),
@@ -719,7 +983,6 @@ def first_known_url(memory: dict[str, Any]) -> str | None:
 
 def build_realtime_owner_reply(text: str, snapshot: dict[str, Any]) -> str:
     memory = snapshot.get("memory") or {}
-    lowered = text.lower().strip()
     active_tasks = snapshot.get("active_tasks") or []
     team = summarize_team(snapshot)
     last = memory.get("last_work_request") or {}
@@ -795,9 +1058,50 @@ def build_task_ack_reply(text: str, snapshot: dict[str, Any], task: dict[str, An
 
 def help_text() -> str:
     return (
-        "Пишите обычным языком. Я отвечаю сам, держу контекст разработки и сам решаю, "
-        "когда это разговор, а когда задача для фабрики."
+        "Пишите обычным языком или используйте /ask <вопрос>. Диалог идёт через Kolibri Factory "
+        "с продолжением контекста. /status показывает живое состояние узлов и очереди; "
+        "остальные режимы фабрика выбирает сама."
     )
+
+
+def start_text() -> str:
+    return (
+        "Kolibri готов к диалогу. Задавайте вопрос, просите подобрать решение, составить документ "
+        "или спланировать работу — ответ выполнит реальная фабрика. Команды и режимы: /help."
+    )
+
+
+def format_factory_snapshot(snapshot: dict[str, Any]) -> str:
+    nodes = snapshot.get("nodes") or []
+    total = len(nodes)
+    online = sum(1 for node in nodes if node.get("health") == "online")
+    schedulable = sum(
+        1 for node in nodes
+        if node.get("health") == "online"
+        and node.get("freshness") != "stale"
+        and not node.get("draining")
+        and node.get("schedulable", True)
+    )
+    active = len(snapshot.get("active_tasks") or [])
+    queue_length = int(snapshot.get("queue_length") or 0)
+    counts = snapshot.get("task_counts") or {}
+    completed = int(counts.get("completed") or 0)
+    failed = sum(int(counts.get(state) or 0) for state in ("failed", "dead_letter"))
+    lines = [
+        "Kolibri Factory — живой статус",
+        f"Узлы: online {online}/{total}; готовы к работе {schedulable}/{total}",
+        f"Задачи: активные {active}; очередь {queue_length}; завершено {completed}; ошибки {failed}",
+    ]
+    warnings = snapshot.get("warnings") or []
+    if warnings:
+        unavailable = []
+        if any(str(item).startswith("nodes_unavailable:") for item in warnings):
+            unavailable.append("узлы")
+        if any(str(item).startswith("tasks_unavailable:") for item in warnings):
+            unavailable.append("задачи")
+        lines.append("Недоступны данные: " + ", ".join(unavailable or ["часть телеметрии"]))
+    lines.append(f"Снимок: {snapshot.get('captured_at') or utc_now()}")
+    return "\n".join(lines)
 
 
 class StateStore:
@@ -808,23 +1112,106 @@ class StateStore:
 
     def load(self) -> dict[str, Any]:
         if not self.path.exists():
-            data = {"offset": None, "tracked": {}, "memory": empty_memory()}
+            data = {
+                "offset": None,
+                "tracked": {},
+                "memory": empty_memory(),
+                "processed_updates": {},
+                "processed_messages": {},
+                "previous_response_ids": {},
+            }
         else:
             data = json.loads(self.path.read_text(encoding="utf-8"))
         data.setdefault("offset", None)
         data.setdefault("tracked", {})
+        data.setdefault("processed_updates", {})
+        data.setdefault("processed_messages", {})
+        data.setdefault("previous_response_ids", {})
         data.setdefault("common_chat_since", os.environ.get("TELEGRAM_COMMON_CHAT_SINCE", utc_now()))
         ensure_memory(data)
         return data
 
     def save(self) -> None:
-        self.path.write_text(json.dumps(self.data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        payload = json.dumps(self.data, indent=2, sort_keys=True) + "\n"
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{self.path.name}.", suffix=".tmp", dir=self.path.parent,
+        )
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.chmod(temporary_name, 0o600)
+            os.replace(temporary_name, self.path)
+            directory_fd = os.open(self.path.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        finally:
+            try:
+                os.unlink(temporary_name)
+            except FileNotFoundError:
+                pass
+
+    @staticmethod
+    def _trim_records(records: dict[str, Any], limit: int) -> None:
+        overflow = len(records) - limit
+        if overflow > 0:
+            for key in list(records)[:overflow]:
+                records.pop(key, None)
+
+    @staticmethod
+    def message_key(message: dict[str, Any] | None) -> str | None:
+        if not message:
+            return None
+        chat_id = (message.get("chat") or {}).get("id")
+        message_id = message.get("message_id")
+        if chat_id is None or message_id is None:
+            return None
+        return f"{chat_id}:{message_id}"
+
+    def claim_message(self, message: dict[str, Any]) -> bool:
+        """Persist message dedupe before any Telegram or factory side effect."""
+
+        key = self.message_key(message)
+        if key is None:
+            return False
+        processed = self.data.setdefault("processed_messages", {})
+        if key in processed:
+            return False
+        processed[key] = utc_now()
+        self._trim_records(processed, PROCESSED_MESSAGE_LIMIT)
+        self.save()
+        return True
+
+    def claim_update(self, update: dict[str, Any]) -> bool:
+        """Atomically advance the inbox and claim an update at most once."""
+
+        update_id = update.get("update_id")
+        if update_id is None:
+            return False
+        key = str(update_id)
+        updates = self.data.setdefault("processed_updates", {})
+        message_key = self.message_key(update.get("message"))
+        messages = self.data.setdefault("processed_messages", {})
+        already_processed = key in updates or bool(message_key and message_key in messages)
+        self.data["offset"] = max(int(self.data.get("offset") or 0), int(update_id) + 1)
+        if not already_processed:
+            updates[key] = utc_now()
+            if message_key:
+                messages[message_key] = utc_now()
+            self._trim_records(updates, PROCESSED_UPDATE_LIMIT)
+            self._trim_records(messages, PROCESSED_MESSAGE_LIMIT)
+        self.save()
+        return not already_processed
 
 
 class Gateway:
     def __init__(self, telegram: TelegramClient, factory: FactoryClient, owner_ids: set[int], state: StateStore, poll_timeout: int, gateway_role: str = GATEWAY_ROLE_PRIMARY):
         self.telegram = telegram
         self.factory = factory
+        self.responses: ResponsesClient | None = getattr(factory, "responses_client", None)
         self.owner_ids = owner_ids
         self.state = state
         self.poll_timeout = poll_timeout
@@ -984,18 +1371,65 @@ class Gateway:
         if not last_sent:
             self.state.save()
 
+    def submit_response(self, message: dict[str, Any], text: str) -> None:
+        """Answer one Telegram input through Home's OpenAI-compatible API."""
+
+        chat_id = int(message["chat"]["id"])
+        message_id = int(message["message_id"])
+        previous = self.state.data.setdefault("previous_response_ids", {}).get(str(chat_id))
+        try:
+            try:
+                self.telegram.send_action(chat_id)
+            except Exception:
+                # Typing state is cosmetic; it must never replace the answer.
+                pass
+            if self.responses is None:
+                raise ResponsesClientError("responses_client_not_configured")
+            payload = self.responses.create_response(
+                text=text,
+                chat_id=chat_id,
+                message_id=message_id,
+                previous_response_id=str(previous) if previous else None,
+                web_search=needs_web_search(text),
+            )
+            reply = TOKEN_LIKE_RE.sub("[скрыто]", str(payload["output_text"]).strip())
+            response_id = payload.get("id")
+            if response_id:
+                self.state.data.setdefault("previous_response_ids", {})[str(chat_id)] = str(response_id)
+            self.remember_orchestrator_message(reply)
+        except ResponsesClientError as exc:
+            reply = f"Kolibri Factory не смогла вернуть ответ ({exc.code}). Попробуйте повторить запрос позже."
+            self.remember_orchestrator_message(reply)
+        except Exception:
+            reply = "Kolibri Factory не смогла вернуть ответ (responses_internal_error). Попробуйте повторить запрос позже."
+            self.remember_orchestrator_message(reply)
+        self.telegram.send_message(chat_id, reply)
+
     def handle_command(self, message: dict[str, Any], text: str) -> None:
         chat_id = message["chat"]["id"]
         command, _, arg = text.partition(" ")
         command = command.split("@", 1)[0]
         arg = arg.strip()
-        if command in {"/start", "/help"}:
+        if command == "/start":
+            self.telegram.send_message(chat_id, start_text())
+        elif command == "/help":
             self.telegram.send_message(chat_id, help_text())
+        elif command == "/ask" and arg:
+            self.submit_response(message, arg)
+        elif command == "/ask":
+            self.telegram.send_message(chat_id, "После /ask напишите вопрос, например: /ask какие динамики выбрать для Hyundai Solaris?")
         elif command == "/task" and arg:
             self.submit_text_task(message, arg)
-        elif command == "/status" and arg:
-            task = self.factory.get_task(arg)
-            self.telegram.send_message(chat_id, format_task_status(task))
+        elif command == "/status":
+            if arg:
+                try:
+                    task = self.factory.get_task(arg)
+                    reply = format_task_status(task)
+                except Exception:
+                    reply = "Не удалось получить статус этой задачи из Home Control Plane."
+            else:
+                reply = format_factory_snapshot(self.conversation_snapshot())
+            self.telegram.send_message(chat_id, reply)
         elif command == "/cancel" and arg:
             task = self.factory.cancel_task(arg)
             self.telegram.send_message(chat_id, format_task_status(task))
@@ -1019,7 +1453,9 @@ class Gateway:
         else:
             self.telegram.send_message(chat_id, help_text())
 
-    def handle_message(self, message: dict[str, Any]) -> None:
+    def handle_message(self, message: dict[str, Any], *, preclaimed: bool = False) -> None:
+        if not preclaimed and not self.state.claim_message(message):
+            return
         if not self.authorized(message):
             self.reject(message)
             return
@@ -1030,21 +1466,9 @@ class Gateway:
         if text.startswith("/"):
             self.remember_owner_message(text, "command")
             self.handle_command(message, text)
-        elif wants_image_generation(text):
-            self.remember_owner_message(text, "image")
-            self.submit_image_task(message, text)
-        elif wants_factory_task(text):
-            self.remember_owner_message(text, "task")
-            self.submit_text_task(message, text)
-        elif should_answer_immediately(text):
-            self.remember_owner_message(text, "chat")
-            snapshot = self.conversation_snapshot()
-            reply = build_realtime_owner_reply(text, snapshot)
-            self.telegram.send_message(message["chat"]["id"], reply)
-            self.remember_orchestrator_message(reply)
         else:
             self.remember_owner_message(text, "chat")
-            self.submit_chat_task(message, text)
+            self.submit_response(message, text)
 
     def auto_track_owner_tasks(self) -> None:
         chat_id = self.owner_chat_id()
@@ -1066,7 +1490,8 @@ class Gateway:
         self.state.save()
 
     def poll_task_transitions(self) -> None:
-        self.auto_track_owner_tasks()
+        if os.environ.get("TELEGRAM_AUTO_TRACK_OWNER_TASKS", "0") == "1":
+            self.auto_track_owner_tasks()
         tracked = dict(self.state.data.get("tracked", {}))
         for task_id, record in tracked.items():
             task = self.factory.get_task(task_id)
@@ -1083,29 +1508,37 @@ class Gateway:
                     self.state.save()
                     continue
                 if mode == "image" and label == "COMPLETED":
+                    # Persist terminal delivery before Telegram side effects so
+                    # a restart cannot send the same result twice.
+                    self.state.data["tracked"].pop(task_id, None)
+                    record_task_transition(self.memory(), task, label, utc_now())
+                    self.state.save()
                     try:
                         reply = self.send_image_result(int(record["chat_id"]), task)
                     except Exception:
                         reply = "Картинка сгенерирована, но Telegram не смог её принять. Я зафиксировал сбой доставки."
                         self.telegram.send_message(int(record["chat_id"]), reply)
-                    record_task_transition(self.memory(), task, label, utc_now())
                     record_orchestrator_message(self.memory(), reply, utc_now())
-                    self.state.data["tracked"].pop(task_id, None)
                     self.state.save()
                     continue
                 if mode == "image" and label == "FAILED":
                     reply = "Сейчас не смог сгенерировать изображение. Я зафиксировал сбой и продолжу восстановление."
-                    self.telegram.send_message(int(record["chat_id"]), reply)
-                    record_task_transition(self.memory(), task, label, utc_now())
-                    record_orchestrator_message(self.memory(), reply, utc_now())
                     self.state.data["tracked"].pop(task_id, None)
+                    record_task_transition(self.memory(), task, label, utc_now())
+                    self.state.save()
+                    self.telegram.send_message(int(record["chat_id"]), reply)
+                    record_orchestrator_message(self.memory(), reply, utc_now())
                     self.state.save()
                     continue
                 reply = format_transition(label, task, mode)
-                self.telegram.send_message(int(record["chat_id"]), reply)
+                if label in {"COMPLETED", "FAILED", "CANCELLED"}:
+                    self.state.data["tracked"].pop(task_id, None)
+                else:
+                    self.state.data["tracked"][task_id]["last_state"] = label
                 record_task_transition(self.memory(), task, label, utc_now())
+                self.state.save()
+                self.telegram.send_message(int(record["chat_id"]), reply)
                 record_orchestrator_message(self.memory(), reply, utc_now())
-                self.state.data["tracked"][task_id]["last_state"] = label
                 self.state.save()
 
     def run_once(self) -> None:
@@ -1122,11 +1555,11 @@ class Gateway:
             return
         updates = self.telegram.get_updates(self.state.data.get("offset"), self.poll_timeout)
         for update in updates:
-            self.state.data["offset"] = int(update["update_id"]) + 1
+            if not self.state.claim_update(update):
+                continue
             message = update.get("message")
             if message:
-                self.handle_message(message)
-        self.state.save()
+                self.handle_message(message, preclaimed=True)
         self.poll_task_transitions()
 
     def run(self) -> None:
@@ -1447,6 +1880,19 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--control-url", default=os.environ.get("KOLIBRI_FACTORY_CONTROL_URL"))
     parser.add_argument("--control-urls", default=os.environ.get("KOLIBRI_FACTORY_CONTROL_URLS"))
+    parser.add_argument(
+        "--backend-url",
+        default=os.environ.get("KOLIBRI_BACKEND_URL", DEFAULT_BACKEND_URL),
+    )
+    parser.add_argument(
+        "--owner-token-file",
+        default=os.environ.get("KOLIBRI_OWNER_API_TOKEN_FILE", DEFAULT_OWNER_TOKEN_FILE),
+    )
+    parser.add_argument(
+        "--response-timeout",
+        type=int,
+        default=int(os.environ.get("TELEGRAM_RESPONSE_TIMEOUT_SECONDS", "120")),
+    )
     parser.add_argument("--state-file", default=os.environ.get("TELEGRAM_GATEWAY_STATE", "/var/lib/kolibri-telegram-gateway/state.json"))
     parser.add_argument("--poll-timeout", type=int, default=int(os.environ.get("TELEGRAM_POLL_TIMEOUT", "25")))
     args = parser.parse_args()
@@ -1476,7 +1922,20 @@ def main() -> int:
     if not startup_validation["ok"]:
         violations = startup_validation["violations"]
         raise SystemExit(f"HA guard rejected gateway startup: {violations}")
-    gateway = Gateway(telegram, FactoryClient(args.control_url), owner_ids, StateStore(state_path), args.poll_timeout, gateway_role=gateway_role)
+    factory = FactoryClient(args.control_url)
+    factory.responses_client = ResponsesClient(
+        args.backend_url,
+        args.owner_token_file,
+        timeout=args.response_timeout,
+    )
+    gateway = Gateway(
+        telegram,
+        factory,
+        owner_ids,
+        StateStore(state_path),
+        args.poll_timeout,
+        gateway_role=gateway_role,
+    )
     gateway.run()
     return 0
 

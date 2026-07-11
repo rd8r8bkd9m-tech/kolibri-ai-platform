@@ -108,6 +108,9 @@ ssh-keygen -lf "$SIGNER_PUBLIC_KEY" >/dev/null 2>&1 || {
 
 for source in \
   ops/control_plane_endpoint.py \
+  ops/fleet_membership.py \
+  ops/home_control_plane_canary.py \
+  ops/home_control_plane_launcher.py \
   ops/home_release_authority_bootstrap.py \
   ops/home_release_authority_preflight.py \
   ops/release_authority.py \
@@ -115,7 +118,8 @@ for source in \
   ops/release_installer.py \
   ops/release-policy.home.json \
   ops/systemd/kolibri-release-helper.service \
-  ops/systemd/kolibri-release-helper.socket; do
+  ops/systemd/kolibri-release-helper.socket \
+  ops/systemd/kolibri-factory-control-immutable-release.conf; do
   [ -f "$ROOT_DIR/$source" ] && [ ! -L "$ROOT_DIR/$source" ] || {
     echo "release_authority_source_invalid" >&2
     exit 2
@@ -204,6 +208,9 @@ STAGED=true
 scp -q "${SSH_OPTIONS[@]}" \
   "$ROOT_DIR/ops/home_release_authority_bootstrap.py" \
   "$ROOT_DIR/ops/control_plane_endpoint.py" \
+  "$ROOT_DIR/ops/fleet_membership.py" \
+  "$ROOT_DIR/ops/home_control_plane_canary.py" \
+  "$ROOT_DIR/ops/home_control_plane_launcher.py" \
   "$ROOT_DIR/ops/release_authority.py" \
   "$ROOT_DIR/ops/release_helper.py" \
   "$ROOT_DIR/ops/release_installer.py" \
@@ -212,6 +219,7 @@ scp -q "${SSH_OPTIONS[@]}" \
 scp -q "${SSH_OPTIONS[@]}" \
   "$ROOT_DIR/ops/systemd/kolibri-release-helper.service" \
   "$ROOT_DIR/ops/systemd/kolibri-release-helper.socket" \
+  "$ROOT_DIR/ops/systemd/kolibri-factory-control-immutable-release.conf" \
   "$REMOTE_TARGET:$REMOTE_STAGE/ops/systemd/"
 scp -q "${SSH_OPTIONS[@]}" \
   "$MANIFEST" "$REMOTE_TARGET:$REMOTE_STAGE/peers.json"

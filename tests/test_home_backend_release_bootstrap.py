@@ -71,6 +71,7 @@ class FakeRunner:
             elif property_argument == "--property=Environment":
                 stdout = (
                     f"KOLIBRI_FRONTEND_DIST={FRONTEND_DIST} "
+                    "KOLIBRI_OWNER_API_TOKEN_FILE=/etc/kolibri/owner-api-token "
                     "PRIVATE_VALUE=must-not-be-returned\n"
                 )
         elif command[1:3] == ("is-active", "--quiet"):
@@ -150,6 +151,7 @@ def test_plan_is_read_only_and_imports_current_with_existing_venv(tmp_path):
         "KOLIBRI_FRONTEND_DIST": (
             f"{root}/opt/kolibri-ai/current/frontend/dist"
         ),
+        "KOLIBRI_OWNER_API_TOKEN_FILE": "/etc/kolibri/owner-api-token",
     }
     assert not any(call[1:2] in {("restart",), ("daemon-reload",)} for call in runner.calls)
 

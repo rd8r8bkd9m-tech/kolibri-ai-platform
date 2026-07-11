@@ -344,6 +344,8 @@ def test_systemd_and_dynamic_installers_ship_only_the_non_secret_declaration():
         assert "runner_access.py" in script
         assert "runner-access.default.json" in script
         assert "/etc/kolibri/runner-access.json" in script
+        assert "ops/mimo/kolibri-response-only.md" in script
+        assert "/usr/local/lib/kolibri/mimo/kolibri-response-only.md" in script
         assert "auth.json" not in script
         assert "/.codex/" not in script
     for fixed_worker_name in ("main", "primary", "kfrm", "highload"):

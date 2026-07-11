@@ -40,6 +40,7 @@ command -v scp >/dev/null
 
 RUNTIME_FILES=(
   ops/agent_host.py
+  ops/mimo/kolibri-response-only.md
   ops/control_plane_endpoint.py
   ops/runner_access.py
   ops/runner-access.default.json
@@ -98,6 +99,7 @@ stage_node() {
   ssh "root@$ip" "install -d -m700 '$remote'" </dev/null
   scp -q \
     "$ROOT_DIR/ops/agent_host.py" \
+    "$ROOT_DIR/ops/mimo/kolibri-response-only.md" \
     "$ROOT_DIR/ops/control_plane_endpoint.py" \
     "$ROOT_DIR/ops/runner_access.py" \
     "$ROOT_DIR/ops/runner-access.default.json" \
@@ -123,6 +125,7 @@ backup=/var/backups/kolibri/$1
 rm -f /etc/systemd/system/kolibri-agent-host.service.d/99-home-only.conf
 for path in \
   /usr/local/bin/kolibri-agent-host \
+  /usr/local/lib/kolibri/mimo/kolibri-response-only.md \
   /usr/local/lib/kolibri/control_plane_endpoint.py \
   /usr/local/lib/kolibri/runner_access.py \
   /etc/kolibri/runner-access.json \
@@ -139,6 +142,9 @@ for path in \
   /etc/systemd/system/kolibri-release-helper.socket; do
   [ -e "$backup$path" ] && cp -a "$backup$path" "$path"
 done
+if [ ! -e "$backup/usr/local/lib/kolibri/mimo/kolibri-response-only.md" ]; then
+  rm -f /usr/local/lib/kolibri/mimo/kolibri-response-only.md
+fi
 if [ ! -e "$backup/etc/systemd/system/kolibri-mesh-apply-peers.service" ]; then
   systemctl disable --now kolibri-mesh-apply-peers.service >/dev/null 2>&1 || true
   rm -f /etc/systemd/system/kolibri-mesh-apply-peers.service
@@ -174,6 +180,7 @@ install -d -m755 /usr/local/lib/kolibri /etc/kolibri
 
 for path in \
   /usr/local/bin/kolibri-agent-host \
+  /usr/local/lib/kolibri/mimo/kolibri-response-only.md \
   /usr/local/lib/kolibri/control_plane_endpoint.py \
   /usr/local/lib/kolibri/runner_access.py \
   /etc/kolibri/runner-access.json \
@@ -199,13 +206,14 @@ systemctl is-enabled kolibri-factory-control.service >"$backup/factory-control.e
 
 getent group kolibri-agent >/dev/null || groupadd --system kolibri-agent
 id -u kolibri-agent >/dev/null 2>&1 || useradd --system --gid kolibri-agent --home-dir /var/lib/kolibri-agent --shell /usr/sbin/nologin kolibri-agent
-install -d -m755 /usr/local/lib/kolibri /etc/systemd/system/kolibri-agent-host.service.d
+install -d -m755 /usr/local/lib/kolibri /usr/local/lib/kolibri/mimo /etc/systemd/system/kolibri-agent-host.service.d
 install -d -m755 /opt/kolibri-ai /opt/kolibri-ai/releases /var/lib/kolibri-release
 install -d -m700 /var/lib/kolibri-release/artifacts
 install -d -o kolibri-agent -g kolibri-agent -m700 \
   /var/lib/kolibri-agent /var/lib/kolibri-agent/worktrees /var/lib/kolibri-agent/artifacts
 
 install -m755 "$stage/agent_host.py" /usr/local/bin/kolibri-agent-host
+install -m644 "$stage/kolibri-response-only.md" /usr/local/lib/kolibri/mimo/kolibri-response-only.md
 install -m644 "$stage/control_plane_endpoint.py" /usr/local/lib/kolibri/control_plane_endpoint.py
 install -m644 "$stage/runner_access.py" /usr/local/lib/kolibri/runner_access.py
 install -m644 "$stage/runner-access.default.json" /etc/kolibri/runner-access.json

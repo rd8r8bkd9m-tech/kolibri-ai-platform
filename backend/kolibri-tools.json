@@ -28,6 +28,20 @@
       "read_only": true,
       "execution_backend": "controlled_http_gateway",
       "policy_version": "kolibri.web-search-policy.v1"
+    },
+    {
+      "id": "tool:project_knowledge",
+      "name": "project_knowledge",
+      "kind": "tool",
+      "description": "Owner-only bounded search over allowlisted Kolibri repository documentation and source with content-bound citations.",
+      "status": "available",
+      "providers": ["gateway"],
+      "aliases": ["project_knowledge", "project_docs", "repository_context"],
+      "event_aliases": ["project_knowledge.search"],
+      "requires_event_probe": false,
+      "read_only": true,
+      "execution_backend": "owner_project_index_gateway",
+      "policy_version": "kolibri.project-knowledge-policy.v1"
     }
   ]
 }

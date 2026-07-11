@@ -240,13 +240,71 @@ class EstimatePriceProvenance(StrictModel):
     source: Literal[
         "manual",
         "assumption",
+        "normative",
         "catalog",
         "contract",
         "supplier",
         "measurement",
     ] = "manual"
     source_ref: str | None = Field(default=None, min_length=1, max_length=500)
+    source_url: str | None = Field(
+        default=None,
+        min_length=8,
+        max_length=2_048,
+        pattern=r"^https?://[^\s]+$",
+    )
     captured_at: str | None = Field(default=None, max_length=80)
+    applicable_region: str | None = Field(default=None, min_length=1, max_length=300)
+    price_level_date: str | None = Field(default=None, min_length=1, max_length=80)
+    basis_ref: str | None = Field(default=None, min_length=1, max_length=500)
+    quantity_source: Literal["project", "measurement", "manual"] | None = None
+    quantity_source_ref: str | None = Field(default=None, min_length=1, max_length=500)
+    quantity_source_url: str | None = Field(
+        default=None,
+        min_length=8,
+        max_length=2_048,
+        pattern=r"^https?://[^\s]+$",
+    )
+    assumptions: list[str] = Field(default_factory=list, max_length=20)
+    validation_status: Literal["unverified", "verified"] = "unverified"
+
+    @model_validator(mode="after")
+    def validate_assumptions(self) -> "EstimatePriceProvenance":
+        if any(not value.strip() or len(value) > 1_000 for value in self.assumptions):
+            raise ValueError("estimate provenance assumptions must contain 1 to 1000 characters")
+        return self
+
+
+class EstimateNormativeBasis(StrictModel):
+    calculation_method: Literal[
+        "resource-index",
+        "resource",
+        "base-index",
+        "contract",
+        "commercial",
+    ]
+    normative_basis_ref: str = Field(min_length=1, max_length=1_000)
+    normative_edition: str = Field(min_length=1, max_length=300)
+    price_level_date: str = Field(min_length=1, max_length=80)
+    region: str = Field(min_length=1, max_length=300)
+    index_document_refs: list[str] = Field(default_factory=list, max_length=20)
+    tax_scope_ref: str = Field(min_length=1, max_length=1_000)
+    contract_scope_ref: str = Field(min_length=1, max_length=1_000)
+    source_urls: list[str] = Field(default_factory=list, max_length=20)
+    input_document_refs: list[str] = Field(default_factory=list, max_length=100)
+    validation_status: Literal["unverified", "verified"] = "unverified"
+
+    @model_validator(mode="after")
+    def validate_refs(self) -> "EstimateNormativeBasis":
+        if any(not value.strip() or len(value) > 1_000 for value in self.index_document_refs):
+            raise ValueError("estimate index document refs must contain 1 to 1000 characters")
+        if any(not value.strip() or len(value) > 2_048 or not re.fullmatch(r"https?://[^\s]+", value) for value in self.source_urls):
+            raise ValueError("estimate source URLs must be bounded HTTP(S) URLs")
+        if any(not value.strip() or len(value) > 1_000 for value in self.input_document_refs):
+            raise ValueError("estimate input document refs must contain 1 to 1000 characters")
+        if self.calculation_method in {"resource-index", "base-index"} and not self.index_document_refs:
+            raise ValueError("indexed estimate method requires index document refs")
+        return self
 
 
 class EstimateLineCreate(StrictModel):
@@ -280,6 +338,7 @@ class EstimateSpec(StrictModel):
         min_length=1,
         max_length=2_000,
     )
+    normative_basis: EstimateNormativeBasis | None = None
     assumptions: list[str] = Field(default_factory=list, max_length=100)
     questions: list[str] = Field(default_factory=list, max_length=100)
     lines: list[EstimateLineCreate] = Field(min_length=1, max_length=2_000)

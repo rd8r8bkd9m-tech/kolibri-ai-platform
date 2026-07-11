@@ -62,6 +62,7 @@ def test_telegram_chat_prompt_does_not_include_fixed_greeting_template(
             super().__init__(args)
             self.posts = []
             self.commands = []
+            self.prompts = []
             self.last_logs = None
 
         def post(self, path, body):
@@ -69,8 +70,15 @@ def test_telegram_chat_prompt_does_not_include_fixed_greeting_template(
             return body
 
         def run_command(self, command, cwd, stdout_path, stderr_path, task, branch, logs, env=None, command_label=None):
-            del cwd, task, branch, logs, env
+            del task, branch, logs, env
             self.commands.append((command, command_label))
+            assert "--pure" in command
+            assert command[command.index("--agent") + 1] == "kolibri-response-only"
+            prompt_path = Path(command[command.index("--file") + 1])
+            self.prompts.append(prompt_path.read_text(encoding="utf-8"))
+            assert (
+                Path(cwd) / ".mimocode" / "agents" / "kolibri-response-only.md"
+            ).is_file()
             event = {"part": {"type": "text", "text": "Здравствуйте. Вижу контекст и отвечаю по делу."}}
             stdout_path.write_text(
                 f"$ {command_label}\n"
@@ -88,9 +96,11 @@ def test_telegram_chat_prompt_does_not_include_fixed_greeting_template(
 
     assert result["kind"] == "telegram_chat_response"
     assert result["response"] == "Здравствуйте. Вижу контекст и отвечаю по делу."
-    prompt = host.commands[0][0][-1]
+    prompt = host.prompts[0]
     assert "каждый ответ должен быть заново сгенерирован" in prompt
     assert FORBIDDEN_GREETING_TEMPLATE not in prompt
+    assert prompt not in host.commands[0][0]
+    assert "--dangerously-skip-permissions" not in host.commands[0][0]
     assert host.last_logs is not None
     stdout_path, stderr_path = host.last_logs
     assert FORBIDDEN_GREETING_TEMPLATE not in stdout_path.read_text(encoding="utf-8")
@@ -149,19 +159,26 @@ def test_telegram_chat_uses_codex_when_ai_runner_is_codex(
     command, command_label = host.commands[0]
     assert command[:6] == [
         "/usr/bin/codex",
+        "--search",
         "exec",
         "--json",
         "--ephemeral",
         "--skip-git-repo-check",
-        "--color",
     ]
     assert command[-3:] == ["--model", agent_host.CODEX_TASK_MODEL, "-"]
-    assert "danger-full-access" in command
+    assert command[command.index("--sandbox") + 1] == "read-only"
+    assert "danger-full-access" not in command
+    assert "--ignore-user-config" in command
+    assert "--ignore-rules" in command
+    assert host.prompts[0].startswith(agent_host.CODEX_PROVIDER_NETWORK_INSTRUCTION)
     assert host.prompts[0].endswith("Сообщение владельца: Проверь статус")
     assert host.prompts[0] not in command
     assert "/usr/bin/mimo" not in command
     assert command_label.endswith(
-        f"--sandbox danger-full-access --model {agent_host.CODEX_TASK_MODEL} - <prompt-file>"
+        f"--sandbox read-only --model {agent_host.CODEX_TASK_MODEL} - <prompt-file>"
+    )
+    assert result["runner_contract"]["factory_provider_contract"] == (
+        agent_host.FACTORY_PROVIDER_CONTRACT
     )
 
 

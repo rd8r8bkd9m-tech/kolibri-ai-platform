@@ -44,6 +44,12 @@ export function useProjectMessaging({
         task,
         workstreamId: projectId,
         executionMode,
+        onWorkSummary: (workSummary) => updateProject(projectId, (current) => ({
+          ...current,
+          messages: current.messages.map((message) => message.id === reply.id
+            ? { ...message, workSummary }
+            : message),
+        })),
       });
       const taskStatus = response.task?.status || "completed";
       const answer = response.text || (taskStatus === "incomplete"
@@ -58,11 +64,12 @@ export function useProjectMessaging({
         task: response.task,
         artifacts: response.artifacts,
         endpoint: response.endpoint,
+        workSummary: response.workSummary,
       }) : null;
       updateProject(projectId, (current) => ({
         ...current,
         messages: current.messages.map((message) => message.id === reply.id
-          ? { ...message, text: answer, status: taskStatus, ...(canvas ? { canvasId: canvas.id } : {}) }
+          ? { ...message, text: answer, status: taskStatus, workSummary: response.workSummary, ...(canvas ? { canvasId: canvas.id } : {}) }
           : message),
         artifacts: mergeArtifacts(current.artifacts, response.artifacts),
         canvases: canvas ? upsertCanvas(current.canvases, canvas) : current.canvases,

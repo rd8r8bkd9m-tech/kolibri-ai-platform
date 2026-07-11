@@ -16,7 +16,7 @@ export function WindowContent({ windowState, project, projectBusy, executionMode
     return <ProjectCanvas canvas={canvas} detached onCalculate={(spec) => onCalculate(payload.parentProjectId, payload.canvasId, spec, project?.executionMode || "fast")} onOpenArtifact={(artifact) => onOpenArtifact(payload.parentProjectId, artifact)} onUpdate={(patch) => onUpdateCanvas(payload.parentProjectId, payload.canvasId, patch)} />;
   }
   if (windowState.kind === "estimate") {
-    return <EstimateWorkspace onCalculate={(spec) => onCalculate(payload.parentProjectId, payload.canvasId || `estimate:${payload.parentProjectId}`, spec, project?.executionMode || "fast")} payload={payload} />;
+    return <EstimateWorkspace onCalculate={(spec) => onCalculate(payload.parentProjectId, payload.canvasId || `estimate:${payload.parentProjectId}`, spec, project?.executionMode || "fast")} onOpenArtifact={(artifact) => onOpenArtifact(payload.parentProjectId, artifact)} onUpdate={(patch) => onUpdateCanvas(payload.parentProjectId, payload.canvasId || `estimate:${payload.parentProjectId}`, patch)} payload={payload} />;
   }
   if (windowState.kind === "projects") {
     return <ProjectsWindow items={payload.items || []} onNew={onNewProject} onOpen={onOpenHistory} />;

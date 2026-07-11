@@ -1,10 +1,12 @@
-"""Ephemeral editable estimates and immutable PDF artifacts for the public Shell.
+"""Ephemeral estimate inputs and immutable PDF artifacts for the public Shell.
 
 The provider may propose scope, quantities, prices and provenance.  This
 module revalidates the typed estimate, recalculates every monetary value with
 the deterministic minor-unit engine, persists an optimistic-lock revision and
-materializes a content-addressed PDF.  Session tokens and provider credentials
-never enter the estimate or artifact records.
+materializes a content-addressed PDF.  When trustworthy calculation inputs are
+missing, it instead materializes a non-monetary readiness checklist bound to
+the request and gate proof.  Session tokens and provider credentials never
+enter estimate content or public artifact records.
 """
 
 from __future__ import annotations
@@ -45,6 +47,7 @@ from data_paths import DATA_DIR, DB_PATH
 
 
 ARTIFACT_SCHEMA = "kolibri.estimate-artifact.v1"
+READINESS_ARTIFACT_SCHEMA = "kolibri.estimate-readiness-artifact.v1"
 ESTIMATE_SCHEMA = "kolibri.editable-estimate.v1"
 _SHA256 = re.compile(r"^[a-f0-9]{64}$")
 _FONT_LOCK = threading.Lock()
@@ -148,6 +151,15 @@ def _styles() -> dict[str, ParagraphStyle]:
             fontSize=9, leading=12, textColor=colors.HexColor("#102126"),
             alignment=TA_RIGHT,
         ),
+        "hash": ParagraphStyle(
+            "KolibriEstimateHash", parent=base["BodyText"], fontName=regular,
+            fontSize=6.2, leading=8.2, textColor=colors.HexColor("#4D5B60"),
+            wordWrap="CJK",
+        ),
+        "warning": ParagraphStyle(
+            "KolibriEstimateWarning", parent=base["BodyText"], fontName=bold,
+            fontSize=9, leading=12, textColor=colors.HexColor("#7A3A00"),
+        ),
     }
 
 
@@ -165,7 +177,7 @@ def _rate(bps: int) -> str:
     return f"{Decimal(bps) / Decimal(100):.2f}".replace(".", ",") + "%"
 
 
-def _page_footer(calculation_sha256: str):
+def _page_footer(binding_sha256: str, label: str = "Расчёт"):
     def draw(canvas, doc):
         regular, bold = _font_pair()
         width, _ = A4
@@ -178,7 +190,7 @@ def _page_footer(calculation_sha256: str):
         canvas.drawString(15 * mm, 8.5 * mm, "KOLIBRI AI")
         canvas.setFont(regular, 6.5)
         canvas.setFillColor(colors.HexColor("#657176"))
-        canvas.drawCentredString(width / 2, 8.5 * mm, f"Расчёт {calculation_sha256[:16]}")
+        canvas.drawCentredString(width / 2, 8.5 * mm, f"{label} {binding_sha256[:16]}")
         canvas.drawRightString(width - 15 * mm, 8.5 * mm, f"Страница {doc.page}")
         canvas.restoreState()
     return draw
@@ -218,6 +230,18 @@ def generate_estimate_pdf(
         [_p("Валюта", styles["small_bold"]), _p(spec.currency, styles["small"])],
         [_p("Источник цен", styles["small_bold"]), _p(spec.source_summary, styles["small"])],
     ]
+    independently_verified = bool(
+        spec.normative_basis is not None
+        and spec.normative_basis.validation_status == "verified"
+        and all(line.provenance.validation_status == "verified" for line in spec.lines)
+    )
+    meta_rows.insert(0, [
+        _p("Статус", styles["small_bold"]),
+        _p(
+            "Проверенная смета" if independently_verified else "Предварительная редактируемая смета",
+            styles["small_bold"] if independently_verified else styles["warning"],
+        ),
+    ])
     if spec.client_name:
         meta_rows.insert(0, [_p("Клиент", styles["small_bold"]), _p(spec.client_name, styles["small"])])
     if spec.object_name or spec.object_address:
@@ -234,7 +258,18 @@ def generate_estimate_pdf(
         ("TOPPADDING", (0, 0), (-1, -1), 5),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
     ]))
-    story.extend([meta, Spacer(1, 7 * mm)])
+    story.append(meta)
+    if not independently_verified:
+        story.extend([
+            Spacer(1, 2.5 * mm),
+            _p(
+                "Суммы рассчитаны детерминированно из указанных объёмов и цен, но источники "
+                "ещё не прошли независимую проверку. Документ нельзя выдавать за точную "
+                "договорную или нормативно подтверждённую стоимость.",
+                styles["warning"],
+            ),
+        ])
+    story.append(Spacer(1, 7 * mm))
 
     calculated_lines = {item["id"]: item for item in calculation["lines"]}
     sections: dict[str, list[Any]] = defaultdict(list)
@@ -255,10 +290,14 @@ def generate_estimate_pdf(
         for line in lines:
             line_number += 1
             result = calculated_lines[line.id]
-            source = line.provenance.source_ref or line.provenance.source
-            description = line.description
-            if source:
-                description += f"<br/><font size='6.5' color='#657176'>Источник: {escape(source)}</font>"
+            source_parts = [line.provenance.source_ref or line.provenance.source]
+            if line.provenance.price_level_date:
+                source_parts.append(f"уровень цен {line.provenance.price_level_date}")
+            if line.provenance.applicable_region:
+                source_parts.append(line.provenance.applicable_region)
+            if line.provenance.source_url:
+                source_parts.append(line.provenance.source_url)
+            source = "; ".join(item for item in source_parts if item)
             rows.append([
                 _p(line_number, styles["small"]),
                 Paragraph(escape(line.description) + (
@@ -365,6 +404,210 @@ def generate_estimate_pdf(
     return path
 
 
+def _display_hash(value: str) -> str:
+    return " ".join(value[index:index + 8] for index in range(0, len(value), 8))
+
+
+def generate_estimate_readiness_pdf(
+    readiness: dict[str, Any],
+    proof: dict[str, Any],
+    output_path: str | Path,
+) -> Path:
+    """Generate a non-monetary input checklist bound to the readiness proof."""
+
+    if readiness.get("status") != "needs_input":
+        raise EstimateArtifactError("estimate_readiness_status_invalid")
+    if readiness.get("monetary_status") != "not_calculated":
+        raise EstimateArtifactError("estimate_readiness_money_status_invalid")
+    if readiness.get("normative_verified") is not False:
+        raise EstimateArtifactError("estimate_readiness_normative_status_invalid")
+    readiness_sha = str(proof.get("readiness_sha256") or "").lower()
+    task_binding_sha = str(proof.get("binding_sha256") or "").lower()
+    input_facts_sha = str(proof.get("input_facts_sha256") or "").lower()
+    if not all(_SHA256.fullmatch(value) for value in (
+        readiness_sha, task_binding_sha, input_facts_sha,
+    )):
+        raise EstimateArtifactError("estimate_readiness_binding_invalid")
+    if readiness_sha != _sha(_canonical_json(readiness)):
+        raise EstimateArtifactError("estimate_readiness_hash_mismatch")
+
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    styles = _styles()
+    title = str(readiness.get("title") or "Исходные данные для сметы")
+    doc = SimpleDocTemplate(
+        str(path), pagesize=A4, leftMargin=15 * mm, rightMargin=15 * mm,
+        topMargin=14 * mm, bottomMargin=18 * mm,
+        title=title, author="Kolibri AI",
+        subject="Чеклист исходных данных для достоверной сметы",
+    )
+    story: list[Any] = [
+        _p("KOLIBRI AI / ПРОВЕРКА ГОТОВНОСТИ СМЕТЫ", styles["eyebrow"]),
+        _p(title, styles["title"]),
+    ]
+
+    status = Table([
+        [_p("Статус", styles["small_bold"]), _p("Нужны исходные данные", styles["warning"])],
+        [_p("Денежный итог", styles["small_bold"]), _p("Не рассчитан", styles["warning"])],
+        [_p("Нормативная проверка", styles["small_bold"]), _p("Не пройдена", styles["warning"])],
+    ], colWidths=[48 * mm, 132 * mm], hAlign="LEFT")
+    status.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#FFF4E8")),
+        ("BACKGROUND", (1, 0), (1, -1), colors.HexColor("#FFF9F2")),
+        ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#E1A86F")),
+        ("INNERGRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#EFD0B2")),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 7),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    story.extend([
+        status,
+        Spacer(1, 4 * mm),
+        _p(
+            "Этот PDF не является сметой, коммерческим предложением или основанием для договора. "
+            "Он фиксирует известные факты и полный перечень документов, без которых денежный "
+            "расчёт был бы неподтверждённым.",
+            styles["body"],
+        ),
+        Spacer(1, 3 * mm),
+        _p("Зафиксированные факты", styles["h2"]),
+    ])
+
+    fact_labels = {
+        "object_type_label": "Объект",
+        "storeys": "Этажность",
+        "gross_area_m2": "Общая площадь, м²",
+        "region": "Регион",
+        "locality": "Населённый пункт",
+        "estimate_title": "Название",
+        "object_name": "Наименование объекта",
+        "object_address": "Адрес объекта",
+        "currency": "Валюта будущего расчёта",
+    }
+    facts = readiness.get("known_facts") if isinstance(readiness.get("known_facts"), dict) else {}
+    fact_rows = [
+        [_p(fact_labels[key], styles["small_bold"]), _p(value, styles["small"])]
+        for key, value in facts.items()
+        if key in fact_labels and value not in (None, "")
+    ]
+    if not fact_rows:
+        fact_rows = [[_p("Факты", styles["small_bold"]), _p("Требуют подтверждения", styles["small"])]]
+    facts_table = Table(fact_rows, colWidths=[48 * mm, 132 * mm], hAlign="LEFT")
+    facts_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#E5F8FA")),
+        ("BOX", (0, 0), (-1, -1), 0.45, colors.HexColor("#C5D5D8")),
+        ("INNERGRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#D8E2E4")),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    story.extend([facts_table, Spacer(1, 4 * mm), _p("Что нужно предоставить", styles["h2"])])
+
+    editor = readiness.get("editor") if isinstance(readiness.get("editor"), dict) else {}
+    fields = editor.get("fields") if isinstance(editor.get("fields"), list) else []
+    field_labels = {
+        str(item.get("id")): str(item.get("label") or item.get("id"))
+        for item in fields if isinstance(item, dict) and item.get("id")
+    }
+    required_inputs = readiness.get("required_inputs")
+    if not isinstance(required_inputs, list) or not required_inputs:
+        raise EstimateArtifactError("estimate_readiness_inputs_missing")
+    input_rows: list[list[Any]] = [[
+        _p("Раздел", styles["small_bold"]),
+        _p("Нужные данные", styles["small_bold"]),
+        _p("Подтверждение", styles["small_bold"]),
+    ]]
+    for group in required_inputs:
+        if not isinstance(group, dict):
+            raise EstimateArtifactError("estimate_readiness_input_invalid")
+        labels = ", ".join(
+            field_labels.get(str(field), str(field))
+            for field in group.get("fields", [])
+        )
+        input_rows.append([
+            _p(group.get("label") or group.get("id"), styles["small_bold"]),
+            _p(labels, styles["small"]),
+            _p(group.get("evidence") or "Требуется документ-основание.", styles["small"]),
+        ])
+    inputs_table = LongTable(
+        input_rows, colWidths=[42 * mm, 64 * mm, 74 * mm], repeatRows=1,
+    )
+    inputs_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#F1F5F5")),
+        ("BOX", (0, 0), (-1, -1), 0.45, colors.HexColor("#C5D5D8")),
+        ("INNERGRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#D8E2E4")),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    story.extend([inputs_table, Spacer(1, 4 * mm)])
+
+    gate = readiness.get("normative_gate") if isinstance(readiness.get("normative_gate"), dict) else {}
+    basis = gate.get("required_basis") if isinstance(gate.get("required_basis"), list) else []
+    if basis:
+        story.append(_p("Контроль расчётной базы", styles["h2"]))
+        for index, item in enumerate(basis, 1):
+            story.append(_p(f"{index}. {item}", styles["body"]))
+    references = gate.get("official_references") if isinstance(gate.get("official_references"), list) else []
+    if references:
+        story.append(_p("Официальные справочные источники", styles["h2"]))
+        for reference in references:
+            if not isinstance(reference, dict):
+                continue
+            story.append(_p(
+                f"{reference.get('title', 'Источник')}: {reference.get('url', '')}",
+                styles["small"],
+            ))
+
+    sections = readiness.get("draft_sections") if isinstance(readiness.get("draft_sections"), list) else []
+    if sections:
+        story.append(_p("Разделы будущей сметы", styles["h2"]))
+        section_rows = [[_p("№", styles["small_bold"]), _p("Раздел", styles["small_bold"]), _p("Состояние", styles["small_bold"])]]
+        for index, section in enumerate(sections, 1):
+            section_rows.append([
+                _p(index, styles["small"]),
+                _p(section.get("label") if isinstance(section, dict) else section, styles["small"]),
+                _p("Состав не подтверждён", styles["small"]),
+            ])
+        sections_table = Table(section_rows, colWidths=[10 * mm, 120 * mm, 50 * mm], repeatRows=1)
+        sections_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#F1F5F5")),
+            ("BOX", (0, 0), (-1, -1), 0.45, colors.HexColor("#C5D5D8")),
+            ("INNERGRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#D8E2E4")),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 5),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ]))
+        story.append(sections_table)
+
+    story.extend([
+        Spacer(1, 5 * mm),
+        _p("Контроль целостности", styles["h2"]),
+        _p(f"Input facts SHA-256: {_display_hash(input_facts_sha)}", styles["hash"]),
+        _p(f"Readiness SHA-256: {_display_hash(readiness_sha)}", styles["hash"]),
+        _p(f"Task binding SHA-256: {_display_hash(task_binding_sha)}", styles["hash"]),
+        Spacer(1, 2 * mm),
+        _p(
+            "После получения документов сметчик должен проверить их применимость, редакции и "
+            "взаимную согласованность. Только затем допустим денежный расчёт.",
+            styles["small"],
+        ),
+    ])
+    footer = _page_footer(task_binding_sha, label="Проверка")
+    doc.build(story, onFirstPage=footer, onLaterPages=footer)
+    if not path.is_file() or path.stat().st_size < 1_000:
+        raise EstimateArtifactError("estimate_readiness_pdf_not_materialized")
+    return path
+
+
 class EstimateArtifactStore:
     def __init__(self, db_path: str | Path, artifact_root: str | Path):
         self.db_path = str(db_path)
@@ -433,24 +676,57 @@ class EstimateArtifactStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_public_estimate_artifacts_session
                     ON public_estimate_artifacts(session_id, created_at);
+                CREATE TABLE IF NOT EXISTS public_estimate_readiness_artifacts (
+                    artifact_id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    project_id TEXT NOT NULL,
+                    response_id TEXT NOT NULL,
+                    request_source_sha256 TEXT NOT NULL,
+                    readiness_sha256 TEXT NOT NULL,
+                    task_binding_sha256 TEXT NOT NULL,
+                    media_type TEXT NOT NULL,
+                    content_sha256 TEXT NOT NULL,
+                    reference_sha256 TEXT NOT NULL,
+                    binding_sha256 TEXT NOT NULL,
+                    size_bytes INTEGER NOT NULL,
+                    storage_path TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    expires_at REAL NOT NULL,
+                    UNIQUE(session_id, response_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_public_estimate_readiness_artifacts_session
+                    ON public_estimate_readiness_artifacts(session_id, created_at);
                 """
             )
 
     def _cleanup(self, connection: sqlite3.Connection, now: float) -> None:
-        expired = connection.execute(
+        expired_estimates = connection.execute(
             "SELECT DISTINCT storage_path FROM public_estimate_artifacts WHERE expires_at <= ?",
             (now,),
         ).fetchall()
+        expired_readiness = connection.execute(
+            "SELECT DISTINCT storage_path FROM public_estimate_readiness_artifacts WHERE expires_at <= ?",
+            (now,),
+        ).fetchall()
         connection.execute("DELETE FROM public_estimate_artifacts WHERE expires_at <= ?", (now,))
+        connection.execute(
+            "DELETE FROM public_estimate_readiness_artifacts WHERE expires_at <= ?", (now,),
+        )
         connection.execute("DELETE FROM public_estimate_versions WHERE expires_at <= ?", (now,))
         connection.execute("DELETE FROM public_estimates WHERE expires_at <= ?", (now,))
-        for row in expired:
-            storage_path = str(row["storage_path"])
-            remaining = connection.execute(
+        expired_paths = {
+            str(row["storage_path"]) for row in [*expired_estimates, *expired_readiness]
+        }
+        for storage_path in expired_paths:
+            remaining_estimate = connection.execute(
                 "SELECT 1 FROM public_estimate_artifacts WHERE storage_path = ? LIMIT 1",
                 (storage_path,),
             ).fetchone()
-            if remaining is None:
+            remaining_readiness = connection.execute(
+                "SELECT 1 FROM public_estimate_readiness_artifacts WHERE storage_path = ? LIMIT 1",
+                (storage_path,),
+            ).fetchone()
+            if remaining_estimate is None and remaining_readiness is None:
                 path = Path(storage_path).resolve()
                 if path.is_relative_to(self.artifact_root):
                     path.unlink(missing_ok=True)
@@ -474,6 +750,28 @@ class EstimateArtifactStore:
             "immutable": True,
             "estimate_id": get("estimate_id"),
             "estimate_version": int(get("estimate_version")),
+        }
+
+    @staticmethod
+    def _readiness_artifact_public(row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
+        get = row.__getitem__
+        return {
+            "id": get("artifact_id"),
+            "schema_version": READINESS_ARTIFACT_SCHEMA,
+            "kind": "pdf",
+            "name": "estimate-input-checklist.pdf",
+            "locator": f"/v1/public/estimate-artifacts/{get('artifact_id')}/content",
+            "media_type": get("media_type"),
+            "reference_sha256": get("reference_sha256"),
+            "content_sha256": get("content_sha256"),
+            "size_bytes": int(get("size_bytes")),
+            "deliverable_type": "pdf",
+            "evidence_binding_sha256": get("binding_sha256"),
+            "status": "materialized",
+            "immutable": True,
+            "readiness_sha256": get("readiness_sha256"),
+            "task_binding_sha256": get("task_binding_sha256"),
+            "document_role": "estimate_input_checklist",
         }
 
     def _version_public(
@@ -646,6 +944,104 @@ class EstimateArtifactStore:
             assert version_row is not None
             return self._version_public(version_row, artifact_row)
 
+    def persist_readiness_artifact(
+        self,
+        *,
+        session: dict[str, Any],
+        response_id: str,
+        readiness: dict[str, Any],
+        proof: dict[str, Any],
+    ) -> dict[str, Any]:
+        readiness_sha = str(proof.get("readiness_sha256") or "").lower()
+        task_binding_sha = str(proof.get("binding_sha256") or "").lower()
+        input_facts_sha = str(proof.get("input_facts_sha256") or "").lower()
+        input_facts = proof.get("input_facts") if isinstance(proof.get("input_facts"), dict) else {}
+        request_source_sha = str(
+            input_facts.get("request_brief_sha256")
+            or input_facts.get("request_spec_sha256")
+            or ""
+        ).lower()
+        if not all(_SHA256.fullmatch(value) for value in (
+            readiness_sha, task_binding_sha, input_facts_sha, request_source_sha,
+        )):
+            raise EstimateArtifactError("estimate_readiness_binding_invalid")
+        if readiness_sha != _sha(_canonical_json(readiness)):
+            raise EstimateArtifactError("estimate_readiness_hash_mismatch")
+
+        now = time.time()
+        expires_at = float(session["expires_at"])
+        with self._lock, self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._cleanup(connection, now)
+            existing = connection.execute(
+                """SELECT * FROM public_estimate_readiness_artifacts
+                   WHERE session_id = ? AND response_id = ?""",
+                (session["id"], response_id),
+            ).fetchone()
+            if existing is not None:
+                if (
+                    existing["readiness_sha256"] != readiness_sha
+                    or existing["task_binding_sha256"] != task_binding_sha
+                    or existing["request_source_sha256"] != request_source_sha
+                ):
+                    raise EstimateArtifactError("response_id_reused_with_different_readiness")
+                return self._readiness_artifact_public(existing)
+
+            temporary = self.artifact_root / f".{uuid.uuid4().hex}.pdf"
+            try:
+                generate_estimate_readiness_pdf(readiness, proof, temporary)
+                content = temporary.read_bytes()
+                content_sha = _sha(content)
+                storage_path = self.artifact_root / f"{content_sha}.pdf"
+                if storage_path.exists():
+                    temporary.unlink(missing_ok=True)
+                else:
+                    os.replace(temporary, storage_path)
+                    storage_path.chmod(0o444)
+                artifact_id = _opaque_id("artifact")
+                locator = f"/v1/public/estimate-artifacts/{artifact_id}/content"
+                binding_payload = {
+                    "schema_version": READINESS_ARTIFACT_SCHEMA,
+                    "session_id": session["id"],
+                    "project_id": session["project_id"],
+                    "response_id": response_id,
+                    "request_source_sha256": request_source_sha,
+                    "input_facts_sha256": input_facts_sha,
+                    "readiness_sha256": readiness_sha,
+                    "task_binding_sha256": task_binding_sha,
+                    "content_sha256": content_sha,
+                    "size_bytes": len(content),
+                }
+                binding_sha = _sha(_canonical_json(binding_payload))
+                reference_sha = _sha(_canonical_json({
+                    "artifact_id": artifact_id,
+                    "locator": locator,
+                    "content_sha256": content_sha,
+                    "binding_sha256": binding_sha,
+                }))
+                connection.execute(
+                    """INSERT INTO public_estimate_readiness_artifacts
+                       (artifact_id, session_id, project_id, response_id,
+                        request_source_sha256, readiness_sha256, task_binding_sha256,
+                        media_type, content_sha256, reference_sha256, binding_sha256,
+                        size_bytes, storage_path, created_at, expires_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, 'application/pdf', ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        artifact_id, session["id"], session["project_id"], response_id,
+                        request_source_sha, readiness_sha, task_binding_sha, content_sha,
+                        reference_sha, binding_sha, len(content), str(storage_path), now,
+                        expires_at,
+                    ),
+                )
+                row = connection.execute(
+                    "SELECT * FROM public_estimate_readiness_artifacts WHERE artifact_id = ?",
+                    (artifact_id,),
+                ).fetchone()
+                assert row is not None
+                return self._readiness_artifact_public(row)
+            finally:
+                temporary.unlink(missing_ok=True)
+
     def get_estimate(self, session_id: str, estimate_id: str) -> dict[str, Any] | None:
         now = time.time()
         with self._lock, self.connect() as connection:
@@ -701,15 +1097,28 @@ class EstimateArtifactStore:
                    WHERE artifact_id = ? AND session_id = ? AND expires_at > ?""",
                 (artifact_id, session_id, now),
             ).fetchone()
-        if row is None:
+            readiness_row = None
+            if row is None:
+                readiness_row = connection.execute(
+                    """SELECT * FROM public_estimate_readiness_artifacts
+                       WHERE artifact_id = ? AND session_id = ? AND expires_at > ?""",
+                    (artifact_id, session_id, now),
+                ).fetchone()
+        selected = row or readiness_row
+        if selected is None:
             return None
-        path = Path(row["storage_path"]).resolve()
+        path = Path(selected["storage_path"]).resolve()
         if not path.is_relative_to(self.artifact_root) or not path.is_file():
             raise EstimateArtifactError("estimate_artifact_storage_boundary_violation")
         content = path.read_bytes()
-        if len(content) != int(row["size_bytes"]) or _sha(content) != row["content_sha256"]:
+        if len(content) != int(selected["size_bytes"]) or _sha(content) != selected["content_sha256"]:
             raise EstimateArtifactError("estimate_artifact_integrity_failed")
-        return self._artifact_public(row), content
+        artifact = (
+            self._artifact_public(row)
+            if row is not None
+            else self._readiness_artifact_public(readiness_row)
+        )
+        return artifact, content
 
 
 _STORE = EstimateArtifactStore(
@@ -741,18 +1150,61 @@ def materialize_public_estimate_task(
     task: dict[str, Any],
     request_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Persist a verified estimate result and attach only real PDF evidence.
+    """Persist a verified estimate or readiness checklist and attach real PDF evidence.
 
     Provider proposals retain their content-bound provider/verifier gate.  A
-    local assumption fallback is accepted only after its engine/spec/calculation
-    binding is independently recomputed by ``vertical_tasks``.  The latter
-    never upgrades ``provider_verified`` to true.
+    readiness result is accepted only after its request/readiness binding is
+    independently recomputed by ``vertical_tasks``.  It never receives a
+    monetary calculation and never upgrades ``provider_verified`` to true.
     """
 
     if task.get("intent") != "estimate":
         return task
     execution = task.get("execution") if isinstance(task.get("execution"), dict) else {}
     result = task.get("result") if isinstance(task.get("result"), dict) else {}
+    if result.get("type") == "estimate_readiness":
+        from vertical_tasks import verified_deterministic_estimate_fallback
+
+        if not verified_deterministic_estimate_fallback(task):
+            return task
+        requested = task.get("artifact_delivery", {}).get("requested", [])
+        artifacts = list(task.get("artifacts") or [])
+        if "pdf" in requested and not any(
+            item.get("deliverable_type") == "pdf" for item in artifacts
+            if isinstance(item, dict)
+        ):
+            artifact = _STORE.persist_readiness_artifact(
+                session=session,
+                response_id=response_id,
+                readiness=result["readiness"],
+                proof=result["generation"],
+            )
+            artifacts.append(artifact)
+        delivered = sorted({
+            str(item.get("deliverable_type"))
+            for item in artifacts
+            if isinstance(item, dict) and item.get("deliverable_type")
+        })
+        missing = [item for item in requested if item not in delivered]
+        return {
+            **task,
+            # A complete PDF delivery does not make the estimate itself ready:
+            # required project, quantity, pricing and tax inputs are still absent.
+            "status": "incomplete",
+            "artifacts": artifacts,
+            "artifact_delivery": {
+                "required": bool(requested),
+                "status": (
+                    "not_required" if not requested
+                    else "materialized" if not missing
+                    else "not_materialized"
+                ),
+                "requested": requested,
+                "delivered": delivered,
+                "missing": missing,
+                "count": len(artifacts),
+            },
+        }
     provider_verified = (
         execution.get("provider_verified") is True
         and execution.get("status") == "completed"

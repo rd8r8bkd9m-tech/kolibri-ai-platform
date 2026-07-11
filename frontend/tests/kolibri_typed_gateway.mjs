@@ -16,6 +16,7 @@ import {
   normalizeTypedTaskEnvelope,
   resetPublicSessionForTests,
   sendKolibriRequest,
+  submitEstimateFeedback,
 } from "../src/runtime/kolibriApi.js";
 
 const sha = (value) => value.repeat(64);
@@ -126,6 +127,11 @@ const publicSession = {
   expires_at: 9_999_999_999,
   project: { id: "project_ephemeral_test", object: "project.ephemeral", durable: false },
 };
+const inactivePublicSession = {
+  object: "public.session",
+  active: false,
+  model: "kolibri",
+};
 
 assert.equal(API_ENDPOINTS.response, "/v1/responses");
 assert.equal(API_ENDPOINTS.publicSession, "/v1/public/session");
@@ -176,6 +182,7 @@ const normalizedEstimate = normalizeTypedTaskEnvelope(typedEnvelope({
   artifacts: [],
   result: {
     type: "deterministic_estimate",
+    status: "verified",
     estimate: {
       title: "Ремонт кухни",
       currency: "RUB",
@@ -194,6 +201,15 @@ const normalizedEstimate = normalizeTypedTaskEnvelope(typedEnvelope({
       llm_calculates_money: false,
       totals: { grand_total_minor: 59_400 },
     },
+    verification: {
+      schema_version: "kolibri.normative-estimate-gate.v1",
+      status: "verified",
+      monetary_status: "calculated",
+      normative_verified: true,
+      commercial_verified: false,
+      missing: [],
+      binding_sha256: sha("4"),
+    },
   },
   persistence: {
     estimate_id: "estimate-test",
@@ -207,39 +223,83 @@ const normalizedEstimate = normalizeTypedTaskEnvelope(typedEnvelope({
 assert.equal(normalizedEstimate.status, "completed");
 assert.equal(normalizedEstimate.result.calculation.totals.grand_total_minor, 59_400);
 assert.equal(normalizedEstimate.result.estimate.lines.length, 1);
+assert.equal(normalizedEstimate.result.verification.normative_verified, true);
 assert.equal(normalizedEstimate.persistence.version, 1);
-const fallbackCalculation = {
-  ...normalizedEstimate.result.calculation,
-  calculation_sha256: sha("7"),
+const readiness = {
+  schema_version: "kolibri.estimate-readiness.v1",
+  title: "Исходные данные для сметы",
+  status: "needs_input",
+  normative_verified: false,
+  monetary_status: "not_calculated",
+  known_facts: {
+    object_type: "one_storey_house",
+    object_type_label: "Одноэтажный жилой дом",
+    storeys: 1,
+    gross_area_m2: "100",
+    region: "Республика Татарстан",
+    locality: "Лениногорск",
+    currency: "RUB",
+  },
+  required_inputs: [{
+    id: "project_documents",
+    label: "Проектная документация",
+    fields: ["project_document_set_ref"],
+    evidence: "Утверждённый проект",
+    status: "missing",
+  }],
+  normative_gate: { status: "blocked_missing_inputs" },
+  draft_sections: [{ id: "section-1", label: "Фундамент", status: "awaiting_scope", items: [] }],
+  editor: {
+    schema_version: "kolibri.estimate-input-editor.v1",
+    state: "needs_input",
+    fields: [{
+      id: "project_document_set_ref",
+      group_id: "project_documents",
+      label: "Комплект проектной документации",
+      input_type: "text",
+      value: null,
+      required: true,
+    }],
+  },
 };
 const fallbackGeneration = {
-  schema_version: "kolibri.estimate-engine-proof.v1",
-  engine: "kolibri.estimate-assumption-engine.v1",
-  mode: "assumption_template",
+  schema_version: "kolibri.estimate-readiness-proof.v1",
+  engine: "kolibri.estimate-readiness-gate.v1",
+  mode: "needs_input",
   input_facts_sha256: sha("8"),
-  spec_sha256: sha("9"),
-  calculation_sha256: fallbackCalculation.calculation_sha256,
+  readiness_sha256: sha("9"),
   binding_sha256: sha("a"),
   fallback_reason: "provider_timeout",
+  source_mode: "local_gate",
+  provider_binding: null,
   input_facts: {
     object_type: "one_storey_house",
+    object_type_label: "Одноэтажный жилой дом",
     storeys: 1,
-    area_m2: "100",
-    region: "Республика Татарстан, Лениногорск",
+    gross_area_m2: "100",
+    region: "Республика Татарстан",
+    locality: "Лениногорск",
+    currency: "RUB",
+    request_brief_sha256: sha("2"),
     requested_artifacts: ["pdf"],
   },
 };
-const fallbackPdf = verifiedArtifact("pdf", "6");
+const fallbackPdf = {
+  ...verifiedArtifact("pdf", "6"),
+  document_role: "estimate_input_checklist",
+  readiness_sha256: fallbackGeneration.readiness_sha256,
+  task_binding_sha256: fallbackGeneration.binding_sha256,
+};
 const fallbackEnvelope = {
   ...typedEnvelope({
     intent: "estimate",
+    status: "incomplete",
     requested: ["pdf"],
     delivered: ["pdf"],
     artifacts: [fallbackPdf],
     result: {
-      type: "deterministic_estimate",
-      estimate: normalizedEstimate.result.estimate,
-      calculation: fallbackCalculation,
+      type: "estimate_readiness",
+      readiness,
       generation: fallbackGeneration,
     },
   }),
@@ -249,18 +309,35 @@ const fallbackEnvelope = {
     provider_verified: false,
     provider_status: "failed",
     engine_verified: true,
-    engine: "kolibri.estimate-assumption-engine.v1",
+    engine: "kolibri.estimate-readiness-gate.v1",
     engine_binding_sha256: fallbackGeneration.binding_sha256,
     fallback_reason: "provider_timeout",
   },
 };
 const normalizedFallback = normalizeTypedTaskEnvelope(fallbackEnvelope, "estimate");
-assert.equal(normalizedFallback.status, "completed");
+assert.equal(normalizedFallback.status, "incomplete");
 assert.equal(normalizedFallback.execution.provider_verified, false);
 assert.equal(normalizedFallback.execution.engine_verified, true);
-assert.equal(normalizedFallback.execution.engine, "kolibri.estimate-assumption-engine.v1");
+assert.equal(normalizedFallback.execution.engine, "kolibri.estimate-readiness-gate.v1");
 assert.equal(normalizedFallback.artifacts.length, 1);
-assert.equal(normalizedFallback.result.calculation.calculation_sha256, sha("7"));
+assert.equal(normalizedFallback.artifacts[0].document_role, "estimate_input_checklist");
+assert.equal(normalizedFallback.result.type, "estimate_readiness");
+assert.equal(normalizedFallback.result.readiness.monetary_status, "not_calculated");
+assert.equal("calculation" in normalizedFallback.result, false);
+const providerReviewedReadiness = structuredClone(fallbackEnvelope);
+providerReviewedReadiness.execution.provider_verified = true;
+providerReviewedReadiness.execution.provider_status = "completed";
+providerReviewedReadiness.execution.output_sha256 = sha("c");
+providerReviewedReadiness.execution.verifier_binding_sha256 = sha("d");
+providerReviewedReadiness.result.generation.source_mode = "provider_reviewed";
+providerReviewedReadiness.result.generation.provider_binding = {
+  output_sha256: sha("c"),
+  verifier_binding_sha256: sha("d"),
+};
+assert.equal(
+  normalizeTypedTaskEnvelope(providerReviewedReadiness, "estimate").result.type,
+  "estimate_readiness",
+);
 const forgedFallback = structuredClone(fallbackEnvelope);
 forgedFallback.execution.engine_binding_sha256 = sha("b");
 assert.equal(
@@ -454,8 +531,10 @@ try {
     artifacts: [pdfArtifact],
     result: {
       type: "deterministic_estimate",
+      status: normalizedEstimate.result.status,
       estimate: normalizedEstimate.result.estimate,
       calculation: normalizedEstimate.result.calculation,
+      verification: normalizedEstimate.result.verification,
     },
     persistence: {
       estimate_id: "estimate-one",
@@ -485,6 +564,22 @@ try {
 
   calls.length = 0;
   resetPublicSessionForTests();
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, body: options?.body ? JSON.parse(options.body) : null });
+    if (url === "/v1/public/session") return response(200, publicSession);
+    return sseResponse(openAiResponse("Денежный итог не рассчитан.", fallbackEnvelope));
+  };
+  const readinessResult = await sendKolibriRequest({
+    text: "Смета на дом 100 м2",
+    task: buildEstimateProposalTask({ brief: "Одноэтажный дом 100 м2" }),
+  });
+  assert.equal(readinessResult.task.status, "incomplete");
+  assert.equal(readinessResult.task.result.type, "estimate_readiness");
+  assert.match(readinessResult.text, /Денежный итог не рассчитан/);
+  assert.equal(readinessResult.artifacts[0].document_role, "estimate_input_checklist");
+
+  calls.length = 0;
+  resetPublicSessionForTests();
   globalThis.fetch = async (url) => {
     calls.push({ url });
     if (url === "/v1/public/session") return response(200, publicSession);
@@ -509,6 +604,28 @@ try {
   assert.equal(calls[1].body.model, "kolibri");
   assert.equal(conversational.text, "Обычный ответ Kolibri");
   assert.deepEqual(conversational.artifacts, [], "untyped artifact claims must not enter the Shell");
+
+  calls.length = 0;
+  resetPublicSessionForTests();
+  let coldSessionGets = 0;
+  globalThis.fetch = async (url, options) => {
+    const method = options?.method || "GET";
+    calls.push({ url, method, cache: options?.cache });
+    if (url === "/v1/public/session" && method === "POST") return response(200, publicSession);
+    if (url === "/v1/public/session") {
+      coldSessionGets += 1;
+      return response(200, coldSessionGets === 1 ? inactivePublicSession : publicSession);
+    }
+    return sseResponse(openAiResponse("Сессия создана без ожидаемого 401"));
+  };
+  const coldSessionResult = await sendKolibriRequest({ text: "Первое сообщение" });
+  assert.equal(coldSessionResult.text, "Сессия создана без ожидаемого 401");
+  assert.deepEqual(calls.map(({ url, method }) => ({ url, method })), [
+    { url: "/v1/public/session", method: "GET" },
+    { url: "/v1/public/session", method: "POST" },
+    { url: "/v1/public/session", method: "GET" },
+    { url: "/v1/responses", method: "POST" },
+  ]);
 
   calls.length = 0;
   resetPublicSessionForTests();
@@ -725,6 +842,30 @@ try {
     "a caller abort must not invalidate the shared public-session handshake",
   );
   assert.equal(calls.find((call) => call.url === "/v1/public/session").hasSignal, false);
+
+  calls.length = 0;
+  resetPublicSessionForTests();
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url, method: options.method || "GET", body: options.body ? JSON.parse(options.body) : null });
+    if (url === "/v1/public/session") return response(200, publicSession);
+    return response(200, {
+      schema_version: "kolibri.estimate-review-feedback-receipt.v1",
+      status: "queued",
+      candidate_only: true,
+      production_weight_mutation: false,
+    });
+  };
+  const feedback = await submitEstimateFeedback({
+    estimateId: "estimate-one",
+    baseVersion: 1,
+    action: "correct",
+    reason: "Исправлена строка",
+    corrections: { line_id: "labor-1" },
+  });
+  assert.equal(feedback.status, "queued");
+  assert.equal(calls[1].url, "/v1/public/estimates/estimate-one/feedback");
+  assert.equal(calls[1].body.action, "correct");
+  assert.match(calls[1].body.idempotency_key, /^estimate-feedback:/);
 
   let fetchCalled = false;
   globalThis.fetch = async () => { fetchCalled = true; return response(500, {}); };

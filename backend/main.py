@@ -22,6 +22,7 @@ from stt import STTEngine
 from websearch import WebSearchEngine
 from factory_status import CONTROL_PLANE_URL, fetch_factory_status
 from execution_api import require_execution_auth, router as execution_router
+from openai_compatibility import router as openai_compatibility_router
 from public_responses_api import (
     configure_public_response_executor,
     router as public_responses_router,
@@ -40,6 +41,7 @@ from vertical_tasks import (
     build_deterministic_estimate_fallback,
     build_vertical_result,
     deterministic_estimate_fallback_text,
+    deterministic_estimate_result_text,
     failed_vertical_result,
     prepare_vertical_task,
 )
@@ -222,8 +224,19 @@ def _unknown_api_response() -> JSONResponse:
     )
 
 
+def _effective_routes(routes):
+    """Yield concrete routes across eager and deferred FastAPI routers."""
+
+    for route in routes:
+        candidates = getattr(route, "effective_candidates", None)
+        if callable(candidates):
+            yield from _effective_routes(candidates())
+        else:
+            yield route
+
+
 def _known_api_route_path(path: str) -> bool:
-    for route in app.routes:
+    for route in _effective_routes(app.routes):
         route_path = str(getattr(route, "path", ""))
         route_pattern = getattr(route, "path_regex", None)
         if _is_api_path(route_path) and route_pattern is not None and route_pattern.match(path):
@@ -357,9 +370,19 @@ async def chat(request: ChatRequest, req: Request):
     if request.task is None:
         cache_response(cache_key, result["response"], selected_provider)
         return {**result, "cached": False}
+    task_payload = build_vertical_result(request.task, result, vertical_calculation)
+    result_type = (task_payload.get("result") or {}).get("type")
+    public_response = (
+        deterministic_estimate_fallback_text(task_payload)
+        if result_type == "estimate_readiness"
+        else deterministic_estimate_result_text(task_payload)
+        if result_type == "deterministic_estimate"
+        else result.get("response", "")
+    )
     return {
         **result,
-        "task": build_vertical_result(request.task, result, vertical_calculation),
+        "response": public_response,
+        "task": task_payload,
         "cached": False,
     }
 
@@ -616,6 +639,7 @@ async def cluster_status():
     return await api_factory_status()
 
 app.include_router(v1_router)
+app.include_router(openai_compatibility_router)
 app.include_router(public_responses_router)
 app.include_router(public_estimate_router)
 app.include_router(execution_router)

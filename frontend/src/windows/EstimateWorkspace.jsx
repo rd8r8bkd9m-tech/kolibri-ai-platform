@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { CheckCircle2, FileText, Plus, Save, ShieldAlert, Trash2 } from "lucide-react";
+import { submitEstimateFeedback } from "../runtime/kolibriApi";
 
 function newEstimateLine(index = 1) {
   return { id: `line-${index}`, section: "Основные работы", description: "", category: "labor", unit: "шт", quantity: "1", price: "0", provenance: { source: "manual" } };
@@ -27,7 +28,157 @@ function formatRubles(minor) {
   }).format((Number(minor) || 0) / 100);
 }
 
-export function EstimateWorkspace({ payload, onCalculate }) {
+const SELECT_LABELS = {
+  "resource-index": "Ресурсно-индексный",
+  resource: "Ресурсный",
+  "base-index": "Базисно-индексный",
+  contract: "Договорный",
+  commercial: "Коммерческий",
+  project: "По проекту",
+  measurement: "По замерам",
+  manual: "Ручной ввод",
+};
+
+const PROVENANCE_LABELS = {
+  normative: "Норматив",
+  catalog: "Каталог",
+  contract: "Договор",
+  supplier: "Поставщик",
+  measurement: "Замер",
+  manual: "Ручной ввод",
+  assumption: "Допущение",
+};
+
+function provenanceSummary(provenance = {}) {
+  return [
+    PROVENANCE_LABELS[provenance.source] || provenance.source || "Источник не указан",
+    provenance.source_ref,
+    provenance.price_level_date ? `цены ${provenance.price_level_date}` : "",
+    provenance.applicable_region,
+  ].filter(Boolean).join(" · ");
+}
+
+function EstimateReadinessWorkspace({ payload, readiness, onOpenArtifact, onUpdate }) {
+  const fields = readiness.editor?.fields || [];
+  const existingDraft = payload.readinessDraft || {};
+  const [values, setValues] = useState(() => Object.fromEntries(fields.map((field) => [
+    field.id,
+    existingDraft[field.id] ?? field.value ?? "",
+  ])));
+  const [savedAt, setSavedAt] = useState(payload.readinessDraftSavedAt || "");
+  const artifacts = payload.artifacts || payload.task?.artifacts || [];
+  const checklist = artifacts.find((artifact) => artifact.document_role === "estimate_input_checklist")
+    || artifacts.find((artifact) => artifact.deliverable_type === "pdf");
+  const completed = fields.filter((field) => String(values[field.id] || "").trim()).length;
+  const total = fields.length;
+  const percent = total ? Math.round((completed / total) * 100) : 0;
+  const facts = readiness.known_facts || {};
+
+  const patchField = (fieldId, value) => {
+    setValues((current) => {
+      const next = { ...current, [fieldId]: value };
+      onUpdate?.({ readinessDraft: next, readinessDraftSavedAt: "" });
+      return next;
+    });
+    setSavedAt("");
+  };
+  const saveDraft = () => {
+    const timestamp = new Date().toISOString();
+    setSavedAt(timestamp);
+    onUpdate?.({ readinessDraft: values, readinessDraftSavedAt: timestamp });
+  };
+
+  return (
+    <div className="estimate-readiness-workspace">
+      <section className="readiness-alert" aria-label="Статус готовности сметы">
+        <ShieldAlert aria-hidden="true" size={22} />
+        <div>
+          <span>Нужны исходные данные</span>
+          <h3>Денежный итог не рассчитан</h3>
+          <p>Kolibri не подставляет цены, объёмы, индексы или налоги без проверяемого документа-основания.</p>
+        </div>
+        {checklist && (
+          <button onClick={() => onOpenArtifact?.(checklist)} type="button">
+            <FileText size={16} /> Открыть PDF-чеклист
+          </button>
+        )}
+      </section>
+
+      <section className="readiness-facts" aria-label="Известные факты">
+        <div><small>Объект</small><strong>{facts.object_type_label || "Требует подтверждения"}</strong></div>
+        {facts.gross_area_m2 && <div><small>Площадь</small><strong>{facts.gross_area_m2} м²</strong></div>}
+        <div><small>Место</small><strong>{[facts.region, facts.locality].filter(Boolean).join(", ") || "Требует подтверждения"}</strong></div>
+        <div><small>Нормативная проверка</small><strong>Не пройдена</strong></div>
+      </section>
+
+      <section className="readiness-progress" aria-label={`Заполнено ${completed} из ${total}`}>
+        <div><span>Комплектность черновика</span><strong>{completed} из {total}</strong></div>
+        <div aria-hidden="true"><span style={{ width: `${percent}%` }} /></div>
+        <small>Заполненное поле ещё не считается проверенным: потребуется сверка самого документа.</small>
+      </section>
+
+      <div className="readiness-groups">
+        {(readiness.required_inputs || []).map((group) => {
+          const groupFields = fields.filter((field) => field.group_id === group.id);
+          const groupComplete = groupFields.length > 0 && groupFields.every((field) => String(values[field.id] || "").trim());
+          return (
+            <section className="readiness-group" key={group.id}>
+              <header>
+                <div>
+                  {groupComplete ? <CheckCircle2 aria-hidden="true" size={18} /> : <span aria-hidden="true">{groupFields.filter((field) => String(values[field.id] || "").trim()).length}/{groupFields.length}</span>}
+                  <h4>{group.label}</h4>
+                </div>
+                <small>{groupComplete ? "Заполнено, не проверено" : "Нужно заполнить"}</small>
+              </header>
+              <p>{group.evidence}</p>
+              <div className="readiness-field-grid">
+                {groupFields.map((field) => {
+                  const common = {
+                    id: `readiness-${field.id}`,
+                    onChange: (event) => patchField(field.id, event.target.value),
+                    value: values[field.id] || "",
+                  };
+                  return (
+                    <label key={field.id}>
+                      <span>{field.label}</span>
+                      {field.input_type === "select" ? (
+                        <select {...common}>
+                          <option value="">Выберите…</option>
+                          {(field.options || []).map((option) => <option key={option} value={option}>{SELECT_LABELS[option] || option}</option>)}
+                        </select>
+                      ) : field.input_type === "textarea" ? (
+                        <textarea {...common} placeholder={field.placeholder || "Укажите документ и реквизиты"} rows={3} />
+                      ) : (
+                        <input {...common} placeholder={field.suggested_value ? `Подтвердите: ${field.suggested_value}` : field.placeholder || "Укажите значение"} type={field.input_type === "date" ? "date" : "text"} />
+                      )}
+                    </label>
+                  );
+                })}
+              </div>
+            </section>
+          );
+        })}
+      </div>
+
+      <section className="readiness-sections">
+        <h4>Разделы будущей сметы</h4>
+        <p>Позиции и суммы появятся только после подтверждения состава работ и источников.</p>
+        <div>{(readiness.draft_sections || []).map((section) => <span key={section.id}>{section.label}</span>)}</div>
+      </section>
+
+      <footer className="readiness-actions">
+        <div>
+          <strong>{savedAt ? "Черновик сохранён в проекте" : "Есть несохранённые данные"}</strong>
+          <small>{savedAt ? new Date(savedAt).toLocaleString("ru-RU") : "Сохранение не подтверждает достоверность документов"}</small>
+        </div>
+        <button className="primary-action" onClick={saveDraft} type="button"><Save size={16} /> Сохранить черновик</button>
+      </footer>
+      {payload.error && <div className="inline-error">{payload.error}</div>}
+    </div>
+  );
+}
+
+function EditableEstimateWorkspace({ payload, onCalculate }) {
   const minorUnit = payload.minor_unit ?? 2;
   const [title, setTitle] = useState(payload.title || "Новая смета");
   const [lines, setLines] = useState(() => payload.lines?.map((line, index) => editableLine(line, index, minorUnit)) || [newEstimateLine()]);
@@ -37,7 +188,28 @@ export function EstimateWorkspace({ payload, onCalculate }) {
   const [questions, setQuestions] = useState((payload.questions || []).join("\n"));
   const task = payload.task;
   const calculation = task?.result?.calculation;
+  const verification = task?.result?.verification || {};
+  const estimateStatus = task?.result?.status || verification.status || "preliminary";
   const busy = payload.status === "running";
+  const [reviewState, setReviewState] = useState("");
+
+  const review = async (action) => {
+    const estimateId = payload.persistence?.estimate_id;
+    const baseVersion = payload.persistence?.version;
+    if (!estimateId || !baseVersion || reviewState === "saving") return;
+    setReviewState("saving");
+    try {
+      const receipt = await submitEstimateFeedback({
+        estimateId,
+        baseVersion,
+        action,
+        reason: action === "reject" ? "Отклонено владельцем в редакторе; требуется корректировка." : "",
+      });
+      setReviewState(receipt.status === "queued" ? action : "rejected");
+    } catch {
+      setReviewState("error");
+    }
+  };
 
   const patchLine = (id, patch) => {
     setLines((current) => current.map((line) => line.id === id ? { ...line, ...patch } : line));
@@ -71,6 +243,7 @@ export function EstimateWorkspace({ payload, onCalculate }) {
       })),
       overhead_rate_bps: Math.round(Math.max(Number(overhead) || 0, 0) * 100),
       tax_rate_bps: Math.round(Math.max(Number(tax) || 0, 0) * 100),
+      normative_basis: payload.normative_basis || null,
       estimate_id: payload.persistence?.estimate_id || null,
       estimate_base_version: payload.persistence?.version || null,
     });
@@ -78,6 +251,18 @@ export function EstimateWorkspace({ payload, onCalculate }) {
 
   return (
     <div className="estimate-workspace">
+      <section className={`estimate-verification-banner is-${estimateStatus}`} aria-label="Статус достоверности сметы">
+        {estimateStatus === "verified" ? <CheckCircle2 aria-hidden="true" size={19} /> : <ShieldAlert aria-hidden="true" size={19} />}
+        <div>
+          <strong>{estimateStatus === "verified" ? "Проверенная смета" : "Предварительная смета"}</strong>
+          <span>
+            {estimateStatus === "verified"
+              ? "Источники, исходные документы и расчётная база прошли контроль."
+              : "Итог пересчитан движком, но источники ещё не прошли независимую проверку."}
+          </span>
+        </div>
+        <small>{verification.source_coverage_complete ? "Источники указаны" : "Есть пробелы в источниках"}</small>
+      </section>
       <div className="estimate-heading">
         <div>
           <span>{payload.persistence?.state === "saved" ? `Версия ${payload.persistence.version} сохранена` : "Детерминированный расчёт"}</span>
@@ -101,6 +286,7 @@ export function EstimateWorkspace({ payload, onCalculate }) {
             <span className="estimate-position-cell">
               <input aria-label="Раздел" onChange={(event) => patchLine(line.id, { section: event.target.value })} placeholder="Раздел" value={line.section} />
               <input aria-label="Позиция" onChange={(event) => patchLine(line.id, { description: event.target.value })} placeholder="Например, монтаж перегородки" value={line.description} />
+              <small className="estimate-line-provenance" title={line.provenance?.source_url || ""}>{provenanceSummary(line.provenance)}</small>
             </span>
             <input aria-label="Единица" onChange={(event) => patchLine(line.id, { unit: event.target.value })} value={line.unit} />
             <input aria-label="Количество" min="0.000001" onChange={(event) => patchLine(line.id, { quantity: event.target.value })} step="0.01" type="number" value={line.quantity} />
@@ -134,7 +320,21 @@ export function EstimateWorkspace({ payload, onCalculate }) {
           <label>Нужно уточнить<textarea onChange={(event) => setQuestions(event.target.value)} placeholder="По одному вопросу в строке" value={questions} /></label>
         </div>
       </details>
+      {payload.persistence?.estimate_id && (
+        <div className="estimate-review-actions" aria-label="Рецензирование сметы">
+          <span>{reviewState === "accept" ? "Принято и отправлено в FormulaLM" : reviewState === "reject" ? "Возвращено на исправление" : reviewState === "error" || reviewState === "rejected" ? "Отзыв не принят политикой данных" : "Оцените предварительную смету"}</span>
+          <button disabled={reviewState === "saving"} onClick={() => review("reject")} type="button">Вернуть</button>
+          <button className="primary-action" disabled={reviewState === "saving"} onClick={() => review("accept")} type="button">Принять</button>
+        </div>
+      )}
       {payload.error && <div className="inline-error">{payload.error}</div>}
     </div>
   );
+}
+
+export function EstimateWorkspace({ payload, onCalculate, onOpenArtifact, onUpdate }) {
+  const readiness = payload.readiness || (payload.task?.result?.type === "estimate_readiness" ? payload.task.result.readiness : null);
+  return readiness
+    ? <EstimateReadinessWorkspace onOpenArtifact={onOpenArtifact} onUpdate={onUpdate} payload={payload} readiness={readiness} />
+    : <EditableEstimateWorkspace onCalculate={onCalculate} payload={payload} />;
 }

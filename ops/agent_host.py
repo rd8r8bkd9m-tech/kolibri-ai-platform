@@ -18,6 +18,7 @@ import shutil
 import signal
 import stat
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.error
@@ -54,6 +55,13 @@ except ImportError:  # installed standalone beside this script
 
 
 STOP = False
+AGENT_HOST_RUNTIME_SCHEMA = "kolibri.agent-host-runtime.v1"
+RELEASE_MANIFEST_SCHEMA = "kolibri.release.v1"
+AGENT_HOST_RUNTIME_PATH = "ops/agent_host.py"
+MIMO_RESPONSE_AGENT_NAME = "kolibri-response-only"
+MIMO_RESPONSE_AGENT_PROFILE_PATH = "ops/mimo/kolibri-response-only.md"
+MIMO_RESPONSE_PROFILE_MAX_BYTES = 16 * 1024
+MIMO_RESPONSE_PROFILE_SHA256 = "80cc13e7dd89c8045c8317d55b4ebe96dccd76a371a2b51f4c1cd5c7cec2ca45"
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 READ_ONLY_PERMISSION_PACK_MARKERS = {"read_only", "readonly", "read-only", "no_push", "no-push", "nopush"}
 FORBIDDEN_READ_ONLY_PERMISSIONS = {"full_autonomy", "git_push", "write_worktree"}
@@ -141,7 +149,8 @@ BACKEND_TEST_ENV_TYPES = {"backend_python", "python_backend"}
 SUPPORTED_AI_RUNNERS = {"api", "codex", "local_llm", "mimo"}
 MIMO_AUTO25_MODEL = "mimo/mimo-auto"
 MIMO_AUTO25_DISPLAY_NAME = "Mimo Auto 2.5"
-MIMO_AUTO25_CLI_CONTRACT = "mimo-auto25-no-user-auth-v1"
+MIMO_AUTO25_CLI_CONTRACT = "mimo-auto25-response-only-v2"
+MIMO_AUTO25_DIRECT_CLI_CONTRACT = "mimo-auto25-direct-permission-bypass-v1"
 FACTORY_PROVIDER_CONTRACT = "kolibri.factory-provider.readonly.v1"
 EXTERNAL_PROVIDER_AUTH_HMAC_CONTRACT = "kolibri.external-provider-hmac.v1"
 EXTERNAL_PROVIDER_CREDENTIAL_SCHEMA = "kolibri.external-provider-credential.v1"
@@ -153,6 +162,188 @@ CODEX_PROVIDER_NETWORK_INSTRUCTION = (
     "search queries, open only the authoritative sources needed, cite them, and answer promptly. "
     "Do not search when the task does not require current internet information."
 )
+
+
+def _canonical_release_agent_host(
+    current_link: str | Path | None = None,
+    release_root: str | Path | None = None,
+) -> tuple[Path, dict[str, Any]] | None:
+    """Return the root-owned release runtime selected by the atomic current link.
+
+    ``/usr/local/bin/kolibri-agent-host`` remains the bootstrap/fallback entry
+    point.  It may re-exec a signed release only after the privileged installer
+    has published a direct child of the immutable release root and the runtime
+    bytes still match that release's canonical manifest.
+    """
+
+    configured_current = Path(
+        current_link
+        or os.environ.get("KOLIBRI_RELEASE_CURRENT_LINK")
+        or "/opt/kolibri-ai/current"
+    )
+    configured_root = Path(
+        release_root
+        or os.environ.get("KOLIBRI_RELEASE_ROOT")
+        or "/opt/kolibri-ai/releases"
+    )
+    if not configured_current.exists() and not configured_current.is_symlink():
+        return None
+    try:
+        current_stat = configured_current.lstat()
+        if not stat.S_ISLNK(current_stat.st_mode):
+            raise RuntimeError("agent_host_release_current_not_symlink")
+        root = configured_root.resolve(strict=True)
+        selected = configured_current.resolve(strict=True)
+        if selected.parent != root or selected == root:
+            raise RuntimeError("agent_host_release_current_boundary_invalid")
+        root_stat = root.stat()
+        selected_stat = selected.stat()
+        if (
+            not stat.S_ISDIR(root_stat.st_mode)
+            or not stat.S_ISDIR(selected_stat.st_mode)
+            or root_stat.st_mode & 0o022
+            or selected_stat.st_mode & 0o022
+        ):
+            raise RuntimeError("agent_host_release_runtime_permissions_invalid")
+        runtime = selected / AGENT_HOST_RUNTIME_PATH
+        response_profile = selected / MIMO_RESPONSE_AGENT_PROFILE_PATH
+        manifest_path = selected / ".kolibri-release" / "manifest.json"
+        if (
+            runtime.resolve(strict=True) != runtime
+            or response_profile.resolve(strict=True) != response_profile
+            or manifest_path.resolve(strict=True) != manifest_path
+        ):
+            raise RuntimeError("agent_host_release_runtime_boundary_invalid")
+        runtime_stat = runtime.lstat()
+        response_profile_stat = response_profile.lstat()
+        manifest_stat = manifest_path.lstat()
+        if (
+            not stat.S_ISREG(runtime_stat.st_mode)
+            or not stat.S_ISREG(response_profile_stat.st_mode)
+            or not stat.S_ISREG(manifest_stat.st_mode)
+            or runtime_stat.st_mode & 0o022
+            or response_profile_stat.st_mode & 0o022
+            or manifest_stat.st_mode & 0o022
+            or not runtime_stat.st_mode & 0o111
+            or not 1 <= response_profile_stat.st_size <= MIMO_RESPONSE_PROFILE_MAX_BYTES
+        ):
+            raise RuntimeError("agent_host_release_runtime_permissions_invalid")
+        trusted_owner = root_stat.st_uid
+        if (
+            trusted_owner not in {0, os.geteuid()}
+            or current_stat.st_uid != trusted_owner
+            or selected_stat.st_uid != trusted_owner
+            or runtime_stat.st_uid != trusted_owner
+            or response_profile_stat.st_uid != trusted_owner
+            or manifest_stat.st_uid != trusted_owner
+        ):
+            raise RuntimeError("agent_host_release_runtime_owner_invalid")
+        manifest_bytes = manifest_path.read_bytes()
+        manifest = json.loads(manifest_bytes)
+        if (
+            not isinstance(manifest, dict)
+            or manifest.get("schema_version") != RELEASE_MANIFEST_SCHEMA
+        ):
+            raise RuntimeError("agent_host_release_manifest_invalid")
+        canonical = json.dumps(
+            manifest,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+        if canonical != manifest_bytes:
+            raise RuntimeError("agent_host_release_manifest_not_canonical")
+        release_id = str(manifest.get("release_id") or "")
+        if (
+            not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", release_id)
+            or selected.name != release_id
+        ):
+            raise RuntimeError("agent_host_release_manifest_invalid")
+        files = manifest.get("files")
+        if not isinstance(files, list):
+            raise RuntimeError("agent_host_release_manifest_invalid")
+        records = [item for item in files if isinstance(item, dict) and item.get("path") == AGENT_HOST_RUNTIME_PATH]
+        profile_records = [
+            item
+            for item in files
+            if isinstance(item, dict) and item.get("path") == MIMO_RESPONSE_AGENT_PROFILE_PATH
+        ]
+        if len(records) != 1:
+            raise RuntimeError("agent_host_release_runtime_not_manifested")
+        if len(profile_records) != 1:
+            raise RuntimeError("mimo_response_profile_not_manifested")
+        runtime_sha256 = hashlib.sha256(runtime.read_bytes()).hexdigest()
+        response_profile_sha256 = hashlib.sha256(response_profile.read_bytes()).hexdigest()
+        if records[0].get("sha256") != runtime_sha256:
+            raise RuntimeError("agent_host_release_runtime_digest_mismatch")
+        if profile_records[0].get("sha256") != response_profile_sha256:
+            raise RuntimeError("mimo_response_profile_digest_mismatch")
+        if (
+            records[0].get("size_bytes") != runtime_stat.st_size
+            or records[0].get("mode") != f"{stat.S_IMODE(runtime_stat.st_mode):04o}"
+            or profile_records[0].get("size_bytes") != response_profile_stat.st_size
+            or profile_records[0].get("mode")
+            != f"{stat.S_IMODE(response_profile_stat.st_mode):04o}"
+        ):
+            raise RuntimeError("agent_host_release_runtime_metadata_mismatch")
+        if response_profile_sha256 != MIMO_RESPONSE_PROFILE_SHA256:
+            raise RuntimeError("mimo_response_profile_contract_invalid")
+        manifest_digest = f"sha256:{hashlib.sha256(manifest_bytes).hexdigest()}"
+        return runtime, {
+            "schema_version": AGENT_HOST_RUNTIME_SCHEMA,
+            "status": "release_bound",
+            "release_id": release_id,
+            "manifest_digest": manifest_digest,
+            "runtime_path": AGENT_HOST_RUNTIME_PATH,
+            "runtime_sha256": runtime_sha256,
+            "response_profile_path": MIMO_RESPONSE_AGENT_PROFILE_PATH,
+            "response_profile_sha256": response_profile_sha256,
+        }
+    except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
+        raise RuntimeError("agent_host_release_runtime_invalid") from exc
+
+
+def agent_host_runtime_identity(source_path: str | Path | None = None) -> dict[str, Any]:
+    source = Path(source_path or __file__).resolve()
+    selected = _canonical_release_agent_host()
+    if selected is not None:
+        runtime, identity = selected
+        if source == runtime.resolve():
+            return identity
+    try:
+        digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    except OSError:
+        digest = ""
+    return {
+        "schema_version": AGENT_HOST_RUNTIME_SCHEMA,
+        "status": "bootstrap",
+        "release_id": None,
+        "manifest_digest": None,
+        "runtime_path": "bootstrap",
+        "runtime_sha256": digest,
+        "response_profile_path": MIMO_RESPONSE_AGENT_PROFILE_PATH,
+        "response_profile_sha256": None,
+    }
+
+
+def maybe_reexec_release_agent_host() -> bool:
+    """Re-exec the currently selected immutable Agent Host release, if any."""
+
+    selected = _canonical_release_agent_host()
+    if selected is None:
+        return False
+    runtime, _identity = selected
+    if Path(__file__).resolve() == runtime.resolve():
+        return False
+    release_root = runtime.parent.parent
+    environment = os.environ.copy()
+    existing = environment.get("PYTHONPATH", "")
+    environment["PYTHONPATH"] = str(release_root) + (os.pathsep + existing if existing else "")
+    os.execve(sys.executable, [sys.executable, str(runtime), *sys.argv[1:]], environment)
+    return True  # pragma: no cover - successful execve never returns
+
+
 SECRET_REDACTION_MARKERS = (
     "api_key",
     "authorization",
@@ -190,12 +381,25 @@ class PermissionContractError(RuntimeError):
         super().__init__(f"read-only/no-push permission pack forbids requested runtime permissions: {permissions}")
 
 
+class TaskProcessInterrupted(RuntimeError):
+    """A local process was fenced by the authoritative task lifecycle."""
+
+    def __init__(self, error_type: str, message: str, *, retry: bool = False):
+        super().__init__(f"{error_type}:{message}")
+        self.error_type = error_type
+        self.retry = retry
+
+
+class ResponseOnlyToolEventError(RuntimeError):
+    """Mimo emitted a tool event despite the response-only agent profile."""
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
 def mimo_auto25_runner_contract() -> dict[str, Any]:
-    """Return the public, non-secret Mimo runner contract advertised to Control Plane."""
+    """Return the response-only Mimo contract advertised to Home."""
     return {
         "provider": "mimo",
         "model": MIMO_AUTO25_MODEL,
@@ -204,12 +408,40 @@ def mimo_auto25_runner_contract() -> dict[str, Any]:
         "cli_contract": MIMO_AUTO25_CLI_CONTRACT,
         "authorization_mode": "no_user_auth",
         "user_authorization_required": False,
-        "permission_mode": "auto_approve_with_task_contract",
+        "permission_mode": "deny_all_response_only",
         "output_format": "json",
         "worktree_scoped": True,
         "factory_provider_contract": FACTORY_PROVIDER_CONTRACT,
         "prompt_transport": "file",
         "sandbox": "read-only",
+        "execution_scope": "response_only",
+        "response_agent": MIMO_RESPONSE_AGENT_NAME,
+        "response_agent_profile": MIMO_RESPONSE_AGENT_PROFILE_PATH,
+        "response_agent_tools": [],
+        "external_plugins": "disabled",
+    }
+
+
+def mimo_auto25_direct_runner_contract() -> dict[str, Any]:
+    """Describe the legacy write-capable Mimo path without safe-route claims."""
+
+    return {
+        "provider": "mimo",
+        "model": MIMO_AUTO25_MODEL,
+        "display_name": MIMO_AUTO25_DISPLAY_NAME,
+        "model_version": "2.5",
+        "cli_contract": MIMO_AUTO25_DIRECT_CLI_CONTRACT,
+        "authorization_mode": "no_user_auth",
+        "user_authorization_required": False,
+        "permission_mode": "dangerously_skip_permissions",
+        "output_format": "json",
+        "worktree_scoped": False,
+        "working_directory": "task-worktree",
+        "prompt_transport": "argv",
+        "sandbox": "none",
+        "response_agent": None,
+        "response_agent_tools": None,
+        "external_plugins": "cli_default",
     }
 
 
@@ -233,6 +465,26 @@ def codex_factory_runner_contract() -> dict[str, Any]:
     }
 
 
+def codex_direct_runner_contract() -> dict[str, Any]:
+    """Describe the legacy write-capable Codex invocation truthfully."""
+
+    return {
+        "provider": "codex",
+        "model": CODEX_TASK_MODEL,
+        "display_name": "Codex authenticated runner",
+        "authorization_mode": "node_managed",
+        "authorization_flow": "browser_device",
+        "user_authorization_required": False,
+        "permission_mode": "danger_full_access",
+        "output_format": "jsonl",
+        "worktree_scoped": False,
+        "working_directory": "task-worktree",
+        "prompt_transport": "stdin",
+        "sandbox": "danger-full-access",
+        "network_access": "provider_default",
+    }
+
+
 def is_factory_provider_task(task: dict[str, Any]) -> bool:
     envelope = task_envelope(task)
     source = envelope.get("source") if isinstance(envelope.get("source"), dict) else {}
@@ -241,6 +493,107 @@ def is_factory_provider_task(task: dict[str, Any]) -> bool:
         and source.get("kind") == "kolibri_provider_gateway"
         and source.get("control_plane") == "home"
     )
+
+
+def is_response_only_provider_task(task: dict[str, Any]) -> bool:
+    """Return whether a provider call is a response boundary, not code work."""
+
+    envelope = task_envelope(task)
+    task_kind = str(task.get("kind") or envelope.get("kind") or "")
+    constraints = (
+        envelope.get("constraints")
+        if isinstance(envelope.get("constraints"), dict)
+        else {}
+    )
+    response_kind = task_kind in {
+        "orchestrator_chat_response",
+        "telegram_chat_response",
+    }
+    declared_readonly = (
+        task_kind == "owner_remote_task"
+        and constraints.get("read_only") is True
+        and not envelope.get("write_scope")
+    )
+    return bool(is_factory_provider_task(task) or response_kind or declared_readonly)
+
+
+def load_mimo_response_agent_profile(
+    configured_path: str | Path | None = None,
+) -> tuple[bytes, str]:
+    """Load the bundled/root-managed no-tools profile and fail closed."""
+
+    candidates = []
+    explicit = configured_path or os.environ.get("KOLIBRI_MIMO_RESPONSE_AGENT_PROFILE")
+    if explicit:
+        candidates.append(Path(explicit))
+    else:
+        candidates.extend([
+            Path(__file__).resolve().parent / "mimo" / f"{MIMO_RESPONSE_AGENT_NAME}.md",
+            Path("/usr/local/lib/kolibri/mimo") / f"{MIMO_RESPONSE_AGENT_NAME}.md",
+        ])
+    source = next((candidate for candidate in candidates if candidate.exists()), None)
+    if source is None:
+        raise RuntimeError("mimo_response_profile_missing")
+    try:
+        info = source.lstat()
+        if (
+            stat.S_ISLNK(info.st_mode)
+            or not stat.S_ISREG(info.st_mode)
+            or info.st_mode & 0o022
+            or info.st_uid not in {0, os.geteuid()}
+            or not 1 <= info.st_size <= MIMO_RESPONSE_PROFILE_MAX_BYTES
+        ):
+            raise RuntimeError("mimo_response_profile_unsafe")
+        payload = source.read_bytes()
+        text = payload.decode("utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise RuntimeError("mimo_response_profile_unreadable") from exc
+    digest = hashlib.sha256(payload).hexdigest()
+    if digest != MIMO_RESPONSE_PROFILE_SHA256:
+        raise RuntimeError("mimo_response_profile_contract_invalid")
+    required_fragments = {
+        "mode: primary",
+        f"model: {MIMO_AUTO25_MODEL}",
+        "tool_allowlist: []",
+        '  "*": deny',
+        "tools:",
+        *{
+            f"  {name}: false"
+            for name in ("bash", "read", "write", "edit", "glob", "grep", "webfetch", "actor", "task")
+        },
+    }
+    if not required_fragments.issubset(set(text.splitlines())):
+        raise RuntimeError("mimo_response_profile_contract_invalid")
+    return payload, digest
+
+
+def install_mimo_response_agent_profile(worktree: Path) -> tuple[Path, str]:
+    payload, digest = load_mimo_response_agent_profile()
+    profile_dir = worktree / ".mimocode" / "agents"
+    profile_dir.mkdir(parents=True, mode=0o700, exist_ok=False)
+    target = profile_dir / f"{MIMO_RESPONSE_AGENT_NAME}.md"
+    descriptor = os.open(
+        target,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+        0o600,
+    )
+    with os.fdopen(descriptor, "wb") as handle:
+        handle.write(payload)
+    return target, digest
+
+
+def remove_mimo_response_agent_profile(path: Path | None) -> None:
+    if path is None:
+        return
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return
+    for directory in (path.parent, path.parent.parent):
+        try:
+            directory.rmdir()
+        except OSError:
+            break
 
 
 def mimo_auto25_command(executable: str, title: str, prompt: str, worktree: Path) -> tuple[list[str], str]:
@@ -276,13 +629,14 @@ def mimo_auto25_readonly_command(
     command = [
         executable,
         "run",
+        "--pure",
         "Выполни инструкцию из прикреплённого файла. Не изменяй файлы.",
         "--format",
         "json",
         "--model",
         MIMO_AUTO25_MODEL,
         "--agent",
-        "plan",
+        MIMO_RESPONSE_AGENT_NAME,
         "--dir",
         str(worktree),
         "--title",
@@ -291,10 +645,43 @@ def mimo_auto25_readonly_command(
         str(prompt_path),
     ]
     command_label = (
-        f"{executable} run <attached-instruction> --format json --model {MIMO_AUTO25_MODEL} "
-        f"--agent plan --dir <task-worktree> --title {title} --file <prompt-file>"
+        f"{executable} run --pure <attached-instruction> --format json --model {MIMO_AUTO25_MODEL} "
+        f"--agent {MIMO_RESPONSE_AGENT_NAME} --dir <task-worktree> --title {title} --file <prompt-file>"
     )
     return command, command_label
+
+
+def response_only_tool_event_name(event: dict[str, Any]) -> str | None:
+    """Return the first structured tool marker in a Mimo JSONL event."""
+
+    stack: list[Any] = [event]
+    direct_keys = {
+        "command", "tool", "tool_call", "tool_calls", "tool_name", "toolname",
+    }
+    event_type_markers = {
+        "actor", "bash", "command", "edit", "shell", "task", "tool", "tool-call",
+        "tool_call", "tool_use", "write",
+    }
+    while stack:
+        value = stack.pop()
+        if isinstance(value, dict):
+            for key, child in value.items():
+                normalized_key = str(key).strip().lower().replace("-", "_")
+                if normalized_key in direct_keys and child not in (None, "", [], {}):
+                    return normalized_key
+                if normalized_key in {"type", "event_type", "kind"} and isinstance(child, str):
+                    normalized_type = child.strip().lower().replace("-", "_")
+                    if (
+                        normalized_type in event_type_markers
+                        or "tool_call" in normalized_type
+                        or normalized_type.startswith("tool_")
+                        or normalized_type.endswith("_tool")
+                    ):
+                        return normalized_type
+                stack.append(child)
+        elif isinstance(value, list):
+            stack.extend(value)
+    return None
 
 
 def request(
@@ -1165,8 +1552,10 @@ class AgentHost:
             self._external_provider_credential = credential
         self.hostname = platform.node()
         self.pid = os.getpid()
+        self.agent_host_runtime = agent_host_runtime_identity()
         self._last_node_heartbeat = 0.0
         self._active_task_id: str | None = None
+        self._runtime_restart_requested = False
         self._codex_readiness_probe_active = False
         self._registered = False
         self.work_root.mkdir(parents=True, exist_ok=True)
@@ -1215,17 +1604,41 @@ class AgentHost:
                 path = None
             if runner == "codex":
                 status[runner] = self.detect_codex_runner_status(path)
-            elif (
-                runner == "mimo"
-                and self.runner_access is not None
-                and self.runner_access["runners"]["mimo"].get("mode") == "disabled"
-            ):
-                status[runner] = {
-                    "status": "disabled",
-                    "path": path,
-                    "checked_at": utc_now(),
-                    "error_type": "runner_disabled",
-                }
+            elif runner == "mimo":
+                if (
+                    self.runner_access is not None
+                    and self.runner_access["runners"]["mimo"].get("mode") == "disabled"
+                ):
+                    status[runner] = {
+                        "status": "disabled",
+                        "path": path,
+                        "checked_at": utc_now(),
+                        "error_type": "runner_disabled",
+                    }
+                elif not path:
+                    status[runner] = {
+                        "status": "unavailable",
+                        "path": None,
+                        "checked_at": utc_now(),
+                        "error_type": "runner_unavailable",
+                    }
+                else:
+                    try:
+                        _profile, profile_sha256 = load_mimo_response_agent_profile()
+                        status[runner] = {
+                            "status": "available",
+                            "path": path,
+                            "checked_at": utc_now(),
+                            "error_type": None,
+                            "response_profile_sha256": profile_sha256,
+                        }
+                    except RuntimeError:
+                        status[runner] = {
+                            "status": "unavailable",
+                            "path": path,
+                            "checked_at": utc_now(),
+                            "error_type": "mimo_response_profile_unavailable",
+                        }
             else:
                 status[runner] = {
                     "status": "available" if path else "unavailable",
@@ -1513,7 +1926,11 @@ class AgentHost:
             "blocked"
             if exc.error_type in blocked_errors
             else "unavailable"
-            if exc.error_type in {"runner_unavailable", "provider_runner_outdated"}
+            if exc.error_type in {
+                "runner_unavailable",
+                "provider_runner_outdated",
+                "mimo_response_profile_unavailable",
+            }
             else None
         )
         if status is None:
@@ -1546,6 +1963,7 @@ class AgentHost:
             "runners": self.runner_status,
             "runner_readiness": {"codex": self.codex_readiness_evidence()},
             "release_installer": self.release_installer_status,
+            "agent_host_runtime": self.agent_host_runtime,
             "labels": self.labels,
             **machine_stats(),
         }
@@ -1563,6 +1981,7 @@ class AgentHost:
             "runners": self.runner_status,
             "runner_readiness": {"codex": self.codex_readiness_evidence()},
             "release_installer": self.release_installer_status,
+            "agent_host_runtime": self.agent_host_runtime,
             "labels": self.labels,
             "active_task": active_task,
             **machine_stats(),
@@ -1612,6 +2031,53 @@ class AgentHost:
         command_label: str | None = None,
         stdin_path: Path | None = None,
     ) -> None:
+        envelope = task_envelope(task)
+        constraints = (
+            envelope.get("constraints")
+            if isinstance(envelope.get("constraints"), dict)
+            else {}
+        )
+        raw_max_wall = constraints.get("max_wall_seconds")
+        deadline: float | None = None
+        if raw_max_wall is not None:
+            if (
+                isinstance(raw_max_wall, bool)
+                or not isinstance(raw_max_wall, (int, float))
+                or not 0 < float(raw_max_wall) <= 86_400
+            ):
+                raise TaskProcessInterrupted(
+                    "task_contract_invalid",
+                    "constraints.max_wall_seconds must be between 0 and 86400",
+                    retry=False,
+                )
+            started = task.setdefault("_agent_host_started_monotonic", time.monotonic())
+            deadline = float(started) + float(raw_max_wall)
+            if time.monotonic() >= deadline:
+                raise TaskProcessInterrupted(
+                    "provider_timeout",
+                    "execution exceeded constraints.max_wall_seconds before process start",
+                    retry=False,
+                )
+        if STOP:
+            raise TaskProcessInterrupted(
+                "task_cancelled",
+                "agent host received SIGTERM before process start",
+                retry=False,
+            )
+        try:
+            authoritative = self.task_heartbeat(task, cwd, branch, logs)
+        except Exception as exc:
+            raise TaskProcessInterrupted(
+                "task_lease_fenced",
+                "Control Plane heartbeat or lease fence was lost before process start",
+                retry=False,
+            ) from exc
+        if self.task_cancel_requested(authoritative):
+            raise TaskProcessInterrupted(
+                "task_cancelled",
+                "Control Plane returned a terminal cancellation fence before process start",
+                retry=False,
+            )
         merged_env = os.environ.copy()
         if env:
             merged_env.update(env)
@@ -1628,21 +2094,118 @@ class AgentHost:
                     stdout=stdout,
                     stderr=stderr,
                     env=merged_env,
+                    start_new_session=True,
                 )
             finally:
                 if stdin_stream is not None:
                     stdin_stream.close()
-            last_refresh = 0.0
+            last_refresh = time.monotonic()
+            refresh_interval = min(max(float(self.lease_refresh), 0.25), 2.0)
             while proc.poll() is None:
                 if STOP:
-                    proc.terminate()
-                    raise RuntimeError("agent host received SIGTERM")
-                if time.time() - last_refresh >= self.lease_refresh:
-                    self.task_heartbeat(task, cwd, branch, logs, proc.pid)
-                    last_refresh = time.time()
-                time.sleep(2)
+                    self.terminate_process_group(proc)
+                    raise TaskProcessInterrupted(
+                        "task_cancelled", "agent host received SIGTERM", retry=False
+                    )
+                now = time.monotonic()
+                if deadline is not None and now >= deadline:
+                    self.terminate_process_group(proc)
+                    raise TaskProcessInterrupted(
+                        "provider_timeout",
+                        "execution exceeded constraints.max_wall_seconds",
+                        retry=False,
+                    )
+                if now - last_refresh >= refresh_interval:
+                    try:
+                        authoritative = self.task_heartbeat(
+                            task, cwd, branch, logs, proc.pid
+                        )
+                    except Exception as exc:
+                        self.terminate_process_group(proc)
+                        raise TaskProcessInterrupted(
+                            "task_lease_fenced",
+                            "Control Plane heartbeat or lease fence was lost",
+                            retry=False,
+                        ) from exc
+                    if self.task_cancel_requested(authoritative):
+                        self.terminate_process_group(proc)
+                        raise TaskProcessInterrupted(
+                            "task_cancelled",
+                            "Control Plane returned a terminal cancellation fence",
+                            retry=False,
+                        )
+                    last_refresh = now
+                sleep_for = (
+                    0.25
+                    if deadline is None
+                    else max(0.01, min(0.25, deadline - now))
+                )
+                time.sleep(sleep_for)
+            if self.process_group_exists(proc.pid):
+                self.terminate_process_group(proc, grace_seconds=0.0)
+                raise TaskProcessInterrupted(
+                    "task_process_leak",
+                    "command exited while descendants remained in its process group",
+                    retry=False,
+                )
             if proc.returncode != 0:
                 raise RuntimeError(f"command failed with rc={proc.returncode}: {display_command}")
+
+    @staticmethod
+    def task_cancel_requested(authoritative: Any) -> bool:
+        if not isinstance(authoritative, dict):
+            return True
+        nested = authoritative.get("task")
+        if isinstance(nested, dict):
+            authoritative = nested
+        state = str(authoritative.get("state") or "").strip().lower()
+        return bool(
+            state not in {"leased", "running"}
+            or authoritative.get("cancel_requested_at")
+            or authoritative.get("cancel_fence_id")
+        )
+
+    @staticmethod
+    def process_group_exists(process_group_id: int) -> bool:
+        try:
+            os.killpg(process_group_id, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+
+    @staticmethod
+    def terminate_process_group(
+        proc: subprocess.Popen[Any],
+        grace_seconds: float = 2.0,
+    ) -> bool:
+        process_group_id = proc.pid
+        if not AgentHost.process_group_exists(process_group_id):
+            proc.poll()
+            return False
+        try:
+            os.killpg(process_group_id, signal.SIGTERM)
+        except ProcessLookupError:
+            proc.poll()
+            return False
+        deadline = time.monotonic() + max(0.0, grace_seconds)
+        while (
+            AgentHost.process_group_exists(process_group_id)
+            and time.monotonic() < deadline
+        ):
+            proc.poll()
+            time.sleep(0.05)
+        if AgentHost.process_group_exists(process_group_id):
+            try:
+                os.killpg(process_group_id, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        try:
+            proc.wait(timeout=1.0)
+        except subprocess.TimeoutExpired:
+            pass
+        return True
 
     def git_push(
         self,
@@ -1786,7 +2349,12 @@ class AgentHost:
         return final_messages, text_parts, deltas
 
     @classmethod
-    def parse_json_response_payload(cls, stdout_path: Path) -> dict[str, Any]:
+    def parse_json_response_payload(
+        cls,
+        stdout_path: Path,
+        *,
+        forbid_tool_events: bool = False,
+    ) -> dict[str, Any]:
         final_messages: list[str] = []
         text_parts: list[str] = []
         deltas: list[str] = []
@@ -1802,6 +2370,12 @@ class AgentHost:
                 continue
             if not isinstance(event, dict):
                 continue
+            if forbid_tool_events:
+                tool_event = response_only_tool_event_name(event)
+                if tool_event:
+                    raise ResponseOnlyToolEventError(
+                        f"mimo_response_only_tool_event:{tool_event}"
+                    )
 
             error = event.get("error")
             if str(event.get("type") or "").lower() == "error" and isinstance(error, dict):
@@ -1837,8 +2411,19 @@ class AgentHost:
         return {"response": "", **({"runner_error": runner_errors[-1]} if runner_errors else {})}
 
     @classmethod
-    def parse_json_text_response(cls, stdout_path: Path) -> str:
-        return str(cls.parse_json_response_payload(stdout_path).get("response") or "")
+    def parse_json_text_response(
+        cls,
+        stdout_path: Path,
+        *,
+        forbid_tool_events: bool = False,
+    ) -> str:
+        return str(
+            cls.parse_json_response_payload(
+                stdout_path,
+                forbid_tool_events=forbid_tool_events,
+            ).get("response")
+            or ""
+        )
 
     @staticmethod
     def _read_runner_output_for_error(stdout_path: Path, stderr_path: Path) -> str:
@@ -1852,6 +2437,14 @@ class AgentHost:
     def classify_runner_error(runner: str, error: str, runner_output: str) -> tuple[str, str, bool]:
         runner = str(runner or "unknown").strip().lower()
         combined = f"{error}\n{runner_output}".lower()
+        if "provider_timeout:" in combined:
+            return "provider_timeout", f"{runner} exceeded the task wall-clock deadline", False
+        if "task_cancelled:" in combined:
+            return "task_cancelled", f"{runner} execution was cancelled by Control Plane", False
+        if "task_lease_fenced:" in combined:
+            return "task_lease_fenced", f"{runner} lost its authoritative task lease", False
+        if "task_process_leak:" in combined:
+            return "task_process_leak", f"{runner} left a fenced descendant process", False
         if (
             "requires a newer version" in combined
             or "newer version of codex" in combined
@@ -1893,6 +2486,7 @@ class AgentHost:
         branch: str | None,
         logs: dict[str, str],
         stdin_path: Path | None = None,
+        forbid_tool_events: bool = False,
     ) -> dict[str, Any]:
         try:
             command_options: dict[str, Any] = {"command_label": command_label}
@@ -1902,6 +2496,10 @@ class AgentHost:
                 command, worktree, stdout_path, stderr_path, task, branch, logs,
                 **command_options,
             )
+        except TaskProcessInterrupted:
+            # The authoritative deadline/cancel/lease fence takes precedence
+            # over any stale provider error text already present in the logs.
+            raise
         except Exception as exc:
             error_type, message, retry = self.classify_runner_error(
                 runner,
@@ -1913,7 +2511,29 @@ class AgentHost:
                 sanitize_text_file(stderr_path)
                 raise RunnerExecutionError(error_type, runner, message, retry=retry) from exc
             raise
-        payload = self.parse_json_response_payload(stdout_path)
+        try:
+            payload = self.parse_json_response_payload(
+                stdout_path,
+                forbid_tool_events=forbid_tool_events,
+            )
+        except ResponseOnlyToolEventError as exc:
+            # Tool payloads can contain command arguments, file contents, or
+            # provider internals.  Preserve only the policy verdict; never
+            # persist or return the raw forbidden event.
+            stdout_path.write_text(
+                "[kolibri] Mimo response-only policy violation; raw output withheld\n",
+                encoding="utf-8",
+            )
+            stderr_path.write_text(
+                "[kolibri] Mimo response-only policy violation\n",
+                encoding="utf-8",
+            )
+            raise RunnerExecutionError(
+                "runner_policy_blocked",
+                runner,
+                f"{runner} response-only agent emitted a forbidden tool event",
+                retry=False,
+            ) from exc
         if not payload.get("response"):
             structured_error = payload.get("runner_error")
             if isinstance(structured_error, dict):
@@ -1944,6 +2564,7 @@ class AgentHost:
         branch: str | None,
         logs: dict[str, str],
         stdin_path: Path | None = None,
+        forbid_tool_events: bool = False,
     ) -> str:
         payload = self.run_json_payload_command(
             command,
@@ -1956,6 +2577,7 @@ class AgentHost:
             branch,
             logs,
             stdin_path=stdin_path,
+            forbid_tool_events=forbid_tool_events,
         )
         return str(payload.get("response") or "")
 
@@ -1979,7 +2601,7 @@ class AgentHost:
         if runner == "local_llm":
             return self.run_local_llm_text_runner(prompt)
         readiness = self.runner_status.get(runner, {})
-        if runner == "codex" and readiness.get("status") != "available":
+        if runner in {"codex", "mimo"} and readiness.get("status") != "available":
             error_type = str(readiness.get("error_type") or "runner_readiness_failed")
             raise RunnerExecutionError(
                 error_type,
@@ -1993,59 +2615,74 @@ class AgentHost:
             raise RunnerExecutionError("runner_unavailable", runner, f"{runner} executable is not available on this node")
 
         prompt_path: Path | None = None
-        envelope = task_envelope(task)
-        constraints = envelope.get("constraints") if isinstance(envelope.get("constraints"), dict) else {}
-        readonly_factory_route = (
-            str(task.get("kind") or envelope.get("kind") or "") in {
-                "owner_remote_task", "orchestrator_chat_response", "telegram_chat_response",
-            }
-            and constraints.get("read_only") is True
-            and not envelope.get("write_scope")
-        )
-        if runner == "codex":
-            prompt_path = worktree / ".kolibri-provider-prompt"
-            codex_prompt = (
-                f"{CODEX_PROVIDER_NETWORK_INSTRUCTION}\n\n{prompt}"
-                if readonly_factory_route else prompt
-            )
-            prompt_path.write_text(codex_prompt, encoding="utf-8")
-            prompt_path.chmod(0o600)
-            if readonly_factory_route:
-                command = [
-                    executable, "--search", "exec", "--json", "--ephemeral", "--skip-git-repo-check",
-                    "--ignore-user-config", "--ignore-rules", "--color", "never",
-                    "--sandbox", "read-only", "--model", CODEX_TASK_MODEL, "-",
-                ]
-                command_label = (
-                    f"{executable} --search exec --json --ephemeral --skip-git-repo-check "
-                    f"--ignore-user-config --ignore-rules --color never --sandbox read-only "
-                    f"--model {CODEX_TASK_MODEL} - <prompt-file>"
-                )
-            else:
-                command = [
-                    executable, "exec", "--json", "--ephemeral", "--skip-git-repo-check",
-                    "--color", "never", "--sandbox", "danger-full-access",
-                    "--model", CODEX_TASK_MODEL, "-",
-                ]
-                command_label = (
-                    f"{executable} exec --json --ephemeral --skip-git-repo-check --color never "
-                    f"--sandbox danger-full-access --model {CODEX_TASK_MODEL} - <prompt-file>"
-                )
-        else:
-            if readonly_factory_route:
-                prompt_path = worktree / ".kolibri-provider-prompt"
-                prompt_path.write_text(prompt, encoding="utf-8")
-                prompt_path.chmod(0o600)
-                command, command_label = mimo_auto25_readonly_command(
-                    executable,
-                    title,
-                    prompt_path,
-                    worktree,
-                )
-            else:
-                command, command_label = self.mimo_auto25_invocation(executable, title, prompt, worktree)
-
+        mimo_profile_path: Path | None = None
+        forbid_tool_events = False
+        response_only_route = is_response_only_provider_task(task)
         try:
+            if runner == "codex":
+                prompt_path = worktree / ".kolibri-provider-prompt"
+                codex_prompt = (
+                    f"{CODEX_PROVIDER_NETWORK_INSTRUCTION}\n\n{prompt}"
+                    if response_only_route else prompt
+                )
+                prompt_path.write_text(codex_prompt, encoding="utf-8")
+                prompt_path.chmod(0o600)
+                if response_only_route:
+                    command = [
+                        executable, "--search", "exec", "--json", "--ephemeral", "--skip-git-repo-check",
+                        "--ignore-user-config", "--ignore-rules", "--color", "never",
+                        "--sandbox", "read-only", "--model", CODEX_TASK_MODEL, "-",
+                    ]
+                    command_label = (
+                        f"{executable} --search exec --json --ephemeral --skip-git-repo-check "
+                        f"--ignore-user-config --ignore-rules --color never --sandbox read-only "
+                        f"--model {CODEX_TASK_MODEL} - <prompt-file>"
+                    )
+                else:
+                    command = [
+                        executable, "exec", "--json", "--ephemeral", "--skip-git-repo-check",
+                        "--color", "never", "--sandbox", "danger-full-access",
+                        "--model", CODEX_TASK_MODEL, "-",
+                    ]
+                    command_label = (
+                        f"{executable} exec --json --ephemeral --skip-git-repo-check --color never "
+                        f"--sandbox danger-full-access --model {CODEX_TASK_MODEL} - <prompt-file>"
+                    )
+            else:
+                if response_only_route:
+                    prompt_path = worktree / ".kolibri-provider-prompt"
+                    prompt_path.write_text(prompt, encoding="utf-8")
+                    prompt_path.chmod(0o600)
+                    try:
+                        mimo_profile_path, profile_sha256 = (
+                            install_mimo_response_agent_profile(worktree)
+                        )
+                    except (OSError, RuntimeError) as exc:
+                        raise RunnerExecutionError(
+                            "mimo_response_profile_unavailable",
+                            "mimo",
+                            "Mimo response-only profile could not be installed safely",
+                            retry=False,
+                        ) from exc
+                    expected_profile_sha256 = str(readiness.get("response_profile_sha256") or "")
+                    if not expected_profile_sha256 or profile_sha256 != expected_profile_sha256:
+                        raise RunnerExecutionError(
+                            "mimo_response_profile_unavailable",
+                            "mimo",
+                            "Mimo response-only profile changed after readiness",
+                            retry=False,
+                        )
+                    command, command_label = mimo_auto25_readonly_command(
+                        executable,
+                        title,
+                        prompt_path,
+                        worktree,
+                    )
+                    forbid_tool_events = True
+                else:
+                    command, command_label = self.mimo_auto25_invocation(
+                        executable, title, prompt, worktree
+                    )
             return self.run_json_text_command(
                 command,
                 command_label,
@@ -2057,7 +2694,10 @@ class AgentHost:
                 branch,
                 logs,
                 stdin_path=prompt_path if runner == "codex" else None,
+                forbid_tool_events=forbid_tool_events,
             )
+        except TaskProcessInterrupted:
+            raise
         except RunnerExecutionError as exc:
             # Keep the local heartbeat authoritative after a provider/auth
             # failure.  Without this update the Control Plane quarantine was
@@ -2085,6 +2725,7 @@ class AgentHost:
                     prompt_path.unlink()
                 except FileNotFoundError:
                     pass
+            remove_mimo_response_agent_profile(mimo_profile_path)
 
     def prepare_backend_test_environment(
         self,
@@ -2248,6 +2889,7 @@ class AgentHost:
             "status": "completed",
             "kind": "read_only_probe",
             "message": "read-only probe completed",
+            "agent_host_runtime": self.agent_host_runtime,
             "permission_pack_classification": classify_permission_pack(task),
         }
         result = self.finalize_result(task, result, artifact_dir, worktree, changed_files=[])
@@ -2391,9 +3033,17 @@ class AgentHost:
             "response": response_text,
         }
         if runner == "mimo":
-            result["runner_contract"] = mimo_auto25_runner_contract()
+            result["runner_contract"] = (
+                mimo_auto25_runner_contract()
+                if is_response_only_provider_task(task)
+                else mimo_auto25_direct_runner_contract()
+            )
         elif runner == "codex":
-            result["runner_contract"] = codex_factory_runner_contract()
+            result["runner_contract"] = (
+                codex_factory_runner_contract()
+                if is_response_only_provider_task(task)
+                else codex_direct_runner_contract()
+            )
         result = self.finalize_result(task, result, artifact_dir, worktree, changed_files=[])
         result_path = self.write_result(artifact_dir, result)
         result["result_path"] = str(result_path)
@@ -2441,9 +3091,17 @@ class AgentHost:
             "response": response_text,
         }
         if runner == "mimo":
-            result["runner_contract"] = mimo_auto25_runner_contract()
+            result["runner_contract"] = (
+                mimo_auto25_runner_contract()
+                if is_response_only_provider_task(task)
+                else mimo_auto25_direct_runner_contract()
+            )
         elif runner == "codex":
-            result["runner_contract"] = codex_factory_runner_contract()
+            result["runner_contract"] = (
+                codex_factory_runner_contract()
+                if is_response_only_provider_task(task)
+                else codex_direct_runner_contract()
+            )
         result = self.finalize_result(task, result, artifact_dir, worktree, changed_files=[])
         result_path = self.write_result(artifact_dir, result)
         result["result_path"] = str(result_path)
@@ -2466,7 +3124,7 @@ class AgentHost:
             "attempt_id": task.get("attempt_id"),
             "runner": "mimo",
             "started_at": utc_now(),
-            **mimo_auto25_runner_contract(),
+            **mimo_auto25_direct_runner_contract(),
         }
         (artifact_dir / "runner-contract.json").write_text(
             json.dumps(runner_artifact, indent=2, sort_keys=True) + "\n",
@@ -2510,7 +3168,7 @@ class AgentHost:
             "status": "completed",
             "kind": task.get("kind") or envelope.get("kind") or "owner_remote_task",
             "runner": "mimo",
-            "runner_contract": mimo_auto25_runner_contract(),
+            "runner_contract": mimo_auto25_direct_runner_contract(),
             "response": payload["response"],
             "tests": runner_output.get("tests"),
             "blockers": runner_output.get("blockers"),
@@ -3108,6 +3766,7 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
         return result
 
     def run_task(self, task: dict[str, Any]) -> None:
+        task["_agent_host_started_monotonic"] = time.monotonic()
         sanitize_task_permissions(task)
         result_path = None
         result = None
@@ -3145,7 +3804,11 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 # implementation.  Keep both Mimo and Codex on the uniform
                 # read-only file/stdin path advertised to Home.
                 result = self.run_owner_remote_task(task)
-            elif kind in MIMO_DIRECT_KINDS and requested_runner_for_envelope(envelope, "mimo") == "mimo":
+            elif (
+                kind in MIMO_DIRECT_KINDS
+                and requested_runner_for_envelope(envelope, "mimo") == "mimo"
+                and not is_response_only_provider_task(task)
+            ):
                 result = self.run_direct_mimo_task(task)
             elif kind == "owner_remote_task":
                 result = self.run_owner_remote_task(task)
@@ -3172,6 +3835,18 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
             result["result_path"] = str(result_path)
             if result["status"] == "completed":
                 self.complete(task, result, result_path)
+                runtime_activation = result.get("agent_host_runtime")
+                if (
+                    kind in RELEASE_TASK_KINDS
+                    and isinstance(runtime_activation, dict)
+                    and runtime_activation.get("included") is True
+                    and runtime_activation.get("response_profile_included") is True
+                ):
+                    # The lease is cleared by the successful completion POST
+                    # before this process exits.  Restart=always then enters
+                    # through the bootstrap path and re-execs the new immutable
+                    # Agent Host, so no second task can run on stale code.
+                    self._runtime_restart_requested = True
             else:
                 error = result.get("blocked_reason") or result.get("failure_reason") or "runner contract prevented completion"
                 error_type = (
@@ -3253,6 +3928,16 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                         f"route to another online node with {runner_capability(exc.runner)} or install the requested runner"
                     )
                 result_path = self.write_result(artifact_dir, result)
+            elif isinstance(exc, TaskProcessInterrupted):
+                error_type = exc.error_type
+                retry = exc.retry
+                result["failure_reason"] = redact_sensitive_text(str(exc))
+                result["next_recommended_task"] = (
+                    "resubmit with a larger bounded max_wall_seconds"
+                    if exc.error_type == "provider_timeout"
+                    else "do not retry a cancelled or fenced task attempt"
+                )
+                result_path = self.write_result(artifact_dir, result)
             elif isinstance(exc, BackendTestEnvironmentError) or str(exc).startswith("backend_test_environment_failed:"):
                 error_type = "backend_test_environment_failed"
                 retry = False
@@ -3271,7 +3956,7 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
             self.fail(task, error_type, redact_sensitive_text(str(exc)), result, result_path, retry=retry)
 
     def loop(self) -> None:
-        while not STOP:
+        while not STOP and not self._runtime_restart_requested:
             try:
                 if not self._registered:
                     self.register()
@@ -3301,6 +3986,8 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                     self.run_task(task)
                 finally:
                     self._active_task_id = None
+                if self._runtime_restart_requested:
+                    break
                 self.node_heartbeat()
             time.sleep(2)
 
@@ -3312,6 +3999,7 @@ def handle_stop(signum: int, frame: Any) -> None:
 
 
 def main() -> int:
+    maybe_reexec_release_agent_host()
     parser = argparse.ArgumentParser()
     parser.add_argument("--control-url", default=os.environ.get("KOLIBRI_FACTORY_CONTROL_URL"))
     parser.add_argument("--control-urls", default=os.environ.get("KOLIBRI_FACTORY_CONTROL_URLS"))

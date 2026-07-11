@@ -255,6 +255,7 @@ def test_release_submission_is_api_only_idempotent_and_approval_gated():
     assert payload["kind"] == release.RELEASE_TASK_KIND
     assert payload["required_capability"] == release.RELEASE_CAPABILITY
     assert payload["idempotency_key"].endswith(":agent-09")
+    assert ":approval-1:" in payload["idempotency_key"]
     assert payload["approval_id"] == "approval-1"
     serialized = str(payload).lower()
     assert "password" not in serialized and "private_key" not in serialized
@@ -391,6 +392,34 @@ def test_release_controller_validate_cli_is_offline_and_machine_readable(tmp_pat
     assert payload["status"] == "valid"
     assert payload["release_id"] == "kolibri-2026.07.10"
     assert payload["manifest_digest"].startswith("sha256:")
+
+
+def test_wait_for_task_tolerates_bounded_control_plane_self_restart(monkeypatch):
+    release = load_release_controller()
+    client = release.ControlPlaneClient("http://control.invalid")
+    responses = iter((
+        release.ReleaseError("listener restarting"),
+        {"state": "running"},
+        {"state": "completed", "task_id": "release-home"},
+    ))
+
+    def request(*_args, **_kwargs):
+        value = next(responses)
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+    clock = {"value": 0.0}
+    monkeypatch.setattr(client, "request", request)
+    monkeypatch.setattr(release.time, "monotonic", lambda: clock["value"])
+    monkeypatch.setattr(
+        release.time,
+        "sleep",
+        lambda seconds: clock.__setitem__("value", clock["value"] + seconds),
+    )
+
+    result = client.wait_for_task("release-home", timeout=10, poll_interval=1)
+    assert result["state"] == "completed"
 
 
 def test_failed_wave_rolls_back_attempted_nodes_in_reverse_order():

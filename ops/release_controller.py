@@ -231,6 +231,9 @@ class FleetNode:
     capabilities: tuple[str, ...]
     agent_live: bool
     rollout_stage: str | None = None
+    role: str = "worker"
+    failure_domain: str | None = None
+    agent_id: str | None = None
 
     @property
     def schedulable(self) -> bool:
@@ -269,6 +272,12 @@ def node_from_api(value: dict[str, Any]) -> FleetNode:
         capabilities=tuple(sorted(str(item) for item in value.get("capabilities") or [])),
         agent_live=bool(value.get("agent_id") and value.get("pid")),
         rollout_stage=str(labels.get("rollout_stage")) if labels.get("rollout_stage") else None,
+        role=str(value.get("role") or labels.get("role") or "worker").strip().lower(),
+        failure_domain=(
+            str(value.get("failure_domain") or labels.get("failure_domain") or "").strip()
+            or None
+        ),
+        agent_id=str(value.get("agent_id") or "").strip() or None,
     )
 
 
@@ -487,7 +496,9 @@ class ControlPlaneClient:
         self.require_owner_approval(approval_id, verified, rollout_plan=rollout_plan)
         return self.request("POST", "/v1/tasks", {
             "schema_version": RELEASE_SCHEMA,
-            "idempotency_key": f"release:{manifest.digest}:{node.physical_node_id}",
+            "idempotency_key": (
+                f"release:{manifest.digest}:{approval_id}:{node.physical_node_id}"
+            ),
             "kind": RELEASE_TASK_KIND,
             "required_capability": RELEASE_CAPABILITY,
             "target_node": node.node_id,
@@ -526,7 +537,10 @@ class ControlPlaneClient:
         rollout_wave = rollout_wave_for_node(rollout_plan, node.node_id)
         return self.request("POST", "/v1/tasks", {
             "schema_version": RELEASE_SCHEMA,
-            "idempotency_key": f"rollback:{failed_release.manifest.digest}:{target.digest}:{node.physical_node_id}",
+            "idempotency_key": (
+                f"rollback:{failed_release.manifest.digest}:{target.digest}:"
+                f"{approval_id}:{node.physical_node_id}"
+            ),
             "kind": ROLLBACK_TASK_KIND,
             "required_capability": RELEASE_CAPABILITY,
             "target_node": node.node_id,
@@ -549,12 +563,25 @@ class ControlPlaneClient:
     def wait_for_task(self, task_id: str, timeout: float = 600.0, poll_interval: float = 2.0) -> dict[str, Any]:
         deadline = time.monotonic() + timeout
         quoted = urllib.parse.quote(task_id, safe="")
+        last_transport_error: ReleaseError | None = None
         while time.monotonic() < deadline:
-            task = self.request("GET", f"/v1/tasks/{quoted}") or {}
+            try:
+                task = self.request("GET", f"/v1/tasks/{quoted}") or {}
+                last_transport_error = None
+            except ReleaseError as exc:
+                # A Home Control Plane release intentionally restarts the same
+                # listener that the controller polls. Treat the bounded gap as
+                # transport uncertainty, never as task failure or success.
+                last_transport_error = exc
+                time.sleep(poll_interval)
+                continue
             if task.get("state") in TERMINAL_TASK_STATES:
                 return task
             time.sleep(poll_interval)
-        raise ReleaseError(f"release task timed out: {task_id}")
+        error = ReleaseError(f"release task timed out: {task_id}")
+        if last_transport_error is not None:
+            raise error from last_transport_error
+        raise error
 
     def cancel_task(self, task_id: str, reason: str) -> dict[str, Any]:
         quoted = urllib.parse.quote(task_id, safe="")

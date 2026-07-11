@@ -180,6 +180,17 @@ citations and content hashes, while FormulaLM receives only the sanitized tool
 tap (query/result/citation hashes and source hosts), candidate-only with no
 request-path training or automatic promotion.
 
+### Owner project evidence
+
+`tool:project_knowledge` is a response-scoped, read-only owner capability. It
+searches only allowlisted repository documentation/source roots beneath the
+running release, never follows symlinks and excludes secrets, environment
+files, dependencies and runtime/evidence artifacts. Results are bounded and
+bind a sanitized excerpt to a repository-relative path, exact line span, file
+SHA-256 and span SHA-256. It is not exposed to public sessions and is never a
+fallback for internet search. Provider answers must cite the supplied project
+markers; the deterministic verifier fails closed without bound citations.
+
 ## FormulaLM learning boundary
 
 The synchronous tap records provenance, policy, normalized decisions and

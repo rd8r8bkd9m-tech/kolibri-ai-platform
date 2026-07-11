@@ -56,6 +56,13 @@ def test_unknown_api_paths_never_fall_through_to_spa(tmp_path, monkeypatch):
     assert wrong_method.headers["content-type"].startswith("application/json")
     assert "SPA boundary sentinel" not in wrong_method.text
 
+    compatibility = client.get("/v1/kolibri/openai-compatibility")
+    assert compatibility.status_code == 200
+    assert compatibility.json()["routing_policy"]["wildcard_v1_proxy"] is False
+    realtime = client.get("/v1/realtime")
+    assert realtime.status_code == 501
+    assert realtime.json()["error"]["code"] == "realtime_unavailable"
+
     for method, path in (
         ("GET", "/api/not-a-route"),
         ("POST", "/api/not-a-route"),
@@ -74,3 +81,7 @@ def test_unknown_api_paths_never_fall_through_to_spa(tmp_path, monkeypatch):
     paths = module.app.openapi()["paths"]
     assert "/api/{full_path}" not in paths
     assert "/v1/{full_path}" not in paths
+    assert "/v1/kolibri/openai-compatibility" in paths
+    assert "/v1/responses/{response_id}/input_items" in paths
+    assert "/v1/realtime" in paths
+    assert not any(path.startswith("/v1/organization/") for path in paths)

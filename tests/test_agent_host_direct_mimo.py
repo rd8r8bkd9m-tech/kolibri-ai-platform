@@ -3,6 +3,8 @@ import importlib.util
 import json
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -74,7 +76,7 @@ def test_direct_mimo_stdout_useful_json_completes_with_non_empty_response(tmp_pa
             return body
 
         def run_command(self, command, cwd, stdout_path, stderr_path, task, branch, logs, env=None, command_label=None):
-            del cwd, task, branch, logs, env
+            del task, branch, logs, env
             self.commands.append((command, command_label))
             stdout_path.write_text(
                 f"$ {command_label}\n"
@@ -112,7 +114,16 @@ def test_direct_mimo_stdout_useful_json_completes_with_non_empty_response(tmp_pa
     result = complete_posts[0][1]["result"]
     assert result["status"] == "completed"
     assert result["runner"] == "mimo"
-    assert result["runner_contract"]["cli_contract"] == "mimo-auto25-no-user-auth-v1"
+    assert result["runner_contract"]["cli_contract"] == (
+        "mimo-auto25-direct-permission-bypass-v1"
+    )
+    assert result["runner_contract"]["permission_mode"] == (
+        "dangerously_skip_permissions"
+    )
+    assert result["runner_contract"]["prompt_transport"] == "argv"
+    assert result["runner_contract"]["sandbox"] == "none"
+    assert result["runner_contract"]["worktree_scoped"] is False
+    assert "factory_provider_contract" not in result["runner_contract"]
     assert result["response"]
     assert result["branch"] == "agent/P0/impl/direct-mimo"
     assert result["pull_request_url"] == "https://github.example/pull/1"
@@ -301,11 +312,19 @@ def test_orchestrator_mimo_uses_readonly_file_transport_and_cleans_prompt(tmp_pa
 
         def run_command(self, command, cwd, stdout_path, stderr_path, task, branch, logs, env=None, command_label=None):
             nonlocal observed_prompt_path
-            del cwd, task, branch, logs, env
+            del task, branch, logs, env
             assert secret not in command
             assert secret not in str(command_label)
             assert "--dangerously-skip-permissions" not in command
-            assert command[command.index("--agent") + 1] == "plan"
+            assert command[command.index("--agent") + 1] == "kolibri-response-only"
+            assert "--pure" in command
+            profile = Path(cwd) / ".mimocode" / "agents" / "kolibri-response-only.md"
+            assert profile.is_file()
+            profile_text = profile.read_text(encoding="utf-8")
+            assert "tool_allowlist: []" in profile_text
+            assert "  bash: false" in profile_text
+            assert "  write: false" in profile_text
+            assert '  "*": deny' in profile_text
             observed_prompt_path = Path(command[command.index("--file") + 1])
             assert observed_prompt_path.read_text(encoding="utf-8").find(secret) >= 0
             stdout_path.write_text(
@@ -321,15 +340,144 @@ def test_orchestrator_mimo_uses_readonly_file_transport_and_cleans_prompt(tmp_pa
         "kind": "orchestrator_chat_response",
         "runner": "mimo",
         "message": secret,
-        "constraints": {"read_only": True},
         "write_scope": [],
     }
     result = host.run_telegram_chat_response(task)
     assert result["response"] == "SAFE"
     assert observed_prompt_path is not None
     assert not observed_prompt_path.exists()
+    assert not (Path(result["worktree"]) / ".mimocode").exists()
     assert result["runner_contract"]["prompt_transport"] == "file"
     assert result["runner_contract"]["sandbox"] == "read-only"
+
+
+def test_orchestrator_mimo_rejects_tool_event_and_withholds_raw_payload(
+    tmp_path, monkeypatch
+):
+    agent_host = load_agent_host()
+    monkeypatch.setattr(
+        agent_host.shutil,
+        "which",
+        lambda name: "/usr/bin/mimo" if name == "mimo" else None,
+    )
+    forbidden_detail = "private-command-argument-must-not-leak"
+
+    class Host(agent_host.AgentHost):
+        def __init__(self, args):
+            super().__init__(args)
+            self.posts = []
+
+        def post(self, path, body):
+            self.posts.append((path, body))
+            return body
+
+        def run_command(
+            self, command, cwd, stdout_path, stderr_path, task, branch, logs,
+            env=None, command_label=None,
+        ):
+            del self, command, cwd, task, branch, logs, env, command_label
+            events = [
+                {"type": "message", "text": "partial response"},
+                {
+                    "type": "tool_call",
+                    "tool": "bash",
+                    "arguments": {"command": forbidden_detail},
+                },
+                {"type": "message", "text": "must not be accepted"},
+            ]
+            stdout_path.write_text(
+                "\n".join(json.dumps(event) for event in events) + "\n",
+                encoding="utf-8",
+            )
+            stderr_path.write_text(forbidden_detail, encoding="utf-8")
+
+    host = Host(make_args(tmp_path))
+    task = make_direct_task("MIMO-RESPONSE-ONLY-TOOL-EVENT", forbidden_detail)
+    task["kind"] = "orchestrator_chat_response"
+    task["envelope"] = {
+        "kind": "orchestrator_chat_response",
+        "runner": "mimo",
+        "message": forbidden_detail,
+        "constraints": {"read_only": True},
+        "write_scope": [],
+    }
+
+    host.run_task(task)
+
+    assert not [item for item in host.posts if item[0].endswith("/complete")]
+    failures = [item for item in host.posts if item[0].endswith("/fail")]
+    assert len(failures) == 1
+    assert failures[0][1]["error_type"] == "runner_policy_blocked"
+    assert failures[0][1]["retry"] is False
+    assert forbidden_detail not in json.dumps(failures[0][1], ensure_ascii=False)
+    artifact_dir = (
+        tmp_path / "artifacts" / "MIMO-RESPONSE-ONLY-TOOL-EVENT"
+        / "MIMO-RESPONSE-ONLY-TOOL-EVENT-attempt-1"
+    )
+    assert forbidden_detail not in (artifact_dir / "stdout.log").read_text(encoding="utf-8")
+    assert forbidden_detail not in (artifact_dir / "stderr.log").read_text(encoding="utf-8")
+    assert not (tmp_path / "work" / "MIMO-RESPONSE-ONLY-TOOL-EVENT" / ".mimocode").exists()
+
+
+def test_mimo_response_profile_is_digest_pinned_and_fails_closed_on_mutation(
+    tmp_path,
+):
+    agent_host = load_agent_host()
+    profile = ROOT / "ops" / "mimo" / "kolibri-response-only.md"
+    payload, digest = agent_host.load_mimo_response_agent_profile(profile)
+    assert payload == profile.read_bytes()
+    assert digest == agent_host.MIMO_RESPONSE_PROFILE_SHA256
+
+    mutated = tmp_path / "kolibri-response-only.md"
+    mutated.write_bytes(payload + b"\n# mutation\n")
+    mutated.chmod(0o600)
+    with pytest.raises(RuntimeError, match="contract_invalid"):
+        agent_host.load_mimo_response_agent_profile(mutated)
+
+
+def test_mimo_response_profile_and_prompt_are_cleaned_when_readiness_digest_drifts(
+    tmp_path, monkeypatch
+):
+    agent_host = load_agent_host()
+    monkeypatch.setattr(
+        agent_host.shutil,
+        "which",
+        lambda name: "/usr/bin/mimo" if name == "mimo" else None,
+    )
+
+    class Host(agent_host.AgentHost):
+        def post(self, _path, body):
+            return body
+
+    host = Host(make_args(tmp_path))
+    host.runner_status["mimo"]["response_profile_sha256"] = "0" * 64
+    task = make_direct_task("MIMO-PROFILE-DRIFT")
+    task["kind"] = "orchestrator_chat_response"
+    task["envelope"] = {
+        "kind": "orchestrator_chat_response",
+        "runner": "mimo",
+        "message": "response only",
+        "write_scope": [],
+    }
+
+    with pytest.raises(
+        agent_host.RunnerExecutionError,
+        match="changed after readiness",
+    ) as failure:
+        host.run_telegram_chat_response(task)
+
+    assert failure.value.error_type == "mimo_response_profile_unavailable"
+    assert host.runner_status["mimo"]["status"] == "unavailable"
+    assert host.runner_status["mimo"]["error_type"] == (
+        "mimo_response_profile_unavailable"
+    )
+    assert "runner:mimo" not in host.capabilities
+    worktree = (
+        tmp_path / "work" / "MIMO-PROFILE-DRIFT"
+        / "MIMO-PROFILE-DRIFT-attempt-1" / "repo"
+    )
+    assert not (worktree / ".kolibri-provider-prompt").exists()
+    assert not (worktree / ".mimocode").exists()
 
 
 def test_factory_codex_uses_stdin_readonly_contract_and_cleans_prompt(tmp_path, monkeypatch):
@@ -426,3 +574,91 @@ def test_home_factory_provider_task_is_distinct_from_legacy_direct_mimo_task():
 
     assert agent_host.is_factory_provider_task(factory_task) is True
     assert agent_host.is_factory_provider_task(make_direct_task("LEGACY-DIRECT")) is False
+
+
+def test_home_factory_provider_run_task_is_bound_to_response_only_mimo(
+    tmp_path, monkeypatch
+):
+    agent_host = load_agent_host()
+    monkeypatch.setattr(
+        agent_host.shutil,
+        "which",
+        lambda name: "/usr/bin/mimo" if name == "mimo" else None,
+    )
+
+    class Host(agent_host.AgentHost):
+        def __init__(self, args):
+            super().__init__(args)
+            self.posts = []
+            self.commands = []
+
+        def post(self, path, body):
+            self.posts.append((path, body))
+            return body
+
+        def run_command(
+            self, command, cwd, stdout_path, stderr_path, task, branch, logs,
+            env=None, command_label=None,
+        ):
+            del task, branch, logs, env
+            self.commands.append(command)
+            assert "--pure" in command
+            assert "--dangerously-skip-permissions" not in command
+            assert command[command.index("--agent") + 1] == "kolibri-response-only"
+            profile = (
+                Path(cwd) / ".mimocode" / "agents" / "kolibri-response-only.md"
+            )
+            assert "tool_allowlist: []" in profile.read_text(encoding="utf-8")
+            prompt_path = Path(command[command.index("--file") + 1])
+            assert prompt_path.read_text(encoding="utf-8") == "private response prompt"
+            assert "private response prompt" not in command
+            assert "private response prompt" not in str(command_label)
+            stdout_path.write_text(
+                json.dumps({
+                    "type": "item.completed",
+                    "item": {"type": "agent_message", "text": "SAFE FACTORY RESPONSE"},
+                }) + "\n",
+                encoding="utf-8",
+            )
+            stderr_path.write_text("", encoding="utf-8")
+
+    task = make_direct_task("FACTORY-PROVIDER-RESPONSE-ONLY", "private response prompt")
+    task["envelope"].update({
+        "target_node": "worker-test",
+        "required_capability": "runner:mimo",
+        "constraints": {
+            "read_only": True,
+            "max_wall_seconds": 45,
+            "network": "provider_managed_only",
+        },
+        "write_scope": [],
+        "max_retries": 0,
+        "fallback_allowed": False,
+        "source": {
+            "kind": "kolibri_provider_gateway",
+            "control_plane": "home",
+            "response_id": "resp-factory-safe",
+            "identity_contract": "kolibri.public-identity.v1",
+        },
+    })
+    host = Host(make_args(tmp_path))
+
+    host.run_task(task)
+
+    assert len(host.commands) == 1
+    complete = [body for path, body in host.posts if path.endswith("/complete")]
+    assert len(complete) == 1
+    assert complete[0]["result"]["response"] == "SAFE FACTORY RESPONSE"
+    assert complete[0]["result"]["runner_contract"]["cli_contract"] == (
+        "mimo-auto25-response-only-v2"
+    )
+    assert complete[0]["result"]["runner_contract"]["permission_mode"] == (
+        "deny_all_response_only"
+    )
+    assert complete[0]["result"]["runner_contract"]["response_agent_tools"] == []
+    worktree = (
+        tmp_path / "work" / "FACTORY-PROVIDER-RESPONSE-ONLY"
+        / "FACTORY-PROVIDER-RESPONSE-ONLY-attempt-1" / "repo"
+    )
+    assert not (worktree / ".kolibri-provider-prompt").exists()
+    assert not (worktree / ".mimocode").exists()

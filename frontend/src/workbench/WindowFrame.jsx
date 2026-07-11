@@ -48,8 +48,10 @@ export function WindowFrame({ windowState, bounds, focused, dispatch, onFocus, r
   };
 
   const startDrag = (event) => {
-    if (event.button !== 0 || windowState.maximized || event.target.closest("button")) return;
-    const rect = event.currentTarget.closest(".stage-window").getBoundingClientRect();
+    if (event.button !== 0 || windowState.maximized || event.target.closest?.("button")) return;
+    const frame = event.currentTarget?.closest?.(".stage-window");
+    if (!frame) return;
+    const rect = frame.getBoundingClientRect();
     setGesture({ kind: "drag", dx: event.clientX - rect.left, dy: event.clientY - rect.top });
     focus();
   };
@@ -57,7 +59,9 @@ export function WindowFrame({ windowState, bounds, focused, dispatch, onFocus, r
   const startResize = (event) => {
     if (event.button !== 0 || windowState.maximized) return;
     event.stopPropagation();
-    const rect = event.currentTarget.closest(".stage-window").getBoundingClientRect();
+    const frame = event.currentTarget?.closest?.(".stage-window");
+    if (!frame) return;
+    const rect = frame.getBoundingClientRect();
     setGesture({ kind: "resize", left: rect.left, top: rect.top });
     focus();
   };

@@ -38,6 +38,7 @@ const minimizedWindows = read("../src/shell/MinimizedWindows.jsx");
 const toolDock = read("../src/shell/ToolDock.jsx");
 const projectWorkspace = read("../src/windows/ProjectWorkspace.jsx");
 const projectCanvas = read("../src/windows/ProjectCanvas.jsx");
+const estimateWorkspace = read("../src/windows/EstimateWorkspace.jsx");
 const projectsWindow = read("../src/windows/ProjectsWindow.jsx");
 const pdfViewer = read("../src/windows/PdfViewer.jsx");
 const css = read("../src/App.css");
@@ -109,6 +110,28 @@ const documentCanvas = taskCanvas({
 const canvases = upsertCanvas(upsertCanvas([], estimate), documentCanvas);
 assert.deepEqual(canvases.map((canvas) => canvas.kind), ["estimate", "document"]);
 assert.equal(upsertCanvas(canvases, { ...documentCanvas, version: 2 }).length, 2);
+const readinessCanvas = taskCanvas({
+  id: "reply-readiness",
+  intent: "estimate",
+  title: "Смета на дом",
+  status: "incomplete",
+  text: "Денежный итог не рассчитан",
+  task: {
+    status: "incomplete",
+    result: {
+      type: "estimate_readiness",
+      readiness: {
+        title: "Исходные данные для сметы",
+        known_facts: { region: "Республика Татарстан" },
+      },
+    },
+  },
+  artifacts: [],
+  endpoint: "/v1/responses",
+});
+assert.equal(readinessCanvas.title, "Исходные данные для сметы");
+assert.equal(readinessCanvas.readiness.known_facts.region, "Республика Татарстан");
+assert.match(readinessCanvas.metadata.provenance, /заблокирован/);
 
 assert.match(publicShell, /const renderPrimary/);
 assert.match(publicShell, /renderPrimary=\{renderPrimary\}/);
@@ -131,6 +154,16 @@ assert.match(projectCanvas, /onClick=\{onDetach\}/);
 assert.match(pdfViewer, /\/v1\\\/public\\\/estimate-artifacts/);
 assert.match(pdfViewer, /<iframe/);
 assert.doesNotMatch(pdfViewer, /xlsx/i);
+assert.match(estimateWorkspace, /EstimateReadinessWorkspace/);
+assert.match(estimateWorkspace, /Денежный итог не рассчитан/);
+assert.match(estimateWorkspace, /readinessDraftSavedAt/);
+assert.match(estimateWorkspace, /Сохранить черновик/);
+assert.match(estimateWorkspace, /Предварительная смета/);
+assert.match(estimateWorkspace, /provenanceSummary/);
+assert.match(estimateWorkspace, /submitEstimateFeedback/);
+assert.match(estimateWorkspace, /FormulaLM/);
+assert.match(css, /\.estimate-verification-banner/);
+assert.match(css, /\.estimate-line-provenance/);
 
 assert.match(toolDock, /<MinimizedWindows/);
 assert.match(minimizedWindows, /<AnimatePresence/);

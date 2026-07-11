@@ -107,3 +107,18 @@ def test_zero_mark_uses_remote_hosts_default_route(monkeypatch):
 
     assert not any(call[0] == "setsockopt" for call in calls)
     assert ("connect", ("1.1.1.1", 443)) in calls
+
+
+def test_provider_egress_unit_is_loopback_only_and_explicitly_allowlists_telegram():
+    unit = (
+        ROOT / "ops" / "systemd" / "kolibri-provider-egress-proxy.service"
+    ).read_text(encoding="utf-8")
+    telegram_unit = (
+        ROOT / "ops" / "systemd" / "kolibri-telegram-gateway.service"
+    ).read_text(encoding="utf-8")
+
+    assert "--listen 127.0.0.1" in unit
+    assert "--port 18080" in unit
+    assert "--allow-suffix api.telegram.org" in unit
+    assert "--allow-suffix openai.com" in unit
+    assert "Environment=HTTPS_PROXY=http://127.0.0.1:18080" in telegram_unit

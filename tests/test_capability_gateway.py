@@ -105,13 +105,17 @@ def test_packaged_tools_distinguish_native_runner_probe_from_controlled_gateway(
     monkeypatch.setenv("KOLIBRI_CODEX_BIN", executable(tmp_path / "codex"))
     gateway = CapabilityGateway([], cache_ttl=60)
     tools = gateway.envelope(tools_only=True)
-    assert {item["id"] for item in tools["data"]} == {"tool:code_inspection", "tool:web_search"}
+    assert {item["id"] for item in tools["data"]} == {
+        "tool:code_inspection", "tool:project_knowledge", "tool:web_search",
+    }
     by_id = {item["id"]: item for item in tools["data"]}
     assert by_id["tool:code_inspection"]["status"] == "degraded"
     assert by_id["tool:web_search"]["status"] == "available"
+    assert by_id["tool:project_knowledge"]["status"] == "available"
     with pytest.raises(CapabilityRequestError, match="requested_tool_not_available"):
         gateway.validate_requested_tools([{"type": "code_inspection"}])
     assert gateway.validate_requested_tools([{"type": "web_search"}])[0]["id"] == "tool:web_search"
+    assert gateway.validate_requested_tools([{"type": "project_knowledge"}])[0]["id"] == "tool:project_knowledge"
 
 
 def test_packaged_native_tool_live_probe_promotes_only_verified_events(tmp_path, monkeypatch):

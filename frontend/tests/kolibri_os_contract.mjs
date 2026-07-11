@@ -34,6 +34,7 @@ const controlShellSource = readFileSync(new URL("../src/control/ControlShell.jsx
 const composerSource = readFileSync(new URL("../src/shell/Composer.jsx", import.meta.url), "utf8");
 const workbenchSource = readFileSync(new URL("../src/workbench/Workbench.jsx", import.meta.url), "utf8");
 const windowFrameSource = readFileSync(new URL("../src/workbench/WindowFrame.jsx", import.meta.url), "utf8");
+const stageLayoutSource = readFileSync(new URL("../src/workbench/useStageLayout.js", import.meta.url), "utf8");
 const mobileWindowSource = readFileSync(new URL("../src/workbench/MobileWindow.jsx", import.meta.url), "utf8");
 const taskResultSource = readFileSync(new URL("../src/windows/TaskResult.jsx", import.meta.url), "utf8");
 const windowContentSource = readFileSync(new URL("../src/windows/WindowContent.jsx", import.meta.url), "utf8");
@@ -78,7 +79,7 @@ assert.match(mainSource, /caches\.delete\(key\)/);
 assert.match(retiredServiceWorkerSource, /self\.registration\.unregister\(\)/);
 assert.match(retiredServiceWorkerSource, /self\.caches\.delete\(key\)/);
 assert.doesNotMatch(retiredServiceWorkerSource, /addEventListener\(["']fetch["']/);
-const responsesTransport = apiSource.match(/async function requestResponsesStream[\s\S]*?return consumeResponsesSse\(response\);\n}/)?.[0] || "";
+const responsesTransport = apiSource.match(/async function requestResponsesStream[\s\S]*?return consumeResponsesSse\(response, onWorkSummary\);\n}/)?.[0] || "";
 assert.ok(responsesTransport);
 assert.doesNotMatch(responsesTransport, /Authorization|Bearer/);
 assert.match(viteSource, /resolveApiProxy/);
@@ -102,6 +103,9 @@ assert.match(projectMessagingSource, /messages: \[\.\.\.current\.messages, userM
 assert.match(projectModelSource, /id: `workspace:\$\{project\.id\}`/);
 assert.match(workbenchSource, /className="primary-surface"/);
 assert.match(windowFrameSource, /export function WindowFrame/);
+assert.match(windowFrameSource, /if \(!frame\) return;/, "detached window gestures must fail closed");
+assert.match(stageLayoutSource, /const stage = ref\.current;/, "stage measurement must capture a stable element");
+assert.match(stageLayoutSource, /if \(!stage\.isConnected\) return;/, "queued ResizeObserver callbacks must ignore detached stages");
 assert.match(mobileWindowSource, /export function MobileWindow/);
 assert.match(cssSource, /\.stage-window|\.stage-canvas/);
 assert.match(taskResultSource, /Текстовый результат не получен/);

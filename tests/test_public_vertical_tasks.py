@@ -91,6 +91,17 @@ def _estimate_task(*, requested_artifacts=None):
             "title": "Ремонт кухни",
             "currency": "RUB",
             "minor_unit": 2,
+            "region": "Москва",
+            "normative_basis": {
+                "calculation_method": "resource",
+                "normative_basis_ref": "TEST-NORMATIVE-BASE-2026",
+                "normative_edition": "Тестовая редакция 2026-01-01",
+                "price_level_date": "2026-01-01",
+                "region": "Москва",
+                "index_document_refs": [],
+                "tax_scope_ref": "TEST-TAX-SCOPE-2026",
+                "contract_scope_ref": "TEST-CONTRACT-SCOPE-2026",
+            },
             "lines": [
                 {
                     "id": "labor-1",
@@ -99,7 +110,16 @@ def _estimate_task(*, requested_artifacts=None):
                     "unit": "м2",
                     "quantity": "2",
                     "unit_price_minor": 15_000,
-                    "provenance": {"source": "manual"},
+                    "provenance": {
+                        "source": "normative",
+                        "source_ref": "TEST-PRICE-SOURCE-LABOR",
+                        "captured_at": "2026-01-01",
+                        "applicable_region": "Москва",
+                        "price_level_date": "2026-01-01",
+                        "basis_ref": "TEST-BASIS-LABOR",
+                        "quantity_source": "project",
+                        "quantity_source_ref": "TEST-PROJECT-SHEET-LABOR",
+                    },
                 },
                 {
                     "id": "material-1",
@@ -108,7 +128,16 @@ def _estimate_task(*, requested_artifacts=None):
                     "unit": "шт",
                     "quantity": "3",
                     "unit_price_minor": 5_000,
-                    "provenance": {"source": "supplier", "source_ref": "quote-17"},
+                    "provenance": {
+                        "source": "supplier",
+                        "source_ref": "quote-17",
+                        "captured_at": "2026-01-01",
+                        "applicable_region": "Москва",
+                        "price_level_date": "2026-01-01",
+                        "basis_ref": "TEST-BASIS-MATERIAL",
+                        "quantity_source": "project",
+                        "quantity_source_ref": "TEST-PROJECT-SHEET-MATERIAL",
+                    },
                 },
             ],
             "overhead_rate_bps": 1_000,
@@ -346,7 +375,7 @@ def test_vertical_provider_failure_is_typed_and_fail_closed(monkeypatch):
     assert payload["task"]["execution"]["provider_verified"] is False
 
 
-def test_legacy_chat_reuses_truthful_deterministic_house_estimate_fallback(monkeypatch):
+def test_legacy_chat_reuses_truthful_non_monetary_house_readiness_gate(monkeypatch):
     class FailedManager:
         async def generate(self, **_kwargs):
             raise ProviderGatewayError({
@@ -374,13 +403,16 @@ def test_legacy_chat_reuses_truthful_deterministic_house_estimate_fallback(monke
     assert response.status_code == 200
     payload = response.json()
     assert payload["model"] == "kolibri"
-    assert "непроверенные допущения" in payload["response"]
+    assert "Денежный итог не рассчитан" in payload["response"]
     task = payload["task"]
     assert task["status"] == "incomplete"
     assert task["execution"]["provider_verified"] is False
     assert task["execution"]["engine_verified"] is True
     assert task["artifact_delivery"]["missing"] == ["pdf"]
-    assert task["result"]["calculation"]["llm_calculates_money"] is False
+    assert task["result"]["type"] == "estimate_readiness"
+    assert task["result"]["readiness"]["status"] == "needs_input"
+    assert task["result"]["readiness"]["monetary_status"] == "not_calculated"
+    assert "calculation" not in task["result"]
 
 
 def test_public_vertical_payload_rejects_raw_secrets(monkeypatch):

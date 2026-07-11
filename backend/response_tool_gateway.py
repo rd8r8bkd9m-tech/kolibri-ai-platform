@@ -5,6 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from project_knowledge_gateway import (
+    TOOL_ID as PROJECT_KNOWLEDGE_TOOL_ID,
+    ProjectKnowledgeAuthorization,
+    get_project_knowledge_gateway,
+)
 from web_search_gateway import (
     TOOL_ID as WEB_SEARCH_TOOL_ID,
     WebSearchAuthorization,
@@ -39,6 +44,21 @@ def _web_result_limit(raw_tools: list[dict[str, Any]]) -> int:
     return 5
 
 
+def _project_result_limit(raw_tools: list[dict[str, Any]]) -> int:
+    for item in raw_tools:
+        if not isinstance(item, dict):
+            continue
+        request_type = str(item.get("type") or item.get("name") or item.get("id") or "").lower()
+        if request_type not in {
+            "project_knowledge", "project_docs", "repository_context",
+            PROJECT_KNOWLEDGE_TOOL_ID,
+        }:
+            continue
+        value = item.get("max_results", 5)
+        return value if isinstance(value, int) and 1 <= value <= 8 else 5
+    return 5
+
+
 def execute_response_tools(
     *,
     input_value: str | list[dict[str, Any]],
@@ -53,32 +73,57 @@ def execute_response_tools(
     task_id: str | None = None,
 ) -> ResponseToolExecution:
     web_bindings = [item for item in requested_tools if item.get("id") == WEB_SEARCH_TOOL_ID]
-    provider_tools = [item for item in requested_tools if item.get("id") != WEB_SEARCH_TOOL_ID]
-    if not web_bindings:
+    project_bindings = [
+        item for item in requested_tools if item.get("id") == PROJECT_KNOWLEDGE_TOOL_ID
+    ]
+    gateway_tool_ids = {WEB_SEARCH_TOOL_ID, PROJECT_KNOWLEDGE_TOOL_ID}
+    provider_tools = [item for item in requested_tools if item.get("id") not in gateway_tool_ids]
+    if not web_bindings and not project_bindings:
         return ResponseToolExecution(provider_tools, instructions, [], [], [], [], [])
 
-    authorization = WebSearchAuthorization(
-        principal=principal,
-        response_id=response_id,
-        task_id=task_id,
-        session_id=session_id,
-        project_id=project_id,
-        workstream_id=workstream_id,
-        allowed_tool_ids=tuple(str(item.get("id") or "") for item in requested_tools),
+    allowed_tool_ids = tuple(str(item.get("id") or "") for item in requested_tools)
+    executions: list[dict[str, Any]] = []
+    if project_bindings:
+        executions.append(get_project_knowledge_gateway().execute(
+            input_value,
+            authorization=ProjectKnowledgeAuthorization(
+                principal=principal,
+                response_id=response_id,
+                task_id=task_id,
+                project_id=project_id,
+                workstream_id=workstream_id,
+                allowed_tool_ids=allowed_tool_ids,
+            ),
+            result_limit=_project_result_limit(raw_tools),
+        ))
+    if web_bindings:
+        executions.append(get_web_search_gateway().execute(
+            query_from_response_input(input_value),
+            authorization=WebSearchAuthorization(
+                principal=principal,
+                response_id=response_id,
+                task_id=task_id,
+                session_id=session_id,
+                project_id=project_id,
+                workstream_id=workstream_id,
+                allowed_tool_ids=allowed_tool_ids,
+            ),
+            result_limit=_web_result_limit(raw_tools),
+        ))
+    contexts = [str(execution["provider_context"]) for execution in executions]
+    combined_instructions = "\n\n".join(
+        part for part in (instructions, *contexts) if part
     )
-    execution = get_web_search_gateway().execute(
-        query_from_response_input(input_value),
-        authorization=authorization,
-        result_limit=_web_result_limit(raw_tools),
-    )
-    context = str(execution["provider_context"])
-    combined_instructions = "\n\n".join(part for part in (instructions, context) if part)
     return ResponseToolExecution(
         provider_tools=provider_tools,
         provider_instructions=combined_instructions,
-        tool_calls=[dict(execution["tool_call"])],
-        evidence=[dict(execution["evidence"])],
-        citations=[dict(item) for item in execution["citations"]],
-        attempts=[dict(item) for item in execution["attempts"]],
-        formulalm_taps=[dict(execution["formulalm_tap"])],
+        tool_calls=[dict(execution["tool_call"]) for execution in executions],
+        evidence=[dict(execution["evidence"]) for execution in executions],
+        citations=[
+            dict(item) for execution in executions for item in execution["citations"]
+        ],
+        attempts=[
+            dict(item) for execution in executions for item in execution["attempts"]
+        ],
+        formulalm_taps=[dict(execution["formulalm_tap"]) for execution in executions],
     )

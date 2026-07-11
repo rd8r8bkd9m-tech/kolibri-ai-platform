@@ -300,6 +300,52 @@ def test_factory_health_projection_ignores_unrelated_cancellation_and_prompt_fie
     ) == {}
 
 
+def test_factory_timeout_circuit_half_opens_after_short_backpressure_window():
+    now = datetime.now(timezone.utc)
+    payload = {"runner": "codex", "records": [factory_health_record(
+        "mac-provider",
+        observed_at=now - timedelta(seconds=6),
+        duration_seconds=45,
+        status="open",
+        reason="provider_timeout",
+    )]}
+
+    assert _factory_health_response_records(
+        payload,
+        "codex",
+        now=now.timestamp(),
+        cooldown_seconds=300,
+        transient_timeout_cooldown_seconds=5,
+    ) == {}
+
+
+def test_factory_nontransient_circuit_keeps_normal_cooldown():
+    now = datetime.now(timezone.utc)
+    payload = {"runner": "codex", "records": [factory_health_record(
+        "mac-provider",
+        observed_at=now - timedelta(seconds=6),
+        duration_seconds=1,
+        status="open",
+        reason="provider_auth_failed",
+    )]}
+
+    records = _factory_health_response_records(
+        payload,
+        "codex",
+        now=now.timestamp(),
+        cooldown_seconds=300,
+        transient_timeout_cooldown_seconds=5,
+    )
+    assert records["mac-provider"]["status"] == "open"
+    assert records["mac-provider"]["reason"] == "provider_auth_failed"
+
+
+def test_factory_default_deadline_scales_for_codex_schema_tasks():
+    assert ProviderGateway._factory_default_task_timeout("short", "codex") == 90
+    assert ProviderGateway._factory_default_task_timeout("x" * 8_193, "codex") == 180
+    assert ProviderGateway._factory_default_task_timeout("short", "mimo") == 75
+
+
 def test_gateway_falls_back_and_requires_verified_nonempty_output(tmp_path, monkeypatch):
     mimo = executable(tmp_path / "mimo", "echo provider-failed >&2\nexit 2\n")
     answer = json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": "4"}})
@@ -824,6 +870,52 @@ def test_factory_health_routes_around_recent_timeout_before_heartbeat_age(
     assert result.status == "completed"
     assert [task["target_node"] for task in state["submitted"]] == ["recently-proven"]
     assert result.technical["selected_runner"] == "mimo"
+
+
+def test_factory_single_codex_actor_recovers_after_transient_timeout_cooldown(
+    tmp_path, monkeypatch,
+):
+    now = datetime.now(timezone.utc)
+    actor = fresh_factory_node("sole-codex-actor")
+    state = {
+        "nodes": [actor],
+        "provider_health": {"codex": [
+            factory_health_record(
+                "sole-codex-actor",
+                observed_at=now - timedelta(seconds=6),
+                duration_seconds=45,
+                status="open",
+                reason="provider_timeout",
+            ),
+        ]},
+        "answer": "recovered codex answer",
+    }
+    server, thread = factory_control_server(state)
+    configure_local_home_control(
+        monkeypatch, tmp_path, f"http://127.0.0.1:{server.server_port}",
+    )
+    monkeypatch.setenv("KOLIBRI_FACTORY_TIMEOUT_COOLDOWN", "5")
+    monkeypatch.setenv("KOLIBRI_FACTORY_POLL_INTERVAL", "0.01")
+    monkeypatch.setenv("KOLIBRI_PROVIDER_WORK_DIR", str(tmp_path / "work"))
+    try:
+        result = ProviderGateway(
+            provider_order=("factory",),
+            model_overrides={"factory": ("codex",)},
+            timeout=2,
+        ).generate(
+            "retry after a request-specific timeout",
+            None,
+            "resp-timeout-recovery",
+            execution_mode="codex",
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert result.status == "completed"
+    assert result.text == "recovered codex answer"
+    assert [task["target_node"] for task in state["submitted"]] == ["sole-codex-actor"]
 
 
 def test_factory_codex_discovers_dynamic_audit_actor_with_strict_contract(

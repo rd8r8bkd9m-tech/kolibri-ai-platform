@@ -46,6 +46,7 @@ case "$AGENT_HEARTBEAT_INTERVAL" in
 esac
 for required in \
   "$SOURCE_ROOT/ops/agent_host.py" \
+  "$SOURCE_ROOT/ops/mimo/kolibri-response-only.md" \
   "$SOURCE_ROOT/ops/control_plane_endpoint.py" \
   "$SOURCE_ROOT/ops/runner_access.py" \
   "$SOURCE_ROOT/ops/runner-access.default.json" \
@@ -119,6 +120,7 @@ ssh -o ConnectTimeout=8 -o BatchMode=yes "$BOOTSTRAP_HOST" "
 # Step 4: Install mesh runtime and the exact Agent Host/resolver source pair.
 echo "[4/8] Installing mesh and Agent Host runtime..."
 $SCP_CMD "$SOURCE_ROOT/ops/agent_host.py" "$SSH_USER@$SERVER_IP:/tmp/kolibri-agent-host"
+$SCP_CMD "$SOURCE_ROOT/ops/mimo/kolibri-response-only.md" "$SSH_USER@$SERVER_IP:/tmp/kolibri-response-only.md"
 $SCP_CMD "$SOURCE_ROOT/ops/control_plane_endpoint.py" "$SSH_USER@$SERVER_IP:/tmp/control_plane_endpoint.py"
 $SCP_CMD "$SOURCE_ROOT/ops/runner_access.py" "$SSH_USER@$SERVER_IP:/tmp/runner_access.py"
 $SCP_CMD "$SOURCE_ROOT/ops/runner-access.default.json" "$SSH_USER@$SERVER_IP:/tmp/runner-access.json"
@@ -166,7 +168,7 @@ trap 'rm -f "$RUNTIME_ENV"' EXIT
   fi
 } >"$RUNTIME_ENV"
 $SCP_CMD "$RUNTIME_ENV" "$SSH_USER@$SERVER_IP:/tmp/kolibri-agent-host.env"
-$SSH_CMD "getent group kolibri-agent >/dev/null || groupadd --system kolibri-agent; id -u kolibri-agent >/dev/null 2>&1 || useradd --system --gid kolibri-agent --home-dir /var/lib/kolibri-agent --shell /usr/sbin/nologin kolibri-agent; install -d -m755 /usr/local/lib/kolibri /opt/kolibri-ai /opt/kolibri-ai/releases /etc/kolibri /var/lib/kolibri-release; install -d -m700 /var/lib/kolibri-release/artifacts; install -d -o kolibri-agent -g kolibri-agent -m700 /var/lib/kolibri-agent /var/lib/kolibri-agent/worktrees /var/lib/kolibri-agent/artifacts; install -m755 /tmp/kolibri-agent-host /usr/local/bin/kolibri-agent-host; install -m644 /tmp/control_plane_endpoint.py /usr/local/lib/kolibri/control_plane_endpoint.py; install -m644 /tmp/runner_access.py /usr/local/lib/kolibri/runner_access.py; install -m644 /tmp/runner-access.json /etc/kolibri/runner-access.json; install -m644 /tmp/release_authority.py /usr/local/lib/kolibri/release_authority.py; install -m644 /tmp/release_helper.py /usr/local/lib/kolibri/release_helper.py; install -m644 /tmp/release_installer.py /usr/local/lib/kolibri/release_installer.py; install -m644 /tmp/kolibri-agent-host.service /etc/systemd/system/kolibri-agent-host.service; install -m644 /tmp/kolibri-release-helper.service /etc/systemd/system/kolibri-release-helper.service; install -m644 /tmp/kolibri-release-helper.socket /etc/systemd/system/kolibri-release-helper.socket; install -m640 -o root -g kolibri-agent /tmp/kolibri-agent-host.env /etc/kolibri-agent-host.env; PYTHONPATH=/usr/local/lib/kolibri /usr/bin/python3 /usr/local/lib/kolibri/runner_access.py --manifest /etc/kolibri/runner-access.json >/dev/null; systemctl daemon-reload; systemctl enable --now kolibri-release-helper.socket"
+$SSH_CMD "getent group kolibri-agent >/dev/null || groupadd --system kolibri-agent; id -u kolibri-agent >/dev/null 2>&1 || useradd --system --gid kolibri-agent --home-dir /var/lib/kolibri-agent --shell /usr/sbin/nologin kolibri-agent; install -d -m755 /usr/local/lib/kolibri /usr/local/lib/kolibri/mimo /opt/kolibri-ai /opt/kolibri-ai/releases /etc/kolibri /var/lib/kolibri-release; install -d -m700 /var/lib/kolibri-release/artifacts; install -d -o kolibri-agent -g kolibri-agent -m700 /var/lib/kolibri-agent /var/lib/kolibri-agent/worktrees /var/lib/kolibri-agent/artifacts; install -m755 /tmp/kolibri-agent-host /usr/local/bin/kolibri-agent-host; install -m644 /tmp/kolibri-response-only.md /usr/local/lib/kolibri/mimo/kolibri-response-only.md; install -m644 /tmp/control_plane_endpoint.py /usr/local/lib/kolibri/control_plane_endpoint.py; install -m644 /tmp/runner_access.py /usr/local/lib/kolibri/runner_access.py; install -m644 /tmp/runner-access.json /etc/kolibri/runner-access.json; install -m644 /tmp/release_authority.py /usr/local/lib/kolibri/release_authority.py; install -m644 /tmp/release_helper.py /usr/local/lib/kolibri/release_helper.py; install -m644 /tmp/release_installer.py /usr/local/lib/kolibri/release_installer.py; install -m644 /tmp/kolibri-agent-host.service /etc/systemd/system/kolibri-agent-host.service; install -m644 /tmp/kolibri-release-helper.service /etc/systemd/system/kolibri-release-helper.service; install -m644 /tmp/kolibri-release-helper.socket /etc/systemd/system/kolibri-release-helper.socket; install -m640 -o root -g kolibri-agent /tmp/kolibri-agent-host.env /etc/kolibri-agent-host.env; PYTHONPATH=/usr/local/lib/kolibri /usr/bin/python3 /usr/local/lib/kolibri/runner_access.py --manifest /etc/kolibri/runner-access.json >/dev/null; systemctl daemon-reload; systemctl enable --now kolibri-release-helper.socket"
 
 # Step 6: Fail closed until the replicated manifest names exactly one Home.
 echo "[6/8] Resolving canonical Home Control Plane..."

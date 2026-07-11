@@ -26,9 +26,10 @@ this prerequisite is available.
 - Required parent directories must be root-owned and non-writable by group or
   world. The sole exception is the standard `/run/lock` boundary, accepted
   only with the exact root-owned sticky mode `01777`.
-- The backend systemd drop-in is deliberately outside this bootstrap. It must
-  be installed only by a separate signed release after backend health and
-  rollback gates are approved.
+- The existing backend systemd drop-in remains outside this bootstrap. The
+  fixed Factory Control drop-in is installed here because it contains no
+  release bytes or credentials: it delegates selection to the fail-closed
+  immutable Home launcher and does not restart Factory Control.
 
 ## What `--apply` installs
 
@@ -40,15 +41,18 @@ Only these authority prerequisites are managed:
   root-owned mode `0600`;
 - `/etc/kolibri/release-policy.json` from
   `ops/release-policy.home.json`;
-- current `release_authority.py`, `release_helper.py`, and
-  `release_installer.py` under `/usr/local/lib/kolibri`;
+- current release authority/helper/installer, Home resolver, membership
+  reader, Control Plane canary and immutable launcher under
+  `/usr/local/lib/kolibri`;
 - current `kolibri-release-helper.service` and `.socket` units;
+- `/etc/systemd/system/kolibri-factory-control.service.d/10-immutable-release.conf`;
 - root-only `/var/lib/kolibri-release/artifacts` mode `0700`;
 - trusted root ownership and non-writable modes for `/opt/kolibri-ai`, its
   `releases` directory, and the current release directory when one exists.
 
 The program does not touch provider credentials, environment files, Telegram,
-DNS, firewall rules, backend drop-ins, or private signing keys.
+DNS, firewall rules, backend drop-ins, provider state, or private signing keys.
+It daemon-reloads systemd but does not restart Factory Control.
 
 ## Dry-run
 
@@ -131,6 +135,7 @@ status=applied
 prerequisite_status.status=available
 target_node=home
 backend_release_dropin=not_installed_by_this_bootstrap
+immutable_runtime_dropins includes kolibri-factory-control.service.d/10-immutable-release.conf
 ```
 
 Then verify separately, without exposing environment values:

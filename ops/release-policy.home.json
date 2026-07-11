@@ -1,10 +1,27 @@
 {
   "schema_version": "kolibri.release-policy.v1",
   "services": [
+    "kolibri-factory-control.service",
     "kolibri-backend.service"
   ],
   "default_services": [
+    "kolibri-factory-control.service",
     "kolibri-backend.service"
+  ],
+  "required_payload_paths": [
+    "RELEASE_ID",
+    "backend/main.py",
+    "frontend/dist/index.html",
+    "ops/agent_host.py",
+    "ops/control_plane_endpoint.py",
+    "ops/factory_control.py",
+    "ops/fleet_membership.py",
+    "ops/mimo/kolibri-response-only.md",
+    "ops/release_authority.py",
+    "ops/release_helper.py",
+    "ops/release_installer.py",
+    "ops/runner_access.py",
+    "ops/telegram_superfactory.py"
   ],
   "pre_health": [
     {
@@ -19,6 +36,38 @@
         "http://127.0.0.1:8001/api/health"
       ],
       "timeout_seconds": 10
+    },
+    {
+      "name": "control-plane-baseline",
+      "argv": [
+        "/usr/bin/python3",
+        "/usr/local/lib/kolibri/home_control_plane_canary.py",
+        "live",
+        "--manifest",
+        "/var/lib/kolibri-mesh/peers.json",
+        "--url",
+        "http://127.0.0.1:9101"
+      ],
+      "timeout_seconds": 20
+    }
+  ],
+  "pre_activate": [
+    {
+      "name": "control-plane-side-by-side",
+      "argv": [
+        "/usr/bin/python3",
+        "/usr/local/lib/kolibri/home_control_plane_canary.py",
+        "candidate",
+        "--release-dir",
+        "{release_dir}",
+        "--manifest",
+        "/var/lib/kolibri-mesh/peers.json",
+        "--live-url",
+        "http://127.0.0.1:9101",
+        "--release-kind",
+        "{release_kind}"
+      ],
+      "timeout_seconds": 45
     }
   ],
   "post_health": [
@@ -34,6 +83,23 @@
         "http://127.0.0.1:8001/api/health"
       ],
       "timeout_seconds": 10
+    },
+    {
+      "name": "control-plane-activated",
+      "argv": [
+        "/usr/bin/python3",
+        "/usr/local/lib/kolibri/home_control_plane_canary.py",
+        "live",
+        "--manifest",
+        "/var/lib/kolibri-mesh/peers.json",
+        "--url",
+        "http://127.0.0.1:9101",
+        "--expected-release-dir",
+        "{release_dir}",
+        "--release-kind",
+        "{release_kind}"
+      ],
+      "timeout_seconds": 30
     }
   ],
   "service_timeout_seconds": 30

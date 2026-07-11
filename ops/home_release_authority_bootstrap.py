@@ -72,6 +72,10 @@ MAX_PUBLIC_KEY_BYTES = 32 * 1024
 MAX_SOURCE_BYTES = 4 * 1024 * 1024
 
 REQUIRED_SOURCES = {
+    "ops/control_plane_endpoint.py": "/usr/local/lib/kolibri/control_plane_endpoint.py",
+    "ops/fleet_membership.py": "/usr/local/lib/kolibri/fleet_membership.py",
+    "ops/home_control_plane_canary.py": "/usr/local/lib/kolibri/home_control_plane_canary.py",
+    "ops/home_control_plane_launcher.py": "/usr/local/lib/kolibri/home_control_plane_launcher.py",
     "ops/release_authority.py": "/usr/local/lib/kolibri/release_authority.py",
     "ops/release_helper.py": "/usr/local/lib/kolibri/release_helper.py",
     "ops/release_installer.py": "/usr/local/lib/kolibri/release_installer.py",
@@ -81,6 +85,9 @@ REQUIRED_SOURCES = {
     ),
     "ops/systemd/kolibri-release-helper.socket": (
         "/etc/systemd/system/kolibri-release-helper.socket"
+    ),
+    "ops/systemd/kolibri-factory-control-immutable-release.conf": (
+        "/etc/systemd/system/kolibri-factory-control.service.d/10-immutable-release.conf"
     ),
 }
 
@@ -92,6 +99,7 @@ TRUST_DESTINATIONS = (
 MANAGED_DIRECTORIES = {
     "/usr/local/lib/kolibri": 0o755,
     "/etc/kolibri": 0o755,
+    "/etc/systemd/system/kolibri-factory-control.service.d": 0o755,
     "/var/lib/kolibri-release": 0o700,
     "/var/lib/kolibri-release/artifacts": 0o700,
     "/opt/kolibri-ai": 0o755,
@@ -613,6 +621,10 @@ class HomeReleaseAuthorityBootstrap:
                 code="release_authority_source_invalid",
             )
         for relative in (
+            "ops/control_plane_endpoint.py",
+            "ops/fleet_membership.py",
+            "ops/home_control_plane_canary.py",
+            "ops/home_control_plane_launcher.py",
             "ops/release_authority.py",
             "ops/release_helper.py",
             "ops/release_installer.py",
@@ -625,7 +637,10 @@ class HomeReleaseAuthorityBootstrap:
             policy = load_release_policy(self.source_root / "ops/release-policy.home.json")
         except Exception as exc:
             raise BootstrapError("release_authority_policy_invalid") from exc
-        if policy.services != frozenset({"kolibri-backend.service"}):
+        if policy.services != frozenset({
+            "kolibri-backend.service",
+            "kolibri-factory-control.service",
+        }):
             raise BootstrapError("release_authority_policy_invalid")
 
         try:
@@ -635,6 +650,9 @@ class HomeReleaseAuthorityBootstrap:
             socket_unit = payloads["ops/systemd/kolibri-release-helper.socket"].decode(
                 "utf-8", errors="strict"
             )
+            control_plane_dropin = payloads[
+                "ops/systemd/kolibri-factory-control-immutable-release.conf"
+            ].decode("utf-8", errors="strict")
         except UnicodeError as exc:
             raise BootstrapError("release_authority_unit_invalid") from exc
         required_service_fragments = (
@@ -651,11 +669,21 @@ class HomeReleaseAuthorityBootstrap:
             "SocketMode=0660",
             "DirectoryMode=0755",
         )
+        required_control_plane_fragments = (
+            "ExecStartPre=/usr/bin/python3 /usr/local/lib/kolibri/control_plane_endpoint.py --assert-local-home",
+            "ExecStart=/usr/bin/python3 /usr/local/lib/kolibri/home_control_plane_launcher.py",
+        )
         if any(fragment not in service for fragment in required_service_fragments):
             raise BootstrapError("release_authority_unit_invalid")
         if any(fragment not in socket_unit for fragment in required_socket_fragments):
             raise BootstrapError("release_authority_unit_invalid")
-        if "EnvironmentFile=" in service or "EnvironmentFile=" in socket_unit:
+        if any(fragment not in control_plane_dropin for fragment in required_control_plane_fragments):
+            raise BootstrapError("release_authority_unit_invalid")
+        if (
+            "EnvironmentFile=" in service
+            or "EnvironmentFile=" in socket_unit
+            or "EnvironmentFile=" in control_plane_dropin
+        ):
             raise BootstrapError("release_authority_unit_invalid")
         self.source_payloads = payloads
 
@@ -755,6 +783,10 @@ class HomeReleaseAuthorityBootstrap:
             "managed_paths": sorted(
                 [*REQUIRED_SOURCES.values(), *TRUST_DESTINATIONS, *MANAGED_DIRECTORIES]
             ),
+            "immutable_runtime_dropins": [
+                "kolibri-backend.service.d/10-release.conf (separate existing bootstrap)",
+                "kolibri-factory-control.service.d/10-immutable-release.conf",
+            ],
             "backend_release_dropin": "not_installed_by_this_bootstrap",
         }
 

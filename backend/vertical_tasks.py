@@ -20,8 +20,10 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import Annotated, Any, Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -34,8 +36,10 @@ from artifact_runtime import (
 
 
 VERTICAL_TASK_SCHEMA = "kolibri.public-task.v1"
-ESTIMATE_FALLBACK_ENGINE = "kolibri.estimate-assumption-engine.v1"
-ESTIMATE_FALLBACK_PROOF_SCHEMA = "kolibri.estimate-engine-proof.v1"
+ESTIMATE_FALLBACK_ENGINE = "kolibri.estimate-readiness-gate.v1"
+ESTIMATE_FALLBACK_PROOF_SCHEMA = "kolibri.estimate-readiness-proof.v1"
+ESTIMATE_READINESS_SCHEMA = "kolibri.estimate-readiness.v1"
+ESTIMATE_READINESS_EDITOR_SCHEMA = "kolibri.estimate-input-editor.v1"
 MAX_PROVIDER_ESTIMATE_LINES = 32
 MAX_PROVIDER_ESTIMATE_RESPONSE_BYTES = 24_576
 _SHA256 = re.compile(r"^[a-f0-9]{64}$")
@@ -49,6 +53,228 @@ def _validate_public_structure(value: dict[str, Any], *, label: str) -> dict[str
     validate_structured_value(value, label=label)
     reject_secret_material(value, label=label)
     return value
+
+
+def _validated_provider_source_url(value: str) -> str:
+    parsed = urlsplit(value)
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
+        raise ValueError("provider source URL must be a credential-free HTTP(S) URL")
+    return value
+
+
+def _validated_price_level(value: str) -> str:
+    if re.fullmatch(r"\d{4}-Q[1-4]", value):
+        return value
+    try:
+        date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError("provider price-level date must be a real ISO date or quarter") from exc
+    return value
+
+
+class ProviderEstimatePriceProvenance(_StrictTask):
+    """Provider assertion about a unit price; never an independent verification."""
+
+    source: Literal["normative", "catalog", "contract", "supplier"]
+    source_ref: str = Field(min_length=1, max_length=500)
+    source_url: str = Field(
+        min_length=8,
+        max_length=2_048,
+        pattern=r"^https?://[^\s]+$",
+    )
+    captured_at: str = Field(
+        min_length=10,
+        max_length=10,
+        pattern=r"^\d{4}-\d{2}-\d{2}$",
+    )
+    price_level_date: str = Field(
+        min_length=7,
+        max_length=20,
+        pattern=r"^(?:\d{4}-\d{2}-\d{2}|\d{4}-Q[1-4])$",
+    )
+    applicable_region: str = Field(min_length=1, max_length=300)
+    basis_ref: str = Field(min_length=1, max_length=500)
+    assumptions: list[str] = Field(default_factory=list, max_length=20)
+
+    @field_validator("assumptions")
+    @classmethod
+    def validate_assumptions(cls, values: list[str]) -> list[str]:
+        if any(not value.strip() or len(value) > 1_000 for value in values):
+            raise ValueError("provider price assumptions must contain 1 to 1000 characters")
+        return values
+
+    @field_validator("source_url")
+    @classmethod
+    def validate_source_url(cls, value: str) -> str:
+        return _validated_provider_source_url(value)
+
+    @field_validator("captured_at")
+    @classmethod
+    def validate_capture_date(cls, value: str) -> str:
+        try:
+            date.fromisoformat(value)
+        except ValueError as exc:
+            raise ValueError("provider capture date must be a real ISO date") from exc
+        return value
+
+    @field_validator("price_level_date")
+    @classmethod
+    def validate_price_level(cls, value: str) -> str:
+        return _validated_price_level(value)
+
+
+class ProviderEstimateQuantityProvenance(_StrictTask):
+    source: Literal["project", "measurement", "manual"]
+    source_ref: str = Field(min_length=1, max_length=500)
+    source_url: str | None = Field(
+        default=None,
+        min_length=8,
+        max_length=2_048,
+        pattern=r"^https?://[^\s]+$",
+    )
+    assumptions: list[str] = Field(default_factory=list, max_length=20)
+
+    @field_validator("assumptions")
+    @classmethod
+    def validate_assumptions(cls, values: list[str]) -> list[str]:
+        if any(not value.strip() or len(value) > 1_000 for value in values):
+            raise ValueError("provider quantity assumptions must contain 1 to 1000 characters")
+        return values
+
+    @field_validator("source_url")
+    @classmethod
+    def validate_source_url(cls, value: str | None) -> str | None:
+        return _validated_provider_source_url(value) if value is not None else None
+
+
+class ProviderEstimateLine(_StrictTask):
+    id: str = Field(min_length=2, max_length=200, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{1,199}$")
+    description: str = Field(min_length=1, max_length=1_000)
+    category: Literal["labor", "material", "equipment", "service", "other"]
+    unit: str = Field(min_length=1, max_length=40)
+    quantity: Decimal = Field(gt=0, max_digits=18, decimal_places=6)
+    unit_price_minor: int = Field(ge=0, le=10**15)
+    price_provenance: ProviderEstimatePriceProvenance
+    quantity_provenance: ProviderEstimateQuantityProvenance
+    assumptions: list[str] = Field(default_factory=list, max_length=20)
+    # Accepted only to prove that provider arithmetic is ignored.  Neither
+    # value enters EstimateSpec or the deterministic calculation.
+    line_total_minor: int | None = Field(default=None, ge=0, le=10**18)
+    total_minor: int | None = Field(default=None, ge=0, le=10**18)
+
+    @field_validator("assumptions")
+    @classmethod
+    def validate_assumptions(cls, values: list[str]) -> list[str]:
+        if any(not value.strip() or len(value) > 1_000 for value in values):
+            raise ValueError("provider line assumptions must contain 1 to 1000 characters")
+        return values
+
+
+class ProviderEstimateSection(_StrictTask):
+    id: str = Field(min_length=2, max_length=200, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{1,199}$")
+    name: str = Field(min_length=1, max_length=200)
+    lines: list[ProviderEstimateLine] = Field(min_length=1, max_length=MAX_PROVIDER_ESTIMATE_LINES)
+
+
+class ProviderEstimateBasis(_StrictTask):
+    calculation_method: Literal[
+        "resource-index", "resource", "base-index", "contract", "commercial",
+    ]
+    normative_basis_ref: str = Field(min_length=1, max_length=1_000)
+    normative_edition: str = Field(min_length=1, max_length=300)
+    price_level_date: str = Field(
+        min_length=7,
+        max_length=20,
+        pattern=r"^(?:\d{4}-\d{2}-\d{2}|\d{4}-Q[1-4])$",
+    )
+    region: str = Field(min_length=1, max_length=300)
+    index_document_refs: list[str] = Field(default_factory=list, max_length=20)
+    tax_scope_ref: str = Field(min_length=1, max_length=1_000)
+    contract_scope_ref: str = Field(min_length=1, max_length=1_000)
+    source_urls: list[str] = Field(min_length=1, max_length=20)
+    input_document_refs: list[str] = Field(min_length=1, max_length=100)
+
+    @model_validator(mode="after")
+    def validate_references(self) -> "ProviderEstimateBasis":
+        if any(not value.strip() or len(value) > 1_000 for value in self.index_document_refs):
+            raise ValueError("provider index refs must contain 1 to 1000 characters")
+        if any(not re.fullmatch(r"https?://[^\s]+", value) or len(value) > 2_048 for value in self.source_urls):
+            raise ValueError("provider basis source URLs must be bounded HTTP(S) URLs")
+        if any(not value.strip() or len(value) > 1_000 for value in self.input_document_refs):
+            raise ValueError("provider input refs must contain 1 to 1000 characters")
+        if self.calculation_method in {"resource-index", "base-index"} and not self.index_document_refs:
+            raise ValueError("indexed provider estimate requires index document refs")
+        return self
+
+    @field_validator("price_level_date")
+    @classmethod
+    def validate_price_level(cls, value: str) -> str:
+        return _validated_price_level(value)
+
+    @field_validator("source_urls")
+    @classmethod
+    def validate_source_urls(cls, values: list[str]) -> list[str]:
+        return [_validated_provider_source_url(value) for value in values]
+
+
+class ProviderReportedTotals(_StrictTask):
+    categories_minor: dict[str, int] = Field(default_factory=dict, max_length=20)
+    subtotal_minor: int | None = Field(default=None, ge=0, le=10**18)
+    overhead_minor: int | None = Field(default=None, ge=0, le=10**18)
+    tax_minor: int | None = Field(default=None, ge=0, le=10**18)
+    grand_total_minor: int | None = Field(default=None, ge=0, le=10**18)
+
+
+class ProviderEstimateDraft(_StrictTask):
+    """Strict, source-bearing draft returned by an external provider/API."""
+
+    schema_version: Literal["kolibri.estimate-provider-draft.v1"]
+    title: str = Field(min_length=1, max_length=500)
+    currency: str = Field(pattern=r"^[A-Z]{3}$")
+    minor_unit: Literal[0, 2, 3] = 2
+    region: str = Field(min_length=1, max_length=300)
+    client_name: str | None = Field(default=None, max_length=300)
+    object_name: str | None = Field(default=None, max_length=500)
+    object_address: str | None = Field(default=None, max_length=1_000)
+    source_summary: str = Field(min_length=1, max_length=2_000)
+    normative_basis: ProviderEstimateBasis
+    sections: list[ProviderEstimateSection] = Field(min_length=1, max_length=32)
+    assumptions: list[str] = Field(default_factory=list, max_length=12)
+    questions: list[str] = Field(default_factory=list, max_length=12)
+    overhead_rate_bps: int = Field(default=0, ge=0, le=10_000)
+    tax_rate_bps: int = Field(default=0, ge=0, le=10_000)
+    reported_totals: ProviderReportedTotals | None = None
+    totals: ProviderReportedTotals | None = None
+    grand_total_minor: int | None = Field(default=None, ge=0, le=10**18)
+
+    @model_validator(mode="after")
+    def validate_draft(self) -> "ProviderEstimateDraft":
+        section_ids = [section.id for section in self.sections]
+        if len(section_ids) != len(set(section_ids)):
+            raise ValueError("provider estimate section ids must be unique")
+        lines = [line for section in self.sections for line in section.lines]
+        if len(lines) > MAX_PROVIDER_ESTIMATE_LINES:
+            raise ValueError(
+                f"estimate proposal exceeds {MAX_PROVIDER_ESTIMATE_LINES} consolidated lines"
+            )
+        line_ids = [line.id for line in lines]
+        if len(line_ids) != len(set(line_ids)):
+            raise ValueError("provider estimate line ids must be unique")
+        for label, values in (("assumption", self.assumptions), ("question", self.questions)):
+            if any(not value.strip() or len(value) > 2_000 for value in values):
+                raise ValueError(f"provider estimate {label} must contain 1 to 2000 characters")
+        return self
+
+
+def provider_estimate_draft_json_schema() -> dict[str, Any]:
+    """Machine-readable provider contract embedded in the gateway prompt."""
+
+    return ProviderEstimateDraft.model_json_schema(mode="validation")
 
 
 class EstimateVerticalTask(_StrictTask):
@@ -143,34 +369,29 @@ def prepare_vertical_task(task: VerticalTask) -> tuple[str, dict[str, Any] | Non
             task_payload["authoritative_calculation"] = calculation
         else:
             task_payload["proposal_contract"] = {
-                "schema_version": "kolibri.estimate-proposal.v1",
-                "required_fields": [
-                    "title", "currency", "minor_unit", "region", "source_summary",
-                    "lines", "overhead_rate_bps", "tax_rate_bps", "assumptions", "questions",
-                ],
-                "line_fields": [
-                    "id", "section", "description", "category", "unit", "quantity",
-                    "unit_price_minor", "provenance",
-                ],
-                "provenance_sources": [
-                    "manual", "assumption", "catalog", "contract", "supplier", "measurement",
-                ],
+                "schema_version": "kolibri.estimate-provider-draft.v1",
+                "strict_json_schema": provider_estimate_draft_json_schema(),
                 "money_rule": (
                     "Propose quantities and unit_price_minor only. Do not return row totals or totals. "
-                    "Kolibri calculates every monetary value deterministically after validation."
+                    "Any reported line/section/grand totals are ignored. Kolibri recalculates every "
+                    "monetary value deterministically after schema and provenance validation."
                 ),
                 "minor_unit_rule": (
                     "minor_unit is the count of decimal currency digits: use 2 for RUB, "
                     "never the multiplier 100. unit_price_minor for RUB is expressed in kopecks."
                 ),
                 "source_rule": (
-                    "Use catalog/contract/supplier/measurement only with an explicit source_ref. "
-                    "Otherwise use assumption and say that the price requires verification."
+                    "Every line requires separate price_provenance and quantity_provenance. "
+                    "Price provenance requires source_ref, HTTP(S) source_url, capture date, "
+                    "price-level date/quarter, applicable region, basis_ref and assumptions. "
+                    "Quantity provenance requires project/measurement/manual source_ref and "
+                    "explicit assumptions. An unsourced draft is invalid and receives no money."
                 ),
                 "output_rule": "Return one JSON object only, without Markdown fences or commentary.",
                 "scope_rule": (
-                    "Return at most 32 consolidated lines. Group work and material by construction "
-                    "phase; do not expand a bill of materials, repeat narrative, or add commentary. "
+                    "Return sections with at most 32 consolidated lines in total. Group work and "
+                    "material by construction phase; do not expand a bill of materials, repeat "
+                    "narrative, or add commentary. "
                     "Use at most 12 assumptions and 12 questions. Keep the complete JSON response "
                     "under 24576 UTF-8 bytes."
                 ),
@@ -192,7 +413,7 @@ def prepare_vertical_task(task: VerticalTask) -> tuple[str, dict[str, Any] | Non
 
 
 _PROVENANCE_SOURCES = {
-    "manual", "assumption", "catalog", "contract", "supplier", "measurement",
+    "manual", "assumption", "normative", "catalog", "contract", "supplier", "measurement",
 }
 _JSON_FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.IGNORECASE | re.DOTALL)
 _MAX_EMBEDDED_JSON_STARTS = 128
@@ -213,6 +434,62 @@ _CATEGORY_ALIASES = {
     "услуга": "service",
     "услуги": "service",
 }
+
+_UNIT_ALIASES = {
+    "м2": "м²",
+    "м^2": "м²",
+    "м²": "м²",
+    "кв.м": "м²",
+    "кв. м": "м²",
+    "sqm": "м²",
+    "m2": "м²",
+    "m²": "м²",
+    "м3": "м³",
+    "м^3": "м³",
+    "м³": "м³",
+    "куб.м": "м³",
+    "куб. м": "м³",
+    "m3": "м³",
+    "m³": "м³",
+    "м": "м",
+    "пог.м": "пог. м",
+    "пог. м": "пог. м",
+    "м.п.": "пог. м",
+    "lm": "пог. м",
+    "шт": "шт.",
+    "шт.": "шт.",
+    "pcs": "шт.",
+    "pc": "шт.",
+    "компл": "компл.",
+    "компл.": "компл.",
+    "комплект": "компл.",
+    "set": "компл.",
+    "кг": "кг",
+    "т": "т",
+    "л": "л",
+    "ч": "ч",
+    "час": "ч",
+    "день": "дн.",
+    "дн": "дн.",
+    "дн.": "дн.",
+    "смена": "смена",
+    "рейс": "рейс",
+    "маш.-ч": "маш.-ч",
+    "маш.ч": "маш.-ч",
+}
+
+
+def normalize_estimate_unit(value: str) -> str:
+    """Normalize common construction units without inventing conversions."""
+
+    text = re.sub(r"\s+", " ", str(value or "").strip())
+    if not text or len(text) > 40 or any(ord(char) < 32 for char in text):
+        raise ValueError("estimate unit is invalid")
+    key = text.casefold().replace("ё", "е")
+    normalized = _UNIT_ALIASES.get(key, text)
+    if not re.fullmatch(r"[A-Za-zА-Яа-я0-9²³.%/()\-–—. ]{1,40}", normalized):
+        raise ValueError("estimate unit contains unsupported characters")
+    return normalized
 
 
 def _normalized_minor_unit(value: Any) -> Any:
@@ -321,7 +598,15 @@ def _provider_json_object(response_text: str) -> dict[str, Any]:
     estimate_candidates: dict[str, dict[str, Any]] = {}
     for raw in [*exact_objects, *embedded_objects]:
         value = _unwrapped_estimate_object(raw)
-        if value is None or not isinstance(value.get("lines"), list):
+        if value is None or not (
+            isinstance(value.get("title"), str)
+            and isinstance(value.get("currency"), str)
+            and isinstance(value.get("region"), str)
+            and (
+                isinstance(value.get("lines"), list)
+                or isinstance(value.get("sections"), list)
+            )
+        ):
             continue
         canonical = json.dumps(
             value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
@@ -355,10 +640,12 @@ def estimate_spec_from_provider_response(
     *,
     requested_region: str | None = None,
 ) -> EstimateSpec:
-    """Normalize a model proposal into the strict editable estimate contract.
+    """Validate a source-bearing provider draft and build an editable spec.
 
-    Model-supplied totals are deliberately ignored.  Unknown or unreferenced
-    price provenance is downgraded to an explicit assumption.
+    The provider contract is strict and section-based.  Provider-supplied line
+    and grand totals are accepted only as inert compatibility fields and are
+    never copied into :class:`EstimateSpec`; the deterministic engine is the
+    sole monetary authority.
     """
 
     if len(response_text.encode("utf-8")) > MAX_PROVIDER_ESTIMATE_RESPONSE_BYTES:
@@ -366,84 +653,79 @@ def estimate_spec_from_provider_response(
             f"estimate proposal exceeds {MAX_PROVIDER_ESTIMATE_RESPONSE_BYTES} UTF-8 bytes"
         )
     value = _provider_json_object(response_text)
-    raw_lines = value.get("lines")
-    if not isinstance(raw_lines, list) or not raw_lines:
-        raise ValueError("estimate proposal requires at least one line")
-    if len(raw_lines) > MAX_PROVIDER_ESTIMATE_LINES:
-        raise ValueError(
-            f"estimate proposal exceeds {MAX_PROVIDER_ESTIMATE_LINES} consolidated lines"
-        )
+    draft = ProviderEstimateDraft.model_validate(value)
+    normalized_requested_region = re.sub(
+        r"\s+", " ", str(requested_region or "").strip().casefold().replace("ё", "е"),
+    )
+    normalized_draft_region = re.sub(
+        r"\s+", " ", draft.region.casefold().replace("ё", "е"),
+    )
+    if normalized_requested_region and not (
+        normalized_requested_region == normalized_draft_region
+        or normalized_requested_region in normalized_draft_region
+        or normalized_draft_region in normalized_requested_region
+    ):
+        raise ValueError("provider estimate region does not match requested region")
+    normalized_basis_region = re.sub(
+        r"\s+", " ", draft.normative_basis.region.casefold().replace("ё", "е"),
+    )
+    if not (
+        normalized_basis_region == normalized_draft_region
+        or normalized_basis_region in normalized_draft_region
+        or normalized_draft_region in normalized_basis_region
+    ):
+        raise ValueError("provider estimate basis region does not match estimate region")
+
     lines: list[dict[str, Any]] = []
-    for index, raw in enumerate(raw_lines, start=1):
-        if not isinstance(raw, dict):
-            raise ValueError("estimate proposal lines must be objects")
-        raw_provenance_value = raw.get("provenance")
-        raw_provenance = (
-            raw_provenance_value
-            if isinstance(raw_provenance_value, dict)
-            else {"source": raw_provenance_value}
-            if isinstance(raw_provenance_value, str)
-            else {}
-        )
-        source = str(raw_provenance.get("source") or "assumption").strip().lower()
-        source_ref = raw_provenance.get("source_ref")
-        if source not in _PROVENANCE_SOURCES:
-            source = "assumption"
-            source_ref = "Источник не подтверждён; требуется проверка"
-        if source in {"catalog", "contract", "supplier", "measurement"} and not source_ref:
-            source = "assumption"
-            source_ref = "Цена предложена моделью без подтверждённого источника"
-        unit_price = raw.get("unit_price_minor")
-        if isinstance(unit_price, str):
-            compact_price = re.sub(r"[\s_\u00a0\u202f]", "", unit_price)
-            if compact_price.isdigit():
-                unit_price = int(compact_price)
-        if not isinstance(unit_price, int) or isinstance(unit_price, bool):
-            raise ValueError("estimate unit_price_minor must be an integer")
-        category = str(raw.get("category") or raw.get("type") or "other").strip().lower()
-        category = _CATEGORY_ALIASES.get(category, category)
-        if category not in _CATEGORIES:
-            category = "other"
-        line_id = str(raw.get("id") or f"line-{index}").strip()
-        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{1,199}", line_id):
-            line_id = f"line-{index}"
-        provenance: dict[str, Any] = {"source": source}
-        if source_ref:
-            provenance["source_ref"] = str(source_ref)[:500]
-        captured_at = raw_provenance.get("captured_at")
-        if isinstance(captured_at, str) and captured_at.strip():
-            provenance["captured_at"] = captured_at.strip()[:80]
-        lines.append({
-            "id": line_id,
-            "section": str(raw.get("section") or "Основные работы")[:200],
-            "description": str(raw.get("description") or raw.get("name") or "").strip(),
-            "category": category,
-            "unit": str(raw.get("unit") or "шт").strip(),
-            "quantity": str(raw.get("quantity") or "").replace(",", "."),
-            "unit_price_minor": unit_price,
-            "provenance": provenance,
-        })
-    assumptions = value.get("assumptions") if isinstance(value.get("assumptions"), list) else []
-    if any(line["provenance"]["source"] == "assumption" for line in lines) and not assumptions:
-        assumptions = ["Ориентировочные цены требуют проверки по региону и дате закупки."]
-    questions = value.get("questions") if isinstance(value.get("questions"), list) else []
+    for section in draft.sections:
+        for line in section.lines:
+            combined_assumptions = list(dict.fromkeys([
+                *line.price_provenance.assumptions,
+                *line.quantity_provenance.assumptions,
+                *line.assumptions,
+            ]))
+            lines.append({
+                "id": line.id,
+                "section": section.name,
+                "description": line.description,
+                "category": line.category,
+                "unit": normalize_estimate_unit(line.unit),
+                "quantity": line.quantity,
+                "unit_price_minor": line.unit_price_minor,
+                "provenance": {
+                    "source": line.price_provenance.source,
+                    "source_ref": line.price_provenance.source_ref,
+                    "source_url": line.price_provenance.source_url,
+                    "captured_at": line.price_provenance.captured_at,
+                    "applicable_region": line.price_provenance.applicable_region,
+                    "price_level_date": line.price_provenance.price_level_date,
+                    "basis_ref": line.price_provenance.basis_ref,
+                    "quantity_source": line.quantity_provenance.source,
+                    "quantity_source_ref": line.quantity_provenance.source_ref,
+                    "quantity_source_url": line.quantity_provenance.source_url,
+                    "assumptions": combined_assumptions,
+                    # A provider can assert a source, but only a later policy
+                    # verifier may advance this flag.
+                    "validation_status": "unverified",
+                },
+            })
+    basis = draft.normative_basis.model_dump(mode="json")
+    basis["validation_status"] = "unverified"
     return EstimateSpec.model_validate({
-        "title": str(value.get("title") or "Смета").strip(),
-        "currency": str(value.get("currency") or "RUB").strip().upper(),
-        "minor_unit": _normalized_minor_unit(value.get("minor_unit", 2)),
-        "region": str(value.get("region") or requested_region or "Не указан").strip(),
-        "client_name": _normalized_client_name(value),
-        "object_name": _normalized_object_field(value, "name"),
-        "object_address": _normalized_object_field(value, "address"),
-        "source_summary": str(
-            value.get("source_summary")
-            or "Цены предложены как ориентировочные и требуют проверки"
-        ).strip(),
-        "assumptions": [str(item).strip() for item in assumptions if str(item).strip()][:12],
-        "questions": [str(item).strip() for item in questions if str(item).strip()][:12],
+        "title": draft.title,
+        "currency": draft.currency,
+        "minor_unit": draft.minor_unit,
+        "region": draft.region,
+        "client_name": draft.client_name,
+        "object_name": draft.object_name,
+        "object_address": draft.object_address,
+        "source_summary": draft.source_summary,
+        "normative_basis": basis,
+        "assumptions": draft.assumptions,
+        "questions": draft.questions,
         "lines": lines,
-        "overhead_rate_bps": value.get("overhead_rate_bps", 0),
-        "tax_rate_bps": value.get("tax_rate_bps", 0),
+        "overhead_rate_bps": draft.overhead_rate_bps,
+        "tax_rate_bps": draft.tax_rate_bps,
     })
 
 
@@ -506,181 +788,390 @@ def _display_decimal(value: Decimal) -> str:
     return format(normalized, "f")
 
 
-def _assumption_house_spec(task: EstimateVerticalTask) -> EstimateSpec | None:
-    """Build a bounded editable house estimate when providers are exhausted.
+def assess_normative_estimate(spec: EstimateSpec) -> dict[str, Any]:
+    """Describe source coverage separately from independent verification.
 
-    This is deliberately a coarse local template, not a price book.  Every
-    quantity and price is marked as an assumption and the contract explicitly
-    excludes normative or supplier provenance.  The narrow recognizer avoids
-    pretending that an arbitrary estimate brief can be completed locally.
+    A draft may be calculated while still preliminary.  ``verified`` is
+    reserved for complete inputs whose basis and every line source were
+    independently advanced to ``validation_status=verified``.
     """
 
-    brief = str(task.brief or "")
-    area = _house_area_from_brief(brief)
-    if area is None or not _is_house_construction_brief(brief):
-        return None
-    region = _fallback_region(task)
-    roof_area = (area * Decimal("1.25")).quantize(Decimal("0.01"))
-    facade_area = (area * Decimal("1.60")).quantize(Decimal("0.01"))
-    earth_volume = (area * Decimal("0.55")).quantize(Decimal("0.01"))
-    foundation_volume = (area * Decimal("0.35")).quantize(Decimal("0.01"))
-    price_note = (
-        "Непроверенное допущение локального укрупнённого шаблона Kolibri; "
-        "не является нормативной или коммерческой расценкой"
+    coverage_missing: list[str] = []
+    validation_missing: list[str] = []
+    basis = spec.normative_basis
+    if basis is None:
+        coverage_missing.extend([
+            "normative_basis.calculation_method",
+            "normative_basis.normative_basis_ref",
+            "normative_basis.normative_edition",
+            "normative_basis.price_level_date",
+            "normative_basis.region",
+            "normative_basis.tax_scope_ref",
+            "normative_basis.contract_scope_ref",
+            "normative_basis.source_urls",
+            "normative_basis.input_document_refs",
+        ])
+        validation_missing.append("normative_basis.validation_status")
+    else:
+        if basis.region.casefold() != spec.region.casefold():
+            coverage_missing.append("normative_basis.region_matches_estimate")
+        if not basis.source_urls:
+            coverage_missing.append("normative_basis.source_urls")
+        if not basis.input_document_refs:
+            coverage_missing.append("normative_basis.input_document_refs")
+        if basis.validation_status != "verified":
+            validation_missing.append("normative_basis.validation_status")
+    for line in spec.lines:
+        prefix = f"lines.{line.id}.provenance"
+        provenance = line.provenance
+        if provenance.source not in {"normative", "catalog", "contract", "supplier"}:
+            coverage_missing.append(f"{prefix}.sourced_price")
+        if not provenance.source_ref:
+            coverage_missing.append(f"{prefix}.source_ref")
+        if not provenance.source_url:
+            coverage_missing.append(f"{prefix}.source_url")
+        if not provenance.captured_at:
+            coverage_missing.append(f"{prefix}.captured_at")
+        if not provenance.applicable_region:
+            coverage_missing.append(f"{prefix}.applicable_region")
+        elif provenance.applicable_region.casefold() != spec.region.casefold():
+            coverage_missing.append(f"{prefix}.applicable_region_matches_estimate")
+        if not provenance.price_level_date:
+            coverage_missing.append(f"{prefix}.price_level_date")
+        if not provenance.basis_ref:
+            coverage_missing.append(f"{prefix}.basis_ref")
+        if not provenance.quantity_source:
+            coverage_missing.append(f"{prefix}.quantity_source")
+        if not provenance.quantity_source_ref:
+            coverage_missing.append(f"{prefix}.quantity_source_ref")
+        if provenance.validation_status != "verified":
+            validation_missing.append(f"{prefix}.validation_status")
+    coverage_missing = sorted(set(coverage_missing))
+    validation_missing = sorted(set(validation_missing))
+    missing = [*coverage_missing, *validation_missing]
+    verification_kind = (
+        "normative"
+        if basis is not None and basis.calculation_method in {"resource-index", "resource", "base-index"}
+        else "commercial"
     )
-
-    # Prices are integer kopecks.  They are intentionally consolidated so the
-    # result stays editable and useful without masquerading as a detailed
-    # resource estimate or a supplier quotation.
-    raw_lines: list[tuple[str, str, str, str, str, Decimal, int]] = [
-        ("prep-design", "Подготовка и проектирование", "Эскизный и рабочий проект", "service", "компл.", Decimal("1"), 25_000_000),
-        ("prep-survey", "Подготовка и проектирование", "Инженерные изыскания и вынос осей", "service", "компл.", Decimal("1"), 12_000_000),
-        ("foundation-earth", "Земляные работы и фундамент", "Разработка и перемещение грунта", "equipment", "м3", earth_volume, 90_000),
-        ("foundation-labor", "Земляные работы и фундамент", "Устройство монолитного фундамента — работы", "labor", "м3", foundation_volume, 850_000),
-        ("foundation-material", "Земляные работы и фундамент", "Бетон, арматура, опалубка и гидроизоляция", "material", "м3", foundation_volume, 2_800_000),
-        ("shell-walls-labor", "Коробка дома", "Возведение наружных стен и перегородок — работы", "labor", "м2", area, 650_000),
-        ("shell-walls-material", "Коробка дома", "Материалы наружных стен и перегородок", "material", "м2", area, 1_800_000),
-        ("roof-labor", "Кровля", "Устройство стропильной системы и кровли — работы", "labor", "м2", roof_area, 300_000),
-        ("roof-material", "Кровля", "Стропильные, изоляционные и кровельные материалы", "material", "м2", roof_area, 900_000),
-        ("openings-material", "Окна и двери", "Окна и наружные двери — комплект", "material", "компл.", Decimal("1"), 85_000_000),
-        ("openings-labor", "Окна и двери", "Монтаж окон и наружных дверей", "labor", "компл.", Decimal("1"), 18_000_000),
-        ("facade-labor", "Фасад", "Утепление и отделка фасада — работы", "labor", "м2", facade_area, 200_000),
-        ("facade-material", "Фасад", "Утеплитель и фасадные материалы", "material", "м2", facade_area, 350_000),
-        ("electric-labor", "Инженерные системы", "Внутренняя электрика — работы", "labor", "м2", area, 180_000),
-        ("electric-material", "Инженерные системы", "Кабель, щитовая автоматика и электроустановочные материалы", "material", "м2", area, 220_000),
-        ("plumbing-labor", "Инженерные системы", "Водоснабжение и канализация — работы", "labor", "м2", area, 160_000),
-        ("plumbing-material", "Инженерные системы", "Трубы, коллекторы и базовое сантехническое оборудование", "material", "м2", area, 240_000),
-        ("heating-equipment", "Инженерные системы", "Отопление и базовая вентиляция — оборудование", "equipment", "компл.", Decimal("1"), 90_000_000),
-        ("heating-labor", "Инженерные системы", "Монтаж и пусконаладка отопления", "labor", "компл.", Decimal("1"), 30_000_000),
-        ("finish-labor", "Внутренняя отделка", "Базовая внутренняя отделка — работы", "labor", "м2", area, 550_000),
-        ("finish-material", "Внутренняя отделка", "Базовые отделочные материалы", "material", "м2", area, 350_000),
-        ("logistics-delivery", "Логистика", "Доставка строительных материалов", "service", "компл.", Decimal("1"), 35_000_000),
-        ("logistics-waste", "Логистика", "Контейнеры и вывоз строительных отходов", "service", "компл.", Decimal("1"), 12_000_000),
-    ]
-    lines = [{
-        "id": line_id,
-        "section": section,
-        "description": description,
-        "category": category,
-        "unit": unit,
-        "quantity": _display_decimal(quantity),
-        "unit_price_minor": unit_price_minor,
-        "provenance": {"source": "assumption", "source_ref": price_note},
-    } for line_id, section, description, category, unit, quantity, unit_price_minor in raw_lines]
-    return EstimateSpec.model_validate({
-        "title": f"Предварительная смета на строительство одноэтажного дома {_display_decimal(area)} м²",
-        "currency": "RUB",
-        "minor_unit": 2,
-        "region": region,
-        "object_name": f"Одноэтажный жилой дом {_display_decimal(area)} м²",
-        "object_address": region,
-        "source_summary": (
-            "Локальный укрупнённый резервный шаблон Kolibri. Все цены и объёмы — "
-            "непроверенные допущения; перед договором требуется проект, ведомость объёмов, "
-            f"геология и коммерческие предложения по региону строительства ({region})."
+    verified = not missing
+    payload = {
+        "schema_version": "kolibri.normative-estimate-gate.v1",
+        "status": "verified" if verified else "preliminary",
+        "verification_kind": verification_kind,
+        "monetary_status": "calculated",
+        "source_coverage_complete": not coverage_missing,
+        "input_complete": bool(basis is not None and basis.input_document_refs) and not coverage_missing,
+        "independent_validation_complete": not validation_missing,
+        "normative_verified": verified and verification_kind == "normative",
+        "commercial_verified": verified and verification_kind == "commercial",
+        "missing": missing,
+        "coverage_missing": coverage_missing,
+        "validation_missing": validation_missing,
+        "line_count": len(spec.lines),
+        "claim": (
+            "verified_estimate" if verified
+            else "preliminary_editable_estimate_not_for_contract_without_source_review"
         ),
-        "assumptions": [
-            f"Общая площадь дома принята равной {_display_decimal(area)} м², этажность — один этаж.",
-            "Схема фундамента, конструкция стен, кровли и инженерии не заданы и приняты укрупнённо.",
-            "Площадь кровли принята как 1,25 площади дома, фасада — как 1,60 площади дома.",
-            "Цены не получены из ФЕР/ТЕР, поставщиков или договоров и требуют региональной проверки.",
-            "Накладные расходы приняты 7%; налоговый режим и НДС в расчёт не включены.",
-            "Покупка участка, внешние сети за границей участка, благоустройство, мебель и техника исключены.",
-            "Резерв на изменение цен и непредвиденные работы отдельно не включён.",
-        ],
-        "questions": [
-            "Какой фундамент требуется по геологии участка?",
-            "Из какого материала должны быть наружные стены?",
-            "Какой уровень готовности нужен: тёплый контур, предчистовая или под ключ?",
-            "Где находятся точки подключения воды, канализации, электричества и газа?",
-            "Нужно ли включить внешние сети, септик/скважину и благоустройство?",
-            "Какой налоговый режим подрядчика применять?",
-        ],
-        "lines": lines,
-        "overhead_rate_bps": 700,
-        "tax_rate_bps": 0,
-    })
+    }
+    return {**payload, "binding_sha256": _canonical_sha256(payload)}
 
 
-def _estimate_engine_proof(
+_READINESS_GROUPS: tuple[dict[str, Any], ...] = (
+    {
+        "id": "project_documents",
+        "label": "Проектная документация",
+        "fields": ["project_document_set_ref", "design_scope", "specifications_ref"],
+        "evidence": "Утверждённый проект, спецификации и состав работ с версиями документов.",
+    },
+    {
+        "id": "site_surveys",
+        "label": "Участок и изыскания",
+        "fields": ["site_address", "geology_ref", "geodesy_ref", "utility_connection_terms_ref"],
+        "evidence": "Адрес участка, инженерно-геологические и геодезические материалы, условия подключений.",
+    },
+    {
+        "id": "quantities",
+        "label": "Ведомость объёмов",
+        "fields": ["work_quantity_statement_ref", "quantity_source", "quantity_source_ref", "measurement_date"],
+        "evidence": "Объёмы из проекта или замеров; для каждой позиции — единица, количество и ссылка на лист/акт.",
+    },
+    {
+        "id": "pricing",
+        "label": "Расчётная и ценовая база",
+        "fields": [
+            "calculation_method", "normative_basis_ref", "normative_edition",
+            "price_level_date_or_quarter", "price_region", "index_document_refs",
+            "supplier_catalog_contract_refs",
+        ],
+        "evidence": "Применимая база и редакция, уровень цен, документы индексов либо датированные предложения/договоры.",
+    },
+    {
+        "id": "tax_and_contract",
+        "label": "Договорный и налоговый контур",
+        "fields": ["contract_scope_ref", "tax_regime", "vat_rate", "tax_basis_ref", "included_excluded_scope"],
+        "evidence": "Границы договора, налоговый режим и основание ставки, перечень включённых и исключённых затрат.",
+    },
+    {
+        "id": "technical_scope",
+        "label": "Конструктив и инженерные системы",
+        "fields": [
+            "foundation_solution", "wall_solution", "roof_solution", "openings_spec",
+            "mep_scope", "finish_level", "external_networks_scope", "site_works_scope",
+        ],
+        "evidence": "Принятые проектом решения по фундаменту, коробке, кровле, инженерии, отделке и наружным работам.",
+    },
+)
+
+_READINESS_SECTIONS = (
+    "Подготовка, проектирование и изыскания",
+    "Земляные работы и фундамент",
+    "Несущие и ограждающие конструкции",
+    "Кровля",
+    "Окна, наружные двери и фасад",
+    "Инженерные системы",
+    "Внутренняя отделка",
+    "Наружные сети и благоустройство",
+    "Логистика, временные и прочие затраты",
+)
+
+
+_READINESS_FIELD_PRESENTATION: dict[str, dict[str, Any]] = {
+    "project_document_set_ref": {"label": "Комплект проектной документации", "placeholder": "Ссылка, номер и редакция комплекта"},
+    "design_scope": {"label": "Состав проектных решений", "placeholder": "Разделы проекта и стадия документации", "input_type": "textarea"},
+    "specifications_ref": {"label": "Спецификации", "placeholder": "Ссылки на ведомости и спецификации"},
+    "site_address": {"label": "Адрес участка", "placeholder": "Полный адрес или кадастровый номер"},
+    "geology_ref": {"label": "Инженерная геология", "placeholder": "Номер и дата отчёта"},
+    "geodesy_ref": {"label": "Инженерная геодезия", "placeholder": "Номер и дата отчёта"},
+    "utility_connection_terms_ref": {"label": "Технические условия подключений", "placeholder": "Ссылки на действующие ТУ"},
+    "work_quantity_statement_ref": {"label": "Ведомость объёмов работ", "placeholder": "Документ, редакция, листы"},
+    "quantity_source": {
+        "label": "Источник объёмов", "input_type": "select",
+        "options": ["project", "measurement", "manual"],
+    },
+    "quantity_source_ref": {"label": "Ссылка на источник объёмов", "placeholder": "Лист проекта или акт замеров"},
+    "measurement_date": {"label": "Дата замеров", "input_type": "date"},
+    "calculation_method": {
+        "label": "Метод расчёта", "input_type": "select",
+        "options": ["resource-index", "resource", "base-index", "contract", "commercial"],
+    },
+    "normative_basis_ref": {"label": "Сметно-нормативная база", "placeholder": "Документ и основание применимости"},
+    "normative_edition": {"label": "Редакция базы", "placeholder": "Версия или дата редакции"},
+    "price_level_date_or_quarter": {"label": "Уровень цен", "placeholder": "Дата или квартал"},
+    "price_region": {"label": "Ценовая зона / регион", "placeholder": "Регион применимости расценок"},
+    "index_document_refs": {"label": "Документы индексов", "placeholder": "Номера, даты и ссылки", "input_type": "textarea"},
+    "supplier_catalog_contract_refs": {"label": "Ценовые подтверждения", "placeholder": "КП, каталоги и договоры с датами", "input_type": "textarea"},
+    "contract_scope_ref": {"label": "Границы договора", "placeholder": "Документ и редакция"},
+    "tax_regime": {"label": "Налоговый режим", "placeholder": "Режим исполнителя"},
+    "vat_rate": {"label": "Ставка НДС", "placeholder": "Ставка или «без НДС»"},
+    "tax_basis_ref": {"label": "Основание налогового расчёта", "placeholder": "Документ или реквизиты"},
+    "included_excluded_scope": {"label": "Включено / исключено", "placeholder": "Границы стоимости", "input_type": "textarea"},
+    "foundation_solution": {"label": "Фундамент", "placeholder": "Решение по проекту", "input_type": "textarea"},
+    "wall_solution": {"label": "Стены и перегородки", "placeholder": "Материалы и конструкция", "input_type": "textarea"},
+    "roof_solution": {"label": "Кровля", "placeholder": "Конструкция и покрытие", "input_type": "textarea"},
+    "openings_spec": {"label": "Окна и двери", "placeholder": "Спецификация проёмов", "input_type": "textarea"},
+    "mep_scope": {"label": "Инженерные системы", "placeholder": "ОВ, ВК, ЭОМ и другие разделы", "input_type": "textarea"},
+    "finish_level": {"label": "Уровень отделки", "placeholder": "Состав и класс материалов", "input_type": "textarea"},
+    "external_networks_scope": {"label": "Наружные сети", "placeholder": "Точки подключения и протяжённость", "input_type": "textarea"},
+    "site_works_scope": {"label": "Благоустройство", "placeholder": "Состав работ на участке", "input_type": "textarea"},
+}
+
+
+def _brief_area_fact(brief: str) -> Decimal | None:
+    match = _HOUSE_AREA.search(brief)
+    if match is None:
+        return None
+    try:
+        area = Decimal(match.group("area").replace(",", "."))
+    except InvalidOperation:
+        return None
+    if area <= 0 or area > Decimal("10000000"):
+        return None
+    return area.quantize(Decimal("0.01"))
+
+
+def _estimate_readiness_payload(task: EstimateVerticalTask) -> dict[str, Any] | None:
+    brief = str(task.brief or "")
+    spec = task.spec
+    if not brief and spec is None:
+        return None
+    normalized = brief.casefold().replace("ё", "е")
+    region = task.region or (spec.region if spec is not None else None) or (
+        "Республика Татарстан" if "татарстан" in normalized
+        else "Регион требует подтверждения"
+    )
+    locality = "Лениногорск" if "лениногорск" in normalized else None
+    area = _brief_area_fact(brief)
+    one_storey_house = bool(
+        area is not None
+        and area >= Decimal("20")
+        and area <= Decimal("5000")
+        and _is_house_construction_brief(brief)
+    )
+    known_facts: dict[str, Any] = {
+        "object_type": "one_storey_house" if one_storey_house else "unspecified",
+        "object_type_label": (
+            "Одноэтажный жилой дом"
+            if one_storey_house else "Тип объекта требует подтверждения"
+        ),
+        "region": region,
+        "locality": locality,
+        "currency": spec.currency if spec is not None else "RUB",
+    }
+    if one_storey_house:
+        known_facts["storeys"] = 1
+    if area is not None:
+        known_facts["gross_area_m2"] = _display_decimal(area)
+    if spec is not None:
+        known_facts.update({
+            "estimate_title": spec.title,
+            "object_name": spec.object_name,
+            "object_address": spec.object_address,
+        })
+    required_inputs = [{**group, "status": "missing"} for group in _READINESS_GROUPS]
+    editor_fields = [
+        {
+            "id": field,
+            "group_id": group["id"],
+            "label": _READINESS_FIELD_PRESENTATION.get(field, {}).get("label", field.replace("_", " ")),
+            "input_type": _READINESS_FIELD_PRESENTATION.get(field, {}).get("input_type", "text"),
+            "placeholder": _READINESS_FIELD_PRESENTATION.get(field, {}).get("placeholder", ""),
+            **({"options": _READINESS_FIELD_PRESENTATION[field]["options"]} if "options" in _READINESS_FIELD_PRESENTATION.get(field, {}) else {}),
+            **({"suggested_value": region} if field == "price_region" and region != "Регион требует подтверждения" else {}),
+            "value": None,
+            "required": True,
+        }
+        for group in _READINESS_GROUPS
+        for field in group["fields"]
+    ]
+    return {
+        "schema_version": ESTIMATE_READINESS_SCHEMA,
+        "title": (
+            f"Исходные данные для сметы: одноэтажный дом {_display_decimal(area)} м²"
+            if one_storey_house and area is not None
+            else f"Исходные данные для сметы: {spec.title}" if spec is not None
+            else "Исходные данные для правдивой сметы"
+        ),
+        "status": "needs_input",
+        "normative_verified": False,
+        "monetary_status": "not_calculated",
+        "known_facts": known_facts,
+        "required_inputs": required_inputs,
+        "normative_gate": {
+            "schema_version": "kolibri.normative-estimate-gate.v1",
+            "status": "blocked_missing_inputs",
+            "required_basis": [
+                "Документ, подтверждающий применимый метод расчёта. Если применяется Методика по приказу Минстроя России № 421/пр, нужна её действующая для даты расчёта редакция.",
+                "Применимая сметно-нормативная база/метод расчёта и регион.",
+                "Уровень цен на дату или квартал расчёта; индекс не подставляется без документа-источника.",
+                "Объёмы по проекту или замерам и цены из ручного ввода, каталога, договора или предложения поставщика со ссылками.",
+                "Налоговый и договорный состав затрат с документом-основанием.",
+            ],
+            "official_references": [
+                {
+                    "title": "Приказ Минстроя России от 04.08.2020 № 421/пр",
+                    "url": "https://publication.pravo.gov.ru/Document/View/0001202009240006",
+                },
+                {
+                    "title": "Минстрой России: ценообразование и индексы",
+                    "url": "https://minstroyrf.gov.ru/trades/tsenoobrazovanie/",
+                },
+            ],
+            "source_policy": {
+                "price_sources": ["normative", "catalog", "contract", "supplier"],
+                "quantity_sources": ["project", "measurement", "manual"],
+                "source_ref_required": True,
+                "applicable_basis_index_date_required": True,
+            },
+        },
+        "draft_sections": [
+            {"id": f"section-{index}", "label": label, "status": "awaiting_scope", "items": []}
+            for index, label in enumerate(_READINESS_SECTIONS, 1)
+        ],
+        "editor": {
+            "schema_version": ESTIMATE_READINESS_EDITOR_SCHEMA,
+            "state": "needs_input",
+            "fields": editor_fields,
+        },
+    }
+
+
+def _estimate_readiness_proof(
     *,
     input_facts_sha256: str,
-    spec_sha256: str,
-    calculation_sha256: str,
+    readiness_sha256: str,
     fallback_reason: str,
+    source_mode: str,
+    provider_binding: dict[str, Any] | None,
 ) -> dict[str, Any]:
     proof = {
         "schema_version": ESTIMATE_FALLBACK_PROOF_SCHEMA,
         "engine": ESTIMATE_FALLBACK_ENGINE,
-        "mode": "assumption_template",
+        "mode": "needs_input",
         "input_facts_sha256": input_facts_sha256,
-        "spec_sha256": spec_sha256,
-        "calculation_sha256": calculation_sha256,
+        "readiness_sha256": readiness_sha256,
         "fallback_reason": fallback_reason,
+        "source_mode": source_mode,
+        "provider_binding": provider_binding,
     }
     return {**proof, "binding_sha256": _canonical_sha256(proof)}
 
 
-def build_deterministic_estimate_fallback(
-    task: VerticalTask,
+def _build_estimate_readiness_task(
+    task: EstimateVerticalTask,
     *,
-    reason: str = "provider_unavailable",
+    reason: str,
+    provider_binding: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
-    """Return a content-bound local estimate only for a supported estimate.
-
-    The provider gateway must be attempted before this helper is called.  The
-    returned envelope does not claim provider verification; it binds the
-    narrow assumption engine, bounded extracted input facts, editable
-    specification and exact deterministic monetary calculation with
-    independent SHA-256 digests.
-    """
-
-    if not isinstance(task, EstimateVerticalTask) or task.spec is not None:
+    readiness = _estimate_readiness_payload(task)
+    if readiness is None:
         return None
     reason = str(reason or "").strip().lower()
     if not re.fullmatch(r"[a-z0-9_]{1,80}", reason):
         reason = "provider_unavailable"
-    spec = _assumption_house_spec(task)
-    if spec is None:
-        return None
-    calculation = deterministic_estimate(spec)
-    area = _house_area_from_brief(str(task.brief or ""))
-    if area is None:  # defensive: the template builder already requires it
-        return None
-    input_facts = {
-        "object_type": "one_storey_house",
-        "storeys": 1,
-        "area_m2": _display_decimal(area),
-        "region": spec.region,
-        "requested_artifacts": requested_deliverables(task),
-    }
-    input_facts_sha256 = _canonical_sha256(input_facts)
-    spec_sha256 = _canonical_sha256(spec.model_dump(mode="json"))
-    proof = _estimate_engine_proof(
-        input_facts_sha256=input_facts_sha256,
-        spec_sha256=spec_sha256,
-        calculation_sha256=str(calculation["calculation_sha256"]),
-        fallback_reason=reason,
+    provider_binding = provider_binding if isinstance(provider_binding, dict) else None
+    provider_verified = bool(
+        provider_binding
+        and _SHA256.fullmatch(str(provider_binding.get("output_sha256") or "").lower())
+        and _SHA256.fullmatch(str(provider_binding.get("verifier_binding_sha256") or "").lower())
     )
+    source_mode = "provider_reviewed" if provider_verified else "local_gate"
     requested = requested_deliverables(task)
+    input_facts = {
+        **readiness["known_facts"],
+        **({
+            "request_brief_sha256": hashlib.sha256(task.brief.encode("utf-8")).hexdigest(),
+        } if task.brief else {}),
+        **({
+            "request_spec_sha256": _canonical_sha256(task.spec.model_dump(mode="json")),
+        } if task.spec is not None else {}),
+        "requested_artifacts": requested,
+    }
+    proof = _estimate_readiness_proof(
+        input_facts_sha256=_canonical_sha256(input_facts),
+        readiness_sha256=_canonical_sha256(readiness),
+        fallback_reason=reason,
+        source_mode=source_mode,
+        provider_binding=provider_binding if provider_verified else None,
+    )
     return {
         "schema_version": VERTICAL_TASK_SCHEMA,
         "intent": "estimate",
-        "status": "incomplete" if requested else "completed",
+        "status": "incomplete",
         "execution": {
             "status": "completed",
             "model": "kolibri",
-            "provider_verified": False,
-            "provider_status": "failed",
+            "provider_verified": provider_verified,
+            "provider_status": "completed" if provider_verified else "failed",
             "engine_verified": True,
             "engine": ESTIMATE_FALLBACK_ENGINE,
             "engine_binding_sha256": proof["binding_sha256"],
             "fallback_reason": reason,
+            **(provider_binding if provider_verified and provider_binding else {}),
         },
         "result": {
-            "type": "deterministic_estimate",
-            "estimate": spec.model_dump(mode="json"),
-            "calculation": calculation,
+            "type": "estimate_readiness",
+            "readiness": readiness,
             "generation": {**proof, "input_facts": input_facts},
         },
         "artifacts": [],
@@ -695,8 +1186,20 @@ def build_deterministic_estimate_fallback(
     }
 
 
+def build_deterministic_estimate_fallback(
+    task: VerticalTask,
+    *,
+    reason: str = "provider_unavailable",
+) -> dict[str, Any] | None:
+    """After provider exhaustion, return a bound input checklist without money."""
+
+    if not isinstance(task, EstimateVerticalTask) or task.spec is not None:
+        return None
+    return _build_estimate_readiness_task(task, reason=reason)
+
+
 def verified_deterministic_estimate_fallback(task: dict[str, Any]) -> bool:
-    """Recompute and verify every local fallback binding before persistence."""
+    """Recompute readiness hashes and reject any fabricated monetary payload."""
 
     if task.get("intent") != "estimate" or task.get("schema_version") != VERTICAL_TASK_SCHEMA:
         return False
@@ -706,38 +1209,91 @@ def verified_deterministic_estimate_fallback(task: dict[str, Any]) -> bool:
     if not (
         execution.get("status") == "completed"
         and execution.get("model") == "kolibri"
-        and execution.get("provider_verified") is False
-        and execution.get("provider_status") == "failed"
         and execution.get("engine_verified") is True
         and execution.get("engine") == ESTIMATE_FALLBACK_ENGINE
         and proof.get("schema_version") == ESTIMATE_FALLBACK_PROOF_SCHEMA
         and proof.get("engine") == ESTIMATE_FALLBACK_ENGINE
-        and proof.get("mode") == "assumption_template"
+        and proof.get("mode") == "needs_input"
     ):
         return False
-    try:
-        spec = EstimateSpec.model_validate(result.get("estimate"))
-    except (TypeError, ValueError):
+    provider_verified = execution.get("provider_verified") is True
+    if execution.get("provider_status") != ("completed" if provider_verified else "failed"):
         return False
-    if not spec.lines or any(line.provenance.source != "assumption" for line in spec.lines):
+    source_mode = "provider_reviewed" if provider_verified else "local_gate"
+    if proof.get("source_mode") != source_mode:
         return False
-    calculation = result.get("calculation")
-    if not isinstance(calculation, dict) or deterministic_estimate(spec) != calculation:
+    provider_binding = proof.get("provider_binding")
+    if provider_verified:
+        if not isinstance(provider_binding, dict):
+            return False
+        if not all(_valid_digest(provider_binding.get(key)) for key in (
+            "output_sha256", "verifier_binding_sha256",
+        )):
+            return False
+        if any(execution.get(key) != provider_binding.get(key) for key in (
+            "output_sha256", "verifier_binding_sha256",
+        )):
+            return False
+    elif provider_binding is not None:
+        return False
+    if result.get("type") != "estimate_readiness":
+        return False
+    readiness = result.get("readiness") if isinstance(result.get("readiness"), dict) else {}
+    if not (
+        readiness.get("schema_version") == ESTIMATE_READINESS_SCHEMA
+        and readiness.get("status") == "needs_input"
+        and readiness.get("normative_verified") is False
+        and readiness.get("monetary_status") == "not_calculated"
+        and "calculation" not in result
+        and "estimate" not in result
+    ):
+        return False
+    forbidden_money_keys = {
+        "unit_price_minor", "line_total_minor", "totals", "subtotal_minor",
+        "grand_total_minor", "tax_minor", "overhead_minor", "amount_minor",
+    }
+    def contains_money(value: Any) -> bool:
+        if isinstance(value, dict):
+            return any(str(key).lower() in forbidden_money_keys or contains_money(item) for key, item in value.items())
+        if isinstance(value, list):
+            return any(contains_money(item) for item in value)
+        return False
+    if contains_money(readiness):
+        return False
+    required_inputs = readiness.get("required_inputs")
+    if not isinstance(required_inputs, list) or [item.get("id") for item in required_inputs if isinstance(item, dict)] != [
+        group["id"] for group in _READINESS_GROUPS
+    ]:
+        return False
+    if any(not isinstance(item, dict) or item.get("status") != "missing" for item in required_inputs):
+        return False
+    sections = readiness.get("draft_sections")
+    if not isinstance(sections, list) or len(sections) != len(_READINESS_SECTIONS):
+        return False
+    if any(not isinstance(section, dict) or section.get("items") != [] for section in sections):
         return False
     input_facts = proof.get("input_facts") if isinstance(proof.get("input_facts"), dict) else {}
-    if set(input_facts) != {
-        "object_type", "storeys", "area_m2", "region", "requested_artifacts",
+    known_fact_keys = set(readiness.get("known_facts", {}))
+    input_fact_keys = set(input_facts)
+    source_hash_keys = input_fact_keys - known_fact_keys - {"requested_artifacts"}
+    if not source_hash_keys or not source_hash_keys <= {
+        "request_brief_sha256", "request_spec_sha256",
     }:
         return False
-    if input_facts.get("object_type") != "one_storey_house" or input_facts.get("storeys") != 1:
+    if any(not _valid_digest(input_facts.get(key)) for key in source_hash_keys):
         return False
-    try:
-        input_area = Decimal(str(input_facts.get("area_m2")))
-    except InvalidOperation:
+    if input_fact_keys != known_fact_keys | source_hash_keys | {"requested_artifacts"}:
         return False
-    if input_area < Decimal("20") or input_area > Decimal("5000"):
-        return False
-    if input_facts.get("region") != spec.region:
+    if input_facts.get("object_type") == "one_storey_house":
+        if input_facts.get("storeys") != 1:
+            return False
+        try:
+            input_area = Decimal(str(input_facts.get("gross_area_m2")))
+        except InvalidOperation:
+            return False
+        if input_area < Decimal("20") or input_area > Decimal("5000"):
+            return False
+    elif input_facts.get("object_type") != "unspecified":
         return False
     requested_artifacts = input_facts.get("requested_artifacts")
     if not (
@@ -750,28 +1306,24 @@ def verified_deterministic_estimate_fallback(task: dict[str, Any]) -> bool:
     if delivery.get("requested") != requested_artifacts:
         return False
     input_facts_sha256 = str(proof.get("input_facts_sha256") or "").lower()
-    spec_sha256 = str(proof.get("spec_sha256") or "").lower()
-    calculation_sha256 = str(proof.get("calculation_sha256") or "").lower()
+    readiness_sha256 = str(proof.get("readiness_sha256") or "").lower()
     fallback_reason = str(proof.get("fallback_reason") or "")
     if not re.fullmatch(r"[a-z0-9_]{1,80}", fallback_reason):
         return False
     if execution.get("fallback_reason") != fallback_reason:
         return False
-    if not all(_valid_digest(value) for value in (
-        input_facts_sha256, spec_sha256, calculation_sha256,
-    )):
+    if not all(_valid_digest(value) for value in (input_facts_sha256, readiness_sha256)):
         return False
     if input_facts_sha256 != _canonical_sha256(input_facts):
         return False
-    if spec_sha256 != _canonical_sha256(spec.model_dump(mode="json")):
+    if readiness_sha256 != _canonical_sha256(readiness):
         return False
-    if calculation_sha256 != calculation.get("calculation_sha256"):
-        return False
-    expected = _estimate_engine_proof(
+    expected = _estimate_readiness_proof(
         input_facts_sha256=input_facts_sha256,
-        spec_sha256=spec_sha256,
-        calculation_sha256=calculation_sha256,
+        readiness_sha256=readiness_sha256,
         fallback_reason=fallback_reason,
+        source_mode=source_mode,
+        provider_binding=provider_binding,
     )
     binding_sha256 = str(proof.get("binding_sha256") or "").lower()
     return bool(
@@ -788,11 +1340,11 @@ def deterministic_estimate_fallback_verification(task: dict[str, Any]) -> dict[s
     proof = result["generation"]
     return {
         "status": "passed",
-        "type": "deterministic_estimate_engine",
+        "type": "deterministic_estimate_readiness",
         "engine": ESTIMATE_FALLBACK_ENGINE,
-        "provider_verified": False,
-        "spec_sha256": proof["spec_sha256"],
-        "calculation_sha256": proof["calculation_sha256"],
+        "provider_verified": task["execution"].get("provider_verified") is True,
+        "normative_verified": False,
+        "readiness_sha256": proof["readiness_sha256"],
         "binding_sha256": proof["binding_sha256"],
     }
 
@@ -801,20 +1353,108 @@ def deterministic_estimate_fallback_text(task: dict[str, Any]) -> str:
     if not verified_deterministic_estimate_fallback(task):
         raise ValueError("deterministic estimate fallback verification failed")
     result = task["result"]
-    estimate = result["estimate"]
+    readiness = result["readiness"]
+    facts = readiness["known_facts"]
+    delivery = task.get("artifact_delivery") if isinstance(task.get("artifact_delivery"), dict) else {}
+    pdf_ready = "pdf" in set(delivery.get("delivered") or [])
+    fact_summary = [str(facts.get("object_type_label") or "Объект требует подтверждения")]
+    if facts.get("gross_area_m2"):
+        fact_summary.append(f"{facts['gross_area_m2']} м²")
+    if facts.get("region"):
+        fact_summary.append(str(facts["region"]))
+    if facts.get("locality"):
+        fact_summary.append(str(facts["locality"]))
+    return (
+        f"Зафиксированы исходные данные: {', '.join(fact_summary)}"
+        + ". Для правдивой сметы недостаточно проекта, ведомости объёмов, "
+        "применимой расчётной и ценовой базы, документов индексов/предложений, "
+        "а также налогового и договорного состава затрат. Денежный итог не рассчитан. "
+        + ("PDF-чеклист сформирован и привязан к этой проверке." if pdf_ready else "PDF-чеклист пока не материализован.")
+    )
+
+
+def verified_deterministic_estimate_result(task: dict[str, Any]) -> bool:
+    """Recompute an editable estimate, its assessment and content bindings."""
+
+    if task.get("intent") != "estimate" or task.get("schema_version") != VERTICAL_TASK_SCHEMA:
+        return False
+    execution = task.get("execution") if isinstance(task.get("execution"), dict) else {}
+    result = task.get("result") if isinstance(task.get("result"), dict) else {}
+    if (
+        execution.get("status") != "completed"
+        or execution.get("provider_verified") is not True
+        or result.get("type") != "deterministic_estimate"
+    ):
+        return False
+    try:
+        spec = EstimateSpec.model_validate(result.get("estimate"))
+    except (TypeError, ValueError):
+        return False
+    calculation = result.get("calculation")
+    assessment = result.get("verification")
+    if not isinstance(calculation, dict) or not isinstance(assessment, dict):
+        return False
+    expected_assessment = assess_normative_estimate(spec)
+    return bool(
+        deterministic_estimate(spec) == calculation
+        and assessment == expected_assessment
+        and result.get("status") == expected_assessment["status"]
+    )
+
+
+def deterministic_estimate_result_verification(task: dict[str, Any]) -> dict[str, Any]:
+    if not verified_deterministic_estimate_result(task):
+        raise ValueError("deterministic estimate result verification failed")
+    result = task["result"]
     calculation = result["calculation"]
-    total_minor = int(calculation["totals"]["grand_total_minor"])
+    assessment = result["verification"]
+    return {
+        "status": "passed",
+        "type": "deterministic_estimate_engine",
+        "engine": calculation["engine"],
+        "provider_verified": True,
+        "estimate_status": result["status"],
+        "normative_verified": assessment["normative_verified"],
+        "commercial_verified": assessment["commercial_verified"],
+        "source_coverage_complete": assessment["source_coverage_complete"],
+        "calculation_sha256": calculation["calculation_sha256"],
+        "assessment_binding_sha256": assessment["binding_sha256"],
+    }
+
+
+def deterministic_estimate_result_text(task: dict[str, Any]) -> str:
+    if not verified_deterministic_estimate_result(task):
+        raise ValueError("deterministic estimate result verification failed")
+    result = task["result"]
+    spec = result["estimate"]
+    calculation = result["calculation"]
+    assessment = result["verification"]
     minor_unit = int(calculation["minor_unit"])
-    amount = Decimal(total_minor) / (Decimal(10) ** minor_unit)
+    divisor = Decimal(10) ** minor_unit
+    amount = Decimal(calculation["totals"]["grand_total_minor"]) / divisor
     formatted = f"{amount:,.{minor_unit}f}".replace(",", " ").replace(".", ",")
     delivery = task.get("artifact_delivery") if isinstance(task.get("artifact_delivery"), dict) else {}
     pdf_ready = "pdf" in set(delivery.get("delivered") or [])
+    status_text = (
+        "Проверенная смета"
+        if result["status"] == "verified"
+        else "Предварительная редактируемая смета"
+    )
+    truth_note = (
+        "Источники и исходные документы прошли контроль."
+        if result["status"] == "verified"
+        else (
+            "Источники указаны, но ещё не прошли независимую проверку; "
+            "сумму нельзя выдавать за точную договорную стоимость."
+            if assessment["source_coverage_complete"]
+            else "В источниках есть пробелы; результат требует проверки и уточнения."
+        )
+    )
     return (
-        f"Подготовлена предварительная редактируемая смета «{estimate['title']}»: "
-        f"{len(estimate['lines'])} позиций, ориентировочный итог {formatted} RUB. "
-        "Все цены и объёмы отмечены как непроверенные допущения; итог рассчитан "
-        "детерминированно, без расчёта суммы моделью. "
-        + ("PDF сформирован и привязан к этой версии сметы." if pdf_ready else "PDF пока не материализован.")
+        f"{status_text} «{spec['title']}» подготовлена. "
+        f"Детерминированный итог: {formatted} {spec['currency']}. "
+        f"Позиции: {len(spec['lines'])}. {truth_note} "
+        + ("Редактор и PDF готовы." if pdf_ready else "Редактор готов; PDF пока не материализован.")
     )
 
 
@@ -944,6 +1584,21 @@ def build_vertical_result(
         except (TypeError, ValueError, json.JSONDecodeError):
             estimate_error = "estimate_proposal_invalid"
 
+    if isinstance(task, EstimateVerticalTask) and estimate_spec is None:
+        readiness = _build_estimate_readiness_task(
+            task,
+            reason=estimate_error or "estimate_proposal_unavailable",
+            provider_binding=provider_binding if provider_verified else None,
+        )
+        if readiness is not None:
+            return readiness
+
+    estimate_assessment = (
+        assess_normative_estimate(estimate_spec)
+        if isinstance(task, EstimateVerticalTask) and estimate_spec is not None
+        else None
+    )
+
     requested = requested_deliverables(task)
     delivered = {str(item.get("deliverable_type") or "") for item in artifacts}
     missing = [item for item in requested if item not in delivered]
@@ -963,8 +1618,10 @@ def build_vertical_result(
         result_payload: dict[str, Any] | None = (
             {
                 "type": "deterministic_estimate",
+                "status": estimate_assessment["status"] if estimate_assessment else "preliminary",
                 "estimate": estimate_spec.model_dump(mode="json"),
                 "calculation": calculation,
+                "verification": estimate_assessment,
             }
             if typed_result_valid and estimate_spec is not None
             else None
@@ -982,6 +1639,7 @@ def build_vertical_result(
             "status": execution_status,
             "model": "kolibri",
             "provider_verified": provider_verified,
+            **({"estimate_draft_schema_verified": True} if isinstance(task, EstimateVerticalTask) and task.spec is None and estimate_spec is not None else {}),
             **({"reason": estimate_error} if estimate_error else {}),
             **provider_binding,
         },

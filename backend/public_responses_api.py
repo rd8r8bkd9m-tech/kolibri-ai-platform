@@ -21,10 +21,10 @@ import uuid
 from collections.abc import Awaitable, Callable
 from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
@@ -37,6 +37,7 @@ from execution_api import (
     create_response as create_owner_response,
     get_learning_boundary,
     get_response as get_owner_response,
+    list_response_input_items as list_owner_response_input_items,
     list_responses as list_owner_responses,
     require_execution_auth,
     sanitize_learning_value,
@@ -46,6 +47,7 @@ from formulalm_boundary import (
     FormulaLMPolicyError,
     scan_learning_payload,
 )
+from openai_compatibility import response_input_item_list
 from public_chat_stream import verified_public_payload
 from providers import ProviderGatewayError
 from response_tool_gateway import ResponseToolExecution, execute_response_tools
@@ -54,11 +56,18 @@ from vertical_tasks import (
     build_vertical_result,
     deterministic_estimate_fallback_text,
     deterministic_estimate_fallback_verification,
+    deterministic_estimate_result_text,
+    deterministic_estimate_result_verification,
     failed_vertical_result,
     prepare_vertical_task,
 )
 from web_search_gateway import TOOL_ID as WEB_SEARCH_TOOL_ID
 from web_search_gateway import WebSearchError, WebSearchPolicyError
+from work_summary import (
+    build_work_summary,
+    reasoning_output_item,
+    summary_metadata,
+)
 
 
 COOKIE_NAME = "kolibri_public_session"
@@ -385,6 +394,7 @@ class PublicResponseStore:
                     request_sha256 TEXT NOT NULL,
                     payload TEXT NOT NULL,
                     context_json TEXT NOT NULL,
+                    input_json TEXT,
                     http_status INTEGER NOT NULL,
                     created_at REAL NOT NULL,
                     expires_at REAL NOT NULL,
@@ -400,6 +410,17 @@ class PublicResponseStore:
                 );
                 """
             )
+            columns = {
+                str(row[1])
+                for row in connection.execute("PRAGMA table_info(public_session_responses)")
+            }
+            if "input_json" not in columns:
+                # Existing public responses expire quickly.  Do not backfill
+                # this field from context_json because that value can contain
+                # previous-response history and provider-only instructions.
+                connection.execute(
+                    "ALTER TABLE public_session_responses ADD COLUMN input_json TEXT"
+                )
 
     @staticmethod
     def _session_row(row: sqlite3.Row) -> dict[str, Any]:
@@ -504,11 +525,12 @@ class PublicResponseStore:
             connection.execute(
                 """INSERT INTO public_session_responses
                    (response_id, session_id, project_id, idempotency_key, request_sha256,
-                    payload, context_json, http_status, created_at, expires_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, 202, ?, ?)""",
+                    payload, context_json, input_json, http_status, created_at, expires_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 202, ?, ?)""",
                 (
                     response_id, session["id"], session["project_id"], idempotency_hash,
                     request_sha256, json.dumps(payload, ensure_ascii=False, sort_keys=True),
+                    json.dumps(context, ensure_ascii=False, sort_keys=True),
                     json.dumps(context, ensure_ascii=False, sort_keys=True), now,
                     session["expires_at"],
                 ),
@@ -562,6 +584,30 @@ class PublicResponseStore:
                 (session_id, now),
             ).fetchall()
         return [json.loads(row["payload"]) for row in rows]
+
+    def get_response_input(self, session_id: str, response_id: str) -> list[dict[str, Any]]:
+        now = _now()
+        with self._lock, self.connect() as connection:
+            self._cleanup(connection, now)
+            row = connection.execute(
+                """SELECT input_json FROM public_session_responses
+                   WHERE session_id = ? AND response_id = ? AND expires_at > ?""",
+                (session_id, response_id, now),
+            ).fetchone()
+        if row is None:
+            raise HTTPException(
+                status_code=404,
+                detail="response_not_found",
+                headers={"Cache-Control": "no-store"},
+            )
+        if row["input_json"] is None:
+            raise HTTPException(
+                status_code=409,
+                detail="input_items_not_recorded_for_legacy_response",
+                headers={"Cache-Control": "no-store"},
+            )
+        value = json.loads(row["input_json"])
+        return value if isinstance(value, list) else []
 
     def expire_session_for_test(self, session_id: str) -> None:
         with self._lock, self.connect() as connection:
@@ -680,6 +726,12 @@ def _response_shell(
     status: str,
     public_tools: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    task = body.task.model_dump(mode="json") if body.task is not None else None
+    work_summary = build_work_summary(
+        response_status=status,
+        task=task,
+        requested_tools=public_tools,
+    )
     return {
         "id": response_id,
         "object": "response",
@@ -703,10 +755,52 @@ def _response_shell(
         "top_p": None,
         "truncation": "disabled",
         "usage": None,
-        "metadata": sanitize_learning_value(body.metadata),
+        "metadata": summary_metadata(
+            sanitize_learning_value(body.metadata),
+            work_summary,
+        ),
         "project_id": project_id,
         "execution_mode": body.execution_mode,
     }
+
+
+def _decorate_response_work_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    """Add the public summary to owner responses without exposing technical data."""
+
+    response = dict(payload)
+    technical = response.get("technical")
+    routing = (
+        technical.get("provider_routing")
+        if isinstance(technical, dict) and isinstance(technical.get("provider_routing"), dict)
+        else {}
+    )
+    verification = response.get("verification")
+    if not isinstance(verification, dict):
+        candidate = routing.get("verifier_evidence")
+        verification = candidate if isinstance(candidate, dict) else None
+    task = response.get("task") if isinstance(response.get("task"), dict) else None
+    requested_tools = response.get("tools") if isinstance(response.get("tools"), list) else []
+    tool_calls = routing.get("tool_calls") if isinstance(routing.get("tool_calls"), list) else []
+    citations = response.get("citations") if isinstance(response.get("citations"), list) else []
+    work_summary = build_work_summary(
+        response_status=str(response.get("status") or "in_progress"),
+        task=task,
+        requested_tools=requested_tools,
+        tool_calls=tool_calls,
+        citations=citations,
+        verification=verification,
+    )
+    response["metadata"] = summary_metadata(
+        response.get("metadata") if isinstance(response.get("metadata"), dict) else {},
+        work_summary,
+    )
+    output = list(response.get("output") or [])
+    if response.get("id") and not any(
+        isinstance(item, dict) and item.get("type") == "reasoning" for item in output
+    ):
+        output.append(reasoning_output_item(str(response["id"]), work_summary))
+    response["output"] = output
+    return response
 
 
 def _public_tool_identifier(item: dict[str, Any]) -> str:
@@ -809,6 +903,14 @@ def _complete_deterministic_estimate_fallback(
     verification = deterministic_estimate_fallback_verification(task_payload)
     text = deterministic_estimate_fallback_text(task_payload)
     verification = {**verification, "output_sha256": _sha256(text)}
+    work_summary = build_work_summary(
+        response_status="completed",
+        task=task_payload,
+        requested_tools=[],
+        tool_calls=[],
+        citations=[],
+        verification=verification,
+    )
     payload = {
         **base,
         "status": "completed",
@@ -829,7 +931,9 @@ def _complete_deterministic_estimate_fallback(
         "citations": [],
         "tool_calls": [],
         "task": task_payload,
+        "metadata": summary_metadata(base.get("metadata"), work_summary),
     }
+    payload["output"].append(reasoning_output_item(response_id, work_summary))
     payload["learning_tap"] = _record_public_learning_tap(
         session=session,
         body=body,
@@ -932,7 +1036,35 @@ async def _complete_public_response(
                 pass
             result = {**result, "task": task_payload}
         public = verified_public_payload(result)
-        text = str(public["response"])
+        public_task = public.get("task") if isinstance(public.get("task"), dict) else None
+        readiness_result = (
+            public_task.get("result")
+            if isinstance(public_task, dict) and isinstance(public_task.get("result"), dict)
+            else None
+        )
+        if isinstance(readiness_result, dict) and readiness_result.get("type") == "estimate_readiness":
+            # The verified provider proposal remains hash-bound inside the task
+            # proof, but its untrusted prices must never become public answer
+            # text.  Present only the deterministic non-monetary gate summary.
+            provider_output_verification = dict(public["verification"])
+            text = deterministic_estimate_fallback_text(public_task)
+            public["verification"] = {
+                **deterministic_estimate_fallback_verification(public_task),
+                "output_sha256": _sha256(text),
+                "provider_output_sha256": provider_output_verification["output_sha256"],
+                "provider_verifier_binding_sha256": provider_output_verification["binding_sha256"],
+            }
+        elif isinstance(readiness_result, dict) and readiness_result.get("type") == "deterministic_estimate":
+            provider_output_verification = dict(public["verification"])
+            text = deterministic_estimate_result_text(public_task)
+            public["verification"] = {
+                **deterministic_estimate_result_verification(public_task),
+                "output_sha256": _sha256(text),
+                "provider_output_sha256": provider_output_verification["output_sha256"],
+                "provider_verifier_binding_sha256": provider_output_verification["binding_sha256"],
+            }
+        else:
+            text = str(public["response"])
         message_id = _opaque_id("msg")
         payload = {
             **base,
@@ -956,6 +1088,18 @@ async def _complete_public_response(
         }
         if isinstance(public.get("task"), dict):
             payload["task"] = public["task"]
+        work_summary = build_work_summary(
+            response_status="completed",
+            task=payload.get("task") or (
+                body.task.model_dump(mode="json") if body.task is not None else None
+            ),
+            requested_tools=public_tools,
+            tool_calls=tool_execution.tool_calls,
+            citations=tool_execution.citations,
+            verification=public["verification"],
+        )
+        payload["metadata"] = summary_metadata(base.get("metadata"), work_summary)
+        payload["output"].append(reasoning_output_item(response_id, work_summary))
         payload["learning_tap"] = _record_public_learning_tap(
             session=session,
             body=body,
@@ -997,6 +1141,18 @@ async def _complete_public_response(
         }
         if body.task is not None:
             payload["task"] = failed_vertical_result(body.task, exc.code)
+        work_summary = build_work_summary(
+            response_status="failed",
+            task=payload.get("task") or (
+                body.task.model_dump(mode="json") if body.task is not None else None
+            ),
+            requested_tools=public_tools,
+            tool_calls=[],
+            citations=[],
+            verification=None,
+        )
+        payload["metadata"] = summary_metadata(base.get("metadata"), work_summary)
+        payload["output"] = [reasoning_output_item(response_id, work_summary)]
         payload["learning_tap"] = _record_public_learning_tap(
             session=session,
             body=body,
@@ -1042,6 +1198,18 @@ async def _complete_public_response(
         }
         if body.task is not None:
             payload["task"] = failed_vertical_result(body.task, "provider_unavailable")
+        work_summary = build_work_summary(
+            response_status="failed",
+            task=payload.get("task") or (
+                body.task.model_dump(mode="json") if body.task is not None else None
+            ),
+            requested_tools=public_tools,
+            tool_calls=[],
+            citations=[],
+            verification=None,
+        )
+        payload["metadata"] = summary_metadata(base.get("metadata"), work_summary)
+        payload["output"] = [reasoning_output_item(response_id, work_summary)]
         payload["learning_tap"] = _record_public_learning_tap(
             session=session,
             body=body,
@@ -1082,41 +1250,101 @@ async def _response_sse(
         })
         return
 
-    item = final["output"][0]
+    message_index, item = next(
+        (index, item)
+        for index, item in enumerate(final["output"])
+        if isinstance(item, dict) and item.get("type") == "message"
+    )
     part = item["content"][0]
     sequence += 1
     yield _sse("response.output_item.added", {
         "type": "response.output_item.added", "sequence_number": sequence,
-        "output_index": 0, "item": {**item, "status": "in_progress", "content": []},
+        "output_index": message_index, "item": {**item, "status": "in_progress", "content": []},
     })
     sequence += 1
     yield _sse("response.content_part.added", {
         "type": "response.content_part.added", "sequence_number": sequence,
-        "item_id": item["id"], "output_index": 0, "content_index": 0,
+        "item_id": item["id"], "output_index": message_index, "content_index": 0,
         "part": {"type": "output_text", "text": "", "annotations": []},
     })
     sequence += 1
     yield _sse("response.output_text.delta", {
         "type": "response.output_text.delta", "sequence_number": sequence,
-        "item_id": item["id"], "output_index": 0, "content_index": 0,
+        "item_id": item["id"], "output_index": message_index, "content_index": 0,
         "delta": part["text"],
     })
     sequence += 1
     yield _sse("response.output_text.done", {
         "type": "response.output_text.done", "sequence_number": sequence,
-        "item_id": item["id"], "output_index": 0, "content_index": 0,
+        "item_id": item["id"], "output_index": message_index, "content_index": 0,
         "text": part["text"],
     })
     sequence += 1
     yield _sse("response.content_part.done", {
         "type": "response.content_part.done", "sequence_number": sequence,
-        "item_id": item["id"], "output_index": 0, "content_index": 0, "part": part,
+        "item_id": item["id"], "output_index": message_index, "content_index": 0, "part": part,
     })
     sequence += 1
     yield _sse("response.output_item.done", {
         "type": "response.output_item.done", "sequence_number": sequence,
-        "output_index": 0, "item": item,
+        "output_index": message_index, "item": item,
     })
+
+    reasoning = next((
+        (index, output_item)
+        for index, output_item in enumerate(final["output"])
+        if isinstance(output_item, dict) and output_item.get("type") == "reasoning"
+    ), None)
+    if reasoning is not None:
+        reasoning_index, reasoning_item = reasoning
+        sequence += 1
+        yield _sse("response.output_item.added", {
+            "type": "response.output_item.added", "sequence_number": sequence,
+            "output_index": reasoning_index,
+            "item": {**reasoning_item, "summary": []},
+        })
+        for summary_index, summary_part in enumerate(reasoning_item.get("summary", [])):
+            sequence += 1
+            yield _sse("response.reasoning_summary_part.added", {
+                "type": "response.reasoning_summary_part.added",
+                "sequence_number": sequence,
+                "item_id": reasoning_item["id"],
+                "output_index": reasoning_index,
+                "summary_index": summary_index,
+                "part": {"type": "summary_text", "text": ""},
+            })
+            sequence += 1
+            yield _sse("response.reasoning_summary_text.delta", {
+                "type": "response.reasoning_summary_text.delta",
+                "sequence_number": sequence,
+                "item_id": reasoning_item["id"],
+                "output_index": reasoning_index,
+                "summary_index": summary_index,
+                "delta": summary_part["text"],
+            })
+            sequence += 1
+            yield _sse("response.reasoning_summary_text.done", {
+                "type": "response.reasoning_summary_text.done",
+                "sequence_number": sequence,
+                "item_id": reasoning_item["id"],
+                "output_index": reasoning_index,
+                "summary_index": summary_index,
+                "text": summary_part["text"],
+            })
+            sequence += 1
+            yield _sse("response.reasoning_summary_part.done", {
+                "type": "response.reasoning_summary_part.done",
+                "sequence_number": sequence,
+                "item_id": reasoning_item["id"],
+                "output_index": reasoning_index,
+                "summary_index": summary_index,
+                "part": summary_part,
+            })
+        sequence += 1
+        yield _sse("response.output_item.done", {
+            "type": "response.output_item.done", "sequence_number": sequence,
+            "output_index": reasoning_index, "item": reasoning_item,
+        })
     sequence += 1
     yield _sse("response.completed", {
         "type": "response.completed", "sequence_number": sequence, "response": final,
@@ -1137,6 +1365,7 @@ def create_public_session(request: Request):
     payload = {
         "id": session["id"],
         "object": "public.session",
+        "active": True,
         "expires_at": int(session["expires_at"]),
         "project": {
             "id": session["project_id"],
@@ -1160,10 +1389,21 @@ def create_public_session(request: Request):
 
 @router.get("/v1/public/session")
 def get_public_session(request: Request):
+    # A cold browser start is discovery, not an authentication failure. Return
+    # a non-cacheable inactive marker when no cookie was presented so the
+    # Shell can issue its first session without producing a noisy expected 401
+    # in DevTools. A syntactically valid but expired/revoked cookie still goes
+    # through _require_session and remains a real 401 state transition.
+    if not _session_cookie_candidates(request):
+        return JSONResponse(
+            {"object": "public.session", "active": False, "model": "kolibri"},
+            headers={"Cache-Control": "no-store"},
+        )
     session = _require_session(request, mutating=False)
     payload = {
         "id": session["id"],
         "object": "public.session",
+        "active": True,
         "expires_at": int(session["expires_at"]),
         "project": {"id": session["project_id"], "object": "project.ephemeral", "durable": False},
         "model": "kolibri",
@@ -1179,7 +1419,9 @@ async def create_public_or_owner_response(body: ResponseCreate, request: Request
     owner = _owner_principal(request)
     if owner is not None:
         owner_body = body.model_copy(update={"stream": False})
-        response = await run_in_threadpool(create_owner_response, owner_body, request)
+        response = _decorate_response_work_summary(
+            await run_in_threadpool(create_owner_response, owner_body, request)
+        )
         if not body.stream:
             return response
         return StreamingResponse(
@@ -1249,7 +1491,15 @@ async def create_public_or_owner_response(body: ResponseCreate, request: Request
 @router.get("/v1/responses")
 def list_public_or_owner_responses(request: Request):
     if _owner_principal(request) is not None:
-        return list_owner_responses()
+        result = list_owner_responses()
+        return {
+            **result,
+            "data": [
+                _decorate_response_work_summary(item)
+                for item in result.get("data", [])
+                if isinstance(item, dict)
+            ],
+        }
     session = _require_session(request, mutating=False)
     return {"object": "list", "data": _STORE.list_responses(session["id"]), "has_more": False}
 
@@ -1257,7 +1507,7 @@ def list_public_or_owner_responses(request: Request):
 @router.get("/v1/responses/{response_id}")
 def get_public_or_owner_response(response_id: str, request: Request):
     if _owner_principal(request) is not None:
-        return get_owner_response(response_id)
+        return _decorate_response_work_summary(get_owner_response(response_id))
     session = _require_session(request, mutating=False)
     record = _STORE.get_response(session["id"], response_id)
     if record is None:
@@ -1265,10 +1515,39 @@ def get_public_or_owner_response(response_id: str, request: Request):
     return record[0]
 
 
+@router.get("/v1/responses/{response_id}/input_items")
+def list_public_or_owner_response_input_items(
+    response_id: str,
+    request: Request,
+    limit: int = Query(default=20, ge=1, le=100),
+    order: Literal["asc", "desc"] = "desc",
+    after: str | None = None,
+    include: list[str] | None = Query(default=None),
+):
+    if _owner_principal(request) is not None:
+        return list_owner_response_input_items(
+            response_id=response_id,
+            limit=limit,
+            order=order,
+            after=after,
+            include=include,
+        )
+    session = _require_session(request, mutating=False)
+    input_items = _STORE.get_response_input(session["id"], response_id)
+    payload = response_input_item_list(
+        response_id,
+        input_items,
+        limit=limit,
+        order=order,
+        after=after,
+    )
+    return JSONResponse(payload, headers={"Cache-Control": "no-store"})
+
+
 @router.post("/v1/responses/{response_id}/cancel")
 def cancel_public_or_owner_response(response_id: str, request: Request):
     if _owner_principal(request) is not None:
-        return cancel_owner_response(response_id)
+        return _decorate_response_work_summary(cancel_owner_response(response_id))
     session = _require_session(request, mutating=True)
     record = _STORE.get_response(session["id"], response_id)
     if record is None:

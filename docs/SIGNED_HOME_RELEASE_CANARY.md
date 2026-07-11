@@ -1,4 +1,9 @@
-# Signed Home-only release canary
+# Signed Home-only release canary (legacy backend procedure)
+
+> The active Home policy now requires a unified backend/frontend/Control Plane
+> bundle. Do not execute this historical backend-only procedure as written.
+> Use `docs/HOME_CONTROL_PLANE_SIGNED_RELEASE.md`; the extraction and approval
+> sections below remain reference material.
 
 Status: executable runbook. No production release was applied while this
 runbook was implemented.

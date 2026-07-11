@@ -550,10 +550,12 @@ def deterministic_verifier_evidence(
     provider_evidence: dict[str, Any] | None,
     requested_tools: list[dict[str, Any]] | None,
     tool_calls: list[dict[str, Any]] | None,
+    citations: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Return a deterministic, content-bound gateway verifier verdict."""
     requested_tools = requested_tools or []
     tool_calls = tool_calls or []
+    citations = citations or []
     output = str(text or "").strip()
     output_sha = hashlib.sha256(output.encode("utf-8")).hexdigest() if output else ""
     provider_bound = bool(
@@ -576,12 +578,35 @@ def deterministic_verifier_evidence(
         ), None)
         if match:
             executed[binding_id] = str(match.get("call_id") or "")
+    project_knowledge_requested = any(
+        str(item.get("id") or "") == "tool:project_knowledge"
+        for item in requested_tools
+    )
+    project_markers = {
+        str(item.get("marker") or "")
+        for item in citations
+        if isinstance(item, dict)
+        and item.get("policy_version") == "kolibri.project-knowledge-policy.v1"
+        and re.fullmatch(r"\[P[1-8]\]", str(item.get("marker") or ""))
+    }
+    referenced_project_markers = sorted(marker for marker in project_markers if marker in output)
+    unknown_project_markers = sorted(
+        marker for marker in set(re.findall(r"\[P\d+\]", output))
+        if marker not in project_markers
+    )
     checks = {
         "non_empty_answer": bool(output),
         "public_identity_preserved": not public_identity_contract_violation(output),
         "provider_evidence_bound": provider_bound,
         "requested_capabilities_available": all(item.get("status") == "available" for item in requested_tools),
         "requested_tools_executed": len(executed) == len(requested_tools),
+        "project_knowledge_citations_present": (
+            not project_knowledge_requested or bool(project_markers)
+        ),
+        "project_knowledge_answer_cited": (
+            not project_knowledge_requested
+            or (bool(referenced_project_markers) and not unknown_project_markers)
+        ),
     }
     verdict = "passed" if all(checks.values()) else "failed"
     binding_payload = {
@@ -589,6 +614,9 @@ def deterministic_verifier_evidence(
         "provider_evidence_sha256": hashlib.sha256(_stable_json(provider_evidence or {}).encode("utf-8")).hexdigest(),
         "requested_tool_ids": sorted(str(item.get("id") or "") for item in requested_tools),
         "verified_tool_calls": sorted(executed.items()),
+        "project_citation_markers": sorted(project_markers),
+        "referenced_project_citation_markers": referenced_project_markers,
+        "unknown_project_citation_markers": unknown_project_markers,
         "checks": checks,
     }
     return {
@@ -714,6 +742,7 @@ def _factory_health_response_records(
     *,
     now: float | None = None,
     cooldown_seconds: float = 300.0,
+    transient_timeout_cooldown_seconds: float = 5.0,
 ) -> dict[str, dict[str, Any]]:
     """Validate the Control Plane's prompt-free chronological health view.
 
@@ -743,6 +772,17 @@ def _factory_health_response_records(
         if health_status not in {"healthy", "open"}:
             continue
         reason = _safe_token(raw_record.get("reason"), "unknown")
+        age_seconds = max(0.0, current - observed_at)
+        # A per-request deadline is not proof that an authenticated actor is
+        # unhealthy.  Keep a very short back-pressure window, then half-open
+        # the route automatically.  Auth/access/risk failures retain the
+        # normal circuit-breaker cooldown.
+        if (
+            health_status == "open"
+            and reason == "provider_timeout"
+            and age_seconds > max(1.0, min(float(transient_timeout_cooldown_seconds), 60.0))
+        ):
+            continue
         latency_seconds = None
         try:
             parsed_latency = float(raw_record.get("latency_seconds"))
@@ -1079,8 +1119,14 @@ class ProviderGateway:
             cooldown = self._bounded_factory_setting(
                 "KOLIBRI_FACTORY_NODE_COOLDOWN", 300.0, 15.0, 1800.0,
             )
+            timeout_cooldown = self._bounded_factory_setting(
+                "KOLIBRI_FACTORY_TIMEOUT_COOLDOWN", 5.0, 1.0, 60.0,
+            )
             records = _factory_health_response_records(
-                payload, runner, cooldown_seconds=cooldown,
+                payload,
+                runner,
+                cooldown_seconds=cooldown,
+                transient_timeout_cooldown_seconds=timeout_cooldown,
             )
         self._factory_health_cache[runner] = (now_monotonic, records)
         return records
@@ -1114,6 +1160,10 @@ class ProviderGateway:
         cooldown = self._bounded_factory_setting(
             "KOLIBRI_FACTORY_NODE_COOLDOWN", 300.0, 15.0, 1800.0,
         )
+        if error_type == "provider_timeout":
+            cooldown = self._bounded_factory_setting(
+                "KOLIBRI_FACTORY_TIMEOUT_COOLDOWN", 5.0, 1.0, 60.0,
+            )
         self._factory_local_health[(runner, node_id)] = {
             "status": "healthy" if error_type is None else "open",
             "reason": "verified_completion" if error_type is None else str(error_type),
@@ -1121,6 +1171,21 @@ class ProviderGateway:
             "observed_at": time.time(),
             "expires_monotonic": time.monotonic() + cooldown,
         }
+
+    @staticmethod
+    def _factory_default_task_timeout(prompt: str, runner: str) -> float:
+        """Bound runner deadlines by workload without making argv stateful.
+
+        Codex normally completes a short dialogue turn in under a minute, but
+        source-bearing estimates and document tasks carry a strict schema and
+        can legitimately need longer.  The total provider timeout remains the
+        hard upper bound applied by the caller.
+        """
+
+        prompt_bytes = len(prompt.encode("utf-8"))
+        if runner == "codex":
+            return 180.0 if prompt_bytes > 8_192 else 90.0
+        return 75.0
 
     def _factory_candidates(self, runner: str) -> tuple[list[dict[str, Any]], str | None]:
         payload, error_type = self._factory_request("GET", "/v1/nodes?scope=active&limit=250")
@@ -1371,10 +1436,11 @@ class ProviderGateway:
         task_id = f"KOL-PROVIDER-{_safe_token(response_id)[:32]}-{digest[:16]}"
         idempotency_key = f"factory-provider:{digest}"
         try:
+            default_timeout = self._factory_default_task_timeout(prompt, runner)
             task_timeout = max(
                 0.1,
                 min(
-                    float(os.environ.get("KOLIBRI_FACTORY_TASK_TIMEOUT", "45")),
+                    float(os.environ.get("KOLIBRI_FACTORY_TASK_TIMEOUT", str(default_timeout))),
                     float(self.timeout),
                     timeout_budget,
                 ),
@@ -1384,7 +1450,12 @@ class ProviderGateway:
                 min(float(os.environ.get("KOLIBRI_FACTORY_POLL_INTERVAL", "0.5")), 5.0),
             )
         except ValueError:
-            task_timeout, poll_interval = min(45.0, float(self.timeout)), 0.5
+            task_timeout = min(
+                self._factory_default_task_timeout(prompt, runner),
+                float(self.timeout),
+                timeout_budget,
+            )
+            poll_interval = 0.5
         envelope = {
             "task_id": task_id,
             "idempotency_key": idempotency_key,
@@ -1476,15 +1547,19 @@ class ProviderGateway:
         if error_type:
             return FactoryCompletion("", error_type, runner, None, ())
         try:
+            default_timeout = self._factory_default_task_timeout(prompt, runner)
             task_timeout_limit = max(
                 0.1,
                 min(
-                    float(os.environ.get("KOLIBRI_FACTORY_TASK_TIMEOUT", "45")),
+                    float(os.environ.get("KOLIBRI_FACTORY_TASK_TIMEOUT", str(default_timeout))),
                     float(self.timeout),
                 ),
             )
         except ValueError:
-            task_timeout_limit = min(45.0, float(self.timeout))
+            task_timeout_limit = min(
+                self._factory_default_task_timeout(prompt, runner),
+                float(self.timeout),
+            )
         try:
             route_timeout = max(
                 0.1,

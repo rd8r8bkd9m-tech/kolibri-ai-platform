@@ -59,7 +59,8 @@
         },
         "x-kolibri-provider-selection": "server-policy-only",
         "x-kolibri-tool-completion-gate": "non-empty answer plus provider evidence plus deterministic verifier evidence",
-        "x-kolibri-public-session-tool-scope": "only response-scoped tool:web_search through the controlled allowlisted HTTP gateway; no shell or generic URL fetch",
+        "x-kolibri-public-session-tool-scope": "only response-scoped tool:web_search through the controlled allowlisted HTTP gateway; tool:project_knowledge is owner-only; no shell or generic URL fetch",
+        "x-kolibri-owner-project-knowledge": "bounded allowlisted repository evidence with path, line span, file/span SHA-256 and mandatory citations; no symlinks, secrets, runtime artifacts or wildcard filesystem access",
         "x-kolibri-implementation": "compatibility"
       }
     },
@@ -607,7 +608,7 @@
             "type": "array",
             "maxItems": 16,
             "items": { "type": "object", "additionalProperties": true },
-            "description": "Validated capability declarations. web_search/web_search_preview execute through the controlled HTTP gateway."
+            "description": "Validated capability declarations. web_search/web_search_preview execute through the controlled HTTP gateway; project_knowledge executes only for an authenticated owner through the bounded repository index gateway."
           },
           "idempotency_key": { "type": ["string", "null"], "maxLength": 300 }
         },

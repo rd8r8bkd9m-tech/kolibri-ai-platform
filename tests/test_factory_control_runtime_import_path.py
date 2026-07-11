@@ -39,6 +39,19 @@ def test_factory_control_systemd_unit_uses_repo_runtime_contract():
     assert "ExecStart=/usr/local/bin/kolibri-factory-control" not in unit
 
 
+def test_home_dropin_selects_atomic_immutable_runtime_through_fixed_launcher():
+    dropin = (
+        ROOT
+        / "ops/systemd/kolibri-factory-control-immutable-release.conf"
+    ).read_text(encoding="utf-8")
+
+    assert "ExecStart=" in dropin
+    assert "home_control_plane_launcher.py" in dropin
+    assert "control_plane_endpoint.py --assert-local-home" in dropin
+    assert "/opt/kolibri-ai-platform/ops/factory_control.py" not in dropin
+    assert "EnvironmentFile=" not in dropin
+
+
 def test_factory_control_runtime_preflight_is_read_only_and_checks_fabric_routes():
     script = ROOT / "scripts" / "preflight-factory-control-runtime.sh"
     text = script.read_text(encoding="utf-8")

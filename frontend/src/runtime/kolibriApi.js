@@ -30,6 +30,42 @@ export class KolibriApiError extends Error {
   }
 }
 
+const WORK_SUMMARY_KINDS = new Set(["plan", "tool", "source", "check", "verdict"]);
+const WORK_SUMMARY_STATUSES = new Set(["pending", "running", "passed", "failed", "skipped", "incomplete", "blocked"]);
+const WORK_SUMMARY_SECRET_PATTERN = /(?:\bsk-[a-z0-9_-]{8,}|\b(?:authorization|api[_-]?key|password|secret|token)\s*[:=])/i;
+
+function hasControlCharacters(value) {
+  return [...value].some((character) => {
+    const code = character.codePointAt(0);
+    return code <= 31 || code === 127;
+  });
+}
+
+export function normalizeWorkSummary(payload) {
+  const encoded = payload?.metadata?.kolibri_work_summary;
+  if (typeof encoded !== "string" || encoded.length > 512) return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(encoded);
+  } catch {
+    return null;
+  }
+  if (parsed?.v !== 1 || parsed?.mode !== "summary_only" || !Array.isArray(parsed?.items)) return null;
+  const items = [];
+  for (const item of parsed.items.slice(0, 5)) {
+    if (!WORK_SUMMARY_KINDS.has(item?.kind) || !WORK_SUMMARY_STATUSES.has(item?.status)) return null;
+    const detail = typeof item.detail === "string" ? item.detail.trim() : "";
+    if (detail.length > 160 || hasControlCharacters(detail) || WORK_SUMMARY_SECRET_PATTERN.test(detail)) return null;
+    items.push({ kind: item.kind, status: item.status, detail });
+  }
+  return items.length ? {
+    schema_version: "kolibri.work-summary.v1",
+    mode: "summary_only",
+    raw_reasoning_exposed: false,
+    items,
+  } : null;
+}
+
 async function requestJson(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
     credentials: "same-origin",
@@ -158,7 +194,7 @@ export async function ensurePublicSession() {
       // caller-specific AbortSignal must not cancel that shared handshake and
       // poison unrelated requests; the signal remains scoped to /responses.
       const current = await requestJson(API_ENDPOINTS.publicSession, { cache: "no-store" });
-      if (current.payload?.object === "public.session") return current.payload;
+      if (current.payload?.object === "public.session" && current.payload?.active !== false) return current.payload;
     } catch (error) {
       if (!(error instanceof KolibriApiError) || error.status !== 401) throw error;
     }
@@ -217,7 +253,7 @@ function parseSseBlock(block) {
   }
 }
 
-async function consumeResponsesSse(response) {
+async function consumeResponsesSse(response, onWorkSummary) {
   let buffer = "";
   let streamedText = "";
   let completed = null;
@@ -227,6 +263,17 @@ async function consumeResponsesSse(response) {
     if (!parsed) return;
     const payload = parsed.data;
     const type = payload?.type || parsed.event;
+    const responsePayload = payload?.response;
+    if (responsePayload) {
+      const workSummary = normalizeWorkSummary(responsePayload);
+      if (workSummary && typeof onWorkSummary === "function") {
+        try {
+          onWorkSummary(workSummary);
+        } catch {
+          // Rendering progress is observational and must never abort execution.
+        }
+      }
+    }
     if (type === "response.output_text.delta" && typeof payload.delta === "string") {
       streamedText += payload.delta;
     } else if (type === "response.completed" && payload.response) {
@@ -278,7 +325,7 @@ async function consumeResponsesSse(response) {
   return completed;
 }
 
-async function requestResponsesStream(body, idempotencyKey, signal) {
+async function requestResponsesStream(body, idempotencyKey, signal, onWorkSummary) {
   const response = await fetch(`${API_BASE}${API_ENDPOINTS.response}`, {
     method: "POST",
     credentials: "same-origin",
@@ -303,7 +350,7 @@ async function requestResponsesStream(body, idempotencyKey, signal) {
       endpoint: API_ENDPOINTS.response,
     });
   }
-  return consumeResponsesSse(response);
+  return consumeResponsesSse(response, onWorkSummary);
 }
 
 function unwrapData(payload) {
@@ -452,8 +499,10 @@ export function buildConversationMessages(history, currentText) {
 
 const PUBLIC_TASK_SCHEMA = "kolibri.public-task.v1";
 const PUBLIC_TASK_INTENTS = Object.freeze(["estimate", "document", "site", "app"]);
-const ESTIMATE_FALLBACK_ENGINE = "kolibri.estimate-assumption-engine.v1";
-const ESTIMATE_FALLBACK_PROOF_SCHEMA = "kolibri.estimate-engine-proof.v1";
+const ESTIMATE_FALLBACK_ENGINE = "kolibri.estimate-readiness-gate.v1";
+const ESTIMATE_FALLBACK_PROOF_SCHEMA = "kolibri.estimate-readiness-proof.v1";
+const ESTIMATE_READINESS_SCHEMA = "kolibri.estimate-readiness.v1";
+const ESTIMATE_READINESS_EDITOR_SCHEMA = "kolibri.estimate-input-editor.v1";
 const SHA256 = /^[a-f0-9]{64}$/i;
 const SAFE_ARTIFACT_SCHEMES = /^(?:artifact:|https?:|\/)/i;
 const SECRET_KEYS = new Set([
@@ -609,6 +658,7 @@ export function buildDeterministicEstimateTask({
   lines,
   overheadRateBps = 0,
   taxRateBps = 0,
+  normativeBasis = null,
   requestedArtifacts: artifactKinds = [],
   ...routingOrUnknown
 } = {}) {
@@ -632,9 +682,17 @@ export function buildDeterministicEstimateTask({
       throw new KolibriApiError(`estimate.lines[${index}].quantity: требуется положительное десятичное число`);
     }
     const provenance = clonePublicValue(line.provenance || { source: "manual" }, `estimate.lines[${index}].provenance`);
-    const provenanceKeys = new Set(["source", "source_ref", "captured_at"]);
+    const provenanceKeys = new Set([
+      "source", "source_ref", "captured_at", "applicable_region",
+      "source_url", "price_level_date", "basis_ref", "quantity_source",
+      "quantity_source_ref", "quantity_source_url", "assumptions", "validation_status",
+    ]);
     for (const key of Object.keys(provenance)) if (!provenanceKeys.has(key)) throw new KolibriApiError(`estimate.lines[${index}].provenance.${key}: неизвестное поле`);
-    provenance.source = enumValue(provenance.source || "manual", ["manual", "assumption", "catalog", "contract", "supplier", "measurement"], `estimate.lines[${index}].provenance.source`);
+    provenance.source = enumValue(provenance.source || "manual", ["manual", "assumption", "normative", "catalog", "contract", "supplier", "measurement"], `estimate.lines[${index}].provenance.source`);
+    if (provenance.quantity_source !== undefined) {
+      provenance.quantity_source = enumValue(provenance.quantity_source, ["project", "measurement", "manual"], `estimate.lines[${index}].provenance.quantity_source`);
+    }
+    provenance.validation_status = enumValue(provenance.validation_status || "unverified", ["unverified", "verified"], `estimate.lines[${index}].provenance.validation_status`);
     return {
       id,
       section: nonEmptyText(line.section || "Основные работы", `estimate.lines[${index}].section`, 200),
@@ -646,6 +704,29 @@ export function buildDeterministicEstimateTask({
       provenance,
     };
   });
+  let normalizedBasis = null;
+  if (normativeBasis !== null && normativeBasis !== undefined) {
+    const basis = clonePublicValue(normativeBasis, "estimate.normative_basis");
+    const allowed = new Set([
+      "calculation_method", "normative_basis_ref", "normative_edition",
+      "price_level_date", "region", "index_document_refs", "tax_scope_ref",
+      "contract_scope_ref", "source_urls", "input_document_refs", "validation_status",
+    ]);
+    for (const key of Object.keys(basis)) if (!allowed.has(key)) throw new KolibriApiError(`estimate.normative_basis.${key}: неизвестное поле`);
+    normalizedBasis = {
+      calculation_method: enumValue(basis.calculation_method, ["resource-index", "resource", "base-index", "contract", "commercial"], "estimate.normative_basis.calculation_method"),
+      normative_basis_ref: nonEmptyText(basis.normative_basis_ref, "estimate.normative_basis.normative_basis_ref", 1_000),
+      normative_edition: nonEmptyText(basis.normative_edition, "estimate.normative_basis.normative_edition", 300),
+      price_level_date: nonEmptyText(basis.price_level_date, "estimate.normative_basis.price_level_date", 80),
+      region: nonEmptyText(basis.region, "estimate.normative_basis.region", 300),
+      index_document_refs: clonePublicValue(basis.index_document_refs || [], "estimate.normative_basis.index_document_refs"),
+      tax_scope_ref: nonEmptyText(basis.tax_scope_ref, "estimate.normative_basis.tax_scope_ref", 1_000),
+      contract_scope_ref: nonEmptyText(basis.contract_scope_ref, "estimate.normative_basis.contract_scope_ref", 1_000),
+      source_urls: clonePublicValue(basis.source_urls || [], "estimate.normative_basis.source_urls"),
+      input_document_refs: clonePublicValue(basis.input_document_refs || [], "estimate.normative_basis.input_document_refs"),
+      validation_status: enumValue(basis.validation_status || "unverified", ["unverified", "verified"], "estimate.normative_basis.validation_status"),
+    };
+  }
   return {
     intent: "estimate",
     spec: {
@@ -657,6 +738,7 @@ export function buildDeterministicEstimateTask({
       ...(objectName ? { object_name: nonEmptyText(objectName, "estimate.object_name", 500) } : {}),
       ...(objectAddress ? { object_address: nonEmptyText(objectAddress, "estimate.object_address", 1_000) } : {}),
       source_summary: nonEmptyText(sourceSummary, "estimate.source_summary", 2_000),
+      ...(normalizedBasis ? { normative_basis: normalizedBasis } : {}),
       assumptions: clonePublicValue(assumptions, "estimate.assumptions"),
       questions: clonePublicValue(questions, "estimate.questions"),
       lines: normalizedLines,
@@ -670,6 +752,35 @@ export function buildDeterministicEstimateTask({
 // Short public name for composer integrations; the longer name documents the
 // money-authority invariant at the implementation boundary.
 export const buildEstimateTask = buildDeterministicEstimateTask;
+
+export async function submitEstimateFeedback({
+  estimateId,
+  baseVersion,
+  action,
+  reason = "",
+  corrections = {},
+} = {}) {
+  const id = nonEmptyText(estimateId, "estimate.feedback.estimate_id", 200);
+  const reviewAction = enumValue(action, ["accept", "reject", "correct"], "estimate.feedback.action");
+  const version = integerInRange(baseVersion, 1, Number.MAX_SAFE_INTEGER, "estimate.feedback.base_version");
+  if (["reject", "correct"].includes(reviewAction) && !String(reason || "").trim() && !Object.keys(corrections || {}).length) {
+    throw new KolibriApiError("estimate.feedback: укажите причину или исправления");
+  }
+  await ensurePublicSession();
+  const requestId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const result = await requestJson(`/v1/public/estimates/${encodeURIComponent(id)}/feedback`, {
+    method: "POST",
+    body: JSON.stringify({
+      action: reviewAction,
+      base_version: version,
+      reason: String(reason || "").trim() || null,
+      corrections: clonePublicValue(corrections || {}, "estimate.feedback.corrections"),
+      idempotency_key: `estimate-feedback:${requestId}`,
+    }),
+    cache: "no-store",
+  });
+  return result.payload;
+}
 
 export function buildEstimateProposalTask({ brief, region = "", requestedArtifacts: artifactKinds = ["pdf"], ...routingOrUnknown } = {}) {
   assertNoRoutingSelection(routingOrUnknown, "estimate");
@@ -739,10 +850,24 @@ function safeArtifact(artifact, delivered) {
   if (artifact.immutable === true) result.immutable = true;
   if (typeof artifact.estimate_id === "string" && artifact.estimate_id) result.estimate_id = artifact.estimate_id;
   if (Number.isSafeInteger(artifact.estimate_version) && artifact.estimate_version > 0) result.estimate_version = artifact.estimate_version;
+  if (artifact.document_role === "estimate_input_checklist") result.document_role = artifact.document_role;
+  if (SHA256.test(String(artifact.readiness_sha256 || ""))) result.readiness_sha256 = String(artifact.readiness_sha256).toLowerCase();
+  if (SHA256.test(String(artifact.task_binding_sha256 || ""))) result.task_binding_sha256 = String(artifact.task_binding_sha256).toLowerCase();
   for (const key of ["kind", "name", "locator", "origin", "media_type"]) {
     if (typeof artifact[key] === "string" && artifact[key]) result[key] = artifact[key];
   }
   return result;
+}
+
+
+function containsForbiddenEstimateMoney(value) {
+  const forbidden = new Set([
+    "unit_price_minor", "line_total_minor", "totals", "subtotal_minor",
+    "grand_total_minor", "tax_minor", "overhead_minor", "amount_minor",
+  ]);
+  if (Array.isArray(value)) return value.some(containsForbiddenEstimateMoney);
+  if (!value || typeof value !== "object") return false;
+  return Object.entries(value).some(([key, child]) => forbidden.has(String(key).toLowerCase()) || containsForbiddenEstimateMoney(child));
 }
 
 export function normalizeTypedTaskEnvelope(task, expectedIntent = "") {
@@ -752,28 +877,38 @@ export function normalizeTypedTaskEnvelope(task, expectedIntent = "") {
   const intent = enumValue(task.intent, PUBLIC_TASK_INTENTS, "task.intent");
   if (expectedIntent && intent !== expectedIntent) throw new KolibriApiError("Typed gateway вернул результат другой задачи", { status: 502 });
   const execution = task.execution && typeof task.execution === "object" ? task.execution : {};
-  const providerVerified = execution.provider_verified === true && execution.status === "completed" && execution.model === "kolibri";
+  const providerVerified = execution.provider_verified === true
+    && execution.status === "completed"
+    && execution.model === "kolibri"
+    && SHA256.test(String(execution.output_sha256 || ""))
+    && SHA256.test(String(execution.verifier_binding_sha256 || ""));
   const generation = task.result?.generation && typeof task.result.generation === "object" ? task.result.generation : {};
-  const deterministicEngineVerified = intent === "estimate"
-    && execution.provider_verified === false
-    && execution.provider_status === "failed"
+  const providerBinding = generation.provider_binding && typeof generation.provider_binding === "object" ? generation.provider_binding : null;
+  const readinessEngineVerified = intent === "estimate"
     && execution.engine_verified === true
     && execution.status === "completed"
     && execution.model === "kolibri"
     && execution.engine === ESTIMATE_FALLBACK_ENGINE
     && generation.schema_version === ESTIMATE_FALLBACK_PROOF_SCHEMA
     && generation.engine === ESTIMATE_FALLBACK_ENGINE
-    && generation.mode === "assumption_template"
+    && generation.mode === "needs_input"
+    && generation.source_mode === (providerVerified ? "provider_reviewed" : "local_gate")
+    && execution.provider_status === (providerVerified ? "completed" : "failed")
     && /^[a-z0-9_]{1,80}$/.test(String(generation.fallback_reason || ""))
     && execution.fallback_reason === generation.fallback_reason
     && SHA256.test(String(execution.engine_binding_sha256 || ""))
     && String(execution.engine_binding_sha256).toLowerCase() === String(generation.binding_sha256 || "").toLowerCase()
     && SHA256.test(String(generation.input_facts_sha256 || ""))
-    && SHA256.test(String(generation.spec_sha256 || ""))
-    && SHA256.test(String(generation.calculation_sha256 || ""))
-    && generation.input_facts?.object_type === "one_storey_house"
-    && generation.input_facts?.storeys === 1;
-  const executionVerified = providerVerified || deterministicEngineVerified;
+    && SHA256.test(String(generation.readiness_sha256 || ""))
+    && generation.input_facts && typeof generation.input_facts === "object"
+    && (providerVerified
+      ? providerBinding
+        && SHA256.test(String(providerBinding.output_sha256 || ""))
+        && SHA256.test(String(providerBinding.verifier_binding_sha256 || ""))
+        && String(providerBinding.output_sha256).toLowerCase() === String(execution.output_sha256).toLowerCase()
+        && String(providerBinding.verifier_binding_sha256).toLowerCase() === String(execution.verifier_binding_sha256).toLowerCase()
+      : execution.provider_verified === false && providerBinding === null);
+  const executionVerified = providerVerified || readinessEngineVerified;
   const delivery = task.artifact_delivery && typeof task.artifact_delivery === "object" ? task.artifact_delivery : {};
   const requested = Array.isArray(delivery.requested) ? [...new Set(delivery.requested.filter((item) => typeof item === "string" && item))] : [];
   const reportedDelivered = new Set(Array.isArray(delivery.delivered) ? delivery.delivered.filter((item) => requested.includes(item)) : []);
@@ -790,25 +925,62 @@ export function normalizeTypedTaskEnvelope(task, expectedIntent = "") {
       : "incomplete";
   let result = null;
   if (status !== "failed" && intent === "estimate") {
-    const calculation = task.result?.type === "deterministic_estimate"
-      ? clonePublicValue(task.result.calculation, "task.result.calculation")
-      : null;
-    if (!calculation || calculation.money_authority !== "deterministic_calculator" || calculation.llm_calculates_money !== false) {
-      throw new KolibriApiError("Смета не подтверждена детерминированным расчётным контуром", { status: 502 });
+    if (task.result?.type === "estimate_readiness") {
+      const readiness = task.result.readiness && typeof task.result.readiness === "object"
+        ? clonePublicValue(task.result.readiness, "task.result.readiness")
+        : null;
+      const validReadiness = readinessEngineVerified
+        && readiness?.schema_version === ESTIMATE_READINESS_SCHEMA
+        && readiness.status === "needs_input"
+        && readiness.monetary_status === "not_calculated"
+        && readiness.normative_verified === false
+        && readiness.editor?.schema_version === ESTIMATE_READINESS_EDITOR_SCHEMA
+        && readiness.editor?.state === "needs_input"
+        && Array.isArray(readiness.editor?.fields)
+        && readiness.editor.fields.length > 0
+        && Array.isArray(readiness.required_inputs)
+        && readiness.required_inputs.length > 0
+        && readiness.required_inputs.every((item) => item && item.status === "missing")
+        && Array.isArray(readiness.draft_sections)
+        && readiness.draft_sections.every((section) => section && Array.isArray(section.items) && section.items.length === 0)
+        && !containsForbiddenEstimateMoney(readiness);
+      if (!validReadiness) {
+        throw new KolibriApiError("Проверка готовности сметы не подтверждена", { status: 502 });
+      }
+      result = {
+        type: "estimate_readiness",
+        readiness,
+        generation: clonePublicValue(generation, "task.result.generation"),
+      };
+    } else {
+      const calculation = task.result?.type === "deterministic_estimate"
+        ? clonePublicValue(task.result.calculation, "task.result.calculation")
+        : null;
+      if (!calculation || calculation.money_authority !== "deterministic_calculator" || calculation.llm_calculates_money !== false) {
+        throw new KolibriApiError("Смета не подтверждена детерминированным расчётным контуром", { status: 502 });
+      }
+      const estimate = task.result?.estimate && typeof task.result.estimate === "object"
+        ? clonePublicValue(task.result.estimate, "task.result.estimate")
+        : null;
+      const verification = task.result?.verification && typeof task.result.verification === "object"
+        ? clonePublicValue(task.result.verification, "task.result.verification")
+        : null;
+      if (!estimate || !Array.isArray(estimate.lines) || !estimate.lines.length) {
+        throw new KolibriApiError("Смета не содержит редактируемых строк", { status: 502 });
+      }
+      const estimateStatus = enumValue(task.result?.status, ["preliminary", "verified"], "task.result.status");
+      const validVerification = verification
+        && verification.status === estimateStatus
+        && verification.monetary_status === "calculated"
+        && SHA256.test(String(verification.binding_sha256 || ""))
+        && (estimateStatus === "preliminary"
+          ? verification.normative_verified === false && verification.commercial_verified === false
+          : verification.normative_verified === true || verification.commercial_verified === true);
+      if (!validVerification) {
+        throw new KolibriApiError("Статус источников сметы не прошёл проверку контракта", { status: 502 });
+      }
+      result = { type: "deterministic_estimate", status: estimateStatus, estimate, calculation, verification };
     }
-    if (deterministicEngineVerified && (
-      !SHA256.test(String(calculation.calculation_sha256 || ""))
-      || String(calculation.calculation_sha256).toLowerCase() !== String(generation.calculation_sha256).toLowerCase()
-    )) {
-      throw new KolibriApiError("Резервная смета не привязана к расчётному доказательству", { status: 502 });
-    }
-    const estimate = task.result?.estimate && typeof task.result.estimate === "object"
-      ? clonePublicValue(task.result.estimate, "task.result.estimate")
-      : null;
-    if (!estimate || !Array.isArray(estimate.lines) || !estimate.lines.length) {
-      throw new KolibriApiError("Смета не содержит редактируемых строк", { status: 502 });
-    }
-    result = { type: "deterministic_estimate", estimate, calculation };
   } else if (status !== "failed") {
     const responseText = task.result?.type === "verified_provider_response" && typeof task.result.text === "string"
       ? task.result.text
@@ -839,11 +1011,12 @@ export function normalizeTypedTaskEnvelope(task, expectedIntent = "") {
       status: executionVerified ? "completed" : "failed",
       model: "kolibri",
       provider_verified: providerVerified,
-      ...(deterministicEngineVerified ? {
+      ...(readinessEngineVerified ? {
         engine_verified: true,
         engine: ESTIMATE_FALLBACK_ENGINE,
         engine_binding_sha256: String(execution.engine_binding_sha256).toLowerCase(),
-        provider_status: "failed",
+        provider_status: providerVerified ? "completed" : "failed",
+        fallback_reason: String(execution.fallback_reason),
       } : {}),
       ...(SHA256.test(String(execution.output_sha256 || "")) ? { output_sha256: String(execution.output_sha256).toLowerCase() } : {}),
       ...(SHA256.test(String(execution.verifier_binding_sha256 || "")) ? { verifier_binding_sha256: String(execution.verifier_binding_sha256).toLowerCase() } : {}),
@@ -862,7 +1035,7 @@ export function normalizeTypedTaskEnvelope(task, expectedIntent = "") {
   };
 }
 
-export async function sendKolibriRequest({ text, messages = [], workstreamId = "", task = null, executionMode = "fast", metadata = {}, signal }) {
+export async function sendKolibriRequest({ text, messages = [], workstreamId = "", task = null, executionMode = "fast", metadata = {}, signal, onWorkSummary }) {
   const requestId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const prompt = nonEmptyText(text, "request.text");
   const conversation = buildConversationMessages(messages, prompt);
@@ -888,7 +1061,7 @@ export async function sendKolibriRequest({ text, messages = [], workstreamId = "
   try {
     let payload;
     try {
-      payload = await requestResponsesStream(body, idempotencyKey, signal);
+      payload = await requestResponsesStream(body, idempotencyKey, signal, onWorkSummary);
     } catch (error) {
       if (!publicSessionExpired(error)) throw error;
       // A backend restart or normal TTL expiry invalidates only the scoped
@@ -897,7 +1070,7 @@ export async function sendKolibriRequest({ text, messages = [], workstreamId = "
       // failures or origin mismatches here.
       await refreshPublicSession(sessionGeneration);
       try {
-        payload = await requestResponsesStream(body, idempotencyKey, signal);
+        payload = await requestResponsesStream(body, idempotencyKey, signal, onWorkSummary);
       } catch (retryError) {
         if (!publicSessionExpired(retryError)) throw retryError;
         publicSessionPromise = null;
@@ -912,18 +1085,23 @@ export async function sendKolibriRequest({ text, messages = [], workstreamId = "
       });
     }
     const estimateResult = taskEnvelope?.result?.type === "deterministic_estimate" ? taskEnvelope.result : null;
+    const readinessResult = taskEnvelope?.result?.type === "estimate_readiness" ? taskEnvelope.result : null;
     const estimateText = estimateResult
       ? `Смета «${estimateResult.estimate.title || "Без названия"}» подготовлена: ${estimateResult.estimate.lines.length} позиций, итог рассчитан детерминированно.`
+      : "";
+    const readinessText = readinessResult
+      ? "Для правдивой сметы нужны исходные документы. Денежный итог не рассчитан; заполните редактор исходных данных."
       : "";
     return {
       text: taskEnvelope?.result?.type === "verified_provider_response"
         ? taskEnvelope.result.text || ""
-        : estimateText || extractResponseText(payload),
+        : readinessText || estimateText || extractResponseText(payload),
       blocked: payload?.status === "blocked",
       blockedReason: payload?.error?.code || "",
       taskId: payload?.id || "",
       task: taskEnvelope,
       artifacts: taskEnvelope?.artifacts || [],
+      workSummary: normalizeWorkSummary(payload),
       endpoint: API_ENDPOINTS.response,
     };
   } catch (error) {

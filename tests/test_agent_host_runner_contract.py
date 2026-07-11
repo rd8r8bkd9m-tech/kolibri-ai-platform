@@ -444,7 +444,9 @@ def test_mimo_runner_manifest_advertises_auto25_without_user_authorization(tmp_p
     assert manifest["model_version"] == "2.5"
     assert manifest["authorization_mode"] == "no_user_auth"
     assert manifest["user_authorization_required"] is False
-    assert manifest["permission_mode"] == "auto_approve_with_task_contract"
+    assert manifest["permission_mode"] == "deny_all_response_only"
+    assert manifest["execution_scope"] == "response_only"
+    assert manifest["response_agent_tools"] == []
     assert manifest["output_format"] == "json"
     assert manifest["worktree_scoped"] is True
 

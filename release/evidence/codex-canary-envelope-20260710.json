@@ -1,0 +1,27 @@
+{
+  "task_id": "KOL-CODEX-CANARY-20260710T2145Z-B",
+  "idempotency_key": "owner:codex-canary:20260710T2145Z:B",
+  "kind": "owner_remote_task",
+  "target_node": "agent09",
+  "required_capability": "runner:codex",
+  "runner": "codex",
+  "objective": "Ответь ровно: KOLIBRI_CODEX_CANARY_OK",
+  "write_scope": [],
+  "constraints": {
+    "read_only": true,
+    "max_wall_seconds": 120,
+    "network": "provider_managed_only"
+  },
+  "max_retries": 0,
+  "fallback_allowed": false,
+  "source": {
+    "kind": "owner_codex_canary",
+    "control_plane": "home",
+    "requested_by": "Vladislav"
+  },
+  "acceptance": [
+    "The task is fenced to one attempt and runner=codex.",
+    "The terminal response is non-empty and exactly KOLIBRI_CODEX_CANARY_OK.",
+    "No files, services, credentials, network policy or production state are changed."
+  ]
+}

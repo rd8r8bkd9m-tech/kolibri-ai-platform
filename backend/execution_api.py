@@ -14,6 +14,7 @@ import hmac
 import os
 import re
 import sqlite3
+import stat
 import threading
 import time
 import uuid
@@ -21,7 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, model_validator
 from artifact_runtime import (
@@ -49,6 +50,12 @@ from formulalm_boundary import (
     FormulaLMNotFoundError,
     FormulaLMPolicyError,
     scan_learning_payload,
+)
+from openai_compatibility import response_input_item_list
+from project_knowledge_gateway import (
+    TOOL_ID as PROJECT_KNOWLEDGE_TOOL_ID,
+    ProjectKnowledgeError,
+    should_auto_plan_project_knowledge,
 )
 from provider_gateway import deterministic_verifier_evidence, get_provider_gateway
 from response_tool_gateway import ResponseToolExecution, execute_response_tools
@@ -93,8 +100,65 @@ SENSITIVE_VALUE_PATTERNS = (
     re.compile(r"\b(?:access_token|api[_-]?key|authorization|password|secret|token)\s*[:=]\s*[^\s,;&]+", re.IGNORECASE),
 )
 
+OWNER_TOKEN_FILE_ENV = "KOLIBRI_OWNER_API_TOKEN_FILE"
+MAX_OWNER_TOKEN_FILE_BYTES = 16 * 1024
+MAX_OWNER_TOKEN_BYTES = 4 * 1024
 
-def _configured_execution_key_hashes() -> frozenset[str]:
+
+class ExecutionAuthConfigurationError(RuntimeError):
+    """An owner credential source was configured but is not safe to use."""
+
+
+def _read_owner_token_file(configured_path: str) -> str:
+    """Read one owner token without following links or exposing its value.
+
+    The Telegram gateway already consumes a root-managed token file.  The
+    unified backend must accept that same credential source instead of
+    requiring a second cleartext environment value.  An explicitly configured
+    unsafe file is a fail-closed configuration error; it is never ignored in
+    favour of a weaker authentication path.
+    """
+
+    if not configured_path or not os.path.isabs(configured_path):
+        raise ExecutionAuthConfigurationError("owner_token_file_path_invalid")
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(configured_path, flags)
+        info = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or not 1 <= info.st_size <= MAX_OWNER_TOKEN_FILE_BYTES
+            or info.st_mode & 0o022
+            or info.st_mode & 0o004
+        ):
+            raise ExecutionAuthConfigurationError("owner_token_file_permissions_invalid")
+        payload = os.read(descriptor, MAX_OWNER_TOKEN_FILE_BYTES + 1)
+    except ExecutionAuthConfigurationError:
+        raise
+    except OSError as exc:
+        raise ExecutionAuthConfigurationError("owner_token_file_unreadable") from exc
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+    if len(payload) > MAX_OWNER_TOKEN_FILE_BYTES:
+        raise ExecutionAuthConfigurationError("owner_token_file_too_large")
+    try:
+        text = payload.decode("utf-8")
+    except UnicodeError as exc:
+        raise ExecutionAuthConfigurationError("owner_token_file_encoding_invalid") from exc
+    token = text.strip()
+    if (
+        not token
+        or len(token.encode("utf-8")) > MAX_OWNER_TOKEN_BYTES
+        or any(character.isspace() for character in token)
+        or text not in {token, token + "\n", token + "\r\n"}
+    ):
+        raise ExecutionAuthConfigurationError("owner_token_file_content_invalid")
+    return token
+
+
+def _configured_execution_key_hashes() -> tuple[frozenset[str], str | None]:
     """Load API credentials without retaining their cleartext value.
 
     The compatibility API is fail-closed when no credential is configured.
@@ -112,26 +176,47 @@ def _configured_execution_key_hashes() -> frozenset[str]:
         for value in os.environ.get("KOLIBRI_API_KEYS", "").split(",")
         if value.strip()
     )
-    return frozenset(hashlib.sha256(value.encode("utf-8")).hexdigest() for value in values)
+    configured_file = os.environ.get(OWNER_TOKEN_FILE_ENV, "").strip()
+    if configured_file:
+        try:
+            values.append(_read_owner_token_file(configured_file))
+        except ExecutionAuthConfigurationError:
+            return frozenset(), "execution_api_auth_token_file_invalid"
+    return (
+        frozenset(hashlib.sha256(value.encode("utf-8")).hexdigest() for value in values),
+        None,
+    )
 
 
-_EXECUTION_KEY_HASHES = _configured_execution_key_hashes()
+_EXECUTION_KEY_HASHES, _EXECUTION_AUTH_CONFIGURATION_ERROR = _configured_execution_key_hashes()
 
 
 def configure_execution_auth(tokens: list[str] | tuple[str, ...]) -> None:
     """Install an in-memory credential set for an embedding or test harness."""
 
-    global _EXECUTION_KEY_HASHES
+    global _EXECUTION_KEY_HASHES, _EXECUTION_AUTH_CONFIGURATION_ERROR
     _EXECUTION_KEY_HASHES = frozenset(
         hashlib.sha256(str(token).encode("utf-8")).hexdigest()
         for token in tokens
         if str(token)
+    )
+    _EXECUTION_AUTH_CONFIGURATION_ERROR = None
+
+
+def reload_execution_auth_from_environment() -> None:
+    """Reload hashed credentials after a controlled runtime configuration change."""
+
+    global _EXECUTION_KEY_HASHES, _EXECUTION_AUTH_CONFIGURATION_ERROR
+    _EXECUTION_KEY_HASHES, _EXECUTION_AUTH_CONFIGURATION_ERROR = (
+        _configured_execution_key_hashes()
     )
 
 
 def require_execution_auth(request: Request) -> str:
     """Require an OpenAI-style bearer credential for durable execution data."""
 
+    if _EXECUTION_AUTH_CONFIGURATION_ERROR:
+        raise HTTPException(status_code=503, detail=_EXECUTION_AUTH_CONFIGURATION_ERROR)
     if not _EXECUTION_KEY_HASHES:
         raise HTTPException(status_code=503, detail="execution_api_auth_not_configured")
     authorization = request.headers.get("Authorization", "")
@@ -1367,6 +1452,7 @@ def list_tools(refresh: bool = False) -> dict[str, Any]:
 def create_response(body: ResponseCreate, request: Request) -> dict[str, Any]:
     principal = require_execution_auth(request)
     require_project_workstream(body.project_id, body.workstream_id)
+    previous: dict[str, Any] | None = None
     if body.previous_response_id:
         previous = require_record(body.previous_response_id, "response")
         if body.project_id and previous.get("project_id") != body.project_id:
@@ -1381,8 +1467,19 @@ def create_response(body: ResponseCreate, request: Request) -> dict[str, Any]:
     if len(idempotency_key) > 300 or not idempotency_key.strip():
         raise HTTPException(status_code=422, detail="invalid idempotency key")
     capability_gateway = get_capability_gateway()
+    requested_tool_declarations = list(body.tools)
+    if should_auto_plan_project_knowledge(body.input):
+        declared_ids = {
+            str(item.get("id") or item.get("name") or item.get("type") or "").strip().lower()
+            for item in requested_tool_declarations
+            if isinstance(item, dict)
+        }
+        if not declared_ids.intersection({
+            PROJECT_KNOWLEDGE_TOOL_ID, "project_knowledge", "project_docs", "repository_context",
+        }):
+            requested_tool_declarations.append({"type": "project_knowledge", "max_results": 5})
     try:
-        requested_tools = capability_gateway.validate_requested_tools(body.tools)
+        requested_tools = capability_gateway.validate_requested_tools(requested_tool_declarations)
     except CapabilityRequestError as exc:
         raise HTTPException(status_code=422, detail=exc.public_detail()) from exc
     public_tool_bindings = capability_gateway.public_bindings(requested_tools)
@@ -1443,15 +1540,38 @@ def create_response(body: ResponseCreate, request: Request) -> dict[str, Any]:
         tool_calls=[], evidence=[], citations=[], attempts=[], formulalm_taps=[],
     )
     tool_gateway_error_code: str | None = None
+    tool_gateway_error_tool_id: str | None = None
     tool_gateway_failure_attempts: list[dict[str, Any]] = []
     try:
+        tool_input_value: str | list[dict[str, Any]] = body.input
+        if previous is not None and any(
+            item.get("id") == PROJECT_KNOWLEDGE_TOOL_ID for item in requested_tools
+        ):
+            prior_input = previous.get("input")
+            prior_messages = (
+                [{"role": "user", "content": prior_input}]
+                if isinstance(prior_input, str)
+                else [
+                    item for item in (prior_input or [])
+                    if isinstance(item, dict) and item.get("role") == "user"
+                ]
+            )
+            current_messages = (
+                [{"role": "user", "content": body.input}]
+                if isinstance(body.input, str)
+                else [
+                    item for item in body.input
+                    if isinstance(item, dict) and item.get("role") == "user"
+                ]
+            )
+            tool_input_value = [*prior_messages[-2:], *current_messages]
         tool_execution = execute_response_tools(
-            input_value=body.input,
+            input_value=tool_input_value,
             instructions=provider_instructions,
             response_id=response_id,
             principal=principal,
             requested_tools=requested_tools,
-            raw_tools=body.tools,
+            raw_tools=requested_tool_declarations,
             project_id=body.project_id,
             workstream_id=body.workstream_id,
         )
@@ -1497,6 +1617,7 @@ def create_response(body: ResponseCreate, request: Request) -> dict[str, Any]:
         text = str(gateway_result.text or "")
     except WebSearchError as exc:
         tool_gateway_error_code = exc.code
+        tool_gateway_error_tool_id = "tool:web_search"
         attempts = exc.attempts if isinstance(exc, WebSearchUnavailable) else []
         tool_gateway_failure_attempts = attempts
         technical = {
@@ -1507,6 +1628,20 @@ def create_response(body: ResponseCreate, request: Request) -> dict[str, Any]:
             idempotency_key=f"tool-gateway-failed:{idempotency_key}",
             event_type="response.tool_gateway_failed",
             payload={"tool_id": "tool:web_search", "error_type": exc.code, "attempts": attempts},
+        ))
+        status = "failed"
+        text = ""
+    except ProjectKnowledgeError as exc:
+        tool_gateway_error_code = exc.code
+        tool_gateway_error_tool_id = PROJECT_KNOWLEDGE_TOOL_ID
+        technical = {
+            "attempts": [], "evidence": [], "error_type": exc.code,
+            "tool_gateway": {"status": "failed", "error_type": exc.code, "attempts": []},
+        }
+        get_store().append_event("response", response_id, EventCreate(
+            idempotency_key=f"tool-gateway-failed:{idempotency_key}",
+            event_type="response.tool_gateway_failed",
+            payload={"tool_id": PROJECT_KNOWLEDGE_TOOL_ID, "error_type": exc.code, "attempts": []},
         ))
         status = "failed"
         text = ""
@@ -1522,7 +1657,7 @@ def create_response(body: ResponseCreate, request: Request) -> dict[str, Any]:
     provider_tool_calls = technical.get("tool_calls") if isinstance(technical.get("tool_calls"), list) else []
     tool_calls = [*tool_execution.tool_calls, *provider_tool_calls]
     verifier_evidence = deterministic_verifier_evidence(
-        text, provider_evidence, requested_tools, tool_calls,
+        text, provider_evidence, requested_tools, tool_calls, tool_execution.citations,
     )
     technical["verifier_evidence"] = verifier_evidence
     technical["tool_calls"] = tool_calls
@@ -1532,6 +1667,7 @@ def create_response(body: ResponseCreate, request: Request) -> dict[str, Any]:
         "citation_count": len(tool_execution.citations),
         "formulalm_taps": tool_execution.formulalm_taps,
         **({"error_type": tool_gateway_error_code} if tool_gateway_error_code else {}),
+        **({"failed_tool_id": tool_gateway_error_tool_id} if tool_gateway_error_tool_id else {}),
     }
     technical["evidence"] = (
         ([provider_evidence] if provider_evidence else [])
@@ -1619,6 +1755,10 @@ def create_response(body: ResponseCreate, request: Request) -> dict[str, Any]:
         "credit_assignment": {
             "provider_execution": 1.0 if provider_evidence and final_status == "completed" else 0.0,
             "web_search_tool": 1.0 if tool_execution.tool_calls and final_status == "completed" else 0.0,
+            "project_knowledge_tool": 1.0 if (
+                any(call.get("capability_id") == PROJECT_KNOWLEDGE_TOOL_ID for call in tool_execution.tool_calls)
+                and final_status == "completed"
+            ) else 0.0,
             "verifier": 1.0 if verifier_evidence.get("verdict") == "passed" else 0.0,
         },
     }
@@ -1779,6 +1919,31 @@ def list_responses() -> dict[str, Any]:
 @router.get("/v1/responses/{response_id}")
 def get_response(response_id: str) -> dict[str, Any]:
     return require_record(response_id, "response")
+
+
+@router.get("/v1/responses/{response_id}/input_items")
+def list_response_input_items(
+    response_id: str,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    order: Literal["asc", "desc"] = "desc",
+    after: str | None = None,
+    include: Annotated[list[str] | None, Query()] = None,
+) -> dict[str, Any]:
+    """Return only the input items recorded for this exact response.
+
+    ``include`` is accepted for OpenAI SDK wire compatibility. Kolibri never
+    synthesizes optional fields that were not present in the stored item.
+    """
+
+    del include
+    response = require_record(response_id, "response")
+    return response_input_item_list(
+        response_id,
+        response.get("input", []),
+        limit=limit,
+        order=order,
+        after=after,
+    )
 
 
 @router.post("/v1/responses/{response_id}/cancel")

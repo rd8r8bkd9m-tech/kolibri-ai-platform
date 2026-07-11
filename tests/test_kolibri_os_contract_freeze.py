@@ -82,7 +82,9 @@ def test_native_tool_contract_separates_skills_and_requires_live_jsonl_probe():
 
     registry = json.loads((ROOT / "backend" / "kolibri-tools.json").read_text(encoding="utf-8"))
     tools = {item["id"]: item for item in registry["tools"]}
-    assert set(tools) == {"tool:code_inspection", "tool:web_search"}
+    assert set(tools) == {
+        "tool:code_inspection", "tool:project_knowledge", "tool:web_search",
+    }
     assert tools["tool:code_inspection"]["requires_event_probe"] is True
     assert tools["tool:web_search"]["requires_event_probe"] is False
     assert tools["tool:web_search"]["execution_backend"] == "controlled_http_gateway"
@@ -90,3 +92,6 @@ def test_native_tool_contract_separates_skills_and_requires_live_jsonl_probe():
     assert "web_search_preview" in tools["tool:web_search"]["aliases"]
     assert "command_execution" in tools["tool:code_inspection"]["event_aliases"]
     assert "web_search" in tools["tool:web_search"]["event_aliases"]
+    assert tools["tool:project_knowledge"]["requires_event_probe"] is False
+    assert tools["tool:project_knowledge"]["execution_backend"] == "owner_project_index_gateway"
+    assert tools["tool:project_knowledge"]["policy_version"] == "kolibri.project-knowledge-policy.v1"

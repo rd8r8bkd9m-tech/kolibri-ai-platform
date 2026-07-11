@@ -1,0 +1,20 @@
+[Unit]
+Description=Kolibri allowlisted provider HTTPS egress proxy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+ExecStartPre=/usr/bin/python3 -m py_compile /usr/local/lib/kolibri/marked_connect_proxy.py
+ExecStart=/usr/bin/python3 /usr/local/lib/kolibri/marked_connect_proxy.py --listen 127.0.0.1 --port 18080 --mark 0 --allow-suffix chatgpt.com --allow-suffix openai.com --allow-suffix oaistatic.com --allow-suffix oaiusercontent.com --allow-suffix api.telegram.org
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictAddressFamilies=AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

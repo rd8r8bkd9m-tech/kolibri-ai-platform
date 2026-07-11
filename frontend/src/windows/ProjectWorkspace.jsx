@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import { ExternalLink, FileText, MessageSquareText, PencilLine } from "lucide-react";
 import { Composer } from "../shell/Composer";
 import { ProjectCanvas } from "./ProjectCanvas";
+import { WorkSummary } from "./shared/WorkSummary";
 
 function Conversation({ canvases, messages, renderCanvas }) {
   const viewport = useRef(null);
@@ -31,6 +32,7 @@ function Conversation({ canvases, messages, renderCanvas }) {
                   ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.text || "Выполняю…"}</ReactMarkdown>
                   : <p>{message.text}</p>}
               </div>
+              {message.role === "assistant" && <WorkSummary summary={message.workSummary} />}
             </article>
             {canvas && renderCanvas(canvas)}
           </div>

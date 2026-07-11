@@ -54,6 +54,7 @@ ExecStart=/srv/kolibri/repo/.venv/bin/uvicorn main:app --host 127.0.0.1 --port 8
 Environment=KOLIBRI_ENV=production
 Environment=KOLIBRI_FACTORY_CONTROL_URL=http://127.0.0.1:9101
 Environment=KOLIBRI_FRONTEND_DIST=/opt/kolibri-ai/current/frontend/dist
+Environment=KOLIBRI_OWNER_API_TOKEN_FILE=/etc/kolibri/owner-api-token
 Environment=PYTHONPATH=/opt/kolibri-ai/current/backend:/opt/kolibri-ai/current
 """.encode("utf-8")
 
@@ -360,6 +361,7 @@ def _validate_backend_import(root: Path, runner: CommandRunner, current: Current
         "KOLIBRI_ENV": "production",
         "KOLIBRI_FACTORY_CONTROL_URL": "http://127.0.0.1:9101",
         "KOLIBRI_FRONTEND_DIST": str(current.frontend_dist),
+        "KOLIBRI_OWNER_API_TOKEN_FILE": "/etc/kolibri/owner-api-token",
     }
     _run_checked(
         runner,
@@ -418,9 +420,11 @@ def preflight(
     except ValueError as exc:
         raise BackendBootstrapError("backend_effective_unit_metadata_invalid") from exc
     expected_frontend = f"KOLIBRI_FRONTEND_DIST={FRONTEND_DIST}"
+    expected_owner_token_file = "KOLIBRI_OWNER_API_TOKEN_FILE=/etc/kolibri/owner-api-token"
     effective_release_layout = (
         metadata.get("WorkingDirectory") == BACKEND_WORKING_DIRECTORY
         and expected_frontend in environment_tokens
+        and expected_owner_token_file in environment_tokens
         and bool(dropin_tokens)
         and all(value.startswith("/") for value in dropin_tokens)
     )
@@ -652,6 +656,8 @@ def _verify_activated(root: Path, runner: CommandRunner, current: CurrentRelease
     expected = f"KOLIBRI_FRONTEND_DIST={FRONTEND_DIST}"
     if expected not in environment_tokens:
         raise BackendBootstrapError("backend_frontend_dist_not_current")
+    if "KOLIBRI_OWNER_API_TOKEN_FILE=/etc/kolibri/owner-api-token" not in environment_tokens:
+        raise BackendBootstrapError("backend_owner_token_file_not_configured")
     _health_gate(runner)
 
 

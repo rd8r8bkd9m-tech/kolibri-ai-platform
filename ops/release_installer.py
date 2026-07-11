@@ -53,6 +53,8 @@ RELEASE_POLICY_SCHEMA = "kolibri.release-policy.v1"
 RELEASE_SIGNATURE_NAMESPACE = "kolibri-release"
 RELEASE_CAPABILITY = "release_apply_v1"
 RELEASE_TASK_KINDS = frozenset({"release_bundle_apply", "release_bundle_rollback"})
+AGENT_HOST_RUNTIME_PATH = "ops/agent_host.py"
+MIMO_RESPONSE_AGENT_PROFILE_PATH = "ops/mimo/kolibri-response-only.md"
 MANIFEST_MEMBER = ".kolibri-release/manifest.json"
 SIGNATURE_MEMBER = ".kolibri-release/manifest.sig"
 PAYLOAD_PREFIX = "payload/"
@@ -183,7 +185,9 @@ class HealthCheck:
 class ReleasePolicy:
     services: frozenset[str]
     default_services: tuple[str, ...]
+    required_payload_paths: tuple[str, ...]
     pre_health: tuple[HealthCheck, ...]
+    pre_activate: tuple[HealthCheck, ...]
     post_health: tuple[HealthCheck, ...]
     service_timeout_seconds: int
 
@@ -393,8 +397,13 @@ def _read_trusted_bytes(path: Path, *, max_bytes: int, error_code: str) -> bytes
         raise ReleaseInstallError(error_code) from exc
 
 
-def _load_health_checks(value: Any, *, phase: str) -> tuple[HealthCheck, ...]:
-    if not isinstance(value, list) or not value:
+def _load_health_checks(
+    value: Any,
+    *,
+    phase: str,
+    allow_empty: bool = False,
+) -> tuple[HealthCheck, ...]:
+    if not isinstance(value, list) or (not value and not allow_empty):
         raise ReleaseInstallError("release_policy_health_checks_missing")
     checks: list[HealthCheck] = []
     seen: set[str] = set()
@@ -432,7 +441,7 @@ def load_release_policy(path: Path) -> ReleasePolicy:
         error_code="release_policy_invalid",
         require_trusted_owner=True,
     )
-    expected_keys = {
+    required_keys = {
         "schema_version",
         "services",
         "default_services",
@@ -440,7 +449,12 @@ def load_release_policy(path: Path) -> ReleasePolicy:
         "post_health",
         "service_timeout_seconds",
     }
-    if set(payload) != expected_keys or payload.get("schema_version") != RELEASE_POLICY_SCHEMA:
+    allowed_keys = required_keys | {"pre_activate", "required_payload_paths"}
+    if (
+        not required_keys.issubset(payload)
+        or not set(payload).issubset(allowed_keys)
+        or payload.get("schema_version") != RELEASE_POLICY_SCHEMA
+    ):
         raise ReleaseInstallError("release_policy_invalid")
     services_value = payload.get("services")
     defaults_value = payload.get("default_services")
@@ -459,10 +473,27 @@ def load_release_policy(path: Path) -> ReleasePolicy:
         raise ReleaseInstallError("release_policy_services_invalid")
     if isinstance(service_timeout, bool) or not isinstance(service_timeout, int) or not 1 <= service_timeout <= 120:
         raise ReleaseInstallError("release_policy_services_invalid")
+    required_payload_value = payload.get("required_payload_paths", [])
+    if not isinstance(required_payload_value, list):
+        raise ReleaseInstallError("release_policy_required_payload_invalid")
+    try:
+        required_payload_paths = tuple(
+            _safe_relative_path(item) for item in required_payload_value
+        )
+    except ReleaseInstallError as exc:
+        raise ReleaseInstallError("release_policy_required_payload_invalid") from exc
+    if len(required_payload_paths) != len(set(required_payload_paths)):
+        raise ReleaseInstallError("release_policy_required_payload_invalid")
     return ReleasePolicy(
         services=frozenset(services),
         default_services=defaults,
+        required_payload_paths=required_payload_paths,
         pre_health=_load_health_checks(payload.get("pre_health"), phase="pre"),
+        pre_activate=_load_health_checks(
+            payload.get("pre_activate", []),
+            phase="candidate",
+            allow_empty=True,
+        ),
         post_health=_load_health_checks(payload.get("post_health"), phase="post"),
         service_timeout_seconds=service_timeout,
     )
@@ -743,6 +774,8 @@ class ReleaseInstaller:
         selected = requested if requested is not None else policy.default_services
         if not set(selected).issubset(policy.services):
             raise ReleaseInstallError("release_service_not_allowed")
+        if policy.pre_activate and selected != policy.default_services:
+            raise ReleaseInstallError("release_service_profile_mismatch")
         return selected
 
     def _validate_evidence_dir(self, evidence_dir: Path) -> None:
@@ -796,6 +829,21 @@ class ReleaseInstaller:
             self._validate_manifest_against_request(manifest, request)
             self._verify_signature(staging / SIGNATURE_MEMBER, manifest, request.signer_identity, progress)
             self._validate_payload(staging, manifest, member_modes, progress)
+            manifest_paths = {item.path for item in manifest.files}
+            if (
+                AGENT_HOST_RUNTIME_PATH in manifest_paths
+                and MIMO_RESPONSE_AGENT_PROFILE_PATH not in manifest_paths
+            ):
+                raise ReleaseInstallError("release_agent_host_profile_missing")
+            if not set(policy.required_payload_paths).issubset(manifest_paths):
+                raise ReleaseInstallError("release_required_payload_missing")
+            if "RELEASE_ID" in policy.required_payload_paths:
+                try:
+                    release_marker = (staging / "RELEASE_ID").read_bytes()
+                except OSError as exc:
+                    raise ReleaseInstallError("release_id_marker_invalid") from exc
+                if release_marker != f"{manifest.release_id}\n".encode("ascii"):
+                    raise ReleaseInstallError("release_id_marker_invalid")
 
             final_dir, idempotent_install = self._publish_immutable_release(
                 staging,
@@ -804,6 +852,46 @@ class ReleaseInstaller:
                 progress,
             )
             staging = None
+            health_replacements = {
+                "{release_dir}": str(final_dir),
+                "{release_kind}": (
+                    "rollback" if request.kind == "release_bundle_rollback" else "apply"
+                ),
+            }
+            candidate_health = self._run_health_checks(
+                policy.pre_activate,
+                progress,
+                replacements=health_replacements,
+            )
+            if not all(item["status"] == "passed" for item in candidate_health):
+                self._audit(
+                    evidence_dir,
+                    "release_candidate_failed",
+                    release_id=request.release_id,
+                    code="release_candidate_health_failed",
+                )
+                raise ReleaseInstallError(
+                    "release_candidate_health_failed",
+                    retryable=True,
+                    evidence={
+                        "manifest_digest": manifest.digest,
+                        "release_health": {
+                            "status": "failed",
+                            "manifest_digest": manifest.digest,
+                            "release_id": manifest.release_id,
+                        },
+                        "health_checks": {
+                            "pre": pre_health,
+                            "candidate": candidate_health,
+                            "post": [],
+                        },
+                        "service_results": [],
+                        "rollback": {
+                            "status": "not_required",
+                            "reason": "activation_not_started",
+                        },
+                    },
+                )
             previous = self._current_target()
             already_current = previous == final_dir
             service_results: list[dict[str, Any]] = []
@@ -812,7 +900,11 @@ class ReleaseInstaller:
                 if not already_current:
                     self._atomic_switch(final_dir)
                 service_results = self._restart_services(selected_services, policy, progress)
-                post_health = self._run_health_checks(policy.post_health, progress)
+                post_health = self._run_health_checks(
+                    policy.post_health,
+                    progress,
+                    replacements=health_replacements,
+                )
                 if not all(item["status"] == "passed" for item in service_results + post_health):
                     raise ReleaseInstallError("release_post_health_failed", retryable=True)
             except ReleaseInstallError as activation_error:
@@ -834,7 +926,11 @@ class ReleaseInstaller:
                             "manifest_digest": manifest.digest,
                             "release_id": manifest.release_id,
                         },
-                        "health_checks": {"pre": pre_health, "post": post_health},
+                        "health_checks": {
+                            "pre": pre_health,
+                            "candidate": candidate_health,
+                            "post": post_health,
+                        },
                         "service_results": service_results,
                         "rollback": rollback,
                     },
@@ -846,6 +942,30 @@ class ReleaseInstaller:
                 release_id=request.release_id,
                 manifest_digest=manifest.digest,
             )
+            agent_host_files = [
+                item for item in manifest.files if item.path == AGENT_HOST_RUNTIME_PATH
+            ]
+            response_profile_files = [
+                item
+                for item in manifest.files
+                if item.path == MIMO_RESPONSE_AGENT_PROFILE_PATH
+            ]
+            agent_host_runtime = {
+                "included": len(agent_host_files) == 1,
+                "runtime_path": AGENT_HOST_RUNTIME_PATH,
+                "runtime_sha256": (
+                    agent_host_files[0].sha256 if len(agent_host_files) == 1 else None
+                ),
+                "response_profile_included": len(response_profile_files) == 1,
+                "response_profile_path": MIMO_RESPONSE_AGENT_PROFILE_PATH,
+                "response_profile_sha256": (
+                    response_profile_files[0].sha256
+                    if len(response_profile_files) == 1
+                    else None
+                ),
+                "release_id": manifest.release_id,
+                "manifest_digest": manifest.digest,
+            }
             return {
                 "status": "completed",
                 "kind": request.kind,
@@ -859,13 +979,18 @@ class ReleaseInstaller:
                 "atomic_switch_performed": not already_current,
                 "services": list(selected_services),
                 "service_results": service_results,
-                "health_checks": {"pre": pre_health, "post": post_health},
+                "health_checks": {
+                    "pre": pre_health,
+                    "candidate": candidate_health,
+                    "post": post_health,
+                },
                 "release_health": {
                     "status": "healthy",
                     "release_id": manifest.release_id,
                     "manifest_digest": manifest.digest,
                     "checked_at": utc_now(),
                 },
+                "agent_host_runtime": agent_host_runtime,
                 "rollback": {
                     "status": "completed" if request.kind == "release_bundle_rollback" else "not_required",
                     "from_release_id": previous.name if previous else None,
@@ -879,6 +1004,7 @@ class ReleaseInstaller:
                     "worker_sshsig",
                     "file_hash_size_mode",
                     "pre_health",
+                    "candidate_health_before_switch",
                     "post_health",
                     "atomic_current_switch",
                 ],
@@ -1502,6 +1628,8 @@ class ReleaseInstaller:
         cls,
         checks: tuple[HealthCheck, ...],
         progress: ProgressReporter,
+        *,
+        replacements: dict[str, str] | None = None,
     ) -> list[dict[str, Any]]:
         results: list[dict[str, Any]] = []
         for check in checks:
@@ -1509,30 +1637,41 @@ class ReleaseInstaller:
             deadline = started + check.timeout_seconds
             executable = Path(check.argv[0])
             executable_available = _trusted_regular_file(executable, executable=True)
+            argv = tuple((replacements or {}).get(part, part) for part in check.argv)
+            legacy_rollback_compatibility_allowed = bool(
+                (replacements or {}).get("{release_kind}") == "rollback"
+                and "{release_kind}" in check.argv
+            )
             attempts = 0
             passed = False
+            legacy_compatibility_used = False
             while executable_available:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     break
                 attempts += 1
-                return_code = cls._run_bounded_process(check.argv, remaining, progress)
+                return_code = cls._run_bounded_process(argv, remaining, progress)
                 if return_code == 0:
                     passed = True
+                    break
+                if return_code == 10 and legacy_rollback_compatibility_allowed:
+                    passed = True
+                    legacy_compatibility_used = True
                     break
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     break
                 progress.pulse()
                 time.sleep(min(HEALTH_RETRY_DELAY_SECONDS, remaining))
-            results.append(
-                {
-                    "name": check.name,
-                    "status": "passed" if passed else "failed",
-                    "attempts": attempts,
-                    "duration_ms": int((time.monotonic() - started) * 1000),
-                }
-            )
+            result = {
+                "name": check.name,
+                "status": "passed" if passed else "failed",
+                "attempts": attempts,
+                "duration_ms": int((time.monotonic() - started) * 1000),
+            }
+            if legacy_compatibility_used:
+                result["compatibility_mode"] = "legacy-rollback-contract"
+            results.append(result)
         return results
 
     def _rollback_activation(
@@ -1559,7 +1698,14 @@ class ReleaseInstaller:
         except ReleaseInstallError as exc:
             service_results = [{"status": "failed", "error_type": exc.code}]
         try:
-            health_results = self._run_health_checks(policy.post_health, progress)
+            health_results = self._run_health_checks(
+                policy.post_health,
+                progress,
+                replacements={
+                    "{release_dir}": str(previous),
+                    "{release_kind}": "rollback",
+                } if previous is not None else None,
+            )
         except ReleaseInstallError as exc:
             health_results = [{"status": "failed", "error_type": exc.code}]
         healthy = all(item["status"] == "passed" for item in service_results + health_results)

@@ -2,6 +2,7 @@ import { FileText } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { StatusBadge } from "./shared/StatusBadge";
+import { WorkSummary } from "./shared/WorkSummary";
 
 export function TaskResult({ payload }) {
   const task = payload.task;
@@ -41,6 +42,7 @@ export function TaskResult({ payload }) {
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{taskText}</ReactMarkdown>
         </article>
       ) : <p className="empty-result">Текстовый результат не получен.</p>}
+      <WorkSummary summary={payload.workSummary} />
       {!!missing.length && (
         <aside className="truth-note">
           <strong>Ещё не материализовано</strong>
