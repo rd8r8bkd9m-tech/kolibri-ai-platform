@@ -455,10 +455,14 @@ def test_install_load_failure_restores_previous_managed_launchagent(tmp_path, mo
     codex_bin.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     codex_bin.chmod(0o700)
     calls = []
+    bootstrap_attempts = 0
 
     def fake_launchctl(command, **kwargs):
+        nonlocal bootstrap_attempts
         calls.append((command, kwargs))
-        if command[:1] == ["bootstrap"] and not kwargs.get("tolerate_missing"):
+        if command[:1] == ["bootstrap"]:
+            bootstrap_attempts += 1
+        if command[:1] == ["bootstrap"] and bootstrap_attempts <= 4:
             raise installer.MacProviderConfigError("launchctl_operation_failed")
         return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
 
@@ -472,6 +476,7 @@ def test_install_load_failure_restores_previous_managed_launchagent(tmp_path, mo
     )
     monkeypatch.setattr(installer, "current_user_codex_ready", lambda *_args: True)
     monkeypatch.setattr(installer, "launchctl", fake_launchctl)
+    monkeypatch.setattr(installer.time, "sleep", lambda _seconds: None)
 
     with pytest.raises(
         installer.MacProviderConfigError,
@@ -495,15 +500,18 @@ def test_install_load_failure_restores_previous_managed_launchagent(tmp_path, mo
     assert layout.launch_agent.read_bytes() == previous_plist
     assert stat.S_IMODE(layout.launch_agent.stat().st_mode) == 0o600
     assert layout.runner_access.read_bytes() == RUNNER_ACCESS.read_bytes()
-    assert calls == [
-        (["bootout", f"gui/501/{installer.LABEL}"], {"tolerate_missing": True}),
-        (["bootstrap", "gui/501", str(layout.launch_agent)], {}),
-        (["bootout", f"gui/501/{installer.LABEL}"], {"tolerate_missing": True}),
-        (
-            ["bootstrap", "gui/501", str(layout.launch_agent)],
-            {"tolerate_missing": True},
-        ),
-    ]
+    bootstrap_calls = [call for call in calls if call[0][:1] == ["bootstrap"]]
+    assert len(bootstrap_calls) == 5
+    assert bootstrap_calls[-1] == (
+        ["bootstrap", "gui/501", str(layout.launch_agent)],
+        {},
+    )
+    assert all(
+        call[0] == ["bootout", f"gui/501/{installer.LABEL}"]
+        and call[1] == {"tolerate_missing": True}
+        for call in calls
+        if call[0][:1] == ["bootout"]
+    )
 
 
 def test_mac_provider_sources_never_reference_or_copy_codex_auth_file():

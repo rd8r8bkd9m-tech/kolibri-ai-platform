@@ -13,6 +13,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from types import ModuleType
 
@@ -170,6 +171,31 @@ def safe_existing_plist(path: Path) -> bytes | None:
     return payload
 
 
+def bootstrap_launch_agent(
+    domain: str,
+    service: str,
+    plist: Path,
+    *,
+    attempts: int = 4,
+) -> subprocess.CompletedProcess[str]:
+    """Bound launchd's asynchronous bootout/bootstrap transition.
+
+    ``launchctl bootout`` can return before launchd has fully released the
+    label.  A single immediate bootstrap then fails even though the plist is
+    valid.  Retry the exact managed label only, with a short bounded backoff.
+    """
+
+    for attempt in range(max(1, attempts)):
+        try:
+            return launchctl(["bootstrap", domain, str(plist)])
+        except MacProviderConfigError:
+            if attempt + 1 >= max(1, attempts):
+                raise
+            launchctl(["bootout", service], tolerate_missing=True)
+            time.sleep(0.5 * (attempt + 1))
+    raise MacProviderConfigError("launchctl_operation_failed")  # pragma: no cover
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mesh-manifest", type=Path, required=True)
@@ -280,7 +306,7 @@ def main(argv: list[str] | None = None) -> int:
         service = f"{domain}/{LABEL}"
         launchctl(["bootout", service], tolerate_missing=True)
         try:
-            launchctl(["bootstrap", domain, str(layout.launch_agent)])
+            bootstrap_launch_agent(domain, service, layout.launch_agent)
             launchctl(["kickstart", "-k", service])
         except MacProviderConfigError:
             launchctl(["bootout", service], tolerate_missing=True)
@@ -288,7 +314,10 @@ def main(argv: list[str] | None = None) -> int:
                 layout.launch_agent.unlink(missing_ok=True)
             else:
                 atomic_write(layout.launch_agent, previous_plist, 0o600)
-                launchctl(["bootstrap", domain, str(layout.launch_agent)], tolerate_missing=True)
+                try:
+                    bootstrap_launch_agent(domain, service, layout.launch_agent)
+                except MacProviderConfigError:
+                    pass
             raise
 
     plan["status"] = "installed_and_loaded" if args.load else "installed_not_loaded"
