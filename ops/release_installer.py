@@ -662,14 +662,14 @@ class ReleaseInstaller:
             )
         except ReleaseInstallError:
             reasons.append("owner_allowed_signers_unavailable")
-        if not _trusted_regular_file(self.config.ssh_keygen, executable=True):
+        if not _trusted_executable_file(self.config.ssh_keygen):
             reasons.append("release_signature_verifier_unavailable")
         try:
             policy = load_release_policy(self.config.policy_path)
         except (OSError, ReleaseInstallError):
             reasons.append("release_policy_unavailable")
         if policy and policy.services:
-            if not _trusted_regular_file(self.config.systemctl, executable=True):
+            if not _trusted_executable_file(self.config.systemctl):
                 reasons.append("release_service_manager_unavailable")
         lock_path = self.config.release_root / ".installer.lock"
         if os.path.lexists(lock_path) and not _trusted_regular_file(lock_path):
@@ -1287,7 +1287,7 @@ class ReleaseInstaller:
             or not 0 < signature_stat.st_size <= 64 * 1024
         ):
             raise ReleaseInstallError(invalid_code)
-        if not _trusted_regular_file(self.config.ssh_keygen, executable=True):
+        if not _trusted_executable_file(self.config.ssh_keygen):
             raise ReleaseInstallError("release_signature_verifier_unavailable")
         allowed_signers = _read_trusted_bytes(
             allowed_signers_path,
@@ -1640,7 +1640,7 @@ class ReleaseInstaller:
         results: list[dict[str, Any]] = []
         for service in services:
             started = time.monotonic()
-            if not _trusted_regular_file(self.config.systemctl, executable=True):
+            if not _trusted_executable_file(self.config.systemctl):
                 return_code = None
             else:
                 return_code = self._run_bounded_process(
@@ -1672,7 +1672,7 @@ class ReleaseInstaller:
             started = time.monotonic()
             deadline = started + check.timeout_seconds
             executable = Path(check.argv[0])
-            executable_available = _trusted_regular_file(executable, executable=True)
+            executable_available = _trusted_executable_file(executable)
             argv = tuple((replacements or {}).get(part, part) for part in check.argv)
             legacy_rollback_compatibility_allowed = bool(
                 (replacements or {}).get("{release_kind}") == "rollback"

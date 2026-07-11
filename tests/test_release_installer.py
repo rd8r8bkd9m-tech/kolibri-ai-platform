@@ -1099,6 +1099,35 @@ def test_release_policy_rejects_executable_symlink_in_untrusted_directory(
         release.load_release_policy(policy)
 
 
+def test_health_runner_executes_trusted_versioned_executable_symlink(
+    release_module, tmp_path
+):
+    release = release_module
+    trusted = tmp_path / "trusted-bin"
+    trusted.mkdir(mode=0o755)
+    target = write_executable(trusted / "python3.12", "raise SystemExit(0)")
+    link = trusted / "python3"
+    link.symlink_to(target.name)
+    check = release.HealthCheck(
+        name="portable-python",
+        argv=(str(link),),
+        timeout_seconds=2,
+    )
+
+    results = release.ReleaseInstaller._run_health_checks(
+        (check,), release.ProgressReporter(None)
+    )
+
+    assert results == [
+        {
+            "name": "portable-python",
+            "status": "passed",
+            "attempts": 1,
+            "duration_ms": results[0]["duration_ms"],
+        }
+    ]
+
+
 def test_capability_requires_real_local_prerequisites(
     release_module, tmp_path, monkeypatch, canonical_home_control_plane
 ):
