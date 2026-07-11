@@ -24,8 +24,13 @@ from estimate_artifacts import (
 import public_responses_api
 from public_estimate_api import router as estimate_router
 from public_responses_api import router as responses_router
+from providers import ProviderGatewayError
 from vertical_tasks import (
+    EstimateVerticalTask,
+    build_deterministic_estimate_fallback,
     estimate_spec_from_provider_response,
+    prepare_vertical_task,
+    verified_deterministic_estimate_fallback,
 )
 
 
@@ -488,3 +493,150 @@ def test_public_responses_materializes_codex_multiplier_proposal(tmp_path):
     pdf = client.get(task["artifacts"][0]["locator"])
     assert pdf.status_code == 200
     assert pdf.content.startswith(b"%PDF")
+
+
+def test_provider_estimate_contract_is_bounded_to_consolidated_json():
+    task = EstimateVerticalTask.model_validate({
+        "intent": "estimate",
+        "brief": "Составь смету на строительство одноэтажного дома 100 м2",
+    })
+    instructions, _ = prepare_vertical_task(task)
+
+    assert '"max_lines":32' in instructions
+    assert '"max_response_bytes":24576' in instructions
+    assert "Return at most 32 consolidated lines" in instructions
+
+    proposal = _spec().model_dump(mode="json")
+    proposal["lines"] = [
+        {
+            **proposal["lines"][0],
+            "id": f"line-{index}",
+        }
+        for index in range(33)
+    ]
+    with pytest.raises(ValueError, match="exceeds 32 consolidated lines"):
+        estimate_spec_from_provider_response(json.dumps(proposal, ensure_ascii=False))
+    oversized = json.dumps(_spec().model_dump(mode="json"), ensure_ascii=False) + (" " * 25_000)
+    with pytest.raises(ValueError, match="exceeds 24576 UTF-8 bytes"):
+        estimate_spec_from_provider_response(oversized)
+
+
+def test_provider_timeout_uses_bound_assumption_engine_and_materializes_pdf(tmp_path):
+    session_store = _session_store(tmp_path)
+    configure_estimate_artifact_store(tmp_path / "kolibri.db", tmp_path / "artifacts")
+
+    async def exhausted_executor(**_kwargs):
+        raise ProviderGatewayError({
+            "selected_provider": None,
+            "attempts": [
+                {
+                    "attempt": 1,
+                    "provider": "factory",
+                    "provider_model": "mimo",
+                    "status": "failed",
+                    "error_type": "provider_timeout",
+                },
+                {
+                    "attempt": 2,
+                    "provider": "factory",
+                    "provider_model": "codex",
+                    "status": "failed",
+                    "error_type": "provider_timeout",
+                },
+            ],
+            "fallback_used": True,
+            "evidence": [],
+            "error_type": "provider_timeout",
+        })
+
+    public_responses_api.configure_public_response_executor(exhausted_executor)
+    _session_value, token = _session(session_store, "owner")
+    app = FastAPI()
+    app.include_router(responses_router)
+    app.include_router(estimate_router)
+    client = TestClient(app, headers={"Origin": ORIGIN})
+    client.cookies.set(public_responses_api.COOKIE_NAME, token)
+
+    response = client.post("/v1/responses", json={
+        "model": "kolibri",
+        "input": "составь смету на строительство одноэтажного дома 100 м2 татарстан лениногорск",
+        "idempotency_key": "estimate-timeout-leninogorsk-100m2",
+        "execution_mode": "fast",
+        "task": {
+            "intent": "estimate",
+            "brief": "составь смету на строительство одноэтажного дома 100 м2 татарстан лениногорск",
+            "requested_artifacts": ["pdf"],
+        },
+    })
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "completed"
+    assert payload["verification"]["type"] == "deterministic_estimate_engine"
+    assert payload["verification"]["provider_verified"] is False
+    assert payload["verification"]["output_sha256"] == _sha(payload["output_text"])
+    task = payload["task"]
+    assert task["status"] == "completed"
+    assert task["execution"]["provider_verified"] is False
+    assert task["execution"]["provider_status"] == "failed"
+    assert task["execution"]["engine_verified"] is True
+    assert task["execution"]["fallback_reason"] == "provider_timeout"
+    assert verified_deterministic_estimate_fallback(task) is True
+    estimate = task["result"]["estimate"]
+    assert estimate["region"] == "Республика Татарстан, Лениногорск"
+    assert estimate["object_name"] == "Одноэтажный жилой дом 100 м²"
+    assert 18 <= len(estimate["lines"]) <= 32
+    assert {line["category"] for line in estimate["lines"]} >= {
+        "labor", "material", "equipment", "service",
+    }
+    assert all(line["provenance"]["source"] == "assumption" for line in estimate["lines"])
+    calculation = task["result"]["calculation"]
+    assert calculation == deterministic_estimate(EstimateSpec.model_validate(estimate))
+    assert calculation["money_authority"] == "deterministic_calculator"
+    assert calculation["llm_calculates_money"] is False
+    assert task["persistence"]["state"] == "saved"
+    assert task["artifact_delivery"]["delivered"] == ["pdf"]
+    assert "непроверенные допущения" in payload["output_text"]
+    assert "PDF сформирован" in payload["output_text"]
+    artifact = task["artifacts"][0]
+    pdf = client.get(artifact["locator"])
+    assert pdf.status_code == 200
+    assert pdf.content.startswith(b"%PDF")
+    assert hashlib.sha256(pdf.content).hexdigest() == artifact["content_sha256"]
+
+
+def test_assumption_fallback_rejects_two_storey_and_tampered_engine_proof(tmp_path):
+    two_storey = EstimateVerticalTask.model_validate({
+        "intent": "estimate",
+        "brief": "Составь смету на строительство двухэтажного дома 100 м2",
+        "requested_artifacts": ["pdf"],
+    })
+    assert build_deterministic_estimate_fallback(two_storey, reason="provider_timeout") is None
+
+    one_storey = EstimateVerticalTask.model_validate({
+        "intent": "estimate",
+        "brief": "Составь смету на строительство одноэтажного дома 100 м2",
+        "requested_artifacts": ["pdf"],
+    })
+    fallback = build_deterministic_estimate_fallback(one_storey, reason="provider_timeout")
+    assert fallback is not None
+    assert fallback["result"]["generation"]["fallback_reason"] == "provider_timeout"
+    assert "Лениногорск" not in fallback["result"]["estimate"]["source_summary"]
+    unsafe_reason = build_deterministic_estimate_fallback(one_storey, reason="timeout\nsecret")
+    assert unsafe_reason is not None
+    assert unsafe_reason["result"]["generation"]["fallback_reason"] == "provider_unavailable"
+    fallback["result"]["generation"]["input_facts"]["area_m2"] = "200"
+    assert verified_deterministic_estimate_fallback(fallback) is False
+
+    session_store = _session_store(tmp_path)
+    configure_estimate_artifact_store(tmp_path / "kolibri.db", tmp_path / "artifacts")
+    session, _token = _session(session_store, "owner")
+    unchanged = materialize_public_estimate_task(
+        session=session,
+        response_id="resp-tampered-local-engine",
+        task=fallback,
+        request_metadata={},
+    )
+    assert unchanged == fallback
+    assert "persistence" not in unchanged
+    assert unchanged["artifacts"] == []

@@ -346,6 +346,43 @@ def test_vertical_provider_failure_is_typed_and_fail_closed(monkeypatch):
     assert payload["task"]["execution"]["provider_verified"] is False
 
 
+def test_legacy_chat_reuses_truthful_deterministic_house_estimate_fallback(monkeypatch):
+    class FailedManager:
+        async def generate(self, **_kwargs):
+            raise ProviderGatewayError({
+                "error_type": "provider_timeout",
+                "attempts": [{
+                    "attempt": 1,
+                    "status": "failed",
+                    "error_type": "provider_timeout",
+                }],
+            })
+
+    brief = "Составь смету на строительство одноэтажного дома 100 м2 Татарстан Лениногорск"
+    response = _client(monkeypatch, FailedManager()).post(
+        "/api/chat",
+        json={
+            "messages": [{"role": "user", "content": brief}],
+            "task": {
+                "intent": "estimate",
+                "brief": brief,
+                "requested_artifacts": ["pdf"],
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["model"] == "kolibri"
+    assert "непроверенные допущения" in payload["response"]
+    task = payload["task"]
+    assert task["status"] == "incomplete"
+    assert task["execution"]["provider_verified"] is False
+    assert task["execution"]["engine_verified"] is True
+    assert task["artifact_delivery"]["missing"] == ["pdf"]
+    assert task["result"]["calculation"]["llm_calculates_money"] is False
+
+
 def test_public_vertical_payload_rejects_raw_secrets(monkeypatch):
     response = _client(monkeypatch, FakeManager()).post(
         "/api/chat",

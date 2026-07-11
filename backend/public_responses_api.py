@@ -47,8 +47,16 @@ from formulalm_boundary import (
     scan_learning_payload,
 )
 from public_chat_stream import verified_public_payload
+from providers import ProviderGatewayError
 from response_tool_gateway import ResponseToolExecution, execute_response_tools
-from vertical_tasks import build_vertical_result, failed_vertical_result, prepare_vertical_task
+from vertical_tasks import (
+    build_deterministic_estimate_fallback,
+    build_vertical_result,
+    deterministic_estimate_fallback_text,
+    deterministic_estimate_fallback_verification,
+    failed_vertical_result,
+    prepare_vertical_task,
+)
 from web_search_gateway import TOOL_ID as WEB_SEARCH_TOOL_ID
 from web_search_gateway import WebSearchError, WebSearchPolicyError
 
@@ -199,13 +207,17 @@ def _record_public_learning_tap(
     }
     content_sha256 = _json_hash(scan_learning_payload(trace).sanitized)
     passed = response_status == "completed" and verification.get("status") == "passed"
+    verification_type = str(verification.get("type") or "provider_response")
+    deterministic_engine_passed = passed and verification_type == "deterministic_estimate_engine"
+    provider_passed = passed and not deterministic_engine_passed
     quality = {
         "response_status": response_status,
         "quality_verdict": "passed" if passed else "failed",
         "verifier_verdict": "passed" if passed else "failed",
         "credit_assignment": {
-            "provider_execution": 1.0 if passed and evidence else 0.0,
-            "tool_execution": 1.0 if passed and tool_calls else 0.0,
+            "provider_execution": 1.0 if provider_passed and evidence else 0.0,
+            "deterministic_estimate_engine": 1.0 if deterministic_engine_passed else 0.0,
+            "tool_execution": 1.0 if provider_passed and tool_calls else 0.0,
             "verifier": 1.0 if passed else 0.0,
         },
     }
@@ -228,7 +240,11 @@ def _record_public_learning_tap(
             capability=policy["capability"],
             trace=trace,
             provenance={
-                "actor": "public-provider-gateway",
+                "actor": (
+                    "public-deterministic-estimate-engine"
+                    if deterministic_engine_passed
+                    else "public-provider-gateway"
+                ),
                 "principal": f"public-session:{session_sha256[:16]}",
                 "policy_version": "kolibri.formulalm-public-policy.v1",
                 "response_id": response_id,
@@ -738,6 +754,97 @@ def _request_semantics(body: ResponseCreate) -> dict[str, Any]:
     return body.model_dump(mode="json", exclude={"idempotency_key", "stream"})
 
 
+def _provider_failure_reason(routing: dict[str, Any]) -> str:
+    """Return a bounded non-secret reason for deterministic fallback proof."""
+
+    value = str(routing.get("error_type") or "").strip().lower()
+    if not value:
+        attempts = routing.get("attempts") if isinstance(routing.get("attempts"), list) else []
+        failed = [
+            str(item.get("error_type") or "").strip().lower()
+            for item in attempts
+            if isinstance(item, dict) and item.get("status") in {"failed", "skipped"}
+        ]
+        value = failed[-1] if failed else "provider_unavailable"
+    return value if re.fullmatch(r"[a-z0-9_]{1,80}", value) else "provider_unavailable"
+
+
+def _complete_deterministic_estimate_fallback(
+    *,
+    session: dict[str, Any],
+    body: ResponseCreate,
+    response_id: str,
+    base: dict[str, Any],
+    context: list[dict[str, Any]],
+    provider_routing: dict[str, Any],
+    tool_execution: ResponseToolExecution,
+) -> tuple[dict[str, Any], int] | None:
+    """Complete a narrow estimate with a truthfully bound local engine.
+
+    The caller invokes this only after ``ProviderGatewayError``, which means
+    the configured provider gateway already exhausted its allowed routes.  An
+    explicitly requested web/tool capability disables the assumption fallback:
+    current-source requests must not be replaced with a local price template.
+    """
+
+    if body.task is None or body.tools or tool_execution.tool_calls:
+        return None
+    task_payload = build_deterministic_estimate_fallback(
+        body.task,
+        reason=_provider_failure_reason(provider_routing),
+    )
+    if task_payload is None:
+        return None
+    try:
+        task_payload = materialize_public_estimate_task(
+            session=session,
+            response_id=response_id,
+            task=task_payload,
+            request_metadata=body.metadata,
+        )
+    except EstimateArtifactError:
+        # The editable calculation remains verified.  Artifact delivery stays
+        # incomplete, and no PDF claim is made without persisted bytes.
+        pass
+    verification = deterministic_estimate_fallback_verification(task_payload)
+    text = deterministic_estimate_fallback_text(task_payload)
+    verification = {**verification, "output_sha256": _sha256(text)}
+    payload = {
+        **base,
+        "status": "completed",
+        "completed_at": int(_now()),
+        "output": [{
+            "id": _opaque_id("msg"),
+            "type": "message",
+            "status": "completed",
+            "role": "assistant",
+            "content": [{
+                "type": "output_text",
+                "text": text,
+                "annotations": [],
+            }],
+        }],
+        "output_text": text,
+        "verification": verification,
+        "citations": [],
+        "tool_calls": [],
+        "task": task_payload,
+    }
+    payload["learning_tap"] = _record_public_learning_tap(
+        session=session,
+        body=body,
+        response_id=response_id,
+        response_status="completed",
+        response_text=text,
+        verification=verification,
+        provider_routing=provider_routing,
+        tool_execution=tool_execution,
+        task=task_payload,
+    )
+    _STORE.finish_response(session["id"], response_id, payload, context, http_status=200)
+    return payload, 200
+
+
 async def _complete_public_response(
     session: dict[str, Any],
     body: ResponseCreate,
@@ -909,6 +1016,18 @@ async def _complete_public_response(
         provider_routing = provider_routing or _provider_routing(
             getattr(exc, "technical", None)
         )
+        if isinstance(exc, ProviderGatewayError):
+            fallback = _complete_deterministic_estimate_fallback(
+                session=session,
+                body=body,
+                response_id=response_id,
+                base=base,
+                context=context,
+                provider_routing=provider_routing,
+                tool_execution=tool_execution,
+            )
+            if fallback is not None:
+                return fallback
         payload = {
             **base,
             "status": "failed",

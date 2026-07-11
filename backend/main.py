@@ -37,7 +37,9 @@ from public_chat_stream import (
 )
 from vertical_tasks import (
     VerticalTask,
+    build_deterministic_estimate_fallback,
     build_vertical_result,
+    deterministic_estimate_fallback_text,
     failed_vertical_result,
     prepare_vertical_task,
 )
@@ -324,6 +326,24 @@ async def chat(request: ChatRequest, req: Request):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ProviderGatewayError as exc:
+        fallback_task = (
+            build_deterministic_estimate_fallback(
+                request.task,
+                reason=str(exc.technical.get("error_type") or "provider_unavailable")
+                if isinstance(exc.technical, dict)
+                else "provider_unavailable",
+            )
+            if request.task is not None
+            else None
+        )
+        if fallback_task is not None:
+            return {
+                "response": deterministic_estimate_fallback_text(fallback_task),
+                "model": "kolibri",
+                "technical": {"provider_routing": exc.technical},
+                "task": fallback_task,
+                "cached": False,
+            }
         content = {
             "error": {"type": "provider_unavailable", "message": "Kolibri could not produce a verified answer"},
             "model": "kolibri",

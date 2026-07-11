@@ -741,13 +741,30 @@ def materialize_public_estimate_task(
     task: dict[str, Any],
     request_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Persist a verified estimate result and attach only real PDF evidence."""
+    """Persist a verified estimate result and attach only real PDF evidence.
+
+    Provider proposals retain their content-bound provider/verifier gate.  A
+    local assumption fallback is accepted only after its engine/spec/calculation
+    binding is independently recomputed by ``vertical_tasks``.  The latter
+    never upgrades ``provider_verified`` to true.
+    """
 
     if task.get("intent") != "estimate":
         return task
     execution = task.get("execution") if isinstance(task.get("execution"), dict) else {}
     result = task.get("result") if isinstance(task.get("result"), dict) else {}
-    if execution.get("provider_verified") is not True or execution.get("status") != "completed":
+    provider_verified = (
+        execution.get("provider_verified") is True
+        and execution.get("status") == "completed"
+    )
+    engine_verified = False
+    if not provider_verified:
+        # Local import avoids making the estimate schema module depend on the
+        # persistence layer while still sharing one proof verifier.
+        from vertical_tasks import verified_deterministic_estimate_fallback
+
+        engine_verified = verified_deterministic_estimate_fallback(task)
+    if not (provider_verified or engine_verified):
         return task
     if result.get("type") != "deterministic_estimate":
         return task

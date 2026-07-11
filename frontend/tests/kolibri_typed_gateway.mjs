@@ -208,6 +208,66 @@ assert.equal(normalizedEstimate.status, "completed");
 assert.equal(normalizedEstimate.result.calculation.totals.grand_total_minor, 59_400);
 assert.equal(normalizedEstimate.result.estimate.lines.length, 1);
 assert.equal(normalizedEstimate.persistence.version, 1);
+const fallbackCalculation = {
+  ...normalizedEstimate.result.calculation,
+  calculation_sha256: sha("7"),
+};
+const fallbackGeneration = {
+  schema_version: "kolibri.estimate-engine-proof.v1",
+  engine: "kolibri.estimate-assumption-engine.v1",
+  mode: "assumption_template",
+  input_facts_sha256: sha("8"),
+  spec_sha256: sha("9"),
+  calculation_sha256: fallbackCalculation.calculation_sha256,
+  binding_sha256: sha("a"),
+  fallback_reason: "provider_timeout",
+  input_facts: {
+    object_type: "one_storey_house",
+    storeys: 1,
+    area_m2: "100",
+    region: "Республика Татарстан, Лениногорск",
+    requested_artifacts: ["pdf"],
+  },
+};
+const fallbackPdf = verifiedArtifact("pdf", "6");
+const fallbackEnvelope = {
+  ...typedEnvelope({
+    intent: "estimate",
+    requested: ["pdf"],
+    delivered: ["pdf"],
+    artifacts: [fallbackPdf],
+    result: {
+      type: "deterministic_estimate",
+      estimate: normalizedEstimate.result.estimate,
+      calculation: fallbackCalculation,
+      generation: fallbackGeneration,
+    },
+  }),
+  execution: {
+    status: "completed",
+    model: "kolibri",
+    provider_verified: false,
+    provider_status: "failed",
+    engine_verified: true,
+    engine: "kolibri.estimate-assumption-engine.v1",
+    engine_binding_sha256: fallbackGeneration.binding_sha256,
+    fallback_reason: "provider_timeout",
+  },
+};
+const normalizedFallback = normalizeTypedTaskEnvelope(fallbackEnvelope, "estimate");
+assert.equal(normalizedFallback.status, "completed");
+assert.equal(normalizedFallback.execution.provider_verified, false);
+assert.equal(normalizedFallback.execution.engine_verified, true);
+assert.equal(normalizedFallback.execution.engine, "kolibri.estimate-assumption-engine.v1");
+assert.equal(normalizedFallback.artifacts.length, 1);
+assert.equal(normalizedFallback.result.calculation.calculation_sha256, sha("7"));
+const forgedFallback = structuredClone(fallbackEnvelope);
+forgedFallback.execution.engine_binding_sha256 = sha("b");
+assert.equal(
+  normalizeTypedTaskEnvelope(forgedFallback, "estimate").status,
+  "failed",
+  "the Shell must reject a local-engine claim not bound to the server proof",
+);
 assert.throws(
   () => normalizeTypedTaskEnvelope(typedEnvelope({
     intent: "estimate",

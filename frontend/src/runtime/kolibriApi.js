@@ -452,6 +452,8 @@ export function buildConversationMessages(history, currentText) {
 
 const PUBLIC_TASK_SCHEMA = "kolibri.public-task.v1";
 const PUBLIC_TASK_INTENTS = Object.freeze(["estimate", "document", "site", "app"]);
+const ESTIMATE_FALLBACK_ENGINE = "kolibri.estimate-assumption-engine.v1";
+const ESTIMATE_FALLBACK_PROOF_SCHEMA = "kolibri.estimate-engine-proof.v1";
 const SHA256 = /^[a-f0-9]{64}$/i;
 const SAFE_ARTIFACT_SCHEMES = /^(?:artifact:|https?:|\/)/i;
 const SECRET_KEYS = new Set([
@@ -751,16 +753,37 @@ export function normalizeTypedTaskEnvelope(task, expectedIntent = "") {
   if (expectedIntent && intent !== expectedIntent) throw new KolibriApiError("Typed gateway вернул результат другой задачи", { status: 502 });
   const execution = task.execution && typeof task.execution === "object" ? task.execution : {};
   const providerVerified = execution.provider_verified === true && execution.status === "completed" && execution.model === "kolibri";
+  const generation = task.result?.generation && typeof task.result.generation === "object" ? task.result.generation : {};
+  const deterministicEngineVerified = intent === "estimate"
+    && execution.provider_verified === false
+    && execution.provider_status === "failed"
+    && execution.engine_verified === true
+    && execution.status === "completed"
+    && execution.model === "kolibri"
+    && execution.engine === ESTIMATE_FALLBACK_ENGINE
+    && generation.schema_version === ESTIMATE_FALLBACK_PROOF_SCHEMA
+    && generation.engine === ESTIMATE_FALLBACK_ENGINE
+    && generation.mode === "assumption_template"
+    && /^[a-z0-9_]{1,80}$/.test(String(generation.fallback_reason || ""))
+    && execution.fallback_reason === generation.fallback_reason
+    && SHA256.test(String(execution.engine_binding_sha256 || ""))
+    && String(execution.engine_binding_sha256).toLowerCase() === String(generation.binding_sha256 || "").toLowerCase()
+    && SHA256.test(String(generation.input_facts_sha256 || ""))
+    && SHA256.test(String(generation.spec_sha256 || ""))
+    && SHA256.test(String(generation.calculation_sha256 || ""))
+    && generation.input_facts?.object_type === "one_storey_house"
+    && generation.input_facts?.storeys === 1;
+  const executionVerified = providerVerified || deterministicEngineVerified;
   const delivery = task.artifact_delivery && typeof task.artifact_delivery === "object" ? task.artifact_delivery : {};
   const requested = Array.isArray(delivery.requested) ? [...new Set(delivery.requested.filter((item) => typeof item === "string" && item))] : [];
   const reportedDelivered = new Set(Array.isArray(delivery.delivered) ? delivery.delivered.filter((item) => requested.includes(item)) : []);
-  const artifacts = providerVerified && Array.isArray(task.artifacts)
+  const artifacts = executionVerified && Array.isArray(task.artifacts)
     ? task.artifacts.map((artifact) => safeArtifact(artifact, reportedDelivered)).filter(Boolean)
     : [];
   const delivered = [...new Set(artifacts.map((artifact) => artifact.deliverable_type))].sort();
   const missing = requested.filter((item) => !delivered.includes(item));
   const serverStatus = ["completed", "incomplete", "failed"].includes(task.status) ? task.status : "failed";
-  const status = !providerVerified || serverStatus === "failed"
+  const status = !executionVerified || serverStatus === "failed"
     ? "failed"
     : serverStatus === "completed" && missing.length === 0
       ? "completed"
@@ -772,6 +795,12 @@ export function normalizeTypedTaskEnvelope(task, expectedIntent = "") {
       : null;
     if (!calculation || calculation.money_authority !== "deterministic_calculator" || calculation.llm_calculates_money !== false) {
       throw new KolibriApiError("Смета не подтверждена детерминированным расчётным контуром", { status: 502 });
+    }
+    if (deterministicEngineVerified && (
+      !SHA256.test(String(calculation.calculation_sha256 || ""))
+      || String(calculation.calculation_sha256).toLowerCase() !== String(generation.calculation_sha256).toLowerCase()
+    )) {
+      throw new KolibriApiError("Резервная смета не привязана к расчётному доказательству", { status: 502 });
     }
     const estimate = task.result?.estimate && typeof task.result.estimate === "object"
       ? clonePublicValue(task.result.estimate, "task.result.estimate")
@@ -807,9 +836,15 @@ export function normalizeTypedTaskEnvelope(task, expectedIntent = "") {
     intent,
     status,
     execution: {
-      status: providerVerified ? "completed" : "failed",
+      status: executionVerified ? "completed" : "failed",
       model: "kolibri",
       provider_verified: providerVerified,
+      ...(deterministicEngineVerified ? {
+        engine_verified: true,
+        engine: ESTIMATE_FALLBACK_ENGINE,
+        engine_binding_sha256: String(execution.engine_binding_sha256).toLowerCase(),
+        provider_status: "failed",
+      } : {}),
       ...(SHA256.test(String(execution.output_sha256 || "")) ? { output_sha256: String(execution.output_sha256).toLowerCase() } : {}),
       ...(SHA256.test(String(execution.verifier_binding_sha256 || "")) ? { verifier_binding_sha256: String(execution.verifier_binding_sha256).toLowerCase() } : {}),
     },

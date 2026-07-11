@@ -20,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from decimal import Decimal, InvalidOperation
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -33,6 +34,10 @@ from artifact_runtime import (
 
 
 VERTICAL_TASK_SCHEMA = "kolibri.public-task.v1"
+ESTIMATE_FALLBACK_ENGINE = "kolibri.estimate-assumption-engine.v1"
+ESTIMATE_FALLBACK_PROOF_SCHEMA = "kolibri.estimate-engine-proof.v1"
+MAX_PROVIDER_ESTIMATE_LINES = 32
+MAX_PROVIDER_ESTIMATE_RESPONSE_BYTES = 24_576
 _SHA256 = re.compile(r"^[a-f0-9]{64}$")
 
 
@@ -163,6 +168,16 @@ def prepare_vertical_task(task: VerticalTask) -> tuple[str, dict[str, Any] | Non
                     "Otherwise use assumption and say that the price requires verification."
                 ),
                 "output_rule": "Return one JSON object only, without Markdown fences or commentary.",
+                "scope_rule": (
+                    "Return at most 32 consolidated lines. Group work and material by construction "
+                    "phase; do not expand a bill of materials, repeat narrative, or add commentary. "
+                    "Use at most 12 assumptions and 12 questions. Keep the complete JSON response "
+                    "under 24576 UTF-8 bytes."
+                ),
+                "max_lines": MAX_PROVIDER_ESTIMATE_LINES,
+                "max_assumptions": 12,
+                "max_questions": 12,
+                "max_response_bytes": MAX_PROVIDER_ESTIMATE_RESPONSE_BYTES,
             }
     encoded = json.dumps(task_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     instructions = (
@@ -346,10 +361,18 @@ def estimate_spec_from_provider_response(
     price provenance is downgraded to an explicit assumption.
     """
 
+    if len(response_text.encode("utf-8")) > MAX_PROVIDER_ESTIMATE_RESPONSE_BYTES:
+        raise ValueError(
+            f"estimate proposal exceeds {MAX_PROVIDER_ESTIMATE_RESPONSE_BYTES} UTF-8 bytes"
+        )
     value = _provider_json_object(response_text)
     raw_lines = value.get("lines")
     if not isinstance(raw_lines, list) or not raw_lines:
         raise ValueError("estimate proposal requires at least one line")
+    if len(raw_lines) > MAX_PROVIDER_ESTIMATE_LINES:
+        raise ValueError(
+            f"estimate proposal exceeds {MAX_PROVIDER_ESTIMATE_LINES} consolidated lines"
+        )
     lines: list[dict[str, Any]] = []
     for index, raw in enumerate(raw_lines, start=1):
         if not isinstance(raw, dict):
@@ -416,12 +439,383 @@ def estimate_spec_from_provider_response(
             value.get("source_summary")
             or "Цены предложены как ориентировочные и требуют проверки"
         ).strip(),
-        "assumptions": [str(item).strip() for item in assumptions if str(item).strip()],
-        "questions": [str(item).strip() for item in questions if str(item).strip()],
+        "assumptions": [str(item).strip() for item in assumptions if str(item).strip()][:12],
+        "questions": [str(item).strip() for item in questions if str(item).strip()][:12],
         "lines": lines,
         "overhead_rate_bps": value.get("overhead_rate_bps", 0),
         "tax_rate_bps": value.get("tax_rate_bps", 0),
     })
+
+
+_HOUSE_AREA = re.compile(
+    r"(?<![\d.,])(?P<area>\d{2,4}(?:[.,]\d{1,2})?)\s*"
+    r"(?:м\s*(?:²|2)|кв\.?\s*м(?:етр(?:а|ов)?)?)\b",
+    re.IGNORECASE,
+)
+
+
+def _canonical_sha256(value: Any) -> str:
+    encoded = json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _house_area_from_brief(brief: str) -> Decimal | None:
+    match = _HOUSE_AREA.search(brief)
+    if match is None:
+        return None
+    try:
+        area = Decimal(match.group("area").replace(",", "."))
+    except InvalidOperation:
+        return None
+    if area < Decimal("20") or area > Decimal("5000"):
+        return None
+    return area.quantize(Decimal("0.01"))
+
+
+def _is_house_construction_brief(brief: str) -> bool:
+    normalized = brief.casefold().replace("ё", "е")
+    construction = "дом" in normalized and any(
+        marker in normalized
+        for marker in ("строитель", "постро", "возвед")
+    )
+    one_storey = (
+        "одноэтаж" in normalized
+        or bool(re.search(r"\b1\s*[-–—]?\s*этаж", normalized))
+        or "один этаж" in normalized
+    )
+    return construction and one_storey
+
+
+def _fallback_region(task: EstimateVerticalTask) -> str:
+    if task.region:
+        return task.region
+    brief = str(task.brief or "").casefold().replace("ё", "е")
+    if "лениногорск" in brief and "татарстан" in brief:
+        return "Республика Татарстан, Лениногорск"
+    if "лениногорск" in brief:
+        return "Лениногорск"
+    if "татарстан" in brief:
+        return "Республика Татарстан"
+    return "Регион не структурирован; требуется уточнение"
+
+
+def _display_decimal(value: Decimal) -> str:
+    normalized = value.normalize()
+    return format(normalized, "f")
+
+
+def _assumption_house_spec(task: EstimateVerticalTask) -> EstimateSpec | None:
+    """Build a bounded editable house estimate when providers are exhausted.
+
+    This is deliberately a coarse local template, not a price book.  Every
+    quantity and price is marked as an assumption and the contract explicitly
+    excludes normative or supplier provenance.  The narrow recognizer avoids
+    pretending that an arbitrary estimate brief can be completed locally.
+    """
+
+    brief = str(task.brief or "")
+    area = _house_area_from_brief(brief)
+    if area is None or not _is_house_construction_brief(brief):
+        return None
+    region = _fallback_region(task)
+    roof_area = (area * Decimal("1.25")).quantize(Decimal("0.01"))
+    facade_area = (area * Decimal("1.60")).quantize(Decimal("0.01"))
+    earth_volume = (area * Decimal("0.55")).quantize(Decimal("0.01"))
+    foundation_volume = (area * Decimal("0.35")).quantize(Decimal("0.01"))
+    price_note = (
+        "Непроверенное допущение локального укрупнённого шаблона Kolibri; "
+        "не является нормативной или коммерческой расценкой"
+    )
+
+    # Prices are integer kopecks.  They are intentionally consolidated so the
+    # result stays editable and useful without masquerading as a detailed
+    # resource estimate or a supplier quotation.
+    raw_lines: list[tuple[str, str, str, str, str, Decimal, int]] = [
+        ("prep-design", "Подготовка и проектирование", "Эскизный и рабочий проект", "service", "компл.", Decimal("1"), 25_000_000),
+        ("prep-survey", "Подготовка и проектирование", "Инженерные изыскания и вынос осей", "service", "компл.", Decimal("1"), 12_000_000),
+        ("foundation-earth", "Земляные работы и фундамент", "Разработка и перемещение грунта", "equipment", "м3", earth_volume, 90_000),
+        ("foundation-labor", "Земляные работы и фундамент", "Устройство монолитного фундамента — работы", "labor", "м3", foundation_volume, 850_000),
+        ("foundation-material", "Земляные работы и фундамент", "Бетон, арматура, опалубка и гидроизоляция", "material", "м3", foundation_volume, 2_800_000),
+        ("shell-walls-labor", "Коробка дома", "Возведение наружных стен и перегородок — работы", "labor", "м2", area, 650_000),
+        ("shell-walls-material", "Коробка дома", "Материалы наружных стен и перегородок", "material", "м2", area, 1_800_000),
+        ("roof-labor", "Кровля", "Устройство стропильной системы и кровли — работы", "labor", "м2", roof_area, 300_000),
+        ("roof-material", "Кровля", "Стропильные, изоляционные и кровельные материалы", "material", "м2", roof_area, 900_000),
+        ("openings-material", "Окна и двери", "Окна и наружные двери — комплект", "material", "компл.", Decimal("1"), 85_000_000),
+        ("openings-labor", "Окна и двери", "Монтаж окон и наружных дверей", "labor", "компл.", Decimal("1"), 18_000_000),
+        ("facade-labor", "Фасад", "Утепление и отделка фасада — работы", "labor", "м2", facade_area, 200_000),
+        ("facade-material", "Фасад", "Утеплитель и фасадные материалы", "material", "м2", facade_area, 350_000),
+        ("electric-labor", "Инженерные системы", "Внутренняя электрика — работы", "labor", "м2", area, 180_000),
+        ("electric-material", "Инженерные системы", "Кабель, щитовая автоматика и электроустановочные материалы", "material", "м2", area, 220_000),
+        ("plumbing-labor", "Инженерные системы", "Водоснабжение и канализация — работы", "labor", "м2", area, 160_000),
+        ("plumbing-material", "Инженерные системы", "Трубы, коллекторы и базовое сантехническое оборудование", "material", "м2", area, 240_000),
+        ("heating-equipment", "Инженерные системы", "Отопление и базовая вентиляция — оборудование", "equipment", "компл.", Decimal("1"), 90_000_000),
+        ("heating-labor", "Инженерные системы", "Монтаж и пусконаладка отопления", "labor", "компл.", Decimal("1"), 30_000_000),
+        ("finish-labor", "Внутренняя отделка", "Базовая внутренняя отделка — работы", "labor", "м2", area, 550_000),
+        ("finish-material", "Внутренняя отделка", "Базовые отделочные материалы", "material", "м2", area, 350_000),
+        ("logistics-delivery", "Логистика", "Доставка строительных материалов", "service", "компл.", Decimal("1"), 35_000_000),
+        ("logistics-waste", "Логистика", "Контейнеры и вывоз строительных отходов", "service", "компл.", Decimal("1"), 12_000_000),
+    ]
+    lines = [{
+        "id": line_id,
+        "section": section,
+        "description": description,
+        "category": category,
+        "unit": unit,
+        "quantity": _display_decimal(quantity),
+        "unit_price_minor": unit_price_minor,
+        "provenance": {"source": "assumption", "source_ref": price_note},
+    } for line_id, section, description, category, unit, quantity, unit_price_minor in raw_lines]
+    return EstimateSpec.model_validate({
+        "title": f"Предварительная смета на строительство одноэтажного дома {_display_decimal(area)} м²",
+        "currency": "RUB",
+        "minor_unit": 2,
+        "region": region,
+        "object_name": f"Одноэтажный жилой дом {_display_decimal(area)} м²",
+        "object_address": region,
+        "source_summary": (
+            "Локальный укрупнённый резервный шаблон Kolibri. Все цены и объёмы — "
+            "непроверенные допущения; перед договором требуется проект, ведомость объёмов, "
+            f"геология и коммерческие предложения по региону строительства ({region})."
+        ),
+        "assumptions": [
+            f"Общая площадь дома принята равной {_display_decimal(area)} м², этажность — один этаж.",
+            "Схема фундамента, конструкция стен, кровли и инженерии не заданы и приняты укрупнённо.",
+            "Площадь кровли принята как 1,25 площади дома, фасада — как 1,60 площади дома.",
+            "Цены не получены из ФЕР/ТЕР, поставщиков или договоров и требуют региональной проверки.",
+            "Накладные расходы приняты 7%; налоговый режим и НДС в расчёт не включены.",
+            "Покупка участка, внешние сети за границей участка, благоустройство, мебель и техника исключены.",
+            "Резерв на изменение цен и непредвиденные работы отдельно не включён.",
+        ],
+        "questions": [
+            "Какой фундамент требуется по геологии участка?",
+            "Из какого материала должны быть наружные стены?",
+            "Какой уровень готовности нужен: тёплый контур, предчистовая или под ключ?",
+            "Где находятся точки подключения воды, канализации, электричества и газа?",
+            "Нужно ли включить внешние сети, септик/скважину и благоустройство?",
+            "Какой налоговый режим подрядчика применять?",
+        ],
+        "lines": lines,
+        "overhead_rate_bps": 700,
+        "tax_rate_bps": 0,
+    })
+
+
+def _estimate_engine_proof(
+    *,
+    input_facts_sha256: str,
+    spec_sha256: str,
+    calculation_sha256: str,
+    fallback_reason: str,
+) -> dict[str, Any]:
+    proof = {
+        "schema_version": ESTIMATE_FALLBACK_PROOF_SCHEMA,
+        "engine": ESTIMATE_FALLBACK_ENGINE,
+        "mode": "assumption_template",
+        "input_facts_sha256": input_facts_sha256,
+        "spec_sha256": spec_sha256,
+        "calculation_sha256": calculation_sha256,
+        "fallback_reason": fallback_reason,
+    }
+    return {**proof, "binding_sha256": _canonical_sha256(proof)}
+
+
+def build_deterministic_estimate_fallback(
+    task: VerticalTask,
+    *,
+    reason: str = "provider_unavailable",
+) -> dict[str, Any] | None:
+    """Return a content-bound local estimate only for a supported estimate.
+
+    The provider gateway must be attempted before this helper is called.  The
+    returned envelope does not claim provider verification; it binds the
+    narrow assumption engine, bounded extracted input facts, editable
+    specification and exact deterministic monetary calculation with
+    independent SHA-256 digests.
+    """
+
+    if not isinstance(task, EstimateVerticalTask) or task.spec is not None:
+        return None
+    reason = str(reason or "").strip().lower()
+    if not re.fullmatch(r"[a-z0-9_]{1,80}", reason):
+        reason = "provider_unavailable"
+    spec = _assumption_house_spec(task)
+    if spec is None:
+        return None
+    calculation = deterministic_estimate(spec)
+    area = _house_area_from_brief(str(task.brief or ""))
+    if area is None:  # defensive: the template builder already requires it
+        return None
+    input_facts = {
+        "object_type": "one_storey_house",
+        "storeys": 1,
+        "area_m2": _display_decimal(area),
+        "region": spec.region,
+        "requested_artifacts": requested_deliverables(task),
+    }
+    input_facts_sha256 = _canonical_sha256(input_facts)
+    spec_sha256 = _canonical_sha256(spec.model_dump(mode="json"))
+    proof = _estimate_engine_proof(
+        input_facts_sha256=input_facts_sha256,
+        spec_sha256=spec_sha256,
+        calculation_sha256=str(calculation["calculation_sha256"]),
+        fallback_reason=reason,
+    )
+    requested = requested_deliverables(task)
+    return {
+        "schema_version": VERTICAL_TASK_SCHEMA,
+        "intent": "estimate",
+        "status": "incomplete" if requested else "completed",
+        "execution": {
+            "status": "completed",
+            "model": "kolibri",
+            "provider_verified": False,
+            "provider_status": "failed",
+            "engine_verified": True,
+            "engine": ESTIMATE_FALLBACK_ENGINE,
+            "engine_binding_sha256": proof["binding_sha256"],
+            "fallback_reason": reason,
+        },
+        "result": {
+            "type": "deterministic_estimate",
+            "estimate": spec.model_dump(mode="json"),
+            "calculation": calculation,
+            "generation": {**proof, "input_facts": input_facts},
+        },
+        "artifacts": [],
+        "artifact_delivery": {
+            "required": bool(requested),
+            "status": "not_required" if not requested else "not_materialized",
+            "requested": requested,
+            "delivered": [],
+            "missing": requested,
+            "count": 0,
+        },
+    }
+
+
+def verified_deterministic_estimate_fallback(task: dict[str, Any]) -> bool:
+    """Recompute and verify every local fallback binding before persistence."""
+
+    if task.get("intent") != "estimate" or task.get("schema_version") != VERTICAL_TASK_SCHEMA:
+        return False
+    execution = task.get("execution") if isinstance(task.get("execution"), dict) else {}
+    result = task.get("result") if isinstance(task.get("result"), dict) else {}
+    proof = result.get("generation") if isinstance(result.get("generation"), dict) else {}
+    if not (
+        execution.get("status") == "completed"
+        and execution.get("model") == "kolibri"
+        and execution.get("provider_verified") is False
+        and execution.get("provider_status") == "failed"
+        and execution.get("engine_verified") is True
+        and execution.get("engine") == ESTIMATE_FALLBACK_ENGINE
+        and proof.get("schema_version") == ESTIMATE_FALLBACK_PROOF_SCHEMA
+        and proof.get("engine") == ESTIMATE_FALLBACK_ENGINE
+        and proof.get("mode") == "assumption_template"
+    ):
+        return False
+    try:
+        spec = EstimateSpec.model_validate(result.get("estimate"))
+    except (TypeError, ValueError):
+        return False
+    if not spec.lines or any(line.provenance.source != "assumption" for line in spec.lines):
+        return False
+    calculation = result.get("calculation")
+    if not isinstance(calculation, dict) or deterministic_estimate(spec) != calculation:
+        return False
+    input_facts = proof.get("input_facts") if isinstance(proof.get("input_facts"), dict) else {}
+    if set(input_facts) != {
+        "object_type", "storeys", "area_m2", "region", "requested_artifacts",
+    }:
+        return False
+    if input_facts.get("object_type") != "one_storey_house" or input_facts.get("storeys") != 1:
+        return False
+    try:
+        input_area = Decimal(str(input_facts.get("area_m2")))
+    except InvalidOperation:
+        return False
+    if input_area < Decimal("20") or input_area > Decimal("5000"):
+        return False
+    if input_facts.get("region") != spec.region:
+        return False
+    requested_artifacts = input_facts.get("requested_artifacts")
+    if not (
+        isinstance(requested_artifacts, list)
+        and len(requested_artifacts) <= 4
+        and all(item in {"pdf", "pdf-x", "xlsx", "docx"} for item in requested_artifacts)
+    ):
+        return False
+    delivery = task.get("artifact_delivery") if isinstance(task.get("artifact_delivery"), dict) else {}
+    if delivery.get("requested") != requested_artifacts:
+        return False
+    input_facts_sha256 = str(proof.get("input_facts_sha256") or "").lower()
+    spec_sha256 = str(proof.get("spec_sha256") or "").lower()
+    calculation_sha256 = str(proof.get("calculation_sha256") or "").lower()
+    fallback_reason = str(proof.get("fallback_reason") or "")
+    if not re.fullmatch(r"[a-z0-9_]{1,80}", fallback_reason):
+        return False
+    if execution.get("fallback_reason") != fallback_reason:
+        return False
+    if not all(_valid_digest(value) for value in (
+        input_facts_sha256, spec_sha256, calculation_sha256,
+    )):
+        return False
+    if input_facts_sha256 != _canonical_sha256(input_facts):
+        return False
+    if spec_sha256 != _canonical_sha256(spec.model_dump(mode="json")):
+        return False
+    if calculation_sha256 != calculation.get("calculation_sha256"):
+        return False
+    expected = _estimate_engine_proof(
+        input_facts_sha256=input_facts_sha256,
+        spec_sha256=spec_sha256,
+        calculation_sha256=calculation_sha256,
+        fallback_reason=fallback_reason,
+    )
+    binding_sha256 = str(proof.get("binding_sha256") or "").lower()
+    return bool(
+        _valid_digest(binding_sha256)
+        and binding_sha256 == expected["binding_sha256"]
+        and execution.get("engine_binding_sha256") == binding_sha256
+    )
+
+
+def deterministic_estimate_fallback_verification(task: dict[str, Any]) -> dict[str, Any]:
+    if not verified_deterministic_estimate_fallback(task):
+        raise ValueError("deterministic estimate fallback verification failed")
+    result = task["result"]
+    proof = result["generation"]
+    return {
+        "status": "passed",
+        "type": "deterministic_estimate_engine",
+        "engine": ESTIMATE_FALLBACK_ENGINE,
+        "provider_verified": False,
+        "spec_sha256": proof["spec_sha256"],
+        "calculation_sha256": proof["calculation_sha256"],
+        "binding_sha256": proof["binding_sha256"],
+    }
+
+
+def deterministic_estimate_fallback_text(task: dict[str, Any]) -> str:
+    if not verified_deterministic_estimate_fallback(task):
+        raise ValueError("deterministic estimate fallback verification failed")
+    result = task["result"]
+    estimate = result["estimate"]
+    calculation = result["calculation"]
+    total_minor = int(calculation["totals"]["grand_total_minor"])
+    minor_unit = int(calculation["minor_unit"])
+    amount = Decimal(total_minor) / (Decimal(10) ** minor_unit)
+    formatted = f"{amount:,.{minor_unit}f}".replace(",", " ").replace(".", ",")
+    delivery = task.get("artifact_delivery") if isinstance(task.get("artifact_delivery"), dict) else {}
+    pdf_ready = "pdf" in set(delivery.get("delivered") or [])
+    return (
+        f"Подготовлена предварительная редактируемая смета «{estimate['title']}»: "
+        f"{len(estimate['lines'])} позиций, ориентировочный итог {formatted} RUB. "
+        "Все цены и объёмы отмечены как непроверенные допущения; итог рассчитан "
+        "детерминированно, без расчёта суммы моделью. "
+        + ("PDF сформирован и привязан к этой версии сметы." if pdf_ready else "PDF пока не материализован.")
+    )
 
 
 def _routing(result: dict[str, Any]) -> dict[str, Any]:
