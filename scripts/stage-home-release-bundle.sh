@@ -149,7 +149,7 @@ ssh "${SSH_OPTIONS[@]}" "$REMOTE_TARGET" \
 
 if [ "$APPLY" != true ]; then
   ssh "${SSH_OPTIONS[@]}" "$REMOTE_TARGET" \
-    /usr/bin/python3 - stage \
+    /usr/bin/env PYTHONPATH=/usr/local/lib/kolibri /usr/bin/python3 - stage \
     --artifact-relative "$ARTIFACT_RELATIVE" \
     --expected-sha256 "$BUNDLE_SHA256" \
     --expected-size "$BUNDLE_SIZE" \

@@ -24,7 +24,6 @@ from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO
 
 try:
-    from ops.release_controller import ReleaseManifest
     from ops.release_installer import (
         MANIFEST_MEMBER,
         SIGNATURE_MEMBER,
@@ -34,7 +33,6 @@ try:
         load_canonical_manifest,
     )
 except ImportError:  # installed standalone beside release modules
-    from release_controller import ReleaseManifest  # type: ignore[no-redef]
     from release_installer import (  # type: ignore[no-redef]
         MANIFEST_MEMBER,
         SIGNATURE_MEMBER,
@@ -165,18 +163,16 @@ def inspect_bundle(path: Path) -> BundleInspection:
             with os.fdopen(descriptor, "wb") as output:
                 output.write(manifest_bytes)
             parsed = load_canonical_manifest(manifest_path)
-        manifest = ReleaseManifest.from_payload(parsed.payload)
-        manifest.validate()
     except ArtifactStageError:
         raise
     except (OSError, TypeError, ValueError, ReleaseInstallError) as exc:
         raise ArtifactStageError("release_stage_bundle_manifest_invalid") from exc
-    relative = _artifact_relative(manifest.artifact_uri)
+    relative = _artifact_relative(parsed.artifact_uri)
     return BundleInspection(
-        release_id=manifest.release_id,
-        artifact_uri=manifest.artifact_uri,
+        release_id=parsed.release_id,
+        artifact_uri=parsed.artifact_uri,
         artifact_relative=relative,
-        manifest_digest=manifest.digest,
+        manifest_digest=parsed.digest,
         bundle_sha256=digest.hexdigest(),
         size_bytes=before.st_size,
     )
