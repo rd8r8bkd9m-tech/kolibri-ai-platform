@@ -290,7 +290,13 @@ def main(argv: list[str] | None = None) -> int:
             (json.dumps(mac_record, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8"),
             0o600,
         )
-        run(["ssh", *SSH_OPTIONS, f"root@{resolved_home}", "mkdir", "-m700", remote_stage_dir])
+        # ``/run/kolibri`` is intentionally ephemeral and may not exist after
+        # a Home reboot.  ``install -d`` creates the complete private path;
+        # plain ``mkdir`` would fail when its parent is absent.
+        run([
+            "ssh", *SSH_OPTIONS, f"root@{resolved_home}",
+            "install", "-d", "-m700", remote_stage_dir,
+        ])
         run(["scp", "-q", *SSH_OPTIONS, str(temp_hash), f"root@{resolved_home}:{remote_stage}"])
         run([
             "ssh", *SSH_OPTIONS, f"root@{resolved_home}", "/bin/bash", "-s", "--",

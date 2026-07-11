@@ -228,6 +228,8 @@ def test_apply_stores_raw_token_only_on_mac_and_hash_only_in_home_stage(
     assert TOKEN not in visible
     assert expected_hash not in visible
     assert [call[0][0] for call in calls] == ["ssh", "scp", "ssh"]
+    assert calls[0][0][-4:-1] == ["install", "-d", "-m700"]
+    assert calls[0][0][-1].startswith("/run/kolibri/external-provider-auth-")
     apply_call = calls[-1]
     assert apply_call[1] == installer.remote_apply_script()
 
