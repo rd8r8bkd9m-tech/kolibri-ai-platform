@@ -529,14 +529,16 @@ Kolibri получает практическую capability parity через:
 ### Phase C — Shell and project continuity
 
 - довести component Shell без возврата монолитного `App`;
+- сохранить one-window модель: официальный маскот управляет navigation rail, hover только показывает preview, клик закрепляет sidebar, а mobile использует drawer и bottom sheets без уменьшенной desktop-копии;
 - conversation stays in one ProjectWorkspace;
 - Projects/Files/History как durable backend entities;
 - typed estimate/document/site/app flows;
 - canvas renderers и isolated preview;
+- заменить пустую заглушку `Выполняю…` на server-authored streaming work summary `план → инструменты → источники → проверка → итог`, не раскрывая hidden chain-of-thought, prompts, tool arguments и secrets;
 - `/control` только на real Home data;
 - mobile and desktop browser E2E.
 
-**Exit gate:** два последовательных chat turns не создают новые окна; новый Project создаёт отдельный workspace; resume между client bindings продолжает один active plan; no mock/503/404 on required backend routes.
+**Exit gate:** два последовательных chat turns не создают новые окна; новый Project создаёт отдельный workspace; resume между client bindings продолжает один active plan; pin → collapse → composer → maximize → restore проходит без ErrorBoundary и console errors; streaming показывает реальные этапы и source/tool state; no mock/503/404 on required backend routes.
 
 ### Phase D — Construction vertical end-to-end
 
@@ -575,6 +577,9 @@ Kolibri получает практическую capability parity через:
 
 - immutable build from canonical commit;
 - signed manifest and SBOM;
+- запускать Python preflight и dry-run с отключённой записью bytecode; любой лишний `.pyc`, symlink, непредусмотренный file или manifest drift внутри immutable release блокирует switch;
+- для первой миграции собрать и подписать rollback из точных фактически исполняемых product, Control Plane и Agent Host bytes с provenance/hash, не подменяя legacy runtime более новым checkout;
+- legacy compatibility разрешена только signed rollback task; apply candidate обязан пройти current fleet-proof/release-identity canary без исключений;
 - canary → quorum → 3 workers → 5 workers → remaining workers → legacy-named workers last;
 - backend/frontend/provider/fleet/FormulaLM/control/browser gates;
 - automatic rollback test;
@@ -634,8 +639,11 @@ Kolibri получает практическую capability parity через:
 | Provider fallback | code/contracts present | forced primary failure → verified fallback completion |
 | 100-agent application benchmark | not proven | build + tests + browser evidence + preview + PR from one Project/SwarmPlan |
 | Shell continuity | local implementation in progress | browser E2E for same-thread, new project, resume, mobile |
+| Shell interaction integrity | target only | pin/collapse/composer/window lifecycle, mobile drawer/sheets, zero fresh console errors |
+| Streaming transparency | compatibility metadata present | ordered safe work-summary SSE with truthful tools/sources/checks and no hidden-CoT leakage |
 | Construction pack | donor implementations | golden domain + deterministic/export/domain-review gates |
 | FormulaLM | safe compatibility boundary | sanitized shadow/eval/canary evidence; no request-path mutation |
+| Immutable release hygiene | not established | exact manifest file set, no bytecode/runtime pollution, signed exact rollback and successful canary |
 | Production soak | not proven | 24 h without split-brain, lost checkpoints, false completion or secret leak |
 
 ## 16. API delivery order
