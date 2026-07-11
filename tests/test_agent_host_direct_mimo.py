@@ -399,7 +399,10 @@ def test_factory_codex_uses_stdin_readonly_contract_and_cleans_prompt(tmp_path, 
     }
     result = host.run_owner_remote_task(task)
 
-    assert observed_prompt == "private factory prompt"
+    assert observed_prompt is not None
+    assert observed_prompt.startswith(agent_host.CODEX_PROVIDER_NETWORK_INSTRUCTION)
+    assert "Do not run curl" in observed_prompt
+    assert observed_prompt.endswith("private factory prompt")
     assert result["response"] == "SAFE CODEX"
     assert not (Path(result["worktree"]) / ".kolibri-provider-prompt").exists()
     assert result["runner_contract"]["factory_provider_contract"] == "kolibri.factory-provider.readonly.v1"

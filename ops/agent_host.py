@@ -147,6 +147,12 @@ EXTERNAL_PROVIDER_AUTH_HMAC_CONTRACT = "kolibri.external-provider-hmac.v1"
 EXTERNAL_PROVIDER_CREDENTIAL_SCHEMA = "kolibri.external-provider-credential.v1"
 CODEX_TASK_MODEL = "gpt-5.5"
 CODEX_READINESS_MARKER = "KOLIBRI_CODEX_READY"
+CODEX_PROVIDER_NETWORK_INSTRUCTION = (
+    "Provider network policy: use only the native web_search tool for fresh internet data. "
+    "Do not run curl, wget, or other shell network clients. Use no more than three focused "
+    "search queries, open only the authoritative sources needed, cite them, and answer promptly. "
+    "Do not search when the task does not require current internet information."
+)
 SECRET_REDACTION_MARKERS = (
     "api_key",
     "authorization",
@@ -1998,7 +2004,11 @@ class AgentHost:
         )
         if runner == "codex":
             prompt_path = worktree / ".kolibri-provider-prompt"
-            prompt_path.write_text(prompt, encoding="utf-8")
+            codex_prompt = (
+                f"{CODEX_PROVIDER_NETWORK_INSTRUCTION}\n\n{prompt}"
+                if readonly_factory_route else prompt
+            )
+            prompt_path.write_text(codex_prompt, encoding="utf-8")
             prompt_path.chmod(0o600)
             if readonly_factory_route:
                 command = [
