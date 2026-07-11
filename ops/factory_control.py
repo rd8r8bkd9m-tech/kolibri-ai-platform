@@ -171,6 +171,7 @@ CODEX_FACTORY_RUNNER_CONTRACT = {
     "factory_provider_contract": FACTORY_PROVIDER_RUNNER_CONTRACT,
     "prompt_transport": "stdin",
     "sandbox": "read-only",
+    "network_access": "provider_managed_search",
 }
 
 

@@ -86,6 +86,7 @@ FACTORY_EXTERNAL_CODEX_RUNNER_CONTRACT = {
     "factory_provider_contract": FACTORY_RUNNER_CONTRACT,
     "prompt_transport": "stdin",
     "sandbox": "read-only",
+    "network_access": "provider_managed_search",
 }
 FACTORY_TERMINAL_STATES = frozenset({
     "blocked", "cancelled", "canceled", "completed", "dead", "dead_letter", "failed",

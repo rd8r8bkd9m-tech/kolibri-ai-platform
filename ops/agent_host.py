@@ -223,6 +223,7 @@ def codex_factory_runner_contract() -> dict[str, Any]:
         "factory_provider_contract": FACTORY_PROVIDER_CONTRACT,
         "prompt_transport": "stdin",
         "sandbox": "read-only",
+        "network_access": "provider_managed_search",
     }
 
 
@@ -2001,12 +2002,12 @@ class AgentHost:
             prompt_path.chmod(0o600)
             if readonly_factory_route:
                 command = [
-                    executable, "exec", "--json", "--ephemeral", "--skip-git-repo-check",
+                    executable, "--search", "exec", "--json", "--ephemeral", "--skip-git-repo-check",
                     "--ignore-user-config", "--ignore-rules", "--color", "never",
                     "--sandbox", "read-only", "--model", CODEX_TASK_MODEL, "-",
                 ]
                 command_label = (
-                    f"{executable} exec --json --ephemeral --skip-git-repo-check "
+                    f"{executable} --search exec --json --ephemeral --skip-git-repo-check "
                     f"--ignore-user-config --ignore-rules --color never --sandbox read-only "
                     f"--model {CODEX_TASK_MODEL} - <prompt-file>"
                 )

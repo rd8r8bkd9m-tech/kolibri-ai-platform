@@ -367,6 +367,7 @@ def test_factory_codex_uses_stdin_readonly_contract_and_cleans_prompt(tmp_path, 
             del self, cwd, task, branch, logs, env
             nonlocal observed_prompt
             assert command[-1] == "-"
+            assert command[:3] == ["/usr/local/bin/codex", "--search", "exec"]
             assert command[command.index("--sandbox") + 1] == "read-only"
             assert command[command.index("--model") + 1] == "gpt-5.5"
             assert "--ephemeral" in command
@@ -404,6 +405,7 @@ def test_factory_codex_uses_stdin_readonly_contract_and_cleans_prompt(tmp_path, 
     assert result["runner_contract"]["factory_provider_contract"] == "kolibri.factory-provider.readonly.v1"
     assert result["runner_contract"]["prompt_transport"] == "stdin"
     assert result["runner_contract"]["sandbox"] == "read-only"
+    assert result["runner_contract"]["network_access"] == "provider_managed_search"
 
 
 def test_home_factory_provider_task_is_distinct_from_legacy_direct_mimo_task():

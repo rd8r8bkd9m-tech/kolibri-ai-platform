@@ -21,6 +21,9 @@ the Mac or Codex directly.
   is copied into the runtime, plist, logs, manifest, or artifacts.
 - The dedicated runner policy enables local browser/device Codex and disables
   Mimo. A binary or legacy capability cannot override `disabled`.
+- Read-only provider tasks start Codex with its native `--search` capability.
+  Internet access is therefore provider-managed and auditable while the local
+  filesystem sandbox remains read-only.
 - Normal Agent Hosts leave periodic Codex probing disabled. This managed Mac
   LaunchAgent opts in with `KOLIBRI_CODEX_READINESS_REFRESH_SECONDS=240`.
   Refresh runs only while no task is active, uses the current-user session in

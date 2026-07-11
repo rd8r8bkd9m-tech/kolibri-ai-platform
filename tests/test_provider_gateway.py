@@ -222,6 +222,7 @@ def external_factory_codex_actor(node_id="dynamic-owner-codex-broker"):
         "factory_provider_contract": "kolibri.factory-provider.readonly.v1",
         "prompt_transport": "stdin",
         "sandbox": "read-only",
+        "network_access": "provider_managed_search",
         "status": "available",
         "checked_at": checked_at,
         "readiness_contract": "kolibri.codex-readiness.v1",
