@@ -36,7 +36,32 @@ async function requestJson(path, options = {}) {
     headers: options.body instanceof FormData ? options.headers : { "Content-Type": "application/json", ...options.headers },
     ...options,
   });
-  const payload = await response.json().catch(() => null);
+  const contentType = String(response.headers.get("content-type") || "");
+  const mediaType = contentType.split(";", 1)[0].trim().toLowerCase();
+  if (mediaType !== "application/json") {
+    throw new KolibriApiError("API вернул ответ не в формате JSON", {
+      status: response.ok ? 502 : response.status,
+      endpoint: path,
+      payload: {
+        code: "api_response_content_type_invalid",
+        upstream_status: response.status,
+        content_type: contentType.slice(0, 160),
+      },
+    });
+  }
+  let payload;
+  try {
+    payload = await response.json();
+  } catch {
+    throw new KolibriApiError("API вернул повреждённый JSON", {
+      status: response.ok ? 502 : response.status,
+      endpoint: path,
+      payload: {
+        code: "api_response_json_invalid",
+        upstream_status: response.status,
+      },
+    });
+  }
   if (!response.ok) {
     throw new KolibriApiError(payload?.detail || payload?.error?.message || payload?.error || `HTTP ${response.status}`, {
       status: response.status,
@@ -97,11 +122,31 @@ function assertPublicSession(result) {
   return result.payload;
 }
 
+function publicSessionNotPersisted() {
+  return new KolibriApiError("Не удалось закрепить безопасную сессию. Повторите сообщение.", {
+    status: 401,
+    endpoint: API_ENDPOINTS.publicSession,
+    payload: { code: "public_session_cookie_not_persisted" },
+  });
+}
+
 async function createPublicSession() {
-  return assertPublicSession(await requestJson(API_ENDPOINTS.publicSession, {
+  assertPublicSession(await requestJson(API_ENDPOINTS.publicSession, {
     method: "POST",
     body: JSON.stringify({}),
+    cache: "no-store",
   }));
+  try {
+    // A successful POST proves only that the server issued a session. Verify
+    // that the browser retained the HttpOnly cookie before dispatching work;
+    // legacy duplicate-path cookies can otherwise shadow the fresh value.
+    return assertPublicSession(await requestJson(API_ENDPOINTS.publicSession, {
+      cache: "no-store",
+    }));
+  } catch (error) {
+    if (publicSessionExpired(error)) throw publicSessionNotPersisted();
+    throw error;
+  }
 }
 
 export async function ensurePublicSession() {
@@ -112,7 +157,7 @@ export async function ensurePublicSession() {
       // Session discovery is shared by every in-flight Shell request.  A
       // caller-specific AbortSignal must not cancel that shared handshake and
       // poison unrelated requests; the signal remains scoped to /responses.
-      const current = await requestJson(API_ENDPOINTS.publicSession);
+      const current = await requestJson(API_ENDPOINTS.publicSession, { cache: "no-store" });
       if (current.payload?.object === "public.session") return current.payload;
     } catch (error) {
       if (!(error instanceof KolibriApiError) || error.status !== 401) throw error;
@@ -242,6 +287,7 @@ async function requestResponsesStream(body, idempotencyKey, signal) {
       "Idempotency-Key": idempotencyKey,
     },
     body: JSON.stringify(body),
+    cache: "no-store",
     signal,
   });
   if (!response.ok) {
@@ -815,7 +861,13 @@ export async function sendKolibriRequest({ text, messages = [], workstreamId = "
       // idempotent Responses request exactly once; never retry provider/auth
       // failures or origin mismatches here.
       await refreshPublicSession(sessionGeneration);
-      payload = await requestResponsesStream(body, idempotencyKey, signal);
+      try {
+        payload = await requestResponsesStream(body, idempotencyKey, signal);
+      } catch (retryError) {
+        if (!publicSessionExpired(retryError)) throw retryError;
+        publicSessionPromise = null;
+        throw publicSessionNotPersisted();
+      }
     }
     const taskEnvelope = typedTask ? normalizeTypedTaskEnvelope(payload?.task, typedTask.intent) : null;
     if (taskEnvelope?.status === "failed") {

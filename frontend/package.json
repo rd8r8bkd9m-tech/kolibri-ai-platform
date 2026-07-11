@@ -10,10 +10,11 @@
     "preview": "vite preview",
     "test:protocol": "node tests/kolibri_os_contract.mjs",
     "test:architecture": "node tests/component_architecture.mjs",
+    "test:proxy": "node tests/vite_proxy_contract.mjs",
     "test:typed-gateway": "node tests/kolibri_typed_gateway.mjs",
     "test:mobile-layout": "node tests/mobile_layout_guard.mjs",
     "test:workspace": "node tests/focused_workspace.mjs",
-    "test": "npm run test:protocol && npm run test:architecture && npm run test:typed-gateway && npm run test:mobile-layout && npm run test:workspace"
+    "test": "npm run test:protocol && npm run test:architecture && npm run test:proxy && npm run test:typed-gateway && npm run test:mobile-layout && npm run test:workspace"
   },
   "dependencies": {
     "clsx": "^2.1.1",

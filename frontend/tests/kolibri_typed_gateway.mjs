@@ -10,6 +10,7 @@ import {
   buildEstimateProposalTask,
   buildEstimateTask,
   buildSiteTask,
+  loadControlSnapshot,
   loadSupportedExecutionModes,
   normalizeModels,
   normalizeTypedTaskEnvelope,
@@ -75,6 +76,15 @@ function response(status, payload) {
     status,
     headers: { get() { return "application/json"; } },
     async json() { return payload; },
+  };
+}
+
+function htmlResponse(status = 200) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: { get() { return "text/html; charset=utf-8"; } },
+    async json() { throw new Error("HTML must never be parsed as API JSON"); },
   };
 }
 
@@ -277,6 +287,44 @@ try {
   calls.length = 0;
   globalThis.fetch = async (url, options) => {
     calls.push({ url, cache: options?.cache });
+    if (url === "/v1/models") return htmlResponse();
+    return response(200, {
+      object: "list",
+      data: [{ id: "kolibri", object: "model" }],
+      supported_execution_modes: ["fast", "codex"],
+    });
+  };
+  assert.deepEqual(
+    await loadSupportedExecutionModes(),
+    ["fast", "codex"],
+    "a 200 SPA document must be rejected so the JSON compatibility route can win",
+  );
+  assert.deepEqual(calls, [
+    { url: "/v1/models", cache: "no-store" },
+    { url: "/api/models", cache: "no-store" },
+  ]);
+
+  calls.length = 0;
+  globalThis.fetch = async (url) => {
+    calls.push({ url });
+    if (url === "/api/factory/status") return response(200, { status: "online", total_nodes: 21 });
+    if (url === "/v1/models") return response(200, { object: "list", data: [{ id: "kolibri" }] });
+    if (url === "/v1/capabilities") return response(200, { object: "list", data: [] });
+    return htmlResponse();
+  };
+  const controlSnapshot = await loadControlSnapshot();
+  assert.equal(controlSnapshot.status.available, true);
+  assert.equal(controlSnapshot.tasks.available, false);
+  assert.equal(controlSnapshot.nodes.available, false);
+  assert.equal(controlSnapshot.approvals.available, false);
+  for (const section of [controlSnapshot.tasks, controlSnapshot.nodes, controlSnapshot.approvals]) {
+    assert.equal(section.status, 502);
+    assert.match(section.error, /не в формате JSON/);
+  }
+
+  calls.length = 0;
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, cache: options?.cache });
     if (url === "/v1/models") {
       return response(200, {
         object: "list",
@@ -404,6 +452,29 @@ try {
 
   calls.length = 0;
   resetPublicSessionForTests();
+  globalThis.fetch = async (url, options) => {
+    const method = options?.method || "GET";
+    calls.push({ url, method, cache: options?.cache });
+    if (url === "/v1/public/session" && method === "POST") return response(200, publicSession);
+    if (url === "/v1/public/session") {
+      return response(401, { detail: "public_session_required_or_expired" });
+    }
+    throw new Error("responses must not run before the issued cookie is verified");
+  };
+  await assert.rejects(
+    sendKolibriRequest({ text: "cookie blocked" }),
+    (error) => error instanceof KolibriApiError
+      && error.payload?.code === "public_session_cookie_not_persisted"
+      && !error.message.includes("public_session_required_or_expired"),
+  );
+  assert.deepEqual(calls, [
+    { url: "/v1/public/session", method: "GET", cache: "no-store" },
+    { url: "/v1/public/session", method: "POST", cache: "no-store" },
+    { url: "/v1/public/session", method: "GET", cache: "no-store" },
+  ]);
+
+  calls.length = 0;
+  resetPublicSessionForTests();
   let responseAttempts = 0;
   globalThis.fetch = async (url, options) => {
     calls.push({
@@ -411,6 +482,7 @@ try {
       method: options?.method || "GET",
       headers: options?.headers || {},
       body: options?.body ? JSON.parse(options.body) : null,
+      cache: options?.cache,
     });
     if (url === "/v1/public/session") return response(200, publicSession);
     responseAttempts += 1;
@@ -423,10 +495,13 @@ try {
     "GET /v1/public/session",
     "POST /v1/responses",
     "POST /v1/public/session",
+    "GET /v1/public/session",
     "POST /v1/responses",
   ]);
-  assert.equal(calls[1].body.idempotency_key, calls[3].body.idempotency_key);
-  assert.equal(calls[1].headers["Idempotency-Key"], calls[3].headers["Idempotency-Key"]);
+  assert.equal(calls[1].body.idempotency_key, calls[4].body.idempotency_key);
+  assert.equal(calls[1].headers["Idempotency-Key"], calls[4].headers["Idempotency-Key"]);
+  assert.equal(calls[1].cache, "no-store");
+  assert.equal(calls[4].cache, "no-store");
 
   for (const [status, payload] of [
     [401, { detail: "invalid_provider_credentials" }],
@@ -462,12 +537,13 @@ try {
     sendKolibriRequest({ text: "повторить только один раз" }),
     (error) => error instanceof KolibriApiError
       && error.status === 401
-      && error.message === "HTTP 401",
+      && error.payload?.code === "public_session_cookie_not_persisted",
   );
   assert.deepEqual(calls.map((call) => `${call.method} ${call.url}`), [
     "GET /v1/public/session",
     "POST /v1/responses",
     "POST /v1/public/session",
+    "GET /v1/public/session",
     "POST /v1/responses",
   ]);
 
@@ -502,7 +578,7 @@ try {
   ]);
   assert.deepEqual(parallel.map((item) => item.text), ["Восстановлен первый", "Восстановлен второй"]);
   assert.equal(refreshCount, 1, "parallel expiry must share one refresh POST");
-  assert.equal(calls.filter((call) => call.method === "GET" && call.url === "/v1/public/session").length, 1);
+  assert.equal(calls.filter((call) => call.method === "GET" && call.url === "/v1/public/session").length, 2);
   assert.equal(calls.filter((call) => call.url === "/v1/responses").length, 4);
   assert.equal(responseCountByKey.size, 2);
   assert.ok([...responseCountByKey.values()].every((count) => count === 2));

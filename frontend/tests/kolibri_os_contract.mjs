@@ -81,8 +81,11 @@ assert.doesNotMatch(retiredServiceWorkerSource, /addEventListener\(["']fetch["']
 const responsesTransport = apiSource.match(/async function requestResponsesStream[\s\S]*?return consumeResponsesSse\(response\);\n}/)?.[0] || "";
 assert.ok(responsesTransport);
 assert.doesNotMatch(responsesTransport, /Authorization|Bearer/);
-assert.match(viteSource, /'\/v1': API_PROXY/);
-assert.match(viteSource, /'\/api': API_PROXY/);
+assert.match(viteSource, /resolveApiProxy/);
+assert.match(viteSource, /resolveCanonicalApiProxy/);
+assert.match(viteSource, /readFileSync\(new URL\('\.\/CNAME'/);
+assert.match(viteSource, /createProxyRoutes/);
+assert.doesNotMatch(viteSource, /127\.0\.0\.1:8000/);
 assert.doesNotMatch(`${shellSource}\n${cssSource}`, /project-rail|rail-overlay|mobile-rail/);
 assert.doesNotMatch(cssSource, /(^|[,{]\s*)\.chat(?:[\s.{:#>])/m);
 assert.doesNotMatch(shellSource, /className=["'][^"']*\bchat\b/);

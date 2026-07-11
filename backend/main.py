@@ -207,6 +207,38 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "Last-Event-ID"],
 )
 
+
+def _is_api_path(path: str) -> bool:
+    return path in {"/api", "/v1"} or path.startswith(("/api/", "/v1/"))
+
+
+def _unknown_api_response() -> JSONResponse:
+    return JSONResponse(
+        status_code=404,
+        content={"detail": "api_route_not_found"},
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+def _known_api_route_path(path: str) -> bool:
+    for route in app.routes:
+        route_path = str(getattr(route, "path", ""))
+        route_pattern = getattr(route, "path_regex", None)
+        if _is_api_path(route_path) and route_pattern is not None and route_pattern.match(path):
+            return True
+    return False
+
+
+@app.middleware("http")
+async def prevent_unknown_api_caching(request: Request, call_next):
+    if _is_api_path(request.url.path) and not _known_api_route_path(request.url.path):
+        return _unknown_api_response()
+    response = await call_next(request)
+    if response.status_code == 404 and _is_api_path(request.url.path):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "model": "kolibri"}
@@ -577,6 +609,8 @@ if frontend_path.exists():
 
     @app.get("/{full_path:path}")
     async def serve_frontend(full_path: str):
+        if _is_api_path(f"/{full_path.lstrip('/')}"):
+            return _unknown_api_response()
         file_path = (frontend_root / full_path).resolve()
         if file_path.is_relative_to(frontend_root) and file_path.exists() and file_path.is_file():
             return FileResponse(str(file_path))

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import sqlite3
 import sys
 from pathlib import Path
@@ -51,7 +52,27 @@ class FakeExecutor:
         return {
             "response": text,
             "model": "kolibri",
-            "technical": {"provider_routing": {"evidence": _evidence(text)}},
+            "technical": {"provider_routing": {
+                "selected_provider": "factory",
+                "fallback_used": True,
+                "attempts": [
+                    {
+                        "attempt": 1,
+                        "provider": "factory",
+                        "provider_model": "mimo",
+                        "status": "failed",
+                        "error_type": "provider_timeout",
+                    },
+                    {
+                        "attempt": 2,
+                        "provider": "factory",
+                        "provider_model": "codex",
+                        "status": "succeeded",
+                        "evidence": _evidence(text),
+                    },
+                ],
+                "evidence": _evidence(text),
+            }},
         }
 
 
@@ -244,6 +265,183 @@ def test_openai_response_shape_and_standard_input_are_supported(tmp_path):
     }
     assert payload["output_text"] == "verified:fast"
     assert "provider" not in response.text.lower()
+
+
+def test_public_response_default_policy_records_content_free_formula_rejection(tmp_path):
+    app, _ = make_app(tmp_path)
+    client = TestClient(app)
+    issue_session(client)
+
+    response = post_response(client, "safe but not opted in", key="public-no-consent")
+    repeated = post_response(client, "safe but not opted in", key="public-no-consent")
+
+    assert response.status_code == repeated.status_code == 200
+    assert response.json()["id"] == repeated.json()["id"]
+    tap = response.json()["learning_tap"]
+    assert tap["status"] == "rejected"
+    assert tap["rejection_code"] == "learning_consent_required"
+    assert tap["candidate_only"] is True
+    assert tap["async_queue"] is False
+    assert tap["auto_promote"] is False
+    assert tap["request_path_training"] is False
+    assert tap["production_weight_mutation"] is False
+    intakes = execution_api.get_learning_boundary().list_intakes(status="rejected")
+    assert len(intakes) == 1
+    assert intakes[0]["source_response_id"] == response.json()["id"]
+    assert intakes[0]["content_persisted"] is False
+    assert execution_api.get_learning_boundary().list_candidates() == []
+
+
+def test_public_formula_tap_can_share_the_production_sqlite_store(tmp_path):
+    database = tmp_path / "combined.db"
+    executor = FakeExecutor()
+    public_responses_api.configure_public_response_store(database)
+    public_responses_api.configure_public_response_origins([ORIGIN])
+    public_responses_api.configure_public_response_executor(executor)
+    execution_api.configure_execution_store(database)
+    execution_api.configure_execution_auth(["owner-key"])
+    app = FastAPI()
+    app.include_router(public_responses_api.router)
+    app.include_router(execution_api.router)
+    client = TestClient(app)
+    issue_session(client)
+
+    response = post_response(client, "same sqlite", key="public-shared-store")
+
+    assert response.status_code == 200
+    assert response.json()["learning_tap"]["status"] == "rejected"
+    assert len(execution_api.get_learning_boundary().list_intakes()) == 1
+
+
+def test_public_formula_tap_is_sanitized_bound_and_candidate_only(tmp_path):
+    app, _ = make_app(tmp_path)
+    client = TestClient(app)
+    session = issue_session(client)
+    cookie = client.cookies.get(public_responses_api.COOKIE_NAME)
+    learning = {
+        "consent": "explicit",
+        "license": "permitted",
+        "retention_class": "training-approved",
+        "data_classification": "internal",
+        "capability": "general.response",
+    }
+
+    response = post_response(
+        client,
+        "safe candidate trace",
+        key="public-learning-opt-in",
+        learning=learning,
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    tap = payload["learning_tap"]
+    assert tap["status"] == "queued"
+    assert tap["rejection_code"] is None
+    assert tap["async_queue"] is True
+    assert tap["candidate_only"] is True
+    assert tap["auto_promote"] is False
+    assert tap["request_path_training"] is False
+    assert tap["production_weight_mutation"] is False
+    assert len(tap["attempt_evidence_sha256"]) == 64
+    assert "provider" not in json.dumps(tap).lower()
+
+    boundary = execution_api.get_learning_boundary()
+    intakes = boundary.list_intakes(status="queued")
+    assert len(intakes) == 1
+    assert intakes[0]["source_response_id"] == payload["id"]
+    assert intakes[0]["content_persisted"] is True
+    assert boundary.list_candidates() == []
+
+    with sqlite3.connect(tmp_path / "execution.db") as connection:
+        row = connection.execute(
+            "SELECT payload, provenance, artifact_hashes FROM formulalm_intakes"
+        ).fetchone()
+    trace_record = json.loads(row[0])
+    provenance = json.loads(row[1])
+    artifact_hashes = json.loads(row[2])
+    trace = trace_record["trace"]
+    assert trace_record["source_response_id"] == payload["id"]
+    assert trace["binding"]["response_id"] == payload["id"]
+    assert trace["binding"]["public_session_sha256"] == hashlib.sha256(
+        session["id"].encode()
+    ).hexdigest()
+    assert trace["binding"]["project_sha256"] == hashlib.sha256(
+        session["project"]["id"].encode()
+    ).hexdigest()
+    assert trace["binding"]["attempt_evidence_sha256"] == tap["attempt_evidence_sha256"]
+    assert [item["status"] for item in trace["decisions"]["provider_attempts"]] == [
+        "failed", "succeeded",
+    ]
+    assert provenance["actor"] == "public-provider-gateway"
+    assert provenance["attempt_evidence_sha256"] == tap["attempt_evidence_sha256"]
+    assert artifact_hashes and all(value.startswith("sha256:") for value in artifact_hashes)
+    serialized_formula = json.dumps([trace_record, provenance, artifact_hashes])
+    assert session["id"] not in serialized_formula
+    assert session["project"]["id"] not in serialized_formula
+    assert cookie not in serialized_formula
+
+
+def test_public_formula_tap_rejects_secret_without_persisting_trace(tmp_path):
+    app, _ = make_app(tmp_path)
+    client = TestClient(app)
+    issue_session(client)
+    secret = "sk-never-store-public-learning-123456789"
+
+    response = post_response(
+        client,
+        f"do not learn {secret}",
+        key="public-learning-secret",
+        learning={
+            "consent": "explicit",
+            "license": "permitted",
+            "retention_class": "training-approved",
+            "data_classification": "private",
+            "capability": "general.response",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["learning_tap"]["status"] == "rejected"
+    assert response.json()["learning_tap"]["rejection_code"] == "learning_secret_detected"
+    with sqlite3.connect(tmp_path / "execution.db") as connection:
+        payload, persisted = connection.execute(
+            "SELECT payload, payload IS NOT NULL FROM formulalm_intakes"
+        ).fetchone()
+    assert payload is None
+    assert persisted == 0
+    assert secret.encode() not in (tmp_path / "execution.db").read_bytes()
+
+
+def test_formula_boundary_failure_never_turns_verified_public_answer_into_failure(
+    tmp_path, monkeypatch,
+):
+    app, _ = make_app(tmp_path)
+    client = TestClient(app)
+    issue_session(client)
+
+    class BrokenBoundary:
+        def enqueue_trace(self, **_kwargs):
+            raise RuntimeError("learning storage unavailable")
+
+    monkeypatch.setattr(public_responses_api, "get_learning_boundary", lambda: BrokenBoundary())
+    response = post_response(client, "still answer", key="public-learning-isolated")
+
+    assert response.status_code == 200
+    assert response.json()["output_text"] == "verified:fast"
+    assert response.json()["learning_tap"] == {
+        **{
+            key: response.json()["learning_tap"][key]
+            for key in ("content_sha256", "attempt_evidence_sha256")
+        },
+        "candidate_only": True,
+        "async_queue": False,
+        "auto_promote": False,
+        "request_path_training": False,
+        "production_weight_mutation": False,
+        "status": "unavailable",
+        "rejection_code": "learning_boundary_unavailable",
+    }
 
 
 def test_responses_sse_uses_official_typed_event_names(tmp_path):

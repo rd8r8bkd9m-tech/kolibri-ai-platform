@@ -70,8 +70,16 @@ Frontend:
 ```bash
 cd frontend
 npm install
+
+# The default review target is derived from the checked-in CNAME. Override it
+# only after verifying a different Kolibri API origin.
 npm run dev
 ```
+
+For a locally launched backend, first verify its `/v1/models` response and then
+set `VITE_API_PROXY` to that credential-free origin. Vite never assumes that an
+arbitrary process on localhost:8000 is Kolibri. See
+[`docs/LOCAL_REVIEW_RUNTIME.md`](docs/LOCAL_REVIEW_RUNTIME.md).
 
 Factory control sidecar:
 

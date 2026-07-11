@@ -12,6 +12,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import sqlite3
 import threading
@@ -34,10 +35,16 @@ from execution_api import (
     ResponseCreate,
     cancel_response as cancel_owner_response,
     create_response as create_owner_response,
+    get_learning_boundary,
     get_response as get_owner_response,
     list_responses as list_owner_responses,
     require_execution_auth,
     sanitize_learning_value,
+)
+from formulalm_boundary import (
+    FormulaLMConflictError,
+    FormulaLMPolicyError,
+    scan_learning_payload,
 )
 from public_chat_stream import verified_public_payload
 from response_tool_gateway import ResponseToolExecution, execute_response_tools
@@ -49,9 +56,12 @@ from web_search_gateway import WebSearchError, WebSearchPolicyError
 COOKIE_NAME = "kolibri_public_session"
 MAX_REQUEST_BYTES = 1024 * 1024
 MAX_MESSAGES = 100
+MAX_SESSION_COOKIE_CANDIDATES = 8
 PUBLIC_TOOL_ALIASES = frozenset({
     WEB_SEARCH_TOOL_ID, "web_search", "web_search_preview", "search_web",
 })
+_CANONICAL_SHA256 = re.compile(r"^[a-f0-9]{64}$")
+_PUBLIC_SESSION_TOKEN = re.compile(r"^[A-Za-z0-9_-]{20,128}$")
 
 
 def _now() -> float:
@@ -69,6 +79,183 @@ def _sha256(value: str) -> str:
 def _json_hash(value: Any) -> str:
     encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _provider_routing(value: Any) -> dict[str, Any]:
+    """Return the internal routing envelope without ever exposing it publicly."""
+
+    if not isinstance(value, dict):
+        return {}
+    technical = value.get("technical")
+    if isinstance(technical, dict) and isinstance(technical.get("provider_routing"), dict):
+        return technical["provider_routing"]
+    return value if any(key in value for key in ("attempts", "evidence", "error_type")) else {}
+
+
+def _sha256_artifact_hashes(*values: Any) -> list[str]:
+    """Collect only canonical content digests from already bounded evidence."""
+
+    found: set[str] = set()
+
+    def walk(value: Any, *, key: str = "", depth: int = 0) -> None:
+        if depth > 12:
+            return
+        if isinstance(value, dict):
+            for child_key, child in value.items():
+                walk(child, key=str(child_key).lower(), depth=depth + 1)
+            return
+        if isinstance(value, (list, tuple)):
+            for child in value:
+                walk(child, key=key, depth=depth + 1)
+            return
+        if not isinstance(value, str):
+            return
+        digest = value.lower().removeprefix("sha256:")
+        if (
+            _CANONICAL_SHA256.fullmatch(digest)
+            and any(marker in key for marker in ("sha256", "digest", "content_hash"))
+            and not any(marker in key for marker in ("binding", "idempotency", "authorization"))
+        ):
+            found.add(f"sha256:{digest}")
+
+    for item in values:
+        walk(item)
+    return sorted(found)
+
+
+def _record_public_learning_tap(
+    *,
+    session: dict[str, Any],
+    body: ResponseCreate,
+    response_id: str,
+    response_status: str,
+    response_text: str,
+    verification: dict[str, Any] | None,
+    provider_routing: dict[str, Any] | None,
+    tool_execution: ResponseToolExecution,
+    task: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Record a candidate-only FormulaLM tap isolated from public execution.
+
+    Raw session identifiers never cross the learning boundary.  The trace binds
+    the exact ephemeral response, session, project and provider/tool attempt
+    evidence by hashes.  ``enqueue_trace`` performs the strict secret/PII scan
+    and stores no trace content when consent, licence, retention or quality
+    policy rejects it.  It cannot train, create a candidate or promote weights
+    in the request path.
+    """
+
+    session_sha256 = _sha256(str(session["id"]))
+    project_sha256 = _sha256(str(session["project_id"]))
+    routing = provider_routing if isinstance(provider_routing, dict) else {}
+    attempts = routing.get("attempts") if isinstance(routing.get("attempts"), list) else []
+    evidence = routing.get("evidence") if isinstance(routing.get("evidence"), list) else []
+    tool_attempts = list(tool_execution.attempts)
+    tool_calls = list(tool_execution.tool_calls)
+    formula_tool_taps = list(tool_execution.formulalm_taps)
+    verification = verification if isinstance(verification, dict) else {}
+    attempt_binding = {
+        "schema_version": "kolibri.public-learning-binding.v1",
+        "response_id": response_id,
+        "public_session_sha256": session_sha256,
+        "project_sha256": project_sha256,
+        "execution_mode": body.execution_mode,
+        "provider_attempts": attempts,
+        "provider_evidence": evidence,
+        "tool_attempts": tool_attempts,
+        "tool_calls": tool_calls,
+        "verification": verification,
+    }
+    # Hash sanitized structures so even a malicious provider error cannot turn
+    # a secret or PII value into a durable/public correlation oracle.  The raw
+    # trace still goes to ``enqueue_trace`` so its scanner rejects the intake.
+    attempt_binding_sha256 = _json_hash(scan_learning_payload(attempt_binding).sanitized)
+    trace = {
+        "request": {
+            "input": body.input,
+            "instructions": body.instructions,
+            "tools": body.tools,
+        },
+        "response": {
+            "status": response_status,
+            "output_text": response_text if response_status == "completed" else "",
+            "task": task,
+        },
+        "decisions": {
+            "selected_provider": routing.get("selected_provider"),
+            "fallback_used": routing.get("fallback_used"),
+            "provider_attempts": attempts,
+            "tool_attempts": tool_attempts,
+            "tool_calls": tool_calls,
+            "formulalm_tool_taps": formula_tool_taps,
+        },
+        "binding": {
+            "response_id": response_id,
+            "public_session_sha256": session_sha256,
+            "project_sha256": project_sha256,
+            "attempt_evidence_sha256": attempt_binding_sha256,
+            "verification": verification,
+        },
+    }
+    content_sha256 = _json_hash(scan_learning_payload(trace).sanitized)
+    passed = response_status == "completed" and verification.get("status") == "passed"
+    quality = {
+        "response_status": response_status,
+        "quality_verdict": "passed" if passed else "failed",
+        "verifier_verdict": "passed" if passed else "failed",
+        "credit_assignment": {
+            "provider_execution": 1.0 if passed and evidence else 0.0,
+            "tool_execution": 1.0 if passed and tool_calls else 0.0,
+            "verifier": 1.0 if passed else 0.0,
+        },
+    }
+    policy = body.learning.model_dump(mode="json")
+    artifact_hashes = _sha256_artifact_hashes(evidence, tool_execution.evidence, task)
+    base = {
+        "content_sha256": content_sha256,
+        "attempt_evidence_sha256": attempt_binding_sha256,
+        "candidate_only": True,
+        "async_queue": False,
+        "auto_promote": False,
+        "request_path_training": False,
+        "production_weight_mutation": False,
+    }
+    try:
+        intake = get_learning_boundary().enqueue_trace(
+            idempotency_key=f"public-trace:{response_id}",
+            source_trace_id=response_id,
+            source_response_id=response_id,
+            capability=policy["capability"],
+            trace=trace,
+            provenance={
+                "actor": "public-provider-gateway",
+                "principal": f"public-session:{session_sha256[:16]}",
+                "policy_version": "kolibri.formulalm-public-policy.v1",
+                "response_id": response_id,
+                "public_session_sha256": session_sha256,
+                "project_sha256": project_sha256,
+                "attempt_evidence_sha256": attempt_binding_sha256,
+            },
+            policy=policy,
+            quality=quality,
+            artifact_hashes=artifact_hashes,
+        )
+        return {
+            **base,
+            "status": intake["status"],
+            "rejection_code": intake.get("rejection_code"),
+            "async_queue": intake["status"] == "queued",
+        }
+    except (FormulaLMPolicyError, FormulaLMConflictError) as exc:
+        return {**base, "status": "rejected", "rejection_code": exc.code}
+    except Exception:
+        # Learning is deliberately fail-isolated from customer inference.  The
+        # public result stays truthful and records no synthetic success claim.
+        return {
+            **base,
+            "status": "unavailable",
+            "rejection_code": "learning_boundary_unavailable",
+        }
 
 
 def _normalized_origin(value: str) -> str:
@@ -392,9 +579,47 @@ def _owner_principal(request: Request) -> str | None:
     return None
 
 
+def _session_cookie_candidates(request: Request) -> list[str]:
+    """Return bounded duplicate cookie values in wire order.
+
+    Browsers may retain an older cookie with the same name on ``Path=/`` while
+    the current session uses ``Path=/v1``. Starlette's cookie mapping collapses
+    duplicate names, so a stale shorter-path value can shadow the valid token.
+    Trying each bounded opaque candidate recovers the valid session without
+    exposing, logging or weakening validation of either token.
+    """
+
+    candidates: list[str] = []
+    seen: set[str] = set()
+    for raw_name, raw_value in request.scope.get("headers", []):
+        if raw_name.lower() != b"cookie":
+            continue
+        header = raw_value.decode("latin-1", errors="ignore")[:4096]
+        for item in header.split(";"):
+            name, separator, value = item.partition("=")
+            token = value.strip()
+            if (
+                separator
+                and name.strip() == COOKIE_NAME
+                and token not in seen
+                and _PUBLIC_SESSION_TOKEN.fullmatch(token)
+            ):
+                seen.add(token)
+                candidates.append(token)
+                if len(candidates) >= MAX_SESSION_COOKIE_CANDIDATES:
+                    return candidates
+    parsed = request.cookies.get(COOKIE_NAME, "")
+    if parsed not in seen and _PUBLIC_SESSION_TOKEN.fullmatch(parsed):
+        candidates.append(parsed)
+    return candidates
+
+
 def _require_session(request: Request, *, mutating: bool) -> dict[str, Any]:
-    token = request.cookies.get(COOKIE_NAME, "")
-    session = _STORE.resolve(token)
+    session = None
+    for token in _session_cookie_candidates(request):
+        session = _STORE.resolve(token)
+        if session is not None:
+            break
     if session is None:
         # An expired session is an authentication state transition, never a
         # cacheable API result.  This also prevents a retired browser cache or
@@ -544,16 +769,17 @@ async def _complete_public_response(
         status="in_progress",
         public_tools=public_tools,
     )
+    provider_routing: dict[str, Any] = {}
+    tool_execution = ResponseToolExecution(
+        provider_tools=requested_tools,
+        provider_instructions=None,
+        tool_calls=[],
+        evidence=[],
+        citations=[],
+        attempts=[],
+        formulalm_taps=[],
+    )
     try:
-        tool_execution = ResponseToolExecution(
-            provider_tools=requested_tools,
-            provider_instructions=None,
-            tool_calls=[],
-            evidence=[],
-            citations=[],
-            attempts=[],
-            formulalm_taps=[],
-        )
         if requested_tools:
             tool_execution = await run_in_threadpool(partial(
                 execute_response_tools,
@@ -582,6 +808,7 @@ async def _complete_public_response(
             execution_mode=body.execution_mode,
             response_id=response_id,
         )
+        provider_routing = _provider_routing(result)
         if body.task is not None:
             task_payload = build_vertical_result(body.task, result, calculation)
             try:
@@ -622,12 +849,33 @@ async def _complete_public_response(
         }
         if isinstance(public.get("task"), dict):
             payload["task"] = public["task"]
+        payload["learning_tap"] = _record_public_learning_tap(
+            session=session,
+            body=body,
+            response_id=response_id,
+            response_status="completed",
+            response_text=text,
+            verification=public["verification"],
+            provider_routing=provider_routing,
+            tool_execution=tool_execution,
+            task=payload.get("task"),
+        )
         _STORE.finish_response(session["id"], response_id, payload, context, http_status=200)
         return payload, 200
     except HTTPException:
         raise
     except WebSearchError as exc:
         http_status = 422 if isinstance(exc, WebSearchPolicyError) else 503
+        if isinstance(exc, WebSearchError):
+            tool_execution = ResponseToolExecution(
+                provider_tools=[],
+                provider_instructions=None,
+                tool_calls=[],
+                evidence=[],
+                citations=[],
+                attempts=list(getattr(exc, "attempts", []) or []),
+                formulalm_taps=[],
+            )
         payload = {
             **base,
             "status": "failed",
@@ -642,11 +890,25 @@ async def _complete_public_response(
         }
         if body.task is not None:
             payload["task"] = failed_vertical_result(body.task, exc.code)
+        payload["learning_tap"] = _record_public_learning_tap(
+            session=session,
+            body=body,
+            response_id=response_id,
+            response_status="failed",
+            response_text="",
+            verification=None,
+            provider_routing=provider_routing,
+            tool_execution=tool_execution,
+            task=payload.get("task"),
+        )
         _STORE.finish_response(
             session["id"], response_id, payload, context, http_status=http_status,
         )
         return payload, http_status
-    except Exception:
+    except Exception as exc:
+        provider_routing = provider_routing or _provider_routing(
+            getattr(exc, "technical", None)
+        )
         payload = {
             **base,
             "status": "failed",
@@ -661,6 +923,17 @@ async def _complete_public_response(
         }
         if body.task is not None:
             payload["task"] = failed_vertical_result(body.task, "provider_unavailable")
+        payload["learning_tap"] = _record_public_learning_tap(
+            session=session,
+            body=body,
+            response_id=response_id,
+            response_status="failed",
+            response_text="",
+            verification=None,
+            provider_routing=provider_routing,
+            tool_execution=tool_execution,
+            task=payload.get("task"),
+        )
         _STORE.finish_response(session["id"], response_id, payload, context, http_status=503)
         return payload, 503
 
