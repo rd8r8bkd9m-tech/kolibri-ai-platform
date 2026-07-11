@@ -103,6 +103,15 @@ def approval_body(control):
 
 def store_approval(control, memory, tmp_path, monkeypatch, body=None):
     monkeypatch.setattr(control, "redis", memory)
+    manifest = tmp_path / "mesh-peers.json"
+    manifest.write_text(json.dumps({
+        "schema_version": 3,
+        "peers": {
+            "10.99.0.1": {"node_id": "home", "mesh_ip": "10.99.0.1"},
+            "10.99.0.9": {"node_id": "agent-09", "mesh_ip": "10.99.0.9"},
+        },
+    }), encoding="utf-8")
+    control.configure_mesh_membership(manifest)
     allowed = tmp_path / "allowed_signers"
     allowed.write_text("owner ssh-ed25519 public-material\n", encoding="utf-8")
     monkeypatch.setattr(control, "OWNER_ALLOWED_SIGNERS", allowed)

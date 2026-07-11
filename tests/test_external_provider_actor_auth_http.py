@@ -344,7 +344,16 @@ def endpoint_case(name: str) -> tuple[str, dict[str, Any], int]:
         ),
         "complete": (
             f"/v1/tasks/{TASK_ID}/complete",
-            {**fence, "result": {"runner": "codex", "output": "123"}},
+            {
+                **fence,
+                "result_reference": f"/var/lib/kolibri-agent/{TASK_ID}/result.json",
+                "result": {
+                    "runner": "codex",
+                    "status": "completed",
+                    "output": "123",
+                    "result_path": f"/var/lib/kolibri-agent/{TASK_ID}/result.json",
+                },
+            },
             200,
         ),
         "fail": (

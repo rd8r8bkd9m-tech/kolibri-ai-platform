@@ -132,6 +132,14 @@ STATE_RETRY = "retry_scheduled"
 STATE_DEAD = "dead_letter"
 TERMINAL_STATES = {STATE_COMPLETED, STATE_FAILED, STATE_CANCELLED, STATE_DEAD}
 BLOCKED_RUNNER_STATES = {"blocked", "degraded", "runner_auth_blocked", "unavailable"}
+COMPLETION_EVIDENCE_SCHEMA = "kolibri.task-completion-evidence.v1"
+COMPLETION_BINDING_SCHEMA = "kolibri.task-completion-binding.v1"
+COMPLETION_VERIFIER_SCHEMA = "kolibri.control-plane-completion-verifier.v1"
+COMPLETION_SUCCESS_STATUSES = frozenset({
+    "completed", "healthy", "ok", "passed", "ready", "success",
+})
+FLEET_PROOF_SCHEMA = "kolibri.fleet-capability-proof.v1"
+DEFAULT_FLEET_PROOF_QUEUE_AGE_SECONDS = 3600
 
 # Non-mesh provider actors are execution adapters, not physical fleet members.
 # The first supported adapter is the owner-session Mac Codex LaunchAgent.  Its
@@ -270,6 +278,26 @@ class IdempotencyConflict(ValueError):
         super().__init__("idempotency_key_payload_conflict")
         self.idempotency_key = idempotency_key
         self.existing_task_id = existing_task_id
+
+
+class TaskTargetValidationError(ValueError):
+    """A task names a target outside the current authenticated scheduler view."""
+
+    code = "task_target_not_canonical"
+
+    def __init__(self, target_node: str, reason: str):
+        super().__init__(self.code)
+        self.target_node = target_node
+        self.reason = reason
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "error": self.code,
+            "target_node": self.target_node,
+            "reason": self.reason,
+            "membership_authority": "replicated_mesh_manifest",
+            "normalization_performed": False,
+        }
 
 DEFAULT_WORKER_API_PATHS = ["fabric_api", "agent_host_api", "fallback_relay"]
 HOME_CONTROL_PLANE_API_PATHS = ["fabric_api", "control_plane_api", "artifact_api"]
@@ -801,8 +829,24 @@ def create_claim(task_id: str, made_by: str, claim_text: str, scope: str) -> Cla
     return c
 
 
-def add_evidence(claim_id: str, ev_type: str, source: str, summary: str = "", path: str = "") -> Evidence:
-    e = Evidence(evidence_id=_id("E"), claim_id=claim_id, type=ev_type, source=source, summary=summary, path=path)
+def add_evidence(
+    claim_id: str,
+    ev_type: str,
+    source: str,
+    summary: str = "",
+    path: str = "",
+    *,
+    content_hash: str = "",
+) -> Evidence:
+    e = Evidence(
+        evidence_id=_id("E"),
+        claim_id=claim_id,
+        type=ev_type,
+        source=source,
+        summary=summary,
+        path=path,
+        content_hash=content_hash,
+    )
     save_evidence(e)
     c = _truth_claims.get(claim_id)
     if c:
@@ -864,50 +908,250 @@ def get_truth_summary() -> dict:
 
 # ── Truth Gate: automatic verification on task completion ──────────────
 
+
+def canonical_json_sha256(value: Any) -> str:
+    """Hash one JSON value using a stable, whitespace-free representation."""
+
+    try:
+        payload = json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise ValueError("completion_result_not_canonical_json") from exc
+    return f"sha256:{hashlib.sha256(payload).hexdigest()}"
+
+
+def completion_binding_payload(
+    task: dict[str, Any],
+    result_reference: str,
+    result_sha256: str,
+) -> dict[str, str]:
+    return {
+        "schema_version": COMPLETION_BINDING_SCHEMA,
+        "task_id": str(task.get("task_id") or ""),
+        "attempt_id": str(task.get("attempt_id") or ""),
+        "lease_owner": str(task.get("lease_owner") or ""),
+        "result_reference": result_reference,
+        "result_sha256": result_sha256,
+    }
+
+
+def completion_binding_sha256(
+    task: dict[str, Any],
+    result_reference: str,
+    result_sha256: str,
+) -> str:
+    return canonical_json_sha256(
+        completion_binding_payload(task, result_reference, result_sha256)
+    )
+
+
+def _supplied_completion_digest(body: dict[str, Any], name: str) -> str | None:
+    direct = body.get(name)
+    supplied = body.get("completion_evidence")
+    nested = supplied.get(name) if isinstance(supplied, dict) else None
+    values = [str(value).strip().lower() for value in (direct, nested) if value is not None]
+    if len(set(values)) > 1:
+        return "__conflicting__"
+    return values[0] if values else None
+
+
+def verify_task_completion(
+    task: dict[str, Any],
+    result: Any,
+    body: dict[str, Any],
+    result_reference: Any,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Independently bind a completion to the authoritative task attempt."""
+
+    task_id = str(task.get("task_id") or "")
+    attempt_id = str(task.get("attempt_id") or "")
+    lease_owner = str(task.get("lease_owner") or "")
+    expected_node, separator, expected_agent = lease_owner.partition(":")
+    node_id = str(body.get("node_id") or "")
+    agent_id = str(body.get("agent_id") or "")
+    reference = str(result_reference or "").strip()
+    result_is_object = isinstance(result, dict) and bool(result)
+    result_object = result if isinstance(result, dict) else {}
+    try:
+        result_digest = canonical_json_sha256(result)
+    except ValueError:
+        result_digest = ""
+    binding_digest = (
+        completion_binding_sha256(task, reference, result_digest)
+        if result_digest and reference
+        else ""
+    )
+    target_node = str(
+        (task.get("envelope") or {}).get("target_node")
+        or (task.get("envelope") or {}).get("required_node")
+        or ""
+    )
+    status = str(result_object.get("status") or "").strip().lower()
+    result_path = result_object.get("result_path")
+    checks = {
+        "task": bool(
+            task_id
+            and task.get("state") in {STATE_LEASED, STATE_RUNNING, STATE_REVIEW}
+            and (body.get("task_id") is None or str(body.get("task_id")) == task_id)
+            and (result_object.get("task_id") is None or str(result_object.get("task_id")) == task_id)
+        ),
+        "result": result_is_object,
+        "attempt": bool(
+            attempt_id
+            and str(body.get("attempt_id") or "") == attempt_id
+            and (
+                result_object.get("attempt_id") is None
+                or str(result_object.get("attempt_id")) == attempt_id
+            )
+        ),
+        "node": bool(
+            expected_node
+            and separator
+            and node_id == expected_node
+            and (not target_node or target_node == node_id)
+            and (result_object.get("node_id") is None or str(result_object.get("node_id")) == node_id)
+        ),
+        "agent": bool(
+            expected_agent
+            and agent_id == expected_agent
+            and (result_object.get("agent_id") is None or str(result_object.get("agent_id")) == agent_id)
+        ),
+        "status": status in COMPLETION_SUCCESS_STATUSES,
+        "result_reference": bool(
+            reference
+            and (result_path is None or str(result_path).strip() == reference)
+        ),
+        "result_sha256": bool(result_digest),
+        "binding_sha256": bool(binding_digest),
+    }
+    supplied_result_digest = _supplied_completion_digest(body, "result_sha256")
+    supplied_binding_digest = _supplied_completion_digest(body, "binding_sha256")
+    if supplied_result_digest is not None:
+        checks["result_sha256"] = bool(
+            checks["result_sha256"] and supplied_result_digest == result_digest
+        )
+    if supplied_binding_digest is not None:
+        checks["binding_sha256"] = bool(
+            checks["binding_sha256"] and supplied_binding_digest == binding_digest
+        )
+    failed_checks = sorted(name for name, passed in checks.items() if not passed)
+    evidence = {
+        "schema_version": COMPLETION_EVIDENCE_SCHEMA,
+        "task_id": task_id,
+        "attempt_id": attempt_id,
+        "lease_owner": lease_owner,
+        "node_id": node_id,
+        "agent_id": agent_id,
+        "result_reference": reference,
+        "result_sha256": result_digest,
+        "binding_sha256": binding_digest,
+    }
+    verifier = {
+        "schema_version": COMPLETION_VERIFIER_SCHEMA,
+        "verifier": "control-plane/home",
+        "independent": True,
+        "verdict": "passed" if not failed_checks else "failed",
+        "checked_at": utc_now(),
+        "task_id": task_id,
+        "attempt_id": attempt_id,
+        "lease_owner": lease_owner,
+        "node_id": node_id,
+        "agent_id": agent_id,
+        "result_reference": reference,
+        "result_sha256": result_digest,
+        "binding_sha256": binding_digest,
+        "checks": checks,
+        "failed_checks": failed_checks,
+    }
+    return evidence, verifier
+
+
+def strict_completion_proof(task: dict[str, Any]) -> bool:
+    """Recompute stored hashes; never trust a persisted verdict by itself."""
+
+    if task.get("state") != STATE_COMPLETED or not isinstance(task.get("result"), dict):
+        return False
+    evidence = task.get("completion_evidence")
+    verifier = task.get("completion_verifier")
+    if not isinstance(evidence, dict) or not isinstance(verifier, dict):
+        return False
+    reference = str(task.get("result_reference") or "").strip()
+    try:
+        result_digest = canonical_json_sha256(task["result"])
+        binding_digest = completion_binding_sha256(task, reference, result_digest)
+    except ValueError:
+        return False
+    checks = verifier.get("checks") if isinstance(verifier.get("checks"), dict) else {}
+    return bool(
+        evidence.get("schema_version") == COMPLETION_EVIDENCE_SCHEMA
+        and verifier.get("schema_version") == COMPLETION_VERIFIER_SCHEMA
+        and verifier.get("verifier") == "control-plane/home"
+        and verifier.get("independent") is True
+        and verifier.get("verdict") == "passed"
+        and checks
+        and all(value is True for value in checks.values())
+        and evidence.get("task_id") == task.get("task_id")
+        and evidence.get("attempt_id") == task.get("attempt_id")
+        and evidence.get("lease_owner") == task.get("lease_owner")
+        and evidence.get("result_reference") == reference
+        and evidence.get("result_sha256") == result_digest
+        and evidence.get("binding_sha256") == binding_digest
+        and verifier.get("result_sha256") == result_digest
+        and verifier.get("binding_sha256") == binding_digest
+    )
+
 def truth_gate_on_complete(task: dict, result: dict) -> dict:
-    """Run truth gate when task completes. Returns gate result."""
+    """Persist the independent completion verifier in the Truth ledger."""
     task_id = task.get("task_id", "unknown")
-    envelope = task.get("envelope", {})
-
-    # Create claim: task completed
     claim = create_claim(task_id, task.get("lease_owner", "agent"), f"Task {task_id} completed", "task")
-
-    # Check evidence requirements
-    has_result = bool(result)
-    has_artifact_ref = bool(task.get("result_reference"))
-    has_content = bool(result.get("status") and result["status"] != "generic_completion")
-
-    # Add evidence
-    if has_result:
-        add_evidence(claim.claim_id, "api_response", "POST /v1/tasks/complete", "200 OK")
-    if has_artifact_ref:
-        add_evidence(claim.claim_id, "artifact", task["result_reference"], "artifact reference present")
-    if has_content:
-        add_evidence(claim.claim_id, "result_content", "task result", "non-generic content")
-
-    # Set verdict
-    evidence_count = len(claim.evidence)
-    if evidence_count >= 2 and has_content:
-        verdict = "true"
-        confidence = "high"
-        reasoning = "Task completed with artifact and non-generic content"
-    elif evidence_count >= 1:
-        verdict = "partial"
-        confidence = "medium"
-        reasoning = "Task completed but limited evidence"
-    else:
-        verdict = "not_proven"
-        confidence = "low"
-        reasoning = "Task completed without verifiable evidence"
-
-    v = set_verdict(claim.claim_id, verdict, confidence, reasoning)
-
-    # Update task with truth gate result
+    verifier = task.get("completion_verifier") or {}
+    evidence = task.get("completion_evidence") or {}
+    passed = bool(
+        verifier.get("verdict") == "passed"
+        and evidence.get("result_sha256")
+        and evidence.get("binding_sha256")
+    )
+    if evidence.get("result_sha256"):
+        add_evidence(
+            claim.claim_id,
+            "result_content",
+            "canonical task result",
+            "canonical result payload hash",
+            content_hash=str(evidence["result_sha256"]),
+        )
+    if evidence.get("binding_sha256"):
+        add_evidence(
+            claim.claim_id,
+            "attempt_binding",
+            "control-plane/home",
+            "task/attempt/lease/result-reference binding",
+            content_hash=str(evidence["binding_sha256"]),
+        )
+    add_evidence(
+        claim.claim_id,
+        "control_plane_verifier",
+        "control-plane/home",
+        f"verdict={verifier.get('verdict', 'failed')}",
+        content_hash=str(evidence.get("binding_sha256") or ""),
+    )
+    v = set_verdict(
+        claim.claim_id,
+        "true" if passed else "not_proven",
+        "high" if passed else "low",
+        "Independent Control Plane completion verifier passed"
+        if passed else "Independent Control Plane completion verifier failed",
+    )
     task["truth_gate"] = {
         "claim_id": claim.claim_id,
         "verdict": v.verdict,
         "confidence": v.confidence,
-        "evidence_count": evidence_count,
+        "evidence_count": len(claim.evidence),
+        "verifier_schema": verifier.get("schema_version"),
     }
     return task
 
@@ -2310,6 +2554,159 @@ def queue_maintenance_diagnostics(stale_after: int | None = None) -> dict[str, A
     }
 
 
+def _task_age_seconds(task: dict[str, Any], current: float) -> int | None:
+    observed = parse_iso_ts(task.get("updated_at") or task.get("created_at"))
+    return None if observed is None else max(0, int(current - observed))
+
+
+def _queued_task_routability(
+    task: dict[str, Any],
+    active_by_id: dict[str, dict[str, Any]],
+) -> tuple[bool, str]:
+    envelope = task.get("envelope") if isinstance(task.get("envelope"), dict) else {}
+    target = str(envelope.get("target_node") or envelope.get("required_node") or "")
+    if target:
+        node = active_by_id.get(target)
+        if node is not None:
+            if node.get("schedulable") is not True:
+                return False, "target_not_schedulable"
+            if not compatible(task, target, list(node.get("capabilities") or []), node):
+                return False, "target_capability_or_runner_mismatch"
+            return True, "exact_canonical_target_ready"
+        actor = get_json(node_key(target), {})
+        external = external_provider_actor_eligibility(target, actor)
+        if external.get("eligible") is True and compatible(
+            task,
+            target,
+            list(external["node"].get("capabilities") or []),
+            external["node"],
+            external,
+        ):
+            return True, "authenticated_external_provider_actor_ready"
+        return False, "target_not_in_canonical_membership"
+    for node_id, node in active_by_id.items():
+        if node.get("schedulable") is not True:
+            continue
+        if compatible(task, node_id, list(node.get("capabilities") or []), node):
+            return True, "untargeted_task_has_candidate"
+    return False, "no_canonical_node_matches_task"
+
+
+def fleet_proof_payload(
+    *,
+    aged_after_seconds: int = DEFAULT_FLEET_PROOF_QUEUE_AGE_SECONDS,
+    current: float | None = None,
+    fleet_view: dict[str, Any] | None = None,
+    tasks: list[dict[str, Any]] | None = None,
+    queued_task_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    """Return physical freshness and strict execution proof as separate facts."""
+
+    threshold = min(max(int(aged_after_seconds), 1), 30 * 24 * 60 * 60)
+    observed_at = now_ts() if current is None else float(current)
+    view = fleet_view or build_canonical_fleet_view(current=observed_at)
+    active = list(view.get("active") or [])
+    if tasks is None:
+        task_ids = all_task_ids()
+        loaded = get_json_many([task_key(task_id) for task_id in task_ids])
+        tasks = [task for task in loaded if isinstance(task, dict) and task]
+    else:
+        tasks = [task for task in tasks if isinstance(task, dict) and task]
+    if queued_task_ids is None:
+        queued_task_ids = queue_ids()
+    queued = set(str(task_id) for task_id in queued_task_ids)
+
+    strict_tasks_by_node: dict[str, list[dict[str, Any]]] = {}
+    for task in tasks:
+        if not strict_completion_proof(task):
+            continue
+        verifier = task.get("completion_verifier") or {}
+        node_id = str(verifier.get("node_id") or "")
+        strict_tasks_by_node.setdefault(node_id, []).append(task)
+
+    matrix: list[dict[str, Any]] = []
+    for node in active:
+        node_id = str(node.get("node_id") or "")
+        matches = strict_tasks_by_node.get(node_id, [])
+        matches.sort(
+            key=lambda item: parse_iso_ts(item.get("updated_at")) or 0.0,
+            reverse=True,
+        )
+        latest = matches[0] if matches else None
+        proof = latest.get("completion_evidence") if latest else {}
+        verifier = latest.get("completion_verifier") if latest else {}
+        matrix.append({
+            "node_id": node_id,
+            "freshness": node.get("freshness"),
+            "health": node.get("health"),
+            "schedulable": node.get("schedulable") is True,
+            "runtime_record_present": node.get("runtime_record_present") is True,
+            "capabilities": list(node.get("capabilities") or []),
+            "strict_verified_completion": {
+                "proven": latest is not None,
+                "task_id": latest.get("task_id") if latest else None,
+                "kind": latest.get("kind") if latest else None,
+                "attempt_id": latest.get("attempt_id") if latest else None,
+                "completed_at": latest.get("updated_at") if latest else None,
+                "result_sha256": proof.get("result_sha256") if latest else None,
+                "binding_sha256": proof.get("binding_sha256") if latest else None,
+                "verifier": verifier.get("verifier") if latest else None,
+                "verifier_schema": verifier.get("schema_version") if latest else None,
+            },
+        })
+
+    active_by_id = {str(node.get("node_id") or ""): node for node in active}
+    queued_issues: list[dict[str, Any]] = []
+    for task in tasks:
+        task_id = str(task.get("task_id") or "")
+        if task_id not in queued or task.get("state") != STATE_QUEUED:
+            continue
+        envelope = task.get("envelope") if isinstance(task.get("envelope"), dict) else {}
+        age = _task_age_seconds(task, observed_at)
+        routable, reason = _queued_task_routability(task, active_by_id)
+        aged = age is not None and age > threshold
+        if aged or not routable:
+            queued_issues.append({
+                "task_id": task_id,
+                "target_node": envelope.get("target_node") or envelope.get("required_node"),
+                "required_capability": envelope.get("required_capability"),
+                "runner": envelope.get("runner"),
+                "age_seconds": age,
+                "aged": aged,
+                "routable": routable,
+                "reason": reason,
+            })
+    queued_issues.sort(key=lambda item: (-int(item.get("age_seconds") or 0), item["task_id"]))
+    verified_total = sum(
+        1 for row in matrix if row["strict_verified_completion"]["proven"]
+    )
+    fresh_total = sum(1 for row in matrix if row.get("freshness") == "fresh")
+    missing = [
+        row["node_id"]
+        for row in matrix
+        if not row["strict_verified_completion"]["proven"]
+    ]
+    return {
+        "schema_version": FLEET_PROOF_SCHEMA,
+        "status": "complete" if matrix and verified_total == len(matrix) else "incomplete",
+        "source": "control-plane/home",
+        "observed_at": datetime.fromtimestamp(observed_at, timezone.utc).isoformat(),
+        "membership": dict(view.get("membership") or {}),
+        "summary": {
+            "canonical_total": len(matrix),
+            "fresh_total": fresh_total,
+            "strict_verified_total": verified_total,
+            "missing_strict_verified_total": len(missing),
+            "queued_total": len(queued),
+            "queued_issue_total": len(queued_issues),
+            "aged_after_seconds": threshold,
+        },
+        "missing_strict_verified_nodes": missing,
+        "nodes": matrix,
+        "queued_issues": queued_issues,
+    }
+
+
 def failure_task_listing(error_type: str, limit: int) -> dict[str, Any]:
     matched: list[dict[str, Any]] = []
     for task_id in all_task_ids():
@@ -2477,9 +2874,33 @@ def provider_health_records(runner: str, limit: int = 64) -> dict[str, Any]:
     }
 
 
+def validate_task_target(envelope: dict[str, Any]) -> str | None:
+    """Accept only an exact current mesh ID or an authenticated provider actor."""
+
+    field_name = "target_node" if "target_node" in envelope else "required_node"
+    raw_target = envelope.get(field_name)
+    if raw_target is None:
+        return None
+    if not isinstance(raw_target, str) or not raw_target or raw_target != raw_target.strip():
+        raise TaskTargetValidationError(str(raw_target or ""), "target_node_format_invalid")
+    target_node = raw_target
+    snapshot = mesh_membership.load()
+    if target_node in snapshot.by_id:
+        return target_node
+    actor = get_json(node_key(target_node), {})
+    external = external_provider_actor_eligibility(target_node, actor)
+    if external.get("eligible") is True:
+        return target_node
+    raise TaskTargetValidationError(
+        target_node,
+        str(external.get("reason") or "target_not_in_canonical_mesh_membership"),
+    )
+
+
 def create_task(envelope: dict[str, Any]) -> dict[str, Any]:
     if envelope.get("kind") in RELEASE_TASK_KINDS:
         envelope = authorize_release_task(envelope)
+    validate_task_target(envelope)
     task = normalize_task(envelope)
     idem_key = key(f"idempotency:{task['idempotency_key']}")
     request_hash = hashlib.sha256(
@@ -2878,6 +3299,19 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 response(self, 200, payload)
                 return
+            if path == "/v1/runtime/fleet-proof":
+                query = parse_qs(parsed.query)
+                try:
+                    aged_after = int(query.get(
+                        "aged_after_seconds",
+                        [str(DEFAULT_FLEET_PROOF_QUEUE_AGE_SECONDS)],
+                    )[0])
+                    payload = fleet_proof_payload(aged_after_seconds=aged_after)
+                except (TypeError, ValueError) as exc:
+                    response(self, 400, {"error": str(exc)})
+                    return
+                response(self, 200, payload)
+                return
             if path == "/v1/tasks":
                 query = parse_qs(parsed.query)
                 wanted = query.get("state", [None])[0]
@@ -3115,6 +3549,9 @@ class Handler(BaseHTTPRequestHandler):
                         "idempotency_key": exc.idempotency_key,
                         "existing_task_id": exc.existing_task_id,
                     })
+                    return
+                except TaskTargetValidationError as exc:
+                    response(self, 422, exc.as_dict())
                     return
                 except ValueError as exc:
                     response(self, 422, {"error": str(exc)})
@@ -3378,14 +3815,37 @@ class Handler(BaseHTTPRequestHandler):
                     response(self, 200, {"task": task, "review_task": None})
                     return
                 result = body.get("result", body)
+                result_reference = body.get("result_reference") or (
+                    result.get("result_path") if isinstance(result, dict) else None
+                )
+                evidence, verifier = verify_task_completion(
+                    task,
+                    result,
+                    body,
+                    result_reference,
+                )
+                task["completion_evidence"] = evidence
+                task["completion_verifier"] = verifier
+                if verifier["verdict"] != "passed":
+                    task["error_type"] = "completion_verification_failed"
+                    task["error"] = ",".join(verifier["failed_checks"])
+                    save_task(task)
+                    response(self, 409, {
+                        "error": "completion_verification_failed",
+                        "task_id": task_id,
+                        "state": task.get("state"),
+                        "verifier": verifier,
+                    })
+                    return
                 needs_review = task.get("envelope", {}).get("create_review_on_complete")
                 has_pr = bool(result.get("pull_request_url") or result.get("pr_url"))
                 desired_state = STATE_COMPLETED if (not needs_review or has_pr) else STATE_WAITING_REVIEW
                 task["result"] = result
-                task["result_reference"] = body.get("result_reference") or result.get("result_path")
+                task["result_reference"] = str(result_reference)
                 task["heartbeat_at"] = utc_now()
                 task["lease_until"] = None
-                # Truth gate: verify completion has evidence
+                task["error_type"] = None
+                task["error"] = None
                 task = truth_gate_on_complete(task, result)
                 task = enforce_completion_truth_state(task, desired_state)
                 save_task(task)
@@ -3496,6 +3956,8 @@ class Handler(BaseHTTPRequestHandler):
                 ))
                 return
             response(self, 404, {"error": "not_found", "path": path})
+        except TaskTargetValidationError as exc:
+            response(self, 422, exc.as_dict())
         except MembershipError as exc:
             response(self, 503, {
                 "error": "canonical_mesh_membership_unavailable",

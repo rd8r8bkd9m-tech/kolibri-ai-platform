@@ -593,7 +593,12 @@ def test_external_actor_http_auth_replay_rotation_and_all_six_mutations(monkeypa
     complete = {
         "attempt_id": task["attempt_id"], "node_id": node_id,
         "agent_id": register_body["agent_id"],
-        "result": {"runner": "codex", "status": "completed"},
+        "result_reference": "/var/lib/kolibri-agent/auth-complete/result.json",
+        "result": {
+            "runner": "codex",
+            "status": "completed",
+            "result_path": "/var/lib/kolibri-agent/auth-complete/result.json",
+        },
     }
     assert_auth_gate("/v1/tasks/auth-complete/complete", complete, success_status=200)
 
