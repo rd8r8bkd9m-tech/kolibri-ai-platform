@@ -1,9 +1,9 @@
-import { History, Layers3, ServerCog, SquarePen } from "lucide-react";
+// @refresh reset
 import { Workbench } from "../workbench/Workbench";
 import { ProjectWorkspace } from "../windows/ProjectWorkspace";
 import { WindowContent } from "../windows/WindowContent";
-import { SystemBar } from "./SystemBar";
-import { ToolDock } from "./ToolDock";
+import { ShellHeader } from "./ShellHeader";
+import { ShellNavigation } from "./ShellNavigation";
 import { usePublicShell } from "./usePublicShell";
 
 export function PublicShell() {
@@ -45,27 +45,18 @@ export function PublicShell() {
 
   return (
     <main className={`kolibri-workbench ${shell.immersive ? "is-immersive" : ""}`}>
-      <SystemBar subtitle="Kolibri AI OS" title={activeProject?.title || "Рабочее пространство"}>
-        <button aria-label="История проектов" onClick={() => shell.openSystemApp("projects")} type="button">
-          <History size={18} />
-          <span>История</span>
-          {shell.projects.length > 0 && <b>{shell.projects.length}</b>}
-        </button>
-        <button aria-label="Новый проект" onClick={shell.newProject} type="button"><SquarePen size={18} /></button>
-        <button
-          aria-label="Восстановить окна"
-          onClick={() => shell.dispatch({ type: "RESTORE_ALL" })}
-          type="button"
-        >
-          <Layers3 size={18} />
-        </button>
-        <a aria-label="Control Center" href="/control"><ServerCog size={18} /></a>
-      </SystemBar>
-      <section className={`workbench-body ${shell.dockExpanded ? "dock-expanded" : ""}`}>
-        <ToolDock
-          expanded={shell.dockExpanded}
+      <ShellHeader
+        navigation={shell.navigation}
+        onNewProject={shell.newProject}
+        onOpenProjects={() => shell.openSystemApp("projects")}
+        onRestoreWindows={() => shell.dispatch({ type: "RESTORE_ALL" })}
+        projectCount={shell.projects.length}
+        title={activeProject?.title || "Рабочее пространство"}
+      />
+      <section className={`workbench-body ${shell.navigation.layoutPinned ? "dock-pinned" : ""}`}>
+        <ShellNavigation
           minimizedWindows={shell.workbench.windows.filter((item) => item.minimized)}
-          onExpanded={shell.setDockExpanded}
+          navigation={shell.navigation}
           onNewProject={shell.newProject}
           onRestoreWindow={(id) => shell.dispatch({ type: "FOCUS", id })}
           onSelect={shell.selectTool}

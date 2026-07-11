@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useState } from "react";
 
+const MOBILE_SURFACE_QUERY = "(max-width: 760px)";
+
 export function useStageBounds(ref) {
   const [bounds, setBounds] = useState({ width: 1280, height: 720 });
   useLayoutEffect(() => {
@@ -29,11 +31,14 @@ export function useStageBounds(ref) {
 }
 
 export function useMobileSurface() {
-  const [mobile, setMobile] = useState(() => globalThis.innerWidth < 760);
+  const [mobile, setMobile] = useState(() => globalThis.matchMedia?.(MOBILE_SURFACE_QUERY).matches ?? globalThis.innerWidth <= 760);
   useEffect(() => {
-    const update = () => setMobile(globalThis.innerWidth < 760);
-    globalThis.addEventListener("resize", update);
-    return () => globalThis.removeEventListener("resize", update);
+    const media = globalThis.matchMedia?.(MOBILE_SURFACE_QUERY);
+    if (!media) return undefined;
+    const update = () => setMobile(media.matches);
+    update();
+    media.addEventListener?.("change", update);
+    return () => media.removeEventListener?.("change", update);
   }, []);
   return mobile;
 }

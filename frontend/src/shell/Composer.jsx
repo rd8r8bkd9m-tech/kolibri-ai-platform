@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
-import { ArrowUp, ChevronRight, Code2, Gauge, Plus, X } from "lucide-react";
+import { ArrowUp, Code2, Gauge, Plus, X } from "lucide-react";
 import { EXECUTION_MODES, TOOLS } from "../app/constants";
+import { ComposerToolMenu } from "./ComposerToolMenu";
 
 export function Composer({
   busy,
@@ -26,30 +27,16 @@ export function Composer({
   useEffect(() => {
     if (!busy) input.current?.focus();
   }, [busy, selectedTool]);
-
   return (
     <div className={`composer-layer ${embedded ? "is-embedded" : ""}`}>
       {toolMenuOpen && (
-        <div className="tool-menu" role="menu">
-          {TOOLS.map((tool) => {
-            const ToolIcon = tool.icon;
-            return (
-              <button
-                key={tool.id}
-                onClick={() => {
-                  onTool(tool.id);
-                  setToolMenuOpen(false);
-                }}
-                role="menuitem"
-                type="button"
-              >
-                <ToolIcon size={18} />
-                <span><strong>{tool.label}</strong><small>{tool.hint}</small></span>
-                <ChevronRight size={16} />
-              </button>
-            );
-          })}
-        </div>
+        <ComposerToolMenu
+          onClose={() => setToolMenuOpen(false)}
+          onSelect={(tool) => {
+            onTool(tool);
+            setToolMenuOpen(false);
+          }}
+        />
       )}
       <form
         className="floating-composer"
@@ -59,6 +46,8 @@ export function Composer({
         }}
       >
         <button
+          aria-controls="kolibri-composer-tools"
+          aria-expanded={toolMenuOpen}
           aria-label="Выбрать инструмент"
           className={toolMenuOpen ? "is-active" : ""}
           onClick={() => setToolMenuOpen((open) => !open)}

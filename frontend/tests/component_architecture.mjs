@@ -14,14 +14,22 @@ const projectStore = read("../src/shell/useProjectStore.js");
 const workbenchController = read("../src/shell/useWorkbenchController.js");
 const controlShell = read("../src/control/ControlShell.jsx");
 const systemBar = read("../src/shell/SystemBar.jsx");
+const shellHeader = read("../src/shell/ShellHeader.jsx");
+const shellNavigation = read("../src/shell/ShellNavigation.jsx");
+const shellNavigationLogic = read("../src/shell/useShellNavigation.js");
 const windowContent = read("../src/windows/WindowContent.jsx");
 
 const componentModules = new Map([
   ["../src/components/ErrorBoundary.jsx", /export class ErrorBoundary/],
   ["../src/shell/Brand.jsx", /export function Brand/],
   ["../src/shell/SystemBar.jsx", /export function SystemBar/],
+  ["../src/shell/ShellHeader.jsx", /export function ShellHeader/],
+  ["../src/shell/ShellNavigation.jsx", /export function ShellNavigation/],
+  ["../src/shell/shellNavigationModel.js", /export function shellNavigationReducer/],
   ["../src/shell/ToolDock.jsx", /export function ToolDock/],
   ["../src/shell/Composer.jsx", /export function Composer/],
+  ["../src/shell/ComposerToolMenu.jsx", /export function ComposerToolMenu/],
+  ["../src/shell/MobileDockHeader.jsx", /export function MobileDockHeader/],
   ["../src/shell/MinimizedWindows.jsx", /export function MinimizedWindows/],
   ["../src/shell/PublicShell.jsx", /export function PublicShell/],
   ["../src/workbench/WindowFrame.jsx", /export function WindowFrame/],
@@ -51,6 +59,7 @@ assert.ok(estimateRuntime.split("\n").length <= 90, "estimate execution must rem
 assert.ok(executionModeSupport.split("\n").length <= 40, "execution-mode handshake must remain bounded");
 assert.ok(projectStore.split("\n").length <= 80, "project storage must remain a bounded state hook");
 assert.ok(workbenchController.split("\n").length <= 130, "window orchestration must remain a bounded controller hook");
+assert.ok(shellNavigationLogic.split("\n").length <= 80, "shell navigation must remain a bounded interaction hook");
 assert.doesNotMatch(publicShell, /useState|useEffect|useReducer|sendKolibriRequest|buildDocumentTask/);
 assert.match(publicShellLogic, /export function usePublicShell/);
 assert.match(publicShellLogic, /useProjectMessaging/);
@@ -59,15 +68,21 @@ assert.match(publicShellLogic, /useEstimateRuntime/);
 assert.match(publicShellLogic, /useExecutionModeSupport/);
 assert.match(publicShellLogic, /useProjectStore/);
 assert.match(publicShellLogic, /useWorkbenchController/);
+assert.match(publicShellLogic, /useShellNavigation/);
+assert.match(publicShell, /^\/\/ @refresh reset/);
 
 for (const [path, exportPattern] of componentModules) {
   assert.match(read(path), exportPattern, `${path} must keep its component boundary`);
 }
 
-for (const component of ["ToolDock", "WindowContent"]) {
+for (const component of ["ShellHeader", "ShellNavigation", "WindowContent"]) {
   assert.match(publicShell, new RegExp(`<${component}(?:\\s|>)`));
   assert.doesNotMatch(publicShell, new RegExp(`function\\s+${component}\\s*\\(`));
 }
+
+assert.match(shellHeader, /<SystemBar/);
+assert.match(shellNavigation, /<ToolDock/);
+assert.doesNotMatch(read("../src/shell/ToolDock.jsx"), /useEffect|useRef/);
 
 for (const component of ["ProjectWorkspace", "ProjectCanvas", "EstimateWorkspace", "ProjectsWindow", "FilesWindow", "PdfViewer", "TaskResult"]) {
   assert.match(windowContent, new RegExp(`<${component}(?:\\s|>)`));
@@ -80,8 +95,8 @@ assert.match(estimateRuntime, /buildDeterministicEstimateTask/);
 assert.match(projectMessaging, /sendKolibriRequest/);
 assert.doesNotMatch(projectMessaging, /type:\s*"OPEN"/);
 assert.doesNotMatch(`${projectModel}\n${projectMessaging}`, /requested_artifacts:\s*\[[^\]]+\][\s\S]*sendKolibriRequest/s);
-assert.match(systemBar, /<Brand \/>/);
-assert.match(publicShell, /<SystemBar/);
+assert.match(systemBar, /<Brand/);
+assert.match(publicShell, /<ShellHeader/);
 assert.match(controlShell, /<SystemBar/);
 assert.doesNotMatch(publicShell, /<HistoryDrawer/);
 assert.match(read("../src/windows/ProjectWorkspace.jsx"), /<Composer/);

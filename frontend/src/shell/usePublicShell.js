@@ -1,10 +1,10 @@
-import { useState } from "react";
 import { useEstimateRuntime } from "./useEstimateRuntime";
 import { useExecutionModeSupport } from "./useExecutionModeSupport";
 import { useProjectMessaging } from "./useProjectMessaging";
 import { useProjectCommands } from "./useProjectCommands";
 import { useProjectStore } from "./useProjectStore";
 import { useWorkbenchController } from "./useWorkbenchController";
+import { useShellNavigation } from "./useShellNavigation";
 
 export function usePublicShell() {
   const {
@@ -28,7 +28,7 @@ export function usePublicShell() {
     projects,
     setActiveProjectId,
   });
-  const [dockExpanded, setDockExpanded] = useState(false);
+  const navigation = useShellNavigation();
   const executionModes = useExecutionModeSupport();
 
   const sendProjectMessage = useProjectMessaging({
@@ -60,10 +60,10 @@ export function usePublicShell() {
     calculateEstimate,
     dispatch,
     detachCanvas: commands.detachCanvas,
-    dockExpanded,
     focusWindow,
     executionModes,
     immersive,
+    navigation,
     newProject: commands.newProject,
     openArtifact,
     openProject,
@@ -71,7 +71,6 @@ export function usePublicShell() {
     projects,
     selectTool: commands.selectTool,
     sendProjectMessage,
-    setDockExpanded,
     setExecutionMode: commands.setExecutionMode,
     updateCanvas: commands.updateCanvas,
     updateProject,

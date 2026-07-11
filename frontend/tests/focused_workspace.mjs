@@ -5,6 +5,7 @@ import { createServer } from "vite";
 
 import { buildConversationMessages } from "../src/runtime/kolibriApi.js";
 import { initialWorkbench, workbenchReducer } from "../src/workbench/reducer.js";
+import { initialShellNavigation, shellNavigationReducer } from "../src/shell/shellNavigationModel.js";
 
 // Load application modules through the same resolver used by the product;
 // the browser source intentionally uses extensionless local imports.
@@ -95,6 +96,20 @@ const persistedProjects = [projectA, projectB];
 desktop = workbenchReducer(desktop, { type: "DEACTIVATE", id: "workspace:project-a" });
 assert.equal(desktop.windows.some((item) => item.id === "workspace:project-a"), false);
 assert.equal(persistedProjects.some((project) => project.id === "project-a"), true, "closing a window must not delete its project");
+
+// Product regression: pin/collapse navigation, open the composer picker, then
+// maximize/restore a result window. These independent state machines must keep
+// stable state and never remount the primary project into another chat.
+let navigationState = shellNavigationReducer(initialShellNavigation, { type: "PIN_TOGGLE" });
+assert.equal(navigationState.pinned, true);
+navigationState = shellNavigationReducer(navigationState, { type: "PIN_TOGGLE" });
+assert.deepEqual(navigationState, initialShellNavigation);
+const composerState = { toolMenuOpen: true };
+desktop = workbenchReducer(desktop, { type: "OPEN", window: { id: "artifact:pdf", kind: "pdf", title: "Смета PDF" } });
+desktop = workbenchReducer(desktop, { type: "MAXIMIZE", id: "artifact:pdf" });
+desktop = workbenchReducer(desktop, { type: "MAXIMIZE", id: "artifact:pdf" });
+assert.equal(desktop.windows.find((item) => item.id === "artifact:pdf").maximized, false);
+assert.equal(composerState.toolMenuOpen, true);
 
 const estimate = estimateCanvas(projectA.id);
 const documentCanvas = taskCanvas({

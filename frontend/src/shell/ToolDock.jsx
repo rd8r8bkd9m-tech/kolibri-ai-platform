@@ -1,15 +1,28 @@
 import { SYSTEM_APPS, TOOLS } from "../app/constants";
-import { Menu, PanelLeftClose, SquarePen } from "lucide-react";
+import { SquarePen } from "lucide-react";
+import { MobileDockHeader } from "./MobileDockHeader";
 import { MinimizedWindows } from "./MinimizedWindows";
 
-export function ToolDock({ expanded, minimizedWindows, selected, onExpanded, onNewProject, onRestoreWindow, onSelect, onSystem }) {
+export function ToolDock({ expanded, mobile, mobileOpen, pinned, preview, minimizedWindows, selected, onDismiss, onNewProject, onPointerEnter, onPointerLeave, onRestoreWindow, onSelect, onSystem }) {
+  const act = (callback) => () => {
+    callback();
+    onDismiss?.();
+  };
   return (
-    <aside aria-label="Инструменты Kolibri" className={`tool-dock ${expanded ? "is-expanded" : ""}`}>
-      <button aria-label={expanded ? "Свернуть меню" : "Открыть меню"} className="dock-toggle" onClick={() => onExpanded(!expanded)} title="Меню" type="button">
-        {expanded ? <PanelLeftClose size={19} /> : <Menu size={19} />}
-        <span>Kolibri OS</span>
-      </button>
-      <button aria-label="Новый проект" className="dock-new-project" onClick={onNewProject} title="Новый проект" type="button">
+    <aside
+      aria-hidden={mobile && !mobileOpen}
+      aria-label="Навигация Kolibri"
+      aria-modal={mobileOpen || undefined}
+      className={`tool-dock ${expanded ? "is-expanded" : ""} ${pinned ? "is-pinned" : ""} ${preview ? "is-preview" : ""} ${mobileOpen ? "is-mobile-open" : ""}`}
+      id="kolibri-navigation"
+      inert={mobile && !mobileOpen}
+      onPointerEnter={onPointerEnter}
+      onPointerLeave={onPointerLeave}
+      role={mobile ? "dialog" : undefined}
+    >
+      <MobileDockHeader onClose={onDismiss} open={mobileOpen} />
+      <div className="dock-context"><strong>Рабочее пространство</strong><span>{pinned ? "Закреплено" : "Навигация"}</span></div>
+      <button aria-label="Новый проект" className="dock-new-project" onClick={act(onNewProject)} title="Новый проект" type="button">
         <SquarePen size={19} /><span>Новый проект</span>
       </button>
       {expanded && <small className="dock-section-label">Создать</small>}
@@ -20,7 +33,7 @@ export function ToolDock({ expanded, minimizedWindows, selected, onExpanded, onN
             aria-label={tool.label}
             className={selected === tool.id ? "is-selected" : ""}
             key={tool.id}
-            onClick={() => onSelect(tool.id)}
+            onClick={act(() => onSelect(tool.id))}
             title={tool.label}
             type="button"
           >
@@ -30,7 +43,7 @@ export function ToolDock({ expanded, minimizedWindows, selected, onExpanded, onN
         );
       })}
       <span className="dock-spacer" />
-      <MinimizedWindows expanded={expanded} onRestore={onRestoreWindow} windows={minimizedWindows} />
+      <MinimizedWindows expanded={expanded} onRestore={(id) => { onRestoreWindow(id); onDismiss?.(); }} windows={minimizedWindows} />
       {expanded && <small className="dock-section-label">Система</small>}
       {SYSTEM_APPS.map((app) => {
         const AppIcon = app.icon;
@@ -38,7 +51,7 @@ export function ToolDock({ expanded, minimizedWindows, selected, onExpanded, onN
           <button
             aria-label={app.label}
             key={app.id}
-            onClick={() => onSystem(app.id)}
+            onClick={act(() => onSystem(app.id))}
             title={app.label}
             type="button"
           >
