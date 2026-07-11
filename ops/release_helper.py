@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import pwd
 import socket
+import stat
 import struct
 from pathlib import Path
 from typing import Any, Callable
@@ -16,6 +18,7 @@ try:
     from ops.release_installer import (
         RELEASE_CAPABILITY,
         RELEASE_TASK_KINDS,
+        SAFE_RECORD_ID,
         ReleaseInstallError,
         ReleaseInstaller,
     )
@@ -23,6 +26,7 @@ except ImportError:  # installed standalone beside this module
     from release_installer import (
         RELEASE_CAPABILITY,
         RELEASE_TASK_KINDS,
+        SAFE_RECORD_ID,
         ReleaseInstallError,
         ReleaseInstaller,
     )
@@ -180,6 +184,48 @@ class ReleaseHelperServer:
             raise ReleaseHelperProtocolError("release_helper_peer_forbidden")
 
     @staticmethod
+    def _require_private_directory(path: Path, *, create: bool = False) -> None:
+        try:
+            if create:
+                path.mkdir(mode=0o700)
+            value = path.lstat()
+        except FileExistsError:
+            try:
+                value = path.lstat()
+            except OSError as exc:
+                raise ReleaseHelperProtocolError(
+                    "release_helper_evidence_boundary_invalid"
+                ) from exc
+        except OSError as exc:
+            raise ReleaseHelperProtocolError(
+                "release_helper_evidence_boundary_invalid"
+            ) from exc
+        if (
+            not stat.S_ISDIR(value.st_mode)
+            or value.st_uid != os.geteuid()
+            or stat.S_IMODE(value.st_mode) & 0o077
+        ):
+            raise ReleaseHelperProtocolError(
+                "release_helper_evidence_boundary_invalid"
+            )
+
+    def _privileged_evidence_dir(self, envelope: dict[str, Any]) -> Path:
+        task_id = str(envelope.get("task_id") or "")
+        attempt_id = str(envelope.get("attempt_id") or "")
+        if not SAFE_RECORD_ID.fullmatch(task_id) or not SAFE_RECORD_ID.fullmatch(
+            attempt_id
+        ):
+            raise ReleaseHelperProtocolError("release_helper_evidence_identity_invalid")
+        root = self.installer.config.artifact_root
+        self._require_private_directory(root)
+        evidence_root = root / ".evidence"
+        task_root = evidence_root / task_id
+        attempt_root = task_root / attempt_id
+        for directory in (evidence_root, task_root, attempt_root):
+            self._require_private_directory(directory, create=True)
+        return attempt_root
+
+    @staticmethod
     def _ensure_connected(connection: socket.socket) -> None:
         previous_timeout = connection.gettimeout()
         try:
@@ -218,12 +264,27 @@ class ReleaseHelperServer:
         if not isinstance(evidence_dir, str) or not evidence_dir.startswith("/") or len(evidence_dir) > 4096:
             raise ReleaseHelperProtocolError("release_helper_request_invalid")
         self._ensure_connected(connection)
+        privileged_evidence_dir = self._privileged_evidence_dir(envelope)
         result = self.installer.execute(
             kind,
             envelope,
-            Path(evidence_dir),
+            privileged_evidence_dir,
             progress_callback=lambda: self._ensure_connected(connection),
         )
+        if not isinstance(result, dict):
+            raise ReleaseHelperProtocolError("release_helper_response_invalid")
+        evidence_ref = hashlib.sha256(
+            f"{envelope['task_id']}\0{envelope['attempt_id']}".encode("utf-8")
+        ).hexdigest()
+        result = {
+            **result,
+            "release_evidence": {
+                "schema_version": "kolibri.release-evidence-ref.v1",
+                "scope": "privileged_helper",
+                "retention": "root_only",
+                "ref": f"sha256:{evidence_ref}",
+            },
+        }
         return {"status": "ok", "result": result}
 
     def handle(self, connection: socket.socket) -> None:

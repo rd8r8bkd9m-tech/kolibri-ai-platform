@@ -848,6 +848,11 @@ def test_agent_host_dispatches_release_kind_and_completes_only_with_healthy_resu
         def execute(self, kind, envelope, evidence_dir, *, progress_callback=None):
             assert kind == "release_bundle_apply"
             assert envelope["release_id"] == "release-1"
+            assert envelope["task_id"] in {
+                "release-task-1",
+                "release-task-unhealthy",
+            }
+            assert envelope["attempt_id"] == f'{envelope["task_id"]}-attempt-1'
             assert evidence_dir.is_relative_to(tmp_path / "artifacts")
             assert progress_callback is not None
             progress_callback()
@@ -860,6 +865,12 @@ def test_agent_host_dispatches_release_kind_and_completes_only_with_healthy_resu
                     "status": self.health_status,
                     "release_id": "release-1",
                     "manifest_digest": "sha256:" + "a" * 64,
+                },
+                "release_evidence": {
+                    "schema_version": "kolibri.release-evidence-ref.v1",
+                    "scope": "privileged_helper",
+                    "retention": "root_only",
+                    "ref": "sha256:" + "b" * 64,
                 },
                 "changed_files": [],
             }
@@ -896,6 +907,8 @@ def test_agent_host_dispatches_release_kind_and_completes_only_with_healthy_resu
     assert failed == []
     assert complete[0][1]["result"]["release_health"]["status"] == "healthy"
     assert complete[0][1]["result"]["manifest_digest"] == "sha256:" + "a" * 64
+    assert complete[0][1]["result"]["release_evidence"]["scope"] == "privileged_helper"
+    assert "release_installer" not in complete[0][1]["result"]["log_paths"]
 
     host.posts.clear()
     host.release_helper.health_status = "failed"

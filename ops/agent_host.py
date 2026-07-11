@@ -2086,15 +2086,20 @@ class AgentHost:
                 if heartbeat.get("state") in {"cancelled", "failed", "dead_letter"}:
                     raise ReleaseInstallError("release_task_cancelled")
 
+            release_envelope = {
+                **task_envelope(task),
+                "task_id": str(task.get("task_id") or ""),
+                "attempt_id": str(task.get("attempt_id") or ""),
+            }
             release_result = self.release_helper.execute(
                 kind,
-                task_envelope(task),
+                release_envelope,
                 artifact_dir,
                 progress_callback=release_progress,
             )
             if not isinstance(release_result, dict):
                 raise ReleaseInstallError("release_result_invalid")
-            envelope = task_envelope(task)
+            envelope = release_envelope
             expected_release_id = str(
                 envelope.get("release_id")
                 if kind == "release_bundle_apply"
@@ -2128,10 +2133,7 @@ class AgentHost:
             "heartbeat_at": utc_now(),
             "worktree": str(worktree),
             "branch": None,
-            "log_paths": {
-                **logs,
-                "release_installer": str(artifact_dir / "release-installer.jsonl"),
-            },
+            "log_paths": logs,
             "result_path": str(artifact_dir / "result.json"),
             "changed_files": [],
             **release_result,
