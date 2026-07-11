@@ -31,14 +31,89 @@ export class KolibriApiError extends Error {
 }
 
 const WORK_SUMMARY_KINDS = new Set(["plan", "tool", "source", "check", "verdict"]);
-const WORK_SUMMARY_STATUSES = new Set(["pending", "running", "passed", "failed", "skipped", "incomplete", "blocked"]);
+const WORK_SUMMARY_STATUSES = new Set(["pending", "running", "passed", "failed", "skipped", "available", "incomplete", "blocked"]);
 const WORK_SUMMARY_SECRET_PATTERN = /(?:\bsk-[a-z0-9_-]{8,}|\b(?:authorization|api[_-]?key|password|secret|token)\s*[:=])/i;
+const WORK_SUMMARY_SOURCE_SECRET_PATH = /(?:\bsk-[a-z0-9_-]{8,}|\b(?:api[_-]?key|password|secret|token)[=/:_-][^/?#]{4,})/i;
+const WORK_SUMMARY_SOURCE_DOMAIN = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i;
+const WORK_SUMMARY_PRIVATE_SOURCE_SUFFIXES = [".localhost", ".local", ".internal", ".home.arpa"];
 
 function hasControlCharacters(value) {
   return [...value].some((character) => {
     const code = character.codePointAt(0);
     return code <= 31 || code === 127;
   });
+}
+
+function validSourceDate(value) {
+  if (value === undefined) return true;
+  if (typeof value !== "string" || value.length > 20) return false;
+  if (/^\d{4}-Q[1-4]$/.test(value)) return true;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+function isPublicSourceDomain(domain) {
+  if (!WORK_SUMMARY_SOURCE_DOMAIN.test(domain)) return false;
+  if (domain === "localhost" || WORK_SUMMARY_PRIVATE_SOURCE_SUFFIXES.some((suffix) => domain.endsWith(suffix))) return false;
+  const octets = domain.split(".");
+  if (octets.length !== 4 || !octets.every((value) => /^\d{1,3}$/.test(value) && Number(value) <= 255)) return true;
+  const [first, second] = octets.map(Number);
+  return !(
+    first === 0
+    || first === 10
+    || first === 127
+    || first >= 224
+    || (first === 100 && second >= 64 && second <= 127)
+    || (first === 169 && second === 254)
+    || (first === 172 && second >= 16 && second <= 31)
+    || (first === 192 && second === 168)
+  );
+}
+
+function normalizeWorkSources(payload) {
+  const encoded = payload?.metadata?.kolibri_work_sources;
+  if (encoded === undefined) return [];
+  if (typeof encoded !== "string" || encoded.length > 512) return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(encoded);
+  } catch {
+    return null;
+  }
+  if (parsed?.v !== 1 || !Array.isArray(parsed?.sources) || parsed.sources.length > 4) return null;
+  const sources = [];
+  for (const source of parsed.sources) {
+    if (!source || typeof source !== "object" || Array.isArray(source)) return null;
+    if (typeof source.url !== "string" || source.url.length > 280 || typeof source.domain !== "string") return null;
+    let url;
+    try {
+      url = new URL(source.url);
+    } catch {
+      return null;
+    }
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) return null;
+    const domain = source.domain.toLowerCase().replace(/\.$/, "");
+    let decodedPath;
+    try {
+      decodedPath = decodeURIComponent(url.pathname);
+    } catch {
+      return null;
+    }
+    if (
+      !isPublicSourceDomain(domain)
+      || url.hostname.toLowerCase() !== domain
+      || WORK_SUMMARY_SOURCE_SECRET_PATH.test(decodedPath)
+    ) return null;
+    if (!validSourceDate(source.price_level_date) || !validSourceDate(source.captured_at)) return null;
+    sources.push({
+      url: url.toString(),
+      domain,
+      ...(source.price_level_date ? { price_level_date: source.price_level_date } : {}),
+      ...(source.captured_at ? { captured_at: source.captured_at } : {}),
+    });
+  }
+  return sources;
 }
 
 export function normalizeWorkSummary(payload) {
@@ -51,12 +126,19 @@ export function normalizeWorkSummary(payload) {
     return null;
   }
   if (parsed?.v !== 1 || parsed?.mode !== "summary_only" || !Array.isArray(parsed?.items)) return null;
+  const sources = normalizeWorkSources(payload);
+  if (sources === null) return null;
   const items = [];
   for (const item of parsed.items.slice(0, 5)) {
     if (!WORK_SUMMARY_KINDS.has(item?.kind) || !WORK_SUMMARY_STATUSES.has(item?.status)) return null;
     const detail = typeof item.detail === "string" ? item.detail.trim() : "";
     if (detail.length > 160 || hasControlCharacters(detail) || WORK_SUMMARY_SECRET_PATTERN.test(detail)) return null;
-    items.push({ kind: item.kind, status: item.status, detail });
+    items.push({
+      kind: item.kind,
+      status: item.status,
+      detail,
+      ...(item.kind === "source" && sources.length ? { sources } : {}),
+    });
   }
   return items.length ? {
     schema_version: "kolibri.work-summary.v1",
@@ -64,6 +146,47 @@ export function normalizeWorkSummary(payload) {
     raw_reasoning_exposed: false,
     items,
   } : null;
+}
+
+function normalizeWorkSummaryEvent(value) {
+  if (
+    value?.schema_version !== "kolibri.work-summary.v1"
+    || value?.mode !== "summary_only"
+    || value?.raw_reasoning_exposed !== false
+    || !Array.isArray(value?.items)
+  ) return null;
+  const sourceItem = value.items.find((item) => item?.kind === "source");
+  return normalizeWorkSummary({
+    metadata: {
+      kolibri_work_summary: JSON.stringify({
+        v: 1,
+        mode: "summary_only",
+        items: value.items.map((item) => ({
+          kind: item?.kind,
+          status: item?.status,
+          detail: item?.detail,
+        })),
+      }),
+      ...(Array.isArray(sourceItem?.sources) && sourceItem.sources.length ? {
+        kolibri_work_sources: JSON.stringify({ v: 1, sources: sourceItem.sources }),
+      } : {}),
+    },
+  });
+}
+
+function reasoningSummaryProgress(value) {
+  if (typeof value !== "string" || value.length > 256 || hasControlCharacters(value) || WORK_SUMMARY_SECRET_PATTERN.test(value)) return null;
+  const labels = [
+    ["План: ", "plan"],
+    ["Инструменты: ", "tool"],
+    ["Источники: ", "source"],
+    ["Проверка: ", "check"],
+    ["Итог: ", "verdict"],
+  ];
+  const match = labels.find(([label]) => value.startsWith(label));
+  if (!match) return null;
+  const detail = value.slice(match[0].length).trim();
+  return detail ? { activeKind: match[1], detail } : null;
 }
 
 async function requestJson(path, options = {}) {
@@ -257,6 +380,18 @@ async function consumeResponsesSse(response, onWorkSummary) {
   let buffer = "";
   let streamedText = "";
   let completed = null;
+  let latestWorkSummary = null;
+
+  const notifyWorkSummary = (workSummary, progress = {}) => {
+    if (!workSummary) return;
+    latestWorkSummary = workSummary;
+    if (typeof onWorkSummary !== "function") return;
+    try {
+      onWorkSummary(workSummary, progress);
+    } catch {
+      // Rendering progress is observational and must never abort execution.
+    }
+  };
 
   const acceptBlock = (block) => {
     const parsed = parseSseBlock(block);
@@ -265,14 +400,15 @@ async function consumeResponsesSse(response, onWorkSummary) {
     const type = payload?.type || parsed.event;
     const responsePayload = payload?.response;
     if (responsePayload) {
-      const workSummary = normalizeWorkSummary(responsePayload);
-      if (workSummary && typeof onWorkSummary === "function") {
-        try {
-          onWorkSummary(workSummary);
-        } catch {
-          // Rendering progress is observational and must never abort execution.
-        }
-      }
+      notifyWorkSummary(normalizeWorkSummary(responsePayload));
+    }
+    if (type === "response.kolibri_work_summary.updated") {
+      const workSummary = normalizeWorkSummaryEvent(payload.summary);
+      const activeKind = WORK_SUMMARY_KINDS.has(payload.active_kind) ? payload.active_kind : "";
+      notifyWorkSummary(workSummary, { activeKind });
+    } else if (type === "response.reasoning_summary_text.delta") {
+      const progress = reasoningSummaryProgress(payload.delta);
+      if (progress && latestWorkSummary) notifyWorkSummary(latestWorkSummary, progress);
     }
     if (type === "response.output_text.delta" && typeof payload.delta === "string") {
       streamedText += payload.delta;

@@ -156,6 +156,12 @@ SSH_OPTIONS=(
   -o ServerAliveCountMax=2
 )
 
+# Home accepts the legacy SCP transport while its SFTP subsystem may close a
+# root transfer before the staged path is resolved.  Force the OpenSSH SCP
+# protocol here so the audited, one-time bootstrap is deterministic on the
+# canonical Home host.  Only public release material is transferred.
+SCP_OPTIONS=(-O "${SSH_OPTIONS[@]}")
+
 # Read-only remote identity proof: the manifest-selected address must actually
 # be assigned to this host.  Raw interface output is consumed locally and is
 # never echoed.
@@ -205,7 +211,7 @@ ssh "${SSH_OPTIONS[@]}" "$REMOTE_TARGET" \
   </dev/null
 STAGED=true
 
-scp -q "${SSH_OPTIONS[@]}" \
+scp -q "${SCP_OPTIONS[@]}" \
   "$ROOT_DIR/ops/home_release_authority_bootstrap.py" \
   "$ROOT_DIR/ops/control_plane_endpoint.py" \
   "$ROOT_DIR/ops/fleet_membership.py" \
@@ -216,14 +222,14 @@ scp -q "${SSH_OPTIONS[@]}" \
   "$ROOT_DIR/ops/release_installer.py" \
   "$ROOT_DIR/ops/release-policy.home.json" \
   "$REMOTE_TARGET:$REMOTE_STAGE/ops/"
-scp -q "${SSH_OPTIONS[@]}" \
+scp -q "${SCP_OPTIONS[@]}" \
   "$ROOT_DIR/ops/systemd/kolibri-release-helper.service" \
   "$ROOT_DIR/ops/systemd/kolibri-release-helper.socket" \
   "$ROOT_DIR/ops/systemd/kolibri-factory-control-immutable-release.conf" \
   "$REMOTE_TARGET:$REMOTE_STAGE/ops/systemd/"
-scp -q "${SSH_OPTIONS[@]}" \
+scp -q "${SCP_OPTIONS[@]}" \
   "$MANIFEST" "$REMOTE_TARGET:$REMOTE_STAGE/peers.json"
-scp -q "${SSH_OPTIONS[@]}" \
+scp -q "${SCP_OPTIONS[@]}" \
   "$SIGNER_PUBLIC_KEY" "$REMOTE_TARGET:$REMOTE_STAGE/signer.pub"
 
 ssh "${SSH_OPTIONS[@]}" "$REMOTE_TARGET" \

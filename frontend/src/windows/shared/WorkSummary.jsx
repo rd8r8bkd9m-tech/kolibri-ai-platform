@@ -15,6 +15,7 @@ const STATUS_LABELS = Object.freeze({
   passed: "Готово",
   failed: "Не пройдено",
   skipped: "Не требовалось",
+  available: "Подключено",
   incomplete: "Частично",
   blocked: "Нужны данные",
 });
@@ -23,11 +24,19 @@ function summaryState(items) {
   if (items.some((item) => item.status === "running" || item.status === "pending")) return "Выполняется";
   if (items.some((item) => item.status === "failed")) return "Есть замечания";
   if (items.some((item) => item.status === "blocked" || item.status === "incomplete")) return "Нужны данные";
+  if (items.every((item) => item.status === "available" || item.status === "skipped")) return "Подключено";
   return "Проверено";
 }
 
-export function WorkSummary({ summary }) {
-  const [open, setOpen] = useState(false);
+function sourceDate(source) {
+  const parts = [];
+  if (source.price_level_date) parts.push(`уровень цен ${source.price_level_date}`);
+  if (source.captured_at) parts.push(`получено ${source.captured_at}`);
+  return parts.join(" · ");
+}
+
+export function WorkSummary({ summary, defaultOpen = false }) {
+  const [open, setOpen] = useState(defaultOpen);
   const panelId = useId();
   const items = Array.isArray(summary?.items)
     ? summary.items.filter((item) => KIND_LABELS[item?.kind] && STATUS_LABELS[item?.status]).slice(0, 5)
@@ -76,6 +85,17 @@ export function WorkSummary({ summary }) {
                   <div>
                     <strong>{KIND_LABELS[item.kind]}</strong>
                     <p>{item.detail || STATUS_LABELS[item.status]}</p>
+                    {!!item.sources?.length && (
+                      <div className="work-summary-sources" aria-label="Использованные источники">
+                        {item.sources.map((source) => (
+                          <a href={source.url} key={source.url} rel="noreferrer" target="_blank">
+                            <span>{source.domain}</span>
+                            <code>{source.url}</code>
+                            {!!sourceDate(source) && <small>{sourceDate(source)}</small>}
+                          </a>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <small>{STATUS_LABELS[item.status]}</small>
                 </li>

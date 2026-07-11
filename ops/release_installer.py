@@ -279,6 +279,39 @@ def _trusted_regular_file(path: Path, *, executable: bool = False, nonempty: boo
     )
 
 
+def _trusted_executable_file(path: Path) -> bool:
+    """Accept a regular executable or a root-controlled executable symlink.
+
+    Debian and Ubuntu expose ``/usr/bin/python3`` as a versioned symlink.  The
+    release policy is intentionally portable and names that stable path, so a
+    blanket symlink rejection makes the policy impossible to load on Home.
+    We only follow the link when the link, every containing directory, and the
+    final executable are owned by root/current euid and non-writable by group
+    or world.
+    """
+
+    if _trusted_regular_file(path, executable=True):
+        return True
+    try:
+        link = path.lstat()
+        if not stat.S_ISLNK(link.st_mode) or link.st_uid not in {0, os.geteuid()}:
+            return False
+        for parent in path.parents:
+            value = parent.lstat()
+            sticky_root_boundary = (
+                value.st_uid == 0 and stat.S_IMODE(value.st_mode) == 0o1777
+            )
+            if (
+                not stat.S_ISDIR(value.st_mode)
+                or (not _trusted_owner(value) and not sticky_root_boundary)
+            ):
+                return False
+        resolved = path.resolve(strict=True)
+    except (OSError, RuntimeError):
+        return False
+    return resolved.is_absolute() and _trusted_regular_file(resolved, executable=True)
+
+
 def _trusted_directory(path: Path, *, writable: bool) -> bool:
     try:
         value = path.lstat()
@@ -425,7 +458,7 @@ def _load_health_checks(
         executable = Path(argv[0])
         if (
             not executable.is_absolute()
-            or not _trusted_regular_file(executable, executable=True)
+            or not _trusted_executable_file(executable)
             or executable.name.lower() in FORBIDDEN_HEALTH_EXECUTABLES
         ):
             raise ReleaseInstallError("release_policy_health_executable_unavailable")

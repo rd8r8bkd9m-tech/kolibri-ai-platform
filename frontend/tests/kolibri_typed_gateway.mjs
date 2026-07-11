@@ -121,6 +121,57 @@ function sseResponse(payload) {
   });
 }
 
+function summaryMetadata(items, sources = []) {
+  return {
+    kolibri_work_summary: JSON.stringify({ v: 1, mode: "summary_only", items }),
+    kolibri_reasoning_policy: "summary_only_no_raw_chain_of_thought",
+    ...(sources.length ? {
+      kolibri_work_sources: JSON.stringify({ v: 1, sources }),
+    } : {}),
+  };
+}
+
+function progressiveSseResponse(payload, initialItems, finalSummary) {
+  const initialSummary = {
+    schema_version: "kolibri.work-summary.v1",
+    mode: "summary_only",
+    raw_reasoning_exposed: false,
+    items: initialItems,
+  };
+  const events = [
+    ["response.created", {
+      type: "response.created",
+      response: {
+        ...payload,
+        status: "in_progress",
+        output: [],
+        metadata: summaryMetadata(initialItems),
+      },
+    }],
+    ...initialItems.map((item) => ["response.kolibri_work_summary.updated", {
+      type: "response.kolibri_work_summary.updated",
+      active_kind: item.kind,
+      summary: initialSummary,
+    }]),
+    ...finalSummary.items.map((item) => ["response.kolibri_work_summary.updated", {
+      type: "response.kolibri_work_summary.updated",
+      active_kind: item.kind,
+      summary: finalSummary,
+    }]),
+    ["response.reasoning_summary_text.delta", {
+      type: "response.reasoning_summary_text.delta",
+      delta: `Проверка: ${finalSummary.items.find((item) => item.kind === "check").detail}`,
+    }],
+    ["response.output_text.delta", { type: "response.output_text.delta", delta: payload.output_text }],
+    ["response.completed", { type: "response.completed", response: payload }],
+  ];
+  const text = events.map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`).join("");
+  return new globalThis.Response(text, {
+    status: 200,
+    headers: { "content-type": "text/event-stream" },
+  });
+}
+
 const publicSession = {
   id: "psess_test",
   object: "public.session",
@@ -604,6 +655,67 @@ try {
   assert.equal(calls[1].body.model, "kolibri");
   assert.equal(conversational.text, "Обычный ответ Kolibri");
   assert.deepEqual(conversational.artifacts, [], "untyped artifact claims must not enter the Shell");
+
+  calls.length = 0;
+  resetPublicSessionForTests();
+  const initialProgressItems = [
+    { kind: "plan", status: "running", detail: "Понимаю задачу и формирую план." },
+    { kind: "tool", status: "available", detail: "Инструментальный контур подключён." },
+    { kind: "source", status: "pending", detail: "Проверяю доступные источники." },
+    { kind: "check", status: "pending", detail: "Проверка результата ожидается." },
+    { kind: "verdict", status: "pending", detail: "Итог появится после проверки." },
+  ];
+  const finalProgressSummary = {
+    schema_version: "kolibri.work-summary.v1",
+    mode: "summary_only",
+    raw_reasoning_exposed: false,
+    items: [
+      { kind: "plan", status: "passed", detail: "План выполнен." },
+      { kind: "tool", status: "available", detail: "Вызов инструмента не потребовался." },
+      {
+        kind: "source",
+        status: "passed",
+        detail: "Источник проверен.",
+        sources: [{ url: "https://source.example/data", domain: "source.example", captured_at: "2026-07-11" }],
+      },
+      { kind: "check", status: "passed", detail: "Проверка результата пройдена." },
+      { kind: "verdict", status: "passed", detail: "Проверенный результат готов." },
+    ],
+  };
+  const finalStreamPayload = {
+    ...openAiResponse("Проверенный потоковый ответ."),
+    metadata: summaryMetadata(
+      finalProgressSummary.items.map((item) => ({
+        kind: item.kind,
+        status: item.status,
+        detail: item.detail,
+      })),
+      finalProgressSummary.items.find((item) => item.kind === "source").sources,
+    ),
+  };
+  const progressUpdates = [];
+  globalThis.fetch = async (url) => {
+    calls.push({ url });
+    if (url === "/v1/public/session") return response(200, publicSession);
+    return progressiveSseResponse(finalStreamPayload, initialProgressItems, finalProgressSummary);
+  };
+  const progressiveResult = await sendKolibriRequest({
+    text: "Покажи безопасный ход работы",
+    onWorkSummary: (workSummary, progress = {}) => progressUpdates.push({
+      activeKind: progress.activeKind || "",
+      detail: progress.detail || workSummary.items.find((item) => item.kind === progress.activeKind)?.detail || "",
+      terminal: workSummary.items.find((item) => item.kind === "verdict")?.status === "passed",
+    }),
+  });
+  assert.equal(progressiveResult.text, "Проверенный потоковый ответ.");
+  assert.deepEqual(
+    progressUpdates.filter((item) => item.activeKind).slice(0, 5).map((item) => item.activeKind),
+    ["plan", "tool", "source", "check", "verdict"],
+  );
+  assert.ok(new Set(progressUpdates.map((item) => item.detail).filter(Boolean)).size >= 5, "safe progress must update the existing message with distinct stages");
+  assert.ok(progressUpdates.some((item) => item.activeKind === "check" && item.detail === "Проверка результата пройдена."), "reasoning-summary delta must update visible progress before completion");
+  assert.equal(progressiveResult.workSummary.items.find((item) => item.kind === "source").sources[0].captured_at, "2026-07-11");
+  assert.equal(progressUpdates.at(-1).terminal, true, "terminal metadata must replace progress with the final summary");
 
   calls.length = 0;
   resetPublicSessionForTests();

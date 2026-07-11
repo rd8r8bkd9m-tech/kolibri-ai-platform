@@ -66,6 +66,7 @@ from web_search_gateway import WebSearchError, WebSearchPolicyError
 from work_summary import (
     build_work_summary,
     reasoning_output_item,
+    summary_from_metadata,
     summary_metadata,
 )
 
@@ -1242,7 +1243,29 @@ async def _response_sse(
     yield _sse("response.in_progress", {
         "type": "response.in_progress", "sequence_number": sequence, "response": created,
     })
+    initial_summary = summary_from_metadata(created.get("metadata"))
+    if execute is not None and initial_summary is not None:
+        for item in initial_summary["items"]:
+            sequence += 1
+            yield _sse("response.kolibri_work_summary.updated", {
+                "type": "response.kolibri_work_summary.updated",
+                "sequence_number": sequence,
+                "response_id": created["id"],
+                "active_kind": item["kind"],
+                "summary": initial_summary,
+            })
     final, _ = await execute() if execute is not None else (initial, 200 if initial.get("status") == "completed" else 503)
+    final_summary = summary_from_metadata(final.get("metadata"))
+    if final_summary is not None:
+        for item in final_summary["items"]:
+            sequence += 1
+            yield _sse("response.kolibri_work_summary.updated", {
+                "type": "response.kolibri_work_summary.updated",
+                "sequence_number": sequence,
+                "response_id": final["id"],
+                "active_kind": item["kind"],
+                "summary": final_summary,
+            })
     if final.get("status") != "completed":
         sequence += 1
         yield _sse("response.failed", {

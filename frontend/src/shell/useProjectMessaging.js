@@ -10,6 +10,16 @@ import {
   upsertCanvas,
 } from "./projectModel";
 
+function workProgressText(workSummary, progress = {}) {
+  if (typeof progress.detail === "string" && progress.detail.trim()) return progress.detail.trim();
+  const items = Array.isArray(workSummary?.items) ? workSummary.items : [];
+  const active = items.find((item) => item.kind === progress.activeKind)
+    || items.find((item) => item.status === "running")
+    || items.find((item) => item.status === "pending")
+    || items.at(-1);
+  return active?.detail || "";
+}
+
 export function useProjectMessaging({
   busyProjects,
   dispatch,
@@ -44,10 +54,10 @@ export function useProjectMessaging({
         task,
         workstreamId: projectId,
         executionMode,
-        onWorkSummary: (workSummary) => updateProject(projectId, (current) => ({
+        onWorkSummary: (workSummary, progress) => updateProject(projectId, (current) => ({
           ...current,
           messages: current.messages.map((message) => message.id === reply.id
-            ? { ...message, workSummary }
+            ? { ...message, workSummary, progressText: workProgressText(workSummary, progress) }
             : message),
         })),
       });
@@ -69,7 +79,7 @@ export function useProjectMessaging({
       updateProject(projectId, (current) => ({
         ...current,
         messages: current.messages.map((message) => message.id === reply.id
-          ? { ...message, text: answer, status: taskStatus, workSummary: response.workSummary, ...(canvas ? { canvasId: canvas.id } : {}) }
+          ? { ...message, text: answer, progressText: "", status: taskStatus, workSummary: response.workSummary, ...(canvas ? { canvasId: canvas.id } : {}) }
           : message),
         artifacts: mergeArtifacts(current.artifacts, response.artifacts),
         canvases: canvas ? upsertCanvas(current.canvases, canvas) : current.canvases,

@@ -475,8 +475,20 @@ def test_responses_sse_uses_official_typed_event_names(tmp_path):
     assert "event: response.reasoning_summary_text.delta" in response.text
     assert "event: response.reasoning_summary_text.done" in response.text
     assert "event: response.reasoning_summary_part.done" in response.text
+    assert "event: response.kolibri_work_summary.updated" in response.text
     assert "event: response.completed" in response.text
     assert "data: [DONE]" not in response.text
+    updates = []
+    for block in response.text.split("\n\n"):
+        if "event: response.kolibri_work_summary.updated" not in block:
+            continue
+        data_line = next(line for line in block.splitlines() if line.startswith("data: "))
+        updates.append(json.loads(data_line.removeprefix("data: ")))
+    assert [item["active_kind"] for item in updates[:5]] == [
+        "plan", "tool", "source", "check", "verdict",
+    ]
+    assert all(item["summary"]["mode"] == "summary_only" for item in updates)
+    assert all(item["summary"]["raw_reasoning_exposed"] is False for item in updates)
 
 
 def test_response_exposes_only_safe_summary_metadata_and_reasoning_item(tmp_path):

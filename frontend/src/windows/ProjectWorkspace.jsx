@@ -23,13 +23,14 @@ function Conversation({ canvases, messages, renderCanvas }) {
       )}
       {messages.map((message) => {
         const canvas = message.canvasId ? canvases.find((item) => item.id === message.canvasId) : null;
+        const assistantText = message.text || message.progressText || "";
         return (
           <div className="project-message-block" key={message.id}>
             <article className={`project-message is-${message.role} ${message.status ? `is-${message.status}` : ""}`}>
               <span>{message.role === "user" ? "Вы" : "Kolibri"}</span>
               <div>
                 {message.role === "assistant"
-                  ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.text || "Выполняю…"}</ReactMarkdown>
+                  ? (assistantText ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{assistantText}</ReactMarkdown> : null)
                   : <p>{message.text}</p>}
               </div>
               {message.role === "assistant" && <WorkSummary summary={message.workSummary} />}

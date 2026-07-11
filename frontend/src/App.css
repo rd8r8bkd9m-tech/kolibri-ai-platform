@@ -1322,6 +1322,11 @@ select:focus-visible {
   background: #fff4d7;
 }
 
+.work-summary-panel li.is-available > span {
+  border-color: var(--accent-strong);
+  background: var(--accent-soft);
+}
+
 .work-summary-panel li strong,
 .work-summary-panel li p {
   display: block;
@@ -1343,6 +1348,48 @@ select:focus-visible {
   color: var(--muted);
   font-size: 9px;
   white-space: nowrap;
+}
+
+.work-summary-sources {
+  display: grid;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.work-summary-sources a {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.work-summary-sources a:hover span {
+  color: var(--accent-strong);
+}
+
+.work-summary-sources span,
+.work-summary-sources code,
+.work-summary-sources small {
+  overflow-wrap: anywhere;
+}
+
+.work-summary-sources span {
+  font-size: 10px;
+  font-weight: 680;
+}
+
+.work-summary-sources code {
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9px;
+}
+
+.work-summary-sources small {
+  color: var(--muted);
+  font-size: 9px;
 }
 
 .work-summary-policy {

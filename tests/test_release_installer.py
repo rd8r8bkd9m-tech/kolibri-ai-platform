@@ -1010,6 +1010,57 @@ def test_local_policy_cannot_restart_agent_host(release_module, tmp_path):
     assert installer.prerequisite_status()["status"] == "unavailable"
 
 
+def test_release_policy_accepts_trusted_versioned_executable_symlink(
+    release_module,
+    tmp_path,
+):
+    release = release_module
+    trusted = tmp_path / "trusted-bin"
+    trusted.mkdir(mode=0o700)
+    target = write_executable(trusted / "python3.12", "raise SystemExit(0)")
+    link = trusted / "python3"
+    link.symlink_to(target.name)
+    policy = tmp_path / "release-policy.json"
+    write_policy(
+        release,
+        policy,
+        link,
+        services=["kolibri-backend.service"],
+        defaults=["kolibri-backend.service"],
+    )
+
+    loaded = release.load_release_policy(policy)
+
+    assert loaded.pre_health[0].argv[0] == str(link)
+
+
+def test_release_policy_rejects_executable_symlink_in_untrusted_directory(
+    release_module,
+    tmp_path,
+):
+    release = release_module
+    untrusted = tmp_path / "untrusted-bin"
+    untrusted.mkdir(mode=0o777)
+    untrusted.chmod(0o777)
+    target = write_executable(tmp_path / "python3.12", "raise SystemExit(0)")
+    link = untrusted / "python3"
+    link.symlink_to(target)
+    policy = tmp_path / "release-policy.json"
+    write_policy(
+        release,
+        policy,
+        link,
+        services=["kolibri-backend.service"],
+        defaults=["kolibri-backend.service"],
+    )
+
+    with pytest.raises(
+        release.ReleaseInstallError,
+        match="release_policy_health_executable_unavailable",
+    ):
+        release.load_release_policy(policy)
+
+
 def test_capability_requires_real_local_prerequisites(
     release_module, tmp_path, monkeypatch, canonical_home_control_plane
 ):

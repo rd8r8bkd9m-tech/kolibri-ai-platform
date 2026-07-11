@@ -13,8 +13,10 @@ if str(BACKEND) not in sys.path:
 from work_summary import (  # noqa: E402
     METADATA_KEY,
     POLICY_METADATA_KEY,
+    SOURCES_METADATA_KEY,
     build_work_summary,
     reasoning_output_item,
+    summary_from_metadata,
     summary_metadata,
 )
 from public_responses_api import _decorate_response_work_summary  # noqa: E402
@@ -33,9 +35,12 @@ def test_work_summary_is_allowlisted_and_never_copies_prompts_or_secrets():
             "result": raw_prompt,
         }],
         citations=[{
-            "url": f"https://prices.example/catalog?token={secret}",
+            "url": f"https://prices.example/token/{secret}?token={secret}",
             "title": raw_prompt,
             "snippet": secret,
+        }, {
+            "url": "http://10.99.0.2:9101/internal",
+            "source_host": "10.99.0.2",
         }],
         verification={
             "status": "passed",
@@ -54,8 +59,11 @@ def test_work_summary_is_allowlisted_and_never_copies_prompts_or_secrets():
     assert secret not in serialized
     assert raw_prompt not in serialized
     assert "prices.example" in serialized
+    assert "10.99.0.2" not in serialized
     assert "?token=" not in serialized
     assert "Веб-поиск" in serialized
+    source = next(item for item in summary["items"] if item["kind"] == "source")
+    assert source["sources"][0]["url"] == "https://prices.example/"
 
 
 def test_openai_metadata_is_string_bounded_and_reasoning_item_is_summary_only():
@@ -84,6 +92,102 @@ def test_openai_metadata_is_string_bounded_and_reasoning_item_is_summary_only():
     assert all(part["type"] == "summary_text" for part in reasoning["summary"])
     assert "content" not in reasoning
     assert "encrypted_content" not in reasoning
+
+
+def test_unused_tools_and_sources_are_reported_as_connected_not_missing():
+    summary = build_work_summary(
+        response_status="completed",
+        verification={"status": "passed"},
+    )
+    by_kind = {item["kind"]: item for item in summary["items"]}
+    assert by_kind["tool"] == {
+        "kind": "tool",
+        "status": "available",
+        "detail": "Инструментальный контур подключён; для этого запроса вызов не потребовался.",
+    }
+    assert by_kind["source"] == {
+        "kind": "source",
+        "status": "available",
+        "detail": "Контур источников подключён; для этого запроса ссылки не использовались.",
+    }
+
+
+def test_preliminary_estimate_projects_source_domains_and_price_dates():
+    summary = build_work_summary(
+        response_status="completed",
+        task={
+            "intent": "estimate",
+            "status": "completed",
+            "result": {
+                "type": "deterministic_estimate",
+                "status": "preliminary",
+                "estimate": {
+                    "normative_basis": {
+                        "source_urls": ["https://minstroyrf.gov.ru/prices"],
+                        "price_level_date": "2026-Q2",
+                    },
+                    "lines": [{
+                        "provenance": {
+                            "source_url": "https://supplier.example/catalog",
+                            "captured_at": "2026-07-11",
+                            "price_level_date": "2026-Q2",
+                        },
+                    }],
+                },
+            },
+        },
+        verification={"status": "passed"},
+    )
+    source = next(item for item in summary["items"] if item["kind"] == "source")
+    assert source["status"] == "passed"
+    assert "Источники: 2" in source["detail"]
+    assert "minstroyrf.gov.ru" in source["detail"]
+    assert "supplier.example" in source["detail"]
+    assert "2026-Q2" in source["detail"]
+    assert source["sources"] == [
+        {
+            "url": "https://minstroyrf.gov.ru/prices",
+            "domain": "minstroyrf.gov.ru",
+            "price_level_date": "2026-Q2",
+        },
+        {
+            "url": "https://supplier.example/catalog",
+            "domain": "supplier.example",
+            "price_level_date": "2026-Q2",
+            "captured_at": "2026-07-11",
+        },
+    ]
+    metadata = summary_metadata({}, summary)
+    encoded_sources = metadata[SOURCES_METADATA_KEY]
+    assert len(encoded_sources) <= 512
+    assert json.loads(encoded_sources)["sources"] == source["sources"]
+    assert summary_from_metadata(metadata)["items"][2]["sources"] == source["sources"]
+
+
+def test_estimate_missing_required_sources_remains_blocked():
+    summary = build_work_summary(
+        response_status="completed",
+        task={
+            "intent": "estimate",
+            "status": "completed",
+            "result": {
+                "type": "deterministic_estimate",
+                "status": "preliminary",
+                "estimate": {"lines": []},
+                "verification": {
+                    "source_coverage_complete": False,
+                    "coverage_missing": ["normative_basis.source_urls"],
+                },
+            },
+        },
+        verification={"status": "passed"},
+    )
+    by_kind = {item["kind"]: item for item in summary["items"]}
+    assert by_kind["source"]["status"] == "blocked"
+    assert "обязательных ссылок" in by_kind["source"]["detail"]
+    assert by_kind["check"]["status"] == "blocked"
+    assert by_kind["verdict"]["status"] == "incomplete"
+    assert "Проверенный результат готов" not in json.dumps(summary, ensure_ascii=False)
 
 
 def test_in_progress_summary_has_truthful_nonterminal_states():
