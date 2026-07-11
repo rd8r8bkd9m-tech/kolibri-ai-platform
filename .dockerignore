@@ -1,0 +1,17 @@
+.git
+.github
+.env
+.env.*
+!.env.example
+var
+**/__pycache__
+**/*.pyc
+.pytest_cache
+frontend/node_modules
+frontend/dist
+apps/**/target
+crates/**/target
+target
+docs/archive
+*.zip
+*.log

@@ -1,0 +1,855 @@
+export const manifest = {
+  "version": "2026.07.vista-os-11.1-product-release",
+  "product": "Vista OS 11.1 Product Release",
+  "rendering_model": {
+    "type": "single_window_workbench",
+    "laws": [
+      "One entry point: bird boot screen.",
+      "One SPA shell: no page navigation for work.",
+      "Only chat timeline scrolls; data opens as windows, sheets, or kiosk cards.",
+      "Role and subscription grant capabilities; device changes presentation only.",
+      "Client sees no admin surfaces: denied components are not rendered."
+    ]
+  },
+  "plans": {
+    "basic_estimates": {
+      "id": "basic_estimates",
+      "label": "Сметы · Базовый"
+    },
+    "pro_construction": {
+      "id": "pro_construction",
+      "label": "Строительство Pro"
+    },
+    "factory_operator": {
+      "id": "factory_operator",
+      "label": "Операционная смена"
+    },
+    "server_administration": {
+      "id": "server_administration",
+      "label": "Администрирование серверов"
+    },
+    "developer_platform": {
+      "id": "developer_platform",
+      "label": "Developer Platform"
+    },
+    "owner_full": {
+      "id": "owner_full",
+      "label": "Полный контур владельца"
+    }
+  },
+  "roles": {
+    "client": {
+      "id": "client",
+      "label": "Клиент",
+      "plan": "basic_estimates",
+      "grants": [
+        "estimate.create",
+        "estimate.view",
+        "proposal.view",
+        "artifact.download",
+        "brief.voice",
+        "file.upload",
+        "document.view",
+        "support.view",
+        "pricing.view",
+        "workbench.window.open",
+        "command.center.use"
+      ],
+      "default_intent": "estimate_start"
+    },
+    "client_pro": {
+      "id": "client_pro",
+      "label": "Клиент Pro",
+      "plan": "pro_construction",
+      "grants": [
+        "estimate.create",
+        "estimate.view",
+        "estimate.edit",
+        "proposal.create",
+        "proposal.view",
+        "artifact.download",
+        "document.create",
+        "document.view",
+        "project.manage",
+        "support.view",
+        "pricing.view",
+        "workbench.window.open",
+        "command.center.use"
+      ],
+      "default_intent": "estimate_start"
+    },
+    "operator": {
+      "id": "operator",
+      "label": "Оператор фабрики",
+      "plan": "factory_operator",
+      "grants": [
+        "agent.registry.read",
+        "artifact.review",
+        "audit.read",
+        "command.center.use",
+        "estimate.review",
+        "factory.artifact.read",
+        "factory.artifact.upload",
+        "factory.status.read",
+        "factory.task.create",
+        "factory.task.execute",
+        "factory.task.lease",
+        "factory.verifier.run",
+        "node.registry.read",
+        "node.status.read",
+        "sales.pipeline.read",
+        "task.queue.read",
+        "verifier.status.read",
+        "workbench.window.manage",
+        "workbench.window.open"
+      ],
+      "default_intent": "operator_queue"
+    },
+    "server_admin": {
+      "id": "server_admin",
+      "label": "Администратор сервера",
+      "plan": "server_administration",
+      "grants": [
+        "agent.registry.read",
+        "audit.read",
+        "command.center.use",
+        "deploy.plan.read",
+        "factory.artifact.upload",
+        "factory.status.read",
+        "factory.task.create",
+        "factory.task.execute",
+        "factory.task.lease",
+        "factory.verifier.run",
+        "incident.debug",
+        "node.registry.read",
+        "node.status.read",
+        "server.logs.read",
+        "server.metrics.read",
+        "service.status.read",
+        "workbench.window.manage",
+        "workbench.window.open"
+      ],
+      "default_intent": "server_health"
+    },
+    "developer": {
+      "id": "developer",
+      "label": "Разработчик",
+      "plan": "developer_platform",
+      "grants": [
+        "api.portal.read",
+        "openapi.read",
+        "sdk.examples.read",
+        "webhook.read",
+        "sandbox.use",
+        "model.lab.read",
+        "artifact.download",
+        "workbench.window.open",
+        "workbench.window.manage",
+        "command.center.use"
+      ],
+      "default_intent": "api_portal"
+    },
+    "owner": {
+      "id": "owner",
+      "label": "Владелец",
+      "plan": "owner_full",
+      "grants": [
+        "*"
+      ],
+      "default_intent": "owner_status"
+    }
+  },
+  "devices": {
+    "auto": {
+      "id": "auto",
+      "label": "Авто",
+      "presentation": "adaptive"
+    },
+    "desktop": {
+      "id": "desktop",
+      "label": "Desktop",
+      "presentation": "windowed"
+    },
+    "macbook": {
+      "id": "macbook",
+      "label": "MacBook / Tauri",
+      "presentation": "windowed"
+    },
+    "ubuntu": {
+      "id": "ubuntu",
+      "label": "Ubuntu / Tauri",
+      "presentation": "windowed"
+    },
+    "mobile": {
+      "id": "mobile",
+      "label": "Mobile",
+      "presentation": "sheet"
+    },
+    "tv": {
+      "id": "tv",
+      "label": "TV / kiosk",
+      "presentation": "kiosk"
+    }
+  },
+  "capabilities": {
+    "estimate.create": {
+      "label": "Создать смету",
+      "risk": "low"
+    },
+    "estimate.view": {
+      "label": "Открыть смету",
+      "risk": "low"
+    },
+    "estimate.edit": {
+      "label": "Редактировать смету",
+      "risk": "medium"
+    },
+    "proposal.create": {
+      "label": "Собрать КП",
+      "risk": "low"
+    },
+    "proposal.view": {
+      "label": "Открыть КП",
+      "risk": "low"
+    },
+    "artifact.download": {
+      "label": "Скачать артефакты",
+      "risk": "low"
+    },
+    "document.create": {
+      "label": "Создать документ",
+      "risk": "medium"
+    },
+    "document.view": {
+      "label": "Документы",
+      "risk": "low"
+    },
+    "project.manage": {
+      "label": "Управлять проектом",
+      "risk": "medium"
+    },
+    "server.metrics.read": {
+      "label": "Метрики серверов",
+      "risk": "high"
+    },
+    "server.logs.read": {
+      "label": "Логи серверов",
+      "risk": "high"
+    },
+    "node.status.read": {
+      "label": "Ноды",
+      "risk": "medium"
+    },
+    "task.queue.read": {
+      "label": "Очередь задач",
+      "risk": "medium"
+    },
+    "factory.status.read": {
+      "label": "Фабрика",
+      "risk": "medium"
+    },
+    "factory.task.execute": {
+      "label": "Запуск controlled task",
+      "risk": "high"
+    },
+    "factory.artifact.read": {
+      "label": "Артефакты фабрики",
+      "risk": "medium"
+    },
+    "agent.registry.read": {
+      "label": "Роли агентов",
+      "risk": "medium"
+    },
+    "verifier.status.read": {
+      "label": "Verifier",
+      "risk": "high"
+    },
+    "deploy.plan.read": {
+      "label": "План деплоя",
+      "risk": "high"
+    },
+    "api.portal.read": {
+      "label": "API портал",
+      "risk": "medium"
+    },
+    "openapi.read": {
+      "label": "OpenAPI",
+      "risk": "medium"
+    },
+    "sdk.examples.read": {
+      "label": "SDK",
+      "risk": "low"
+    },
+    "webhook.read": {
+      "label": "Webhooks",
+      "risk": "medium"
+    },
+    "sandbox.use": {
+      "label": "Sandbox",
+      "risk": "medium"
+    },
+    "model.lab.read": {
+      "label": "Model Lab",
+      "risk": "medium"
+    },
+    "support.view": {
+      "label": "Поддержка",
+      "risk": "low"
+    },
+    "pricing.view": {
+      "label": "Тарифы",
+      "risk": "low"
+    },
+    "sales.pipeline.read": {
+      "label": "Воронка пилотов",
+      "risk": "medium"
+    },
+    "workbench.window.open": {
+      "label": "Окна OS",
+      "risk": "low"
+    },
+    "workbench.window.manage": {
+      "label": "Управление окнами",
+      "risk": "low"
+    },
+    "command.center.use": {
+      "label": "Command Center",
+      "risk": "low"
+    },
+    "brief.voice": {
+      "label": "Голосовой бриф",
+      "risk": "low"
+    },
+    "file.upload": {
+      "label": "Загрузка файлов",
+      "risk": "low"
+    },
+    "artifact.review": {
+      "label": "Проверка артефактов",
+      "risk": "medium"
+    },
+    "estimate.review": {
+      "label": "Проверка смет",
+      "risk": "medium"
+    },
+    "incident.debug": {
+      "label": "Диагностика инцидента",
+      "risk": "high"
+    },
+    "node.registry.read": {
+      "label": "Node registry read"
+    },
+    "node.heartbeat.write": {
+      "label": "Node heartbeat write"
+    },
+    "factory.task.create": {
+      "label": "Create factory task"
+    },
+    "factory.task.lease": {
+      "label": "Lease factory task"
+    },
+    "factory.artifact.upload": {
+      "label": "Upload task artifact"
+    },
+    "factory.verifier.run": {
+      "label": "Run verifier"
+    },
+    "audit.read": {
+      "label": "Read audit events"
+    },
+    "factory.lease.reap": {
+      "description": "Reap expired leases and requeue/dead-letter stuck tasks"
+    },
+    "node.drain": {
+      "description": "Drain/resume worker nodes"
+    },
+    "fleet.health.read": {
+      "description": "Read fleet health/stale/drain summary"
+    }
+  },
+  "components": {
+    "estimate.workspace": {
+      "id": "estimate.workspace",
+      "label": "Смета объекта",
+      "kind": "window",
+      "owner": "client",
+      "required": [
+        "estimate.view"
+      ],
+      "intents": [
+        "estimate_start",
+        "owner_status"
+      ]
+    },
+    "proposal.preview": {
+      "id": "proposal.preview",
+      "label": "Коммерческое предложение",
+      "kind": "window",
+      "owner": "client",
+      "required": [
+        "proposal.view"
+      ],
+      "intents": [
+        "proposal_open",
+        "estimate_start",
+        "owner_status"
+      ]
+    },
+    "artifact.vault": {
+      "id": "artifact.vault",
+      "label": "Артефакты клиента",
+      "kind": "window",
+      "owner": "client",
+      "required": [
+        "artifact.download"
+      ],
+      "intents": [
+        "artifact_open",
+        "estimate_start",
+        "proposal_open",
+        "owner_status"
+      ]
+    },
+    "documents.pack": {
+      "id": "documents.pack",
+      "label": "Документы",
+      "kind": "window",
+      "owner": "client",
+      "required": [
+        "document.view"
+      ],
+      "intents": [
+        "documents_open",
+        "owner_status"
+      ]
+    },
+    "pricing.plans": {
+      "id": "pricing.plans",
+      "label": "Тарифы",
+      "kind": "window",
+      "owner": "client",
+      "required": [
+        "pricing.view"
+      ],
+      "intents": [
+        "pricing_open",
+        "owner_status"
+      ]
+    },
+    "support.center": {
+      "id": "support.center",
+      "label": "Поддержка",
+      "kind": "window",
+      "owner": "client",
+      "required": [
+        "support.view"
+      ],
+      "intents": [
+        "support_open"
+      ]
+    },
+    "task.queue": {
+      "id": "task.queue",
+      "label": "Очередь фабрики",
+      "kind": "window",
+      "owner": "operator",
+      "required": [
+        "factory.task.create",
+        "task.queue.read"
+      ],
+      "intents": [
+        "operator_queue",
+        "factory_status",
+        "owner_status"
+      ]
+    },
+    "factory.console": {
+      "id": "factory.console",
+      "label": "Controlled factory",
+      "kind": "window",
+      "owner": "operator",
+      "required": [
+        "factory.status.read"
+      ],
+      "intents": [
+        "factory_status",
+        "owner_status"
+      ]
+    },
+    "agent.registry": {
+      "id": "agent.registry",
+      "label": "Агентные роли",
+      "kind": "window",
+      "owner": "operator",
+      "required": [
+        "agent.registry.read"
+      ],
+      "intents": [
+        "agents_open",
+        "factory_status",
+        "owner_status"
+      ]
+    },
+    "server.metrics": {
+      "id": "server.metrics",
+      "label": "Метрики серверов",
+      "kind": "window",
+      "owner": "server_admin",
+      "required": [
+        "server.metrics.read"
+      ],
+      "intents": [
+        "server_health",
+        "owner_status"
+      ]
+    },
+    "server.logs": {
+      "id": "server.logs",
+      "label": "Логи серверов",
+      "kind": "window",
+      "owner": "server_admin",
+      "required": [
+        "server.logs.read"
+      ],
+      "intents": [
+        "server_health",
+        "logs_open",
+        "owner_status"
+      ]
+    },
+    "node.registry": {
+      "id": "node.registry",
+      "label": "Ноды",
+      "kind": "window",
+      "owner": "server_admin",
+      "required": [
+        "node.registry.read",
+        "node.status.read"
+      ],
+      "intents": [
+        "server_health",
+        "factory_status",
+        "owner_status"
+      ]
+    },
+    "verifier.gates": {
+      "id": "verifier.gates",
+      "label": "Release gates",
+      "kind": "window",
+      "owner": "owner",
+      "required": [
+        "verifier.status.read"
+      ],
+      "intents": [
+        "owner_status",
+        "factory_status"
+      ]
+    },
+    "api.portal": {
+      "id": "api.portal",
+      "label": "API портал",
+      "kind": "window",
+      "owner": "developer",
+      "required": [
+        "api.portal.read"
+      ],
+      "intents": [
+        "api_portal",
+        "owner_status"
+      ]
+    },
+    "model.lab": {
+      "id": "model.lab",
+      "label": "Model Lab",
+      "kind": "window",
+      "owner": "developer",
+      "required": [
+        "model.lab.read"
+      ],
+      "intents": [
+        "model_lab",
+        "owner_status"
+      ]
+    },
+    "sales.pipeline": {
+      "id": "sales.pipeline",
+      "label": "Воронка пилотов",
+      "kind": "window",
+      "owner": "owner",
+      "required": [
+        "sales.pipeline.read"
+      ],
+      "intents": [
+        "market_readiness",
+        "owner_status"
+      ]
+    },
+    "market.readiness": {
+      "id": "market.readiness",
+      "label": "Готовность MVP",
+      "kind": "window",
+      "owner": "owner",
+      "required": [
+        "sales.pipeline.read"
+      ],
+      "intents": [
+        "market_readiness",
+        "owner_status"
+      ]
+    },
+    "system.settings": {
+      "id": "system.settings",
+      "label": "Настройки системы",
+      "kind": "window",
+      "owner": "owner",
+      "required": [
+        "workbench.window.manage"
+      ],
+      "intents": [
+        "settings_open",
+        "owner_status"
+      ]
+    }
+  },
+  "intents": {
+    "estimate_start": {
+      "id": "estimate_start",
+      "label": "Смета",
+      "priority": 100,
+      "triggers": [
+        "смет",
+        "ремонт",
+        "квартир",
+        "объект",
+        "estimate"
+      ],
+      "assistant": "Открываю смету, КП и клиентские артефакты."
+    },
+    "proposal_open": {
+      "id": "proposal_open",
+      "label": "КП",
+      "priority": 95,
+      "triggers": [
+        "кп",
+        "коммерчес",
+        "proposal"
+      ],
+      "assistant": "Открываю коммерческое предложение."
+    },
+    "artifact_open": {
+      "id": "artifact_open",
+      "label": "Артефакты",
+      "priority": 80,
+      "triggers": [
+        "артефакт",
+        "файл",
+        "скачать"
+      ],
+      "assistant": "Открываю клиентские артефакты."
+    },
+    "documents_open": {
+      "id": "documents_open",
+      "label": "Документы",
+      "priority": 78,
+      "triggers": [
+        "документ",
+        "акт",
+        "договор"
+      ],
+      "assistant": "Открываю документы."
+    },
+    "pricing_open": {
+      "id": "pricing_open",
+      "label": "Тарифы",
+      "priority": 75,
+      "triggers": [
+        "тариф",
+        "цена",
+        "стоимость"
+      ],
+      "assistant": "Показываю тарифы."
+    },
+    "support_open": {
+      "id": "support_open",
+      "label": "Поддержка",
+      "priority": 60,
+      "triggers": [
+        "помощ",
+        "поддерж",
+        "support"
+      ],
+      "assistant": "Открываю поддержку."
+    },
+    "server_health": {
+      "id": "server_health",
+      "label": "Серверы",
+      "priority": 98,
+      "triggers": [
+        "сервер",
+        "метрик",
+        "cpu",
+        "ram",
+        "disk",
+        "логи",
+        "node"
+      ],
+      "assistant": "Проверяю права и открываю серверные окна, если они доступны."
+    },
+    "logs_open": {
+      "id": "logs_open",
+      "label": "Логи",
+      "priority": 90,
+      "triggers": [
+        "лог",
+        "journal",
+        "ошибка"
+      ],
+      "assistant": "Открываю логи, если роль имеет доступ."
+    },
+    "operator_queue": {
+      "id": "operator_queue",
+      "label": "Очередь",
+      "priority": 86,
+      "triggers": [
+        "очеред",
+        "задач",
+        "оператор"
+      ],
+      "assistant": "Открываю операционную очередь."
+    },
+    "factory_status": {
+      "id": "factory_status",
+      "label": "Фабрика",
+      "priority": 85,
+      "triggers": [
+        "фабрик",
+        "агент",
+        "lease",
+        "canary"
+      ],
+      "assistant": "Открываю controlled factory."
+    },
+    "agents_open": {
+      "id": "agents_open",
+      "label": "Агенты",
+      "priority": 84,
+      "triggers": [
+        "роль",
+        "агент",
+        "roles"
+      ],
+      "assistant": "Открываю реестр агентных ролей."
+    },
+    "api_portal": {
+      "id": "api_portal",
+      "label": "API",
+      "priority": 82,
+      "triggers": [
+        "api",
+        "sdk",
+        "openapi",
+        "developer"
+      ],
+      "assistant": "Открываю API портал."
+    },
+    "model_lab": {
+      "id": "model_lab",
+      "label": "Model Lab",
+      "priority": 70,
+      "triggers": [
+        "model",
+        "модель",
+        "llm",
+        "formulalm"
+      ],
+      "assistant": "Открываю Model Lab."
+    },
+    "market_readiness": {
+      "id": "market_readiness",
+      "label": "MVP",
+      "priority": 74,
+      "triggers": [
+        "рынок",
+        "готовность",
+        "mvp",
+        "продаж",
+        "пилот"
+      ],
+      "assistant": "Открываю готовность MVP и воронку пилотов."
+    },
+    "settings_open": {
+      "id": "settings_open",
+      "label": "Настройки",
+      "priority": 58,
+      "triggers": [
+        "настрой",
+        "control",
+        "профиль"
+      ],
+      "assistant": "Открываю доступные настройки."
+    },
+    "owner_status": {
+      "id": "owner_status",
+      "label": "Полный контур",
+      "priority": 40,
+      "triggers": [
+        "полный",
+        "весь контур",
+        "vista"
+      ],
+      "assistant": "Открываю полный контур Vista OS по вашим правам."
+    }
+  },
+  "market_verticals": [
+    {
+      "id": "construction_estimates",
+      "title": "Сметы",
+      "status": "market_mvp",
+      "description": "Первый продаваемый сценарий: бриф → смета → КП → артефакты."
+    },
+    {
+      "id": "documents",
+      "title": "Документы",
+      "status": "beta",
+      "description": "Акты, договоры, КП, шаблоны."
+    },
+    {
+      "id": "project_management",
+      "title": "Проекты",
+      "status": "beta",
+      "description": "История объекта, задачи, этапы."
+    },
+    {
+      "id": "crm",
+      "title": "CRM",
+      "status": "beta",
+      "description": "Лиды, пилоты, клиентские статусы."
+    },
+    {
+      "id": "knowledge",
+      "title": "Знания",
+      "status": "planned",
+      "description": "База норм, материалов, регламентов."
+    },
+    {
+      "id": "accounting",
+      "title": "Бухгалтерия",
+      "status": "planned",
+      "description": "Счета, оплаты, закрывающие документы."
+    }
+  ],
+  "release": {
+    "name": "Vista OS 11.1 Product Release",
+    "state": "release_candidate",
+    "channel": "controlled-market",
+    "vertical": "construction-estimates",
+    "single_window": true,
+    "demo_fallbacks": false,
+    "state_source": "vista-api",
+    "browser_e2e_required": true,
+    "native_tauri_required": true,
+    "docker_build_required": true,
+    "live_three_node_canary_required_for_24x7_claim": true
+  }
+};
+export default manifest;

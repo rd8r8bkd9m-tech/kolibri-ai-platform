@@ -1,0 +1,123 @@
+name: Vista OS CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, "фоне", "vista-real-product"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vista-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - run: python -m pip install -r backend/requirements-dev.txt
+      - run: ./scripts/validate-fone.sh
+      - working-directory: frontend
+        run: npm audit --omit=dev --audit-level=high
+
+  browser-e2e:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: python -m pip install -r backend/requirements-dev.txt
+      - working-directory: frontend
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: python -m playwright install --with-deps chromium
+      - env:
+          CI: "1"
+        run: ./scripts/browser-e2e.sh
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vista-browser-e2e
+          path: var/e2e/
+          if-no-files-found: warn
+
+  desktop-shell:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Tauri Linux prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+      - working-directory: frontend
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - env:
+          VISTA_DESKTOP_API_BASE: https://api.kolibriai.ru
+        run: ./scripts/build-desktop-frontend.sh
+      - run: cargo check --manifest-path apps/vista-desktop/src-tauri/Cargo.toml
+
+  docker-build:
+    needs: validate
+    runs-on: ubuntu-latest
+    env:
+      VISTA_SESSION_SECRET: ci-session-secret-not-for-production
+      VISTA_OWNER_ACCESS_TOKEN: ci-owner-token-not-for-production
+      VISTA_NODE_JOIN_TOKEN: ci-node-token-not-for-production
+      VISTA_NODE_SIGNING_SECRET: ci-signing-secret-not-for-production
+      VISTA_ALLOWED_ORIGINS: http://127.0.0.1:8080
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build production containers
+        run: docker compose build --pull
+
+  release-check:
+    needs: [validate, browser-e2e, desktop-shell, docker-build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - run: python -m pip install -r backend/requirements-dev.txt
+      - run: ./scripts/release-check.sh
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vista-release-evidence
+          path: var/release-check/
+          if-no-files-found: error

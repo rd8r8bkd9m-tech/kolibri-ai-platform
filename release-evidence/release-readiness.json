@@ -1,0 +1,26 @@
+{
+  "product": "Vista OS",
+  "version": "2026.07.vista-os-11.1-product-release",
+  "release_candidate": "vista-os-11.1-product-release",
+  "production_env_state": "green",
+  "production_missing": [],
+  "required_for_production": {
+    "VISTA_SESSION_SECRET": true,
+    "VISTA_OWNER_ACCESS_TOKEN": true,
+    "VISTA_NODE_JOIN_TOKEN": true,
+    "VISTA_NODE_SIGNING_SECRET": true,
+    "VISTA_ALLOWED_ORIGINS": true,
+    "VISTA_DB_PATH": true
+  },
+  "verified_product_flows": [
+    "session_authentication",
+    "tenant_estimate_isolation",
+    "estimate_crud",
+    "real_pdf_xlsx_docx_generation",
+    "artifact_sha256",
+    "factory_event_ledger",
+    "public_share_link",
+    "public_document_download",
+    "workspace_session_restore"
+  ]
+}

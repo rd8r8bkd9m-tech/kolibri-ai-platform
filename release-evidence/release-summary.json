@@ -1,0 +1,12 @@
+{
+  "status": "passed",
+  "version": "2026.07.vista-os-11.1-product-release",
+  "validation": "passed",
+  "http_product_smoke": "passed",
+  "factory_canary": "passed",
+  "backup_restore": "passed",
+  "production_readiness": "green",
+  "browser_e2e": "required_in_ci",
+  "native_tauri": "required_in_ci",
+  "docker_build": "required_in_ci"
+}

@@ -1,0 +1,9 @@
+[package]
+name = "vista-policy"
+version = "11.1.0"
+edition = "2021"
+license = "Proprietary"
+description = "Capability policy kernel for Vista OS"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }

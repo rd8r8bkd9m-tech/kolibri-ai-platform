@@ -1,0 +1,67 @@
+services:
+  vista-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    restart: unless-stopped
+    init: true
+    environment:
+      VISTA_DB_PATH: ${VISTA_DB_PATH:-/data/vista.db}
+      VISTA_ARTIFACT_ROOT: ${VISTA_ARTIFACT_ROOT:-/data/artifacts}
+      VISTA_NODE_ID: ${VISTA_NODE_ID:-control-01}
+      VISTA_ENV: ${VISTA_ENV:-production}
+      VISTA_ALLOWED_ORIGINS: ${VISTA_ALLOWED_ORIGINS:-http://127.0.0.1:8080}
+      VISTA_SESSION_SECRET: ${VISTA_SESSION_SECRET:?set VISTA_SESSION_SECRET in .env}
+      VISTA_OWNER_ACCESS_TOKEN: ${VISTA_OWNER_ACCESS_TOKEN:?set VISTA_OWNER_ACCESS_TOKEN in .env}
+      VISTA_NODE_JOIN_TOKEN: ${VISTA_NODE_JOIN_TOKEN:?set VISTA_NODE_JOIN_TOKEN in .env}
+      VISTA_NODE_SIGNING_SECRET: ${VISTA_NODE_SIGNING_SECRET:?set VISTA_NODE_SIGNING_SECRET in .env}
+      VISTA_NODE_STALE_SECONDS: ${VISTA_NODE_STALE_SECONDS:-60}
+      VISTA_TASK_MAX_ATTEMPTS: ${VISTA_TASK_MAX_ATTEMPTS:-3}
+      VISTA_MAX_BODY_BYTES: ${VISTA_MAX_BODY_BYTES:-26214400}
+      VISTA_JSON_LOGS: ${VISTA_JSON_LOGS:-1}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_REALTIME_URL: ${OPENAI_REALTIME_URL:-wss://api.openai.com/v1/realtime}
+      OPENAI_PROJECT: ${OPENAI_PROJECT:-}
+      OPENAI_ORGANIZATION: ${OPENAI_ORGANIZATION:-}
+    volumes:
+      - vista-data:/data
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/ready', timeout=3).read()"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+
+  vista-frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    restart: unless-stopped
+    init: true
+    ports:
+      - "8080:8080"
+    depends_on:
+      vista-backend:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+      - /var/cache/nginx:size=32m,mode=0755
+      - /var/run:size=4m,mode=0755
+
+volumes:
+  vista-data:

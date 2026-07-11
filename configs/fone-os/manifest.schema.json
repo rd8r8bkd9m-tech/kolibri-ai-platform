@@ -1,0 +1,23 @@
+{
+  "type": "object",
+  "required": [
+    "version",
+    "roles",
+    "components",
+    "intents"
+  ],
+  "properties": {
+    "version": {
+      "type": "string"
+    },
+    "roles": {
+      "type": "object"
+    },
+    "components": {
+      "type": "object"
+    },
+    "intents": {
+      "type": "object"
+    }
+  }
+}

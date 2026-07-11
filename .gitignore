@@ -1,0 +1,29 @@
+# Local secrets and runtime data
+.env
+.env.*
+!.env.example
+var/
+*.db
+*.db-shm
+*.db-wal
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Node / Vite
+frontend/node_modules/
+frontend/dist/
+*.log
+
+# Rust / Tauri
+target/
+apps/vista-desktop/src-tauri/target/
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/

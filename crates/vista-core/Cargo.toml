@@ -1,0 +1,9 @@
+[package]
+name = "vista-core"
+version = "11.1.0"
+edition = "2021"
+license = "Proprietary"
+description = "State kernel for the Vista OS single-window workspace"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }

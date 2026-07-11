@@ -1,0 +1,49 @@
+{
+  "status": "passed",
+  "live": {
+    "status": "ok",
+    "service": "vista-api",
+    "version": "2026.07.vista-os-11.1-product-release",
+    "time": "2026-07-11T08:38:40.769131+00:00"
+  },
+  "ready": {
+    "status": "ready",
+    "service": "vista-api",
+    "version": "2026.07.vista-os-11.1-product-release",
+    "dependencies": {
+      "database": "ok",
+      "artifacts": "ok"
+    },
+    "time": "2026-07-11T08:38:40.775442+00:00"
+  },
+  "request_id_present": true,
+  "first_session": "sess_6fc456d905ee",
+  "second_session": "sess_03f04f8ab1f0",
+  "estimate_id": "est_58ad716ef5",
+  "estimate_total": 142204,
+  "document_kinds": [
+    "assumptions_md",
+    "estimate_json",
+    "estimate_xlsx",
+    "proposal_docx",
+    "proposal_pdf"
+  ],
+  "downloads": {
+    "proposal_docx": {
+      "bytes": 37280,
+      "sha256": "30675861c06178f3f18ea3b511579f136a1bcc94f5dab4f9e1f07ae1b95a519f"
+    },
+    "estimate_xlsx": {
+      "bytes": 5674,
+      "sha256": "e5bdbf08350e66f3a5fddbb74db17a8090fde630956dcf3b02762bffd8499219"
+    },
+    "proposal_pdf": {
+      "bytes": 27667,
+      "sha256": "de5fb1f6d4fcad00121b5a210f23529f7fe777049d491055766d40e110d57eb1"
+    }
+  },
+  "public_share_download_bytes": 27667,
+  "tenant_isolation": "passed",
+  "workspace_restore": "passed",
+  "share_revoke": "passed"
+}
