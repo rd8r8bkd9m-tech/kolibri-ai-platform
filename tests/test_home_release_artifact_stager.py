@@ -173,5 +173,6 @@ def test_wrapper_is_dry_run_by_default_and_has_no_embedded_home_address():
     assert "--apply" in script
     assert "control_plane_endpoint.py" in script
     assert "PYTHONPATH=/usr/local/lib/kolibri" in script
+    assert 'SCP_OPTIONS=(-O "${SSH_OPTIONS[@]}")' in script
     assert "10.99.0.1" not in script
     assert "release_bundle_apply" not in script

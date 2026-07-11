@@ -130,6 +130,10 @@ SSH_OPTIONS=(
   -o ServerAliveInterval=5
   -o ServerAliveCountMax=2
 )
+# Home's SSH daemon intentionally serves the legacy SCP transport but does not
+# expose the SFTP subsystem.  Force that transport explicitly so artifact
+# staging behaves the same way as the audited release-authority bootstrap.
+SCP_OPTIONS=(-O "${SSH_OPTIONS[@]}")
 
 if ! ssh "${SSH_OPTIONS[@]}" "$REMOTE_TARGET" \
   /usr/sbin/ip -4 -o addr show 2>/dev/null |
@@ -169,8 +173,8 @@ trap cleanup EXIT INT TERM
 ssh "${SSH_OPTIONS[@]}" "$REMOTE_TARGET" \
   "/usr/bin/install -d -o root -g root -m 0700 '$REMOTE_STAGE'" </dev/null
 STAGED=true
-scp -q "${SSH_OPTIONS[@]}" "$BUNDLE" "$REMOTE_TARGET:$REMOTE_STAGE/bundle.tar.gz"
-scp -q "${SSH_OPTIONS[@]}" "$STAGER" "$REMOTE_TARGET:$REMOTE_STAGE/stager.py"
+scp -q "${SCP_OPTIONS[@]}" "$BUNDLE" "$REMOTE_TARGET:$REMOTE_STAGE/bundle.tar.gz"
+scp -q "${SCP_OPTIONS[@]}" "$STAGER" "$REMOTE_TARGET:$REMOTE_STAGE/stager.py"
 
 ssh "${SSH_OPTIONS[@]}" "$REMOTE_TARGET" \
   "/usr/bin/chown root:root '$REMOTE_STAGE/bundle.tar.gz' '$REMOTE_STAGE/stager.py' && /usr/bin/chmod 0600 '$REMOTE_STAGE/bundle.tar.gz' && /usr/bin/chmod 0700 '$REMOTE_STAGE/stager.py' && PYTHONPATH=/usr/local/lib/kolibri /usr/bin/python3 '$REMOTE_STAGE/stager.py' stage --source '$REMOTE_STAGE/bundle.tar.gz' --artifact-relative '$ARTIFACT_RELATIVE' --expected-sha256 '$BUNDLE_SHA256' --expected-size '$BUNDLE_SIZE' --apply" \
