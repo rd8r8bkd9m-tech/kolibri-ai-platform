@@ -16,6 +16,9 @@ def test_home_control_plane_bootstrap_is_dynamic_reversible_and_dry_run_by_defau
     assert "APPLY=false" in source
     assert 'if [ "$APPLY" != true ]' in source
     assert "active fenced tasks" in source
+    assert "/v1/tasks/queue/diagnostics" in source
+    assert ".lease_index_total" in source
+    assert '.redis == "PONG"' in source
     assert "checksums.before" in source
     assert "rollback()" in source
     assert "scope=active" in source

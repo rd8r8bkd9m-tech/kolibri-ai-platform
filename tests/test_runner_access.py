@@ -178,6 +178,98 @@ def test_codex_probe_403_withdraws_capability_and_attributes_codex(tmp_path, mon
     assert "mimo" not in message
 
 
+def test_periodic_codex_readiness_refresh_is_idle_bounded_and_withdraws_capability(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    agent_host = load_module("ops/agent_host.py", "agent_host_periodic_readiness")
+    runner_manifest = tmp_path / "runner-access.json"
+    runner_manifest.write_text(json.dumps(default_payload()), encoding="utf-8")
+    monkeypatch.setenv("KOLIBRI_RUNNER_ACCESS_MANIFEST", str(runner_manifest))
+    monkeypatch.setattr(
+        agent_host.shutil,
+        "which",
+        lambda name: "/usr/local/bin/codex" if name == "codex" else None,
+    )
+    calls = []
+
+    def fake_readiness(_self, executable):
+        calls.append(executable)
+        if len(calls) == 1:
+            return {
+                "status": "available",
+                "path": executable,
+                "checked_at": "2026-07-11T01:00:00+00:00",
+                "readiness_contract": "kolibri.codex-readiness.v1",
+                "login_status": "authenticated",
+                "error_type": None,
+                "probe": {
+                    "model": "gpt-5.5",
+                    "sandbox": "read-only",
+                    "status": "passed",
+                },
+            }
+        raise RuntimeError("Authorization: Bearer test-provider-credential")
+
+    monkeypatch.setattr(
+        agent_host.AgentHost,
+        "detect_codex_runner_status",
+        fake_readiness,
+    )
+    args = agent_args(tmp_path)
+    args.codex_readiness_refresh_seconds = 240
+    host = agent_host.AgentHost(args)
+    host._last_codex_readiness_refresh = 100.0
+
+    assert host.codex_readiness_refresh_seconds == 240
+    assert "runner:codex" in host.capabilities
+    host._active_task_id = "active-fenced-task"
+    assert host.refresh_codex_readiness_if_due(now=400.0) is False
+    assert len(calls) == 1
+
+    host._active_task_id = None
+    assert host.refresh_codex_readiness_if_due(now=400.0) is True
+    assert len(calls) == 2
+    assert host.runner_status["codex"]["status"] == "unavailable"
+    assert host.runner_status["codex"]["error_type"] == "runner_readiness_refresh_failed"
+    assert "runner:codex" not in host.capabilities
+    assert host.refresh_codex_readiness_if_due(now=500.0) is False
+    assert len(calls) == 2
+    captured = capsys.readouterr()
+    assert "test-provider-credential" not in f"{captured.out}\n{captured.err}"
+
+
+def test_periodic_codex_readiness_refresh_is_disabled_by_default(tmp_path, monkeypatch):
+    agent_host = load_module("ops/agent_host.py", "agent_host_readiness_default_disabled")
+    runner_manifest = tmp_path / "runner-access.json"
+    runner_manifest.write_text(json.dumps(default_payload()), encoding="utf-8")
+    monkeypatch.setenv("KOLIBRI_RUNNER_ACCESS_MANIFEST", str(runner_manifest))
+    calls = []
+    monkeypatch.setattr(
+        agent_host.AgentHost,
+        "detect_codex_runner_status",
+        lambda _self, executable: calls.append(executable) or {
+            "status": "unavailable",
+            "checked_at": "2026-07-11T01:00:00+00:00",
+            "error_type": "runner_unavailable",
+        },
+    )
+
+    host = agent_host.AgentHost(agent_args(tmp_path))
+
+    assert host.codex_readiness_refresh_seconds == 0
+    assert host.refresh_codex_readiness_if_due(now=100_000.0) is False
+    assert len(calls) == 1
+
+    minimum_args = agent_args(tmp_path)
+    minimum_args.codex_readiness_refresh_seconds = 1
+    assert agent_host.AgentHost(minimum_args).codex_readiness_refresh_seconds == 60
+    maximum_args = agent_args(tmp_path)
+    maximum_args.codex_readiness_refresh_seconds = 99_999
+    assert agent_host.AgentHost(maximum_args).codex_readiness_refresh_seconds == 3_600
+
+
 def test_codex_binary_without_access_manifest_never_advertises_capability(tmp_path, monkeypatch):
     agent_host = load_module("ops/agent_host.py", "agent_host_readiness_missing_manifest")
     monkeypatch.setenv("KOLIBRI_RUNNER_ACCESS_MANIFEST", str(tmp_path / "missing.json"))

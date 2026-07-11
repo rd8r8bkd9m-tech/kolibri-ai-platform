@@ -7,17 +7,21 @@ import argparse
 import base64
 import fnmatch
 import hashlib
+import hmac
 import json
 import mimetypes
 import os
 import platform
 import re
+import secrets
 import shutil
 import signal
+import stat
 import subprocess
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -139,6 +143,8 @@ MIMO_AUTO25_MODEL = "mimo/mimo-auto"
 MIMO_AUTO25_DISPLAY_NAME = "Mimo Auto 2.5"
 MIMO_AUTO25_CLI_CONTRACT = "mimo-auto25-no-user-auth-v1"
 FACTORY_PROVIDER_CONTRACT = "kolibri.factory-provider.readonly.v1"
+EXTERNAL_PROVIDER_AUTH_HMAC_CONTRACT = "kolibri.external-provider-hmac.v1"
+EXTERNAL_PROVIDER_CREDENTIAL_SCHEMA = "kolibri.external-provider-credential.v1"
 CODEX_TASK_MODEL = "gpt-5.5"
 CODEX_READINESS_MARKER = "KOLIBRI_CODEX_READY"
 SECRET_REDACTION_MARKERS = (
@@ -284,11 +290,28 @@ def mimo_auto25_readonly_command(
     return command, command_label
 
 
-def request(method: str, url: str, body: dict[str, Any] | None = None, timeout: int = 20) -> Any:
-    data = None if body is None else json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(url, data=data, method=method, headers={"Content-Type": "application/json"})
+def request(
+    method: str,
+    url: str,
+    body: dict[str, Any] | None = None,
+    timeout: int = 20,
+    headers: dict[str, str] | None = None,
+) -> Any:
+    data = None if body is None else json.dumps(
+        body, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")
+    request_headers = {"Content-Type": "application/json", **(headers or {})}
+    req = urllib.request.Request(url, data=data, method=method, headers=request_headers)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        if "Authorization" in request_headers:
+            class NoRedirect(urllib.request.HTTPRedirectHandler):
+                def redirect_request(self, *_args, **_kwargs):
+                    return None
+            opener = urllib.request.build_opener(NoRedirect())
+            opened = opener.open(req, timeout=timeout)
+        else:
+            opened = urllib.request.urlopen(req, timeout=timeout)
+        with opened as resp:
             if resp.status == 204:
                 return None
             payload = resp.read().decode("utf-8")
@@ -296,6 +319,75 @@ def request(method: str, url: str, body: dict[str, Any] | None = None, timeout: 
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", "replace")
         raise RuntimeError(f"{method} {url} failed: HTTP {exc.code}: {detail}") from exc
+
+
+def load_external_provider_credential(path: str | Path | None) -> dict[str, Any]:
+    if not path:
+        raise RuntimeError("external_provider_actor_credential_file_missing")
+    candidate = Path(path).expanduser()
+    try:
+        info = candidate.lstat()
+        if (
+            stat.S_ISLNK(info.st_mode)
+            or not stat.S_ISREG(info.st_mode)
+            or stat.S_IMODE(info.st_mode) != 0o600
+            or info.st_uid != os.getuid()
+            or not 64 <= info.st_size <= 2048
+        ):
+            raise RuntimeError("external_provider_actor_credential_file_unsafe")
+        payload = json.loads(candidate.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("external_provider_actor_credential_file_unreadable") from exc
+    if not isinstance(payload, dict) or set(payload) != {
+        "schema_version", "credential_id", "node_id", "epoch", "token",
+    }:
+        raise RuntimeError("external_provider_actor_credential_invalid")
+    if (
+        payload.get("schema_version") != EXTERNAL_PROVIDER_CREDENTIAL_SCHEMA
+        or not re.fullmatch(r"[A-Za-z0-9._~-]{1,128}", str(payload.get("credential_id") or ""))
+        or not re.fullmatch(r"[A-Za-z0-9._~-]{1,128}", str(payload.get("node_id") or ""))
+        or type(payload.get("epoch")) is not int
+        or payload["epoch"] < 1
+        or not re.fullmatch(r"[A-Za-z0-9._~-]{32,512}", str(payload.get("token") or ""))
+    ):
+        raise RuntimeError("external_provider_actor_credential_invalid")
+    return payload
+
+
+def external_provider_request_headers(
+    credential: dict[str, Any],
+    node_id: str,
+    method: str,
+    path: str,
+    body: dict[str, Any] | None,
+) -> dict[str, str]:
+    timestamp = str(int(time.time()))
+    nonce = secrets.token_hex(16)
+    payload = b"" if body is None else json.dumps(
+        body, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")
+    body_sha256 = hashlib.sha256(payload).hexdigest()
+    if credential.get("node_id") != node_id:
+        raise RuntimeError("external_provider_actor_credential_node_mismatch")
+    token = str(credential["token"])
+    credential_id = str(credential["credential_id"])
+    epoch = str(credential["epoch"])
+    canonical = "\n".join((
+        EXTERNAL_PROVIDER_AUTH_HMAC_CONTRACT,
+        method.upper(), path, body_sha256, timestamp, nonce, node_id, credential_id, epoch,
+    ))
+    key = hashlib.sha256(token.encode("utf-8")).digest()
+    signature = hmac.new(key, canonical.encode("utf-8"), hashlib.sha256).hexdigest()
+    return {
+        "Authorization": f"Bearer {token}",
+        "X-Kolibri-Actor-Timestamp": timestamp,
+        "X-Kolibri-Actor-Nonce": nonce,
+        "X-Kolibri-Actor-Signature": signature,
+        "X-Kolibri-Actor-Node": node_id,
+        "X-Kolibri-Actor-Contract": EXTERNAL_PROVIDER_AUTH_HMAC_CONTRACT,
+        "X-Kolibri-Actor-Credential": credential_id,
+        "X-Kolibri-Actor-Epoch": epoch,
+    }
 
 
 def machine_stats() -> dict[str, Any]:
@@ -1036,6 +1128,12 @@ class AgentHost:
         self.heartbeat_interval = args.heartbeat_interval
         self.lease_refresh = args.lease_refresh
         self.max_inflight = args.max_inflight
+        configured_refresh = int(
+            getattr(args, "codex_readiness_refresh_seconds", 0) or 0
+        )
+        self.codex_readiness_refresh_seconds = (
+            0 if configured_refresh <= 0 else min(max(configured_refresh, 60), 3_600)
+        )
         try:
             labels = json.loads(getattr(args, "labels_json", None) or "{}")
         except json.JSONDecodeError as exc:
@@ -1046,9 +1144,23 @@ class AgentHost:
         ):
             raise RuntimeError("KOLIBRI_NODE_LABELS_JSON must be a flat object")
         self.labels = labels
+        self._external_provider_actor = bool(
+            labels.get("provider") == "codex"
+            and labels.get("runtime") == "macos_launchagent"
+            and labels.get("physical_node_id") == self.node_id
+        )
+        self._external_provider_credential: dict[str, Any] | None = None
+        if self._external_provider_actor:
+            credential = load_external_provider_credential(
+                getattr(args, "external_provider_credential_file", None)
+                or os.environ.get("KOLIBRI_EXTERNAL_PROVIDER_ACTOR_CREDENTIAL_FILE")
+            )
+            self._external_provider_credential = credential
         self.hostname = platform.node()
         self.pid = os.getpid()
         self._last_node_heartbeat = 0.0
+        self._active_task_id: str | None = None
+        self._codex_readiness_probe_active = False
         self._registered = False
         self.work_root.mkdir(parents=True, exist_ok=True)
         self.artifact_root.mkdir(parents=True, exist_ok=True)
@@ -1067,12 +1179,25 @@ class AgentHost:
             self.runner_access_error = exc.code
         self.runner_status = self.detect_runner_status()
         self.capabilities = self.capabilities_with_runners()
+        self._last_codex_readiness_refresh = time.monotonic()
 
     def post(self, path: str, body: dict[str, Any]) -> Any:
-        return request("POST", f"{self.control_url}{path}", body)
+        headers = (
+            external_provider_request_headers(
+                self._external_provider_credential, self.node_id, "POST", path, body,
+            )
+            if self._external_provider_credential else None
+        )
+        return request("POST", f"{self.control_url}{path}", body, headers=headers)
 
     def get(self, path: str) -> Any:
-        return request("GET", f"{self.control_url}{path}")
+        headers = (
+            external_provider_request_headers(
+                self._external_provider_credential, self.node_id, "GET", path, None,
+            )
+            if self._external_provider_credential else None
+        )
+        return request("GET", f"{self.control_url}{path}", headers=headers)
 
     def detect_runner_status(self) -> dict[str, dict[str, Any]]:
         status: dict[str, dict[str, Any]] = {}
@@ -1260,6 +1385,55 @@ class AgentHost:
         if self.release_installer_status.get("status") == "available":
             capabilities.append(RELEASE_CAPABILITY)
         return capabilities
+
+    def refresh_codex_readiness_if_due(self, *, now: float | None = None) -> bool:
+        """Refresh the bounded Codex attestation only while this worker is idle.
+
+        Fleet workers keep this disabled by default.  The managed Mac provider
+        opts in explicitly, so its browser-authorized local session is probed
+        in place without copying any authentication material to Home or to
+        another node.  The Agent Host loop is synchronous, and the explicit
+        active/probe guards keep a readiness subprocess from overlapping a
+        leased customer task or another readiness subprocess.
+        """
+
+        interval = self.codex_readiness_refresh_seconds
+        if interval <= 0 or self._active_task_id or self._codex_readiness_probe_active:
+            return False
+        observed_at = time.monotonic() if now is None else float(now)
+        if observed_at - self._last_codex_readiness_refresh < interval:
+            return False
+
+        # Fence retries before starting the subprocess.  An unexpected local
+        # probe failure must not create a tight loop or leak its exception text.
+        self._last_codex_readiness_refresh = observed_at
+        self._codex_readiness_probe_active = True
+        try:
+            try:
+                executable = shutil.which("codex")
+                refreshed = self.detect_codex_runner_status(executable)
+            except Exception:
+                refreshed = {
+                    "status": "unavailable",
+                    "path": None,
+                    "checked_at": utc_now(),
+                    "readiness_contract": "kolibri.codex-readiness.v1",
+                    "login_status": "not_checked",
+                    "error_type": "runner_readiness_refresh_failed",
+                    "probe": {
+                        "model": CODEX_TASK_MODEL,
+                        "sandbox": "read-only",
+                        "status": "failed",
+                    },
+                }
+            refreshed.update(codex_factory_runner_contract())
+            self.runner_status["codex"] = refreshed
+            # This is the authoritative capability withdrawal path: any
+            # blocked/unavailable refresh removes runner:codex immediately.
+            self.capabilities = self.capabilities_with_runners()
+            return True
+        finally:
+            self._codex_readiness_probe_active = False
 
     def codex_readiness_evidence(self) -> dict[str, Any]:
         """Return the redacted, schema-bounded readiness record for Home."""
@@ -3090,7 +3264,11 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
             try:
                 if not self._registered:
                     self.register()
-                if time.time() - self._last_node_heartbeat >= self.heartbeat_interval:
+                readiness_refreshed = self.refresh_codex_readiness_if_due()
+                if (
+                    readiness_refreshed
+                    or time.time() - self._last_node_heartbeat >= self.heartbeat_interval
+                ):
                     self.node_heartbeat()
             except Exception as exc:
                 # A temporary Control Plane outage must not create a systemd
@@ -3106,8 +3284,12 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 time.sleep(5)
                 continue
             if task:
-                self.node_heartbeat(active_task=task["task_id"])
-                self.run_task(task)
+                self._active_task_id = str(task["task_id"])
+                try:
+                    self.node_heartbeat(active_task=self._active_task_id)
+                    self.run_task(task)
+                finally:
+                    self._active_task_id = None
                 self.node_heartbeat()
             time.sleep(2)
 
@@ -3131,6 +3313,15 @@ def main() -> int:
     parser.add_argument("--heartbeat-interval", type=int, default=int(os.environ.get("KOLIBRI_HEARTBEAT_INTERVAL", "10")))
     parser.add_argument("--lease-refresh", type=int, default=int(os.environ.get("KOLIBRI_LEASE_REFRESH", "20")))
     parser.add_argument("--max-inflight", type=int, default=int(os.environ.get("KOLIBRI_MAX_INFLIGHT", "1")))
+    parser.add_argument(
+        "--codex-readiness-refresh-seconds",
+        type=int,
+        default=int(os.environ.get("KOLIBRI_CODEX_READINESS_REFRESH_SECONDS", "0")),
+    )
+    parser.add_argument(
+        "--external-provider-credential-file",
+        default=os.environ.get("KOLIBRI_EXTERNAL_PROVIDER_ACTOR_CREDENTIAL_FILE", ""),
+    )
     parser.add_argument("--labels-json", default=os.environ.get("KOLIBRI_NODE_LABELS_JSON", "{}"))
     args = parser.parse_args()
     args.control_url = resolve_home_control_plane_url(args.control_url, args.control_urls)

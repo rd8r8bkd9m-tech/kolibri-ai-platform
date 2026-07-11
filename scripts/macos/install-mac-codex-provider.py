@@ -23,6 +23,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from mac_codex_provider_common import (  # noqa: E402
     LABEL,
+    MAC_CODEX_READINESS_REFRESH_SECONDS,
     MANAGED_MARKER,
     MacProviderConfigError,
     MacProviderLayout,
@@ -229,6 +230,7 @@ def main(argv: list[str] | None = None) -> int:
         "EXEC_PATH": path_value,
         "MESH_MANIFEST": str(mesh_manifest),
         "RUNNER_ACCESS": str(layout.runner_access),
+        "PROVIDER_CREDENTIAL": str(layout.provider_credential),
         "NODE_LABELS_JSON": labels,
     }
     plist_bytes, _payload = render_launch_agent(template, replacements)
@@ -242,10 +244,19 @@ def main(argv: list[str] | None = None) -> int:
         "control_plane_url": control_url,
         "runtime_digest": f"sha256:{digest}",
         "launch_agent": str(layout.launch_agent),
+        "codex_readiness_refresh_seconds": MAC_CODEX_READINESS_REFRESH_SECONDS,
     }
     if not args.apply:
         print(json_line(plan))
         return 0
+
+    credential = require_regular_file(
+        layout.provider_credential,
+        "external_provider_actor_credential_missing",
+    )
+    credential_mode = stat.S_IMODE(credential.stat().st_mode)
+    if credential_mode != 0o600 or credential.stat().st_uid != os.getuid():
+        raise MacProviderConfigError("external_provider_actor_credential_unsafe")
 
     ensure_directory(layout.base)
     ensure_directory(layout.config)

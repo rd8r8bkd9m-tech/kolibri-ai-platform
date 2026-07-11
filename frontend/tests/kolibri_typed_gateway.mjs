@@ -537,6 +537,26 @@ try {
   );
   assert.ok(calls.every((call) => !call.url.includes("/api/chat")));
 
+  calls.length = 0;
+  resetPublicSessionForTests();
+  const cancelled = new AbortController();
+  cancelled.abort(new Error("caller cancelled"));
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url, method: options.method || "GET", hasSignal: Boolean(options.signal) });
+    if (options.signal?.aborted) throw options.signal.reason;
+    if (url === "/v1/public/session") return response(200, publicSession);
+    return sseResponse(openAiResponse("Независимый запрос выполнен."));
+  };
+  await assert.rejects(sendKolibriRequest({ text: "отменить", signal: cancelled.signal }));
+  const afterCancellation = await sendKolibriRequest({ text: "продолжить" });
+  assert.equal(afterCancellation.text, "Независимый запрос выполнен.");
+  assert.equal(
+    calls.filter((call) => call.url === "/v1/public/session").length,
+    1,
+    "a caller abort must not invalidate the shared public-session handshake",
+  );
+  assert.equal(calls.find((call) => call.url === "/v1/public/session").hasSignal, false);
+
   let fetchCalled = false;
   globalThis.fetch = async () => { fetchCalled = true; return response(500, {}); };
   await assert.rejects(

@@ -48,13 +48,15 @@ HOME_IP=$(jq -er --argjson expected "$EXPECTED" '
 ' "$MANIFEST") || { echo "canonical Home manifest validation failed" >&2; exit 2; }
 
 ssh -o BatchMode=yes -o ConnectTimeout=8 "root@$HOME_IP" true </dev/null
-ACTIVE=$(curl -fsS --max-time 10 "http://$HOME_IP:9101/v1/tasks?limit=1000" | jq '[
-  ((.tasks // .items // .)[]) |
-  select((.state // .status) == "leased" or
-         (.state // .status) == "running" or
-         (.state // .status) == "waiting_review" or
-         (.state // .status) == "review")
-] | length')
+DIAGNOSTICS=$(curl -fsS --max-time 10 \
+  "http://$HOME_IP:9101/v1/tasks/queue/diagnostics")
+ACTIVE=$(jq -er '.lease_index_total | select(type == "number" and . >= 0)' \
+  <<<"$DIAGNOSTICS") || { echo "control plane lease diagnostics invalid" >&2; exit 3; }
+jq -e '.redis == "PONG" and .expired_leases == 0 and .stuck_heartbeat_tasks == 0' \
+  <<<"$DIAGNOSTICS" >/dev/null || {
+    echo "control plane lease diagnostics are not clean" >&2
+    exit 3
+  }
 [ "$ACTIVE" -eq 0 ] || { echo "control plane has active fenced tasks" >&2; exit 3; }
 
 printf 'run_id=%s\thome=%s\texpected=%s\tapply=%s\tactive_tasks=%s\n' \

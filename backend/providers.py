@@ -40,6 +40,7 @@ class AIProviderManager:
     async def generate(self, messages, model="kolibri", provider=None, **kwargs):
         del provider
         execution_mode = str(kwargs.pop("execution_mode", "fast") or "fast").lower()
+        requested_response_id = kwargs.pop("response_id", None)
         if execution_mode not in {"fast", "codex"}:
             raise ValueError("execution_mode must be 'fast' or 'codex'")
         if model not in (None, "", "auto", "kolibri"):
@@ -56,7 +57,9 @@ class AIProviderManager:
         # identity/policy text must not accidentally activate unrelated skills.
         planned_skills = capability_gateway.plan_skills({"messages": dialogue})
         gateway = self._gateway()
-        response_id = f"chat-{uuid.uuid4().hex}"
+        response_id = str(requested_response_id or f"chat-{uuid.uuid4().hex}")
+        if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,159}", response_id) is None:
+            raise ValueError("response_id is invalid")
         instructions = "\n\n".join(part for part in system_parts if part)
         optional_gateway_args = {
             "planned_skills": planned_skills,

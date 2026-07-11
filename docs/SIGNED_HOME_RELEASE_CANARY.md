@@ -79,7 +79,7 @@ ssh -o BatchMode=yes -o ConnectTimeout=8 "$REMOTE" \
   --exclude='*/secrets.json' --exclude='*/telegram.env' \
   --exclude='*/tokens.json' --exclude='*.key' --exclude='*.pem' \
   --exclude='*.p12' --exclude='*.pfx' \
-  -cf - backend frontend/dist ops/control_plane_endpoint.py RELEASE_ID \
+  -cf - backend frontend/dist ops/control_plane_endpoint.py \
   | tar -C "$ROLLBACK_ROOT" -xf -
 
 ROLLBACK_ROOT="$ROLLBACK_ROOT" python3 - <<'PY'
@@ -97,6 +97,12 @@ if not files or any(path.is_symlink() for path in root.rglob("*")):
 if any(pattern.search(path.read_bytes()) for path in files for pattern in patterns):
     raise SystemExit("rollback_snapshot_secret_risk")
 PY
+
+# Historical releases may predate the RELEASE_ID payload marker. Derive it
+# from the already validated immutable release-directory name and create it
+# only in this private local snapshot. Never write into CURRENT_REAL.
+python3 ops/release_snapshot_marker.py \
+  --root "$ROLLBACK_ROOT" --release-id "$CURRENT_RELEASE_ID"
 
 git -C "$ROLLBACK_ROOT" init -q
 git -C "$ROLLBACK_ROOT" add backend frontend ops RELEASE_ID
@@ -126,16 +132,30 @@ Do not proceed unless the builder reports `self_verified=true`.
 
 ## 3. Build the committed backend and frontend bundle
 
+Build from an isolated archive of the exact committed source. This keeps the
+generated frontend and release marker out of the canonical worktree while
+binding every source byte to `SOURCE_COMMIT`.
+
 ```bash
 RELEASE_ID="kolibri-${STAMP}-${SOURCE_COMMIT:0:12}"
 RELEASE_BUNDLE="$RELEASE_WORK/bundles/$RELEASE_ID.tar.gz"
+SOURCE_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/kolibri-source.XXXXXXXX")
+chmod 0700 "$SOURCE_ROOT"
+git archive --format=tar "$SOURCE_COMMIT" | tar -C "$SOURCE_ROOT" -xf -
+
+npm --prefix "$SOURCE_ROOT/frontend" ci
+npm --prefix "$SOURCE_ROOT/frontend" run build
+python3 ops/release_snapshot_marker.py \
+  --root "$SOURCE_ROOT" --release-id "$RELEASE_ID"
+
 python3 ops/release_bundle_builder.py \
-  --root "$WORKTREE" \
+  --root "$SOURCE_ROOT" \
   --release-id "$RELEASE_ID" \
   --source-commit "$SOURCE_COMMIT" \
   --artifact-uri "artifact://bundles/$RELEASE_ID.tar.gz" \
   --output "$RELEASE_BUNDLE" \
   --runtime-path ops/control_plane_endpoint.py \
+  --runtime-path RELEASE_ID \
   --build --sign \
   --signer-identity "$SIGNER_ID" \
   --signing-key "$OWNER_KEY"

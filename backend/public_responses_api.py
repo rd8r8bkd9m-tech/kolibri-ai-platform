@@ -572,6 +572,7 @@ async def _complete_public_response(
             messages=execution_context,
             model="kolibri",
             execution_mode=body.execution_mode,
+            response_id=response_id,
         )
         if body.task is not None:
             task_payload = build_vertical_result(body.task, result, calculation)
@@ -760,13 +761,17 @@ def create_public_session(request: Request):
 @router.get("/v1/public/session")
 def get_public_session(request: Request):
     session = _require_session(request, mutating=False)
-    return {
+    payload = {
         "id": session["id"],
         "object": "public.session",
         "expires_at": int(session["expires_at"]),
         "project": {"id": session["project_id"], "object": "project.ephemeral", "durable": False},
         "model": "kolibri",
     }
+    # This response is bound to an opaque browser cookie.  It must never be
+    # reused from a browser/proxy cache after the backing session has expired
+    # or after an immutable backend release has replaced the session store.
+    return JSONResponse(payload, headers={"Cache-Control": "no-store"})
 
 
 @router.post("/v1/responses")

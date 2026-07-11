@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -68,11 +69,29 @@ LOCAL_MODEL_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/#:-]{0,159}$")
 DEEPSEEK_API_HOST = "api.deepseek.com"
 FACTORY_SUPPORTED_RUNNERS = frozenset({"mimo", "codex"})
 FACTORY_RUNNER_CONTRACT = "kolibri.factory-provider.readonly.v1"
+FACTORY_CODEX_READINESS_SCHEMA = "kolibri.codex-readiness.v1"
+FACTORY_CODEX_PROVIDER_MODEL = "gpt-5.5"
+FACTORY_EXTERNAL_CODEX_READINESS_MAX_AGE_SECONDS = 300
+FACTORY_EXTERNAL_CODEX_READINESS_FUTURE_GRACE_SECONDS = 60
+FACTORY_EXTERNAL_CODEX_RUNNER_CONTRACT = {
+    "provider": "codex",
+    "model": FACTORY_CODEX_PROVIDER_MODEL,
+    "display_name": "Codex authenticated runner",
+    "authorization_mode": "node_managed",
+    "authorization_flow": "browser_device",
+    "user_authorization_required": False,
+    "permission_mode": "task_contract",
+    "output_format": "jsonl",
+    "worktree_scoped": True,
+    "factory_provider_contract": FACTORY_RUNNER_CONTRACT,
+    "prompt_transport": "stdin",
+    "sandbox": "read-only",
+}
 FACTORY_TERMINAL_STATES = frozenset({
     "blocked", "cancelled", "canceled", "completed", "dead", "dead_letter", "failed",
 })
 _INTERNAL_EXECUTOR_LABEL = (
-    r"(?:mimo(?:\s+code(?:\s+agent)?)?|codex|chatgpt|"
+    r"(?:mimo(?:[\s_-]*code(?:[\s_-]*agent)?)?|codex|chatgpt|"
     r"gpt(?:[-\s]?\d+(?:\.\d+)*)?|openai(?:\s+(?:assistant|agent|model))?|"
     r"deepseek(?:\s+(?:assistant|agent|model))?|qwen(?:[-\w.]*)?)"
 )
@@ -100,10 +119,10 @@ _INTERNAL_IDENTITY_CLAIM_PATTERNS = (
         re.IGNORECASE,
     ),
     re.compile(
-        r"^\s*(?:mimo\s+code\s+agent|"
+        r"^\s*(?:mimo[\s_-]*code(?:[\s_-]*agent)?|"
         r"(?:codex|chatgpt|openai|deepseek|qwen(?:[-\w.]*))\s+"
         r"(?:агент|ассистент|модель|agent|assistant|model))"
-        rf"\s*[.!]?\s*$",
+        r"\s*[.!]?\s*$",
         re.IGNORECASE,
     ),
 )
@@ -290,6 +309,7 @@ def route_capability_probe(error_type: str | None = None, *, succeeded: bool = F
         return {"status": "available", "reason": "verified_execution"}
     if error_type in {
         "factory_control_endpoint_invalid", "factory_no_fresh_capable_worker",
+        "factory_no_healthy_capable_worker",
         "provider_runner_missing", "provider_model_unavailable",
         "provider_model_configuration_invalid", "provider_runner_outdated",
     }:
@@ -670,6 +690,197 @@ def _factory_node_ref(node_id: str) -> str:
     return f"node:{hashlib.sha256(node_id.encode('utf-8')).hexdigest()[:16]}"
 
 
+def _factory_health_timestamp(value: Any) -> float | None:
+    """Parse Control Plane timestamps without reflecting malformed values."""
+
+    try:
+        text = str(value or "").strip()
+        if not text:
+            return None
+        if text.endswith("Z"):
+            text = f"{text[:-1]}+00:00"
+        parsed = datetime.fromisoformat(text)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.timestamp()
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _factory_health_response_records(
+    payload: Any,
+    runner: str,
+    *,
+    now: float | None = None,
+    cooldown_seconds: float = 300.0,
+) -> dict[str, dict[str, Any]]:
+    """Validate the Control Plane's prompt-free chronological health view.
+
+    The gateway deliberately does not inspect ``/v1/tasks``: that endpoint is
+    an unordered compatibility view and may exceed the response budget.  Home
+    owns task chronology and exposes only the bounded fields routing needs.
+    """
+
+    if not isinstance(payload, dict) or str(payload.get("runner") or "").lower() != runner:
+        return {}
+    records = payload.get("records")
+    if not isinstance(records, list):
+        return {}
+    current = time.time() if now is None else float(now)
+    maximum_age = max(60.0, min(float(cooldown_seconds) * 4.0, 3600.0))
+    latest: dict[str, tuple[float, dict[str, Any]]] = {}
+    for raw_record in records:
+        if not isinstance(raw_record, dict):
+            continue
+        node_id = _safe_token(raw_record.get("node_id"), "")
+        if not node_id:
+            continue
+        observed_at = _factory_health_timestamp(raw_record.get("observed_at"))
+        if observed_at is None or observed_at > current + 30 or current - observed_at > maximum_age:
+            continue
+        health_status = str(raw_record.get("status") or "").strip().lower()
+        if health_status not in {"healthy", "open"}:
+            continue
+        reason = _safe_token(raw_record.get("reason"), "unknown")
+        latency_seconds = None
+        try:
+            parsed_latency = float(raw_record.get("latency_seconds"))
+            if 0.0 <= parsed_latency <= 3600.0:
+                latency_seconds = parsed_latency
+        except (TypeError, ValueError):
+            pass
+        record = {
+            "status": health_status,
+            "reason": reason,
+            "observed_at": observed_at,
+            "latency_seconds": latency_seconds,
+        }
+        previous = latest.get(node_id)
+        if previous is None or observed_at > previous[0]:
+            latest[node_id] = (observed_at, record)
+    return {node_id: record for node_id, (_observed, record) in latest.items()}
+
+
+def _factory_codex_probe_passed(probe: Any) -> bool:
+    if not isinstance(probe, dict) or set(probe) != {
+        "model", "sandbox", "status", "duration_ms", "output_sha256",
+    }:
+        return False
+    duration = probe.get("duration_ms")
+    return bool(
+        probe.get("model") == FACTORY_CODEX_PROVIDER_MODEL
+        and probe.get("sandbox") == "read-only"
+        and probe.get("status") == "passed"
+        and type(duration) is int
+        and 0 <= duration <= 60_000
+        and re.fullmatch(r"[a-f0-9]{64}", str(probe.get("output_sha256") or ""))
+    )
+
+
+def _factory_external_codex_actor_ready(
+    raw_node: dict[str, Any],
+    node_id: str,
+) -> bool:
+    """Validate an audit-only Codex broker without embedding its identity.
+
+    External provider actors never become physical mesh members.  The gateway
+    accepts one only when every dynamic label, capability, runner and readiness
+    field matches the same fail-closed contract enforced by Home leasing.
+    """
+
+    if str(raw_node.get("membership_scope") or "").lower() != "audit":
+        return False
+    marker = raw_node.get("external_provider_auth")
+    if not (
+        isinstance(marker, dict)
+        and set(marker) == {"actor_scope", "bound_node_id", "credential_id", "epoch"}
+        and marker.get("actor_scope") == "external_provider_actor"
+        and marker.get("bound_node_id") == node_id
+        and re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9._:-]{0,159}",
+            str(marker.get("credential_id") or ""),
+        )
+        and type(marker.get("epoch")) is int
+        and marker["epoch"] >= 1
+    ):
+        return False
+    labels = raw_node.get("labels") if isinstance(raw_node.get("labels"), dict) else {}
+    required_labels = {
+        "provider": "codex",
+        "runtime": "macos_launchagent",
+        "physical_node_id": node_id,
+    }
+    if any(labels.get(key) != value for key, value in required_labels.items()):
+        return False
+    capabilities = {
+        str(item).strip().lower()
+        for item in raw_node.get("capabilities") or []
+        if isinstance(item, str)
+    }
+    if not {"codex_provider_broker", "runner:codex"}.issubset(capabilities):
+        return False
+    runners = raw_node.get("runners") if isinstance(raw_node.get("runners"), dict) else {}
+    runner = runners.get("codex")
+    if not isinstance(runner, dict):
+        return False
+    if any(
+        runner.get(field) != expected
+        for field, expected in FACTORY_EXTERNAL_CODEX_RUNNER_CONTRACT.items()
+    ):
+        return False
+    if not (
+        runner.get("status") == "available"
+        and runner.get("readiness_contract") == FACTORY_CODEX_READINESS_SCHEMA
+        and runner.get("access_mode") == "local_service_account"
+        and runner.get("login_status") == "authenticated"
+        and runner.get("error_type") in {None, ""}
+        and _factory_codex_probe_passed(runner.get("probe"))
+    ):
+        return False
+    readiness_map = (
+        raw_node.get("runner_readiness")
+        if isinstance(raw_node.get("runner_readiness"), dict)
+        else {}
+    )
+    readiness = readiness_map.get("codex")
+    allowed = {
+        "schema_version", "node_id", "checked_at", "access_mode", "status",
+        "login_status", "error_type", "broker_ref", "probe",
+    }
+    required = {
+        "schema_version", "node_id", "checked_at", "access_mode", "status",
+        "login_status", "probe",
+    }
+    if (
+        not isinstance(readiness, dict)
+        or set(readiness) - allowed
+        or not required.issubset(readiness)
+    ):
+        return False
+    readiness_at = _factory_health_timestamp(readiness.get("checked_at"))
+    runner_at = _factory_health_timestamp(runner.get("checked_at"))
+    observed_now = time.time()
+    if (
+        readiness_at is None
+        or runner_at is None
+        or readiness_at > observed_now + FACTORY_EXTERNAL_CODEX_READINESS_FUTURE_GRACE_SECONDS
+        or runner_at > observed_now + FACTORY_EXTERNAL_CODEX_READINESS_FUTURE_GRACE_SECONDS
+        or observed_now - readiness_at > FACTORY_EXTERNAL_CODEX_READINESS_MAX_AGE_SECONDS
+        or observed_now - runner_at > FACTORY_EXTERNAL_CODEX_READINESS_MAX_AGE_SECONDS
+    ):
+        return False
+    return bool(
+        readiness.get("schema_version") == FACTORY_CODEX_READINESS_SCHEMA
+        and readiness.get("node_id") == node_id
+        and readiness.get("access_mode") == "local_service_account"
+        and readiness.get("status") == "available"
+        and readiness.get("login_status") == "authenticated"
+        and readiness.get("error_type") in {None, ""}
+        and readiness.get("broker_ref") is None
+        and _factory_codex_probe_passed(readiness.get("probe"))
+    )
+
+
 class ProviderGateway:
     def __init__(
         self,
@@ -709,6 +920,8 @@ class ProviderGateway:
         self.timeout = timeout or int(os.environ.get("KOLIBRI_PROVIDER_TIMEOUT", "180"))
         self.work_dir = Path(os.environ.get("KOLIBRI_PROVIDER_WORK_DIR", str(DATA_DIR / "provider-work")))
         self.work_dir.mkdir(parents=True, exist_ok=True)
+        self._factory_health_cache: dict[str, tuple[float, dict[str, dict[str, Any]]]] = {}
+        self._factory_local_health: dict[tuple[str, str], dict[str, Any]] = {}
 
     def available(self) -> dict[str, bool]:
         return {
@@ -827,6 +1040,87 @@ class ProviderGateway:
             return None, "factory_control_response_invalid"
         return parsed, None
 
+    @staticmethod
+    def _bounded_factory_setting(
+        name: str, default: float, minimum: float, maximum: float,
+    ) -> float:
+        try:
+            return max(minimum, min(float(os.environ.get(name, str(default))), maximum))
+        except ValueError:
+            return default
+
+    def _factory_recent_health(self, runner: str) -> dict[str, dict[str, Any]]:
+        """Return cached, sanitized chronological health from canonical Home.
+
+        Health discovery is advisory and tightly bounded. If the compatibility
+        Control Plane does not yet provide the dedicated view, routing uses
+        only this process's local breaker. It never guesses chronology from
+        the unordered and potentially large ``/v1/tasks`` compatibility API.
+        """
+
+        cache_ttl = self._bounded_factory_setting(
+            "KOLIBRI_FACTORY_HEALTH_CACHE_TTL", 5.0, 0.1, 30.0,
+        )
+        now_monotonic = time.monotonic()
+        cached = self._factory_health_cache.get(runner)
+        if cached and now_monotonic - cached[0] <= cache_ttl:
+            return cached[1]
+        query_timeout = self._bounded_factory_setting(
+            "KOLIBRI_FACTORY_HEALTH_QUERY_TIMEOUT", 1.5, 0.05, 3.0,
+        )
+        payload, error_type = self._factory_request(
+            "GET",
+            f"/v1/runtime/provider-health?runner={quote(runner, safe='')}&limit=64",
+            timeout=min(query_timeout, float(self.timeout)),
+        )
+        records: dict[str, dict[str, Any]] = {}
+        if error_type is None and isinstance(payload, dict):
+            cooldown = self._bounded_factory_setting(
+                "KOLIBRI_FACTORY_NODE_COOLDOWN", 300.0, 15.0, 1800.0,
+            )
+            records = _factory_health_response_records(
+                payload, runner, cooldown_seconds=cooldown,
+            )
+        self._factory_health_cache[runner] = (now_monotonic, records)
+        return records
+
+    def _factory_candidate_health(
+        self,
+        runner: str,
+        node_id: str,
+        durable: dict[str, dict[str, Any]],
+    ) -> dict[str, Any]:
+        key = (runner, node_id)
+        durable_record = durable.get(node_id)
+        local = self._factory_local_health.get(key)
+        if local:
+            if float(local.get("expires_monotonic") or 0.0) > time.monotonic():
+                durable_observed = float((durable_record or {}).get("observed_at") or 0.0)
+                local_observed = float(local.get("observed_at") or 0.0)
+                if local_observed >= durable_observed:
+                    return local
+            self._factory_local_health.pop(key, None)
+        return durable_record or {"status": "unknown", "latency_seconds": None}
+
+    def _record_factory_candidate_health(
+        self,
+        *,
+        runner: str,
+        node_id: str,
+        error_type: str | None,
+        duration_seconds: float,
+    ) -> None:
+        cooldown = self._bounded_factory_setting(
+            "KOLIBRI_FACTORY_NODE_COOLDOWN", 300.0, 15.0, 1800.0,
+        )
+        self._factory_local_health[(runner, node_id)] = {
+            "status": "healthy" if error_type is None else "open",
+            "reason": "verified_completion" if error_type is None else str(error_type),
+            "latency_seconds": max(0.0, float(duration_seconds)),
+            "observed_at": time.time(),
+            "expires_monotonic": time.monotonic() + cooldown,
+        }
+
     def _factory_candidates(self, runner: str) -> tuple[list[dict[str, Any]], str | None]:
         payload, error_type = self._factory_request("GET", "/v1/nodes?scope=active&limit=250")
         if error_type or not isinstance(payload, dict):
@@ -837,6 +1131,43 @@ class ProviderGateway:
             nodes = data.get("nodes")
         if not isinstance(nodes, list):
             return [], "factory_control_response_invalid"
+        # The canonical active endpoint is never an authority for audit-only
+        # actors. Even a malformed/fake response cannot smuggle one around the
+        # dedicated current-auth-binding endpoint below.
+        nodes = [
+            item for item in nodes
+            if isinstance(item, dict)
+            and str(item.get("membership_scope") or "active").strip().lower() == "active"
+            and not (
+                isinstance(item.get("labels"), dict)
+                and item["labels"].get("runtime") == "macos_launchagent"
+                and item["labels"].get("provider") == "codex"
+            )
+        ]
+        if runner == "codex":
+            actor_payload, actor_error = self._factory_request(
+                "GET", "/v1/runtime/provider-actors?runner=codex&limit=128",
+            )
+            actor_records = (
+                actor_payload.get("records")
+                if actor_error is None and isinstance(actor_payload, dict)
+                else []
+            )
+            auth_binding = actor_payload.get("auth_binding") if isinstance(actor_payload, dict) else None
+            if (
+                isinstance(actor_payload, dict)
+                and actor_error is None
+                and isinstance(actor_records, list)
+                and actor_payload.get("auth_configured") is True
+                and isinstance(auth_binding, dict)
+            ):
+                current_records = [
+                    item for item in actor_records
+                    if isinstance(item, dict)
+                    and item.get("external_provider_auth") == auth_binding
+                    and auth_binding.get("bound_node_id") == item.get("node_id")
+                ]
+                nodes = [*nodes, *current_records]
         try:
             max_age = max(5.0, min(float(os.environ.get("KOLIBRI_FACTORY_NODE_MAX_AGE", "45")), 300.0))
         except ValueError:
@@ -855,17 +1186,14 @@ class ProviderGateway:
                 for item in raw_node.get("capabilities", [])
                 if isinstance(item, str)
             }
-            # Home remains the task authority, not an inference worker.  This
-            # rule is capability/role based, so no physical worker catalog is
-            # embedded in the gateway.
-            role = str(raw_node.get("role") or "").strip().lower()
-            if role == "control_plane" or "control_plane" in capabilities or "home" in capabilities:
-                continue
             if raw_node.get("draining") or raw_node.get("active_task"):
                 continue
-            if "schedulable" in raw_node and raw_node.get("schedulable") is not True:
-                continue
-            if str(raw_node.get("health") or "").lower() != "online":
+            membership_scope = str(raw_node.get("membership_scope") or "active").strip().lower()
+            observed_health = str(raw_node.get("health") or "").lower()
+            if membership_scope == "audit":
+                if observed_health not in {"online", "healthy", "ready"}:
+                    continue
+            elif observed_health != "online":
                 continue
             freshness = str(raw_node.get("freshness") or raw_node.get("freshness_status") or "").lower()
             try:
@@ -877,6 +1205,22 @@ class ProviderGateway:
             required_capability = f"runner:{runner}"
             if required_capability not in capabilities:
                 continue
+            if membership_scope == "audit":
+                if runner != "codex" or not _factory_external_codex_actor_ready(raw_node, node_id):
+                    continue
+                lease_scope = "external_provider_actor"
+            elif membership_scope == "active":
+                # Home remains the task authority, not an inference worker.
+                # This is capability/role based; no physical catalog is
+                # embedded in the gateway.
+                role = str(raw_node.get("role") or "").strip().lower()
+                if role == "control_plane" or "control_plane" in capabilities or "home" in capabilities:
+                    continue
+                if "schedulable" in raw_node and raw_node.get("schedulable") is not True:
+                    continue
+                lease_scope = "canonical_mesh"
+            else:
+                continue
             runners = raw_node.get("runners") if isinstance(raw_node.get("runners"), dict) else {}
             runner_record = runners.get(runner)
             if isinstance(runner_record, dict):
@@ -885,30 +1229,55 @@ class ProviderGateway:
                 runner_status = str(runner_record or "").lower()
             if runner_status != "available":
                 continue
-            # Binary discovery alone is not an execution contract.  Legacy
-            # Agent Hosts put prompts in argv and can grant danger-full-access;
-            # never send customer input there.  A worker becomes eligible only
-            # after the uniform Agent Host release advertises every safe bound.
-            if not isinstance(runner_record, dict) or not (
-                runner_record.get("factory_provider_contract") == FACTORY_RUNNER_CONTRACT
-                and runner_record.get("prompt_transport") in {"stdin", "file"}
-                and runner_record.get("sandbox") == "read-only"
-                and runner_record.get("worktree_scoped") is True
-                and str(runner_record.get("output_format") or "").lower() in {"json", "jsonl"}
-            ):
-                continue
+            if lease_scope == "canonical_mesh":
+                # Binary discovery alone is not an execution contract. Legacy
+                # Agent Hosts put prompts in argv and can grant broad access;
+                # accept only the uniform safe runner contract.
+                if not isinstance(runner_record, dict) or not (
+                    runner_record.get("factory_provider_contract") == FACTORY_RUNNER_CONTRACT
+                    and runner_record.get("prompt_transport") in {"stdin", "file"}
+                    and runner_record.get("sandbox") == "read-only"
+                    and runner_record.get("worktree_scoped") is True
+                    and str(runner_record.get("output_format") or "").lower() in {"json", "jsonl"}
+                ):
+                    continue
             hostname = _safe_token(raw_node.get("hostname") or raw_node.get("display_name"), "")
             candidates.append({
                 "node_id": node_id,
                 "hostname": hostname,
                 "heartbeat_age_seconds": age,
+                "lease_scope": lease_scope,
             })
+        eligible_count = len(candidates)
+        durable_health = self._factory_recent_health(runner) if candidates else {}
+        healthy_candidates: list[dict[str, Any]] = []
+        health_filtered = 0
+        for candidate in candidates:
+            route_health = self._factory_candidate_health(
+                runner, str(candidate["node_id"]), durable_health,
+            )
+            status = str(route_health.get("status") or "unknown")
+            if status == "open":
+                health_filtered += 1
+                continue
+            latency = route_health.get("latency_seconds")
+            candidate["route_health_status"] = status if status == "healthy" else "unknown"
+            candidate["route_latency_seconds"] = (
+                float(latency) if isinstance(latency, (int, float)) and latency >= 0 else None
+            )
+            healthy_candidates.append(candidate)
+        candidates = healthy_candidates
         candidates.sort(key=lambda item: (
+            item.get("route_health_status") != "healthy",
+            item.get("route_latency_seconds")
+            if item.get("route_latency_seconds") is not None else float("inf"),
             item["hostname"] in {"", "kolibri", "localhost"},
             item["heartbeat_age_seconds"],
             item["node_id"],
         ))
         if not candidates:
+            if eligible_count and health_filtered == eligible_count:
+                return [], "factory_no_healthy_capable_worker"
             return [], "factory_no_fresh_capable_worker"
         try:
             max_attempts = max(1, min(int(os.environ.get("KOLIBRI_FACTORY_MAX_NODE_ATTEMPTS", "3")), 8))
@@ -1106,12 +1475,27 @@ class ProviderGateway:
         if error_type:
             return FactoryCompletion("", error_type, runner, None, ())
         try:
-            route_timeout = max(
+            task_timeout_limit = max(
                 0.1,
-                min(float(os.environ.get("KOLIBRI_FACTORY_ROUTE_TIMEOUT", str(self.timeout))), float(self.timeout)),
+                min(
+                    float(os.environ.get("KOLIBRI_FACTORY_TASK_TIMEOUT", "45")),
+                    float(self.timeout),
+                ),
             )
         except ValueError:
-            route_timeout = float(self.timeout)
+            task_timeout_limit = min(45.0, float(self.timeout))
+        try:
+            route_timeout = max(
+                0.1,
+                min(
+                    float(os.environ.get(
+                        "KOLIBRI_FACTORY_ROUTE_TIMEOUT", str(task_timeout_limit),
+                    )),
+                    float(self.timeout),
+                ),
+            )
+        except ValueError:
+            route_timeout = task_timeout_limit
         deadline = time.monotonic() + route_timeout
         route_attempts: list[dict[str, Any]] = []
         last_error = "factory_no_fresh_capable_worker"
@@ -1120,12 +1504,19 @@ class ProviderGateway:
             if remaining <= 0:
                 last_error = "provider_timeout"
                 break
+            candidate_started = time.monotonic()
             text, evidence, error_type, route_record = self._run_factory_candidate(
                 prompt=prompt,
                 response_id=response_id,
                 runner=runner,
                 node_id=str(candidate["node_id"]),
                 timeout_budget=remaining,
+            )
+            self._record_factory_candidate_health(
+                runner=runner,
+                node_id=str(candidate["node_id"]),
+                error_type=error_type,
+                duration_seconds=time.monotonic() - candidate_started,
             )
             route_attempts.append(route_record)
             if text and evidence and error_type is None:
@@ -1360,8 +1751,16 @@ class ProviderGateway:
         attempts: list[dict[str, Any]] = []
         attempt_number = 0
         provider_order = self.provider_order
-        if execution_mode == "codex" and "factory" not in provider_order and "codex" in provider_order:
-            provider_order = ("codex", *tuple(provider for provider in provider_order if provider != "codex"))
+        if execution_mode == "codex":
+            # Codex mode is an explicit execution contract, not a preference.
+            # Production still traverses Home, but it must never silently
+            # answer through Mimo when Codex is unavailable or unhealthy.
+            if "factory" in provider_order:
+                provider_order = ("factory",)
+            elif "codex" in provider_order:
+                provider_order = ("codex",)
+            else:
+                provider_order = ()
         for provider in provider_order:
             if planned_skills and not self._provider_supports_skills(provider, planned_skills):
                 attempt_number += 1
@@ -1391,8 +1790,8 @@ class ProviderGateway:
                 })
                 continue
             provider_models = self._route_models(provider)
-            if execution_mode == "codex" and provider == "factory" and "codex" in provider_models:
-                provider_models = ("codex", *tuple(model for model in provider_models if model != "codex"))
+            if execution_mode == "codex" and provider == "factory":
+                provider_models = ("codex",) if "codex" in provider_models else ()
             if not provider_models:
                 attempt_number += 1
                 attempts.append({

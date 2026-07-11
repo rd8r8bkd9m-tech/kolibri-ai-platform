@@ -160,22 +160,18 @@ def test_runtime_identity_cannot_self_promote_into_scheduler(tmp_path):
     assert rejected["schedulable"] is False
 
 
-def test_lease_gate_rejects_a_fresh_redis_shadow_not_in_manifest(tmp_path, monkeypatch):
+def test_lease_gate_rejects_an_unregistered_shadow_not_in_manifest(tmp_path, monkeypatch):
     manifest = tmp_path / "peers.json"
     write_manifest(manifest)
     control = load_control("factory_control_lease_membership_gate")
     control.configure_mesh_membership(manifest)
 
-    class NoRedisAccess:
-        def command(self, *_parts):
-            raise AssertionError("noncanonical identity must be rejected before Redis scheduling state")
-
-    monkeypatch.setattr(control, "redis", NoRedisAccess())
+    monkeypatch.setattr(control, "get_json", lambda *_args, **_kwargs: {})
     result = control.lease_node_eligibility("legacy-shadow")
 
     assert result == {
         "eligible": False,
-        "reason": "node_not_in_canonical_mesh_membership",
+        "reason": "external_provider_actor_not_registered",
     }
 
 

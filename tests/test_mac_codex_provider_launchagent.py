@@ -7,6 +7,7 @@ import re
 import stat
 import subprocess
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -45,12 +46,25 @@ def launch_agent_replacements(tmp_path: Path) -> dict[str, str]:
         "EXEC_PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
         "MESH_MANIFEST": str(tmp_path / "mesh" / "peers.json"),
         "RUNNER_ACCESS": str(tmp_path / "config" / "runner-access.json"),
+        "PROVIDER_CREDENTIAL": str(tmp_path / "config" / "external-provider-actor.credential"),
         "NODE_LABELS_JSON": json.dumps(
             {"runtime": "macos", "role": "owner-codex-provider"},
             separators=(",", ":"),
         ),
         "BOOTSTRAP_LOG": str(tmp_path / "logs" / "launchd-bootstrap.log"),
     }
+
+
+def write_test_provider_credential(path: Path, node_id: str = "mac-codex-provider") -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({
+        "schema_version": "kolibri.external-provider-credential.v1",
+        "credential_id": "test-provider-v1",
+        "node_id": node_id,
+        "epoch": 1,
+        "token": "test-only-" + "x" * 40,
+    }), encoding="utf-8")
+    path.chmod(0o600)
 
 
 def rendered_payload(tmp_path: Path):
@@ -84,6 +98,7 @@ def test_launchagent_is_dynamic_home_keepalive_and_current_user_contract(tmp_pat
     assert environment["HOME"].endswith("owner & operator")
     assert environment["KOLIBRI_MESH_MEMBERSHIP_MANIFEST"].endswith("peers.json")
     assert environment["KOLIBRI_RUNNER_ACCESS_MANIFEST"].endswith("runner-access.json")
+    assert environment["KOLIBRI_CODEX_READINESS_REFRESH_SECONDS"] == "240"
     assert not common.FORBIDDEN_ENVIRONMENT_KEYS.intersection(environment)
 
     serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True).lower()
@@ -111,6 +126,9 @@ def test_launchagent_validator_rejects_static_authority_secrets_and_unsafe_lifec
         lambda item: item.update({"RunAtLoad": False}),
         lambda item: item["EnvironmentVariables"].pop(
             "KOLIBRI_MESH_MEMBERSHIP_MANIFEST"
+        ),
+        lambda item: item["EnvironmentVariables"].update(
+            {"KOLIBRI_CODEX_READINESS_REFRESH_SECONDS": "0"}
         ),
     ]
     for mutate in mutations:
@@ -406,6 +424,7 @@ def test_installer_dry_run_is_read_only_and_never_calls_launchctl(tmp_path, monk
     assert result["load"] is False
     assert result["control_plane_source"] == "replicated_mesh_manifest"
     assert result["control_plane_url"] == "http://10.66.55.44:9101"
+    assert result["codex_readiness_refresh_seconds"] == 240
     assert not (owner_home / "Library" / "Application Support" / "Kolibri").exists()
 
 
@@ -417,6 +436,7 @@ def test_install_load_failure_restores_previous_managed_launchagent(tmp_path, mo
     owner_home = tmp_path / "owner"
     owner_home.mkdir()
     layout = installer.MacProviderLayout.from_home(owner_home)
+    write_test_provider_credential(layout.provider_credential)
     layout.launch_agent.parent.mkdir(parents=True)
     previous_plist = plistlib.dumps(
         {
@@ -530,6 +550,7 @@ def test_health_accepts_the_actual_agenthost_codex_readiness_shape(tmp_path, mon
     owner_home = tmp_path / "owner"
     owner_home.mkdir()
     layout = health.MacProviderLayout.from_home(owner_home)
+    write_test_provider_credential(layout.provider_credential)
     layout.logs.mkdir(parents=True)
     for log_path in (layout.sanitized_log, layout.bootstrap_log):
         log_path.write_text("safe\n", encoding="utf-8")
@@ -572,6 +593,7 @@ def test_health_accepts_the_actual_agenthost_codex_readiness_shape(tmp_path, mon
             "runner_readiness": {
                 "codex": {
                     "schema_version": "kolibri.codex-readiness.v1",
+                    "checked_at": datetime.now(timezone.utc).isoformat(),
                     "status": "available",
                     "login_status": "authenticated",
                     "probe": {
@@ -591,6 +613,26 @@ def test_health_accepts_the_actual_agenthost_codex_readiness_shape(tmp_path, mon
     assert evidence["status"] == "passed"
     assert evidence["passed"] is True
     assert all(evidence["checks"].values())
+    assert evidence["codex_readiness_refresh_seconds"] == 240
+
+
+def test_health_readiness_freshness_is_bounded():
+    health = load_module(
+        "scripts/macos/health-mac-codex-provider.py",
+        "mac_provider_health_readiness_freshness",
+    )
+    now = datetime(2026, 7, 11, 12, 0, tzinfo=timezone.utc)
+
+    assert health.readiness_is_fresh(
+        (now - timedelta(seconds=300)).isoformat(), now=now,
+    ) is True
+    assert health.readiness_is_fresh(
+        (now - timedelta(seconds=301)).isoformat(), now=now,
+    ) is False
+    assert health.readiness_is_fresh(
+        (now + timedelta(seconds=61)).isoformat(), now=now,
+    ) is False
+    assert health.readiness_is_fresh("2026-07-11T12:00:00", now=now) is False
 
 
 def test_health_validate_only_never_contacts_launchctl_or_control_plane(
@@ -605,6 +647,7 @@ def test_health_validate_only_never_contacts_launchctl_or_control_plane(
     owner_home = tmp_path / "owner"
     owner_home.mkdir()
     layout = health.MacProviderLayout.from_home(owner_home)
+    write_test_provider_credential(layout.provider_credential)
     layout.logs.mkdir(parents=True)
     layout.sanitized_log.write_text("sanitized\n", encoding="utf-8")
     layout.bootstrap_log.write_text("bootstrap\n", encoding="utf-8")

@@ -97,25 +97,27 @@ function assertPublicSession(result) {
   return result.payload;
 }
 
-async function createPublicSession(signal) {
+async function createPublicSession() {
   return assertPublicSession(await requestJson(API_ENDPOINTS.publicSession, {
     method: "POST",
     body: JSON.stringify({}),
-    signal,
   }));
 }
 
-export async function ensurePublicSession(signal) {
+export async function ensurePublicSession() {
   if (publicSessionRefreshPromise) return publicSessionRefreshPromise;
   if (publicSessionPromise) return publicSessionPromise;
   const sessionPromise = (async () => {
     try {
-      const current = await requestJson(API_ENDPOINTS.publicSession, { signal });
+      // Session discovery is shared by every in-flight Shell request.  A
+      // caller-specific AbortSignal must not cancel that shared handshake and
+      // poison unrelated requests; the signal remains scoped to /responses.
+      const current = await requestJson(API_ENDPOINTS.publicSession);
       if (current.payload?.object === "public.session") return current.payload;
     } catch (error) {
       if (!(error instanceof KolibriApiError) || error.status !== 401) throw error;
     }
-    return createPublicSession(signal);
+    return createPublicSession();
   })().then((session) => {
     publicSessionGeneration += 1;
     return session;
@@ -127,7 +129,7 @@ export async function ensurePublicSession(signal) {
   return publicSessionPromise;
 }
 
-async function refreshPublicSession(observedGeneration, signal) {
+async function refreshPublicSession(observedGeneration) {
   // Another request may already have replaced the expired cookie while this
   // request's 401 was in flight. In that case, reuse the newer session rather
   // than issuing another POST and invalidating concurrent retries.
@@ -137,7 +139,7 @@ async function refreshPublicSession(observedGeneration, signal) {
   if (publicSessionRefreshPromise) return publicSessionRefreshPromise;
 
   publicSessionPromise = null;
-  const refreshPromise = createPublicSession(signal).then((session) => {
+  const refreshPromise = createPublicSession().then((session) => {
     publicSessionGeneration += 1;
     publicSessionPromise = Promise.resolve(session);
     return session;
@@ -766,7 +768,7 @@ export async function sendKolibriRequest({ text, messages = [], workstreamId = "
   const typedTask = task === null || task === undefined ? null : normalizeTaskForTransport(task);
   const execution_mode = enumValue(executionMode, ["fast", "codex"], "request.execution_mode");
   const idempotencyKey = `shell:${requestId}`;
-  await ensurePublicSession(signal);
+  await ensurePublicSession();
   const sessionGeneration = publicSessionGeneration;
   const body = {
     model: "kolibri",
@@ -792,7 +794,7 @@ export async function sendKolibriRequest({ text, messages = [], workstreamId = "
       // browser session. Re-issue the HttpOnly cookie and replay the same
       // idempotent Responses request exactly once; never retry provider/auth
       // failures or origin mismatches here.
-      await refreshPublicSession(sessionGeneration, signal);
+      await refreshPublicSession(sessionGeneration);
       payload = await requestResponsesStream(body, idempotencyKey, signal);
     }
     const taskEnvelope = typedTask ? normalizeTypedTaskEnvelope(payload?.task, typedTask.intent) : null;

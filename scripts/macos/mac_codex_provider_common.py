@@ -19,6 +19,7 @@ from typing import Any, Mapping
 
 LABEL = "ru.kolibriai.mac-codex-provider"
 MANAGED_MARKER = ".managed-by-kolibri-mac-codex-provider"
+MAC_CODEX_READINESS_REFRESH_SECONDS = 240
 SAFE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 RUNTIME_SOURCE_FILES = (
     ("ops/agent_host.py", "agent_host.py"),
@@ -54,6 +55,7 @@ class MacProviderLayout:
     artifacts: Path
     logs: Path
     runner_access: Path
+    provider_credential: Path
     sanitized_log: Path
     bootstrap_log: Path
     launch_agent: Path
@@ -72,6 +74,7 @@ class MacProviderLayout:
             artifacts=owner_home / ".kolibri-agent" / "artifacts",
             logs=logs,
             runner_access=base / "config" / "runner-access.json",
+            provider_credential=base / "config" / "external-provider-actor.credential",
             sanitized_log=logs / "agent-host.log",
             bootstrap_log=logs / "launchd-bootstrap.log",
             launch_agent=owner_home / "Library" / "LaunchAgents" / f"{LABEL}.plist",
@@ -195,9 +198,15 @@ def validate_launch_agent_payload(payload: Any) -> None:
     required_environment = {
         "HOME", "PATH", "PYTHONPATH", "KOLIBRI_MESH_MEMBERSHIP_MANIFEST",
         "KOLIBRI_RUNNER_ACCESS_MANIFEST", "KOLIBRI_NODE_LABELS_JSON",
+        "KOLIBRI_CODEX_READINESS_REFRESH_SECONDS",
+        "KOLIBRI_EXTERNAL_PROVIDER_ACTOR_CREDENTIAL_FILE",
     }
     if not required_environment.issubset(environment):
         raise MacProviderConfigError("launch_agent_environment_incomplete")
+    if environment.get("KOLIBRI_CODEX_READINESS_REFRESH_SECONDS") != str(
+        MAC_CODEX_READINESS_REFRESH_SECONDS
+    ):
+        raise MacProviderConfigError("launch_agent_readiness_refresh_invalid")
     keep_alive = payload.get("KeepAlive")
     if not isinstance(keep_alive, dict) or keep_alive.get("SuccessfulExit") is not False:
         raise MacProviderConfigError("launch_agent_keepalive_invalid")

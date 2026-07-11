@@ -199,6 +199,46 @@ def test_codex_multiplier_minor_unit_and_string_provenance_are_normalized():
     assert deterministic_estimate(spec)["totals"]["grand_total_minor"] == 300_000
 
 
+def test_codex_fenced_proposal_with_surrounding_json_is_extracted_unambiguously():
+    proposal = {
+        "schema_version": "kolibri.estimate-proposal.v1",
+        **_spec().model_dump(mode="json"),
+    }
+    proposal["lines"][0]["unit_price_minor"] = " 125\u202f000 "
+    response_text = (
+        "Подготовлен структурированный результат.\n"
+        "```json\n"
+        f"{json.dumps(proposal, ensure_ascii=False)}\n"
+        "```\n"
+        'Проверка формата: {"status":"ok"}'
+    )
+
+    spec = estimate_spec_from_provider_response(response_text)
+
+    assert spec.title == proposal["title"]
+    assert spec.lines[0].unit_price_minor == 125_000
+    assert deterministic_estimate(spec)["money_authority"] == "deterministic_calculator"
+
+
+def test_multiple_distinct_estimate_json_objects_are_rejected():
+    first = {**_spec().model_dump(mode="json"), "title": "Первая"}
+    second = {**_spec().model_dump(mode="json"), "title": "Вторая"}
+    response_text = "\n".join((
+        json.dumps(first, ensure_ascii=False),
+        json.dumps(second, ensure_ascii=False),
+    ))
+
+    with pytest.raises(ValueError, match="multiple JSON objects"):
+        estimate_spec_from_provider_response(response_text)
+
+
+def test_estimate_object_nested_in_json_array_is_not_promoted_to_top_level():
+    response_text = json.dumps([_spec().model_dump(mode="json")], ensure_ascii=False)
+
+    with pytest.raises(ValueError, match="not a JSON object"):
+        estimate_spec_from_provider_response(response_text)
+
+
 def test_pdf_is_content_bound_versioned_and_session_isolated(tmp_path):
     session_store = _session_store(tmp_path)
     estimate_store = configure_estimate_artifact_store(

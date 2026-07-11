@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 import threading
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from fastapi.testclient import TestClient
@@ -10,6 +11,7 @@ from provider_gateway import (
     DEFAULT_CODEX_MODELS,
     ProviderGateway,
     _factory_control_endpoint,
+    _factory_health_response_records,
     classify_failure,
     extract_assistant_text,
     public_identity_contract_violation,
@@ -78,6 +80,26 @@ def factory_control_server(state):
                 return
             if self.path.startswith("/v1/nodes"):
                 self._send(200, {"nodes": state["nodes"]})
+                return
+            if self.path.startswith("/v1/runtime/provider-actors"):
+                records = state.get("provider_actors", [])
+                binding = state.get(
+                    "provider_auth_binding",
+                    records[0].get("external_provider_auth") if records else None,
+                )
+                self._send(200, {
+                    "runner": "codex",
+                    "auth_configured": bool(binding),
+                    "auth_binding": binding,
+                    "records": records,
+                })
+                return
+            if self.path.startswith("/v1/runtime/provider-health?"):
+                runner = "codex" if "runner=codex" in self.path else "mimo"
+                self._send(200, {
+                    "runner": runner,
+                    "records": state.get("provider_health", {}).get(runner, []),
+                })
                 return
             if self.path.startswith("/v1/tasks/"):
                 state["polls"] = state.get("polls", 0) + 1
@@ -178,6 +200,105 @@ def fresh_factory_node(node_id="ephemeral-worker-7"):
     }
 
 
+def external_factory_codex_actor(node_id="dynamic-owner-codex-broker"):
+    checked_at = datetime.now(timezone.utc).isoformat()
+    probe = {
+        "model": "gpt-5.5",
+        "sandbox": "read-only",
+        "status": "passed",
+        "duration_ms": 1200,
+        "output_sha256": "a" * 64,
+    }
+    runner = {
+        "provider": "codex",
+        "model": "gpt-5.5",
+        "display_name": "Codex authenticated runner",
+        "authorization_mode": "node_managed",
+        "authorization_flow": "browser_device",
+        "user_authorization_required": False,
+        "permission_mode": "task_contract",
+        "output_format": "jsonl",
+        "worktree_scoped": True,
+        "factory_provider_contract": "kolibri.factory-provider.readonly.v1",
+        "prompt_transport": "stdin",
+        "sandbox": "read-only",
+        "status": "available",
+        "checked_at": checked_at,
+        "readiness_contract": "kolibri.codex-readiness.v1",
+        "access_mode": "local_service_account",
+        "login_status": "authenticated",
+        "error_type": None,
+        "probe": dict(probe),
+    }
+    marker = {
+        "actor_scope": "external_provider_actor",
+        "bound_node_id": node_id,
+        "credential_id": "test-codex-audit-v1",
+        "epoch": 1,
+    }
+    return {
+        "node_id": node_id,
+        "hostname": "owner-provider-host",
+        "membership_scope": "audit",
+        "schedulable": False,
+        "health": "online",
+        "freshness": "fresh",
+        "heartbeat_age_seconds": 1,
+        "active_task": None,
+        "draining": False,
+        "labels": {
+            "provider": "codex",
+            "runtime": "macos_launchagent",
+            "physical_node_id": node_id,
+        },
+        "capabilities": ["codex_provider_broker", "runner:codex"],
+        "runners": {"codex": runner},
+        "runner_readiness": {"codex": {
+            "schema_version": "kolibri.codex-readiness.v1",
+            "node_id": node_id,
+            "checked_at": checked_at,
+            "access_mode": "local_service_account",
+            "status": "available",
+            "login_status": "authenticated",
+            "error_type": None,
+            "probe": dict(probe),
+        }},
+        "external_provider_auth": marker,
+    }
+
+
+def factory_health_record(
+    node_id: str,
+    *,
+    observed_at: datetime,
+    duration_seconds: float = 30.0,
+    status: str,
+    reason: str,
+):
+    return {
+        "node_id": node_id,
+        "status": status,
+        "reason": reason,
+        "observed_at": observed_at.isoformat(),
+        "latency_seconds": duration_seconds,
+    }
+
+
+def test_factory_health_projection_ignores_unrelated_cancellation_and_prompt_fields():
+    now = datetime.now(timezone.utc)
+    payload = {"runner": "mimo", "records": [{
+        **factory_health_record(
+            "healthy-node", observed_at=now, status="ignored",
+            reason="owner_cancelled",
+        ),
+        "objective": "private prompt must never enter route health",
+    }]}
+
+    assert _factory_health_response_records(
+        payload, "mimo", now=now.timestamp(), cooldown_seconds=300,
+    ) == {}
+
+
 def test_gateway_falls_back_and_requires_verified_nonempty_output(tmp_path, monkeypatch):
     mimo = executable(tmp_path / "mimo", "echo provider-failed >&2\nexit 2\n")
     answer = json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": "4"}})
@@ -246,6 +367,8 @@ def test_jsonl_parser_ignores_non_assistant_metadata():
 
 def test_public_identity_guard_is_scoped_to_executor_self_identification():
     assert public_identity_contract_violation("Я — MiMo Code Agent.") is True
+    assert public_identity_contract_violation("Я — MiMoCode.") is True
+    assert public_identity_contract_violation("I am MimoCode Agent.") is True
     assert public_identity_contract_violation("I am Codex.") is True
     assert public_identity_contract_violation("Я Kolibri. Чем помочь?") is False
     assert public_identity_contract_violation(
@@ -660,6 +783,267 @@ def test_factory_provider_uses_dynamic_fresh_capability_and_fenced_evidence(tmp_
     assert result.technical["verifier_evidence"]["verdict"] == "passed"
 
 
+def test_factory_health_routes_around_recent_timeout_before_heartbeat_age(
+    tmp_path, monkeypatch,
+):
+    now = datetime.now(timezone.utc)
+    timed_out = fresh_factory_node("recently-timed-out")
+    timed_out["heartbeat_age_seconds"] = 1
+    proven = fresh_factory_node("recently-proven")
+    proven["heartbeat_age_seconds"] = 20
+    state = {
+        "nodes": [timed_out, proven],
+        "provider_health": {"mimo": [
+            factory_health_record(
+                "recently-timed-out", observed_at=now, duration_seconds=45,
+                status="open", reason="provider_timeout",
+            ),
+            factory_health_record(
+                "recently-proven", observed_at=now - timedelta(seconds=5),
+                duration_seconds=28, status="healthy", reason="verified_completion",
+            ),
+        ]},
+        "answer": "healthy route answer",
+    }
+    server, thread = factory_control_server(state)
+    configure_local_home_control(
+        monkeypatch, tmp_path, f"http://127.0.0.1:{server.server_port}",
+    )
+    monkeypatch.setenv("KOLIBRI_FACTORY_POLL_INTERVAL", "0.01")
+    monkeypatch.setenv("KOLIBRI_PROVIDER_WORK_DIR", str(tmp_path / "work"))
+    try:
+        result = ProviderGateway(
+            provider_order=("factory",), model_overrides={"factory": ("mimo",)}, timeout=2,
+        ).generate("avoid known timeout", None, "resp-health-order")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert result.status == "completed"
+    assert [task["target_node"] for task in state["submitted"]] == ["recently-proven"]
+    assert result.technical["selected_runner"] == "mimo"
+
+
+def test_factory_codex_discovers_dynamic_audit_actor_with_strict_contract(
+    tmp_path, monkeypatch,
+):
+    actor_id = "dynamic-codex-broker-7"
+    state = {
+        "nodes": [],
+        "provider_actors": [external_factory_codex_actor(actor_id)],
+        "answer": "dynamic external Codex answer",
+    }
+    server, thread = factory_control_server(state)
+    configure_local_home_control(
+        monkeypatch, tmp_path, f"http://127.0.0.1:{server.server_port}",
+    )
+    monkeypatch.setenv("KOLIBRI_FACTORY_POLL_INTERVAL", "0.01")
+    monkeypatch.setenv("KOLIBRI_PROVIDER_WORK_DIR", str(tmp_path / "work"))
+    try:
+        result = ProviderGateway(
+            provider_order=("factory",), model_overrides={"factory": ("codex",)}, timeout=2,
+        ).generate("use dynamic broker", None, "resp-dynamic-broker", execution_mode="codex")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert result.status == "completed"
+    assert result.technical["selected_runner"] == "codex"
+    assert [task["target_node"] for task in state["submitted"]] == [actor_id]
+
+
+def test_factory_codex_rejects_dedicated_actor_with_stale_auth_marker(tmp_path, monkeypatch):
+    actor = external_factory_codex_actor("dynamic-codex-broker-old-epoch")
+    current_binding = {**actor["external_provider_auth"], "credential_id": "current-v2", "epoch": 2}
+    state = {
+        "nodes": [],
+        "provider_actors": [actor],
+        "provider_auth_binding": current_binding,
+        "answer": "must not execute",
+    }
+    server, thread = factory_control_server(state)
+    configure_local_home_control(
+        monkeypatch, tmp_path, f"http://127.0.0.1:{server.server_port}",
+    )
+    monkeypatch.setenv("KOLIBRI_PROVIDER_WORK_DIR", str(tmp_path / "work"))
+    try:
+        result = ProviderGateway(
+            provider_order=("factory",), model_overrides={"factory": ("codex",)}, timeout=2,
+        ).generate("reject stale marker", None, "resp-stale-marker", execution_mode="codex")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert result.status == "failed"
+    assert state.get("submitted", []) == []
+    assert result.technical["attempts"][0]["error_type"] == "factory_no_fresh_capable_worker"
+
+
+def test_factory_external_actor_readiness_drift_fails_closed(
+    tmp_path, monkeypatch,
+):
+    actor = external_factory_codex_actor("dynamic-codex-broker-invalid")
+    actor["runner_readiness"]["codex"]["login_status"] = "unauthenticated"
+    state = {"nodes": [actor], "answer": "must not execute"}
+    server, thread = factory_control_server(state)
+    configure_local_home_control(
+        monkeypatch, tmp_path, f"http://127.0.0.1:{server.server_port}",
+    )
+    monkeypatch.setenv("KOLIBRI_PROVIDER_WORK_DIR", str(tmp_path / "work"))
+    try:
+        result = ProviderGateway(
+            provider_order=("factory",), model_overrides={"factory": ("codex",)}, timeout=2,
+        ).generate("reject drift", None, "resp-broker-drift", execution_mode="codex")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert result.status == "failed"
+    assert state.get("submitted", []) == []
+    assert result.technical["attempts"][0]["error_type"] == "factory_no_fresh_capable_worker"
+
+
+def test_factory_external_actor_stale_attestation_fails_closed(tmp_path, monkeypatch):
+    actor = external_factory_codex_actor("dynamic-codex-broker-stale")
+    stale = (datetime.now(timezone.utc) - timedelta(seconds=301)).isoformat()
+    actor["runner_readiness"]["codex"]["checked_at"] = stale
+    actor["runners"]["codex"]["checked_at"] = stale
+    state = {"nodes": [actor], "answer": "must not execute"}
+    server, thread = factory_control_server(state)
+    configure_local_home_control(
+        monkeypatch, tmp_path, f"http://127.0.0.1:{server.server_port}",
+    )
+    monkeypatch.setenv("KOLIBRI_PROVIDER_WORK_DIR", str(tmp_path / "work"))
+    try:
+        result = ProviderGateway(
+            provider_order=("factory",), model_overrides={"factory": ("codex",)}, timeout=2,
+        ).generate("reject stale broker", None, "resp-broker-stale", execution_mode="codex")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert result.status == "failed"
+    assert state.get("submitted", []) == []
+    assert result.technical["attempts"][0]["error_type"] == "factory_no_fresh_capable_worker"
+
+
+def test_factory_runner_route_budget_prevents_three_serial_timeout_taxes(
+    tmp_path, monkeypatch,
+):
+    state = {
+        "nodes": [fresh_factory_node(f"timeout-worker-{index}") for index in range(3)],
+        "mode": "running",
+    }
+    server, thread = factory_control_server(state)
+    configure_local_home_control(
+        monkeypatch, tmp_path, f"http://127.0.0.1:{server.server_port}",
+    )
+    monkeypatch.setenv("KOLIBRI_FACTORY_TASK_TIMEOUT", "0.2")
+    monkeypatch.setenv("KOLIBRI_FACTORY_POLL_INTERVAL", "0.01")
+    monkeypatch.setenv("KOLIBRI_PROVIDER_WORK_DIR", str(tmp_path / "work"))
+    try:
+        result = ProviderGateway(
+            provider_order=("factory",), model_overrides={"factory": ("mimo",)}, timeout=2,
+        ).generate("bounded timeout", None, "resp-bounded-timeout")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert result.status == "failed"
+    assert len(state.get("submitted", [])) == 1
+    assert result.technical["attempts"][0]["error_type"] == "provider_timeout"
+
+
+def test_factory_known_unhealthy_mimo_falls_through_to_codex_without_doomed_task(
+    tmp_path, monkeypatch,
+):
+    now = datetime.now(timezone.utc)
+    node = fresh_factory_node("dual-runner-worker")
+    state = {
+        "nodes": [node],
+        "provider_health": {"mimo": [
+            factory_health_record(
+                "dual-runner-worker", observed_at=now, duration_seconds=45,
+                status="open", reason="provider_timeout",
+            ),
+        ]},
+        "answer": "codex without timeout tax",
+    }
+    server, thread = factory_control_server(state)
+    configure_local_home_control(
+        monkeypatch, tmp_path, f"http://127.0.0.1:{server.server_port}",
+    )
+    monkeypatch.setenv("KOLIBRI_FACTORY_PROVIDER_RUNNERS", "mimo,codex")
+    monkeypatch.setenv("KOLIBRI_FACTORY_POLL_INTERVAL", "0.01")
+    monkeypatch.setenv("KOLIBRI_PROVIDER_WORK_DIR", str(tmp_path / "work"))
+    try:
+        result = ProviderGateway(timeout=2).generate(
+            "Mimo first, health aware", None, "resp-health-fallback",
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert result.status == "completed"
+    assert result.text == "codex without timeout tax"
+    assert [attempt["provider_model"] for attempt in result.technical["attempts"]] == [
+        "mimo", "codex",
+    ]
+    assert result.technical["attempts"][0]["error_type"] == (
+        "factory_no_healthy_capable_worker"
+    )
+    assert result.technical["selected_runner"] == "codex"
+    assert [task["runner"] for task in state["submitted"]] == ["codex"]
+
+
+def test_later_verified_mimo_completion_closes_prior_timeout_circuit(
+    tmp_path, monkeypatch,
+):
+    now = datetime.now(timezone.utc)
+    node = fresh_factory_node("recovered-mimo-worker")
+    state = {
+        "nodes": [node],
+        "provider_health": {"mimo": [
+            factory_health_record(
+                "recovered-mimo-worker", observed_at=now - timedelta(seconds=30),
+                duration_seconds=45, status="open", reason="provider_timeout",
+            ),
+            factory_health_record(
+                "recovered-mimo-worker", observed_at=now, duration_seconds=27,
+                status="healthy", reason="verified_completion",
+            ),
+        ]},
+        "answer": "Mimo recovered",
+    }
+    server, thread = factory_control_server(state)
+    configure_local_home_control(
+        monkeypatch, tmp_path, f"http://127.0.0.1:{server.server_port}",
+    )
+    monkeypatch.setenv("KOLIBRI_FACTORY_POLL_INTERVAL", "0.01")
+    monkeypatch.setenv("KOLIBRI_PROVIDER_WORK_DIR", str(tmp_path / "work"))
+    try:
+        result = ProviderGateway(
+            provider_order=("factory",), model_overrides={"factory": ("mimo",)}, timeout=2,
+        ).generate("use recovered Mimo", None, "resp-health-recovered")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert result.status == "completed"
+    assert result.technical["selected_runner"] == "mimo"
+    assert [task["target_node"] for task in state["submitted"]] == [
+        "recovered-mimo-worker"
+    ]
+
+
 def test_factory_provider_idempotency_is_stable_and_does_not_embed_prompt(tmp_path, monkeypatch):
     state = {"nodes": [fresh_factory_node()], "answer": "stable"}
     server, thread = factory_control_server(state)
@@ -944,7 +1328,7 @@ def test_fast_mode_rejects_mimo_identity_leak_and_falls_back_to_codex(tmp_path, 
     assert all("You are Kolibri" in task["objective"] for task in state["submitted"])
 
 
-def test_codex_mode_rejects_codex_identity_leak_and_falls_back_to_mimo(tmp_path, monkeypatch):
+def test_codex_mode_rejects_identity_leak_without_silent_mimo_fallback(tmp_path, monkeypatch):
     state = {
         "nodes": [fresh_factory_node("identity-contract-worker")],
         "answers_by_runner": {
@@ -970,15 +1354,15 @@ def test_codex_mode_rejects_codex_identity_leak_and_falls_back_to_mimo(tmp_path,
         server.server_close()
         thread.join(timeout=2)
 
-    assert result.status == "completed"
-    assert result.text == "Я Kolibri. Чем помочь?"
-    assert result.technical["selected_runner"] == "mimo"
+    assert result.status == "failed"
+    assert result.text == ""
+    assert result.technical["selected_provider"] is None
     assert result.technical["attempts"][0]["error_type"] == "provider_identity_contract_violation"
-    assert result.technical["attempts"][1]["status"] == "succeeded"
-    assert [task["runner"] for task in state["submitted"]] == ["codex", "mimo"]
+    assert len(result.technical["attempts"]) == 1
+    assert [task["runner"] for task in state["submitted"]] == ["codex"]
 
 
-def test_codex_mode_reorders_home_runners_and_falls_back_to_mimo(tmp_path, monkeypatch):
+def test_codex_mode_is_strict_when_codex_runner_fails(tmp_path, monkeypatch):
     state = {
         "nodes": [fresh_factory_node("codex-mode-worker")],
         "failed_runners": {"codex"},
@@ -1002,13 +1386,43 @@ def test_codex_mode_reorders_home_runners_and_falls_back_to_mimo(tmp_path, monke
         server.server_close()
         thread.join(timeout=2)
 
-    assert result.status == "completed"
-    assert result.technical["selected_provider"] == "factory"
-    assert result.technical["selected_runner"] == "mimo"
-    assert result.technical["fallback_used"] is True
-    assert [task["runner"] for task in state["submitted"]] == ["codex", "mimo"]
+    assert result.status == "failed"
+    assert result.technical["selected_provider"] is None
+    assert result.technical["fallback_used"] is False
+    assert [task["runner"] for task in state["submitted"]] == ["codex"]
     assert {task["source"]["control_plane"] for task in state["submitted"]} == {"home"}
     assert all(task["fallback_allowed"] is False for task in state["submitted"])
+
+
+def test_codex_mode_with_zero_eligible_codex_never_submits_mimo(tmp_path, monkeypatch):
+    mimo_only = fresh_factory_node("mimo-only-worker")
+    mimo_only["capabilities"] = ["generic_implementation", "runner:mimo"]
+    mimo_only["runners"].pop("codex")
+    state = {"nodes": [mimo_only], "answer": "must not be used"}
+    server, thread = factory_control_server(state)
+    configure_local_home_control(
+        monkeypatch, tmp_path, f"http://127.0.0.1:{server.server_port}",
+    )
+    monkeypatch.setenv("KOLIBRI_FACTORY_PROVIDER_RUNNERS", "mimo,codex")
+    monkeypatch.setenv("KOLIBRI_PROVIDER_WORK_DIR", str(tmp_path / "work"))
+    try:
+        result = ProviderGateway(timeout=2).generate(
+            "strict Codex", None, "resp-codex-zero-eligible", execution_mode="codex",
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert result.status == "failed"
+    assert result.technical["fallback_used"] is False
+    assert [attempt["provider_model"] for attempt in result.technical["attempts"]] == [
+        "codex"
+    ]
+    assert result.technical["attempts"][0]["error_type"] == (
+        "factory_no_fresh_capable_worker"
+    )
+    assert state.get("submitted") is None
 
 
 def test_codex_mode_never_bypasses_an_invalid_configured_home_boundary(tmp_path, monkeypatch):
@@ -1029,12 +1443,8 @@ def test_codex_mode_never_bypasses_an_invalid_configured_home_boundary(tmp_path,
     )
 
     assert result.status == "failed"
-    assert [attempt["provider"] for attempt in result.technical["attempts"]] == [
-        "factory", "factory",
-    ]
-    assert [attempt["provider_model"] for attempt in result.technical["attempts"]] == [
-        "codex", "mimo",
-    ]
+    assert [attempt["provider"] for attempt in result.technical["attempts"]] == ["factory"]
+    assert [attempt["provider_model"] for attempt in result.technical["attempts"]] == ["codex"]
     assert {attempt["error_type"] for attempt in result.technical["attempts"]} == {
         "factory_control_endpoint_invalid",
     }
@@ -1063,12 +1473,8 @@ def test_production_without_home_endpoint_fails_closed_before_direct_runners(tmp
 
     assert gateway.provider_order == ("factory",)
     assert result.status == "failed"
-    assert [attempt["provider"] for attempt in result.technical["attempts"]] == [
-        "factory", "factory",
-    ]
-    assert [attempt["provider_model"] for attempt in result.technical["attempts"]] == [
-        "codex", "mimo",
-    ]
+    assert [attempt["provider"] for attempt in result.technical["attempts"]] == ["factory"]
+    assert [attempt["provider_model"] for attempt in result.technical["attempts"]] == ["codex"]
     assert {attempt["error_type"] for attempt in result.technical["attempts"]} == {
         "factory_control_endpoint_invalid",
     }

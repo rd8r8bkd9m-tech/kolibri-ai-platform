@@ -130,7 +130,7 @@ def test_origin_and_csrf_checks_fail_closed(tmp_path):
 
 
 def test_sessions_are_isolated_and_cannot_read_another_response(tmp_path):
-    app, _ = make_app(tmp_path)
+    app, executor = make_app(tmp_path)
     first = TestClient(app)
     second = TestClient(app)
     issue_session(first)
@@ -139,6 +139,7 @@ def test_sessions_are_isolated_and_cannot_read_another_response(tmp_path):
     created = post_response(first, "private-a", key="isolated-a")
     assert created.status_code == 200
     response_id = created.json()["id"]
+    assert executor.calls[0]["response_id"] == response_id
     assert first.get(f"/v1/responses/{response_id}").status_code == 200
     assert second.get(f"/v1/responses/{response_id}").status_code == 404
     assert second.get("/v1/responses").json()["data"] == []
@@ -154,6 +155,9 @@ def test_expired_session_is_rejected(tmp_path):
     app, _ = make_app(tmp_path)
     client = TestClient(app)
     session = issue_session(client)
+    current = client.get("/v1/public/session")
+    assert current.status_code == 200
+    assert current.headers["cache-control"] == "no-store"
     public_responses_api._STORE.expire_session_for_test(session["id"])
 
     assert client.get("/v1/public/session").status_code == 401

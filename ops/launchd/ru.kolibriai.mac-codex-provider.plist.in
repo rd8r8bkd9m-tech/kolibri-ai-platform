@@ -46,6 +46,10 @@
     <string>__MESH_MANIFEST__</string>
     <key>KOLIBRI_RUNNER_ACCESS_MANIFEST</key>
     <string>__RUNNER_ACCESS__</string>
+    <key>KOLIBRI_CODEX_READINESS_REFRESH_SECONDS</key>
+    <string>240</string>
+    <key>KOLIBRI_EXTERNAL_PROVIDER_ACTOR_CREDENTIAL_FILE</key>
+    <string>__PROVIDER_CREDENTIAL__</string>
     <key>KOLIBRI_NODE_LABELS_JSON</key>
     <string>__NODE_LABELS_JSON__</string>
   </dict>

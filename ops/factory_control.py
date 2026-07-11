@@ -23,11 +23,13 @@ except KeyError:
 
 import argparse
 import hashlib
+import hmac
 import json
 import os
 import queue
 import re
 import socket
+import stat
 import subprocess
 import sys
 import tempfile
@@ -130,6 +132,136 @@ STATE_RETRY = "retry_scheduled"
 STATE_DEAD = "dead_letter"
 TERMINAL_STATES = {STATE_COMPLETED, STATE_FAILED, STATE_CANCELLED, STATE_DEAD}
 BLOCKED_RUNNER_STATES = {"blocked", "degraded", "runner_auth_blocked", "unavailable"}
+
+# Non-mesh provider actors are execution adapters, not physical fleet members.
+# The first supported adapter is the owner-session Mac Codex LaunchAgent.  Its
+# identity is discovered from its signed/runtime registration labels; no node
+# ID or IP address is embedded in the scheduler.
+EXTERNAL_PROVIDER_ACTOR_SCOPE = "external_provider_actor"
+FACTORY_PROVIDER_RUNNER_CONTRACT = "kolibri.factory-provider.readonly.v1"
+CODEX_READINESS_SCHEMA = "kolibri.codex-readiness.v1"
+CODEX_PROVIDER_MODEL = "gpt-5.5"
+EXTERNAL_PROVIDER_READINESS_MAX_AGE_SECONDS = 300
+EXTERNAL_PROVIDER_READINESS_FUTURE_GRACE_SECONDS = 60
+EXTERNAL_PROVIDER_AUTH_CLOCK_SKEW_SECONDS = 60
+EXTERNAL_PROVIDER_AUTH_NONCE_TTL_SECONDS = 180
+EXTERNAL_PROVIDER_AUTH_HMAC_CONTRACT = "kolibri.external-provider-hmac.v1"
+EXTERNAL_PROVIDER_AUTH_HASH_FILE = Path(os.environ.get(
+    "FACTORY_EXTERNAL_PROVIDER_ACTOR_TOKEN_SHA256_FILE",
+    "/etc/kolibri/external-provider-actor.sha256",
+))
+EXTERNAL_PROVIDER_ACTOR_SPECS = {
+    "codex": {
+        "runtime": "macos_launchagent",
+        "broker_capability": "codex_provider_broker",
+        "runner_capability": "runner:codex",
+        "readiness_schema": CODEX_READINESS_SCHEMA,
+    },
+}
+CODEX_FACTORY_RUNNER_CONTRACT = {
+    "provider": "codex",
+    "model": CODEX_PROVIDER_MODEL,
+    "display_name": "Codex authenticated runner",
+    "authorization_mode": "node_managed",
+    "authorization_flow": "browser_device",
+    "user_authorization_required": False,
+    "permission_mode": "task_contract",
+    "output_format": "jsonl",
+    "worktree_scoped": True,
+    "factory_provider_contract": FACTORY_PROVIDER_RUNNER_CONTRACT,
+    "prompt_transport": "stdin",
+    "sandbox": "read-only",
+}
+
+
+def load_external_provider_actor_auth_record() -> dict[str, Any] | None:
+    configured = str(os.environ.get("FACTORY_EXTERNAL_PROVIDER_ACTOR_TOKEN_SHA256") or "").strip().lower()
+    if configured:
+        node_id = str(os.environ.get("FACTORY_EXTERNAL_PROVIDER_ACTOR_NODE_ID") or "").strip()
+        credential_id = str(os.environ.get("FACTORY_EXTERNAL_PROVIDER_ACTOR_CREDENTIAL_ID") or "").strip()
+        if not (
+            re.fullmatch(r"[a-f0-9]{64}", configured)
+            and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,159}", node_id)
+            and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,159}", credential_id)
+        ):
+            return None
+        try:
+            epoch = max(1, int(os.environ.get("FACTORY_EXTERNAL_PROVIDER_ACTOR_EPOCH", "1")))
+        except ValueError:
+            return None
+        return {
+            "token_sha256": configured,
+            "node_id": node_id,
+            "credential_id": credential_id,
+            "epoch": epoch,
+        }
+    try:
+        info = EXTERNAL_PROVIDER_AUTH_HASH_FILE.lstat()
+        if (
+            stat.S_ISLNK(info.st_mode)
+            or not stat.S_ISREG(info.st_mode)
+            or stat.S_IMODE(info.st_mode) != 0o600
+            or info.st_uid != 0
+            or info.st_size > 1024
+        ):
+            return None
+        payload = json.loads(EXTERNAL_PROVIDER_AUTH_HASH_FILE.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(payload, dict) or set(payload) != {
+        "schema_version", "credential_id", "node_id", "epoch", "token_sha256",
+    }:
+        return None
+    if payload.get("schema_version") != "kolibri.external-provider-credential.v1":
+        return None
+    token_hash = str(payload.get("token_sha256") or "").lower()
+    node_id = str(payload.get("node_id") or "")
+    credential_id = str(payload.get("credential_id") or "")
+    epoch = payload.get("epoch")
+    if not (
+        re.fullmatch(r"[a-f0-9]{64}", token_hash)
+        and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,159}", node_id)
+        and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,159}", credential_id)
+        and type(epoch) is int and epoch >= 1
+    ):
+        return None
+    return {
+        "token_sha256": token_hash,
+        "node_id": node_id,
+        "credential_id": credential_id,
+        "epoch": epoch,
+    }
+
+
+_external_provider_actor_auth_record = load_external_provider_actor_auth_record()
+
+
+def configure_external_provider_actor_token_sha256(
+    value: str | None,
+    *,
+    node_id: str = "mac-codex-provider",
+    credential_id: str = "mac-codex-provider-v1",
+    epoch: int = 1,
+) -> None:
+    """Test/configuration seam. The raw bearer is never accepted here."""
+
+    global _external_provider_actor_auth_record
+    normalized = str(value or "").strip().lower()
+    _external_provider_actor_auth_record = (
+        {
+            "token_sha256": normalized,
+            "node_id": node_id,
+            "credential_id": credential_id,
+            "epoch": epoch,
+        }
+        if (
+            re.fullmatch(r"[a-f0-9]{64}", normalized)
+            and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,159}", node_id)
+            and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,159}", credential_id)
+            and type(epoch) is int and epoch >= 1
+        )
+        else None
+    )
 
 
 class IdempotencyConflict(ValueError):
@@ -1097,12 +1229,344 @@ def canonical_nodes_payload(
     }
 
 
+def _passed_codex_probe(probe: Any) -> bool:
+    if not isinstance(probe, dict) or set(probe) != {
+        "model", "sandbox", "status", "duration_ms", "output_sha256",
+    }:
+        return False
+    duration = probe.get("duration_ms")
+    return bool(
+        probe.get("model") == CODEX_PROVIDER_MODEL
+        and probe.get("sandbox") == "read-only"
+        and probe.get("status") == "passed"
+        and type(duration) is int
+        and 0 <= duration <= 60_000
+        and re.fullmatch(r"[a-f0-9]{64}", str(probe.get("output_sha256") or ""))
+    )
+
+
+def _passed_codex_readiness(node_id: str, readiness: Any) -> bool:
+    """Validate the strict, redacted readiness evidence used for leasing."""
+
+    allowed = {
+        "schema_version", "node_id", "checked_at", "access_mode", "status",
+        "login_status", "error_type", "broker_ref", "probe",
+    }
+    required = {
+        "schema_version", "node_id", "checked_at", "access_mode", "status",
+        "login_status", "probe",
+    }
+    if not isinstance(readiness, dict):
+        return False
+    if set(readiness) - allowed or not required.issubset(readiness):
+        return False
+    checked_at = parse_iso_ts(readiness.get("checked_at"))
+    current = now_ts()
+    if (
+        checked_at is None
+        or checked_at > current + EXTERNAL_PROVIDER_READINESS_FUTURE_GRACE_SECONDS
+        or current - checked_at > EXTERNAL_PROVIDER_READINESS_MAX_AGE_SECONDS
+    ):
+        return False
+    if readiness.get("schema_version") != CODEX_READINESS_SCHEMA:
+        return False
+    if readiness.get("node_id") != node_id:
+        return False
+    if readiness.get("access_mode") != "local_service_account":
+        return False
+    if readiness.get("status") != "available" or readiness.get("login_status") != "authenticated":
+        return False
+    if readiness.get("error_type") not in {None, ""} or readiness.get("broker_ref") is not None:
+        return False
+    return _passed_codex_probe(readiness.get("probe"))
+
+
+def _exact_codex_runner_contract(runner: Any) -> bool:
+    if not isinstance(runner, dict):
+        return False
+    if any(runner.get(field) != expected for field, expected in CODEX_FACTORY_RUNNER_CONTRACT.items()):
+        return False
+    if runner.get("status") != "available":
+        return False
+    if runner.get("readiness_contract") != CODEX_READINESS_SCHEMA:
+        return False
+    if runner.get("access_mode") != "local_service_account":
+        return False
+    if runner.get("login_status") != "authenticated":
+        return False
+    if runner.get("error_type") not in {None, ""}:
+        return False
+    checked_at = parse_iso_ts(runner.get("checked_at"))
+    current = now_ts()
+    if (
+        checked_at is None
+        or checked_at > current + EXTERNAL_PROVIDER_READINESS_FUTURE_GRACE_SECONDS
+        or current - checked_at > EXTERNAL_PROVIDER_READINESS_MAX_AGE_SECONDS
+    ):
+        return False
+    return _passed_codex_probe(runner.get("probe"))
+
+
+def external_provider_actor_identity(node_id: str, node: Any) -> str | None:
+    if not isinstance(node, dict):
+        return None
+    labels = node.get("labels") if isinstance(node.get("labels"), dict) else {}
+    provider = str(labels.get("provider") or "").strip().lower()
+    spec = EXTERNAL_PROVIDER_ACTOR_SPECS.get(provider)
+    if not spec:
+        return None
+    if labels.get("runtime") != spec["runtime"] or labels.get("physical_node_id") != node_id:
+        return None
+    return provider
+
+
+def external_provider_actor_auth_marker(node_id: str) -> dict[str, Any] | None:
+    record = _external_provider_actor_auth_record
+    if record is None or record.get("node_id") != node_id:
+        return None
+    return {
+        "actor_scope": EXTERNAL_PROVIDER_ACTOR_SCOPE,
+        "bound_node_id": node_id,
+        "credential_id": record["credential_id"],
+        "epoch": record["epoch"],
+    }
+
+
+def has_external_provider_actor_marker(node_id: str, node: Any) -> bool:
+    marker = node.get("external_provider_auth") if isinstance(node, dict) else None
+    return bool(
+        isinstance(marker, dict)
+        and marker.get("actor_scope") == EXTERNAL_PROVIDER_ACTOR_SCOPE
+        and marker.get("bound_node_id") == node_id
+    )
+
+
+def require_external_provider_actor_auth(
+    handler: BaseHTTPRequestHandler,
+    node_id: str,
+    node: Any,
+    body: dict[str, Any],
+    *,
+    allow_marker_upgrade: bool = False,
+) -> bool:
+    """Authenticate an audit-only provider mutation without reflecting secrets."""
+
+    is_external = (
+        external_provider_actor_identity(node_id, node) is not None
+        or has_external_provider_actor_marker(node_id, node)
+    )
+    if not is_external:
+        return True
+    record = _external_provider_actor_auth_record
+    if record is None:
+        response(handler, 503, {"error": "external_provider_actor_auth_unconfigured"})
+        return False
+    if record.get("node_id") != node_id:
+        response(handler, 403, {"error": "external_provider_actor_node_binding_invalid"})
+        return False
+    marker = node.get("external_provider_auth") if isinstance(node, dict) else None
+    marker_mismatch = isinstance(marker, dict) and (
+        marker.get("credential_id") != record.get("credential_id")
+        or marker.get("epoch") != record.get("epoch")
+    )
+    if marker_mismatch and not (
+        allow_marker_upgrade
+        and type(marker.get("epoch")) is int
+        and int(record.get("epoch") or 0) > marker["epoch"]
+    ):
+        response(handler, 403, {"error": "external_provider_actor_credential_epoch_invalid"})
+        return False
+    authorization = str(handler.headers.get("Authorization") or "")
+    scheme, separator, token = authorization.partition(" ")
+    if (
+        not separator
+        or scheme.lower() != "bearer"
+        or not re.fullmatch(r"[A-Za-z0-9._~-]{32,512}", token)
+    ):
+        response(handler, 401, {"error": "external_provider_actor_auth_required"})
+        return False
+    candidate = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    if not hmac.compare_digest(candidate, str(record["token_sha256"])):
+        response(handler, 401, {"error": "external_provider_actor_auth_invalid"})
+        return False
+    timestamp_raw = str(handler.headers.get("X-Kolibri-Actor-Timestamp") or "")
+    nonce = str(handler.headers.get("X-Kolibri-Actor-Nonce") or "")
+    signature = str(handler.headers.get("X-Kolibri-Actor-Signature") or "").lower()
+    signed_node = str(handler.headers.get("X-Kolibri-Actor-Node") or "")
+    signed_contract = str(handler.headers.get("X-Kolibri-Actor-Contract") or "")
+    signed_credential_id = str(handler.headers.get("X-Kolibri-Actor-Credential") or "")
+    signed_epoch = str(handler.headers.get("X-Kolibri-Actor-Epoch") or "")
+    try:
+        timestamp = int(timestamp_raw)
+    except ValueError:
+        timestamp = 0
+    if (
+        signed_node != node_id
+        or signed_contract != EXTERNAL_PROVIDER_AUTH_HMAC_CONTRACT
+        or signed_credential_id != str(record["credential_id"])
+        or signed_epoch != str(record["epoch"])
+        or abs(int(now_ts()) - timestamp) > EXTERNAL_PROVIDER_AUTH_CLOCK_SKEW_SECONDS
+        or not re.fullmatch(r"[a-f0-9]{32}", nonce)
+        or not re.fullmatch(r"[a-f0-9]{64}", signature)
+    ):
+        response(handler, 401, {"error": "external_provider_actor_signature_required"})
+        return False
+    body_sha256 = getattr(handler, "_kolibri_wire_body_sha256", None)
+    if not isinstance(body_sha256, str):
+        response(handler, 401, {"error": "external_provider_actor_wire_body_unavailable"})
+        return False
+    canonical = "\n".join((
+        EXTERNAL_PROVIDER_AUTH_HMAC_CONTRACT,
+        handler.command.upper(),
+        handler.path,
+        body_sha256,
+        timestamp_raw,
+        nonce,
+        node_id,
+        str(record["credential_id"]),
+        str(record["epoch"]),
+    ))
+    expected_signature = hmac.new(
+        bytes.fromhex(str(record["token_sha256"])),
+        canonical.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(signature, expected_signature):
+        response(handler, 401, {"error": "external_provider_actor_signature_invalid"})
+        return False
+    nonce_key = key(
+        f"external_provider_nonce:{record['credential_id']}:{record['epoch']}:{node_id}:{nonce}"
+    )
+    if redis.command(
+        "SET", nonce_key, "1", "NX", "EX", EXTERNAL_PROVIDER_AUTH_NONCE_TTL_SECONDS,
+    ) != "OK":
+        response(handler, 409, {"error": "external_provider_actor_replay_rejected"})
+        return False
+    return True
+
+
+def external_provider_actor_eligibility(
+    node_id: str,
+    node: Any,
+    *,
+    current: float | None = None,
+) -> dict[str, Any]:
+    """Classify one non-mesh provider adapter without promoting fleet membership."""
+
+    if not isinstance(node, dict) or not node:
+        return {"eligible": False, "reason": "external_provider_actor_not_registered"}
+    expected_marker = external_provider_actor_auth_marker(node_id)
+    if (
+        expected_marker is None
+        or node.get("external_provider_auth") != expected_marker
+    ):
+        return {"eligible": False, "reason": "external_provider_actor_auth_not_bound"}
+    classified = classify_node_freshness({**node, "node_id": node_id}, current)
+    labels = classified.get("labels") if isinstance(classified.get("labels"), dict) else {}
+    provider = str(labels.get("provider") or "").strip().lower()
+    spec = EXTERNAL_PROVIDER_ACTOR_SPECS.get(provider)
+    if spec is None:
+        return {"eligible": False, "reason": "node_not_in_canonical_mesh_membership"}
+    if labels.get("runtime") != spec["runtime"]:
+        return {"eligible": False, "reason": "external_provider_actor_runtime_invalid"}
+    if labels.get("physical_node_id") != node_id:
+        return {"eligible": False, "reason": "external_provider_actor_physical_identity_mismatch"}
+    if classified.get("freshness") != "fresh":
+        return {
+            "eligible": False,
+            "reason": "external_provider_actor_heartbeat_not_fresh",
+            "node": classified,
+        }
+    if str(classified.get("health") or "").lower() not in {"online", "healthy", "ready"}:
+        return {
+            "eligible": False,
+            "reason": "external_provider_actor_not_healthy",
+            "node": classified,
+        }
+    capabilities = {
+        str(item).strip().lower()
+        for item in classified.get("capabilities") or []
+        if isinstance(item, str)
+    }
+    if not {spec["broker_capability"], spec["runner_capability"]}.issubset(capabilities):
+        return {"eligible": False, "reason": "external_provider_actor_capability_missing"}
+    runners = classified.get("runners") if isinstance(classified.get("runners"), dict) else {}
+    if provider != "codex" or not _exact_codex_runner_contract(runners.get(provider)):
+        return {"eligible": False, "reason": "external_provider_actor_runner_contract_invalid"}
+    readiness_map = (
+        classified.get("runner_readiness")
+        if isinstance(classified.get("runner_readiness"), dict)
+        else {}
+    )
+    if not _passed_codex_readiness(node_id, readiness_map.get(provider)):
+        return {"eligible": False, "reason": "external_provider_actor_readiness_invalid"}
+    return {
+        "eligible": True,
+        "reason": "external_provider_actor_ready",
+        "lease_scope": EXTERNAL_PROVIDER_ACTOR_SCOPE,
+        "provider": provider,
+        "node": classified,
+    }
+
+
+def external_provider_actor_records(runner: str, limit: int = 64) -> dict[str, Any]:
+    normalized_runner = str(runner or "").strip().lower()
+    if normalized_runner not in EXTERNAL_PROVIDER_ACTOR_SPECS:
+        raise ValueError("provider_actor_runner_invalid")
+    bounded_limit = min(max(int(limit), 1), 128)
+    records: list[dict[str, Any]] = []
+    if _external_provider_actor_auth_record is not None:
+        for node in audit_registered_nodes():
+            node_id = str(node.get("node_id") or "")
+            if external_provider_actor_identity(node_id, node) != normalized_runner:
+                continue
+            eligibility = external_provider_actor_eligibility(node_id, node)
+            if eligibility.get("eligible") is not True or node.get("draining"):
+                continue
+            current = eligibility["node"]
+            records.append({
+                "node_id": node_id,
+                "hostname": str(current.get("hostname") or ""),
+                "health": str(current.get("health") or ""),
+                "freshness": str(current.get("freshness") or ""),
+                "heartbeat_age_seconds": current.get("heartbeat_age_seconds"),
+                "active_task": current.get("active_task"),
+                "draining": False,
+                "membership_scope": "audit",
+                "actor_scope": EXTERNAL_PROVIDER_ACTOR_SCOPE,
+                "external_provider_auth": dict(current["external_provider_auth"]),
+                "labels": dict(current.get("labels") or {}),
+                "capabilities": list(current.get("capabilities") or []),
+                "runners": {normalized_runner: dict(current["runners"][normalized_runner])},
+                "runner_readiness": {
+                    normalized_runner: dict(current["runner_readiness"][normalized_runner])
+                },
+            })
+    records.sort(key=lambda item: (item["heartbeat_age_seconds"], item["node_id"]))
+    return {
+        "runner": normalized_runner,
+        "records": records[:bounded_limit],
+        "auth_configured": _external_provider_actor_auth_record is not None,
+        "auth_binding": (
+            external_provider_actor_auth_marker(str(_external_provider_actor_auth_record["node_id"]))
+            if _external_provider_actor_auth_record is not None
+            else None
+        ),
+    }
+
+
 def lease_node_eligibility(node_id: str) -> dict[str, Any]:
-    """Fail closed unless a fresh Agent Host is an exact canonical member."""
+    """Fail closed for physical workers and tightly-scoped provider actors."""
 
     membership = node_membership_annotation(node_id)
     if membership.get("membership_scope") != "active":
-        return {"eligible": False, "reason": "node_not_in_canonical_mesh_membership"}
+        node = get_json(node_key(node_id), {})
+        external = external_provider_actor_eligibility(node_id, node)
+        if external.get("eligible") is not True:
+            return external
+        if redis.command("GET", drain_key(node_id)):
+            return {"eligible": False, "reason": "node_draining"}
+        return external
     if redis.command("GET", drain_key(node_id)):
         return {"eligible": False, "reason": "node_draining"}
     node = get_json(node_key(node_id), {})
@@ -1113,7 +1577,12 @@ def lease_node_eligibility(node_id: str) -> dict[str, Any]:
         return {"eligible": False, "reason": "canonical_node_heartbeat_not_fresh", "node": classified}
     if str(classified.get("health") or "").lower() not in {"online", "healthy", "ready"}:
         return {"eligible": False, "reason": "canonical_node_not_healthy", "node": classified}
-    return {"eligible": True, "reason": "canonical_node_ready", "node": node}
+    return {
+        "eligible": True,
+        "reason": "canonical_node_ready",
+        "lease_scope": "canonical_mesh",
+        "node": node,
+    }
 
 
 def queue_ids() -> list[str]:
@@ -1373,6 +1842,7 @@ def save_task(task: dict[str, Any]) -> None:
     task["updated_at"] = utc_now()
     set_json(task_key(task["task_id"]), task)
     redis.command("SADD", key("task_ids"), task["task_id"])
+    index_provider_health_task(task)
     if task.get("state") in {STATE_LEASED, STATE_RUNNING, STATE_REVIEW}:
         redis.command("SADD", key("active_lease_ids"), task["task_id"])
     else:
@@ -1566,7 +2036,76 @@ def mark_node_runner_failure(task: dict[str, Any], body: dict[str, Any]) -> None
     set_json(node_key(node_id), node)
 
 
-def compatible(task: dict[str, Any], node_id: str, capabilities: list[str], node: dict[str, Any] | None = None) -> bool:
+def external_provider_task_compatible(
+    task: dict[str, Any],
+    node_id: str,
+    provider: str,
+) -> bool:
+    """Permit only the exact read-only Home provider-gateway envelope."""
+
+    envelope = task.get("envelope") if isinstance(task.get("envelope"), dict) else {}
+    allowed_fields = {
+        "task_id", "idempotency_key", "kind", "target_node", "required_capability",
+        "runner", "objective", "write_scope", "constraints", "max_retries",
+        "fallback_allowed", "source",
+    }
+    if set(envelope) != allowed_fields:
+        return False
+    if str(task.get("kind") or envelope.get("kind") or "") != "owner_remote_task":
+        return False
+    if envelope.get("kind") != "owner_remote_task":
+        return False
+    if envelope.get("target_node") != node_id:
+        return False
+    if envelope.get("runner") != provider:
+        return False
+    if envelope.get("required_capability") != f"runner:{provider}":
+        return False
+    if not isinstance(envelope.get("objective"), str) or not envelope["objective"].strip():
+        return False
+    if envelope.get("write_scope") != []:
+        return False
+    if type(envelope.get("max_retries")) is not int or envelope.get("max_retries") != 0:
+        return False
+    if envelope.get("fallback_allowed") is not False:
+        return False
+    constraints = envelope.get("constraints")
+    if not isinstance(constraints, dict) or set(constraints) != {
+        "read_only", "max_wall_seconds", "network",
+    }:
+        return False
+    wall_seconds = constraints.get("max_wall_seconds")
+    if not (
+        constraints.get("read_only") is True
+        and constraints.get("network") == "provider_managed_only"
+        and type(wall_seconds) is int
+        and 1 <= wall_seconds <= 600
+    ):
+        return False
+    source = envelope.get("source")
+    if not isinstance(source, dict) or set(source) != {
+        "kind", "control_plane", "response_id", "identity_contract",
+    }:
+        return False
+    return bool(
+        source.get("kind") == "kolibri_provider_gateway"
+        and source.get("control_plane") == "home"
+        and source.get("identity_contract") == "kolibri.public-identity.v1"
+        and isinstance(source.get("response_id"), str)
+        and source["response_id"].strip()
+    )
+
+
+def compatible(
+    task: dict[str, Any],
+    node_id: str,
+    capabilities: list[str],
+    node: dict[str, Any] | None = None,
+    lease_context: dict[str, Any] | None = None,
+) -> bool:
+    if (lease_context or {}).get("lease_scope") == EXTERNAL_PROVIDER_ACTOR_SCOPE:
+        provider = str((lease_context or {}).get("provider") or "").strip().lower()
+        return bool(provider and external_provider_task_compatible(task, node_id, provider))
     envelope = task.get("envelope", {})
     target_node = envelope.get("target_node") or envelope.get("required_node")
     if target_node and target_node != node_id:
@@ -1794,6 +2333,149 @@ def failure_task_listing(error_type: str, limit: int) -> dict[str, Any]:
     }
 
 
+PROVIDER_HEALTH_OPEN_REASONS = frozenset({
+    "lease_expired", "provider_access_denied", "provider_auth_failed",
+    "provider_risk_control", "provider_runner_missing", "provider_runner_outdated",
+    "provider_timeout", "provider_usage_limit", "rate_limited", "runner_access_denied",
+    "runner_auth_blocked", "runner_auth_failed", "runner_policy_blocked",
+    "runner_unavailable",
+})
+PROVIDER_HEALTH_TERMINAL_STATES = frozenset({
+    "blocked", "cancelled", "canceled", "completed", "dead", "dead_letter", "failed",
+})
+PROVIDER_HEALTH_SCAN_LIMIT = 2048
+PROVIDER_HEALTH_INDEX_RETAIN = 4096
+
+
+def provider_health_index_key() -> str:
+    return key("runtime:provider_health_task_updates")
+
+
+def is_provider_gateway_task(task: Any) -> bool:
+    if not isinstance(task, dict):
+        return False
+    envelope = task.get("envelope") if isinstance(task.get("envelope"), dict) else {}
+    source = envelope.get("source") if isinstance(envelope.get("source"), dict) else {}
+    return bool(
+        str(task.get("task_id") or "").startswith("KOL-PROVIDER-")
+        or source.get("kind") == "kolibri_provider_gateway"
+    )
+
+
+def index_provider_health_task(task: Any) -> None:
+    if not is_provider_gateway_task(task):
+        return
+    task_id = str(task.get("task_id") or "")
+    observed_at = parse_iso_ts(task.get("updated_at") or task.get("created_at")) or now_ts()
+    try:
+        redis.command("ZADD", provider_health_index_key(), observed_at, task_id)
+        # Auxiliary routing health must remain bounded and must never turn a
+        # successfully persisted task transition into a false API failure.
+        redis.command(
+            "ZREMRANGEBYRANK", provider_health_index_key(), 0,
+            -(PROVIDER_HEALTH_INDEX_RETAIN + 1),
+        )
+    except (RedisError, OSError, ValueError):
+        return
+
+
+def provider_health_projection(
+    tasks: list[Any],
+    runner: str,
+    *,
+    limit: int = 64,
+) -> list[dict[str, Any]]:
+    """Reduce provider task history to a prompt-free latest node outcome."""
+
+    normalized_runner = str(runner or "").strip().lower()
+    if normalized_runner not in {"mimo", "codex"}:
+        raise ValueError("provider_health_runner_invalid")
+    bounded_limit = min(max(int(limit), 1), 128)
+    latest: dict[str, tuple[float, str, dict[str, Any]]] = {}
+    for task in tasks:
+        if not is_provider_gateway_task(task):
+            continue
+        envelope = task.get("envelope") if isinstance(task.get("envelope"), dict) else {}
+        task_runner = str(task.get("runner") or envelope.get("runner") or "").strip().lower()
+        if task_runner != normalized_runner:
+            continue
+        state = str(task.get("state") or "").strip().lower()
+        if state not in PROVIDER_HEALTH_TERMINAL_STATES:
+            continue
+        observed_ts = parse_iso_ts(
+            task.get("updated_at") or task.get("heartbeat_at") or task.get("created_at")
+        )
+        if observed_ts is None:
+            continue
+        node_id = str(envelope.get("target_node") or "").strip()
+        if not node_id:
+            node_id = str(task.get("lease_owner") or "").partition(":")[0].strip()
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,159}", node_id):
+            continue
+        result = task.get("result") if isinstance(task.get("result"), dict) else {}
+        result_status = str(result.get("status") or "").strip().lower()
+        raw_error = str(task.get("error_type") or result.get("error_type") or "").strip().lower()
+        cancel_reason = str(task.get("cancel_reason") or "").strip().lower()
+        status = ""
+        reason = ""
+        if state == "completed" and result_status == "completed" and not raw_error:
+            status, reason = "healthy", "verified_completion"
+        elif cancel_reason == "factory_provider_poll_timeout":
+            status, reason = "open", "provider_timeout"
+        elif raw_error in PROVIDER_HEALTH_OPEN_REASONS:
+            status, reason = "open", raw_error
+        elif state in {"blocked", "dead", "dead_letter", "failed"}:
+            status, reason = "open", "provider_runtime_failed"
+        if not status:
+            # In particular, an ordinary owner cancellation is not evidence
+            # that the provider route is unhealthy.
+            continue
+        created_ts = parse_iso_ts(task.get("created_at"))
+        latency = (
+            round(max(0.0, observed_ts - created_ts), 3)
+            if created_ts is not None and observed_ts >= created_ts
+            else None
+        )
+        record = {
+            "node_id": node_id,
+            "status": status,
+            "reason": reason,
+            "observed_at": datetime.fromtimestamp(observed_ts, timezone.utc).isoformat(),
+            "latency_seconds": latency,
+        }
+        task_id = str(task.get("task_id") or "")
+        previous = latest.get(node_id)
+        if previous is None or (observed_ts, task_id) > (previous[0], previous[1]):
+            latest[node_id] = (observed_ts, task_id, record)
+    ordered = sorted(latest.values(), key=lambda item: (-item[0], item[2]["node_id"]))
+    return [record for _timestamp, _task_id, record in ordered[:bounded_limit]]
+
+
+def provider_health_records(runner: str, limit: int = 64) -> dict[str, Any]:
+    normalized_runner = str(runner or "").strip().lower()
+    if normalized_runner not in {"mimo", "codex"}:
+        raise ValueError("provider_health_runner_invalid")
+    bounded_limit = min(max(int(limit), 1), 128)
+    indexed_ids = redis.command(
+        "ZREVRANGE", provider_health_index_key(), 0, PROVIDER_HEALTH_SCAN_LIMIT - 1,
+    ) or []
+    if indexed_ids:
+        task_ids = list(dict.fromkeys(str(item) for item in indexed_ids))
+    else:
+        # Compatibility migration for pre-index tasks is permitted only when
+        # the whole set fits the hard scan bound; arbitrary SMEMBERS order is
+        # never treated as chronological recency.
+        legacy_ids = redis.command("SMEMBERS", key("task_ids")) or []
+        task_ids = list(dict.fromkeys(str(item) for item in legacy_ids))
+        if len(task_ids) > PROVIDER_HEALTH_SCAN_LIMIT:
+            task_ids = []
+    tasks = get_json_many([task_key(task_id) for task_id in task_ids])
+    return {
+        "runner": normalized_runner,
+        "records": provider_health_projection(tasks, normalized_runner, limit=bounded_limit),
+    }
+
+
 def create_task(envelope: dict[str, Any]) -> dict[str, Any]:
     if envelope.get("kind") in RELEASE_TASK_KINDS:
         envelope = authorize_release_task(envelope)
@@ -1843,7 +2525,9 @@ def create_task(envelope: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(result, list) or len(result) != 2:
         raise RuntimeError("idempotency_claim_failed")
     if int(result[0]) == 1:
-        return json.loads(result[1])
+        created_task = json.loads(result[1])
+        index_provider_health_task(created_task)
+        return created_task
 
     existing_raw = str(result[1])
     try:
@@ -1907,8 +2591,11 @@ def response(handler: BaseHTTPRequestHandler, status: int, body: Any) -> None:
 def read_body(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
     length = int(handler.headers.get("Content-Length") or "0")
     if not length:
+        handler._kolibri_wire_body_sha256 = hashlib.sha256(b"").hexdigest()
         return {}
-    return json.loads(handler.rfile.read(length).decode("utf-8"))
+    payload = handler.rfile.read(length)
+    handler._kolibri_wire_body_sha256 = hashlib.sha256(payload).hexdigest()
+    return json.loads(payload.decode("utf-8"))
 
 
 def parse_owner_ids(value: str) -> set[int]:
@@ -2164,6 +2851,32 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/v1/fabric/keys/rotation":
                 response(self, 200, NODE_IDENTITY_ROTATION_POLICY)
                 return
+            if path == "/v1/runtime/provider-health":
+                query = parse_qs(parsed.query)
+                runner = str(query.get("runner", [""])[0] or "").strip().lower()
+                try:
+                    payload = provider_health_records(
+                        runner,
+                        int(query.get("limit", ["64"])[0]),
+                    )
+                except (TypeError, ValueError) as exc:
+                    response(self, 400, {"error": str(exc)})
+                    return
+                response(self, 200, payload)
+                return
+            if path == "/v1/runtime/provider-actors":
+                query = parse_qs(parsed.query)
+                runner = str(query.get("runner", [""])[0] or "").strip().lower()
+                try:
+                    payload = external_provider_actor_records(
+                        runner,
+                        int(query.get("limit", ["64"])[0]),
+                    )
+                except (TypeError, ValueError) as exc:
+                    response(self, 400, {"error": str(exc)})
+                    return
+                response(self, 200, payload)
+                return
             if path == "/v1/tasks":
                 query = parse_qs(parsed.query)
                 wanted = query.get("state", [None])[0]
@@ -2286,6 +2999,23 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path == "/v1/nodes/register":
                 node_id = body["node_id"]
+                if body.get("external_provider_auth") is not None:
+                    response(self, 400, {"error": "external_provider_actor_server_marker_forbidden"})
+                    return
+                existing_node = get_json(node_key(node_id), {})
+                existing_external = external_provider_actor_identity(node_id, existing_node) is not None
+                existing_marked = has_external_provider_actor_marker(node_id, existing_node)
+                auth_node = existing_node if (existing_external or existing_marked) else body
+                if existing_marked:
+                    auth_node = {**auth_node, "external_provider_auth": existing_node["external_provider_auth"]}
+                if existing_external or existing_marked:
+                    if external_provider_actor_identity(node_id, body) is None:
+                        response(self, 409, {"error": "external_provider_actor_identity_immutable"})
+                        return
+                if not require_external_provider_actor_auth(
+                    self, node_id, auth_node, body, allow_marker_upgrade=True,
+                ):
+                    return
                 node = {
                     "node_id": node_id,
                     "hostname": body.get("hostname"),
@@ -2299,7 +3029,24 @@ class Handler(BaseHTTPRequestHandler):
                     "disk": body.get("disk"),
                     "agent_id": body.get("agent_id"),
                     "labels": body.get("labels") if isinstance(body.get("labels"), dict) else {},
+                    "runner_readiness": (
+                        body.get("runner_readiness")
+                        if isinstance(body.get("runner_readiness"), dict)
+                        else {}
+                    ),
                 }
+                marker = external_provider_actor_auth_marker(node_id)
+                if external_provider_actor_identity(node_id, node) is not None:
+                    if not re.fullmatch(
+                        r"[A-Za-z0-9][A-Za-z0-9._:-]{0,159}",
+                        str(node.get("agent_id") or ""),
+                    ):
+                        response(self, 400, {"error": "external_provider_actor_agent_id_invalid"})
+                        return
+                    if marker is None:
+                        response(self, 403, {"error": "external_provider_actor_node_binding_invalid"})
+                        return
+                    node["external_provider_auth"] = marker
                 set_json(node_key(node_id), node)
                 redis.command("SADD", key("node_ids"), node_id)
                 annotation = node_membership_annotation(node_id)
@@ -2307,8 +3054,41 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path.startswith("/v1/nodes/") and path.endswith("/heartbeat"):
                 node_id = path.split("/")[3]
+                if body.get("node_id") not in {None, node_id} or body.get("external_provider_auth") is not None:
+                    response(self, 400, {"error": "external_provider_actor_identity_payload_invalid"})
+                    return
                 node = get_json(node_key(node_id), {"node_id": node_id})
+                existing_external = external_provider_actor_identity(node_id, node) is not None
+                existing_marked = has_external_provider_actor_marker(node_id, node)
+                if existing_external or existing_marked:
+                    allowed_heartbeat_fields = {
+                        "node_id", "hostname", "agent_id", "pid", "capabilities", "runners",
+                        "runner_readiness", "release_installer", "labels", "active_task",
+                        "cpu", "ram", "disk",
+                    }
+                    if set(body) - allowed_heartbeat_fields:
+                        response(self, 400, {"error": "external_provider_actor_heartbeat_field_forbidden"})
+                        return
+                    if body.get("agent_id") != node.get("agent_id"):
+                        response(self, 409, {"error": "external_provider_actor_agent_id_immutable"})
+                        return
+                if (existing_external or existing_marked) and external_provider_actor_identity(node_id, body) is None:
+                    response(self, 409, {"error": "external_provider_actor_identity_immutable"})
+                    return
+                auth_node = node if (existing_external or existing_marked) else {**node, **body}
+                if existing_marked:
+                    auth_node["external_provider_auth"] = node["external_provider_auth"]
+                if not require_external_provider_actor_auth(self, node_id, auth_node, body):
+                    return
                 node.update(body)
+                if has_external_provider_actor_marker(node_id, auth_node):
+                    node["external_provider_auth"] = auth_node["external_provider_auth"]
+                elif existing_external:
+                    marker = external_provider_actor_auth_marker(node_id)
+                    if marker is None:
+                        response(self, 403, {"error": "external_provider_actor_node_binding_invalid"})
+                        return
+                    node["external_provider_auth"] = marker
                 node["health"] = "online"
                 node["heartbeat_at"] = utc_now()
                 set_json(node_key(node_id), node)
@@ -2469,8 +3249,11 @@ class Handler(BaseHTTPRequestHandler):
                 })
                 return
             if path == "/v1/tasks/lease":
-                requeue_expired_leases()
                 node_id = body["node_id"]
+                lease_node = get_json(node_key(node_id), {})
+                if not require_external_provider_actor_auth(self, node_id, lease_node, body):
+                    return
+                requeue_expired_leases()
                 eligibility = lease_node_eligibility(node_id)
                 if eligibility.get("eligible") is not True:
                     # Preserve the Redis audit card, but a legacy/duplicate,
@@ -2480,7 +3263,29 @@ class Handler(BaseHTTPRequestHandler):
                 capabilities = body.get("capabilities", [])
                 agent_id = body.get("agent_id", node_id)
                 node = eligibility["node"]
-                if isinstance(body.get("runners"), dict):
+                if eligibility.get("lease_scope") == EXTERNAL_PROVIDER_ACTOR_SCOPE:
+                    # Registration/heartbeat is the external actor's audited
+                    # readiness authority. A lease request cannot self-upgrade
+                    # capabilities or runner state just before scheduling.
+                    registered_capabilities = [
+                        str(item)
+                        for item in node.get("capabilities") or []
+                        if isinstance(item, str)
+                    ]
+                    if {
+                        str(item).strip().lower()
+                        for item in capabilities
+                        if isinstance(item, str)
+                    } != {
+                        item.strip().lower() for item in registered_capabilities
+                    }:
+                        response(self, 204, {})
+                        return
+                    if agent_id != node.get("agent_id"):
+                        response(self, 401, {"error": "external_provider_actor_agent_id_invalid"})
+                        return
+                    capabilities = registered_capabilities
+                elif isinstance(body.get("runners"), dict):
                     node["runners"] = body["runners"]
                     set_json(node_key(node_id), node)
                 for task_id in queue_ids():
@@ -2495,12 +3300,15 @@ class Handler(BaseHTTPRequestHandler):
                         if not task or task.get("state") not in {STATE_QUEUED, STATE_REVIEW}:
                             remove_from_queue(task_id)
                             continue
-                        if not compatible(task, node_id, capabilities, node):
+                        if not compatible(task, node_id, capabilities, node, eligibility):
                             continue
                         task["state"] = STATE_LEASED
                         task["attempt"] = int(task.get("attempt", 0)) + 1
                         task["attempt_id"] = f"{task_id}-attempt-{task['attempt']}"
                         task["lease_owner"] = f"{node_id}:{agent_id}"
+                        task["lease_actor_scope"] = eligibility.get("lease_scope") or "canonical_mesh"
+                        if eligibility.get("lease_scope") == EXTERNAL_PROVIDER_ACTOR_SCOPE:
+                            task["lease_external_auth"] = dict(node.get("external_provider_auth") or {})
                         task["lease_until"] = now_ts() + LEASE_DURATION
                         task["heartbeat_at"] = utc_now()
                         save_task(task)
@@ -2516,6 +3324,17 @@ class Handler(BaseHTTPRequestHandler):
                 task = load_task(task_id)
                 if not task:
                     response(self, 404, {"error": "task_not_found", "task_id": task_id})
+                    return
+                lease_node_id = str(task.get("lease_owner") or "").partition(":")[0]
+                lease_node = get_json(node_key(lease_node_id), {})
+                if task.get("lease_actor_scope") == EXTERNAL_PROVIDER_ACTOR_SCOPE:
+                    lease_node = {
+                        **lease_node,
+                        "external_provider_auth": dict(task.get("lease_external_auth") or {}),
+                    }
+                if not require_external_provider_actor_auth(
+                    self, lease_node_id, lease_node, body,
+                ):
                     return
                 if reject_invalid_lease_fence(self, task, body):
                     return
@@ -2535,6 +3354,17 @@ class Handler(BaseHTTPRequestHandler):
                 task = load_task(task_id)
                 if not task:
                     response(self, 404, {"error": "task_not_found", "task_id": task_id})
+                    return
+                lease_node_id = str(task.get("lease_owner") or "").partition(":")[0]
+                lease_node = get_json(node_key(lease_node_id), {})
+                if task.get("lease_actor_scope") == EXTERNAL_PROVIDER_ACTOR_SCOPE:
+                    lease_node = {
+                        **lease_node,
+                        "external_provider_auth": dict(task.get("lease_external_auth") or {}),
+                    }
+                if not require_external_provider_actor_auth(
+                    self, lease_node_id, lease_node, body,
+                ):
                     return
                 if reject_invalid_lease_fence(self, task, body):
                     return
@@ -2567,6 +3397,9 @@ class Handler(BaseHTTPRequestHandler):
                 if not task:
                     response(self, 404, {"error": "task_not_found", "task_id": task_id})
                     return
+                if task.get("lease_actor_scope") == EXTERNAL_PROVIDER_ACTOR_SCOPE:
+                    response(self, 403, {"error": "external_provider_actor_annotate_forbidden"})
+                    return
                 result = task.get("result") or {}
                 result.update(body.get("result", body))
                 task["result"] = result
@@ -2586,6 +3419,17 @@ class Handler(BaseHTTPRequestHandler):
                 task = load_task(task_id)
                 if not task:
                     response(self, 404, {"error": "task_not_found", "task_id": task_id})
+                    return
+                lease_node_id = str(task.get("lease_owner") or "").partition(":")[0]
+                lease_node = get_json(node_key(lease_node_id), {})
+                if task.get("lease_actor_scope") == EXTERNAL_PROVIDER_ACTOR_SCOPE:
+                    lease_node = {
+                        **lease_node,
+                        "external_provider_auth": dict(task.get("lease_external_auth") or {}),
+                    }
+                if not require_external_provider_actor_auth(
+                    self, lease_node_id, lease_node, body,
+                ):
                     return
                 if reject_invalid_lease_fence(self, task, body):
                     return

@@ -87,7 +87,10 @@ def main(argv: list[str] | None = None) -> int:
         "label": LABEL,
         "launch_agent_present": installed,
         "remove_runtime": args.remove_runtime,
-        "preserved": ["codex_session", "mesh_manifest", "runner_access", "worktrees", "artifacts", "logs"],
+        "preserved": [
+            "codex_session", "mesh_manifest", "runner_access",
+            "external_provider_credential", "worktrees", "artifacts", "logs",
+        ],
     }
     if not args.apply:
         print(json_line(plan))

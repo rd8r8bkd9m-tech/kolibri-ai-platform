@@ -179,6 +179,8 @@ def prepare_vertical_task(task: VerticalTask) -> tuple[str, dict[str, Any] | Non
 _PROVENANCE_SOURCES = {
     "manual", "assumption", "catalog", "contract", "supplier", "measurement",
 }
+_JSON_FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.IGNORECASE | re.DOTALL)
+_MAX_EMBEDDED_JSON_STARTS = 128
 _CATEGORIES = {"labor", "material", "equipment", "service", "other"}
 _CATEGORY_ALIASES = {
     "work": "labor",
@@ -235,27 +237,102 @@ def _normalized_object_field(value: dict[str, Any], field: str) -> Any:
     return None
 
 
-def _provider_json_object(response_text: str) -> dict[str, Any]:
-    text = response_text.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        if lines and lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].strip() == "```":
-            lines = lines[:-1]
-        text = "\n".join(lines).strip()
+def _unwrapped_estimate_object(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    nested = value.get("estimate")
+    return nested if isinstance(nested, dict) else value
+
+
+def _json_objects_from_text(text: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Return exact and embedded JSON objects from bounded model text.
+
+    Codex normally returns the requested object as its final assistant message,
+    but model output can still contain a Markdown fence or a short preamble.
+    ``find('{')``/``rfind('}')`` is unsafe here: a second diagnostic object can
+    make two otherwise valid objects look like one malformed blob.  Decode
+    objects independently, cap the number of candidate starts, and let the
+    caller reject ambiguous estimate proposals.
+    """
+
+    exact: list[dict[str, Any]] = []
+    embedded: list[dict[str, Any]] = []
     try:
         value = json.loads(text)
     except json.JSONDecodeError:
-        start, end = text.find("{"), text.rfind("}")
-        if start < 0 or end <= start:
-            raise ValueError("estimate proposal is not a JSON object") from None
-        value = json.loads(text[start:end + 1])
-    if isinstance(value, dict) and isinstance(value.get("estimate"), dict):
-        value = value["estimate"]
-    if not isinstance(value, dict):
-        raise ValueError("estimate proposal is not an object")
-    return value
+        value = None
+    else:
+        # A valid JSON array/scalar is still a contract violation.  Do not
+        # rescue an object nested inside it as though it were the required
+        # top-level proposal object.
+        if isinstance(value, dict):
+            exact.append(value)
+        return exact, embedded
+
+    decoder = json.JSONDecoder()
+    offset = 0
+    attempted = 0
+    while attempted < _MAX_EMBEDDED_JSON_STARTS:
+        start = text.find("{", offset)
+        if start < 0:
+            break
+        attempted += 1
+        offset = start + 1
+        try:
+            value, _end = decoder.raw_decode(text, start)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            embedded.append(value)
+    return exact, embedded
+
+
+def _provider_json_object(response_text: str) -> dict[str, Any]:
+    text = response_text.strip()
+    if not text:
+        raise ValueError("estimate proposal is not a JSON object")
+
+    segments = [match.group(1).strip() for match in _JSON_FENCE.finditer(text)]
+    segments.append(text)
+    exact_objects: list[dict[str, Any]] = []
+    embedded_objects: list[dict[str, Any]] = []
+    for segment in segments:
+        if not segment:
+            continue
+        exact, embedded = _json_objects_from_text(segment)
+        exact_objects.extend(exact)
+        embedded_objects.extend(embedded)
+
+    estimate_candidates: dict[str, dict[str, Any]] = {}
+    for raw in [*exact_objects, *embedded_objects]:
+        value = _unwrapped_estimate_object(raw)
+        if value is None or not isinstance(value.get("lines"), list):
+            continue
+        canonical = json.dumps(
+            value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        )
+        estimate_candidates.setdefault(canonical, value)
+    if len(estimate_candidates) == 1:
+        return next(iter(estimate_candidates.values()))
+    if len(estimate_candidates) > 1:
+        raise ValueError("estimate proposal contains multiple JSON objects")
+
+    # Preserve the strict downstream validation error for a single object that
+    # is valid JSON but does not implement the estimate proposal schema.
+    fallback_candidates: dict[str, dict[str, Any]] = {}
+    for raw in exact_objects or embedded_objects:
+        value = _unwrapped_estimate_object(raw)
+        if value is None:
+            continue
+        canonical = json.dumps(
+            value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        )
+        fallback_candidates.setdefault(canonical, value)
+    if len(fallback_candidates) == 1:
+        return next(iter(fallback_candidates.values()))
+    if len(fallback_candidates) > 1:
+        raise ValueError("estimate proposal contains multiple JSON objects")
+    raise ValueError("estimate proposal is not a JSON object")
 
 
 def estimate_spec_from_provider_response(
@@ -294,8 +371,10 @@ def estimate_spec_from_provider_response(
             source = "assumption"
             source_ref = "Цена предложена моделью без подтверждённого источника"
         unit_price = raw.get("unit_price_minor")
-        if isinstance(unit_price, str) and unit_price.isdigit():
-            unit_price = int(unit_price)
+        if isinstance(unit_price, str):
+            compact_price = re.sub(r"[\s_\u00a0\u202f]", "", unit_price)
+            if compact_price.isdigit():
+                unit_price = int(compact_price)
         if not isinstance(unit_price, int) or isinstance(unit_price, bool):
             raise ValueError("estimate unit_price_minor must be an integer")
         category = str(raw.get("category") or raw.get("type") or "other").strip().lower()

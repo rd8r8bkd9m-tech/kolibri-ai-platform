@@ -14,6 +14,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -25,6 +26,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from mac_codex_provider_common import (  # noqa: E402
     LABEL,
+    MAC_CODEX_READINESS_REFRESH_SECONDS,
     MacProviderConfigError,
     MacProviderLayout,
     json_line,
@@ -35,6 +37,28 @@ from mac_codex_provider_common import (  # noqa: E402
 
 
 MAX_HEALTH_BYTES = 1024 * 1024
+READINESS_FRESHNESS_GRACE_SECONDS = 60
+
+
+def readiness_is_fresh(
+    checked_at: Any,
+    *,
+    now: datetime | None = None,
+    refresh_seconds: int = MAC_CODEX_READINESS_REFRESH_SECONDS,
+) -> bool:
+    if not isinstance(checked_at, str) or not checked_at.strip():
+        return False
+    try:
+        observed = datetime.fromisoformat(checked_at.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if observed.tzinfo is None:
+        return False
+    current = now or datetime.now(timezone.utc)
+    age = (current.astimezone(timezone.utc) - observed.astimezone(timezone.utc)).total_seconds()
+    return -READINESS_FRESHNESS_GRACE_SECONDS <= age <= (
+        refresh_seconds + READINESS_FRESHNESS_GRACE_SECONDS
+    )
 
 
 def load_module(path: Path, name: str) -> ModuleType:
@@ -151,6 +175,8 @@ def main(argv: list[str] | None = None) -> int:
         "bootstrap": regular_mode(layout.bootstrap_log),
     }
     log_permissions_safe = all(mode == 0o600 for mode in log_modes.values())
+    credential_mode = regular_mode(layout.provider_credential)
+    credential_permissions_safe = credential_mode == 0o600
     evidence: dict[str, Any] = {
         "schema_version": "kolibri.mac-codex-provider-health.v1",
         "status": "validated",
@@ -160,10 +186,11 @@ def main(argv: list[str] | None = None) -> int:
         "runtime_dir": str(runtime_dir),
         "runner_access": str(runner_access_path),
         "log_permissions_safe": log_permissions_safe,
+        "credential_permissions_safe": credential_permissions_safe,
         "validate_only": args.validate_only,
     }
     if args.validate_only:
-        evidence["passed"] = log_permissions_safe
+        evidence["passed"] = log_permissions_safe and credential_permissions_safe
         print(json_line(evidence))
         return 0 if evidence["passed"] else 1
 
@@ -196,12 +223,15 @@ def main(argv: list[str] | None = None) -> int:
         "codex_probe_passed": (
             readiness_probe.get("status") == "passed"
         ),
+        "codex_readiness_fresh": readiness_is_fresh(codex_readiness.get("checked_at")),
         "mimo_disabled": mimo.get("status") == "disabled" and "runner:mimo" not in capabilities,
         "log_permissions_safe": log_permissions_safe,
+        "credential_permissions_safe": credential_permissions_safe,
     }
     evidence.update({
         "status": "passed" if all(checks.values()) else "failed",
         "passed": all(checks.values()),
+        "codex_readiness_refresh_seconds": MAC_CODEX_READINESS_REFRESH_SECONDS,
         "checks": checks,
     })
     print(json_line(evidence))
