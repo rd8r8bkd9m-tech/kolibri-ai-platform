@@ -518,13 +518,12 @@ def test_controller_run_submits_dynamic_tasks_and_validates_every_proof():
     }
 
 
-def test_controller_run_auth_token_requires_private_file(tmp_path):
+def test_controller_optional_auth_token_requires_private_file_when_supplied(tmp_path):
     campaign = load_module(
         "fleet_capability_proof_controller_auth",
         ROOT / "ops" / "fleet_capability_proof.py",
     )
-    with pytest.raises(campaign.CampaignError, match="required"):
-        campaign.read_bearer_token(None, required=True)
+    assert campaign.read_bearer_token(None, required=False) is None
     token_file = tmp_path / "factory.token"
     token_file.write_text("x" * 32, encoding="utf-8")
     token_file.chmod(0o644)

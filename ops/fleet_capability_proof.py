@@ -365,7 +365,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--auth-token-file",
         default=os.environ.get("KOLIBRI_FACTORY_API_TOKEN_FILE"),
-        help="0600 bearer-token file; required for run/apply and never printed",
+        help=(
+            "optional 0600 bearer-token file for a Control Plane ingress that "
+            "actually enforces bearer auth; never printed"
+        ),
     )
     parser.add_argument("--request-timeout", type=float, default=10.0)
     parser.add_argument("--campaign-timeout", type=float, default=180.0)
@@ -409,7 +412,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         bearer_token = read_bearer_token(
             args.auth_token_file,
-            required=args.command in {"run", "apply"},
+            required=False,
         )
         client = ControlPlaneClient(
             control_url,
