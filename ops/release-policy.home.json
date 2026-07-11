@@ -16,6 +16,7 @@
     "ops/control_plane_endpoint.py",
     "ops/factory_control.py",
     "ops/fleet_membership.py",
+    "ops/immutable_release_preflight.py",
     "ops/mimo/kolibri-response-only.md",
     "ops/release_authority.py",
     "ops/release_helper.py",
@@ -24,6 +25,14 @@
     "ops/telegram_superfactory.py"
   ],
   "pre_health": [
+    {
+      "name": "immutable-current-exact-file-set",
+      "argv": [
+        "/usr/bin/python3",
+        "/usr/local/lib/kolibri/immutable_release_preflight.py"
+      ],
+      "timeout_seconds": 30
+    },
     {
       "name": "backend-baseline",
       "argv": [
@@ -46,7 +55,8 @@
         "--manifest",
         "/var/lib/kolibri-mesh/peers.json",
         "--url",
-        "http://127.0.0.1:9101"
+        "http://127.0.0.1:9101",
+        "--allow-legacy-baseline"
       ],
       "timeout_seconds": 20
     }

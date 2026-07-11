@@ -30,6 +30,8 @@ DEFAULT_MANIFEST = Path("/var/lib/kolibri-mesh/peers.json")
 DEFAULT_LIVE_URL = "http://127.0.0.1:9101"
 DEFAULT_RELEASE_ROOT = Path("/opt/kolibri-ai/releases")
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+LEGACY_ROLLBACK_EXIT_CODE = 10
+LEGACY_BASELINE_EXIT_CODE = 11
 REQUIRED_RUNTIME = (
     "ops/control_plane_endpoint.py",
     "ops/factory_control.py",
@@ -41,6 +43,10 @@ REQUIRED_RUNTIME = (
 
 class CanaryError(RuntimeError):
     """Sanitized gate failure suitable for installer evidence."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
 
 
 def _trusted_runtime_file(path: Path) -> bool:
@@ -101,6 +107,10 @@ def _http_json(base_url: str, path: str, *, timeout: float = 3.0) -> dict[str, A
             if response.status != 200:
                 raise CanaryError("control_plane_contract_unavailable")
             raw = response.read(MAX_RESPONSE_BYTES + 1)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            raise CanaryError("control_plane_contract_not_found") from exc
+        raise CanaryError("control_plane_contract_unavailable") from exc
     except (OSError, TimeoutError, urllib.error.URLError) as exc:
         raise CanaryError("control_plane_contract_unavailable") from exc
     if not raw or len(raw) > MAX_RESPONSE_BYTES:
@@ -137,15 +147,23 @@ def validate_contracts(
     state_namespace = str(data.get("state_namespace") or "kolibri_factory")
     if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", state_namespace):
         raise CanaryError("control_plane_state_namespace_invalid")
+    legacy_shape = bool(
+        data.get("active_release_id") in {None, ""}
+        and data.get("canary_read_only") is None
+        and data.get("state_namespace") in {None, ""}
+    )
     legacy_contract_accepted = False
+    legacy_compatibility_reasons: list[str] = []
     if expected_release_id is not None and data.get("active_release_id") != expected_release_id:
-        if allow_legacy_contract and data.get("active_release_id") in {None, ""}:
+        if allow_legacy_contract and legacy_shape:
             legacy_contract_accepted = True
+            legacy_compatibility_reasons.append("release_identity_absent")
         else:
             raise CanaryError("control_plane_release_identity_mismatch")
     if expected_read_only is not None and data.get("canary_read_only") is not expected_read_only:
-        if allow_legacy_contract and data.get("canary_read_only") is None:
+        if allow_legacy_contract and legacy_shape:
             legacy_contract_accepted = True
+            legacy_compatibility_reasons.append("canary_mode_absent")
         else:
             raise CanaryError("control_plane_canary_mode_mismatch")
 
@@ -168,29 +186,48 @@ def validate_contracts(
     if any(type(value) is not int or value < 0 for value in membership_projection.values()):
         raise CanaryError("control_plane_membership_contract_invalid")
 
-    proof = _http_json(base_url, "/v1/runtime/fleet-proof")
-    proof_summary = proof.get("summary") if isinstance(proof.get("summary"), dict) else {}
-    proof_membership = proof.get("membership") if isinstance(proof.get("membership"), dict) else {}
-    proof_nodes = proof.get("nodes") if isinstance(proof.get("nodes"), list) else []
-    proof_ids = [str(item.get("node_id") or "") for item in proof_nodes if isinstance(item, dict)]
-    if (
-        proof.get("schema_version") != FLEET_PROOF_SCHEMA
-        or proof.get("source") != "control-plane/home"
-        or proof_membership.get("digest") != snapshot.digest
-        or proof_summary.get("canonical_total") != len(expected_ids)
-        or proof_ids != expected_ids
-    ):
-        raise CanaryError("control_plane_fleet_proof_contract_invalid")
-    proof_projection = {
-        key: proof_summary.get(key)
-        for key in (
-            "fresh_total",
-            "strict_verified_total",
-            "missing_strict_verified_total",
-        )
-    }
-    if any(type(value) is not int or value < 0 for value in proof_projection.values()):
-        raise CanaryError("control_plane_fleet_proof_contract_invalid")
+    proof_status = "verified"
+    try:
+        proof = _http_json(base_url, "/v1/runtime/fleet-proof")
+    except CanaryError as exc:
+        if (
+            exc.code == "control_plane_contract_not_found"
+            and allow_legacy_contract
+            and legacy_shape
+        ):
+            legacy_contract_accepted = True
+            legacy_compatibility_reasons.append("fleet_proof_endpoint_absent")
+            proof_status = "legacy_unavailable"
+            proof_projection = {
+                "fresh_total": None,
+                "strict_verified_total": None,
+                "missing_strict_verified_total": None,
+            }
+        else:
+            raise
+    else:
+        proof_summary = proof.get("summary") if isinstance(proof.get("summary"), dict) else {}
+        proof_membership = proof.get("membership") if isinstance(proof.get("membership"), dict) else {}
+        proof_nodes = proof.get("nodes") if isinstance(proof.get("nodes"), list) else []
+        proof_ids = [str(item.get("node_id") or "") for item in proof_nodes if isinstance(item, dict)]
+        if (
+            proof.get("schema_version") != FLEET_PROOF_SCHEMA
+            or proof.get("source") != "control-plane/home"
+            or proof_membership.get("digest") != snapshot.digest
+            or proof_summary.get("canonical_total") != len(expected_ids)
+            or proof_ids != expected_ids
+        ):
+            raise CanaryError("control_plane_fleet_proof_contract_invalid")
+        proof_projection = {
+            key: proof_summary.get(key)
+            for key in (
+                "fresh_total",
+                "strict_verified_total",
+                "missing_strict_verified_total",
+            )
+        }
+        if any(type(value) is not int or value < 0 for value in proof_projection.values()):
+            raise CanaryError("control_plane_fleet_proof_contract_invalid")
     return {
         "schema_version": SCHEMA_VERSION,
         "status": "passed",
@@ -201,7 +238,9 @@ def validate_contracts(
         "state_namespace": state_namespace,
         "membership_projection": membership_projection,
         "fleet_proof_projection": proof_projection,
+        "fleet_proof_status": proof_status,
         "legacy_contract_accepted": legacy_contract_accepted,
+        "legacy_compatibility_reasons": sorted(set(legacy_compatibility_reasons)),
     }
 
 
@@ -243,7 +282,11 @@ def run_candidate(
     resolved = validate_release_dir(release_dir, release_root)
     # The baseline is part of the gate: the candidate must project the same
     # dynamic membership as the currently authoritative Home listener.
-    baseline = validate_contracts(live_url, manifest_path)
+    baseline = validate_contracts(
+        live_url,
+        manifest_path,
+        allow_legacy_contract=True,
+    )
     port = _available_loopback_port()
     candidate_url = f"http://127.0.0.1:{port}"
     environment = dict(os.environ)
@@ -257,6 +300,7 @@ def run_candidate(
         "KOLIBRI_REPO_ROOT": str(resolved),
         "KOLIBRI_OPS_DIR": str(resolved / "ops"),
         "PYTHONPATH": f"{resolved / 'ops'}:{resolved}",
+        "PYTHONDONTWRITEBYTECODE": "1",
         "PYTHONNOUSERSITE": "1",
     })
     try:
@@ -294,10 +338,19 @@ def run_candidate(
                 if (
                     result.get("membership_projection")
                     != baseline.get("membership_projection")
-                    or result.get("fleet_proof_projection")
+                ):
+                    raise CanaryError("candidate_runtime_projection_mismatch")
+                if (
+                    baseline.get("fleet_proof_status") == "verified"
+                    and result.get("fleet_proof_projection")
                     != baseline.get("fleet_proof_projection")
                 ):
                     raise CanaryError("candidate_runtime_projection_mismatch")
+                if release_kind == "apply" and (
+                    result.get("fleet_proof_status") != "verified"
+                    or result.get("legacy_contract_accepted") is not False
+                ):
+                    raise CanaryError("candidate_strict_contract_required")
                 return result
             except CanaryError as exc:
                 last_error = exc
@@ -321,6 +374,7 @@ def main(argv: list[str] | None = None) -> int:
     live.add_argument("--url", default=DEFAULT_LIVE_URL)
     live.add_argument("--expected-release-dir")
     live.add_argument("--release-kind", choices=("apply", "rollback"), default="apply")
+    live.add_argument("--allow-legacy-baseline", action="store_true")
     args = parser.parse_args(argv)
     try:
         if args.command == "candidate":
@@ -343,10 +397,17 @@ def main(argv: list[str] | None = None) -> int:
                 Path(args.manifest),
                 expected_release_id=expected,
                 expected_read_only=False if expected is not None else None,
-                allow_legacy_contract=args.release_kind == "rollback",
+                allow_legacy_contract=(
+                    args.release_kind == "rollback"
+                    or args.allow_legacy_baseline
+                ),
             )
         print(json.dumps(result, sort_keys=True))
-        return 10 if result.get("legacy_contract_accepted") is True else 0
+        if result.get("legacy_contract_accepted") is True:
+            if args.command == "live" and args.allow_legacy_baseline:
+                return LEGACY_BASELINE_EXIT_CODE
+            return LEGACY_ROLLBACK_EXIT_CODE
+        return 0
     except Exception as exc:
         reason = str(exc) if isinstance(exc, CanaryError) else "home_control_plane_canary_failed"
         print(json.dumps({"status": "failed", "reason": reason}, sort_keys=True))

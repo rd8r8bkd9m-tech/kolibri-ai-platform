@@ -205,27 +205,13 @@ def _canonical_release_agent_host(
             or selected_stat.st_mode & 0o022
         ):
             raise RuntimeError("agent_host_release_runtime_permissions_invalid")
-        runtime = selected / AGENT_HOST_RUNTIME_PATH
-        response_profile = selected / MIMO_RESPONSE_AGENT_PROFILE_PATH
         manifest_path = selected / ".kolibri-release" / "manifest.json"
-        if (
-            runtime.resolve(strict=True) != runtime
-            or response_profile.resolve(strict=True) != response_profile
-            or manifest_path.resolve(strict=True) != manifest_path
-        ):
+        if manifest_path.resolve(strict=True) != manifest_path:
             raise RuntimeError("agent_host_release_runtime_boundary_invalid")
-        runtime_stat = runtime.lstat()
-        response_profile_stat = response_profile.lstat()
         manifest_stat = manifest_path.lstat()
         if (
-            not stat.S_ISREG(runtime_stat.st_mode)
-            or not stat.S_ISREG(response_profile_stat.st_mode)
-            or not stat.S_ISREG(manifest_stat.st_mode)
-            or runtime_stat.st_mode & 0o022
-            or response_profile_stat.st_mode & 0o022
+            not stat.S_ISREG(manifest_stat.st_mode)
             or manifest_stat.st_mode & 0o022
-            or not runtime_stat.st_mode & 0o111
-            or not 1 <= response_profile_stat.st_size <= MIMO_RESPONSE_PROFILE_MAX_BYTES
         ):
             raise RuntimeError("agent_host_release_runtime_permissions_invalid")
         trusted_owner = root_stat.st_uid
@@ -233,8 +219,6 @@ def _canonical_release_agent_host(
             trusted_owner not in {0, os.geteuid()}
             or current_stat.st_uid != trusted_owner
             or selected_stat.st_uid != trusted_owner
-            or runtime_stat.st_uid != trusted_owner
-            or response_profile_stat.st_uid != trusted_owner
             or manifest_stat.st_uid != trusted_owner
         ):
             raise RuntimeError("agent_host_release_runtime_owner_invalid")
@@ -269,10 +253,40 @@ def _canonical_release_agent_host(
             for item in files
             if isinstance(item, dict) and item.get("path") == MIMO_RESPONSE_AGENT_PROFILE_PATH
         ]
+        if not records and not profile_records:
+            # One migration-only compatibility case: historical signed
+            # product releases predate both immutable Agent Host runtime
+            # records.  They are never executed as Agent Host code; the
+            # root-managed bootstrap remains active until a complete signed
+            # runtime/profile pair is selected.
+            return None
         if len(records) != 1:
             raise RuntimeError("agent_host_release_runtime_not_manifested")
         if len(profile_records) != 1:
             raise RuntimeError("mimo_response_profile_not_manifested")
+        runtime = selected / AGENT_HOST_RUNTIME_PATH
+        response_profile = selected / MIMO_RESPONSE_AGENT_PROFILE_PATH
+        if (
+            runtime.resolve(strict=True) != runtime
+            or response_profile.resolve(strict=True) != response_profile
+        ):
+            raise RuntimeError("agent_host_release_runtime_boundary_invalid")
+        runtime_stat = runtime.lstat()
+        response_profile_stat = response_profile.lstat()
+        if (
+            not stat.S_ISREG(runtime_stat.st_mode)
+            or not stat.S_ISREG(response_profile_stat.st_mode)
+            or runtime_stat.st_mode & 0o022
+            or response_profile_stat.st_mode & 0o022
+            or not runtime_stat.st_mode & 0o111
+            or not 1 <= response_profile_stat.st_size <= MIMO_RESPONSE_PROFILE_MAX_BYTES
+        ):
+            raise RuntimeError("agent_host_release_runtime_permissions_invalid")
+        if (
+            runtime_stat.st_uid != trusted_owner
+            or response_profile_stat.st_uid != trusted_owner
+        ):
+            raise RuntimeError("agent_host_release_runtime_owner_invalid")
         runtime_sha256 = hashlib.sha256(runtime.read_bytes()).hexdigest()
         response_profile_sha256 = hashlib.sha256(response_profile.read_bytes()).hexdigest()
         if records[0].get("sha256") != runtime_sha256:
@@ -340,7 +354,12 @@ def maybe_reexec_release_agent_host() -> bool:
     environment = os.environ.copy()
     existing = environment.get("PYTHONPATH", "")
     environment["PYTHONPATH"] = str(release_root) + (os.pathsep + existing if existing else "")
-    os.execve(sys.executable, [sys.executable, str(runtime), *sys.argv[1:]], environment)
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    os.execve(
+        sys.executable,
+        [sys.executable, "-B", str(runtime), *sys.argv[1:]],
+        environment,
+    )
     return True  # pragma: no cover - successful execve never returns
 
 

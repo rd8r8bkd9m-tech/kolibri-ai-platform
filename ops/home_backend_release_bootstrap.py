@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import grp
 import hashlib
 import json
 import os
@@ -40,6 +41,10 @@ SYSTEMCTL = "/usr/bin/systemctl"
 CURL = "/usr/bin/curl"
 HEALTH_URL = "http://127.0.0.1:8001/api/health"
 LOCK_PATH = "/run/lock/kolibri-home-backend-release-bootstrap.lock"
+OWNER_TOKEN_FILE = "/etc/kolibri/owner-api-token"
+OWNER_TOKEN_GROUP = "kolibri-agent"
+OWNER_TOKEN_MODE = 0o640
+MAX_OWNER_TOKEN_BYTES = 4 * 1024
 SAFE_RUN_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,95}")
 MAX_FILE_BYTES = 256 * 1024
 MAX_COMMAND_OUTPUT = 256 * 1024
@@ -55,6 +60,7 @@ Environment=KOLIBRI_ENV=production
 Environment=KOLIBRI_FACTORY_CONTROL_URL=http://127.0.0.1:9101
 Environment=KOLIBRI_FRONTEND_DIST=/opt/kolibri-ai/current/frontend/dist
 Environment=KOLIBRI_OWNER_API_TOKEN_FILE=/etc/kolibri/owner-api-token
+Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONPATH=/opt/kolibri-ai/current/backend:/opt/kolibri-ai/current
 """.encode("utf-8")
 
@@ -362,11 +368,13 @@ def _validate_backend_import(root: Path, runner: CommandRunner, current: Current
         "KOLIBRI_FACTORY_CONTROL_URL": "http://127.0.0.1:9101",
         "KOLIBRI_FRONTEND_DIST": str(current.frontend_dist),
         "KOLIBRI_OWNER_API_TOKEN_FILE": "/etc/kolibri/owner-api-token",
+        "PYTHONDONTWRITEBYTECODE": "1",
     }
     _run_checked(
         runner,
         [
             str(python),
+            "-B",
             "-c",
             "import main; assert getattr(main, 'app', None) is not None",
         ],
@@ -375,6 +383,35 @@ def _validate_backend_import(root: Path, runner: CommandRunner, current: Current
         timeout=45,
         code="backend_current_import_probe_failed",
     )
+
+
+def _validate_owner_token_file(root: Path) -> None:
+    path = _rooted(root, OWNER_TOKEN_FILE)
+    try:
+        value = path.lstat()
+    except FileNotFoundError as exc:
+        raise BackendBootstrapError("backend_owner_token_file_missing") from exc
+    except OSError as exc:
+        raise BackendBootstrapError("backend_owner_token_file_unavailable") from exc
+    if root == Path("/"):
+        try:
+            expected_gid = grp.getgrnam(OWNER_TOKEN_GROUP).gr_gid
+        except KeyError as exc:
+            raise BackendBootstrapError("backend_owner_token_group_missing") from exc
+        expected_uid = 0
+    else:
+        expected_uid = os.geteuid()
+        expected_gid = os.getegid()
+    if (
+        not stat.S_ISREG(value.st_mode)
+        or stat.S_ISLNK(value.st_mode)
+        or value.st_nlink != 1
+        or value.st_uid != expected_uid
+        or value.st_gid != expected_gid
+        or stat.S_IMODE(value.st_mode) != OWNER_TOKEN_MODE
+        or not 1 <= value.st_size <= MAX_OWNER_TOKEN_BYTES
+    ):
+        raise BackendBootstrapError("backend_owner_token_file_permissions_invalid")
 
 
 def _validate_backup_boundary(root: Path) -> None:
@@ -404,6 +441,7 @@ def preflight(
         code="backend_systemd_directory_unsafe",
     )
     current = _validate_current(root)
+    _validate_owner_token_file(root)
     dropin = _dropin_record(root)
     _validate_backup_boundary(root)
     metadata, raw = _unit_metadata(runner)
@@ -421,10 +459,12 @@ def preflight(
         raise BackendBootstrapError("backend_effective_unit_metadata_invalid") from exc
     expected_frontend = f"KOLIBRI_FRONTEND_DIST={FRONTEND_DIST}"
     expected_owner_token_file = "KOLIBRI_OWNER_API_TOKEN_FILE=/etc/kolibri/owner-api-token"
+    expected_no_bytecode = "PYTHONDONTWRITEBYTECODE=1"
     effective_release_layout = (
         metadata.get("WorkingDirectory") == BACKEND_WORKING_DIRECTORY
         and expected_frontend in environment_tokens
         and expected_owner_token_file in environment_tokens
+        and expected_no_bytecode in environment_tokens
         and bool(dropin_tokens)
         and all(value.startswith("/") for value in dropin_tokens)
     )
@@ -658,6 +698,8 @@ def _verify_activated(root: Path, runner: CommandRunner, current: CurrentRelease
         raise BackendBootstrapError("backend_frontend_dist_not_current")
     if "KOLIBRI_OWNER_API_TOKEN_FILE=/etc/kolibri/owner-api-token" not in environment_tokens:
         raise BackendBootstrapError("backend_owner_token_file_not_configured")
+    if "PYTHONDONTWRITEBYTECODE=1" not in environment_tokens:
+        raise BackendBootstrapError("backend_bytecode_write_fence_not_configured")
     _health_gate(runner)
 
 
@@ -742,6 +784,7 @@ def plan(
         "current_release": state.current.release_id,
         "current_link": "contained_direct_release_child",
         "backend_import": "verified_existing_venv",
+        "owner_token_file": "metadata_verified_without_secret_read",
         "health_baseline": "passed",
         "dropin": (
             "effective_existing" if state.effective_release_layout else existing

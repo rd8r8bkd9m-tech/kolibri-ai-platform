@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -370,6 +371,34 @@ def test_zero_exit_empty_output_is_failure_not_fake_completion(tmp_path, monkeyp
     assert result.status == "failed" and result.text == ""
     assert result.technical["evidence"] == []
     assert result.technical["attempts"][0]["error_type"] == "provider_empty_output"
+
+
+def test_request_timeout_is_total_and_kills_cli_process_group(tmp_path, monkeypatch):
+    leaked_marker = tmp_path / "provider-child-leaked"
+    codex = executable(
+        tmp_path / "codex",
+        f"(sleep 0.35; touch '{leaked_marker}') &\nsleep 10\n",
+    )
+    monkeypatch.setenv("KOLIBRI_CODEX_BIN", codex)
+    monkeypatch.setenv("KOLIBRI_CODEX_MODELS", "gpt-5.5,gpt-5.4")
+    monkeypatch.setenv("KOLIBRI_PROVIDER_WORK_DIR", str(tmp_path / "work"))
+
+    started = time.monotonic()
+    result = ProviderGateway(provider_order=("codex",), timeout=5).generate(
+        "bounded answer",
+        None,
+        "resp-total-timeout",
+        timeout_seconds=0.1,
+    )
+    elapsed = time.monotonic() - started
+    time.sleep(0.45)
+
+    assert result.status == "failed"
+    assert result.technical["error_type"] == "provider_timeout"
+    assert len(result.technical["attempts"]) == 1
+    assert result.technical["attempts"][0]["provider_model"] == "gpt-5.5"
+    assert elapsed < 0.8
+    assert not leaked_marker.exists()
 
 
 def test_runner_commands_are_sandboxed_and_prompt_never_appears_in_argv(tmp_path, monkeypatch):

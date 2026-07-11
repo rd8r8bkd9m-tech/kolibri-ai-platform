@@ -25,7 +25,14 @@ from decimal import Decimal, InvalidOperation
 from typing import Annotated, Any, Literal
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from artifact_runtime import (
     EstimateSpec,
@@ -42,6 +49,8 @@ ESTIMATE_READINESS_SCHEMA = "kolibri.estimate-readiness.v1"
 ESTIMATE_READINESS_EDITOR_SCHEMA = "kolibri.estimate-input-editor.v1"
 MAX_PROVIDER_ESTIMATE_LINES = 32
 MAX_PROVIDER_ESTIMATE_RESPONSE_BYTES = 24_576
+PROVIDER_ESTIMATE_DRAFT_SCHEMA = "kolibri.estimate-provider-draft.v1"
+PROVIDER_ESTIMATE_DECLINED_SCHEMA = "kolibri.estimate-provider-declined.v1"
 _SHA256 = re.compile(r"^[a-f0-9]{64}$")
 
 
@@ -271,10 +280,143 @@ class ProviderEstimateDraft(_StrictTask):
         return self
 
 
-def provider_estimate_draft_json_schema() -> dict[str, Any]:
-    """Machine-readable provider contract embedded in the gateway prompt."""
+class EstimateProviderDraftError(ValueError):
+    """A bounded, content-free classification of a rejected provider draft."""
 
-    return ProviderEstimateDraft.model_json_schema(mode="validation")
+    def __init__(
+        self,
+        code: str,
+        *,
+        fields: list[str] | None = None,
+        error_types: list[str] | None = None,
+        safe_message: str | None = None,
+    ) -> None:
+        self.code = code if re.fullmatch(r"[a-z0-9_]{1,80}", code) else "schema_validation_failed"
+        self.fields = list(dict.fromkeys(fields or []))[:8]
+        self.error_types = list(dict.fromkeys(error_types or []))[:8]
+        super().__init__(safe_message or self.code)
+
+    def classification(self) -> dict[str, Any]:
+        return {
+            "code": self.code,
+            **({"fields": self.fields} if self.fields else {}),
+            **({"error_types": self.error_types} if self.error_types else {}),
+        }
+
+
+def _strict_object(
+    properties: dict[str, Any],
+    *,
+    required: list[str],
+) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": properties,
+        "required": required,
+    }
+
+
+def provider_estimate_draft_json_schema() -> dict[str, Any]:
+    """Compact provider-facing contract; Pydantic remains the strict authority.
+
+    ``model_json_schema`` is deliberately not embedded into the prompt.  Its
+    titles, defaults and nested validation metadata made the contract large
+    enough that runners spent most of their generation budget reproducing
+    schema ceremony.  This compact schema describes the same mandatory source
+    and price fields and also gives a truthful no-source exit.
+    """
+
+    text = {"type": "string", "minLength": 1}
+    url = {"type": "string", "pattern": r"^https?://[^\s]+$"}
+    bounded_texts = {"type": "array", "items": text, "maxItems": 20}
+    price_provenance = _strict_object({
+        "source": {"enum": ["normative", "catalog", "contract", "supplier"]},
+        "source_ref": text,
+        "source_url": url,
+        "captured_at": {"type": "string", "format": "date"},
+        "price_level_date": {
+            "type": "string",
+            "pattern": r"^(?:\d{4}-\d{2}-\d{2}|\d{4}-Q[1-4])$",
+        },
+        "applicable_region": text,
+        "basis_ref": text,
+        "assumptions": bounded_texts,
+    }, required=[
+        "source", "source_ref", "source_url", "captured_at", "price_level_date",
+        "applicable_region", "basis_ref", "assumptions",
+    ])
+    quantity_provenance = _strict_object({
+        "source": {"enum": ["project", "measurement", "manual"]},
+        "source_ref": text,
+        "source_url": {"anyOf": [url, {"type": "null"}]},
+        "assumptions": bounded_texts,
+    }, required=["source", "source_ref", "assumptions"])
+    line = _strict_object({
+        "id": {"type": "string", "pattern": r"^[A-Za-z0-9][A-Za-z0-9._:-]{1,199}$"},
+        "description": text,
+        "category": {"enum": ["labor", "material", "equipment", "service", "other"]},
+        "unit": text,
+        "quantity": {"type": "number", "exclusiveMinimum": 0},
+        "unit_price_minor": {"type": "integer", "minimum": 0},
+        "price_provenance": price_provenance,
+        "quantity_provenance": quantity_provenance,
+        "assumptions": bounded_texts,
+    }, required=[
+        "id", "description", "category", "unit", "quantity", "unit_price_minor",
+        "price_provenance", "quantity_provenance",
+    ])
+    section = _strict_object({
+        "id": {"type": "string", "pattern": r"^[A-Za-z0-9][A-Za-z0-9._:-]{1,199}$"},
+        "name": text,
+        "lines": {"type": "array", "items": line, "minItems": 1, "maxItems": MAX_PROVIDER_ESTIMATE_LINES},
+    }, required=["id", "name", "lines"])
+    basis = _strict_object({
+        "calculation_method": {
+            "enum": ["resource-index", "resource", "base-index", "contract", "commercial"],
+        },
+        "normative_basis_ref": text,
+        "normative_edition": text,
+        "price_level_date": {
+            "type": "string",
+            "pattern": r"^(?:\d{4}-\d{2}-\d{2}|\d{4}-Q[1-4])$",
+        },
+        "region": text,
+        "index_document_refs": bounded_texts,
+        "tax_scope_ref": text,
+        "contract_scope_ref": text,
+        "source_urls": {"type": "array", "items": url, "minItems": 1, "maxItems": 20},
+        "input_document_refs": {"type": "array", "items": text, "minItems": 1, "maxItems": 100},
+    }, required=[
+        "calculation_method", "normative_basis_ref", "normative_edition",
+        "price_level_date", "region", "index_document_refs", "tax_scope_ref",
+        "contract_scope_ref", "source_urls", "input_document_refs",
+    ])
+    draft = _strict_object({
+        "schema_version": {"const": PROVIDER_ESTIMATE_DRAFT_SCHEMA},
+        "title": text,
+        "currency": {"type": "string", "pattern": r"^[A-Z]{3}$"},
+        "minor_unit": {"enum": [0, 2, 3]},
+        "region": text,
+        "client_name": {"anyOf": [text, {"type": "null"}]},
+        "object_name": {"anyOf": [text, {"type": "null"}]},
+        "object_address": {"anyOf": [text, {"type": "null"}]},
+        "source_summary": text,
+        "normative_basis": basis,
+        "sections": {"type": "array", "items": section, "minItems": 1, "maxItems": 32},
+        "assumptions": {"type": "array", "items": text, "maxItems": 12},
+        "questions": {"type": "array", "items": text, "maxItems": 12},
+        "overhead_rate_bps": {"type": "integer", "minimum": 0, "maximum": 10_000},
+        "tax_rate_bps": {"type": "integer", "minimum": 0, "maximum": 10_000},
+    }, required=[
+        "schema_version", "title", "currency", "minor_unit", "region",
+        "source_summary", "normative_basis", "sections",
+    ])
+    declined = _strict_object({
+        "schema_version": {"const": PROVIDER_ESTIMATE_DECLINED_SCHEMA},
+        "reason": {"const": "sources_unavailable"},
+    }, required=["schema_version", "reason"])
+    return {"oneOf": [draft, declined]}
 
 
 class EstimateVerticalTask(_StrictTask):
@@ -369,7 +511,7 @@ def prepare_vertical_task(task: VerticalTask) -> tuple[str, dict[str, Any] | Non
             task_payload["authoritative_calculation"] = calculation
         else:
             task_payload["proposal_contract"] = {
-                "schema_version": "kolibri.estimate-provider-draft.v1",
+                "schema_version": PROVIDER_ESTIMATE_DRAFT_SCHEMA,
                 "strict_json_schema": provider_estimate_draft_json_schema(),
                 "money_rule": (
                     "Propose quantities and unit_price_minor only. Do not return row totals or totals. "
@@ -386,6 +528,11 @@ def prepare_vertical_task(task: VerticalTask) -> tuple[str, dict[str, Any] | Non
                     "price-level date/quarter, applicable region, basis_ref and assumptions. "
                     "Quantity provenance requires project/measurement/manual source_ref and "
                     "explicit assumptions. An unsourced draft is invalid and receives no money."
+                ),
+                "decline_rule": (
+                    "If real source references and URLs are unavailable, do not invent them. "
+                    "Return exactly {\"schema_version\":\"kolibri.estimate-provider-declined.v1\","
+                    "\"reason\":\"sources_unavailable\"}."
                 ),
                 "output_rule": "Return one JSON object only, without Markdown fences or commentary.",
                 "scope_rule": (
@@ -635,6 +782,48 @@ def _provider_json_object(response_text: str) -> dict[str, Any]:
     raise ValueError("estimate proposal is not a JSON object")
 
 
+def _safe_validation_field(location: tuple[Any, ...]) -> str | None:
+    parts: list[str] = []
+    for value in location:
+        token = str(value)
+        if isinstance(value, int):
+            token = str(max(0, min(value, MAX_PROVIDER_ESTIMATE_LINES)))
+        elif not re.fullmatch(r"[A-Za-z0-9_:-]{1,64}", token):
+            return None
+        parts.append(token)
+    field = ".".join(parts)
+    return field[:160] if field else None
+
+
+def _classified_draft_validation_error(exc: ValidationError) -> EstimateProviderDraftError:
+    errors = exc.errors(include_url=False, include_context=False, include_input=False)
+    fields = [
+        field
+        for item in errors[:16]
+        if (field := _safe_validation_field(tuple(item.get("loc") or ()))) is not None
+    ]
+    error_types = [
+        value
+        for item in errors[:16]
+        if re.fullmatch(r"[a-z0-9_.]{1,80}", (value := str(item.get("type") or "")))
+    ]
+    locations = [tuple(str(part) for part in item.get("loc") or ()) for item in errors]
+    flattened = {part for location in locations for part in location}
+    if "schema_version" in flattened:
+        code = "schema_version_invalid"
+    elif "price_provenance" in flattened:
+        code = "price_provenance_invalid"
+    elif "quantity_provenance" in flattened:
+        code = "quantity_provenance_invalid"
+    elif "normative_basis" in flattened:
+        code = "normative_basis_invalid"
+    elif "sections" in flattened or "lines" in flattened:
+        code = "sections_invalid"
+    else:
+        code = "schema_validation_failed"
+    return EstimateProviderDraftError(code, fields=fields, error_types=error_types)
+
+
 def estimate_spec_from_provider_response(
     response_text: str,
     *,
@@ -649,11 +838,56 @@ def estimate_spec_from_provider_response(
     """
 
     if len(response_text.encode("utf-8")) > MAX_PROVIDER_ESTIMATE_RESPONSE_BYTES:
-        raise ValueError(
-            f"estimate proposal exceeds {MAX_PROVIDER_ESTIMATE_RESPONSE_BYTES} UTF-8 bytes"
+        raise EstimateProviderDraftError(
+            "response_too_large",
+            safe_message=(
+                f"estimate proposal exceeds {MAX_PROVIDER_ESTIMATE_RESPONSE_BYTES} UTF-8 bytes"
+            ),
         )
-    value = _provider_json_object(response_text)
-    draft = ProviderEstimateDraft.model_validate(value)
+    try:
+        value = _provider_json_object(response_text)
+    except ValueError as exc:
+        message = str(exc)
+        code = (
+            "multiple_json_objects"
+            if message == "estimate proposal contains multiple JSON objects"
+            else "response_json_invalid"
+        )
+        raise EstimateProviderDraftError(code, safe_message=message) from exc
+    schema_version = value.get("schema_version")
+    if schema_version == PROVIDER_ESTIMATE_DECLINED_SCHEMA:
+        if value == {
+            "schema_version": PROVIDER_ESTIMATE_DECLINED_SCHEMA,
+            "reason": "sources_unavailable",
+        }:
+            raise EstimateProviderDraftError("sources_unavailable")
+        raise EstimateProviderDraftError(
+            "decline_contract_invalid",
+            fields=["schema_version", "reason"],
+        )
+    if schema_version is None:
+        raise EstimateProviderDraftError("schema_version_missing", fields=["schema_version"])
+    if schema_version != PROVIDER_ESTIMATE_DRAFT_SCHEMA:
+        raise EstimateProviderDraftError("schema_version_invalid", fields=["schema_version"])
+    raw_sections = value.get("sections")
+    if isinstance(raw_sections, list):
+        raw_line_count = sum(
+            len(section.get("lines"))
+            for section in raw_sections
+            if isinstance(section, dict) and isinstance(section.get("lines"), list)
+        )
+        if raw_line_count > MAX_PROVIDER_ESTIMATE_LINES:
+            raise EstimateProviderDraftError(
+                "sections_invalid",
+                fields=["sections"],
+                safe_message=(
+                    f"estimate proposal exceeds {MAX_PROVIDER_ESTIMATE_LINES} consolidated lines"
+                ),
+            )
+    try:
+        draft = ProviderEstimateDraft.model_validate(value)
+    except ValidationError as exc:
+        raise _classified_draft_validation_error(exc) from exc
     normalized_requested_region = re.sub(
         r"\s+", " ", str(requested_region or "").strip().casefold().replace("ё", "е"),
     )
@@ -665,7 +899,11 @@ def estimate_spec_from_provider_response(
         or normalized_requested_region in normalized_draft_region
         or normalized_draft_region in normalized_requested_region
     ):
-        raise ValueError("provider estimate region does not match requested region")
+        raise EstimateProviderDraftError(
+            "region_mismatch",
+            fields=["region"],
+            safe_message="provider estimate region does not match requested region",
+        )
     normalized_basis_region = re.sub(
         r"\s+", " ", draft.normative_basis.region.casefold().replace("ё", "е"),
     )
@@ -674,22 +912,33 @@ def estimate_spec_from_provider_response(
         or normalized_basis_region in normalized_draft_region
         or normalized_draft_region in normalized_basis_region
     ):
-        raise ValueError("provider estimate basis region does not match estimate region")
+        raise EstimateProviderDraftError(
+            "basis_region_mismatch",
+            fields=["normative_basis.region"],
+            safe_message="provider estimate basis region does not match estimate region",
+        )
 
     lines: list[dict[str, Any]] = []
-    for section in draft.sections:
-        for line in section.lines:
+    for section_index, section in enumerate(draft.sections):
+        for line_index, line in enumerate(section.lines):
             combined_assumptions = list(dict.fromkeys([
                 *line.price_provenance.assumptions,
                 *line.quantity_provenance.assumptions,
                 *line.assumptions,
             ]))
+            try:
+                normalized_unit = normalize_estimate_unit(line.unit)
+            except ValueError as exc:
+                raise EstimateProviderDraftError(
+                    "unit_invalid",
+                    fields=[f"sections.{section_index}.lines.{line_index}.unit"],
+                ) from exc
             lines.append({
                 "id": line.id,
                 "section": section.name,
                 "description": line.description,
                 "category": line.category,
-                "unit": normalize_estimate_unit(line.unit),
+                "unit": normalized_unit,
                 "quantity": line.quantity,
                 "unit_price_minor": line.unit_price_minor,
                 "provenance": {
@@ -711,22 +960,29 @@ def estimate_spec_from_provider_response(
             })
     basis = draft.normative_basis.model_dump(mode="json")
     basis["validation_status"] = "unverified"
-    return EstimateSpec.model_validate({
-        "title": draft.title,
-        "currency": draft.currency,
-        "minor_unit": draft.minor_unit,
-        "region": draft.region,
-        "client_name": draft.client_name,
-        "object_name": draft.object_name,
-        "object_address": draft.object_address,
-        "source_summary": draft.source_summary,
-        "normative_basis": basis,
-        "assumptions": draft.assumptions,
-        "questions": draft.questions,
-        "lines": lines,
-        "overhead_rate_bps": draft.overhead_rate_bps,
-        "tax_rate_bps": draft.tax_rate_bps,
-    })
+    try:
+        return EstimateSpec.model_validate({
+            "title": draft.title,
+            "currency": draft.currency,
+            "minor_unit": draft.minor_unit,
+            "region": draft.region,
+            "client_name": draft.client_name,
+            "object_name": draft.object_name,
+            "object_address": draft.object_address,
+            "source_summary": draft.source_summary,
+            "normative_basis": basis,
+            "assumptions": draft.assumptions,
+            "questions": draft.questions,
+            "lines": lines,
+            "overhead_rate_bps": draft.overhead_rate_bps,
+            "tax_rate_bps": draft.tax_rate_bps,
+        })
+    except (TypeError, ValueError, ValidationError) as exc:
+        if isinstance(exc, ValidationError):
+            classified = _classified_draft_validation_error(exc)
+        else:
+            classified = EstimateProviderDraftError("estimate_spec_invalid")
+        raise classified from exc
 
 
 _HOUSE_AREA = re.compile(
@@ -1574,14 +1830,28 @@ def build_vertical_result(
     artifacts = verified_artifact_refs(provider_result)
     estimate_spec: EstimateSpec | None = task.spec if isinstance(task, EstimateVerticalTask) else None
     estimate_error: str | None = None
+    proposal_validation: dict[str, Any] | None = None
     if isinstance(task, EstimateVerticalTask) and estimate_spec is None and provider_verified:
+        requested_region = task.region
+        if requested_region is None:
+            inferred_region = _fallback_region(task)
+            if not inferred_region.startswith("Регион не структурирован"):
+                requested_region = inferred_region
         try:
             estimate_spec = estimate_spec_from_provider_response(
                 response_text,
-                requested_region=task.region,
+                requested_region=requested_region,
             )
             calculation = deterministic_estimate(estimate_spec)
+        except EstimateProviderDraftError as exc:
+            proposal_validation = exc.classification()
+            estimate_error = (
+                "estimate_sources_unavailable"
+                if exc.code == "sources_unavailable"
+                else "estimate_proposal_invalid"
+            )
         except (TypeError, ValueError, json.JSONDecodeError):
+            proposal_validation = {"code": "estimate_validation_internal_failure"}
             estimate_error = "estimate_proposal_invalid"
 
     if isinstance(task, EstimateVerticalTask) and estimate_spec is None:
@@ -1591,6 +1861,8 @@ def build_vertical_result(
             provider_binding=provider_binding if provider_verified else None,
         )
         if readiness is not None:
+            if proposal_validation is not None:
+                readiness["execution"]["proposal_validation"] = proposal_validation
             return readiness
 
     estimate_assessment = (

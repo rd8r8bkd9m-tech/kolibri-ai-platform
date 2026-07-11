@@ -506,11 +506,13 @@ def test_release_bound_runtime_identity_matches_canonical_manifest(tmp_path, mon
     with pytest.raises(ReexecObserved):
         agent_host_module.maybe_reexec_release_agent_host()
     assert observed["executable"] == agent_host_module.sys.executable
-    assert observed["argv"][:2] == [
+    assert observed["argv"][:3] == [
         agent_host_module.sys.executable,
+        "-B",
         str(runtime),
     ]
     assert observed["environment"]["PYTHONPATH"].split(agent_host_module.os.pathsep)[0] == str(selected)
+    assert observed["environment"]["PYTHONDONTWRITEBYTECODE"] == "1"
 
     runtime.write_bytes(b"corrupted")
     with pytest.raises(RuntimeError, match="digest_mismatch"):
@@ -528,6 +530,71 @@ def test_release_bound_runtime_identity_matches_canonical_manifest(tmp_path, mon
     )
     with pytest.raises(RuntimeError, match="profile_contract_invalid"):
         agent_host_module.agent_host_runtime_identity(runtime)
+
+
+def test_product_only_current_keeps_safe_bootstrap_until_complete_runtime_pair(
+    tmp_path,
+    monkeypatch,
+):
+    release_root = tmp_path / "releases"
+    selected = release_root / "product-only-v1"
+    product = selected / "backend" / "main.py"
+    product.parent.mkdir(parents=True)
+    product.write_bytes(b"app = object()\n")
+    product.chmod(0o644)
+    manifest_payload = {
+        "schema_version": release.RELEASE_SCHEMA,
+        "release_id": selected.name,
+        "source_commit": "0123456789abcdef",
+        "artifact_uri": f"artifact://releases/{selected.name}.tar.gz",
+        "compatibility_epoch": "kolibri-os-v1",
+        "files": [
+            {
+                "path": "backend/main.py",
+                "sha256": hashlib.sha256(product.read_bytes()).hexdigest(),
+                "size_bytes": product.stat().st_size,
+                "mode": "0644",
+            },
+        ],
+        "metadata": {"component": "historical-product"},
+    }
+    metadata = selected / ".kolibri-release"
+    metadata.mkdir()
+    (metadata / "manifest.json").write_bytes(
+        json.dumps(
+            manifest_payload,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    )
+    current = tmp_path / "current"
+    current.symlink_to(selected)
+    monkeypatch.setenv("KOLIBRI_RELEASE_ROOT", str(release_root))
+    monkeypatch.setenv("KOLIBRI_RELEASE_CURRENT_LINK", str(current))
+
+    assert agent_host_module._canonical_release_agent_host() is None
+    assert agent_host_module.agent_host_runtime_identity()["status"] == "bootstrap"
+    assert agent_host_module.maybe_reexec_release_agent_host() is False
+
+    runtime = selected / "ops" / "agent_host.py"
+    runtime.parent.mkdir()
+    runtime.write_text("#!/usr/bin/python3\n", encoding="utf-8")
+    runtime.chmod(0o755)
+    manifest_payload["files"].append({
+        "path": "ops/agent_host.py",
+        "sha256": hashlib.sha256(runtime.read_bytes()).hexdigest(),
+        "size_bytes": runtime.stat().st_size,
+        "mode": "0755",
+    })
+    (metadata / "manifest.json").write_bytes(
+        json.dumps(
+            manifest_payload,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    )
+    with pytest.raises(RuntimeError, match="mimo_response_profile_not_manifested"):
+        agent_host_module._canonical_release_agent_host()
 
 
 def test_agent_host_exits_only_after_completed_release_bound_runtime_task(

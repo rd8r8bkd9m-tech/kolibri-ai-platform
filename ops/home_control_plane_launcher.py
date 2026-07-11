@@ -25,6 +25,8 @@ except ImportError:  # installed beside the resolver
 CURRENT_LINK = Path("/opt/kolibri-ai/current")
 RELEASE_ROOT = Path("/opt/kolibri-ai/releases")
 LEGACY_ROOT = Path("/opt/kolibri-ai-platform")
+LEGACY_SPLIT_ENTRYPOINT = Path("/usr/local/bin/kolibri-factory-control")
+LEGACY_SPLIT_LIBRARY_ROOT = Path("/usr/local/lib/kolibri")
 PYTHON = Path("/usr/bin/python3")
 REQUIRED_RUNTIME = (
     "ops/control_plane_endpoint.py",
@@ -60,6 +62,33 @@ def _trusted_regular(path: Path, *, executable: bool = False) -> bool:
     if os.geteuid() == 0 and value.st_uid != 0:
         return False
     return not executable or bool(value.st_mode & 0o111)
+
+
+def _trusted_directory(path: Path) -> bool:
+    try:
+        value = path.lstat()
+    except OSError:
+        return False
+    return bool(
+        stat.S_ISDIR(value.st_mode)
+        and not stat.S_ISLNK(value.st_mode)
+        and not value.st_mode & 0o022
+        and (os.geteuid() != 0 or value.st_uid == 0)
+    )
+
+
+def _legacy_split_runtime_available() -> bool:
+    if not (
+        _trusted_directory(LEGACY_SPLIT_ENTRYPOINT.parent)
+        and _trusted_directory(LEGACY_SPLIT_LIBRARY_ROOT)
+        and _trusted_regular(LEGACY_SPLIT_ENTRYPOINT, executable=True)
+    ):
+        return False
+    return all(
+        relative == "ops/factory_control.py"
+        or _trusted_regular(LEGACY_SPLIT_LIBRARY_ROOT / Path(relative).name)
+        for relative in REQUIRED_RUNTIME
+    )
 
 
 def _immutable_root() -> Path | None:
@@ -143,7 +172,13 @@ def select_runtime() -> tuple[Path, str, str]:
     if immutable is not None:
         return immutable, immutable.name, "immutable-release"
     if not all(_trusted_regular(LEGACY_ROOT / relative) for relative in REQUIRED_RUNTIME):
-        raise LauncherError("control_plane_runtime_unavailable")
+        if not _legacy_split_runtime_available():
+            raise LauncherError("control_plane_runtime_unavailable")
+        return (
+            LEGACY_SPLIT_LIBRARY_ROOT,
+            "legacy-bootstrap",
+            "legacy-split-bootstrap",
+        )
     return LEGACY_ROOT, "legacy-bootstrap", "legacy-bootstrap"
 
 
@@ -163,18 +198,27 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if not _trusted_regular(PYTHON, executable=True):
         raise LauncherError("control_plane_python_unavailable")
+    if source == "legacy-split-bootstrap":
+        entrypoint = LEGACY_SPLIT_ENTRYPOINT
+        ops_dir = LEGACY_SPLIT_LIBRARY_ROOT
+        python_path = str(LEGACY_SPLIT_LIBRARY_ROOT)
+    else:
+        entrypoint = root / "ops/factory_control.py"
+        ops_dir = root / "ops"
+        python_path = f"{ops_dir}:{root}"
     environment = dict(os.environ)
     environment.update({
         "KOLIBRI_REPO_ROOT": str(root),
-        "KOLIBRI_OPS_DIR": str(root / "ops"),
+        "KOLIBRI_OPS_DIR": str(ops_dir),
         "KOLIBRI_ACTIVE_RELEASE_ID": release_id,
         "FACTORY_CANARY_READ_ONLY": "0",
-        "PYTHONPATH": f"{root / 'ops'}:{root}",
+        "PYTHONPATH": python_path,
+        "PYTHONDONTWRITEBYTECODE": "1",
         "PYTHONNOUSERSITE": "1",
     })
     os.execve(
         str(PYTHON),
-        [str(PYTHON), str(root / "ops/factory_control.py"), *runtime_args],
+        [str(PYTHON), "-B", str(entrypoint), *runtime_args],
         environment,
     )
     return 70  # pragma: no cover - os.execve never returns

@@ -111,6 +111,7 @@ for source in \
   ops/fleet_membership.py \
   ops/home_control_plane_canary.py \
   ops/home_control_plane_launcher.py \
+  ops/immutable_release_preflight.py \
   ops/home_release_authority_bootstrap.py \
   ops/home_release_authority_preflight.py \
   ops/release_authority.py \
@@ -217,6 +218,7 @@ scp -q "${SCP_OPTIONS[@]}" \
   "$ROOT_DIR/ops/fleet_membership.py" \
   "$ROOT_DIR/ops/home_control_plane_canary.py" \
   "$ROOT_DIR/ops/home_control_plane_launcher.py" \
+  "$ROOT_DIR/ops/immutable_release_preflight.py" \
   "$ROOT_DIR/ops/release_authority.py" \
   "$ROOT_DIR/ops/release_helper.py" \
   "$ROOT_DIR/ops/release_installer.py" \

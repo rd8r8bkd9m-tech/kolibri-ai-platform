@@ -1,24 +1,23 @@
 import { motion } from "framer-motion";
-import { X } from "lucide-react";
+import { MobileWindowHeader } from "./MobileWindowHeader";
+import { isMobileFullSurface } from "./mobileWindowModel";
 
 export function MobileWindow({ windowState, dispatch, onFocus, renderContent }) {
-  const isProjectSurface = windowState.kind === "workspace";
+  const isFullSurface = isMobileFullSurface(windowState.kind);
+  const labelId = `mobile-window-${String(windowState.id).replace(/[^a-z0-9_-]/gi, "-")}-title`;
   const deactivate = () => dispatch({ type: "DEACTIVATE", id: windowState.id });
   return (
     <motion.div
       animate={{ opacity: 1, y: 0 }}
-      className={`mobile-window-layer ${isProjectSurface ? "is-surface" : "is-sheet"}`}
-      exit={{ opacity: 0, y: isProjectSurface ? 12 : 36 }}
-      initial={{ opacity: 0, y: isProjectSurface ? 12 : 36 }}
+      className={`mobile-window-layer ${isFullSurface ? "is-surface" : "is-sheet"}`}
+      exit={{ opacity: 0, y: isFullSurface ? 12 : 36 }}
+      initial={{ opacity: 0, y: isFullSurface ? 12 : 36 }}
       onPointerDown={() => onFocus?.(windowState)}
       transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
     >
-      {!isProjectSurface && <button aria-label="Закрыть панель" className="mobile-sheet-scrim" onClick={deactivate} type="button" />}
-      <article className="mobile-window" data-testid={`window-${windowState.kind}`}>
-        <header>
-          <div><strong>{windowState.title}</strong><span>{windowState.payload?.statusLabel || "Kolibri workspace"}</span></div>
-          <button aria-label="Закрыть окно" onClick={deactivate} type="button"><X size={19} /></button>
-        </header>
+      {!isFullSurface && <button aria-label="Закрыть панель" className="mobile-sheet-scrim" onClick={deactivate} type="button" />}
+      <article aria-labelledby={labelId} aria-modal="true" className="mobile-window" data-testid={`window-${windowState.kind}`} role="dialog">
+        <MobileWindowHeader labelId={labelId} onClose={deactivate} status={windowState.payload?.statusLabel || "Kolibri workspace"} title={windowState.title} />
         <div className="window-content">{renderContent(windowState)}</div>
       </article>
     </motion.div>

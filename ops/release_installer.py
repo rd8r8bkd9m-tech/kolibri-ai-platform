@@ -82,6 +82,9 @@ FORBIDDEN_HEALTH_EXECUTABLES = frozenset(
 )
 FORBIDDEN_RELEASE_SERVICES = frozenset({"kolibri-agent-host.service"})
 HEALTH_RETRY_DELAY_SECONDS = 0.25
+LEGACY_ROLLBACK_HEALTH_EXIT_CODE = 10
+LEGACY_BASELINE_HEALTH_EXIT_CODE = 11
+LEGACY_BASELINE_FLAG = "--allow-legacy-baseline"
 SECRET_METADATA_KEYS = frozenset(
     {
         "access_token",
@@ -1675,9 +1678,13 @@ class ReleaseInstaller:
                 (replacements or {}).get("{release_kind}") == "rollback"
                 and "{release_kind}" in check.argv
             )
+            legacy_baseline_compatibility_allowed = bool(
+                LEGACY_BASELINE_FLAG in check.argv
+                and "{release_kind}" not in check.argv
+            )
             attempts = 0
             passed = False
-            legacy_compatibility_used = False
+            legacy_compatibility_mode: str | None = None
             while executable_available:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
@@ -1687,9 +1694,19 @@ class ReleaseInstaller:
                 if return_code == 0:
                     passed = True
                     break
-                if return_code == 10 and legacy_rollback_compatibility_allowed:
+                if (
+                    return_code == LEGACY_ROLLBACK_HEALTH_EXIT_CODE
+                    and legacy_rollback_compatibility_allowed
+                ):
                     passed = True
-                    legacy_compatibility_used = True
+                    legacy_compatibility_mode = "legacy-rollback-contract"
+                    break
+                if (
+                    return_code == LEGACY_BASELINE_HEALTH_EXIT_CODE
+                    and legacy_baseline_compatibility_allowed
+                ):
+                    passed = True
+                    legacy_compatibility_mode = "legacy-baseline-contract"
                     break
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
@@ -1702,8 +1719,8 @@ class ReleaseInstaller:
                 "attempts": attempts,
                 "duration_ms": int((time.monotonic() - started) * 1000),
             }
-            if legacy_compatibility_used:
-                result["compatibility_mode"] = "legacy-rollback-contract"
+            if legacy_compatibility_mode is not None:
+                result["compatibility_mode"] = legacy_compatibility_mode
             results.append(result)
         return results
 

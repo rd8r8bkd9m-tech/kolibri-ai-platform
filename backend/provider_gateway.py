@@ -13,6 +13,7 @@ import ipaddress
 import json
 import os
 import re
+import signal
 import shutil
 import subprocess
 import tempfile
@@ -1090,7 +1091,9 @@ class ProviderGateway:
         except ValueError:
             return default
 
-    def _factory_recent_health(self, runner: str) -> dict[str, dict[str, Any]]:
+    def _factory_recent_health(
+        self, runner: str, *, timeout_budget: float | None = None,
+    ) -> dict[str, dict[str, Any]]:
         """Return cached, sanitized chronological health from canonical Home.
 
         Health discovery is advisory and tightly bounded. If the compatibility
@@ -1112,7 +1115,11 @@ class ProviderGateway:
         payload, error_type = self._factory_request(
             "GET",
             f"/v1/runtime/provider-health?runner={quote(runner, safe='')}&limit=64",
-            timeout=min(query_timeout, float(self.timeout)),
+            timeout=min(
+                query_timeout,
+                float(self.timeout),
+                max(0.05, float(timeout_budget)) if timeout_budget is not None else float(self.timeout),
+            ),
         )
         records: dict[str, dict[str, Any]] = {}
         if error_type is None and isinstance(payload, dict):
@@ -1187,8 +1194,23 @@ class ProviderGateway:
             return 180.0 if prompt_bytes > 8_192 else 90.0
         return 75.0
 
-    def _factory_candidates(self, runner: str) -> tuple[list[dict[str, Any]], str | None]:
-        payload, error_type = self._factory_request("GET", "/v1/nodes?scope=active&limit=250")
+    def _factory_candidates(
+        self, runner: str, *, timeout_budget: float | None = None,
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        deadline = (
+            time.monotonic() + max(0.05, float(timeout_budget))
+            if timeout_budget is not None
+            else None
+        )
+
+        def remaining() -> float:
+            if deadline is None:
+                return float(self.timeout)
+            return max(0.05, deadline - time.monotonic())
+
+        payload, error_type = self._factory_request(
+            "GET", "/v1/nodes?scope=active&limit=250", timeout=remaining(),
+        )
         if error_type or not isinstance(payload, dict):
             return [], error_type or "factory_control_response_invalid"
         nodes = payload.get("nodes")
@@ -1213,6 +1235,7 @@ class ProviderGateway:
         if runner == "codex":
             actor_payload, actor_error = self._factory_request(
                 "GET", "/v1/runtime/provider-actors?runner=codex&limit=128",
+                timeout=remaining(),
             )
             actor_records = (
                 actor_payload.get("records")
@@ -1315,7 +1338,10 @@ class ProviderGateway:
                 "lease_scope": lease_scope,
             })
         eligible_count = len(candidates)
-        durable_health = self._factory_recent_health(runner) if candidates else {}
+        durable_health = (
+            self._factory_recent_health(runner, timeout_budget=remaining())
+            if candidates else {}
+        )
         healthy_candidates: list[dict[str, Any]] = []
         health_filtered = 0
         for candidate in candidates:
@@ -1438,7 +1464,7 @@ class ProviderGateway:
         try:
             default_timeout = self._factory_default_task_timeout(prompt, runner)
             task_timeout = max(
-                0.1,
+                0.01,
                 min(
                     float(os.environ.get("KOLIBRI_FACTORY_TASK_TIMEOUT", str(default_timeout))),
                     float(self.timeout),
@@ -1450,11 +1476,11 @@ class ProviderGateway:
                 min(float(os.environ.get("KOLIBRI_FACTORY_POLL_INTERVAL", "0.5")), 5.0),
             )
         except ValueError:
-            task_timeout = min(
+            task_timeout = max(0.01, min(
                 self._factory_default_task_timeout(prompt, runner),
                 float(self.timeout),
                 timeout_budget,
-            )
+            ))
             poll_interval = 0.5
         envelope = {
             "task_id": task_id,
@@ -1525,7 +1551,7 @@ class ProviderGateway:
                     "POST",
                     f"/v1/tasks/{quote(task_id, safe='')}/cancel",
                     payload={"reason": "factory_provider_poll_timeout"},
-                    timeout=min(5.0, float(self.timeout)),
+                    timeout=min(1.0, float(self.timeout)),
                 )
                 route_record.update({"status": "failed", "error_type": "provider_timeout"})
                 return "", None, "provider_timeout", route_record
@@ -1541,33 +1567,45 @@ class ProviderGateway:
                 return "", None, route_record["error_type"], route_record
 
     def _run_factory_completion(
-        self, prompt: str, runner: str, response_id: str,
+        self,
+        prompt: str,
+        runner: str,
+        response_id: str,
+        *,
+        timeout_budget: float | None = None,
     ) -> FactoryCompletion:
-        candidates, error_type = self._factory_candidates(runner)
+        budget_started = time.monotonic()
+        budget_limit = float(self.timeout)
+        if timeout_budget is not None:
+            budget_limit = min(budget_limit, max(0.01, float(timeout_budget)))
+        candidates, error_type = self._factory_candidates(
+            runner, timeout_budget=budget_limit,
+        )
         if error_type:
             return FactoryCompletion("", error_type, runner, None, ())
+        budget_limit = max(0.01, budget_limit - (time.monotonic() - budget_started))
         try:
             default_timeout = self._factory_default_task_timeout(prompt, runner)
             task_timeout_limit = max(
-                0.1,
+                0.01,
                 min(
                     float(os.environ.get("KOLIBRI_FACTORY_TASK_TIMEOUT", str(default_timeout))),
-                    float(self.timeout),
+                    budget_limit,
                 ),
             )
         except ValueError:
             task_timeout_limit = min(
                 self._factory_default_task_timeout(prompt, runner),
-                float(self.timeout),
+                budget_limit,
             )
         try:
             route_timeout = max(
-                0.1,
+                0.01,
                 min(
                     float(os.environ.get(
                         "KOLIBRI_FACTORY_ROUTE_TIMEOUT", str(task_timeout_limit),
                     )),
-                    float(self.timeout),
+                    budget_limit,
                 ),
             )
         except ValueError:
@@ -1660,6 +1698,7 @@ class ProviderGateway:
         api_key: str | None,
         prompt: str,
         model: str,
+        timeout: float | None = None,
     ) -> tuple[str, str | None]:
         body = json.dumps({
             "model": model,
@@ -1672,8 +1711,11 @@ class ProviderGateway:
         request = urllib.request.Request(endpoint, data=body, headers=headers, method="POST")
         opener = urllib.request.build_opener(_NoRedirect())
         max_bytes = int(os.environ.get("KOLIBRI_LOCAL_LLM_MAX_RESPONSE_BYTES", "8388608"))
+        request_timeout = float(self.timeout)
+        if timeout is not None:
+            request_timeout = min(request_timeout, max(0.01, float(timeout)))
         try:
-            with opener.open(request, timeout=self.timeout) as response:
+            with opener.open(request, timeout=request_timeout) as response:
                 if response.status != 200:
                     return "", "provider_runtime_failed"
                 raw = response.read(max_bytes + 1)
@@ -1683,7 +1725,13 @@ class ProviderGateway:
             if exc.code == 429:
                 return "", "provider_usage_limit"
             return "", "provider_runtime_failed"
-        except (urllib.error.URLError, TimeoutError, OSError):
+        except TimeoutError:
+            return "", "provider_timeout"
+        except urllib.error.URLError as exc:
+            if isinstance(getattr(exc, "reason", None), TimeoutError):
+                return "", "provider_timeout"
+            return "", "provider_runtime_failed"
+        except OSError:
             return "", "provider_runtime_failed"
         if len(raw) > max_bytes:
             return "", "provider_output_too_large"
@@ -1697,7 +1745,9 @@ class ProviderGateway:
         text = _content_text(message.get("content") if isinstance(message, dict) else "").strip()
         return (text, None) if text else ("", "provider_empty_output")
 
-    def _run_local_completion(self, prompt: str, model: str) -> tuple[str, str | None]:
+    def _run_local_completion(
+        self, prompt: str, model: str, *, timeout: float | None = None,
+    ) -> tuple[str, str | None]:
         endpoint = self._local_endpoint()
         if endpoint is None:
             return "", "provider_endpoint_invalid"
@@ -1707,9 +1757,12 @@ class ProviderGateway:
             api_key=api_key,
             prompt=prompt,
             model=model,
+            timeout=timeout,
         )
 
-    def _run_deepseek_completion(self, prompt: str, model: str) -> tuple[str, str | None]:
+    def _run_deepseek_completion(
+        self, prompt: str, model: str, *, timeout: float | None = None,
+    ) -> tuple[str, str | None]:
         endpoint = self._deepseek_endpoint()
         api_key = os.environ.get("DEEPSEEK_API_KEY")
         if endpoint is None:
@@ -1721,6 +1774,7 @@ class ProviderGateway:
             api_key=api_key,
             prompt=prompt,
             model=model,
+            timeout=timeout,
         )
 
     def _route_models(self, provider: str) -> tuple[str, ...]:
@@ -1774,6 +1828,7 @@ class ProviderGateway:
         requested_tools: list[dict[str, Any]] | None = None,
         planned_skills: list[dict[str, Any]] | None = None,
         execution_mode: str = "fast",
+        timeout_seconds: float | None = None,
     ) -> GatewayResult:
         execution_mode = str(execution_mode or "fast").strip().lower()
         if execution_mode not in {"fast", "codex"}:
@@ -1781,6 +1836,18 @@ class ProviderGateway:
                 "attempts": [], "error_type": "execution_mode_invalid", "evidence": [],
                 "skill_routing": skill_routing_evidence(planned_skills or []),
             })
+        request_deadline: float | None = None
+        if timeout_seconds is not None:
+            try:
+                timeout_value = float(timeout_seconds)
+            except (TypeError, ValueError):
+                timeout_value = 0.0
+            if timeout_value <= 0 or timeout_value > 3_600:
+                return GatewayResult("failed", "", {
+                    "attempts": [], "error_type": "provider_timeout_invalid", "evidence": [],
+                    "skill_routing": skill_routing_evidence(planned_skills or []),
+                })
+            request_deadline = time.monotonic() + timeout_value
         requested_tools = requested_tools or []
         planned_skills = planned_skills or []
         skill_routing = skill_routing_evidence(planned_skills)
@@ -1826,6 +1893,13 @@ class ProviderGateway:
 
         attempts: list[dict[str, Any]] = []
         attempt_number = 0
+        budget_exhausted = False
+
+        def remaining_timeout() -> float:
+            if request_deadline is None:
+                return float(self.timeout)
+            return max(0.0, request_deadline - time.monotonic())
+
         provider_order = self.provider_order
         if execution_mode == "codex":
             # Codex mode is an explicit execution contract, not a preference.
@@ -1838,6 +1912,9 @@ class ProviderGateway:
             else:
                 provider_order = ()
         for provider in provider_order:
+            if remaining_timeout() <= 0:
+                budget_exhausted = True
+                break
             if planned_skills and not self._provider_supports_skills(provider, planned_skills):
                 attempt_number += 1
                 attempts.append({
@@ -1877,10 +1954,19 @@ class ProviderGateway:
                 })
                 continue
             for provider_model in provider_models:
+                attempt_timeout = min(float(self.timeout), remaining_timeout())
+                if attempt_timeout <= 0:
+                    budget_exhausted = True
+                    break
                 attempt_number += 1
                 started = time.monotonic()
                 if factory_provider:
-                    completion = self._run_factory_completion(prompt, provider_model, response_id)
+                    completion = self._run_factory_completion(
+                        prompt,
+                        provider_model,
+                        response_id,
+                        timeout_budget=attempt_timeout,
+                    )
                     duration_ms = int((time.monotonic() - started) * 1000)
                     identity_error = (
                         "provider_identity_contract_violation"
@@ -1940,7 +2026,9 @@ class ProviderGateway:
                         if provider == "deepseek"
                         else self._run_local_completion
                     )
-                    text, error_type = completion(prompt, provider_model)
+                    text, error_type = completion(
+                        prompt, provider_model, timeout=attempt_timeout,
+                    )
                     duration_ms = int((time.monotonic() - started) * 1000)
                     identity_error = (
                         "provider_identity_contract_violation"
@@ -2007,16 +2095,38 @@ class ProviderGateway:
                         )
                         runner_environment = safe_runner_environment()
                         runner_environment["TMPDIR"] = str(attempt_dir)
-                        completed = subprocess.run(
+                        process = subprocess.Popen(
                             command,
                             cwd=attempt_dir,
-                            input=prompt,
-                            capture_output=True,
+                            stdin=subprocess.PIPE,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
                             text=True,
-                            timeout=self.timeout,
-                            check=False,
                             env=runner_environment,
                             start_new_session=True,
+                        )
+                        try:
+                            stdout, stderr = process.communicate(
+                                input=prompt,
+                                timeout=attempt_timeout,
+                            )
+                        except subprocess.TimeoutExpired as exc:
+                            try:
+                                os.killpg(process.pid, signal.SIGKILL)
+                            except (ProcessLookupError, PermissionError):
+                                process.kill()
+                            stdout, stderr = process.communicate()
+                            raise subprocess.TimeoutExpired(
+                                command,
+                                attempt_timeout,
+                                output=stdout,
+                                stderr=stderr,
+                            ) from exc
+                        completed = subprocess.CompletedProcess(
+                            command,
+                            process.returncode,
+                            stdout=stdout,
+                            stderr=stderr,
                         )
                         tool_calls, artifact_refs = extract_tool_provenance(
                             completed.stdout, provider, attempt_dir,
@@ -2094,6 +2204,8 @@ class ProviderGateway:
                         "duration_ms": int((time.monotonic() - started) * 1000),
                         "route_capability": route_capability_probe("provider_timeout"),
                     })
+            if budget_exhausted:
+                break
         return GatewayResult("failed", "", {
             "selected_provider": None,
             "attempts": attempts,
@@ -2111,7 +2223,13 @@ class ProviderGateway:
                 if isinstance(ref, dict)
             ],
             "evidence": [],
-            "error_type": attempts[-1].get("error_type", "provider_unavailable") if attempts else "provider_unavailable",
+            "error_type": (
+                "provider_timeout"
+                if budget_exhausted or (request_deadline is not None and remaining_timeout() <= 0)
+                else attempts[-1].get("error_type", "provider_unavailable")
+                if attempts
+                else "provider_unavailable"
+            ),
             "skill_routing": skill_routing,
         })
 

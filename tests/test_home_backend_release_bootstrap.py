@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -72,6 +73,7 @@ class FakeRunner:
                 stdout = (
                     f"KOLIBRI_FRONTEND_DIST={FRONTEND_DIST} "
                     "KOLIBRI_OWNER_API_TOKEN_FILE=/etc/kolibri/owner-api-token "
+                    "PYTHONDONTWRITEBYTECODE=1 "
                     "PRIVATE_VALUE=must-not-be-returned\n"
                 )
         elif command[1:3] == ("is-active", "--quiet"):
@@ -109,6 +111,10 @@ def prepared_root(tmp_path: Path, *, nested_current: bool = False) -> Path:
     _executable(root / "usr/bin/curl")
     _executable(root / "srv/kolibri/repo/.venv/bin/python")
     _executable(root / "srv/kolibri/repo/.venv/bin/uvicorn")
+    owner_token = root / "etc/kolibri/owner-api-token"
+    owner_token.parent.mkdir(parents=True)
+    owner_token.write_text("test-owner-token\n", encoding="utf-8")
+    owner_token.chmod(0o640)
     release = root / "opt/kolibri-ai/releases/release-a"
     if nested_current:
         release = release / "nested"
@@ -135,6 +141,7 @@ def test_plan_is_read_only_and_imports_current_with_existing_venv(tmp_path):
     assert result["status"] == "planned"
     assert result["mutation"] == "none"
     assert result["current_link"] == "contained_direct_release_child"
+    assert result["owner_token_file"] == "metadata_verified_without_secret_read"
     assert not (root / DROPIN_PATH.lstrip("/")).exists()
     assert not (root / "var/backups/kolibri").exists()
     assert runner.import_cwd == f"{root}/opt/kolibri-ai/current/backend"
@@ -152,8 +159,36 @@ def test_plan_is_read_only_and_imports_current_with_existing_venv(tmp_path):
             f"{root}/opt/kolibri-ai/current/frontend/dist"
         ),
         "KOLIBRI_OWNER_API_TOKEN_FILE": "/etc/kolibri/owner-api-token",
+        "PYTHONDONTWRITEBYTECODE": "1",
     }
+    import_calls = [
+        call for call in runner.calls if call[0].endswith("/.venv/bin/python")
+    ]
+    assert import_calls == [(
+        f"{root}/srv/kolibri/repo/.venv/bin/python",
+        "-B",
+        "-c",
+        "import main; assert getattr(main, 'app', None) is not None",
+    )]
     assert not any(call[1:2] in {("restart",), ("daemon-reload",)} for call in runner.calls)
+
+
+def test_real_import_probe_cannot_create_bytecode_in_immutable_current(tmp_path):
+    root = prepared_root(tmp_path)
+    python = root / "srv/kolibri/repo/.venv/bin/python"
+    python.unlink()
+    python.symlink_to(sys.executable)
+    backend = root / "opt/kolibri-ai/releases/release-a/backend"
+    (backend / "main.py").write_text("app = object()\n", encoding="utf-8")
+    current = backend_bootstrap._validate_current(root)
+
+    backend_bootstrap._validate_backend_import(
+        root,
+        backend_bootstrap.SubprocessCommandRunner(),
+        current,
+    )
+
+    assert not (backend / "__pycache__").exists()
 
 
 def test_apply_backs_up_metadata_installs_dropin_and_restarts_only_backend(tmp_path):
@@ -223,6 +258,24 @@ def test_current_must_be_direct_child_of_release_root(tmp_path):
 
     with pytest.raises(
         BackendBootstrapError, match="release_current_not_direct_release_child"
+    ):
+        plan(root=root, runner=FakeRunner())
+
+
+def test_owner_token_file_is_mandatory_safe_metadata_without_reading_secret(tmp_path):
+    root = prepared_root(tmp_path)
+    token = root / "etc/kolibri/owner-api-token"
+    secret = token.read_text(encoding="utf-8")
+    token.unlink()
+
+    with pytest.raises(BackendBootstrapError, match="backend_owner_token_file_missing"):
+        plan(root=root, runner=FakeRunner())
+
+    token.write_text(secret, encoding="utf-8")
+    token.chmod(0o644)
+    with pytest.raises(
+        BackendBootstrapError,
+        match="backend_owner_token_file_permissions_invalid",
     ):
         plan(root=root, runner=FakeRunner())
 
@@ -316,3 +369,5 @@ def test_repository_dropin_and_wrapper_contracts_are_fail_closed():
     assert "current.symlink_to" not in helper
     assert "os.replace(temporary, path)" in helper
     assert "backend_health_gate_failed" in helper
+    assert "PYTHONDONTWRITEBYTECODE=1" in dropin.decode("utf-8")
+    assert '"-B"' in helper

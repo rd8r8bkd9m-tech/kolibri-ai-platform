@@ -8,6 +8,7 @@ export function ShellHeader({ navigation, projectCount, title, onNewProject, onO
         ? (navigation.mobileOpen ? "Закрыть навигацию Kolibri" : "Открыть навигацию Kolibri")
         : (navigation.pinned ? "Свернуть навигацию Kolibri" : "Закрепить навигацию Kolibri")}
       navigationOpen={navigation.expanded}
+      navigationModal={navigation.mobileOpen}
       onBrandActivate={navigation.toggle}
       onBrandPreviewEnter={navigation.onPointerEnter}
       onBrandPreviewLeave={navigation.onPointerLeave}

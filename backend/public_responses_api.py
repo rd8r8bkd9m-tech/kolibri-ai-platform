@@ -52,6 +52,7 @@ from public_chat_stream import verified_public_payload
 from providers import ProviderGatewayError
 from response_tool_gateway import ResponseToolExecution, execute_response_tools
 from vertical_tasks import (
+    EstimateVerticalTask,
     build_deterministic_estimate_fallback,
     build_vertical_result,
     deterministic_estimate_fallback_text,
@@ -75,6 +76,24 @@ COOKIE_NAME = "kolibri_public_session"
 MAX_REQUEST_BYTES = 1024 * 1024
 MAX_MESSAGES = 100
 MAX_SESSION_COOKIE_CANDIDATES = 8
+ESTIMATE_PROVIDER_TOTAL_BUDGET_SECONDS = 85.0
+ESTIMATE_PROVIDER_INITIAL_BUDGET_SECONDS = 55.0
+ESTIMATE_PROVIDER_REPAIR_BUDGET_SECONDS = 25.0
+_ESTIMATE_REPAIRABLE_VALIDATION_CODES = frozenset({
+    "response_json_invalid",
+    "multiple_json_objects",
+    "response_too_large",
+    "schema_version_missing",
+    "schema_version_invalid",
+    "decline_contract_invalid",
+    "schema_validation_failed",
+    "sections_invalid",
+    "normative_basis_invalid",
+    "price_provenance_invalid",
+    "quantity_provenance_invalid",
+    "unit_invalid",
+    "estimate_spec_invalid",
+})
 PUBLIC_TOOL_ALIASES = frozenset({
     WEB_SEARCH_TOOL_ID, "web_search", "web_search_preview", "search_web",
 })
@@ -864,6 +883,50 @@ def _provider_failure_reason(routing: dict[str, Any]) -> str:
     return value if re.fullmatch(r"[a-z0-9_]{1,80}", value) else "provider_unavailable"
 
 
+def _estimate_repair_classification(task: dict[str, Any]) -> dict[str, Any] | None:
+    execution = task.get("execution") if isinstance(task.get("execution"), dict) else {}
+    raw = (
+        execution.get("proposal_validation")
+        if isinstance(execution.get("proposal_validation"), dict)
+        else {}
+    )
+    code = str(raw.get("code") or "")
+    if code not in _ESTIMATE_REPAIRABLE_VALIDATION_CODES:
+        return None
+    fields = [
+        value
+        for value in raw.get("fields", [])
+        if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_.:-]{1,160}", value)
+    ][:8]
+    error_types = [
+        value
+        for value in raw.get("error_types", [])
+        if isinstance(value, str) and re.fullmatch(r"[a-z0-9_.]{1,80}", value)
+    ][:8]
+    return {
+        "code": code,
+        **({"fields": fields} if fields else {}),
+        **({"error_types": error_types} if error_types else {}),
+    }
+
+
+def _estimate_repair_messages(
+    context: list[dict[str, Any]], classification: dict[str, Any],
+) -> list[dict[str, Any]]:
+    safe_classification = json.dumps(
+        classification, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+    )
+    repair_instruction = (
+        "Estimate contract repair: regenerate the requested estimate from the original typed "
+        "request. The rejected draft is intentionally not included. Safe validation "
+        f"classification: {safe_classification}. Follow the proposal_contract already present "
+        "in system context exactly. Return one compact JSON object only. Never invent a source, "
+        "URL, price, normative document or project input. If real sources are unavailable, "
+        "return exactly the proposal_contract decline object."
+    )
+    return [{"role": "system", "content": repair_instruction}, *context]
+
+
 def _complete_deterministic_estimate_fallback(
     *,
     session: dict[str, Any],
@@ -982,6 +1045,14 @@ async def _complete_public_response(
         public_tools=public_tools,
     )
     provider_routing: dict[str, Any] = {}
+    bounded_estimate = (
+        isinstance(body.task, EstimateVerticalTask) and body.task.spec is None
+    )
+    estimate_deadline = (
+        time.monotonic() + ESTIMATE_PROVIDER_TOTAL_BUDGET_SECONDS
+        if bounded_estimate
+        else None
+    )
     tool_execution = ResponseToolExecution(
         provider_tools=requested_tools,
         provider_instructions=None,
@@ -1014,15 +1085,52 @@ async def _complete_public_response(
             })
         if _EXECUTOR is None:
             raise RuntimeError("public_response_executor_not_configured")
+        initial_timeout = (
+            min(
+                ESTIMATE_PROVIDER_INITIAL_BUDGET_SECONDS,
+                max(0.01, estimate_deadline - time.monotonic()),
+            )
+            if estimate_deadline is not None
+            else None
+        )
         result = await _EXECUTOR(
             messages=execution_context,
             model="kolibri",
             execution_mode=body.execution_mode,
             response_id=response_id,
+            **({"timeout_seconds": initial_timeout} if initial_timeout is not None else {}),
         )
         provider_routing = _provider_routing(result)
         if body.task is not None:
             task_payload = build_vertical_result(body.task, result, calculation)
+            repair_classification = _estimate_repair_classification(task_payload)
+            remaining = (
+                estimate_deadline - time.monotonic()
+                if estimate_deadline is not None
+                else 0.0
+            )
+            if repair_classification is not None and remaining > 0.25:
+                repair_timeout = min(ESTIMATE_PROVIDER_REPAIR_BUDGET_SECONDS, remaining)
+                try:
+                    repair_result = await _EXECUTOR(
+                        messages=_estimate_repair_messages(
+                            execution_context, repair_classification,
+                        ),
+                        model="kolibri",
+                        execution_mode=body.execution_mode,
+                        response_id=f"{response_id}-repair",
+                        timeout_seconds=repair_timeout,
+                    )
+                except ProviderGatewayError:
+                    # The first verified but invalid draft still provides a
+                    # content-bound, truthful readiness result. A timed-out
+                    # repair must not turn that bounded result into HTTP 503.
+                    pass
+                else:
+                    repair_task = build_vertical_result(body.task, repair_result, calculation)
+                    result = repair_result
+                    task_payload = repair_task
+                    provider_routing = _provider_routing(repair_result)
             try:
                 task_payload = materialize_public_estimate_task(
                     session=session,

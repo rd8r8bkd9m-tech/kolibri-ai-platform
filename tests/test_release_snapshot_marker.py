@@ -71,13 +71,16 @@ def test_cli_emits_only_sanitized_marker_evidence(tmp_path: Path) -> None:
     }
 
 
-def test_signed_home_runbook_uses_isolated_markers_for_both_bundles() -> None:
+def test_legacy_runbook_removes_unsafe_rollback_marker_recipe() -> None:
     text = RUNBOOK.read_text(encoding="utf-8")
 
-    assert '-cf - backend frontend/dist ops/control_plane_endpoint.py \\\n' in text
-    assert "ops/control_plane_endpoint.py RELEASE_ID" not in text
-    assert text.count("python3 ops/release_snapshot_marker.py") == 2
-    assert text.count("--runtime-path RELEASE_ID") == 2
+    assert "docs/FIRST_HOME_ROLLBACK_SNAPSHOT.md" in text
+    assert "silently excluded" in text
+    assert "RELEASE_ID=$ROLLBACK_ID" in text
+    assert "--exclude='*/__pycache__'" not in text
+    assert "--release-id \"$CURRENT_RELEASE_ID\"" not in text
+    assert text.count("python3 ops/release_snapshot_marker.py") == 1
+    assert text.count("--runtime-path RELEASE_ID") == 1
     assert 'git archive --format=tar "$SOURCE_COMMIT"' in text
     assert '--root "$SOURCE_ROOT"' in text
     assert '--root "$WORKTREE"' not in text

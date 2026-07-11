@@ -33,7 +33,10 @@ The current source closes that gap as follows:
 2. At process start it validates the root-managed `current` target, canonical
    manifest, `ops/agent_host.py` digest and the digest-pinned
    `ops/mimo/kolibri-response-only.md` profile, then re-execs that immutable
-   file.
+   file. A historical product-only manifest containing neither runtime record
+   is the sole migration fallback: it keeps the bootstrap process and never
+   executes unmanifested bytes. Declaring only one half of the runtime/profile
+   pair fails closed.
 3. The installer emits signed-manifest-derived `agent_host_runtime` activation
    evidence when the payload contains `ops/agent_host.py`.
 4. Only after the release task's completion POST succeeds does Agent Host exit.

@@ -8,8 +8,10 @@ ConditionPathExists=/var/lib/kolibri-mesh/peers.json
 Type=simple
 User=kolibri
 Group=kolibri
+SupplementaryGroups=kolibri-agent
 EnvironmentFile=/etc/kolibri/telegram.env
 Environment=KOLIBRI_MESH_MEMBERSHIP_MANIFEST=/var/lib/kolibri-mesh/peers.json
+Environment=KOLIBRI_OWNER_API_TOKEN_FILE=/etc/kolibri/owner-api-token
 Environment=TELEGRAM_GATEWAY_STATE=/var/lib/kolibri-telegram-gateway/state.json
 Environment=TELEGRAM_UPDATE_RECEIVER=polling
 Environment=HTTPS_PROXY=http://127.0.0.1:18080

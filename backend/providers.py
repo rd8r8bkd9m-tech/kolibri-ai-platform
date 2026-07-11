@@ -41,6 +41,7 @@ class AIProviderManager:
         del provider
         execution_mode = str(kwargs.pop("execution_mode", "fast") or "fast").lower()
         requested_response_id = kwargs.pop("response_id", None)
+        timeout_seconds = kwargs.pop("timeout_seconds", None)
         if execution_mode not in {"fast", "codex"}:
             raise ValueError("execution_mode must be 'fast' or 'codex'")
         if model not in (None, "", "auto", "kolibri"):
@@ -64,6 +65,7 @@ class AIProviderManager:
         optional_gateway_args = {
             "planned_skills": planned_skills,
             "execution_mode": execution_mode,
+            **({"timeout_seconds": timeout_seconds} if timeout_seconds is not None else {}),
         }
         while True:
             try:
@@ -78,7 +80,7 @@ class AIProviderManager:
                 # explicitly named by Python; never mask an internal TypeError.
                 match = re.search(
                     r"got an unexpected keyword argument ['\"]"
-                    r"(planned_skills|execution_mode)['\"]$",
+                    r"(planned_skills|execution_mode|timeout_seconds)['\"]$",
                     str(exc),
                 )
                 unsupported = match.group(1) if match else None

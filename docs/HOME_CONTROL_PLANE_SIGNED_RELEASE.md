@@ -7,6 +7,13 @@ This is the canonical release path for the Home backend, frontend, Agent Host
 and Factory Control Plane. They share `/opt/kolibri-ai/current`, so an ops-only
 or partial backend bundle is rejected before activation.
 
+Before the first release, provision and verify the shared protected owner
+token through `docs/HOME_OWNER_API_TOKEN_PROVISIONING.md`. The immutable
+pre-health gate checks only its root-managed `root:kolibri-agent 0640`
+metadata; it never reads or emits the value. A missing or unsafe token blocks
+release apply because Project, Knowledge and Telegram owner paths would
+otherwise remain unavailable after an apparently healthy switch.
+
 ## Safety and authority contract
 
 - Home is selected from the replicated mesh manifest; no hostname or IP is a
@@ -68,6 +75,7 @@ python3 ops/release_bundle_builder.py \
   --runtime-path ops/control_plane_endpoint.py \
   --runtime-path ops/factory_control.py \
   --runtime-path ops/fleet_membership.py \
+  --runtime-path ops/immutable_release_preflight.py \
   --runtime-path ops/mimo/kolibri-response-only.md \
   --runtime-path ops/release_authority.py \
   --runtime-path ops/release_helper.py \
@@ -87,10 +95,15 @@ Build the rollback bundle first. If `current` is already unified, snapshot
 that exact immutable release. For the first migration only, the known-good
 runtime may still be split: product bytes are under the current immutable
 release while Factory Control and Agent Host run from their bootstrap roots.
-In that case create one private baseline snapshot containing those exact
-currently effective bytes under the unified paths above, record their source
-paths and SHA-256 digests, add a matching `RELEASE_ID`, and commit the snapshot
-only for provenance before signing it. Do not substitute a newer checkout.
+In that case follow `docs/FIRST_HOME_ROLLBACK_SNAPSHOT.md`. The fail-closed
+helper copies only signed-manifest product bytes plus the explicitly mapped
+effective runtime, inventories rather than silently ignores extra files and
+`__pycache__`, and records every source path and SHA-256 digest. The new
+rollback ID must be chosen before capture: it is the exact `RELEASE_ID` payload
+and builder `--release-id`; the old current release ID belongs only in
+`ROLLBACK_PROVENANCE.json`. If the required Mimo profile was not active, the
+provenance must disclose its committed compatibility sentinel as non-effective.
+Do not substitute a newer checkout for any effective runtime byte.
 The resulting rollback release must pass the same full-profile validator; this
 turns the split known-good state into an immutable rollback target. After the
 first successful switch, all rollback bundles are direct snapshots of a prior

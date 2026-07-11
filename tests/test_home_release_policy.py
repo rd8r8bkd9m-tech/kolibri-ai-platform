@@ -22,9 +22,11 @@ def test_home_release_policy_is_strict_unified_home_runtime():
     assert "ops/release_helper.py" in policy.required_payload_paths
     assert "ops/release_installer.py" in policy.required_payload_paths
     assert "ops/runner_access.py" in policy.required_payload_paths
+    assert "ops/immutable_release_preflight.py" in policy.required_payload_paths
     assert "ops/mimo/kolibri-response-only.md" in policy.required_payload_paths
     assert "frontend/dist/index.html" in policy.required_payload_paths
     assert [check.name for check in policy.pre_health] == [
+        "pre:immutable-current-exact-file-set",
         "pre:backend-baseline",
         "pre:control-plane-baseline",
     ]
@@ -42,3 +44,6 @@ def test_home_release_policy_is_strict_unified_home_runtime():
     assert "{release_dir}" in policy.post_health[1].argv
     assert "{release_kind}" in policy.pre_activate[0].argv
     assert "{release_kind}" in policy.post_health[1].argv
+    assert "--allow-legacy-baseline" in policy.pre_health[2].argv
+    assert "--allow-legacy-baseline" not in policy.pre_activate[0].argv
+    assert "--allow-legacy-baseline" not in policy.post_health[1].argv

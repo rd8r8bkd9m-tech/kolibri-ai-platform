@@ -5,8 +5,8 @@ import { MobileWindow } from "./MobileWindow";
 import { WindowFrame } from "./WindowFrame";
 import { useMobileSurface, useStageBounds } from "./useStageLayout";
 
-function PrimarySurface({ children }) {
-  return <div className="primary-surface" data-testid="primary-surface">{children}</div>;
+function PrimarySurface({ children, inert = false }) {
+  return <div className="primary-surface" data-testid="primary-surface" inert={inert}>{children}</div>;
 }
 
 export function Workbench({ windows, focusedId, dispatch, onFocus, renderContent, renderPrimary }) {
@@ -19,7 +19,7 @@ export function Workbench({ windows, focusedId, dispatch, onFocus, renderContent
   if (mobile) {
     return (
       <section className="mobile-stage" data-testid="mobile-stage">
-        <PrimarySurface>{renderPrimary()}</PrimarySurface>
+        <PrimarySurface inert={Boolean(top)}>{renderPrimary()}</PrimarySurface>
         <AnimatePresence>{top && <MobileWindow dispatch={dispatch} key={top.id} onFocus={onFocus} renderContent={renderContent} windowState={top} />}</AnimatePresence>
       </section>
     );

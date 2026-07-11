@@ -15,9 +15,9 @@ export function PublicShell() {
       onDetachCanvas={shell.detachCanvas}
       onDetachProject={shell.openProject}
       onExecutionMode={shell.setExecutionMode}
-      onNewProject={shell.newProject}
+      onNewProject={shell.newProjectFromHistory}
       onOpenArtifact={shell.openArtifact}
-      onOpenHistory={shell.openProject}
+      onOpenHistory={shell.openProjectFromHistory}
       onProjectPatch={shell.updateProject}
       onSendMessage={shell.sendProjectMessage}
       onUpdateCanvas={shell.updateCanvas}

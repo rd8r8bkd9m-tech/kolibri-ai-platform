@@ -25,7 +25,8 @@ export function Composer({
   };
 
   useEffect(() => {
-    if (!busy) input.current?.focus();
+    const coarsePointer = globalThis.matchMedia?.("(pointer: coarse)").matches;
+    if (!busy && !coarsePointer) input.current?.focus();
   }, [busy, selectedTool]);
   return (
     <div className={`composer-layer ${embedded ? "is-embedded" : ""}`}>

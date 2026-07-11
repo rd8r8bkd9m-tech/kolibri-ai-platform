@@ -27,6 +27,7 @@ await vite.close();
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 const publicShell = read("../src/shell/PublicShell.jsx");
+const publicShellController = read("../src/shell/usePublicShell.js");
 const projectCommands = read("../src/shell/useProjectCommands.js");
 const projectMessaging = read("../src/shell/useProjectMessaging.js");
 const projectStore = read("../src/shell/useProjectStore.js");
@@ -162,7 +163,8 @@ assert.match(projectCommands, /draftTool:\s*tool,\s*viewMode:\s*"dialog"/);
 assert.doesNotMatch(projectCommands, /estimateCanvas|upsertCanvas/);
 assert.doesNotMatch(projectStore, /deleteProject|removeProject/);
 assert.match(workbenchController, /dispatch\(\{ type: "OPEN", window: projectWindow\(project, maximized\) \}\)/);
-assert.match(publicShell, /onOpenHistory=\{shell\.openProject\}/);
+assert.match(publicShell, /onOpenHistory=\{shell\.openProjectFromHistory\}/);
+assert.match(publicShellController, /openProjectFromHistory:\s*navigation\.mobile \? activateProject : openProject/);
 assert.match(projectsWindow, /onClick=\{\(\) => onOpen\(item\)\}/);
 assert.match(projectWorkspace, /onDetachProject\(project\)/);
 assert.match(projectCanvas, /onClick=\{onDetach\}/);

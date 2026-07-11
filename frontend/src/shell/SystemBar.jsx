@@ -1,6 +1,6 @@
 import { Brand } from "./Brand";
 
-export function SystemBar({ title, subtitle, children, brandLabel, navigationLabel = "Управление рабочим пространством", navigationOpen = false, onBrandActivate, onBrandPreviewEnter, onBrandPreviewLeave }) {
+export function SystemBar({ title, subtitle, children, brandLabel, navigationLabel = "Управление рабочим пространством", navigationModal = false, navigationOpen = false, onBrandActivate, onBrandPreviewEnter, onBrandPreviewLeave }) {
   return (
     <header className="system-bar">
       <Brand expanded={navigationOpen} label={brandLabel} onActivate={onBrandActivate} onPreviewEnter={onBrandPreviewEnter} onPreviewLeave={onBrandPreviewLeave} />
@@ -8,7 +8,7 @@ export function SystemBar({ title, subtitle, children, brandLabel, navigationLab
         <strong>{title}</strong>
         <span>{subtitle}</span>
       </div>
-      <nav aria-label={navigationLabel}>{children}</nav>
+      <nav aria-label={navigationLabel} inert={navigationModal}>{children}</nav>
     </header>
   );
 }

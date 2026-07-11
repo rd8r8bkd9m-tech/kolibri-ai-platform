@@ -17,6 +17,7 @@ export function usePublicShell() {
     updateProject,
   } = useProjectStore();
   const {
+    activateProject,
     dispatch,
     focusWindow,
     openArtifact,
@@ -51,6 +52,10 @@ export function usePublicShell() {
     setActiveProjectId,
     updateProject,
   });
+  const newProjectFromHistory = () => {
+    commands.newProject();
+    if (navigation.mobile) dispatch({ type: "DEACTIVATE", id: "projects-window" });
+  };
 
   const immersive = workbench.windows.some((item) => item.maximized && !item.minimized);
 
@@ -65,8 +70,10 @@ export function usePublicShell() {
     immersive,
     navigation,
     newProject: commands.newProject,
+    newProjectFromHistory,
     openArtifact,
     openProject,
+    openProjectFromHistory: navigation.mobile ? activateProject : openProject,
     openSystemApp,
     projects,
     selectTool: commands.selectTool,

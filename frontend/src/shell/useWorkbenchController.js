@@ -17,6 +17,12 @@ export function useWorkbenchController({ projects, setActiveProjectId }) {
     setActiveProjectId(project.id);
   }, [setActiveProjectId]);
 
+  const activateProject = useCallback((project) => {
+    if (!project) return;
+    setActiveProjectId(project.id);
+    dispatch({ type: "DEACTIVATE", id: "projects-window" });
+  }, [setActiveProjectId]);
+
   const openEstimate = useCallback((projectId, title) => {
     dispatch({ type: "OPEN", window: estimateWindow(projectId, title) });
   }, []);
@@ -82,6 +88,7 @@ export function useWorkbenchController({ projects, setActiveProjectId }) {
   }, [workbench]);
 
   return {
+    activateProject,
     dispatch,
     focusWindow,
     openArtifact,

@@ -42,7 +42,7 @@ Only these authority prerequisites are managed:
 - `/etc/kolibri/release-policy.json` from
   `ops/release-policy.home.json`;
 - current release authority/helper/installer, Home resolver, membership
-  reader, Control Plane canary and immutable launcher under
+  reader, Control Plane canary, exact-file-set preflight and immutable launcher under
   `/usr/local/lib/kolibri`;
 - current `kolibri-release-helper.service` and `.socket` units;
 - `/etc/systemd/system/kolibri-factory-control.service.d/10-immutable-release.conf`;
@@ -144,6 +144,13 @@ Then verify separately, without exposing environment values:
 ssh root@<manifest-resolved-home> \
   'systemctl is-active --quiet kolibri-release-helper.socket && systemctl is-active --quiet kolibri-release-helper.service'
 ```
+
+Before any release apply, run
+`/usr/local/lib/kolibri/immutable_release_preflight.py`. A signed current
+release containing unmanifested bytecode/cache files or an absent/unsafe
+`/etc/kolibri/owner-api-token` returns a sanitized blocked result. The
+authority bootstrap never removes those files and never creates the owner
+credential.
 
 The first actual bundle still requires a signed manifest, a separate owner
 approval attestation, a canary release task, content-bound evidence, and the

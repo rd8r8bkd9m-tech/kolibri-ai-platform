@@ -4,6 +4,7 @@ import hashlib
 import json
 import sqlite3
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -28,10 +29,12 @@ from public_estimate_api import router as estimate_router
 from public_responses_api import router as responses_router
 from providers import ProviderGatewayError
 from vertical_tasks import (
+    EstimateProviderDraftError,
     EstimateVerticalTask,
     build_deterministic_estimate_fallback,
     estimate_spec_from_provider_response,
     prepare_vertical_task,
+    provider_estimate_draft_json_schema,
     verified_deterministic_estimate_fallback,
 )
 
@@ -174,6 +177,33 @@ def _provider_draft(
         "questions": list(spec.questions),
         "totals": {"grand_total_minor": reported_total_minor},
         "grand_total_minor": reported_total_minor,
+    }
+
+
+def _verified_provider_result(text: str, *, binding: str = "f") -> dict:
+    response_sha = _sha(text)
+    return {
+        "response": text,
+        "model": "kolibri",
+        "technical": {"provider_routing": {
+            "selected_provider": "factory",
+            "attempts": [{"attempt": 1, "provider": "factory", "status": "succeeded"}],
+            "fallback_used": False,
+            "artifact_refs": [],
+            "evidence": [
+                {
+                    "type": "provider_execution",
+                    "exit_code": 0,
+                    "output_sha256": response_sha,
+                    "output_bytes": len(text.encode("utf-8")),
+                },
+                {
+                    "type": "deterministic_verifier",
+                    "verdict": "passed",
+                    "binding_sha256": binding * 64,
+                },
+            ],
+        }},
     }
 
 
@@ -548,6 +578,116 @@ def test_public_responses_materializes_pdf_after_verified_estimate_proposal(tmp_
     assert client.get(task["artifacts"][0]["locator"]).status_code == 200
 
 
+def test_exact_house_estimate_repairs_invalid_draft_once_within_total_budget(tmp_path):
+    session_store = _session_store(tmp_path)
+    configure_estimate_artifact_store(tmp_path / "kolibri.db", tmp_path / "artifacts")
+    private_marker = "PRIVATE-REJECTED-DRAFT-MUST-NOT-ENTER-REPAIR"
+    invalid = json.dumps({
+        "schema_version": "kolibri.estimate-provider-draft.v1",
+        "title": private_marker,
+        "currency": "RUB",
+        "minor_unit": 2,
+        "region": "Республика Татарстан",
+        "source_summary": private_marker,
+        "sections": [],
+    }, ensure_ascii=False)
+    repaired_draft = _provider_draft(
+        price_minor=12_500,
+        reported_total_minor=999_999_999,
+        region="Республика Татарстан",
+    )
+    repaired_draft["title"] = "Предварительная смета: дом 100 м², Лениногорск"
+    repaired = json.dumps(repaired_draft, ensure_ascii=False)
+    calls: list[dict] = []
+
+    async def executor(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            return _verified_provider_result(invalid, binding="a")
+        assert private_marker not in json.dumps(kwargs["messages"], ensure_ascii=False)
+        return _verified_provider_result(repaired, binding="b")
+
+    public_responses_api.configure_public_response_executor(executor)
+    _session_value, token = _session(session_store, "owner")
+    app = FastAPI()
+    app.include_router(responses_router)
+    app.include_router(estimate_router)
+    client = TestClient(app, headers={"Origin": ORIGIN})
+    client.cookies.set(public_responses_api.COOKIE_NAME, token)
+    brief = "составь смету на строительство одноэтажного дома 100 м2 татарстан лениногорск"
+
+    started = time.monotonic()
+    response = client.post("/v1/responses", json={
+        "model": "kolibri",
+        "input": brief,
+        "idempotency_key": "estimate-repair-leninogorsk-100m2",
+        "execution_mode": "codex",
+        "task": {
+            "intent": "estimate",
+            "brief": brief,
+            "requested_artifacts": ["pdf"],
+        },
+    })
+    elapsed = time.monotonic() - started
+
+    assert response.status_code == 200
+    assert elapsed < 2
+    assert len(calls) == 2
+    assert calls[0]["timeout_seconds"] == public_responses_api.ESTIMATE_PROVIDER_INITIAL_BUDGET_SECONDS
+    assert 0 < calls[1]["timeout_seconds"] <= public_responses_api.ESTIMATE_PROVIDER_REPAIR_BUDGET_SECONDS
+    assert sum(call["timeout_seconds"] for call in calls) <= 80
+    assert calls[1]["response_id"].endswith("-repair")
+    payload = response.json()
+    task = payload["task"]
+    assert task["status"] == "completed"
+    assert task["result"]["type"] == "deterministic_estimate"
+    assert task["result"]["status"] == "preliminary"
+    assert task["result"]["calculation"]["totals"]["grand_total_minor"] != 999_999_999
+    assert task["artifact_delivery"]["delivered"] == ["pdf"]
+    pdf = client.get(task["artifacts"][0]["locator"])
+    assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF")
+
+
+def test_estimate_source_decline_is_never_retried_and_returns_truthful_readiness(tmp_path):
+    session_store = _session_store(tmp_path)
+    configure_estimate_artifact_store(tmp_path / "kolibri.db", tmp_path / "artifacts")
+    declined = json.dumps({
+        "schema_version": "kolibri.estimate-provider-declined.v1",
+        "reason": "sources_unavailable",
+    })
+    calls: list[dict] = []
+
+    async def executor(**kwargs):
+        calls.append(kwargs)
+        return _verified_provider_result(declined, binding="d")
+
+    public_responses_api.configure_public_response_executor(executor)
+    _session_value, token = _session(session_store, "owner")
+    app = FastAPI()
+    app.include_router(responses_router)
+    app.include_router(estimate_router)
+    client = TestClient(app, headers={"Origin": ORIGIN})
+    client.cookies.set(public_responses_api.COOKIE_NAME, token)
+    brief = "составь смету на строительство одноэтажного дома 100 м2 татарстан лениногорск"
+
+    response = client.post("/v1/responses", json={
+        "model": "kolibri",
+        "input": brief,
+        "idempotency_key": "estimate-source-decline-no-retry",
+        "task": {"intent": "estimate", "brief": brief, "requested_artifacts": ["pdf"]},
+    })
+
+    assert response.status_code == 200
+    assert len(calls) == 1
+    task = response.json()["task"]
+    assert task["status"] == "incomplete"
+    assert task["execution"]["fallback_reason"] == "estimate_sources_unavailable"
+    assert task["execution"]["proposal_validation"] == {"code": "sources_unavailable"}
+    assert task["result"]["readiness"]["monetary_status"] == "not_calculated"
+    assert "calculation" not in task["result"]
+    assert task["artifact_delivery"]["delivered"] == ["pdf"]
+
+
 def test_unverified_codex_multiplier_proposal_is_gated_without_money(tmp_path):
     session_store = _session_store(tmp_path)
     configure_estimate_artifact_store(tmp_path / "kolibri.db", tmp_path / "artifacts")
@@ -690,6 +830,47 @@ def test_provider_estimate_contract_is_bounded_to_consolidated_json():
     oversized = json.dumps(_provider_draft(), ensure_ascii=False) + (" " * 25_000)
     with pytest.raises(ValueError, match="exceeds 24576 UTF-8 bytes"):
         estimate_spec_from_provider_response(oversized)
+
+
+def test_provider_estimate_prompt_schema_is_compact_strict_and_has_truthful_decline():
+    schema = provider_estimate_draft_json_schema()
+    encoded = json.dumps(schema, ensure_ascii=False, separators=(",", ":"))
+
+    assert len(encoded.encode("utf-8")) < 5_000
+    assert "$defs" not in schema
+    assert len(schema["oneOf"]) == 2
+    draft, declined = schema["oneOf"]
+    assert draft["additionalProperties"] is False
+    assert draft["properties"]["normative_basis"]["additionalProperties"] is False
+    line = draft["properties"]["sections"]["items"]["properties"]["lines"]["items"]
+    assert line["additionalProperties"] is False
+    assert line["properties"]["price_provenance"]["additionalProperties"] is False
+    assert line["properties"]["quantity_provenance"]["additionalProperties"] is False
+    assert declined == {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "schema_version": {"const": "kolibri.estimate-provider-declined.v1"},
+            "reason": {"const": "sources_unavailable"},
+        },
+        "required": ["schema_version", "reason"],
+    }
+
+
+def test_provider_estimate_validation_exposes_only_safe_classification():
+    private_marker = "PRIVATE-PROVIDER-CONTENT-MUST-NOT-LEAK"
+    draft = _provider_draft()
+    draft["sections"][0]["lines"][0]["price_provenance"].pop("source_url")
+    draft["source_summary"] = private_marker
+
+    with pytest.raises(EstimateProviderDraftError) as raised:
+        estimate_spec_from_provider_response(json.dumps(draft, ensure_ascii=False))
+
+    classification = raised.value.classification()
+    serialized = json.dumps(classification, ensure_ascii=False)
+    assert classification["code"] == "price_provenance_invalid"
+    assert any("price_provenance.source_url" in field for field in classification["fields"])
+    assert private_marker not in serialized
 
 
 def test_production_house_request_returns_bound_readiness_and_real_checklist_pdf(tmp_path):

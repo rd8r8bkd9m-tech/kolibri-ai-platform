@@ -55,6 +55,7 @@ REQUIRED_RUNTIME_PATHS = frozenset({
     "ops/control_plane_endpoint.py",
     "ops/factory_control.py",
     "ops/fleet_membership.py",
+    "ops/immutable_release_preflight.py",
     "ops/mimo/kolibri-response-only.md",
     "ops/release_authority.py",
     "ops/release_helper.py",

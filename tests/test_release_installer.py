@@ -953,6 +953,44 @@ def test_legacy_compatibility_exit_is_success_only_for_explicit_rollback(
     assert rollback[0]["compatibility_mode"] == "legacy-rollback-contract"
 
 
+def test_legacy_baseline_exit_is_success_only_for_explicit_local_policy_flag(
+    release_module,
+    tmp_path,
+    monkeypatch,
+):
+    release = release_module
+    health_script = write_executable(tmp_path / "baseline-compat", "raise SystemExit(11)")
+    allowed = release.HealthCheck(
+        name="pre:control-plane",
+        argv=(str(health_script), "--allow-legacy-baseline"),
+        timeout_seconds=1,
+    )
+    denied = release.HealthCheck(
+        name="pre:control-plane-without-contract",
+        argv=(str(health_script),),
+        timeout_seconds=1,
+    )
+    monkeypatch.setattr(
+        release.ReleaseInstaller,
+        "_run_bounded_process",
+        classmethod(lambda cls, argv, timeout, progress: 11),
+    )
+
+    accepted = release.ReleaseInstaller._run_health_checks(
+        (allowed,),
+        release.ProgressReporter(None),
+    )
+    rejected = release.ReleaseInstaller._run_health_checks(
+        (denied,),
+        release.ProgressReporter(None),
+    )
+
+    assert accepted[0]["status"] == "passed"
+    assert accepted[0]["compatibility_mode"] == "legacy-baseline-contract"
+    assert rejected[0]["status"] == "failed"
+    assert "compatibility_mode" not in rejected[0]
+
+
 def test_explicit_rollback_kind_switches_to_signed_target(release_module, tmp_path, monkeypatch):
     release = release_module
     installer, artifact_uri, digest, evidence = prepare_release_case(

@@ -50,90 +50,24 @@ curl --fail --silent --show-error --max-time 5 "$HOME_URL/v1/health" >/dev/null
 
 ## 2. Capture and sign the rollback bundle first
 
-The rollback payload is a new signed immutable bundle made from the exact
-current Home release, not a mutable repository checkout. Only code and built
-frontend paths are transferred; common credential filenames and key suffixes
-are excluded before bytes leave Home. The copied payload is scanned again,
-committed in an isolated local snapshot repository, and that real snapshot
-commit becomes its provenance.
+The former backend-only tar recipe has been removed. It silently excluded
+unbound files/`__pycache__`, did not capture the effective split Control Plane
+closure, and wrote the source current ID into `RELEASE_ID` before building a
+differently named rollback release. The current Home policy rejects that
+marker mismatch.
 
-```bash
-HOME_HOST=$(python3 -c \
-  'import sys,urllib.parse; print(urllib.parse.urlsplit(sys.argv[1]).hostname or "")' \
-  "$HOME_URL")
-REMOTE="root@$HOME_HOST"
-CURRENT_REAL=$(ssh -o BatchMode=yes -o ConnectTimeout=8 "$REMOTE" \
-  /usr/bin/readlink -f /opt/kolibri-ai/current)
-case "$CURRENT_REAL" in
-  /opt/kolibri-ai/releases/*) ;;
-  *) exit 2 ;;
-esac
-CURRENT_RELEASE_ID=$(basename "$CURRENT_REAL")
-case "$CURRENT_RELEASE_ID" in
-  ""|*[!A-Za-z0-9._-]*) exit 2 ;;
-esac
+Use the full-profile, provenance-bound procedure in
+`docs/FIRST_HOME_ROLLBACK_SNAPSHOT.md`, then return here only for the fixed
+manifest/signature extraction and approval reference below. The rollback
+snapshot must already have:
 
-ROLLBACK_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/kolibri-rollback.XXXXXXXX")
-chmod 0700 "$ROLLBACK_ROOT"
-ssh -o BatchMode=yes -o ConnectTimeout=8 "$REMOTE" \
-  /usr/bin/tar -C "$CURRENT_REAL" \
-  --exclude='*/__pycache__' --exclude='backend/tests' \
-  --exclude='*/.env' --exclude='*/.env.*' \
-  --exclude='*/auth.json' --exclude='*/cookies.json' \
-  --exclude='*/credentials.json' --exclude='*/secret.json' \
-  --exclude='*/secrets.json' --exclude='*/telegram.env' \
-  --exclude='*/tokens.json' --exclude='*.key' --exclude='*.pem' \
-  --exclude='*.p12' --exclude='*.pfx' \
-  -cf - backend frontend/dist ops/control_plane_endpoint.py \
-  | tar -C "$ROLLBACK_ROOT" -xf -
-
-ROLLBACK_ROOT="$ROLLBACK_ROOT" python3 - <<'PY'
-import os, re
-from pathlib import Path
-root = Path(os.environ["ROLLBACK_ROOT"])
-patterns = (
-    re.compile(rb"-----BEGIN (?:OPENSSH|RSA|EC|DSA) PRIVATE KEY-----"),
-    re.compile(rb"\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b"),
-    re.compile(rb"\b[0-9]{8,12}:[A-Za-z0-9_-]{30,}\b"),
-)
-files = [path for path in root.rglob("*") if path.is_file()]
-if not files or any(path.is_symlink() for path in root.rglob("*")):
-    raise SystemExit("rollback_snapshot_invalid")
-if any(pattern.search(path.read_bytes()) for path in files for pattern in patterns):
-    raise SystemExit("rollback_snapshot_secret_risk")
-PY
-
-# Historical releases may predate the RELEASE_ID payload marker. Derive it
-# from the already validated immutable release-directory name and create it
-# only in this private local snapshot. Never write into CURRENT_REAL.
-python3 ops/release_snapshot_marker.py \
-  --root "$ROLLBACK_ROOT" --release-id "$CURRENT_RELEASE_ID"
-
-git -C "$ROLLBACK_ROOT" init -q
-git -C "$ROLLBACK_ROOT" add backend frontend ops RELEASE_ID
-git -C "$ROLLBACK_ROOT" \
-  -c user.name='Kolibri Release Snapshot' \
-  -c user.email='release-snapshot@kolibriai.local' \
-  commit -q -m "snapshot: $CURRENT_RELEASE_ID rollback payload"
-ROLLBACK_SOURCE_COMMIT=$(git -C "$ROLLBACK_ROOT" rev-parse HEAD)
-
-STAMP=$(date -u +%Y%m%dT%H%M%SZ)
-ROLLBACK_ID="rollback-${CURRENT_RELEASE_ID}-${STAMP}"
-ROLLBACK_BUNDLE="$RELEASE_WORK/bundles/$ROLLBACK_ID.tar.gz"
-python3 ops/release_bundle_builder.py \
-  --root "$ROLLBACK_ROOT" \
-  --release-id "$ROLLBACK_ID" \
-  --source-commit "$ROLLBACK_SOURCE_COMMIT" \
-  --artifact-uri "artifact://bundles/$ROLLBACK_ID.tar.gz" \
-  --output "$ROLLBACK_BUNDLE" \
-  --runtime-path ops/control_plane_endpoint.py \
-  --runtime-path RELEASE_ID \
-  --build --sign \
-  --signer-identity "$SIGNER_ID" \
-  --signing-key "$OWNER_KEY"
-```
-
-Do not proceed unless the builder reports `self_verified=true`.
+- signed-manifest product bytes only;
+- all explicitly mapped active split-runtime bytes;
+- a disclosed non-effective Mimo compatibility sentinel when the profile was
+  absent at capture time;
+- `RELEASE_ID=$ROLLBACK_ID`, never the source current release ID;
+- `ROLLBACK_PROVENANCE.json` inside the newly signed manifest;
+- `self_verified=true` from the full unified bundle builder.
 
 ## 3. Build the committed backend and frontend bundle
 

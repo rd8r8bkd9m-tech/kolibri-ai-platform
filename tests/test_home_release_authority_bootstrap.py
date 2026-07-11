@@ -306,6 +306,7 @@ def test_apply_installs_public_trust_and_passes_prerequisite_gate(tmp_path):
     assert runner.socket_enabled is True
     assert (root / "usr/local/lib/kolibri/home_control_plane_canary.py").is_file()
     assert (root / "usr/local/lib/kolibri/home_control_plane_launcher.py").is_file()
+    assert (root / "usr/local/lib/kolibri/immutable_release_preflight.py").is_file()
     dropin = root / "etc/systemd/system/kolibri-factory-control.service.d/10-immutable-release.conf"
     assert dropin.is_file()
     assert "home_control_plane_launcher.py" in dropin.read_text(encoding="utf-8")
@@ -448,6 +449,7 @@ def test_operator_wrapper_is_dynamic_dry_run_first_and_excludes_backend_dropin()
     assert "ops/fleet_membership.py" in script
     assert "ops/home_control_plane_canary.py" in script
     assert "ops/home_control_plane_launcher.py" in script
+    assert "ops/immutable_release_preflight.py" in script
     assert "kolibri-factory-control-immutable-release.conf" in script
     assert "ops/home_release_authority_preflight.py" in script
     assert '/usr/bin/python3 - "$SIGNER_DIGEST"' in script

@@ -96,3 +96,12 @@ def test_home_backend_dropin_declares_owner_token_file_not_token_value():
     )
     assert "Environment=KOLIBRI_OWNER_API_TOKEN_FILE=/etc/kolibri/owner-api-token" in dropin
     assert "Environment=KOLIBRI_OWNER_API_TOKEN=" not in dropin
+
+
+def test_telegram_gateway_uses_same_root_managed_owner_token_without_inline_value():
+    unit = (ROOT / "ops/systemd/kolibri-telegram-gateway.service").read_text(
+        encoding="utf-8"
+    )
+    assert "SupplementaryGroups=kolibri-agent" in unit
+    assert "Environment=KOLIBRI_OWNER_API_TOKEN_FILE=/etc/kolibri/owner-api-token" in unit
+    assert "Environment=KOLIBRI_OWNER_API_TOKEN=" not in unit
