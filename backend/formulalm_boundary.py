@@ -121,6 +121,7 @@ _SAFE_OPAQUE_IDENTIFIER_KEYS = {
     "dataset_id",
     "evaluation_id",
     "event_id",
+    "estimate_id",
     "intake_id",
     "principal",
     "response_id",

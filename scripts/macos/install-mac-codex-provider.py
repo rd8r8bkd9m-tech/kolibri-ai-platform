@@ -302,7 +302,7 @@ def main(argv: list[str] | None = None) -> int:
     atomic_write(layout.launch_agent, plist_bytes, 0o600)
 
     if args.load:
-        domain = f"gui/{os.getuid()}"
+        domain = f"gui/{os.geteuid()}"
         service = f"{domain}/{LABEL}"
         launchctl(["bootout", service], tolerate_missing=True)
         try:

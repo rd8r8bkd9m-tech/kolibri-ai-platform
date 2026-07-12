@@ -96,7 +96,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json_line(plan))
         return 0
 
-    service = f"gui/{os.getuid()}/{LABEL}"
+    service = f"gui/{os.geteuid()}/{LABEL}"
     launchctl(["bootout", service], tolerate_missing=True)
     if installed:
         layout.launch_agent.unlink()

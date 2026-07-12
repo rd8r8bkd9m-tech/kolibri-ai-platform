@@ -68,6 +68,8 @@ def _candidate(path: Path, *, uid: int, size: int, sha256: str) -> dict[str, Any
             "path": str(path),
             "device": value.st_dev,
             "inode": value.st_ino,
+            "ctime_ns": value.st_ctime_ns,
+            "mtime_ns": value.st_mtime_ns,
             "uid": value.st_uid,
             "size": value.st_size,
             "sha256": sha256,
@@ -143,8 +145,16 @@ def apply(plan: dict[str, Any], *, ack_digest: str) -> dict[str, Any]:
             size=int(item["size"]),
             sha256=str(item["sha256"]),
         )
-        if current is None or (current["device"], current["inode"]) != (
-            item["device"], item["inode"]
+        if current is None or (
+            current["device"],
+            current["inode"],
+            current["ctime_ns"],
+            current["mtime_ns"],
+        ) != (
+            item.get("device"),
+            item.get("inode"),
+            item.get("ctime_ns"),
+            item.get("mtime_ns"),
         ):
             skipped.append(str(path))
             continue

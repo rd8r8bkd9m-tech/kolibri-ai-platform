@@ -25,6 +25,7 @@ from estimate_artifacts import (
     materialize_public_estimate_task,
 )
 from execution_api import configure_execution_store
+from formulalm_boundary import scan_learning_payload
 import public_responses_api
 from public_estimate_api import router as estimate_router
 from public_responses_api import router as responses_router
@@ -42,6 +43,15 @@ from vertical_tasks import (
 
 
 ORIGIN = "http://testserver"
+
+
+def test_server_generated_estimate_id_is_not_payment_card_pii() -> None:
+    scan = scan_learning_payload({
+        "estimate_id": "estimate_4242424242424242_deadbeef",
+    })
+
+    assert scan.rejected is False
+    assert scan.report["pii_findings"] == 0
 
 
 def _sha(value: str) -> str:

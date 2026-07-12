@@ -59,3 +59,4 @@ frontend/test-results/
 !frontend/src/**/*.js
 !frontend/vite.config.js
 !frontend/public/sw.js
+!apps/kolibri-shell-next/eslint.config.js

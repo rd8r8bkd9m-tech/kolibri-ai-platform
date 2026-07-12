@@ -529,6 +529,39 @@ def test_response_tool_gateway_runs_dynamic_estimate_research(monkeypatch):
     assert "copy source_quote exactly" in execution.provider_instructions
 
 
+def test_estimate_research_normalizes_unexpected_gateway_failure(monkeypatch):
+    class BrokenGateway:
+        def execute(self, *_args, **_kwargs):
+            raise RuntimeError("untrusted adapter detail")
+
+    monkeypatch.setattr(
+        "response_tool_gateway.get_web_search_gateway", lambda: BrokenGateway(),
+    )
+    execution = execute_response_tools(
+        input_value="Составь смету дома 100 м²",
+        instructions=None,
+        response_id="resp_current_prices_failure",
+        principal="public-session:test",
+        requested_tools=[{"id": "tool:web_search"}],
+        raw_tools=[{"type": "web_search", "search_context_size": "high"}],
+        session_id="session_test",
+        project_id="project_test",
+        estimate_task={
+            "intent": "estimate",
+            "brief": "одноэтажный дом 100 м²",
+            "region": "Республика Татарстан, Лениногорск",
+        },
+    )
+
+    assert execution.tool_calls == []
+    assert execution.provider_tools[0]["id"] == "tool:web_search"
+    assert execution.attempts
+    assert {item["error_type"] for item in execution.attempts} == {
+        "web_search_provider_failed",
+    }
+    assert "untrusted adapter detail" not in str(execution)
+
+
 class _CapabilityGateway:
     def validate_requested_tools(self, tools):
         return [{

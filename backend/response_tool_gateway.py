@@ -180,6 +180,21 @@ def execute_response_tools(
                     dict(item) for item in getattr(exc, "attempts", [])
                     if isinstance(item, dict)
                 )
+            except Exception:
+                # Provider adapters are an untrusted boundary.  A malformed or
+                # unexpected adapter exception must not turn an otherwise
+                # usable preliminary estimate into an untyped HTTP 503.  Keep
+                # the failure content-free and continue to the bounded native
+                # provider fallback below.
+                last_error = WebSearchError(
+                    "web_search_provider_failed", retryable=True,
+                )
+                controlled_search_failures.append({
+                    "provider": "controlled-search",
+                    "status": "failed",
+                    "error_type": "web_search_provider_failed",
+                    "retryable": True,
+                })
         if not web_executions and last_error is not None:
             if isinstance(estimate_task, dict) and estimate_task.get("intent") == "estimate":
                 # The native Codex route is a bounded second source acquisition

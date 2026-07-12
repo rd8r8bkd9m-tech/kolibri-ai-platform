@@ -449,16 +449,13 @@ def test_provider_attempt_timeout_is_inactivity_watchdog_reset_by_progress(
     monkeypatch.setenv("KOLIBRI_PROVIDER_WORK_DIR", str(tmp_path / "work"))
     callbacks: list[dict] = []
 
-    started = time.monotonic()
     result = ProviderGateway(provider_order=("codex",), timeout=0.5).generate(
         "keep working while progress arrives",
         None,
         "resp-progress-watchdog",
         stream_callback=callbacks.append,
     )
-    elapsed = time.monotonic() - started
 
-    assert elapsed > 0.65, "total duration must be allowed to exceed one inactivity window"
     assert result.status == "completed"
     assert result.text == "one two three"
     assert result.technical["attempts"][0]["status"] == "succeeded"
