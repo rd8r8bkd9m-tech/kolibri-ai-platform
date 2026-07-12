@@ -9,6 +9,10 @@
 - `scripts/linux/install-home-codex-provider.py` — dry-run-first Home owner
   Codex provider service installer; uses the current CLI session in place and
   never distributes it to workers.
+- `scripts/linux/provision-home-codex-provider-credential.py` and
+  `scripts/linux/home-codex-provider-credential-root.py` — dry-run owner phase
+  plus approved root phase for the actor's split raw/verifier credential;
+  always leaves the actor drained.
 - `ops/telegram_gateway.py` — Telegram owner-facing gateway.
 - `ops/telegram_superfactory.py` — Telegram Mini App and runner policy contracts.
 - `ops/mesh_control_bridge.py` — mesh/factory node bridge.
