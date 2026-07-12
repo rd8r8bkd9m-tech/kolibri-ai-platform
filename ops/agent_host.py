@@ -532,6 +532,10 @@ class ResponseOnlyToolEventError(RuntimeError):
     """Mimo emitted a tool event despite the response-only agent profile."""
 
 
+class ResponseOnlyToolOutputError(RuntimeError):
+    """A response-only runner serialized a tool call as assistant text."""
+
+
 class NativeWebSearchEvidenceError(RuntimeError):
     """A Codex native-search JSONL trace exceeded the bounded evidence policy."""
 
@@ -823,6 +827,112 @@ def response_only_tool_event_name(event: dict[str, Any]) -> str | None:
                 stack.append(child)
         elif isinstance(value, list):
             stack.extend(value)
+    return None
+
+
+_SERIALIZED_TOOL_CALL_MARKUP = re.compile(
+    r"(?:"
+    r"<\s*(?:tool[_-]?call|function[_-]?call)\b[^>]*/\s*>"
+    r"|"
+    r"<\s*(?:tool[_-]?call|function[_-]?call)\b[^>]*>.*?"
+    r"</\s*(?:tool[_-]?call|function[_-]?call)\s*>"
+    r"\s*"
+    r")+",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+_SERIALIZED_TOOL_CALL_TYPES = {
+    "function_call",
+    "tool_call",
+    "tool_calls",
+    "tool_use",
+}
+
+
+def _normalized_json_object(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return {
+        str(key).strip().lower().replace("-", "_"): child
+        for key, child in value.items()
+    }
+
+
+def _looks_like_serialized_tool_call(value: Any) -> bool:
+    fields = _normalized_json_object(value)
+    if not fields:
+        return False
+    call_type = str(fields.get("type") or fields.get("kind") or "").strip()
+    call_type = call_type.lower().replace("-", "_")
+    if call_type in _SERIALIZED_TOOL_CALL_TYPES:
+        return any(
+            fields.get(key) not in (None, "", [], {})
+            for key in ("arguments", "call_id", "function", "input", "name", "tool")
+        )
+    function = fields.get("function")
+    if isinstance(function, dict):
+        function_fields = _normalized_json_object(function)
+        if function_fields.get("name") and any(
+            key in function_fields for key in ("arguments", "input")
+        ):
+            return True
+    return bool(
+        (fields.get("name") or fields.get("tool"))
+        and any(key in fields for key in ("arguments", "input"))
+    )
+
+
+def serialized_tool_call_output_name(response_text: str) -> str | None:
+    """Classify assistant text that is itself a serialized tool invocation.
+
+    The check intentionally requires the entire response to be a call envelope.
+    Explanatory prose that merely discusses tool calls, or embeds an example in
+    Markdown, remains valid response content.
+    """
+
+    candidate = str(response_text or "").strip()
+    if not candidate:
+        return None
+    if _SERIALIZED_TOOL_CALL_MARKUP.fullmatch(candidate):
+        return "tool_call_markup"
+    if candidate.startswith("```"):
+        return None
+    try:
+        payload = json.loads(candidate)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return None
+    fields = _normalized_json_object(payload)
+    if fields:
+        for wrapper in ("function_call", "tool_call", "tool_calls", "tool_use"):
+            calls = fields.get(wrapper)
+            if isinstance(calls, dict) and _looks_like_serialized_tool_call(calls):
+                return wrapper
+            if (
+                isinstance(calls, list)
+                and calls
+                and all(_looks_like_serialized_tool_call(call) for call in calls)
+            ):
+                return wrapper
+        if _looks_like_serialized_tool_call(payload):
+            return "tool_call_json"
+        choices = fields.get("choices")
+        if isinstance(choices, list):
+            for choice in choices:
+                choice_fields = _normalized_json_object(choice)
+                for container in ("delta", "message"):
+                    nested = _normalized_json_object(choice_fields.get(container))
+                    calls = nested.get("tool_calls")
+                    if (
+                        isinstance(calls, list)
+                        and calls
+                        and all(_looks_like_serialized_tool_call(call) for call in calls)
+                    ):
+                        return "openai_tool_calls"
+    elif (
+        isinstance(payload, list)
+        and payload
+        and all(_looks_like_serialized_tool_call(call) for call in payload)
+    ):
+        return "tool_call_json_list"
     return None
 
 
@@ -2886,6 +2996,7 @@ class AgentHost:
         stdout_path: Path,
         *,
         forbid_tool_events: bool = False,
+        forbid_serialized_tool_calls: bool = False,
     ) -> dict[str, Any]:
         final_messages: list[str] = []
         text_parts: list[str] = []
@@ -2938,6 +3049,14 @@ class AgentHost:
         for parts in (final_messages, text_parts, deltas):
             response_text = "".join(parts).strip()
             if response_text:
+                if forbid_serialized_tool_calls:
+                    serialized_tool_call = serialized_tool_call_output_name(
+                        response_text
+                    )
+                    if serialized_tool_call:
+                        raise ResponseOnlyToolOutputError(
+                            f"response_only_serialized_tool_call:{serialized_tool_call}"
+                        )
                 payload: dict[str, Any] = {"response": response_text}
                 if useful_objects:
                     payload["runner_output"] = useful_objects[-1]
@@ -2949,6 +3068,12 @@ class AgentHost:
             text = output.get("response") or output.get("message") or output.get("text") or output.get("summary")
             if not isinstance(text, str) or not text.strip():
                 text = json.dumps(output, ensure_ascii=False, sort_keys=True)
+            if forbid_serialized_tool_calls:
+                serialized_tool_call = serialized_tool_call_output_name(text)
+                if serialized_tool_call:
+                    raise ResponseOnlyToolOutputError(
+                        f"response_only_serialized_tool_call:{serialized_tool_call}"
+                    )
             return {
                 "response": text.strip(),
                 "runner_output": output,
@@ -2972,11 +3097,13 @@ class AgentHost:
         stdout_path: Path,
         *,
         forbid_tool_events: bool = False,
+        forbid_serialized_tool_calls: bool = False,
     ) -> str:
         return str(
             cls.parse_json_response_payload(
                 stdout_path,
                 forbid_tool_events=forbid_tool_events,
+                forbid_serialized_tool_calls=forbid_serialized_tool_calls,
             ).get("response")
             or ""
         )
@@ -3043,6 +3170,7 @@ class AgentHost:
         logs: dict[str, str],
         stdin_path: Path | None = None,
         forbid_tool_events: bool = False,
+        forbid_serialized_tool_calls: bool = False,
         env: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         try:
@@ -3074,6 +3202,7 @@ class AgentHost:
             payload = self.parse_json_response_payload(
                 stdout_path,
                 forbid_tool_events=forbid_tool_events,
+                forbid_serialized_tool_calls=forbid_serialized_tool_calls,
             )
         except ResponseOnlyToolEventError as exc:
             # Tool payloads can contain command arguments, file contents, or
@@ -3091,6 +3220,23 @@ class AgentHost:
                 "runner_policy_blocked",
                 runner,
                 f"{runner} response-only agent emitted a forbidden tool event",
+                retry=False,
+            ) from exc
+        except ResponseOnlyToolOutputError as exc:
+            # Serialized calls can contain provider arguments and user data.
+            # Retain only the classified policy failure, never the raw output.
+            stdout_path.write_text(
+                "[kolibri] Response-only tool-call output withheld\n",
+                encoding="utf-8",
+            )
+            stderr_path.write_text(
+                "[kolibri] Response-only tool-call output rejected\n",
+                encoding="utf-8",
+            )
+            raise RunnerExecutionError(
+                "response_only_tool_call_output",
+                runner,
+                f"{runner} response-only runner emitted a serialized tool call instead of a final response",
                 retry=False,
             ) from exc
         except NativeWebSearchEvidenceError as exc:
@@ -3136,6 +3282,7 @@ class AgentHost:
         logs: dict[str, str],
         stdin_path: Path | None = None,
         forbid_tool_events: bool = False,
+        forbid_serialized_tool_calls: bool = False,
         env: dict[str, str] | None = None,
     ) -> str:
         payload = self.run_json_payload_command(
@@ -3150,6 +3297,7 @@ class AgentHost:
             logs,
             stdin_path=stdin_path,
             forbid_tool_events=forbid_tool_events,
+            forbid_serialized_tool_calls=forbid_serialized_tool_calls,
             env=env,
         )
         return str(payload.get("response") or "")
@@ -3278,6 +3426,7 @@ class AgentHost:
                 logs,
                 stdin_path=prompt_path if runner == "codex" else None,
                 forbid_tool_events=forbid_tool_events,
+                forbid_serialized_tool_calls=response_only_route,
                 env=provider_environment,
             )
             if execution_metadata is not None:

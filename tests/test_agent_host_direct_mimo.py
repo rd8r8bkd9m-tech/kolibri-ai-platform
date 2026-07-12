@@ -419,6 +419,118 @@ def test_orchestrator_mimo_rejects_tool_event_and_withholds_raw_payload(
     assert not (tmp_path / "work" / "MIMO-RESPONSE-ONLY-TOOL-EVENT" / ".mimocode").exists()
 
 
+@pytest.mark.parametrize(
+    ("runner", "serialized_output"),
+    [
+        (
+            "mimo",
+            '<tool_call>{"name":"web_search","arguments":{"query":"private-marker"}}</tool_call>',
+        ),
+        (
+            "codex",
+            json.dumps({
+                "tool_calls": [{
+                    "id": "call-private-marker",
+                    "type": "function",
+                    "function": {
+                        "name": "web_search",
+                        "arguments": '{"query":"private-marker"}',
+                    },
+                }],
+            }),
+        ),
+    ],
+)
+def test_response_only_mimo_and_codex_reject_serialized_tool_call_text(
+    tmp_path, monkeypatch, runner, serialized_output
+):
+    agent_host = load_agent_host()
+    monkeypatch.setattr(
+        agent_host.shutil,
+        "which",
+        lambda name: f"/usr/local/bin/{name}" if name == runner else None,
+    )
+    monkeypatch.setattr(
+        agent_host.AgentHost,
+        "detect_codex_runner_status",
+        lambda _self, path: {
+            "status": "available",
+            "path": path,
+            "login_status": "authenticated",
+            "probe": {
+                "model": agent_host.CODEX_TASK_MODEL,
+                "sandbox": "read-only",
+                "status": "passed",
+            },
+        },
+    )
+
+    class Host(agent_host.AgentHost):
+        def __init__(self, args):
+            super().__init__(args)
+            self.posts = []
+
+        def post(self, path, body):
+            self.posts.append((path, body))
+            return body
+
+        def run_command(
+            self, command, cwd, stdout_path, stderr_path, task, branch, logs,
+            **_kwargs,
+        ):
+            del self, command, cwd, task, branch, logs
+            stdout_path.write_text(
+                json.dumps({
+                    "type": "item.completed",
+                    "item": {
+                        "type": "agent_message",
+                        "text": serialized_output,
+                    },
+                }) + "\n",
+                encoding="utf-8",
+            )
+            stderr_path.write_text("", encoding="utf-8")
+
+    task_id = f"{runner.upper()}-SERIALIZED-TOOL-CALL"
+    task = make_direct_task(task_id, "return a final response")
+    task["envelope"].update({
+        "runner": runner,
+        "constraints": {"read_only": True},
+        "write_scope": [],
+    })
+    host = Host(make_args(tmp_path))
+
+    host.run_task(task)
+
+    assert not [item for item in host.posts if item[0].endswith("/complete")]
+    failures = [item for item in host.posts if item[0].endswith("/fail")]
+    assert len(failures) == 1
+    assert failures[0][1]["error_type"] == "response_only_tool_call_output"
+    assert failures[0][1]["retry"] is False
+    assert "private-marker" not in json.dumps(failures[0][1], ensure_ascii=False)
+    artifact_dir = tmp_path / "artifacts" / task_id / f"{task_id}-attempt-1"
+    assert "private-marker" not in (
+        artifact_dir / "stdout.log"
+    ).read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "response_text",
+    [
+        "Инструменты обсуждаются как концепция; вызовов инструментов не было.",
+        "Тег <tool_call>...</tool_call> в документации обозначает вызов инструмента.",
+        '{"topic":"tool_call","description":"ordinary documentation"}',
+        '```json\n{"name":"web_search","arguments":{"query":"example"}}\n```',
+    ],
+)
+def test_serialized_tool_call_detector_allows_ordinary_tool_discussion(
+    response_text,
+):
+    agent_host = load_agent_host()
+
+    assert agent_host.serialized_tool_call_output_name(response_text) is None
+
+
 def test_mimo_response_profile_is_digest_pinned_and_fails_closed_on_mutation(
     tmp_path,
 ):
