@@ -17,6 +17,17 @@ def load_agent_host():
     return module
 
 
+def load_factory_control():
+    spec = importlib.util.spec_from_file_location(
+        "factory_control_for_agent_host_failure",
+        ROOT / "ops" / "factory_control.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
 def make_args(tmp_path):
     mesh_manifest = tmp_path / "mesh-peers.json"
     mesh_manifest.parent.mkdir(parents=True, exist_ok=True)
@@ -181,6 +192,123 @@ def test_direct_mimo_http_401_is_runner_auth_failed_without_prompt_leak(tmp_path
         "stderr.log",
         "stdout.log",
     ]
+
+
+def test_direct_mimo_generic_rc1_posts_strict_runner_bound_fail_and_returns(
+    tmp_path, monkeypatch
+):
+    agent_host = load_agent_host()
+    factory_control = load_factory_control()
+    monkeypatch.setattr(
+        agent_host.shutil,
+        "which",
+        lambda name: "/usr/bin/mimo" if name == "mimo" else None,
+    )
+    raw_secret = "api_key=provider-private-value-must-not-leak"
+    task = make_direct_task("MIMO-GENERIC-RC1", "harmless owner request")
+
+    class Host(agent_host.AgentHost):
+        def __init__(self, args):
+            super().__init__(args)
+            self.posts = []
+            self.fail_ack = None
+
+        def post(self, path, body):
+            self.posts.append((path, body))
+            if path.endswith("/fail"):
+                assert factory_control.runner_result_binding_error(task, body) is None
+                self.fail_ack = {
+                    "task_id": task["task_id"],
+                    "state": "queued" if body["retry"] else "failed",
+                    "lease_until": None,
+                }
+                return self.fail_ack
+            return body
+
+        def run_command(
+            self, command, cwd, stdout_path, stderr_path, task, branch, logs,
+            env=None, command_label=None,
+        ):
+            del command, cwd, task, branch, logs, env
+            stdout_path.write_text(f"$ {command_label}\n", encoding="utf-8")
+            stderr_path.write_text(f"provider failed: {raw_secret}\n", encoding="utf-8")
+            raise RuntimeError(f"command failed with rc=1: {command_label}")
+
+    host = Host(make_args(tmp_path))
+
+    host.run_task(task)
+
+    assert not [item for item in host.posts if item[0].endswith("/complete")]
+    failures = [item for item in host.posts if item[0].endswith("/fail")]
+    assert len(failures) == 1
+    fail_body = failures[0][1]
+    assert fail_body["error_type"] == "runtime_error"
+    assert fail_body["result"]["status"] == "failed"
+    assert fail_body["result"]["runner"] == "mimo"
+    assert fail_body["result"]["requested_runner"] == "mimo"
+    assert fail_body["result"]["runner_binding_verified"] is True
+    assert host.fail_ack == {
+        "task_id": task["task_id"],
+        "state": "queued",
+        "lease_until": None,
+    }
+    artifact_dir = (
+        tmp_path / "artifacts" / task["task_id"] / task["attempt_id"]
+    )
+    retained = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (
+            artifact_dir / "result.json",
+            artifact_dir / "stdout.log",
+            artifact_dir / "stderr.log",
+        )
+    )
+    assert raw_secret not in json.dumps(fail_body, ensure_ascii=False)
+    assert raw_secret not in retained
+    assert "[redacted sensitive runner output]" in retained
+
+
+def test_fail_binding_does_not_overwrite_explicit_runner_mismatch(
+    tmp_path, monkeypatch
+):
+    agent_host = load_agent_host()
+    factory_control = load_factory_control()
+    monkeypatch.setattr(
+        agent_host.shutil,
+        "which",
+        lambda name: "/usr/bin/mimo" if name == "mimo" else None,
+    )
+
+    class Host(agent_host.AgentHost):
+        def __init__(self, args):
+            super().__init__(args)
+            self.posts = []
+
+        def post(self, path, body):
+            self.posts.append((path, body))
+            return body
+
+    host = Host(make_args(tmp_path))
+    task = make_direct_task("MIMO-EXPLICIT-MISMATCH")
+
+    host.fail(
+        task,
+        "runtime_error",
+        "explicit runner mismatch",
+        {"status": "failed", "runner": "codex"},
+        None,
+        retry=False,
+    )
+
+    fail_body = host.posts[0][1]
+    assert fail_body["result"]["runner"] == "codex"
+    assert fail_body["result"]["requested_runner"] == "mimo"
+    assert fail_body["result"]["runner_binding_verified"] is False
+    assert factory_control.runner_result_binding_error(task, fail_body) == {
+        "error": "runner_result_mismatch",
+        "requested_runner": "mimo",
+        "result_runner": "codex",
+    }
 
 
 def test_direct_mimo_http_403_illegal_access_is_policy_blocked_without_prompt_leak(tmp_path, monkeypatch):

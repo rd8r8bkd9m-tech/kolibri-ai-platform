@@ -3193,9 +3193,13 @@ class AgentHost:
                 str(exc),
                 self._read_runner_output_for_error(stdout_path, stderr_path),
             )
+            # Provider stderr can contain credentials or echoed request data
+            # even when the exit is an otherwise unclassified runtime error.
+            # Classification has already consumed the bounded tail, so retain
+            # only sanitized logs for every failure class.
+            sanitize_text_file(stdout_path)
+            sanitize_text_file(stderr_path)
             if error_type != "runtime_error":
-                sanitize_text_file(stdout_path)
-                sanitize_text_file(stderr_path)
                 raise RunnerExecutionError(error_type, runner, message, retry=retry) from exc
             raise
         try:
@@ -3584,6 +3588,21 @@ class AgentHost:
 
     def fail(self, task: dict[str, Any], error_type: str, error: str, result: dict[str, Any] | None, result_path: Path | None, retry: bool = True) -> None:
         bound_result = dict(result) if isinstance(result, dict) else result
+        requested_runner = requested_runner_for_envelope(task_envelope(task))
+        if requested_runner:
+            if not isinstance(bound_result, dict):
+                bound_result = {}
+            # A failed attempt still has to identify the runner it attempted.
+            # Fill only an absent binding: an explicit mismatched runner must
+            # remain visible and be rejected by the strict Control Plane.
+            if not str(bound_result.get("runner") or "").strip():
+                bound_result["runner"] = requested_runner
+            if not str(bound_result.get("requested_runner") or "").strip():
+                bound_result["requested_runner"] = requested_runner
+            bound_result["runner_binding_verified"] = (
+                str(bound_result.get("runner") or "").strip().lower()
+                == requested_runner
+            )
         if isinstance(bound_result, dict) and "fencing_token" in task:
             bound_result["fencing_token"] = task.get("fencing_token")
         self.post(f"/v1/tasks/{task['task_id']}/fail", {
@@ -4778,6 +4797,7 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
             attempt_id = task.get("attempt_id") or f"{task_id}-attempt-{task.get('attempt', 1)}"
             artifact_dir = self.artifact_root / task_id / attempt_id
             artifact_dir.mkdir(parents=True, exist_ok=True)
+            safe_error = redact_sensitive_text(str(exc))
             result = {
                 "node_id": self.node_id,
                 "hostname": self.hostname,
@@ -4786,15 +4806,23 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 "attempt_id": attempt_id,
                 "pid": self.pid,
                 "status": "failed",
-                "error": redact_sensitive_text(str(exc)),
+                "error": safe_error,
                 "completed_at": utc_now(),
                 "result_path": str(artifact_dir / "result.json"),
             }
+            requested_runner = requested_runner_for_envelope(task_envelope(task))
+            if requested_runner:
+                result.setdefault("runner", requested_runner)
             if isinstance(exc, RunnerExecutionError):
                 self.persist_runner_failure(exc)
                 result["status"] = "blocked"
                 result["runner"] = exc.runner
-            result = finalize_runner_contract(task, result, artifact_dir, failure_reason=str(exc))
+            result = finalize_runner_contract(
+                task,
+                result,
+                artifact_dir,
+                failure_reason=safe_error,
+            )
             result_path = self.write_result(artifact_dir, result)
             retry = task_has_attempt_budget(task)
             if isinstance(exc, RunnerExecutionError):
@@ -4843,7 +4871,7 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 result["next_recommended_task"] = "repair Agent Host git credentials, then rerun the review task"
                 result_path = self.write_result(artifact_dir, result)
                 retry = False
-            self.fail(task, error_type, redact_sensitive_text(str(exc)), result, result_path, retry=retry)
+            self.fail(task, error_type, safe_error, result, result_path, retry=retry)
 
     def loop(self) -> None:
         while not STOP and not self._runtime_restart_requested:
