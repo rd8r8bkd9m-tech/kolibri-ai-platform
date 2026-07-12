@@ -9,7 +9,8 @@ ROOT = Path(__file__).resolve().parents[1]
 STATUS_PATH = ROOT / "release" / "program-status.json"
 DOC_PATH = ROOT / "docs" / "PROGRAM_STATUS.md"
 ALLOWED_STATUSES = {"completed", "in_progress", "not_started", "blocked"}
-SOURCE_COMMIT = "3b01332c67db970cf054bb3331b5c76c20ddee11"
+SOURCE_COMMIT = "5100321e8e8cac7c86f6ea7d955f5891c2d960c0"
+CI_RUN_ID = 29213029860
 BUNDLE_DIGEST = "sha256:de00339d64be94772896e956a8bc3e05d125b6db0677285dc6835f2884baa56c"
 CAMPAIGN_ID = "factory-ca5e3a09-final-20260713"
 RETRY_SNAPSHOT = "sha256:df090eab9ecc4956d60f1a01fbf70d79ac702f4e8100997e5054f525591d951b"
@@ -72,13 +73,52 @@ def test_program_status_records_only_current_proven_summary():
     summary = status["summary"]
 
     assert summary["ci"] == {
-        "status": "red",
-        "commits": [
-            "76e5d65e63eba2e5fcebe9dd93aef75857480594",
-            SOURCE_COMMIT,
+        "status": "green",
+        "run_id": CI_RUN_ID,
+        "commit": SOURCE_COMMIT,
+        "jobs": {
+            "ci": "success",
+            "rust-1.97": "success",
+            "kolibri-shell": "success",
+        },
+        "historical_red": {
+            "commits": [
+                "76e5d65e63eba2e5fcebe9dd93aef75857480594",
+                "3b01332c67db970cf054bb3331b5c76c20ddee11",
+            ],
+            "cause": "python_3_14_timeout_classification_race",
+        },
+    }
+    assert summary["home_development_environment"] == {
+        "integration_worktree": {
+            "status": "clean",
+            "commit": SOURCE_COMMIT,
+            "update_method": "fast_forward",
+        },
+        "codex_cli_version": "0.144.1",
+        "canonical_manifest_readable": True,
+        "linger": "yes",
+    }
+    assert summary["home_codex_provider"] == {
+        "code_status": "committed_ci_green",
+        "broker_service_activated": False,
+        "provider_canary_completed": False,
+        "dry_run_status": "blocked",
+        "dry_run_blocker": "current_user_codex_session_unavailable",
+        "official_device_login": {
+            "status": "waiting_for_owner_unlock",
+            "mac_screen_locked": True,
+        },
+        "activation_sequence": [
+            "unlock_mac",
+            "complete_device_login",
+            "provision_drained_actor",
+            "install_and_start",
+            "readiness",
+            "fenced_canary",
+            "undrain",
         ],
-        "cause": "python_3_14_timeout_classification_race",
-        "fix_status": "in_progress",
+        "status": "blocked",
     }
     assert summary["home_control_plane"]["status"] == "healthy"
     assert summary["runtime_bundle"]["digest"] == BUNDLE_DIGEST
@@ -144,6 +184,12 @@ def test_markdown_owner_view_matches_machine_ledger():
     assert "15 of 20 were previously verified" in document
     assert RETRY_SNAPSHOT in document
     assert RETRY_PREFIX in document
+    assert str(CI_RUN_ID) in document
+    assert "`ci`, `rust-1.97`, and `kolibri-shell` all succeeded" in document
+    assert "Codex CLI upgraded to `0.144.1`" in document
+    assert "current_user_codex_session_unavailable" in document
+    assert "official device login is waiting for owner unlock" in document
+    assert "service is not activated, no provider canary exists" in document
     assert "5 of 5 terminal failed" in document
     assert "bindings are verified and leases are cleared" in document
     assert "terminal attempt failed with Mimo rc=1" in document

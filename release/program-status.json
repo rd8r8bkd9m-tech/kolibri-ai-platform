@@ -1,8 +1,8 @@
 {
   "schema_version": "kolibri.program-status.v1",
   "program_id": "kolibri-ai-os-home-first",
-  "as_of": "2026-07-12T22:53:20Z",
-  "source_commit": "3b01332c67db970cf054bb3331b5c76c20ddee11",
+  "as_of": "2026-07-12T23:19:39Z",
+  "source_commit": "5100321e8e8cac7c86f6ea7d955f5891c2d960c0",
   "overall_status": "in_progress",
   "truth_policy": {
     "allowed_gate_statuses": [
@@ -17,13 +17,52 @@
   },
   "summary": {
     "ci": {
-      "status": "red",
-      "commits": [
-        "76e5d65e63eba2e5fcebe9dd93aef75857480594",
-        "3b01332c67db970cf054bb3331b5c76c20ddee11"
+      "status": "green",
+      "run_id": 29213029860,
+      "commit": "5100321e8e8cac7c86f6ea7d955f5891c2d960c0",
+      "jobs": {
+        "ci": "success",
+        "rust-1.97": "success",
+        "kolibri-shell": "success"
+      },
+      "historical_red": {
+        "commits": [
+          "76e5d65e63eba2e5fcebe9dd93aef75857480594",
+          "3b01332c67db970cf054bb3331b5c76c20ddee11"
+        ],
+        "cause": "python_3_14_timeout_classification_race"
+      }
+    },
+    "home_development_environment": {
+      "integration_worktree": {
+        "status": "clean",
+        "commit": "5100321e8e8cac7c86f6ea7d955f5891c2d960c0",
+        "update_method": "fast_forward"
+      },
+      "codex_cli_version": "0.144.1",
+      "canonical_manifest_readable": true,
+      "linger": "yes"
+    },
+    "home_codex_provider": {
+      "code_status": "committed_ci_green",
+      "broker_service_activated": false,
+      "provider_canary_completed": false,
+      "dry_run_status": "blocked",
+      "dry_run_blocker": "current_user_codex_session_unavailable",
+      "official_device_login": {
+        "status": "waiting_for_owner_unlock",
+        "mac_screen_locked": true
+      },
+      "activation_sequence": [
+        "unlock_mac",
+        "complete_device_login",
+        "provision_drained_actor",
+        "install_and_start",
+        "readiness",
+        "fenced_canary",
+        "undrain"
       ],
-      "cause": "python_3_14_timeout_classification_race",
-      "fix_status": "in_progress"
+      "status": "blocked"
     },
     "home_control_plane": {
       "status": "healthy",
@@ -84,6 +123,54 @@
   },
   "evidence": [
     {
+      "id": "commit:5100321e",
+      "kind": "git_commit",
+      "status": "verified",
+      "reference": "5100321e8e8cac7c86f6ea7d955f5891c2d960c0",
+      "uri": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/commit/5100321e8e8cac7c86f6ea7d955f5891c2d960c0",
+      "observed_at": "2026-07-12T23:14:02Z"
+    },
+    {
+      "id": "ci-run:29213029860-green",
+      "kind": "continuous_integration",
+      "status": "verified",
+      "reference": "29213029860",
+      "uri": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/actions/runs/29213029860",
+      "observed_at": "2026-07-12T23:19:39Z"
+    },
+    {
+      "id": "home-integration:5100321e-clean",
+      "kind": "home_integration_worktree",
+      "status": "verified",
+      "reference": "5100321e8e8cac7c86f6ea7d955f5891c2d960c0",
+      "uri": null,
+      "observed_at": "2026-07-12T23:19:39Z"
+    },
+    {
+      "id": "home-codex-cli:0.144.1",
+      "kind": "home_toolchain",
+      "status": "verified",
+      "reference": "codex-cli:0.144.1",
+      "uri": null,
+      "observed_at": "2026-07-12T23:19:39Z"
+    },
+    {
+      "id": "home-account:manifest-readable-linger-yes",
+      "kind": "home_account_readiness",
+      "status": "verified",
+      "reference": "canonical_manifest_readable=true;Linger=yes",
+      "uri": null,
+      "observed_at": "2026-07-12T23:19:39Z"
+    },
+    {
+      "id": "home-provider:dry-run-session-unavailable",
+      "kind": "home_codex_provider_readiness",
+      "status": "partial",
+      "reference": "current_user_codex_session_unavailable",
+      "uri": null,
+      "observed_at": "2026-07-12T23:19:39Z"
+    },
+    {
       "id": "commit:3b01332c",
       "kind": "git_commit",
       "status": "verified",
@@ -100,8 +187,8 @@
       "observed_at": "2026-07-12T22:08:28Z"
     },
     {
-      "id": "ci:76e5-3b013-red",
-      "kind": "continuous_integration",
+      "id": "ci-history:76e5-3b013-red",
+      "kind": "historical_continuous_integration",
       "status": "verified",
       "reference": "python_3_14_timeout_classification_race",
       "uri": null,
@@ -147,13 +234,13 @@
       "name": "Evidence baseline and factual truth",
       "status": "completed",
       "evidence_ids": [
-        "commit:3b01332c",
-        "ci:76e5-3b013-red",
+        "commit:5100321e",
+        "ci-run:29213029860-green",
         "runtime-bundle:de00339d"
       ],
       "blockers": [],
       "next_action": "Record the next accepted commit, CI verdict, runtime digest, and evidence timestamps before making any new readiness claim.",
-      "updated_at": "2026-07-12T22:53:20Z"
+      "updated_at": "2026-07-12T23:19:39Z"
     },
     {
       "gate": 1,
@@ -162,14 +249,20 @@
       "status": "in_progress",
       "evidence_ids": [
         "home-cp-health:20260712T215412Z",
+        "home-integration:5100321e-clean",
+        "home-codex-cli:0.144.1",
+        "home-account:manifest-readable-linger-yes",
+        "home-provider:dry-run-session-unavailable",
         "development-seed-retry:KOL-IMPROVE-SEED-r2-3b01332c"
       ],
       "blockers": [
+        "The Home broker and safe credential provisioner are committed and CI-green, but the service is not activated and no provider canary exists.",
+        "The service dry-run is blocked by current_user_codex_session_unavailable; official device login is waiting for the owner to unlock the Mac screen.",
         "Four retry tasks reached attempt 2 of 2; each terminal attempt failed with Mimo rc=1.",
         "The qjns retry is runner_policy_blocked for illegal_access at attempt 1 of 2."
       ],
-      "next_action": "Repair the Mimo rc=1 runtime path and the qjns illegal_access policy decision, then rerun the same five tasks until each returns completion, result hash, and truth verification.",
-      "updated_at": "2026-07-12T22:53:20Z"
+      "next_action": "Unlock Mac, complete official device login, provision the drained actor, install and start the service, pass readiness, run a fenced provider canary, then undrain; afterward repair and rerun the five Mimo development seed failures.",
+      "updated_at": "2026-07-12T23:19:39Z"
     },
     {
       "gate": 2,
@@ -177,14 +270,14 @@
       "name": "Contract and design freeze",
       "status": "in_progress",
       "evidence_ids": [
-        "commit:3b01332c",
-        "ci:76e5-3b013-red"
+        "commit:5100321e",
+        "ci-run:29213029860-green"
       ],
       "blockers": [
         "Portal and Shell product readiness is not proven."
       ],
-      "next_action": "Finish the Python 3.14 timeout-classification race fix and return CI to green, then freeze the Portal and Shell contracts and executable acceptance fixtures on one reviewed commit.",
-      "updated_at": "2026-07-12T22:53:20Z"
+      "next_action": "Freeze the Portal and Shell interaction contracts, responsive component inventory, and executable acceptance fixtures on one reviewed commit.",
+      "updated_at": "2026-07-12T23:19:39Z"
     },
     {
       "gate": 3,
@@ -199,7 +292,7 @@
         "Rust authority is not ready."
       ],
       "next_action": "Run the durable Rust foundation in shadow and pass restart, idempotency, event replay, and fencing parity fixtures without unexplained differences.",
-      "updated_at": "2026-07-12T22:53:20Z"
+      "updated_at": "2026-07-12T23:19:39Z"
     },
     {
       "gate": 4,
@@ -212,7 +305,7 @@
       ],
       "blockers": [],
       "next_action": "Repeat a fresh 21-node capability campaign for every release candidate and retain each result hash and independent verifier binding.",
-      "updated_at": "2026-07-12T22:53:20Z"
+      "updated_at": "2026-07-12T23:19:39Z"
     },
     {
       "gate": 5,
@@ -220,15 +313,17 @@
       "name": "Portal, Shell, and providers",
       "status": "blocked",
       "evidence_ids": [
+        "home-provider:dry-run-session-unavailable",
         "development-seed-retry:KOL-IMPROVE-SEED-r2-3b01332c"
       ],
       "blockers": [
         "Portal is not ready.",
         "Shell is not ready.",
+        "The Home Codex provider service is not activated and has no fenced canary.",
         "All five retry tasks are terminal failed with zero completed results, result hashes, or truth verdicts."
       ],
-      "next_action": "Clear the Mimo runtime and qjns policy failures, prove the five retries with hashes and truth verdicts, then pass production-like hello, streamed web answer, history, fallback, and mobile composer scenarios.",
-      "updated_at": "2026-07-12T22:53:20Z"
+      "next_action": "Unlock Mac, complete device login, provision the drained actor, install and start the service, pass readiness, run a fenced canary, and undrain; then clear the Mimo failures and pass the provider and Shell end-to-end scenarios.",
+      "updated_at": "2026-07-12T23:19:39Z"
     },
     {
       "gate": 6,
@@ -240,7 +335,7 @@
         "Gate 5 has not passed."
       ],
       "next_action": "After Gate 5, execute the source-backed estimate editor, immutable revision, PDF, and XLSX end-to-end release gate.",
-      "updated_at": "2026-07-12T22:53:20Z"
+      "updated_at": "2026-07-12T23:19:39Z"
     },
     {
       "gate": 7,
@@ -252,7 +347,7 @@
         "The first useful vertical is not proven."
       ],
       "next_action": "After Gate 6, prove Research, Documents, Code, Site or App preview, Browser, Media, Automations, and developer surfaces with real artifacts.",
-      "updated_at": "2026-07-12T22:53:20Z"
+      "updated_at": "2026-07-12T23:19:39Z"
     },
     {
       "gate": 8,
@@ -266,7 +361,7 @@
         "Rust authority is not ready."
       ],
       "next_action": "Achieve shadow parity, keep it stable for the required observation window, then perform fenced authority canaries before scale benchmarks.",
-      "updated_at": "2026-07-12T22:53:20Z"
+      "updated_at": "2026-07-12T23:19:39Z"
     },
     {
       "gate": 9,
@@ -278,7 +373,7 @@
         "No current FormulaLM training, evaluation, or canary evidence is recorded in this ledger."
       ],
       "next_action": "Build the sanitized dataset manifest and independent evaluation path before admitting any model candidate to shadow inference.",
-      "updated_at": "2026-07-12T22:53:20Z"
+      "updated_at": "2026-07-12T23:19:39Z"
     },
     {
       "gate": 10,
@@ -286,8 +381,9 @@
       "name": "Signed production release",
       "status": "blocked",
       "evidence_ids": [
-        "commit:3b01332c",
-        "ci:76e5-3b013-red",
+        "commit:5100321e",
+        "ci-run:29213029860-green",
+        "home-provider:dry-run-session-unavailable",
         "fleet-campaign:factory-ca5e3a09-final-20260713"
       ],
       "blockers": [
@@ -295,11 +391,11 @@
         "Shell is not ready.",
         "Improvement Controller is not ready.",
         "Rust authority is not ready.",
-        "CI is red at commits 76e5d65e and 3b01332c because of a Python 3.14 timeout-classification race.",
+        "The Home Codex provider service is not activated and has no fenced canary.",
         "The required product end-to-end and soak evidence is absent."
       ],
       "next_action": "Complete the preceding product and authority gates, then build a signed candidate and run canary, progressive rollout, full end-to-end verification, and the required soak.",
-      "updated_at": "2026-07-12T22:53:20Z"
+      "updated_at": "2026-07-12T23:19:39Z"
     }
   ]
 }
