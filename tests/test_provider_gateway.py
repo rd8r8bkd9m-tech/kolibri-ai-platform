@@ -1237,6 +1237,61 @@ def test_factory_codex_discovers_dynamic_audit_actor_with_strict_contract(
     assert [task["target_node"] for task in state["submitted"]] == [actor_id]
 
 
+def test_factory_codex_discovers_home_systemd_user_actor(tmp_path, monkeypatch):
+    actor_id = "home-codex-provider-test"
+    actor = external_factory_codex_actor(actor_id)
+    actor["labels"].update({"runtime": "home_systemd_user", "authority": "home"})
+    state = {
+        "nodes": [],
+        "provider_actors": [actor],
+        "answer": "home Codex answer",
+    }
+    server, thread = factory_control_server(state)
+    configure_local_home_control(
+        monkeypatch, tmp_path, f"http://127.0.0.1:{server.server_port}",
+    )
+    monkeypatch.setenv("KOLIBRI_FACTORY_POLL_INTERVAL", "0.01")
+    monkeypatch.setenv("KOLIBRI_PROVIDER_WORK_DIR", str(tmp_path / "work"))
+    try:
+        result = ProviderGateway(
+            provider_order=("factory",), model_overrides={"factory": ("codex",)}, timeout=2,
+        ).generate("use Home broker", None, "resp-home-broker", execution_mode="codex")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert result.status == "completed"
+    assert result.text == "home Codex answer"
+    assert result.technical["selected_runner"] == "codex"
+    assert [task["target_node"] for task in state["submitted"]] == [actor_id]
+
+
+def test_factory_codex_rejects_home_systemd_actor_without_home_authority(
+    tmp_path, monkeypatch,
+):
+    actor = external_factory_codex_actor("home-codex-provider-invalid")
+    actor["labels"]["runtime"] = "home_systemd_user"
+    state = {"nodes": [], "provider_actors": [actor], "answer": "must not execute"}
+    server, thread = factory_control_server(state)
+    configure_local_home_control(
+        monkeypatch, tmp_path, f"http://127.0.0.1:{server.server_port}",
+    )
+    monkeypatch.setenv("KOLIBRI_PROVIDER_WORK_DIR", str(tmp_path / "work"))
+    try:
+        result = ProviderGateway(
+            provider_order=("factory",), model_overrides={"factory": ("codex",)}, timeout=2,
+        ).generate("reject invalid Home actor", None, "resp-home-invalid", execution_mode="codex")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert result.status == "failed"
+    assert state.get("submitted", []) == []
+    assert result.technical["attempts"][0]["error_type"] == "factory_no_fresh_capable_worker"
+
+
 def test_factory_codex_rejects_dedicated_actor_with_stale_auth_marker(tmp_path, monkeypatch):
     actor = external_factory_codex_actor("dynamic-codex-broker-old-epoch")
     current_binding = {**actor["external_provider_auth"], "credential_id": "current-v2", "epoch": 2}
@@ -1341,6 +1396,80 @@ def test_factory_runner_route_budget_prevents_three_serial_timeout_taxes(
     assert result.status == "failed"
     assert len(state.get("submitted", [])) == 1
     assert result.technical["attempts"][0]["error_type"] == "provider_timeout"
+
+
+def test_factory_poll_transport_timeout_after_route_deadline_is_provider_timeout(
+    tmp_path, monkeypatch,
+):
+    gateway = ProviderGateway(
+        provider_order=("factory",), model_overrides={"factory": ("mimo",)}, timeout=1,
+    )
+    calls = []
+
+    def request(method, path, **kwargs):
+        calls.append((method, path, kwargs))
+        if method == "POST" and path == "/v1/tasks":
+            return {
+                "task_id": kwargs["payload"]["task_id"],
+                "state": "queued",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }, None
+        if method == "GET":
+            time.sleep(0.03)
+            return None, "factory_control_unavailable"
+        return {}, None
+
+    monkeypatch.setattr(gateway, "_factory_request", request)
+    monkeypatch.setenv("KOLIBRI_FACTORY_TASK_TIMEOUT", "0.01")
+    monkeypatch.setenv("KOLIBRI_FACTORY_POLL_INTERVAL", "0.01")
+    monkeypatch.setenv("KOLIBRI_PROVIDER_WORK_DIR", str(tmp_path / "work"))
+
+    _text, _evidence, error_type, route = gateway._run_factory_candidate(
+        prompt="bounded timeout",
+        response_id="resp-deterministic-timeout",
+        runner="mimo",
+        node_id="timeout-worker",
+        timeout_budget=0.1,
+    )
+
+    assert error_type == "provider_timeout"
+    assert route["error_type"] == "provider_timeout"
+    assert [method for method, _path, _kwargs in calls] == ["POST", "GET"]
+
+
+def test_factory_poll_transport_failure_before_route_deadline_stays_control_unavailable(
+    tmp_path, monkeypatch,
+):
+    gateway = ProviderGateway(
+        provider_order=("factory",), model_overrides={"factory": ("mimo",)}, timeout=2,
+    )
+
+    def request(method, path, **kwargs):
+        if method == "POST" and path == "/v1/tasks":
+            return {
+                "task_id": kwargs["payload"]["task_id"],
+                "state": "queued",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }, None
+        if method == "GET":
+            return None, "factory_control_unavailable"
+        return {}, None
+
+    monkeypatch.setattr(gateway, "_factory_request", request)
+    monkeypatch.setenv("KOLIBRI_FACTORY_TASK_TIMEOUT", "1")
+    monkeypatch.setenv("KOLIBRI_FACTORY_POLL_INTERVAL", "0.01")
+    monkeypatch.setenv("KOLIBRI_PROVIDER_WORK_DIR", str(tmp_path / "work"))
+
+    _text, _evidence, error_type, route = gateway._run_factory_candidate(
+        prompt="control unavailable",
+        response_id="resp-control-unavailable",
+        runner="mimo",
+        node_id="unavailable-worker",
+        timeout_budget=1,
+    )
+
+    assert error_type == "factory_control_unavailable"
+    assert route["error_type"] == "factory_control_unavailable"
 
 
 def test_factory_known_unhealthy_mimo_falls_through_to_codex_without_doomed_task(

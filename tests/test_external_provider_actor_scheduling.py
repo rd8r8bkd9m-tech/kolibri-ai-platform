@@ -137,6 +137,46 @@ def test_dynamic_non_mesh_mac_actor_is_eligible_only_with_complete_live_contract
     assert eligibility["node"]["freshness"] == "fresh"
 
 
+def test_dynamic_home_systemd_actor_uses_same_strict_external_contract(monkeypatch):
+    control = load_control("factory_control_home_external_provider_actor")
+    node_id = f"home-codex-provider-{uuid.uuid4().hex[:8]}"
+    node = external_codex_node(control, node_id)
+    node["labels"].update({"runtime": "home_systemd_user", "authority": "home"})
+    monkeypatch.setattr(
+        control,
+        "node_membership_annotation",
+        lambda _node_id: {"membership_scope": "audit", "schedulable": False},
+    )
+    monkeypatch.setattr(control, "get_json", lambda *_args, **_kwargs: copy.deepcopy(node))
+
+    class Redis:
+        def command(self, *parts):
+            assert parts == ("GET", control.drain_key(node_id))
+            return None
+
+    monkeypatch.setattr(control, "redis", Redis())
+    eligibility = control.lease_node_eligibility(node_id)
+
+    assert eligibility["eligible"] is True
+    assert eligibility["lease_scope"] == control.EXTERNAL_PROVIDER_ACTOR_SCOPE
+    assert eligibility["provider"] == "codex"
+    assert eligibility["node"]["labels"]["authority"] == "home"
+
+
+def test_home_systemd_actor_without_home_authority_fails_closed():
+    control = load_control("factory_control_home_external_provider_authority")
+    node_id = "home-codex-provider-invalid"
+    node = external_codex_node(control, node_id)
+    node["labels"]["runtime"] = "home_systemd_user"
+
+    result = control.external_provider_actor_eligibility(node_id, node)
+
+    assert result == {
+        "eligible": False,
+        "reason": "external_provider_actor_authority_invalid",
+    }
+
+
 def test_external_actor_fails_closed_for_identity_capability_runner_and_readiness_drift():
     control = load_control("factory_control_external_provider_rejections")
     node_id = "dynamic-mac-broker"

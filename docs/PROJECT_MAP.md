@@ -6,6 +6,9 @@
 - `frontend/` — React/Vite frontend and GitHub Pages build output.
 - `ops/factory_control.py` — Redis-backed factory control plane sidecar.
 - `ops/agent_host.py` — agent host contract and execution adapter.
+- `scripts/linux/install-home-codex-provider.py` — dry-run-first Home owner
+  Codex provider service installer; uses the current CLI session in place and
+  never distributes it to workers.
 - `ops/telegram_gateway.py` — Telegram owner-facing gateway.
 - `ops/telegram_superfactory.py` — Telegram Mini App and runner policy contracts.
 - `ops/mesh_control_bridge.py` — mesh/factory node bridge.

@@ -42,6 +42,14 @@ The owner controls the interactive authorization session. The fleet rollout
 installs only the non-secret declaration; it does not manufacture a successful
 login claim.
 
+Home also supports a safe execution adapter for the owner's already-authorized
+CLI session: the `home_systemd_user` audit actor described in
+[`HOME_CODEX_PROVIDER_SERVICE.md`](HOME_CODEX_PROVIDER_SERVICE.md). It uses the
+session in place under the Home owner and accepts only the strict read-only
+provider envelope. It does not copy that session to the 21 physical workers,
+does not enter their membership count and does not create a second Control
+Plane.
+
 ## Capability gate
 
 Agent Host removes all configured `runner:*` capabilities and reconstructs
@@ -100,3 +108,8 @@ For an authorized rollout, evidence must be collected in this order:
 Nodes that have not completed device authorization remain healthy factory
 members but must not advertise Codex. No 21/21 availability claim is valid
 until all 21 evidence records and real response tasks pass.
+
+Alternatively, the Home provider actor supplies one authenticated Codex route
+for the whole factory. That is provider availability, not proof that each
+physical node has Codex authorization. The two facts must be reported
+separately.

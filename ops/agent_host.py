@@ -161,6 +161,10 @@ MIMO_AUTO25_DIRECT_CLI_CONTRACT = "mimo-auto25-direct-permission-bypass-v1"
 FACTORY_PROVIDER_CONTRACT = "kolibri.factory-provider.readonly.v1"
 EXTERNAL_PROVIDER_AUTH_HMAC_CONTRACT = "kolibri.external-provider-hmac.v1"
 EXTERNAL_PROVIDER_CREDENTIAL_SCHEMA = "kolibri.external-provider-credential.v1"
+EXTERNAL_CODEX_PROVIDER_RUNTIMES = frozenset({
+    "macos_launchagent",
+    "home_systemd_user",
+})
 CODEX_TASK_MODEL = "gpt-5.5"
 CODEX_READINESS_MARKER = "KOLIBRI_CODEX_READY"
 CODEX_PROVIDER_NETWORK_INSTRUCTION = (
@@ -1892,8 +1896,12 @@ class AgentHost:
         self.labels = labels
         self._external_provider_actor = bool(
             labels.get("provider") == "codex"
-            and labels.get("runtime") == "macos_launchagent"
+            and labels.get("runtime") in EXTERNAL_CODEX_PROVIDER_RUNTIMES
             and labels.get("physical_node_id") == self.node_id
+            and (
+                labels.get("runtime") != "home_systemd_user"
+                or labels.get("authority") == "home"
+            )
         )
         self._external_provider_credential: dict[str, Any] | None = None
         if self._external_provider_actor:

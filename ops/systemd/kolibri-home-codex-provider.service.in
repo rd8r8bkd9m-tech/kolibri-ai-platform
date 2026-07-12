@@ -1,0 +1,44 @@
+# X-Kolibri-Managed-Contract=kolibri.home-codex-provider.systemd-user.v1
+[Unit]
+Description=Kolibri Home Codex provider actor
+Documentation=https://kolibriai.ru/docs
+After=network-online.target
+Wants=network-online.target
+ConditionPathIsRegular=__MESH_MANIFEST__
+ConditionPathIsRegular=__RUNNER_ACCESS__
+ConditionPathIsRegular=__PROVIDER_CREDENTIAL__
+
+[Service]
+Type=simple
+UMask=0077
+WorkingDirectory=__WORK_ROOT__
+Environment=__HOME_ENV__
+Environment=__PATH_ENV__
+Environment=__PYTHONPATH_ENV__
+Environment=PYTHONUNBUFFERED=1
+Environment=__PROVIDER_RELEASE_CURRENT_ENV__
+Environment=__PROVIDER_RELEASE_ROOT_ENV__
+Environment=__MESH_MANIFEST_ENV__
+Environment=__RUNNER_ACCESS_ENV__
+Environment=KOLIBRI_CODEX_READINESS_REFRESH_SECONDS=240
+Environment=__PROVIDER_CREDENTIAL_ENV__
+Environment=__NODE_LABELS_ENV__
+Environment=__PROVIDER_PROXY_ENV__
+ExecStart=__PYTHON_BIN__ __RUNTIME_DIR__/provider_actor_launcher.py --log-path __SANITIZED_LOG__ -- __PYTHON_BIN__ __RUNTIME_DIR__/agent_host.py --node-id __NODE_ID__ --agent-id __AGENT_ID__ --capabilities codex_provider_broker --work-root __WORK_ROOT__ --artifact-root __ARTIFACT_ROOT__ --heartbeat-interval 10 --lease-refresh 5 --max-inflight 1
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=20s
+KillMode=mixed
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectControlGroups=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+StandardOutput=null
+StandardError=__BOOTSTRAP_OUTPUT__
+
+[Install]
+WantedBy=default.target

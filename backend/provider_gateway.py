@@ -1206,12 +1206,15 @@ def _factory_external_codex_actor_ready(
     ):
         return False
     labels = raw_node.get("labels") if isinstance(raw_node.get("labels"), dict) else {}
-    required_labels = {
-        "provider": "codex",
-        "runtime": "macos_launchagent",
-        "physical_node_id": node_id,
-    }
-    if any(labels.get(key) != value for key, value in required_labels.items()):
+    if (
+        labels.get("provider") != "codex"
+        or labels.get("runtime") not in {"macos_launchagent", "home_systemd_user"}
+        or labels.get("physical_node_id") != node_id
+        or (
+            labels.get("runtime") == "home_systemd_user"
+            and labels.get("authority") != "home"
+        )
+    ):
         return False
     capabilities = {
         str(item).strip().lower()
@@ -1603,7 +1606,9 @@ class ProviderGateway:
             and str(item.get("membership_scope") or "active").strip().lower() == "active"
             and not (
                 isinstance(item.get("labels"), dict)
-                and item["labels"].get("runtime") == "macos_launchagent"
+                and item["labels"].get("runtime") in {
+                    "macos_launchagent", "home_systemd_user",
+                }
                 and item["labels"].get("provider") == "codex"
             )
         ]
@@ -2358,9 +2363,21 @@ class ProviderGateway:
                 "GET", f"/v1/tasks/{quote(task_id, safe='')}", timeout=min(remaining, 10.0),
             )
             if error_type or not isinstance(current, dict):
+                # A GET that starts with only the remaining route budget can
+                # cross that deadline inside urllib and surface as a transport
+                # timeout. Once this already-submitted provider route has
+                # exhausted its own progress budget, classify that boundary as
+                # provider_timeout. A Control Plane failure observed before the
+                # route deadline remains factory_control_unavailable.
+                normalized_error = error_type or "factory_control_response_invalid"
+                if (
+                    normalized_error == "factory_control_unavailable"
+                    and time.monotonic() - last_progress_at >= task_timeout
+                ):
+                    normalized_error = "provider_timeout"
                 route_record.update({
                     "status": "failed",
-                    "error_type": error_type or "factory_control_response_invalid",
+                    "error_type": normalized_error,
                 })
                 return "", None, route_record["error_type"], route_record
 

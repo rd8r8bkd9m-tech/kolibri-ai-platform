@@ -152,9 +152,9 @@ FLEET_PROOF_SCHEMA = "kolibri.fleet-capability-proof.v1"
 DEFAULT_FLEET_PROOF_QUEUE_AGE_SECONDS = 3600
 
 # Non-mesh provider actors are execution adapters, not physical fleet members.
-# The first supported adapter is the owner-session Mac Codex LaunchAgent.  Its
-# identity is discovered from its signed/runtime registration labels; no node
-# ID or IP address is embedded in the scheduler.
+# Supported Codex adapters run in-place under an already-authorized owner
+# identity on Mac or Home. Their identity is discovered from signed/runtime
+# registration labels; no node ID or IP address is embedded in the scheduler.
 EXTERNAL_PROVIDER_ACTOR_SCOPE = "external_provider_actor"
 FACTORY_PROVIDER_RUNNER_CONTRACT = "kolibri.factory-provider.readonly.v1"
 CODEX_READINESS_SCHEMA = "kolibri.codex-readiness.v1"
@@ -164,13 +164,17 @@ EXTERNAL_PROVIDER_READINESS_FUTURE_GRACE_SECONDS = 60
 EXTERNAL_PROVIDER_AUTH_CLOCK_SKEW_SECONDS = 60
 EXTERNAL_PROVIDER_AUTH_NONCE_TTL_SECONDS = 180
 EXTERNAL_PROVIDER_AUTH_HMAC_CONTRACT = "kolibri.external-provider-hmac.v1"
+EXTERNAL_CODEX_PROVIDER_RUNTIMES = frozenset({
+    "macos_launchagent",
+    "home_systemd_user",
+})
 EXTERNAL_PROVIDER_AUTH_HASH_FILE = Path(os.environ.get(
     "FACTORY_EXTERNAL_PROVIDER_ACTOR_TOKEN_SHA256_FILE",
     "/etc/kolibri/external-provider-actor.sha256",
 ))
 EXTERNAL_PROVIDER_ACTOR_SPECS = {
     "codex": {
-        "runtime": "macos_launchagent",
+        "runtimes": EXTERNAL_CODEX_PROVIDER_RUNTIMES,
         "broker_capability": "codex_provider_broker",
         "runner_capability": "runner:codex",
         "readiness_schema": CODEX_READINESS_SCHEMA,
@@ -1606,7 +1610,12 @@ def external_provider_actor_identity(node_id: str, node: Any) -> str | None:
     spec = EXTERNAL_PROVIDER_ACTOR_SPECS.get(provider)
     if not spec:
         return None
-    if labels.get("runtime") != spec["runtime"] or labels.get("physical_node_id") != node_id:
+    runtime = labels.get("runtime")
+    if (
+        runtime not in spec["runtimes"]
+        or labels.get("physical_node_id") != node_id
+        or (runtime == "home_systemd_user" and labels.get("authority") != "home")
+    ):
         return None
     return provider
 
@@ -1758,8 +1767,11 @@ def external_provider_actor_eligibility(
     spec = EXTERNAL_PROVIDER_ACTOR_SPECS.get(provider)
     if spec is None:
         return {"eligible": False, "reason": "node_not_in_canonical_mesh_membership"}
-    if labels.get("runtime") != spec["runtime"]:
+    runtime = labels.get("runtime")
+    if runtime not in spec["runtimes"]:
         return {"eligible": False, "reason": "external_provider_actor_runtime_invalid"}
+    if runtime == "home_systemd_user" and labels.get("authority") != "home":
+        return {"eligible": False, "reason": "external_provider_actor_authority_invalid"}
     if labels.get("physical_node_id") != node_id:
         return {"eligible": False, "reason": "external_provider_actor_physical_identity_mismatch"}
     if classified.get("freshness") != "fresh":

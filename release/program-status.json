@@ -1,8 +1,8 @@
 {
   "schema_version": "kolibri.program-status.v1",
   "program_id": "kolibri-ai-os-home-first",
-  "as_of": "2026-07-12T22:24:23Z",
-  "source_commit": "ca5e3a096ee390cd3d30e90ed7a6dd3e6639d872",
+  "as_of": "2026-07-12T22:53:20Z",
+  "source_commit": "3b01332c67db970cf054bb3331b5c76c20ddee11",
   "overall_status": "in_progress",
   "truth_policy": {
     "allowed_gate_statuses": [
@@ -17,8 +17,13 @@
   },
   "summary": {
     "ci": {
-      "status": "green",
-      "commit": "ca5e3a096ee390cd3d30e90ed7a6dd3e6639d872"
+      "status": "red",
+      "commits": [
+        "76e5d65e63eba2e5fcebe9dd93aef75857480594",
+        "3b01332c67db970cf054bb3331b5c76c20ddee11"
+      ],
+      "cause": "python_3_14_timeout_classification_race",
+      "fix_status": "in_progress"
     },
     "home_control_plane": {
       "status": "healthy",
@@ -37,10 +42,38 @@
     "development_seed": {
       "status": "blocked",
       "canonical_total": 20,
-      "verified_total": 15,
-      "lease_expired_total": 4,
-      "runner_policy_blocked_total": 1,
-      "lease_expired_cause": "fail_runner_binding"
+      "previously_verified_total": 15,
+      "retry": {
+        "snapshot_digest": "sha256:df090eab9ecc4956d60f1a01fbf70d79ac702f4e8100997e5054f525591d951b",
+        "task_prefix": "KOL-IMPROVE-SEED-r2-3b01332c",
+        "target_total": 5,
+        "terminal_total": 5,
+        "completed_total": 0,
+        "result_hash_total": 0,
+        "truth_verified_total": 0,
+        "binding": {
+          "status": "verified",
+          "verified_total": 5,
+          "leases_cleared_total": 5
+        },
+        "failures": [
+          {
+            "count": 4,
+            "state": "runtime_error",
+            "terminal_attempt": 2,
+            "max_attempts": 2,
+            "terminal_cause": "mimo_rc_1"
+          },
+          {
+            "count": 1,
+            "node_id": "qjns",
+            "state": "runner_policy_blocked",
+            "attempt": 1,
+            "max_attempts": 2,
+            "terminal_cause": "illegal_access"
+          }
+        ]
+      }
     },
     "not_ready": [
       "portal",
@@ -51,6 +84,14 @@
   },
   "evidence": [
     {
+      "id": "commit:3b01332c",
+      "kind": "git_commit",
+      "status": "verified",
+      "reference": "3b01332c67db970cf054bb3331b5c76c20ddee11",
+      "uri": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/commit/3b01332c67db970cf054bb3331b5c76c20ddee11",
+      "observed_at": "2026-07-12T22:28:28Z"
+    },
+    {
       "id": "commit:ca5e3a09",
       "kind": "git_commit",
       "status": "verified",
@@ -59,12 +100,12 @@
       "observed_at": "2026-07-12T22:08:28Z"
     },
     {
-      "id": "ci:ca5e3a09-green",
+      "id": "ci:76e5-3b013-red",
       "kind": "continuous_integration",
       "status": "verified",
-      "reference": "commit:ca5e3a09",
+      "reference": "python_3_14_timeout_classification_race",
       "uri": null,
-      "observed_at": "2026-07-12T22:24:23Z"
+      "observed_at": "2026-07-12T22:53:20Z"
     },
     {
       "id": "home-cp-health:20260712T215412Z",
@@ -80,7 +121,7 @@
       "status": "verified",
       "reference": "sha256:de00339d64be94772896e956a8bc3e05d125b6db0677285dc6835f2884baa56c",
       "uri": null,
-      "observed_at": "2026-07-12T22:24:23Z"
+      "observed_at": "2026-07-12T22:53:20Z"
     },
     {
       "id": "fleet-campaign:factory-ca5e3a09-final-20260713",
@@ -91,12 +132,12 @@
       "observed_at": "2026-07-12T22:12:34Z"
     },
     {
-      "id": "development-seed:ca5e3a09",
-      "kind": "development_seed_campaign",
-      "status": "partial",
-      "reference": "commit:ca5e3a09",
+      "id": "development-seed-retry:KOL-IMPROVE-SEED-r2-3b01332c",
+      "kind": "development_seed_retry",
+      "status": "verified",
+      "reference": "sha256:df090eab9ecc4956d60f1a01fbf70d79ac702f4e8100997e5054f525591d951b",
       "uri": null,
-      "observed_at": "2026-07-12T22:24:23Z"
+      "observed_at": "2026-07-12T22:53:20Z"
     }
   ],
   "gates": [
@@ -106,13 +147,13 @@
       "name": "Evidence baseline and factual truth",
       "status": "completed",
       "evidence_ids": [
-        "commit:ca5e3a09",
-        "ci:ca5e3a09-green",
+        "commit:3b01332c",
+        "ci:76e5-3b013-red",
         "runtime-bundle:de00339d"
       ],
       "blockers": [],
       "next_action": "Record the next accepted commit, CI verdict, runtime digest, and evidence timestamps before making any new readiness claim.",
-      "updated_at": "2026-07-12T22:24:23Z"
+      "updated_at": "2026-07-12T22:53:20Z"
     },
     {
       "gate": 1,
@@ -121,14 +162,14 @@
       "status": "in_progress",
       "evidence_ids": [
         "home-cp-health:20260712T215412Z",
-        "development-seed:ca5e3a09"
+        "development-seed-retry:KOL-IMPROVE-SEED-r2-3b01332c"
       ],
       "blockers": [
-        "Four development seed attempts expired because fail runner binding was not established.",
-        "One development seed attempt was blocked by runner policy."
+        "Four retry tasks reached attempt 2 of 2; each terminal attempt failed with Mimo rc=1.",
+        "The qjns retry is runner_policy_blocked for illegal_access at attempt 1 of 2."
       ],
-      "next_action": "Repair fail runner binding and runner policy, then rerun the development seed until all 20 canonical workers return verified results.",
-      "updated_at": "2026-07-12T22:24:23Z"
+      "next_action": "Repair the Mimo rc=1 runtime path and the qjns illegal_access policy decision, then rerun the same five tasks until each returns completion, result hash, and truth verification.",
+      "updated_at": "2026-07-12T22:53:20Z"
     },
     {
       "gate": 2,
@@ -136,14 +177,14 @@
       "name": "Contract and design freeze",
       "status": "in_progress",
       "evidence_ids": [
-        "commit:ca5e3a09",
-        "ci:ca5e3a09-green"
+        "commit:3b01332c",
+        "ci:76e5-3b013-red"
       ],
       "blockers": [
         "Portal and Shell product readiness is not proven."
       ],
-      "next_action": "Freeze the Portal and Shell interaction contracts, responsive component inventory, and executable acceptance fixtures on one reviewed commit.",
-      "updated_at": "2026-07-12T22:24:23Z"
+      "next_action": "Finish the Python 3.14 timeout-classification race fix and return CI to green, then freeze the Portal and Shell contracts and executable acceptance fixtures on one reviewed commit.",
+      "updated_at": "2026-07-12T22:53:20Z"
     },
     {
       "gate": 3,
@@ -158,7 +199,7 @@
         "Rust authority is not ready."
       ],
       "next_action": "Run the durable Rust foundation in shadow and pass restart, idempotency, event replay, and fencing parity fixtures without unexplained differences.",
-      "updated_at": "2026-07-12T22:24:23Z"
+      "updated_at": "2026-07-12T22:53:20Z"
     },
     {
       "gate": 4,
@@ -171,7 +212,7 @@
       ],
       "blockers": [],
       "next_action": "Repeat a fresh 21-node capability campaign for every release candidate and retain each result hash and independent verifier binding.",
-      "updated_at": "2026-07-12T22:24:23Z"
+      "updated_at": "2026-07-12T22:53:20Z"
     },
     {
       "gate": 5,
@@ -179,15 +220,15 @@
       "name": "Portal, Shell, and providers",
       "status": "blocked",
       "evidence_ids": [
-        "development-seed:ca5e3a09"
+        "development-seed-retry:KOL-IMPROVE-SEED-r2-3b01332c"
       ],
       "blockers": [
         "Portal is not ready.",
         "Shell is not ready.",
-        "The development seed is 15 of 20 verified."
+        "All five retry tasks are terminal failed with zero completed results, result hashes, or truth verdicts."
       ],
-      "next_action": "Clear the five development seed failures, then pass production-like hello, streamed web answer, history, fallback, and mobile composer end-to-end scenarios.",
-      "updated_at": "2026-07-12T22:24:23Z"
+      "next_action": "Clear the Mimo runtime and qjns policy failures, prove the five retries with hashes and truth verdicts, then pass production-like hello, streamed web answer, history, fallback, and mobile composer scenarios.",
+      "updated_at": "2026-07-12T22:53:20Z"
     },
     {
       "gate": 6,
@@ -199,7 +240,7 @@
         "Gate 5 has not passed."
       ],
       "next_action": "After Gate 5, execute the source-backed estimate editor, immutable revision, PDF, and XLSX end-to-end release gate.",
-      "updated_at": "2026-07-12T22:24:23Z"
+      "updated_at": "2026-07-12T22:53:20Z"
     },
     {
       "gate": 7,
@@ -211,7 +252,7 @@
         "The first useful vertical is not proven."
       ],
       "next_action": "After Gate 6, prove Research, Documents, Code, Site or App preview, Browser, Media, Automations, and developer surfaces with real artifacts.",
-      "updated_at": "2026-07-12T22:24:23Z"
+      "updated_at": "2026-07-12T22:53:20Z"
     },
     {
       "gate": 8,
@@ -225,7 +266,7 @@
         "Rust authority is not ready."
       ],
       "next_action": "Achieve shadow parity, keep it stable for the required observation window, then perform fenced authority canaries before scale benchmarks.",
-      "updated_at": "2026-07-12T22:24:23Z"
+      "updated_at": "2026-07-12T22:53:20Z"
     },
     {
       "gate": 9,
@@ -237,7 +278,7 @@
         "No current FormulaLM training, evaluation, or canary evidence is recorded in this ledger."
       ],
       "next_action": "Build the sanitized dataset manifest and independent evaluation path before admitting any model candidate to shadow inference.",
-      "updated_at": "2026-07-12T22:24:23Z"
+      "updated_at": "2026-07-12T22:53:20Z"
     },
     {
       "gate": 10,
@@ -245,8 +286,8 @@
       "name": "Signed production release",
       "status": "blocked",
       "evidence_ids": [
-        "commit:ca5e3a09",
-        "ci:ca5e3a09-green",
+        "commit:3b01332c",
+        "ci:76e5-3b013-red",
         "fleet-campaign:factory-ca5e3a09-final-20260713"
       ],
       "blockers": [
@@ -254,10 +295,11 @@
         "Shell is not ready.",
         "Improvement Controller is not ready.",
         "Rust authority is not ready.",
+        "CI is red at commits 76e5d65e and 3b01332c because of a Python 3.14 timeout-classification race.",
         "The required product end-to-end and soak evidence is absent."
       ],
       "next_action": "Complete the preceding product and authority gates, then build a signed candidate and run canary, progressive rollout, full end-to-end verification, and the required soak.",
-      "updated_at": "2026-07-12T22:24:23Z"
+      "updated_at": "2026-07-12T22:53:20Z"
     }
   ]
 }
