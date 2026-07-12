@@ -67,6 +67,21 @@ def test_home_release_operator_path_has_no_ssh_execution_transport():
     assert "ControlPlaneClient" in source
 
 
+def test_launcher_resolves_a_trusted_distribution_python_symlink(tmp_path):
+    directory = tmp_path / "usr" / "bin"
+    directory.mkdir(parents=True)
+    binary = directory / "python3.12"
+    binary.write_bytes(b"#!/bin/sh\nexit 0\n")
+    binary.chmod(0o755)
+    link = directory / "python3"
+    link.symlink_to(binary.name)
+
+    assert launcher._trusted_python_executable(link) == binary
+
+    binary.chmod(0o775)
+    assert launcher._trusted_python_executable(link) is None
+
+
 def test_full_bundle_closure_binds_response_only_mimo_profile():
     profile_path = ROOT / "ops/mimo/kolibri-response-only.md"
     profile = profile_path.read_text(encoding="utf-8")

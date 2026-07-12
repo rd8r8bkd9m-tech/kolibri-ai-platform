@@ -77,6 +77,24 @@ def _trusted_directory(path: Path) -> bool:
     )
 
 
+def _trusted_python_executable(path: Path) -> Path | None:
+    """Resolve the distro-managed python symlink to a trusted regular binary."""
+
+    try:
+        link_value = path.lstat()
+        if (
+            not (stat.S_ISLNK(link_value.st_mode) or stat.S_ISREG(link_value.st_mode))
+            or (os.geteuid() == 0 and link_value.st_uid != 0)
+        ):
+            return None
+        resolved = path.resolve(strict=True)
+    except OSError:
+        return None
+    if not _trusted_directory(resolved.parent):
+        return None
+    return resolved if _trusted_regular(resolved, executable=True) else None
+
+
 def _legacy_split_runtime_available() -> bool:
     if not (
         _trusted_directory(LEGACY_SPLIT_ENTRYPOINT.parent)
@@ -196,7 +214,8 @@ def main(argv: list[str] | None = None) -> int:
             "source": source,
         }, sort_keys=True))
         return 0
-    if not _trusted_regular(PYTHON, executable=True):
+    python = _trusted_python_executable(PYTHON)
+    if python is None:
         raise LauncherError("control_plane_python_unavailable")
     if source == "legacy-split-bootstrap":
         entrypoint = LEGACY_SPLIT_ENTRYPOINT
@@ -217,8 +236,8 @@ def main(argv: list[str] | None = None) -> int:
         "PYTHONNOUSERSITE": "1",
     })
     os.execve(
-        str(PYTHON),
-        [str(PYTHON), "-B", str(entrypoint), *runtime_args],
+        str(python),
+        [str(python), "-B", str(entrypoint), *runtime_args],
         environment,
     )
     return 70  # pragma: no cover - os.execve never returns
