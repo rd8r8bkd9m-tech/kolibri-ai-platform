@@ -9,8 +9,8 @@ ROOT = Path(__file__).resolve().parents[1]
 STATUS_PATH = ROOT / "release" / "program-status.json"
 DOC_PATH = ROOT / "docs" / "PROGRAM_STATUS.md"
 ALLOWED_STATUSES = {"completed", "in_progress", "not_started", "blocked"}
-SOURCE_COMMIT = "5100321e8e8cac7c86f6ea7d955f5891c2d960c0"
-CI_RUN_ID = 29213029860
+SOURCE_COMMIT = "7fc3ff6a24266caa204db02e8c4f05f4a4a2bbde"
+CI_RUN_ID = 29213603299
 BUNDLE_DIGEST = "sha256:de00339d64be94772896e956a8bc3e05d125b6db0677285dc6835f2884baa56c"
 CAMPAIGN_ID = "factory-ca5e3a09-final-20260713"
 RETRY_SNAPSHOT = "sha256:df090eab9ecc4956d60f1a01fbf70d79ac702f4e8100997e5054f525591d951b"
@@ -98,13 +98,41 @@ def test_program_status_records_only_current_proven_summary():
         "codex_cli_version": "0.144.1",
         "canonical_manifest_readable": True,
         "linger": "yes",
+        "root_helper": "installed_validated",
+        "sudoers": "installed_validated",
     }
     assert summary["home_codex_provider"] == {
         "code_status": "committed_ci_green",
         "broker_service_activated": False,
         "provider_canary_completed": False,
+        "credential_migration": {
+            "status": "completed",
+            "initial_apply": {
+                "status": "failed",
+                "root_state_unchanged": True,
+                "reason": "existing_global_binding",
+                "existing_binding": {
+                    "node_id": "mac-codex-provider",
+                    "credential_id": "mac-codex-provider-v1",
+                    "epoch": 1,
+                },
+            },
+            "current_binding": {
+                "node_id": "home-codex-provider",
+                "credential_id": "home-codex-provider-v2",
+                "epoch": 2,
+            },
+            "owner_record_mode": "0600",
+            "root_record_mode": "0600",
+            "secrets_returned": False,
+            "actors": {
+                "mac-codex-provider": "drained",
+                "home-codex-provider": "drained",
+            },
+        },
         "dry_run_status": "blocked",
         "dry_run_blocker": "current_user_codex_session_unavailable",
+        "activation_blockers": ["current_user_codex_session_unavailable"],
         "official_device_login": {
             "status": "waiting_for_owner_unlock",
             "mac_screen_locked": True,
@@ -112,7 +140,6 @@ def test_program_status_records_only_current_proven_summary():
         "activation_sequence": [
             "unlock_mac",
             "complete_device_login",
-            "provision_drained_actor",
             "install_and_start",
             "readiness",
             "fenced_canary",
@@ -190,6 +217,14 @@ def test_markdown_owner_view_matches_machine_ledger():
     assert "current_user_codex_session_unavailable" in document
     assert "official device login is waiting for owner unlock" in document
     assert "service is not activated, no provider canary exists" in document
+    assert "home-codex-provider-v2`" in document
+    assert "epoch 2" in document
+    assert "`secrets_returned=false`" in document
+    assert "Active with `NRestarts=0`" in document
+    assert "root helper and sudoers are installed and validated" in document
+    assert "Credential migration and drained actor provisioning are complete" in document
+    assert "The only current Codex activation blocker is `current_user_codex_session_unavailable`" in document
+    assert "provision the drained actor" not in document
     assert "5 of 5 terminal failed" in document
     assert "bindings are verified and leases are cleared" in document
     assert "terminal attempt failed with Mimo rc=1" in document
