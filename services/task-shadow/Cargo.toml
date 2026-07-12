@@ -1,0 +1,21 @@
+[package]
+name = "kolibri-task-shadow"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+axum = "0.7"
+chrono = "0.4"
+kolibri-core = { path = "../../crates/kolibri-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread"] }
+thiserror = "1"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+
+[lints]
+workspace = true

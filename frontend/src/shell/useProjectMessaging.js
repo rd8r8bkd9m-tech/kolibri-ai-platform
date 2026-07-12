@@ -1,99 +1,85 @@
 import { useCallback } from "react";
-import { detectIntent } from "../app/utils";
-import { sendKolibriRequest } from "../runtime/kolibriApi";
+import { publicErrorMessage, sendKolibriRequest } from "../runtime/kolibriApi";
 import {
-  buildTaskForIntent,
-  mergeArtifacts,
-  projectMessage,
-  projectTitle,
-  taskCanvas,
-  upsertCanvas,
-} from "./projectModel";
+  beginTurnProject,
+  completeTurnProject,
+  completedAssistantReply,
+  failedAssistantReply,
+  patchTurnMessage,
+  prepareProjectTurn,
+  workProgressText,
+} from "./projectMessagingModel";
+import { buildTaskForIntent, taskCanvas } from "./projectModel";
 
-function workProgressText(workSummary, progress = {}) {
-  if (typeof progress.detail === "string" && progress.detail.trim()) return progress.detail.trim();
-  const items = Array.isArray(workSummary?.items) ? workSummary.items : [];
-  const active = items.find((item) => item.kind === progress.activeKind)
-    || items.find((item) => item.status === "running")
-    || items.find((item) => item.status === "pending")
-    || items.at(-1);
-  return active?.detail || "";
-}
-
-export function useProjectMessaging({
-  busyProjects,
-  dispatch,
-  projects,
-  setProjectBusy,
-  updateProject,
-}) {
-  return useCallback(async (projectId, text, selectedTool = "", executionMode = "fast") => {
-    if (!text.trim() || busyProjects[projectId]) return;
+export function useProjectMessaging({ beginProjectRequest, busyProjects, dispatch, endProjectRequest, ensureProjectRemote, reconcileProjectRemote, projects, syncProjectMessage, updateProject }) {
+  return useCallback(async (projectId, text, selectedTool = "", executionMode = "fast", options = {}) => {
+    if (busyProjects[projectId]) return;
     const project = projects.find((item) => item.id === projectId);
     if (!project) return;
+    const turn = prepareProjectTurn(project, text, selectedTool, executionMode, options);
+    if (!turn) return;
 
-    const intent = detectIntent(text, selectedTool || project.draftTool);
-    const title = projectTitle(project, text);
-    const userMessage = projectMessage("user", text);
+    updateProject(projectId, (current) => beginTurnProject(current, turn));
+    dispatch({ type: "UPDATE", id: `workspace:${projectId}`, window: { title: turn.title } });
+    const request = beginProjectRequest(projectId);
+    const task = buildTaskForIntent(turn.intent, turn.prompt);
 
-    const reply = projectMessage("assistant", "", "running");
-    updateProject(projectId, (current) => ({
-      ...current,
-      title,
-      draftTool: "",
-      messages: [...current.messages, userMessage, reply],
-    }));
-    dispatch({ type: "UPDATE", id: `workspace:${projectId}`, window: { title } });
-    setProjectBusy(projectId, true);
-
-    const task = buildTaskForIntent(intent, text);
     try {
+      let remoteProjectId = await ensureProjectRemote(projectId, request.signal);
+      if (turn.userMessage) {
+        await syncProjectMessage(projectId, turn.userMessage, { signal: request.signal }).catch(() => null);
+        remoteProjectId = await ensureProjectRemote(projectId, request.signal);
+      }
       const response = await sendKolibriRequest({
-        text,
-        messages: project.messages,
+        text: turn.prompt,
+        messages: turn.requestMessages,
         task,
+        projectId: remoteProjectId,
+        reconcileProjectId: ({ failedProjectId }) => reconcileProjectRemote(projectId, failedProjectId, request.signal),
         workstreamId: projectId,
         executionMode,
-        onWorkSummary: (workSummary, progress) => updateProject(projectId, (current) => ({
-          ...current,
-          messages: current.messages.map((message) => message.id === reply.id
-            ? { ...message, workSummary, progressText: workProgressText(workSummary, progress) }
-            : message),
-        })),
+        signal: request.signal,
+        ...(task ? {} : {
+          onTextDelta: (_delta, accumulatedText) => updateProject(
+            projectId,
+            (current) => patchTurnMessage(current, turn.reply.id, { text: accumulatedText, progressText: "" }),
+          ),
+        }),
+        onWorkSummary: (workSummary, progress) => updateProject(
+          projectId,
+          (current) => patchTurnMessage(current, turn.reply.id, {
+            workSummary,
+            progressText: workProgressText(workSummary, progress),
+          }),
+        ),
       });
-      const taskStatus = response.task?.status || "completed";
-      const answer = response.text || (taskStatus === "incomplete"
-        ? "Результат создан частично; недостающие файлы отмечены отдельно."
-        : "Готово.");
+      const answer = String(response.text || "").trim();
+      if (!answer) throw new Error("Проверенный текст ответа не получен.");
       const canvas = task ? taskCanvas({
-        id: reply.id,
-        intent,
-        title: text.slice(0, 84),
-        status: taskStatus,
+        id: turn.reply.id,
+        intent: turn.intent,
+        title: turn.prompt.slice(0, 84),
+        status: response.task?.status || "completed",
         text: response.text,
         task: response.task,
         artifacts: response.artifacts,
         endpoint: response.endpoint,
         workSummary: response.workSummary,
       }) : null;
-      updateProject(projectId, (current) => ({
-        ...current,
-        messages: current.messages.map((message) => message.id === reply.id
-          ? { ...message, text: answer, progressText: "", status: taskStatus, workSummary: response.workSummary, ...(canvas ? { canvasId: canvas.id } : {}) }
-          : message),
-        artifacts: mergeArtifacts(current.artifacts, response.artifacts),
-        canvases: canvas ? upsertCanvas(current.canvases, canvas) : current.canvases,
-        ...(canvas ? { viewMode: "editor" } : {}),
-      }));
+      const completedReply = completedAssistantReply(turn.reply, response, canvas);
+      updateProject(projectId, (current) => completeTurnProject(current, completedReply, response, canvas));
+      await syncProjectMessage(projectId, completedReply, {
+        responseId: response.taskId,
+        signal: request.signal,
+      }).catch(() => null);
     } catch (error) {
-      updateProject(projectId, (current) => ({
-        ...current,
-        messages: current.messages.map((message) => message.id === reply.id
-          ? { ...message, text: error?.message || "Исполнительный контур временно недоступен", status: "failed" }
-          : message),
-      }));
+      const failedReply = failedAssistantReply(turn.reply, turn, error, publicErrorMessage(error));
+      updateProject(projectId, (current) => patchTurnMessage(current, turn.reply.id, failedReply));
+      if (!request.signal.aborted) {
+        await syncProjectMessage(projectId, failedReply, { signal: request.signal }).catch(() => {});
+      }
     } finally {
-      setProjectBusy(projectId, false);
+      endProjectRequest(projectId, request.token);
     }
-  }, [busyProjects, dispatch, projects, setProjectBusy, updateProject]);
+  }, [beginProjectRequest, busyProjects, dispatch, endProjectRequest, ensureProjectRemote, projects, reconcileProjectRemote, syncProjectMessage, updateProject]);
 }

@@ -370,4 +370,5 @@ def test_repository_dropin_and_wrapper_contracts_are_fail_closed():
     assert "os.replace(temporary, path)" in helper
     assert "backend_health_gate_failed" in helper
     assert "PYTHONDONTWRITEBYTECODE=1" in dropin.decode("utf-8")
+    assert "ExecStart=/srv/kolibri/repo/.venv/bin/python -B -m uvicorn" in dropin.decode("utf-8")
     assert '"-B"' in helper

@@ -78,11 +78,18 @@ SPLIT_RUNTIME_PATHS = (
     "ops/factory_control.py",
     "ops/fleet_membership.py",
     "ops/immutable_release_preflight.py",
+    "ops/marked_connect_proxy.py",
     MIMO_RESPONSE_AGENT_PROFILE_PATH,
+    "ops/provider_egress_policy.py",
+    "ops/provider_egress_preflight.py",
+    "ops/provider_egress_tunnel.py",
     "ops/release_authority.py",
     "ops/release_helper.py",
     "ops/release_installer.py",
     "ops/runner_access.py",
+    "ops/systemd/kolibri-agent-host-provider-egress.conf",
+    "ops/systemd/kolibri-provider-egress-proxy.service",
+    "ops/systemd/kolibri-provider-egress-tunnel.service",
     "ops/telegram_superfactory.py",
 )
 EFFECTIVE_RUNTIME_PATHS = tuple(

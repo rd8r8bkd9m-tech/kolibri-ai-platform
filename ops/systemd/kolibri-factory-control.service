@@ -9,9 +9,10 @@ EnvironmentFile=/etc/kolibri-factory-control.env
 Environment=KOLIBRI_MESH_MEMBERSHIP_MANIFEST=/var/lib/kolibri-mesh/peers.json
 Environment=KOLIBRI_REPO_ROOT=/opt/kolibri-ai-platform
 Environment=KOLIBRI_OPS_DIR=/opt/kolibri-ai-platform/ops
+Environment=PYTHONDONTWRITEBYTECODE=1
 WorkingDirectory=/opt/kolibri-ai-platform
-ExecStartPre=/usr/bin/python3 /opt/kolibri-ai-platform/ops/control_plane_endpoint.py --assert-local-home
-ExecStart=/usr/bin/python3 /opt/kolibri-ai-platform/ops/factory_control.py
+ExecStartPre=/usr/bin/python3 -B /opt/kolibri-ai-platform/ops/control_plane_endpoint.py --assert-local-home
+ExecStart=/usr/bin/python3 -B /opt/kolibri-ai-platform/ops/factory_control.py
 Restart=always
 RestartSec=5
 KillSignal=SIGTERM

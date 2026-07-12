@@ -84,4 +84,9 @@ def test_unknown_api_paths_never_fall_through_to_spa(tmp_path, monkeypatch):
     assert "/v1/kolibri/openai-compatibility" in paths
     assert "/v1/responses/{response_id}/input_items" in paths
     assert "/v1/realtime" in paths
+    assert "/v1/realtime/client_secrets" in paths
+    assert "/v1/realtime/sessions" in paths
+    assert "/v1/realtime/transcription_sessions" in paths
+    assert "/v1/realtime/calls" in paths
+    assert "/v1/realtime/translations/client_secrets" in paths
     assert not any(path.startswith("/v1/organization/") for path in paths)

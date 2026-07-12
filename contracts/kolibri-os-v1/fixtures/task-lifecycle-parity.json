@@ -1,0 +1,109 @@
+{
+  "schema_version": "kolibri.task-trace-fixture.v1",
+  "trace_id": "trace:task-parity",
+  "task": {
+    "task_id": "task-parity",
+    "max_attempts": 2
+  },
+  "events": [
+    {
+      "sequence": 1,
+      "type": "task.created",
+      "occurred_at": "2026-07-11T00:00:00Z"
+    },
+    {
+      "sequence": 2,
+      "type": "task.leased",
+      "occurred_at": "2026-07-11T00:00:01Z",
+      "attempt_id": "task-parity-attempt-1",
+      "lease_owner": "worker-a:agent-a",
+      "fencing_token": 1,
+      "lease_until": "2026-07-11T00:01:01Z"
+    },
+    {
+      "sequence": 3,
+      "type": "task.heartbeat",
+      "occurred_at": "2026-07-11T00:00:10Z",
+      "attempt_id": "task-parity-attempt-1",
+      "lease_owner": "worker-a:agent-a",
+      "fencing_token": 1,
+      "lease_until": "2026-07-11T00:01:10Z"
+    },
+    {
+      "sequence": 4,
+      "type": "task.lease_expired",
+      "occurred_at": "2026-07-11T00:01:10Z",
+      "attempt_id": "task-parity-attempt-1",
+      "lease_owner": "worker-a:agent-a",
+      "fencing_token": 1
+    },
+    {
+      "sequence": 5,
+      "type": "task.leased",
+      "occurred_at": "2026-07-11T00:01:11Z",
+      "attempt_id": "task-parity-attempt-2",
+      "lease_owner": "worker-b:agent-b",
+      "fencing_token": 2,
+      "lease_until": "2026-07-11T00:02:11Z"
+    },
+    {
+      "sequence": 6,
+      "type": "task.completion_rejected",
+      "occurred_at": "2026-07-11T00:01:12Z",
+      "attempt_id": "task-parity-attempt-1",
+      "lease_owner": "worker-a:agent-a",
+      "fencing_token": 1,
+      "reason": "attempt_id_mismatch"
+    },
+    {
+      "sequence": 7,
+      "type": "task.completed",
+      "occurred_at": "2026-07-11T00:01:15Z",
+      "attempt_id": "task-parity-attempt-2",
+      "lease_owner": "worker-b:agent-b",
+      "fencing_token": 2,
+      "result_reference": "cas://sha256/task-parity-result",
+      "result": {
+        "status": "completed",
+        "task_id": "task-parity",
+        "attempt_id": "task-parity-attempt-2",
+        "node_id": "worker-b",
+        "agent_id": "agent-b",
+        "fencing_token": 2,
+        "output": "verified shadow result"
+      },
+      "result_sha256": "sha256:b33cca88fa7138e7097a56da0cdeadfb891db3b5162be4eacdcb520e219d5c2a",
+      "binding_sha256": "sha256:c5078bd5078b6dc35b0fea806749374326ee2fa02c0705ae5ce45e7af3da6cb3",
+      "verifier": {
+        "schema_version": "kolibri.control-plane-completion-verifier.v1",
+        "verifier": "control-plane/home",
+        "independent": true,
+        "verdict": "passed",
+        "fencing_token": 2,
+        "result_sha256": "sha256:b33cca88fa7138e7097a56da0cdeadfb891db3b5162be4eacdcb520e219d5c2a",
+        "binding_sha256": "sha256:c5078bd5078b6dc35b0fea806749374326ee2fa02c0705ae5ce45e7af3da6cb3"
+      }
+    }
+  ],
+  "expected_summary": {
+    "schema_version": "kolibri.task-shadow-summary.v1",
+    "mode": "shadow_parity",
+    "authoritative": false,
+    "authority": "python-control-plane",
+    "task_id": "task-parity",
+    "trace_id": "trace:task-parity",
+    "state": "completed",
+    "attempts_started": 2,
+    "max_attempts": 2,
+    "last_attempt_id": "task-parity-attempt-2",
+    "event_count": 7,
+    "last_sequence": 7,
+    "rejected_stale_completions": 1,
+    "result_reference": "cas://sha256/task-parity-result",
+    "result_sha256": "sha256:b33cca88fa7138e7097a56da0cdeadfb891db3b5162be4eacdcb520e219d5c2a",
+    "binding_sha256": "sha256:c5078bd5078b6dc35b0fea806749374326ee2fa02c0705ae5ce45e7af3da6cb3",
+    "completion_fencing_token": 2,
+    "verifier_verdict": "passed",
+    "trace_sha256": "sha256:66d544c8f437f640f4a51c2ec80687754a4019ab5ef32461ef1f811d6156c6fb"
+  }
+}

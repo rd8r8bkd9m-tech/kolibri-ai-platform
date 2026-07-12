@@ -4,6 +4,8 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -99,6 +101,69 @@ def finalize(agent_host, tmp_path, envelope=None, changed_files=None, push_attem
     )
 
 
+def test_finalized_result_binds_attempt_and_fencing_token(tmp_path):
+    agent_host = load_agent_host()
+    worktree, artifact_dir = make_paths(tmp_path)
+    task = make_task({"kind": "read_only_probe"})
+    task["fencing_token"] = 7
+
+    result = agent_host.finalize_runner_contract(
+        task,
+        {"status": "completed", "changed_files": []},
+        artifact_dir,
+        worktree=worktree,
+        changed_files=[],
+    )
+
+    assert result["attempt_id"] == task["attempt_id"]
+    assert result["fencing_token"] == 7
+
+
+def test_public_reasoning_summary_accepts_only_explicit_safe_events():
+    agent_host = load_agent_host()
+
+    assert agent_host.public_reasoning_summary_from_event({
+        "type": "response.reasoning_summary_text.delta",
+        "delta": "Проверяю исходные данные.",
+    }) == "Проверяю исходные данные."
+    assert agent_host.public_reasoning_summary_from_event({
+        "type": "item.completed",
+        "item": {"type": "reasoning", "text": "Сверяю расчёт."},
+    }) == "Сверяю расчёт."
+    assert agent_host.public_reasoning_summary_from_event({
+        "type": "analysis.delta", "delta": "hidden chain of thought",
+    }) is None
+    assert agent_host.public_reasoning_summary_from_event({
+        "type": "response.reasoning_summary_text.delta",
+        "delta": "Проверяю узел 10.99.0.2",
+    }) is None
+
+
+def test_task_heartbeat_carries_bounded_public_progress(tmp_path):
+    agent_host = load_agent_host()
+    host = make_host(agent_host, tmp_path)
+    worktree = tmp_path / "heartbeat-repo"
+    artifact_dir = tmp_path / "heartbeat-artifacts"
+    worktree.mkdir()
+    artifact_dir.mkdir()
+    progress = {
+        "schema_version": "kolibri.public-progress.v1",
+        "type": "reasoning_summary_delta",
+        "sequence": 1,
+        "delta": "Проверяю факты.",
+    }
+
+    host.task_heartbeat(
+        make_task(),
+        worktree,
+        None,
+        {"stdout": str(artifact_dir / "stdout"), "stderr": str(artifact_dir / "stderr")},
+        progress=progress,
+    )
+
+    assert host.posts[-1][1]["progress"] == progress
+
+
 def test_no_push_enforcement_blocks_push_without_attempting_it(tmp_path):
     agent_host = load_agent_host()
 
@@ -117,6 +182,75 @@ def test_forbidden_push_attempt_cannot_complete(tmp_path):
 
     assert result["status"] == "blocked"
     assert "forbidden_push_attempted" in result["blocked_reason"]
+
+
+def test_provider_proxy_environment_is_child_scoped_and_preserves_home_no_proxy(tmp_path):
+    agent_host = load_agent_host()
+    membership = tmp_path / "peers.json"
+    membership.write_text(json.dumps({
+        "schema_version": 1,
+        "epoch": 1,
+        "cluster_id": "test",
+        "peers": {
+            "home": {"node_id": "home", "mesh_ip": "10.99.0.1"},
+            "worker": {"node_id": "worker", "mesh_ip": "10.99.0.22"},
+        },
+    }), encoding="utf-8")
+    service_environment = {
+        "KOLIBRI_PROVIDER_PROXY_URL": "http://127.0.0.1:18080",
+        "KOLIBRI_MESH_MEMBERSHIP_MANIFEST": str(membership),
+    }
+    environment = agent_host.provider_runner_proxy_environment(service_environment)
+
+    assert environment["HTTPS_PROXY"] == "http://127.0.0.1:18080"
+    assert environment["HTTP_PROXY"] == "http://127.0.0.1:18080"
+    no_proxy = environment["NO_PROXY"].split(",")
+    assert "api.telegram.org" in no_proxy
+    assert "kolibriai.ru" in no_proxy
+    assert "home" in no_proxy
+    assert "10.99.0.1" in no_proxy
+    assert "worker" in no_proxy
+    assert "10.99.0.22" in no_proxy
+    assert "10.99.0.0/24" not in no_proxy
+    assert environment["no_proxy"] == environment["NO_PROXY"]
+    assert "ALL_PROXY" not in environment
+    assert "HTTPS_PROXY" not in service_environment
+    assert "HTTP_PROXY" not in service_environment
+    with pytest.raises(RuntimeError, match="provider_proxy_contract_invalid"):
+        agent_host.provider_runner_proxy_environment({
+            "KOLIBRI_PROVIDER_PROXY_URL": "http://example.invalid:18080",
+        })
+    with pytest.raises(RuntimeError, match="provider_proxy_membership_unavailable"):
+        agent_host.provider_runner_proxy_environment({
+            "KOLIBRI_PROVIDER_PROXY_URL": "http://127.0.0.1:18080",
+            "KOLIBRI_MESH_MEMBERSHIP_MANIFEST": str(tmp_path / "missing.json"),
+        })
+
+
+def test_agent_children_never_inherit_machine_global_proxy():
+    agent_host = load_agent_host()
+    inherited = {
+        "PATH": "/usr/bin",
+        "HTTPS_PROXY": "http://global.invalid:9999",
+        "http_proxy": "http://global.invalid:9999",
+        "ALL_PROXY": "socks5://global.invalid:9999",
+        "NO_PROXY": "global.invalid",
+    }
+
+    direct = agent_host.agent_child_environment(source=inherited)
+    provider = agent_host.agent_child_environment(
+        {
+            "HTTPS_PROXY": "http://127.0.0.1:18080",
+            "NO_PROXY": "localhost,127.0.0.1",
+        },
+        source=inherited,
+    )
+
+    assert direct == {"PATH": "/usr/bin"}
+    assert provider["HTTPS_PROXY"] == "http://127.0.0.1:18080"
+    assert provider["NO_PROXY"] == "localhost,127.0.0.1"
+    assert "ALL_PROXY" not in provider
+    assert "http_proxy" not in provider
 
 
 def test_read_only_envelope_does_not_receive_push_or_full_autonomy_permissions(tmp_path):

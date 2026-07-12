@@ -2,10 +2,10 @@ import { useCallback, useEffect, useReducer } from "react";
 import { WORKSPACE_STORAGE_KEY } from "../app/constants";
 import { makeId, readWorkspace } from "../app/utils";
 import { initialWorkbench, workbenchReducer } from "../workbench/reducer";
-import { estimateWindow, projectWindow } from "./projectModel";
+import { estimateWindow, isMaterializedArtifact, materializedArtifacts, projectWindow } from "./projectModel";
 
 function projectArtifacts(projects) {
-  return projects.flatMap((project) => project.artifacts || []);
+  return projects.flatMap((project) => materializedArtifacts(project.artifacts));
 }
 
 export function useWorkbenchController({ projects, setActiveProjectId }) {
@@ -42,18 +42,20 @@ export function useWorkbenchController({ projects, setActiveProjectId }) {
   }, [projects]);
 
   const openArtifact = useCallback((projectId, artifact) => {
+    if (!isMaterializedArtifact(artifact)) return;
     const isPdf = artifact.media_type === "application/pdf" || artifact.deliverable_type === "pdf";
+    const isImage = String(artifact.media_type || "").startsWith("image/") || artifact.deliverable_type === "image";
     dispatch({
       type: "OPEN",
       window: {
         id: `artifact:${artifact.reference_sha256 || artifact.id || makeId("artifact")}`,
-        kind: isPdf ? "pdf" : "response",
-        title: artifact.name || artifact.kind || "Артефакт",
+        kind: isPdf ? "pdf" : isImage ? "image" : "response",
+        title: artifact.display_name || artifact.name || artifact.kind || "Артефакт",
         parentProjectId: projectId,
         status: "completed",
         statusLabel: "Проверенный файл",
         artifacts: [artifact],
-        ...(isPdf ? { artifact } : {}),
+        ...((isPdf || isImage) ? { artifact } : {}),
       },
     });
   }, []);

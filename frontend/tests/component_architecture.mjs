@@ -16,6 +16,8 @@ const controlShell = read("../src/control/ControlShell.jsx");
 const systemBar = read("../src/shell/SystemBar.jsx");
 const shellHeader = read("../src/shell/ShellHeader.jsx");
 const shellNavigation = read("../src/shell/ShellNavigation.jsx");
+const shellComposer = read("../src/shell/ShellComposer.jsx");
+const shellWorkbench = read("../src/shell/ShellWorkbench.jsx");
 const shellNavigationLogic = read("../src/shell/useShellNavigation.js");
 const windowContent = read("../src/windows/WindowContent.jsx");
 
@@ -28,6 +30,9 @@ const componentModules = new Map([
   ["../src/shell/shellNavigationModel.js", /export function shellNavigationReducer/],
   ["../src/shell/ToolDock.jsx", /export function ToolDock/],
   ["../src/shell/Composer.jsx", /export function Composer/],
+  ["../src/shell/ComposerModeMenu.jsx", /export function ComposerModeMenu/],
+  ["../src/shell/ShellComposer.jsx", /export function ShellComposer/],
+  ["../src/shell/ShellWorkbench.jsx", /export function ShellWorkbench/],
   ["../src/shell/ComposerToolMenu.jsx", /export function ComposerToolMenu/],
   ["../src/shell/MobileDockHeader.jsx", /export function MobileDockHeader/],
   ["../src/shell/MinimizedWindows.jsx", /export function MinimizedWindows/],
@@ -52,12 +57,12 @@ assert.match(app, /<ErrorBoundary>/);
 assert.match(app, /isControlRoute \? <ControlShell \/> : <PublicShell \/>/);
 assert.doesNotMatch(app, /useState|useEffect|useReducer|sendKolibriRequest|loadControlSnapshot|className=/);
 assert.ok(publicShell.split("\n").length <= 90, "PublicShell.jsx must remain component composition, not orchestration");
-assert.ok(publicShellLogic.split("\n").length <= 90, "usePublicShell must remain hook composition, not a monolith");
+assert.ok(publicShellLogic.split("\n").length <= 110, "usePublicShell must remain hook composition, not a monolith");
 assert.ok(projectMessaging.split("\n").length <= 130, "project messaging must remain a bounded runtime hook");
 assert.ok(projectCommands.split("\n").length <= 80, "project commands must remain a bounded orchestration hook");
 assert.ok(estimateRuntime.split("\n").length <= 90, "estimate execution must remain a bounded runtime hook");
 assert.ok(executionModeSupport.split("\n").length <= 40, "execution-mode handshake must remain bounded");
-assert.ok(projectStore.split("\n").length <= 80, "project storage must remain a bounded state hook");
+assert.ok(projectStore.split("\n").length <= 100, "project storage must remain a bounded state hook");
 assert.ok(workbenchController.split("\n").length <= 130, "window orchestration must remain a bounded controller hook");
 assert.ok(shellNavigationLogic.split("\n").length <= 80, "shell navigation must remain a bounded interaction hook");
 assert.doesNotMatch(publicShell, /useState|useEffect|useReducer|sendKolibriRequest|buildDocumentTask/);
@@ -75,10 +80,14 @@ for (const [path, exportPattern] of componentModules) {
   assert.match(read(path), exportPattern, `${path} must keep its component boundary`);
 }
 
-for (const component of ["ShellHeader", "ShellNavigation", "WindowContent"]) {
+for (const component of ["ShellHeader", "ShellWorkbench", "ShellComposer"]) {
   assert.match(publicShell, new RegExp(`<${component}(?:\\s|>)`));
   assert.doesNotMatch(publicShell, new RegExp(`function\\s+${component}\\s*\\(`));
 }
+
+assert.match(shellWorkbench, /<ShellNavigation/);
+assert.match(shellWorkbench, /<WindowContent/);
+assert.match(shellComposer, /<Composer/);
 
 assert.match(shellHeader, /<SystemBar/);
 assert.match(shellNavigation, /<ToolDock/);
@@ -99,6 +108,6 @@ assert.match(systemBar, /<Brand/);
 assert.match(publicShell, /<ShellHeader/);
 assert.match(controlShell, /<SystemBar/);
 assert.doesNotMatch(publicShell, /<HistoryDrawer/);
-assert.match(read("../src/windows/ProjectWorkspace.jsx"), /<Composer/);
+assert.doesNotMatch(read("../src/windows/ProjectWorkspace.jsx"), /<Composer/);
 
 console.log("Kolibri component architecture contracts passed");

@@ -118,6 +118,7 @@ def leased_task(control, node_id: str = "agent09") -> tuple[dict, dict, dict]:
         "state": control.STATE_LEASED,
         "attempt": 1,
         "attempt_id": "KOL-PROOF-1-attempt-1",
+        "fencing_token": 1,
         "lease_owner": f"{node_id}:agent-host-{node_id}",
     })
     result_reference = f"/var/lib/kolibri-agent/{task['task_id']}/result.json"
@@ -126,6 +127,7 @@ def leased_task(control, node_id: str = "agent09") -> tuple[dict, dict, dict]:
         "kind": "read_only_probe",
         "task_id": task["task_id"],
         "attempt_id": task["attempt_id"],
+        "fencing_token": task["fencing_token"],
         "node_id": node_id,
         "agent_id": f"agent-host-{node_id}",
         "result_path": result_reference,
@@ -133,6 +135,7 @@ def leased_task(control, node_id: str = "agent09") -> tuple[dict, dict, dict]:
     }
     body = {
         "attempt_id": task["attempt_id"],
+        "fencing_token": task["fencing_token"],
         "node_id": node_id,
         "agent_id": f"agent-host-{node_id}",
         "result_reference": result_reference,
@@ -213,6 +216,8 @@ def test_completion_verifier_rejects_forged_hash_binding_and_fence():
         task, result, body, body["result_reference"],
     )
     assert verifier["verdict"] == "passed"
+    assert evidence["fencing_token"] == 1
+    assert verifier["fencing_token"] == 1
     assert evidence["result_sha256"].startswith("sha256:")
     assert evidence["binding_sha256"].startswith("sha256:")
 
@@ -237,6 +242,21 @@ def test_completion_verifier_rejects_forged_hash_binding_and_fence():
     assert fence_verifier["verdict"] == "failed"
     assert "attempt" in fence_verifier["failed_checks"]
     assert control.lease_fence_error(task, stale_fence) == "attempt_id_mismatch"
+
+    stale_token = {**body, "fencing_token": 0}
+    _, token_verifier = control.verify_task_completion(
+        task, result, stale_token, body["result_reference"],
+    )
+    assert token_verifier["verdict"] == "failed"
+    assert "fencing_token" in token_verifier["failed_checks"]
+    assert control.lease_fence_error(task, stale_token) == "fencing_token_mismatch"
+
+    unbound_result = {key: value for key, value in result.items() if key != "fencing_token"}
+    _, result_token_verifier = control.verify_task_completion(
+        task, unbound_result, body, body["result_reference"],
+    )
+    assert result_token_verifier["verdict"] == "failed"
+    assert "fencing_token" in result_token_verifier["failed_checks"]
 
     task["result"] = result
     task["result_reference"] = body["result_reference"]

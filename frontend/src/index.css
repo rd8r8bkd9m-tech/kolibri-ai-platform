@@ -11,7 +11,7 @@ html { color-scheme: light; }
 
 body {
   margin: 0;
-  min-width: 320px;
+  min-width: 0;
   overflow: hidden;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;

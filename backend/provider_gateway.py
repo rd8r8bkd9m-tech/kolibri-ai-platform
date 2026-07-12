@@ -7,16 +7,20 @@ zero exit status, non-empty parsed assistant output and hashed evidence.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import importlib.util
 import ipaddress
 import json
 import os
 import re
+import selectors
 import signal
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 from datetime import datetime, timezone
 from dataclasses import dataclass
@@ -27,6 +31,7 @@ import urllib.request
 from urllib.parse import quote, urlsplit
 
 from data_paths import DATA_DIR
+from image_artifacts import ImageArtifactError, validated_image_media_type
 
 
 PUBLIC_MODEL = "kolibri"
@@ -41,10 +46,15 @@ PUBLIC_IDENTITY_INSTRUCTION = (
 )
 DEFAULT_PROVIDER_ORDER = ("factory", "mimo", "codex", "deepseek", "local")
 SUPPORTED_PROVIDERS = frozenset(DEFAULT_PROVIDER_ORDER)
-DEFAULT_CODEX_MODELS = (
+GPT56_CODEX_MODELS = (
     "gpt-5.6-sol",
     "gpt-5.6-terra",
     "gpt-5.6-luna",
+)
+# Never assume account entitlement from a model name being publicly documented.
+# A signed deployment may prepend ``GPT56_CODEX_MODELS`` through
+# ``KOLIBRI_CODEX_MODELS`` only after its runner-specific live probe succeeds.
+DEFAULT_CODEX_MODELS = (
     "gpt-5.5",
     "gpt-5.4",
     "gpt-5.3-codex-spark",
@@ -66,10 +76,13 @@ ARTIFACT_KEYS = frozenset({
     "attachments", "file_path", "output_file", "output_files", "uri", "url",
 })
 MODEL_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,119}$")
+SHA256_PATTERN = re.compile(r"^[a-f0-9]{64}$")
 LOCAL_MODEL_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/#:-]{0,159}$")
 DEEPSEEK_API_HOST = "api.deepseek.com"
 FACTORY_SUPPORTED_RUNNERS = frozenset({"mimo", "codex"})
 FACTORY_RUNNER_CONTRACT = "kolibri.factory-provider.readonly.v1"
+FACTORY_IMAGE_EVIDENCE_SCHEMA = "kolibri.image-generation-evidence.v1"
+FACTORY_IMAGE_MAX_BYTES = 6 * 1024 * 1024
 FACTORY_CODEX_READINESS_SCHEMA = "kolibri.codex-readiness.v1"
 FACTORY_CODEX_PROVIDER_MODEL = "gpt-5.5"
 FACTORY_EXTERNAL_CODEX_READINESS_MAX_AGE_SECONDS = 300
@@ -236,6 +249,285 @@ def extract_assistant_text(stdout: str) -> str:
     # Canonical runners are invoked in JSON mode. Plain stdout is log output,
     # not proof of an assistant response.
     return ""
+
+
+def assistant_stream_delta(event: dict[str, Any]) -> str:
+    """Extract only an assistant text fragment that a runner emitted live.
+
+    The final parser above deliberately accepts several whole-message shapes
+    because a verified completion may be delivered as one JSONL record.  The
+    streaming boundary is narrower: it accepts explicit delta records and
+    Codex/Mimo ``agent_message`` records only.  Tool output, diagnostics,
+    provider errors and arbitrary stdout never become customer-visible text.
+    """
+
+    if not isinstance(event, dict):
+        return ""
+    event_type = str(event.get("type") or "").strip().lower()
+    if event_type in {"error", "turn.failed"} or any(
+        marker in event_type for marker in TOOL_EVENT_MARKERS
+    ):
+        return ""
+
+    msg = event.get("msg")
+    if isinstance(msg, dict):
+        message_type = str(msg.get("type") or "").strip().lower()
+        if (
+            any(marker in message_type for marker in ("assistant", "agent_message", "text_delta"))
+            and not any(marker in message_type for marker in TOOL_EVENT_MARKERS)
+        ):
+            text = msg.get("delta") or msg.get("message") or msg.get("text")
+            if text is None:
+                text = _content_text(msg.get("content"))
+            if isinstance(text, str) and text:
+                return text
+
+    # A field named ``delta`` is not enough to make an event customer-visible:
+    # Codex-compatible runners also emit ``analysis.delta`` and other private
+    # diagnostic streams.  Accept only explicit assistant/output-text shapes.
+    assistant_delta_type = (
+        event_type in {
+            "assistant.delta",
+            "assistant_message.delta",
+            "agent_message.delta",
+            "message.delta",
+            "response.output_text.delta",
+            "text.delta",
+            "text_delta",
+        }
+        or event_type.endswith(".assistant.delta")
+        or event_type.endswith(".assistant_message.delta")
+        or event_type.endswith(".agent_message.delta")
+        or event_type.endswith(".output_text.delta")
+    )
+    if assistant_delta_type:
+        text = event.get("delta") or event.get("message") or event.get("text")
+        if text is None:
+            text = _content_text(event.get("content"))
+        part = event.get("part")
+        if text is None and isinstance(part, dict) and part.get("type") == "text":
+            text = part.get("delta") or part.get("text")
+        if isinstance(text, str) and text:
+            return text
+
+    item = event.get("item")
+    if isinstance(item, dict) and item.get("type") in {
+        "assistant_message", "agent_message",
+    }:
+        text = item.get("delta") or item.get("message") or item.get("text")
+        if text is None:
+            text = _content_text(item.get("content"))
+        if isinstance(text, str) and text:
+            return text
+    return ""
+
+
+def reasoning_summary_stream_delta(event: dict[str, Any]) -> str:
+    """Extract only an explicit provider-authored reasoning *summary*.
+
+    Raw analysis/chain-of-thought fields are intentionally ignored.  The two
+    accepted shapes are the official Responses summary delta and Codex JSONL's
+    completed ``reasoning`` item, which is the CLI's safe summary surface.
+    """
+
+    if not isinstance(event, dict):
+        return ""
+    event_type = str(event.get("type") or "").strip().lower()
+    if event_type == "response.reasoning_summary_text.delta":
+        value = event.get("delta")
+        return value if isinstance(value, str) and value else ""
+    if event_type not in {
+        "item.completed", "item.delta", "reasoning_summary.completed",
+        "reasoning_summary.delta",
+    }:
+        return ""
+    item = event.get("item")
+    if not isinstance(item, dict):
+        item = event
+    item_type = str(item.get("type") or "").strip().lower()
+    if item_type not in {"reasoning", "reasoning_summary", "summary_text"}:
+        return ""
+    value = item.get("delta") or item.get("text") or item.get("summary")
+    if isinstance(value, dict):
+        value = value.get("text")
+    return value if isinstance(value, str) and value else ""
+
+
+def _is_explicit_assistant_delta(event: dict[str, Any]) -> bool:
+    event_type = str(event.get("type") or "").strip().lower()
+    if "delta" in event_type:
+        return True
+    msg = event.get("msg")
+    if isinstance(msg, dict):
+        return "delta" in str(msg.get("type") or "").strip().lower()
+    item = event.get("item")
+    if isinstance(item, dict):
+        return "delta" in str(item.get("type") or "").strip().lower()
+    return False
+
+
+class ProviderExecutionCancelled(RuntimeError):
+    """Internal cooperative cancellation marker; never serialized publicly."""
+
+
+class ProviderOutputTooLarge(RuntimeError):
+    """Internal bounded-output marker; never serialized publicly."""
+
+
+def _emit_stream_event(
+    callback: Any,
+    event: dict[str, Any],
+) -> None:
+    if callback is None:
+        return
+    try:
+        callback(event)
+    except Exception:
+        # Stream transport is an observer.  It must not change the verified
+        # execution verdict or leak callback failures into provider evidence.
+        return
+
+
+def _kill_process_group(process: subprocess.Popen[Any]) -> None:
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        try:
+            process.kill()
+        except ProcessLookupError:
+            pass
+
+
+def _communicate_jsonl_stream(
+    process: subprocess.Popen[Any],
+    *,
+    prompt: str,
+    timeout: float,
+    event_callback: Any = None,
+    cancel_event: threading.Event | None = None,
+) -> tuple[str, str]:
+    """Communicate with a JSONL runner while forwarding real safe fragments.
+
+    Both pipes are drained with ``selectors`` so stderr cannot deadlock the
+    runner.  Output remains bounded and is still parsed in full at completion
+    for deterministic evidence and verifier binding.  Cancellation kills the
+    complete process group created for the attempt.
+    """
+
+    assert process.stdin is not None
+    assert process.stdout is not None
+    assert process.stderr is not None
+    encoded_prompt = prompt.encode("utf-8")
+    process.stdin.write(prompt)
+    process.stdin.close()
+
+    stdout_fd = process.stdout.fileno()
+    stderr_fd = process.stderr.fileno()
+    os.set_blocking(stdout_fd, False)
+    os.set_blocking(stderr_fd, False)
+    selector = selectors.DefaultSelector()
+    selector.register(stdout_fd, selectors.EVENT_READ, "stdout")
+    selector.register(stderr_fd, selectors.EVENT_READ, "stderr")
+    buffers: dict[str, bytearray] = {
+        "stdout": bytearray(),
+        "stderr": bytearray(),
+    }
+    stdout_line_buffer = bytearray()
+    saw_explicit_delta = False
+    # ``timeout`` is an inactivity watchdog, not a whole-response wall clock.
+    # A provider that keeps producing bytes is healthy and may continue; only
+    # a silent/stalled attempt is fenced so another route can take over.
+    stall_timeout = max(0.01, float(timeout))
+    last_progress_at = time.monotonic()
+    max_stdout = max(
+        len(encoded_prompt),
+        int(os.environ.get("KOLIBRI_PROVIDER_MAX_STDOUT_BYTES", "8388608")),
+    )
+    max_stderr = int(os.environ.get("KOLIBRI_PROVIDER_MAX_STDERR_BYTES", "1048576"))
+
+    def consume_stdout_lines(*, final: bool = False) -> None:
+        nonlocal saw_explicit_delta
+        while b"\n" in stdout_line_buffer:
+            raw_line, _, rest = stdout_line_buffer.partition(b"\n")
+            stdout_line_buffer[:] = rest
+            line = raw_line.decode("utf-8", errors="replace").strip()
+            if not line.startswith("{"):
+                continue
+            try:
+                parsed = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(parsed, dict):
+                continue
+            delta = assistant_stream_delta(parsed)
+            explicit_delta = _is_explicit_assistant_delta(parsed)
+            if delta and (explicit_delta or not saw_explicit_delta):
+                _emit_stream_event(event_callback, {"type": "text_delta", "delta": delta})
+            if explicit_delta and delta:
+                saw_explicit_delta = True
+            reasoning_delta = reasoning_summary_stream_delta(parsed)
+            if reasoning_delta:
+                _emit_stream_event(
+                    event_callback,
+                    {"type": "reasoning_summary_delta", "delta": reasoning_delta},
+                )
+            lowered = str(parsed.get("type") or "").lower()
+            if any(marker in lowered for marker in TOOL_EVENT_MARKERS):
+                status = "completed" if any(
+                    marker in lowered for marker in ("completed", "result", "succeeded")
+                ) else "started"
+                _emit_stream_event(
+                    event_callback,
+                    {"type": "tool", "status": status},
+                )
+        if final and stdout_line_buffer:
+            stdout_line_buffer.extend(b"\n")
+            consume_stdout_lines()
+
+    try:
+        while selector.get_map():
+            if cancel_event is not None and cancel_event.is_set():
+                _kill_process_group(process)
+                raise ProviderExecutionCancelled("provider_execution_cancelled")
+            remaining = stall_timeout - (time.monotonic() - last_progress_at)
+            if remaining <= 0:
+                _kill_process_group(process)
+                raise subprocess.TimeoutExpired(process.args, timeout)
+            ready = selector.select(timeout=min(0.1, remaining))
+            if not ready and process.poll() is not None:
+                # A process can exit before the final pipe EOF notification;
+                # the next non-blocking read drains those bytes.
+                ready = [
+                    (key, selectors.EVENT_READ)
+                    for key in list(selector.get_map().values())
+                ]
+            for key, _ in ready:
+                try:
+                    chunk = os.read(int(key.fd), 65536)
+                except BlockingIOError:
+                    continue
+                if not chunk:
+                    selector.unregister(key.fd)
+                    continue
+                last_progress_at = time.monotonic()
+                stream_name = str(key.data)
+                target = buffers[stream_name]
+                limit = max_stdout if stream_name == "stdout" else max_stderr
+                if len(target) + len(chunk) > limit:
+                    _kill_process_group(process)
+                    raise ProviderOutputTooLarge(f"provider_{stream_name}_too_large")
+                target.extend(chunk)
+                if stream_name == "stdout":
+                    stdout_line_buffer.extend(chunk)
+                    consume_stdout_lines()
+        process.wait(timeout=max(0.01, stall_timeout))
+        consume_stdout_lines(final=True)
+    finally:
+        selector.close()
+    return (
+        bytes(buffers["stdout"]).decode("utf-8", errors="replace"),
+        bytes(buffers["stderr"]).decode("utf-8", errors="replace"),
+    )
 
 
 def structured_error_type(stdout: str) -> str | None:
@@ -546,17 +838,67 @@ def _normalized_aliases(value: Any) -> set[str]:
     return aliases
 
 
+_DELIVERABLE_CLAIM_PATTERNS = {
+    "image": re.compile(
+        r"(?:\bготово\b.{0,80})?(?:сгенерировал[аи]?|создал[аи]?|подготовил[аи]?)"
+        r".{0,120}(?:изображен|картин|иллюстрац|портрет|image|picture|illustration)",
+        re.IGNORECASE | re.DOTALL,
+    ),
+    "document": re.compile(
+        r"(?:\bготово\b.{0,80})?(?:создал[аи]?|сформировал[аи]?|подготовил[аи]?)"
+        r".{0,120}(?:pdf|docx|xlsx|документ|файл|таблиц)",
+        re.IGNORECASE | re.DOTALL,
+    ),
+    "website": re.compile(
+        r"(?:\bготово\b.{0,80})?(?:создал[аи]?|разработал[аи]?|собрал[аи]?)"
+        r".{0,120}(?:сайт|лендинг|webapp|website|приложен|application)",
+        re.IGNORECASE | re.DOTALL,
+    ),
+}
+
+
+def _claimed_materialized_deliverables(text: str) -> set[str]:
+    return {
+        kind for kind, pattern in _DELIVERABLE_CLAIM_PATTERNS.items()
+        if pattern.search(str(text or ""))
+    }
+
+
+def _materialized_deliverable_kinds(artifact_refs: list[dict[str, Any]]) -> set[str]:
+    kinds: set[str] = set()
+    for artifact in artifact_refs:
+        if not isinstance(artifact, dict):
+            continue
+        media = str(artifact.get("media_type") or artifact.get("mime_type") or "").lower()
+        kind = str(artifact.get("kind") or artifact.get("deliverable_type") or "").lower()
+        if media.startswith("image/") or kind == "image":
+            kinds.add("image")
+        if media in {
+            "application/pdf",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        } or kind in {"pdf", "pdf-x", "docx", "xlsx", "document", "spreadsheet"}:
+            kinds.add("document")
+        if media in {"text/html", "application/x-kolibri-preview"} or kind in {
+            "website", "site-preview", "app-preview", "build",
+        }:
+            kinds.add("website")
+    return kinds
+
+
 def deterministic_verifier_evidence(
     text: str,
     provider_evidence: dict[str, Any] | None,
     requested_tools: list[dict[str, Any]] | None,
     tool_calls: list[dict[str, Any]] | None,
     citations: list[dict[str, Any]] | None = None,
+    artifact_refs: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Return a deterministic, content-bound gateway verifier verdict."""
     requested_tools = requested_tools or []
     tool_calls = tool_calls or []
     citations = citations or []
+    artifact_refs = artifact_refs or []
     output = str(text or "").strip()
     output_sha = hashlib.sha256(output.encode("utf-8")).hexdigest() if output else ""
     provider_bound = bool(
@@ -595,6 +937,8 @@ def deterministic_verifier_evidence(
         marker for marker in set(re.findall(r"\[P\d+\]", output))
         if marker not in project_markers
     )
+    claimed_deliverables = _claimed_materialized_deliverables(output)
+    materialized_deliverables = _materialized_deliverable_kinds(artifact_refs)
     checks = {
         "non_empty_answer": bool(output),
         "public_identity_preserved": not public_identity_contract_violation(output),
@@ -608,6 +952,9 @@ def deterministic_verifier_evidence(
             not project_knowledge_requested
             or (bool(referenced_project_markers) and not unknown_project_markers)
         ),
+        "deliverable_claims_materialized": claimed_deliverables.issubset(
+            materialized_deliverables
+        ),
     }
     verdict = "passed" if all(checks.values()) else "failed"
     binding_payload = {
@@ -618,6 +965,8 @@ def deterministic_verifier_evidence(
         "project_citation_markers": sorted(project_markers),
         "referenced_project_citation_markers": referenced_project_markers,
         "unknown_project_citation_markers": unknown_project_markers,
+        "claimed_deliverables": sorted(claimed_deliverables),
+        "materialized_deliverables": sorted(materialized_deliverables),
         "checks": checks,
     }
     return {
@@ -663,6 +1012,16 @@ class FactoryCompletion:
     provider_model: str
     evidence: dict[str, Any] | None
     route_attempts: tuple[dict[str, Any], ...]
+
+
+@dataclass(frozen=True)
+class FactoryImageCompletion:
+    status: str
+    content: bytes
+    media_type: str
+    content_sha256: str
+    factory_binding_sha256: str
+    technical: dict[str, Any]
 
 
 def _factory_control_endpoint() -> str | None:
@@ -964,6 +1323,22 @@ class ProviderGateway:
         self.work_dir.mkdir(parents=True, exist_ok=True)
         self._factory_health_cache: dict[str, tuple[float, dict[str, dict[str, Any]]]] = {}
         self._factory_local_health: dict[tuple[str, str], dict[str, Any]] = {}
+        self._verified_image_health_until = 0.0
+
+    def verified_image_generation_health(self) -> bool:
+        """Return a recent fully verified Home image completion fact."""
+
+        return self._verified_image_health_until > time.monotonic()
+
+    def image_route_invocable(self) -> bool:
+        """Return whether Home currently has a fresh dynamic image worker.
+
+        This is an invocation preflight for the first fenced canary.  It does
+        not promote the public tool menu; only a completed verified image does.
+        """
+
+        available, _ = self._factory_image_route_available(timeout_budget=3.0)
+        return available
 
     def available(self) -> dict[str, bool]:
         return {
@@ -1372,10 +1747,292 @@ class ProviderGateway:
                 return [], "factory_no_healthy_capable_worker"
             return [], "factory_no_fresh_capable_worker"
         try:
-            max_attempts = max(1, min(int(os.environ.get("KOLIBRI_FACTORY_MAX_NODE_ATTEMPTS", "3")), 8))
+            # Interactive Responses use one fenced worker per runner route;
+            # provider fallback is faster and avoids serially taxing several
+            # unhealthy nodes. Batch operators may explicitly raise this.
+            max_attempts = max(1, min(int(os.environ.get("KOLIBRI_FACTORY_MAX_NODE_ATTEMPTS", "1")), 8))
         except ValueError:
-            max_attempts = 3
+            max_attempts = 1
         return candidates[:max_attempts], None
+
+    def _factory_image_route_available(self, *, timeout_budget: float) -> tuple[bool, str | None]:
+        """Probe dynamic Home membership without selecting a physical node."""
+
+        payload, error_type = self._factory_request(
+            "GET",
+            "/v1/nodes?scope=active&limit=250",
+            timeout=min(max(0.05, timeout_budget), 3.0),
+        )
+        if error_type or not isinstance(payload, dict):
+            return False, error_type or "factory_control_response_invalid"
+        nodes = payload.get("nodes")
+        if not isinstance(nodes, list):
+            data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+            nodes = data.get("nodes")
+        if not isinstance(nodes, list):
+            return False, "factory_control_response_invalid"
+        try:
+            max_age = max(
+                5.0,
+                min(float(os.environ.get("KOLIBRI_FACTORY_NODE_MAX_AGE", "45")), 300.0),
+            )
+        except ValueError:
+            max_age = 45.0
+        for node in nodes:
+            if not isinstance(node, dict):
+                continue
+            capabilities = {
+                str(item).strip().lower()
+                for item in node.get("capabilities") or []
+                if isinstance(item, str)
+            }
+            try:
+                age = float(node.get("heartbeat_age_seconds"))
+            except (TypeError, ValueError):
+                age = max_age + 1
+            if (
+                str(node.get("membership_scope") or "active").strip().lower() == "active"
+                and str(node.get("health") or "").strip().lower() == "online"
+                and str(node.get("freshness") or node.get("freshness_status") or "").strip().lower()
+                in {"fresh", "online"}
+                and 0 <= age <= max_age
+                and not node.get("draining")
+                and not node.get("active_task")
+                and node.get("schedulable", True) is True
+                and "image_generation" in capabilities
+            ):
+                return True, None
+        return False, "factory_no_verified_image_worker"
+
+    @staticmethod
+    def _verify_factory_image_task(task: dict[str, Any]) -> tuple[bytes, str, str, str] | None:
+        """Verify Home fence, worker image binding and transported bytes."""
+
+        if str(task.get("state") or "").lower() != "completed":
+            return None
+        result = task.get("result") if isinstance(task.get("result"), dict) else {}
+        verifier = task.get("completion_verifier")
+        completion = task.get("completion_evidence")
+        checks = verifier.get("checks") if isinstance(verifier, dict) else {}
+        lease_owner = str(task.get("lease_owner") or "")
+        lease_node, separator, lease_agent = lease_owner.partition(":")
+        evidence = result.get("image_evidence")
+        if not (
+            result.get("status") == "completed"
+            and isinstance(verifier, dict)
+            and verifier.get("verdict") == "passed"
+            and verifier.get("verifier") == "control-plane/home"
+            and isinstance(checks, dict)
+            and checks
+            and all(value is True for value in checks.values())
+            and isinstance(completion, dict)
+            and SHA256_PATTERN.fullmatch(str(completion.get("result_sha256") or "").removeprefix("sha256:").lower())
+            and SHA256_PATTERN.fullmatch(str(completion.get("binding_sha256") or "").removeprefix("sha256:").lower())
+            and separator
+            and lease_node
+            and lease_agent
+            and str(result.get("node_id") or "") == lease_node
+            and str(result.get("agent_id") or "") == lease_agent
+            and str(result.get("attempt_id") or "") == str(task.get("attempt_id") or "")
+            and result.get("fencing_token") == task.get("fencing_token")
+            and isinstance(evidence, dict)
+            and evidence.get("schema_version") == FACTORY_IMAGE_EVIDENCE_SCHEMA
+            and evidence.get("verdict") == "passed"
+        ):
+            return None
+        encoded = result.get("image_b64")
+        if not isinstance(encoded, str) or not encoded or len(encoded) > FACTORY_IMAGE_MAX_BYTES * 2:
+            return None
+        try:
+            content = base64.b64decode(encoded, validate=True)
+            media_type = validated_image_media_type(content)
+        except (binascii.Error, ValueError, ImageArtifactError):
+            return None
+        content_sha = hashlib.sha256(content).hexdigest()
+        evidence_payload = {
+            "schema_version": FACTORY_IMAGE_EVIDENCE_SCHEMA,
+            "task_id": str(task.get("task_id") or ""),
+            "attempt_id": str(task.get("attempt_id") or ""),
+            "fencing_token": task.get("fencing_token"),
+            "node_id": lease_node,
+            "agent_id": lease_agent,
+            "content_sha256": content_sha,
+            "media_type": media_type,
+            "size_bytes": len(content),
+        }
+        binding_sha = hashlib.sha256(_stable_json(evidence_payload).encode("utf-8")).hexdigest()
+        if not (
+            evidence.get("content_sha256") == content_sha
+            and evidence.get("media_type") == media_type
+            and evidence.get("size_bytes") == len(content)
+            and evidence.get("binding_sha256") == binding_sha
+            and evidence_payload == {
+                key: evidence.get(key) for key in evidence_payload
+            }
+        ):
+            return None
+        completion_binding = str(completion["binding_sha256"]).removeprefix("sha256:").lower()
+        return content, media_type, content_sha, hashlib.sha256(
+            _stable_json({
+                "schema_version": "kolibri.public-image-factory-binding.v1",
+                "completion_binding_sha256": completion_binding,
+                "image_binding_sha256": binding_sha,
+                "content_sha256": content_sha,
+            }).encode("utf-8")
+        ).hexdigest()
+
+    def generate_image(
+        self,
+        prompt: str,
+        response_id: str,
+        *,
+        event_callback: Any = None,
+        cancel_event: threading.Event | None = None,
+    ) -> FactoryImageCompletion:
+        """Generate one verified image through dynamic Home scheduling."""
+
+        prompt = str(prompt or "").strip()
+        if not prompt or len(prompt.encode("utf-8")) > 20_000:
+            return FactoryImageCompletion(
+                "failed", b"", "", "", "", {"error_type": "image_prompt_invalid"},
+            )
+        route_available, error_type = self._factory_image_route_available(
+            timeout_budget=float(self.timeout),
+        )
+        if not route_available:
+            return FactoryImageCompletion(
+                "failed", b"", "", "", "", {"error_type": error_type},
+            )
+        digest = hashlib.sha256(f"{response_id}\0{prompt}".encode("utf-8")).hexdigest()
+        task_id = f"KOL-IMAGE-{_safe_token(response_id)[:32]}-{digest[:16]}"
+        idempotency_key = f"factory-image:{digest}"
+        envelope = {
+            "task_id": task_id,
+            "idempotency_key": idempotency_key,
+            "kind": "image_generation",
+            "required_capability": "image_generation",
+            "prompt": prompt,
+            "caption": "Изображение создано и готово к просмотру.",
+            "write_scope": [],
+            "constraints": {
+                "read_only": True,
+                "product_code_modification_forbidden": True,
+                "network": "specialized_provider_only",
+                "max_wall_seconds": 600,
+            },
+            "max_attempts": 1,
+            "fallback_allowed": False,
+            "source": {
+                "kind": "kolibri_public_image_gateway",
+                "control_plane": "home",
+                "response_id": _safe_token(response_id),
+                "identity_contract": PUBLIC_IDENTITY_CONTRACT_VERSION,
+            },
+        }
+        task, error_type = self._factory_request(
+            "POST", "/v1/tasks", payload=envelope, timeout=min(float(self.timeout), 10.0),
+        )
+        _emit_stream_event(event_callback, {"type": "status", "stage": "queued"})
+        if error_type or not isinstance(task, dict) or task.get("task_id") != task_id:
+            return FactoryImageCompletion(
+                "failed", b"", "", "", "", {
+                    "error_type": error_type or "factory_control_response_invalid",
+                },
+            )
+        poll_interval = self._bounded_factory_setting(
+            "KOLIBRI_FACTORY_POLL_INTERVAL", 0.5, 0.05, 5.0,
+        )
+        stall_timeout = self._bounded_factory_setting(
+            "KOLIBRI_FACTORY_IMAGE_STALL_TIMEOUT", 180.0, 30.0, 600.0,
+        )
+        lease_deadline = time.monotonic() + self._bounded_factory_setting(
+            "KOLIBRI_FACTORY_LEASE_START_TIMEOUT", 2.0, 0.05, 15.0,
+        )
+        last_progress_at = time.monotonic()
+        last_token: tuple[str, ...] | None = None
+        last_stage = ""
+        current = task
+        while True:
+            state = str(current.get("state") or "").lower()
+            token = tuple(str(current.get(key) or "") for key in (
+                "state", "attempt_id", "heartbeat_at", "lease_until", "updated_at", "error_type",
+            ))
+            if token != last_token:
+                last_token = token
+                last_progress_at = time.monotonic()
+            stage = (
+                "verifying" if state in {"review", "verifying"}
+                else "running" if state in {"leased", "running"}
+                else "queued"
+            )
+            if stage != last_stage:
+                _emit_stream_event(event_callback, {"type": "status", "stage": stage})
+                last_stage = stage
+            if cancel_event is not None and cancel_event.is_set():
+                self._factory_request(
+                    "POST",
+                    f"/v1/tasks/{quote(task_id, safe='')}/cancel",
+                    payload={"reason": "response_cancelled"},
+                    timeout=1.0,
+                )
+                return FactoryImageCompletion(
+                    "failed", b"", "", "", "", {"error_type": "provider_cancelled"},
+                )
+            if state in FACTORY_TERMINAL_STATES:
+                verified = self._verify_factory_image_task(current)
+                if verified is None:
+                    return FactoryImageCompletion(
+                        "failed", b"", "", "", "", {
+                            "error_type": "factory_image_evidence_invalid",
+                            "task_id": _safe_token(task_id),
+                        },
+                    )
+                content, media_type, content_sha, factory_binding = verified
+                self._verified_image_health_until = time.monotonic() + 300.0
+                return FactoryImageCompletion(
+                    "completed",
+                    content,
+                    media_type,
+                    content_sha,
+                    factory_binding,
+                    {
+                        "task_id": _safe_token(task_id),
+                        "attempt_id": _safe_token(current.get("attempt_id")),
+                        "completion_binding_sha256": str(
+                            (current.get("completion_evidence") or {}).get("binding_sha256") or ""
+                        ).removeprefix("sha256:").lower(),
+                    },
+                )
+            if state not in {"leased", "running", "review", "verifying"} and time.monotonic() >= lease_deadline:
+                self._factory_request(
+                    "POST",
+                    f"/v1/tasks/{quote(task_id, safe='')}/cancel",
+                    payload={"reason": "factory_image_lease_timeout"},
+                    timeout=1.0,
+                )
+                return FactoryImageCompletion(
+                    "failed", b"", "", "", "", {"error_type": "factory_lease_unavailable"},
+                )
+            if time.monotonic() - last_progress_at >= stall_timeout:
+                self._factory_request(
+                    "POST",
+                    f"/v1/tasks/{quote(task_id, safe='')}/cancel",
+                    payload={"reason": "factory_image_stalled"},
+                    timeout=1.0,
+                )
+                return FactoryImageCompletion(
+                    "failed", b"", "", "", "", {"error_type": "provider_timeout"},
+                )
+            time.sleep(poll_interval)
+            current, error_type = self._factory_request(
+                "GET", f"/v1/tasks/{quote(task_id, safe='')}", timeout=min(stall_timeout, 10.0),
+            )
+            if error_type or not isinstance(current, dict):
+                return FactoryImageCompletion(
+                    "failed", b"", "", "", "", {
+                        "error_type": error_type or "factory_control_response_invalid",
+                    },
+                )
 
     @staticmethod
     def _factory_task_error(task: dict[str, Any]) -> str:
@@ -1424,6 +2081,62 @@ class ProviderGateway:
         if not all(checks.values()):
             return "", None, "factory_evidence_invalid"
         output_sha = hashlib.sha256(response_text.encode("utf-8")).hexdigest()
+        native_search = result.get("native_web_search_evidence")
+        native_tool_calls: list[dict[str, Any]] = []
+        safe_native_search: dict[str, Any] | None = None
+        if native_search is not None:
+            if not isinstance(native_search, dict) or runner != "codex":
+                return "", None, "factory_native_web_search_evidence_invalid"
+            query_hashes = native_search.get("query_sha256")
+            try:
+                event_count = int(native_search.get("event_count"))
+                completed_count = int(native_search.get("completed_event_count"))
+                query_count = int(native_search.get("query_count"))
+                fencing_token = int(task.get("fencing_token"))
+            except (TypeError, ValueError):
+                return "", None, "factory_native_web_search_evidence_invalid"
+            binding_payload = {
+                "schema_version": "kolibri.native-web-search-evidence.v1",
+                "task_id": str(task.get("task_id") or ""),
+                "attempt_id": attempt_id,
+                "fencing_token": fencing_token,
+                "response_sha256": output_sha,
+                "evidence_sha256": str(native_search.get("evidence_sha256") or ""),
+            }
+            expected_binding = hashlib.sha256(
+                _stable_json(binding_payload).encode("utf-8")
+            ).hexdigest()
+            if not (
+                native_search.get("schema_version") == "kolibri.native-web-search-evidence.v1"
+                and native_search.get("tool") == "web_search"
+                and 1 <= completed_count <= event_count <= 12
+                and 1 <= query_count <= 3
+                and isinstance(query_hashes, list)
+                and len(query_hashes) == query_count
+                and len(set(query_hashes)) == query_count
+                and all(isinstance(value, str) and SHA256_PATTERN.fullmatch(value.lower()) for value in query_hashes)
+                and native_search.get("response_sha256") == output_sha
+                and SHA256_PATTERN.fullmatch(str(native_search.get("evidence_sha256") or "").lower())
+                and native_search.get("binding_sha256") == expected_binding
+            ):
+                return "", None, "factory_native_web_search_evidence_invalid"
+            call_id = f"factory_web_{expected_binding[:24]}"
+            safe_native_search = {
+                key: native_search[key]
+                for key in (
+                    "schema_version", "tool", "event_count", "completed_event_count",
+                    "query_count", "query_sha256", "evidence_sha256", "response_sha256",
+                    "binding_sha256",
+                )
+            }
+            native_tool_calls.append({
+                "call_id": call_id,
+                "tool": "web_search",
+                "capability_id": "tool:web_search",
+                "status": "succeeded",
+                "event_type": "web_search",
+                "evidence_binding_sha256": expected_binding,
+            })
         evidence = {
             "type": "provider_execution",
             "provider": "factory",
@@ -1444,6 +2157,8 @@ class ProviderGateway:
             "output_sha256": output_sha,
             "output_bytes": len(response_text.encode("utf-8")),
             "completion_signal": "fenced_non_empty_assistant_output",
+            **({"native_web_search_evidence": safe_native_search} if safe_native_search else {}),
+            **({"tool_calls": native_tool_calls} if native_tool_calls else {}),
         }
         return response_text, evidence, None
 
@@ -1455,6 +2170,8 @@ class ProviderGateway:
         runner: str,
         node_id: str,
         timeout_budget: float,
+        event_callback: Any = None,
+        cancel_event: threading.Event | None = None,
     ) -> tuple[str, dict[str, Any] | None, str | None, dict[str, Any]]:
         digest = hashlib.sha256(
             f"{response_id}\0{runner}\0{node_id}\0{prompt}".encode("utf-8")
@@ -1493,10 +2210,18 @@ class ProviderGateway:
             "write_scope": [],
             "constraints": {
                 "read_only": True,
-                "max_wall_seconds": max(1, int(task_timeout)),
+                # Agent Host still has a hard safety fence, but interactive
+                # response liveness is governed by the shorter progress/
+                # heartbeat watchdog above rather than this whole-task wall.
+                "max_wall_seconds": int(self._bounded_factory_setting(
+                    "KOLIBRI_FACTORY_PROVIDER_MAX_WALL_SECONDS",
+                    86_400.0,
+                    60.0,
+                    86_400.0,
+                )),
                 "network": "provider_managed_only",
             },
-            "max_retries": 0,
+            "max_attempts": 1,
             "fallback_allowed": False,
             "source": {
                 "kind": "kolibri_provider_gateway",
@@ -1508,6 +2233,7 @@ class ProviderGateway:
         task, error_type = self._factory_request(
             "POST", "/v1/tasks", payload=envelope, timeout=min(task_timeout, 10.0),
         )
+        _emit_stream_event(event_callback, {"type": "status", "stage": "queued"})
         route_record = {
             "node_ref": _factory_node_ref(node_id),
             "runner": runner,
@@ -1521,10 +2247,82 @@ class ProviderGateway:
         if returned_task_id != task_id:
             route_record.update({"status": "failed", "error_type": "factory_evidence_invalid"})
             return "", None, "factory_evidence_invalid", route_record
-        deadline = time.monotonic() + task_timeout
+        lease_start_timeout = self._bounded_factory_setting(
+            "KOLIBRI_FACTORY_LEASE_START_TIMEOUT", 2.0, 0.05, 15.0,
+        )
+        lease_start_deadline = time.monotonic() + lease_start_timeout
         current = task
+        last_public_state = ""
+        last_heartbeat_at = 0.0
+        last_progress_at = time.monotonic()
+        last_progress_token: tuple[str, ...] | None = None
+        last_reasoning_progress_sequence = 0
         while True:
             state = str(current.get("state") or "").lower()
+            progress_token = tuple(str(current.get(key) or "") for key in (
+                "state", "attempt_id", "heartbeat_at", "lease_until",
+                "updated_at", "completed_at", "error_type",
+            ))
+            public_state = (
+                "verifying" if state in {"review", "verifying"}
+                else "running" if state in {"leased", "running"}
+                else "queued"
+            )
+            now_monotonic = time.monotonic()
+            if progress_token != last_progress_token:
+                last_progress_token = progress_token
+                last_progress_at = now_monotonic
+            progress = current.get("progress")
+            if (
+                isinstance(progress, dict)
+                and progress.get("schema_version") == "kolibri.public-progress.v1"
+                and progress.get("type") == "reasoning_summary_delta"
+                and type(progress.get("sequence")) is int
+                and progress["sequence"] > last_reasoning_progress_sequence
+                and isinstance(progress.get("delta"), str)
+                and progress["delta"]
+            ):
+                last_reasoning_progress_sequence = progress["sequence"]
+                last_progress_at = now_monotonic
+                _emit_stream_event(event_callback, {
+                    "type": "reasoning_summary_delta",
+                    "delta": progress["delta"],
+                })
+            if public_state != last_public_state or now_monotonic - last_heartbeat_at >= 5.0:
+                _emit_stream_event(
+                    event_callback,
+                    {"type": "status", "stage": public_state},
+                )
+                last_public_state = public_state
+                last_heartbeat_at = now_monotonic
+            if (
+                state not in FACTORY_TERMINAL_STATES
+                and state not in {"leased", "running", "review", "verifying"}
+                and now_monotonic >= lease_start_deadline
+            ):
+                # A fresh node card is only admission evidence. If no Agent
+                # Host actually leases this interactive task, waiting for the
+                # full lease expiry would tax every later provider route.
+                self._factory_request(
+                    "POST",
+                    f"/v1/tasks/{quote(task_id, safe='')}/cancel",
+                    payload={"reason": "factory_provider_lease_timeout"},
+                    timeout=min(1.0, float(self.timeout)),
+                )
+                route_record.update({
+                    "status": "failed",
+                    "error_type": "factory_lease_unavailable",
+                })
+                return "", None, "factory_lease_unavailable", route_record
+            if cancel_event is not None and cancel_event.is_set():
+                self._factory_request(
+                    "POST",
+                    f"/v1/tasks/{quote(task_id, safe='')}/cancel",
+                    payload={"reason": "response_cancelled"},
+                    timeout=min(1.0, float(self.timeout)),
+                )
+                route_record.update({"status": "failed", "error_type": "provider_cancelled"})
+                return "", None, "provider_cancelled", route_record
             if state in FACTORY_TERMINAL_STATES:
                 if state == "completed":
                     text, evidence, verification_error = self._verify_factory_task(
@@ -1545,7 +2343,7 @@ class ProviderGateway:
                     "attempt_id": _safe_token(current.get("attempt_id")),
                 })
                 return "", None, failure, route_record
-            remaining = deadline - time.monotonic()
+            remaining = task_timeout - (time.monotonic() - last_progress_at)
             if remaining <= 0:
                 self._factory_request(
                     "POST",
@@ -1573,6 +2371,8 @@ class ProviderGateway:
         response_id: str,
         *,
         timeout_budget: float | None = None,
+        event_callback: Any = None,
+        cancel_event: threading.Event | None = None,
     ) -> FactoryCompletion:
         budget_started = time.monotonic()
         budget_limit = float(self.timeout)
@@ -1610,21 +2410,20 @@ class ProviderGateway:
             )
         except ValueError:
             route_timeout = task_timeout_limit
-        deadline = time.monotonic() + route_timeout
         route_attempts: list[dict[str, Any]] = []
         last_error = "factory_no_fresh_capable_worker"
         for candidate in candidates:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                last_error = "provider_timeout"
-                break
+            if cancel_event is not None and cancel_event.is_set():
+                return FactoryCompletion("", "provider_cancelled", runner, None, tuple(route_attempts))
             candidate_started = time.monotonic()
             text, evidence, error_type, route_record = self._run_factory_candidate(
                 prompt=prompt,
                 response_id=response_id,
                 runner=runner,
                 node_id=str(candidate["node_id"]),
-                timeout_budget=remaining,
+                timeout_budget=route_timeout,
+                event_callback=event_callback,
+                cancel_event=cancel_event,
             )
             self._record_factory_candidate_health(
                 runner=runner,
@@ -1798,6 +2597,7 @@ class ProviderGateway:
     def _command(
         self, provider: str, binary: str, response_id: str,
         work_dir: Path, provider_model: str | None = None,
+        requested_tools: list[dict[str, Any]] | None = None,
     ) -> tuple[list[str], str]:
         if provider == "mimo":
             provider_model = provider_model or self._route_models(provider)[0]
@@ -1807,12 +2607,19 @@ class ProviderGateway:
             ], provider_model
         if provider == "codex":
             provider_model = provider_model or self._route_models(provider)[0]
-            command = [
-                binary, "exec", "--json", "--ephemeral", "--skip-git-repo-check",
+            native_web_search = any(
+                str(item.get("id") or "") == "tool:web_search"
+                for item in requested_tools or [] if isinstance(item, dict)
+            )
+            command = [binary]
+            if native_web_search:
+                command.append("--search")
+            command.extend([
+                "exec", "--json", "--ephemeral", "--skip-git-repo-check",
                 "--ignore-user-config", "--ignore-rules", "--color", "never",
                 "--sandbox", "read-only", "-C", str(work_dir),
                 "-c", 'shell_environment_policy.inherit="none"',
-            ]
+            ])
             command.extend(["--model", provider_model])
             # A literal '-' makes Codex read the prompt from stdin.  Prompt
             # content must never appear in argv/process listings.
@@ -1828,7 +2635,10 @@ class ProviderGateway:
         requested_tools: list[dict[str, Any]] | None = None,
         planned_skills: list[dict[str, Any]] | None = None,
         execution_mode: str = "fast",
+        reasoning: dict[str, Any] | None = None,
         timeout_seconds: float | None = None,
+        stream_callback: Any = None,
+        cancel_event: threading.Event | None = None,
     ) -> GatewayResult:
         execution_mode = str(execution_mode or "fast").strip().lower()
         if execution_mode not in {"fast", "codex"}:
@@ -1836,6 +2646,10 @@ class ProviderGateway:
                 "attempts": [], "error_type": "execution_mode_invalid", "evidence": [],
                 "skill_routing": skill_routing_evidence(planned_skills or []),
             })
+        # Responses are durable and resumable.  Do not impose an implicit
+        # whole-response wall clock across fallback routes. ``self.timeout``
+        # remains the per-attempt inactivity/lease watchdog; an explicit
+        # caller budget is still accepted for controlled batch workloads.
         request_deadline: float | None = None
         if timeout_seconds is not None:
             try:
@@ -1850,6 +2664,12 @@ class ProviderGateway:
             request_deadline = time.monotonic() + timeout_value
         requested_tools = requested_tools or []
         planned_skills = planned_skills or []
+        reasoning = reasoning or {}
+        if not isinstance(reasoning, dict) or set(reasoning) - {"effort", "summary"}:
+            return GatewayResult("failed", "", {
+                "attempts": [], "error_type": "reasoning_options_invalid", "evidence": [],
+                "skill_routing": skill_routing_evidence(planned_skills),
+            })
         skill_routing = skill_routing_evidence(planned_skills)
         if isinstance(input_value, str):
             user_text = input_value
@@ -1912,6 +2732,18 @@ class ProviderGateway:
             else:
                 provider_order = ()
         for provider in provider_order:
+            if cancel_event is not None and cancel_event.is_set():
+                return GatewayResult("failed", "", {
+                    "selected_provider": None,
+                    "attempts": attempts,
+                    "fallback_used": len(attempts) > 1,
+                    "tool_calls": [],
+                    "tool_event_summary": tool_event_summary([]),
+                    "artifact_refs": [],
+                    "evidence": [],
+                    "error_type": "provider_cancelled",
+                    "skill_routing": skill_routing,
+                })
             if remaining_timeout() <= 0:
                 budget_exhausted = True
                 break
@@ -1945,6 +2777,14 @@ class ProviderGateway:
             provider_models = self._route_models(provider)
             if execution_mode == "codex" and provider == "factory":
                 provider_models = ("codex",) if "codex" in provider_models else ()
+            elif provider == "factory" and any(
+                str(item.get("id") or "") == "tool:web_search"
+                for item in requested_tools if isinstance(item, dict)
+            ):
+                # Mimo response-only policy deliberately rejects native search;
+                # a verified web-search task must go straight to a Codex Agent
+                # Host that can return hash-only fenced search evidence.
+                provider_models = ("codex",) if "codex" in provider_models else ()
             if not provider_models:
                 attempt_number += 1
                 attempts.append({
@@ -1953,19 +2793,57 @@ class ProviderGateway:
                     "route_capability": route_capability_probe("provider_model_configuration_invalid"),
                 })
                 continue
-            for provider_model in provider_models:
+            for model_index, provider_model in enumerate(provider_models):
+                if cancel_event is not None and cancel_event.is_set():
+                    return GatewayResult("failed", "", {
+                        "selected_provider": None,
+                        "attempts": attempts,
+                        "fallback_used": len(attempts) > 1,
+                        "tool_calls": [],
+                        "tool_event_summary": tool_event_summary([]),
+                        "artifact_refs": [],
+                        "evidence": [],
+                        "error_type": "provider_cancelled",
+                        "skill_routing": skill_routing,
+                    })
                 attempt_timeout = min(float(self.timeout), remaining_timeout())
+                if (
+                    factory_provider
+                    and execution_mode == "fast"
+                    and model_index < len(provider_models) - 1
+                ):
+                    # Reserve the majority of an interactive request's total
+                    # deadline for a later verified route. A running but stuck
+                    # first runner must not consume the entire request.
+                    attempt_timeout = min(
+                        attempt_timeout,
+                        self._bounded_factory_setting(
+                            "KOLIBRI_FACTORY_FAST_FAILOVER_SECONDS",
+                            8.0,
+                            0.05,
+                            60.0,
+                        ),
+                    )
                 if attempt_timeout <= 0:
                     budget_exhausted = True
                     break
                 attempt_number += 1
                 started = time.monotonic()
+                _emit_stream_event(
+                    stream_callback,
+                    {
+                        "type": "status",
+                        "stage": "routing" if attempt_number == 1 else "fallback",
+                    },
+                )
                 if factory_provider:
                     completion = self._run_factory_completion(
                         prompt,
                         provider_model,
                         response_id,
                         timeout_budget=attempt_timeout,
+                        event_callback=stream_callback,
+                        cancel_event=cancel_event,
                     )
                     duration_ms = int((time.monotonic() - started) * 1000)
                     identity_error = (
@@ -1979,8 +2857,16 @@ class ProviderGateway:
                         and completion.evidence
                         and identity_error is None
                     ):
+                        factory_tool_calls = (
+                            completion.evidence.get("tool_calls")
+                            if isinstance(completion.evidence.get("tool_calls"), list)
+                            else []
+                        )
                         verifier = deterministic_verifier_evidence(
-                            completion.text, completion.evidence, requested_tools, [],
+                            completion.text,
+                            completion.evidence,
+                            requested_tools,
+                            factory_tool_calls,
                         )
                         evidence = [completion.evidence, verifier]
                         if verifier["verdict"] == "passed":
@@ -1991,7 +2877,7 @@ class ProviderGateway:
                                 "status": "succeeded",
                                 "duration_ms": duration_ms,
                                 "evidence": evidence,
-                                "tool_calls": [],
+                                "tool_calls": factory_tool_calls,
                                 "artifact_refs": [],
                                 "factory_route_attempts": list(completion.route_attempts),
                                 "route_capability": route_capability_probe(succeeded=True),
@@ -2001,8 +2887,8 @@ class ProviderGateway:
                                 "selected_runner": completion.provider_model,
                                 "attempts": attempts,
                                 "fallback_used": attempt_number > 1,
-                                "tool_calls": [],
-                                "tool_event_summary": tool_event_summary([]),
+                                "tool_calls": factory_tool_calls,
+                                "tool_event_summary": tool_event_summary(factory_tool_calls),
                                 "artifact_refs": [],
                                 "verifier_evidence": verifier,
                                 "evidence": evidence,
@@ -2092,6 +2978,7 @@ class ProviderGateway:
                         attempt_dir.chmod(0o700)
                         command, provider_model = self._command(
                             provider, str(binary), response_id, attempt_dir, provider_model,
+                            requested_tools,
                         )
                         runner_environment = safe_runner_environment()
                         runner_environment["TMPDIR"] = str(attempt_dir)
@@ -2106,21 +2993,19 @@ class ProviderGateway:
                             start_new_session=True,
                         )
                         try:
-                            stdout, stderr = process.communicate(
-                                input=prompt,
+                            stdout, stderr = _communicate_jsonl_stream(
+                                process,
+                                prompt=prompt,
                                 timeout=attempt_timeout,
+                                event_callback=stream_callback,
+                                cancel_event=cancel_event,
                             )
                         except subprocess.TimeoutExpired as exc:
-                            try:
-                                os.killpg(process.pid, signal.SIGKILL)
-                            except (ProcessLookupError, PermissionError):
-                                process.kill()
-                            stdout, stderr = process.communicate()
+                            _kill_process_group(process)
+                            process.wait(timeout=1)
                             raise subprocess.TimeoutExpired(
                                 command,
                                 attempt_timeout,
-                                output=stdout,
-                                stderr=stderr,
                             ) from exc
                         completed = subprocess.CompletedProcess(
                             command,
@@ -2156,7 +3041,11 @@ class ProviderGateway:
                             "completion_signal": "non_empty_assistant_output",
                         }
                         verifier = deterministic_verifier_evidence(
-                            text, provider_evidence, requested_tools, tool_calls,
+                            text,
+                            provider_evidence,
+                            requested_tools,
+                            tool_calls,
+                            artifact_refs=artifact_refs,
                         )
                         if verifier["verdict"] == "passed":
                             evidence = [provider_evidence, verifier]
@@ -2196,6 +3085,38 @@ class ProviderGateway:
                         "exit_code": completed.returncode,
                         "tool_calls": tool_calls, "artifact_refs": artifact_refs,
                         "route_capability": route_capability_probe(error_type),
+                    })
+                except ProviderExecutionCancelled:
+                    _kill_process_group(process)
+                    try:
+                        process.wait(timeout=1)
+                    except subprocess.TimeoutExpired:
+                        pass
+                    return GatewayResult("failed", "", {
+                        "selected_provider": None,
+                        "attempts": attempts,
+                        "fallback_used": len(attempts) > 1,
+                        "tool_calls": [],
+                        "tool_event_summary": tool_event_summary([]),
+                        "artifact_refs": [],
+                        "evidence": [],
+                        "error_type": "provider_cancelled",
+                        "skill_routing": skill_routing,
+                    })
+                except ProviderOutputTooLarge:
+                    _kill_process_group(process)
+                    try:
+                        process.wait(timeout=1)
+                    except subprocess.TimeoutExpired:
+                        pass
+                    attempts.append({
+                        "attempt": attempt_number,
+                        "provider": provider,
+                        "provider_model": provider_model,
+                        "status": "failed",
+                        "error_type": "provider_output_too_large",
+                        "duration_ms": int((time.monotonic() - started) * 1000),
+                        "route_capability": route_capability_probe("provider_output_too_large"),
                     })
                 except subprocess.TimeoutExpired:
                     attempts.append({

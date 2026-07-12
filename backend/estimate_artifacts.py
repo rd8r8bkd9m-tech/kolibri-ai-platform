@@ -44,6 +44,7 @@ from reportlab.platypus import (
 
 from artifact_runtime import EstimateSpec, deterministic_estimate
 from data_paths import DATA_DIR, DB_PATH
+from sqlite_lifecycle import closing_sqlite_transaction
 
 
 ARTIFACT_SCHEMA = "kolibri.estimate-artifact.v1"
@@ -93,6 +94,18 @@ def _sha(value: bytes | str) -> str:
 
 def _opaque_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex}"
+
+
+def _estimate_pdf_name(title: Any, version: int) -> str:
+    """Return a readable, filesystem-neutral filename for public estimate PDFs."""
+
+    clean_title = re.sub(r'[\x00-\x1f\x7f<>:"/\\|?*]+', " ", str(title or "")).strip()
+    clean_title = re.sub(r"\s+", " ", clean_title).strip(" .—-")[:120]
+    if not clean_title:
+        clean_title = "Смета"
+    elif not clean_title.casefold().startswith("смет"):
+        clean_title = f"Смета — {clean_title}"
+    return f"{clean_title} — версия {version}.pdf"
 
 
 def _font_pair() -> tuple[str, str]:
@@ -623,7 +636,7 @@ class EstimateArtifactStore:
 
     def _init_schema(self) -> None:
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
-        with self._lock, self.connect() as connection:
+        with self._lock, closing_sqlite_transaction(self.connect) as connection:
             connection.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS public_estimates (
@@ -732,13 +745,18 @@ class EstimateArtifactStore:
                     path.unlink(missing_ok=True)
 
     @staticmethod
-    def _artifact_public(row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
+    def _artifact_public(
+        row: sqlite3.Row | dict[str, Any],
+        *,
+        estimate_title: Any = None,
+    ) -> dict[str, Any]:
         get = row.__getitem__
+        version = int(get("estimate_version"))
         return {
             "id": get("artifact_id"),
             "schema_version": ARTIFACT_SCHEMA,
             "kind": "pdf",
-            "name": f"estimate-v{get('estimate_version')}.pdf",
+            "name": _estimate_pdf_name(estimate_title, version),
             "locator": f"/v1/public/estimate-artifacts/{get('artifact_id')}/content",
             "media_type": get("media_type"),
             "reference_sha256": get("reference_sha256"),
@@ -749,7 +767,7 @@ class EstimateArtifactStore:
             "status": "materialized",
             "immutable": True,
             "estimate_id": get("estimate_id"),
-            "estimate_version": int(get("estimate_version")),
+            "estimate_version": version,
         }
 
     @staticmethod
@@ -759,7 +777,7 @@ class EstimateArtifactStore:
             "id": get("artifact_id"),
             "schema_version": READINESS_ARTIFACT_SCHEMA,
             "kind": "pdf",
-            "name": "estimate-input-checklist.pdf",
+            "name": "Смета — чек-лист исходных данных.pdf",
             "locator": f"/v1/public/estimate-artifacts/{get('artifact_id')}/content",
             "media_type": get("media_type"),
             "reference_sha256": get("reference_sha256"),
@@ -779,6 +797,7 @@ class EstimateArtifactStore:
         version_row: sqlite3.Row,
         artifact_row: sqlite3.Row | None,
     ) -> dict[str, Any]:
+        spec = json.loads(version_row["spec_json"])
         return {
             "schema_version": ESTIMATE_SCHEMA,
             "id": version_row["estimate_id"],
@@ -787,11 +806,13 @@ class EstimateArtifactStore:
             "project_id": version_row["project_id"],
             "response_id": version_row["response_id"],
             "state": "saved",
-            "spec": json.loads(version_row["spec_json"]),
+            "spec": spec,
             "calculation": json.loads(version_row["calculation_json"]),
             "spec_sha256": version_row["spec_sha256"],
             "calculation_sha256": version_row["calculation_sha256"],
-            "artifacts": [self._artifact_public(artifact_row)] if artifact_row else [],
+            "artifacts": [
+                self._artifact_public(artifact_row, estimate_title=spec.get("title"))
+            ] if artifact_row else [],
             "created_at": float(version_row["created_at"]),
         }
 
@@ -818,7 +839,7 @@ class EstimateArtifactStore:
         if not _SHA256.fullmatch(calculation_sha):
             raise EstimateArtifactError("estimate_calculation_hash_invalid")
 
-        with self._lock, self.connect() as connection:
+        with self._lock, closing_sqlite_transaction(self.connect) as connection:
             connection.execute("BEGIN IMMEDIATE")
             self._cleanup(connection, now)
             existing_version = connection.execute(
@@ -970,7 +991,7 @@ class EstimateArtifactStore:
 
         now = time.time()
         expires_at = float(session["expires_at"])
-        with self._lock, self.connect() as connection:
+        with self._lock, closing_sqlite_transaction(self.connect) as connection:
             connection.execute("BEGIN IMMEDIATE")
             self._cleanup(connection, now)
             existing = connection.execute(
@@ -1044,7 +1065,7 @@ class EstimateArtifactStore:
 
     def get_estimate(self, session_id: str, estimate_id: str) -> dict[str, Any] | None:
         now = time.time()
-        with self._lock, self.connect() as connection:
+        with self._lock, closing_sqlite_transaction(self.connect) as connection:
             self._cleanup(connection, now)
             estimate = connection.execute(
                 """SELECT * FROM public_estimates
@@ -1066,7 +1087,7 @@ class EstimateArtifactStore:
 
     def list_versions(self, session_id: str, estimate_id: str) -> list[dict[str, Any]] | None:
         now = time.time()
-        with self._lock, self.connect() as connection:
+        with self._lock, closing_sqlite_transaction(self.connect) as connection:
             self._cleanup(connection, now)
             owner = connection.execute(
                 "SELECT 1 FROM public_estimates WHERE estimate_id = ? AND session_id = ?",
@@ -1090,7 +1111,7 @@ class EstimateArtifactStore:
 
     def artifact_content(self, session_id: str, artifact_id: str) -> tuple[dict[str, Any], bytes] | None:
         now = time.time()
-        with self._lock, self.connect() as connection:
+        with self._lock, closing_sqlite_transaction(self.connect) as connection:
             self._cleanup(connection, now)
             row = connection.execute(
                 """SELECT * FROM public_estimate_artifacts
@@ -1098,6 +1119,14 @@ class EstimateArtifactStore:
                 (artifact_id, session_id, now),
             ).fetchone()
             readiness_row = None
+            estimate_title = None
+            if row is not None:
+                version_row = connection.execute(
+                    "SELECT spec_json FROM public_estimate_versions WHERE version_id = ?",
+                    (row["version_id"],),
+                ).fetchone()
+                if version_row is not None:
+                    estimate_title = json.loads(version_row["spec_json"]).get("title")
             if row is None:
                 readiness_row = connection.execute(
                     """SELECT * FROM public_estimate_readiness_artifacts
@@ -1114,7 +1143,7 @@ class EstimateArtifactStore:
         if len(content) != int(selected["size_bytes"]) or _sha(content) != selected["content_sha256"]:
             raise EstimateArtifactError("estimate_artifact_integrity_failed")
         artifact = (
-            self._artifact_public(row)
+            self._artifact_public(row, estimate_title=estimate_title)
             if row is not None
             else self._readiness_artifact_public(readiness_row)
         )

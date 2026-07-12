@@ -1,20 +1,22 @@
 import { useCallback } from "react";
-import { buildDeterministicEstimateTask, sendKolibriRequest } from "../runtime/kolibriApi";
+import { buildDeterministicEstimateTask, publicErrorMessage, sendKolibriRequest } from "../runtime/kolibriApi";
 import { recordEstimateRevisionFeedback } from "./estimateFeedback";
 import { mergeArtifacts, projectMessage } from "./projectModel";
-
+import { estimateArtifactDisplayName, estimateTitleFromPayload } from "../estimate/estimateTitle";
 function patchCanvas(canvases, canvasId, patch) {
   return (canvases || []).map((canvas) => canvas.id === canvasId ? { ...canvas, ...patch } : canvas);
 }
 
-export function useEstimateRuntime({ setProjectBusy, updateProject }) {
+export function useEstimateRuntime({ beginProjectRequest, endProjectRequest, ensureProjectRemote, syncProjectMessage, updateProject }) {
   return useCallback(async (projectId, canvasId, spec, executionMode = "fast") => {
+    const pendingTitle = estimateTitleFromPayload(spec);
     updateProject(projectId, (current) => ({
       ...current,
-      canvases: patchCanvas(current.canvases, canvasId, { title: spec.title, status: "running", error: "" }),
+      canvases: patchCanvas(current.canvases, canvasId, { title: pendingTitle, status: "running", error: "" }),
     }));
-    setProjectBusy(projectId, true);
+    const request = beginProjectRequest(projectId);
     try {
+      const remoteProjectId = await ensureProjectRemote(projectId, request.signal);
       const task = buildDeterministicEstimateTask({
         title: spec.title,
         currency: spec.currency,
@@ -35,28 +37,35 @@ export function useEstimateRuntime({ setProjectBusy, updateProject }) {
       const response = await sendKolibriRequest({
         text: `Обнови и проверь смету «${spec.title}».`,
         task,
+        projectId: remoteProjectId,
         workstreamId: projectId,
         executionMode,
+        signal: request.signal,
         metadata: spec.estimate_id ? {
           estimate_id: spec.estimate_id,
           estimate_base_version: spec.estimate_base_version,
         } : {},
       });
+      const verifiedText = String(response.text || "").trim();
+      if (!verifiedText) throw new Error("Проверенный текст сметы не получен.");
       const status = response.task?.status || "failed";
       const estimate = response.task?.result?.estimate;
       const readiness = response.task?.result?.type === "estimate_readiness" ? response.task.result.readiness : null;
+      const displayTitle = estimateTitleFromPayload({ task: response.task, metadata: { region: spec.region }, object_name: spec.object_name });
+      const displayArtifacts = (response.artifacts || []).map((artifact) => ({ ...artifact, display_name: estimateArtifactDisplayName(artifact, displayTitle) }));
       await recordEstimateRevisionFeedback(spec, response.task);
+      const resultMessage = projectMessage("assistant", verifiedText, status, { canvasId, responseId: response.taskId, updatedAt: new Date().toISOString() });
       updateProject(projectId, (current) => ({
         ...current,
         canvases: (current.canvases || []).map((canvas) => canvas.id === canvasId ? {
           ...canvas,
           ...(readiness ? { readiness } : (estimate || spec)),
-          title: estimate?.title || readiness?.title || spec.title,
+          title: displayTitle,
           status,
           task: response.task,
           text: response.text,
           endpoint: response.endpoint,
-          artifacts: response.artifacts,
+          artifacts: displayArtifacts,
           persistence: readiness ? null : response.task?.persistence || canvas.persistence || null,
           metadata: {
             region: estimate?.region || readiness?.known_facts?.region || spec.region || "Не указан",
@@ -64,19 +73,17 @@ export function useEstimateRuntime({ setProjectBusy, updateProject }) {
           },
           version: response.task?.persistence?.version || canvas.version || 1,
         } : canvas),
-        messages: [...current.messages, projectMessage("assistant", response.text || `Смета «${spec.title}» рассчитана.`, status, { canvasId })],
-        artifacts: mergeArtifacts(current.artifacts, response.artifacts),
+        messages: [...current.messages, resultMessage],
+        artifacts: mergeArtifacts(current.artifacts, displayArtifacts),
       }));
+      await syncProjectMessage(projectId, resultMessage, { responseId: response.taskId, signal: request.signal }).catch(() => null);
     } catch (error) {
       updateProject(projectId, (current) => ({
         ...current,
-        canvases: patchCanvas(current.canvases, canvasId, {
-          status: "failed",
-          error: error?.message || "Не удалось рассчитать смету",
-        }),
+        canvases: patchCanvas(current.canvases, canvasId, { status: "failed", error: publicErrorMessage(error) }),
       }));
     } finally {
-      setProjectBusy(projectId, false);
+      endProjectRequest(projectId, request.token);
     }
-  }, [setProjectBusy, updateProject]);
+  }, [beginProjectRequest, endProjectRequest, ensureProjectRemote, syncProjectMessage, updateProject]);
 }

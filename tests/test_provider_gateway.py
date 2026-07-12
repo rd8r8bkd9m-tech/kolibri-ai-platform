@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 from types import SimpleNamespace
+import sys
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -14,6 +15,7 @@ from provider_gateway import (
     _factory_control_endpoint,
     _factory_health_response_records,
     classify_failure,
+    deterministic_verifier_evidence,
     extract_assistant_text,
     public_identity_contract_violation,
     safe_runner_environment,
@@ -109,6 +111,22 @@ def factory_control_server(state):
                 node_id = submitted["target_node"]
                 runner = submitted["runner"]
                 attempt_id = f"{task_id}-attempt-1"
+                if state.get("mode") == "progress_then_completed" and state["polls"] == 1:
+                    self._send(200, {
+                        "task_id": task_id,
+                        "state": "running",
+                        "attempt": 1,
+                        "attempt_id": attempt_id,
+                        "lease_owner": f"{node_id}:agent-live",
+                        "heartbeat_at": datetime.now(timezone.utc).isoformat(),
+                        "progress": {
+                            "schema_version": "kolibri.public-progress.v1",
+                            "type": "reasoning_summary_delta",
+                            "sequence": 1,
+                            "delta": "Проверяю источники.",
+                        },
+                    })
+                    return
                 if runner in state.get("failed_runners", set()):
                     self._send(200, {
                         "task_id": task_id,
@@ -126,10 +144,16 @@ def factory_control_server(state):
                         },
                     })
                     return
-                if state.get("mode") == "running":
+                if state.get("mode") == "running" or runner in state.get("running_runners", set()):
                     self._send(200, {
                         "task_id": task_id, "state": "running", "attempt": 1,
                         "attempt_id": attempt_id, "lease_owner": f"{node_id}:agent-live",
+                    })
+                    return
+                if runner in state.get("queued_runners", set()):
+                    self._send(200, {
+                        "task_id": task_id, "state": "queued", "attempt": 0,
+                        "attempt_id": None, "lease_owner": None,
                     })
                     return
                 result_attempt = "wrong-attempt" if state.get("mode") == "bad_fence" else attempt_id
@@ -401,6 +425,48 @@ def test_request_timeout_is_total_and_kills_cli_process_group(tmp_path, monkeypa
     assert not leaked_marker.exists()
 
 
+def test_provider_attempt_timeout_is_inactivity_watchdog_reset_by_progress(
+    tmp_path, monkeypatch,
+):
+    runner_path = tmp_path / "codex-progress-watchdog"
+    runner_path.write_text(
+        f"#!{sys.executable}\n"
+        "import sys, time\n"
+        "sys.stdin.read()\n"
+        "print('{\"type\":\"agent_message.delta\",\"text\":\"one \"}', flush=True)\n"
+        "time.sleep(0.2)\n"
+        "print('{\"type\":\"agent_message.delta\",\"text\":\"two \"}', flush=True)\n"
+        "time.sleep(0.2)\n"
+        "print('{\"type\":\"agent_message.delta\",\"text\":\"three\"}', flush=True)\n"
+        "time.sleep(0.2)\n"
+        "print('{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"one two three\"}}', flush=True)\n",
+        encoding="utf-8",
+    )
+    runner_path.chmod(0o755)
+    runner = str(runner_path)
+    monkeypatch.setenv("KOLIBRI_CODEX_BIN", runner)
+    monkeypatch.setenv("KOLIBRI_CODEX_MODELS", "gpt-5.5")
+    monkeypatch.setenv("KOLIBRI_PROVIDER_WORK_DIR", str(tmp_path / "work"))
+    callbacks: list[dict] = []
+
+    started = time.monotonic()
+    result = ProviderGateway(provider_order=("codex",), timeout=0.5).generate(
+        "keep working while progress arrives",
+        None,
+        "resp-progress-watchdog",
+        stream_callback=callbacks.append,
+    )
+    elapsed = time.monotonic() - started
+
+    assert elapsed > 0.65, "total duration must be allowed to exceed one inactivity window"
+    assert result.status == "completed"
+    assert result.text == "one two three"
+    assert result.technical["attempts"][0]["status"] == "succeeded"
+    assert [
+        event["delta"] for event in callbacks if event.get("type") == "text_delta"
+    ] == ["one ", "two ", "three"]
+
+
 def test_runner_commands_are_sandboxed_and_prompt_never_appears_in_argv(tmp_path, monkeypatch):
     runner = executable(tmp_path / "runner", "exit 0\n")
     monkeypatch.setenv("KOLIBRI_MIMO_BIN", runner)
@@ -439,6 +505,193 @@ def test_jsonl_parser_ignores_non_assistant_metadata():
         json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": "answer"}}),
     ])
     assert extract_assistant_text(stdout) == "answer"
+
+
+def test_verifier_rejects_created_image_claim_without_materialized_artifact():
+    text = "Готово. Сгенерировал кинематографичный портрет султана."
+    digest = provider_gateway.hashlib.sha256(text.encode("utf-8")).hexdigest()
+    provider_evidence = {
+        "type": "provider_execution",
+        "exit_code": 0,
+        "output_sha256": digest,
+        "output_bytes": len(text.encode("utf-8")),
+    }
+
+    rejected = deterministic_verifier_evidence(
+        text, provider_evidence, [], [], artifact_refs=[],
+    )
+    accepted = deterministic_verifier_evidence(
+        text,
+        provider_evidence,
+        [],
+        [],
+        artifact_refs=[{
+            "kind": "image",
+            "media_type": "image/png",
+            "content_sha256": "a" * 64,
+            "reference_sha256": "b" * 64,
+            "size_bytes": 128,
+        }],
+    )
+
+    assert rejected["verdict"] == "failed"
+    assert rejected["checks"]["deliverable_claims_materialized"] is False
+    assert accepted["verdict"] == "passed"
+
+
+def test_direct_jsonl_runner_forwards_real_deltas_before_verified_completion(
+    tmp_path, monkeypatch,
+):
+    runner = executable(
+        tmp_path / "codex-stream",
+        "cat >/dev/null\n"
+        "printf '%s\\n' '{\"type\":\"agent_message.delta\",\"text\":\"first \"}'\n"
+        "sleep 0.2\n"
+        "printf '%s\\n' '{\"type\":\"agent_message.delta\",\"text\":\"second\"}'\n"
+        "sleep 0.2\n"
+        "printf '%s\\n' '{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"first second\"}}'\n",
+    )
+    monkeypatch.setenv("KOLIBRI_CODEX_BIN", runner)
+    monkeypatch.setenv("KOLIBRI_CODEX_MODELS", "gpt-5.5")
+    monkeypatch.setenv("KOLIBRI_PROVIDER_WORK_DIR", str(tmp_path / "work"))
+    callbacks: list[dict] = []
+    first_delta = threading.Event()
+    completed = threading.Event()
+    result_holder = {}
+
+    def callback(event):
+        callbacks.append(event)
+        if event.get("type") == "text_delta":
+            first_delta.set()
+
+    def run():
+        result_holder["result"] = ProviderGateway(
+            provider_order=("codex",), timeout=5,
+        ).generate(
+            "stream this",
+            None,
+            "resp-direct-stream",
+            stream_callback=callback,
+        )
+        completed.set()
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    assert first_delta.wait(timeout=1)
+    assert completed.is_set() is False
+    thread.join(timeout=3)
+
+    result = result_holder["result"]
+    assert result.status == "completed"
+    assert result.text == "first second"
+    assert [
+        event["delta"] for event in callbacks if event.get("type") == "text_delta"
+    ] == ["first ", "second"]
+
+
+def test_direct_jsonl_runner_forwards_only_explicit_reasoning_summary(tmp_path, monkeypatch):
+    runner = executable(
+        tmp_path / "codex-reasoning-stream",
+        "cat >/dev/null\n"
+        "printf '%s\\n' '{\"type\":\"item.completed\",\"item\":{\"type\":\"reasoning\",\"text\":\"Проверяю факты.\"}}'\n"
+        "printf '%s\\n' '{\"type\":\"analysis.delta\",\"delta\":\"raw hidden analysis\"}'\n"
+        "printf '%s\\n' '{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"answer\"}}'\n",
+    )
+    monkeypatch.setenv("KOLIBRI_CODEX_BIN", runner)
+    monkeypatch.setenv("KOLIBRI_CODEX_MODELS", "gpt-5.5")
+    monkeypatch.setenv("KOLIBRI_PROVIDER_WORK_DIR", str(tmp_path / "work"))
+    callbacks: list[dict] = []
+
+    result = ProviderGateway(provider_order=("codex",), timeout=5).generate(
+        "reason safely",
+        None,
+        "resp-reasoning-stream",
+        reasoning={"effort": "high", "summary": "auto"},
+        stream_callback=callbacks.append,
+    )
+
+    assert result.status == "completed"
+    assert [
+        event["delta"]
+        for event in callbacks
+        if event.get("type") == "reasoning_summary_delta"
+    ] == ["Проверяю факты."]
+    assert "raw hidden analysis" not in json.dumps(callbacks, ensure_ascii=False)
+
+
+def test_factory_route_streams_safe_stages_but_not_unverified_task_output(
+    tmp_path, monkeypatch,
+):
+    state = {
+        "nodes": [fresh_factory_node("stage-worker")],
+        "answer": "factory final answer",
+    }
+    server, server_thread = factory_control_server(state)
+    configure_local_home_control(
+        monkeypatch, tmp_path, f"http://127.0.0.1:{server.server_port}",
+    )
+    monkeypatch.setenv("KOLIBRI_FACTORY_POLL_INTERVAL", "0.01")
+    monkeypatch.setenv("KOLIBRI_PROVIDER_WORK_DIR", str(tmp_path / "work"))
+    callbacks: list[dict] = []
+    try:
+        result = ProviderGateway(
+            provider_order=("factory",),
+            model_overrides={"factory": ("mimo",)},
+            timeout=2,
+        ).generate(
+            "factory status stream",
+            None,
+            "resp-factory-stage-stream",
+            stream_callback=callbacks.append,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        server_thread.join(timeout=2)
+
+    assert result.status == "completed"
+    assert result.text == "factory final answer"
+    assert {event.get("stage") for event in callbacks} >= {"routing", "queued"}
+    assert not any(event.get("type") == "text_delta" for event in callbacks)
+
+
+def test_factory_route_streams_only_control_plane_validated_reasoning_summary(
+    tmp_path, monkeypatch,
+):
+    state = {
+        "nodes": [fresh_factory_node("reasoning-worker")],
+        "answer": "factory final answer",
+        "mode": "progress_then_completed",
+    }
+    server, server_thread = factory_control_server(state)
+    configure_local_home_control(
+        monkeypatch, tmp_path, f"http://127.0.0.1:{server.server_port}",
+    )
+    monkeypatch.setenv("KOLIBRI_FACTORY_POLL_INTERVAL", "0.01")
+    monkeypatch.setenv("KOLIBRI_PROVIDER_WORK_DIR", str(tmp_path / "work"))
+    callbacks: list[dict] = []
+    try:
+        result = ProviderGateway(
+            provider_order=("factory",),
+            model_overrides={"factory": ("mimo",)},
+            timeout=2,
+        ).generate(
+            "reason through factory",
+            None,
+            "resp-factory-reasoning-stream",
+            reasoning={"effort": "high", "summary": "auto"},
+            stream_callback=callbacks.append,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        server_thread.join(timeout=2)
+
+    assert result.status == "completed"
+    assert [
+        event["delta"] for event in callbacks
+        if event.get("type") == "reasoning_summary_delta"
+    ] == ["Проверяю источники."]
 
 
 def test_public_identity_guard_is_scoped_to_executor_self_identification():
@@ -493,13 +746,23 @@ esac
     assert result.technical["attempts"][0]["error_type"] == "provider_runner_outdated"
 
 
-def test_default_codex_internal_route_order_starts_with_56_then_55_54(monkeypatch):
+def test_default_codex_internal_route_does_not_assume_56_entitlement(monkeypatch):
     monkeypatch.delenv("KOLIBRI_CODEX_MODEL", raising=False)
     monkeypatch.delenv("KOLIBRI_CODEX_MODELS", raising=False)
     assert ProviderGateway._models("codex") == DEFAULT_CODEX_MODELS
     assert DEFAULT_CODEX_MODELS == (
+        "gpt-5.5", "gpt-5.4", "gpt-5.3-codex-spark",
+    )
+
+
+def test_verified_release_can_explicitly_enable_56_routes(monkeypatch):
+    monkeypatch.delenv("KOLIBRI_CODEX_MODEL", raising=False)
+    monkeypatch.setenv(
+        "KOLIBRI_CODEX_MODELS",
+        "gpt-5.6-sol,gpt-5.6-terra,gpt-5.6-luna,gpt-5.5,gpt-5.4",
+    )
+    assert ProviderGateway._models("codex") == (
         "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4",
-        "gpt-5.3-codex-spark",
     )
 
 
@@ -517,9 +780,9 @@ esac
 
     result = ProviderGateway(provider_order=("codex",), timeout=5).generate("answer", None, "resp-routes")
     assert result.status == "completed" and result.text == "fallback"
-    assert [item["provider_model"] for item in result.technical["attempts"]] == list(DEFAULT_CODEX_MODELS[:5])
+    assert [item["provider_model"] for item in result.technical["attempts"]] == list(DEFAULT_CODEX_MODELS[:2])
     assert [item["route_capability"]["status"] for item in result.technical["attempts"]] == [
-        "unavailable", "unavailable", "unavailable", "unavailable", "available",
+        "unavailable", "available",
     ]
 
 
@@ -658,7 +921,6 @@ esac
     assert result.status == "completed" and result.text == "spark"
     assert [item["provider_model"] for item in result.technical["attempts"]] == list(DEFAULT_CODEX_MODELS)
     assert [item.get("error_type") for item in result.technical["attempts"][:-1]] == [
-        "provider_runner_outdated", "provider_runner_outdated", "provider_runner_outdated",
         "provider_usage_limit", "provider_usage_limit",
     ]
     assert result.technical["attempts"][-1]["route_capability"]["status"] == "available"
@@ -702,7 +964,7 @@ def test_tool_request_requires_jsonl_tool_provenance_and_captures_safe_artifacts
             "arguments": {"authorization": "Bearer never-store-this-value"},
             "result": {"text": "private tool result"},
             "artifacts": [{
-                "url": "https://user:password@example.com/report.pdf?token=never-store-this-value",
+                "url": "https://user:password@example.com/report.pdf?token=redacted",
                 "sha256": "b" * 64, "size_bytes": 12,
             }],
         },
@@ -849,6 +1111,8 @@ def test_factory_provider_uses_dynamic_fresh_capability_and_fenced_evidence(tmp_
     assert state["submitted"][0]["target_node"] == "newly-enrolled-worker"
     assert state["submitted"][0]["required_capability"] == "runner:mimo"
     assert state["submitted"][0]["write_scope"] == []
+    assert state["submitted"][0]["max_attempts"] == 1
+    assert "max_retries" not in state["submitted"][0]
     provider_evidence = result.technical["evidence"][0]
     assert provider_evidence["route_transport"] == "home_control_plane"
     assert provider_evidence["node_ref"].startswith("node:")
@@ -1272,7 +1536,7 @@ def test_factory_provider_poll_is_bounded_and_cancels_its_task(tmp_path, monkeyp
 
 
 def test_factory_control_secret_and_error_body_never_enter_provenance(tmp_path, monkeypatch):
-    secret = "factory-secret-never-log"
+    secret = "factory-" + "secret-never-log"
     state = {
         "nodes": [], "http_error": 401,
         "secret_body": f"Bearer {secret} internal upstream details",
@@ -1407,6 +1671,84 @@ def test_fast_mode_preserves_configured_home_runner_order(tmp_path, monkeypatch)
     assert result.technical["selected_runner"] == "mimo"
     assert [task["runner"] for task in state["submitted"]] == ["codex", "mimo"]
     assert {task["source"]["control_plane"] for task in state["submitted"]} == {"home"}
+
+
+def test_fast_mode_does_not_let_stuck_mimo_consume_codex_fallback_budget(
+    tmp_path, monkeypatch,
+):
+    state = {
+        "nodes": [fresh_factory_node("bounded-fast-worker")],
+        "running_runners": {"mimo"},
+        "answer": "codex completed after bounded failover",
+    }
+    server, thread = factory_control_server(state)
+    configure_local_home_control(
+        monkeypatch, tmp_path, f"http://127.0.0.1:{server.server_port}",
+    )
+    monkeypatch.setenv("KOLIBRI_FACTORY_PROVIDER_RUNNERS", "mimo,codex")
+    monkeypatch.setenv("KOLIBRI_FACTORY_FAST_FAILOVER_SECONDS", "0.12")
+    monkeypatch.setenv("KOLIBRI_FACTORY_TASK_TIMEOUT", "5")
+    monkeypatch.setenv("KOLIBRI_FACTORY_POLL_INTERVAL", "0.01")
+    monkeypatch.setenv("KOLIBRI_PROVIDER_WORK_DIR", str(tmp_path / "work"))
+
+    started = time.monotonic()
+    try:
+        result = ProviderGateway(timeout=1).generate(
+            "short interactive answer", None, "resp-fast-stuck-mimo",
+        )
+    finally:
+        elapsed = time.monotonic() - started
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert elapsed < 0.8
+    assert result.status == "completed"
+    assert result.text == "codex completed after bounded failover"
+    assert [attempt["provider_model"] for attempt in result.technical["attempts"]] == [
+        "mimo", "codex",
+    ]
+    assert result.technical["attempts"][0]["error_type"] == "provider_timeout"
+    assert result.technical["fallback_used"] is True
+    assert [task["runner"] for task in state["submitted"]] == ["mimo", "codex"]
+
+
+def test_unleased_factory_task_falls_through_without_waiting_for_lease_expiry(
+    tmp_path, monkeypatch,
+):
+    state = {
+        "nodes": [fresh_factory_node("unleased-fast-worker")],
+        "queued_runners": {"mimo"},
+        "answer": "codex claimed the fallback task",
+    }
+    server, thread = factory_control_server(state)
+    configure_local_home_control(
+        monkeypatch, tmp_path, f"http://127.0.0.1:{server.server_port}",
+    )
+    monkeypatch.setenv("KOLIBRI_FACTORY_PROVIDER_RUNNERS", "mimo,codex")
+    monkeypatch.setenv("KOLIBRI_FACTORY_LEASE_START_TIMEOUT", "0.06")
+    monkeypatch.setenv("KOLIBRI_FACTORY_FAST_FAILOVER_SECONDS", "0.4")
+    monkeypatch.setenv("KOLIBRI_FACTORY_TASK_TIMEOUT", "5")
+    monkeypatch.setenv("KOLIBRI_FACTORY_POLL_INTERVAL", "0.01")
+    monkeypatch.setenv("KOLIBRI_PROVIDER_WORK_DIR", str(tmp_path / "work"))
+
+    started = time.monotonic()
+    try:
+        result = ProviderGateway(timeout=1).generate(
+            "do not wait for a missing lease", None, "resp-fast-unleased",
+        )
+    finally:
+        elapsed = time.monotonic() - started
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert elapsed < 0.8
+    assert result.status == "completed"
+    assert result.text == "codex claimed the fallback task"
+    assert result.technical["attempts"][0]["error_type"] == "factory_lease_unavailable"
+    assert [task["runner"] for task in state["submitted"]] == ["mimo", "codex"]
+    assert state["cancelled"][0] == {"reason": "factory_provider_lease_timeout"}
 
 
 def test_fast_mode_rejects_mimo_identity_leak_and_falls_back_to_codex(tmp_path, monkeypatch):

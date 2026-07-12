@@ -5,6 +5,7 @@ import {
   PROJECTS_STORAGE_KEY,
   WORKSPACE_STORAGE_KEY,
 } from "./constants";
+import { recoverInterruptedProjects } from "../shell/projectMessageRecovery.js";
 
 export function makeId(prefix) {
   const fallback = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
@@ -46,14 +47,15 @@ export function createProject(title = "Новый проект") {
 
 export function readProjects() {
   try {
-    const stored = JSON.parse(globalThis.localStorage.getItem(PROJECTS_STORAGE_KEY) || "null");
-    if (Array.isArray(stored) && stored.length) return stored;
+    const raw = globalThis.localStorage?.getItem(PROJECTS_STORAGE_KEY);
+    const stored = JSON.parse(raw || "null");
+    if (Array.isArray(stored)) return stored.length ? recoverInterruptedProjects(stored) : [createProject()];
   } catch {
     // Continue with the v1 history migration below.
   }
   const history = readHistory();
   if (!history.length) return [createProject()];
-  return history.map((item) => ({
+  return recoverInterruptedProjects(history.map((item) => ({
     id: item.projectId || makeId("project"),
     title: item.title || "Сохранённый проект",
     messages: item.text ? [{ id: makeId("message"), role: "assistant", text: item.text, createdAt: item.createdAt }] : [],
@@ -63,7 +65,7 @@ export function readProjects() {
     executionMode: "fast",
     createdAt: item.createdAt || new Date().toISOString(),
     updatedAt: item.createdAt || new Date().toISOString(),
-  }));
+  })));
 }
 
 export function readWorkspace() {

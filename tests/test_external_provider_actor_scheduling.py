@@ -101,7 +101,7 @@ def provider_envelope(node_id: str, *, response_id: str = "resp_dynamic") -> dic
             "max_wall_seconds": 45,
             "network": "provider_managed_only",
         },
-        "max_retries": 0,
+        "max_attempts": 1,
         "fallback_allowed": False,
         "source": {
             "kind": "kolibri_provider_gateway",
@@ -193,7 +193,7 @@ def test_external_actor_can_lease_only_exact_home_read_only_provider_task():
         (("required_capability",), "generic_implementation"),
         (("write_scope",), ["backend/**"]),
         (("fallback_allowed",), True),
-        (("max_retries",), 1),
+        (("max_attempts",), 2),
         (("constraints", "read_only"), False),
         (("constraints", "network"), "unrestricted"),
         (("source", "control_plane"), "main"),
@@ -570,6 +570,7 @@ def test_external_actor_http_auth_replay_rotation_and_all_six_mutations(monkeypa
             "state": control.STATE_LEASED,
             "attempt": 1,
             "attempt_id": f"{task_id}-attempt-1",
+            "fencing_token": 1,
             "lease_owner": f"{node_id}:{register_body['agent_id']}",
             "lease_actor_scope": control.EXTERNAL_PROVIDER_ACTOR_SCOPE,
             "lease_external_auth": copy.deepcopy(marker_v1),
@@ -583,6 +584,7 @@ def test_external_actor_http_auth_replay_rotation_and_all_six_mutations(monkeypa
     fence = {
         "attempt_id": task["attempt_id"], "node_id": node_id,
         "agent_id": register_body["agent_id"],
+        "fencing_token": task["fencing_token"],
     }
     assert_auth_gate(
         "/v1/tasks/auth-heartbeat/heartbeat", {**fence, "state": "running"},
@@ -593,10 +595,12 @@ def test_external_actor_http_auth_replay_rotation_and_all_six_mutations(monkeypa
     complete = {
         "attempt_id": task["attempt_id"], "node_id": node_id,
         "agent_id": register_body["agent_id"],
+        "fencing_token": task["fencing_token"],
         "result_reference": "/var/lib/kolibri-agent/auth-complete/result.json",
         "result": {
             "runner": "codex",
             "status": "completed",
+            "fencing_token": task["fencing_token"],
             "result_path": "/var/lib/kolibri-agent/auth-complete/result.json",
         },
     }
@@ -605,7 +609,8 @@ def test_external_actor_http_auth_replay_rotation_and_all_six_mutations(monkeypa
     task = leased_task("auth-fail")
     failed = {
         "attempt_id": task["attempt_id"], "node_id": node_id,
-        "agent_id": register_body["agent_id"], "error_type": "runtime_error",
+        "agent_id": register_body["agent_id"],
+        "fencing_token": task["fencing_token"], "error_type": "runtime_error",
         "error": "synthetic failure", "retry": False,
         "result": {"runner": "codex", "status": "blocked"},
     }

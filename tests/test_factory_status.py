@@ -136,6 +136,9 @@ def test_frontend_uses_live_factory_status_endpoint():
     control_source = (frontend / "control" / "ControlShell.jsx").read_text(
         encoding="utf-8"
     )
+    view_source = (frontend / "control" / "controlViewModel.js").read_text(
+        encoding="utf-8"
+    )
     api_source = (frontend / "runtime" / "kolibriApi.js").read_text(encoding="utf-8")
 
     assert "/api/factory/status" in api_source
@@ -144,5 +147,6 @@ def test_frontend_uses_live_factory_status_endpoint():
     assert "<ControlShell />" in app_source
     assert "loadControlSnapshot" in control_source
     assert "Фактическое состояние" in control_source
-    assert "без mock-значений" in control_source
-    assert "Degraded" in control_source
+    assert "подтверждённые доступными API Home" in view_source
+    assert "нулевые значения не подставляются" in view_source
+    assert "Degraded" in view_source

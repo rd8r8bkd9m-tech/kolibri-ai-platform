@@ -1,9 +1,9 @@
-import { SYSTEM_APPS, TOOLS } from "../app/constants";
+import { SYSTEM_APPS } from "../app/constants";
 import { SquarePen } from "lucide-react";
 import { MobileDockHeader } from "./MobileDockHeader";
 import { MinimizedWindows } from "./MinimizedWindows";
 
-export function ToolDock({ expanded, mobile, mobileOpen, pinned, preview, minimizedWindows, selected, onDismiss, onNewProject, onPointerEnter, onPointerLeave, onRestoreWindow, onSelect, onSystem }) {
+export function ToolDock({ availableTools = [], dockRef, expanded, mobile, mobileOpen, pinned, preview, minimizedWindows, selected, onDismiss, onNewProject, onPointerEnter, onPointerLeave, onRestoreWindow, onSelect, onSystem }) {
   const act = (callback) => () => {
     callback();
     onDismiss?.();
@@ -18,6 +18,7 @@ export function ToolDock({ expanded, mobile, mobileOpen, pinned, preview, minimi
       inert={mobile && !mobileOpen}
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
+      ref={dockRef}
       role={mobile ? "dialog" : undefined}
     >
       <MobileDockHeader onClose={onDismiss} open={mobileOpen} />
@@ -26,7 +27,7 @@ export function ToolDock({ expanded, mobile, mobileOpen, pinned, preview, minimi
         <SquarePen size={19} /><span>Новый проект</span>
       </button>
       {expanded && <small className="dock-section-label">Создать</small>}
-      {TOOLS.map((tool) => {
+      {availableTools.map((tool) => {
         const ToolIcon = tool.icon;
         return (
           <button

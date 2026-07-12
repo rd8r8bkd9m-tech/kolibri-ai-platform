@@ -1,9 +1,11 @@
-import { useEffect, useRef } from "react";
-import { ArrowUp, Code2, Gauge, Plus, X } from "lucide-react";
-import { EXECUTION_MODES, TOOLS } from "../app/constants";
+import { useEffect, useRef, useState } from "react";
+import { ArrowUp, ChevronDown, Code2, Gauge, Plus, X } from "lucide-react";
+import { EXECUTION_MODES } from "../app/constants";
+import { ComposerModeMenu } from "./ComposerModeMenu";
 import { ComposerToolMenu } from "./ComposerToolMenu";
 
 export function Composer({
+  availableTools = [],
   busy,
   embedded = false,
   executionMode = "fast",
@@ -18,8 +20,12 @@ export function Composer({
   setToolMenuOpen,
 }) {
   const input = useRef(null);
-  const selected = TOOLS.find((item) => item.id === selectedTool);
+  const [modeMenuOpen, setModeMenuOpen] = useState(false);
+  const selected = availableTools.find((item) => item.id === selectedTool);
   const SelectedIcon = selected?.icon;
+  const supportedModes = EXECUTION_MODES.filter((mode) => executionModes.includes(mode.id));
+  const currentMode = supportedModes.find((mode) => mode.id === executionMode) || supportedModes[0] || EXECUTION_MODES[0];
+  const CurrentModeIcon = currentMode.id === "codex" ? Code2 : Gauge;
   const submit = () => {
     if (value.trim() && !busy) onSubmit(value);
   };
@@ -32,11 +38,23 @@ export function Composer({
     <div className={`composer-layer ${embedded ? "is-embedded" : ""}`}>
       {toolMenuOpen && (
         <ComposerToolMenu
+          availableTools={availableTools}
           onClose={() => setToolMenuOpen(false)}
           onSelect={(tool) => {
             onTool(tool);
             setToolMenuOpen(false);
           }}
+        />
+      )}
+      {modeMenuOpen && (
+        <ComposerModeMenu
+          executionModes={executionModes}
+          onClose={() => setModeMenuOpen(false)}
+          onSelect={(mode) => {
+            onExecutionMode(mode);
+            setModeMenuOpen(false);
+          }}
+          selected={currentMode.id}
         />
       )}
       <form
@@ -51,33 +69,37 @@ export function Composer({
           aria-expanded={toolMenuOpen}
           aria-label="Выбрать инструмент"
           className={toolMenuOpen ? "is-active" : ""}
-          onClick={() => setToolMenuOpen((open) => !open)}
+          onClick={() => {
+            setModeMenuOpen(false);
+            setToolMenuOpen((open) => !open);
+          }}
+          title="Инструменты"
           type="button"
         >
           <Plus size={20} />
         </button>
         <div className="composer-input">
-          <div aria-label="Режим выполнения" className="execution-mode-switch" role="group">
-            {EXECUTION_MODES.map((mode) => {
-              const ModeIcon = mode.id === "codex" ? Code2 : Gauge;
-              const supported = executionModes.includes(mode.id);
-              return (
-                <button
-                  aria-pressed={executionMode === mode.id}
-                  disabled={!supported}
-                  key={mode.id}
-                  onClick={() => supported && onExecutionMode(mode.id)}
-                  title={supported ? mode.hint : `${mode.label} недоступен: backend не подтвердил capability`}
-                  type="button"
-                >
-                  <ModeIcon size={13} /> {mode.label}
-                </button>
-              );
-            })}
-          </div>
+          {supportedModes.length > 1 ? (
+            <button
+              aria-controls="kolibri-execution-modes"
+              aria-expanded={modeMenuOpen}
+              aria-label="Выбрать режим работы"
+              className="execution-mode-trigger"
+              onClick={() => {
+                setToolMenuOpen(false);
+                setModeMenuOpen((open) => !open);
+              }}
+              title={`Режим работы: ${currentMode.label.toLowerCase()}`}
+              type="button"
+            >
+              <CurrentModeIcon size={14} /><span>{currentMode.label}</span><ChevronDown size={14} />
+            </button>
+          ) : (
+            <span className="execution-mode-static"><CurrentModeIcon size={14} /><span>{currentMode.label}</span></span>
+          )}
           {selected && (
             <button className="selected-tool" onClick={() => onTool("")} type="button">
-              <SelectedIcon size={14} /> {selected.label}<X size={13} />
+              <SelectedIcon size={14} /> <span>{selected.label}</span><X size={13} />
             </button>
           )}
           <textarea
@@ -85,7 +107,8 @@ export function Composer({
             disabled={busy}
             onChange={(event) => onChange(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
+              const composing = event.isComposing || event.nativeEvent?.isComposing || event.keyCode === 229;
+              if (event.key === "Enter" && !event.shiftKey && !composing) {
                 event.preventDefault();
                 submit();
               }
@@ -100,6 +123,7 @@ export function Composer({
           aria-label="Отправить"
           className="composer-send"
           disabled={busy || !value.trim()}
+          title="Отправить"
           type="submit"
         >
           <ArrowUp size={20} />

@@ -1,9 +1,30 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { CheckCircle2, FileText, Plus, Save, ShieldAlert, Trash2 } from "lucide-react";
+import { EstimateLineEvidence } from "../estimate/EstimateLineEvidence";
+import { EstimateTotals } from "../estimate/EstimateTotals";
+import { estimateArtifactDisplayName, estimateTitleFromPayload } from "../estimate/estimateTitle";
+import {
+  calculateEstimateTotals,
+  formatEstimateMoney,
+  normalizeEstimatePayload,
+  priceInputToMinor,
+  validEstimateQuantity,
+} from "../estimate/estimateModel";
 import { submitEstimateFeedback } from "../runtime/kolibriApi";
+import { materializedArtifacts } from "../shell/projectModel";
 
 function newEstimateLine(index = 1) {
-  return { id: `line-${index}`, section: "Основные работы", description: "", category: "labor", unit: "шт", quantity: "1", price: "0", provenance: { source: "manual" } };
+  return {
+    id: `line-${index}`,
+    section: "Основные работы",
+    description: "",
+    category: "labor",
+    unit: "шт",
+    quantity: "1",
+    price: "0",
+    provenance: { source: "manual", source_ref: "Ручной ввод", validation_status: "unverified" },
+    evidence: { status: "unverified", sourceRef: "Ручной ввод", priceMinMinor: null, priceMaxMinor: null },
+  };
 }
 
 function editableLine(line, index, minorUnit) {
@@ -11,7 +32,7 @@ function editableLine(line, index, minorUnit) {
     ...newEstimateLine(index + 1),
     ...line,
     quantity: String(line.quantity ?? "1"),
-    price: String((Number(line.unit_price_minor ?? 0) / (10 ** minorUnit)).toFixed(minorUnit)),
+    price: String(line.price ?? (Number(line.unit_price_minor ?? 0) / (10 ** minorUnit)).toFixed(minorUnit)),
     provenance: line.provenance || { source: "manual" },
   };
 }
@@ -20,12 +41,18 @@ function textList(value) {
   return String(value || "").split("\n").map((item) => item.trim()).filter(Boolean);
 }
 
-function formatRubles(minor) {
-  return new Intl.NumberFormat("ru-RU", {
-    style: "currency",
-    currency: "RUB",
-    maximumFractionDigits: 2,
-  }).format((Number(minor) || 0) / 100);
+function EstimateNumberInput(props) {
+  return (
+    <input
+      {...props}
+      autoComplete="off"
+      className="estimate-number-input"
+      inputMode="decimal"
+      pattern="[0-9]*[.,]?[0-9]*"
+      spellCheck="false"
+      type="text"
+    />
+  );
 }
 
 const SELECT_LABELS = {
@@ -39,25 +66,6 @@ const SELECT_LABELS = {
   manual: "Ручной ввод",
 };
 
-const PROVENANCE_LABELS = {
-  normative: "Норматив",
-  catalog: "Каталог",
-  contract: "Договор",
-  supplier: "Поставщик",
-  measurement: "Замер",
-  manual: "Ручной ввод",
-  assumption: "Допущение",
-};
-
-function provenanceSummary(provenance = {}) {
-  return [
-    PROVENANCE_LABELS[provenance.source] || provenance.source || "Источник не указан",
-    provenance.source_ref,
-    provenance.price_level_date ? `цены ${provenance.price_level_date}` : "",
-    provenance.applicable_region,
-  ].filter(Boolean).join(" · ");
-}
-
 function EstimateReadinessWorkspace({ payload, readiness, onOpenArtifact, onUpdate }) {
   const fields = readiness.editor?.fields || [];
   const existingDraft = payload.readinessDraft || {};
@@ -66,13 +74,14 @@ function EstimateReadinessWorkspace({ payload, readiness, onOpenArtifact, onUpda
     existingDraft[field.id] ?? field.value ?? "",
   ])));
   const [savedAt, setSavedAt] = useState(payload.readinessDraftSavedAt || "");
-  const artifacts = payload.artifacts || payload.task?.artifacts || [];
+  const artifacts = materializedArtifacts(payload.artifacts || payload.task?.artifacts);
   const checklist = artifacts.find((artifact) => artifact.document_role === "estimate_input_checklist")
     || artifacts.find((artifact) => artifact.deliverable_type === "pdf");
   const completed = fields.filter((field) => String(values[field.id] || "").trim()).length;
   const total = fields.length;
   const percent = total ? Math.round((completed / total) * 100) : 0;
   const facts = readiness.known_facts || {};
+  const displayTitle = estimateTitleFromPayload({ ...payload, readiness });
 
   const patchField = (fieldId, value) => {
     setValues((current) => {
@@ -98,7 +107,7 @@ function EstimateReadinessWorkspace({ payload, readiness, onOpenArtifact, onUpda
           <p>Kolibri не подставляет цены, объёмы, индексы или налоги без проверяемого документа-основания.</p>
         </div>
         {checklist && (
-          <button onClick={() => onOpenArtifact?.(checklist)} type="button">
+          <button onClick={() => onOpenArtifact?.({ ...checklist, display_name: estimateArtifactDisplayName(checklist, displayTitle) })} type="button">
             <FileText size={16} /> Открыть PDF-чеклист
           </button>
         )}
@@ -178,20 +187,31 @@ function EstimateReadinessWorkspace({ payload, readiness, onOpenArtifact, onUpda
   );
 }
 
-function EditableEstimateWorkspace({ payload, onCalculate }) {
-  const minorUnit = payload.minor_unit ?? 2;
-  const [title, setTitle] = useState(payload.title || "Новая смета");
-  const [lines, setLines] = useState(() => payload.lines?.map((line, index) => editableLine(line, index, minorUnit)) || [newEstimateLine()]);
-  const [overhead, setOverhead] = useState(String((payload.overhead_rate_bps || 0) / 100));
-  const [tax, setTax] = useState(String((payload.tax_rate_bps || 0) / 100));
-  const [assumptions, setAssumptions] = useState((payload.assumptions || []).join("\n"));
-  const [questions, setQuestions] = useState((payload.questions || []).join("\n"));
-  const task = payload.task;
-  const calculation = task?.result?.calculation;
-  const verification = task?.result?.verification || {};
-  const estimateStatus = task?.result?.status || verification.status || "preliminary";
+function EditableEstimateWorkspace({ model, onCalculate, onOpenArtifact, payload }) {
+  const minorUnit = model.minorUnit;
+  const [title, setTitle] = useState(model.title);
+  const [lines, setLines] = useState(() => model.lines.length
+    ? model.lines.map((line, index) => editableLine(line, index, minorUnit))
+    : [newEstimateLine()]);
+  const [overhead, setOverhead] = useState(String(model.overheadRateBps / 100));
+  const [tax, setTax] = useState(String(model.taxRateBps / 100));
+  const [assumptions, setAssumptions] = useState(model.assumptions.join("\n"));
+  const [questions, setQuestions] = useState(model.questions.join("\n"));
+  const estimateStatus = model.status;
   const busy = payload.status === "running";
   const [reviewState, setReviewState] = useState("");
+  const overheadRateBps = Math.round(Math.max(Number(overhead) || 0, 0) * 100);
+  const taxRateBps = Math.round(Math.max(Number(tax) || 0, 0) * 100);
+  const totals = useMemo(() => calculateEstimateTotals(lines, {
+    minorUnit,
+    overheadRateBps,
+    taxRateBps,
+  }), [lines, minorUnit, overheadRateBps, taxRateBps]);
+  const hasInvalidLine = lines.some((line) => (
+    !line.description.trim()
+      || !validEstimateQuantity(line.quantity)
+      || priceInputToMinor(line.price, minorUnit) === null
+  ));
 
   const review = async (action) => {
     const estimateId = payload.persistence?.estimate_id;
@@ -219,16 +239,16 @@ function EditableEstimateWorkspace({ payload, onCalculate }) {
   };
   const submit = () => {
     const usable = lines.filter((line) => line.description.trim());
-    if (!usable.length) return;
+    if (!usable.length || hasInvalidLine) return;
     onCalculate({
       title: title.trim() || "Новая смета",
-      currency: "RUB",
+      currency: model.currency,
       minor_unit: minorUnit,
-      region: payload.metadata?.region || payload.region || "Не указан",
-      client_name: payload.client_name || null,
-      object_name: payload.object_name || null,
-      object_address: payload.object_address || null,
-      source_summary: payload.metadata?.provenance || payload.source_summary || "Цены требуют проверки",
+      region: model.region,
+      client_name: model.clientName,
+      object_name: model.objectName,
+      object_address: model.objectAddress,
+      source_summary: model.sourceSummary,
       assumptions: textList(assumptions),
       questions: textList(questions),
       lines: usable.map((line, index) => ({
@@ -237,13 +257,13 @@ function EditableEstimateWorkspace({ payload, onCalculate }) {
         description: line.description.trim(),
         category: line.category,
         unit: line.unit.trim() || "шт",
-        quantity: String(Math.max(Number(line.quantity) || 0, 0.000001)),
-        unit_price_minor: Math.round(Math.max(Number(line.price) || 0, 0) * (10 ** minorUnit)),
+        quantity: String(line.quantity).trim(),
+        unit_price_minor: priceInputToMinor(line.price, minorUnit),
         provenance: line.provenance || { source: "manual" },
       })),
-      overhead_rate_bps: Math.round(Math.max(Number(overhead) || 0, 0) * 100),
-      tax_rate_bps: Math.round(Math.max(Number(tax) || 0, 0) * 100),
-      normative_basis: payload.normative_basis || null,
+      overhead_rate_bps: overheadRateBps,
+      tax_rate_bps: taxRateBps,
+      normative_basis: model.normativeBasis,
       estimate_id: payload.persistence?.estimate_id || null,
       estimate_base_version: payload.persistence?.version || null,
     });
@@ -261,18 +281,18 @@ function EditableEstimateWorkspace({ payload, onCalculate }) {
               : "Итог пересчитан движком, но источники ещё не прошли независимую проверку."}
           </span>
         </div>
-        <small>{verification.source_coverage_complete ? "Источники указаны" : "Есть пробелы в источниках"}</small>
+        <small>{model.confidenceLabel}</small>
       </section>
       <div className="estimate-heading">
         <div>
           <span>{payload.persistence?.state === "saved" ? `Версия ${payload.persistence.version} сохранена` : "Детерминированный расчёт"}</span>
           <input aria-label="Название сметы" onChange={(event) => setTitle(event.target.value)} value={title} />
         </div>
-        <div><small>Итого</small><strong>{formatRubles(calculation?.totals?.grand_total_minor)}</strong></div>
+        <div><small>Итого сейчас</small><strong>{formatEstimateMoney(totals.grandTotalMinor, minorUnit, model.currency)}</strong></div>
       </div>
       <div className="estimate-table">
         <div className="estimate-row estimate-row-head">
-          <span>Тип</span><span>Раздел и позиция</span><span>Ед.</span><span>Кол-во</span><span>Цена, ₽</span><span />
+          <span>Тип</span><span>Раздел, позиция и источник</span><span>Ед.</span><span>Кол-во</span><span>Цена, ₽</span><span>Сумма</span><span />
         </div>
         {lines.map((line) => (
           <div className="estimate-row" key={line.id}>
@@ -286,11 +306,16 @@ function EditableEstimateWorkspace({ payload, onCalculate }) {
             <span className="estimate-position-cell">
               <input aria-label="Раздел" onChange={(event) => patchLine(line.id, { section: event.target.value })} placeholder="Раздел" value={line.section} />
               <input aria-label="Позиция" onChange={(event) => patchLine(line.id, { description: event.target.value })} placeholder="Например, монтаж перегородки" value={line.description} />
-              <small className="estimate-line-provenance" title={line.provenance?.source_url || ""}>{provenanceSummary(line.provenance)}</small>
+              <EstimateLineEvidence currency={model.currency} line={line} minorUnit={minorUnit} />
             </span>
             <input aria-label="Единица" onChange={(event) => patchLine(line.id, { unit: event.target.value })} value={line.unit} />
-            <input aria-label="Количество" min="0.000001" onChange={(event) => patchLine(line.id, { quantity: event.target.value })} step="0.01" type="number" value={line.quantity} />
-            <input aria-label="Цена" min="0" onChange={(event) => patchLine(line.id, { price: event.target.value, provenance: { source: "manual", source_ref: "Изменено пользователем" } })} step="0.01" type="number" value={line.price} />
+            <EstimateNumberInput aria-label="Количество" min="0.000001" onChange={(event) => patchLine(line.id, { quantity: event.target.value })} step="0.01" value={line.quantity} />
+            <EstimateNumberInput aria-label="Цена" min="0" onChange={(event) => patchLine(line.id, {
+              price: event.target.value,
+              provenance: { source: "manual", source_ref: "Изменено пользователем", validation_status: "unverified" },
+              evidence: { status: "unverified", sourceRef: "Изменено пользователем", priceMinMinor: null, priceMaxMinor: null },
+            })} step="0.01" value={line.price} />
+            <strong className="estimate-line-total">{formatEstimateMoney(totals.lineTotals.get(line.id), minorUnit, model.currency)}</strong>
             <button aria-label="Удалить позицию" onClick={() => removeLine(line.id)} type="button"><Trash2 size={16} /></button>
           </div>
         ))}
@@ -299,22 +324,21 @@ function EditableEstimateWorkspace({ payload, onCalculate }) {
         <button onClick={() => setLines((current) => [...current, newEstimateLine(current.length + 1)])} type="button">
           <Plus size={17} /> Добавить позицию
         </button>
-        <label>Накладные, %<input min="0" onChange={(event) => setOverhead(event.target.value)} step="0.01" type="number" value={overhead} /></label>
-        <label>Налог, %<input min="0" onChange={(event) => setTax(event.target.value)} step="0.01" type="number" value={tax} /></label>
-        <button className="primary-action" disabled={busy || !lines.some((line) => line.description.trim())} onClick={submit} type="button">
-          {busy ? "Сохраняю…" : "Сохранить и PDF"}
+        <label>Накладные, %<EstimateNumberInput min="0" onChange={(event) => setOverhead(event.target.value)} step="0.01" value={overhead} /></label>
+        <label>Налог, %<EstimateNumberInput min="0" onChange={(event) => setTax(event.target.value)} step="0.01" value={tax} /></label>
+        {model.pdfArtifact && (
+          <button className="estimate-pdf-action" onClick={() => onOpenArtifact?.({ ...model.pdfArtifact, display_name: estimateArtifactDisplayName(model.pdfArtifact, title) })} type="button">
+            <FileText size={17} /> Открыть PDF-снимок
+          </button>
+        )}
+        <button className="primary-action" disabled={busy || hasInvalidLine} onClick={submit} type="button">
+          {busy ? "Сохраняю…" : model.pdfArtifact ? "Сохранить новую версию PDF" : "Пересчитать и создать PDF"}
         </button>
       </div>
-      {calculation && (
-        <div className="estimate-summary">
-          <span>Работы и материалы <strong>{formatRubles(calculation.totals.subtotal_minor)}</strong></span>
-          <span>Накладные <strong>{formatRubles(calculation.totals.overhead_minor)}</strong></span>
-          <span>Налог <strong>{formatRubles(calculation.totals.tax_minor)}</strong></span>
-          <span>Итого <strong>{formatRubles(calculation.totals.grand_total_minor)}</strong></span>
-        </div>
-      )}
+      {hasInvalidLine && <p className="estimate-validation-note">Заполните название, положительное количество и корректную цену каждой позиции.</p>}
+      <EstimateTotals currency={model.currency} minorUnit={minorUnit} totals={totals} />
       <details className="estimate-notes">
-        <summary>Допущения и вопросы</summary>
+        <summary>Допущения и вопросы · {textList(assumptions).length + textList(questions).length}</summary>
         <div>
           <label>Допущения<textarea onChange={(event) => setAssumptions(event.target.value)} placeholder="По одному допущению в строке" value={assumptions} /></label>
           <label>Нужно уточнить<textarea onChange={(event) => setQuestions(event.target.value)} placeholder="По одному вопросу в строке" value={questions} /></label>
@@ -334,7 +358,11 @@ function EditableEstimateWorkspace({ payload, onCalculate }) {
 
 export function EstimateWorkspace({ payload, onCalculate, onOpenArtifact, onUpdate }) {
   const readiness = payload.readiness || (payload.task?.result?.type === "estimate_readiness" ? payload.task.result.readiness : null);
+  const model = normalizeEstimatePayload(payload);
+  const revisionKey = payload.task?.result?.calculation?.calculation_sha256
+    || payload.persistence?.version
+    || `${payload.status || "draft"}:${model.lines.length}:${model.pricedLineCount}`;
   return readiness
     ? <EstimateReadinessWorkspace onOpenArtifact={onOpenArtifact} onUpdate={onUpdate} payload={payload} readiness={readiness} />
-    : <EditableEstimateWorkspace onCalculate={onCalculate} payload={payload} />;
+    : <EditableEstimateWorkspace key={revisionKey} model={model} onCalculate={onCalculate} onOpenArtifact={onOpenArtifact} payload={payload} />;
 }

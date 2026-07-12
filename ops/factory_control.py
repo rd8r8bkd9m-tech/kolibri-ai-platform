@@ -102,7 +102,8 @@ CANARY_REDIS_READ_COMMANDS = frozenset({
 LEASE_DURATION = int(os.environ.get("FACTORY_LEASE_DURATION", "60"))
 LEASE_CLAIM_TTL = int(os.environ.get("FACTORY_LEASE_CLAIM_TTL", "15"))
 REQUIRE_LEASE_FENCING = os.environ.get("FACTORY_REQUIRE_LEASE_FENCING", "1").strip().lower() not in {"0", "false", "no"}
-MAX_RETRIES = int(os.environ.get("FACTORY_MAX_RETRIES", "3"))
+DEFAULT_MAX_ATTEMPTS = int(os.environ.get("FACTORY_MAX_ATTEMPTS", "4"))
+MAX_ATTEMPTS_LIMIT = 100
 FABRIC_API_VERSION = "2026-07-01"
 CANONICAL_RESPONSE_STATUSES = {"completed", "running", "blocked", "failed", "partial"}
 FALLBACK_REASON_TAXONOMY = {
@@ -120,7 +121,7 @@ FALLBACK_REASON_TAXONOMY = {
 }
 NODE_DEGRADED_AFTER = int(os.environ.get("FACTORY_NODE_DEGRADED_AFTER", "30"))
 NODE_STALE_AFTER = int(os.environ.get("FACTORY_NODE_STALE_AFTER", "90"))
-TASK_HEARTBEAT_STALE_AFTER = int(os.environ.get("FACTORY_TASK_HEARTBEAT_STALE_AFTER", "3600"))
+TASK_HEARTBEAT_STALE_AFTER = int(os.environ.get("FACTORY_TASK_HEARTBEAT_STALE_AFTER", "30"))
 OWNER_APPROVAL_MAX_TTL = int(os.environ.get("FACTORY_OWNER_APPROVAL_MAX_TTL", "86400"))
 OWNER_ALLOWED_SIGNERS = Path(os.environ.get(
     "FACTORY_OWNER_ALLOWED_SIGNERS",
@@ -142,6 +143,8 @@ BLOCKED_RUNNER_STATES = {"blocked", "degraded", "runner_auth_blocked", "unavaila
 COMPLETION_EVIDENCE_SCHEMA = "kolibri.task-completion-evidence.v1"
 COMPLETION_BINDING_SCHEMA = "kolibri.task-completion-binding.v1"
 COMPLETION_VERIFIER_SCHEMA = "kolibri.control-plane-completion-verifier.v1"
+LEASE_FENCING_SCHEMA = "kolibri.lease-fencing.v1"
+LEGACY_LEASE_FENCING_COMPATIBILITY = "pre_migration_attempt_id_owner_only"
 COMPLETION_SUCCESS_STATUSES = frozenset({
     "completed", "healthy", "ok", "passed", "ready", "success",
 })
@@ -939,8 +942,8 @@ def completion_binding_payload(
     task: dict[str, Any],
     result_reference: str,
     result_sha256: str,
-) -> dict[str, str]:
-    return {
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
         "schema_version": COMPLETION_BINDING_SCHEMA,
         "task_id": str(task.get("task_id") or ""),
         "attempt_id": str(task.get("attempt_id") or ""),
@@ -948,6 +951,12 @@ def completion_binding_payload(
         "result_reference": result_reference,
         "result_sha256": result_sha256,
     }
+    # Pre-migration task proofs used this schema without a numeric fencing
+    # token. Keep those persisted proofs verifiable, but bind every task
+    # created or re-leased by this runtime to its authoritative token.
+    if task_requires_fencing_token(task):
+        payload["fencing_token"] = task.get("fencing_token")
+    return payload
 
 
 def completion_binding_sha256(
@@ -1003,6 +1012,8 @@ def verify_task_completion(
     )
     status = str(result_object.get("status") or "").strip().lower()
     result_path = result_object.get("result_path")
+    token_required = task_requires_fencing_token(task)
+    expected_fencing_token = task.get("fencing_token")
     checks = {
         "task": bool(
             task_id
@@ -1039,6 +1050,15 @@ def verify_task_completion(
         "result_sha256": bool(result_digest),
         "binding_sha256": bool(binding_digest),
     }
+    if token_required:
+        checks["fencing_token"] = bool(
+            type(expected_fencing_token) is int
+            and expected_fencing_token > 0
+            and type(body.get("fencing_token")) is int
+            and body.get("fencing_token") == expected_fencing_token
+            and type(result_object.get("fencing_token")) is int
+            and result_object.get("fencing_token") == expected_fencing_token
+        )
     supplied_result_digest = _supplied_completion_digest(body, "result_sha256")
     supplied_binding_digest = _supplied_completion_digest(body, "binding_sha256")
     if supplied_result_digest is not None:
@@ -1078,6 +1098,9 @@ def verify_task_completion(
         "checks": checks,
         "failed_checks": failed_checks,
     }
+    if token_required:
+        evidence["fencing_token"] = expected_fencing_token
+        verifier["fencing_token"] = expected_fencing_token
     return evidence, verifier
 
 
@@ -1097,6 +1120,18 @@ def strict_completion_proof(task: dict[str, Any]) -> bool:
     except ValueError:
         return False
     checks = verifier.get("checks") if isinstance(verifier.get("checks"), dict) else {}
+    token_required = task_requires_fencing_token(task)
+    token_binding_valid = True
+    if token_required:
+        expected_fencing_token = task.get("fencing_token")
+        token_binding_valid = bool(
+            type(expected_fencing_token) is int
+            and expected_fencing_token > 0
+            and task["result"].get("fencing_token") == expected_fencing_token
+            and evidence.get("fencing_token") == expected_fencing_token
+            and verifier.get("fencing_token") == expected_fencing_token
+            and checks.get("fencing_token") is True
+        )
     return bool(
         evidence.get("schema_version") == COMPLETION_EVIDENCE_SCHEMA
         and verifier.get("schema_version") == COMPLETION_VERIFIER_SCHEMA
@@ -1113,6 +1148,7 @@ def strict_completion_proof(task: dict[str, Any]) -> bool:
         and evidence.get("binding_sha256") == binding_digest
         and verifier.get("result_sha256") == result_digest
         and verifier.get("binding_sha256") == binding_digest
+        and token_binding_valid
     )
 
 def truth_gate_on_complete(task: dict, result: dict) -> dict:
@@ -1632,15 +1668,15 @@ def require_external_provider_actor_auth(
         response(handler, 403, {"error": "external_provider_actor_credential_epoch_invalid"})
         return False
     authorization = str(handler.headers.get("Authorization") or "")
-    scheme, separator, token = authorization.partition(" ")
+    scheme, separator, bearer_credential = authorization.partition(" ")
     if (
         not separator
         or scheme.lower() != "bearer"
-        or not re.fullmatch(r"[A-Za-z0-9._~-]{32,512}", token)
+        or not re.fullmatch(r"[A-Za-z0-9._~-]{32,512}", bearer_credential)
     ):
         response(handler, 401, {"error": "external_provider_actor_auth_required"})
         return False
-    candidate = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    candidate = hashlib.sha256(bearer_credential.encode("utf-8")).hexdigest()
     if not hmac.compare_digest(candidate, str(record["token_sha256"])):
         response(handler, 401, {"error": "external_provider_actor_auth_invalid"})
         return False
@@ -2157,12 +2193,65 @@ def release_lease_claim(task_id: str, claim_id: str) -> None:
     )
 
 
+def task_requires_fencing_token(task: dict[str, Any]) -> bool:
+    """Return whether the task is on the monotonic fencing contract.
+
+    The only compatibility exception is an authoritative Redis record created
+    before this contract existed: it has neither the schema marker nor the
+    token field. New tasks always carry both fields, so deleting or corrupting
+    just one of them can never silently downgrade fencing.
+    """
+
+    return "lease_fencing_schema" in task or "fencing_token" in task
+
+
+def is_pre_migration_fencing_task(task: dict[str, Any]) -> bool:
+    return not task_requires_fencing_token(task)
+
+
+def allocate_next_fencing_token(task: dict[str, Any]) -> int:
+    """Allocate and persist-in-record the next monotonic lease token.
+
+    Callers hold the per-task lease claim while invoking this helper. A queued
+    pre-migration record is upgraded when it is next leased; an already active
+    pre-migration attempt remains compatible until that attempt terminates.
+    """
+
+    if is_pre_migration_fencing_task(task):
+        # The attempt counter predates fencing and is the only durable lower
+        # bound available during migration. The lease path increments attempt
+        # before calling us, so this never reuses an earlier conceptual token.
+        token = max(1, int(task.get("attempt", 0)))
+        task["lease_fencing_migrated_from"] = LEGACY_LEASE_FENCING_COMPATIBILITY
+    else:
+        if task.get("lease_fencing_schema") != LEASE_FENCING_SCHEMA:
+            raise ValueError("lease_fencing_schema_invalid")
+        current = task.get("fencing_token")
+        if type(current) is not int or current < 0:
+            raise ValueError("fencing_token_invalid")
+        token = current + 1
+    task["lease_fencing_schema"] = LEASE_FENCING_SCHEMA
+    task["fencing_token"] = token
+    return token
+
+
 def lease_fence_error(task: dict[str, Any], body: dict[str, Any]) -> str | None:
     if not REQUIRE_LEASE_FENCING:
         return None
     expected_attempt = str(task.get("attempt_id") or "")
     if not expected_attempt or str(body.get("attempt_id") or "") != expected_attempt:
         return "attempt_id_mismatch"
+    if task_requires_fencing_token(task):
+        if task.get("lease_fencing_schema") != LEASE_FENCING_SCHEMA:
+            return "lease_fencing_schema_invalid"
+        expected_token = task.get("fencing_token")
+        if type(expected_token) is not int or expected_token <= 0:
+            return "fencing_token_invalid"
+        if "fencing_token" not in body:
+            return "fencing_token_missing"
+        supplied_token = body.get("fencing_token")
+        if type(supplied_token) is not int or supplied_token != expected_token:
+            return "fencing_token_mismatch"
     lease_owner = str(task.get("lease_owner") or "")
     expected_node, _, expected_agent = lease_owner.partition(":")
     if not expected_node or str(body.get("node_id") or "") != expected_node:
@@ -2170,6 +2259,53 @@ def lease_fence_error(task: dict[str, Any], body: dict[str, Any]) -> str | None:
     if expected_agent and str(body.get("agent_id") or "") != expected_agent:
         return "lease_agent_mismatch"
     return None
+
+
+def canonical_max_attempts(
+    value: dict[str, Any],
+    *,
+    default: int = DEFAULT_MAX_ATTEMPTS,
+) -> int:
+    """Return the total attempt budget for a task.
+
+    ``max_attempts`` is the only canonical runtime field.  During the two-wave
+    compatibility window an incoming legacy ``max_retries`` value is accepted
+    at the HTTP boundary and translated as ``initial attempt + retries``.  A
+    request carrying both spellings must describe the same budget.
+    """
+
+    raw_attempts = value.get("max_attempts")
+    raw_retries = value.get("max_retries")
+    if raw_attempts is None and raw_retries is None:
+        raw_attempts = default
+    if raw_attempts is not None and (
+        isinstance(raw_attempts, bool) or not isinstance(raw_attempts, int)
+    ):
+        raise ValueError("max_attempts_must_be_an_integer")
+    if raw_retries is not None and (
+        isinstance(raw_retries, bool) or not isinstance(raw_retries, int)
+    ):
+        raise ValueError("max_retries_must_be_an_integer")
+    if raw_retries is not None and raw_retries < 0:
+        raise ValueError("max_retries_must_be_nonnegative")
+    legacy_attempts = raw_retries + 1 if raw_retries is not None else None
+    if raw_attempts is None:
+        raw_attempts = legacy_attempts
+    if legacy_attempts is not None and raw_attempts != legacy_attempts:
+        raise ValueError("attempt_budget_fields_conflict")
+    if raw_attempts is None or not 1 <= raw_attempts <= MAX_ATTEMPTS_LIMIT:
+        raise ValueError("max_attempts_out_of_range")
+    return raw_attempts
+
+
+def task_max_attempts(task: dict[str, Any]) -> int:
+    """Read canonical tasks and retained pre-migration Redis records safely."""
+
+    return canonical_max_attempts(task)
+
+
+def task_has_attempt_budget(task: dict[str, Any]) -> bool:
+    return int(task.get("attempt", 0)) < task_max_attempts(task)
 
 
 def reject_invalid_lease_fence(handler: BaseHTTPRequestHandler, task: dict[str, Any], body: dict[str, Any]) -> bool:
@@ -2182,6 +2318,7 @@ def reject_invalid_lease_fence(handler: BaseHTTPRequestHandler, task: dict[str, 
         "task_id": task.get("task_id"),
         "state": task.get("state"),
         "attempt_id": task.get("attempt_id"),
+        "fencing_token": task.get("fencing_token"),
     })
     return True
 
@@ -2195,8 +2332,10 @@ def normalize_task(envelope: dict[str, Any]) -> dict[str, Any]:
         "kind": envelope.get("kind", "read_only_probe"),
         "state": STATE_QUEUED,
         "attempt": 0,
-        "max_retries": int(envelope.get("max_retries", MAX_RETRIES)),
+        "max_attempts": canonical_max_attempts(envelope),
         "attempt_id": None,
+        "lease_fencing_schema": LEASE_FENCING_SCHEMA,
+        "fencing_token": 0,
         "lease_owner": None,
         "lease_until": None,
         "heartbeat_at": None,
@@ -2301,7 +2440,7 @@ def external_provider_task_compatible(
     envelope = task.get("envelope") if isinstance(task.get("envelope"), dict) else {}
     allowed_fields = {
         "task_id", "idempotency_key", "kind", "target_node", "required_capability",
-        "runner", "objective", "write_scope", "constraints", "max_retries",
+        "runner", "objective", "write_scope", "constraints", "max_attempts",
         "fallback_allowed", "source",
     }
     if set(envelope) != allowed_fields:
@@ -2320,7 +2459,7 @@ def external_provider_task_compatible(
         return False
     if envelope.get("write_scope") != []:
         return False
-    if type(envelope.get("max_retries")) is not int or envelope.get("max_retries") != 0:
+    if type(envelope.get("max_attempts")) is not int or envelope.get("max_attempts") != 1:
         return False
     if envelope.get("fallback_allowed") is not False:
         return False
@@ -2334,7 +2473,10 @@ def external_provider_task_compatible(
         constraints.get("read_only") is True
         and constraints.get("network") == "provider_managed_only"
         and type(wall_seconds) is int
-        and 1 <= wall_seconds <= 600
+        # A provider response may be a durable background task. The Agent
+        # Host still fences it at one day and the gateway cancels stalled
+        # attempts by heartbeat; do not impose the old ten-minute user wall.
+        and 1 <= wall_seconds <= 86_400
     ):
         return False
     source = envelope.get("source")
@@ -2458,7 +2600,7 @@ def requeue_expired_leases(limit: int | None = None) -> dict[str, Any]:
         summary["expired"] += 1
         task["lease_owner"] = None
         task["lease_until"] = None
-        if int(task.get("attempt", 0)) < int(task.get("max_retries", MAX_RETRIES)):
+        if task_has_attempt_budget(task):
             task["state"] = STATE_RETRY
             task["error_type"] = "lease_expired"
             task["error"] = "lease expired before task completion"
@@ -2515,7 +2657,7 @@ def sweep_stuck_tasks(limit: int | None = None, stale_after: int | None = None) 
         task["lease_owner"] = None
         task["lease_until"] = None
         task["error_type"] = "stuck_no_heartbeat"
-        if int(task.get("attempt", 0)) < int(task.get("max_retries", MAX_RETRIES)):
+        if task_has_attempt_budget(task):
             task["state"] = STATE_RETRY
             task["error"] = f"task heartbeat stale for {int(age)}s"
             save_task(task)
@@ -3002,7 +3144,7 @@ def create_review_task(source_task: dict[str, Any], result: dict[str, Any]) -> d
         "pull_request_url": pr_url,
         "branch": result.get("branch"),
         "base_ref": envelope.get("base_ref", "origin/main"),
-        "max_retries": envelope.get("review_max_retries", MAX_RETRIES),
+        "max_attempts": int(envelope.get("review_max_attempts", DEFAULT_MAX_ATTEMPTS)),
     }
     review_node = envelope.get("review_node")
     if review_node:
@@ -3098,7 +3240,7 @@ def miniapp_task_envelope(body: dict[str, Any], auth: dict[str, Any]) -> dict[st
             "role": auth["role"],
             "accepted_at": utc_now(),
         },
-        "max_retries": int(body.get("max_retries", 1)),
+        "max_attempts": int(body.get("max_attempts", 2)),
     }
 
 
@@ -3770,6 +3912,16 @@ class Handler(BaseHTTPRequestHandler):
                         task["state"] = STATE_LEASED
                         task["attempt"] = int(task.get("attempt", 0)) + 1
                         task["attempt_id"] = f"{task_id}-attempt-{task['attempt']}"
+                        try:
+                            allocate_next_fencing_token(task)
+                        except (TypeError, ValueError) as exc:
+                            task["state"] = STATE_DEAD
+                            task["error_type"] = "lease_fencing_contract_invalid"
+                            task["error"] = str(exc)
+                            save_task(task)
+                            remove_from_queue(task_id)
+                            redis.command("RPUSH", key("dead_letter"), task_id)
+                            continue
                         task["lease_owner"] = f"{node_id}:{agent_id}"
                         task["lease_actor_scope"] = eligibility.get("lease_scope") or "canonical_mesh"
                         if eligibility.get("lease_scope") == EXTERNAL_PROVIDER_ACTOR_SCOPE:
@@ -3804,6 +3956,30 @@ class Handler(BaseHTTPRequestHandler):
                 if reject_invalid_lease_fence(self, task, body):
                     return
                 if task.get("state") not in TERMINAL_STATES:
+                    progress = body.get("progress")
+                    if progress is not None:
+                        if not (
+                            isinstance(progress, dict)
+                            and set(progress) == {
+                                "schema_version", "type", "sequence", "delta",
+                            }
+                            and progress.get("schema_version") == "kolibri.public-progress.v1"
+                            and progress.get("type") == "reasoning_summary_delta"
+                            and type(progress.get("sequence")) is int
+                            and 1 <= progress["sequence"] <= 1_000_000
+                            and isinstance(progress.get("delta"), str)
+                            and 0 < len(progress["delta"].encode("utf-8")) <= 16_384
+                        ):
+                            response(self, 400, {"error": "task_progress_contract_invalid"})
+                            return
+                        previous_progress = task.get("progress")
+                        previous_sequence = (
+                            previous_progress.get("sequence", 0)
+                            if isinstance(previous_progress, dict)
+                            else 0
+                        )
+                        if progress["sequence"] > previous_sequence:
+                            task["progress"] = progress
                     task["state"] = body.get("state") or STATE_RUNNING
                     task["heartbeat_at"] = utc_now()
                     task["lease_until"] = now_ts() + LEASE_DURATION
@@ -3939,7 +4115,7 @@ class Handler(BaseHTTPRequestHandler):
                 # Truth gate: log contradiction on failure
                 task = truth_gate_on_fail(task, error_type, error)
                 mark_node_runner_failure(task, body)
-                if int(task.get("attempt", 0)) < int(task.get("max_retries", MAX_RETRIES)) and body.get("retry", True):
+                if task_has_attempt_budget(task) and body.get("retry", True):
                     task["state"] = STATE_RETRY
                     save_task(task)
                     task["state"] = STATE_QUEUED

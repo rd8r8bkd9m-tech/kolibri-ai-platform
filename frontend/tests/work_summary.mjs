@@ -28,7 +28,7 @@ assert.equal(normalizeWorkSummary({ metadata: { kolibri_work_summary: "not-json"
 assert.equal(normalizeWorkSummary({ metadata: { kolibri_work_summary: JSON.stringify({
   v: 1,
   mode: "summary_only",
-  items: [{ kind: "plan", status: "passed", detail: "api_key=sk-never-render-this" }],
+  items: [{ kind: "plan", status: "passed", detail: "api_key=sk-" + "never-render-this" }],
 }) } }), null);
 assert.equal(normalizeWorkSummary({ metadata: { kolibri_work_summary: JSON.stringify({
   v: 1,
@@ -46,8 +46,8 @@ const { WorkSummary } = await vite.ssrLoadModule("/src/windows/shared/WorkSummar
 await vite.close();
 
 const markup = renderToStaticMarkup(createElement(WorkSummary, { summary }));
-assert.match(markup, /Ход работы/);
-assert.match(markup, /Проверено/);
+assert.match(markup, /Работа завершена/);
+assert.doesNotMatch(markup, /Ход работы|Проверено/);
 assert.match(markup, /aria-expanded="false"/);
 assert.doesNotMatch(markup, /Ответ подготовлен/, "details stay collapsed until the user asks for them");
 
@@ -75,6 +75,31 @@ const connected = normalizeWorkSummary({ metadata: { kolibri_work_summary: JSON.
 }) } });
 const connectedMarkup = renderToStaticMarkup(createElement(WorkSummary, { summary: connected }));
 assert.match(connectedMarkup, /Подключено/);
+
+const activeMarkup = renderToStaticMarkup(createElement(WorkSummary, {
+  progressText: "Проверяю актуальные источники",
+  status: "running",
+  summary: readiness,
+}));
+assert.match(activeMarkup, /Проверяю актуальные источники/);
+assert.match(activeMarkup, /В работе/);
+assert.doesNotMatch(activeMarkup, /Ход работы/);
+
+const completedMarkup = renderToStaticMarkup(createElement(WorkSummary, {
+  completedAt: "2026-07-11T10:00:08.000Z",
+  startedAt: "2026-07-11T10:00:00.000Z",
+  status: "completed",
+  summary,
+}));
+assert.match(completedMarkup, /Работал 8 сек\./);
+
+const recoverableMarkup = renderToStaticMarkup(createElement(WorkSummary, {
+  onRetry: () => {},
+  recoverable: true,
+  status: "incomplete",
+}));
+assert.match(recoverableMarkup, /Ответ прерван/);
+assert.match(recoverableMarkup, /Повторить/);
 
 const sourceSummary = normalizeWorkSummary({ metadata: {
   kolibri_work_summary: JSON.stringify({
@@ -140,6 +165,7 @@ assert.match(css, /\.work-summary-trigger/);
 assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.work-summary-panel\s*\{[\s\S]*?position:\s*fixed;[\s\S]*?bottom:\s*0;/);
 assert.match(css, /\.work-summary-scrim\s*\{[\s\S]*?position:\s*fixed;/);
 assert.doesNotMatch(projectWorkspace, /Выполняю…/);
-assert.match(projectWorkspace, /message\.text \|\| message\.progressText/);
+assert.doesNotMatch(projectWorkspace, /message\.text \|\| message\.progressText/);
+assert.match(projectWorkspace, /progressText=\{message\.progressText\}/);
 
 console.log("Kolibri safe work-summary metadata, UI, and mobile sheet contracts passed");

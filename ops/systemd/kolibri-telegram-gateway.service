@@ -14,10 +14,10 @@ Environment=KOLIBRI_MESH_MEMBERSHIP_MANIFEST=/var/lib/kolibri-mesh/peers.json
 Environment=KOLIBRI_OWNER_API_TOKEN_FILE=/etc/kolibri/owner-api-token
 Environment=TELEGRAM_GATEWAY_STATE=/var/lib/kolibri-telegram-gateway/state.json
 Environment=TELEGRAM_UPDATE_RECEIVER=polling
-Environment=HTTPS_PROXY=http://127.0.0.1:18080
+Environment=PYTHONDONTWRITEBYTECODE=1
 WorkingDirectory=/usr/local/lib/kolibri
-ExecStartPre=/usr/bin/python3 /usr/local/lib/kolibri/control_plane_endpoint.py --assert-local-home
-ExecStart=/usr/bin/python3 /usr/local/lib/kolibri/telegram_gateway.py
+ExecStartPre=/usr/bin/python3 -B /usr/local/lib/kolibri/control_plane_endpoint.py --assert-local-home
+ExecStart=/usr/bin/python3 -B /usr/local/lib/kolibri/telegram_gateway.py
 Restart=always
 RestartSec=5
 KillSignal=SIGTERM

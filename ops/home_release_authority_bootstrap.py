@@ -663,7 +663,8 @@ class HomeReleaseAuthorityBootstrap:
             "KOLIBRI_RELEASE_ALLOWED_SIGNERS=/etc/kolibri/release_allowed_signers",
             "KOLIBRI_OWNER_APPROVAL_ALLOWED_SIGNERS=/etc/kolibri/owner_allowed_signers",
             "KOLIBRI_RELEASE_POLICY=/etc/kolibri/release-policy.json",
-            "ExecStart=/usr/bin/python3 /usr/local/lib/kolibri/release_helper.py --serve-systemd",
+            "ExecStart=/usr/bin/python3 -B /usr/local/lib/kolibri/release_helper.py --serve-systemd",
+            "Environment=PYTHONDONTWRITEBYTECODE=1",
         )
         required_socket_fragments = (
             "ListenStream=/run/kolibri-release/installer.sock",
@@ -672,8 +673,9 @@ class HomeReleaseAuthorityBootstrap:
             "DirectoryMode=0755",
         )
         required_control_plane_fragments = (
-            "ExecStartPre=/usr/bin/python3 /usr/local/lib/kolibri/control_plane_endpoint.py --assert-local-home",
-            "ExecStart=/usr/bin/python3 /usr/local/lib/kolibri/home_control_plane_launcher.py",
+            "ExecStartPre=/usr/bin/python3 -B /usr/local/lib/kolibri/control_plane_endpoint.py --assert-local-home",
+            "ExecStart=/usr/bin/python3 -B /usr/local/lib/kolibri/home_control_plane_launcher.py",
+            "Environment=PYTHONDONTWRITEBYTECODE=1",
         )
         if any(fragment not in service for fragment in required_service_fragments):
             raise BootstrapError("release_authority_unit_invalid")

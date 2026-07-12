@@ -467,7 +467,12 @@ def build_deliverable_retry_envelope(source_task: dict[str, Any], now: str | Non
     envelope["source_task_id"] = source_task_id
     envelope["retry_reason"] = "deliverable_gate_failed"
     envelope["required_capability"] = envelope.get("required_capability") or "generic_implementation"
-    envelope["max_retries"] = max(1, int_value(envelope.get("max_retries")) or 1)
+    legacy_retries = int_value(envelope.pop("max_retries", None))
+    configured_attempts = int_value(envelope.get("max_attempts"))
+    envelope["max_attempts"] = max(
+        2,
+        configured_attempts or (legacy_retries + 1 if legacy_retries >= 0 else 2),
+    )
     target_node = str(envelope.get("target_node") or envelope.get("required_node") or "")
     if target_node.startswith("__"):
         envelope.pop("target_node", None)

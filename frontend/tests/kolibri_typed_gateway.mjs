@@ -9,15 +9,18 @@ import {
   buildDocumentTask,
   buildEstimateProposalTask,
   buildEstimateTask,
+  buildImageTask,
   buildSiteTask,
   loadControlSnapshot,
   loadSupportedExecutionModes,
   normalizeModels,
   normalizeTypedTaskEnvelope,
+  publicErrorMessage,
   resetPublicSessionForTests,
   sendKolibriRequest,
   submitEstimateFeedback,
 } from "../src/runtime/kolibriApi.js";
+import { imageArtifactUrl } from "../src/runtime/artifactLocators.js";
 
 const sha = (value) => value.repeat(64);
 
@@ -110,10 +113,31 @@ function openAiResponse(text, task = null) {
 
 function sseResponse(payload) {
   const text = payload.output_text;
+  const pivot = Math.max(1, Math.ceil(text.length / 2));
+  const chunks = [text.slice(0, pivot), text.slice(pivot)].filter(Boolean);
   const events = [
     ["response.created", { type: "response.created", response: { ...payload, status: "in_progress", output: [] } }],
-    ["response.output_text.delta", { type: "response.output_text.delta", delta: text }],
+    ...chunks.map((delta) => ["response.output_text.delta", { type: "response.output_text.delta", delta }]),
     ["response.completed", { type: "response.completed", response: payload }],
+  ].map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`).join("");
+  return new globalThis.Response(events, {
+    status: 200,
+    headers: { "content-type": "text/event-stream" },
+  });
+}
+
+function failedSseResponse(error) {
+  const failed = {
+    id: "resp_failed",
+    object: "response",
+    status: "failed",
+    model: "kolibri",
+    output: [],
+    error,
+  };
+  const events = [
+    ["response.created", { type: "response.created", response: { ...failed, status: "in_progress", error: null } }],
+    ["response.failed", { type: "response.failed", response: failed }],
   ].map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`).join("");
   return new globalThis.Response(events, {
     status: 200,
@@ -186,11 +210,31 @@ const inactivePublicSession = {
 
 assert.equal(API_ENDPOINTS.response, "/v1/responses");
 assert.equal(API_ENDPOINTS.publicSession, "/v1/public/session");
+for (const error of [
+  new KolibriApiError("Forbidden", { status: 403 }),
+  new KolibriApiError("origin_not_allowed", { status: 403, payload: { detail: "origin_not_allowed" } }),
+]) {
+  const message = publicErrorMessage(error);
+  assert.doesNotMatch(message, /Forbidden|origin_not_allowed/i);
+  assert.match(message, /сесси|адрес/i);
+}
+const stalledProviderMessage = publicErrorMessage(new KolibriApiError("private", {
+  status: 503,
+  payload: { code: "provider_timeout" },
+}));
+assert.match(stalledProviderMessage, /перестал передавать прогресс/i);
+assert.doesNotMatch(stalledProviderMessage, /отвед[её]нное время/i);
+assert.match(publicErrorMessage(new KolibriApiError("private", {
+  status: 503,
+  payload: { code: "provider_capacity_unavailable" },
+})), /маршрут/i);
 
 assert.deepEqual(buildConversationMessages([
   { role: "user", text: "Первый вопрос" },
   { role: "assistant", text: "Первый ответ", status: "completed" },
   { role: "assistant", text: "Не отправлять", status: "running" },
+  { role: "assistant", text: "Локальное сообщение восстановления", status: "completed", recoverable: true },
+  { role: "assistant", text: "Не является ответом модели", status: "completed", excludeFromContext: true },
 ], "Второй вопрос"), [
   { role: "user", content: "Первый вопрос" },
   { role: "assistant", content: "Первый ответ" },
@@ -225,6 +269,35 @@ assert.deepEqual(buildEstimateProposalTask({ brief: "Смета на кухню"
   brief: "Смета на кухню",
   requested_artifacts: ["pdf"],
 });
+assert.deepEqual(buildImageTask({ brief: "Портрет султана" }), {
+  intent: "image",
+  brief: "Портрет султана",
+  requested_artifacts: ["image"],
+});
+const imageArtifact = {
+  ...verifiedArtifact("image", "8"),
+  kind: "image",
+  name: "Изображение Kolibri.png",
+  locator: "/v1/public/artifacts/artifact_image_123/content",
+  media_type: "image/png",
+};
+const normalizedImage = normalizeTypedTaskEnvelope(typedEnvelope({
+  intent: "image",
+  requested: ["image"],
+  delivered: ["image"],
+  artifacts: [imageArtifact],
+  result: { type: "verified_provider_response", text: "Изображение создано и готово к просмотру." },
+}), "image");
+assert.equal(normalizedImage.status, "completed");
+assert.equal(normalizedImage.artifacts[0].media_type, "image/png");
+assert.equal(imageArtifactUrl(normalizedImage.artifacts[0]), normalizedImage.artifacts[0].locator);
+for (const locator of [
+  "https://attacker.example/image.png",
+  "data:image/png;base64,AAAA",
+  "javascript:alert(1)",
+]) {
+  assert.equal(imageArtifactUrl({ ...normalizedImage.artifacts[0], locator }), "");
+}
 
 const normalizedEstimate = normalizeTypedTaskEnvelope(typedEnvelope({
   intent: "estimate",
@@ -276,6 +349,134 @@ assert.equal(normalizedEstimate.result.calculation.totals.grand_total_minor, 59_
 assert.equal(normalizedEstimate.result.estimate.lines.length, 1);
 assert.equal(normalizedEstimate.result.verification.normative_verified, true);
 assert.equal(normalizedEstimate.persistence.version, 1);
+const researchedEnvelope = typedEnvelope({
+  intent: "estimate",
+  requested: [],
+  delivered: [],
+  artifacts: [],
+  result: {
+    type: "deterministic_estimate",
+    status: "preliminary",
+    estimate: {
+      title: "Ремонт кухни по текущим ценам",
+      currency: "RUB",
+      minor_unit: 2,
+      region: "Москва",
+      source_summary: "Текущие открытые цены",
+      assumptions: ["Не является договорной офертой"],
+      questions: [],
+      lines: [{
+        ...estimate.spec.lines[0],
+        provenance: {
+          source: "supplier",
+          source_ref: "Прайс поставщика",
+          source_url: "https://supplier.example/current",
+          captured_at: "2026-07-11",
+          price_level_date: "2026-07-11",
+          validation_status: "unverified",
+        },
+      }],
+      overhead_rate_bps: 0,
+      tax_rate_bps: 0,
+    },
+    calculation: {
+      engine: "kolibri.decimal-minor-unit.v1",
+      money_authority: "deterministic_calculator",
+      llm_calculates_money: false,
+      totals: { grand_total_minor: 37_500 },
+    },
+    verification: {
+      schema_version: "kolibri.normative-estimate-gate.v1",
+      status: "preliminary",
+      monetary_status: "calculated",
+      normative_verified: false,
+      commercial_verified: false,
+      source_coverage_complete: true,
+      missing: [],
+      binding_sha256: sha("7"),
+    },
+    price_research: {
+      schema_version: "kolibri.estimate-price-research.v1",
+      status: "source_bound_preliminary",
+      region: "Москва",
+      minor_unit: 2,
+      selection_rule: "range_midpoint_round_half_up",
+      source_validation: "controlled_search_snippet_binding",
+      independent_normative_verification: false,
+      lines: [{
+        line_id: "labor-1",
+        price_min_minor: 14_000,
+        price_max_minor: 16_000,
+        selected_unit_price_minor: 15_000,
+        selection_rule: "range_midpoint_round_half_up",
+        source_url: "https://supplier.example/current",
+        source_quote: "Цена от 140 до 160 руб.",
+        source_content_sha256: sha("8"),
+        source_retrieved_at: "2026-07-11T08:00:00Z",
+        source_title: "Прайс поставщика",
+        source_host: "supplier.example",
+      }],
+      binding_sha256: sha("9"),
+    },
+  },
+});
+const normalizedResearch = normalizeTypedTaskEnvelope(researchedEnvelope, "estimate");
+assert.equal(normalizedResearch.result.price_research.lines[0].price_min_minor, 14_000);
+assert.equal(normalizedResearch.result.price_research.lines[0].selected_unit_price_minor, 15_000);
+
+const providerAssertedEnvelope = structuredClone(researchedEnvelope);
+providerAssertedEnvelope.result.price_research = {
+  ...providerAssertedEnvelope.result.price_research,
+  status: "provider_asserted_unverified",
+  source_validation: "native_search_event_with_provider_asserted_sources",
+  native_tool_binding: {
+    schema_version: "kolibri.native-web-search-binding.v1",
+    tool_id: "tool:web_search",
+    tool_call_ids: ["native_web_search_call"],
+    verifier_binding_sha256: sha("a"),
+    source_claim: "provider_asserted_unverified",
+  },
+  lines: providerAssertedEnvelope.result.price_research.lines.map((line) => ({
+    ...line,
+    provider_asserted: true,
+    independently_citation_bound: false,
+    observed_on: "2026-07-11",
+  })),
+};
+const normalizedProviderAssertion = normalizeTypedTaskEnvelope(providerAssertedEnvelope, "estimate");
+assert.equal(normalizedProviderAssertion.result.status, "preliminary");
+assert.equal(normalizedProviderAssertion.result.price_research.status, "provider_asserted_unverified");
+assert.equal(normalizedProviderAssertion.result.price_research.lines[0].provider_asserted, true);
+assert.equal(normalizedProviderAssertion.result.price_research.lines[0].independently_citation_bound, false);
+assert.deepEqual(
+  normalizedProviderAssertion.result.price_research.native_tool_binding.tool_call_ids,
+  ["native_web_search_call"],
+);
+
+for (const mutate of [
+  (envelope) => { envelope.result.price_research.native_tool_binding = null; },
+  (envelope) => { envelope.result.price_research.lines[0].provider_asserted = false; },
+  (envelope) => { envelope.result.price_research.lines[0].independently_citation_bound = true; },
+  (envelope) => {
+    envelope.result.price_research.lines[0].source_url = "http://supplier.example/current";
+    envelope.result.estimate.lines[0].provenance.source_url = "http://supplier.example/current";
+  },
+  (envelope) => { envelope.result.status = "verified"; envelope.result.verification.status = "verified"; envelope.result.verification.normative_verified = true; },
+]) {
+  const forgedProviderAssertion = structuredClone(providerAssertedEnvelope);
+  mutate(forgedProviderAssertion);
+  assert.throws(
+    () => normalizeTypedTaskEnvelope(forgedProviderAssertion, "estimate"),
+    (error) => error instanceof KolibriApiError && /исследован.*цен|не привязана/i.test(error.message),
+  );
+}
+
+const forgedResearch = structuredClone(researchedEnvelope);
+forgedResearch.result.price_research.lines[0].selected_unit_price_minor = 15_001;
+assert.throws(
+  () => normalizeTypedTaskEnvelope(forgedResearch, "estimate"),
+  (error) => error instanceof KolibriApiError && /не привязана/.test(error.message),
+);
 const readiness = {
   schema_version: "kolibri.estimate-readiness.v1",
   title: "Исходные данные для сметы",
@@ -417,7 +618,7 @@ assert.deepEqual(buildDocumentTask({ brief: "Коммерческое предл
 assert.deepEqual(buildSiteTask({ brief: "Сайт компании" }).requested_artifacts, ["source", "site-preview"]);
 assert.deepEqual(buildAppTask({ brief: "CRM" }).requested_artifacts, ["source", "build", "test-report"]);
 assert.throws(
-  () => buildSiteTask({ brief: "Сайт", requirements: { apiKey: "must-not-leave-browser" } }),
+  () => buildSiteTask({ brief: "Сайт", requirements: { apiKey: "must-not-" + "leave-browser" } }),
   (error) => error instanceof KolibriApiError && /credential/.test(error.message),
 );
 assert.throws(
@@ -547,12 +748,16 @@ try {
 
   const result = await sendKolibriRequest({
     text: "Сделай КП",
+    projectId: "project_ephemeral_test",
     task: buildDocumentTask({ brief: "КП на ремонт", documentType: "commercial-offer" }),
   });
   assert.deepEqual(calls.map((call) => call.url), ["/v1/public/session", "/v1/responses"]);
   const typedCall = calls[1];
   assert.equal(typedCall.body.model, "kolibri");
   assert.equal(typedCall.body.stream, true);
+  assert.equal(typedCall.body.background, true);
+  assert.deepEqual(typedCall.body.reasoning, { effort: "medium", summary: "auto" });
+  assert.equal(typedCall.body.project_id, "project_ephemeral_test");
   assert.equal(typedCall.body.task.intent, "document");
   assert.equal("provider" in typedCall.body, false);
   assert.equal(result.endpoint, "/v1/responses");
@@ -607,6 +812,7 @@ try {
     executionMode: "codex",
   });
   assert.equal(calls[1].body.execution_mode, "codex");
+  assert.deepEqual(calls[1].body.reasoning, { effort: "high", summary: "auto" });
   assert.deepEqual(calls[1].body.task.requested_artifacts, ["pdf"]);
   assert.match(estimateResult.text, /итог рассчитан детерминированно/);
   assert.equal(estimateResult.task.persistence.estimate_id, "estimate-one");
@@ -645,16 +851,52 @@ try {
 
   calls.length = 0;
   resetPublicSessionForTests();
+  globalThis.fetch = async (url) => {
+    calls.push({ url });
+    if (url === "/v1/public/session") return response(200, publicSession);
+    return failedSseResponse({
+      type: "provider_unavailable",
+      code: "provider_capacity_unavailable",
+      message: "No eligible model worker was available for this request.",
+      retryable: true,
+      attempt_summary: { attempted: 2, failed: 2, timed_out: 0, cancelled: 0, skipped: 0 },
+    });
+  };
+  await assert.rejects(
+    sendKolibriRequest({ text: "используй все маршруты" }),
+    (error) => error instanceof KolibriApiError
+      && error.status === 503
+      && error.payload?.code === "provider_capacity_unavailable"
+      && error.payload?.error?.attempt_summary?.attempted === 2
+      && !JSON.stringify(error.payload).includes("resp_failed"),
+  );
+
+  calls.length = 0;
+  resetPublicSessionForTests();
   globalThis.fetch = async (url, options) => {
     calls.push({ url, body: options?.body ? JSON.parse(options.body) : null });
     if (url === "/v1/public/session") return response(200, publicSession);
     return sseResponse(openAiResponse("Обычный ответ Kolibri"));
   };
-  const conversational = await sendKolibriRequest({ text: "Ответь на вопрос" });
+  const textUpdates = [];
+  const conversational = await sendKolibriRequest({
+    text: "Ответь на вопрос",
+    onTextDelta: (delta, accumulatedText) => textUpdates.push({ delta, accumulatedText }),
+  });
   assert.deepEqual(calls.map((call) => call.url), ["/v1/public/session", "/v1/responses"]);
   assert.equal(calls[1].body.model, "kolibri");
   assert.equal(conversational.text, "Обычный ответ Kolibri");
+  assert.ok(textUpdates.length >= 2, "SSE text must reach the Shell incrementally");
+  assert.notEqual(textUpdates[0].accumulatedText, conversational.text);
+  assert.equal(textUpdates.at(-1).accumulatedText, conversational.text);
+  assert.equal(textUpdates.map((item) => item.delta).join(""), conversational.text);
   assert.deepEqual(conversational.artifacts, [], "untyped artifact claims must not enter the Shell");
+
+  const callbackFailureIsObservational = await sendKolibriRequest({
+    text: "Callback не должен прерывать запрос",
+    onTextDelta: () => { throw new Error("render failed"); },
+  });
+  assert.equal(callbackFailureIsObservational.text, "Обычный ответ Kolibri");
 
   calls.length = 0;
   resetPublicSessionForTests();
@@ -791,6 +1033,128 @@ try {
   assert.equal(calls[1].headers["Idempotency-Key"], calls[4].headers["Idempotency-Key"]);
   assert.equal(calls[1].cache, "no-store");
   assert.equal(calls[4].cache, "no-store");
+
+  calls.length = 0;
+  resetPublicSessionForTests();
+  let expiredProjectAttempts = 0;
+  let expiredProjectReconciliations = 0;
+  globalThis.fetch = async (url, options) => {
+    calls.push({
+      url,
+      method: options?.method || "GET",
+      body: options?.body ? JSON.parse(options.body) : null,
+      key: options?.headers?.["Idempotency-Key"] || "",
+    });
+    if (url === "/v1/public/session") return response(200, publicSession);
+    expiredProjectAttempts += 1;
+    if (expiredProjectAttempts === 1) return response(401, { detail: "public_session_required_or_expired" });
+    return sseResponse(openAiResponse("Сессия и проект восстановлены."));
+  };
+  const expiredProjectRecovered = await sendKolibriRequest({
+    text: "продолжить после перезапуска",
+    projectId: "project_ephemeral_old_session",
+    reconcileProjectId: async ({ failedProjectId }) => {
+      expiredProjectReconciliations += 1;
+      assert.equal(failedProjectId, "project_ephemeral_old_session");
+      return "project_ephemeral_rebound_session";
+    },
+  });
+  assert.equal(expiredProjectRecovered.text, "Сессия и проект восстановлены.");
+  assert.equal(expiredProjectReconciliations, 1);
+  const expiredProjectResponseCalls = calls.filter((call) => call.url === "/v1/responses");
+  assert.deepEqual(expiredProjectResponseCalls.map((call) => call.body.project_id), [
+    "project_ephemeral_old_session",
+    "project_ephemeral_rebound_session",
+  ]);
+  assert.equal(expiredProjectResponseCalls[0].key, expiredProjectResponseCalls[1].key);
+
+  for (const [status, detail] of [
+    [404, "project_not_found"],
+    [403, "public_session_project_not_owned"],
+  ]) {
+    calls.length = 0;
+    resetPublicSessionForTests();
+    let attempts = 0;
+    let reconciliations = 0;
+    globalThis.fetch = async (url, options) => {
+      calls.push({
+        url,
+        method: options?.method || "GET",
+        body: options?.body ? JSON.parse(options.body) : null,
+        key: options?.headers?.["Idempotency-Key"] || "",
+      });
+      if (url === "/v1/public/session") return response(200, publicSession);
+      attempts += 1;
+      if (attempts === 1) return response(status, { detail });
+      return sseResponse(openAiResponse(`Проект восстановлен после ${status}.`));
+    };
+    const projectRecovered = await sendKolibriRequest({
+      text: `rebind ${status}`,
+      projectId: "project_ephemeral_stale",
+      reconcileProjectId: async ({ failedProjectId }) => {
+        reconciliations += 1;
+        assert.equal(failedProjectId, "project_ephemeral_stale");
+        return "project_ephemeral_current";
+      },
+    });
+    assert.equal(projectRecovered.text, `Проект восстановлен после ${status}.`);
+    assert.equal(reconciliations, 1, "an ownership mismatch must reconcile only once");
+    const responseCalls = calls.filter((call) => call.url === "/v1/responses");
+    assert.equal(responseCalls.length, 2, "an ownership mismatch gets one bounded replay");
+    assert.deepEqual(responseCalls.map((call) => call.body.project_id), [
+      "project_ephemeral_stale",
+      "project_ephemeral_current",
+    ]);
+    assert.equal(responseCalls[0].key, responseCalls[1].key, "the replay must preserve idempotency");
+  }
+
+  calls.length = 0;
+  resetPublicSessionForTests();
+  let unrelatedReconciliations = 0;
+  globalThis.fetch = async (url) => {
+    calls.push({ url });
+    if (url === "/v1/public/session") return response(200, publicSession);
+    return response(404, { detail: "response_not_found" });
+  };
+  await assert.rejects(
+    sendKolibriRequest({
+      text: "не ретраить посторонний 404",
+      projectId: "project_ephemeral_current",
+      reconcileProjectId: async () => {
+        unrelatedReconciliations += 1;
+        return "project_ephemeral_other";
+      },
+    }),
+    (error) => error instanceof KolibriApiError && error.status === 404,
+  );
+  assert.equal(unrelatedReconciliations, 0);
+  assert.equal(calls.filter((call) => call.url === "/v1/responses").length, 1);
+
+  calls.length = 0;
+  resetPublicSessionForTests();
+  let unchangedReconciliations = 0;
+  globalThis.fetch = async (url) => {
+    calls.push({ url });
+    if (url === "/v1/public/session") return response(200, publicSession);
+    return response(404, { detail: "project_not_found" });
+  };
+  await assert.rejects(
+    sendKolibriRequest({
+      text: "ограничить повтор",
+      projectId: "project_ephemeral_still_missing",
+      reconcileProjectId: async () => {
+        unchangedReconciliations += 1;
+        return "project_ephemeral_still_missing";
+      },
+    }),
+    (error) => error instanceof KolibriApiError && error.status === 404,
+  );
+  assert.equal(unchangedReconciliations, 1);
+  assert.equal(
+    calls.filter((call) => call.url === "/v1/responses").length,
+    2,
+    "an unsuccessful reconciliation must stop after its single replay",
+  );
 
   for (const [status, payload] of [
     [401, { detail: "invalid_provider_credentials" }],

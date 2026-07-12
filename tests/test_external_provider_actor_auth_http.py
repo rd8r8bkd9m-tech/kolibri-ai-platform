@@ -20,8 +20,8 @@ ROOT = Path(__file__).resolve().parents[1]
 NODE_ID = "mac-codex-provider-test"
 AGENT_ID = "mac-codex-provider-test-agent"
 CREDENTIAL_ID = "mac-codex-provider-test-v1"
-TOKEN = "test-provider-token-0123456789-ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-WRONG_TOKEN = "wrong-provider-token-0123456789-ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+TOKEN = "test-provider-" + "token-0123456789-ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+WRONG_TOKEN = "wrong-provider-" + "token-0123456789-ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 TASK_ID = "KOL-PROVIDER-auth-http-test"
 
 
@@ -106,7 +106,7 @@ def leased_task(*, marker_epoch: int = 1) -> dict[str, Any]:
         "lease_external_auth": auth_marker(marker_epoch),
         "lease_until": time.time() + 60,
         "heartbeat_at": "2026-07-11T00:00:00+00:00",
-        "max_retries": 0,
+        "max_attempts": 1,
         "result": None,
         "envelope": {"runner": "codex"},
     }

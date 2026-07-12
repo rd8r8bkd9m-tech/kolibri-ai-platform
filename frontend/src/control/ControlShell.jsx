@@ -1,63 +1,61 @@
 import { useEffect, useState } from "react";
-import { MoreHorizontal } from "lucide-react";
 import { loadControlSnapshot } from "../runtime/kolibriApi";
 import { SystemBar } from "../shell/SystemBar";
+import { buildControlView } from "./controlViewModel";
 
 export function ControlShell() {
   const [snapshot, setSnapshot] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [phase, setPhase] = useState("loading");
 
   useEffect(() => {
     let active = true;
     loadControlSnapshot()
-      .then((value) => active && setSnapshot(value))
-      .finally(() => active && setLoading(false));
+      .then((value) => {
+        if (!active) return;
+        setSnapshot(value);
+        setPhase("ready");
+      })
+      .catch(() => {
+        if (active) setPhase("unavailable");
+      });
     return () => {
       active = false;
     };
   }, []);
 
-  const status = snapshot?.status?.value || {};
-  const tasks = snapshot?.tasks?.value || [];
-  const nodes = snapshot?.nodes?.value || [];
-  const metrics = [
-    ["Узлы online", status.online_nodes ?? nodes.length, status.total_nodes ? `из ${status.total_nodes}` : "фактический API"],
-    ["В очереди", status.queue_size ?? tasks.filter((item) => ["queued", "ready"].includes(item.state)).length, "задач"],
-    ["В работе", tasks.filter((item) => ["leased", "running", "review"].includes(item.state)).length, "активно"],
-    ["Control Plane", status.control_plane?.status === "completed" ? "Home" : "Degraded", status.control_plane?.status || "нет доказательства"],
-  ];
+  const view = buildControlView(snapshot, phase);
 
   return (
     <main className="control-shell">
       <SystemBar navigationLabel="Управление фабрикой" subtitle="Home Control Plane" title="Owner Control">
         <a href="/">Открыть Kolibri</a>
-        <button aria-label="Дополнительно" type="button"><MoreHorizontal size={19} /></button>
       </SystemBar>
       <section className="control-content">
         <header>
           <span>Фактическое состояние</span>
           <h1>Фабрика Kolibri</h1>
-          <p>{loading ? "Получаю данные Home…" : "Задачи, узлы и исполнительный контур без mock-значений."}</p>
+          <p>{view.intro}</p>
         </header>
         <div className="control-metrics">
-          {metrics.map(([label, value, hint]) => (
-            <article key={label}><span>{label}</span><strong>{value}</strong><small>{hint}</small></article>
+          {view.metrics.map((metric) => (
+            <article data-state={metric.state} key={metric.label}><span>{metric.label}</span><strong>{metric.value}</strong><small>{metric.hint}</small></article>
           ))}
         </div>
         <section className="control-board">
           <header>
             <div><span>Execution</span><h2>Последние задачи</h2></div>
-            <span className={`live-state ${snapshot?.status?.available ? "is-online" : ""}`}>
-              <i />{snapshot?.status?.available ? "Live" : "Degraded"}
+            <span aria-live="polite" className={`live-state is-${view.tasksState}`}>
+              <i />{view.tasksState === "loading" ? "Загрузка" : view.tasksState === "live" ? "Live" : "Недоступно"}
             </span>
           </header>
           <div className="task-table">
-            {tasks.slice(0, 14).map((item) => (
+            {view.tasks.slice(0, 14).map((item) => (
               <div key={item.task_id || item.id}>
                 <span>{item.title || item.kind || "Задача"}</span>
                 <small>{item.state || item.status}</small>
               </div>
             ))}
+            {!view.tasks.length && <p className={`task-table-state is-${view.tasksState}`}>{view.tasksMessage}</p>}
           </div>
         </section>
       </section>

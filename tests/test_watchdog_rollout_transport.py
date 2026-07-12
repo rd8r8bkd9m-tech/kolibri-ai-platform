@@ -38,9 +38,10 @@ def test_watchdog_rollout_installs_complete_home_telegram_runtime():
     ):
         assert f'ops/{module}' in source
         assert f'/usr/local/lib/kolibri/{module}' in source
-    assert "ExecStart=/usr/bin/python3 /usr/local/lib/kolibri/telegram_gateway.py" in unit
+    assert "ExecStart=/usr/bin/python3 -B /usr/local/lib/kolibri/telegram_gateway.py" in unit
+    assert "Environment=PYTHONDONTWRITEBYTECODE=1" in unit
     assert "/opt/kolibri-ai-platform" not in unit
-    assert "Environment=HTTPS_PROXY=http://127.0.0.1:18080" in unit
+    assert "HTTPS_PROXY=" not in unit
 
 
 def test_watchdog_rollout_is_syntax_valid_and_bash_32_compatible():

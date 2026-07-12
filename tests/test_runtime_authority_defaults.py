@@ -86,6 +86,26 @@ def test_active_compatibility_sources_have_no_static_legacy_fleet_claim():
     assert "fetch_factory_status" in routes
 
 
+def test_unimplemented_legacy_capabilities_are_not_mounted_as_success_stubs():
+    routes = (BACKEND / "routes_v1.py").read_text(encoding="utf-8")
+    for path in (
+        "/api/v1/ai/imagine",
+        "/api/v1/ai/vision/analyze",
+        "/api/v1/ai/demo/learn/text",
+        "/api/v1/ai/quality/benchmark/history",
+        "/api/v1/ai/training/queue/status",
+        "/api/v1/swarm/runtime/start",
+        "/api/v1/swarm/runtime/refresh",
+        "/api/v1/swarm/runtime/run",
+        "/api/v1/swarm/runtime/ingest/text",
+        "/api/v1/swarm/runtime/ingest/url",
+        "/api/v1/swarm/runtime/kpack/export",
+        "/api/v1/swarm/runtime/kpack/import",
+    ):
+        assert path not in routes
+    assert "coming soon" not in routes.lower()
+
+
 def test_review_task_uses_capability_scheduler_without_static_worker(monkeypatch):
     control = load_factory_control()
     captured = []

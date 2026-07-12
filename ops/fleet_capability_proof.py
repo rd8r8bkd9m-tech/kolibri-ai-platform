@@ -62,14 +62,17 @@ def canonical_json_sha256(value: Any) -> str:
 
 
 def completion_binding_sha256(task: dict[str, Any], result_sha256: str) -> str:
-    return canonical_json_sha256({
+    payload: dict[str, Any] = {
         "schema_version": BINDING_SCHEMA,
         "task_id": str(task.get("task_id") or ""),
         "attempt_id": str(task.get("attempt_id") or ""),
         "lease_owner": str(task.get("lease_owner") or ""),
         "result_reference": str(task.get("result_reference") or ""),
         "result_sha256": result_sha256,
-    })
+    }
+    if "fencing_token" in task:
+        payload["fencing_token"] = task.get("fencing_token")
+    return canonical_json_sha256(payload)
 
 
 class ControlPlaneClient:
@@ -176,7 +179,7 @@ def build_campaign_plan(
             "required_capability": "read_only_probe",
             "read_only": True,
             "fallback_allowed": False,
-            "max_retries": 1,
+            "max_attempts": 2,
             "source": {
                 "kind": "fleet_capability_proof_campaign",
                 "campaign_id": campaign_id,
@@ -259,6 +262,16 @@ def validate_completed_task(
             reasons.append("evidence_attempt_mismatch")
         if evidence.get("lease_owner") != task.get("lease_owner"):
             reasons.append("evidence_lease_owner_mismatch")
+        if "fencing_token" in task:
+            expected_token = task.get("fencing_token")
+            if type(expected_token) is not int or expected_token <= 0:
+                reasons.append("task_fencing_token_invalid")
+            if result.get("fencing_token") != expected_token:
+                reasons.append("result_fencing_token_mismatch")
+            if evidence.get("fencing_token") != expected_token:
+                reasons.append("evidence_fencing_token_mismatch")
+            if verifier.get("fencing_token") != expected_token:
+                reasons.append("verifier_fencing_token_mismatch")
     target = (task.get("envelope") or {}).get("target_node")
     if target != node_id:
         reasons.append("task_target_mismatch")

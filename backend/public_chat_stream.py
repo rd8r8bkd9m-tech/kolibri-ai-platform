@@ -16,6 +16,19 @@ import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from public_errors import (
+    public_execution_failure,
+    public_provider_failure,
+    public_verification_failure,
+)
+from vertical_tasks import (
+    deterministic_estimate_fallback_text,
+    deterministic_estimate_fallback_verification,
+    deterministic_estimate_result_text,
+    deterministic_estimate_result_verification,
+    estimate_product_outcome,
+)
+
 
 STREAM_SCHEMA = "kolibri.public-chat-stream.v1"
 _SHA256 = re.compile(r"^[a-f0-9]{64}$")
@@ -24,11 +37,19 @@ _SHA256 = re.compile(r"^[a-f0-9]{64}$")
 class PublicChatStreamError(RuntimeError):
     """A normalized failure that is safe to expose on the public stream."""
 
-    def __init__(self, code: str, message: str, *, retryable: bool = False):
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        retryable: bool = False,
+        details: dict[str, Any] | None = None,
+    ):
         super().__init__(message)
         self.code = code
         self.public_message = message
         self.retryable = retryable
+        self.details = dict(details or {})
 
 
 def stream_timeout_seconds(requested: float | None = None) -> float:
@@ -66,23 +87,59 @@ def verified_public_payload(result: dict[str, Any]) -> dict[str, Any]:
     """
 
     if not isinstance(result, dict) or result.get("model") != "kolibri":
+        failure = public_verification_failure()
         raise PublicChatStreamError(
-            "verification_failed",
-            "Kolibri could not produce a verified answer",
+            failure["code"],
+            failure["message"],
         )
     answer = result.get("response")
     if not isinstance(answer, str) or not answer.strip():
+        failure = public_verification_failure()
         raise PublicChatStreamError(
-            "verification_failed",
-            "Kolibri could not produce a verified answer",
+            failure["code"],
+            failure["message"],
         )
+    task = result.get("task") if isinstance(result.get("task"), dict) else None
+    claimed_estimate_outcome = (
+        result.get("estimate_outcome")
+        if isinstance(result.get("estimate_outcome"), dict)
+        else None
+    )
+    estimate_outcome = (
+        estimate_product_outcome(task)
+        if task is not None and claimed_estimate_outcome is not None
+        else None
+    )
+    if claimed_estimate_outcome is not None and claimed_estimate_outcome != estimate_outcome:
+        failure = public_verification_failure()
+        raise PublicChatStreamError(failure["code"], failure["message"])
+    if estimate_outcome is not None:
+        if estimate_outcome["status"] == "needs_input":
+            expected_answer = deterministic_estimate_fallback_text(task)
+            verification = deterministic_estimate_fallback_verification(task)
+        else:
+            expected_answer = deterministic_estimate_result_text(task)
+            verification = deterministic_estimate_result_verification(task)
+        if answer != expected_answer:
+            failure = public_verification_failure()
+            raise PublicChatStreamError(failure["code"], failure["message"])
+        output_sha256 = hashlib.sha256(answer.encode("utf-8")).hexdigest()
+        return {
+            "response": answer,
+            "model": "kolibri",
+            "cached": bool(result.get("cached", False)),
+            "verification": {**verification, "output_sha256": output_sha256},
+            "task": task,
+            "estimate_outcome": estimate_outcome,
+        }
     technical = result.get("technical")
     routing = technical.get("provider_routing") if isinstance(technical, dict) else None
     evidence = routing.get("evidence") if isinstance(routing, dict) else None
     if not isinstance(evidence, list):
+        failure = public_verification_failure()
         raise PublicChatStreamError(
-            "verification_failed",
-            "Kolibri could not produce a verified answer",
+            failure["code"],
+            failure["message"],
         )
 
     encoded = answer.encode("utf-8")
@@ -106,9 +163,10 @@ def verified_public_payload(result: dict[str, Any]) -> dict[str, Any]:
         and _SHA256.fullmatch(item["binding_sha256"].lower())
     ), None)
     if provider_evidence is None or verifier_evidence is None:
+        failure = public_verification_failure()
         raise PublicChatStreamError(
-            "verification_failed",
-            "Kolibri could not produce a verified answer",
+            failure["code"],
+            failure["message"],
         )
 
     # Technical routing, runner identity, node references, endpoints and raw
@@ -237,6 +295,7 @@ async def public_chat_event_stream(
                 "code": exc.code,
                 "message": exc.public_message,
                 "retryable": exc.retryable,
+                **exc.details,
             },
         })
         sequence += 1
@@ -249,18 +308,24 @@ async def public_chat_event_stream(
         execution_task.cancel()
         await asyncio.gather(execution_task, return_exceptions=True)
         raise
-    except Exception:
+    except Exception as exc:
         # Provider stderr, exception messages and upstream bodies are never
         # serialized into a public event.
+        failure = (
+            public_provider_failure(exc.technical)
+            if getattr(exc, "technical", None) is not None
+            else public_execution_failure()
+        )
         sequence += 1
         yield _event(sequence, "failed", {
             **common,
             "type": "response.failed",
             "status": "failed",
             "error": {
-                "code": "provider_unavailable",
-                "message": "Kolibri could not produce a verified answer",
-                "retryable": True,
+                "code": failure["code"],
+                "message": failure["message"],
+                "retryable": failure["retryable"],
+                **({"attempt_summary": failure["attempt_summary"]} if "attempt_summary" in failure else {}),
             },
         })
         sequence += 1

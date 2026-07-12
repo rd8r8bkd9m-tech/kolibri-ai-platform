@@ -10,8 +10,9 @@ Environment=KOLIBRI_MESH_COORD_URL=http://10.99.0.1:8080
 Environment=KOLIBRI_MESH_MEMBERSHIP_MANIFEST=/var/lib/kolibri-mesh/peers.json
 Environment=KOLIBRI_MESH_BRIDGE_AGENT_ID=orchestrator
 Environment=KOLIBRI_MESH_DEFAULT_EXECUTOR=home-live
+Environment=PYTHONDONTWRITEBYTECODE=1
 WorkingDirectory=/opt/kolibri-ai-platform
-ExecStart=/usr/bin/python3 /opt/kolibri-ai-platform/ops/mesh_control_bridge.py
+ExecStart=/usr/bin/python3 -B /opt/kolibri-ai-platform/ops/mesh_control_bridge.py
 Restart=always
 RestartSec=5
 KillSignal=SIGTERM

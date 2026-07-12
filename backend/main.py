@@ -28,8 +28,16 @@ from public_responses_api import (
     router as public_responses_router,
 )
 from public_estimate_api import router as public_estimate_router
+from public_image_api import router as public_image_router
+from public_errors import public_provider_failure
+from product_capabilities import (
+    build_product_capability_matrix,
+    public_capability_projection,
+    verified_provider_health,
+)
 from data_paths import DB_PATH
 from pipeline import PipelineRequest, run_pipeline, pipeline_health
+from provider_gateway import get_provider_gateway
 from public_chat_stream import (
     PublicChatStreamError,
     public_chat_event_stream,
@@ -42,6 +50,7 @@ from vertical_tasks import (
     build_vertical_result,
     deterministic_estimate_fallback_text,
     deterministic_estimate_result_text,
+    estimate_product_outcome,
     failed_vertical_result,
     prepare_vertical_task,
 )
@@ -283,10 +292,34 @@ async def list_openai_models():
     }
 
 
+def _product_capability_matrix(request: Request) -> dict[str, Any]:
+    """Build the product view from current server and release evidence."""
+
+    gateway = get_provider_gateway()
+    return build_product_capability_matrix(
+        routes=request.app.routes,
+        capability_envelope=get_capability_gateway().envelope(),
+        provider_health=verified_provider_health(gateway),
+        built_in_tools={"tool:image_generation": callable(getattr(gateway, "generate_image", None))},
+    )
+
+
+@app.get("/v1/public/capabilities")
 @app.get("/v1/capabilities")
-async def list_public_capabilities():
-    """Expose sanitized capability declarations, never credentials or topology."""
-    return get_capability_gateway().envelope()
+async def list_public_capabilities(request: Request):
+    """Expose available customer abilities only; diagnostics stay in /control."""
+
+    return public_capability_projection(_product_capability_matrix(request))
+
+
+@app.get(
+    "/v1/runtime/product-capabilities",
+    dependencies=[Depends(require_execution_auth)],
+)
+async def list_operator_product_capabilities(request: Request):
+    """Owner-only gate evidence consumed by the Control surface."""
+
+    return _product_capability_matrix(request)
 
 @app.post("/api/v1/chat")
 @app.post("/api/chat")
@@ -339,6 +372,7 @@ async def chat(request: ChatRequest, req: Request):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ProviderGatewayError as exc:
+        provider_failure = public_provider_failure(exc.technical)
         fallback_task = (
             build_deterministic_estimate_fallback(
                 request.task,
@@ -355,15 +389,15 @@ async def chat(request: ChatRequest, req: Request):
                 "model": "kolibri",
                 "technical": {"provider_routing": exc.technical},
                 "task": fallback_task,
+                "estimate_outcome": estimate_product_outcome(fallback_task),
                 "cached": False,
             }
         content = {
-            "error": {"type": "provider_unavailable", "message": "Kolibri could not produce a verified answer"},
+            "error": provider_failure,
             "model": "kolibri",
-            "technical": {"provider_routing": exc.technical},
         }
         if request.task is not None:
-            content["task"] = failed_vertical_result(request.task, "provider_unavailable")
+            content["task"] = failed_vertical_result(request.task, provider_failure["code"])
         return JSONResponse(status_code=503, content=content)
 
     selected_provider = result["technical"]["provider_routing"].get("selected_provider") or ""
@@ -379,12 +413,16 @@ async def chat(request: ChatRequest, req: Request):
         if result_type == "deterministic_estimate"
         else result.get("response", "")
     )
-    return {
+    payload = {
         **result,
         "response": public_response,
         "task": task_payload,
         "cached": False,
     }
+    estimate_outcome = estimate_product_outcome(task_payload)
+    if estimate_outcome is not None:
+        payload["estimate_outcome"] = estimate_outcome
+    return payload
 
 
 @app.post("/api/v1/ai/chat/stream")
@@ -433,17 +471,37 @@ async def stream_public_chat(
                 "The public chat request is invalid",
             ) from exc
         except ProviderGatewayError as exc:
+            fallback_task = (
+                build_deterministic_estimate_fallback(
+                    request.task,
+                    reason=str(exc.technical.get("error_type") or "provider_unavailable")
+                    if isinstance(exc.technical, dict)
+                    else "provider_unavailable",
+                )
+                if request.task is not None
+                else None
+            )
+            if fallback_task is not None:
+                return {
+                    "response": deterministic_estimate_fallback_text(fallback_task),
+                    "model": "kolibri",
+                    "task": fallback_task,
+                    "estimate_outcome": estimate_product_outcome(fallback_task),
+                    "cached": False,
+                }
+            failure = public_provider_failure(exc.technical)
             raise PublicChatStreamError(
-                "provider_unavailable",
-                "Kolibri could not produce a verified answer",
-                retryable=True,
+                failure["code"],
+                failure["message"],
+                retryable=failure["retryable"],
+                details={"attempt_summary": failure["attempt_summary"]},
             ) from exc
 
-        # Validate before any cache write.  The legacy text-only cache cannot
-        # prove a terminal SSE answer, so streams always use the live verified
-        # path and cache only the newly evidence-bound plain-chat result.
-        verified_public_payload(result)
         if request.task is None:
+            # Validate before any cache write.  The legacy text-only cache
+            # cannot prove a terminal SSE answer, so streams always use the
+            # live verified path and cache only a newly evidence-bound result.
+            verified_public_payload(result)
             selected_provider = result["technical"]["provider_routing"].get("selected_provider") or ""
             cache_key = get_cache_key(messages, "kolibri", {
                 "temperature": request.temperature,
@@ -453,11 +511,25 @@ async def stream_public_chat(
             })
             cache_response(cache_key, result["response"], selected_provider)
             return {**result, "cached": False}
-        return {
+        task_payload = build_vertical_result(request.task, result, vertical_calculation)
+        result_type = (task_payload.get("result") or {}).get("type")
+        public_response = (
+            deterministic_estimate_fallback_text(task_payload)
+            if result_type == "estimate_readiness"
+            else deterministic_estimate_result_text(task_payload)
+            if result_type == "deterministic_estimate"
+            else result.get("response", "")
+        )
+        enriched = {
             **result,
-            "task": build_vertical_result(request.task, result, vertical_calculation),
+            "response": public_response,
+            "task": task_payload,
             "cached": False,
         }
+        estimate_outcome = estimate_product_outcome(task_payload)
+        if estimate_outcome is not None:
+            enriched["estimate_outcome"] = estimate_outcome
+        return enriched
 
     stream_id = f"stream_{uuid.uuid4().hex}"
     return StreamingResponse(
@@ -571,12 +643,12 @@ async def tool_call(request: ToolCallRequest):
     except CapabilityRequestError as exc:
         raise HTTPException(status_code=422, detail=exc.public_detail()) from exc
     except ProviderGatewayError as exc:
+        failure = public_provider_failure(exc.technical)
         return JSONResponse(
             status_code=503,
             content={
-                "error": "Kolibri could not produce a verified tool response",
+                "error": failure,
                 "model": "kolibri",
-                "technical": {"provider_routing": exc.technical},
             },
         )
 
@@ -642,6 +714,7 @@ app.include_router(v1_router)
 app.include_router(openai_compatibility_router)
 app.include_router(public_responses_router)
 app.include_router(public_estimate_router)
+app.include_router(public_image_router)
 app.include_router(execution_router)
 
 frontend_path = Path(

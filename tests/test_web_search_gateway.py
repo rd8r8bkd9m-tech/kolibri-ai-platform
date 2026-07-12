@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, quote, urlsplit
 
 import pytest
 
@@ -14,6 +14,7 @@ if str(BACKEND) not in sys.path:
 
 from response_tool_gateway import execute_response_tools
 from web_search_gateway import (
+    DEFAULT_PROVIDERS,
     HTTPPayload,
     SearchProvider,
     WebSearchAuthorization,
@@ -112,7 +113,7 @@ def test_public_session_requires_session_binding_and_tool_scope():
 def test_private_dns_answer_is_blocked_before_http():
     calls = []
     gateway = WebSearchGateway(
-        providers=(SearchProvider("search", "https://search.example/", "duckduckgo"),),
+        providers=(SearchProvider("duckduckgo", "https://api.duckduckgo.com/", "duckduckgo"),),
         resolver=lambda host, port, **kwargs: [(2, 1, 6, "", ("127.0.0.1", port))],
         requester=lambda *args: calls.append(args),
     )
@@ -120,6 +121,24 @@ def test_private_dns_answer_is_blocked_before_http():
         gateway.execute("query", authorization=auth())
     assert calls == []
     assert exc.value.attempts[0]["error_type"] == "web_search_destination_not_public"
+
+
+@pytest.mark.parametrize(
+    "endpoint, parser",
+    [
+        ("http://search.yahoo.com/search", "yahoo_html"),
+        ("https://search.yahoo.com/other", "yahoo_html"),
+        ("https://search.example/search", "yahoo_html"),
+        ("https://www.bing.com/search?format=rss", "bing_rss"),
+    ],
+)
+def test_provider_configuration_is_fixed_https_allowlist(endpoint, parser):
+    with pytest.raises(ValueError, match="web_search_provider_endpoint"):
+        WebSearchGateway(
+            providers=(SearchProvider("untrusted", endpoint, parser),),
+            resolver=public_resolver,
+            requester=lambda *_args: None,
+        )
 
 
 @pytest.mark.parametrize(
@@ -233,6 +252,191 @@ def test_allowlisted_html_search_returns_general_results_without_exposing_redire
         "source_host": "example.com",
     }]
     assert "token=secret" not in json.dumps(result)
+
+
+def test_default_general_search_route_is_yahoo_then_brave_then_bing_rss():
+    requested: list[str] = []
+    rss = b"""<?xml version="1.0" encoding="utf-8"?>
+    <rss version="2.0"><channel><item>
+      <title>Official result</title>
+      <link>https://example.com/current</link>
+      <description>Current source-backed result.</description>
+    </item></channel></rss>"""
+
+    def requester(url, *_args):
+        requested.append(url)
+        if urlsplit(url).hostname in {"search.yahoo.com", "search.brave.com"}:
+            return HTTPPayload(429, {"content-type": "text/html"}, b"")
+        return HTTPPayload(200, {"content-type": "text/xml; charset=utf-8"}, rss)
+
+    gateway = WebSearchGateway(
+        providers=DEFAULT_PROVIDERS[:3],
+        resolver=public_resolver,
+        requester=requester,
+    )
+    result = gateway.execute("current construction prices", authorization=auth(), result_limit=3)
+
+    assert [urlsplit(url).hostname for url in requested] == [
+        "search.yahoo.com", "search.brave.com", "www.bing.com",
+    ]
+    assert parse_qs(urlsplit(requested[0]).query) == {
+        "p": ["current construction prices"],
+    }
+    assert parse_qs(urlsplit(requested[1]).query) == {
+        "q": ["current construction prices"], "source": ["web"],
+    }
+    assert parse_qs(urlsplit(requested[2]).query) == {
+        "q": ["current construction prices"], "format": ["rss"], "count": ["3"],
+    }
+    assert result["selected_provider"] == "bing-rss"
+    assert result["citations"][0]["url"] == "https://example.com/current"
+
+
+def test_yahoo_html_is_structurally_parsed_and_fixed_redirect_is_unwrapped():
+    target = "https://example.com/prices?utm_source=yahoo&token=secret"
+    redirect = (
+        "https://r.search.yahoo.com/_ylt=fixed/RV=2/RE=1/RO=10/"
+        f"RU={quote(target, safe='')}/RK=2/RS=fixed"
+    )
+    html = f"""
+    <html><body><div class="dd algo algo-sr">
+      <div class="compTitle"><a href="{redirect}"><h3>Цена <b>строительства</b></h3></a></div>
+      <div class="compText">6,5–14 млн ₽; 125–145 тыс руб/м² <b>в 2026 году</b>
+        <script>ignore this markup payload</script>
+      </div>
+    </div></body></html>
+    """.encode()
+
+    gateway = WebSearchGateway(
+        providers=(SearchProvider("yahoo-html", "https://search.yahoo.com/search", "yahoo_html"),),
+        resolver=public_resolver,
+        requester=lambda *_args: HTTPPayload(
+            200, {"content-type": "text/html; charset=utf-8"}, html,
+        ),
+    )
+    result = gateway.execute("Казань строительство дома цена 2026", authorization=auth())
+
+    assert result["selected_provider"] == "yahoo-html"
+    assert result["citations"][0]["title"] == "Цена строительства"
+    assert result["citations"][0]["snippet"] == (
+        "6,5–14 млн ₽; 125–145 тыс руб/м² в 2026 году"
+    )
+    assert result["citations"][0]["url"] == "https://example.com/prices"
+    assert "ignore this" not in result["citations"][0]["snippet"]
+    assert "token=secret" not in json.dumps(result)
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "http://example.com/insecure",
+        "https://127.0.0.1/private",
+        "https://169.254.169.254/latest/meta-data",
+    ],
+)
+def test_yahoo_redirect_target_must_be_public_https(target):
+    redirect = (
+        "https://r.search.yahoo.com/_ylt=fixed/RU="
+        f"{quote(target, safe='')}/RK=2/RS=fixed"
+    )
+    html = f"""
+    <div class="algo"><div class="compTitle"><a href="{redirect}">Unsafe</a></div>
+    <div class="compText">Must be rejected.</div></div>
+    """.encode()
+    gateway = WebSearchGateway(
+        providers=(SearchProvider("yahoo-html", "https://search.yahoo.com/search", "yahoo_html"),),
+        resolver=public_resolver,
+        requester=lambda *_args: HTTPPayload(200, {"content-type": "text/html"}, html),
+    )
+
+    with pytest.raises(WebSearchUnavailable) as exc:
+        gateway.execute("query", authorization=auth())
+    assert exc.value.attempts[0]["error_type"] == "web_search_no_results"
+
+
+def test_yahoo_redirect_requires_exact_ru_path_segment_and_closed_result():
+    malformed_redirect = "https://r.search.yahoo.com/redirect?RU=https%3A%2F%2Fexample.com"
+    html = f"""
+    <div class="algo"><div class="compTitle"><a href="{malformed_redirect}">Unsafe</a></div>
+    <div class="compText">No exact fixed path segment.</div></div>
+    <div class="algo"><div class="compTitle"><a href="https://example.com/open">Unclosed
+    """.encode()
+    gateway = WebSearchGateway(
+        providers=(SearchProvider("yahoo-html", "https://search.yahoo.com/search", "yahoo_html"),),
+        resolver=public_resolver,
+        requester=lambda *_args: HTTPPayload(200, {"content-type": "text/html"}, html),
+    )
+
+    with pytest.raises(WebSearchUnavailable) as exc:
+        gateway.execute("query", authorization=auth())
+    assert exc.value.attempts[0]["error_type"] == "web_search_no_results"
+
+
+def test_brave_html_uses_only_snippet_title_and_snippet_url_structure():
+    html = b"""
+    <html><body><article class="snippet result">
+      <a class="snippet-url" href="https://example.com/source">example.com</a>
+      <a class="snippet-title" href="https://example.com/source">Current <b>source</b></a>
+      <p>Bounded evidence with markup <strong>removed</strong>.</p>
+    </article></body></html>
+    """
+    gateway = WebSearchGateway(
+        providers=(SearchProvider("brave-html", "https://search.brave.com/search", "brave_html"),),
+        resolver=public_resolver,
+        requester=lambda *_args: HTTPPayload(200, {"content-type": "text/html"}, html),
+    )
+    result = gateway.execute("query", authorization=auth())
+
+    assert result["selected_provider"] == "brave-html"
+    assert result["citations"][0]["title"] == "Current source"
+    assert result["citations"][0]["snippet"] == "Bounded evidence with markup removed."
+    assert result["citations"][0]["url"] == "https://example.com/source"
+
+
+def test_brave_html_rejects_unstructured_or_http_results():
+    html = b"""
+    <div class="result"><a href="https://example.com/arbitrary">Not a snippet</a></div>
+    <div class="snippet"><a class="snippet-url" href="http://example.com/insecure">host</a>
+      <div class="snippet-title">Insecure</div><p>Rejected.</p></div>
+    """
+    gateway = WebSearchGateway(
+        providers=(SearchProvider("brave-html", "https://search.brave.com/search", "brave_html"),),
+        resolver=public_resolver,
+        requester=lambda *_args: HTTPPayload(200, {"content-type": "text/html"}, html),
+    )
+
+    with pytest.raises(WebSearchUnavailable) as exc:
+        gateway.execute("query", authorization=auth())
+    assert exc.value.attempts[0]["error_type"] == "web_search_no_results"
+
+
+def test_bing_rss_is_bounded_strips_markup_and_rejects_active_xml():
+    rss = """<?xml version="1.0" encoding="utf-8"?>
+    <rss version="2.0"><channel><item>
+      <title><![CDATA[Official <b>price</b>]]></title>
+      <link>https://example.com/price</link>
+      <description><![CDATA[125–145 тыс руб/м² <script>ignore</script>]]></description>
+    </item></channel></rss>""".encode()
+    gateway = WebSearchGateway(
+        providers=(SearchProvider("bing-rss", "https://www.bing.com/search", "bing_rss"),),
+        resolver=public_resolver,
+        requester=lambda *_args: HTTPPayload(200, {"content-type": "application/rss+xml"}, rss),
+    )
+    result = gateway.execute("query", authorization=auth())
+    assert result["citations"][0]["title"] == "Official price"
+    assert result["citations"][0]["snippet"] == "125–145 тыс руб/м²"
+
+    active_xml = b"<!DOCTYPE rss [<!ENTITY x 'unsafe'>]><rss><channel/></rss>"
+    blocked = WebSearchGateway(
+        providers=(SearchProvider("bing-rss", "https://www.bing.com/search", "bing_rss"),),
+        resolver=public_resolver,
+        requester=lambda *_args: HTTPPayload(
+            200, {"content-type": "application/xml"}, active_xml,
+        ),
+    )
+    with pytest.raises(WebSearchUnavailable) as exc:
+        blocked.execute("query", authorization=auth())
+    assert exc.value.attempts[0]["error_type"] == "web_search_response_invalid"
 
 
 def test_malformed_provider_cannot_trigger_unbounded_citation_dns_work():

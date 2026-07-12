@@ -6,6 +6,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_home_watchdog_unit_is_recovery_only_and_cannot_send_telegram() -> None:
+    unit = (ROOT / "ops/systemd/kolibri-factory-lease-watchdog.service").read_text(
+        encoding="utf-8"
+    )
+
+    assert "--telegram-on-action" not in unit
+    assert "KOLIBRI_FACTORY_WATCHDOG_STALE_AFTER=30" in unit
+    assert "ExecStart=/usr/bin/python3 -B" in unit
+    assert "Environment=PYTHONDONTWRITEBYTECODE=1" in unit
+
+
 def load_watchdog():
     spec = importlib.util.spec_from_file_location("factory_lease_watchdog", ROOT / "ops" / "factory_lease_watchdog.py")
     module = importlib.util.module_from_spec(spec)

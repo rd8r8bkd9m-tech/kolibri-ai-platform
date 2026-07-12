@@ -1,20 +1,40 @@
 [Unit]
 Description=Kolibri allowlisted provider HTTPS egress proxy
-After=network-online.target
-Wants=network-online.target
+After=network-online.target kolibri-provider-egress-tunnel.service
+Wants=network-online.target kolibri-provider-egress-tunnel.service
+StartLimitIntervalSec=60
+StartLimitBurst=3
 
 [Service]
 Type=simple
 DynamicUser=yes
-ExecStartPre=/usr/bin/python3 -m py_compile /usr/local/lib/kolibri/marked_connect_proxy.py
-ExecStart=/usr/bin/python3 /usr/local/lib/kolibri/marked_connect_proxy.py --listen 127.0.0.1 --port 18080 --mark 0 --allow-suffix chatgpt.com --allow-suffix openai.com --allow-suffix oaistatic.com --allow-suffix oaiusercontent.com --allow-suffix api.telegram.org
-Restart=always
-RestartSec=3
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStartPre=/usr/bin/python3 -B /usr/local/lib/kolibri/provider_egress_preflight.py --interface wg-awg-out --mark 0x66 --table 1066
+ExecStartPre=/usr/bin/python3 -B /usr/local/lib/kolibri/marked_connect_proxy.py --check-config --listen 127.0.0.1 --port 18080 --mark 0x66 --fallback-socks-host 127.0.0.1 --fallback-socks-port 19090 --allow-suffix chatgpt.com --allow-suffix mimo.xiaomi.com --allow-suffix openai.com --allow-suffix oaistatic.com --allow-suffix oaiusercontent.com --allow-suffix xiaomimimo.com
+ExecStart=/usr/bin/python3 -B /usr/local/lib/kolibri/marked_connect_proxy.py --listen 127.0.0.1 --port 18080 --mark 0x66 --fallback-socks-host 127.0.0.1 --fallback-socks-port 19090 --allow-suffix chatgpt.com --allow-suffix mimo.xiaomi.com --allow-suffix openai.com --allow-suffix oaistatic.com --allow-suffix oaiusercontent.com --allow-suffix xiaomimimo.com
+Restart=on-failure
+RestartSec=10
+AmbientCapabilities=CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_RAW
 NoNewPrivileges=true
 PrivateTmp=true
+PrivateDevices=true
 ProtectSystem=strict
 ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
 RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+DevicePolicy=closed
+UMask=0077
 
 [Install]
 WantedBy=multi-user.target

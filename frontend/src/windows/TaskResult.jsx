@@ -1,6 +1,7 @@
 import { FileText } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { materializedArtifacts } from "../shell/projectModel";
 import { StatusBadge } from "./shared/StatusBadge";
 import { WorkSummary } from "./shared/WorkSummary";
 
@@ -8,7 +9,7 @@ export function TaskResult({ payload }) {
   const task = payload.task;
   const status = payload.status || task?.status || (payload.error ? "failed" : "running");
   const taskText = task?.result?.type === "verified_provider_response" ? task.result.text : payload.text;
-  const artifacts = task?.artifacts || payload.artifacts || [];
+  const artifacts = materializedArtifacts(task?.artifacts || payload.artifacts);
   const missing = task?.artifact_delivery?.missing || [];
 
   if (status === "running") {

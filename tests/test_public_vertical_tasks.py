@@ -180,6 +180,18 @@ def test_public_estimate_uses_home_gateway_and_deterministic_money(monkeypatch):
     assert calculation["money_authority"] == "deterministic_calculator"
     assert calculation["llm_calculates_money"] is False
     assert task["artifact_delivery"]["status"] == "not_required"
+    outcome = payload["estimate_outcome"]
+    assert outcome["status"] == task["result"]["status"]
+    assert outcome["status"] in {"verified", "preliminary"}
+    assert outcome["pricing"]["money_authority"] == "deterministic_calculator"
+    assert outcome["pricing"]["invented_prices"] is False
+    assert outcome["editor"]["available"] is True
+    assert outcome["editor"]["mode"] == "estimate"
+    assert outcome["pdf"] == {
+        "requested": False,
+        "status": "not_requested",
+        "artifact": None,
+    }
     assert len(manager.calls) == 1
     system_messages = [
         message["content"] for message in manager.calls[0]["messages"]
@@ -413,6 +425,19 @@ def test_legacy_chat_reuses_truthful_non_monetary_house_readiness_gate(monkeypat
     assert task["result"]["readiness"]["status"] == "needs_input"
     assert task["result"]["readiness"]["monetary_status"] == "not_calculated"
     assert "calculation" not in task["result"]
+    outcome = payload["estimate_outcome"]
+    assert outcome["status"] == "needs_input"
+    assert outcome["pricing"] == {
+        "status": "not_calculated",
+        "invented_prices": False,
+    }
+    assert outcome["editor"]["available"] is True
+    assert outcome["editor"]["mode"] == "input_requirements"
+    assert outcome["pdf"] == {
+        "requested": True,
+        "status": "not_materialized",
+        "artifact": None,
+    }
 
 
 def test_public_vertical_payload_rejects_raw_secrets(monkeypatch):

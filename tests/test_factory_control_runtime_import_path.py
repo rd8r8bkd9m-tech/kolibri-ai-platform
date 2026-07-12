@@ -35,7 +35,8 @@ def test_factory_control_systemd_unit_uses_repo_runtime_contract():
     assert "WorkingDirectory=/opt/kolibri-ai-platform" in unit
     assert "Environment=KOLIBRI_REPO_ROOT=/opt/kolibri-ai-platform" in unit
     assert "Environment=KOLIBRI_OPS_DIR=/opt/kolibri-ai-platform/ops" in unit
-    assert "ExecStart=/usr/bin/python3 /opt/kolibri-ai-platform/ops/factory_control.py" in unit
+    assert "ExecStart=/usr/bin/python3 -B /opt/kolibri-ai-platform/ops/factory_control.py" in unit
+    assert "Environment=PYTHONDONTWRITEBYTECODE=1" in unit
     assert "ExecStart=/usr/local/bin/kolibri-factory-control" not in unit
 
 
@@ -50,6 +51,8 @@ def test_home_dropin_selects_atomic_immutable_runtime_through_fixed_launcher():
     assert "control_plane_endpoint.py --assert-local-home" in dropin
     assert "/opt/kolibri-ai-platform/ops/factory_control.py" not in dropin
     assert "EnvironmentFile=" not in dropin
+    assert "ExecStart=/usr/bin/python3 -B" in dropin
+    assert "Environment=PYTHONDONTWRITEBYTECODE=1" in dropin
 
 
 def test_factory_control_runtime_preflight_is_read_only_and_checks_fabric_routes():
@@ -72,3 +75,18 @@ def test_factory_control_runtime_preflight_is_read_only_and_checks_fabric_routes
 
     assert result.returncode == 0, result.stderr
     assert "factory_control_runtime_preflight=ok" in result.stdout
+
+
+def test_python_systemd_launchers_disable_release_bytecode_consistently():
+    unit_root = ROOT / "ops" / "systemd"
+    for path in sorted((*unit_root.glob("*.service"), *unit_root.glob("*.conf"))):
+        source = path.read_text(encoding="utf-8")
+        python_launches = [
+            line for line in source.splitlines()
+            if line.startswith(("ExecStart=", "ExecStartPre="))
+            and "/usr/bin/python3" in line
+        ]
+        if not python_launches:
+            continue
+        assert all("/usr/bin/python3 -B " in line for line in python_launches), path.name
+        assert "Environment=PYTHONDONTWRITEBYTECODE=1" in source, path.name

@@ -36,6 +36,20 @@ training -> evaluating -> canary-1 -> canary-10 -> canary-50 -> production
                                       explicit rollback
 ```
 
+The implemented registry slice continues from a sanitized candidate without
+claiming that a trainer or release controller ran:
+
+```text
+content-addressed candidate -> dataset manifest -> declared model artifact
+  -> independent eval -> shadow -> 1% -> 10% -> 50% -> production approval
+                                   \______________________________/
+                                            explicit rollback
+```
+
+Dataset, evaluation and registry calls are asynchronous control records. They
+never mutate weights or runtime traffic and never auto-promote a model. A
+signed release apply remains a separate protected operation.
+
 ## Eligibility policy
 
 An intake enters `queued` only when all of the following are true:
@@ -68,6 +82,10 @@ database selected by `KOLIBRI_EXECUTION_DB_PATH`, but in isolated tables:
 - `formulalm_intakes` — idempotent intake queue and content-free rejections;
 - `formulalm_candidates` — sanitized candidates and current promotion state;
 - `formulalm_transition_events` — immutable promotion/rollback evidence;
+- `formulalm_datasets` — content-addressed sanitized-candidate manifests;
+- `formulalm_model_registry` — declared model artifacts in shadow/canary state;
+- `formulalm_evaluations` — content-addressed independent eval verdicts;
+- `formulalm_registry_events` — immutable registry promotion/rollback evidence;
 - `formulalm_outbox` — pending events for the later JetStream publisher.
 
 This preserves the V1 IDs, state semantics, outbox boundary and restart
@@ -90,6 +108,12 @@ closed without a configured bearer credential:
 | `GET` | `/v1/learning/candidates/{id}` | Inspect one candidate |
 | `POST` | `/v1/learning/candidates/{id}/transitions` | Explicit evidence-gated transition |
 | `GET` | `/v1/learning/candidates/{id}/transitions` | Immutable transition history |
+| `POST/GET` | `/v1/learning/datasets` | Build/list bounded dataset manifests |
+| `GET` | `/v1/learning/datasets/{id}` | Inspect one dataset manifest |
+| `POST/GET` | `/v1/learning/registry` | Register/list declared model artifacts |
+| `GET` | `/v1/learning/registry/{id}` | Inspect one registry entry |
+| `POST/GET` | `/v1/learning/registry/{id}/evaluations` | Record/list independent evals |
+| `POST/GET` | `/v1/learning/registry/{id}/transitions` | Canary/promotion/rollback registry path |
 
 `/v1/responses` accepts an optional `learning` policy. The safe default is
 `consent=unknown`, `license=unknown`, `retention_class=project`; therefore an
@@ -133,6 +157,20 @@ nor status reads can advance promotion state. Candidate records always carry
 `auto_promote=false`, `request_path_training=false`, and
 `production_weight_mutation=false`.
 
+The registry path is stricter: candidate and dataset IDs are derived from a
+canonical SHA-256 that excludes random intake IDs, timestamps and mutable
+promotion state. Dataset construction rechecks consent, license, retention,
+quality, verifier verdict, capability, sensitive data and the candidate hash;
+its manifest contains references/hashes rather than copied raw examples.
+
+`shadow -> canary-1` requires a passed evaluation bound to the same registry
+entry, a different evaluator/training actor, an eval suite/report digest, a
+canary manifest digest and retained external fallback. Later canary stages need
+passed report digests. Production additionally needs a release-manifest digest
+and owner approval ID. Rollback needs a reason, target, report digest and
+retained fallback. Even a `production` registry record says
+`runtime_traffic_mutated=false` and still requires signed release apply.
+
 ## Verification scope
 
 Focused tests in `tests/test_formulalm_learning_boundary.py` prove:
@@ -147,6 +185,11 @@ Focused tests in `tests/test_formulalm_learning_boundary.py` prove:
 - durable explicit rollback;
 - no synchronous weight mutation or automatic promotion flags.
 
-These tests prove the compatibility boundary implementation only. A real
-trainer, independent eval service, signed canary release and production model
-promotion remain separate protected work.
+`tests/test_formulalm_learning_plane_registry.py` additionally proves stable
+candidate/dataset hashes and provenance across fresh stores, exclusion of
+secret/PII/license-negative traces, independent-eval gating, progressive
+canary gates, durable rollback and zero request-path weight/traffic mutation.
+
+These tests prove the compatibility boundary and registry records only. A real
+trainer, independent eval service execution, signed canary release and model
+deployment remain separate protected work.

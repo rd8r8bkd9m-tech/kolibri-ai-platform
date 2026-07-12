@@ -1,5 +1,6 @@
 import asyncio
 import re
+import threading
 import uuid
 
 from capability_gateway import get_capability_gateway
@@ -12,7 +13,7 @@ KOLIBRI_SYSTEM_PROMPT = (
 
 class ProviderGatewayError(RuntimeError):
     def __init__(self, technical):
-        super().__init__("Kolibri provider gateway could not produce a verified answer")
+        super().__init__("provider routes ended without a completed result")
         self.technical = technical
 
 
@@ -42,6 +43,12 @@ class AIProviderManager:
         execution_mode = str(kwargs.pop("execution_mode", "fast") or "fast").lower()
         requested_response_id = kwargs.pop("response_id", None)
         timeout_seconds = kwargs.pop("timeout_seconds", None)
+        reasoning = kwargs.pop("reasoning", None)
+        stream_callback = kwargs.pop("stream_callback", None)
+        cancel_event = kwargs.pop("cancel_event", None)
+        requested_tools = kwargs.pop("requested_tools", None)
+        if cancel_event is not None and not isinstance(cancel_event, threading.Event):
+            raise ValueError("cancel_event must be a threading.Event")
         if execution_mode not in {"fast", "codex"}:
             raise ValueError("execution_mode must be 'fast' or 'codex'")
         if model not in (None, "", "auto", "kolibri"):
@@ -65,9 +72,15 @@ class AIProviderManager:
         optional_gateway_args = {
             "planned_skills": planned_skills,
             "execution_mode": execution_mode,
+            **({"requested_tools": requested_tools} if requested_tools is not None else {}),
+            **({"reasoning": reasoning} if reasoning is not None else {}),
             **({"timeout_seconds": timeout_seconds} if timeout_seconds is not None else {}),
+            **({"stream_callback": stream_callback} if stream_callback is not None else {}),
+            **({"cancel_event": cancel_event} if cancel_event is not None else {}),
         }
         while True:
+            if cancel_event is not None and cancel_event.is_set():
+                raise asyncio.CancelledError
             try:
                 result = await asyncio.to_thread(
                     gateway.generate, dialogue, instructions, response_id,
@@ -80,7 +93,7 @@ class AIProviderManager:
                 # explicitly named by Python; never mask an internal TypeError.
                 match = re.search(
                     r"got an unexpected keyword argument ['\"]"
-                    r"(planned_skills|execution_mode|timeout_seconds)['\"]$",
+                    r"(planned_skills|execution_mode|requested_tools|reasoning|timeout_seconds|stream_callback|cancel_event)['\"]$",
                     str(exc),
                 )
                 unsupported = match.group(1) if match else None
@@ -89,6 +102,8 @@ class AIProviderManager:
                 if unsupported is None:
                     raise
                 optional_gateway_args.pop(unsupported)
+        if cancel_event is not None and cancel_event.is_set():
+            raise asyncio.CancelledError
         evidence = result.technical.get("evidence") if isinstance(result.technical.get("evidence"), list) else []
         provider_evidence = any(
             isinstance(item, dict) and item.get("type") == "provider_execution"

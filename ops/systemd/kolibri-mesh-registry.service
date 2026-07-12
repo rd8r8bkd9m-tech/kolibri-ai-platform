@@ -17,8 +17,9 @@ Environment=KOLIBRI_MESH_REGISTRY_PORT=9291
 Environment=KOLIBRI_MESH_IDENTITY_FILE=%d/mesh-identity
 Environment=KOLIBRI_MESH_OWNER_TRUST_DIR=/etc/kolibri/mesh-trust/owners
 Environment=KOLIBRI_MESH_REGISTRAR_TRUST_DIR=/etc/kolibri/mesh-trust/registrars
+Environment=PYTHONDONTWRITEBYTECODE=1
 EnvironmentFile=-/etc/kolibri/mesh-registry.conf
-ExecStart=/usr/bin/python3 /usr/local/lib/kolibri/mesh_registry.py serve
+ExecStart=/usr/bin/python3 -B /usr/local/lib/kolibri/mesh_registry.py serve
 Restart=always
 RestartSec=3
 NoNewPrivileges=true

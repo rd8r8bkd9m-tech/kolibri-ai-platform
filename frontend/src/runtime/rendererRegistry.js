@@ -23,7 +23,8 @@ export const FALLBACK_RENDERER = Object.freeze({
 });
 
 export function rendererForArtifact(artifact = {}) {
-  const mime = String(artifact.mime_type || artifact.mimeType || "");
+  if (artifact.status !== "materialized") return null;
+  const mime = String(artifact.media_type || artifact.mime_type || artifact.mimeType || "");
   const kind = String(artifact.kind || artifact.type || "");
   return RENDERER_REGISTRY.find((renderer) => (
     renderer.kind === kind || renderer.accepts.some((accepted) => accepted.endsWith("/*") ? mime.startsWith(accepted.slice(0, -1)) : accepted === mime)

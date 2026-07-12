@@ -136,7 +136,7 @@ def test_public_stream_supports_fast_alias_and_never_completes_unbound_output(mo
     assert [event for event, _ in events] == ["accepted", "progress", "failed", "done"]
     assert events[2][1]["error"] == {
         "code": "verification_failed",
-        "message": "Kolibri could not produce a verified answer",
+        "message": "The response was withheld because its output could not be matched to execution evidence.",
         "retryable": False,
     }
     assert answer not in response.text
@@ -225,10 +225,83 @@ def test_public_stream_redacts_provider_failure_details(monkeypatch):
 
     events = _events(response.text)
     assert [event for event, _ in events] == ["accepted", "progress", "failed", "done"]
-    assert events[2][1]["error"]["code"] == "provider_unavailable"
+    assert events[2][1]["error"] == {
+        "code": "provider_route_authorization_failed",
+        "message": "The execution service rejected authorization for the configured model route.",
+        "retryable": False,
+        "attempt_summary": {
+            "attempted": 0,
+            "failed": 0,
+            "timed_out": 0,
+            "cancelled": 0,
+            "skipped": 0,
+        },
+    }
     assert secret not in response.text
     assert "internal-worker-name" not in response.text
     assert "factory_control_auth_failed" not in response.text
+
+
+def test_public_stream_provider_exhaustion_yields_typed_estimate_outcome(monkeypatch):
+    class ExhaustedManager:
+        async def generate(self, **_kwargs):
+            raise ProviderGatewayError({
+                "error_type": "provider_timeout",
+                "attempts": [
+                    {"status": "failed", "error_type": "provider_timeout"},
+                    {"status": "cancelled", "error_type": "provider_timeout"},
+                ],
+            })
+
+    response = _client(monkeypatch, ExhaustedManager()).post(
+        "/api/chat/stream",
+        json={
+            "messages": [{"role": "user", "content": "Составь смету дома 100 м2"}],
+            "task": {
+                "intent": "estimate",
+                "brief": "Составь смету одноэтажного дома 100 м2 Татарстан Лениногорск",
+                "requested_artifacts": ["pdf"],
+            },
+        },
+    )
+
+    events = _events(response.text)
+    assert [event for event, _ in events] == ["accepted", "progress", "completed", "done"]
+    completed = events[2][1]
+    assert completed["status"] == "completed"
+    assert completed["verification"]["type"] == "deterministic_estimate_readiness"
+    assert completed["estimate_outcome"]["status"] == "needs_input"
+    assert completed["estimate_outcome"]["editor"]["available"] is True
+    assert completed["estimate_outcome"]["pdf"]["status"] == "not_materialized"
+    assert completed["task"]["result"]["readiness"]["monetary_status"] == "not_calculated"
+    assert "could not produce a verified" not in response.text.lower()
+
+
+def test_public_stream_unexpected_server_error_is_not_provider_exhaustion():
+    async def execute():
+        raise RuntimeError("private server detail")
+
+    async def collect():
+        return "".join([
+            frame
+            async for frame in public_chat_stream.public_chat_event_stream(
+                stream_id="stream_internal_failure",
+                execution_mode="fast",
+                execute=execute,
+                timeout_seconds=5,
+            )
+        ])
+
+    output = asyncio.run(collect())
+    events = _events(output)
+    assert events[2][0] == "failed"
+    assert events[2][1]["error"] == {
+        "code": "response_internal_error",
+        "message": "The server encountered an internal execution error before the response completed.",
+        "retryable": True,
+    }
+    assert "private server detail" not in output
+    assert "attempt_summary" not in output
 
 
 def test_public_stream_rejects_unknown_mode_before_starting_provider(monkeypatch):

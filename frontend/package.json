@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && cp CNAME dist/CNAME",
+    "build": "vite build && cp CNAME dist/CNAME && node tests/bundle_safety.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "test:protocol": "node tests/kolibri_os_contract.mjs",
@@ -15,7 +15,18 @@
     "test:mobile-layout": "node tests/mobile_layout_guard.mjs",
     "test:workspace": "node tests/focused_workspace.mjs",
     "test:work-summary": "node tests/work_summary.mjs",
-    "test": "npm run test:protocol && npm run test:architecture && npm run test:proxy && npm run test:typed-gateway && npm run test:mobile-layout && npm run test:workspace && npm run test:work-summary"
+    "test:project-history": "node tests/project_history_lifecycle.mjs",
+    "test:control-state": "node tests/control_tri_state.mjs",
+    "test:public-project-api": "node tests/public_project_api.mjs",
+    "test:project-repository": "node tests/project_repository_sync.mjs",
+    "test:tool-availability": "node tests/tool_availability.mjs",
+    "test:typography": "node tests/typography_readability.mjs",
+    "test:estimate-consumer": "node tests/estimate_consumer.mjs",
+    "test:shell-layout": "node tests/shell_layout_contract.mjs",
+    "test:shell-release": "node tests/shell_release_gate.mjs",
+    "test:estimate-title": "node tests/estimate_title.mjs",
+    "test:project-recovery": "node tests/project_message_recovery.mjs",
+    "test": "npm run test:protocol && npm run test:architecture && npm run test:proxy && npm run test:typed-gateway && npm run test:mobile-layout && npm run test:workspace && npm run test:work-summary && npm run test:project-history && npm run test:project-recovery && npm run test:control-state && npm run test:public-project-api && npm run test:project-repository && npm run test:tool-availability && npm run test:typography && npm run test:estimate-consumer && npm run test:shell-layout && npm run test:shell-release && npm run test:estimate-title"
   },
   "dependencies": {
     "clsx": "^2.1.1",

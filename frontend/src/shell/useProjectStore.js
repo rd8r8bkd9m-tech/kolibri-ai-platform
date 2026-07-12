@@ -1,48 +1,82 @@
-import { useCallback, useEffect, useState } from "react";
-import { ACTIVE_PROJECT_STORAGE_KEY, PROJECTS_STORAGE_KEY } from "../app/constants";
-import { createProject, readProjects } from "../app/utils";
+import { useCallback, useEffect, useReducer, useRef } from "react";
+import { createProject } from "../app/utils";
+import { initialProjectState, useProjectCache } from "./useProjectCache";
+import { projectStoreReducer, sameProjectSnapshot } from "./projectStoreModel";
+import { useProjectRepositorySync } from "./useProjectRepositorySync";
+import { useProjectRequestLifecycle } from "./useProjectRequestLifecycle";
+
+function unchangedReplacement(projects, replacementProject) {
+  if (!replacementProject) return null;
+  const current = projects.find((project) => project.id === replacementProject.id);
+  return current && sameProjectSnapshot(current, replacementProject) ? current : null;
+}
 
 export function useProjectStore() {
-  const [projects, setProjects] = useState(readProjects);
-  const [activeProjectId, setActiveProjectId] = useState(() => {
-    const saved = globalThis.localStorage.getItem(ACTIVE_PROJECT_STORAGE_KEY) || "";
-    return projects.some((project) => project.id === saved) ? saved : projects[0]?.id || "";
-  });
-  const [busyProjects, setBusyProjects] = useState({});
+  const [state, dispatch] = useReducer(projectStoreReducer, undefined, initialProjectState);
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+  const repository = useProjectRepositorySync(state, stateRef, dispatch);
+  const requests = useProjectRequestLifecycle(dispatch);
+  useProjectCache(state);
 
   const updateProject = useCallback((projectId, updater) => {
-    setProjects((current) => current.map((project) => {
-      if (project.id !== projectId) return project;
-      const next = typeof updater === "function" ? updater(project) : { ...project, ...updater };
-      return { ...next, updatedAt: new Date().toISOString() };
-    }));
+    dispatch({ type: "UPDATE_PROJECT", projectId, updater, updatedAt: new Date().toISOString() });
   }, []);
 
   const addProject = useCallback(() => {
     const project = createProject();
-    setProjects((current) => [project, ...current]);
+    dispatch({ type: "ADD_PROJECT", project, activate: false });
+    repository.createProjectRemote(project);
     return project;
-  }, []);
+  }, [repository]);
 
-  const setProjectBusy = useCallback((projectId, busy) => {
-    setBusyProjects((current) => ({ ...current, [projectId]: busy }));
-  }, []);
+  const deleteProject = useCallback((projectId) => {
+    const project = stateRef.current.projects.find((item) => item.id === projectId);
+    if (!project || stateRef.current.busyProjects[projectId]) return null;
+    const replacementProject = stateRef.current.projects.length === 1 ? createProject() : null;
+    const operationId = repository.mutationId("project-delete", project.id);
+    const deletion = {
+      project,
+      index: stateRef.current.projects.findIndex((item) => item.id === projectId),
+      wasActive: stateRef.current.activeProjectId === projectId,
+      previousActiveProjectId: stateRef.current.activeProjectId,
+      replacementProject,
+      activeChanged: false,
+      operationId,
+    };
+    dispatch({ type: "DELETE_PROJECT", projectId, replacementProject, operationId });
+    repository.deleteProjectRemote(project, deletion, replacementProject);
+    return project;
+  }, [repository]);
 
-  useEffect(() => {
-    globalThis.localStorage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(projects));
-  }, [projects]);
+  const undoDeleteProject = useCallback(() => {
+    const deletion = stateRef.current.lastDeleted;
+    if (!deletion) return null;
+    const replacement = unchangedReplacement(stateRef.current.projects, deletion.replacementProject);
+    dispatch({ type: "RESTORE_PROJECT" });
+    repository.restoreProjectRemote(deletion, replacement);
+    return deletion.project;
+  }, [repository]);
 
-  useEffect(() => {
-    if (activeProjectId) globalThis.localStorage.setItem(ACTIVE_PROJECT_STORAGE_KEY, activeProjectId);
-  }, [activeProjectId]);
+  const dismissDeleteUndo = useCallback(() => dispatch({ type: "DISMISS_DELETION" }), []);
+  const setActiveProjectId = useCallback((projectId) => dispatch({ type: "SET_ACTIVE_PROJECT", projectId }), []);
 
   return {
-    activeProjectId,
+    activeProjectId: state.activeProjectId,
     addProject,
-    busyProjects,
-    projects,
+    ...requests,
+    busyProjects: state.busyProjects,
+    deleteProject,
+    dismissDeleteUndo,
+    ensureProjectRemote: repository.ensureProjectRemote,
+    lastDeleted: state.lastDeleted,
+    projects: state.projects,
+    reconcileProjectRemote: repository.reconcileProjectRemote,
     setActiveProjectId,
-    setProjectBusy,
+    syncProjectMessage: repository.syncProjectMessage,
+    undoDeleteProject,
     updateProject,
   };
 }

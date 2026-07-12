@@ -5,11 +5,12 @@ import { ProjectCanvas } from "./ProjectCanvas";
 import { ProjectWorkspace } from "./ProjectWorkspace";
 import { PdfViewer } from "./PdfViewer";
 import { TaskResult } from "./TaskResult";
+import { ImageViewer } from "./ImageViewer";
 
-export function WindowContent({ windowState, project, projectBusy, executionModes, onCalculate, onDetachCanvas, onDetachProject, onExecutionMode, onNewProject, onOpenArtifact, onOpenHistory, onProjectPatch, onSendMessage, onUpdateCanvas }) {
+export function WindowContent({ windowState, project, busyProjects, onCalculate, onDeleteProject, onDetachCanvas, onDetachProject, onNewProject, onOpenArtifact, onOpenHistory, onProjectPatch, onRetryMessage, onUpdateCanvas }) {
   const payload = windowState.payload;
   if (windowState.kind === "workspace") {
-    return <ProjectWorkspace busy={projectBusy} executionModes={executionModes} onCalculate={onCalculate} onDetachCanvas={onDetachCanvas} onDetachProject={onDetachProject} onExecutionMode={onExecutionMode} onOpenArtifact={onOpenArtifact} onProjectPatch={onProjectPatch} onSend={onSendMessage} onUpdateCanvas={onUpdateCanvas} project={project} />;
+    return <ProjectWorkspace onCalculate={onCalculate} onDetachCanvas={onDetachCanvas} onDetachProject={onDetachProject} onOpenArtifact={onOpenArtifact} onProjectPatch={onProjectPatch} onRetryMessage={onRetryMessage} onUpdateCanvas={onUpdateCanvas} project={project} />;
   }
   if (windowState.kind === "canvas") {
     const canvas = project?.canvases?.find((item) => item.id === payload.canvasId);
@@ -19,13 +20,16 @@ export function WindowContent({ windowState, project, projectBusy, executionMode
     return <EstimateWorkspace onCalculate={(spec) => onCalculate(payload.parentProjectId, payload.canvasId || `estimate:${payload.parentProjectId}`, spec, project?.executionMode || "fast")} onOpenArtifact={(artifact) => onOpenArtifact(payload.parentProjectId, artifact)} onUpdate={(patch) => onUpdateCanvas(payload.parentProjectId, payload.canvasId || `estimate:${payload.parentProjectId}`, patch)} payload={payload} />;
   }
   if (windowState.kind === "projects") {
-    return <ProjectsWindow items={payload.items || []} onNew={onNewProject} onOpen={onOpenHistory} />;
+    return <ProjectsWindow busyProjects={busyProjects} items={payload.items || []} onDelete={onDeleteProject} onNew={onNewProject} onOpen={onOpenHistory} />;
   }
   if (windowState.kind === "files") {
     return <FilesWindow items={payload.items || []} />;
   }
   if (windowState.kind === "pdf") {
     return <PdfViewer artifact={payload.artifact || payload.artifacts?.[0]} />;
+  }
+  if (windowState.kind === "image") {
+    return <ImageViewer artifact={payload.artifact || payload.artifacts?.[0]} />;
   }
   return <TaskResult payload={payload} />;
 }

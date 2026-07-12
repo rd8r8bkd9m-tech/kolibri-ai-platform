@@ -57,6 +57,7 @@ from project_knowledge_gateway import (
     ProjectKnowledgeError,
     should_auto_plan_project_knowledge,
 )
+from public_errors import public_provider_failure
 from provider_gateway import deterministic_verifier_evidence, get_provider_gateway
 from response_tool_gateway import ResponseToolExecution, execute_response_tools
 from web_search_gateway import WebSearchError, WebSearchUnavailable
@@ -220,14 +221,14 @@ def require_execution_auth(request: Request) -> str:
     if not _EXECUTION_KEY_HASHES:
         raise HTTPException(status_code=503, detail="execution_api_auth_not_configured")
     authorization = request.headers.get("Authorization", "")
-    scheme, separator, token = authorization.partition(" ")
-    if not separator or scheme.lower() != "bearer" or not token.strip():
+    scheme, separator, bearer_credential = authorization.partition(" ")
+    if not separator or scheme.lower() != "bearer" or not bearer_credential.strip():
         raise HTTPException(
             status_code=401,
             detail="execution_api_auth_required",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    candidate = hashlib.sha256(token.strip().encode("utf-8")).hexdigest()
+    candidate = hashlib.sha256(bearer_credential.strip().encode("utf-8")).hexdigest()
     if not any(hmac.compare_digest(candidate, expected) for expected in _EXECUTION_KEY_HASHES):
         raise HTTPException(
             status_code=401,
@@ -385,12 +386,26 @@ class ResponseLearningPolicy(BaseModel):
     source_uri: str | None = Field(default=None, max_length=2_000)
 
 
+class ResponseReasoningOptions(BaseModel):
+    """OpenAI-compatible reasoning controls for the public ``kolibri`` model.
+
+    Reasoning summaries are an explicitly requested, safe model output.  They
+    are not raw hidden reasoning and the API must never synthesize them from a
+    generic progress spinner.
+    """
+
+    effort: Literal["none", "minimal", "low", "medium", "high", "xhigh"] | None = None
+    summary: Literal["auto", "concise", "detailed"] | None = None
+
+
 class ResponseCreate(BaseModel):
     idempotency_key: str | None = Field(default=None, min_length=1, max_length=300)
     model: Literal["kolibri"] = "kolibri"
     input: str | list[dict[str, Any]]
     stream: bool = False
+    background: bool = False
     previous_response_id: str | None = None
+    reasoning: ResponseReasoningOptions = Field(default_factory=ResponseReasoningOptions)
     execution_mode: Literal["fast", "codex"] = "fast"
     task: VerticalTask | None = None
     project_id: str | None = None
@@ -577,6 +592,40 @@ class LearningPromotionTransition(BaseModel):
     to_status: Literal[
         "training", "evaluating", "canary-1", "canary-10", "canary-50",
         "production", "rejected", "rolled-back",
+    ]
+    reason: str | None = Field(default=None, max_length=2_000)
+    evidence: dict[str, Any] = Field(default_factory=dict)
+
+
+class LearningDatasetCreate(IdempotentCreate):
+    candidate_ids: list[str] = Field(min_length=1, max_length=1_000)
+    capability: str = Field(min_length=1, max_length=300)
+    builder_id: str = Field(min_length=1, max_length=300)
+
+
+class LearningModelRegistryCreate(IdempotentCreate):
+    dataset_id: str = Field(min_length=1, max_length=300)
+    model_artifact_sha256: str = Field(
+        pattern=r"^sha256:[a-f0-9]{64}$"
+    )
+    training_run_id: str = Field(min_length=1, max_length=300)
+    training_actor_id: str = Field(min_length=1, max_length=300)
+    external_fallback: str = Field(min_length=1, max_length=300)
+
+
+class LearningEvaluationCreate(IdempotentCreate):
+    evaluator_id: str = Field(min_length=1, max_length=300)
+    independent_of_training_actor: bool
+    verdict: Literal["passed", "failed"]
+    eval_suite_sha256: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
+    report_sha256: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
+    metrics: dict[str, Any] = Field(default_factory=dict)
+
+
+class LearningRegistryTransition(BaseModel):
+    idempotency_key: str = Field(min_length=1, max_length=300)
+    to_stage: Literal[
+        "canary-1", "canary-10", "canary-50", "production", "rejected", "rolled-back",
     ]
     reason: str | None = Field(default=None, max_length=2_000)
     evidence: dict[str, Any] = Field(default_factory=dict)
@@ -1504,7 +1553,8 @@ def create_response(body: ResponseCreate, request: Request) -> dict[str, Any]:
         "max_output_tokens": None,
         "parallel_tool_calls": True,
         "previous_response_id": body.previous_response_id,
-        "reasoning": {"effort": None, "summary": None},
+        "background": body.background,
+        "reasoning": body.reasoning.model_dump(mode="json"),
         "store": True,
         "text": {"format": {"type": "text"}},
         "tool_choice": "auto",
@@ -1700,7 +1750,15 @@ def create_response(body: ResponseCreate, request: Request) -> dict[str, Any]:
             if requested_tools and verifier_evidence.get("verdict") != "passed"
             else "provider_unavailable"
         )
-        queued["error"] = {"code": error_code, "message": "Kolibri could not produce a verified response"}
+        failure = public_provider_failure(technical)
+        queued["error"] = {
+            **failure,
+            # Preserve the more specific contract verdict.  The generic
+            # provider failure mapper is useful for transport exhaustion, but
+            # it must not erase a deterministic verifier failure after a
+            # provider returned output successfully.
+            "code": error_code,
+        }
         queued["citations"] = []
         final_status = "failed"
     if body.task is not None:
@@ -1862,11 +1920,11 @@ def create_chat_completion(body: ChatCompletionCreate, request: Request):
         request,
     )
     if response.get("status") != "completed" or not response.get("output_text"):
+        failure = response.get("error") if isinstance(response.get("error"), dict) else public_provider_failure(None)
         raise HTTPException(
             status_code=503,
             detail={
-                "type": "provider_unavailable",
-                "message": "Kolibri could not produce a verified completion",
+                **failure,
                 "response_id": response.get("id"),
             },
         )
@@ -2864,11 +2922,15 @@ def learning_plane_status() -> dict[str, Any]:
         "training_eligible_count": training_eligible,
         "by_promotion_status": by_promotion_status,
         "intakes_by_status": boundary_status["intakes_by_status"],
+        "dataset_count": boundary_status["dataset_count"],
+        "evaluations_by_verdict": boundary_status["evaluations_by_verdict"],
+        "registry_by_stage": boundary_status["registry_by_stage"],
         "pending_outbox": boundary_status["pending_outbox"],
         "request_path_training": False,
         "production_weight_mutation": False,
         "auto_promote": False,
-        "next_gate": "asynchronous trainer plus independent eval council is required",
+        "runtime_traffic_mutation": False,
+        "next_gate": "external trainer/evaluator execution and signed release apply are required",
     }
 
 
@@ -2906,6 +2968,135 @@ def transition_learning_candidate(
 def list_learning_candidate_transitions(candidate_id: str) -> dict[str, Any]:
     try:
         data = get_learning_boundary().list_transition_events(candidate_id)
+    except (FormulaLMPolicyError, FormulaLMConflictError, FormulaLMNotFoundError) as exc:
+        raise learning_http_exception(exc) from exc
+    return {"object": "list", "data": data, "schema_version": API_VERSION}
+
+
+@router.post("/v1/learning/datasets", status_code=201)
+def create_learning_dataset(
+    body: LearningDatasetCreate,
+    principal: str = Depends(require_execution_auth),
+) -> dict[str, Any]:
+    try:
+        return get_learning_boundary().create_dataset(
+            idempotency_key=body.idempotency_key,
+            candidate_ids=body.candidate_ids,
+            capability=body.capability,
+            builder_id=body.builder_id,
+            principal=principal,
+        )
+    except (FormulaLMPolicyError, FormulaLMConflictError, FormulaLMNotFoundError) as exc:
+        raise learning_http_exception(exc) from exc
+
+
+@router.get("/v1/learning/datasets")
+def list_learning_datasets() -> dict[str, Any]:
+    return {
+        "object": "list",
+        "data": get_learning_boundary().list_datasets(),
+        "schema_version": API_VERSION,
+    }
+
+
+@router.get("/v1/learning/datasets/{dataset_id}")
+def get_learning_dataset(dataset_id: str) -> dict[str, Any]:
+    try:
+        return get_learning_boundary().get_dataset(dataset_id)
+    except (FormulaLMPolicyError, FormulaLMConflictError, FormulaLMNotFoundError) as exc:
+        raise learning_http_exception(exc) from exc
+
+
+@router.post("/v1/learning/registry", status_code=201)
+def register_learning_model(
+    body: LearningModelRegistryCreate,
+    principal: str = Depends(require_execution_auth),
+) -> dict[str, Any]:
+    try:
+        return get_learning_boundary().register_model_artifact(
+            idempotency_key=body.idempotency_key,
+            dataset_id=body.dataset_id,
+            model_artifact_sha256=body.model_artifact_sha256,
+            training_run_id=body.training_run_id,
+            training_actor_id=body.training_actor_id,
+            external_fallback=body.external_fallback,
+            principal=principal,
+        )
+    except (FormulaLMPolicyError, FormulaLMConflictError, FormulaLMNotFoundError) as exc:
+        raise learning_http_exception(exc) from exc
+
+
+@router.get("/v1/learning/registry")
+def list_learning_model_registry() -> dict[str, Any]:
+    return {
+        "object": "list",
+        "data": get_learning_boundary().list_registry_entries(),
+        "schema_version": API_VERSION,
+    }
+
+
+@router.get("/v1/learning/registry/{registry_id}")
+def get_learning_model_registry_entry(registry_id: str) -> dict[str, Any]:
+    try:
+        return get_learning_boundary().get_registry_entry(registry_id)
+    except (FormulaLMPolicyError, FormulaLMConflictError, FormulaLMNotFoundError) as exc:
+        raise learning_http_exception(exc) from exc
+
+
+@router.post("/v1/learning/registry/{registry_id}/evaluations", status_code=201)
+def record_learning_model_evaluation(
+    registry_id: str,
+    body: LearningEvaluationCreate,
+    principal: str = Depends(require_execution_auth),
+) -> dict[str, Any]:
+    try:
+        return get_learning_boundary().record_independent_evaluation(
+            registry_id=registry_id,
+            idempotency_key=body.idempotency_key,
+            evaluator_id=body.evaluator_id,
+            independent_of_training_actor=body.independent_of_training_actor,
+            verdict=body.verdict,
+            eval_suite_sha256=body.eval_suite_sha256,
+            report_sha256=body.report_sha256,
+            metrics=body.metrics,
+            principal=principal,
+        )
+    except (FormulaLMPolicyError, FormulaLMConflictError, FormulaLMNotFoundError) as exc:
+        raise learning_http_exception(exc) from exc
+
+
+@router.get("/v1/learning/registry/{registry_id}/evaluations")
+def list_learning_model_evaluations(registry_id: str) -> dict[str, Any]:
+    try:
+        data = get_learning_boundary().list_evaluations(registry_id)
+    except (FormulaLMPolicyError, FormulaLMConflictError, FormulaLMNotFoundError) as exc:
+        raise learning_http_exception(exc) from exc
+    return {"object": "list", "data": data, "schema_version": API_VERSION}
+
+
+@router.post("/v1/learning/registry/{registry_id}/transitions")
+def transition_learning_model_registry(
+    registry_id: str,
+    body: LearningRegistryTransition,
+    principal: str = Depends(require_execution_auth),
+) -> dict[str, Any]:
+    try:
+        return get_learning_boundary().transition_registry_entry(
+            registry_id=registry_id,
+            idempotency_key=body.idempotency_key,
+            to_stage=body.to_stage,
+            principal=principal,
+            evidence=body.evidence,
+            reason=body.reason,
+        )
+    except (FormulaLMPolicyError, FormulaLMConflictError, FormulaLMNotFoundError) as exc:
+        raise learning_http_exception(exc) from exc
+
+
+@router.get("/v1/learning/registry/{registry_id}/transitions")
+def list_learning_model_registry_transitions(registry_id: str) -> dict[str, Any]:
+    try:
+        data = get_learning_boundary().list_registry_events(registry_id)
     except (FormulaLMPolicyError, FormulaLMConflictError, FormulaLMNotFoundError) as exc:
         raise learning_http_exception(exc) from exc
     return {"object": "list", "data": data, "schema_version": API_VERSION}

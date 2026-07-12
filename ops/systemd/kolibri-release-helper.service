@@ -15,7 +15,8 @@ Environment=KOLIBRI_RELEASE_ALLOWED_SIGNERS=/etc/kolibri/release_allowed_signers
 Environment=KOLIBRI_OWNER_APPROVAL_ALLOWED_SIGNERS=/etc/kolibri/owner_allowed_signers
 Environment=KOLIBRI_RELEASE_POLICY=/etc/kolibri/release-policy.json
 Environment=KOLIBRI_RELEASE_HELPER_ALLOWED_USER=kolibri-agent
-ExecStart=/usr/bin/python3 /usr/local/lib/kolibri/release_helper.py --serve-systemd
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -B /usr/local/lib/kolibri/release_helper.py --serve-systemd
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict

@@ -84,14 +84,17 @@ def _canonical_json_sha256(value: Any) -> str:
 
 
 def _binding_sha256(task: dict[str, Any], result_reference: str, result_sha256: str) -> str:
-    return _canonical_json_sha256({
+    payload: dict[str, Any] = {
         "schema_version": COMPLETION_BINDING_SCHEMA,
         "task_id": str(task.get("task_id") or ""),
         "attempt_id": str(task.get("attempt_id") or ""),
         "lease_owner": str(task.get("lease_owner") or ""),
         "result_reference": result_reference,
         "result_sha256": result_sha256,
-    })
+    }
+    if "fencing_token" in task:
+        payload["fencing_token"] = task.get("fencing_token")
+    return _canonical_json_sha256(payload)
 
 
 def _runtime_record(verified: VerifiedRelease) -> tuple[str, str]:
@@ -334,7 +337,7 @@ def submit_handshake_task(
             "response_profile_path": response_profile_path,
             "response_profile_sha256": response_profile_sha256,
         },
-        "max_retries": 1,
+        "max_attempts": 2,
     })
 
 
@@ -430,6 +433,17 @@ def _validate_strict_control_plane_proof(
             and evidence.get("node_id") == raw["node_id"]
             and evidence.get("agent_id") == raw["agent_id"]
             and evidence.get("result_reference") == raw["result_reference"]
+        ),
+        "fencing_token": bool(
+            "fencing_token" not in task
+            or (
+                type(task.get("fencing_token")) is int
+                and task.get("fencing_token") > 0
+                and isinstance(task.get("result"), dict)
+                and task.get("result", {}).get("fencing_token") == task.get("fencing_token")
+                and evidence.get("fencing_token") == task.get("fencing_token")
+                and verifier.get("fencing_token") == task.get("fencing_token")
+            )
         ),
         "content_hash": bool(
             evidence.get("result_sha256") == result_sha256

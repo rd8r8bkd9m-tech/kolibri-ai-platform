@@ -1685,12 +1685,14 @@ class ReleaseInstaller:
             attempts = 0
             passed = False
             legacy_compatibility_mode: str | None = None
+            last_return_code: int | None = None
             while executable_available:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     break
                 attempts += 1
                 return_code = cls._run_bounded_process(argv, remaining, progress)
+                last_return_code = return_code
                 if return_code == 0:
                     passed = True
                     break
@@ -1721,6 +1723,21 @@ class ReleaseInstaller:
             }
             if legacy_compatibility_mode is not None:
                 result["compatibility_mode"] = legacy_compatibility_mode
+            if not passed:
+                if not executable_available:
+                    reason = "executable_unavailable"
+                elif attempts == 0:
+                    reason = "health_timeout_before_attempt"
+                elif last_return_code is None:
+                    reason = "process_timeout_or_spawn_failure"
+                else:
+                    reason = "nonzero_exit"
+                result["exit_code"] = (
+                    max(-255, min(255, int(last_return_code)))
+                    if last_return_code is not None
+                    else None
+                )
+                result["reason"] = reason
             results.append(result)
         return results
 

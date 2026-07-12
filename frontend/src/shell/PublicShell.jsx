@@ -1,50 +1,20 @@
 // @refresh reset
-import { Workbench } from "../workbench/Workbench";
-import { ProjectWorkspace } from "../windows/ProjectWorkspace";
-import { WindowContent } from "../windows/WindowContent";
+import { useRef } from "react";
+import { ProjectDeletionNotice } from "./ProjectDeletionNotice";
+import { ShellComposer } from "./ShellComposer";
 import { ShellHeader } from "./ShellHeader";
-import { ShellNavigation } from "./ShellNavigation";
+import { ShellWorkbench } from "./ShellWorkbench";
 import { usePublicShell } from "./usePublicShell";
+import { useShellViewport } from "./useShellViewport";
 
 export function PublicShell() {
   const shell = usePublicShell();
+  const root = useRef(null);
+  useShellViewport(root);
   const activeProject = shell.projects.find((project) => project.id === shell.activeProjectId) || shell.projects[0];
-  const renderContent = (windowState) => (
-    <WindowContent
-      onCalculate={shell.calculateEstimate}
-      onDetachCanvas={shell.detachCanvas}
-      onDetachProject={shell.openProject}
-      onExecutionMode={shell.setExecutionMode}
-      onNewProject={shell.newProjectFromHistory}
-      onOpenArtifact={shell.openArtifact}
-      onOpenHistory={shell.openProjectFromHistory}
-      onProjectPatch={shell.updateProject}
-      onSendMessage={shell.sendProjectMessage}
-      onUpdateCanvas={shell.updateCanvas}
-      executionModes={shell.executionModes}
-      project={shell.projects.find((project) => project.id === (windowState.payload?.projectId || windowState.payload?.parentProjectId))}
-      projectBusy={Boolean(shell.busyProjects[windowState.payload?.projectId || windowState.payload?.parentProjectId])}
-      windowState={windowState}
-    />
-  );
-  const renderPrimary = () => activeProject ? (
-    <ProjectWorkspace
-      busy={Boolean(shell.busyProjects[activeProject.id])}
-      executionModes={shell.executionModes}
-      onCalculate={shell.calculateEstimate}
-      onDetachCanvas={shell.detachCanvas}
-      onDetachProject={shell.openProject}
-      onExecutionMode={shell.setExecutionMode}
-      onOpenArtifact={shell.openArtifact}
-      onSend={shell.sendProjectMessage}
-      onProjectPatch={shell.updateProject}
-      onUpdateCanvas={shell.updateCanvas}
-      project={activeProject}
-    />
-  ) : null;
 
   return (
-    <main className={`kolibri-workbench ${shell.immersive ? "is-immersive" : ""}`}>
+    <main className={`kolibri-workbench ${shell.immersive ? "is-immersive" : ""}`} ref={root}>
       <ShellHeader
         navigation={shell.navigation}
         onNewProject={shell.newProject}
@@ -53,25 +23,18 @@ export function PublicShell() {
         projectCount={shell.projects.length}
         title={activeProject?.title || "Рабочее пространство"}
       />
-      <section className={`workbench-body ${shell.navigation.layoutPinned ? "dock-pinned" : ""}`}>
-        <ShellNavigation
-          minimizedWindows={shell.workbench.windows.filter((item) => item.minimized)}
-          navigation={shell.navigation}
-          onNewProject={shell.newProject}
-          onRestoreWindow={(id) => shell.dispatch({ type: "FOCUS", id })}
-          onSelect={shell.selectTool}
-          onSystem={shell.openSystemApp}
-          selected={shell.projects.find((project) => project.id === shell.activeProjectId)?.draftTool || ""}
-        />
-        <Workbench
-          dispatch={shell.dispatch}
-          focusedId={shell.workbench.focusedId}
-          onFocus={shell.focusWindow}
-          renderContent={renderContent}
-          renderPrimary={renderPrimary}
-          windows={shell.workbench.windows}
-        />
-      </section>
+      <ShellWorkbench activeProject={activeProject} shell={shell} />
+      <ShellComposer
+        availableTools={shell.availableTools}
+        busy={Boolean(shell.busyProjects[activeProject?.id])}
+        executionModes={shell.executionModes}
+        key={activeProject?.id || "no-project"}
+        onExecutionMode={shell.setExecutionMode}
+        onProjectPatch={shell.updateProject}
+        onSend={shell.sendProjectMessage}
+        project={activeProject}
+      />
+      <ProjectDeletionNotice deletion={shell.lastDeleted} onDismiss={shell.dismissDeleteUndo} onUndo={shell.undoDeleteProject} />
     </main>
   );
 }

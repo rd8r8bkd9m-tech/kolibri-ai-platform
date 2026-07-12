@@ -18,6 +18,7 @@ if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
 from artifact_runtime import EstimateSpec, deterministic_estimate
+import capability_gateway
 from estimate_artifacts import (
     EstimateVersionConflict,
     configure_estimate_artifact_store,
@@ -28,6 +29,7 @@ import public_responses_api
 from public_estimate_api import router as estimate_router
 from public_responses_api import router as responses_router
 from providers import ProviderGatewayError
+import web_search_gateway
 from vertical_tasks import (
     EstimateProviderDraftError,
     EstimateVerticalTask,
@@ -178,6 +180,90 @@ def _provider_draft(
         "totals": {"grand_total_minor": reported_total_minor},
         "grand_total_minor": reported_total_minor,
     }
+
+
+def _source_quote(price_minor: int, item: str, unit: str) -> str:
+    rubles = f"{price_minor // 100:,}".replace(",", " ")
+    kopecks = price_minor % 100
+    amount = f"{rubles},{kopecks:02d}" if kopecks else rubles
+    return f"{item}: текущая цена {amount} руб. за {unit}."
+
+
+def _make_current_price_draft(draft: dict) -> dict:
+    current = json.loads(json.dumps(draft, ensure_ascii=False))
+    current["normative_basis"]["normative_edition"] = "Коммерческий срез 2026-07-11"
+    current["normative_basis"]["price_level_date"] = "2026-07-11"
+    source_urls: list[str] = []
+    for section in current["sections"]:
+        for line in section["lines"]:
+            price = int(line["unit_price_minor"])
+            provenance = line["price_provenance"]
+            provenance.update({
+                "captured_at": "2026-07-11",
+                "price_level_date": "2026-07-11",
+                "price_min_minor": price,
+                "price_max_minor": price,
+                "source_quote": _source_quote(price, line["description"], line["unit"]),
+                "source_item": line["description"],
+                "source_category": line["category"],
+                "source_unit": line["unit"],
+                "source_spec": None,
+            })
+            source_urls.append(provenance["source_url"])
+    current["normative_basis"]["source_urls"] = source_urls
+    return current
+
+
+class _EstimatePriceCapabilityGateway:
+    def validate_requested_tools(self, _tools):
+        return [{
+            "id": "tool:web_search", "kind": "tool", "name": "web_search",
+            "status": "available", "source": {"type": "test"},
+            "_aliases": ("web_search",), "_providers": ("gateway",),
+        }]
+
+
+class _EstimatePriceWebGateway:
+    def __init__(self, draft: dict):
+        self.draft = draft
+        self.calls = 0
+
+    def execute(self, query, **_kwargs):
+        self.calls += 1
+        citations = []
+        for section in self.draft["sections"]:
+            for line in section["lines"]:
+                provenance = line["price_provenance"]
+                quote = provenance["source_quote"]
+                url = provenance["source_url"]
+                citations.append({
+                    "id": f"cite_{len(citations) + 1}",
+                    "title": provenance["source_ref"],
+                    "snippet": quote,
+                    "url": url,
+                    "source_host": "example.invalid",
+                    "provider": "test-search",
+                    "retrieved_at": "2026-07-11T00:00:00+00:00",
+                    "content_sha256": _sha(json.dumps({
+                        "title": provenance["source_ref"], "snippet": quote, "url": url,
+                    }, ensure_ascii=False, sort_keys=True, separators=(",", ":"))),
+                })
+        return {
+            "provider_context": "test price evidence",
+            "tool_call": {
+                "call_id": f"search_{self.calls}", "capability_id": "tool:web_search",
+                "tool": "web_search", "status": "succeeded",
+            },
+            "evidence": {"type": "tool_execution", "output_sha256": "f" * 64},
+            "citations": citations,
+            "attempts": [{"provider": "test-search", "status": "succeeded"}],
+            "formulalm_tap": {"tool_id": "tool:web_search", "candidate_only": True},
+        }
+
+
+def _configure_current_price_search(monkeypatch, draft: dict) -> None:
+    monkeypatch.setattr(capability_gateway, "_gateway", _EstimatePriceCapabilityGateway())
+    monkeypatch.setattr(web_search_gateway, "_gateway", _EstimatePriceWebGateway(draft))
 
 
 def _verified_provider_result(text: str, *, binding: str = "f") -> dict:
@@ -363,6 +449,7 @@ def test_pdf_is_content_bound_versioned_and_session_isolated(tmp_path):
     assert materialized["persistence"]["state"] == "saved"
     assert materialized["persistence"]["version"] == 1
     artifact = materialized["artifacts"][0]
+    assert artifact["name"] == "Смета на ремонт кухни — версия 1.pdf"
     assert artifact["media_type"] == "application/pdf"
     assert artifact["status"] == "materialized"
     assert artifact["immutable"] is True
@@ -378,6 +465,8 @@ def test_pdf_is_content_bound_versioned_and_session_isolated(tmp_path):
     assert response.headers["content-type"].startswith("application/pdf")
     assert response.headers["cache-control"].startswith("private, no-store")
     assert response.headers["content-disposition"].startswith("inline;")
+    assert 'filename="kolibri-estimate-v1.pdf"' in response.headers["content-disposition"]
+    assert "filename*=UTF-8''%D0%A1%D0%BC%D0%B5%D1%82%D0%B0" in response.headers["content-disposition"]
     assert response.content.startswith(b"%PDF")
     assert hashlib.sha256(response.content).hexdigest() == artifact["content_sha256"]
 
@@ -478,7 +567,7 @@ def test_owner_review_feedback_is_sanitized_queued_and_never_mutates_weights(tmp
         json={
             "action": "reject",
             "base_version": 1,
-            "reason": "api_key=sk-example-secret-value-123456789",
+            "reason": "api_key=sk-" + "example-secret-value-123456789",
             "corrections": {},
             "idempotency_key": "estimate-feedback-secret-rejection",
         },
@@ -505,13 +594,16 @@ def test_owner_review_feedback_is_sanitized_queued_and_never_mutates_weights(tmp
     assert stale.status_code == 409
 
 
-def test_public_responses_materializes_pdf_after_verified_estimate_proposal(tmp_path):
+def test_public_responses_materializes_pdf_after_verified_estimate_proposal(tmp_path, monkeypatch):
     session_store = _session_store(tmp_path)
     configure_estimate_artifact_store(tmp_path / "kolibri.db", tmp_path / "artifacts")
-    draft = _provider_draft(reported_total_minor=1, region="Республика Татарстан")
+    draft = _make_current_price_draft(
+        _provider_draft(reported_total_minor=1, region="Республика Татарстан")
+    )
     draft["title"] = "Предварительная смета: одноэтажный дом 100 м²"
     draft["object_name"] = "Одноэтажный жилой дом 100 м²"
     proposal = json.dumps(draft, ensure_ascii=False)
+    _configure_current_price_search(monkeypatch, draft)
 
     async def executor(**_kwargs):
         response_sha = _sha(proposal)
@@ -575,10 +667,17 @@ def test_public_responses_materializes_pdf_after_verified_estimate_proposal(tmp_
     assert task["result"]["estimate"]["lines"][0]["unit"] == "м²"
     assert task["persistence"]["version"] == 1
     assert task["artifact_delivery"]["delivered"] == ["pdf"]
+    outcome = payload["estimate_outcome"]
+    assert outcome["status"] == "preliminary"
+    assert outcome["pricing"]["invented_prices"] is False
+    assert outcome["editor"]["available"] is True
+    assert outcome["editor"]["state"] == "saved"
+    assert outcome["pdf"]["status"] == "materialized"
+    assert outcome["pdf"]["artifact"]["content_sha256"] == task["artifacts"][0]["content_sha256"]
     assert client.get(task["artifacts"][0]["locator"]).status_code == 200
 
 
-def test_exact_house_estimate_repairs_invalid_draft_once_within_total_budget(tmp_path):
+def test_exact_house_estimate_repairs_invalid_draft_once_within_total_budget(tmp_path, monkeypatch):
     session_store = _session_store(tmp_path)
     configure_estimate_artifact_store(tmp_path / "kolibri.db", tmp_path / "artifacts")
     private_marker = "PRIVATE-REJECTED-DRAFT-MUST-NOT-ENTER-REPAIR"
@@ -591,13 +690,16 @@ def test_exact_house_estimate_repairs_invalid_draft_once_within_total_budget(tmp
         "source_summary": private_marker,
         "sections": [],
     }, ensure_ascii=False)
-    repaired_draft = _provider_draft(
-        price_minor=12_500,
-        reported_total_minor=999_999_999,
-        region="Республика Татарстан",
+    repaired_draft = _make_current_price_draft(
+        _provider_draft(
+            price_minor=12_500,
+            reported_total_minor=999_999_999,
+            region="Республика Татарстан",
+        )
     )
     repaired_draft["title"] = "Предварительная смета: дом 100 м², Лениногорск"
     repaired = json.dumps(repaired_draft, ensure_ascii=False)
+    _configure_current_price_search(monkeypatch, repaired_draft)
     calls: list[dict] = []
 
     async def executor(**kwargs):
@@ -967,9 +1069,19 @@ def test_production_house_request_returns_bound_readiness_and_real_checklist_pdf
     assert "persistence" not in task
     assert task["artifact_delivery"]["delivered"] == ["pdf"]
     assert task["artifact_delivery"]["missing"] == []
+    outcome = payload["estimate_outcome"]
+    assert outcome["status"] == "needs_input"
+    assert outcome["pricing"] == {
+        "status": "not_calculated",
+        "invented_prices": False,
+    }
+    assert outcome["editor"]["available"] is True
+    assert outcome["editor"]["mode"] == "input_requirements"
+    assert outcome["pdf"]["status"] == "materialized"
     assert "Денежный итог не рассчитан" in payload["output_text"]
     assert "PDF-чеклист сформирован" in payload["output_text"]
     artifact = task["artifacts"][0]
+    assert outcome["pdf"]["artifact"]["content_sha256"] == artifact["content_sha256"]
     assert artifact["document_role"] == "estimate_input_checklist"
     assert artifact["readiness_sha256"] == proof["readiness_sha256"]
     assert artifact["task_binding_sha256"] == proof["binding_sha256"]

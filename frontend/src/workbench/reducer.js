@@ -61,6 +61,14 @@ function topWindowId(windows) {
   return visible.length ? visible.reduce((left, right) => left.z > right.z ? left : right).id : null;
 }
 
+function belongsToProject(windowState, projectId) {
+  const payload = windowState.payload || {};
+  return payload.projectId === projectId
+    || payload.parentProjectId === projectId
+    || windowState.id === `workspace:${projectId}`
+    || windowState.id === `estimate:${projectId}`;
+}
+
 export const initialWorkbench = {
   windows: [],
   focusedId: null,
@@ -105,6 +113,10 @@ export function workbenchReducer(state, action) {
     case "CLOSE":
     case "DEACTIVATE": {
       const windows = state.windows.filter((item) => item.id !== action.id);
+      return { ...state, windows, focusedId: topWindowId(windows) };
+    }
+    case "REMOVE_PROJECT_WINDOWS": {
+      const windows = state.windows.filter((item) => !belongsToProject(item, action.projectId));
       return { ...state, windows, focusedId: topWindowId(windows) };
     }
     case "MINIMIZE": {

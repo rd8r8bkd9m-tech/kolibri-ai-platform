@@ -5,9 +5,11 @@ import {
   Files,
   Globe2,
   History,
+  Image as ImageIcon,
 } from "lucide-react";
 
 export const TOOLS = Object.freeze([
+  { id: "image", label: "Изображение", icon: ImageIcon, hint: "Готовое изображение" },
   { id: "estimate", label: "Смета", icon: Calculator, hint: "Точный расчёт" },
   { id: "document", label: "Документ", icon: FileText, hint: "DOCX или PDF" },
   { id: "site", label: "Сайт", icon: Globe2, hint: "Код и preview" },
@@ -20,11 +22,12 @@ export const SYSTEM_APPS = Object.freeze([
 ]);
 
 export const EXECUTION_MODES = Object.freeze([
-  { id: "fast", label: "Быстро", hint: "Диалог и короткие задачи" },
-  { id: "codex", label: "Codex", hint: "Разработка через фабрику" },
+  { id: "fast", label: "Быстро", hint: "Диалог и короткие задачи", reasoning: "Стандартное", speed: "Высокая" },
+  { id: "codex", label: "Глубоко", hint: "Сложная задача с проверкой", reasoning: "Высокое", speed: "Обычная" },
 ]);
 
 export const INTENT_WORDS = Object.freeze({
+  image: ["изображен", "картин", "иллюстрац", "портрет", "нарис", "image", "picture"],
   estimate: ["смет", "расчет", "расчёт", "стоимост"],
   document: ["документ", "договор", "коммерческ", "отчет", "отчёт", "акт"],
   site: ["сайт", "лендинг", "web-сайт", "веб-сайт"],

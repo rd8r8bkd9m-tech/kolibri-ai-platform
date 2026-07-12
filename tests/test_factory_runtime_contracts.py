@@ -14,10 +14,12 @@ def load_control():
 def test_task_envelope_schema_and_idempotency_key():
     control = load_control()
     task = control.normalize_task({'task_id': 'SCHEMA-1', 'idempotency_key': 'idem-1', 'kind': 'read_only_probe'})
-    for key in ['task_id', 'idempotency_key', 'kind', 'state', 'attempt', 'lease_owner', 'lease_until', 'result_reference', 'error_type']:
+    for key in ['task_id', 'idempotency_key', 'kind', 'state', 'attempt', 'lease_fencing_schema', 'fencing_token', 'lease_owner', 'lease_until', 'result_reference', 'error_type']:
         assert key in task
     assert task['idempotency_key'] == 'idem-1'
     assert task['state'] == 'queued'
+    assert task['lease_fencing_schema'] == control.LEASE_FENCING_SCHEMA
+    assert task['fencing_token'] == 0
 
 def test_heartbeat_payload_schema():
     payload = {'node_id': '9fts', 'agent_id': 'agent-host-9fts', 'pid': 123, 'capabilities': ['implementation'], 'active_task': None}

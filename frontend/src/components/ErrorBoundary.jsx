@@ -18,7 +18,7 @@ export class ErrorBoundary extends Component {
       <main className="fatal">
         <KolibriBird size={78} state="error" />
         <h1>Kolibri остановилась</h1>
-        <p>{this.state.error.message}</p>
+        <p>Интерфейс не смог безопасно продолжить работу. Перезапустите приложение; сохранённые проекты останутся в истории.</p>
         <button onClick={() => globalThis.location.reload()} type="button">
           <RotateCcw size={18} /> Перезапустить
         </button>

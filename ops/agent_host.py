@@ -9,7 +9,6 @@ import fnmatch
 import hashlib
 import hmac
 import json
-import mimetypes
 import os
 import platform
 import re
@@ -63,6 +62,8 @@ MIMO_RESPONSE_AGENT_PROFILE_PATH = "ops/mimo/kolibri-response-only.md"
 MIMO_RESPONSE_PROFILE_MAX_BYTES = 16 * 1024
 MIMO_RESPONSE_PROFILE_SHA256 = "80cc13e7dd89c8045c8317d55b4ebe96dccd76a371a2b51f4c1cd5c7cec2ca45"
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+IMAGE_EVIDENCE_SCHEMA = "kolibri.image-generation-evidence.v1"
+MAX_FACTORY_IMAGE_BYTES = 6 * 1024 * 1024
 READ_ONLY_PERMISSION_PACK_MARKERS = {"read_only", "readonly", "read-only", "no_push", "no-push", "nopush"}
 FORBIDDEN_READ_ONLY_PERMISSIONS = {"full_autonomy", "git_push", "write_worktree"}
 WRITE_WORKTREE_TASK_KINDS = {"impl_factory_smoke", "impl_retry_error_clearance"}
@@ -123,6 +124,7 @@ SUPPORTED_TASK_KINDS = {
     "review_pr",
     "telegram_chat_response",
     "telegram_image_generation",
+    "image_generation",
 } | set(RELEASE_TASK_KINDS)
 NO_PUSH_FLAGS = ("git_push_forbidden", "no_push", "read_only")
 PRODUCT_CODE_FORBIDDEN_FLAGS = ("product_code_modification_forbidden", "read_only")
@@ -161,6 +163,29 @@ CODEX_PROVIDER_NETWORK_INSTRUCTION = (
     "Do not run curl, wget, or other shell network clients. Use no more than three focused "
     "search queries, open only the authoritative sources needed, cite them, and answer promptly. "
     "Do not search when the task does not require current internet information."
+)
+NATIVE_WEB_SEARCH_EVIDENCE_SCHEMA = "kolibri.native-web-search-evidence.v1"
+MAX_NATIVE_WEB_SEARCH_QUERIES = 3
+MAX_NATIVE_WEB_SEARCH_EVENTS = 12
+MAX_NATIVE_WEB_SEARCH_QUERY_BYTES = 2_048
+PROVIDER_PROXY_ENV = "KOLIBRI_PROVIDER_PROXY_URL"
+PROVIDER_NO_PROXY_BASE = (
+    "localhost",
+    "127.0.0.1",
+    "::1",
+    "home",
+    "api.telegram.org",
+    "kolibriai.ru",
+)
+GLOBAL_PROXY_VARIABLES = (
+    "ALL_PROXY",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "NO_PROXY",
+    "all_proxy",
+    "http_proxy",
+    "https_proxy",
+    "no_proxy",
 )
 
 
@@ -372,6 +397,12 @@ SECRET_REDACTION_MARKERS = (
     "secret",
     "token",
 )
+MAX_PUBLIC_REASONING_SUMMARY_BYTES = 16 * 1024
+PUBLIC_REASONING_PRIVATE_PATTERN = re.compile(
+    r"(?:\b10\.\d{1,3}\.\d{1,3}\.\d{1,3}\b|\b192\.168\.\d{1,3}\.\d{1,3}\b|"
+    r"\b172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}\b|/home/|/users/)",
+    re.IGNORECASE,
+)
 
 
 class BackendTestEnvironmentError(RuntimeError):
@@ -409,8 +440,95 @@ class TaskProcessInterrupted(RuntimeError):
         self.retry = retry
 
 
+def task_max_attempts(task: dict[str, Any], *, default: int = 4) -> int:
+    """Consume the canonical total-attempt budget with legacy read support."""
+
+    raw = task.get("max_attempts")
+    if raw is None:
+        legacy = task.get("max_retries")
+        raw = legacy + 1 if isinstance(legacy, int) and not isinstance(legacy, bool) else default
+    if isinstance(raw, bool) or not isinstance(raw, int) or raw < 1:
+        return default
+    return min(raw, 100)
+
+
+def task_has_attempt_budget(task: dict[str, Any]) -> bool:
+    return int(task.get("attempt", 0)) < task_max_attempts(task)
+
+
+def provider_runner_proxy_environment(
+    source: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """Build proxy variables only for Mimo/Codex child processes.
+
+    The Agent Host service receives a dedicated Kolibri variable rather than
+    global ``HTTPS_PROXY``.  This keeps Home Control Plane, mesh, backend and
+    ordinary build commands on their existing routes.
+    """
+
+    values = os.environ if source is None else source
+    proxy_url = str(values.get(PROVIDER_PROXY_ENV) or "").strip()
+    if not proxy_url:
+        return {}
+    parsed = urllib.parse.urlsplit(proxy_url)
+    if (
+        parsed.scheme != "http"
+        or parsed.hostname != "127.0.0.1"
+        or parsed.username
+        or parsed.password
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+        or parsed.port is None
+        or not 1024 <= parsed.port <= 65535
+    ):
+        raise RuntimeError("provider_proxy_contract_invalid")
+    manifest_path = str(values.get("KOLIBRI_MESH_MEMBERSHIP_MANIFEST") or "").strip()
+    if not manifest_path:
+        raise RuntimeError("provider_proxy_membership_unavailable")
+    try:
+        try:
+            from ops.fleet_membership import MeshMembershipSource
+        except ImportError:  # installed standalone beside this script
+            from fleet_membership import MeshMembershipSource
+        snapshot = MeshMembershipSource(manifest_path).load()
+    except (ImportError, RuntimeError) as exc:
+        raise RuntimeError("provider_proxy_membership_unavailable") from exc
+    direct_hosts = list(PROVIDER_NO_PROXY_BASE)
+    for member in snapshot.members:
+        direct_hosts.extend((member.node_id, member.mesh_ip))
+    no_proxy = ",".join(dict.fromkeys(direct_hosts))
+    canonical = f"http://127.0.0.1:{parsed.port}"
+    return {
+        "HTTPS_PROXY": canonical,
+        "HTTP_PROXY": canonical,
+        "https_proxy": canonical,
+        "http_proxy": canonical,
+        "NO_PROXY": no_proxy,
+        "no_proxy": no_proxy,
+    }
+
+
+def agent_child_environment(
+    overrides: dict[str, str] | None = None,
+    source: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """Return a child environment with no inherited machine-global proxy."""
+
+    environment = dict(os.environ if source is None else source)
+    for name in GLOBAL_PROXY_VARIABLES:
+        environment.pop(name, None)
+    if overrides:
+        environment.update(overrides)
+    return environment
+
+
 class ResponseOnlyToolEventError(RuntimeError):
     """Mimo emitted a tool event despite the response-only agent profile."""
+
+
+class NativeWebSearchEvidenceError(RuntimeError):
+    """A Codex native-search JSONL trace exceeded the bounded evidence policy."""
 
 
 def utc_now() -> str:
@@ -679,7 +797,7 @@ def response_only_tool_event_name(event: dict[str, Any]) -> str | None:
     }
     event_type_markers = {
         "actor", "bash", "command", "edit", "shell", "task", "tool", "tool-call",
-        "tool_call", "tool_use", "write",
+        "tool_call", "tool_use", "web_search", "web_search_preview", "write",
     }
     while stack:
         value = stack.pop()
@@ -829,6 +947,57 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def canonical_json_sha256(value: Any) -> str:
+    encoded = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def validated_image_file(path: Path) -> tuple[str, str, int]:
+    """Validate generated bytes, not an extension supplied by a generator."""
+
+    if not path.is_file():
+        raise RuntimeError("image generator completed without an image file")
+    size_bytes = path.stat().st_size
+    if size_bytes <= 0:
+        raise RuntimeError("image generator returned an empty image")
+    if size_bytes > MAX_FACTORY_IMAGE_BYTES:
+        raise RuntimeError("image generator result exceeds the bounded factory transport")
+    content = path.read_bytes()
+    media_type = ""
+    if content.startswith(b"\x89PNG\r\n\x1a\n"):
+        if len(content) < 33 or content[12:16] != b"IHDR" or content[-8:-4] != b"IEND":
+            raise RuntimeError("image generator returned an invalid PNG container")
+        media_type = "image/png"
+    elif content.startswith(b"\xff\xd8"):
+        if len(content) < 4 or not content.endswith(b"\xff\xd9"):
+            raise RuntimeError("image generator returned an invalid JPEG container")
+        media_type = "image/jpeg"
+    elif len(content) >= 16 and content[:4] == b"RIFF" and content[8:12] == b"WEBP":
+        if int.from_bytes(content[4:8], "little") + 8 != len(content) or content[12:16] not in {
+            b"VP8 ", b"VP8L", b"VP8X",
+        }:
+            raise RuntimeError("image generator returned an invalid WebP container")
+        media_type = "image/webp"
+    else:
+        raise RuntimeError("image generator returned an unsupported image container")
+    return media_type, hashlib.sha256(content).hexdigest(), size_bytes
+
+
+def image_generator_configured() -> bool:
+    """Detect only secret/command presence; never expose either value."""
+
+    return bool(
+        os.environ.get("KOLIBRI_IMAGE_GENERATOR_CMD", "").strip()
+        or os.environ.get("OPENAI_API_KEY", "").strip()
+    )
+
+
 def _string_values(value: Any) -> list[str]:
     if value is None:
         return []
@@ -967,6 +1136,45 @@ def redact_sensitive_text(text: str) -> str:
         else:
             redacted_lines.append(line)
     return "\n".join(redacted_lines)
+
+
+def public_reasoning_summary_from_event(event: Any) -> str | None:
+    """Return only an explicit safe reasoning-summary surface from JSONL."""
+
+    if not isinstance(event, dict):
+        return None
+    event_type = str(event.get("type") or "").strip().lower()
+    value: Any = None
+    if event_type == "response.reasoning_summary_text.delta":
+        value = event.get("delta")
+    elif event_type in {
+        "item.completed", "item.delta", "reasoning_summary.completed",
+        "reasoning_summary.delta",
+    }:
+        item = event.get("item")
+        if not isinstance(item, dict):
+            item = event
+        if str(item.get("type") or "").strip().lower() not in {
+            "reasoning", "reasoning_summary", "summary_text",
+        }:
+            return None
+        value = item.get("delta") or item.get("text") or item.get("summary")
+        if isinstance(value, dict):
+            value = value.get("text")
+    if not isinstance(value, str):
+        return None
+    text = value.replace("\x00", "").strip()
+    encoded = text.encode("utf-8", errors="replace")
+    if not text or len(encoded) > MAX_PUBLIC_REASONING_SUMMARY_BYTES:
+        return None
+    lowered = text.lower()
+    if (
+        any(marker in lowered for marker in SECRET_REDACTION_MARKERS)
+        or PUBLIC_REASONING_PRIVATE_PATTERN.search(text)
+        or any(ord(character) < 32 and character not in "\n\r\t" for character in text)
+    ):
+        return None
+    return text
 
 
 def sanitize_text_file(path: Path) -> None:
@@ -1402,6 +1610,10 @@ def finalize_runner_contract(
         final["status"] = "completed"
     final.setdefault("task_id", task["task_id"])
     final.setdefault("kind", kind)
+    if task.get("attempt_id") is not None:
+        final["attempt_id"] = task.get("attempt_id")
+    if "fencing_token" in task:
+        final["fencing_token"] = task.get("fencing_token")
     final["artifact_dir"] = str(artifact_dir)
     requested_runner = requested_runner_for_envelope(envelope)
     result_runner = str(final.get("runner") or "").strip().lower() or None
@@ -1532,13 +1744,17 @@ class AgentHost:
         self.configured_capabilities = [
             item
             for item in args.capabilities.split(",")
-            if item and item != RELEASE_CAPABILITY and not is_declared_runner_capability(item)
+            if item
+            and item not in {RELEASE_CAPABILITY, "image_generation"}
+            and not is_declared_runner_capability(item)
         ]
         self.capabilities = list(self.configured_capabilities)
         self.repo_url = args.repo_url
         self.work_root = Path(args.work_root)
         self.artifact_root = Path(args.artifact_root)
-        self.heartbeat_interval = args.heartbeat_interval
+        if not 1 <= int(args.heartbeat_interval) <= 10:
+            raise RuntimeError("agent_host_heartbeat_interval_must_be_between_1_and_10_seconds")
+        self.heartbeat_interval = int(args.heartbeat_interval)
         self.lease_refresh = args.lease_refresh
         self.max_inflight = args.max_inflight
         configured_refresh = int(
@@ -1674,9 +1890,11 @@ class AgentHost:
     def _codex_probe_environment() -> dict[str, str]:
         allowed = (
             "PATH", "HOME", "CODEX_HOME", "LANG", "LC_ALL", "SSL_CERT_FILE",
-            "SSL_CERT_DIR", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY",
+            "SSL_CERT_DIR",
         )
-        return {name: os.environ[name] for name in allowed if os.environ.get(name)}
+        environment = {name: os.environ[name] for name in allowed if os.environ.get(name)}
+        environment.update(provider_runner_proxy_environment())
+        return environment
 
     def detect_codex_runner_status(self, executable: str | None) -> dict[str, Any]:
         checked_at = utc_now()
@@ -1713,7 +1931,10 @@ class AgentHost:
         if not executable:
             return {**base, "error_type": "runner_unavailable"}
 
-        environment = self._codex_probe_environment()
+        try:
+            environment = self._codex_probe_environment()
+        except RuntimeError:
+            return {**base, "error_type": "provider_proxy_contract_invalid"}
         login_timeout = min(10, int(policy["probe"]["timeout_seconds"]))
         try:
             login = subprocess.run(
@@ -1816,6 +2037,8 @@ class AgentHost:
 
     def capabilities_with_runners(self) -> list[str]:
         capabilities = list(dict.fromkeys(self.configured_capabilities))
+        if image_generator_configured():
+            capabilities.append("image_generation")
         for runner, state in self.runner_status.items():
             if state.get("status") == "available":
                 cap = runner_capability(runner)
@@ -1973,6 +2196,7 @@ class AgentHost:
 
     def register(self) -> None:
         self.refresh_release_installer_capability()
+        self.capabilities = self.capabilities_with_runners()
         body = {
             "node_id": self.node_id,
             "hostname": self.hostname,
@@ -1991,6 +2215,7 @@ class AgentHost:
 
     def node_heartbeat(self, active_task: str | None = None) -> None:
         self.refresh_release_installer_capability()
+        self.capabilities = self.capabilities_with_runners()
         body = {
             "node_id": self.node_id,
             "hostname": self.hostname,
@@ -2008,7 +2233,15 @@ class AgentHost:
         self.post(f"/v1/nodes/{self.node_id}/heartbeat", body)
         self._last_node_heartbeat = time.time()
 
-    def task_heartbeat(self, task: dict[str, Any], worktree: Path, branch: str | None, logs: dict[str, str], pid: int | None = None) -> dict[str, Any]:
+    def task_heartbeat(
+        self,
+        task: dict[str, Any],
+        worktree: Path,
+        branch: str | None,
+        logs: dict[str, str],
+        pid: int | None = None,
+        progress: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         # Long tasks still refresh their node card. Otherwise a healthy busy
         # worker is classified as stale and removed from routing.
         if time.time() - self._last_node_heartbeat >= self.heartbeat_interval:
@@ -2016,6 +2249,7 @@ class AgentHost:
         body = {
             "state": "running",
             "attempt_id": task.get("attempt_id"),
+            "fencing_token": task.get("fencing_token"),
             "node_id": self.node_id,
             "agent_id": self.agent_id,
             "pid": pid or self.pid,
@@ -2023,10 +2257,13 @@ class AgentHost:
             "branch": branch,
             "log_paths": logs,
         }
+        if progress is not None:
+            body["progress"] = progress
         return self.post(f"/v1/tasks/{task['task_id']}/heartbeat", body)
 
     def lease(self) -> dict[str, Any] | None:
         self.refresh_release_installer_capability()
+        self.capabilities = self.capabilities_with_runners()
         task = self.post("/v1/tasks/lease", {
             "node_id": self.node_id,
             "agent_id": self.agent_id,
@@ -2097,13 +2334,62 @@ class AgentHost:
                 "Control Plane returned a terminal cancellation fence before process start",
                 retry=False,
             )
-        merged_env = os.environ.copy()
-        if env:
-            merged_env.update(env)
+        merged_env = agent_child_environment(env)
         display_command = command_label or " ".join(command)
         with stdout_path.open("ab") as stdout, stderr_path.open("ab") as stderr:
             stdout.write(f"\n$ {display_command}\n".encode("utf-8"))
             stdout.flush()
+            reasoning_offset = stdout.tell()
+            reasoning_remainder = b""
+            reasoning_sequence = 0
+
+            def reasoning_progress() -> dict[str, Any] | None:
+                """Tail explicit JSONL reasoning summaries for public progress.
+
+                The raw runner log remains an operator artifact.  Only event
+                shapes accepted by ``public_reasoning_summary_from_event``
+                cross the Control Plane boundary, so hidden analysis and
+                arbitrary stdout can never become customer-visible progress.
+                """
+
+                nonlocal reasoning_offset, reasoning_remainder, reasoning_sequence
+                if not is_response_only_provider_task(task):
+                    return None
+                try:
+                    current_size = stdout_path.stat().st_size
+                    if current_size <= reasoning_offset:
+                        return None
+                    with stdout_path.open("rb") as progress_stream:
+                        progress_stream.seek(reasoning_offset)
+                        chunk = progress_stream.read(min(current_size - reasoning_offset, 256 * 1024))
+                    reasoning_offset += len(chunk)
+                except OSError:
+                    return None
+                payload = reasoning_remainder + chunk
+                lines = payload.splitlines(keepends=True)
+                reasoning_remainder = b""
+                if lines and not lines[-1].endswith((b"\n", b"\r")):
+                    reasoning_remainder = lines.pop()
+                    if len(reasoning_remainder) > 64 * 1024:
+                        reasoning_remainder = b""
+                latest: str | None = None
+                for raw_line in lines:
+                    try:
+                        event = json.loads(raw_line.decode("utf-8", errors="strict"))
+                    except (UnicodeDecodeError, json.JSONDecodeError):
+                        continue
+                    summary = public_reasoning_summary_from_event(event)
+                    if summary is not None:
+                        reasoning_sequence += 1
+                        latest = summary
+                if latest is None:
+                    return None
+                return {
+                    "schema_version": "kolibri.public-progress.v1",
+                    "type": "reasoning_summary_delta",
+                    "sequence": reasoning_sequence,
+                    "delta": latest,
+                }
             stdin_stream = stdin_path.open("rb") if stdin_path is not None else None
             try:
                 proc = subprocess.Popen(
@@ -2137,7 +2423,12 @@ class AgentHost:
                 if now - last_refresh >= refresh_interval:
                     try:
                         authoritative = self.task_heartbeat(
-                            task, cwd, branch, logs, proc.pid
+                            task,
+                            cwd,
+                            branch,
+                            logs,
+                            proc.pid,
+                            progress=reasoning_progress(),
                         )
                     except Exception as exc:
                         self.terminate_process_group(proc)
@@ -2160,6 +2451,29 @@ class AgentHost:
                     else max(0.01, min(0.25, deadline - now))
                 )
                 time.sleep(sleep_for)
+            final_progress = reasoning_progress()
+            if final_progress is not None:
+                try:
+                    authoritative = self.task_heartbeat(
+                        task,
+                        cwd,
+                        branch,
+                        logs,
+                        proc.pid,
+                        progress=final_progress,
+                    )
+                except Exception as exc:
+                    raise TaskProcessInterrupted(
+                        "task_lease_fenced",
+                        "Control Plane heartbeat or lease fence was lost after process exit",
+                        retry=False,
+                    ) from exc
+                if self.task_cancel_requested(authoritative):
+                    raise TaskProcessInterrupted(
+                        "task_cancelled",
+                        "Control Plane returned a terminal cancellation fence after process exit",
+                        retry=False,
+                    )
             if self.process_group_exists(proc.pid):
                 self.terminate_process_group(proc, grace_seconds=0.0)
                 raise TaskProcessInterrupted(
@@ -2367,6 +2681,192 @@ class AgentHost:
 
         return final_messages, text_parts, deltas
 
+    @staticmethod
+    def _native_web_search_event(event: dict[str, Any]) -> dict[str, Any] | None:
+        """Return a hash-only fact for one real Codex ``web_search`` event.
+
+        Codex JSONL currently exposes the search query and lifecycle event, but
+        not the fetched result body or source URLs.  The Agent Host therefore
+        records only a query digest and lifecycle status.  Assistant text is
+        never interpreted as tool evidence.
+        """
+
+        container_type = str(event.get("type") or "").strip().lower()
+        if container_type not in {
+            "item.started", "item.completed", "item.failed",
+            "web_search.started", "web_search.completed", "web_search.failed",
+        }:
+            return None
+        item = event.get("item")
+        if not isinstance(item, dict):
+            return None
+        item_type = str(item.get("type") or "").strip().lower()
+        if item_type not in {"web_search", "web_search_preview"}:
+            return None
+        call_id = str(item.get("id") or item.get("call_id") or "").strip()
+        query = item.get("query")
+        action = item.get("action")
+        if not isinstance(query, str) and isinstance(action, dict):
+            query = action.get("query")
+        query_sha256: str | None = None
+        if isinstance(query, str):
+            encoded_query = query.encode("utf-8", errors="replace")
+            if len(encoded_query) > MAX_NATIVE_WEB_SEARCH_QUERY_BYTES:
+                raise NativeWebSearchEvidenceError(
+                    "native_web_search_query_too_large"
+                )
+            if query.strip():
+                query_sha256 = hashlib.sha256(encoded_query).hexdigest()
+        explicit_status = str(item.get("status") or "").strip().lower()
+        failed = (
+            container_type.endswith(".failed")
+            or explicit_status in {"failed", "error", "cancelled", "canceled"}
+            or bool(item.get("error"))
+        )
+        completed = (
+            not failed
+            and (
+                container_type.endswith(".completed")
+                or explicit_status in {"completed", "succeeded", "success"}
+            )
+        )
+        return {
+            # Call IDs are used only to bind a completed event to the query
+            # seen in its matching started event; they are never serialized.
+            "call_id": call_id,
+            "query_sha256": query_sha256,
+            "status": "failed" if failed else "completed" if completed else "started",
+        }
+
+    @staticmethod
+    def _native_web_search_evidence(
+        events: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        if not events:
+            return None
+        if len(events) > MAX_NATIVE_WEB_SEARCH_EVENTS:
+            raise NativeWebSearchEvidenceError(
+                "native_web_search_event_limit_exceeded"
+            )
+        call_queries: dict[str, str] = {}
+        query_hashes: set[str] = set()
+        for event in events:
+            query_sha256 = event.get("query_sha256")
+            call_id = str(event.get("call_id") or "")
+            if isinstance(query_sha256, str):
+                query_hashes.add(query_sha256)
+                if call_id:
+                    call_queries[call_id] = query_sha256
+        if len(query_hashes) > MAX_NATIVE_WEB_SEARCH_QUERIES:
+            raise NativeWebSearchEvidenceError(
+                "native_web_search_query_limit_exceeded"
+            )
+        completed_hashes: set[str] = set()
+        completed_events = 0
+        for event in events:
+            if event.get("status") != "completed":
+                continue
+            query_sha256 = event.get("query_sha256")
+            if not isinstance(query_sha256, str):
+                query_sha256 = call_queries.get(str(event.get("call_id") or ""))
+            if isinstance(query_sha256, str):
+                completed_events += 1
+                completed_hashes.add(query_sha256)
+        # A started event or a model assertion is not execution proof.  Fail
+        # closed by omitting evidence unless a completed event is query-bound.
+        if not completed_hashes:
+            return None
+        facts = {
+            "schema_version": NATIVE_WEB_SEARCH_EVIDENCE_SCHEMA,
+            "tool": "web_search",
+            "event_count": len(events),
+            "completed_event_count": completed_events,
+            "query_count": len(query_hashes),
+            "query_sha256": sorted(query_hashes),
+        }
+        evidence_sha256 = hashlib.sha256(json.dumps(
+            facts, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+        ).encode("utf-8")).hexdigest()
+        return {**facts, "evidence_sha256": evidence_sha256}
+
+    @classmethod
+    def _sanitize_native_web_search_log(cls, stdout_path: Path) -> None:
+        """Replace native-search JSONL rows with hash-only audit records."""
+
+        if not stdout_path.exists() or not stdout_path.is_file():
+            return
+        sanitized: list[str] = []
+        for raw_line in stdout_path.read_text(
+            encoding="utf-8", errors="replace",
+        ).splitlines():
+            line = raw_line.strip()
+            if not line.startswith("{"):
+                sanitized.append(redact_sensitive_text(raw_line))
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                sanitized.append(redact_sensitive_text(raw_line))
+                continue
+            if not isinstance(event, dict):
+                sanitized.append(redact_sensitive_text(raw_line))
+                continue
+            try:
+                fact = cls._native_web_search_event(event)
+            except NativeWebSearchEvidenceError:
+                fact = {
+                    "status": "rejected",
+                    "query_sha256": hashlib.sha256(
+                        line.encode("utf-8", errors="replace")
+                    ).hexdigest(),
+                }
+            if fact is None:
+                sanitized.append(redact_sensitive_text(raw_line))
+                continue
+            safe_event = {
+                "type": "kolibri.native_web_search_event",
+                "status": fact.get("status"),
+                **(
+                    {"query_sha256": fact["query_sha256"]}
+                    if isinstance(fact.get("query_sha256"), str)
+                    else {}
+                ),
+            }
+            sanitized.append(json.dumps(
+                safe_event, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+            ))
+        stdout_path.write_text(
+            "\n".join(sanitized) + ("\n" if sanitized else ""),
+            encoding="utf-8",
+        )
+
+    @staticmethod
+    def _bind_native_web_search_evidence(
+        evidence: dict[str, Any],
+        *,
+        response_text: str,
+        task: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Bind hash-only tool evidence to the fenced task result."""
+
+        response_sha256 = hashlib.sha256(response_text.encode("utf-8")).hexdigest()
+        binding = {
+            "schema_version": NATIVE_WEB_SEARCH_EVIDENCE_SCHEMA,
+            "task_id": str(task.get("task_id") or ""),
+            "attempt_id": str(task.get("attempt_id") or ""),
+            "fencing_token": task.get("fencing_token"),
+            "response_sha256": response_sha256,
+            "evidence_sha256": str(evidence.get("evidence_sha256") or ""),
+        }
+        binding_sha256 = hashlib.sha256(json.dumps(
+            binding, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+        ).encode("utf-8")).hexdigest()
+        return {
+            **evidence,
+            "response_sha256": response_sha256,
+            "binding_sha256": binding_sha256,
+        }
+
     @classmethod
     def parse_json_response_payload(
         cls,
@@ -2379,6 +2879,7 @@ class AgentHost:
         deltas: list[str] = []
         useful_objects: list[dict[str, Any]] = []
         runner_errors: list[dict[str, Any]] = []
+        native_web_search_events: list[dict[str, Any]] = []
         for line in stdout_path.read_text(encoding="utf-8", errors="ignore").splitlines():
             line = line.strip()
             if not line.startswith("{"):
@@ -2395,6 +2896,9 @@ class AgentHost:
                     raise ResponseOnlyToolEventError(
                         f"mimo_response_only_tool_event:{tool_event}"
                     )
+            native_web_search_event = cls._native_web_search_event(event)
+            if native_web_search_event is not None:
+                native_web_search_events.append(native_web_search_event)
 
             error = event.get("error")
             if str(event.get("type") or "").lower() == "error" and isinstance(error, dict):
@@ -2414,20 +2918,40 @@ class AgentHost:
             if SAFE_MIMO_RESULT_FIELDS.intersection(event):
                 useful_objects.append(cls._safe_json_value(event))
 
+        native_web_search_evidence = cls._native_web_search_evidence(
+            native_web_search_events,
+        )
+
         for parts in (final_messages, text_parts, deltas):
             response_text = "".join(parts).strip()
             if response_text:
                 payload: dict[str, Any] = {"response": response_text}
                 if useful_objects:
                     payload["runner_output"] = useful_objects[-1]
+                if native_web_search_evidence is not None:
+                    payload["native_web_search_evidence"] = native_web_search_evidence
                 return payload
         if useful_objects:
             output = useful_objects[-1]
             text = output.get("response") or output.get("message") or output.get("text") or output.get("summary")
             if not isinstance(text, str) or not text.strip():
                 text = json.dumps(output, ensure_ascii=False, sort_keys=True)
-            return {"response": text.strip(), "runner_output": output}
-        return {"response": "", **({"runner_error": runner_errors[-1]} if runner_errors else {})}
+            return {
+                "response": text.strip(),
+                "runner_output": output,
+                **(
+                    {"native_web_search_evidence": native_web_search_evidence}
+                    if native_web_search_evidence is not None else {}
+                ),
+            }
+        return {
+            "response": "",
+            **({"runner_error": runner_errors[-1]} if runner_errors else {}),
+            **(
+                {"native_web_search_evidence": native_web_search_evidence}
+                if native_web_search_evidence is not None else {}
+            ),
+        }
 
     @classmethod
     def parse_json_text_response(
@@ -2506,11 +3030,14 @@ class AgentHost:
         logs: dict[str, str],
         stdin_path: Path | None = None,
         forbid_tool_events: bool = False,
+        env: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         try:
             command_options: dict[str, Any] = {"command_label": command_label}
             if stdin_path is not None:
                 command_options["stdin_path"] = stdin_path
+            if env is not None:
+                command_options["env"] = env
             self.run_command(
                 command, worktree, stdout_path, stderr_path, task, branch, logs,
                 **command_options,
@@ -2553,6 +3080,18 @@ class AgentHost:
                 f"{runner} response-only agent emitted a forbidden tool event",
                 retry=False,
             ) from exc
+        except NativeWebSearchEvidenceError as exc:
+            # The JSONL may contain the raw query.  Sanitize it before the
+            # failed attempt can be retained as an artifact.
+            self._sanitize_native_web_search_log(stdout_path)
+            raise RunnerExecutionError(
+                "runner_policy_blocked",
+                runner,
+                str(exc),
+                retry=False,
+            ) from exc
+        if payload.get("native_web_search_evidence") is not None:
+            self._sanitize_native_web_search_log(stdout_path)
         if not payload.get("response"):
             structured_error = payload.get("runner_error")
             if isinstance(structured_error, dict):
@@ -2584,6 +3123,7 @@ class AgentHost:
         logs: dict[str, str],
         stdin_path: Path | None = None,
         forbid_tool_events: bool = False,
+        env: dict[str, str] | None = None,
     ) -> str:
         payload = self.run_json_payload_command(
             command,
@@ -2597,6 +3137,7 @@ class AgentHost:
             logs,
             stdin_path=stdin_path,
             forbid_tool_events=forbid_tool_events,
+            env=env,
         )
         return str(payload.get("response") or "")
 
@@ -2611,6 +3152,7 @@ class AgentHost:
         task: dict[str, Any],
         branch: str | None,
         logs: dict[str, str],
+        execution_metadata: dict[str, Any] | None = None,
     ) -> str:
         runner = runner.strip().lower()
         if runner not in SUPPORTED_AI_RUNNERS:
@@ -2638,6 +3180,15 @@ class AgentHost:
         forbid_tool_events = False
         response_only_route = is_response_only_provider_task(task)
         try:
+            try:
+                provider_environment = provider_runner_proxy_environment()
+            except RuntimeError as exc:
+                raise RunnerExecutionError(
+                    "provider_proxy_contract_invalid",
+                    runner,
+                    "provider proxy contract is invalid",
+                    retry=False,
+                ) from exc
             if runner == "codex":
                 prompt_path = worktree / ".kolibri-provider-prompt"
                 codex_prompt = (
@@ -2702,7 +3253,7 @@ class AgentHost:
                     command, command_label = self.mimo_auto25_invocation(
                         executable, title, prompt, worktree
                     )
-            return self.run_json_text_command(
+            payload = self.run_json_payload_command(
                 command,
                 command_label,
                 runner,
@@ -2714,7 +3265,15 @@ class AgentHost:
                 logs,
                 stdin_path=prompt_path if runner == "codex" else None,
                 forbid_tool_events=forbid_tool_events,
+                env=provider_environment,
             )
+            if execution_metadata is not None:
+                native_evidence = payload.get("native_web_search_evidence")
+                if isinstance(native_evidence, dict):
+                    execution_metadata["native_web_search_evidence"] = dict(
+                        native_evidence
+                    )
+            return str(payload.get("response") or "")
         except TaskProcessInterrupted:
             raise
         except RunnerExecutionError as exc:
@@ -2849,22 +3408,30 @@ class AgentHost:
         return finalize_runner_contract(task, result, artifact_dir, worktree=worktree, changed_files=changed_files)
 
     def complete(self, task: dict[str, Any], result: dict[str, Any], result_path: Path) -> None:
+        bound_result = dict(result)
+        if "fencing_token" in task:
+            bound_result["fencing_token"] = task.get("fencing_token")
         self.post(f"/v1/tasks/{task['task_id']}/complete", {
             "attempt_id": task.get("attempt_id"),
+            "fencing_token": task.get("fencing_token"),
             "node_id": self.node_id,
             "agent_id": self.agent_id,
             "result_reference": str(result_path),
-            "result": result,
+            "result": bound_result,
         })
 
     def fail(self, task: dict[str, Any], error_type: str, error: str, result: dict[str, Any] | None, result_path: Path | None, retry: bool = True) -> None:
+        bound_result = dict(result) if isinstance(result, dict) else result
+        if isinstance(bound_result, dict) and "fencing_token" in task:
+            bound_result["fencing_token"] = task.get("fencing_token")
         self.post(f"/v1/tasks/{task['task_id']}/fail", {
             "attempt_id": task.get("attempt_id"),
+            "fencing_token": task.get("fencing_token"),
             "node_id": self.node_id,
             "agent_id": self.agent_id,
             "error_type": error_type,
             "error": error,
-            "result": result,
+            "result": bound_result,
             "result_reference": str(result_path) if result_path else None,
             "retry": retry,
         })
@@ -3023,6 +3590,7 @@ class AgentHost:
             or requested_runner_for_envelope(envelope, "mimo")
             or "mimo"
         ).strip().lower()
+        execution_metadata: dict[str, Any] = {}
         response_text = self.run_requested_ai_runner(
             runner,
             prompt,
@@ -3033,6 +3601,7 @@ class AgentHost:
             task,
             None,
             logs,
+            execution_metadata=execution_metadata,
         )
         result = {
             "node_id": self.node_id,
@@ -3051,6 +3620,19 @@ class AgentHost:
             "runner": runner,
             "response": response_text,
         }
+        native_web_search_evidence = execution_metadata.get(
+            "native_web_search_evidence"
+        )
+        if (
+            runner == "codex"
+            and is_response_only_provider_task(task)
+            and isinstance(native_web_search_evidence, dict)
+        ):
+            result["native_web_search_evidence"] = self._bind_native_web_search_evidence(
+                native_web_search_evidence,
+                response_text=response_text,
+                task=task,
+            )
         if runner == "mimo":
             result["runner_contract"] = (
                 mimo_auto25_runner_contract()
@@ -3081,6 +3663,7 @@ class AgentHost:
         stdout_path = Path(logs["stdout"])
         stderr_path = Path(logs["stderr"])
         self.task_heartbeat(task, worktree, envelope.get("branch"), logs)
+        execution_metadata: dict[str, Any] = {}
         response_text = self.run_requested_ai_runner(
             runner,
             prompt,
@@ -3091,6 +3674,7 @@ class AgentHost:
             task,
             envelope.get("branch"),
             logs,
+            execution_metadata=execution_metadata,
         )
         result = {
             "node_id": self.node_id,
@@ -3109,6 +3693,19 @@ class AgentHost:
             "runner": runner,
             "response": response_text,
         }
+        native_web_search_evidence = execution_metadata.get(
+            "native_web_search_evidence"
+        )
+        if (
+            runner == "codex"
+            and is_response_only_provider_task(task)
+            and isinstance(native_web_search_evidence, dict)
+        ):
+            result["native_web_search_evidence"] = self._bind_native_web_search_evidence(
+                native_web_search_evidence,
+                response_text=response_text,
+                task=task,
+            )
         if runner == "mimo":
             result["runner_contract"] = (
                 mimo_auto25_runner_contract()
@@ -3271,7 +3868,10 @@ class AgentHost:
         return artifact_dir / f"telegram-image.{suffix}"
 
     def image_b64_for_result(self, image_path: Path) -> str | None:
-        max_bytes = int(os.environ.get("KOLIBRI_IMAGE_RESULT_EMBED_MAX_BYTES", str(8 * 1024 * 1024)))
+        max_bytes = min(
+            MAX_FACTORY_IMAGE_BYTES,
+            int(os.environ.get("KOLIBRI_IMAGE_RESULT_EMBED_MAX_BYTES", str(MAX_FACTORY_IMAGE_BYTES))),
+        )
         if image_path.stat().st_size > max_bytes:
             return None
         return base64.b64encode(image_path.read_bytes()).decode("ascii")
@@ -3352,7 +3952,18 @@ class AgentHost:
         self.task_heartbeat(task, worktree, None, logs)
         output_path = self.image_output_path(artifact_dir)
         image_path = self.run_configured_image_generator(prompt, output_path, worktree, artifact_dir, stdout_path, stderr_path, task, logs)
-        mime_type = mimetypes.guess_type(image_path.name)[0] or "image/png"
+        mime_type, image_sha256, image_size_bytes = validated_image_file(image_path)
+        evidence_payload = {
+            "schema_version": IMAGE_EVIDENCE_SCHEMA,
+            "task_id": str(task["task_id"]),
+            "attempt_id": str(task.get("attempt_id") or ""),
+            "fencing_token": task.get("fencing_token"),
+            "node_id": self.node_id,
+            "agent_id": self.agent_id,
+            "content_sha256": image_sha256,
+            "media_type": mime_type,
+            "size_bytes": image_size_bytes,
+        }
         caption = (envelope.get("caption") or "Готово.").strip()
         result = {
             "node_id": self.node_id,
@@ -3373,10 +3984,16 @@ class AgentHost:
             "response": caption,
             "image_path": str(image_path),
             "image_mime_type": mime_type,
+            "image_evidence": {
+                **evidence_payload,
+                "binding_sha256": canonical_json_sha256(evidence_payload),
+                "verdict": "passed",
+            },
         }
         embedded = self.image_b64_for_result(image_path)
-        if embedded:
-            result["image_b64"] = embedded
+        if not embedded:
+            raise RuntimeError("verified image cannot be transported to the artifact gateway")
+        result["image_b64"] = embedded
         result = self.finalize_result(task, result, artifact_dir, worktree, changed_files=[])
         result_path = self.write_result(artifact_dir, result)
         result["result_path"] = str(result_path)
@@ -3610,7 +4227,7 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
         "task_id": "RETRY-CLEAR-1",
         "idempotency_key": "retry-clear-1",
         "kind": "read_only_probe",
-        "max_retries": 2,
+        "max_attempts": 3,
     })
     task["attempt"] = 1
     task["attempt_id"] = "RETRY-CLEAR-1-attempt-1"
@@ -3833,7 +4450,7 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 result = self.run_owner_remote_task(task)
             elif kind in {"telegram_chat_response", "orchestrator_chat_response"}:
                 result = self.run_telegram_chat_response(task)
-            elif kind == "telegram_image_generation":
+            elif kind in {"telegram_image_generation", "image_generation"}:
                 result = self.run_telegram_image_generation(task)
             elif kind == "review_pr":
                 result = self.run_review_pr(task)
@@ -3876,7 +4493,7 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 retry = (
                     result["status"] == "failed"
                     and bool(result.get("retryable", True))
-                    and int(task.get("attempt", 0)) < int(task.get("max_retries", 3))
+                    and task_has_attempt_budget(task)
                 )
                 self.fail(task, error_type, error, result, result_path, retry=retry)
         except PermissionContractError as exc:
@@ -3925,7 +4542,7 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 result["runner"] = exc.runner
             result = finalize_runner_contract(task, result, artifact_dir, failure_reason=str(exc))
             result_path = self.write_result(artifact_dir, result)
-            retry = int(task.get("attempt", 0)) < int(task.get("max_retries", 3))
+            retry = task_has_attempt_budget(task)
             if isinstance(exc, RunnerExecutionError):
                 error_type = exc.error_type
                 retry = bool(getattr(exc, "retry", False))
@@ -4029,7 +4646,7 @@ def main() -> int:
     parser.add_argument("--work-root", default=os.environ.get("KOLIBRI_AGENT_WORK_ROOT", "/var/lib/kolibri-agent/worktrees"))
     parser.add_argument("--artifact-root", default=os.environ.get("KOLIBRI_AGENT_ARTIFACT_ROOT", "/var/lib/kolibri-agent/artifacts"))
     parser.add_argument("--heartbeat-interval", type=int, default=int(os.environ.get("KOLIBRI_HEARTBEAT_INTERVAL", "10")))
-    parser.add_argument("--lease-refresh", type=int, default=int(os.environ.get("KOLIBRI_LEASE_REFRESH", "20")))
+    parser.add_argument("--lease-refresh", type=int, default=int(os.environ.get("KOLIBRI_LEASE_REFRESH", "5")))
     parser.add_argument("--max-inflight", type=int, default=int(os.environ.get("KOLIBRI_MAX_INFLIGHT", "1")))
     parser.add_argument(
         "--codex-readiness-refresh-seconds",

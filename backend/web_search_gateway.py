@@ -16,11 +16,12 @@ import re
 import socket
 import time
 import uuid
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 from typing import Any, Callable, Iterable
-from urllib.parse import parse_qs, parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
+from urllib.parse import parse_qs, parse_qsl, unquote, urlencode, urljoin, urlsplit, urlunsplit
 
 import httpx
 
@@ -34,6 +35,8 @@ MAX_RESULTS = 10
 MAX_RESPONSE_BYTES = 512 * 1024
 MAX_REDIRECTS = 2
 MAX_CONTEXT_BYTES = 24 * 1024
+MAX_PARSED_CANDIDATES = MAX_RESULTS * 3
+MAX_XML_ELEMENTS = 2_048
 DEFAULT_TIMEOUT_SECONDS = 6.0
 BLOCKED_HOSTS = frozenset({
     "localhost", "localhost.localdomain", "metadata", "metadata.google.internal",
@@ -109,11 +112,25 @@ class WebSearchAuthorization:
 
 
 DEFAULT_PROVIDERS = (
+    SearchProvider("yahoo-html", "https://search.yahoo.com/search", "yahoo_html"),
+    SearchProvider("brave-html", "https://search.brave.com/search", "brave_html"),
+    SearchProvider("bing-rss", "https://www.bing.com/search", "bing_rss"),
     SearchProvider("duckduckgo-html", "https://html.duckduckgo.com/html/", "duckduckgo_html"),
     SearchProvider("duckduckgo", "https://api.duckduckgo.com/", "duckduckgo"),
     SearchProvider("wikipedia-ru", "https://ru.wikipedia.org/w/api.php", "wikipedia"),
     SearchProvider("wikipedia-en", "https://en.wikipedia.org/w/api.php", "wikipedia"),
 )
+ALLOWED_PROVIDER_DESTINATIONS = {
+    "yahoo_html": frozenset({("search.yahoo.com", "/search")}),
+    "brave_html": frozenset({("search.brave.com", "/search")}),
+    "bing_rss": frozenset({("www.bing.com", "/search")}),
+    "duckduckgo_html": frozenset({("html.duckduckgo.com", "/html/")}),
+    "duckduckgo": frozenset({("api.duckduckgo.com", "/")}),
+    "wikipedia": frozenset({
+        ("ru.wikipedia.org", "/w/api.php"),
+        ("en.wikipedia.org", "/w/api.php"),
+    }),
+}
 
 
 def _stable_json(value: Any) -> str:
@@ -147,6 +164,12 @@ def _ip_is_public(value: str) -> bool:
 
 
 def _query_params(provider: SearchProvider, query: str, result_limit: int) -> dict[str, str]:
+    if provider.parser == "yahoo_html":
+        return {"p": query}
+    if provider.parser == "brave_html":
+        return {"q": query, "source": "web"}
+    if provider.parser == "bing_rss":
+        return {"q": query, "format": "rss", "count": str(result_limit)}
     if provider.parser == "duckduckgo_html":
         return {"q": query}
     if provider.parser == "duckduckgo":
@@ -214,10 +237,34 @@ class WebSearchGateway:
             raise ValueError("web_search_response_limit_out_of_bounds")
         if not self.providers:
             raise ValueError("web_search_provider_required")
-        self._provider_destinations = {
-            (_normalized_hostname(urlsplit(provider.endpoint).hostname or ""), urlsplit(provider.endpoint).path or "/")
-            for provider in self.providers
-        }
+        provider_destinations: set[tuple[str, str]] = set()
+        for provider in self.providers:
+            allowed = ALLOWED_PROVIDER_DESTINATIONS.get(provider.parser)
+            if allowed is None:
+                raise ValueError("web_search_provider_parser_invalid")
+            parsed = urlsplit(provider.endpoint)
+            try:
+                port = parsed.port
+            except ValueError as exc:
+                raise ValueError("web_search_provider_endpoint_invalid") from exc
+            if (
+                parsed.scheme.lower() != "https"
+                or not parsed.hostname
+                or parsed.username
+                or parsed.password
+                or parsed.query
+                or parsed.fragment
+                or port not in {None, 443}
+            ):
+                raise ValueError("web_search_provider_endpoint_invalid")
+            destination = (
+                _normalized_hostname(parsed.hostname),
+                parsed.path or "/",
+            )
+            if destination not in allowed:
+                raise ValueError("web_search_provider_endpoint_not_allowlisted")
+            provider_destinations.add(destination)
+        self._provider_destinations = provider_destinations
 
     def _resolve_public(self, hostname: str, port: int) -> tuple[str, ...]:
         hostname = _normalized_hostname(hostname)
@@ -265,6 +312,29 @@ class WebSearchGateway:
             return None
         parsed = urlsplit(raw)
         hostname = _normalized_hostname(parsed.hostname or "") if parsed.hostname else ""
+        if hostname == "r.search.yahoo.com":
+            if (
+                parsed.scheme.lower() != "https"
+                or parsed.username
+                or parsed.password
+                or parsed.query
+                or parsed.fragment
+            ):
+                return None
+            try:
+                redirect_port = parsed.port
+            except ValueError:
+                return None
+            if redirect_port not in {None, 443}:
+                return None
+            target_match = re.search(r"(?:^|/)RU=([^/]+)(?:/|$)", parsed.path, re.IGNORECASE)
+            if not target_match:
+                return None
+            target = unquote(target_match.group(1))
+            if not target or len(target) > 4_000 or any(character.isspace() for character in target):
+                return None
+            parsed = urlsplit(target)
+            hostname = _normalized_hostname(parsed.hostname or "") if parsed.hostname else ""
         if hostname.endswith("duckduckgo.com") and parsed.path.startswith("/l/"):
             target = parse_qs(parsed.query).get("uddg", [""])[0]
             if target:
@@ -294,7 +364,10 @@ class WebSearchGateway:
         try:
             with httpx.Client(timeout=timeout_config, follow_redirects=False, trust_env=False) as client:
                 with client.stream("GET", url, headers={
-                    "Accept": "application/json, text/html;q=0.9",
+                    "Accept": (
+                        "application/json, application/rss+xml;q=0.95, "
+                        "application/xml;q=0.9, text/xml;q=0.9, text/html;q=0.8"
+                    ),
                     "User-Agent": "KolibriAI-WebSearch/1.0",
                 }) as response:
                     declared = response.headers.get("content-length")
@@ -324,14 +397,27 @@ class WebSearchGateway:
         except httpx.RequestError as exc:
             raise WebSearchError("web_search_network_failed", retryable=True) from exc
 
-    def _fetch(self, provider: SearchProvider, query: str, result_limit: int) -> bytes:
+    def _fetch(
+        self,
+        provider: SearchProvider,
+        query: str,
+        result_limit: int,
+        *,
+        deadline_monotonic: float | None = None,
+    ) -> bytes:
         base = self._validate_provider_url(provider.endpoint)
         separator = "&" if urlsplit(base).query else "?"
         current = f"{base}{separator}{urlencode(_query_params(provider, query, result_limit))}"
         for redirect_count in range(MAX_REDIRECTS + 1):
             current = self._validate_provider_url(current)
             try:
-                response = self.requester(current, self.timeout_seconds, self.max_response_bytes)
+                timeout = self.timeout_seconds
+                if deadline_monotonic is not None:
+                    remaining = deadline_monotonic - time.monotonic()
+                    if remaining <= 0:
+                        raise WebSearchError("web_search_timeout", retryable=True)
+                    timeout = min(timeout, max(0.05, remaining))
+                response = self.requester(current, timeout, self.max_response_bytes)
             except WebSearchError:
                 raise
             except Exception as exc:
@@ -351,11 +437,14 @@ class WebSearchGateway:
             if response.status_code != 200:
                 raise WebSearchError("web_search_http_rejected")
             content_type = response.headers.get("content-type", "").lower()
-            allowed_content_types = (
-                ("text/html", "application/xhtml+xml")
-                if provider.parser == "duckduckgo_html"
-                else ("application/json", "javascript", "text/json")
-            )
+            if provider.parser in {"yahoo_html", "brave_html", "duckduckgo_html"}:
+                allowed_content_types = ("text/html", "application/xhtml+xml")
+            elif provider.parser == "bing_rss":
+                allowed_content_types = (
+                    "application/rss+xml", "application/xml", "text/xml",
+                )
+            else:
+                allowed_content_types = ("application/json", "javascript", "text/json")
             if not any(kind in content_type for kind in allowed_content_types):
                 raise WebSearchError("web_search_content_type_invalid")
             if len(response.body) > self.max_response_bytes:
@@ -436,6 +525,331 @@ class WebSearchGateway:
         ]
 
     @staticmethod
+    def _yahoo_html_items(body: bytes) -> list[tuple[Any, Any, Any]]:
+        class ResultParser(HTMLParser):
+            _VOID_TAGS = {
+                "area", "base", "br", "col", "embed", "hr", "img", "input",
+                "link", "meta", "param", "source", "track", "wbr",
+            }
+
+            def __init__(self):
+                super().__init__(convert_charrefs=True)
+                self.stack: list[str] = []
+                self.items: list[tuple[str, str, str]] = []
+                self.result_depth: int | None = None
+                self.title_container_depth: int | None = None
+                self.title_anchor_depth: int | None = None
+                self.heading_depth: int | None = None
+                self.snippet_depth: int | None = None
+                self.title_parts: list[str] = []
+                self.heading_parts: list[str] = []
+                self.snippet_parts: list[str] = []
+                self.title_chars = 0
+                self.heading_chars = 0
+                self.snippet_chars = 0
+                self.href = ""
+
+            @staticmethod
+            def _attrs(attrs: list[tuple[str, str | None]]) -> dict[str, str]:
+                return {str(key).lower(): str(value or "") for key, value in attrs}
+
+            @staticmethod
+            def _classes(values: dict[str, str]) -> set[str]:
+                return {value.lower() for value in values.get("class", "").split()}
+
+            def _append(self, target: list[str], data: str, *, title: bool) -> None:
+                current = self.title_chars if title else self.snippet_chars
+                limit = 4_000
+                if current >= limit:
+                    return
+                bounded = data[: limit - current]
+                target.append(bounded)
+                if title:
+                    self.title_chars += len(bounded)
+                else:
+                    self.snippet_chars += len(bounded)
+
+            def _reset(self) -> None:
+                self.result_depth = None
+                self.title_container_depth = None
+                self.title_anchor_depth = None
+                self.heading_depth = None
+                self.snippet_depth = None
+                self.title_parts = []
+                self.heading_parts = []
+                self.snippet_parts = []
+                self.title_chars = 0
+                self.heading_chars = 0
+                self.snippet_chars = 0
+                self.href = ""
+
+            def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+                tag = tag.lower()
+                depth = len(self.stack) + 1
+                values = self._attrs(attrs)
+                classes = self._classes(values)
+                if (
+                    self.result_depth is None
+                    and tag == "div"
+                    and "algo" in classes
+                    and len(self.items) < MAX_PARSED_CANDIDATES
+                ):
+                    self._reset()
+                    self.result_depth = depth
+                if self.result_depth is not None:
+                    if self.title_container_depth is None and "comptitle" in classes:
+                        self.title_container_depth = depth
+                    if self.snippet_depth is None and "comptext" in classes:
+                        self.snippet_depth = depth
+                    if (
+                        tag == "a"
+                        and self.title_container_depth is not None
+                        and self.title_anchor_depth is None
+                        and not self.href
+                    ):
+                        self.title_anchor_depth = depth
+                        self.href = values.get("href", "")
+                    if tag == "h3" and self.title_anchor_depth is not None:
+                        self.heading_depth = depth
+                if tag not in self._VOID_TAGS:
+                    self.stack.append(tag)
+
+            def handle_data(self, data: str) -> None:
+                if "script" in self.stack or "style" in self.stack:
+                    return
+                if self.title_anchor_depth is not None:
+                    self._append(self.title_parts, data, title=True)
+                if self.heading_depth is not None and self.heading_chars < 4_000:
+                    bounded = data[: 4_000 - self.heading_chars]
+                    self.heading_parts.append(bounded)
+                    self.heading_chars += len(bounded)
+                if self.snippet_depth is not None:
+                    self._append(self.snippet_parts, data, title=False)
+
+            def handle_endtag(self, tag: str) -> None:
+                tag = tag.lower()
+                if tag in self._VOID_TAGS:
+                    return
+                try:
+                    stack_index = len(self.stack) - 1 - self.stack[::-1].index(tag)
+                except ValueError:
+                    return
+                depth = stack_index + 1
+                if self.result_depth == depth:
+                    heading = " ".join("".join(self.heading_parts).split())
+                    title = heading or " ".join("".join(self.title_parts).split())
+                    snippet = " ".join("".join(self.snippet_parts).split())
+                    if title and self.href:
+                        self.items.append((title, snippet, self.href))
+                    self._reset()
+                else:
+                    if self.title_anchor_depth is not None and self.title_anchor_depth >= depth:
+                        self.title_anchor_depth = None
+                    if self.heading_depth is not None and self.heading_depth >= depth:
+                        self.heading_depth = None
+                    if self.title_container_depth is not None and self.title_container_depth >= depth:
+                        self.title_container_depth = None
+                    if self.snippet_depth is not None and self.snippet_depth >= depth:
+                        self.snippet_depth = None
+                self.stack = self.stack[:stack_index]
+
+        try:
+            document = body.decode("utf-8")
+        except UnicodeError as exc:
+            raise WebSearchError("web_search_response_invalid") from exc
+        parser = ResultParser()
+        try:
+            parser.feed(document)
+            parser.close()
+        except Exception as exc:
+            raise WebSearchError("web_search_response_invalid") from exc
+        return parser.items
+
+    @staticmethod
+    def _brave_html_items(body: bytes) -> list[tuple[Any, Any, Any]]:
+        class ResultParser(HTMLParser):
+            _VOID_TAGS = {
+                "area", "base", "br", "col", "embed", "hr", "img", "input",
+                "link", "meta", "param", "source", "track", "wbr",
+            }
+
+            def __init__(self):
+                super().__init__(convert_charrefs=True)
+                self.stack: list[str] = []
+                self.items: list[tuple[str, str, str]] = []
+                self.result_depth: int | None = None
+                self.title_depth: int | None = None
+                self.url_depth: int | None = None
+                self.title_parts: list[str] = []
+                self.snippet_parts: list[str] = []
+                self.title_chars = 0
+                self.snippet_chars = 0
+                self.href = ""
+
+            @staticmethod
+            def _attrs(attrs: list[tuple[str, str | None]]) -> dict[str, str]:
+                return {str(key).lower(): str(value or "") for key, value in attrs}
+
+            @staticmethod
+            def _classes(values: dict[str, str]) -> set[str]:
+                return {value.lower() for value in values.get("class", "").split()}
+
+            def _append(self, target: list[str], data: str, *, title: bool) -> None:
+                current = self.title_chars if title else self.snippet_chars
+                limit = 4_000
+                if current >= limit:
+                    return
+                bounded = data[: limit - current]
+                target.append(bounded)
+                if title:
+                    self.title_chars += len(bounded)
+                else:
+                    self.snippet_chars += len(bounded)
+
+            def _reset(self) -> None:
+                self.result_depth = None
+                self.title_depth = None
+                self.url_depth = None
+                self.title_parts = []
+                self.snippet_parts = []
+                self.title_chars = 0
+                self.snippet_chars = 0
+                self.href = ""
+
+            def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+                tag = tag.lower()
+                depth = len(self.stack) + 1
+                values = self._attrs(attrs)
+                classes = self._classes(values)
+                if (
+                    self.result_depth is None
+                    and "snippet" in classes
+                    and len(self.items) < MAX_PARSED_CANDIDATES
+                ):
+                    self._reset()
+                    self.result_depth = depth
+                if self.result_depth is not None:
+                    if self.title_depth is None and "snippet-title" in classes:
+                        self.title_depth = depth
+                    if self.url_depth is None and "snippet-url" in classes:
+                        self.url_depth = depth
+                    if tag == "a" and (self.title_depth is not None or self.url_depth is not None):
+                        self.href = self.href or values.get("href", "")
+                    elif tag == "a" and ("snippet-title" in classes or "snippet-url" in classes):
+                        self.href = self.href or values.get("href", "")
+                if tag not in self._VOID_TAGS:
+                    self.stack.append(tag)
+
+            def handle_data(self, data: str) -> None:
+                if "script" in self.stack or "style" in self.stack:
+                    return
+                if self.title_depth is not None:
+                    self._append(self.title_parts, data, title=True)
+                elif self.result_depth is not None and self.url_depth is None:
+                    self._append(self.snippet_parts, data, title=False)
+
+            def handle_endtag(self, tag: str) -> None:
+                tag = tag.lower()
+                if tag in self._VOID_TAGS:
+                    return
+                try:
+                    stack_index = len(self.stack) - 1 - self.stack[::-1].index(tag)
+                except ValueError:
+                    return
+                depth = stack_index + 1
+                if self.result_depth == depth:
+                    title = " ".join("".join(self.title_parts).split())
+                    snippet = " ".join("".join(self.snippet_parts).split())
+                    if title and self.href:
+                        self.items.append((title, snippet, self.href))
+                    self._reset()
+                else:
+                    if self.title_depth is not None and self.title_depth >= depth:
+                        self.title_depth = None
+                    if self.url_depth is not None and self.url_depth >= depth:
+                        self.url_depth = None
+                self.stack = self.stack[:stack_index]
+
+        try:
+            document = body.decode("utf-8")
+        except UnicodeError as exc:
+            raise WebSearchError("web_search_response_invalid") from exc
+        parser = ResultParser()
+        try:
+            parser.feed(document)
+            parser.close()
+        except Exception as exc:
+            raise WebSearchError("web_search_response_invalid") from exc
+        return parser.items
+
+    @staticmethod
+    def _strip_html_text(value: str, limit: int = 4_000) -> str:
+        class TextParser(HTMLParser):
+            def __init__(self):
+                super().__init__(convert_charrefs=True)
+                self.parts: list[str] = []
+                self.chars = 0
+                self.suppressed = 0
+
+            def handle_starttag(self, tag: str, _attrs: list[tuple[str, str | None]]) -> None:
+                if tag.lower() in {"script", "style"}:
+                    self.suppressed += 1
+
+            def handle_endtag(self, tag: str) -> None:
+                if tag.lower() in {"script", "style"} and self.suppressed:
+                    self.suppressed -= 1
+
+            def handle_data(self, data: str) -> None:
+                if self.suppressed or self.chars >= limit:
+                    return
+                bounded = data[: limit - self.chars]
+                self.parts.append(bounded)
+                self.chars += len(bounded)
+
+        parser = TextParser()
+        try:
+            parser.feed(value[: max(limit * 4, limit)])
+            parser.close()
+        except Exception as exc:
+            raise WebSearchError("web_search_response_invalid") from exc
+        return " ".join("".join(parser.parts).split())[:limit]
+
+    @classmethod
+    def _bing_rss_items(cls, body: bytes) -> list[tuple[Any, Any, Any]]:
+        if re.search(br"<!\s*(?:DOCTYPE|ENTITY)\b", body, re.IGNORECASE):
+            raise WebSearchError("web_search_response_invalid")
+        try:
+            root = ET.fromstring(body)
+        except ET.ParseError as exc:
+            raise WebSearchError("web_search_response_invalid") from exc
+
+        def local_name(tag: Any) -> str:
+            return str(tag).rsplit("}", 1)[-1].lower()
+
+        if local_name(root.tag) != "rss":
+            raise WebSearchError("web_search_response_invalid")
+        elements = list(root.iter())
+        if len(elements) > MAX_XML_ELEMENTS:
+            raise WebSearchError("web_search_response_invalid")
+        items: list[tuple[Any, Any, Any]] = []
+        for element in elements:
+            if local_name(element.tag) != "item":
+                continue
+            fields: dict[str, str] = {}
+            for child in list(element)[:32]:
+                name = local_name(child.tag)
+                if name in {"title", "description", "link"} and name not in fields:
+                    fields[name] = " ".join(child.itertext())
+            title = cls._strip_html_text(fields.get("title", ""), 4_000)
+            snippet = cls._strip_html_text(fields.get("description", ""), 4_000)
+            url = fields.get("link", "").strip()
+            if title and url:
+                items.append((title, snippet, url))
+            if len(items) >= MAX_PARSED_CANDIDATES:
+                break
+        return items
+
+    @staticmethod
     def _wikipedia_items(payload: Any) -> list[tuple[Any, Any, Any]]:
         if not isinstance(payload, list) or len(payload) < 4:
             raise WebSearchError("web_search_response_invalid")
@@ -445,7 +859,13 @@ class WebSearchGateway:
         return list(zip(titles, snippets, urls))
 
     def _citations(self, provider: SearchProvider, body: bytes, result_limit: int) -> list[dict[str, Any]]:
-        if provider.parser == "duckduckgo_html":
+        if provider.parser == "yahoo_html":
+            raw_items = self._yahoo_html_items(body)
+        elif provider.parser == "brave_html":
+            raw_items = self._brave_html_items(body)
+        elif provider.parser == "bing_rss":
+            raw_items = self._bing_rss_items(body)
+        elif provider.parser == "duckduckgo_html":
             raw_items = self._duckduckgo_html_items(body)
         else:
             try:
@@ -505,6 +925,7 @@ class WebSearchGateway:
         *,
         authorization: WebSearchAuthorization,
         result_limit: int = 5,
+        deadline_monotonic: float | None = None,
     ) -> dict[str, Any]:
         authorization.validate()
         query = query_from_response_input(query)
@@ -514,9 +935,23 @@ class WebSearchGateway:
         citations: list[dict[str, Any]] = []
         selected_provider = ""
         for provider in self.providers:
+            if deadline_monotonic is not None and time.monotonic() >= deadline_monotonic:
+                attempts.append({
+                    "provider": provider.id,
+                    "status": "failed",
+                    "error_type": "web_search_timeout",
+                    "retryable": True,
+                    "duration_ms": 0,
+                })
+                break
             started = time.monotonic()
             try:
-                body = self._fetch(provider, query, result_limit)
+                body = self._fetch(
+                    provider,
+                    query,
+                    result_limit,
+                    deadline_monotonic=deadline_monotonic,
+                )
                 citations = self._citations(provider, body, result_limit)
                 if not citations:
                     raise WebSearchError("web_search_no_results", retryable=True)

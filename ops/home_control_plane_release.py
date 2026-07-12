@@ -56,12 +56,19 @@ REQUIRED_RUNTIME_PATHS = frozenset({
     "ops/factory_control.py",
     "ops/fleet_membership.py",
     "ops/immutable_release_preflight.py",
+    "ops/marked_connect_proxy.py",
     "ops/mimo/kolibri-response-only.md",
+    "ops/provider_egress_policy.py",
+    "ops/provider_egress_preflight.py",
+    "ops/provider_egress_tunnel.py",
     "ops/release_authority.py",
     "ops/release_helper.py",
     "ops/release_installer.py",
     "ops/runner_access.py",
     "ops/telegram_superfactory.py",
+    "ops/systemd/kolibri-agent-host-provider-egress.conf",
+    "ops/systemd/kolibri-provider-egress-proxy.service",
+    "ops/systemd/kolibri-provider-egress-tunnel.service",
 })
 
 

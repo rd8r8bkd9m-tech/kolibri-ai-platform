@@ -21,7 +21,7 @@ import hashlib
 import json
 import re
 from datetime import date
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Annotated, Any, Literal
 from urllib.parse import urlsplit
 
@@ -40,6 +40,13 @@ from artifact_runtime import (
     reject_secret_material,
     validate_structured_value,
 )
+from estimate_price_research import (
+    EstimatePriceEvidenceError,
+    bind_price_provenance,
+    bind_provider_asserted_price,
+    build_citation_evidence_index,
+    source_matches_estimate_line,
+)
 
 
 VERTICAL_TASK_SCHEMA = "kolibri.public-task.v1"
@@ -47,9 +54,12 @@ ESTIMATE_FALLBACK_ENGINE = "kolibri.estimate-readiness-gate.v1"
 ESTIMATE_FALLBACK_PROOF_SCHEMA = "kolibri.estimate-readiness-proof.v1"
 ESTIMATE_READINESS_SCHEMA = "kolibri.estimate-readiness.v1"
 ESTIMATE_READINESS_EDITOR_SCHEMA = "kolibri.estimate-input-editor.v1"
+ESTIMATE_OUTCOME_SCHEMA = "kolibri.estimate-product-outcome.v1"
+ESTIMATE_EDITOR_SCHEMA = "kolibri.estimate-editor.v1"
 MAX_PROVIDER_ESTIMATE_LINES = 32
 MAX_PROVIDER_ESTIMATE_RESPONSE_BYTES = 24_576
 PROVIDER_ESTIMATE_DRAFT_SCHEMA = "kolibri.estimate-provider-draft.v1"
+PROVIDER_ESTIMATE_STRUCTURE_SCHEMA = "kolibri.estimate-provider-draft.v2"
 PROVIDER_ESTIMATE_DECLINED_SCHEMA = "kolibri.estimate-provider-declined.v1"
 _SHA256 = re.compile(r"^[a-f0-9]{64}$")
 
@@ -108,6 +118,13 @@ class ProviderEstimatePriceProvenance(_StrictTask):
     )
     applicable_region: str = Field(min_length=1, max_length=300)
     basis_ref: str = Field(min_length=1, max_length=500)
+    price_min_minor: int | None = Field(default=None, ge=0, le=10**15)
+    price_max_minor: int | None = Field(default=None, ge=0, le=10**15)
+    source_quote: str | None = Field(default=None, min_length=1, max_length=1_000)
+    source_item: str | None = Field(default=None, min_length=1, max_length=500)
+    source_category: Literal["labor", "material", "equipment", "service", "other"] | None = None
+    source_unit: str | None = Field(default=None, min_length=1, max_length=40)
+    source_spec: str | None = Field(default=None, min_length=1, max_length=500)
     assumptions: list[str] = Field(default_factory=list, max_length=20)
 
     @field_validator("assumptions")
@@ -280,6 +297,85 @@ class ProviderEstimateDraft(_StrictTask):
         return self
 
 
+class ProviderEstimateStructureLine(_StrictTask):
+    """Useful estimate row proposed by the primary model.
+
+    Prices and quantities are allowed to be model suggestions so the product
+    can always open a real editor.  Source objects are optional enrichment: if
+    present they still have to pass the independent source binder before they
+    are retained as provenance.
+    """
+
+    id: str = Field(min_length=2, max_length=200, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{1,199}$")
+    description: str = Field(min_length=1, max_length=1_000)
+    category: Literal["labor", "material", "equipment", "service", "other"]
+    unit: str = Field(min_length=1, max_length=40)
+    quantity: Decimal = Field(gt=0, max_digits=18, decimal_places=6)
+    unit_price_minor: int = Field(ge=0, le=10**15)
+    price_provenance: ProviderEstimatePriceProvenance | None = None
+    quantity_provenance: ProviderEstimateQuantityProvenance | None = None
+    assumptions: list[str] = Field(default_factory=list, max_length=20)
+    # Accepted only to prove that provider arithmetic is ignored.
+    line_total_minor: int | None = Field(default=None, ge=0, le=10**18)
+    total_minor: int | None = Field(default=None, ge=0, le=10**18)
+
+    @field_validator("assumptions")
+    @classmethod
+    def validate_assumptions(cls, values: list[str]) -> list[str]:
+        if any(not value.strip() or len(value) > 1_000 for value in values):
+            raise ValueError("provider line assumptions must contain 1 to 1000 characters")
+        return values
+
+
+class ProviderEstimateStructureSection(_StrictTask):
+    id: str = Field(min_length=2, max_length=200, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{1,199}$")
+    name: str = Field(min_length=1, max_length=200)
+    lines: list[ProviderEstimateStructureLine] = Field(
+        min_length=1, max_length=MAX_PROVIDER_ESTIMATE_LINES,
+    )
+
+
+class ProviderEstimateStructureDraft(_StrictTask):
+    """Primary model contract: full editable structure, optional evidence."""
+
+    schema_version: Literal["kolibri.estimate-provider-draft.v2"]
+    title: str = Field(min_length=1, max_length=500)
+    currency: str = Field(pattern=r"^[A-Z]{3}$")
+    minor_unit: Literal[0, 2, 3] = 2
+    region: str = Field(min_length=1, max_length=300)
+    client_name: str | None = Field(default=None, max_length=300)
+    object_name: str | None = Field(default=None, max_length=500)
+    object_address: str | None = Field(default=None, max_length=1_000)
+    source_summary: str = Field(min_length=1, max_length=2_000)
+    normative_basis: ProviderEstimateBasis | None = None
+    sections: list[ProviderEstimateStructureSection] = Field(min_length=1, max_length=32)
+    assumptions: list[str] = Field(default_factory=list, max_length=12)
+    questions: list[str] = Field(default_factory=list, max_length=12)
+    overhead_rate_bps: int = Field(default=0, ge=0, le=10_000)
+    tax_rate_bps: int = Field(default=0, ge=0, le=10_000)
+    reported_totals: ProviderReportedTotals | None = None
+    totals: ProviderReportedTotals | None = None
+    grand_total_minor: int | None = Field(default=None, ge=0, le=10**18)
+
+    @model_validator(mode="after")
+    def validate_draft(self) -> "ProviderEstimateStructureDraft":
+        section_ids = [section.id for section in self.sections]
+        if len(section_ids) != len(set(section_ids)):
+            raise ValueError("provider estimate section ids must be unique")
+        lines = [line for section in self.sections for line in section.lines]
+        if len(lines) > MAX_PROVIDER_ESTIMATE_LINES:
+            raise ValueError(
+                f"estimate proposal exceeds {MAX_PROVIDER_ESTIMATE_LINES} consolidated lines"
+            )
+        line_ids = [line.id for line in lines]
+        if len(line_ids) != len(set(line_ids)):
+            raise ValueError("provider estimate line ids must be unique")
+        for label, values in (("assumption", self.assumptions), ("question", self.questions)):
+            if any(not value.strip() or len(value) > 2_000 for value in values):
+                raise ValueError(f"provider estimate {label} must contain 1 to 2000 characters")
+        return self
+
+
 class EstimateProviderDraftError(ValueError):
     """A bounded, content-free classification of a rejected provider draft."""
 
@@ -341,10 +437,19 @@ def provider_estimate_draft_json_schema() -> dict[str, Any]:
         },
         "applicable_region": text,
         "basis_ref": text,
+        "price_min_minor": {"type": "integer", "minimum": 0},
+        "price_max_minor": {"type": "integer", "minimum": 0},
+        "source_quote": {"type": "string", "minLength": 1, "maxLength": 1_000},
+        "source_item": {"type": "string", "minLength": 1, "maxLength": 500},
+        "source_category": {"enum": ["labor", "material", "equipment", "service", "other"]},
+        "source_unit": {"type": "string", "minLength": 1, "maxLength": 40},
+        "source_spec": {"anyOf": [{"type": "string", "minLength": 1, "maxLength": 500}, {"type": "null"}]},
         "assumptions": bounded_texts,
     }, required=[
         "source", "source_ref", "source_url", "captured_at", "price_level_date",
-        "applicable_region", "basis_ref", "assumptions",
+        "applicable_region", "basis_ref", "price_min_minor", "price_max_minor",
+        "source_quote", "source_item", "source_category", "source_unit", "source_spec",
+        "assumptions",
     ])
     quantity_provenance = _strict_object({
         "source": {"enum": ["project", "measurement", "manual"]},
@@ -419,6 +524,117 @@ def provider_estimate_draft_json_schema() -> dict[str, Any]:
     return {"oneOf": [draft, declined]}
 
 
+def provider_estimate_structure_json_schema() -> dict[str, Any]:
+    """Compact v2 schema: complete rows first, evidence as enrichment.
+
+    The primary model must always provide an editable estimate structure.  It
+    may attach a source object only when the external research context contains
+    that evidence.  Missing evidence therefore changes verification status,
+    not whether the editor receives rows and a deterministic total.
+    """
+
+    text = {"type": "string", "minLength": 1}
+    url = {"type": "string", "pattern": r"^https?://[^\s]+$"}
+    bounded_texts = {"type": "array", "items": text, "maxItems": 20}
+    price_provenance = _strict_object({
+        "source": {"enum": ["normative", "catalog", "contract", "supplier"]},
+        "source_ref": text,
+        "source_url": url,
+        "captured_at": {"type": "string", "format": "date"},
+        "price_level_date": {
+            "type": "string",
+            "pattern": r"^(?:\d{4}-\d{2}-\d{2}|\d{4}-Q[1-4])$",
+        },
+        "applicable_region": text,
+        "basis_ref": text,
+        "price_min_minor": {"type": "integer", "minimum": 0},
+        "price_max_minor": {"type": "integer", "minimum": 0},
+        "source_quote": {"type": "string", "minLength": 1, "maxLength": 1_000},
+        "source_item": {"type": "string", "minLength": 1, "maxLength": 500},
+        "source_category": {"enum": ["labor", "material", "equipment", "service", "other"]},
+        "source_unit": {"type": "string", "minLength": 1, "maxLength": 40},
+        "source_spec": {"anyOf": [
+            {"type": "string", "minLength": 1, "maxLength": 500}, {"type": "null"},
+        ]},
+        "assumptions": bounded_texts,
+    }, required=[
+        "source", "source_ref", "source_url", "captured_at", "price_level_date",
+        "applicable_region", "basis_ref", "price_min_minor", "price_max_minor",
+        "source_quote", "source_item", "source_category", "source_unit", "source_spec",
+        "assumptions",
+    ])
+    quantity_provenance = _strict_object({
+        "source": {"enum": ["project", "measurement", "manual"]},
+        "source_ref": text,
+        "source_url": {"anyOf": [url, {"type": "null"}]},
+        "assumptions": bounded_texts,
+    }, required=["source", "source_ref", "assumptions"])
+    line = _strict_object({
+        "id": {"type": "string", "pattern": r"^[A-Za-z0-9][A-Za-z0-9._:-]{1,199}$"},
+        "description": text,
+        "category": {"enum": ["labor", "material", "equipment", "service", "other"]},
+        "unit": text,
+        "quantity": {"type": "number", "exclusiveMinimum": 0},
+        "unit_price_minor": {"type": "integer", "minimum": 0},
+        "price_provenance": {"anyOf": [price_provenance, {"type": "null"}]},
+        "quantity_provenance": {"anyOf": [quantity_provenance, {"type": "null"}]},
+        "assumptions": bounded_texts,
+    }, required=[
+        "id", "description", "category", "unit", "quantity", "unit_price_minor",
+        "assumptions",
+    ])
+    section = _strict_object({
+        "id": {"type": "string", "pattern": r"^[A-Za-z0-9][A-Za-z0-9._:-]{1,199}$"},
+        "name": text,
+        "lines": {
+            "type": "array", "items": line, "minItems": 1,
+            "maxItems": MAX_PROVIDER_ESTIMATE_LINES,
+        },
+    }, required=["id", "name", "lines"])
+    basis = _strict_object({
+        "calculation_method": {
+            "enum": ["resource-index", "resource", "base-index", "contract", "commercial"],
+        },
+        "normative_basis_ref": text,
+        "normative_edition": text,
+        "price_level_date": {
+            "type": "string",
+            "pattern": r"^(?:\d{4}-\d{2}-\d{2}|\d{4}-Q[1-4])$",
+        },
+        "region": text,
+        "index_document_refs": bounded_texts,
+        "tax_scope_ref": text,
+        "contract_scope_ref": text,
+        "source_urls": {"type": "array", "items": url, "minItems": 1, "maxItems": 20},
+        "input_document_refs": {"type": "array", "items": text, "minItems": 1, "maxItems": 100},
+    }, required=[
+        "calculation_method", "normative_basis_ref", "normative_edition",
+        "price_level_date", "region", "index_document_refs", "tax_scope_ref",
+        "contract_scope_ref", "source_urls", "input_document_refs",
+    ])
+    return _strict_object({
+        "schema_version": {"const": PROVIDER_ESTIMATE_STRUCTURE_SCHEMA},
+        "title": text,
+        "currency": {"type": "string", "pattern": r"^[A-Z]{3}$"},
+        "minor_unit": {"enum": [0, 2, 3]},
+        "region": text,
+        "client_name": {"anyOf": [text, {"type": "null"}]},
+        "object_name": {"anyOf": [text, {"type": "null"}]},
+        "object_address": {"anyOf": [text, {"type": "null"}]},
+        "source_summary": text,
+        "normative_basis": {"anyOf": [basis, {"type": "null"}]},
+        "sections": {"type": "array", "items": section, "minItems": 1, "maxItems": 32},
+        "assumptions": {"type": "array", "items": text, "maxItems": 12},
+        "questions": {"type": "array", "items": text, "maxItems": 12},
+        "overhead_rate_bps": {"type": "integer", "minimum": 0, "maximum": 10_000},
+        "tax_rate_bps": {"type": "integer", "minimum": 0, "maximum": 10_000},
+    }, required=[
+        "schema_version", "title", "currency", "minor_unit", "region",
+        "source_summary", "sections", "assumptions", "questions",
+        "overhead_rate_bps", "tax_rate_bps",
+    ])
+
+
 class EstimateVerticalTask(_StrictTask):
     intent: Literal["estimate"]
     brief: str | None = Field(default=None, min_length=1, max_length=50_000)
@@ -456,6 +672,16 @@ class DocumentVerticalTask(_StrictTask):
         return _validate_public_structure(value, label="document task content")
 
 
+class ImageVerticalTask(_StrictTask):
+    intent: Literal["image"]
+    brief: str = Field(min_length=1, max_length=20_000)
+    requested_artifacts: list[Literal["image"]] = Field(
+        default_factory=lambda: ["image"],
+        min_length=1,
+        max_length=1,
+    )
+
+
 class SiteVerticalTask(_StrictTask):
     intent: Literal["site"]
     brief: str = Field(min_length=1, max_length=50_000)
@@ -487,7 +713,7 @@ class AppVerticalTask(_StrictTask):
 
 
 VerticalTask = Annotated[
-    EstimateVerticalTask | DocumentVerticalTask | SiteVerticalTask | AppVerticalTask,
+    EstimateVerticalTask | DocumentVerticalTask | ImageVerticalTask | SiteVerticalTask | AppVerticalTask,
     Field(discriminator="intent"),
 ]
 
@@ -511,28 +737,32 @@ def prepare_vertical_task(task: VerticalTask) -> tuple[str, dict[str, Any] | Non
             task_payload["authoritative_calculation"] = calculation
         else:
             task_payload["proposal_contract"] = {
-                "schema_version": PROVIDER_ESTIMATE_DRAFT_SCHEMA,
-                "strict_json_schema": provider_estimate_draft_json_schema(),
+                "schema_version": PROVIDER_ESTIMATE_STRUCTURE_SCHEMA,
+                "strict_json_schema": provider_estimate_structure_json_schema(),
                 "money_rule": (
-                    "Propose quantities and unit_price_minor only. Do not return row totals or totals. "
-                    "Any reported line/section/grand totals are ignored. Kolibri recalculates every "
-                    "monetary value deterministically after schema and provenance validation."
+                    "Produce a complete editable estimate with sections, quantities and "
+                    "unit_price_minor suggestions. Do not return row totals or aggregate totals. "
+                    "Kolibri ignores provider arithmetic and recalculates every monetary value "
+                    "deterministically after schema validation."
                 ),
                 "minor_unit_rule": (
                     "minor_unit is the count of decimal currency digits: use 2 for RUB, "
                     "never the multiplier 100. unit_price_minor for RUB is expressed in kopecks."
                 ),
                 "source_rule": (
-                    "Every line requires separate price_provenance and quantity_provenance. "
-                    "Price provenance requires source_ref, HTTP(S) source_url, capture date, "
-                    "price-level date/quarter, applicable region, basis_ref and assumptions. "
-                    "Quantity provenance requires project/measurement/manual source_ref and "
-                    "explicit assumptions. An unsourced draft is invalid and receives no money."
+                    "External search and normative data enrich the primary estimate; they do not "
+                    "replace its sections or block the editor. When real controlled evidence exists, "
+                    "attach price_provenance and quantity_provenance. Copy source_quote exactly, use "
+                    "its Retrieved date, include both numeric range boundaries and exact item, category "
+                    "and unit. When evidence is absent or does not apply, omit both provenance objects "
+                    "and keep the line as an explicit preliminary model suggestion. Never invent a URL, "
+                    "normative document, quote, date or verification status."
                 ),
-                "decline_rule": (
-                    "If real source references and URLs are unavailable, do not invent them. "
-                    "Return exactly {\"schema_version\":\"kolibri.estimate-provider-declined.v1\","
-                    "\"reason\":\"sources_unavailable\"}."
+                "completeness_rule": (
+                    "Return a useful construction-phase breakdown even when project details are "
+                    "incomplete. Put every material assumption into assumptions and every missing "
+                    "decision into questions. Missing external sources must never turn the response "
+                    "into a questionnaire-only brief."
                 ),
                 "output_rule": "Return one JSON object only, without Markdown fences or commentary.",
                 "scope_rule": (
@@ -552,8 +782,9 @@ def prepare_vertical_task(task: VerticalTask) -> tuple[str, dict[str, Any] | Non
         "Kolibri vertical-task contract: process the typed request below and return a useful "
         "customer-facing result. Do not claim that a file, preview, build, or document was "
         "created unless the runtime actually materialized it and emitted content-bound artifact "
-        "evidence. For estimates, the embedded deterministic calculation is the only monetary "
-        "authority; never replace, recalculate, or invent its totals. Typed request: "
+        "evidence. For estimates, return the complete structured estimate requested by the embedded "
+        "proposal contract. The deterministic calculation performed after validation is the only "
+        "monetary authority; never return or invent aggregate totals. Typed request: "
         f"{encoded}"
     )
     return instructions, calculation
@@ -824,10 +1055,287 @@ def _classified_draft_validation_error(exc: ValidationError) -> EstimateProvider
     return EstimateProviderDraftError(code, fields=fields, error_types=error_types)
 
 
+def _regions_match(requested: str | None, actual: str) -> bool:
+    expected = re.sub(r"\s+", " ", str(requested or "").strip().casefold().replace("ё", "е"))
+    candidate = re.sub(r"\s+", " ", actual.strip().casefold().replace("ё", "е"))
+    return not expected or expected == candidate or expected in candidate or candidate in expected
+
+
+def _estimate_spec_from_structure_draft(
+    value: dict[str, Any],
+    *,
+    requested_region: str | None,
+    source_evidence: list[dict[str, Any]] | None,
+    price_research_out: dict[str, Any] | None,
+    source_mode: Literal["legacy", "controlled_search", "provider_asserted"],
+    native_tool_binding: dict[str, Any] | None,
+    citation_url_validator: Any,
+) -> EstimateSpec:
+    """Turn a complete primary-model proposal into a preliminary editor spec.
+
+    Evidence is deliberately additive.  An invalid or unavailable external
+    source is discarded and the model price remains an explicitly unverified
+    suggestion; it never collapses the response back to an input brief.
+    """
+
+    # Evidence is a supplement and therefore has a fail-soft boundary of its
+    # own.  A malformed source object is removed before validating the primary
+    # estimate structure; malformed rows, quantities or prices still fail the
+    # whole proposal.  This prevents an external search/provider glitch from
+    # replacing a useful estimate with an input questionnaire.
+    normalized_value = json.loads(json.dumps(value, ensure_ascii=False))
+    discarded_external_enrichment = False
+    raw_basis = normalized_value.get("normative_basis")
+    if raw_basis is not None:
+        try:
+            ProviderEstimateBasis.model_validate(raw_basis)
+        except (TypeError, ValueError, ValidationError):
+            normalized_value["normative_basis"] = None
+            discarded_external_enrichment = True
+    for raw_section in normalized_value.get("sections", []):
+        if not isinstance(raw_section, dict):
+            continue
+        for raw_line in raw_section.get("lines", []):
+            if not isinstance(raw_line, dict):
+                continue
+            for field, model in (
+                ("price_provenance", ProviderEstimatePriceProvenance),
+                ("quantity_provenance", ProviderEstimateQuantityProvenance),
+            ):
+                if raw_line.get(field) is None:
+                    continue
+                try:
+                    model.model_validate(raw_line[field])
+                except (TypeError, ValueError, ValidationError):
+                    raw_line[field] = None
+                    discarded_external_enrichment = True
+    try:
+        draft = ProviderEstimateStructureDraft.model_validate(normalized_value)
+    except ValidationError as exc:
+        raise _classified_draft_validation_error(exc) from exc
+    if not _regions_match(requested_region, draft.region):
+        raise EstimateProviderDraftError(
+            "region_mismatch", fields=["region"],
+            safe_message="provider estimate region does not match requested region",
+        )
+
+    citation_index = (
+        build_citation_evidence_index(source_evidence)
+        if source_mode == "controlled_search" else {}
+    )
+    provider_asserted_allowed = bool(
+        source_mode == "provider_asserted"
+        and isinstance(native_tool_binding, dict)
+        and native_tool_binding.get("schema_version") == "kolibri.native-web-search-binding.v1"
+        and native_tool_binding.get("tool_id") == "tool:web_search"
+        and _SHA256.fullmatch(str(native_tool_binding.get("verifier_binding_sha256") or "").lower())
+        and isinstance(native_tool_binding.get("tool_call_ids"), list)
+        and bool(native_tool_binding["tool_call_ids"])
+    )
+
+    lines: list[dict[str, Any]] = []
+    line_research: list[dict[str, Any]] = []
+    accepted_source_urls: set[str] = set()
+    for section_index, section in enumerate(draft.sections):
+        for line_index, line in enumerate(section.lines):
+            try:
+                normalized_unit = normalize_estimate_unit(line.unit)
+            except ValueError as exc:
+                raise EstimateProviderDraftError(
+                    "unit_invalid",
+                    fields=[f"sections.{section_index}.lines.{line_index}.unit"],
+                ) from exc
+
+            selected_unit_price = line.unit_price_minor
+            bound_price: dict[str, Any] | None = None
+            provenance = line.price_provenance
+            if provenance is not None and source_mode == "controlled_search" and citation_index:
+                provenance_payload = provenance.model_dump(mode="json")
+                provenance_payload["source_unit"] = normalize_estimate_unit(
+                    provenance.source_unit or normalized_unit,
+                )
+                try:
+                    selected_unit_price, bound_price = bind_price_provenance(
+                        provenance=provenance_payload,
+                        unit_price_minor=line.unit_price_minor,
+                        minor_unit=draft.minor_unit,
+                        applicable_region=draft.region,
+                        citation_index=citation_index,
+                        field=f"sections.{section_index}.lines.{line_index}.price_provenance",
+                        line_description=line.description,
+                        line_category=line.category,
+                        line_unit=normalized_unit,
+                    )
+                except (EstimatePriceEvidenceError, ValueError):
+                    bound_price = None
+            elif provenance is not None and provider_asserted_allowed:
+                provenance_payload = provenance.model_dump(mode="json")
+                provenance_payload["source_unit"] = normalize_estimate_unit(
+                    provenance.source_unit or normalized_unit,
+                )
+                try:
+                    selected_unit_price, bound_price = bind_provider_asserted_price(
+                        provenance=provenance_payload,
+                        unit_price_minor=line.unit_price_minor,
+                        minor_unit=draft.minor_unit,
+                        applicable_region=draft.region,
+                        citation_url_validator=citation_url_validator,
+                        field=f"sections.{section_index}.lines.{line_index}.price_provenance",
+                        line_description=line.description,
+                        line_category=line.category,
+                        line_unit=normalized_unit,
+                    )
+                except (EstimatePriceEvidenceError, ValueError):
+                    bound_price = None
+
+            quantity = line.quantity_provenance
+            source_is_bound = provenance is not None and bound_price is not None
+            combined_assumptions = list(dict.fromkeys([
+                *line.assumptions,
+                *(provenance.assumptions if provenance is not None else []),
+                *(quantity.assumptions if quantity is not None else []),
+                *(
+                    [
+                        "Цена дополнена внешним источником и выбрана детерминированно как "
+                        "середина подтверждённого диапазона. Независимая нормативная проверка "
+                        "ещё не выполнена."
+                    ]
+                    if source_is_bound else [
+                        "Цена предложена основной моделью как предварительная и требует "
+                        "проверки поставщиком, подрядчиком или сметчиком."
+                    ]
+                ),
+            ]))
+            if source_is_bound:
+                source_url = str(bound_price.get("source_url") or provenance.source_url)
+                accepted_source_urls.add(source_url)
+                line_research.append({"line_id": line.id, **bound_price})
+                price_provenance = {
+                    "source": provenance.source,
+                    "source_ref": provenance.source_ref,
+                    "source_url": source_url,
+                    "captured_at": provenance.captured_at,
+                    "applicable_region": provenance.applicable_region,
+                    "price_level_date": provenance.price_level_date,
+                    "basis_ref": provenance.basis_ref,
+                    "quantity_source": quantity.source if quantity is not None else "manual",
+                    "quantity_source_ref": (
+                        quantity.source_ref if quantity is not None
+                        else "Предварительный объём основной модели"
+                    ),
+                    "quantity_source_url": quantity.source_url if quantity is not None else None,
+                    "assumptions": combined_assumptions,
+                    "validation_status": "unverified",
+                }
+            else:
+                price_provenance = {
+                    "source": "assumption",
+                    "source_ref": "Предварительная оценка основной модели Kolibri",
+                    "applicable_region": draft.region,
+                    "quantity_source": quantity.source if quantity is not None else "manual",
+                    "quantity_source_ref": (
+                        quantity.source_ref if quantity is not None
+                        else "Предварительный объём по запросу пользователя и допущениям модели"
+                    ),
+                    "quantity_source_url": quantity.source_url if quantity is not None else None,
+                    "assumptions": combined_assumptions,
+                    "validation_status": "unverified",
+                }
+            lines.append({
+                "id": line.id,
+                "section": section.name,
+                "description": line.description,
+                "category": line.category,
+                "unit": normalized_unit,
+                "quantity": line.quantity,
+                "unit_price_minor": selected_unit_price,
+                "provenance": price_provenance,
+            })
+
+    basis: dict[str, Any] | None = None
+    if draft.normative_basis is not None:
+        candidate_basis = draft.normative_basis.model_dump(mode="json")
+        candidate_urls = list(candidate_basis.get("source_urls") or [])
+        if source_mode == "legacy":
+            basis = candidate_basis
+        elif candidate_urls and set(candidate_urls).issubset(accepted_source_urls):
+            basis = candidate_basis
+        if basis is not None:
+            basis["validation_status"] = "unverified"
+
+    all_prices_source_bound = len(line_research) == len(lines) and bool(lines)
+    source_summary = (
+        "Цены дополнены применимыми внешними источниками, но независимая нормативная "
+        "проверка ещё не выполнена."
+        if all_prices_source_bound else
+        "Предварительная оценка основной модели Kolibri. Внешние источники отсутствуют "
+        "либо применимы не ко всем позициям; цены требуют проверки."
+    )
+    assumptions = list(dict.fromkeys([
+        *draft.assumptions,
+        *(["Некоторые внешние данные отклонены валидатором и не использованы."] if discarded_external_enrichment else []),
+        *([] if all_prices_source_bound else [
+            "До договора цены и объёмы требуется подтвердить проектом, поставщиками и подрядчиками.",
+        ]),
+    ]))
+    try:
+        spec = EstimateSpec.model_validate({
+            "title": draft.title,
+            "currency": draft.currency,
+            "minor_unit": draft.minor_unit,
+            "region": draft.region,
+            "client_name": draft.client_name,
+            "object_name": draft.object_name,
+            "object_address": draft.object_address,
+            "source_summary": source_summary,
+            "normative_basis": basis,
+            "assumptions": assumptions,
+            "questions": draft.questions,
+            "lines": lines,
+            "overhead_rate_bps": draft.overhead_rate_bps,
+            "tax_rate_bps": draft.tax_rate_bps,
+        })
+    except (TypeError, ValueError, ValidationError) as exc:
+        raise EstimateProviderDraftError("estimate_spec_invalid") from exc
+
+    if price_research_out is not None:
+        price_research_out.clear()
+        if all_prices_source_bound and source_mode in {"controlled_search", "provider_asserted"}:
+            research = {
+                "schema_version": "kolibri.estimate-price-research.v1",
+                "status": (
+                    "source_bound_preliminary"
+                    if source_mode == "controlled_search"
+                    else "provider_asserted_unverified"
+                ),
+                "region": spec.region,
+                "minor_unit": spec.minor_unit,
+                "selection_rule": "range_midpoint_round_half_up",
+                "source_validation": (
+                    "controlled_search_snippet_binding"
+                    if source_mode == "controlled_search"
+                    else "native_search_event_with_provider_asserted_sources"
+                ),
+                "independent_normative_verification": False,
+                "lines": line_research,
+                **({"native_tool_binding": native_tool_binding} if source_mode == "provider_asserted" else {}),
+            }
+            price_research_out.update({
+                **research,
+                "binding_sha256": _canonical_sha256(research),
+            })
+    return spec
+
+
 def estimate_spec_from_provider_response(
     response_text: str,
     *,
     requested_region: str | None = None,
+    source_evidence: list[dict[str, Any]] | None = None,
+    price_research_out: dict[str, Any] | None = None,
+    source_mode: Literal["legacy", "controlled_search", "provider_asserted"] = "legacy",
+    native_tool_binding: dict[str, Any] | None = None,
+    citation_url_validator: Any = None,
 ) -> EstimateSpec:
     """Validate a source-bearing provider draft and build an editable spec.
 
@@ -855,6 +1363,16 @@ def estimate_spec_from_provider_response(
         )
         raise EstimateProviderDraftError(code, safe_message=message) from exc
     schema_version = value.get("schema_version")
+    if schema_version == PROVIDER_ESTIMATE_STRUCTURE_SCHEMA:
+        return _estimate_spec_from_structure_draft(
+            value,
+            requested_region=requested_region,
+            source_evidence=source_evidence,
+            price_research_out=price_research_out,
+            source_mode=source_mode,
+            native_tool_binding=native_tool_binding,
+            citation_url_validator=citation_url_validator,
+        )
     if schema_version == PROVIDER_ESTIMATE_DECLINED_SCHEMA:
         if value == {
             "schema_version": PROVIDER_ESTIMATE_DECLINED_SCHEMA,
@@ -918,21 +1436,110 @@ def estimate_spec_from_provider_response(
             safe_message="provider estimate basis region does not match estimate region",
         )
 
+    citation_index = (
+        build_citation_evidence_index(source_evidence)
+        if source_mode == "controlled_search"
+        else None
+    )
+    if source_mode == "provider_asserted":
+        if not (
+            isinstance(native_tool_binding, dict)
+            and native_tool_binding.get("schema_version") == "kolibri.native-web-search-binding.v1"
+            and native_tool_binding.get("tool_id") == "tool:web_search"
+            and _SHA256.fullmatch(str(native_tool_binding.get("verifier_binding_sha256") or "").lower())
+            and isinstance(native_tool_binding.get("tool_call_ids"), list)
+            and bool(native_tool_binding["tool_call_ids"])
+        ):
+            raise EstimateProviderDraftError(
+                "price_evidence_invalid",
+                fields=["native_tool_binding"],
+                safe_message="native web-search execution binding is missing",
+            )
+    if citation_index is not None:
+        missing_basis_sources = [
+            value for value in draft.normative_basis.source_urls
+            if value not in citation_index
+        ]
+        if missing_basis_sources:
+            raise EstimateProviderDraftError(
+                "price_evidence_invalid",
+                fields=["normative_basis.source_urls"],
+                safe_message="estimate basis source is not bound to controlled search evidence",
+            )
+
     lines: list[dict[str, Any]] = []
+    line_research: list[dict[str, Any]] = []
     for section_index, section in enumerate(draft.sections):
         for line_index, line in enumerate(section.lines):
-            combined_assumptions = list(dict.fromkeys([
-                *line.price_provenance.assumptions,
-                *line.quantity_provenance.assumptions,
-                *line.assumptions,
-            ]))
             try:
                 normalized_unit = normalize_estimate_unit(line.unit)
+                normalized_source_unit = (
+                    normalize_estimate_unit(line.price_provenance.source_unit or "")
+                    if source_mode != "legacy" else normalized_unit
+                )
             except ValueError as exc:
                 raise EstimateProviderDraftError(
                     "unit_invalid",
                     fields=[f"sections.{section_index}.lines.{line_index}.unit"],
                 ) from exc
+            provenance_payload = line.price_provenance.model_dump(mode="json")
+            provenance_payload["source_unit"] = normalized_source_unit
+            selected_unit_price = line.unit_price_minor
+            bound_price: dict[str, Any] | None = None
+            if source_mode == "controlled_search":
+                field = f"sections.{section_index}.lines.{line_index}.price_provenance"
+                try:
+                    selected_unit_price, bound_price = bind_price_provenance(
+                        provenance=provenance_payload,
+                        unit_price_minor=line.unit_price_minor,
+                        minor_unit=draft.minor_unit,
+                        applicable_region=draft.region,
+                        citation_index=citation_index,
+                        field=field,
+                        line_description=line.description,
+                        line_category=line.category,
+                        line_unit=normalized_unit,
+                    )
+                except EstimatePriceEvidenceError as exc:
+                    raise EstimateProviderDraftError(
+                        "price_evidence_invalid",
+                        fields=[exc.field or field],
+                        error_types=[exc.code],
+                    ) from exc
+            elif source_mode == "provider_asserted":
+                field = f"sections.{section_index}.lines.{line_index}.price_provenance"
+                try:
+                    selected_unit_price, bound_price = bind_provider_asserted_price(
+                        provenance=provenance_payload,
+                        unit_price_minor=line.unit_price_minor,
+                        minor_unit=draft.minor_unit,
+                        applicable_region=draft.region,
+                        citation_url_validator=citation_url_validator,
+                        field=field,
+                        line_description=line.description,
+                        line_category=line.category,
+                        line_unit=normalized_unit,
+                    )
+                except EstimatePriceEvidenceError as exc:
+                    raise EstimateProviderDraftError(
+                        "price_evidence_invalid",
+                        fields=[exc.field or field],
+                        error_types=[exc.code],
+                    ) from exc
+            combined_assumptions = list(dict.fromkeys([
+                *line.price_provenance.assumptions,
+                *line.quantity_provenance.assumptions,
+                *line.assumptions,
+                *(
+                    [
+                        "Цена строки выбрана детерминированно как середина "
+                        f"подтверждённого источником диапазона "
+                        f"{bound_price['price_min_minor']}–{bound_price['price_max_minor']} "
+                        "в минорных единицах валюты."
+                    ]
+                    if bound_price is not None else []
+                ),
+            ]))
             lines.append({
                 "id": line.id,
                 "section": section.name,
@@ -940,11 +1547,15 @@ def estimate_spec_from_provider_response(
                 "category": line.category,
                 "unit": normalized_unit,
                 "quantity": line.quantity,
-                "unit_price_minor": line.unit_price_minor,
+                "unit_price_minor": selected_unit_price,
                 "provenance": {
                     "source": line.price_provenance.source,
                     "source_ref": line.price_provenance.source_ref,
-                    "source_url": line.price_provenance.source_url,
+                    "source_url": (
+                        bound_price.get("source_url")
+                        if bound_price is not None and bound_price.get("source_url")
+                        else line.price_provenance.source_url
+                    ),
                     "captured_at": line.price_provenance.captured_at,
                     "applicable_region": line.price_provenance.applicable_region,
                     "price_level_date": line.price_provenance.price_level_date,
@@ -958,10 +1569,32 @@ def estimate_spec_from_provider_response(
                     "validation_status": "unverified",
                 },
             })
+            if bound_price is not None:
+                line_research.append({
+                    "line_id": line.id,
+                    **bound_price,
+                })
+    if source_mode == "provider_asserted":
+        canonical_line_urls = {str(item.get("source_url") or "") for item in line_research}
+        canonical_basis_urls: list[str] = []
+        for source_url in draft.normative_basis.source_urls:
+            try:
+                canonical = citation_url_validator(source_url) if citation_url_validator else None
+            except Exception:
+                canonical = None
+            if not isinstance(canonical, str) or canonical not in canonical_line_urls:
+                raise EstimateProviderDraftError(
+                    "price_evidence_invalid",
+                    fields=["normative_basis.source_urls"],
+                    safe_message="provider basis URLs must match sanitized line price sources",
+                )
+            canonical_basis_urls.append(canonical)
     basis = draft.normative_basis.model_dump(mode="json")
+    if source_mode == "provider_asserted":
+        basis["source_urls"] = canonical_basis_urls
     basis["validation_status"] = "unverified"
     try:
-        return EstimateSpec.model_validate({
+        spec = EstimateSpec.model_validate({
             "title": draft.title,
             "currency": draft.currency,
             "minor_unit": draft.minor_unit,
@@ -983,6 +1616,33 @@ def estimate_spec_from_provider_response(
         else:
             classified = EstimateProviderDraftError("estimate_spec_invalid")
         raise classified from exc
+    if price_research_out is not None:
+        price_research_out.clear()
+        if source_mode in {"controlled_search", "provider_asserted"}:
+            research = {
+                "schema_version": "kolibri.estimate-price-research.v1",
+                "status": (
+                    "source_bound_preliminary"
+                    if source_mode == "controlled_search"
+                    else "provider_asserted_unverified"
+                ),
+                "region": spec.region,
+                "minor_unit": spec.minor_unit,
+                "selection_rule": "range_midpoint_round_half_up",
+                "source_validation": (
+                    "controlled_search_snippet_binding"
+                    if source_mode == "controlled_search"
+                    else "native_search_event_with_provider_asserted_sources"
+                ),
+                "independent_normative_verification": False,
+                "lines": line_research,
+                **({"native_tool_binding": native_tool_binding} if source_mode == "provider_asserted" else {}),
+            }
+            price_research_out.update({
+                **research,
+                "binding_sha256": _canonical_sha256(research),
+            })
+    return spec
 
 
 _HOUSE_AREA = re.compile(
@@ -1629,6 +2289,109 @@ def deterministic_estimate_fallback_text(task: dict[str, Any]) -> str:
     )
 
 
+def _verified_price_research(spec: EstimateSpec, research: Any) -> bool:
+    if not isinstance(research, dict):
+        return False
+    binding = str(research.get("binding_sha256") or "").lower()
+    unsigned = {key: value for key, value in research.items() if key != "binding_sha256"}
+    if not (
+        research.get("schema_version") == "kolibri.estimate-price-research.v1"
+        and research.get("status") in {
+            "source_bound_preliminary", "provider_asserted_unverified",
+        }
+        and research.get("region") == spec.region
+        and research.get("minor_unit") == spec.minor_unit
+        and research.get("selection_rule") == "range_midpoint_round_half_up"
+        and research.get("source_validation") in {
+            "controlled_search_snippet_binding",
+            "native_search_event_with_provider_asserted_sources",
+        }
+        and research.get("independent_normative_verification") is False
+        and _SHA256.fullmatch(binding)
+        and binding == _canonical_sha256(unsigned)
+    ):
+        return False
+    native_mode = research.get("status") == "provider_asserted_unverified"
+    native_binding = research.get("native_tool_binding")
+    if native_mode:
+        if not (
+            isinstance(native_binding, dict)
+            and native_binding.get("schema_version") == "kolibri.native-web-search-binding.v1"
+            and native_binding.get("tool_id") == "tool:web_search"
+            and _SHA256.fullmatch(str(native_binding.get("verifier_binding_sha256") or "").lower())
+            and isinstance(native_binding.get("tool_call_ids"), list)
+            and bool(native_binding["tool_call_ids"])
+        ):
+            return False
+    elif native_binding is not None:
+        return False
+    raw_lines = research.get("lines")
+    if not isinstance(raw_lines, list) or len(raw_lines) != len(spec.lines):
+        return False
+    by_id = {
+        str(item.get("line_id")): item
+        for item in raw_lines
+        if isinstance(item, dict) and item.get("line_id")
+    }
+    if len(by_id) != len(spec.lines):
+        return False
+    for line in spec.lines:
+        proof = by_id.get(line.id)
+        if not isinstance(proof, dict):
+            return False
+        try:
+            price_min = int(proof.get("price_min_minor"))
+            price_max = int(proof.get("price_max_minor"))
+            selected = int(proof.get("selected_unit_price_minor"))
+        except (TypeError, ValueError):
+            return False
+        midpoint = int(
+            (Decimal(price_min + price_max) / Decimal(2)).quantize(
+                Decimal("1"), rounding=ROUND_HALF_UP,
+            )
+        )
+        source_url = str(proof.get("source_url") or "")
+        source_title = str(proof.get("source_title") or "")
+        source_quote = str(proof.get("source_quote") or "")
+        source_snippet = str(proof.get("source_snippet") or source_quote)
+        expected_source_content_sha = hashlib.sha256(json.dumps(
+            {"title": source_title, "snippet": source_snippet, "url": source_url},
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")).hexdigest()
+        if not (
+            0 <= price_min <= price_max
+            and selected == midpoint == line.unit_price_minor
+            and proof.get("selection_rule") == "range_midpoint_round_half_up"
+            and source_url == line.provenance.source_url
+            and source_url.startswith("https://")
+            and 0 < len(source_quote) <= 1_000
+            and source_quote.casefold() in source_snippet.casefold()
+            and 0 < len(source_snippet) <= 1_000
+            and str(proof.get("source_content_sha256") or "").lower() == expected_source_content_sha
+            and isinstance(proof.get("source_retrieved_at"), str)
+            and isinstance(proof.get("source_title"), str)
+            and isinstance(proof.get("source_host"), str)
+            and source_matches_estimate_line(
+                line_description=line.description,
+                line_category=line.category,
+                line_unit=line.unit,
+                source_item=str(proof.get("source_item") or ""),
+                source_category=str(proof.get("source_category") or ""),
+                source_unit=str(proof.get("source_unit") or ""),
+                source_spec=(str(proof.get("source_spec")) if proof.get("source_spec") else None),
+                source_text=source_snippet,
+            )
+            and (
+                (proof.get("provider_asserted") is True and proof.get("independently_citation_bound") is False)
+                if native_mode else "provider_asserted" not in proof
+            )
+        ):
+            return False
+    return True
+
+
 def verified_deterministic_estimate_result(task: dict[str, Any]) -> bool:
     """Recompute an editable estimate, its assessment and content bindings."""
 
@@ -1651,10 +2414,12 @@ def verified_deterministic_estimate_result(task: dict[str, Any]) -> bool:
     if not isinstance(calculation, dict) or not isinstance(assessment, dict):
         return False
     expected_assessment = assess_normative_estimate(spec)
+    research = result.get("price_research")
     return bool(
         deterministic_estimate(spec) == calculation
         and assessment == expected_assessment
         and result.get("status") == expected_assessment["status"]
+        and (research is None or _verified_price_research(spec, research))
     )
 
 
@@ -1664,7 +2429,7 @@ def deterministic_estimate_result_verification(task: dict[str, Any]) -> dict[str
     result = task["result"]
     calculation = result["calculation"]
     assessment = result["verification"]
-    return {
+    verification = {
         "status": "passed",
         "type": "deterministic_estimate_engine",
         "engine": calculation["engine"],
@@ -1676,6 +2441,11 @@ def deterministic_estimate_result_verification(task: dict[str, Any]) -> dict[str
         "calculation_sha256": calculation["calculation_sha256"],
         "assessment_binding_sha256": assessment["binding_sha256"],
     }
+    research = result.get("price_research")
+    if isinstance(research, dict):
+        verification["price_research_binding_sha256"] = research["binding_sha256"]
+        verification["price_research_status"] = research["status"]
+    return verification
 
 
 def deterministic_estimate_result_text(task: dict[str, Any]) -> str:
@@ -1712,6 +2482,111 @@ def deterministic_estimate_result_text(task: dict[str, Any]) -> str:
         f"Позиции: {len(spec['lines'])}. {truth_note} "
         + ("Редактор и PDF готовы." if pdf_ready else "Редактор готов; PDF пока не материализован.")
     )
+
+
+def estimate_product_outcome(task: dict[str, Any]) -> dict[str, Any] | None:
+    """Project one verified estimate task into a uniform editor/PDF outcome.
+
+    Product clients should not need to infer whether an estimate fell back to
+    input collection or contains a preliminary/verified calculation by walking
+    several internal execution fields.  This projection is emitted only after
+    the corresponding deterministic verifier succeeds.  In particular, the
+    ``needs_input`` branch cannot contain estimate rows or monetary totals.
+    """
+
+    if not isinstance(task, dict) or task.get("intent") != "estimate":
+        return None
+    result = task.get("result") if isinstance(task.get("result"), dict) else {}
+    persistence = task.get("persistence") if isinstance(task.get("persistence"), dict) else {}
+    delivery = task.get("artifact_delivery") if isinstance(task.get("artifact_delivery"), dict) else {}
+    requested = delivery.get("requested") if isinstance(delivery.get("requested"), list) else []
+    pdf_artifact = next((
+        {
+            key: artifact[key]
+            for key in (
+                "kind", "name", "locator", "media_type", "reference_sha256",
+                "content_sha256", "size_bytes", "deliverable_type",
+                "evidence_binding_sha256", "status", "immutable", "document_role",
+            )
+            if key in artifact
+        }
+        for artifact in task.get("artifacts", [])
+        if isinstance(artifact, dict)
+        and artifact.get("deliverable_type") == "pdf"
+        and artifact.get("status") == "materialized"
+        and artifact.get("media_type") == "application/pdf"
+        and _valid_digest(artifact.get("reference_sha256"))
+        and _valid_digest(artifact.get("content_sha256"))
+        and _valid_digest(artifact.get("evidence_binding_sha256"))
+        and isinstance(artifact.get("size_bytes"), int)
+        and artifact["size_bytes"] > 0
+        and isinstance(artifact.get("locator"), str)
+        and artifact["locator"].startswith("/v1/")
+        and delivery.get("status") == "materialized"
+        and "pdf" in set(delivery.get("delivered") or [])
+    ), None)
+    pdf = {
+        "requested": "pdf" in requested,
+        "status": (
+            "materialized" if pdf_artifact is not None
+            else "not_requested" if "pdf" not in requested
+            else "not_materialized"
+        ),
+        "artifact": pdf_artifact,
+    }
+
+    if result.get("type") == "estimate_readiness":
+        if not verified_deterministic_estimate_fallback(task):
+            return None
+        readiness = result["readiness"]
+        return {
+            "schema_version": ESTIMATE_OUTCOME_SCHEMA,
+            "status": "needs_input",
+            "pricing": {
+                "status": "not_calculated",
+                "invented_prices": False,
+            },
+            "editor": {
+                **readiness["editor"],
+                "available": True,
+                "mode": "input_requirements",
+                "data_ref": "task.result.readiness.editor",
+            },
+            "pdf": pdf,
+        }
+
+    if result.get("type") != "deterministic_estimate" or not verified_deterministic_estimate_result(task):
+        return None
+    status = str(result["status"])
+    source_coverage_complete = result["verification"].get("source_coverage_complete") is True
+    return {
+        "schema_version": ESTIMATE_OUTCOME_SCHEMA,
+        "status": status,
+        "pricing": {
+            "status": status,
+            "invented_prices": False,
+            "source_status": (
+                "independently_verified"
+                if status == "verified" else
+                "source_asserted_unverified"
+                if source_coverage_complete else
+                "model_suggestion_unverified"
+            ),
+            "model_price_suggestions": status != "verified" and not source_coverage_complete,
+            "money_authority": result["calculation"]["money_authority"],
+            "calculation_sha256": result["calculation"]["calculation_sha256"],
+        },
+        "editor": {
+            "schema_version": ESTIMATE_EDITOR_SCHEMA,
+            "available": True,
+            "mode": "estimate",
+            "state": str(persistence.get("state") or "ready"),
+            "data_ref": "task.result",
+            **({"estimate_id": persistence["estimate_id"]} if persistence.get("estimate_id") else {}),
+            **({"version": persistence["version"]} if persistence.get("version") else {}),
+        },
+        "pdf": pdf,
+    }
 
 
 def _routing(result: dict[str, Any]) -> dict[str, Any]:
@@ -1823,12 +2698,18 @@ def build_vertical_result(
     task: VerticalTask,
     provider_result: dict[str, Any],
     calculation: dict[str, Any] | None,
+    *,
+    source_evidence: list[dict[str, Any]] | None = None,
+    estimate_source_mode: Literal["legacy", "controlled_search", "provider_asserted"] = "legacy",
+    native_tool_binding: dict[str, Any] | None = None,
+    citation_url_validator: Any = None,
 ) -> dict[str, Any]:
     routing = _routing(provider_result)
     response_text = str(provider_result.get("response") or "")
     provider_verified, provider_binding = _verified_provider_binding(routing, response_text)
     artifacts = verified_artifact_refs(provider_result)
     estimate_spec: EstimateSpec | None = task.spec if isinstance(task, EstimateVerticalTask) else None
+    price_research: dict[str, Any] | None = None
     estimate_error: str | None = None
     proposal_validation: dict[str, Any] | None = None
     if isinstance(task, EstimateVerticalTask) and estimate_spec is None and provider_verified:
@@ -1838,10 +2719,17 @@ def build_vertical_result(
             if not inferred_region.startswith("Регион не структурирован"):
                 requested_region = inferred_region
         try:
+            research: dict[str, Any] = {}
             estimate_spec = estimate_spec_from_provider_response(
                 response_text,
                 requested_region=requested_region,
+                source_evidence=source_evidence,
+                price_research_out=research,
+                source_mode=estimate_source_mode,
+                native_tool_binding=native_tool_binding,
+                citation_url_validator=citation_url_validator,
             )
+            price_research = research or None
             calculation = deterministic_estimate(estimate_spec)
         except EstimateProviderDraftError as exc:
             proposal_validation = exc.classification()
@@ -1894,6 +2782,7 @@ def build_vertical_result(
                 "estimate": estimate_spec.model_dump(mode="json"),
                 "calculation": calculation,
                 "verification": estimate_assessment,
+                **({"price_research": price_research} if price_research is not None else {}),
             }
             if typed_result_valid and estimate_spec is not None
             else None

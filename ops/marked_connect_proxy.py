@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Loopback-only HTTPS CONNECT proxy with policy-routed outbound sockets.
+"""Loopback-only, allowlisted HTTPS CONNECT proxy for provider traffic.
 
-Kolibri uses this adapter to send only approved provider traffic through an
-existing Amnezia/WireGuard policy-routing table.  It never changes the host's
-default route and it deliberately rejects plain HTTP forwarding and private
-destinations.
+The primary route is an ``SO_MARK`` socket through Home's already-managed
+AmneziaWG policy table.  A signed, dynamic SSH SOCKS tunnel may be configured
+as a bounded fallback.  The proxy never changes the host's default route and
+rejects plain HTTP forwarding, non-provider destinations, and non-loopback
+SOCKS upstreams.
 """
 
 from __future__ import annotations
@@ -24,9 +25,11 @@ SO_MARK = getattr(socket, "SO_MARK", 36)
 MAX_HEADER_BYTES = 64 * 1024
 DEFAULT_ALLOWED_SUFFIXES = (
     "chatgpt.com",
+    "mimo.xiaomi.com",
     "openai.com",
     "oaistatic.com",
     "oaiusercontent.com",
+    "xiaomimimo.com",
 )
 
 
@@ -105,11 +108,83 @@ class ProxyConfig:
     allowed_suffixes: tuple[str, ...] = DEFAULT_ALLOWED_SUFFIXES
     connect_timeout: float = 10.0
     idle_timeout: float = 120.0
+    fallback_socks_host: str | None = None
+    fallback_socks_port: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.mark < 0 or self.mark > 0xFFFFFFFF:
+            raise ProxyPolicyError("mark_invalid")
+        if (self.fallback_socks_host is None) != (self.fallback_socks_port is None):
+            raise ProxyPolicyError("fallback_socks_contract_invalid")
+        if self.fallback_socks_host is not None:
+            try:
+                address = ipaddress.ip_address(self.fallback_socks_host)
+            except ValueError as exc:
+                raise ProxyPolicyError("fallback_socks_must_be_loopback") from exc
+            if (
+                not address.is_loopback
+                or not 1 <= int(self.fallback_socks_port or 0) <= 65535
+            ):
+                raise ProxyPolicyError("fallback_socks_must_be_loopback")
 
 
-def open_marked_connection(host: str, port: int, config: ProxyConfig) -> socket.socket:
-    if not host_allowed(host, config.allowed_suffixes):
+def _recv_exact(connection: socket.socket, length: int) -> bytes:
+    payload = bytearray()
+    while len(payload) < length:
+        chunk = connection.recv(length - len(payload))
+        if not chunk:
+            raise OSError("socks_upstream_closed")
+        payload.extend(chunk)
+    return bytes(payload)
+
+
+def open_socks_connection(host: str, port: int, config: ProxyConfig) -> socket.socket:
+    """Open one domain-bound SOCKS5 stream through the optional local fallback."""
+
+    if config.fallback_socks_host is None or config.fallback_socks_port is None:
+        raise ProxyPolicyError("fallback_socks_unconfigured")
+    if not host_allowed(host, config.allowed_suffixes) or port != 443:
         raise ProxyPolicyError("destination_not_allowed")
+    encoded_host = normalize_host(host).encode("ascii")
+    if len(encoded_host) > 255:
+        raise ProxyPolicyError("invalid_host")
+    connection = socket.create_connection(
+        (config.fallback_socks_host, config.fallback_socks_port),
+        timeout=config.connect_timeout,
+    )
+    try:
+        connection.sendall(b"\x05\x01\x00")
+        if _recv_exact(connection, 2) != b"\x05\x00":
+            raise OSError("socks_auth_method_rejected")
+        connection.sendall(
+            b"\x05\x01\x00\x03"
+            + bytes((len(encoded_host),))
+            + encoded_host
+            + port.to_bytes(2, "big")
+        )
+        header = _recv_exact(connection, 4)
+        if header[:2] != b"\x05\x00" or header[2] != 0:
+            raise OSError("socks_connect_rejected")
+        address_type = header[3]
+        if address_type == 1:
+            _recv_exact(connection, 4)
+        elif address_type == 3:
+            _recv_exact(connection, _recv_exact(connection, 1)[0])
+        elif address_type == 4:
+            _recv_exact(connection, 16)
+        else:
+            raise OSError("socks_reply_invalid")
+        _recv_exact(connection, 2)
+        connection.setblocking(False)
+        return connection
+    except Exception:
+        connection.close()
+        raise
+
+
+def open_primary_connection(host: str, port: int, config: ProxyConfig) -> socket.socket:
+    """Open through Home's direct/marked lane without consulting a fallback."""
+
     last_error: OSError | None = None
     for family, socktype, proto, sockaddr in resolve_public(host, port):
         outbound = socket.socket(family, socktype, proto)
@@ -124,6 +199,20 @@ def open_marked_connection(host: str, port: int, config: ProxyConfig) -> socket.
             last_error = exc
             outbound.close()
     raise OSError("marked_connect_failed") from last_error
+
+
+def open_marked_connection(host: str, port: int, config: ProxyConfig) -> socket.socket:
+    if not host_allowed(host, config.allowed_suffixes) or port != 443:
+        raise ProxyPolicyError("destination_not_allowed")
+    try:
+        return open_primary_connection(host, port, config)
+    except OSError:
+        if config.fallback_socks_host is None:
+            raise
+        try:
+            return open_socks_connection(host, port, config)
+        except OSError as fallback_error:
+            raise OSError("provider_egress_primary_and_fallback_failed") from fallback_error
 
 
 def relay(left: socket.socket, right: socket.socket, idle_timeout: float) -> None:
@@ -200,11 +289,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=18080)
     parser.add_argument("--mark", type=lambda value: int(value, 0), default=0x66)
     parser.add_argument("--allow-suffix", action="append", dest="allowed_suffixes")
+    parser.add_argument("--fallback-socks-host")
+    parser.add_argument("--fallback-socks-port", type=int)
+    parser.add_argument("--check-config", action="store_true")
     args = parser.parse_args(argv)
     config = ProxyConfig(
         mark=args.mark,
         allowed_suffixes=tuple(args.allowed_suffixes or DEFAULT_ALLOWED_SUFFIXES),
+        fallback_socks_host=args.fallback_socks_host,
+        fallback_socks_port=args.fallback_socks_port,
     )
+    if args.check_config:
+        return 0
     with ConnectProxyServer((args.listen, args.port), config) as server:
         server.serve_forever(poll_interval=0.5)
     return 0

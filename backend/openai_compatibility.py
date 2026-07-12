@@ -13,7 +13,7 @@ import hashlib
 import json
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, WebSocket
+from fastapi import APIRouter, HTTPException, Request, WebSocket
 from fastapi.responses import JSONResponse
 
 
@@ -52,6 +52,7 @@ OPENAI_COMPATIBILITY_OPERATIONS: tuple[dict[str, Any], ...] = (
         "limitations": [
             "Only model `kolibri` is accepted.",
             "Provider selection remains server policy and is not client-controlled.",
+            "SSE compatibility chunks are emitted after the current synchronous execution path completes; live token streaming is not claimed.",
         ],
     },
     {
@@ -61,11 +62,21 @@ OPENAI_COMPATIBILITY_OPERATIONS: tuple[dict[str, Any], ...] = (
         "available": True,
         "conformance": "supported_subset",
         "auth": ["owner_bearer", "public_session_cookie"],
-        "features": ["json", "sse", "previous_response_id", "scoped_tools"],
+        "features": [
+            "json",
+            "sse",
+            "previous_response_id",
+            "scoped_tools",
+            "reasoning_summary_opt_in",
+            "public_session_background_execution",
+            "public_session_resumable_sse_sequence_number",
+        ],
         "limitations": [
             "Only model `kolibri` is accepted.",
             "The accepted tool set is the Kolibri capability allowlist.",
             "Durable owner creation returns HTTP 201; public-session creation returns HTTP 200.",
+            "Raw reasoning tokens are never exposed; only a provider-authored reasoning summary is streamed when explicitly requested.",
+            "Durable background execution and cursor-based stream resumption are currently implemented for public-session responses; owner bearer execution remains synchronous.",
         ],
     },
     {
@@ -86,7 +97,15 @@ OPENAI_COMPATIBILITY_OPERATIONS: tuple[dict[str, Any], ...] = (
         "available": True,
         "conformance": "supported_subset",
         "auth": ["owner_bearer", "public_session_cookie"],
-        "limitations": ["Retrieval is scoped to the authenticated owner or public session."],
+        "features": [
+            "json",
+            "public_session_stream_replay",
+            "public_session_starting_after_sequence_number",
+        ],
+        "limitations": [
+            "Retrieval is scoped to the authenticated owner or public session.",
+            "Live cursor resumption is durable only for public-session responses.",
+        ],
     },
     {
         "path": "/v1/responses/{response_id}/cancel",
@@ -124,6 +143,66 @@ OPENAI_COMPATIBILITY_OPERATIONS: tuple[dict[str, Any], ...] = (
     },
     {
         "path": "/v1/realtime",
+        "method": "POST",
+        "operation": "kolibri.realtime.http_boundary",
+        "available": False,
+        "conformance": "kolibri_boundary",
+        "auth": ["public"],
+        "limitations": ["Returns HTTP 501 and never creates a Realtime session."],
+        "error_code": "realtime_unavailable",
+    },
+    {
+        "path": "/v1/realtime/client_secrets",
+        "method": "POST",
+        "operation": "realtime.client_secrets.create",
+        "available": False,
+        "conformance": "unavailable",
+        "auth": [],
+        "limitations": ["No ephemeral Realtime credentials are issued."],
+        "error_code": "realtime_unavailable",
+    },
+    {
+        "path": "/v1/realtime/sessions",
+        "method": "POST",
+        "operation": "realtime.sessions.create_legacy",
+        "available": False,
+        "conformance": "unavailable",
+        "auth": [],
+        "limitations": ["The legacy Realtime session bootstrap is not deployed."],
+        "error_code": "realtime_unavailable",
+    },
+    {
+        "path": "/v1/realtime/transcription_sessions",
+        "method": "POST",
+        "operation": "realtime.transcription_sessions.create",
+        "available": False,
+        "conformance": "unavailable",
+        "auth": [],
+        "limitations": ["Realtime transcription is not deployed."],
+        "error_code": "realtime_unavailable",
+    },
+    {
+        "path": "/v1/realtime/calls",
+        "method": "POST",
+        "operation": "realtime.calls.create",
+        "available": False,
+        "conformance": "unavailable",
+        "auth": [],
+        "limitations": ["WebRTC call establishment is not deployed."],
+        "error_code": "realtime_unavailable",
+    },
+    {
+        "path": "/v1/realtime/translations/client_secrets",
+        "method": "POST",
+        "operation": "realtime.translations.client_secrets.create",
+        "available": False,
+        "conformance": "unavailable",
+        "auth": [],
+        "limitations": ["Realtime translation is not deployed."],
+        "error_code": "realtime_unavailable",
+    },
+    {
+        "path": "/v1/realtime",
         "method": "WEBSOCKET",
         "operation": "realtime.connect",
         "available": False,
@@ -153,6 +232,14 @@ def compatibility_registry() -> dict[str, Any]:
                 "https://developers.openai.com/api/reference/resources/responses/"
                 "subresources/input_items/methods/list"
             ),
+            "reasoning_summaries": (
+                "https://developers.openai.com/api/docs/guides/reasoning"
+                "#reasoning-summaries"
+            ),
+            "background_streaming": (
+                "https://developers.openai.com/api/docs/guides/background"
+                "#streaming-a-background-response"
+            ),
             "realtime": "https://developers.openai.com/api/docs/guides/realtime",
         },
         "routing_policy": {
@@ -176,7 +263,11 @@ def get_openai_compatibility() -> JSONResponse:
     )
 
 
-def realtime_unavailable_error() -> dict[str, Any]:
+def realtime_unavailable_error(
+    *,
+    surface: str = "/v1/realtime",
+    transport: str = "websocket",
+) -> dict[str, Any]:
     return {
         "error": {
             "message": "Kolibri Realtime is unavailable because no Realtime session backend is deployed.",
@@ -185,8 +276,13 @@ def realtime_unavailable_error() -> dict[str, Any]:
             "code": "realtime_unavailable",
         },
         "available": False,
-        "transport": "websocket",
+        "surface": surface,
+        "transport": transport,
         "retryable": False,
+        "supported_alternative": {
+            "path": "/v1/responses",
+            "features": ["text_sse", "background", "resumable_sequence_number"],
+        },
         "discovery": "/v1/kolibri/openai-compatibility",
     }
 
@@ -200,6 +296,56 @@ def get_realtime_boundary() -> JSONResponse:
         status_code=501,
         headers={"Cache-Control": "no-store"},
     )
+
+
+def _realtime_rest_boundary(path: str) -> JSONResponse:
+    """Return one stable JSON error instead of route-specific 404/405/422."""
+
+    return JSONResponse(
+        realtime_unavailable_error(surface=path, transport="http"),
+        status_code=501,
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.post("/v1/realtime")
+async def post_realtime_boundary(request: Request) -> JSONResponse:
+    del request
+    return _realtime_rest_boundary("/v1/realtime")
+
+
+@router.post("/v1/realtime/client_secrets")
+async def create_realtime_client_secret_boundary(request: Request) -> JSONResponse:
+    del request
+    return _realtime_rest_boundary("/v1/realtime/client_secrets")
+
+
+@router.post("/v1/realtime/sessions")
+async def create_realtime_session_boundary(request: Request) -> JSONResponse:
+    del request
+    return _realtime_rest_boundary("/v1/realtime/sessions")
+
+
+@router.post("/v1/realtime/transcription_sessions")
+async def create_realtime_transcription_session_boundary(
+    request: Request,
+) -> JSONResponse:
+    del request
+    return _realtime_rest_boundary("/v1/realtime/transcription_sessions")
+
+
+@router.post("/v1/realtime/calls")
+async def create_realtime_call_boundary(request: Request) -> JSONResponse:
+    del request
+    return _realtime_rest_boundary("/v1/realtime/calls")
+
+
+@router.post("/v1/realtime/translations/client_secrets")
+async def create_realtime_translation_secret_boundary(
+    request: Request,
+) -> JSONResponse:
+    del request
+    return _realtime_rest_boundary("/v1/realtime/translations/client_secrets")
 
 
 @router.websocket("/v1/realtime")

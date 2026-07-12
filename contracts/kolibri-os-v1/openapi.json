@@ -512,6 +512,97 @@
         "x-kolibri-implementation": "compatibility"
       }
     },
+    "/v1/learning/datasets": {
+      "get": {
+        "tags": ["learning"],
+        "operationId": "listLearningDatasets",
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-implementation": "compatibility"
+      },
+      "post": {
+        "tags": ["learning"],
+        "operationId": "createLearningDataset",
+        "requestBody": { "$ref": "#/components/requestBodies/Mutation" },
+        "responses": { "201": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-content-addressed": true,
+        "x-kolibri-request-path-training": false,
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
+    "/v1/learning/datasets/{dataset_id}": {
+      "get": {
+        "tags": ["learning"],
+        "operationId": "getLearningDataset",
+        "parameters": [{ "$ref": "#/components/parameters/LearningDatasetId" }],
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
+    "/v1/learning/registry": {
+      "get": {
+        "tags": ["learning"],
+        "operationId": "listLearningModelRegistry",
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-implementation": "compatibility"
+      },
+      "post": {
+        "tags": ["learning"],
+        "operationId": "registerLearningModelArtifact",
+        "requestBody": { "$ref": "#/components/requestBodies/Mutation" },
+        "responses": { "201": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-training-execution-claimed": false,
+        "x-kolibri-auto-promote": false,
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
+    "/v1/learning/registry/{registry_id}": {
+      "get": {
+        "tags": ["learning"],
+        "operationId": "getLearningModelRegistryEntry",
+        "parameters": [{ "$ref": "#/components/parameters/LearningRegistryId" }],
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
+    "/v1/learning/registry/{registry_id}/evaluations": {
+      "get": {
+        "tags": ["learning"],
+        "operationId": "listLearningModelEvaluations",
+        "parameters": [{ "$ref": "#/components/parameters/LearningRegistryId" }],
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-implementation": "compatibility"
+      },
+      "post": {
+        "tags": ["learning"],
+        "operationId": "recordLearningModelEvaluation",
+        "parameters": [{ "$ref": "#/components/parameters/LearningRegistryId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/Mutation" },
+        "responses": { "201": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-independent-eval-required": true,
+        "x-kolibri-auto-promote": false,
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
+    "/v1/learning/registry/{registry_id}/transitions": {
+      "get": {
+        "tags": ["learning"],
+        "operationId": "listLearningModelRegistryTransitions",
+        "parameters": [{ "$ref": "#/components/parameters/LearningRegistryId" }],
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-implementation": "compatibility"
+      },
+      "post": {
+        "tags": ["learning"],
+        "operationId": "transitionLearningModelRegistry",
+        "parameters": [{ "$ref": "#/components/parameters/LearningRegistryId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/Mutation" },
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-state-machine": "shadow -> canary-1 -> canary-10 -> canary-50 -> production; explicit rollback",
+        "x-kolibri-runtime-traffic-mutated": false,
+        "x-kolibri-production-weight-mutation": false,
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
     "/v1/automations": {
       "get": {
         "tags": ["automations"],
@@ -550,6 +641,8 @@
       "ResponseId": { "name": "response_id", "in": "path", "required": true, "schema": { "type": "string" } },
       "LearningIntakeId": { "name": "intake_id", "in": "path", "required": true, "schema": { "type": "string" } },
       "LearningCandidateId": { "name": "candidate_id", "in": "path", "required": true, "schema": { "type": "string" } },
+      "LearningDatasetId": { "name": "dataset_id", "in": "path", "required": true, "schema": { "type": "string" } },
+      "LearningRegistryId": { "name": "registry_id", "in": "path", "required": true, "schema": { "type": "string" } },
       "TaskId": { "name": "task_id", "in": "path", "required": true, "schema": { "type": "string" } },
       "ApprovalId": { "name": "approval_id", "in": "path", "required": true, "schema": { "type": "string" } },
       "ReleaseId": { "name": "release_id", "in": "path", "required": true, "schema": { "type": "string" } },

@@ -54,6 +54,7 @@ def raw_handshake(target, target_release, *, task_id=None):
     result = {
         "task_id": task_id,
         "attempt_id": attempt_id,
+        "fencing_token": 1,
         "node_id": target.node_id,
         "agent_id": f"agent-{target.node_id}",
         "status": "completed",
@@ -73,6 +74,7 @@ def raw_handshake(target, target_release, *, task_id=None):
     return {
         "task_id": task_id,
         "attempt_id": attempt_id,
+        "fencing_token": 1,
         "lease_owner": f"{target.node_id}:agent-{target.node_id}",
         "state": "completed",
         "envelope": {"target_node": target.node_id},
@@ -91,6 +93,7 @@ def add_strict_proof(task):
         "schema_version": rollout.COMPLETION_EVIDENCE_SCHEMA,
         "task_id": task["task_id"],
         "attempt_id": task["attempt_id"],
+        "fencing_token": task["fencing_token"],
         "lease_owner": task["lease_owner"],
         "node_id": node_id,
         "agent_id": agent_id,
@@ -103,6 +106,7 @@ def add_strict_proof(task):
         "verifier": "control-plane/home",
         "independent": True,
         "verdict": "passed",
+        "fencing_token": task["fencing_token"],
         "node_id": node_id,
         "agent_id": agent_id,
         "result_sha256": result_sha256,
@@ -116,6 +120,7 @@ def add_strict_proof(task):
             "result_reference": True,
             "result_sha256": True,
             "binding_sha256": True,
+            "fencing_token": True,
         },
         "failed_checks": [],
     }

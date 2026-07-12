@@ -25,6 +25,9 @@ from typing import Any
 
 BOUNDARY_SCHEMA_VERSION = "kolibri.formulalm-boundary.v1"
 SCANNER_VERSION = "kolibri.formulalm-scanner.v1"
+DATASET_SCHEMA_VERSION = "kolibri.learning-dataset.v1"
+EVALUATION_SCHEMA_VERSION = "kolibri.learning-evaluation.v1"
+MODEL_REGISTRY_SCHEMA_VERSION = "kolibri.model-registry-entry.v1"
 ALLOWED_CONSENT = {"explicit", "contractual", "public-permitted"}
 ALLOWED_LICENSE = {"permitted"}
 TRAINING_RETENTION = {"training-approved"}
@@ -39,6 +42,24 @@ PROMOTION_TRANSITIONS: dict[str, set[str]] = {
     "production": {"rolled-back"},
     "rejected": set(),
     "rolled-back": set(),
+}
+REGISTRY_TRANSITIONS: dict[str, set[str]] = {
+    "shadow": {"canary-1", "rejected"},
+    "canary-1": {"canary-10", "rolled-back"},
+    "canary-10": {"canary-50", "rolled-back"},
+    "canary-50": {"production", "rolled-back"},
+    "production": {"rolled-back"},
+    "rejected": set(),
+    "rolled-back": set(),
+}
+REGISTRY_TRAFFIC_PERCENT = {
+    "shadow": 0,
+    "canary-1": 1,
+    "canary-10": 10,
+    "canary-50": 50,
+    "production": 100,
+    "rejected": 0,
+    "rolled-back": 0,
 }
 
 _SENSITIVE_KEYS = {
@@ -97,10 +118,13 @@ _SAFE_OPAQUE_IDENTIFIER_KEYS = {
     "actor_id",
     "artifact_id",
     "candidate_id",
+    "dataset_id",
+    "evaluation_id",
     "event_id",
     "intake_id",
     "principal",
     "response_id",
+    "registry_id",
     "source_response_id",
     "source_trace_id",
     "task_id",
@@ -122,6 +146,18 @@ def _canonical_json(value: Any) -> str:
 
 def _request_hash(value: Any) -> str:
     return hashlib.sha256(_canonical_json(value).encode("utf-8")).hexdigest()
+
+
+def _content_sha256(value: Any) -> str:
+    """Return a canonical content address independent of DB row/timestamps."""
+
+    return f"sha256:{_request_hash(value)}"
+
+
+def _content_id(prefix: str, content_sha256: str) -> str:
+    if not _CANONICAL_SHA256.fullmatch(content_sha256):
+        raise FormulaLMPolicyError("learning_content_hash_invalid")
+    return f"{prefix}_{content_sha256.removeprefix('sha256:')}"
 
 
 def _normalized_key(value: Any) -> str:
@@ -248,7 +284,11 @@ def scan_learning_payload(value: Any) -> ScanResult:
         ):
             return item
         if (
-            any(_normalized_key(segment) == "artifact_hashes" for segment in current_segments)
+            any(
+                _normalized_key(segment).endswith(("_hashes", "_digests"))
+                or _normalized_key(segment) == "artifact_hashes"
+                for segment in current_segments
+            )
             and _CANONICAL_SHA256.fullmatch(item.lower())
         ):
             return item
@@ -313,6 +353,52 @@ def _validate_artifact_hashes(values: list[str]) -> list[str]:
     if any(not _CANONICAL_SHA256.fullmatch(value) for value in normalized):
         raise FormulaLMPolicyError("learning_artifact_hash_invalid")
     return normalized
+
+
+_CANDIDATE_ADDRESS_EXCLUDED_KEYS = {
+    "id",
+    "candidate_id",
+    "object",
+    "intake_id",
+    "content_sha256",
+    "promotion_status",
+    "requires_eval",
+    "training_eligible",
+    "auto_promote",
+    "request_path_training",
+    "production_weight_mutation",
+    "created_at",
+    "updated_at",
+    "last_transition",
+    "rollback",
+}
+
+
+def _candidate_address_payload(candidate: dict[str, Any]) -> dict[str, Any]:
+    """Return the immutable sanitized candidate projection used for CAS."""
+
+    return {
+        key: value
+        for key, value in candidate.items()
+        if key not in _CANDIDATE_ADDRESS_EXCLUDED_KEYS
+    }
+
+
+def _require_safe_text(value: Any, code: str, *, max_length: int = 300) -> str:
+    text = str(value or "").strip()
+    if not text or len(text) > max_length:
+        raise FormulaLMPolicyError(code)
+    # Authentication code passes only a one-way principal fingerprint.  Its
+    # explicit prefix would otherwise resemble a credential assignment to the
+    # generic scanner even though no credential bytes are present.
+    if re.fullmatch(r"(?:authn|api-key):[a-f0-9]{8,64}", text) or re.fullmatch(
+        r"(?:lcand|flds|flmodel|fleval)_[a-f0-9]{64}", text
+    ):
+        return text
+    scan = scan_learning_payload({"value": text})
+    if scan.rejected:
+        raise FormulaLMPolicyError(f"{code}_sensitive")
+    return text
 
 
 class FormulaLMBoundary:
@@ -391,6 +477,65 @@ class FormulaLMBoundary:
                     created_at TEXT NOT NULL,
                     published_at TEXT
                 );
+                CREATE TABLE IF NOT EXISTS formulalm_datasets (
+                    dataset_id TEXT PRIMARY KEY,
+                    content_sha256 TEXT NOT NULL UNIQUE,
+                    scope TEXT NOT NULL,
+                    idempotency_key TEXT NOT NULL,
+                    request_hash TEXT NOT NULL,
+                    capability TEXT NOT NULL,
+                    candidate_ids TEXT NOT NULL,
+                    candidate_hashes TEXT NOT NULL,
+                    provenance TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(scope, idempotency_key)
+                );
+                CREATE INDEX IF NOT EXISTS idx_formulalm_datasets_capability
+                    ON formulalm_datasets(capability, created_at, dataset_id);
+                CREATE TABLE IF NOT EXISTS formulalm_model_registry (
+                    registry_id TEXT PRIMARY KEY,
+                    content_sha256 TEXT NOT NULL UNIQUE,
+                    scope TEXT NOT NULL,
+                    idempotency_key TEXT NOT NULL,
+                    request_hash TEXT NOT NULL,
+                    dataset_id TEXT NOT NULL,
+                    model_artifact_sha256 TEXT NOT NULL,
+                    stage TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(scope, idempotency_key)
+                );
+                CREATE INDEX IF NOT EXISTS idx_formulalm_registry_stage
+                    ON formulalm_model_registry(stage, created_at, registry_id);
+                CREATE TABLE IF NOT EXISTS formulalm_evaluations (
+                    evaluation_id TEXT PRIMARY KEY,
+                    content_sha256 TEXT NOT NULL UNIQUE,
+                    registry_id TEXT NOT NULL,
+                    idempotency_key TEXT NOT NULL,
+                    request_hash TEXT NOT NULL,
+                    verdict TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    UNIQUE(registry_id, idempotency_key)
+                );
+                CREATE INDEX IF NOT EXISTS idx_formulalm_evaluations_registry
+                    ON formulalm_evaluations(registry_id, created_at, evaluation_id);
+                CREATE TABLE IF NOT EXISTS formulalm_registry_events (
+                    event_id TEXT PRIMARY KEY,
+                    registry_id TEXT NOT NULL,
+                    idempotency_key TEXT NOT NULL,
+                    request_hash TEXT NOT NULL,
+                    from_stage TEXT NOT NULL,
+                    to_stage TEXT NOT NULL,
+                    principal TEXT NOT NULL,
+                    evidence TEXT NOT NULL,
+                    reason TEXT,
+                    created_at TEXT NOT NULL,
+                    UNIQUE(registry_id, idempotency_key)
+                );
                 """
             )
 
@@ -419,6 +564,18 @@ class FormulaLMBoundary:
 
     @staticmethod
     def _candidate_row(row: sqlite3.Row) -> dict[str, Any]:
+        return json.loads(row["payload"])
+
+    @staticmethod
+    def _dataset_row(row: sqlite3.Row) -> dict[str, Any]:
+        return json.loads(row["payload"])
+
+    @staticmethod
+    def _registry_row(row: sqlite3.Row) -> dict[str, Any]:
+        return json.loads(row["payload"])
+
+    @staticmethod
+    def _evaluation_row(row: sqlite3.Row) -> dict[str, Any]:
         return json.loads(row["payload"])
 
     @staticmethod
@@ -615,13 +772,8 @@ class FormulaLMBoundary:
                 quality = json.loads(row["quality"])
                 artifact_hashes = json.loads(row["artifact_hashes"])
                 scan_report = json.loads(row["sanitization"])
-                candidate_id = _new_id("lcand")
-                candidate = {
+                candidate_content = {
                     "schema_version": "kolibri.learning-candidate.v1",
-                    "id": candidate_id,
-                    "candidate_id": candidate_id,
-                    "object": "learning_candidate",
-                    "intake_id": intake_id,
                     "source_trace_id": row["source_trace_id"],
                     "source_response_id": row["source_response_id"],
                     "capability": trace_payload["capability"],
@@ -642,6 +794,44 @@ class FormulaLMBoundary:
                     "credit_assignment": quality.get("credit_assignment", {}),
                     "provenance": provenance,
                     "trace": trace_payload["trace"],
+                }
+                candidate_scan = scan_learning_payload(candidate_content)
+                if candidate_scan.rejected:
+                    rejection_code = (
+                        "learning_secret_detected"
+                        if candidate_scan.report["secret_findings"]
+                        else "learning_pii_detected"
+                    )
+                    conn.execute(
+                        """UPDATE formulalm_intakes
+                           SET status = 'rejected', rejection_code = ?, payload = NULL,
+                               sanitization = ?, updated_at = ?
+                           WHERE intake_id = ?""",
+                        (
+                            rejection_code,
+                            _canonical_json(candidate_scan.report),
+                            now,
+                            intake_id,
+                        ),
+                    )
+                    self._append_outbox(
+                        conn,
+                        aggregate_type="learning_intake",
+                        aggregate_id=intake_id,
+                        event_type="learning.intake.rejected",
+                        payload={"status": "rejected", "rejection_code": rejection_code},
+                        now=now,
+                    )
+                    continue
+                candidate_content_sha256 = _content_sha256(candidate_content)
+                candidate_id = _content_id("lcand", candidate_content_sha256)
+                candidate = {
+                    **candidate_content,
+                    "id": candidate_id,
+                    "candidate_id": candidate_id,
+                    "object": "learning_candidate",
+                    "intake_id": intake_id,
+                    "content_sha256": candidate_content_sha256,
                     "promotion_status": "candidate",
                     "requires_eval": True,
                     "training_eligible": True,
@@ -651,6 +841,30 @@ class FormulaLMBoundary:
                     "created_at": now,
                     "updated_at": now,
                 }
+                existing_candidate_row = conn.execute(
+                    "SELECT * FROM formulalm_candidates WHERE candidate_id = ?",
+                    (candidate_id,),
+                ).fetchone()
+                if existing_candidate_row:
+                    existing_candidate = self._candidate_row(existing_candidate_row)
+                    if existing_candidate.get("content_sha256") != candidate_content_sha256:
+                        raise FormulaLMConflictError("learning_candidate_hash_collision")
+                    conn.execute(
+                        """UPDATE formulalm_intakes
+                           SET status = 'candidate', candidate_id = ?, updated_at = ?
+                           WHERE intake_id = ?""",
+                        (candidate_id, now, intake_id),
+                    )
+                    self._append_outbox(
+                        conn,
+                        aggregate_type="learning_candidate",
+                        aggregate_id=candidate_id,
+                        event_type="learning.candidate.linked",
+                        payload={"intake_id": intake_id, "content_address_reused": True},
+                        now=now,
+                    )
+                    processed.append(existing_candidate)
+                    continue
                 conn.execute(
                     """INSERT INTO formulalm_candidates
                        (candidate_id, intake_id, source_trace_id, promotion_status, payload, created_at, updated_at)
@@ -696,6 +910,757 @@ class FormulaLMBoundary:
                 "SELECT * FROM formulalm_candidates ORDER BY created_at, candidate_id"
             ).fetchall()
         return [self._candidate_row(row) for row in rows]
+
+    def create_dataset(
+        self,
+        *,
+        idempotency_key: str,
+        candidate_ids: list[str],
+        capability: str,
+        builder_id: str,
+        principal: str,
+    ) -> dict[str, Any]:
+        """Create a bounded content-addressed dataset manifest.
+
+        The dataset record contains immutable candidate references and hashes,
+        not copied prompts or outputs.  Candidate traces remain in their
+        sanitized CAS records.  This method never starts training.
+        """
+
+        idempotency_key = _require_safe_text(
+            idempotency_key, "learning_dataset_idempotency_required"
+        )
+        capability = _require_safe_text(
+            capability, "learning_dataset_capability_required"
+        )
+        builder_id = _require_safe_text(
+            builder_id, "learning_dataset_builder_required"
+        )
+        principal = _require_safe_text(
+            principal, "learning_dataset_principal_required"
+        )
+        normalized_ids = sorted(set(str(item).strip() for item in candidate_ids))
+        if (
+            not normalized_ids
+            or len(normalized_ids) > 1_000
+            or len(normalized_ids) != len(candidate_ids)
+            or any(not item or len(item) > 300 for item in normalized_ids)
+        ):
+            raise FormulaLMPolicyError("learning_dataset_candidates_invalid")
+
+        with self._lock, self.connect() as conn:
+            candidate_records: list[dict[str, Any]] = []
+            for candidate_id in normalized_ids:
+                row = conn.execute(
+                    "SELECT * FROM formulalm_candidates WHERE candidate_id = ?",
+                    (candidate_id,),
+                ).fetchone()
+                if not row:
+                    raise FormulaLMNotFoundError("learning_candidate_not_found")
+                candidate = self._candidate_row(row)
+                if (
+                    candidate.get("training_eligible") is not True
+                    or candidate.get("consent") not in ALLOWED_CONSENT
+                    or candidate.get("license") not in ALLOWED_LICENSE
+                    or candidate.get("retention_class") not in TRAINING_RETENTION
+                    or candidate.get("quality_verdict") != "passed"
+                    or candidate.get("verifier_verdict") != "passed"
+                ):
+                    raise FormulaLMPolicyError("learning_dataset_candidate_ineligible")
+                if candidate.get("capability") != capability:
+                    raise FormulaLMPolicyError("learning_dataset_capability_mismatch")
+                candidate_address_payload = _candidate_address_payload(candidate)
+                scan = scan_learning_payload(candidate_address_payload)
+                if scan.rejected:
+                    raise FormulaLMPolicyError("learning_dataset_candidate_sensitive")
+                computed_sha256 = _content_sha256(candidate_address_payload)
+                declared_sha256 = str(candidate.get("content_sha256") or computed_sha256)
+                if declared_sha256 != computed_sha256:
+                    raise FormulaLMPolicyError("learning_candidate_content_hash_mismatch")
+                candidate_records.append(
+                    {
+                        "candidate_id": candidate_id,
+                        "candidate_sha256": computed_sha256,
+                        "source_trace_id": candidate["source_trace_id"],
+                        "source_response_id": candidate.get("source_response_id"),
+                        "provenance_sha256": _content_sha256(candidate["provenance"]),
+                        "artifact_hashes": _validate_artifact_hashes(
+                            list(candidate.get("artifact_hashes") or [])
+                        ),
+                    }
+                )
+
+            candidate_records.sort(
+                key=lambda item: (item["candidate_sha256"], item["candidate_id"])
+            )
+            provenance = {
+                "actor": builder_id,
+                "principal": principal,
+                "policy_version": "kolibri.formulalm-dataset-policy.v1",
+                "source_candidate_hashes": [
+                    item["candidate_sha256"] for item in candidate_records
+                ],
+            }
+            dataset_content = {
+                "schema_version": DATASET_SCHEMA_VERSION,
+                "capability": capability,
+                "records": candidate_records,
+                "provenance": provenance,
+                "filter_report": {
+                    "input_count": len(candidate_ids),
+                    "accepted_count": len(candidate_records),
+                    "excluded_count": 0,
+                    "consent_required": True,
+                    "license_permitted_required": True,
+                    "quality_and_verifier_pass_required": True,
+                },
+            }
+            dataset_scan = scan_learning_payload(dataset_content)
+            if dataset_scan.rejected:
+                raise FormulaLMPolicyError("learning_dataset_manifest_sensitive")
+            content_sha256 = _content_sha256(dataset_content)
+            dataset_id = _content_id("flds", content_sha256)
+            request_hash = _request_hash(dataset_content)
+            scope = f"dataset:{principal}:{capability}"
+
+            conn.execute("BEGIN IMMEDIATE")
+            existing = conn.execute(
+                """SELECT * FROM formulalm_datasets
+                   WHERE scope = ? AND idempotency_key = ?""",
+                (scope, idempotency_key),
+            ).fetchone()
+            if existing:
+                if existing["request_hash"] != request_hash:
+                    raise FormulaLMConflictError("learning_dataset_idempotency_conflict")
+                return self._dataset_row(existing)
+            existing_content = conn.execute(
+                "SELECT * FROM formulalm_datasets WHERE content_sha256 = ?",
+                (content_sha256,),
+            ).fetchone()
+            if existing_content:
+                return self._dataset_row(existing_content)
+            now = _utc_now()
+            dataset = {
+                **dataset_content,
+                "id": dataset_id,
+                "dataset_id": dataset_id,
+                "object": "learning_dataset",
+                "content_sha256": content_sha256,
+                "status": "ready",
+                "record_count": len(candidate_records),
+                "candidate_ids": [item["candidate_id"] for item in candidate_records],
+                "materialization": "sanitized-candidate-references",
+                "training_started": False,
+                "request_path_training": False,
+                "production_weight_mutation": False,
+                "created_at": now,
+                "updated_at": now,
+            }
+            conn.execute(
+                """INSERT INTO formulalm_datasets
+                   (dataset_id, content_sha256, scope, idempotency_key, request_hash,
+                    capability, candidate_ids, candidate_hashes, provenance, payload,
+                    created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    dataset_id,
+                    content_sha256,
+                    scope,
+                    idempotency_key,
+                    request_hash,
+                    capability,
+                    _canonical_json(dataset["candidate_ids"]),
+                    _canonical_json(provenance["source_candidate_hashes"]),
+                    _canonical_json(provenance),
+                    _canonical_json(dataset),
+                    now,
+                    now,
+                ),
+            )
+            self._append_outbox(
+                conn,
+                aggregate_type="learning_dataset",
+                aggregate_id=dataset_id,
+                event_type="learning.dataset.ready",
+                payload={
+                    "content_sha256": content_sha256,
+                    "record_count": len(candidate_records),
+                    "training_started": False,
+                },
+                now=now,
+            )
+            return dataset
+
+    def get_dataset(self, dataset_id: str) -> dict[str, Any]:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM formulalm_datasets WHERE dataset_id = ?", (dataset_id,)
+            ).fetchone()
+        if not row:
+            raise FormulaLMNotFoundError("learning_dataset_not_found")
+        return self._dataset_row(row)
+
+    def list_datasets(self) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM formulalm_datasets ORDER BY created_at, dataset_id"
+            ).fetchall()
+        return [self._dataset_row(row) for row in rows]
+
+    def register_model_artifact(
+        self,
+        *,
+        idempotency_key: str,
+        dataset_id: str,
+        model_artifact_sha256: str,
+        training_run_id: str,
+        training_actor_id: str,
+        external_fallback: str,
+        principal: str,
+    ) -> dict[str, Any]:
+        """Register externally produced model bytes in shadow state.
+
+        Registration binds declared evidence only.  FormulaLM does not claim
+        that this method trained or verified the model and it changes neither
+        runtime traffic nor production weights.
+        """
+
+        idempotency_key = _require_safe_text(
+            idempotency_key, "learning_registry_idempotency_required"
+        )
+        dataset_id = _require_safe_text(dataset_id, "learning_dataset_required")
+        training_run_id = _require_safe_text(
+            training_run_id, "learning_training_run_id_required"
+        )
+        training_actor_id = _require_safe_text(
+            training_actor_id, "learning_training_actor_required"
+        )
+        external_fallback = _require_safe_text(
+            external_fallback, "learning_external_fallback_required"
+        )
+        principal = _require_safe_text(
+            principal, "learning_registry_principal_required"
+        )
+        model_artifact_sha256 = str(model_artifact_sha256 or "").lower()
+        if not _CANONICAL_SHA256.fullmatch(model_artifact_sha256):
+            raise FormulaLMPolicyError("learning_model_artifact_sha256_required")
+
+        with self._lock, self.connect() as conn:
+            dataset_row = conn.execute(
+                "SELECT * FROM formulalm_datasets WHERE dataset_id = ?", (dataset_id,)
+            ).fetchone()
+            if not dataset_row:
+                raise FormulaLMNotFoundError("learning_dataset_not_found")
+            dataset = self._dataset_row(dataset_row)
+            if dataset.get("status") != "ready":
+                raise FormulaLMPolicyError("learning_dataset_not_ready")
+            provenance = {
+                "actor": training_actor_id,
+                "principal": principal,
+                "policy_version": "kolibri.formulalm-model-registry-policy.v1",
+                "dataset_sha256": dataset["content_sha256"],
+            }
+            registry_content = {
+                "schema_version": MODEL_REGISTRY_SCHEMA_VERSION,
+                "capability": dataset["capability"],
+                "dataset_id": dataset_id,
+                "dataset_sha256": dataset["content_sha256"],
+                "model_artifact_sha256": model_artifact_sha256,
+                "training_run_id": training_run_id,
+                "training_actor_id": training_actor_id,
+                "external_fallback": external_fallback,
+                "provenance": provenance,
+            }
+            registry_scan = scan_learning_payload(registry_content)
+            if registry_scan.rejected:
+                raise FormulaLMPolicyError("learning_registry_record_sensitive")
+            content_sha256 = _content_sha256(registry_content)
+            registry_id = _content_id("flmodel", content_sha256)
+            request_hash = _request_hash(registry_content)
+            scope = f"registry:{dataset_id}:{training_actor_id}"
+            conn.execute("BEGIN IMMEDIATE")
+            existing = conn.execute(
+                """SELECT * FROM formulalm_model_registry
+                   WHERE scope = ? AND idempotency_key = ?""",
+                (scope, idempotency_key),
+            ).fetchone()
+            if existing:
+                if existing["request_hash"] != request_hash:
+                    raise FormulaLMConflictError("learning_registry_idempotency_conflict")
+                return self._registry_row(existing)
+            existing_content = conn.execute(
+                "SELECT * FROM formulalm_model_registry WHERE content_sha256 = ?",
+                (content_sha256,),
+            ).fetchone()
+            if existing_content:
+                return self._registry_row(existing_content)
+            now = _utc_now()
+            registry = {
+                **registry_content,
+                "id": registry_id,
+                "registry_id": registry_id,
+                "object": "model_registry_entry",
+                "content_sha256": content_sha256,
+                "stage": "shadow",
+                "authorized_traffic_percent": 0,
+                "latest_evaluation_id": None,
+                "artifact_verification": "digest-declared",
+                "training_performed_by_learning_plane": False,
+                "training_execution_claimed": False,
+                "runtime_traffic_mutated": False,
+                "production_weight_mutation": False,
+                "auto_promote": False,
+                "release_apply_required": True,
+                "created_at": now,
+                "updated_at": now,
+            }
+            conn.execute(
+                """INSERT INTO formulalm_model_registry
+                   (registry_id, content_sha256, scope, idempotency_key, request_hash,
+                    dataset_id, model_artifact_sha256, stage, payload, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 'shadow', ?, ?, ?)""",
+                (
+                    registry_id,
+                    content_sha256,
+                    scope,
+                    idempotency_key,
+                    request_hash,
+                    dataset_id,
+                    model_artifact_sha256,
+                    _canonical_json(registry),
+                    now,
+                    now,
+                ),
+            )
+            self._append_outbox(
+                conn,
+                aggregate_type="model_registry_entry",
+                aggregate_id=registry_id,
+                event_type="learning.model.registered-shadow",
+                payload={
+                    "model_artifact_sha256": model_artifact_sha256,
+                    "dataset_sha256": dataset["content_sha256"],
+                    "runtime_traffic_mutated": False,
+                },
+                now=now,
+            )
+            return registry
+
+    def get_registry_entry(self, registry_id: str) -> dict[str, Any]:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM formulalm_model_registry WHERE registry_id = ?",
+                (registry_id,),
+            ).fetchone()
+        if not row:
+            raise FormulaLMNotFoundError("learning_registry_entry_not_found")
+        return self._registry_row(row)
+
+    def list_registry_entries(self) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM formulalm_model_registry ORDER BY created_at, registry_id"
+            ).fetchall()
+        return [self._registry_row(row) for row in rows]
+
+    def record_independent_evaluation(
+        self,
+        *,
+        registry_id: str,
+        idempotency_key: str,
+        evaluator_id: str,
+        independent_of_training_actor: bool,
+        verdict: str,
+        eval_suite_sha256: str,
+        report_sha256: str,
+        metrics: dict[str, Any],
+        principal: str,
+    ) -> dict[str, Any]:
+        registry_id = _require_safe_text(
+            registry_id, "learning_registry_entry_required"
+        )
+        idempotency_key = _require_safe_text(
+            idempotency_key, "learning_evaluation_idempotency_required"
+        )
+        evaluator_id = _require_safe_text(
+            evaluator_id, "learning_evaluator_required"
+        )
+        principal = _require_safe_text(
+            principal, "learning_evaluation_principal_required"
+        )
+        if verdict not in {"passed", "failed"}:
+            raise FormulaLMPolicyError("learning_evaluation_verdict_invalid")
+        if independent_of_training_actor is not True:
+            raise FormulaLMPolicyError("learning_independent_eval_required")
+        eval_suite_sha256 = str(eval_suite_sha256 or "").lower()
+        report_sha256 = str(report_sha256 or "").lower()
+        if not _CANONICAL_SHA256.fullmatch(eval_suite_sha256):
+            raise FormulaLMPolicyError("learning_eval_suite_sha256_required")
+        if not _CANONICAL_SHA256.fullmatch(report_sha256):
+            raise FormulaLMPolicyError("learning_eval_report_sha256_required")
+        if not isinstance(metrics, dict) or len(metrics) > 100:
+            raise FormulaLMPolicyError("learning_evaluation_metrics_invalid")
+        metrics_scan = scan_learning_payload(metrics)
+        try:
+            metrics_json = json.dumps(
+                metrics_scan.sanitized,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+        except (TypeError, ValueError):
+            raise FormulaLMPolicyError("learning_evaluation_metrics_invalid") from None
+        if metrics_scan.rejected or len(metrics_json) > 65_536:
+            raise FormulaLMPolicyError("learning_evaluation_metrics_sensitive_or_oversized")
+
+        with self._lock, self.connect() as conn:
+            registry_row = conn.execute(
+                "SELECT * FROM formulalm_model_registry WHERE registry_id = ?",
+                (registry_id,),
+            ).fetchone()
+            if not registry_row:
+                raise FormulaLMNotFoundError("learning_registry_entry_not_found")
+            registry = self._registry_row(registry_row)
+            if evaluator_id == registry.get("training_actor_id"):
+                raise FormulaLMPolicyError("learning_evaluator_not_independent")
+            evaluation_content = {
+                "schema_version": EVALUATION_SCHEMA_VERSION,
+                "registry_id": registry_id,
+                "registry_sha256": registry["content_sha256"],
+                "dataset_id": registry["dataset_id"],
+                "dataset_sha256": registry["dataset_sha256"],
+                "model_artifact_sha256": registry["model_artifact_sha256"],
+                "eval_suite_sha256": eval_suite_sha256,
+                "report_sha256": report_sha256,
+                "verdict": verdict,
+                "evaluator_id": evaluator_id,
+                "independent_of_training_actor": True,
+                "metrics": metrics_scan.sanitized,
+                "provenance": {
+                    "actor": evaluator_id,
+                    "principal": principal,
+                    "policy_version": "kolibri.formulalm-independent-eval-policy.v1",
+                },
+            }
+            evaluation_scan = scan_learning_payload(evaluation_content)
+            if evaluation_scan.rejected:
+                raise FormulaLMPolicyError("learning_evaluation_record_sensitive")
+            content_sha256 = _content_sha256(evaluation_content)
+            evaluation_id = _content_id("fleval", content_sha256)
+            request_hash = _request_hash(evaluation_content)
+            existing = conn.execute(
+                """SELECT * FROM formulalm_evaluations
+                   WHERE registry_id = ? AND idempotency_key = ?""",
+                (registry_id, idempotency_key),
+            ).fetchone()
+            if existing:
+                if existing["request_hash"] != request_hash:
+                    raise FormulaLMConflictError("learning_evaluation_idempotency_conflict")
+                return self._evaluation_row(existing)
+            existing_content = conn.execute(
+                "SELECT * FROM formulalm_evaluations WHERE content_sha256 = ?",
+                (content_sha256,),
+            ).fetchone()
+            if existing_content:
+                return self._evaluation_row(existing_content)
+            if registry.get("stage") != "shadow":
+                raise FormulaLMPolicyError("learning_evaluation_stage_invalid")
+            now = _utc_now()
+            evaluation = {
+                **evaluation_content,
+                "id": evaluation_id,
+                "evaluation_id": evaluation_id,
+                "object": "learning_evaluation",
+                "content_sha256": content_sha256,
+                "created_at": now,
+                "production_weight_mutation": False,
+                "auto_promote": False,
+            }
+            conn.execute(
+                """INSERT INTO formulalm_evaluations
+                   (evaluation_id, content_sha256, registry_id, idempotency_key,
+                    request_hash, verdict, payload, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    evaluation_id,
+                    content_sha256,
+                    registry_id,
+                    idempotency_key,
+                    request_hash,
+                    verdict,
+                    _canonical_json(evaluation),
+                    now,
+                ),
+            )
+            registry["latest_evaluation_id"] = evaluation_id
+            registry["latest_evaluation_verdict"] = verdict
+            registry["updated_at"] = now
+            registry["runtime_traffic_mutated"] = False
+            registry["production_weight_mutation"] = False
+            conn.execute(
+                """UPDATE formulalm_model_registry SET payload = ?, updated_at = ?
+                   WHERE registry_id = ?""",
+                (_canonical_json(registry), now, registry_id),
+            )
+            self._append_outbox(
+                conn,
+                aggregate_type="learning_evaluation",
+                aggregate_id=evaluation_id,
+                event_type="learning.evaluation.recorded",
+                payload={
+                    "registry_id": registry_id,
+                    "verdict": verdict,
+                    "independent": True,
+                    "auto_promote": False,
+                },
+                now=now,
+            )
+            return evaluation
+
+    def list_evaluations(self, registry_id: str) -> list[dict[str, Any]]:
+        self.get_registry_entry(registry_id)
+        with self.connect() as conn:
+            rows = conn.execute(
+                """SELECT * FROM formulalm_evaluations WHERE registry_id = ?
+                   ORDER BY created_at, evaluation_id""",
+                (registry_id,),
+            ).fetchall()
+        return [self._evaluation_row(row) for row in rows]
+
+    def _validate_registry_transition_evidence(
+        self,
+        *,
+        conn: sqlite3.Connection,
+        registry: dict[str, Any],
+        from_stage: str,
+        to_stage: str,
+        evidence: dict[str, Any],
+        reason: str | None,
+    ) -> dict[str, Any]:
+        scan = scan_learning_payload(evidence)
+        if scan.rejected:
+            raise FormulaLMPolicyError("learning_registry_evidence_sensitive")
+        safe = scan.sanitized
+
+        def require_digest(name: str) -> None:
+            if not _CANONICAL_SHA256.fullmatch(str(safe.get(name) or "")):
+                raise FormulaLMPolicyError(f"learning_{name}_required")
+
+        if to_stage == "canary-1":
+            evaluation_id = _require_safe_text(
+                safe.get("evaluation_id"), "learning_evaluation_required"
+            )
+            evaluation_row = conn.execute(
+                "SELECT * FROM formulalm_evaluations WHERE evaluation_id = ?",
+                (evaluation_id,),
+            ).fetchone()
+            if not evaluation_row:
+                raise FormulaLMNotFoundError("learning_evaluation_not_found")
+            evaluation = self._evaluation_row(evaluation_row)
+            if (
+                evaluation.get("registry_id") != registry["registry_id"]
+                or evaluation.get("verdict") != "passed"
+                or evaluation.get("independent_of_training_actor") is not True
+            ):
+                raise FormulaLMPolicyError("learning_independent_eval_not_passed")
+            require_digest("canary_manifest_sha256")
+            if safe.get("external_fallback_retained") is not True:
+                raise FormulaLMPolicyError("learning_external_fallback_required")
+            safe["evaluation_content_sha256"] = evaluation["content_sha256"]
+        elif to_stage in {"canary-10", "canary-50"}:
+            require_digest("canary_report_sha256")
+            if safe.get("canary_verdict") != "passed":
+                raise FormulaLMPolicyError("learning_canary_verdict_required")
+            if safe.get("external_fallback_retained") is not True:
+                raise FormulaLMPolicyError("learning_external_fallback_required")
+        elif to_stage == "production":
+            require_digest("canary_report_sha256")
+            require_digest("release_manifest_sha256")
+            if safe.get("canary_verdict") != "passed":
+                raise FormulaLMPolicyError("learning_canary_verdict_required")
+            if safe.get("external_fallback_retained") is not True:
+                raise FormulaLMPolicyError("learning_external_fallback_required")
+            _require_safe_text(
+                safe.get("owner_approval_id"), "learning_owner_approval_required"
+            )
+        elif to_stage == "rejected":
+            if not reason:
+                raise FormulaLMPolicyError("learning_rejection_reason_required")
+        elif to_stage == "rolled-back":
+            if from_stage not in {"canary-1", "canary-10", "canary-50", "production"}:
+                raise FormulaLMPolicyError("learning_rollback_source_invalid")
+            if not reason:
+                raise FormulaLMPolicyError("learning_rollback_evidence_required")
+            _require_safe_text(
+                safe.get("rollback_target"), "learning_rollback_target_required"
+            )
+            require_digest("rollback_report_sha256")
+            if safe.get("external_fallback_retained") is not True:
+                raise FormulaLMPolicyError("learning_external_fallback_required")
+        return safe
+
+    def transition_registry_entry(
+        self,
+        *,
+        registry_id: str,
+        idempotency_key: str,
+        to_stage: str,
+        principal: str,
+        evidence: dict[str, Any],
+        reason: str | None,
+    ) -> dict[str, Any]:
+        registry_id = _require_safe_text(
+            registry_id, "learning_registry_entry_required"
+        )
+        idempotency_key = _require_safe_text(
+            idempotency_key, "learning_registry_transition_idempotency_required"
+        )
+        principal = _require_safe_text(
+            principal, "learning_registry_transition_principal_required"
+        )
+        if to_stage not in REGISTRY_TRANSITIONS:
+            raise FormulaLMPolicyError("learning_registry_stage_invalid")
+        with self._lock, self.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT * FROM formulalm_model_registry WHERE registry_id = ?",
+                (registry_id,),
+            ).fetchone()
+            if not row:
+                raise FormulaLMNotFoundError("learning_registry_entry_not_found")
+            registry = self._registry_row(row)
+            from_stage = str(registry["stage"])
+            existing = conn.execute(
+                """SELECT request_hash, from_stage FROM formulalm_registry_events
+                   WHERE registry_id = ? AND idempotency_key = ?""",
+                (registry_id, idempotency_key),
+            ).fetchone()
+            if existing:
+                retry_evidence = self._validate_registry_transition_evidence(
+                    conn=conn,
+                    registry=registry,
+                    from_stage=str(existing["from_stage"]),
+                    to_stage=to_stage,
+                    evidence=evidence,
+                    reason=reason,
+                )
+                retry_hash = _request_hash(
+                    {
+                        "to_stage": to_stage,
+                        "principal": principal,
+                        "evidence": retry_evidence,
+                        "reason": reason,
+                    }
+                )
+                if existing["request_hash"] != retry_hash:
+                    raise FormulaLMConflictError(
+                        "learning_registry_transition_idempotency_conflict"
+                    )
+                return registry
+            if to_stage not in REGISTRY_TRANSITIONS.get(from_stage, set()):
+                raise FormulaLMConflictError(
+                    f"learning_registry_transition_invalid:{from_stage}->{to_stage}"
+                )
+            safe_evidence = self._validate_registry_transition_evidence(
+                conn=conn,
+                registry=registry,
+                from_stage=from_stage,
+                to_stage=to_stage,
+                evidence=evidence,
+                reason=reason,
+            )
+            transition_request = {
+                "to_stage": to_stage,
+                "principal": principal,
+                "evidence": safe_evidence,
+                "reason": reason,
+            }
+            request_hash = _request_hash(transition_request)
+            now = _utc_now()
+            registry["stage"] = to_stage
+            registry["authorized_traffic_percent"] = REGISTRY_TRAFFIC_PERCENT[to_stage]
+            registry["updated_at"] = now
+            registry["last_transition"] = {
+                "from_stage": from_stage,
+                "to_stage": to_stage,
+                "principal": principal,
+                "evidence": safe_evidence,
+                "reason": reason,
+                "occurred_at": now,
+            }
+            registry["runtime_traffic_mutated"] = False
+            registry["production_weight_mutation"] = False
+            registry["auto_promote"] = False
+            registry["release_apply_required"] = to_stage not in {"rejected", "rolled-back"}
+            if to_stage == "rolled-back":
+                registry["rollback"] = {
+                    "target": safe_evidence["rollback_target"],
+                    "report_sha256": safe_evidence["rollback_report_sha256"],
+                    "reason": reason,
+                    "external_fallback_retained": True,
+                    "occurred_at": now,
+                }
+            conn.execute(
+                """UPDATE formulalm_model_registry
+                   SET stage = ?, payload = ?, updated_at = ? WHERE registry_id = ?""",
+                (to_stage, _canonical_json(registry), now, registry_id),
+            )
+            conn.execute(
+                """INSERT INTO formulalm_registry_events
+                   (event_id, registry_id, idempotency_key, request_hash, from_stage,
+                    to_stage, principal, evidence, reason, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    _new_id("flregistry_transition"),
+                    registry_id,
+                    idempotency_key,
+                    request_hash,
+                    from_stage,
+                    to_stage,
+                    principal,
+                    _canonical_json(safe_evidence),
+                    reason,
+                    now,
+                ),
+            )
+            self._append_outbox(
+                conn,
+                aggregate_type="model_registry_entry",
+                aggregate_id=registry_id,
+                event_type="learning.model.registry-transitioned",
+                payload={
+                    "from_stage": from_stage,
+                    "to_stage": to_stage,
+                    "runtime_traffic_mutated": False,
+                    "production_weight_mutation": False,
+                },
+                now=now,
+            )
+            return registry
+
+    def list_registry_events(self, registry_id: str) -> list[dict[str, Any]]:
+        self.get_registry_entry(registry_id)
+        with self.connect() as conn:
+            rows = conn.execute(
+                """SELECT * FROM formulalm_registry_events WHERE registry_id = ?
+                   ORDER BY created_at, event_id""",
+                (registry_id,),
+            ).fetchall()
+        return [
+            {
+                "schema_version": "kolibri.model-registry-transition.v1",
+                "id": row["event_id"],
+                "registry_id": row["registry_id"],
+                "from_stage": row["from_stage"],
+                "to_stage": row["to_stage"],
+                "principal": row["principal"],
+                "evidence": json.loads(row["evidence"]),
+                "reason": row["reason"],
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
 
     @staticmethod
     def _validate_transition_evidence(
@@ -889,6 +1854,16 @@ class FormulaLMBoundary:
                     "SELECT COUNT(*) FROM formulalm_outbox WHERE status = 'pending'"
                 ).fetchone()[0]
             )
+            dataset_count = int(
+                conn.execute("SELECT COUNT(*) FROM formulalm_datasets").fetchone()[0]
+            )
+            evaluation_rows = conn.execute(
+                "SELECT verdict, COUNT(*) AS count FROM formulalm_evaluations GROUP BY verdict"
+            ).fetchall()
+            registry_rows = conn.execute(
+                """SELECT stage, COUNT(*) AS count FROM formulalm_model_registry
+                   GROUP BY stage"""
+            ).fetchall()
         return {
             "schema_version": BOUNDARY_SCHEMA_VERSION,
             "mode": "candidate-only",
@@ -896,9 +1871,18 @@ class FormulaLMBoundary:
             "candidates_by_promotion_status": {
                 row["promotion_status"]: row["count"] for row in promotion_rows
             },
+            "dataset_count": dataset_count,
+            "evaluations_by_verdict": {
+                row["verdict"]: row["count"] for row in evaluation_rows
+            },
+            "registry_by_stage": {
+                row["stage"]: row["count"] for row in registry_rows
+            },
             "pending_outbox": pending_outbox,
             "request_path_training": False,
             "production_weight_mutation": False,
             "auto_promote": False,
             "promotion_requires_explicit_transition": True,
+            "runtime_traffic_mutation": False,
+            "registry_requires_release_apply": True,
         }

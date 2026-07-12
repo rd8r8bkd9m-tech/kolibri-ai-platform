@@ -29,12 +29,17 @@ if ! grep -qx "WorkingDirectory=/opt/kolibri-ai-platform" "${UNIT}"; then
   exit 1
 fi
 
-if ! grep -qx "ExecStart=/usr/bin/python3 /opt/kolibri-ai-platform/ops/factory_control.py" "${UNIT}"; then
+if ! grep -qx "ExecStart=/usr/bin/python3 -B /opt/kolibri-ai-platform/ops/factory_control.py" "${UNIT}"; then
   echo "factory_control_unit_uses_unsafe_launcher" >&2
   exit 1
 fi
 
-KOLIBRI_REPO_ROOT="${ROOT}" KOLIBRI_OPS_DIR="${ROOT}/ops" python3 - <<'PY'
+if ! grep -qx "Environment=PYTHONDONTWRITEBYTECODE=1" "${UNIT}"; then
+  echo "factory_control_unit_allows_bytecode" >&2
+  exit 1
+fi
+
+KOLIBRI_REPO_ROOT="${ROOT}" KOLIBRI_OPS_DIR="${ROOT}/ops" python3 -B - <<'PY'
 import importlib.util
 import os
 import sys

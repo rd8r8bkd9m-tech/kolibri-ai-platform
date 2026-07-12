@@ -2,11 +2,16 @@ import {
   buildAppTask,
   buildDocumentTask,
   buildEstimateProposalTask,
+  buildImageTask,
   buildSiteTask,
 } from "../runtime/kolibriApi";
 import { makeId } from "../app/utils";
+import { estimateArtifactDisplayName, estimateTitleFromPayload } from "../estimate/estimateTitle";
 
 export function buildTaskForIntent(intent, brief) {
+  if (intent === "image") {
+    return buildImageTask({ brief });
+  }
   if (intent === "estimate") {
     return buildEstimateProposalTask({ brief, requestedArtifacts: ["pdf"] });
   }
@@ -34,11 +39,19 @@ export function buildTaskForIntent(intent, brief) {
 
 export function mergeArtifacts(current, incoming) {
   const byIdentity = new Map();
-  [...(current || []), ...(incoming || [])].forEach((item, index) => {
+  [...(current || []), ...(incoming || [])].filter(isMaterializedArtifact).forEach((item, index) => {
     const key = item.reference_sha256 || item.id || `${item.name || item.kind || "artifact"}:${index}`;
     byIdentity.set(key, item);
   });
   return [...byIdentity.values()];
+}
+
+export function isMaterializedArtifact(artifact) {
+  return Boolean(artifact && artifact.status === "materialized");
+}
+
+export function materializedArtifacts(artifacts) {
+  return (Array.isArray(artifacts) ? artifacts : []).filter(isMaterializedArtifact);
 }
 
 export function projectWindow(project, maximized = false) {
@@ -52,7 +65,7 @@ export function projectWindow(project, maximized = false) {
   };
 }
 
-export function estimateWindow(projectId, title = "Новая смета") {
+export function estimateWindow(projectId, title = "Смета: строительные работы") {
   return {
     id: `estimate:${projectId}`,
     kind: "estimate",
@@ -82,7 +95,7 @@ export function estimateCanvas(projectId) {
   return {
     id: `estimate:${projectId}`,
     kind: "estimate",
-    title: "Новая смета",
+    title: "Смета: строительные работы",
     status: "draft",
     version: 1,
     metadata: { region: "", provenance: "manual" },
@@ -96,14 +109,18 @@ export function taskCanvas({ id, intent, title, status, text, task, artifacts, e
   const readiness = intent === "estimate" && task?.result?.type === "estimate_readiness"
     ? task.result.readiness
     : null;
+  const displayTitle = intent === "estimate" ? estimateTitleFromPayload({ task }) : title;
+  const displayArtifacts = intent === "estimate"
+    ? (artifacts || []).map((artifact) => ({ ...artifact, display_name: estimateArtifactDisplayName(artifact, displayTitle) }))
+    : artifacts;
   return {
     id: `canvas:${id}`,
     kind: intent,
-    title: estimate?.title || readiness?.title || title,
+    title: displayTitle,
     status,
     text,
     task,
-    artifacts,
+    artifacts: displayArtifacts,
     endpoint,
     workSummary,
     ...(estimate ? {

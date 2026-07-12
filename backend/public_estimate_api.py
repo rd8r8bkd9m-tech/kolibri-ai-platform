@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from typing import Any, Literal
+from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
@@ -42,6 +43,20 @@ class EstimateReviewFeedback(BaseModel):
 
 def _sha256(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _pdf_content_disposition(disposition: str, artifact: dict[str, Any]) -> str:
+    version = artifact.get("estimate_version")
+    fallback = (
+        f"kolibri-estimate-v{version}.pdf"
+        if isinstance(version, int) and version > 0
+        else "kolibri-estimate-input-checklist.pdf"
+    )
+    readable = str(artifact.get("name") or fallback)
+    return (
+        f'{disposition}; filename="{fallback}"; '
+        f"filename*=UTF-8''{quote(readable, safe='')}"
+    )
 
 
 @router.get("/v1/public/estimates/{estimate_id}")
@@ -194,6 +209,6 @@ def get_public_estimate_artifact(
             "Content-Security-Policy": "frame-ancestors 'self'",
             "X-Content-SHA256": artifact["content_sha256"],
             "X-Kolibri-Artifact-Binding": artifact["evidence_binding_sha256"],
-            "Content-Disposition": f'{disposition}; filename="{artifact["name"]}"',
+            "Content-Disposition": _pdf_content_disposition(disposition, artifact),
         },
     )

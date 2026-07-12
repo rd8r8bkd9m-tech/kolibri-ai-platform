@@ -1,0 +1,43 @@
+[Unit]
+Description=Kolibri optional signed provider-egress SOCKS fallback
+After=network-online.target kolibri-mesh-registry.service
+Wants=network-online.target
+ConditionPathExists=/var/lib/kolibri-mesh/peers.json
+ConditionPathExists=/etc/kolibri/provider-egress.json
+ConditionPathExists=/etc/kolibri/provider-egress.json.sig
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=root
+Group=root
+Environment=KOLIBRI_MESH_MEMBERSHIP_MANIFEST=/var/lib/kolibri-mesh/peers.json
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStartPre=/usr/bin/python3 -B /usr/local/lib/kolibri/provider_egress_tunnel.py check
+ExecStart=/usr/bin/python3 -B /usr/local/lib/kolibri/provider_egress_tunnel.py run
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictNamespaces=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+DevicePolicy=closed
+UMask=0077
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadOnlyPaths=/etc/kolibri /var/lib/kolibri-mesh/peers.json /usr/local/lib/kolibri
+
+[Install]
+WantedBy=multi-user.target

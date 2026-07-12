@@ -452,10 +452,10 @@ class ResponsesClient:
         body: dict[str, Any] | None = None,
         idempotency_key: str | None = None,
     ) -> dict[str, Any]:
-        token = load_owner_bearer_token(self.owner_token_file)
+        owner_credential = load_owner_bearer_token(self.owner_token_file)
         headers = {
             "Accept": "application/json",
-            "Authorization": f"Bearer {token}",
+            "Authorization": f"Bearer {owner_credential}",
             "Content-Type": "application/json",
         }
         if idempotency_key:
@@ -811,7 +811,7 @@ def build_task_envelope(message: dict[str, Any], text: str, context: dict[str, A
         "branch": f"agent/{task_id}/impl/{branch_slug}",
         "base_branch": "main",
         "base_ref": "origin/main",
-        "max_retries": int(os.environ.get("TELEGRAM_TASK_MAX_RETRIES", "1")),
+        "max_attempts": int(os.environ.get("TELEGRAM_TASK_MAX_ATTEMPTS", "2")),
         "objective": text,
         "project_path": project_path,
         "conversation_context": context or {},
@@ -848,7 +848,7 @@ def build_chat_envelope(message: dict[str, Any], text: str, snapshot: dict[str, 
         "idempotency_key": f"telegram-chat:{message['chat']['id']}:{message['message_id']}",
         "kind": os.environ.get("TELEGRAM_CHAT_KIND", "owner_remote_task"),
         "required_capability": required_capability,
-        "max_retries": 1,
+        "max_attempts": 2,
         "message": text,
         "objective": objective,
         "runner": runner,
@@ -892,7 +892,7 @@ def build_image_envelope(message: dict[str, Any], text: str, snapshot: dict[str,
         "idempotency_key": f"telegram-image:{message['chat']['id']}:{message['message_id']}",
         "kind": os.environ.get("TELEGRAM_IMAGE_KIND", "telegram_image_generation"),
         "required_capability": required_capability,
-        "max_retries": int(os.environ.get("TELEGRAM_IMAGE_MAX_RETRIES", "1")),
+        "max_attempts": int(os.environ.get("TELEGRAM_IMAGE_MAX_ATTEMPTS", "2")),
         "message": text,
         "prompt": text,
         "objective": prompt,

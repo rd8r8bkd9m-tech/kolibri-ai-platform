@@ -257,6 +257,8 @@ def test_release_submission_is_api_only_idempotent_and_approval_gated():
     assert payload["idempotency_key"].endswith(":agent-09")
     assert ":approval-1:" in payload["idempotency_key"]
     assert payload["approval_id"] == "approval-1"
+    assert payload["max_attempts"] == 2
+    assert "max_retries" not in payload
     serialized = str(payload).lower()
     assert "password" not in serialized and "private_key" not in serialized
 
@@ -445,7 +447,17 @@ def test_failed_wave_rolls_back_attempted_nodes_in_reverse_order():
             return {"task_id": f"release-{target.node_id}"}
 
         def wait_for_task(self, task_id, **kwargs):
-            return {"state": "failed" if task_id == "release-quorum" else "completed"}
+            if task_id == "release-quorum":
+                return {
+                    "state": "failed",
+                    "result": {
+                        "rollback": {
+                            "status": "not_required",
+                            "reason": "activation_not_started",
+                        },
+                    },
+                }
+            return {"state": "completed"}
 
         def require_release_health(self, verified, target):
             return {"status": "healthy", "manifest_digest": verified.manifest.digest}
@@ -467,5 +479,79 @@ def test_failed_wave_rolls_back_attempted_nodes_in_reverse_order():
     ]
     result = release.execute_progressive_release(client, current, rollback, waves, "approval-1")
     assert result["status"] == "rolled_back"
-    assert client.rolled_back == ["quorum", "canary"]
+    assert client.rolled_back == ["canary"]
     assert client.cancelled == ["release-canary", "release-quorum"]
+    assert result["rollback"]["skipped"] == [
+        {"node": "quorum", "reason": "activation_not_started"},
+    ]
+
+
+def test_candidate_failure_before_atomic_switch_never_submits_rollback_task():
+    release = load_release_controller()
+    current = release.VerifiedRelease(manifest(release), "owner")
+    rollback = release.VerifiedRelease(
+        release.ReleaseManifest(
+            release_id="kolibri-2026.07.09",
+            source_commit="abcdef0123456789",
+            artifact_uri="artifact://releases/kolibri-2026.07.09.tar.zst",
+            files=manifest(release).files,
+        ),
+        "owner",
+    )
+
+    class FakeClient(release.ControlPlaneClient):
+        def __init__(self):
+            super().__init__("http://control.invalid")
+            self.rollback_calls = 0
+
+        def require_owner_approval(self, *args, **kwargs):
+            return {"status": "approved", "allow_rollback": True}
+
+        def submit_release_task(self, *args, **kwargs):
+            return {"task_id": "candidate-task"}
+
+        def wait_for_task(self, task_id, **kwargs):
+            assert task_id == "candidate-task"
+            return {
+                "state": "failed",
+                "result": {
+                    "error_type": "release_candidate_health_failed",
+                    "rollback": {
+                        "status": "not_required",
+                        "reason": "activation_not_started",
+                    },
+                },
+            }
+
+        def cancel_and_fence_release_tasks(self, task_ids, reason):
+            return list(task_ids)
+
+        def submit_rollback_task(self, *args, **kwargs):
+            self.rollback_calls += 1
+            raise AssertionError("pre-activation failure must not create rollback task")
+
+    client = FakeClient()
+    waves = [release.RolloutWave("canary", (node(release, "canary", "canary"),))]
+    result = release.execute_progressive_release(
+        client,
+        current,
+        rollback,
+        waves,
+        "approval-1",
+    )
+
+    assert result["status"] == "failed_before_activation"
+    assert result["rollback"]["status"] == "not_required"
+    assert result["rollback"]["nodes"] == []
+    assert client.rollback_calls == 0
+
+
+def test_missing_activation_evidence_is_never_guessed():
+    release = load_release_controller()
+    assert release.release_task_activation_outcome({"state": "failed"}) == "unknown"
+    assert release.release_task_activation_outcome({
+        "state": "failed",
+        "result": {
+            "rollback": {"status": "completed", "atomic_switch": "completed"},
+        },
+    }) == "already_restored"

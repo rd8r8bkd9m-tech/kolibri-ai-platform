@@ -14,9 +14,10 @@ Environment=KOLIBRI_ARTIFACT_ROOT=/var/lib/kolibri-agent/artifacts
 Environment=KOLIBRI_RELEASE_HELPER_SOCKET=/run/kolibri-release/installer.sock
 Environment=PYTHONPATH=/usr/local/lib/kolibri
 Environment=HOME=/var/lib/kolibri-agent
+Environment=PYTHONDONTWRITEBYTECODE=1
 ExecStartPre=+/usr/bin/chgrp kolibri-agent /var/lib/kolibri-mesh/peers.json
 ExecStartPre=+/usr/bin/chmod 0640 /var/lib/kolibri-mesh/peers.json
-ExecStart=/usr/local/bin/kolibri-agent-host
+ExecStart=/usr/bin/python3 -B /usr/local/bin/kolibri-agent-host
 Restart=always
 RestartSec=5
 KillSignal=SIGTERM

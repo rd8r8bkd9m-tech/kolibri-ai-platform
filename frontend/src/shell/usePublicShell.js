@@ -5,15 +5,23 @@ import { useProjectCommands } from "./useProjectCommands";
 import { useProjectStore } from "./useProjectStore";
 import { useWorkbenchController } from "./useWorkbenchController";
 import { useShellNavigation } from "./useShellNavigation";
-
+import { useProductCapabilities } from "./useProductCapabilities";
 export function usePublicShell() {
   const {
     activeProjectId,
     addProject,
+    beginProjectRequest,
     busyProjects,
+    deleteProject,
+    dismissDeleteUndo,
+    lastDeleted,
     projects,
+    endProjectRequest,
+    ensureProjectRemote,
+    reconcileProjectRemote,
     setActiveProjectId,
-    setProjectBusy,
+    syncProjectMessage,
+    undoDeleteProject,
     updateProject,
   } = useProjectStore();
   const {
@@ -30,17 +38,24 @@ export function usePublicShell() {
     setActiveProjectId,
   });
   const navigation = useShellNavigation();
+  const productCapabilities = useProductCapabilities();
   const executionModes = useExecutionModeSupport();
-
   const sendProjectMessage = useProjectMessaging({
+    beginProjectRequest,
     busyProjects,
+    endProjectRequest,
+    ensureProjectRemote,
+    reconcileProjectRemote,
     projects,
-    setProjectBusy,
+    syncProjectMessage,
     updateProject,
     dispatch,
   });
   const calculateEstimate = useEstimateRuntime({
-    setProjectBusy,
+    beginProjectRequest,
+    endProjectRequest,
+    ensureProjectRemote,
+    syncProjectMessage,
     updateProject,
   });
   const commands = useProjectCommands({
@@ -56,18 +71,24 @@ export function usePublicShell() {
     commands.newProject();
     if (navigation.mobile) dispatch({ type: "DEACTIVATE", id: "projects-window" });
   };
-
+  const deleteProjectFromHistory = (projectId) => {
+    const deleted = deleteProject(projectId);
+    if (deleted) dispatch({ type: "REMOVE_PROJECT_WINDOWS", projectId });
+  };
   const immersive = workbench.windows.some((item) => item.maximized && !item.minimized);
-
   return {
     activeProjectId,
+    availableTools: productCapabilities.tools,
     busyProjects,
     calculateEstimate,
+    deleteProject: deleteProjectFromHistory,
     dispatch,
+    dismissDeleteUndo,
     detachCanvas: commands.detachCanvas,
     focusWindow,
     executionModes,
     immersive,
+    lastDeleted,
     navigation,
     newProject: commands.newProject,
     newProjectFromHistory,
@@ -81,6 +102,7 @@ export function usePublicShell() {
     setExecutionMode: commands.setExecutionMode,
     updateCanvas: commands.updateCanvas,
     updateProject,
+    undoDeleteProject,
     workbench,
   };
 }

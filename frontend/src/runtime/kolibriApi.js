@@ -10,11 +10,13 @@ export const API_ENDPOINTS = Object.freeze({
   // Responses API. Compatibility aliases remain server-side only.
   response: "/v1/responses",
   publicSession: "/v1/public/session",
+  publicCapabilities: ["/v1/capabilities", "/v1/public/capabilities"],
+  publicProjects: "/v1/projects",
   status: ["/api/factory/status", "/v1/health", "/api/health"],
   tasks: ["/v1/tasks?limit=250"],
   nodes: ["/v1/nodes?limit=250", "/v1/fleet/nodes", "/api/factory/roster"],
   models: ["/v1/models", "/api/models"],
-  capabilities: ["/v1/capabilities", "/v1/os/capabilities"],
+  capabilities: ["/v1/runtime/product-capabilities"],
   approvals: ["/v1/approvals?limit=100"],
   browserSessions: "/v1/browser-sessions",
   automationValidate: "/v1/automations/validate",
@@ -28,6 +30,56 @@ export class KolibriApiError extends Error {
     this.endpoint = endpoint;
     this.payload = payload;
   }
+}
+
+function publicErrorCode(error) {
+  const candidates = [
+    error?.payload?.detail?.code,
+    error?.payload?.error?.code,
+    error?.payload?.code,
+    typeof error?.payload?.detail === "string" ? error.payload.detail : "",
+  ];
+  return String(candidates.find((value) => typeof value === "string" && value) || "").toLowerCase();
+}
+
+/** Convert transport and policy errors into a stable message that is safe to
+ * render in the public Shell. Raw gateway details stay on the error object for
+ * diagnostics and are never echoed into the conversation. */
+export function publicErrorMessage(error) {
+  if (error?.name === "AbortError") return "Запрос отменён.";
+  const status = Number(error?.status) || 0;
+  const code = publicErrorCode(error);
+  if (code === "origin_not_allowed") {
+    return "Этот адрес страницы не разрешён сервером Kolibri. Откройте официальный адрес и повторите запрос.";
+  }
+  if (code.includes("public_session")) {
+    return "Безопасная сессия Kolibri не подтверждена. Обновите страницу и повторите запрос.";
+  }
+  if (status === 401) {
+    return "Сессия Kolibri истекла или не подтверждена. Обновите страницу и повторите запрос.";
+  }
+  if (status === 403 || /\bforbidden\b|access denied|доступ запрещ[её]н/i.test(String(error?.message || ""))) {
+    return "Операция недоступна для текущей публичной сессии.";
+  }
+  if (status === 429) return "Слишком много запросов. Подождите немного и повторите попытку.";
+  if (code === "provider_timeout") {
+    return "Исполнитель перестал передавать прогресс. Задача сохранена — продолжите её повторным запуском.";
+  }
+  if ([
+    "provider_capacity_unavailable",
+    "provider_service_unavailable",
+    "provider_routes_unavailable",
+    "provider_routes_exhausted",
+  ].includes(code)) {
+    return "Все доступные маршруты исполнения сейчас заняты или недоступны. Повторите запрос позже.";
+  }
+  if (["provider_result_rejected", "verification_failed"].includes(code)) {
+    return "Полученный результат не прошёл проверку целостности и не был показан.";
+  }
+  if (status >= 500) return "Исполнительный контур временно недоступен. Повторите запрос позже.";
+  if (status >= 400) return "Запрос не принят сервером Kolibri. Проверьте данные и повторите попытку.";
+  const localMessage = typeof error?.message === "string" ? error.message.trim() : "";
+  return localMessage || "Не удалось выполнить запрос. Проверьте подключение и повторите попытку.";
 }
 
 const WORK_SUMMARY_KINDS = new Set(["plan", "tool", "source", "check", "verdict"]);
@@ -175,7 +227,7 @@ function normalizeWorkSummaryEvent(value) {
 }
 
 function reasoningSummaryProgress(value) {
-  if (typeof value !== "string" || value.length > 256 || hasControlCharacters(value) || WORK_SUMMARY_SECRET_PATTERN.test(value)) return null;
+  if (typeof value !== "string" || value.length > 6_000 || hasControlCharacters(value) || WORK_SUMMARY_SECRET_PATTERN.test(value)) return null;
   const labels = [
     ["План: ", "plan"],
     ["Инструменты: ", "tool"],
@@ -184,16 +236,31 @@ function reasoningSummaryProgress(value) {
     ["Итог: ", "verdict"],
   ];
   const match = labels.find(([label]) => value.startsWith(label));
-  if (!match) return null;
-  const detail = value.slice(match[0].length).trim();
-  return detail ? { activeKind: match[1], detail } : null;
+  if (match) {
+    const detail = value.slice(match[0].length).trim();
+    return detail ? { activeKind: match[1], detail } : null;
+  }
+  const detail = value.trim();
+  return detail ? { detail } : null;
 }
 
+const RESPONSE_STAGE_PROGRESS = Object.freeze({
+  routing: { activeKind: "plan", detail: "Подбираю подходящий маршрут исполнения" },
+  fallback: { activeKind: "plan", detail: "Переключаюсь на резервного исполнителя" },
+  queued: { activeKind: "tool", detail: "Задача принята фабрикой" },
+  leased: { activeKind: "tool", detail: "Исполнитель получил задачу" },
+  running: { activeKind: "plan", detail: "Исполнитель работает над ответом" },
+  verifying: { activeKind: "check", detail: "Проверяю результат" },
+});
+
 async function requestJson(path, options = {}) {
+  const requestHeaders = options.body instanceof FormData
+    ? options.headers
+    : { "Content-Type": "application/json", ...options.headers };
   const response = await fetch(`${API_BASE}${path}`, {
     credentials: "same-origin",
-    headers: options.body instanceof FormData ? options.headers : { "Content-Type": "application/json", ...options.headers },
     ...options,
+    headers: requestHeaders,
   });
   const contentType = String(response.headers.get("content-type") || "");
   const mediaType = contentType.split(";", 1)[0].trim().toLowerCase();
@@ -269,6 +336,20 @@ function publicSessionExpired(error) {
     error.message,
   ];
   return markers.some((marker) => marker === "public_session_required_or_expired");
+}
+
+function publicProjectSessionMismatch(error) {
+  if (!(error instanceof KolibriApiError)) return false;
+  const code = publicErrorCode(error);
+  if (error.status === 404) {
+    return code === "project_not_found" || code === "project_not_found_in_session";
+  }
+  if (error.status !== 403) return false;
+  return new Set([
+    "project_not_found_in_session",
+    "public_session_project_not_owned",
+    "public_session_project_forbidden",
+  ]).has(code);
 }
 
 function assertPublicSession(result) {
@@ -354,6 +435,7 @@ async function refreshPublicSession(observedGeneration) {
   return refreshPromise;
 }
 
+
 function parseSseBlock(block) {
   let event = "message";
   const data = [];
@@ -376,11 +458,12 @@ function parseSseBlock(block) {
   }
 }
 
-async function consumeResponsesSse(response, onWorkSummary) {
+async function consumeResponsesSse(response, onWorkSummary, onTextDelta) {
   let buffer = "";
   let streamedText = "";
   let completed = null;
   let latestWorkSummary = null;
+  let streamedReasoningSummary = "";
 
   const notifyWorkSummary = (workSummary, progress = {}) => {
     if (!workSummary) return;
@@ -390,6 +473,15 @@ async function consumeResponsesSse(response, onWorkSummary) {
       onWorkSummary(workSummary, progress);
     } catch {
       // Rendering progress is observational and must never abort execution.
+    }
+  };
+
+  const notifyTextDelta = (delta) => {
+    if (typeof onTextDelta !== "function") return;
+    try {
+      onTextDelta(delta, streamedText);
+    } catch {
+      // Incremental rendering is observational and must never abort execution.
     }
   };
 
@@ -406,19 +498,54 @@ async function consumeResponsesSse(response, onWorkSummary) {
       const workSummary = normalizeWorkSummaryEvent(payload.summary);
       const activeKind = WORK_SUMMARY_KINDS.has(payload.active_kind) ? payload.active_kind : "";
       notifyWorkSummary(workSummary, { activeKind });
+    } else if (type === "response.status.updated") {
+      const progress = RESPONSE_STAGE_PROGRESS[payload.stage];
+      if (progress && latestWorkSummary) notifyWorkSummary(latestWorkSummary, progress);
+    } else if (type === "response.tool.started") {
+      if (latestWorkSummary) notifyWorkSummary(latestWorkSummary, {
+        activeKind: "tool",
+        detail: "Использую подключённый инструмент",
+      });
+    } else if (type === "response.tool.completed") {
+      if (latestWorkSummary) notifyWorkSummary(latestWorkSummary, {
+        activeKind: "check",
+        detail: "Инструмент завершил работу, проверяю результат",
+      });
     } else if (type === "response.reasoning_summary_text.delta") {
-      const progress = reasoningSummaryProgress(payload.delta);
+      if (typeof payload.delta === "string") streamedReasoningSummary += payload.delta;
+      const progress = reasoningSummaryProgress(streamedReasoningSummary);
       if (progress && latestWorkSummary) notifyWorkSummary(latestWorkSummary, progress);
     }
     if (type === "response.output_text.delta" && typeof payload.delta === "string") {
       streamedText += payload.delta;
+      notifyTextDelta(payload.delta);
     } else if (type === "response.completed" && payload.response) {
       completed = payload.response;
     } else if (type === "response.failed" || type === "error") {
       const failed = payload.response || payload;
+      const serverError = failed?.error && typeof failed.error === "object" ? failed.error : {};
+      const code = typeof serverError.code === "string" && serverError.code
+        ? serverError.code
+        : "response_failed";
       throw new KolibriApiError(
-        failed?.error?.message || payload?.message || "Kolibri could not produce a verified response",
-        { status: 503, endpoint: API_ENDPOINTS.response, payload: failed },
+        typeof serverError.message === "string" && serverError.message
+          ? serverError.message
+          : "Маршруты исполнения завершились без подтверждённого результата",
+        {
+          status: 503,
+          endpoint: API_ENDPOINTS.response,
+          payload: {
+            code,
+            error: {
+              code,
+              ...(typeof serverError.type === "string" ? { type: serverError.type } : {}),
+              ...(typeof serverError.retryable === "boolean" ? { retryable: serverError.retryable } : {}),
+              ...(serverError.attempt_summary && typeof serverError.attempt_summary === "object"
+                ? { attempt_summary: serverError.attempt_summary }
+                : {}),
+            },
+          },
+        },
       );
     }
   };
@@ -461,7 +588,7 @@ async function consumeResponsesSse(response, onWorkSummary) {
   return completed;
 }
 
-async function requestResponsesStream(body, idempotencyKey, signal, onWorkSummary) {
+async function requestResponsesStream(body, idempotencyKey, signal, onWorkSummary, onTextDelta) {
   const response = await fetch(`${API_BASE}${API_ENDPOINTS.response}`, {
     method: "POST",
     credentials: "same-origin",
@@ -486,7 +613,7 @@ async function requestResponsesStream(body, idempotencyKey, signal, onWorkSummar
       endpoint: API_ENDPOINTS.response,
     });
   }
-  return consumeResponsesSse(response, onWorkSummary);
+  return consumeResponsesSse(response, onWorkSummary, onTextDelta);
 }
 
 function unwrapData(payload) {
@@ -526,6 +653,14 @@ export function normalizeCapabilities(payload) {
   if (Array.isArray(data)) return data;
   if (Array.isArray(data?.capabilities)) return data.capabilities;
   return [];
+}
+
+export async function loadPublicCapabilities(signal) {
+  const response = await firstAvailable(API_ENDPOINTS.publicCapabilities, {
+    signal,
+    cache: "no-store",
+  });
+  return normalizeCapabilities(response.payload);
 }
 
 function resultFromSettled(result, normalizer = (value) => value) {
@@ -613,7 +748,13 @@ function messageBytes(message) {
 export function buildConversationMessages(history, currentText) {
   const prompt = nonEmptyText(currentText, "request.text");
   const normalized = (Array.isArray(history) ? history : [])
-    .filter((message) => message && CONVERSATION_ROLES.has(message.role) && !["running", "failed"].includes(message.status))
+    .filter((message) => (
+      message
+      && CONVERSATION_ROLES.has(message.role)
+      && !["running", "failed"].includes(message.status)
+      && message.recoverable !== true
+      && message.excludeFromContext !== true
+    ))
     .map((message) => ({
       role: message.role,
       content: String(message.content ?? message.text ?? "").replaceAll("\u0000", "").trim(),
@@ -634,7 +775,7 @@ export function buildConversationMessages(history, currentText) {
 }
 
 const PUBLIC_TASK_SCHEMA = "kolibri.public-task.v1";
-const PUBLIC_TASK_INTENTS = Object.freeze(["estimate", "document", "site", "app"]);
+const PUBLIC_TASK_INTENTS = Object.freeze(["estimate", "document", "image", "site", "app"]);
 const ESTIMATE_FALLBACK_ENGINE = "kolibri.estimate-readiness-gate.v1";
 const ESTIMATE_FALLBACK_PROOF_SCHEMA = "kolibri.estimate-readiness-proof.v1";
 const ESTIMATE_READINESS_SCHEMA = "kolibri.estimate-readiness.v1";
@@ -685,6 +826,7 @@ const ROUTING_FIELDS = new Set([
 const TASK_FIELDS = Object.freeze({
   estimate: new Set(["intent", "brief", "region", "spec", "requested_artifacts"]),
   document: new Set(["intent", "brief", "document_type", "format", "content"]),
+  image: new Set(["intent", "brief", "requested_artifacts"]),
   site: new Set(["intent", "brief", "target", "requirements", "requested_artifacts"]),
   app: new Set(["intent", "brief", "target", "requirements", "requested_artifacts"]),
 });
@@ -941,6 +1083,16 @@ export function buildDocumentTask({ brief, documentType = "custom", format = "pd
   };
 }
 
+export function buildImageTask({ brief, ...routingOrUnknown } = {}) {
+  assertNoRoutingSelection(routingOrUnknown, "image");
+  if (Object.keys(routingOrUnknown).length) throw new KolibriApiError(`image.${Object.keys(routingOrUnknown)[0]}: неизвестное поле`);
+  return {
+    intent: "image",
+    brief: nonEmptyText(brief, "image.brief", 20_000),
+    requested_artifacts: ["image"],
+  };
+}
+
 export function buildSiteTask({ brief, target = "website", requirements = {}, requestedArtifacts: artifactKinds, ...routingOrUnknown } = {}) {
   assertNoRoutingSelection(routingOrUnknown, "site");
   if (Object.keys(routingOrUnknown).length) throw new KolibriApiError(`site.${Object.keys(routingOrUnknown)[0]}: неизвестное поле`);
@@ -1004,6 +1156,150 @@ function containsForbiddenEstimateMoney(value) {
   if (Array.isArray(value)) return value.some(containsForbiddenEstimateMoney);
   if (!value || typeof value !== "object") return false;
   return Object.entries(value).some(([key, child]) => forbidden.has(String(key).toLowerCase()) || containsForbiddenEstimateMoney(child));
+}
+
+function normalizeEstimatePriceResearch(value, estimate, estimateStatus) {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new KolibriApiError("Исследование текущих цен имеет неверный формат", { status: 502 });
+  }
+  const expectedLines = Array.isArray(estimate?.lines) ? estimate.lines : [];
+  const rawLines = Array.isArray(value.lines) ? value.lines : [];
+  const controlledSearch = value.status === "source_bound_preliminary"
+    && value.source_validation === "controlled_search_snippet_binding";
+  const providerAsserted = value.status === "provider_asserted_unverified"
+    && value.source_validation === "native_search_event_with_provider_asserted_sources";
+  const nativeBinding = value.native_tool_binding && typeof value.native_tool_binding === "object"
+    && !Array.isArray(value.native_tool_binding)
+    ? value.native_tool_binding
+    : null;
+  const nativeCallIds = Array.isArray(nativeBinding?.tool_call_ids)
+    ? nativeBinding.tool_call_ids
+    : [];
+  const validNativeBinding = providerAsserted
+    && nativeBinding?.schema_version === "kolibri.native-web-search-binding.v1"
+    && nativeBinding.tool_id === "tool:web_search"
+    && nativeBinding.source_claim === "provider_asserted_unverified"
+    && SHA256.test(String(nativeBinding.verifier_binding_sha256 || ""))
+    && nativeCallIds.length > 0
+    && nativeCallIds.length <= 32
+    && new Set(nativeCallIds).size === nativeCallIds.length
+    && nativeCallIds.every((callId) => (
+      typeof callId === "string"
+      && /^[A-Za-z0-9._:-]{1,200}$/.test(callId)
+    ));
+  if (
+    value.schema_version !== "kolibri.estimate-price-research.v1"
+    || estimateStatus !== "preliminary"
+    || (!controlledSearch && !validNativeBinding)
+    || value.region !== estimate.region
+    || value.minor_unit !== estimate.minor_unit
+    || value.selection_rule !== "range_midpoint_round_half_up"
+    || value.independent_normative_verification !== false
+    || !SHA256.test(String(value.binding_sha256 || ""))
+    || rawLines.length !== expectedLines.length
+  ) {
+    throw new KolibriApiError("Исследование текущих цен не прошло проверку контракта", { status: 502 });
+  }
+  const estimateById = new Map(expectedLines.map((line) => [line?.id, line]));
+  const seen = new Set();
+  const lines = rawLines.map((raw) => {
+    const lineId = typeof raw?.line_id === "string" ? raw.line_id : "";
+    const estimateLine = estimateById.get(lineId);
+    const priceMin = raw?.price_min_minor;
+    const priceMax = raw?.price_max_minor;
+    const selected = raw?.selected_unit_price_minor;
+    const midpoint = Number.isSafeInteger(priceMin) && Number.isSafeInteger(priceMax)
+      ? Math.floor((priceMin + priceMax + 1) / 2)
+      : -1;
+    let source;
+    try {
+      source = new URL(raw?.source_url);
+    } catch {
+      source = null;
+    }
+    const sourceHost = typeof raw?.source_host === "string"
+      ? raw.source_host.toLowerCase().replace(/\.$/, "")
+      : "";
+    const retrievedText = typeof raw?.source_retrieved_at === "string"
+      ? raw.source_retrieved_at
+      : "";
+    const retrieved = retrievedText
+      ? Date.parse(retrievedText)
+      : Number.NaN;
+    const observedOn = typeof raw?.observed_on === "string" ? raw.observed_on : "";
+    const observedDate = /^\d{4}-\d{2}-\d{2}$/.test(observedOn)
+      ? Date.parse(`${observedOn}T00:00:00Z`)
+      : Number.NaN;
+    const validProviderAssertion = !providerAsserted || (
+      raw.provider_asserted === true
+      && raw.independently_citation_bound === false
+      && estimateLine?.provenance?.validation_status === "unverified"
+      && source?.protocol === "https:"
+      && Number.isFinite(observedDate)
+      && new Date(observedDate).toISOString().slice(0, 10) === observedOn
+      && retrievedText.slice(0, 10) === observedOn
+    );
+    if (
+      !estimateLine
+      || seen.has(lineId)
+      || !Number.isSafeInteger(priceMin) || priceMin < 0
+      || !Number.isSafeInteger(priceMax) || priceMax < priceMin
+      || !Number.isSafeInteger(selected) || selected !== midpoint
+      || estimateLine.unit_price_minor !== selected
+      || raw.selection_rule !== "range_midpoint_round_half_up"
+      || !source || !["http:", "https:"].includes(source.protocol)
+      || source.username || source.password
+      || !isPublicSourceDomain(sourceHost) || source.hostname.toLowerCase() !== sourceHost
+      || raw.source_url !== estimateLine.provenance?.source_url
+      || typeof raw.source_quote !== "string" || !raw.source_quote.trim() || raw.source_quote.length > 1_000
+      || !SHA256.test(String(raw.source_content_sha256 || ""))
+      || !Number.isFinite(retrieved)
+      || typeof raw.source_title !== "string" || !raw.source_title.trim() || raw.source_title.length > 500
+      || !validProviderAssertion
+    ) {
+      throw new KolibriApiError("Строка исследования цен не привязана к позиции сметы", { status: 502 });
+    }
+    seen.add(lineId);
+    return {
+      line_id: lineId,
+      price_min_minor: priceMin,
+      price_max_minor: priceMax,
+      selection_rule: "range_midpoint_round_half_up",
+      selected_unit_price_minor: selected,
+      source_url: source.toString(),
+      source_quote: raw.source_quote.trim(),
+      source_content_sha256: String(raw.source_content_sha256).toLowerCase(),
+      source_retrieved_at: raw.source_retrieved_at,
+      source_title: raw.source_title.trim(),
+      source_host: sourceHost,
+      ...(providerAsserted ? {
+        provider_asserted: true,
+        independently_citation_bound: false,
+        observed_on: observedOn,
+      } : {}),
+    };
+  });
+  return {
+    schema_version: "kolibri.estimate-price-research.v1",
+    status: value.status,
+    region: value.region,
+    minor_unit: value.minor_unit,
+    selection_rule: "range_midpoint_round_half_up",
+    source_validation: value.source_validation,
+    independent_normative_verification: false,
+    lines,
+    ...(providerAsserted ? {
+      native_tool_binding: {
+        schema_version: "kolibri.native-web-search-binding.v1",
+        tool_id: "tool:web_search",
+        tool_call_ids: [...nativeCallIds],
+        verifier_binding_sha256: String(nativeBinding.verifier_binding_sha256).toLowerCase(),
+        source_claim: "provider_asserted_unverified",
+      },
+    } : {}),
+    binding_sha256: String(value.binding_sha256).toLowerCase(),
+  };
 }
 
 export function normalizeTypedTaskEnvelope(task, expectedIntent = "") {
@@ -1115,7 +1411,19 @@ export function normalizeTypedTaskEnvelope(task, expectedIntent = "") {
       if (!validVerification) {
         throw new KolibriApiError("Статус источников сметы не прошёл проверку контракта", { status: 502 });
       }
-      result = { type: "deterministic_estimate", status: estimateStatus, estimate, calculation, verification };
+      const priceResearch = normalizeEstimatePriceResearch(
+        task.result?.price_research,
+        estimate,
+        estimateStatus,
+      );
+      result = {
+        type: "deterministic_estimate",
+        status: estimateStatus,
+        estimate,
+        calculation,
+        verification,
+        ...(priceResearch ? { price_research: priceResearch } : {}),
+      };
     }
   } else if (status !== "failed") {
     const responseText = task.result?.type === "verified_provider_response" && typeof task.result.text === "string"
@@ -1171,19 +1479,25 @@ export function normalizeTypedTaskEnvelope(task, expectedIntent = "") {
   };
 }
 
-export async function sendKolibriRequest({ text, messages = [], workstreamId = "", task = null, executionMode = "fast", metadata = {}, signal, onWorkSummary }) {
+export async function sendKolibriRequest({ text, messages = [], workstreamId = "", projectId = "", task = null, executionMode = "fast", metadata = {}, signal, onWorkSummary, onTextDelta, reconcileProjectId = null }) {
   const requestId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const prompt = nonEmptyText(text, "request.text");
   const conversation = buildConversationMessages(messages, prompt);
   const typedTask = task === null || task === undefined ? null : normalizeTaskForTransport(task);
   const execution_mode = enumValue(executionMode, ["fast", "codex"], "request.execution_mode");
+  let project_id = projectId ? nonEmptyText(projectId, "request.project_id", 200) : "";
+  if (project_id && !/^project_ephemeral_[A-Za-z0-9._:-]+$/.test(project_id)) {
+    throw new KolibriApiError("request.project_id: недопустимый идентификатор проекта");
+  }
   const idempotencyKey = `shell:${requestId}`;
   await ensurePublicSession();
   const sessionGeneration = publicSessionGeneration;
-  const body = {
+  const baseBody = {
     model: "kolibri",
     input: conversation,
     stream: true,
+    background: true,
+    reasoning: { effort: execution_mode === "codex" ? "high" : "medium", summary: "auto" },
     execution_mode,
     idempotency_key: idempotencyKey,
     ...(typedTask ? { task: typedTask } : {}),
@@ -1196,21 +1510,48 @@ export async function sendKolibriRequest({ text, messages = [], workstreamId = "
   };
   try {
     let payload;
-    try {
-      payload = await requestResponsesStream(body, idempotencyKey, signal, onWorkSummary);
-    } catch (error) {
-      if (!publicSessionExpired(error)) throw error;
-      // A backend restart or normal TTL expiry invalidates only the scoped
-      // browser session. Re-issue the HttpOnly cookie and replay the same
-      // idempotent Responses request exactly once; never retry provider/auth
-      // failures or origin mismatches here.
-      await refreshPublicSession(sessionGeneration);
+    let sessionRefreshUsed = false;
+    let projectReconciliationUsed = false;
+    const reconcileOwnedProject = async (error) => {
+      if (!project_id || typeof reconcileProjectId !== "function") throw error;
+      projectReconciliationUsed = true;
+      const reboundId = nonEmptyText(await reconcileProjectId({
+        failedProjectId: project_id,
+        error,
+        signal,
+      }), "request.reconciled_project_id", 200);
+      if (!/^project_ephemeral_[A-Za-z0-9._:-]+$/.test(reboundId)) {
+        throw new KolibriApiError("request.reconciled_project_id: недопустимый идентификатор проекта");
+      }
+      project_id = reboundId;
+    };
+
+    // There are only two repair transitions: one public-session refresh and
+    // one project reconciliation. Both replay the original idempotency key;
+    // no provider/auth/validation error enters this loop and it cannot spin.
+    while (true) {
+      const body = { ...baseBody, ...(project_id ? { project_id } : {}) };
       try {
-        payload = await requestResponsesStream(body, idempotencyKey, signal, onWorkSummary);
-      } catch (retryError) {
-        if (!publicSessionExpired(retryError)) throw retryError;
-        publicSessionPromise = null;
-        throw publicSessionNotPersisted();
+        payload = await requestResponsesStream(body, idempotencyKey, signal, onWorkSummary, onTextDelta);
+        break;
+      } catch (error) {
+        if (publicSessionExpired(error) && !sessionRefreshUsed) {
+          sessionRefreshUsed = true;
+          await refreshPublicSession(sessionGeneration);
+          if (project_id && typeof reconcileProjectId === "function" && !projectReconciliationUsed) {
+            await reconcileOwnedProject(error);
+          }
+          continue;
+        }
+        if (publicSessionExpired(error)) {
+          publicSessionPromise = null;
+          throw publicSessionNotPersisted();
+        }
+        if (publicProjectSessionMismatch(error) && !projectReconciliationUsed) {
+          await reconcileOwnedProject(error);
+          continue;
+        }
+        throw error;
       }
     }
     const taskEnvelope = typedTask ? normalizeTypedTaskEnvelope(payload?.task, typedTask.intent) : null;
@@ -1269,5 +1610,145 @@ export const automationApi = Object.freeze({
       body: JSON.stringify({ ...draft, dry_run: true }),
       signal,
     });
+  },
+});
+
+const PUBLIC_PROJECT_ID = /^project_ephemeral_[A-Za-z0-9._:-]+$/;
+const PUBLIC_MESSAGE_ID = /^message_[A-Za-z0-9._:-]+$/;
+const PUBLIC_MESSAGE_ROLES = ["user", "assistant"];
+const PUBLIC_MESSAGE_STATUSES = ["pending", "running", "completed", "failed", "incomplete", "cancelled"];
+
+function publicRecordId(value, pattern, label) {
+  const id = nonEmptyText(value, label, 200);
+  if (!pattern.test(id)) throw new KolibriApiError(`${label}: недопустимый идентификатор`);
+  return id;
+}
+
+function publicMutationKey(scope, stableKey = "") {
+  const key = String(stableKey || globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  return `${scope}:${key}`.slice(0, 240);
+}
+
+async function publicSessionJson(path, options = {}) {
+  await ensurePublicSession();
+  const observedGeneration = publicSessionGeneration;
+  try {
+    return (await requestJson(path, options)).payload;
+  } catch (error) {
+    if (!publicSessionExpired(error)) throw error;
+    await refreshPublicSession(observedGeneration);
+    try {
+      return (await requestJson(path, options)).payload;
+    } catch (retryError) {
+      if (!publicSessionExpired(retryError)) throw retryError;
+      publicSessionPromise = null;
+      throw publicSessionNotPersisted();
+    }
+  }
+}
+
+function publicMutationOptions(method, body, key, signal) {
+  return {
+    method,
+    body: body === undefined ? undefined : JSON.stringify(body),
+    cache: "no-store",
+    signal,
+    headers: { "Idempotency-Key": key },
+  };
+}
+
+/** Canonical session-scoped project/message CRUD. No owner token or durable
+ * authority crosses this public browser boundary. */
+export const publicProjectsApi = Object.freeze({
+  async list(signal) {
+    const payload = await publicSessionJson(API_ENDPOINTS.publicProjects, { cache: "no-store", signal });
+    return Array.isArray(payload?.data) ? payload.data : [];
+  },
+  get(projectId, signal) {
+    const id = publicRecordId(projectId, PUBLIC_PROJECT_ID, "project.id");
+    return publicSessionJson(`${API_ENDPOINTS.publicProjects}/${encodeURIComponent(id)}`, {
+      cache: "no-store",
+      signal,
+    });
+  },
+  async create({ title, metadata = {}, idempotencyKey = "" }, signal) {
+    return publicSessionJson(API_ENDPOINTS.publicProjects, publicMutationOptions("POST", {
+      title: nonEmptyText(title, "project.title", 200),
+      metadata: clonePublicValue(metadata, "project.metadata"),
+    }, publicMutationKey("project-create", idempotencyKey), signal));
+  },
+  async update(projectId, { title, metadata, idempotencyKey = "" }, signal) {
+    const id = publicRecordId(projectId, PUBLIC_PROJECT_ID, "project.id");
+    const body = {
+      ...(title === undefined ? {} : { title: nonEmptyText(title, "project.title", 200) }),
+      ...(metadata === undefined ? {} : { metadata: clonePublicValue(metadata, "project.metadata") }),
+    };
+    if (!Object.keys(body).length) throw new KolibriApiError("project.update: нет изменений");
+    return publicSessionJson(`${API_ENDPOINTS.publicProjects}/${encodeURIComponent(id)}`, publicMutationOptions(
+      "POST", body, publicMutationKey("project-update", idempotencyKey), signal,
+    ));
+  },
+  remove(projectId, idempotencyKey = "", signal) {
+    const id = publicRecordId(projectId, PUBLIC_PROJECT_ID, "project.id");
+    return publicSessionJson(`${API_ENDPOINTS.publicProjects}/${encodeURIComponent(id)}/delete`, publicMutationOptions(
+      "POST", undefined, publicMutationKey("project-delete", idempotencyKey), signal,
+    ));
+  },
+  restore(projectId, idempotencyKey = "", signal) {
+    const id = publicRecordId(projectId, PUBLIC_PROJECT_ID, "project.id");
+    return publicSessionJson(`${API_ENDPOINTS.publicProjects}/${encodeURIComponent(id)}/restore`, publicMutationOptions(
+      "POST", undefined, publicMutationKey("project-restore", idempotencyKey), signal,
+    ));
+  },
+  async listMessages(projectId, signal) {
+    const id = publicRecordId(projectId, PUBLIC_PROJECT_ID, "project.id");
+    const payload = await publicSessionJson(`${API_ENDPOINTS.publicProjects}/${encodeURIComponent(id)}/messages`, { cache: "no-store", signal });
+    return Array.isArray(payload?.data) ? payload.data : [];
+  },
+  getMessage(projectId, messageId, signal) {
+    const project = publicRecordId(projectId, PUBLIC_PROJECT_ID, "project.id");
+    const message = publicRecordId(messageId, PUBLIC_MESSAGE_ID, "message.id");
+    return publicSessionJson(
+      `${API_ENDPOINTS.publicProjects}/${encodeURIComponent(project)}/messages/${encodeURIComponent(message)}`,
+      { cache: "no-store", signal },
+    );
+  },
+  createMessage(projectId, { role, content, status = "completed", responseId = null, metadata = {}, idempotencyKey = "" }, signal) {
+    const id = publicRecordId(projectId, PUBLIC_PROJECT_ID, "project.id");
+    return publicSessionJson(`${API_ENDPOINTS.publicProjects}/${encodeURIComponent(id)}/messages`, publicMutationOptions("POST", {
+      role: enumValue(role, PUBLIC_MESSAGE_ROLES, "message.role"),
+      content: nonEmptyText(content, "message.content", 100_000),
+      status: enumValue(status, PUBLIC_MESSAGE_STATUSES, "message.status"),
+      ...(responseId ? { response_id: nonEmptyText(responseId, "message.response_id", 200) } : {}),
+      metadata: clonePublicValue(metadata, "message.metadata"),
+    }, publicMutationKey("message-create", idempotencyKey), signal));
+  },
+  updateMessage(projectId, messageId, { content, status, responseId, metadata, idempotencyKey = "" }, signal) {
+    const project = publicRecordId(projectId, PUBLIC_PROJECT_ID, "project.id");
+    const message = publicRecordId(messageId, PUBLIC_MESSAGE_ID, "message.id");
+    const body = {
+      ...(content === undefined ? {} : { content: nonEmptyText(content, "message.content", 100_000) }),
+      ...(status === undefined ? {} : { status: enumValue(status, PUBLIC_MESSAGE_STATUSES, "message.status") }),
+      ...(responseId === undefined ? {} : { response_id: responseId ? nonEmptyText(responseId, "message.response_id", 200) : null }),
+      ...(metadata === undefined ? {} : { metadata: clonePublicValue(metadata, "message.metadata") }),
+    };
+    if (!Object.keys(body).length) throw new KolibriApiError("message.update: нет изменений");
+    return publicSessionJson(`${API_ENDPOINTS.publicProjects}/${encodeURIComponent(project)}/messages/${encodeURIComponent(message)}`, publicMutationOptions(
+      "POST", body, publicMutationKey("message-update", idempotencyKey), signal,
+    ));
+  },
+  removeMessage(projectId, messageId, idempotencyKey = "", signal) {
+    const project = publicRecordId(projectId, PUBLIC_PROJECT_ID, "project.id");
+    const message = publicRecordId(messageId, PUBLIC_MESSAGE_ID, "message.id");
+    return publicSessionJson(`${API_ENDPOINTS.publicProjects}/${encodeURIComponent(project)}/messages/${encodeURIComponent(message)}/delete`, publicMutationOptions(
+      "POST", undefined, publicMutationKey("message-delete", idempotencyKey), signal,
+    ));
+  },
+  restoreMessage(projectId, messageId, idempotencyKey = "", signal) {
+    const project = publicRecordId(projectId, PUBLIC_PROJECT_ID, "project.id");
+    const message = publicRecordId(messageId, PUBLIC_MESSAGE_ID, "message.id");
+    return publicSessionJson(`${API_ENDPOINTS.publicProjects}/${encodeURIComponent(project)}/messages/${encodeURIComponent(message)}/restore`, publicMutationOptions(
+      "POST", undefined, publicMutationKey("message-restore", idempotencyKey), signal,
+    ));
   },
 });

@@ -513,7 +513,7 @@ class ControlPlaneClient:
                 "namespace": verified.namespace,
                 "signer_identity": verified.signer_identity,
             },
-            "max_retries": 1,
+            "max_attempts": 2,
         })
 
     def submit_rollback_task(
@@ -557,7 +557,7 @@ class ControlPlaneClient:
                 "namespace": rollback_release.namespace,
                 "signer_identity": rollback_release.signer_identity,
             },
-            "max_retries": 1,
+            "max_attempts": 2,
         })
 
     def wait_for_task(self, task_id: str, timeout: float = 600.0, poll_interval: float = 2.0) -> dict[str, Any]:
@@ -641,7 +641,13 @@ def execute_progressive_release(
     waves: Iterable[RolloutWave],
     approval_id: str,
 ) -> dict[str, Any]:
-    """Run API-only waves and rollback every attempted node on the first failure."""
+    """Run API-only waves and rollback only nodes proven to have activated.
+
+    Submission is not activation.  A candidate/pre-health failure must never
+    create a destructive rollback task for a node whose ``current`` symlink was
+    never switched.  Unknown activation evidence is reported as blocked rather
+    than guessed.
+    """
     waves = tuple(waves)
     rollout_plan = canonical_rollout_plan(
         [{"name": wave.name, "nodes": [node.node_id for node in wave.nodes]} for wave in waves]
@@ -654,6 +660,9 @@ def execute_progressive_release(
     )
     attempted: list[FleetNode] = []
     completed: list[FleetNode] = []
+    rollback_candidates: list[FleetNode] = []
+    rollback_skipped: list[dict[str, str]] = []
+    activation_unknown: list[str] = []
     apply_task_ids: list[str] = []
     wave_results: list[dict[str, Any]] = []
     try:
@@ -676,7 +685,18 @@ def execute_progressive_release(
             for node, task_id in submitted:
                 result = client.wait_for_task(task_id)
                 if result.get("state") != "completed":
+                    activation = release_task_activation_outcome(result)
+                    if activation == "rollback_required":
+                        rollback_candidates.append(node)
+                    elif activation == "unknown":
+                        activation_unknown.append(node.node_id)
+                    else:
+                        rollback_skipped.append({"node": node.node_id, "reason": activation})
                     raise ReleaseError(f"release task failed on {node.node_id}")
+                # A completed apply task has crossed the atomic switch.  Bind
+                # it before the independent health read so a failed read still
+                # rolls the proven activation back.
+                rollback_candidates.append(node)
                 client.require_release_health(verified, node)
                 completed.append(node)
             wave_results.append({"wave": wave.name, "status": "completed", "nodes": [node.node_id for node, _ in submitted]})
@@ -701,7 +721,7 @@ def execute_progressive_release(
             }
         rollback_results = []
         rollback_failed = False
-        for node in reversed(attempted):
+        for node in reversed(rollback_candidates):
             try:
                 task = client.submit_rollback_task(
                     verified,
@@ -722,15 +742,51 @@ def execute_progressive_release(
             except Exception as rollback_exc:
                 rollback_failed = True
                 rollback_results.append({"node": node.node_id, "status": "failed", "reason": str(rollback_exc)[:500]})
+        if activation_unknown:
+            final_status = "rollback_blocked"
+            rollback_status = "blocked"
+        elif rollback_failed:
+            final_status = "rollback_failed"
+            rollback_status = "failed"
+        elif rollback_candidates:
+            final_status = "rolled_back"
+            rollback_status = "completed"
+        else:
+            final_status = "failed_before_activation"
+            rollback_status = "not_required"
         return {
             "schema_version": RELEASE_SCHEMA,
-            "status": "rollback_failed" if rollback_failed else "rolled_back",
+            "status": final_status,
             "release_id": verified.manifest.release_id,
             "failed_reason": str(exc)[:500],
+            "attempted_nodes": [node.node_id for node in attempted],
             "completed_before_failure": [node.node_id for node in completed],
             "cancelled_apply_tasks": cancelled_tasks,
-            "rollback": {"status": "failed" if rollback_failed else "completed", "nodes": rollback_results},
+            "activation_unknown": activation_unknown,
+            "rollback": {
+                "status": rollback_status,
+                "nodes": rollback_results,
+                "skipped": rollback_skipped,
+            },
         }
+
+
+def release_task_activation_outcome(task: dict[str, Any]) -> str:
+    """Classify bounded installer evidence without inferring activation."""
+
+    if task.get("state") == "completed":
+        return "rollback_required"
+    result = task.get("result") if isinstance(task.get("result"), dict) else task
+    rollback = result.get("rollback") if isinstance(result.get("rollback"), dict) else {}
+    if rollback.get("reason") == "activation_not_started":
+        return "activation_not_started"
+    if rollback.get("status") == "completed" and rollback.get("atomic_switch") == "completed":
+        return "already_restored"
+    if rollback.get("status") == "failed" or rollback.get("atomic_switch") == "failed":
+        return "rollback_required"
+    if result.get("atomic_switch_performed") is True:
+        return "rollback_required"
+    return "unknown"
 
 
 def release_plan_payload(manifest: ReleaseManifest, waves: Iterable[RolloutWave]) -> dict[str, Any]:

@@ -18,6 +18,8 @@ import capability_gateway
 import execution_api
 import public_responses_api
 import web_search_gateway
+from estimate_artifacts import configure_estimate_artifact_store
+from public_estimate_api import router as public_estimate_router
 from web_search_gateway import WebSearchUnavailable
 
 
@@ -250,6 +252,50 @@ def test_public_web_search_failure_is_classified_and_never_calls_provider(tmp_pa
     assert response.json()["error"]["code"] == "web_search_unavailable"
     assert len(web.calls) == 1
     assert executor.calls == []
+
+
+def test_estimate_search_exhaustion_returns_needs_input_editor_and_pdf(tmp_path):
+    app, executor, _, web = _make_app(tmp_path, web_fail=True)
+    configure_estimate_artifact_store(tmp_path / "estimate.db", tmp_path / "estimate-artifacts")
+    app.include_router(public_estimate_router)
+    client = TestClient(app)
+    _issue_session(client)
+    brief = "Составь смету одноэтажного дома 100 м2 Татарстан Лениногорск"
+
+    response = client.post(
+        "/v1/responses",
+        headers={"Origin": ORIGIN, "Idempotency-Key": "estimate-search-exhausted"},
+        json={
+            "model": "kolibri",
+            "input": brief,
+            "tools": [{"type": "web_search"}],
+            "task": {
+                "intent": "estimate",
+                "brief": brief,
+                "requested_artifacts": ["pdf"],
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "completed"
+    assert payload["task"]["result"]["type"] == "estimate_readiness"
+    assert payload["task"]["result"]["readiness"]["monetary_status"] == "not_calculated"
+    assert payload["estimate_outcome"]["status"] == "needs_input"
+    assert payload["estimate_outcome"]["editor"]["available"] is True
+    assert payload["estimate_outcome"]["pdf"]["status"] == "materialized"
+    artifact = payload["estimate_outcome"]["pdf"]["artifact"]
+    pdf = client.get(artifact["locator"])
+    assert pdf.status_code == 200
+    assert pdf.content.startswith(b"%PDF")
+    assert len(web.calls) == 4
+    assert len({call["query"] for call in web.calls}) == 4
+    assert len(executor.calls) == 2
+    assert all(
+        call["requested_tools"][0]["id"] == "tool:web_search"
+        for call in executor.calls
+    )
 
 
 def test_public_tool_scope_cannot_be_upgraded_to_durable_project(tmp_path):

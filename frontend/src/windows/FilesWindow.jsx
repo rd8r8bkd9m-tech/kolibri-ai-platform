@@ -1,7 +1,9 @@
 import { Check, FileText, Files } from "lucide-react";
+import { materializedArtifacts } from "../shell/projectModel";
 
 export function FilesWindow({ items }) {
-  if (!items.length) {
+  const files = materializedArtifacts(items);
+  if (!files.length) {
     return (
       <div className="system-empty">
         <Files size={28} />
@@ -12,12 +14,12 @@ export function FilesWindow({ items }) {
   }
   return (
     <div className="system-list">
-      {items.map((item, index) => (
+      {files.map((item, index) => (
         <article key={item.reference_sha256 || item.id || `${item.name}-${index}`}>
           <span className="system-list-icon"><FileText size={19} /></span>
           <span>
-            <strong>{item.name || item.kind || `Файл ${index + 1}`}</strong>
-            <small>{item.media_type || item.deliverable_type || "artifact"} · {item.status || "verified"}</small>
+            <strong>{item.display_name || item.name || item.kind || `Файл ${index + 1}`}</strong>
+            <small>{item.media_type || item.deliverable_type || "artifact"} · материализован</small>
           </span>
           <Check size={17} />
         </article>

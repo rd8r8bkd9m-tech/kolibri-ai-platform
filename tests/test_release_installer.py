@@ -913,6 +913,8 @@ def test_health_check_exhausts_single_total_timeout_and_fails_closed(
             "status": "failed",
             "attempts": 4,
             "duration_ms": 1000,
+            "exit_code": 22,
+            "reason": "nonzero_exit",
         }
     ]
     assert [item[0] for item in calls] == [check.argv] * 4
