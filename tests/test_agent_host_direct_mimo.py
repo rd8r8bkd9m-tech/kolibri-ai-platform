@@ -204,7 +204,9 @@ def test_direct_mimo_generic_rc1_posts_strict_runner_bound_fail_and_returns(
         "which",
         lambda name: "/usr/bin/mimo" if name == "mimo" else None,
     )
-    raw_secret = "api_key=provider-private-value-must-not-leak"
+    # Keep the leak sentinel realistic without making a tracked test fixture
+    # indistinguishable from a credential assignment to the repository scan.
+    raw_secret = "api_key=" + "provider-private-value-must-not-leak"
     task = make_direct_task("MIMO-GENERIC-RC1", "harmless owner request")
 
     class Host(agent_host.AgentHost):
