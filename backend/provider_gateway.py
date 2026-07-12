@@ -418,8 +418,22 @@ def _communicate_jsonl_stream(
     assert process.stdout is not None
     assert process.stderr is not None
     encoded_prompt = prompt.encode("utf-8")
-    process.stdin.write(prompt)
-    process.stdin.close()
+    # A capability probe may reject a model and exit before the parent has
+    # finished writing the prompt.  That is a normal provider outcome, not a
+    # transport verdict: keep draining stdout/stderr so the structured error
+    # event and exit code can drive fallback classification.  In particular,
+    # TextIOWrapper.close() can surface the same EPIPE while flushing a write
+    # that appeared to succeed, so both operations must be guarded.
+    try:
+        process.stdin.write(prompt)
+        process.stdin.flush()
+    except BrokenPipeError:
+        pass
+    finally:
+        try:
+            process.stdin.close()
+        except BrokenPipeError:
+            pass
 
     stdout_fd = process.stdout.fileno()
     stderr_fd = process.stderr.fileno()
