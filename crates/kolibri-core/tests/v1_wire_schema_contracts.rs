@@ -16,7 +16,7 @@ use std::path::PathBuf;
 use uuid::Uuid;
 
 const FROZEN_SCHEMA_SHA256: &str =
-    "8190bf78f1e5b0ab4457abc6c1c1bc654e577ca7866f99d479e1c8bda977f839";
+    "9469bf876a4a0624ece720d602a435af4836a3fb3d20a1d22851b5161e4ca8d9";
 const TOKEN: &[u8] = b"0123456789abcdef0123456789abcdef";
 
 fn at(seconds: i64) -> chrono::DateTime<Utc> {
@@ -36,6 +36,17 @@ fn schema_validator() -> Validator {
         .with_draft(Draft::Draft202012)
         .build(&schema)
         .expect("frozen schema compiles")
+}
+
+#[test]
+fn home_control_plane_machine_schema_compiles_as_draft_2020_12() {
+    let source = include_str!("../../../contracts/kolibri-os-v1/control-plane.schema.json");
+    let schema: Value = serde_json::from_str(source).expect("control-plane schema is JSON");
+    jsonschema::options()
+        .with_draft(Draft::Draft202012)
+        .build(&schema)
+        .expect("control-plane schema compiles");
+    assert_eq!(schema["x-kolibri-authority"], "control-plane/home");
 }
 
 fn assert_matches_frozen_schema(value: &Value) {

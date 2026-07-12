@@ -5,6 +5,9 @@
     "version": "1.0.0-contract-freeze",
     "description": "Frozen public and owner-control surface. A listed operation is a compatibility target, not a production rollout claim."
   },
+  "x-kolibri-authority": "control-plane/home",
+  "x-kolibri-control-plane-contract": "./control-plane.schema.json",
+  "x-kolibri-authority-mode": "single-fail-closed",
   "servers": [
     { "url": "https://kolibriai.ru", "description": "Public shell and same-origin API" }
   ],
@@ -235,14 +238,151 @@
       "get": {
         "tags": ["execution"],
         "operationId": "listTasks",
-        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "responses": { "200": { "$ref": "#/components/responses/TaskList" } },
+        "x-kolibri-authority": "control-plane/home",
         "x-kolibri-implementation": "compatibility"
       },
       "post": {
         "tags": ["execution"],
         "operationId": "createTask",
-        "requestBody": { "$ref": "#/components/requestBodies/Mutation" },
-        "responses": { "202": { "$ref": "#/components/responses/Accepted" } },
+        "requestBody": { "$ref": "#/components/requestBodies/TaskCreate" },
+        "responses": {
+          "201": { "$ref": "#/components/responses/Task" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "422": { "$ref": "#/components/responses/ContractRejected" }
+        },
+        "x-kolibri-authority": "control-plane/home",
+        "x-kolibri-idempotency": "same key and payload returns the existing task; same key with different payload returns HTTP 409",
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
+    "/v1/tasks/{task_id}": {
+      "get": {
+        "tags": ["execution"],
+        "operationId": "getTask",
+        "parameters": [{ "$ref": "#/components/parameters/TaskId" }],
+        "responses": {
+          "200": { "$ref": "#/components/responses/Task" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        },
+        "x-kolibri-authority": "control-plane/home",
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
+    "/v1/tasks/lease": {
+      "post": {
+        "tags": ["execution"],
+        "operationId": "leaseTask",
+        "requestBody": { "$ref": "#/components/requestBodies/TaskLease" },
+        "responses": {
+          "200": { "$ref": "#/components/responses/Task" },
+          "204": { "description": "No eligible work. This is not execution or completion proof." }
+        },
+        "x-kolibri-authority": "control-plane/home",
+        "x-kolibri-fencing": "Home allocates a monotonic fencing_token and a new attempt_id for each lease",
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
+    "/v1/tasks/{task_id}/heartbeat": {
+      "post": {
+        "tags": ["execution"],
+        "operationId": "heartbeatTaskAttempt",
+        "parameters": [{ "$ref": "#/components/parameters/TaskId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/TaskHeartbeat" },
+        "responses": {
+          "200": { "$ref": "#/components/responses/Task" },
+          "409": { "$ref": "#/components/responses/LeaseFenceRejected" }
+        },
+        "x-kolibri-authority": "control-plane/home",
+        "x-kolibri-truth-rule": "heartbeat proves attempt freshness only and never completion",
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
+    "/v1/tasks/{task_id}/complete": {
+      "post": {
+        "tags": ["execution"],
+        "operationId": "completeTaskAttempt",
+        "parameters": [{ "$ref": "#/components/parameters/TaskId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/TaskComplete" },
+        "responses": {
+          "200": { "$ref": "#/components/responses/TaskCompletion" },
+          "409": {
+            "description": "Stale lease or completion verifier rejection",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    { "$ref": "#/components/schemas/LeaseFenceRejected" },
+                    { "$ref": "#/components/schemas/CompletionVerificationRejected" }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "x-kolibri-authority": "control-plane/home",
+        "x-kolibri-completion-gate": "matching active attempt, lease owner and fencing token plus non-empty content-bound result and independent Home verifier verdict",
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
+    "/v1/tasks/{task_id}/fail": {
+      "post": {
+        "tags": ["execution"],
+        "operationId": "failTaskAttempt",
+        "parameters": [{ "$ref": "#/components/parameters/TaskId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/TaskFail" },
+        "responses": {
+          "200": { "$ref": "#/components/responses/Task" },
+          "409": { "$ref": "#/components/responses/LeaseFenceRejected" }
+        },
+        "x-kolibri-authority": "control-plane/home",
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
+    "/v1/tasks/{task_id}/cancel": {
+      "post": {
+        "tags": ["execution"],
+        "operationId": "cancelTask",
+        "parameters": [{ "$ref": "#/components/parameters/TaskId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/TaskCancel" },
+        "responses": {
+          "200": { "$ref": "#/components/responses/Task" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        },
+        "x-kolibri-authority": "control-plane/home",
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
+    "/v1/nodes": {
+      "get": {
+        "tags": ["runtime"],
+        "operationId": "listCanonicalNodes",
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-authority": "signed mesh manifest projected by control-plane/home",
+        "x-kolibri-truth-rule": "heartbeat freshness, declared capability and verified execution proof are separate fields",
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
+    "/v1/nodes/register": {
+      "post": {
+        "tags": ["runtime"],
+        "operationId": "registerNodeObservation",
+        "requestBody": { "$ref": "#/components/requestBodies/NodeRegister" },
+        "responses": { "200": { "$ref": "#/components/responses/Node" } },
+        "x-kolibri-authority": "control-plane/home",
+        "x-kolibri-truth-rule": "registration is an observation and never capability execution proof",
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
+    "/v1/nodes/{node_id}/heartbeat": {
+      "post": {
+        "tags": ["runtime"],
+        "operationId": "heartbeatNodeObservation",
+        "parameters": [{ "$ref": "#/components/parameters/NodeId" }],
+        "requestBody": { "$ref": "#/components/requestBodies/NodeHeartbeat" },
+        "responses": { "200": { "$ref": "#/components/responses/Node" } },
+        "x-kolibri-authority": "control-plane/home",
+        "x-kolibri-truth-rule": "active_attempts null means unknown; runner available without invocation evidence is not verified",
         "x-kolibri-implementation": "compatibility"
       }
     },
@@ -252,6 +392,7 @@
         "operationId": "listTaskEvents",
         "parameters": [{ "$ref": "#/components/parameters/TaskId" }],
         "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-planned": true,
         "x-kolibri-implementation": "target"
       },
       "post": {
@@ -260,6 +401,7 @@
         "parameters": [{ "$ref": "#/components/parameters/TaskId" }],
         "requestBody": { "$ref": "#/components/requestBodies/Mutation" },
         "responses": { "201": { "$ref": "#/components/responses/Success" } },
+        "x-planned": true,
         "x-kolibri-implementation": "target"
       }
     },
@@ -675,6 +817,38 @@
             }
           }
         }
+      },
+      "TaskCreate": {
+        "required": true,
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TaskCreateRequest" } } }
+      },
+      "TaskLease": {
+        "required": true,
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TaskLeaseRequest" } } }
+      },
+      "TaskHeartbeat": {
+        "required": true,
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TaskHeartbeatRequest" } } }
+      },
+      "TaskComplete": {
+        "required": true,
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TaskCompletionRequest" } } }
+      },
+      "TaskFail": {
+        "required": true,
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TaskFailureRequest" } } }
+      },
+      "TaskCancel": {
+        "required": true,
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TaskCancelRequest" } } }
+      },
+      "NodeRegister": {
+        "required": true,
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NodeRegistrationRequest" } } }
+      },
+      "NodeHeartbeat": {
+        "required": true,
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NodeHeartbeatRequest" } } }
       }
     },
     "responses": {
@@ -689,9 +863,55 @@
       "CapabilityList": {
         "description": "Truthful runtime-probed capability inventory",
         "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CapabilityList" } } }
+      },
+      "Task": {
+        "description": "Authoritative task projection from control-plane/home",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Task" } } }
+      },
+      "TaskList": {
+        "description": "Authoritative paginated task and queue projection",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TaskList" } } }
+      },
+      "TaskCompletion": {
+        "description": "Completion accepted only after the independent Home verifier passes",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TaskCompletionResult" } } }
+      },
+      "Node": {
+        "description": "Worker observation; not execution proof",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NodeRecord" } } }
+      },
+      "LeaseFenceRejected": {
+        "description": "Attempt, owner or monotonic fence does not match the active Home lease",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LeaseFenceRejected" } } }
+      },
+      "Conflict": {
+        "description": "Idempotency or state conflict",
+        "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } }
+      },
+      "ContractRejected": {
+        "description": "Request violates the canonical task contract",
+        "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } }
+      },
+      "NotFound": {
+        "description": "Requested durable record was not found",
+        "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } }
       }
     },
     "schemas": {
+      "Task": { "$ref": "./control-plane.schema.json#/$defs/Task" },
+      "TaskList": { "$ref": "./control-plane.schema.json#/$defs/TaskList" },
+      "TaskCreateRequest": { "$ref": "./control-plane.schema.json#/$defs/TaskCreateRequest" },
+      "TaskLeaseRequest": { "$ref": "./control-plane.schema.json#/$defs/TaskLeaseRequest" },
+      "TaskHeartbeatRequest": { "$ref": "./control-plane.schema.json#/$defs/TaskHeartbeatRequest" },
+      "TaskCompletionRequest": { "$ref": "./control-plane.schema.json#/$defs/TaskCompletionRequest" },
+      "TaskFailureRequest": { "$ref": "./control-plane.schema.json#/$defs/TaskFailureRequest" },
+      "TaskCancelRequest": { "$ref": "./control-plane.schema.json#/$defs/TaskCancelRequest" },
+      "TaskCompletionResult": { "$ref": "./control-plane.schema.json#/$defs/TaskCompletionResult" },
+      "LeaseFenceRejected": { "$ref": "./control-plane.schema.json#/$defs/LeaseFenceRejected" },
+      "CompletionVerificationRejected": { "$ref": "./control-plane.schema.json#/$defs/CompletionVerificationRejected" },
+      "NodeRecord": { "$ref": "./control-plane.schema.json#/$defs/NodeRecord" },
+      "NodeRegistrationRequest": { "$ref": "./control-plane.schema.json#/$defs/NodeRegistrationRequest" },
+      "NodeHeartbeatRequest": { "$ref": "./control-plane.schema.json#/$defs/NodeHeartbeatRequest" },
       "ResponseCreate": {
         "type": "object",
         "required": ["model", "input"],

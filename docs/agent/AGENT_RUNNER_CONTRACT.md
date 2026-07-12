@@ -1,452 +1,404 @@
-# Agent Runner Contract
+# Kolibri Agent Runner Contract
 
-Date: 2026-06-30
+Status: Home-first implementation contract, 2026-07-12.
 
-This contract defines the minimum result and safety behavior for Kolibri Agent
-Host runners before a task may be reported as completed to the Control Plane.
+This document defines the boundary between the logical Home Control Plane and
+every Execution Plane runner. It supersedes the June 2026 runner notes. The
+frozen product contract remains
+`docs/KOLIBRI_OS_V1_CONTRACT_FREEZE.md`; this document narrows it to task
+leasing, execution and completion.
 
-## Result Status
+Normative terms:
 
-Runner results use only these Control Plane contract statuses:
+- **REQUIRED** is the release contract.
+- **COMPATIBILITY** describes behavior implemented by the current
+  `ops/agent_host.py` and `ops/factory_control.py` while the Rust authority is
+  built.
+- **LEGACY** may be read only during the two-wave migration window. New tasks,
+  releases and tests must not produce it.
 
-- `completed`: all required artifacts are present and no contract blockers were found.
-- `blocked`: the runner could not safely complete because the envelope constraints or
-  required outputs were not satisfied.
-- `failed`: runtime execution failed.
+The presence of a binary, a heartbeat, an HTTP `200`, a provider reply, a local
+file or the word `completed` is never execution proof.
 
-Domain-specific review states such as `APPROVED` or `CHANGES_REQUESTED` may be
-kept in separate fields such as `runner_status`; they must not replace the
-contract `status`.
+## Authority and transport
 
-## Required Result Fields
+- The only logical task authority is `control-plane/home`. A hostname or IP is
+  discovery metadata, not durable identity.
+- Every mutation is bound to the current positive `authority_epoch`. A runner
+  must reject an older epoch and stop the affected process group.
+- Workers register, lease, heartbeat, checkpoint, complete and fail through
+  Home API contracts. **SSH is not worker transport.** SSH is reserved for
+  owner-approved bootstrap, diagnostics and emergency recovery.
+- Provider fallback never changes task authority. Mimo, Codex, specialized
+  providers and local models are Execution Plane routes beneath Home.
+- Mac is an optional Apple/provider worker. A Mac browser or Codex session is
+  never copied to Home or to Linux workers.
 
-Every persisted runner result must include these fields:
+### Current compatibility gap
 
-- `task_id`
-- `status`
-- `changed_files`
-- `artifact_dir`
-- `required_artifacts_present`
-- `required_artifacts_missing`
-- `write_scope`
-- `write_scope_violations`
-- `read_only`
-- `product_code_modification_forbidden`
-- `product_code_changed`
-- `push_attempted`
-- `push_blocked`
-- `blocked_reason`
-- `failure_reason`
-- `tests_run`
-- `next_recommended_task`
+The current Python compatibility Control Plane implements monotonic
+`fencing_token`, but it does not yet persist or validate `authority_epoch`.
+Until the Rust/quorum authority adds that field, the runtime is a Home-only
+compatibility authority, not HA/split-brain proof. A release report must expose
+this as `partial`; it must not infer epoch safety from the hostname `home`.
 
-## Push Policy
+## Durable task envelope
 
-If the task envelope contains any of these truthy flags, the runner must not run
-`git push`:
+A schedulable task carries, at minimum:
 
-- `git_push_forbidden`
-- `no_push`
-- `read_only`
+- `task_id`, `idempotency_key`, `kind`, `objective` and acceptance assertions;
+- project, workstream, plan, actor and trace identifiers where applicable;
+- immutable `base_commit` or immutable release digest for code/release work;
+- `required_capabilities` and typed resource/slot requests;
+- runner/provider policy, budgets and bounded attempt timeout policy;
+- `max_attempts`, the total number of attempts including the first;
+- `write_scope`, worktree policy and effective permissions;
+- required artifact types and verifier gates;
+- approval, FormulaLM consent/license and retention policy;
+- `ContextPack` reference or embedded `kolibri.context-pack.v1` projection.
 
-The result must report:
+`max_attempts` is canonical and is an integer from 1 through 100. During the
+compatibility window only, incoming `max_retries` is translated to
+`max_attempts = max_retries + 1`. Supplying both spellings with different
+budgets is a `409` contract conflict. New producers must never emit
+`max_retries`.
 
-- `push_attempted: false`
-- `push_blocked: true`
-- `push_block_reason` naming the active constraint
+Task creation is idempotent. Reusing an idempotency key with an identical
+canonical request returns the existing task. Reusing it with a different
+request hash returns `409`; it never silently replaces the task.
 
-If a push is attempted while one of those flags is truthy, the task must not be
-completed. The result status must become `blocked`.
+## Kinds, capabilities and resources
 
-For implementation runners that are allowed to publish a branch, `git push` must
-still run only after the runner contract preflight has passed. The preflight must
-verify required artifacts, write scope, read-only/product-code constraints, and
-artifact directory presence before publishing. If preflight fails, the runner
-must report `push_attempted: false`, `push_blocked: true`, and use `/fail` rather
-than publishing a branch and later discovering the task cannot complete.
+The Swarm plan role kinds are `planner`, `worker`, `reducer`, `verifier`,
+`approval` and `release`. They are durable orchestration roles, not necessarily
+Agent Host dispatch names.
 
-## Read-Only And Product-Code Policy
+The current compatibility Agent Host supports these dispatch kinds:
 
-When `read_only: true`, product code changes are forbidden. Docs and artifact
-outputs are allowed unless a stricter `write_scope` is present.
+- `owner_remote_task`;
+- `orchestrator_chat_response` and `telegram_chat_response`;
+- `image_generation` and `telegram_image_generation`;
+- `read_only_probe` and `lease_heartbeat_probe`;
+- `review_pr`;
+- `impl_factory_smoke` and `impl_retry_error_clearance`;
+- `direct_mimo`, `mimo_direct` and `mimo_task` as LEGACY direct-runner aliases;
+- `release_bundle_apply` and `release_bundle_rollback` through the narrow
+  privileged release helper.
 
-When `product_code_modification_forbidden: true`, non-docs product changes are
-blocked.
+Unknown kinds or missing required capabilities return a structured `blocked`
+result without arbitrary execution or product changes.
 
-When `documentation_artifacts_only: true`, only these writes are allowed:
+Capabilities are runtime attestations, not catalog entries. A worker advertises
+only capabilities whose dependency, policy and live readiness gates pass.
+Examples include resource capabilities (`code`, `test`, `browser`, `build`,
+`document`, `model`, `review`, `apple`), runner capabilities (`runner:mimo`,
+`runner:codex`) and the signed release capability `release_apply_v1`.
 
-- `docs/**`
-- the task artifact directory
-- paths explicitly allowed by `write_scope`
+Physical slots are separate from logical actors. The required Agent Host
+supports multiple bounded slots and publishes capacity plus current occupancy.
+`max_inflight` must constrain simultaneous attempts; CPU, memory, disk,
+provider quota and the 20% safety reserve can lower that value dynamically.
 
-## Write Scope
+### Current compatibility gap
 
-`write_scope` is a strict allowlist. If present, every changed file must match at
-least one scope entry. Scope entries may be exact paths, directory prefixes, or
-simple glob patterns such as `docs/agent/**`.
+The Python Agent Host parses `max_inflight` but its loop has one
+`_active_task_id` and leases/runs one task synchronously. It is therefore a
+single-slot compatibility worker. `max_inflight > 1` must not be reported as
+working capacity until concurrent attempt scheduling and isolation tests pass.
 
-Any file outside scope is recorded in `write_scope_violations`, and the task
-must not complete.
+The compatibility envelope still carries one `required_capability` string.
+The required contract uses the `required_capabilities` array; migration may
+project a one-item array to the legacy singular field, but new orchestration
+code must not lose multiple capability requirements during that projection.
 
-## Required Artifacts
+## Registration and heartbeats
 
-The envelope may define required outputs with either:
+Registration and node heartbeat records include:
 
-- `required_outputs`
-- `required_artifacts`
+- opaque `node_id`, `agent_id`, runtime digest and process identity;
+- signed membership provenance and `authority_epoch`;
+- capabilities and physical slot capacity;
+- runner contracts plus redacted readiness status;
+- release-installer status and node telemetry;
+- `active_attempts`, an array of every active attempt on the process.
 
-Each entry may be a string path or an object with `path`, `file`, `artifact`, or
-`output`. Relative paths are checked against both the worktree and the artifact
-directory. Absolute paths are checked directly.
-
-If any required artifact is missing, the result must include it in
-`required_artifacts_missing` and must not be completed.
-
-## Backend Python Verification Environment
-
-Backend verification commands may opt into a declared dependency-satisfied
-Python environment. The contract is explicit: no backend environment is created
-unless the task envelope contains one of these object keys:
-
-- `backend_python_verification_env`
-- `backend_test_environment`
-- `backend_verification_environment`
-
-The object must use `type: "backend_python"` or `type: "python_backend"`.
-Supported setup inputs are intentionally narrow and auditable:
-
-- `python`: interpreter used to create the venv, default `python3`
-- `requirements` or `requirements_files`: explicit requirements files such as
-  `backend/requirements.txt`
-- `packages`: explicit packages or local package paths such as `pytest`
-- `path`, `venv_path`, or `env_dir`: optional env path; relative paths resolve
-  under the task artifact directory
-- `cleanup`: default `true`
-
-When enabled, verifier commands that start with `python`, `python3`, or `pytest`
-run through the temporary backend environment. Other commands run unchanged.
-
-The default env path is the task artifact directory, `backend-test-env`. Env
-paths under the worktree are rejected so temporary dependencies cannot become
-committed files. Cleanup is enabled by default, and repo ignore rules include the
-standard backend test env names as a defense-in-depth guard.
-
-If setup fails, the runner must report a structured blocker:
+Each `active_attempts` entry contains at least:
 
 ```json
 {
-  "error_type": "backend_test_environment_failed",
-  "status": "blocked",
-  "blocked_reason": "backend_test_environment_failed"
+  "task_id": "KOL-TASK-...",
+  "attempt_id": "KOL-TASK-...-attempt-2",
+  "fencing_token": 7,
+  "authority_epoch": 4,
+  "slot_class": "code",
+  "started_at": "2026-07-12T00:00:00Z",
+  "last_heartbeat_at": "2026-07-12T00:00:05Z"
 }
 ```
 
-Example:
+Task heartbeat repeats `task_id`, `attempt_id`, `fencing_token`,
+`authority_epoch`, `node_id` and `agent_id`. It may add bounded, sanitized
+`progress`; it never publishes private reasoning, credentials or arbitrary
+stdout.
+
+The node heartbeat interval is at most 10 seconds. A task subprocess refreshes
+its task lease at most every 2 seconds in the current compatibility runtime.
+Loss of the authoritative heartbeat response, cancellation, stale epoch or a
+fence mismatch terminates the local process group. Client disconnect alone does
+not cancel durable work.
+
+### Current compatibility mapping
+
+The Python Agent Host currently publishes scalar `active_task`, not
+`active_attempts`, because it is single-slot. That field is LEGACY projection
+only. The multi-slot release gate requires `active_attempts` and forbids deriving
+it from one scalar after concurrent execution is enabled.
+
+Registration, heartbeat and readiness-card evidence do not prove provider
+execution. `available` becomes execution proof only after a content-bound live
+invocation, and a task cancelled before lease is not an execution result.
+
+## Lease, attempt and fencing
+
+Home assigns all authoritative attempt fields:
 
 ```json
 {
-  "backend_python_verification_env": {
-    "type": "backend_python",
-    "requirements": ["backend/requirements.txt"],
-    "packages": ["pytest"],
-    "cleanup": true
-  }
+  "attempt_id": "KOL-TASK-...-attempt-2",
+  "lease_owner": "node-id:agent-id",
+  "lease_until": "2026-07-12T00:01:00Z",
+  "fencing_token": 7,
+  "authority_epoch": 4
 }
 ```
 
-## Canonical Run Artifacts
+Rules:
 
-Owner-facing remote task runs that publish a docs run directory must declare one
-canonical run artifact directory with one of these envelope keys:
+1. `fencing_token` is a positive integer, monotonically increasing per task.
+2. `authority_epoch` is a positive integer, monotonically increasing per
+   Control Plane authority term.
+3. A heartbeat, completion or failure must match the authoritative attempt,
+   owner, node, agent, fence and epoch.
+4. A mismatch or late completion returns `409`; the result may be retained as
+   quarantined evidence but cannot mutate task state.
+5. Lease expiry consumes the current attempt. The task returns to the queue
+   only while `attempt < max_attempts`; otherwise it becomes `dead_letter`.
+6. A retry receives a new `attempt_id` and a strictly larger `fencing_token`.
+7. The worker must not invent or increment authoritative fields locally.
 
-- `canonical_run_artifact_dir`
-- `run_artifact_dir`
-- `run_artifacts_dir`
+The Python compatibility runtime recognizes pre-fencing Redis records only long
+enough to migrate them on the next lease. New records always carry
+`kolibri.lease-fencing.v1`; deleting one fencing field never downgrades a task.
 
-When present, the directory must contain exactly these required files:
+## Runner readiness and authentication truth
 
-- `PLAN.md`
-- `ACTIONS.md`
-- `TESTS.md`
-- `RESULT.md`
-- `NEXT.md`
+Runner readiness has four states: `available`, `degraded`, `blocked` and
+`unavailable`. A binary path or CLI `login status` alone is not `available`.
+The state must be backed by a bounded live invocation or a fresh trusted-broker
+attestation with a timestamp, model, sandbox, output hash and normalized error.
 
-The runner finalizer treats those five exact files as required artifacts by
-appending their paths to `required_artifacts_present` and
-`required_artifacts_missing`. Missing `NEXT.md` is therefore a contract blocker,
-not a successful completion with an ambiguous owner-facing state.
+Only `available` may add `runner:<name>` to node capabilities. Failures such as
+`runner_auth_blocked`, `runner_auth_failed`, `runner_access_denied`,
+`runner_policy_blocked`, `provider_risk_control`, `runner_unavailable` or
+`provider_runner_outdated` withdraw that capability before the next lease.
 
-Near-miss directories are not discovered by prefix, timestamp, or fuzzy match.
-If a run produced the files under another directory, that directory must be
-listed explicitly in one of these alias keys:
+Credentials are node-managed or broker-scoped. Tasks never contain passwords,
+cookies, refresh tokens, API keys or browser sessions. A runner may report an
+opaque authorization reference, but not secret material. Readiness and result
+logs are redacted.
 
-- `canonical_run_artifact_aliases`
-- `run_artifact_aliases`
-- `run_artifacts_aliases`
+### Safe provider routes
 
-Aliases are deterministic and safe:
+- Public identity is always `kolibri`; the requested internal runner is audit
+  metadata.
+- A factory response task is read-only and worktree-scoped.
+- Mimo response generation uses the pinned response-only profile, no tools,
+  JSON output, prompt-by-file and a read-only sandbox.
+- Codex factory generation uses a pinned model contract, prompt on stdin,
+  read-only sandbox and provider-managed web search.
+- Controlled web search is bounded and hash-evidenced. Arbitrary `curl`/`wget`
+  network access is not substituted for the search capability.
+- Provider proxy variables are injected only into provider child processes.
+  Home API, mesh, build commands and the Agent Host itself remain on canonical
+  routes.
+- A requested runner is honored exactly. Fallback is allowed only by an
+  explicit, audited provider policy and is performed by the gateway, not by a
+  worker improvising after failure.
+- A failed provider attempt is an internal event. It is terminal for the user
+  only after all policy-approved routes are exhausted.
 
-- aliases are inspected in the envelope order
-- only an alias containing all five exact files may be used
-- a complete alias is copied into the canonical directory without overwriting
-  existing canonical files
-- alias inspection is recorded in `canonical_run_artifact_alias_log` and
-  persisted as `run-artifact-aliases.json` in the task artifact directory
-- partial aliases never hide missing canonical files
+The write-capable Mimo/Codex direct invocation descriptions are LEGACY. They
+must not be selected for public response tasks or advertised as the safe
+factory provider contract.
 
-Example:
+## Context, worktrees and permissions
+
+Code-producing attempts receive one isolated worktree under the Agent Host task
+root. Durable identity is the task/attempt plus immutable `base_commit`, never
+the local path. One attempt has one fenced writer and a strict `write_scope`.
+Reducers consume commits and verified artifacts, not an agent's chat memory.
+
+`ContextPack` supplies the goal, current plan step, decisions, checkpoints,
+acceptance assertions, base commit and permitted paths. Mac, Home CLI, Codex and
+Mimo resume through that durable context; local conversation state is not
+authority.
+
+Read-only/no-push enforcement remains fail-closed:
+
+- `read_only`, `no_push` or `git_push_forbidden` removes push/full-autonomy
+  permissions, and any write-worktree task carrying those constraints is
+  blocked before its runner executes;
+- `product_code_modification_forbidden` blocks non-document product changes;
+- `documentation_artifacts_only` permits only `docs/**`, the task artifact
+  directory and explicit `write_scope`;
+- every changed path must match `write_scope` when it is present;
+- push-capable implementation work runs the complete contract preflight before
+  `git push`; a failed preflight skips the push.
+
+For declared backend verification, a temporary Python environment is created
+under the artifact directory, never the worktree. The envelope must explicitly
+declare the interpreter, requirements/packages and cleanup policy. Setup failure
+is `backend_test_environment_failed`, not a passed verification.
+
+## Runner result
+
+The local contract finalizer persists at least:
+
+- task, attempt, fence and epoch binding;
+- `status`, `requested_runner`, `runner` and `runner_binding_verified`;
+- changed files, write scope and violations;
+- read-only/product-code/push policy results;
+- required artifacts present/missing;
+- tests and checks;
+- artifact manifest, result reference and next recommended task;
+- normalized blocker/failure reason without secrets.
+
+Runner contract statuses are only `completed`, `blocked` and `failed`.
+Domain review states such as `APPROVED` or `CHANGES_REQUESTED` belong in
+`runner_status`; they do not replace the contract status.
+
+Unsupported work, missing artifacts, scope violations, forbidden push,
+permission mismatch, requested-runner mismatch or unavailable authorization
+cannot produce a completed runner result.
+
+Owner-facing canonical run directories, when requested, contain exactly:
+`PLAN.md`, `ACTIONS.md`, `TESTS.md`, `RESULT.md` and `NEXT.md`. An explicitly
+declared complete alias may be copied into the canonical directory; fuzzy
+directory discovery is forbidden.
+
+## Artifact materialization and CAS
+
+`artifact_dir` and a node-local `result.json` are attempt scratch/evidence, not
+the durable artifact authority. Before a product artifact is `ready`, the
+artifact service materializes bytes into immutable content-addressed storage
+and records:
 
 ```json
 {
-  "canonical_run_artifact_dir": "docs/agent/runs/2026-07-01-p0-run",
-  "canonical_run_artifact_aliases": [
-    "docs/agent/runs/2026-07-01-p0-run-final"
-  ]
+  "schema_version": "kolibri.artifact.v1",
+  "artifact_id": "art_...",
+  "uri": "artifact://sha256/<digest>",
+  "media_type": "application/pdf",
+  "size_bytes": 12345,
+  "sha256": "sha256:<64 lowercase hex>",
+  "task_id": "KOL-TASK-...",
+  "attempt_id": "KOL-TASK-...-attempt-2",
+  "fencing_token": 7,
+  "authority_epoch": 4
 }
 ```
 
-Expected result after a complete alias is materialized:
+The task result references the immutable CAS record and its hash. A path,
+caption, claimed image URL or file name without verified bytes is not an
+artifact. A replacement creates a new artifact and lineage edge.
 
-```json
-{
-  "status": "completed",
-  "canonical_run_artifact_alias_used": "docs/agent/runs/2026-07-01-p0-run-final",
-  "canonical_run_artifacts_missing": [],
-  "required_artifacts_missing": []
-}
-```
+### Current compatibility gap
 
-## Unsupported Tasks
+The current Agent Host writes `artifact-manifest.json` with local file hashes,
+and the Python Control Plane accepts a non-empty node-local `result_reference`.
+That is useful compatibility evidence, but it is not durable CAS proof. Release
+readiness for documents, images, builds and other product artifacts requires
+materialization into CAS plus a bound artifact verifier.
 
-Unsupported task kinds or required capabilities must return a structured
-`blocked` result. The Agent Host must not fall back to arbitrary execution and
-must not modify product code for an unsupported task.
+## Exact completion and independent verifier
 
-## Completion Gate
+The worker calls `/v1/tasks/{task_id}/complete` only after local contract
+preflight. Its payload binds:
 
-The Agent Host may call `/complete` only after the contract finalizer confirms:
+- `attempt_id`, `fencing_token`, `authority_epoch`, `node_id`, `agent_id`;
+- the non-empty canonical result object;
+- immutable `result_reference`;
+- optional claimed `result_sha256` and `binding_sha256` for comparison.
 
-- required artifacts are present
-- write scope has no violations
-- read-only/product-code constraints are satisfied
-- forbidden push was not attempted
-- artifact directory exists
-- result JSON was written
-
-Otherwise the Agent Host must call `/fail` with a structured contract result and
-`error_type: runner_contract_blocked` for blocked states.
-
-## Mimo Auto 2.5 Runner
-
-`runner: "mimo"` uses the non-interactive Mimo Auto 2.5 CLI contract on every
-Agent Host that advertises `runner:mimo`:
+Home independently canonicalizes the result and computes:
 
 ```text
-mimo run --format json --model mimo/mimo-auto \
-  --dangerously-skip-permissions --dir <task-worktree> \
-  --title <task-title> <prompt>
+result_sha256 = SHA-256(canonical JSON result)
+binding_sha256 = SHA-256(
+  schema + task_id + attempt_id + lease_owner + fencing_token
+  + authority_epoch + result_reference + result_sha256
+)
 ```
 
-The task envelope never supplies a password, session, login command, or user
-credential. Node registration and heartbeat runner manifests advertise
-`authorization_mode: "no_user_auth"`, `user_authorization_required: false`, the
-exact upstream model, JSON output, and the worktree-scoped execution mode.
+The persisted records are:
 
-Skipping interactive permission prompts does not bypass the Agent Host safety
-contract. Before invocation, the resolved `--dir` must be inside the configured
-Agent Host task root. Existing read-only, no-push, write-scope, required-artifact,
-redaction, and completion gates remain authoritative. Prompts and concrete
-worktree paths are replaced with placeholders in command logs.
+- `kolibri.task-completion-evidence.v1`;
+- `kolibri.task-completion-binding.v1`;
+- `kolibri.control-plane-completion-verifier.v1` with
+  `verifier: control-plane/home`, `independent: true`, all checks true and
+  `verdict: passed`.
 
-Provider-side HTTP 401/403 or policy failures remain structured blockers. They
-must be redacted and reported through `/fail`; the Agent Host must not fall back
-silently to Codex or another runner.
+Home verifies task state, attempt, owner, node, agent, fence, epoch, successful
+runner status, result reference, result hash and binding hash. Where artifacts
+are required, it also verifies CAS bytes/hash/media type and the declared
+artifact verifier. Producer and verifier identities must be independent under
+the task verifier policy.
 
-## Valid Envelope Examples
+Only then may task state become `completed`. Stored completion truth is
+recomputed from the result and binding; a persisted `verdict: passed` is not
+trusted by itself. `/fail` uses the same attempt/fence/epoch binding and cannot
+retry beyond `max_attempts`.
 
-### Read-Only Probe With Required Artifact
+### Current compatibility gap
 
-```json
-{
-  "task_id": "KOL-READONLY-REPORT-1",
-  "kind": "read_only_probe",
-  "required_capability": "read_only_probe",
-  "read_only": true,
-  "no_push": true,
-  "required_artifacts": [
-    "docs/agent/reports/KOL-READONLY-REPORT-1/RESULT.md"
-  ],
-  "write_scope": [
-    "docs/agent/reports/KOL-READONLY-REPORT-1/**"
-  ]
-}
-```
+`ops/factory_control.py` already creates and recomputes the three completion
+records and validates attempt/owner/node/agent/fence/result hashes. Its binding
+does not yet include `authority_epoch` or a CAS object. These are explicit
+cutover blockers, not optional metadata.
 
-Expected result if the artifact exists and only scoped docs changed:
+## Release compatibility table
 
-```json
-{
-  "status": "completed",
-  "push_attempted": false,
-  "push_blocked": true,
-  "push_block_reason": "no_push, read_only",
-  "required_artifacts_missing": [],
-  "write_scope_violations": [],
-  "product_code_changed": false
-}
-```
+| Surface | Status | Rule |
+| --- | --- | --- |
+| Home API task lifecycle | COMPATIBILITY | Sole live task authority; fenced attempts and independent result verifier required. |
+| Redis task state | LEGACY compatibility | Removed after two verified release waves; never a second authority. |
+| Scalar `active_task` | LEGACY projection | Single-slot only; replaced by `active_attempts`. |
+| `max_retries` | LEGACY input alias | Read/translate only; new tasks emit `max_attempts`. |
+| Pre-fencing Redis task | LEGACY migration record | Upgraded on next lease; no new record may omit fencing. |
+| Direct Mimo/Codex write paths | LEGACY | Never public response routing; remove after bounded task adapters exist. |
+| Local artifact path | COMPATIBILITY evidence | Not product-ready until bytes are in CAS and verified. |
+| SSH task launch | Forbidden | Operator diagnostics/bootstrap only. |
+| Rust multi-slot Agent Host | REQUIRED target | Must pass isolation, resource and active-attempt tests before authority. |
+| Rust/quorum `authority_epoch` | REQUIRED target | Must pass stale-leader and stale-attempt tests before HA claim. |
 
-### Documentation Artifact Task
+## Machine-checkable release assertions
 
-```json
-{
-  "task_id": "KOL-DOCS-ONLY-1",
-  "kind": "read_only_probe",
-  "documentation_artifacts_only": true,
-  "product_code_modification_forbidden": true,
-  "required_outputs": [
-    {
-      "path": "docs/agent/runs/KOL-DOCS-ONLY-1/RESULT.md"
-    }
-  ],
-  "write_scope": [
-    "docs/agent/runs/KOL-DOCS-ONLY-1/**"
-  ]
-}
-```
+A runner/Control Plane release must fail when any assertion below is false:
 
-Expected result if only scoped docs outputs are written:
-
-```json
-{
-  "status": "completed",
-  "product_code_modification_forbidden": true,
-  "product_code_changed": false,
-  "required_artifacts_present": [
-    "docs/agent/runs/KOL-DOCS-ONLY-1/RESULT.md"
-  ],
-  "write_scope_violations": []
-}
-```
-
-## Invalid Outcome Examples
-
-### Missing Required Artifact
-
-If the envelope requires:
-
-```json
-{
-  "required_artifacts": [
-    "docs/agent/integration/FRONTEND_BACKEND_CONTRACT.md"
-  ]
-}
-```
-
-but the file does not exist in the worktree or artifact directory, the runner
-must not complete:
-
-```json
-{
-  "status": "blocked",
-  "required_artifacts_missing": [
-    "docs/agent/integration/FRONTEND_BACKEND_CONTRACT.md"
-  ],
-  "blocked_reason": "required_artifacts_missing"
-}
-```
-
-### Write Scope Violation
-
-If `write_scope` is `["docs/agent/allowed/**"]` and the task changes
-`ops/agent_host.py`, the runner must not complete:
-
-```json
-{
-  "status": "blocked",
-  "changed_files": [
-    "ops/agent_host.py"
-  ],
-  "write_scope_violations": [
-    "ops/agent_host.py"
-  ],
-  "blocked_reason": "write_scope_violations"
-}
-```
-
-### Forbidden Push Attempt
-
-If the envelope has `git_push_forbidden: true` or `read_only: true`, any push
-attempt is a blocker:
-
-```json
-{
-  "status": "blocked",
-  "push_attempted": true,
-  "push_blocked": true,
-  "push_block_reason": "git_push_forbidden",
-  "blocked_reason": "forbidden_push_attempted"
-}
-```
-
-The runner must also sanitize effective permissions before lease execution. A
-`read_only`, `no_push`, or `git_push_forbidden` envelope cannot retain
-`git_push` in `permissions`, `permission_set`, or `allowed_permissions`, and a
-`full_autonomy` permission pack is downgraded to `read_only` before the task is
-run. The sanitized view is recorded in `effective_permissions`.
-
-### Publish Preflight Failure
-
-If a branch-producing implementation runner is otherwise allowed to push but a
-required artifact is missing, the runner must skip `git push`:
-
-```json
-{
-  "status": "blocked",
-  "push_attempted": false,
-  "push_blocked": true,
-  "push_block_reason": "required_artifacts_missing",
-  "required_artifacts_missing": [
-    "docs/agent/runs/TASK/RESULT.md"
-  ],
-  "blocked_reason": "required_artifacts_missing"
-}
-```
-
-### Review Clone/Auth Failure
-
-Review runners must write `result.json` even when the initial clone cannot
-authenticate. If clone stderr indicates missing GitHub credentials, missing repo
-access, disabled prompts, or SSH permission denial, the result must fail with
-`error_type: review_clone_auth_failed`, keep `required_artifacts_missing` empty,
-and recommend repairing the Agent Host git credentials before rerunning review.
-
-### Owner Remote Task Requested Runner
-
-`owner_remote_task` is a supported task kind. The Agent Host must honor the
-requested `runner` exactly. A task with `runner: mimo` must invoke MIMO or fail
-with a structured runner result; it must not invoke Codex unless the task
-envelope carries an explicit, audited fallback policy. A task with
-`runner: codex` follows the same rule for Codex.
-
-Runner auth and availability failures must be classified without credential
-repair side effects:
-
-```json
-{
-  "status": "blocked",
-  "kind": "owner_remote_task",
-  "runner": "mimo",
-  "blocked_reason": "runner_auth_blocked",
-  "next_recommended_task": "repair mimo auth on this node or route to another online node with runner:mimo"
-}
-```
-
-Nodes that advertise `runner:<name>` but fail with `runner_auth_blocked` or
-`runner_unavailable` must be marked blocked or unavailable for that runner so
-future leases do not treat the node as a healthy path for that runner.
-
-### Unsupported Task Kind
-
-If the Agent Host receives an unsupported `kind`, it must return a structured
-blocked result and avoid product modifications.
+1. Home is the only configured task authority and no `main`/`primary` fallback
+   exists.
+2. New tasks contain `max_attempts`, fencing schema and initial token zero.
+3. Every lease increments the positive fence and carries the current authority
+   epoch.
+4. Late attempt, stale fence, stale epoch, wrong node or wrong agent mutations
+   return `409`.
+5. Node heartbeats publish exact `active_attempts`; occupancy never exceeds
+   admitted slots.
+6. A failed runner readiness probe withdraws `runner:<name>` before another
+   task can lease it.
+7. Code attempts cannot share a worktree or write scope.
+8. Completion has a non-empty result, CAS-bound required artifacts and a passed
+   independent verifier whose hashes recompute exactly.
+9. Worker work is submitted through API contracts, never SSH.
+10. Compatibility gaps above remain visible as `partial` until their dedicated
+    tests pass; documentation or heartbeat cannot promote them to ready.

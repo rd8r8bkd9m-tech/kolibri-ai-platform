@@ -2,6 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://kolibriai.ru/contracts/kolibri-os-v1/domain.schema.json",
   "title": "Kolibri OS V1 durable domain records",
+  "x-kolibri-authority": "control-plane/home",
+  "x-kolibri-control-plane-contract": "./control-plane.schema.json",
   "oneOf": [
     { "$ref": "#/$defs/Event" },
     { "$ref": "#/$defs/ContextPack" },
