@@ -19,13 +19,15 @@ The bootstrap updates only:
 - `/usr/local/bin/kolibri-agent-host`;
 - the digest-pinned Mimo response-only profile;
 - Python modules imported by that bootstrap entry point;
+- the canonical non-secret runner-access declaration;
 - `kolibri-agent-host.service`.
 
-It does not write Agent Host environment, runner-access declarations, mesh
-membership, credentials, backend, Control Plane, release trust, or provider
-state. Only `kolibri-agent-host.service` is restarted. Existing release-helper
-trust remains a separate prerequisite; absence is reported as missing
-`release_apply_v1`, never synthesized as success.
+It does not write Agent Host environment, mesh membership, credentials,
+backend, Control Plane, release trust, or provider state. The runner-access
+file contains policy and identity references only; it never contains a copied
+Codex/Mimo credential. Only `kolibri-agent-host.service` is restarted.
+Existing release-helper trust remains a separate prerequisite; absence is
+reported as missing `release_apply_v1`, never synthesized as success.
 
 ## Dynamic plan and canary
 
@@ -72,8 +74,8 @@ python3 ops/agent_host_compat_bootstrap.py node \
 ```
 
 Before mutation the node proves that its local interface owns the manifest IP.
-Every replaced file is backed up with before-checksums. The three preserved
-runtime inputs are hashed before/after. A failed checksum, service activation,
+Every replaced file is backed up with before-checksums. The preserved
+environment and mesh inputs are hashed before/after. A failed checksum, service activation,
 or stable `NRestarts` gate triggers automatic rollback.
 
 Explicit rollback uses the same run and node identity:

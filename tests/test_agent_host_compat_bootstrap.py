@@ -36,7 +36,6 @@ class FakeRunner:
 def prepare_fake_root(root: Path) -> None:
     values = {
         "/etc/kolibri-agent-host.env": b"KOLIBRI_NODE_ID=worker-00\n",
-        "/etc/kolibri/runner-access.json": b'{"schema_version":"preserved"}\n',
         "/var/lib/kolibri-mesh/peers.json": b'{"preserved":true}\n',
         "/usr/local/bin/kolibri-agent-host": b"old-agent-host\n",
     }
@@ -116,6 +115,9 @@ def test_node_bootstrap_is_idempotent_preserves_runtime_inputs_and_rolls_back(tm
     assert (fake_root / "usr/local/bin/kolibri-agent-host").read_bytes() == (
         ROOT / "ops/agent_host.py"
     ).read_bytes()
+    assert (fake_root / "etc/kolibri/runner-access.json").read_bytes() == (
+        ROOT / "ops/runner-access.default.json"
+    ).read_bytes()
     assert {
         path: (fake_root / path.lstrip("/")).read_bytes()
         for path in compat.PRESERVED_PATHS
@@ -136,6 +138,7 @@ def test_node_bootstrap_is_idempotent_preserves_runtime_inputs_and_rolls_back(tm
     rolled_back = bootstrap.rollback()
     assert rolled_back["status"] == "rolled_back"
     assert (fake_root / "usr/local/bin/kolibri-agent-host").read_bytes() == b"old-agent-host\n"
+    assert not (fake_root / "etc/kolibri/runner-access.json").exists()
     assert not (fake_root / "usr/local/lib/kolibri/release_helper.py").exists()
 
 

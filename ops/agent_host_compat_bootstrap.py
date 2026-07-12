@@ -35,9 +35,14 @@ from typing import Any, Iterable, Protocol
 try:
     from ops.control_plane_endpoint import resolve_home_control_plane_url
     from ops.fleet_membership import MembershipError, MeshMembershipSource
+    from ops.runner_access import RunnerAccessError, validate_runner_access_manifest
 except ImportError:  # installed standalone beside the Agent Host modules
     from control_plane_endpoint import resolve_home_control_plane_url
     from fleet_membership import MembershipError, MeshMembershipSource
+    from runner_access import (  # type: ignore[no-redef]
+        RunnerAccessError,
+        validate_runner_access_manifest,
+    )
 
 
 SCHEMA_VERSION = "kolibri.agent-host-compat-bootstrap.v1"
@@ -56,7 +61,6 @@ WAVE_LAYOUT = (
 )
 PRESERVED_PATHS = (
     "/etc/kolibri-agent-host.env",
-    "/etc/kolibri/runner-access.json",
     "/var/lib/kolibri-mesh/peers.json",
 )
 
@@ -81,6 +85,11 @@ INSTALL_RECORDS = (
         0o644,
     ),
     InstallRecord("ops/runner_access.py", "/usr/local/lib/kolibri/runner_access.py", 0o644),
+    InstallRecord(
+        "ops/runner-access.default.json",
+        "/etc/kolibri/runner-access.json",
+        0o644,
+    ),
     InstallRecord(
         "ops/release_authority.py",
         "/usr/local/lib/kolibri/release_authority.py",
@@ -205,6 +214,15 @@ def load_source_payloads(source_root: Path) -> dict[str, bytes]:
                 compile(payloads[record.source], record.source, "exec")
             except (SyntaxError, ValueError) as exc:
                 raise BootstrapError("agent_host_compat_python_invalid") from exc
+    try:
+        runner_access = json.loads(
+            payloads["ops/runner-access.default.json"].decode("utf-8")
+        )
+        normalized_runner_access = validate_runner_access_manifest(runner_access)
+    except (UnicodeError, json.JSONDecodeError, RunnerAccessError) as exc:
+        raise BootstrapError("agent_host_compat_runner_access_invalid") from exc
+    if normalized_runner_access != runner_access:
+        raise BootstrapError("agent_host_compat_runner_access_not_canonical")
     agent_source = payloads["ops/agent_host.py"].decode("utf-8", errors="strict")
     service = payloads["ops/systemd/kolibri-agent-host.service"].decode(
         "utf-8", errors="strict"
