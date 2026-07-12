@@ -106,13 +106,16 @@ def test_apply_stores_raw_owner_record_and_passes_only_hash_stage(
     monkeypatch.setattr(provisioner.secrets, "token_urlsafe", lambda _length: TOKEN)
     observed: dict[str, object] = {}
 
-    def fake_root_helper(_helper, *, stage, target, node_id, owner_uid, rotate):
+    def fake_root_helper(
+        _helper, *, stage, target, node_id, owner_uid, rotate, migrate_from=None,
+    ):
         observed["stage"] = json.loads(stage.read_text(encoding="utf-8"))
         observed["stage_mode"] = stat.S_IMODE(stage.stat().st_mode)
         observed["target"] = str(target)
         observed["node_id"] = node_id
         observed["owner_uid"] = owner_uid
         observed["rotate"] = rotate
+        observed["migrate_from"] = migrate_from
         return {
             "status": "binding_verified_actor_drained",
             "node_id": NODE_ID,
@@ -132,6 +135,7 @@ def test_apply_stores_raw_owner_record_and_passes_only_hash_stage(
     assert stat.S_IMODE(destination.stat().st_mode) == 0o600
     assert observed["stage"] == verifier_record()
     assert observed["stage_mode"] == 0o600
+    assert observed["migrate_from"] is None
     assert "token" not in observed["stage"]
     assert payload["status"] == "credential_installed_actor_drained"
     assert payload["binding_verified"] is True
@@ -395,6 +399,193 @@ def test_root_phase_independently_rejects_skipped_rotation_epoch(tmp_path, monke
     assert exc_info.value.code == "verifier_epoch_not_increasing"
     assert exc_info.value.owner_rollback_safe is True
     assert json.loads(target.read_text(encoding="utf-8")) == verifier_record(epoch=1)
+
+
+def test_owner_migrates_existing_global_binding_without_copying_old_token(
+    tmp_path, monkeypatch, capsys,
+):
+    provisioner = load(PROVISIONER, "home_provider_owner_migration")
+    home = tmp_path / "home"
+    configure_owner(monkeypatch, provisioner, home)
+    helper = tmp_path / "root-helper"
+    helper.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    helper.chmod(0o700)
+    monkeypatch.setattr(provisioner, "validate_root_helper", lambda _path: helper)
+    monkeypatch.setattr(provisioner.secrets, "token_urlsafe", lambda _length: TOKEN)
+    observed = {}
+
+    def fake_root_helper(
+        _helper, *, stage, target, node_id, owner_uid, rotate, migrate_from=None,
+    ):
+        observed["stage"] = json.loads(stage.read_text(encoding="utf-8"))
+        observed["migrate_from"] = migrate_from
+        assert rotate is False
+        return {
+            "status": "binding_verified_actor_drained",
+            "node_id": NODE_ID,
+            "credential_id": "home-codex-provider-v2",
+            "epoch": 2,
+            "secrets_returned": False,
+        }
+
+    monkeypatch.setattr(provisioner, "run_root_helper", fake_root_helper)
+    assert provisioner.main([
+        "--apply",
+        "--credential-id", "home-codex-provider-v2",
+        "--epoch", "2",
+        "--migrate-from-node-id", "mac-codex-provider",
+        "--migrate-from-credential-id", "mac-codex-provider-v1",
+        "--migrate-from-epoch", "1",
+        "--root-helper", str(helper),
+    ]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    destination = provisioner.credential_destination(home)
+    stored = json.loads(destination.read_text(encoding="utf-8"))
+    assert payload["status"] == "credential_migrated_actor_drained"
+    assert stored["node_id"] == NODE_ID
+    assert stored["credential_id"] == "home-codex-provider-v2"
+    assert stored["epoch"] == 2
+    assert observed["migrate_from"] == {
+        "node_id": "mac-codex-provider",
+        "credential_id": "mac-codex-provider-v1",
+        "epoch": 1,
+    }
+    assert "token" not in observed["stage"]
+
+
+def test_root_phase_migrates_exact_old_binding_and_drains_both_actors(
+    tmp_path, monkeypatch,
+):
+    helper = load(ROOT_HELPER, "home_provider_root_migration")
+    monkeypatch.setattr(helper.os, "chown", lambda *_args: None)
+    calls: list[tuple[str, str, object]] = []
+    new_credential = "home-codex-provider-v2"
+
+    def fake_request(method, path, body=None):
+        calls.append((method, path, body))
+        if path.endswith("/drain"):
+            return {"draining": True}
+        if path == "/v1/tasks/queue/diagnostics":
+            return {
+                "redis": "PONG",
+                "lease_index_total": 0,
+                "expired_leases": 0,
+                "stuck_heartbeat_tasks": 0,
+            }
+        if path == "/v1/health":
+            return {"status": "completed"}
+        if path.startswith("/v1/runtime/provider-actors"):
+            return {
+                "auth_configured": True,
+                "auth_binding": {
+                    "bound_node_id": NODE_ID,
+                    "credential_id": new_credential,
+                    "epoch": 2,
+                },
+            }
+        raise AssertionError(path)
+
+    monkeypatch.setattr(helper, "request_json", fake_request)
+    monkeypatch.setattr(helper, "restart_factory_control", lambda: None)
+    stage = tmp_path / "stage.json"
+    target = tmp_path / "root.json"
+    old = {
+        "schema_version": "kolibri.external-provider-credential.v1",
+        "credential_id": "mac-codex-provider-v1",
+        "node_id": "mac-codex-provider",
+        "epoch": 1,
+        "token_sha256": "a" * 64,
+    }
+    new = {
+        "schema_version": "kolibri.external-provider-credential.v1",
+        "credential_id": new_credential,
+        "node_id": NODE_ID,
+        "epoch": 2,
+        "token_sha256": "b" * 64,
+    }
+    write_json(target, old)
+    write_json(stage, new)
+    real_read_record = helper.read_record
+    monkeypatch.setattr(
+        helper,
+        "read_record",
+        lambda path, *, owner_uid, root_owned: real_read_record(
+            path, owner_uid=owner_uid, root_owned=False,
+        ),
+    )
+
+    result = helper.apply_root_phase(
+        stage=stage,
+        target=target,
+        node_id=NODE_ID,
+        owner_uid=os.getuid(),
+        rotate=False,
+        migrate_from={
+            "node_id": "mac-codex-provider",
+            "credential_id": "mac-codex-provider-v1",
+            "epoch": 1,
+        },
+    )
+
+    assert result["credential_id"] == new_credential
+    assert json.loads(target.read_text(encoding="utf-8")) == new
+    drains = [path for method, path, body in calls if method == "POST" and body == {"drain": True}]
+    assert drains == [
+        "/v1/nodes/mac-codex-provider/drain",
+        f"/v1/nodes/{NODE_ID}/drain",
+    ]
+
+
+def test_root_phase_rejects_migration_source_mismatch_before_restart(
+    tmp_path, monkeypatch,
+):
+    helper = load(ROOT_HELPER, "home_provider_root_migration_mismatch")
+    monkeypatch.setattr(helper.os, "chown", lambda *_args: None)
+    stage = tmp_path / "stage.json"
+    target = tmp_path / "root.json"
+    write_json(target, {
+        "schema_version": "kolibri.external-provider-credential.v1",
+        "credential_id": "different-provider-v1",
+        "node_id": "different-provider",
+        "epoch": 1,
+        "token_sha256": "c" * 64,
+    })
+    write_json(stage, verifier_record(epoch=2))
+    real_read_record = helper.read_record
+    monkeypatch.setattr(
+        helper,
+        "read_record",
+        lambda path, *, owner_uid, root_owned: real_read_record(
+            path, owner_uid=owner_uid, root_owned=False,
+        ),
+    )
+    monkeypatch.setattr(
+        helper,
+        "request_json",
+        lambda *_args, **_kwargs: pytest.fail("mismatch reached Control Plane"),
+    )
+    monkeypatch.setattr(
+        helper,
+        "restart_factory_control",
+        lambda: pytest.fail("mismatch restarted Control Plane"),
+    )
+
+    with pytest.raises(helper.RootPhaseError) as exc_info:
+        helper.apply_root_phase(
+            stage=stage,
+            target=target,
+            node_id=NODE_ID,
+            owner_uid=os.getuid(),
+            rotate=False,
+            migrate_from={
+                "node_id": "mac-codex-provider",
+                "credential_id": "mac-codex-provider-v1",
+                "epoch": 1,
+            },
+        )
+    assert exc_info.value.code == "verifier_migration_source_mismatch"
+    assert exc_info.value.owner_rollback_safe is True
 
 
 def test_root_helper_source_never_undrains_or_restarts_other_services():

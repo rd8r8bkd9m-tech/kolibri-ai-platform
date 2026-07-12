@@ -102,6 +102,30 @@ bound to `home-codex-provider`, and the root phase independently checks the
 current epoch. Skipped, repeated and decreasing epochs fail before mutation.
 The actor is never undrained by the provisioner.
 
+## One-time migration from the existing Mac actor
+
+Home Control Plane currently accepts one external-provider credential binding
+at a time. If that binding belongs to the historical `mac-codex-provider`, do
+not overwrite it as an initial install and do not copy the Mac raw token.
+Migrate it explicitly to the always-on Home actor with the exact observed
+non-secret binding and the next epoch:
+
+```bash
+python3 scripts/linux/provision-home-codex-provider-credential.py \
+  --credential-id home-codex-provider-v2 \
+  --epoch 2 \
+  --migrate-from-node-id mac-codex-provider \
+  --migrate-from-credential-id mac-codex-provider-v1 \
+  --migrate-from-epoch 1 \
+  --apply
+```
+
+The root phase independently verifies the old root record, drains both the old
+Mac actor and the new Home actor, requires the same Redis/lease quiescence gate,
+then atomically replaces the hash-only binding. Any mismatch fails before a
+restart. The migration creates a new Home-local token; it never reads or
+transfers the Mac token and never undrains either actor.
+
 ## Activation remains separate
 
 A successful result is `credential_installed_actor_drained` or

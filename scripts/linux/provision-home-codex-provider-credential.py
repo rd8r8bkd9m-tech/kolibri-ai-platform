@@ -154,6 +154,7 @@ def run_root_helper(
     node_id: str,
     owner_uid: int,
     rotate: bool,
+    migrate_from: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     command = [
         str(SUDO), "-n", "--",
@@ -165,6 +166,12 @@ def run_root_helper(
     ]
     if rotate:
         command.append("--rotate")
+    if migrate_from is not None:
+        command.extend([
+            "--migrate-from-node-id", str(migrate_from["node_id"]),
+            "--migrate-from-credential-id", str(migrate_from["credential_id"]),
+            "--migrate-from-epoch", str(migrate_from["epoch"]),
+        ])
     try:
         completed = subprocess.run(
             command,
@@ -182,7 +189,10 @@ def run_root_helper(
         raise CredentialProvisionError("root_helper_state_uncertain_actor_drained") from exc
     if completed.returncode != 0:
         if isinstance(payload, dict) and payload.get("owner_rollback_safe") is True:
-            raise RootHelperDefinitiveFailure("root_helper_failed_root_state_unchanged")
+            root_error = str(payload.get("error") or "").strip()
+            if not SAFE_ID.fullmatch(root_error):
+                root_error = "root_helper_failed_root_state_unchanged"
+            raise RootHelperDefinitiveFailure(root_error)
         raise CredentialProvisionError("root_helper_state_uncertain_actor_drained")
     expected = {
         "status": "binding_verified_actor_drained",
@@ -207,6 +217,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root-record", type=Path, default=DEFAULT_ROOT_RECORD)
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--rotate", action="store_true")
+    parser.add_argument("--migrate-from-node-id")
+    parser.add_argument("--migrate-from-credential-id")
+    parser.add_argument("--migrate-from-epoch", type=int)
     args = parser.parse_args(argv)
 
     if os.geteuid() == 0:
@@ -218,9 +231,37 @@ def main(argv: list[str] | None = None) -> int:
     if args.root_record != DEFAULT_ROOT_RECORD:
         raise CredentialProvisionError("root_verifier_destination_fixed")
 
+    migration_values = (
+        args.migrate_from_node_id,
+        args.migrate_from_credential_id,
+        args.migrate_from_epoch,
+    )
+    migration_requested = any(value is not None for value in migration_values)
+    if migration_requested and not all(value is not None for value in migration_values):
+        raise CredentialProvisionError("credential_migration_binding_incomplete")
+    if migration_requested and args.rotate:
+        raise CredentialProvisionError("credential_migration_and_rotation_conflict")
+    migrate_from: dict[str, Any] | None = None
+    if migration_requested:
+        migrate_from = {
+            "node_id": validate_identifier(args.migrate_from_node_id, "migration_node_id"),
+            "credential_id": validate_identifier(
+                args.migrate_from_credential_id, "migration_credential_id",
+            ),
+            "epoch": int(args.migrate_from_epoch),
+        }
+        if migrate_from["epoch"] < 1:
+            raise CredentialProvisionError("credential_migration_epoch_invalid")
+        if args.epoch != migrate_from["epoch"] + 1:
+            raise CredentialProvisionError("credential_migration_epoch_not_increasing")
+        if migrate_from["node_id"] == node_id:
+            raise CredentialProvisionError("credential_migration_node_unchanged")
+
     owner_path = credential_destination(Path.home())
     destination_exists = owner_path.exists() or owner_path.is_symlink()
     existing = read_owner_record(owner_path) if destination_exists else None
+    if migrate_from is not None and existing is not None:
+        raise CredentialProvisionError("credential_migration_owner_destination_exists")
     if args.apply and destination_exists and not args.rotate:
         raise CredentialProvisionError("credential_exists_rotate_required")
     if args.rotate and existing is None:
@@ -238,6 +279,7 @@ def main(argv: list[str] | None = None) -> int:
         "status": "validated",
         "apply": args.apply,
         "rotate": args.rotate,
+        "migration": migrate_from,
         "node_id": node_id,
         "credential_id": credential_id,
         "epoch": args.epoch,
@@ -295,6 +337,7 @@ def main(argv: list[str] | None = None) -> int:
                 node_id=node_id,
                 owner_uid=os.getuid(),
                 rotate=args.rotate,
+                migrate_from=migrate_from,
             )
         except RootHelperDefinitiveFailure:
             if previous is None:
@@ -314,7 +357,13 @@ def main(argv: list[str] | None = None) -> int:
         # and fail closed rather than guessing whether a rollback is safe.
         raise CredentialProvisionError("root_helper_binding_mismatch_actor_drained")
     plan.update({
-        "status": "credential_rotated_actor_drained" if args.rotate else "credential_installed_actor_drained",
+        "status": (
+            "credential_migrated_actor_drained"
+            if migrate_from is not None
+            else "credential_rotated_actor_drained"
+            if args.rotate
+            else "credential_installed_actor_drained"
+        ),
         "binding_verified": True,
         "secrets_returned": False,
         "next_action": "install/start provider runtime, verify readiness and canary, then separately approve undrain",

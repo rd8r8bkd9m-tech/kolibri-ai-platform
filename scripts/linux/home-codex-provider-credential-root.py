@@ -133,8 +133,9 @@ def atomic_root_write(path: Path, payload: bytes) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def require_quiescent_control_plane(node_id: str) -> None:
-    request_json("POST", f"/v1/nodes/{node_id}/drain", {"drain": True})
+def require_quiescent_control_plane(node_ids: list[str]) -> None:
+    for node_id in dict.fromkeys(node_ids):
+        request_json("POST", f"/v1/nodes/{node_id}/drain", {"drain": True})
     diagnostics = request_json("GET", "/v1/tasks/queue/diagnostics")
     required = {
         "redis": "PONG",
@@ -173,6 +174,7 @@ def apply_root_phase(
     node_id: str,
     owner_uid: int,
     rotate: bool,
+    migrate_from: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     try:
         staged = read_record(stage, owner_uid=owner_uid, root_owned=False)
@@ -181,7 +183,30 @@ def apply_root_phase(
 
         target_exists = target.exists() or target.is_symlink()
         existing = read_record(target, owner_uid=owner_uid, root_owned=True) if target_exists else None
-        if rotate:
+        if migrate_from is not None:
+            if existing is None:
+                raise RootPhaseError("verifier_migration_source_missing")
+            expected_node = validate_identifier(
+                str(migrate_from.get("node_id") or ""), "migration_node_id",
+            )
+            expected_credential = validate_identifier(
+                str(migrate_from.get("credential_id") or ""),
+                "migration_credential_id",
+            )
+            expected_epoch = migrate_from.get("epoch")
+            if type(expected_epoch) is not int or expected_epoch < 1:
+                raise RootPhaseError("verifier_migration_epoch_invalid")
+            if (
+                existing["node_id"] != expected_node
+                or existing["credential_id"] != expected_credential
+                or existing["epoch"] != expected_epoch
+            ):
+                raise RootPhaseError("verifier_migration_source_mismatch")
+            if staged["node_id"] == expected_node:
+                raise RootPhaseError("verifier_migration_node_unchanged")
+            if staged["epoch"] != expected_epoch + 1:
+                raise RootPhaseError("verifier_migration_epoch_not_increasing")
+        elif rotate:
             if existing is None:
                 raise RootPhaseError("verifier_rotation_source_missing")
             if existing["node_id"] != node_id:
@@ -191,7 +216,10 @@ def apply_root_phase(
         elif existing is not None:
             raise RootPhaseError("verifier_exists_rotate_required")
 
-        require_quiescent_control_plane(node_id)
+        drain_nodes = [node_id]
+        if migrate_from is not None:
+            drain_nodes.insert(0, str(migrate_from["node_id"]))
+        require_quiescent_control_plane(drain_nodes)
     except RootPhaseError as exc:
         raise RootPhaseError(exc.code, owner_rollback_safe=True) from exc
     previous = target.read_bytes() if existing is not None else None
@@ -233,6 +261,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--node-id", required=True)
     parser.add_argument("--owner-uid", type=int, required=True)
     parser.add_argument("--rotate", action="store_true")
+    parser.add_argument("--migrate-from-node-id")
+    parser.add_argument("--migrate-from-credential-id")
+    parser.add_argument("--migrate-from-epoch", type=int)
     args = parser.parse_args(argv)
 
     if os.geteuid() != 0:
@@ -241,6 +272,25 @@ def main(argv: list[str] | None = None) -> int:
         raise RootPhaseError("owner_uid_invalid")
     if args.target != ROOT_RECORD:
         raise RootPhaseError("root_verifier_destination_fixed")
+    migration_values = (
+        args.migrate_from_node_id,
+        args.migrate_from_credential_id,
+        args.migrate_from_epoch,
+    )
+    migration_requested = any(value is not None for value in migration_values)
+    if migration_requested and not all(value is not None for value in migration_values):
+        raise RootPhaseError("verifier_migration_binding_incomplete")
+    if migration_requested and args.rotate:
+        raise RootPhaseError("verifier_migration_and_rotation_conflict")
+    migrate_from = None
+    if migration_requested:
+        migrate_from = {
+            "node_id": validate_identifier(args.migrate_from_node_id, "migration_node_id"),
+            "credential_id": validate_identifier(
+                args.migrate_from_credential_id, "migration_credential_id",
+            ),
+            "epoch": args.migrate_from_epoch,
+        }
     node_id = validate_identifier(args.node_id, "node_id")
     result = apply_root_phase(
         stage=args.stage,
@@ -248,6 +298,7 @@ def main(argv: list[str] | None = None) -> int:
         node_id=node_id,
         owner_uid=args.owner_uid,
         rotate=args.rotate,
+        migrate_from=migrate_from,
     )
     print(json_line(result))
     return 0

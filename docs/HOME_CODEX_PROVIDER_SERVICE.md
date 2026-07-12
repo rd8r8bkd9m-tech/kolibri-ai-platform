@@ -122,7 +122,10 @@ implementation commit.
 3. Provision one node-bound external-provider actor credential locally on
    Home with the dry-run-first owner/root transaction in
    [`HOME_CODEX_PROVIDER_CREDENTIAL_PROVISIONING.md`](HOME_CODEX_PROVIDER_CREDENTIAL_PROVISIONING.md).
-   Never reuse or copy a Mac/worker credential.
+   Never reuse or copy a Mac/worker credential. If the single current binding
+   still belongs to `mac-codex-provider`, use the explicit next-epoch migration
+   documented there so both actors stay drained and the old raw token is never
+   transferred.
 4. Keep the actor drained and verify that Home exposes the exact credential
    ID/epoch marker without returning the raw value.
 5. Install without starting:
