@@ -423,8 +423,15 @@ class StrictCompatBootstrap:
             or diagnostics.get("stuck_heartbeat_tasks") != 0
         ):
             raise BootstrapError("strict_compat_active_or_stale_leases")
+        state_namespace = str(
+            data.get("state_namespace")
+            or os.environ.get("FACTORY_NAMESPACE")
+            or ""
+        ).strip()
+        if not state_namespace:
+            raise BootstrapError("strict_compat_state_namespace_unavailable")
         return {
-            "state_namespace": str(data.get("state_namespace") or "kolibri_factory"),
+            "state_namespace": state_namespace,
             "redis_projection": {
                 key: diagnostics[key]
                 for key in ("task_total", "queue_total", "lease_index_total")

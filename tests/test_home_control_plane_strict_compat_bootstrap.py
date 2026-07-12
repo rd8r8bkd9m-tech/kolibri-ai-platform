@@ -192,3 +192,32 @@ def test_scope_has_no_backend_frontend_mesh_or_credential_mutation():
     assert "telegram.env" not in source
     assert "private_key" not in source
     assert "ssh " not in source.lower()
+
+
+def test_baseline_uses_explicit_legacy_namespace_and_never_guesses(
+    tmp_path, monkeypatch
+):
+    bootstrap, _, _, _ = _fixture(tmp_path)
+    del bootstrap._baseline
+    responses = {
+        "/v1/health": {
+            "status": "completed",
+            "node": "home",
+            "data": {"redis": "PONG"},
+        },
+        "/v1/tasks/queue/diagnostics": {
+            "redis": "PONG",
+            "task_total": 1,
+            "queue_total": 0,
+            "lease_index_total": 0,
+            "expired_leases": 0,
+            "stuck_heartbeat_tasks": 0,
+        },
+    }
+    monkeypatch.setattr(module, "_http_json", lambda _base, path: responses[path])
+    monkeypatch.delenv("FACTORY_NAMESPACE", raising=False)
+    with pytest.raises(module.BootstrapError, match="strict_compat_state_namespace_unavailable"):
+        bootstrap._baseline()
+
+    monkeypatch.setenv("FACTORY_NAMESPACE", "kolibri_factory_mvp")
+    assert bootstrap._baseline()["state_namespace"] == "kolibri_factory_mvp"

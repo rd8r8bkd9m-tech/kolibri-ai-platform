@@ -28,6 +28,9 @@ schema and `ops/agent_host.py`; changing any of them invalidates both digests.
 Run on Home as the operator against an exact clean commit:
 
 ```bash
+export FACTORY_NAMESPACE="$(systemctl show kolibri-factory-control.service \
+  --property=Environment --value | sed -n 's/.*FACTORY_NAMESPACE=\([^ ]*\).*/\1/p')"
+
 python3 -B ops/home_control_plane_strict_compat_bootstrap.py \
   --source-root "$PWD" \
   --source-commit "$(git rev-parse HEAD)" \
@@ -35,6 +38,11 @@ python3 -B ops/home_control_plane_strict_compat_bootstrap.py \
   --run-id strict-compat-YYYYMMDDTHHMMSSZ \
   > /tmp/strict-compat-plan.json
 ```
+
+The old live entrypoint may not report its Redis namespace in `/v1/health`.
+In that case `FACTORY_NAMESPACE` is a required non-secret operator input and is
+bound into the plan digest. The bootstrap fails closed when neither source is
+available; it never guesses a default namespace.
 
 The command is read-only by default. Review these fields:
 
