@@ -169,7 +169,7 @@ def test_failed_post_gate_restores_exact_previous_runtime(tmp_path, monkeypatch)
         raise module.BootstrapError("strict_compat_post_health_failed")
 
     bootstrap._strict_contracts = fail_post
-    clock = iter((0.0, 21.0))
+    clock = iter((0.0, 21.0, 21.0, 21.0))
     monkeypatch.setattr(module.time, "monotonic", lambda: next(clock))
 
     with pytest.raises(module.BootstrapError) as captured:
@@ -180,6 +180,38 @@ def test_failed_post_gate_restores_exact_previous_runtime(tmp_path, monkeypatch)
     assert captured.value.rollback == "completed"
     assert target.read_bytes() == previous
     assert restart_calls == [module.SERVICE, module.SERVICE]
+
+
+def test_apply_accepts_manual_restart_counter_reset(tmp_path):
+    bootstrap, _, _, _ = _fixture(tmp_path)
+    plan = bootstrap.build_plan()
+    states = iter(
+        (
+            module.ServiceState("loaded", "active", "running", 14),
+            module.ServiceState("loaded", "active", "running", 14),
+            module.ServiceState("loaded", "active", "running", 0),
+        )
+    )
+    bootstrap._service_state = lambda: next(states)
+    bootstrap._candidate = lambda candidate_plan: {
+        "health": "strict",
+        "membership_digest": candidate_plan["membership_digest"],
+        "redis_projection": candidate_plan["redis_before"],
+    }
+    bootstrap._restart = lambda: None
+    bootstrap._strict_contracts = lambda *args, **kwargs: {
+        "health": "strict",
+        "membership_digest": plan["membership_digest"],
+        "redis_projection": plan["redis_before"],
+    }
+
+    result = bootstrap.apply(
+        plan["plan_digest"], plan["contract_freeze"]["digest"]
+    )
+
+    assert result["status"] == "applied"
+    assert result["service_before"]["restarts"] == 14
+    assert result["service_after"]["restarts"] == 0
 
 
 def test_scope_has_no_backend_frontend_mesh_or_credential_mutation():

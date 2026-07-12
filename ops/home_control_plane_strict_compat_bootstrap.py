@@ -718,7 +718,10 @@ class StrictCompatBootstrap:
                 else:
                     raise BootstrapError("strict_compat_post_health_failed") from last_error
                 after_service = self._service_state()
-                if after_service.restarts != before_service.restarts:
+                # A deliberate systemctl restart resets NRestarts. Any
+                # non-zero value now means the candidate crashed and systemd
+                # restarted it at least once.
+                if after_service.restarts != 0:
                     raise BootstrapError("strict_compat_restart_counter_changed")
                 if post["redis_projection"] != plan["redis_before"]:
                     raise BootstrapError("strict_compat_redis_state_changed")
@@ -734,7 +737,19 @@ class StrictCompatBootstrap:
                             gid=target_stat.st_gid,
                         )
                         self._restart()
-                        restored = self._baseline()
+                        rollback_deadline = time.monotonic() + 20
+                        last_rollback_error: BootstrapError | None = None
+                        while time.monotonic() < rollback_deadline:
+                            try:
+                                restored = self._baseline()
+                                break
+                            except BootstrapError as rollback_health_error:
+                                last_rollback_error = rollback_health_error
+                                time.sleep(0.5)
+                        else:
+                            raise BootstrapError(
+                                "strict_compat_rollback_health_failed"
+                            ) from last_rollback_error
                         if restored["redis_projection"] != plan["redis_before"]:
                             raise BootstrapError("strict_compat_rollback_state_changed")
                         rollback = "completed"
