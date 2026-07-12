@@ -7,7 +7,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
@@ -527,10 +527,10 @@ fn optional_field_matches(
     expected: &str,
     field: &'static str,
 ) -> Result<(), TaskShadowError> {
-    if let Some(value) = value {
-        if value.as_str() != Some(expected) {
-            return Err(TaskShadowError::CompletionFieldMismatch(field));
-        }
+    if let Some(value) = value
+        && value.as_str() != Some(expected)
+    {
+        return Err(TaskShadowError::CompletionFieldMismatch(field));
     }
     Ok(())
 }

@@ -76,9 +76,15 @@ def run_capture(command: list[str], timeout: int = 20) -> dict[str, Any]:
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:
+    github_auth = run_capture(["gh", "auth", "status"])
     checks = {
         "repository": run_capture(["git", "rev-parse", "--show-toplevel"]),
-        "github_auth": run_capture(["gh", "auth", "status"]),
+        # Authentication output can contain credential-shaped redactions and
+        # must never be reflected by the thin-client diagnostic surface.
+        "github_auth": {
+            "ok": github_auth["ok"],
+            "returncode": github_auth["returncode"],
+        },
         "control_plane": None,
         "nodes": None,
         "binaries": {},
@@ -94,7 +100,13 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     for binary in ["git", "python3", "gh"]:
         checks["binaries"][binary] = run_capture(["command", "-v", binary]) if False else run_capture(["sh", "-c", f"command -v {binary}"])
     print_json(checks)
-    control_ok = isinstance(checks["control_plane"], dict) and checks["control_plane"].get("status") == "ok"
+    control_plane = checks["control_plane"]
+    control_ok = bool(
+        isinstance(control_plane, dict)
+        and control_plane.get("status") in {"ok", "completed"}
+        and control_plane.get("node") == "home"
+        and not control_plane.get("blocked_reason")
+    )
     return 0 if checks["repository"]["ok"] and control_ok else 1
 
 

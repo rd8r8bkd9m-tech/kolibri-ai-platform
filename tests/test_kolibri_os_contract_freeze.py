@@ -41,6 +41,7 @@ def test_openapi_freezes_unified_surface_and_single_public_model():
     contract = load_json("openapi.json")
     paths = contract["paths"]
     required = {
+        "/v1/shell/bootstrap",
         "/v1/responses",
         "/v1/resume",
         "/v1/projects",
@@ -61,6 +62,7 @@ def test_openapi_freezes_unified_surface_and_single_public_model():
     }
     assert required.issubset(paths)
     assert paths["/v1/models"]["get"]["x-kolibri-public-model"] == "kolibri"
+    assert "never depends on an expected 401/403 GET" in paths["/v1/shell/bootstrap"]["post"]["x-kolibri-rule"]
     assert paths["/v1/runtime/summary"]["get"]["x-kolibri-rule"].startswith("real telemetry")
     assert paths["/v1/approvals"]["post"]["x-kolibri-authority"] == "owner sshsig required"
     assert paths["/v1/releases/{release_id}/nodes/{node_id}/health"]["get"]["x-kolibri-truth-rule"].startswith("derived only")

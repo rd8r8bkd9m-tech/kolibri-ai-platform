@@ -1,6 +1,6 @@
-use crate::wire::{event_schema_version, v1_schema_version, V1_SCHEMA_VERSION};
+use crate::wire::{V1_SCHEMA_VERSION, event_schema_version, v1_schema_version};
 use chrono::{DateTime, Utc};
-use serde::{de, Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, de};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use thiserror::Error;

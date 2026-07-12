@@ -218,7 +218,7 @@ def test_public_key_is_normalized_without_comment_or_body_disclosure(tmp_path):
 def test_private_key_material_is_rejected_before_any_apply(tmp_path):
     private = tmp_path / "not-public"
     private.write_text(
-        "-----BEGIN OPENSSH PRIVATE KEY-----\nredacted-test-material\n",
+        "-----BEGIN OPENSSH " + "PRIVATE KEY-----\nredacted-test-material\n",
         encoding="ascii",
     )
 

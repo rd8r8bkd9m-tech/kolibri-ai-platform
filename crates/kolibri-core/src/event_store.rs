@@ -1,6 +1,6 @@
 use crate::events::{
-    validate_identifier, EventAuthorityStatus, EventDraft, EventEnvelope, EventEnvelopeError,
-    IdentifierError,
+    EventAuthorityStatus, EventDraft, EventEnvelope, EventEnvelopeError, IdentifierError,
+    validate_identifier,
 };
 use chrono::Utc;
 use fs2::FileExt;
@@ -996,7 +996,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn existing_permissions_are_repaired_and_symlinks_are_rejected() {
-        use std::os::unix::fs::{symlink, PermissionsExt};
+        use std::os::unix::fs::{PermissionsExt, symlink};
 
         let directory = test_directory();
         fs::create_dir_all(&directory).unwrap();

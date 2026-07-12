@@ -6,6 +6,7 @@
 
 pub mod event_store;
 pub mod events;
+pub mod model_policy;
 pub mod swarm;
 pub mod task_runtime;
 pub mod task_shadow;
@@ -14,6 +15,7 @@ pub mod wire;
 
 pub use crate::event_store::*;
 pub use crate::events::*;
+pub use crate::model_policy::*;
 pub use crate::swarm::*;
 pub use crate::task_runtime::*;
 pub use crate::task_shadow::*;

@@ -1,0 +1,199 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kolibriai.ru/contracts/kolibri-os-v1/model-and-learning-policy.schema.json",
+  "title": "Kolibri local-model and FormulaLM admission policy",
+  "oneOf": [
+    { "$ref": "#/$defs/LocalModelEligibilityReport" },
+    { "$ref": "#/$defs/FormulaLMLearningAdmissionReport" }
+  ],
+  "$defs": {
+    "Sha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "GateAssessment": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": { "enum": ["passed", "failed"] },
+        "evidence_sha256": { "$ref": "#/$defs/Sha256" },
+        "reason_code": { "type": "string", "minLength": 1 }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "status": { "const": "passed" } },
+            "required": ["status"]
+          },
+          "then": { "required": ["evidence_sha256"] }
+        },
+        {
+          "if": {
+            "properties": { "status": { "const": "failed" } },
+            "required": ["status"]
+          },
+          "then": { "required": ["reason_code"] }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "LocalModelGateReport": {
+      "type": "object",
+      "required": ["memory", "compute", "license", "disk", "runtime", "benchmark"],
+      "properties": {
+        "memory": { "$ref": "#/$defs/GateAssessment" },
+        "compute": { "$ref": "#/$defs/GateAssessment" },
+        "license": { "$ref": "#/$defs/GateAssessment" },
+        "disk": { "$ref": "#/$defs/GateAssessment" },
+        "runtime": { "$ref": "#/$defs/GateAssessment" },
+        "benchmark": { "$ref": "#/$defs/GateAssessment" }
+      },
+      "additionalProperties": false
+    },
+    "LocalModelEligibilityReport": {
+      "type": "object",
+      "required": ["schema_version", "model_id", "compute_mode", "eligible", "gates"],
+      "properties": {
+        "schema_version": { "const": "kolibri.local-model-eligibility.v1" },
+        "model_id": { "type": "string" },
+        "compute_mode": { "enum": ["cpu_only", "cpu_or_gpu", "gpu_required"] },
+        "eligible": { "type": "boolean" },
+        "gates": { "$ref": "#/$defs/LocalModelGateReport" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "eligible": { "const": true } },
+            "required": ["eligible"]
+          },
+          "then": {
+            "properties": {
+              "model_id": { "minLength": 1 },
+              "gates": {
+                "properties": {
+                  "memory": { "properties": { "status": { "const": "passed" } } },
+                  "compute": { "properties": { "status": { "const": "passed" } } },
+                  "license": { "properties": { "status": { "const": "passed" } } },
+                  "disk": { "properties": { "status": { "const": "passed" } } },
+                  "runtime": { "properties": { "status": { "const": "passed" } } },
+                  "benchmark": { "properties": { "status": { "const": "passed" } } }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "LearningMaterialKind": {
+      "enum": ["model_output", "tool_trace", "code_diff", "test_result", "verifier_verdict"]
+    },
+    "LicenseDecision": {
+      "enum": ["permitted", "restricted", "negative", "unknown"]
+    },
+    "PiiConsent": {
+      "enum": ["explicit", "contractual", "public-permitted", "denied", "unknown", "not-applicable"]
+    },
+    "ProhibitedLearningContent": {
+      "type": "object",
+      "required": [
+        "foreign_or_proprietary_weights_present",
+        "private_reasoning_present",
+        "secrets_present",
+        "pii_present",
+        "license_negative_trace_present"
+      ],
+      "properties": {
+        "foreign_or_proprietary_weights_present": { "type": "boolean" },
+        "private_reasoning_present": { "type": "boolean" },
+        "secrets_present": { "type": "boolean" },
+        "pii_present": { "type": "boolean" },
+        "license_negative_trace_present": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "FormulaLMLearningAdmissionReport": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "eligible",
+        "source_material_kinds",
+        "license",
+        "pii_consent",
+        "prohibited_content",
+        "rejection_reasons"
+      ],
+      "properties": {
+        "schema_version": { "const": "kolibri.formulalm-admission.v1" },
+        "eligible": { "type": "boolean" },
+        "source_material_kinds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/LearningMaterialKind" }
+        },
+        "license": { "$ref": "#/$defs/LicenseDecision" },
+        "pii_consent": { "$ref": "#/$defs/PiiConsent" },
+        "prohibited_content": { "$ref": "#/$defs/ProhibitedLearningContent" },
+        "rejection_reasons": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "missing_permitted_material",
+              "foreign_or_proprietary_weights",
+              "private_reasoning",
+              "secrets",
+              "pii_without_consent",
+              "license_negative_trace",
+              "license_not_permitted"
+            ]
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "eligible": { "const": true } },
+            "required": ["eligible"]
+          },
+          "then": {
+            "properties": {
+              "source_material_kinds": { "minItems": 1 },
+              "license": { "const": "permitted" },
+              "prohibited_content": {
+                "properties": {
+                  "foreign_or_proprietary_weights_present": { "const": false },
+                  "private_reasoning_present": { "const": false },
+                  "secrets_present": { "const": false },
+                  "license_negative_trace_present": { "const": false }
+                }
+              },
+              "rejection_reasons": { "maxItems": 0 }
+            }
+          },
+          "else": {
+            "properties": { "rejection_reasons": { "minItems": 1 } }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eligible": { "const": true },
+              "prohibited_content": {
+                "properties": { "pii_present": { "const": true } },
+                "required": ["pii_present"]
+              }
+            },
+            "required": ["eligible", "prohibited_content"]
+          },
+          "then": {
+            "properties": {
+              "pii_consent": { "enum": ["explicit", "contractual", "public-permitted"] }
+            }
+          }
+        }
+      ],
+      "additionalProperties": false
+    }
+  }
+}

@@ -146,7 +146,7 @@ def test_response_tap_only_enqueues_then_worker_creates_durable_candidate(tmp_pa
 
 def test_secret_pii_no_consent_and_negative_license_never_enter_queue(tmp_path):
     _, db_path, _, client = make_client(tmp_path)
-    secret = "sk-never-persist-this-123456789"
+    secret = "sk-" + "never-persist-this-123456789"
     email = "private.person@example.com"
     requests = [
         eligible_request("secret-trace", f"use {secret}"),

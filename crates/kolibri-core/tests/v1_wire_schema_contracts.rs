@@ -8,7 +8,7 @@ use kolibri_core::{
     V1ActorState, V1ApprovalPolicy, V1LogicalActor, V1PlanNodeKind, V1PlanNodeState,
     V1ResourceClass, V1SchedulerProjection, V1SwarmPlan, V1SwarmPlanState,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
@@ -193,9 +193,11 @@ fn legacy_missing_sequence_is_untrusted_migration_evidence_not_authority() {
     assert!(event.validate_contract().is_err());
     event.validate_migration_evidence().unwrap();
     assert!(!event.is_authoritative_claim());
-    assert!(schema_validator()
-        .validate(&serde_json::to_value(event).unwrap())
-        .is_err());
+    assert!(
+        schema_validator()
+            .validate(&serde_json::to_value(event).unwrap())
+            .is_err()
+    );
 }
 
 #[test]
@@ -447,9 +449,11 @@ fn identifier_pattern_and_length_are_enforced_before_serialized_boundary() {
         V1SwarmPlan::from_plan_definition(&plan, V1SwarmPlanState::Queued, limits).unwrap();
     dto.trace_id = "bad/id".to_string();
     assert!(dto.validate().is_err());
-    assert!(schema_validator()
-        .validate(&serde_json::to_value(dto).unwrap())
-        .is_err());
+    assert!(
+        schema_validator()
+            .validate(&serde_json::to_value(dto).unwrap())
+            .is_err()
+    );
 
     assert_eq!(
         V1PlanNodeState::from(PlanNodeState::Verifying),

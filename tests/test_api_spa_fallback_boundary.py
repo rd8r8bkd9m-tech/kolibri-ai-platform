@@ -27,7 +27,7 @@ def load_backend_main(tmp_path: Path, monkeypatch):
     if str(BACKEND) not in sys.path:
         sys.path.insert(0, str(BACKEND))
     for module_name in ("data_paths", "execution_api", "public_estimate_api", "public_responses_api", "tts"):
-        sys.modules.pop(module_name, None)
+        monkeypatch.delitem(sys.modules, module_name, raising=False)
     spec = importlib.util.spec_from_file_location(
         "backend_main_spa_boundary_contract",
         BACKEND / "main.py",

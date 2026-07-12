@@ -48,7 +48,10 @@ and the Rust Control Plane. It does not claim that a production rollout or a
 
 The machine-readable definitions are in
 `contracts/kolibri-os-v1/domain.schema.json`; the frozen public HTTP surface is
-in `contracts/kolibri-os-v1/openapi.json`.
+in `contracts/kolibri-os-v1/openapi.json`. The fail-closed local-model and
+FormulaLM admission reports are defined separately in
+`contracts/kolibri-os-v1/model-and-learning-policy.schema.json`; that policy
+contract never authorizes copying third-party weights or private reasoning.
 
 ## Durable identifiers and versions
 
@@ -213,7 +216,8 @@ content are rejected before entering the learning queue.
 
 | V1 route | Compatibility source | Migration rule |
 | --- | --- | --- |
-| `POST /v1/public/session` | new scoped browser gateway | Issues an expiring HttpOnly SameSite session after exact-Origin and rate checks; no owner credential reaches the browser. |
+| `POST /v1/shell/bootstrap` | new scoped browser gateway | Atomically creates or resumes an expiring HttpOnly SameSite session after exact-Origin and rate checks; cold startup never relies on an expected 401/403 GET. |
+| `POST /v1/public/session` | compatibility alias | Retained for two release waves and delegates to the shell bootstrap contract; no owner credential reaches the browser. |
 | `POST /v1/responses` | chat/pipeline and `/v1/agents/tasks` | Canonical OpenAI-compatible JSON/Responses-SSE path. Bearer creates durable work; a public session is idempotent and confined to its ephemeral project. |
 | `GET /v1/responses/{id}` | task status helpers | Terminal state requires verifier evidence. |
 | `POST /v1/responses/{id}/cancel` | task cancellation | Idempotent; revokes active leases. |

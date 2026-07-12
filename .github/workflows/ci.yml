@@ -12,6 +12,107 @@ permissions:
   contents: read
 
 jobs:
+  kolibri-shell:
+    name: kolibri-shell
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: ".node-version"
+          cache: npm
+          cache-dependency-path: apps/kolibri-shell-next/package-lock.json
+
+      - name: Install locked dependencies
+        working-directory: apps/kolibri-shell-next
+        run: npm ci
+
+      - name: Lint
+        working-directory: apps/kolibri-shell-next
+        run: npm run lint
+
+      - name: Test
+        working-directory: apps/kolibri-shell-next
+        run: npm test
+
+      - name: Build
+        working-directory: apps/kolibri-shell-next
+        run: npm run build
+
+  rust:
+    name: rust-1.97
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify pinned Rust workspace contract
+        id: rust_contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import pathlib
+          import tomllib
+
+          workspace = tomllib.loads(pathlib.Path("Cargo.toml").read_text(encoding="utf-8"))
+          toolchain = tomllib.loads(pathlib.Path("rust-toolchain.toml").read_text(encoding="utf-8"))
+
+          package = workspace["workspace"]["package"]
+          channel = toolchain["toolchain"]["channel"]
+          expected_version = package["rust-version"]
+          expected_parts = expected_version.split(".")
+          expected_channel = expected_version if len(expected_parts) == 3 else f"{expected_version}.0"
+
+          assert package["edition"] == "2024", "workspace edition must remain 2024"
+          assert channel == expected_channel, (
+              f"rust-toolchain channel {channel!r} does not match "
+              f"workspace rust-version {expected_version!r}"
+          )
+          assert toolchain["toolchain"]["profile"] == "minimal", (
+              "rust-toolchain.toml must use the minimal profile"
+          )
+          assert set(toolchain["toolchain"]["components"]) >= {"clippy", "rustfmt"}, (
+              "rust-toolchain.toml must pin clippy and rustfmt"
+          )
+
+          with pathlib.Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write(f"channel={channel}\n")
+          print(f"validated Rust {channel}, edition {package['edition']}")
+          PY
+
+      - name: Install pinned Rust toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install "${{ steps.rust_contract.outputs.channel }}" \
+            --profile minimal \
+            --component clippy \
+            --component rustfmt
+          rustup override set "${{ steps.rust_contract.outputs.channel }}"
+          rustc --version --verbose
+          cargo --version --verbose
+
+      - name: Rust format
+        run: cargo fmt --all -- --check
+
+      - name: Rust check
+        run: cargo check --locked --workspace --all-targets
+
+      - name: Rust clippy
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+
+      - name: Rust tests
+        run: cargo test --locked --workspace --all-targets
+
   ci:
     name: ci
     runs-on: ubuntu-latest
@@ -24,9 +125,9 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
+          python-version-file: ".python-version"
 
       - name: Python syntax compile
         shell: bash
@@ -62,9 +163,13 @@ jobs:
 
       - name: Set up Node
         if: ${{ hashFiles('frontend/package.json') != '' }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: "22"
+          node-version-file: ".node-version"
+
+      - name: Verify canonical runtime pins
+        if: ${{ hashFiles('frontend/package.json') != '' }}
+        run: python scripts/check_runtime_version_pins.py --check-installed
 
       - name: JavaScript and TypeScript checks
         if: ${{ hashFiles('frontend/package.json') != '' }}

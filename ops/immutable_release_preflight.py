@@ -316,12 +316,12 @@ def main(argv: list[str] | None = None) -> int:
             owner_group = grp.getgrnam(args.owner_token_group)
         except KeyError as exc:
             raise ImmutableReleasePreflightError("owner_api_token_group_missing") from exc
-        token = inspect_owner_token_metadata(
+        token_metadata = inspect_owner_token_metadata(
             Path(args.owner_token),
             expected_uid=os.geteuid(),
             expected_gid=owner_group.gr_gid,
         )
-        result.update(token)
+        result.update(token_metadata)
     except ImmutableReleasePreflightError as exc:
         result = {
             "schema_version": SCHEMA_VERSION,

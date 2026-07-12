@@ -1,6 +1,6 @@
 # Project Map
 
-## Active Runtime
+## Compatibility Runtime
 
 - `backend/` — FastAPI backend, routes, provider catalog, conversations, TTS/STT, search, pipeline, factory status.
 - `frontend/` — React/Vite frontend and GitHub Pages build output.
@@ -9,6 +9,19 @@
 - `ops/telegram_gateway.py` — Telegram owner-facing gateway.
 - `ops/telegram_superfactory.py` — Telegram Mini App and runner policy contracts.
 - `ops/mesh_control_bridge.py` — mesh/factory node bridge.
+
+These paths remain compatibility sources. They are not automatically authoritative in the clean Home-first candidate.
+
+## Home-first foundation
+
+- `contracts/kolibri-os-v1/` — frozen OpenAPI and durable domain schemas.
+- `crates/kolibri-core/` — pure Rust event, task, lease, fencing, verifier and swarm contracts.
+- `crates/kolibri-store-postgres/` — PostgreSQL persistence and transactional outbox boundary.
+- `services/response-core/` — internal loopback Axum adapter implementing the durable public-session/response/event/cancel CoreClient boundary on PostgreSQL.
+- `services/task-shadow/` — loopback parity service; explicitly non-authoritative.
+- `backend/kolibri_edge/` — public/authentication compatibility edge delegating to a durable Core client.
+- `scripts/check_legacy_control_plane_authority.py` — read-only architecture gate against legacy Control Plane fallback.
+- `docs/HOME_FIRST_IMPLEMENTATION_STATUS.md` — current implementation truth.
 
 ## Docs and Release
 

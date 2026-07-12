@@ -8,7 +8,7 @@
 use crate::task_shadow::{canonical_json_sha256, completion_binding_sha256};
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, VecDeque};
 use thiserror::Error;
 use uuid::Uuid;

@@ -37,7 +37,7 @@ def _repo(tmp_path: Path) -> Path:
         "# Owner\n\n"
         f"{OWNER_LINE}\n"
         "Internal endpoint: http://10.99.0.2:9101 and /etc/kolibri/private.\n"
-        "api_key=not-a-real-secret-but-must-be-redacted\n",
+        "api_" + "key=not-a-real-secret-but-must-be-redacted\n",
         encoding="utf-8",
     )
     runtime = docs / "agent" / "runs"

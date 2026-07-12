@@ -134,3 +134,37 @@ def test_dispatcher_rejects_multiple_control_plane_authorities_before_network(mo
     payload = json.loads(capsys.readouterr().out)
     assert payload["reason"] == "canonical_home_control_plane_unresolved"
     assert "multiple_control_plane_authorities_forbidden" in payload["detail"]
+
+
+def test_dispatcher_doctor_accepts_canonical_home_completed_health_without_reflecting_auth(monkeypatch, capsys):
+    dispatch = load_dispatch()
+
+    def fake_capture(command, timeout=20):
+        del timeout
+        if command[:3] == ["gh", "auth", "status"]:
+            return {
+                "ok": True,
+                "returncode": 0,
+                "stdout": "credential-shaped-output",
+                "stderr": "",
+            }
+        return {"ok": True, "returncode": 0, "stdout": "/safe/path", "stderr": ""}
+
+    def fake_http(method, url, body=None, ok_empty=False):
+        del method, body, ok_empty
+        if url.endswith("/health"):
+            return {
+                "status": "completed",
+                "node": "home",
+                "blocked_reason": "",
+            }
+        return {"nodes": [], "counts": {"total": 0}}
+
+    monkeypatch.setattr(dispatch, "run_capture", fake_capture)
+    monkeypatch.setattr(dispatch, "http_json", fake_http)
+    args = type("Args", (), {"control_url": "http://home-control:9101"})()
+
+    assert dispatch.cmd_doctor(args) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["github_auth"] == {"ok": True, "returncode": 0}
+    assert "credential-shaped-output" not in json.dumps(payload)

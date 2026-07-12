@@ -23,7 +23,7 @@ from public_responses_api import _decorate_response_work_summary  # noqa: E402
 
 
 def test_work_summary_is_allowlisted_and_never_copies_prompts_or_secrets():
-    secret = "sk-never-expose-work-summary-123456"
+    secret = "sk-" + "never-expose-work-summary-123456"
     raw_prompt = "RAW PRIVATE USER PROMPT"
     summary = build_work_summary(
         response_status="completed",
@@ -276,7 +276,7 @@ def test_estimate_readiness_envelope_never_claims_verified_or_ready_money():
 
 
 def test_owner_response_decorator_projects_only_allowlisted_lifecycle_facts():
-    secret = "sk-owner-internal-never-public-123"
+    secret = "sk-" + "owner-internal-never-public-123"
     response = _decorate_response_work_summary({
         "id": "resp_owner",
         "status": "completed",

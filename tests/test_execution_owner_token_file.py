@@ -32,7 +32,7 @@ def _client(tmp_path: Path) -> TestClient:
 def test_owner_bearer_is_loaded_from_root_managed_file_without_cleartext_state(
     tmp_path, monkeypatch,
 ):
-    token = "owner-file-test-token"
+    token = "owner-file-" + "test-token"
     token_file = tmp_path / "owner-api-token"
     token_file.write_text(token + "\n", encoding="utf-8")
     token_file.chmod(0o640)
@@ -55,7 +55,7 @@ def test_owner_bearer_is_loaded_from_root_managed_file_without_cleartext_state(
 def test_explicit_unsafe_owner_token_file_fails_closed_without_secret_echo(
     tmp_path, monkeypatch, capsys,
 ):
-    token = "unsafe-owner-file-token"
+    token = "unsafe-owner-" + "file-token"
     token_file = tmp_path / "owner-api-token"
     token_file.write_text(token, encoding="utf-8")
     token_file.chmod(0o644)

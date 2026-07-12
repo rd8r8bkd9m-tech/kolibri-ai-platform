@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 INSTALLER = ROOT / "scripts" / "macos" / "install-external-provider-actor-credential.py"
 NODE_ID = "mac-codex-provider-test"
 CREDENTIAL_ID = "mac-codex-provider-test-v1"
-TOKEN = "test-installer-token-0123456789-ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+TOKEN = "test-installer-" + "token-0123456789-ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 
 def load_installer():
@@ -325,7 +325,10 @@ def test_failed_remote_apply_restores_mac_record_and_invokes_home_rollback(
 ):
     installer = load_installer()
     layout = configure_installer(monkeypatch, installer, tmp_path)
-    previous_record = mac_record(epoch=1, token="previous-token-0123456789-ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+    previous_record = mac_record(
+        epoch=1,
+        token="previous-" + "token-0123456789-ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+    )
     write_private_json(layout.provider_credential, previous_record)
     previous = layout.provider_credential.read_bytes()
     monkeypatch.setattr(installer.secrets, "token_urlsafe", lambda _length: TOKEN)

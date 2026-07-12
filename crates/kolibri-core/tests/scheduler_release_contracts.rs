@@ -229,14 +229,18 @@ fn retry_and_timeout_stop_after_the_declared_attempt_budget() {
         retry_scheduler.actors[&actor_id].state,
         LogicalActorState::Failed
     );
-    assert!(retry_scheduler.actors[&actor_id]
-        .terminal_reason
-        .as_deref()
-        .is_some_and(|reason| reason.contains("attempt_budget_exhausted:2/2")));
-    assert!(retry_scheduler
-        .claim_next(first_slot_id, at(4))
-        .expect("claim query succeeds")
-        .is_none());
+    assert!(
+        retry_scheduler.actors[&actor_id]
+            .terminal_reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("attempt_budget_exhausted:2/2"))
+    );
+    assert!(
+        retry_scheduler
+            .claim_next(first_slot_id, at(4))
+            .expect("claim query succeeds")
+            .is_none()
+    );
 
     let (mut timeout_scheduler, timeout_actor_id, timeout_slot_id, _) =
         one_actor_scheduler(1, 300, 60);
@@ -397,13 +401,17 @@ fn failed_dependency_blocks_all_downstream_nodes_with_a_reason() {
         scheduler.actors[&verifier_id].state,
         LogicalActorState::Blocked
     );
-    assert!(scheduler.actors[&reducer_id]
-        .terminal_reason
-        .as_deref()
-        .is_some_and(|reason| reason.contains(&worker_id.to_string())));
-    assert!(scheduler.actors[&verifier_id]
-        .terminal_reason
-        .as_deref()
-        .is_some_and(|reason| reason.contains(&reducer_id.to_string())));
+    assert!(
+        scheduler.actors[&reducer_id]
+            .terminal_reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains(&worker_id.to_string()))
+    );
+    assert!(
+        scheduler.actors[&verifier_id]
+            .terminal_reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains(&reducer_id.to_string()))
+    );
     assert_eq!(scheduler.plan_state(), PlanExecutionState::Failed);
 }

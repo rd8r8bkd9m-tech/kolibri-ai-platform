@@ -23,13 +23,23 @@
     { "name": "owner-control" }
   ],
   "paths": {
+    "/v1/shell/bootstrap": {
+      "post": {
+        "tags": ["responses"],
+        "operationId": "bootstrapShell",
+        "security": [],
+        "responses": { "200": { "$ref": "#/components/responses/Success" } },
+        "x-kolibri-session": "atomic POST-first create-or-resume; exact-origin HttpOnly SameSite=Strict; only token SHA-256 is stored",
+        "x-kolibri-rule": "cold browser startup never depends on an expected 401/403 GET"
+      }
+    },
     "/v1/public/session": {
       "post": {
         "tags": ["responses"],
         "operationId": "createPublicSession",
         "security": [],
         "responses": { "200": { "$ref": "#/components/responses/Success" } },
-        "x-kolibri-session": "short-lived same-origin HttpOnly SameSite=Strict; only token SHA-256 is stored"
+        "x-kolibri-session": "compatibility alias for POST /v1/shell/bootstrap; short-lived same-origin HttpOnly SameSite=Strict; only token SHA-256 is stored"
       },
       "get": {
         "tags": ["responses"],

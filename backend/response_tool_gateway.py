@@ -200,13 +200,23 @@ def execute_response_tools(
     executions.extend(project_executions)
     executions.extend(web_executions)
     citations: list[dict[str, Any]] = []
-    seen_urls: set[str] = set()
+    seen_citations: set[tuple[str, ...]] = set()
     for execution in executions:
         for raw in execution["citations"]:
             url = str(raw.get("url") or "")
-            if not url or url in seen_urls:
+            if url:
+                identity = ("url", url)
+            else:
+                identity = (
+                    "project",
+                    str(raw.get("policy_version") or ""),
+                    str(raw.get("path") or ""),
+                    str(raw.get("span_sha256") or ""),
+                    str(raw.get("marker") or ""),
+                )
+            if identity in seen_citations:
                 continue
-            seen_urls.add(url)
+            seen_citations.add(identity)
             citation = dict(raw)
             citation["id"] = f"cite_{len(citations) + 1}"
             citations.append(citation)

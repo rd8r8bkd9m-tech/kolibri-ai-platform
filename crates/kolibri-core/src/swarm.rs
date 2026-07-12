@@ -1,4 +1,4 @@
-use crate::wire::{v1_schema_version, V1_SCHEMA_VERSION};
+use crate::wire::{V1_SCHEMA_VERSION, v1_schema_version};
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -1089,9 +1089,7 @@ pub enum SchedulerError {
     SlotOccupied(Uuid),
     #[error("unknown or stale actor lease: {0}")]
     StaleLease(Uuid),
-    #[error(
-        "actor lease fencing token mismatch for {lease_id}: expected {expected}, got {actual}"
-    )]
+    #[error("actor lease fencing token mismatch for {lease_id}: expected {expected}, got {actual}")]
     LeaseFenceMismatch {
         lease_id: Uuid,
         expected: u64,

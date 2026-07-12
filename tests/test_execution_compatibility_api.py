@@ -287,7 +287,7 @@ def test_main_mounts_new_router_without_removing_legacy_routes(tmp_path, monkeyp
     monkeypatch.setenv("KOLIBRI_DATA_DIR", str(tmp_path / "kolibri-data"))
     monkeypatch.setenv("KOLIBRI_EXECUTION_DB_PATH", str(tmp_path / "kolibri-data" / "execution.db"))
     for module_name in ("data_paths", "execution_api", "tts"):
-        sys.modules.pop(module_name, None)
+        monkeypatch.delitem(sys.modules, module_name, raising=False)
     spec = importlib.util.spec_from_file_location("backend_main_mounted_contract", BACKEND / "main.py")
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None

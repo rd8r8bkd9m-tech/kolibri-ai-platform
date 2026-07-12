@@ -1,9 +1,9 @@
 use axum::{
+    Json, Router,
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
-    Json, Router,
 };
 use chrono::Utc;
 use kolibri_core::{
@@ -11,7 +11,7 @@ use kolibri_core::{
     ShadowTaskRuntime, TaskRuntimeError, TaskTraceFixture,
 };
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
@@ -350,7 +350,7 @@ fn apply_envelope_idempotency(envelope: &mut Value, headers: &HeaderMap) -> Resu
     if let Some(header) = header {
         match object.get("idempotency_key").and_then(Value::as_str) {
             Some(body) if body != header => {
-                return Err(ApiError::invalid("idempotency_key_conflict"))
+                return Err(ApiError::invalid("idempotency_key_conflict"));
             }
             Some(_) => {}
             None => {
@@ -563,7 +563,7 @@ impl std::error::Error for UsageError {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::body::{to_bytes, Body};
+    use axum::body::{Body, to_bytes};
     use axum::http::Request;
     use tower::ServiceExt;
 

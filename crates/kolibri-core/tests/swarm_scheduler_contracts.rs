@@ -236,8 +236,10 @@ fn apple_work_never_leases_to_an_ubuntu_slot() {
     let ubuntu_slot_id = ubuntu_slot.id;
     let mut scheduler = SwarmScheduler::new(Uuid::new_v4(), vec![actor], vec![ubuntu_slot], 60)
         .expect("valid scheduler");
-    assert!(scheduler
-        .claim_next(ubuntu_slot_id, at(1))
-        .expect("claim query")
-        .is_none());
+    assert!(
+        scheduler
+            .claim_next(ubuntu_slot_id, at(1))
+            .expect("claim query")
+            .is_none()
+    );
 }

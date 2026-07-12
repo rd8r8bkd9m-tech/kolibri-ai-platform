@@ -2422,14 +2422,20 @@ class AgentHost:
                     )
                 if now - last_refresh >= refresh_interval:
                     try:
-                        authoritative = self.task_heartbeat(
-                            task,
-                            cwd,
-                            branch,
-                            logs,
-                            proc.pid,
-                            progress=reasoning_progress(),
-                        )
+                        progress = reasoning_progress()
+                        if progress is None:
+                            authoritative = self.task_heartbeat(
+                                task, cwd, branch, logs, proc.pid
+                            )
+                        else:
+                            authoritative = self.task_heartbeat(
+                                task,
+                                cwd,
+                                branch,
+                                logs,
+                                proc.pid,
+                                progress=progress,
+                            )
                     except Exception as exc:
                         self.terminate_process_group(proc)
                         raise TaskProcessInterrupted(

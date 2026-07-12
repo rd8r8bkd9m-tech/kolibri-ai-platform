@@ -1,4 +1,4 @@
-use crate::events::{validate_identifier, IdentifierError};
+use crate::events::{IdentifierError, validate_identifier};
 use crate::swarm::{
     ActorMessage, LogicalActor, LogicalActorState, PlanNode, PlanNodeKind, PlatformRequirement,
     SwarmPlan, SwarmScheduler, V1ActorState, V1PlanNodeKind, V1PlanNodeState, V1SwarmPlanState,
@@ -6,7 +6,7 @@ use crate::swarm::{
 use crate::wire::{ACTOR_SCHEMA_VERSION, SWARM_PLAN_SCHEMA_VERSION};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 
@@ -327,15 +327,15 @@ impl V1PlanNode {
             resource.validate()?;
         }
         self.retry_policy.validate()?;
-        if let Some(lease_owner) = &self.lease_owner {
-            if lease_owner.trim().is_empty() {
-                return Err(V1DtoError::EmptyField("node.lease_owner"));
-            }
+        if let Some(lease_owner) = &self.lease_owner
+            && lease_owner.trim().is_empty()
+        {
+            return Err(V1DtoError::EmptyField("node.lease_owner"));
         }
-        if let Some(attempt_id) = &self.attempt_id {
-            if attempt_id.trim().is_empty() {
-                return Err(V1DtoError::EmptyField("node.attempt_id"));
-            }
+        if let Some(attempt_id) = &self.attempt_id
+            && attempt_id.trim().is_empty()
+        {
+            return Err(V1DtoError::EmptyField("node.attempt_id"));
         }
         Ok(())
     }

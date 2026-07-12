@@ -1,5 +1,5 @@
 use kolibri_core::{
-    canonical_json_sha256, completion_binding_sha256, TaskShadowError, TaskTraceFixture,
+    TaskShadowError, TaskTraceFixture, canonical_json_sha256, completion_binding_sha256,
 };
 use serde_json::Value;
 

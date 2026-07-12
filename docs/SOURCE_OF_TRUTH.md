@@ -1,6 +1,6 @@
 # KolibriAI Platform Source of Truth
 
-This branch is the active FastAPI/React/Fabric/Superfactory product workspace for KolibriAI Platform.
+This branch is the clean Home-first implementation candidate for Kolibri AI OS. The existing FastAPI/React/Fabric/Superfactory runtime remains a compatibility source until a signed release passes the replacement gates.
 
 ## Product Direction
 
@@ -18,11 +18,14 @@ Calibri V1 is the forward direction. In this branch, Calibri V1 means aligning t
 
 ## Branch Role
 
-- Current branch: `p0/codex-sidebar-thread-bootstrap-20260704`.
-- Role: active product/runtime branch.
+- Current branch: `codex/kolibri-ai-os-foundation-20260712`.
+- Base: `9028a20d8522649e419dcae31ce906bebf7ad6b1`.
+- Role: tracked Home-first integration candidate; not production.
+- Code authority: reviewed Git commit.
+- Program/backlog authority target: PostgreSQL on the logical Home Control Plane.
 - Related foundation branch: `p0/free-low-cost-model-provider-registry-20260704` in `/Users/kolibri/.codex/worktrees/b56d/kolibri-ai-platform`.
 
-Do not treat the two worktrees as interchangeable. Merge or cherry-pick only after review.
+Do not merge dirty donor branches wholesale. Import focused contracts, source and tests only after review; generated output, local databases and daemon-thread authority are not donors.
 
 ## Canonical Paths
 

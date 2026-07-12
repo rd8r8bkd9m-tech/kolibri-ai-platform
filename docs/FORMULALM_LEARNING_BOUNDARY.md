@@ -74,6 +74,15 @@ authorization headers, private keys, token-bearing URLs, email addresses,
 Russian phone/passport/SNILS shapes, and payment-card-shaped values. This is a
 bounded deterministic scanner, not a claim of exhaustive PII detection.
 
+The stricter tracked admission contract is documented in
+`docs/MODEL_AND_LEARNING_ADMISSION_POLICY.md` and implemented by
+`crates/kolibri-core/src/model_policy.rs`. It explicitly rejects foreign or
+proprietary model weights and provider-private chain-of-thought/reasoning in
+addition to secrets, unconsented PII and license-negative traces. Permitted
+model outputs, sanitized tool traces, code diffs, tests and verifier verdicts
+may enter only after all existing consent, license, retention, sanitization and
+quality gates pass.
+
 ## Durable records
 
 The Python compatibility runtime stores FormulaLM records in the same SQLite

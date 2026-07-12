@@ -1,13 +1,16 @@
 [workspace]
 members = [
   "crates/kolibri-core",
+  "crates/kolibri-store-postgres",
+  "services/response-core",
   "services/task-shadow"
 ]
 resolver = "2"
 
 [workspace.package]
-edition = "2021"
+edition = "2024"
 license = "UNLICENSED"
+rust-version = "1.97"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
