@@ -2,6 +2,8 @@ import argparse
 import json
 from pathlib import Path
 
+import pytest
+
 from ops import agent_host as agent_host_module
 from ops import agent_host_compat_bootstrap as compat
 
@@ -86,6 +88,143 @@ def test_canary_only_plan_selects_exactly_one_dynamic_worker(tmp_path):
     assert len(plan["waves"][0]["nodes"]) == 1
 
 
+def test_home_is_rejected_by_default_and_explicit_mode_has_distinct_exact_plan(
+    tmp_path,
+):
+    manifest = write_manifest(tmp_path / "peers.json")
+    worker_plan = compat.compatibility_plan(
+        source_root=ROOT,
+        manifest_path=manifest,
+    )
+    home_plan = compat.compatibility_plan(
+        source_root=ROOT,
+        manifest_path=manifest,
+        home_node_mode=True,
+    )
+
+    assert worker_plan["home_excluded"] is True
+    assert worker_plan["home_node_mode"] is False
+    assert "home" not in {
+        node for wave in worker_plan["waves"] for node in wave["nodes"]
+    }
+    assert home_plan["home_excluded"] is False
+    assert home_plan["home_node_mode"] is True
+    assert home_plan["waves"] == [
+        {"name": "compat-home-worker", "nodes": ["home"]}
+    ]
+    assert home_plan["selected_node_total"] == 1
+    assert home_plan["selected_worker_total"] == 0
+    assert home_plan["plan_digest"] != worker_plan["plan_digest"]
+
+    fake_root = tmp_path / "default-root"
+    prepare_fake_root(fake_root)
+    bootstrap = compat.NodeBootstrap(
+        source_root=ROOT,
+        manifest_path=manifest,
+        node_id="home",
+        run_id="home-default-rejected",
+        approved_plan_digest=worker_plan["plan_digest"],
+        root=fake_root,
+        runner=FakeRunner(),
+        local_addresses=["10.88.0.1"],
+        stability_seconds=0,
+    )
+    with pytest.raises(
+        compat.BootstrapError, match="agent_host_compat_home_opt_in_required"
+    ):
+        bootstrap.plan()
+
+    wrong_digest = compat.NodeBootstrap(
+        source_root=ROOT,
+        manifest_path=manifest,
+        node_id="home",
+        run_id="home-wrong-plan-rejected",
+        approved_plan_digest=worker_plan["plan_digest"],
+        root=fake_root,
+        runner=FakeRunner(),
+        local_addresses=["10.88.0.1"],
+        stability_seconds=0,
+        home_node_mode=True,
+    )
+    with pytest.raises(compat.BootstrapError, match="agent_host_compat_plan_changed"):
+        wrong_digest.plan()
+
+    worker_in_home_mode = compat.NodeBootstrap(
+        source_root=ROOT,
+        manifest_path=manifest,
+        node_id="worker-00",
+        run_id="worker-home-mode-rejected",
+        approved_plan_digest=home_plan["plan_digest"],
+        root=fake_root,
+        runner=FakeRunner(),
+        local_addresses=["10.88.1.1"],
+        stability_seconds=0,
+        home_node_mode=True,
+    )
+    with pytest.raises(
+        compat.BootstrapError, match="agent_host_compat_home_mode_requires_home"
+    ):
+        worker_in_home_mode.plan()
+
+
+def test_explicit_home_mode_applies_only_agent_host_paths_and_rolls_back(tmp_path):
+    manifest = write_manifest(tmp_path / "peers.json")
+    fake_root = tmp_path / "home-root"
+    prepare_fake_root(fake_root)
+    control = fake_root / "usr/local/bin/kolibri-factory-control"
+    control.parent.mkdir(parents=True, exist_ok=True)
+    control.write_bytes(b"control-plane-stable\n")
+    control.chmod(0o755)
+    control_before = control.read_bytes()
+    membership_runtime = fake_root / "usr/local/lib/kolibri/fleet_membership.py"
+    membership_runtime.parent.mkdir(parents=True, exist_ok=True)
+    membership_runtime.write_bytes(b"old-membership-runtime\n")
+    membership_runtime.chmod(0o644)
+    membership_before = membership_runtime.read_bytes()
+    plan = compat.compatibility_plan(
+        source_root=ROOT,
+        manifest_path=manifest,
+        home_node_mode=True,
+    )
+    runner = FakeRunner()
+    bootstrap = compat.NodeBootstrap(
+        source_root=ROOT,
+        manifest_path=manifest,
+        node_id="home",
+        run_id="home-agent-host-opt-in",
+        approved_plan_digest=plan["plan_digest"],
+        root=fake_root,
+        runner=runner,
+        local_addresses=["10.88.0.1"],
+        stability_seconds=0,
+        home_node_mode=True,
+    )
+
+    planned = bootstrap.plan()
+    applied = bootstrap.apply()
+
+    assert planned["home_node_mode"] is True
+    assert planned["plan_digest"] == plan["plan_digest"]
+    assert "/usr/local/lib/kolibri/fleet_membership.py" in planned["changed_paths"]
+    assert all("factory-control" not in path for path in planned["changed_paths"])
+    assert applied["status"] == "applied"
+    assert control.read_bytes() == control_before
+    assert membership_runtime.read_bytes() == (ROOT / "ops/fleet_membership.py").read_bytes()
+    touched_services = {
+        argument
+        for command in runner.commands
+        if command and command[0] == "/usr/bin/systemctl"
+        for argument in command
+        if argument.endswith(".service")
+    }
+    assert touched_services == {"kolibri-agent-host.service"}
+
+    rolled_back = bootstrap.rollback()
+    assert rolled_back["status"] == "rolled_back"
+    assert control.read_bytes() == control_before
+    assert membership_runtime.read_bytes() == membership_before
+
+
 def test_node_bootstrap_is_idempotent_preserves_runtime_inputs_and_rolls_back(tmp_path):
     manifest = write_manifest(tmp_path / "peers.json")
     fake_root = tmp_path / "root"
@@ -140,6 +279,7 @@ def test_node_bootstrap_is_idempotent_preserves_runtime_inputs_and_rolls_back(tm
     assert (fake_root / "usr/local/bin/kolibri-agent-host").read_bytes() == b"old-agent-host\n"
     assert not (fake_root / "etc/kolibri/runner-access.json").exists()
     assert not (fake_root / "usr/local/lib/kolibri/release_helper.py").exists()
+    assert not (fake_root / "usr/local/lib/kolibri/fleet_membership.py").exists()
 
 
 class FakeControlPlane:
@@ -273,5 +413,8 @@ def test_bootstrap_source_contains_no_remote_transport_or_legacy_authority():
     assert '"ssh"' not in source
     assert "10.99." not in source
     assert 'node_id == "home"' in source
+    assert "--home-node-mode" in source
+    assert '"ops/fleet_membership.py"' in source
+    assert "kolibri-factory-control.service" not in source
     assert "/etc/kolibri-agent-host.env" in source
     assert "_atomic_write(self._path(preserved" not in source

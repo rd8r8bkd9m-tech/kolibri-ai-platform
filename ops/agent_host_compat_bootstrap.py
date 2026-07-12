@@ -84,6 +84,11 @@ INSTALL_RECORDS = (
         "/usr/local/lib/kolibri/control_plane_endpoint.py",
         0o644,
     ),
+    InstallRecord(
+        "ops/fleet_membership.py",
+        "/usr/local/lib/kolibri/fleet_membership.py",
+        0o644,
+    ),
     InstallRecord("ops/runner_access.py", "/usr/local/lib/kolibri/runner_access.py", 0o644),
     InstallRecord(
         "ops/runner-access.default.json",
@@ -269,6 +274,7 @@ def compatibility_plan(
     manifest_path: Path,
     minimum_workers: int = DEFAULT_MINIMUM_WORKERS,
     canary_only: bool = False,
+    home_node_mode: bool = False,
 ) -> dict[str, Any]:
     if minimum_workers < 1:
         raise BootstrapError("agent_host_compat_minimum_workers_invalid")
@@ -281,37 +287,46 @@ def compatibility_plan(
     workers = [member for member in snapshot.members if member.node_id != "home"]
     if len(workers) < minimum_workers:
         raise BootstrapError("agent_host_compat_worker_count_below_minimum")
-    ordered = sorted(
-        workers,
-        key=lambda member: (
-            hashlib.sha256(
-                f"{bundle_digest}:{member.node_id}".encode("utf-8")
-            ).hexdigest(),
-            member.node_id,
-        ),
-    )
-    waves: list[dict[str, Any]] = []
-    offset = 0
-    for name, size in WAVE_LAYOUT:
-        selected = ordered[offset : offset + size]
-        offset += len(selected)
-        if selected:
-            waves.append({"name": name, "nodes": [item.node_id for item in selected]})
-    if offset < len(ordered):
-        waves.append(
-            {"name": "compat-workers-rest", "nodes": [item.node_id for item in ordered[offset:]]}
+    if home_node_mode:
+        waves = [{"name": "compat-home-worker", "nodes": ["home"]}]
+    else:
+        ordered = sorted(
+            workers,
+            key=lambda member: (
+                hashlib.sha256(
+                    f"{bundle_digest}:{member.node_id}".encode("utf-8")
+                ).hexdigest(),
+                member.node_id,
+            ),
         )
-    if canary_only:
-        waves = waves[:1]
+        waves = []
+        offset = 0
+        for name, size in WAVE_LAYOUT:
+            selected = ordered[offset : offset + size]
+            offset += len(selected)
+            if selected:
+                waves.append({"name": name, "nodes": [item.node_id for item in selected]})
+        if offset < len(ordered):
+            waves.append(
+                {
+                    "name": "compat-workers-rest",
+                    "nodes": [item.node_id for item in ordered[offset:]],
+                }
+            )
+        if canary_only:
+            waves = waves[:1]
+    selected_nodes = [node for wave in waves for node in wave["nodes"]]
     material = {
         "schema_version": PLAN_SCHEMA_VERSION,
         "source_bundle_digest": bundle_digest,
         "membership_digest": f"sha256:{snapshot.digest}",
         "membership_epoch": snapshot.epoch,
-        "home_excluded": True,
+        "home_excluded": not home_node_mode,
+        "home_node_mode": home_node_mode,
         "minimum_workers": minimum_workers,
         "canonical_worker_total": len(workers),
-        "selected_worker_total": sum(len(wave["nodes"]) for wave in waves),
+        "selected_worker_total": sum(node != "home" for node in selected_nodes),
+        "selected_node_total": len(selected_nodes),
         "canary_only": canary_only,
         "waves": waves,
     }
@@ -357,6 +372,7 @@ class NodeBootstrap:
         stability_seconds: int = 15,
         canary_only: bool = False,
         minimum_workers: int = DEFAULT_MINIMUM_WORKERS,
+        home_node_mode: bool = False,
     ):
         self.source_root = source_root.resolve()
         self.manifest_path = manifest_path.resolve()
@@ -379,6 +395,7 @@ class NodeBootstrap:
         self.stability_seconds = stability_seconds
         self.canary_only = canary_only
         self.minimum_workers = minimum_workers
+        self.home_node_mode = home_node_mode
         self.payloads: dict[str, bytes] = {}
         self.plan_value: dict[str, Any] = {}
 
@@ -405,8 +422,12 @@ class NodeBootstrap:
         ]
 
     def validate(self) -> None:
-        if not SAFE_ID.fullmatch(self.node_id) or self.node_id == "home":
+        if not SAFE_ID.fullmatch(self.node_id):
             raise BootstrapError("agent_host_compat_node_invalid")
+        if self.node_id == "home" and not self.home_node_mode:
+            raise BootstrapError("agent_host_compat_home_opt_in_required")
+        if self.node_id != "home" and self.home_node_mode:
+            raise BootstrapError("agent_host_compat_home_mode_requires_home")
         if not SAFE_ID.fullmatch(self.run_id):
             raise BootstrapError("agent_host_compat_run_id_invalid")
         if self.approved_plan_digest is not None and not SHA256.fullmatch(
@@ -421,6 +442,7 @@ class NodeBootstrap:
             manifest_path=self.manifest_path,
             canary_only=self.canary_only,
             minimum_workers=self.minimum_workers,
+            home_node_mode=self.home_node_mode,
         )
         if (
             self.approved_plan_digest is not None
@@ -485,6 +507,7 @@ class NodeBootstrap:
             "plan_digest": self.plan_value["plan_digest"],
             "source_bundle_digest": self.plan_value["source_bundle_digest"],
             "membership_digest": self.plan_value["membership_digest"],
+            "home_node_mode": self.home_node_mode,
             "changed_paths": sorted(path for path in desired if current.get(path) != desired[path]),
             "service_active": service_active,
             "preserved_paths": list(PRESERVED_PATHS),
@@ -523,6 +546,7 @@ class NodeBootstrap:
                 "run_id": self.run_id,
                 "plan_digest": self.plan_value["plan_digest"],
                 "source_bundle_digest": self.plan_value["source_bundle_digest"],
+                "home_node_mode": self.home_node_mode,
             },
         )
 
@@ -609,8 +633,12 @@ class NodeBootstrap:
 
     def rollback(self, *, skip_validate: bool = False) -> dict[str, Any]:
         if not skip_validate:
-            if not SAFE_ID.fullmatch(self.node_id) or self.node_id == "home":
+            if not SAFE_ID.fullmatch(self.node_id):
                 raise BootstrapError("agent_host_compat_node_invalid")
+            if self.node_id == "home" and not self.home_node_mode:
+                raise BootstrapError("agent_host_compat_home_opt_in_required")
+            if self.node_id != "home" and self.home_node_mode:
+                raise BootstrapError("agent_host_compat_home_mode_requires_home")
             if not SAFE_ID.fullmatch(self.run_id):
                 raise BootstrapError("agent_host_compat_run_id_invalid")
             if self.root == Path("/") and os.geteuid() != 0:
@@ -623,6 +651,8 @@ class NodeBootstrap:
         before = json.loads(before_path.read_text(encoding="utf-8"))
         if metadata.get("node_id") != self.node_id or metadata.get("run_id") != self.run_id:
             raise BootstrapError("agent_host_compat_backup_identity_invalid")
+        if metadata.get("home_node_mode", False) is not self.home_node_mode:
+            raise BootstrapError("agent_host_compat_backup_mode_mismatch")
         if (
             self.approved_plan_digest is not None
             and metadata.get("plan_digest") != self.approved_plan_digest
@@ -801,6 +831,7 @@ def main(argv: list[str] | None = None) -> int:
         "--minimum-workers", type=int, default=DEFAULT_MINIMUM_WORKERS
     )
     plan_parser.add_argument("--canary-only", action="store_true")
+    plan_parser.add_argument("--home-node-mode", action="store_true")
 
     for name in ("node", "rollback"):
         node_parser = subparsers.add_parser(name)
@@ -810,6 +841,7 @@ def main(argv: list[str] | None = None) -> int:
         node_parser.add_argument("--run-id", required=True)
         node_parser.add_argument("--approved-plan-digest")
         node_parser.add_argument("--canary-only", action="store_true")
+        node_parser.add_argument("--home-node-mode", action="store_true")
         node_parser.add_argument(
             "--minimum-workers", type=int, default=DEFAULT_MINIMUM_WORKERS
         )
@@ -829,6 +861,7 @@ def main(argv: list[str] | None = None) -> int:
                 manifest_path=Path(args.manifest),
                 minimum_workers=args.minimum_workers,
                 canary_only=args.canary_only,
+                home_node_mode=args.home_node_mode,
             )
         elif args.command == "prove":
             control_url = resolve_home_control_plane_url(manifest_path=args.manifest)
@@ -847,6 +880,7 @@ def main(argv: list[str] | None = None) -> int:
                 approved_plan_digest=args.approved_plan_digest,
                 canary_only=args.canary_only,
                 minimum_workers=args.minimum_workers,
+                home_node_mode=args.home_node_mode,
             )
             if args.command == "rollback":
                 result = bootstrap.rollback() if args.apply else {
