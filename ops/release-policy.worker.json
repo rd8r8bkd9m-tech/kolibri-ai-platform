@@ -1,0 +1,60 @@
+{
+  "schema_version": "kolibri.release-policy.v1",
+  "services": [],
+  "default_services": [],
+  "required_payload_paths": [
+    "ops/agent_host.py",
+    "ops/mimo/kolibri-response-only.md"
+  ],
+  "pre_health": [
+    {
+      "name": "worker-release-boundary",
+      "argv": [
+        "/usr/bin/python3",
+        "-B",
+        "/usr/local/lib/kolibri/worker_release_health.py",
+        "pre",
+        "--release-root",
+        "/opt/kolibri-ai/releases",
+        "--current-link",
+        "/opt/kolibri-ai/current"
+      ],
+      "timeout_seconds": 10
+    }
+  ],
+  "pre_activate": [
+    {
+      "name": "worker-candidate-agent-host",
+      "argv": [
+        "/usr/bin/python3",
+        "-B",
+        "/usr/local/lib/kolibri/worker_release_health.py",
+        "candidate",
+        "--release-root",
+        "/opt/kolibri-ai/releases",
+        "--release-dir",
+        "{release_dir}"
+      ],
+      "timeout_seconds": 10
+    }
+  ],
+  "post_health": [
+    {
+      "name": "worker-current-agent-host",
+      "argv": [
+        "/usr/bin/python3",
+        "-B",
+        "/usr/local/lib/kolibri/worker_release_health.py",
+        "current",
+        "--release-root",
+        "/opt/kolibri-ai/releases",
+        "--current-link",
+        "/opt/kolibri-ai/current",
+        "--release-dir",
+        "{release_dir}"
+      ],
+      "timeout_seconds": 10
+    }
+  ],
+  "service_timeout_seconds": 30
+}
