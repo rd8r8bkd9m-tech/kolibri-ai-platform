@@ -21,6 +21,7 @@ from ops.worker_release_health import (
     WorkerReleaseHealthError,
     check_candidate,
     check_current,
+    check_pre,
 )
 
 
@@ -279,6 +280,21 @@ def test_health_checks_validate_candidate_and_atomic_current(tmp_path):
             release_root=release_root,
             owner_uid=os.geteuid(),
         )
+
+
+def test_pre_health_accepts_contained_historical_product_only_release(tmp_path):
+    release_root = tmp_path / "releases"
+    historical = release_root / "historical-product"
+    historical.mkdir(parents=True)
+    (historical / "frontend.bin").write_bytes(b"legacy-product-only")
+    current = tmp_path / "current"
+    current.symlink_to(historical)
+
+    check_pre(
+        release_root=release_root,
+        current_link=current,
+        owner_uid=os.geteuid(),
+    )
 
 
 def test_wrapper_is_dynamic_dry_run_first_and_never_mentions_legacy_canary():

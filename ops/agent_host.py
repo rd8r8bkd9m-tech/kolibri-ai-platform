@@ -61,6 +61,10 @@ MIMO_RESPONSE_AGENT_NAME = "kolibri-response-only"
 MIMO_RESPONSE_AGENT_PROFILE_PATH = "ops/mimo/kolibri-response-only.md"
 MIMO_RESPONSE_PROFILE_MAX_BYTES = 16 * 1024
 MIMO_RESPONSE_PROFILE_SHA256 = "80cc13e7dd89c8045c8317d55b4ebe96dccd76a371a2b51f4c1cd5c7cec2ca45"
+LEASE_HEARTBEAT_PROBE_KIND = "lease_heartbeat_probe"
+LEASE_HEARTBEAT_PROBE_SCHEMA = "kolibri.lease-heartbeat-probe.v1"
+LEASE_HEARTBEAT_PROBE_MIN_SECONDS = 61
+LEASE_HEARTBEAT_PROBE_MAX_SECONDS = 180
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 IMAGE_EVIDENCE_SCHEMA = "kolibri.image-generation-evidence.v1"
 MAX_FACTORY_IMAGE_BYTES = 6 * 1024 * 1024
@@ -125,6 +129,7 @@ SUPPORTED_TASK_KINDS = {
     "telegram_chat_response",
     "telegram_image_generation",
     "image_generation",
+    LEASE_HEARTBEAT_PROBE_KIND,
 } | set(RELEASE_TASK_KINDS)
 NO_PUSH_FLAGS = ("git_push_forbidden", "no_push", "read_only")
 PRODUCT_CODE_FORBIDDEN_FLAGS = ("product_code_modification_forbidden", "read_only")
@@ -1748,6 +1753,8 @@ class AgentHost:
             and item not in {RELEASE_CAPABILITY, "image_generation"}
             and not is_declared_runner_capability(item)
         ]
+        if LEASE_HEARTBEAT_PROBE_KIND not in self.configured_capabilities:
+            self.configured_capabilities.append(LEASE_HEARTBEAT_PROBE_KIND)
         self.capabilities = list(self.configured_capabilities)
         self.repo_url = args.repo_url
         self.work_root = Path(args.work_root)
@@ -3489,6 +3496,96 @@ class AgentHost:
         result["result_path"] = str(result_path)
         return result
 
+    def run_lease_heartbeat_probe(self, task: dict[str, Any]) -> dict[str, Any]:
+        """Prove that one fenced attempt remains live beyond a legacy lease window.
+
+        The probe is deliberately read-only and bounded.  It refreshes the
+        authoritative task lease at least every five seconds, observes
+        cancellation/fencing returned by Home, and emits a content-bound
+        result only after more than sixty seconds of the same attempt.
+        """
+
+        envelope = task_envelope(task)
+        requested = envelope_value(
+            envelope,
+            "proof_duration_seconds",
+            LEASE_HEARTBEAT_PROBE_MIN_SECONDS,
+        )
+        if (
+            isinstance(requested, bool)
+            or not isinstance(requested, int)
+            or not LEASE_HEARTBEAT_PROBE_MIN_SECONDS
+            <= requested
+            <= LEASE_HEARTBEAT_PROBE_MAX_SECONDS
+        ):
+            raise RuntimeError("lease_heartbeat_probe_duration_invalid")
+
+        worktree, artifact_dir, logs = self.prepare_dirs(task)
+        worktree.mkdir(parents=True, exist_ok=True)
+        started_at = utc_now()
+        started = time.monotonic()
+        heartbeat_count = 0
+        last_state = "running"
+        while True:
+            elapsed = max(0.0, time.monotonic() - started)
+            heartbeat = self.task_heartbeat(
+                task,
+                worktree,
+                None,
+                logs,
+            )
+            heartbeat_count += 1
+            last_state = str(heartbeat.get("state") or "running")
+            if last_state in {"cancelled", "failed", "dead_letter"}:
+                raise TaskProcessInterrupted(
+                    "task_cancelled",
+                    "Home fenced the lease heartbeat probe",
+                    retry=False,
+                )
+            elapsed = max(0.0, time.monotonic() - started)
+            if elapsed >= requested:
+                break
+            time.sleep(min(5.0, float(requested) - elapsed))
+
+        observed = max(0.0, time.monotonic() - started)
+        result = {
+            "node_id": self.node_id,
+            "hostname": self.hostname,
+            "task_id": task["task_id"],
+            "agent_id": self.agent_id,
+            "attempt_id": task.get("attempt_id"),
+            "pid": self.pid,
+            "heartbeat_at": utc_now(),
+            "worktree": str(worktree),
+            "branch": None,
+            "log_paths": logs,
+            "result_path": str(artifact_dir / "result.json"),
+            "status": "completed",
+            "kind": LEASE_HEARTBEAT_PROBE_KIND,
+            "message": "fenced lease heartbeat probe completed",
+            "agent_host_runtime": self.agent_host_runtime,
+            "lease_heartbeat_probe": {
+                "schema_version": LEASE_HEARTBEAT_PROBE_SCHEMA,
+                "started_at": started_at,
+                "completed_at": utc_now(),
+                "requested_duration_seconds": requested,
+                "observed_duration_seconds": round(observed, 3),
+                "heartbeat_count": heartbeat_count,
+                "last_authoritative_state": last_state,
+            },
+            "permission_pack_classification": classify_permission_pack(task),
+        }
+        result = self.finalize_result(
+            task,
+            result,
+            artifact_dir,
+            worktree,
+            changed_files=[],
+        )
+        result_path = self.write_result(artifact_dir, result)
+        result["result_path"] = str(result_path)
+        return result
+
     def run_release_bundle_task(self, task: dict[str, Any]) -> dict[str, Any]:
         worktree, artifact_dir, logs = self.prepare_dirs(task)
         worktree.mkdir(parents=True, exist_ok=True)
@@ -4462,6 +4559,8 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 result = self.run_review_pr(task)
             elif kind == "read_only_probe":
                 result = self.run_read_only_probe(task)
+            elif kind == LEASE_HEARTBEAT_PROBE_KIND:
+                result = self.run_lease_heartbeat_probe(task)
             else:
                 raise RuntimeError(f"unsupported task kind reached dispatch: {kind}")
             result.setdefault("permission_pack_classification", permission_pack_classification)

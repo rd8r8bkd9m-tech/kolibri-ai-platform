@@ -94,9 +94,16 @@ def check_pre(*, release_root: Path, current_link: Path, owner_uid: int) -> None
         raise WorkerReleaseHealthError("worker_release_current_unsafe")
     try:
         selected = current_link.resolve(strict=True)
+        resolved_root = release_root.resolve(strict=True)
     except OSError as exc:
         raise WorkerReleaseHealthError("worker_release_current_unsafe") from exc
-    _validate_release_dir(selected, release_root=release_root, owner_uid=owner_uid)
+    # Historical product-only releases may predate the Agent Host/profile
+    # pair.  The pre-gate validates their containment only; the candidate and
+    # post-gates below require the complete signed pair before activation can
+    # succeed.
+    if selected.parent != resolved_root:
+        raise WorkerReleaseHealthError("worker_release_current_unsafe")
+    _trusted_directory(selected, owner_uid=owner_uid)
 
 
 def check_candidate(*, release_dir: Path, release_root: Path, owner_uid: int) -> None:

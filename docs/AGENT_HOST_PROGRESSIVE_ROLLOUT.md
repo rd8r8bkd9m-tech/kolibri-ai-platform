@@ -52,6 +52,12 @@ and is not claimed complete by this change. Newly provisioned nodes receive the
 bootstrap behavior from the normal canonical installer. After the barrier is
 met, all routine Agent Host updates and rollbacks use API tasks only.
 
+The bounded node-local procedure, dynamic `1/2/3/5/rest` worker plan,
+canary-only mode, rollback contract and greater-than-60-second fenced proof are
+specified in `docs/AGENT_HOST_COMPAT_BOOTSTRAP.md` and implemented by
+`ops/agent_host_compat_bootstrap.py`. The tool deliberately contains no remote
+transport and excludes Home from this one-time worker transition.
+
 ## Dynamic membership and waves
 
 The campaign reads both of these Home views:
