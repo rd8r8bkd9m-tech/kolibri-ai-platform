@@ -108,7 +108,6 @@ def test_rendered_service_uses_api_agent_host_and_scoped_home_identity(tmp_path)
         "RUNTIME_DIR": str(base / "runtime"),
         "PYTHON_BIN": sys.executable,
         "SANITIZED_LOG": str(base / "agent.log"),
-        "BOOTSTRAP_OUTPUT": f"append:{base / 'bootstrap.log'}",
         "HOME_ENV": f"HOME={tmp_path / 'home'}",
         "PATH_ENV": "PATH=/usr/bin:/bin",
         "PYTHONPATH_ENV": f"PYTHONPATH={base / 'runtime'}",
@@ -145,6 +144,11 @@ def test_rendered_service_uses_api_agent_host_and_scoped_home_identity(tmp_path)
         in rendered
     )
     assert 'WorkingDirectory="' not in rendered
+    assert (
+        "StandardError=append:%h/.local/share/kolibri/home-codex-provider/logs/systemd-bootstrap.log"
+        in rendered
+    )
+    assert 'StandardError="' not in rendered
     assert "NoNewPrivileges=yes" in rendered
     assert "ProtectSystem=strict" in rendered
     assert "auth.json" not in rendered.lower()
@@ -263,6 +267,7 @@ def test_service_validator_rejects_static_control_plane_and_secret_material():
         "KOLIBRI_NODE_LABELS_JSON=home_systemd_user",
         "ConditionFileNotEmpty=/manifest",
         "WorkingDirectory=%h/.local/share/kolibri/home-codex-provider/worktrees",
+        "StandardError=append:%h/.local/share/kolibri/home-codex-provider/logs/systemd-bootstrap.log",
         "--capabilities codex_provider_broker --max-inflight 1",
         "Restart=on-failure",
         "NoNewPrivileges=yes",
@@ -278,6 +283,7 @@ def test_service_validator_rejects_static_control_plane_and_secret_material():
         "ConditionPathIsRegular=/manifest",
         'ConditionFileNotEmpty="/manifest"',
         'WorkingDirectory="/home/ladik/work"',
+        'StandardError="append:/home/ladik/bootstrap.log"',
     ):
         with pytest.raises(installer.HomeProviderConfigError) as error:
             installer.validate_service(f"{baseline}\n{addition}")
