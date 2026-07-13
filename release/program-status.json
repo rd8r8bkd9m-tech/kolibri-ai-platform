@@ -1,8 +1,8 @@
 {
   "schema_version": "kolibri.program-status.v1",
   "program_id": "kolibri-ai-os-home-first",
-  "as_of": "2026-07-13T00:17:44Z",
-  "source_commit": "45eef8aa3ce4a15858cf2284d31bf4da286dbc59",
+  "as_of": "2026-07-13T06:06:42Z",
+  "source_commit": "77aa7086f9376d87b7735d9eb56c5a791450edc5",
   "overall_status": "in_progress",
   "truth_policy": {
     "allowed_gate_statuses": [
@@ -27,8 +27,8 @@
     },
     "ci": {
       "status": "green",
-      "run_id": 29214898086,
-      "commit": "45eef8aa3ce4a15858cf2284d31bf4da286dbc59",
+      "run_id": 29227617842,
+      "commit": "77aa7086f9376d87b7735d9eb56c5a791450edc5",
       "jobs": {
         "ci": "success",
         "rust-1.97": "success",
@@ -45,7 +45,7 @@
     "home_development_environment": {
       "integration_worktree": {
         "status": "clean",
-        "commit": "45eef8aa3ce4a15858cf2284d31bf4da286dbc59",
+        "commit": "77aa7086f9376d87b7735d9eb56c5a791450edc5",
         "update_method": "fast_forward"
       },
       "codex_cli_version": "0.144.1",
@@ -54,10 +54,28 @@
       "root_helper": "installed_validated",
       "sudoers": "installed_validated"
     },
+    "program_wallboard": {
+      "code_status": "committed_ci_green",
+      "route": "/wallboard",
+      "api": "/v1/program/status",
+      "visibility": "owner-only",
+      "source": "program-ledger/home",
+      "truth_states": [
+        "live",
+        "partial",
+        "stale",
+        "unavailable"
+      ],
+      "public_shell_bootstrap_bypassed": true,
+      "mock_fallback": false,
+      "home_kiosk_activated": false,
+      "owner_browser_session_proven": false,
+      "status": "in_progress"
+    },
     "home_codex_provider": {
       "code_status": "committed_ci_green",
-      "broker_service_activated": false,
-      "provider_canary_completed": false,
+      "broker_service_activated": true,
+      "provider_canary_completed": true,
       "credential_migration": {
         "status": "completed",
         "initial_apply": {
@@ -80,17 +98,16 @@
         "secrets_returned": false,
         "actors": {
           "mac-codex-provider": "drained",
-          "home-codex-provider": "drained"
+          "home-codex-provider": "schedulable"
         }
       },
-      "dry_run_status": "blocked",
-      "dry_run_blocker": "current_user_codex_session_unavailable",
-      "activation_blockers": [
-        "current_user_codex_session_unavailable"
-      ],
+      "dry_run_status": "validated",
+      "dry_run_blocker": null,
+      "activation_blockers": [],
       "official_device_login": {
-        "status": "waiting_for_owner_unlock",
-        "mac_screen_locked": true
+        "status": "authenticated_on_home",
+        "credential_scope": "home_current_user",
+        "credentials_copied": false
       },
       "activation_sequence": [
         "unlock_mac",
@@ -100,13 +117,35 @@
         "fenced_canary",
         "undrain"
       ],
-      "status": "blocked"
+      "canary": {
+        "task_id": "KOL-PROVIDER-HOME-CODEX-CANARY-20260713T060518078Z",
+        "state": "completed",
+        "attempt_id": "KOL-PROVIDER-HOME-CODEX-CANARY-20260713T060518078Z-attempt-1",
+        "fencing_token": 1,
+        "lease_owner": "home-codex-provider:home-codex-provider",
+        "result_sha256": "sha256:ac1ba5efd4699498d9afa70ba908110cfb79e118b1600341d02f56053d0a60a7",
+        "binding_sha256": "sha256:79a390d5eac529db2150452493b34223c79c405f4fddc2dee6b4acb985d29516",
+        "artifact_file_sha256": "sha256:82891d922063f1b4c712ad120c294211a0847966cefc2dde5f8b25e166fdc4e9",
+        "artifact_size": 3137,
+        "verifier": "control-plane/home",
+        "verifier_verdict": "passed",
+        "truth_verdict": "true",
+        "truth_confidence": "high"
+      },
+      "status": "ready"
     },
     "home_control_plane": {
       "status": "healthy",
       "service": "active",
       "nrestarts": 0,
-      "observed_at": "2026-07-12T23:38:39Z"
+      "observed_at": "2026-07-13T06:04:00Z",
+      "source_commit": "77aa7086f9376d87b7735d9eb56c5a791450edc5",
+      "strict_compat_plan_digest": "sha256:bc393fdaae1344c8cc16f9741ab11e21d926fa96b64d0890faeff2f1c3fe225e",
+      "redis_projection": {
+        "task_total": 422,
+        "queue_total": 0,
+        "lease_index_total": 0
+      }
     },
     "runtime_bundle": {
       "digest": "sha256:de00339d64be94772896e956a8bc3e05d125b6db0677285dc6835f2884baa56c"
@@ -163,6 +202,78 @@
     ]
   },
   "evidence": [
+    {
+      "id": "commit:77aa7086",
+      "kind": "git_commit",
+      "status": "verified",
+      "reference": "77aa7086f9376d87b7735d9eb56c5a791450edc5",
+      "uri": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/commit/77aa7086f9376d87b7735d9eb56c5a791450edc5",
+      "observed_at": "2026-07-13T06:06:42Z"
+    },
+    {
+      "id": "ci-run:29227617842-green",
+      "kind": "continuous_integration",
+      "status": "verified",
+      "reference": "29227617842",
+      "uri": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/actions/runs/29227617842",
+      "observed_at": "2026-07-13T06:06:42Z"
+    },
+    {
+      "id": "home-integration:77aa7086-clean",
+      "kind": "home_integration_worktree",
+      "status": "verified",
+      "reference": "77aa7086f9376d87b7735d9eb56c5a791450edc5",
+      "uri": null,
+      "observed_at": "2026-07-13T06:06:42Z"
+    },
+    {
+      "id": "home-cp-strict-compat:77aa7086",
+      "kind": "control_plane_strict_compat_rollout",
+      "status": "verified",
+      "reference": "source=77aa7086f9376d87b7735d9eb56c5a791450edc5;plan=sha256:bc393fdaae1344c8cc16f9741ab11e21d926fa96b64d0890faeff2f1c3fe225e;NRestarts=0",
+      "uri": null,
+      "observed_at": "2026-07-13T06:06:42Z"
+    },
+    {
+      "id": "home-provider-canary:KOL-PROVIDER-HOME-CODEX-CANARY-20260713T060518078Z",
+      "kind": "home_codex_provider_canary",
+      "status": "verified",
+      "reference": "attempt=KOL-PROVIDER-HOME-CODEX-CANARY-20260713T060518078Z-attempt-1;fence=1;result_sha256=sha256:ac1ba5efd4699498d9afa70ba908110cfb79e118b1600341d02f56053d0a60a7;binding_sha256=sha256:79a390d5eac529db2150452493b34223c79c405f4fddc2dee6b4acb985d29516;verifier=passed;truth=true",
+      "uri": null,
+      "observed_at": "2026-07-13T06:06:42Z"
+    },
+    {
+      "id": "commit:c74a772d",
+      "kind": "git_commit",
+      "status": "verified",
+      "reference": "c74a772d52acd650d8325d4d2838abbc2733a623",
+      "uri": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/commit/c74a772d52acd650d8325d4d2838abbc2733a623",
+      "observed_at": "2026-07-13T00:43:07Z"
+    },
+    {
+      "id": "ci-run:29215768815-green",
+      "kind": "continuous_integration",
+      "status": "verified",
+      "reference": "29215768815",
+      "uri": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/actions/runs/29215768815",
+      "observed_at": "2026-07-13T00:43:07Z"
+    },
+    {
+      "id": "home-integration:c74a772d-clean",
+      "kind": "home_integration_worktree",
+      "status": "verified",
+      "reference": "c74a772d52acd650d8325d4d2838abbc2733a623",
+      "uri": null,
+      "observed_at": "2026-07-13T00:43:07Z"
+    },
+    {
+      "id": "wallboard-contract:c74a772d",
+      "kind": "program_wallboard_contract",
+      "status": "verified",
+      "reference": "/v1/program/status;/wallboard;owner-only;no-mock",
+      "uri": null,
+      "observed_at": "2026-07-13T00:43:07Z"
+    },
     {
       "id": "commit:45eef8aa",
       "kind": "git_commit",
@@ -363,13 +474,13 @@
       "name": "Evidence baseline and factual truth",
       "status": "completed",
       "evidence_ids": [
-        "commit:45eef8aa",
-        "ci-run:29214898086-green",
+        "commit:77aa7086",
+        "ci-run:29227617842-green",
         "runtime-bundle:de00339d"
       ],
       "blockers": [],
       "next_action": "Record the next accepted commit, CI verdict, runtime digest, and evidence timestamps before making any new readiness claim.",
-      "updated_at": "2026-07-13T00:17:44Z"
+      "updated_at": "2026-07-13T06:06:42Z"
     },
     {
       "gate": 1,
@@ -378,20 +489,23 @@
       "status": "in_progress",
       "evidence_ids": [
         "home-cp-runtime:active-nrestarts0",
-        "home-integration:45eef8aa-clean",
+        "home-integration:77aa7086-clean",
+        "wallboard-contract:c74a772d",
         "home-codex-cli:0.144.1",
         "home-account:helper-sudoers-manifest-linger",
         "home-provider:migration-epoch2",
-        "home-provider:dry-run-session-unavailable",
+        "home-cp-strict-compat:77aa7086",
+        "home-provider-canary:KOL-PROVIDER-HOME-CODEX-CANARY-20260713T060518078Z",
         "development-seed-retry:KOL-IMPROVE-SEED-r2-3b01332c"
       ],
       "blockers": [
-        "The service dry-run is blocked by current_user_codex_session_unavailable; official device login is waiting for the owner to unlock the Mac screen.",
         "Four retry tasks reached attempt 2 of 2 because their Mimo runner had no usable local session; their retained stderr was classified as mimo_session_not_found.",
-        "The qjns retry is runner_policy_blocked for illegal_access at attempt 1 of 2."
+        "The qjns retry is runner_policy_blocked for illegal_access at attempt 1 of 2.",
+        "The Wallboard code and owner-only API contract are CI-green, but the Home kiosk and owner browser session are not activated or visually proven.",
+        "The full Home CLI continuity scenario from exact checkpoint through task, tests, commit, push, and PR is not yet proven."
       ],
-      "next_action": "Unlock Mac, complete official device login, install and start the service, pass readiness, run a fenced provider canary, then undrain; afterward repair and rerun the five Mimo development seed failures.",
-      "updated_at": "2026-07-13T00:17:44Z"
+      "next_action": "Visually prove the protected Home Wallboard, execute the exact checkpoint-to-task-to-tests-to-commit-to-PR continuity scenario on Home, and repair then rerun the five Mimo development seed tasks.",
+      "updated_at": "2026-07-13T06:06:42Z"
     },
     {
       "gate": 2,
@@ -399,14 +513,15 @@
       "name": "Contract and design freeze",
       "status": "in_progress",
       "evidence_ids": [
-        "commit:45eef8aa",
-        "ci-run:29214898086-green"
+        "commit:77aa7086",
+        "ci-run:29227617842-green",
+        "wallboard-contract:c74a772d"
       ],
       "blockers": [
         "Portal and Shell product readiness is not proven."
       ],
       "next_action": "Freeze the Portal and Shell interaction contracts, responsive component inventory, and executable acceptance fixtures on one reviewed commit.",
-      "updated_at": "2026-07-13T00:17:44Z"
+      "updated_at": "2026-07-13T06:06:42Z"
     },
     {
       "gate": 3,
@@ -442,17 +557,18 @@
       "name": "Portal, Shell, and providers",
       "status": "blocked",
       "evidence_ids": [
-        "home-provider:dry-run-session-unavailable",
+        "wallboard-contract:c74a772d",
+        "home-provider-canary:KOL-PROVIDER-HOME-CODEX-CANARY-20260713T060518078Z",
         "development-seed-retry:KOL-IMPROVE-SEED-r2-3b01332c"
       ],
       "blockers": [
         "Portal is not ready.",
         "Shell is not ready.",
-        "The Home Codex provider service is not activated and has no fenced canary.",
+        "The Wallboard Home kiosk and owner browser session are not activated or visually proven.",
         "All five retry tasks are terminal failed with zero completed results, result hashes, or truth verdicts."
       ],
-      "next_action": "Unlock Mac, complete device login, install and start the service, pass readiness, run a fenced canary, and undrain; then clear the Mimo failures and pass the provider and Shell end-to-end scenarios.",
-      "updated_at": "2026-07-12T23:38:39Z"
+      "next_action": "Activate and visually prove the protected Home Wallboard, clear the five Mimo failures, and complete Portal and Shell provider end-to-end scenarios using the now-proven Home Codex route.",
+      "updated_at": "2026-07-13T06:06:42Z"
     },
     {
       "gate": 6,
@@ -510,9 +626,10 @@
       "name": "Signed production release",
       "status": "blocked",
       "evidence_ids": [
-        "commit:45eef8aa",
-        "ci-run:29214898086-green",
-        "home-provider:dry-run-session-unavailable",
+        "commit:77aa7086",
+        "ci-run:29227617842-green",
+        "wallboard-contract:c74a772d",
+        "home-provider-canary:KOL-PROVIDER-HOME-CODEX-CANARY-20260713T060518078Z",
         "fleet-campaign:factory-ca5e3a09-final-20260713"
       ],
       "blockers": [
@@ -520,11 +637,10 @@
         "Shell is not ready.",
         "Improvement Controller is not ready.",
         "Rust authority is not ready.",
-        "The Home Codex provider service is not activated and has no fenced canary.",
         "The required product end-to-end and soak evidence is absent."
       ],
       "next_action": "Complete the preceding product and authority gates, then build a signed candidate and run canary, progressive rollout, full end-to-end verification, and the required soak.",
-      "updated_at": "2026-07-12T23:38:39Z"
+      "updated_at": "2026-07-13T06:06:42Z"
     }
   ]
 }

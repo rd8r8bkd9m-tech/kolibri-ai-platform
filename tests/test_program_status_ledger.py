@@ -9,13 +9,16 @@ ROOT = Path(__file__).resolve().parents[1]
 STATUS_PATH = ROOT / "release" / "program-status.json"
 DOC_PATH = ROOT / "docs" / "PROGRAM_STATUS.md"
 ALLOWED_STATUSES = {"completed", "in_progress", "not_started", "blocked"}
-SOURCE_COMMIT = "45eef8aa3ce4a15858cf2284d31bf4da286dbc59"
+SOURCE_COMMIT = "77aa7086f9376d87b7735d9eb56c5a791450edc5"
 HOME_INTEGRATION_COMMIT = SOURCE_COMMIT
-CI_RUN_ID = 29214898086
+CI_RUN_ID = 29227617842
 BUNDLE_DIGEST = "sha256:de00339d64be94772896e956a8bc3e05d125b6db0677285dc6835f2884baa56c"
 CAMPAIGN_ID = "factory-ca5e3a09-final-20260713"
 RETRY_SNAPSHOT = "sha256:df090eab9ecc4956d60f1a01fbf70d79ac702f4e8100997e5054f525591d951b"
 RETRY_PREFIX = "KOL-IMPROVE-SEED-r2-3b01332c"
+CANARY_TASK_ID = "KOL-PROVIDER-HOME-CODEX-CANARY-20260713T060518078Z"
+CANARY_RESULT_SHA = "sha256:ac1ba5efd4699498d9afa70ba908110cfb79e118b1600341d02f56053d0a60a7"
+CANARY_BINDING_SHA = "sha256:79a390d5eac529db2150452493b34223c79c405f4fddc2dee6b4acb985d29516"
 
 
 def load_status() -> dict:
@@ -112,10 +115,23 @@ def test_program_status_records_only_current_proven_summary():
         "root_helper": "installed_validated",
         "sudoers": "installed_validated",
     }
+    assert summary["program_wallboard"] == {
+        "code_status": "committed_ci_green",
+        "route": "/wallboard",
+        "api": "/v1/program/status",
+        "visibility": "owner-only",
+        "source": "program-ledger/home",
+        "truth_states": ["live", "partial", "stale", "unavailable"],
+        "public_shell_bootstrap_bypassed": True,
+        "mock_fallback": False,
+        "home_kiosk_activated": False,
+        "owner_browser_session_proven": False,
+        "status": "in_progress",
+    }
     assert summary["home_codex_provider"] == {
         "code_status": "committed_ci_green",
-        "broker_service_activated": False,
-        "provider_canary_completed": False,
+        "broker_service_activated": True,
+        "provider_canary_completed": True,
         "credential_migration": {
             "status": "completed",
             "initial_apply": {
@@ -138,15 +154,16 @@ def test_program_status_records_only_current_proven_summary():
             "secrets_returned": False,
             "actors": {
                 "mac-codex-provider": "drained",
-                "home-codex-provider": "drained",
+                "home-codex-provider": "schedulable",
             },
         },
-        "dry_run_status": "blocked",
-        "dry_run_blocker": "current_user_codex_session_unavailable",
-        "activation_blockers": ["current_user_codex_session_unavailable"],
+        "dry_run_status": "validated",
+        "dry_run_blocker": None,
+        "activation_blockers": [],
         "official_device_login": {
-            "status": "waiting_for_owner_unlock",
-            "mac_screen_locked": True,
+            "status": "authenticated_on_home",
+            "credential_scope": "home_current_user",
+            "credentials_copied": False,
         },
         "activation_sequence": [
             "unlock_mac",
@@ -156,9 +173,26 @@ def test_program_status_records_only_current_proven_summary():
             "fenced_canary",
             "undrain",
         ],
-        "status": "blocked",
+        "canary": {
+            "task_id": CANARY_TASK_ID,
+            "state": "completed",
+            "attempt_id": f"{CANARY_TASK_ID}-attempt-1",
+            "fencing_token": 1,
+            "lease_owner": "home-codex-provider:home-codex-provider",
+            "result_sha256": CANARY_RESULT_SHA,
+            "binding_sha256": CANARY_BINDING_SHA,
+            "artifact_file_sha256": "sha256:82891d922063f1b4c712ad120c294211a0847966cefc2dde5f8b25e166fdc4e9",
+            "artifact_size": 3137,
+            "verifier": "control-plane/home",
+            "verifier_verdict": "passed",
+            "truth_verdict": "true",
+            "truth_confidence": "high",
+        },
+        "status": "ready",
     }
     assert summary["home_control_plane"]["status"] == "healthy"
+    assert summary["home_control_plane"]["source_commit"] == SOURCE_COMMIT
+    assert summary["home_control_plane"]["nrestarts"] == 0
     assert summary["runtime_bundle"]["digest"] == BUNDLE_DIGEST
     assert summary["fleet_proof"] == {
         "campaign_id": CAMPAIGN_ID,
@@ -226,16 +260,23 @@ def test_markdown_owner_view_matches_machine_ledger():
     assert str(CI_RUN_ID) in document
     assert "`ci`, `rust-1.97`, and `kolibri-shell` all succeeded" in document
     assert "Codex CLI upgraded to `0.144.1`" in document
-    assert "current_user_codex_session_unavailable" in document
-    assert "official device login is waiting for owner unlock" in document
-    assert "service is not activated, no provider canary exists" in document
+    assert "current_user_codex_session_unavailable" not in document
+    assert "official device login is waiting for owner unlock" not in document
+    assert "service is not activated, no provider canary exists" not in document
+    assert CANARY_TASK_ID in document
+    assert CANARY_RESULT_SHA in document
+    assert CANARY_BINDING_SHA in document
+    assert "KOLIBRI_CODEX_HOME_PROVIDER_OK" in document
     assert "home-codex-provider-v2`" in document
     assert "epoch 2" in document
     assert "`secrets_returned=false`" in document
-    assert "Active with `NRestarts=0`" in document
+    assert "service is active with `NRestarts=0`" in document
     assert "root helper and sudoers are installed and validated" in document
-    assert "Credential migration and drained actor provisioning are complete" in document
-    assert "The only current Codex activation blocker is `current_user_codex_session_unavailable`" in document
+    assert "Tracked `/wallboard` route and owner-only `/v1/program/status` API" in document
+    assert "have no mock fallback" in document
+    assert "Home kiosk activation, protected owner browser session" in document
+    assert "Home Codex activation is no longer a blocker" in document
+    assert "Credential migration and actor provisioning are complete" in document
     assert "provision the drained actor" not in document
     assert "5 of 5 terminal failed" in document
     assert "bindings are verified and leases are cleared" in document
