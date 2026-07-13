@@ -19,11 +19,26 @@ _provider_route_state: Dict[str, dict] = {}
 PROVIDERS = {
     "codex_cli": {
         "id": "codex_cli",
-        "url": "local://codex-cli",
+        "url": (
+            "home://control-plane"
+            if os.getenv("KOLIBRI_FACTORY_RESPONSES_ENABLED", "").lower()
+            in {"1", "true", "yes", "on"}
+            else "local://codex-cli"
+        ),
         "model": os.getenv("CODEX_CLI_MODEL", "") or os.getenv("KOLIBRI_CODEX_MODEL", "") or "account-default",
         "key": "",
-        "protocol": "codex_cli",
-        "credential_source": "home_codex_cli_login",
+        "protocol": (
+            "home_factory"
+            if os.getenv("KOLIBRI_FACTORY_RESPONSES_ENABLED", "").lower()
+            in {"1", "true", "yes", "on"}
+            else "codex_cli"
+        ),
+        "credential_source": (
+            "home_control_plane"
+            if os.getenv("KOLIBRI_FACTORY_RESPONSES_ENABLED", "").lower()
+            in {"1", "true", "yes", "on"}
+            else "home_codex_cli_login"
+        ),
         "routable": os.getenv("CODEX_CLI_ENABLED", "true").lower() in {"1", "true", "yes", "on"},
         "cost": "owner_subscription",
         "speed_ms": 0,
@@ -305,6 +320,10 @@ def _provider_is_configured(name: str, provider: dict) -> bool:
         from app.codex_cli_provider import codex_cli_configuration
 
         return bool(codex_cli_configuration().get("configured"))
+    if provider.get("protocol") == "home_factory":
+        from app.home_factory_response import factory_response_configuration
+
+        return bool(factory_response_configuration().get("configured"))
     if provider.get("credential_source") != "server_env":
         return False
     if not provider.get("key") or not provider.get("model") or not provider.get("url"):
@@ -362,6 +381,13 @@ def provider_route_snapshot(provider: dict) -> dict:
         from app.codex_cli_provider import codex_cli_configuration
 
         configured = bool(provider.get("routable", True) and codex_cli_configuration().get("configured"))
+    elif provider.get("protocol") == "home_factory":
+        from app.home_factory_response import factory_response_configuration
+
+        configured = bool(
+            provider.get("routable", True)
+            and factory_response_configuration().get("configured")
+        )
     else:
         configured = bool(
             provider.get("routable", True)
@@ -453,6 +479,16 @@ def _select_provider(task_type: str = "chat") -> dict:
         if not p:
             return False
         return _provider_is_configured(name, p) and _provider_is_healthy(p)
+
+    # Production responses are fail-closed through the one Home task
+    # authority.  A Control Plane incident must not silently turn the web
+    # backend into a second, unfenced provider scheduler.
+    if os.getenv("KOLIBRI_FACTORY_RESPONSES_ENABLED", "").lower() in {
+        "1", "true", "yes", "on",
+    }:
+        if _available("codex_cli") and PROVIDERS["codex_cli"].get("protocol") == "home_factory":
+            return PROVIDERS["codex_cli"]
+        raise RuntimeError("home_factory_route_unavailable")
 
     # Speed-critical tasks → fastest available
     if task_type == "fast":
@@ -575,6 +611,12 @@ def _get_providers_for_task(task_type: str) -> list:
         if not p:
             return False
         return _provider_is_configured(name, p) and _provider_is_healthy(p)
+
+    if os.getenv("KOLIBRI_FACTORY_RESPONSES_ENABLED", "").lower() in {
+        "1", "true", "yes", "on",
+    }:
+        provider = PROVIDERS["codex_cli"]
+        return [provider] if provider.get("protocol") == "home_factory" and _available("codex_cli") else []
     
     if task_type == "fast":
         order = ("codex_cli", "mimo", "deepseek_flash", "deepseek_pro", "kimi_code", "kimi_fast", "cfbt")
@@ -655,6 +697,41 @@ async def _call_ai(
     if system:
         full.append({"role": "system", "content": system})
     full.extend(messages)
+
+    if provider.get("protocol") == "home_factory":
+        from app.home_factory_response import get_home_factory_response_client
+
+        parsed = await get_home_factory_response_client().submit(
+            full,
+            idempotency_key=idempotency_key,
+        )
+        content = str(parsed.get("content") or "")
+        if not content.strip():
+            raise ValueError("provider_returned_empty_content")
+        actions = _extract_actions(content)
+        return {
+            "content": content,
+            "reasoning": "",
+            "actions": actions,
+            "status": "ready" if actions else "idle",
+            "provider": "home_factory",
+            "model": str(parsed.get("model") or "kolibri"),
+            "speed_ms": provider.get("speed_ms", 0),
+            "tool_events": parsed.get("tool_events", []),
+            "factory": {
+                key: parsed.get(key)
+                for key in (
+                    "task_id",
+                    "attempt_id",
+                    "fencing_token",
+                    "executor_node",
+                    "verifier_node",
+                    "artifact_sha256",
+                    "binding_sha256",
+                    "result_reference",
+                )
+            },
+        }
 
     if provider.get("protocol") == "codex_cli":
         from app.codex_cli_provider import get_codex_cli_provider
@@ -1016,6 +1093,17 @@ async def _stream_ai(
     if system:
         full.append({"role": "system", "content": system})
     full.extend(messages)
+
+    if provider.get("protocol") == "home_factory":
+        from app.home_factory_response import get_home_factory_response_client
+
+        async for event in get_home_factory_response_client().stream(
+            full,
+            run_id=run_id,
+            idempotency_key=idempotency_key,
+        ):
+            yield event
+        return
 
     if provider.get("protocol") == "codex_cli":
         from app.codex_cli_provider import get_codex_cli_provider
