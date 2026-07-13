@@ -543,9 +543,9 @@ async def chat(request: Request, data: schemas.ChatRequest):
     try:
         result = await chat_completion([{"role": m.role, "content": m.content} for m in data.messages])
         return result
-    except Exception as e:
+    except Exception:
         return {
-            "content": f"Ошибка AI-провайдера: {str(e)}. Попробуйте позже.",
+            "content": "Не удалось завершить ответ через доступные маршруты. Повторите запрос — он будет направлен другому исполнителю.",
             "actions": [],
             "status": "error",
         }
@@ -563,8 +563,8 @@ async def chat_stream(request: Request, data: schemas.ChatRequest):
         try:
             async for chunk in chat_completion_stream([{"role": m.role, "content": m.content} for m in data.messages]):
                 yield f"data: {json.dumps(chunk)}\n\n"
-        except Exception as e:
-            yield f'data: {json.dumps({"content": f"Ошибка: {str(e)}", "done": True})}\n\n'
+        except Exception:
+            yield f'data: {json.dumps({"content": "Не удалось завершить потоковый ответ. Повторите запрос — он будет направлен другому исполнителю.", "done": True, "status": "error", "error_code": "provider_stream_failed"})}\n\n'
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
@@ -578,8 +578,8 @@ async def ai_analyze_estimate(est_id: str, db: Session = Depends(get_db)):
         raise HTTPException(404, "Estimate not found")
     try:
         return await analyze_estimate(est)
-    except Exception as e:
-        return {"content": f"Ошибка AI: {str(e)}", "actions": [], "status": "error"}
+    except Exception:
+        return {"content": "Анализ временно не завершён. Повторите запрос.", "actions": [], "status": "error"}
 
 
 @app.post("/api/v1/ai/generate-document")
@@ -589,8 +589,8 @@ async def ai_generate_document(data: dict):
     context = data.get("context", "")
     try:
         return await generate_document_content(doc_type, context)
-    except Exception as e:
-        return {"content": f"Ошибка AI: {str(e)}", "actions": [], "status": "error"}
+    except Exception:
+        return {"content": "Документ временно не сформирован. Повторите запрос.", "actions": [], "status": "error"}
 
 
 @app.post("/api/v1/ai/suggest")
@@ -601,8 +601,8 @@ async def ai_suggest(data: dict):
         raise HTTPException(400, "Query required")
     try:
         return await suggest_search(query)
-    except Exception as e:
-        return {"content": f"Ошибка AI: {str(e)}", "actions": [], "status": "error"}
+    except Exception:
+        return {"content": "Подсказки временно не сформированы. Повторите запрос.", "actions": [], "status": "error"}
 
 
 # ---------------------------------------------------------------------------

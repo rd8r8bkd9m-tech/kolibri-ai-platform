@@ -1,10 +1,14 @@
 """AI provider — multi-model auto-routing for Kolibri."""
 import os
 import json
+import time
 import httpx
 from typing import List, Dict, Optional
 
 AI_TIMEOUT = int(os.getenv("AI_TIMEOUT", "60"))
+PROVIDER_FAILURE_COOLDOWN_SECONDS = int(os.getenv("PROVIDER_FAILURE_COOLDOWN_SECONDS", "60"))
+PROVIDER_AUTH_COOLDOWN_SECONDS = int(os.getenv("PROVIDER_AUTH_COOLDOWN_SECONDS", "300"))
+_provider_blocked_until: Dict[str, float] = {}
 
 # Provider configs — ordered by speed (fastest first)
 PROVIDERS = {
@@ -96,6 +100,44 @@ SYSTEM_PROMPT = """Ты — Колибри, AI-ассистент для стр�
 Отвечай на русском. Будь краток и практичен."""
 
 
+def _provider_id(provider: dict) -> str:
+    return str(provider.get("id") or provider.get("model") or "unknown")
+
+
+def _provider_is_configured(name: str, provider: dict) -> bool:
+    if not provider.get("key"):
+        return False
+    if name == "cfbt" and os.getenv("KIMI_CFBT_ENABLED", "").lower() not in {"1", "true", "yes"}:
+        return False
+    return True
+
+
+def _provider_is_healthy(provider: dict) -> bool:
+    return _provider_blocked_until.get(_provider_id(provider), 0) <= time.monotonic()
+
+
+def _record_provider_success(provider: dict) -> None:
+    _provider_blocked_until.pop(_provider_id(provider), None)
+
+
+def _record_provider_failure(provider: dict, error: Exception) -> None:
+    cooldown = PROVIDER_FAILURE_COOLDOWN_SECONDS
+    status_code = error.response.status_code if isinstance(error, httpx.HTTPStatusError) else None
+    if status_code in {401, 403}:
+        cooldown = PROVIDER_AUTH_COOLDOWN_SECONDS
+    _provider_blocked_until[_provider_id(provider)] = time.monotonic() + cooldown
+
+
+def _safe_failure_kind(error: Exception) -> str:
+    if isinstance(error, httpx.HTTPStatusError):
+        return f"http_{error.response.status_code}"
+    if isinstance(error, httpx.TimeoutException):
+        return "timeout"
+    if isinstance(error, httpx.RequestError):
+        return "network_error"
+    return "invalid_provider_response"
+
+
 def _select_provider(task_type: str = "chat") -> dict:
     """Auto-select best provider based on speed test results.
     
@@ -111,7 +153,7 @@ def _select_provider(task_type: str = "chat") -> dict:
         p = PROVIDERS.get(name)
         if not p:
             return False
-        return bool(p["key"]) or name == "cfbt"
+        return _provider_is_configured(name, p) and _provider_is_healthy(p)
 
     # Speed-critical tasks → fastest available
     if task_type == "fast":
@@ -136,30 +178,37 @@ def _select_provider(task_type: str = "chat") -> dict:
         if _available(name):
             return PROVIDERS[name]
 
-    return PROVIDERS["cfbt"]  # ultimate fallback
+    raise RuntimeError("provider_routes_exhausted")
 
 
-async def chat_completion(messages: List[Dict[str, str]], task_type: str = "chat") -> dict:
+async def chat_completion(
+    messages: List[Dict[str, str]],
+    task_type: str = "chat",
+    system: Optional[str] = None,
+) -> dict:
     """Call AI with auto-routing and fallback."""
-    full_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + messages
+    full_messages = [{"role": "system", "content": system or SYSTEM_PROMPT}] + messages
     
     # Get ordered list of providers to try
     providers_to_try = _get_providers_for_task(task_type)
     
-    last_error = None
     for provider in providers_to_try:
         try:
             result = await _call_ai(provider, full_messages)
+            _record_provider_success(provider)
             result["fallback_used"] = len(providers_to_try) > 1 and provider != providers_to_try[0]
             return result
         except Exception as e:
-            last_error = e
-            print(f"[AI FALLBACK] {provider['model']} failed: {e}, trying next...")
+            _record_provider_failure(provider, e)
+            print(
+                f"[AI FALLBACK] provider={_provider_id(provider)} "
+                f"failure={_safe_failure_kind(e)} trying_next=true"
+            )
             continue
     
     # All providers failed
     return {
-        "content": f"Все AI-провайдеры недоступны. Последняя ошибка: {last_error}",
+        "content": "Не удалось завершить ответ через доступные маршруты. Повторите запрос — он будет направлен другому исполнителю.",
         "reasoning": "",
         "actions": [],
         "status": "error",
@@ -167,6 +216,7 @@ async def chat_completion(messages: List[Dict[str, str]], task_type: str = "chat
         "model": "none",
         "speed_ms": 0,
         "fallback_used": True,
+        "error_code": "provider_routes_exhausted",
     }
 
 
@@ -176,16 +226,16 @@ def _get_providers_for_task(task_type: str) -> list:
         p = PROVIDERS.get(name)
         if not p:
             return False
-        return bool(p["key"]) or name == "cfbt"
+        return _provider_is_configured(name, p) and _provider_is_healthy(p)
     
     if task_type == "fast":
-        order = ("kimi_code", "kimi_fast", "deepseek_pro", "mimo", "cfbt")
+        order = ("deepseek_flash", "kimi_code", "kimi_fast", "deepseek_pro", "mimo", "cfbt")
     elif task_type in ("analyze", "generate", "code"):
-        order = ("kimi_code", "deepseek_pro", "mimo", "cfbt")
+        order = ("kimi_code", "deepseek_pro", "deepseek_flash", "mimo", "cfbt")
     elif task_type in ("chat", "suggest"):
-        order = ("mimo", "cfbt", "deepseek_flash", "kimi_code")
+        order = ("deepseek_flash", "kimi_code", "mimo", "cfbt")
     else:
-        order = ("kimi_code", "deepseek_pro", "mimo", "cfbt")
+        order = ("kimi_code", "deepseek_pro", "deepseek_flash", "mimo", "cfbt")
     
     return [PROVIDERS[name] for name in order if _available(name)]
 
@@ -206,9 +256,11 @@ async def analyze_estimate(estimate_data: dict) -> dict:
             prompt += f"  - {p.get('name', '')}: {p.get('quantity', '0')} {p.get('unit', '')} × {p.get('price', '0')} ₽ = {p.get('sum', '0')} ₽\n"
 
     prompt += "\nДай краткий анализ: корректность расчётов, возможные ошибки, рекомендации по оптимизации."
-    provider = _select_provider("analyze")
-    return await _call_ai(provider, [{"role": "user", "content": prompt}],
-                          system="Ты — эксперт по строительным сметам. Анализируй данные, находи ошибки, предлагай оптимизации.")
+    return await chat_completion(
+        [{"role": "user", "content": prompt}],
+        task_type="analyze",
+        system="Ты — эксперт по строительным сметам. Анализируй данные, находи ошибки, предлагай оптимизации.",
+    )
 
 
 async def generate_document_content(doc_type: str, context: str = "") -> dict:
@@ -223,17 +275,21 @@ async def generate_document_content(doc_type: str, context: str = "") -> dict:
     if context:
         prompt += f"\nКонтекст: {context}"
     prompt += "\nВерни готовый HTML-текст с заголовками и параграфами."
-    provider = _select_provider("generate")
-    return await _call_ai(provider, [{"role": "user", "content": prompt}],
-                          system="Ты — юридический ассистент. Составляй документы по российским стандартам.")
+    return await chat_completion(
+        [{"role": "user", "content": prompt}],
+        task_type="generate",
+        system="Ты — юридический ассистент. Составляй документы по российским стандартам.",
+    )
 
 
 async def suggest_search(query: str) -> dict:
     """AI search suggestions."""
     prompt = f"Пользователь ищет: '{query}'. Предложи 3-5 релевантных запросов."
-    provider = _select_provider("suggest")
-    return await _call_ai(provider, [{"role": "user", "content": prompt}],
-                          system="Ты — поисковый ассистент. Предлагай релевантные запросы.")
+    return await chat_completion(
+        [{"role": "user", "content": prompt}],
+        task_type="suggest",
+        system="Ты — поисковый ассистент. Предлагай релевантные запросы.",
+    )
 
 
 async def _call_ai(provider: dict, messages: List[Dict[str, str]], system: Optional[str] = None) -> dict:
@@ -259,6 +315,8 @@ async def _call_ai(provider: dict, messages: List[Dict[str, str]], system: Optio
     msg = data["choices"][0]["message"]
     content = msg.get("content") or ""
     reasoning = msg.get("reasoning_content") or ""
+    if not content.strip():
+        raise ValueError("provider_returned_empty_content")
     actions = _extract_actions(content)
 
     return {
@@ -277,18 +335,36 @@ async def chat_completion_stream(messages: List[Dict[str, str]], task_type: str 
     full_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + messages
     providers_to_try = _get_providers_for_task(task_type)
 
-    last_error = None
     for provider in providers_to_try:
+        emitted_content = False
         try:
             async for chunk in _stream_ai(provider, full_messages):
+                emitted_content = emitted_content or bool(chunk.get("content"))
                 yield chunk
+            _record_provider_success(provider)
             return
         except Exception as e:
-            last_error = e
-            print(f"[AI STREAM FALLBACK] {provider['model']} failed: {e}, trying next...")
+            _record_provider_failure(provider, e)
+            print(
+                f"[AI STREAM FALLBACK] provider={_provider_id(provider)} "
+                f"failure={_safe_failure_kind(e)} trying_next={not emitted_content}"
+            )
+            if emitted_content:
+                yield {
+                    "content": "",
+                    "done": True,
+                    "status": "incomplete",
+                    "error_code": "provider_stream_interrupted",
+                }
+                return
             continue
 
-    yield {"content": f"Все AI-провайдеры недоступны. Последняя ошибка: {last_error}", "done": True}
+    yield {
+        "content": "Не удалось завершить ответ через доступные маршруты. Повторите запрос — он будет направлен другому исполнителю.",
+        "done": True,
+        "status": "error",
+        "error_code": "provider_routes_exhausted",
+    }
 
 
 async def _stream_ai(provider: dict, messages: List[Dict[str, str]], system: Optional[str] = None):
