@@ -16,17 +16,18 @@ import { auth, getAuthToken, type AuthUser } from '@/lib/api'
 
 export default function App() {
   const [user, setUser] = useState<AuthUser | null>(null)
-  const [checking, setChecking] = useState(true)
+  const [checking, setChecking] = useState(() => Boolean(getAuthToken()))
 
   useEffect(() => {
-    if (getAuthToken()) {
-      auth.me()
-        .then(u => setUser(u))
-        .catch(() => { localStorage.removeItem('kolibri_token') })
-        .finally(() => setChecking(false))
-    } else {
-      setChecking(false)
-    }
+    if (!getAuthToken()) return
+
+    let active = true
+    auth.me()
+      .then(u => { if (active) setUser(u) })
+      .catch(() => { localStorage.removeItem('kolibri_token') })
+      .finally(() => { if (active) setChecking(false) })
+
+    return () => { active = false }
   }, [])
 
   if (checking) {

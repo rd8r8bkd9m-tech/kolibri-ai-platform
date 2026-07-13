@@ -1,42 +1,15 @@
-const CACHE_NAME = 'kolibri-v1'
-const STATIC_ASSETS = [
-  '/',
-  '/index.html',
-  '/kolibri-bird.png',
-  '/manifest.json',
-]
-
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
-  )
-  self.skipWaiting()
-})
+// Tombstone for the retired cache-first worker. PWA caching will return only
+// after it has its own release gate and cannot pin an obsolete Kolibri shell.
+self.addEventListener('install', () => self.skipWaiting())
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
+  event.waitUntil((async () => {
+    const keys = await caches.keys()
+    await Promise.all(
+      keys.filter((key) => key.startsWith('kolibri-')).map((key) => caches.delete(key)),
     )
-  )
-  self.clients.claim()
-})
-
-self.addEventListener('fetch', (event) => {
-  const { request } = event
-  if (request.method !== 'GET') return
-  if (request.url.includes('/api/')) return
-
-  event.respondWith(
-    caches.match(request).then((cached) => {
-      const fetchPromise = fetch(request).then((response) => {
-        if (response.ok) {
-          const clone = response.clone()
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone))
-        }
-        return response
-      }).catch(() => cached)
-      return cached || fetchPromise
-    })
-  )
+    await self.registration.unregister()
+    const clients = await self.clients.matchAll({ type: 'window' })
+    clients.forEach((client) => client.navigate(client.url))
+  })())
 })

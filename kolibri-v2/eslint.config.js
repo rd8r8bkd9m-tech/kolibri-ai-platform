@@ -20,4 +20,12 @@ export default defineConfig([
       globals: globals.browser,
     },
   },
+  {
+    files: ['src/components/ui/**/*.{ts,tsx}'],
+    rules: {
+      // The generated component primitives intentionally co-locate variants
+      // and hooks with their components.
+      'react-refresh/only-export-components': 'off',
+    },
+  },
 ])

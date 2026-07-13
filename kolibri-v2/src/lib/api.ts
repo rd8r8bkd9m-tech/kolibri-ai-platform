@@ -319,14 +319,41 @@ export interface ChatAction {
 
 export interface ChatResponse {
   content: string
-  reasoning: string
+  reasoning?: string
   actions: ChatAction[]
   status: string
 }
 
+interface LegacyChatResponse {
+  response?: string
+  content?: string
+  reasoning?: string
+  actions?: ChatAction[]
+  status?: string
+}
+
+function normalizeChatResponse(payload: LegacyChatResponse): ChatResponse {
+  const content = payload.content ?? payload.response
+  if (!content?.trim()) {
+    throw new ApiError(502, 'Kolibri API returned an empty response')
+  }
+
+  return {
+    content,
+    reasoning: payload.reasoning,
+    actions: Array.isArray(payload.actions) ? payload.actions : [],
+    status: payload.status ?? 'completed',
+  }
+}
+
 export const chat = {
-  send: (messages: { role: string; content: string }[]) =>
-    request<ChatResponse>('/chat', { method: 'POST', body: JSON.stringify({ messages }) }),
+  send: async (messages: { role: string; content: string }[]) => {
+    const payload = await request<LegacyChatResponse>('/chat', {
+      method: 'POST',
+      body: JSON.stringify({ messages }),
+    })
+    return normalizeChatResponse(payload)
+  },
 }
 
 // ---------------------------------------------------------------------------

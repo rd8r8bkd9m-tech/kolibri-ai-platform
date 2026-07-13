@@ -50,6 +50,7 @@ export default function ChatPage() {
   const [birdState, setBirdState] = useState<BirdState>('idle')
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const autoSentRef = useRef(false)
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
 
@@ -73,14 +74,6 @@ export default function ChatPage() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
-
-  // Auto-send message from Home page
-  useEffect(() => {
-    const q = searchParams.get('q')
-    if (q && messages.length === 0) {
-      handleSendMessage(q)
-    }
-  }, [searchParams])
 
   const handleSendMessage = useCallback(async (text: string) => {
     if (!text.trim() || loading) return
@@ -118,6 +111,14 @@ export default function ChatPage() {
       setLoading(false)
     }
   }, [messages, loading])
+
+  // Auto-send a Home composer message exactly once for this mounted chat.
+  useEffect(() => {
+    const q = searchParams.get('q')
+    if (!q || autoSentRef.current) return
+    autoSentRef.current = true
+    void handleSendMessage(q)
+  }, [handleSendMessage, searchParams])
 
   const handleAction = async (action: ChatAction) => {
     try {
