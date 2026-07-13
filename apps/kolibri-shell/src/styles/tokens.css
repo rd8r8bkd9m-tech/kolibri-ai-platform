@@ -1,0 +1,29 @@
+:root {
+  color-scheme: light;
+  font-family: "Inter Variable", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  --canvas: #fdfdfb;
+  --canvas-mobile: #f8f6f4;
+  --surface: #ffffff;
+  --surface-muted: #f3f7f6;
+  --message-surface: #f4f2ef;
+  --ink: #16191d;
+  --muted: #6f7478;
+  --muted-strong: #474c50;
+  --border: #e3e4e2;
+  --brand: #078e93;
+  --brand-strong: #057a80;
+  --brand-soft: #dceeee;
+  --warning: #ffc43d;
+  --danger: #d92d2d;
+  --pdf: #f02d2d;
+  --success: #078e93;
+  --shadow-soft: 0 10px 30px rgba(24, 31, 33, 0.1);
+  --shadow-sheet: 0 12px 30px rgba(24, 31, 33, 0.08);
+  --radius-control: 12px;
+  --radius-panel: 18px;
+  --radius-sheet: 26px;
+  --kolibri-viewport-height: 100dvh;
+  --kolibri-viewport-offset: 0px;
+}
