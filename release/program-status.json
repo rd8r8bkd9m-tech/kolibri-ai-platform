@@ -163,6 +163,30 @@
       },
       "browser_console_errors": 0
     },
+    "home_portal_factory_adapter": {
+      "status": "verified_side_by_side",
+      "source_commit": "aff0816",
+      "home_endpoint": "http://127.0.0.1:8183",
+      "production_switched": false,
+      "data_source": "home_control_plane",
+      "seeded_fallback": false,
+      "membership": {
+        "canonical_total": 21,
+        "fresh_total": 21,
+        "online_total": 21,
+        "schedulable_total": 21
+      },
+      "execution_now": {
+        "active_tasks": 0,
+        "queued_tasks": 0,
+        "agents_active": 0,
+        "agents_idle": 21
+      },
+      "historical_task_total": 424,
+      "mutation_endpoints": "read_only",
+      "browser_console_errors": 0,
+      "observed_at": "2026-07-13T07:02:42Z"
+    },
     "runtime_bundle": {
       "digest": "sha256:de00339d64be94772896e956a8bc3e05d125b6db0677285dc6835f2884baa56c"
     },
@@ -513,6 +537,14 @@
       "reference": "chat=passed;estimate_editor=passed;pdf=application/pdf,20234,sha256:3b46c0c1ec9f1d71b8884305db74dfa1736a429039264e0529b44f438b092347;console_errors=0;production_switched=false",
       "uri": null,
       "observed_at": "2026-07-13T06:40:10Z"
+    },
+    {
+      "id": "home-portal-factory-adapter:aff0816",
+      "kind": "home_portal_live_factory_canary",
+      "status": "verified",
+      "reference": "source=home_control_plane;membership=21/21;fresh=21;online=21;schedulable=21;active=0;queued=0;idle_agents=21;historical_tasks=424;seeded_fallback=false;mutation_endpoints=read_only;console_errors=0;production_switched=false",
+      "uri": null,
+      "observed_at": "2026-07-13T07:02:42Z"
     }
   ],
   "gates": [
@@ -609,7 +641,8 @@
         "wallboard-contract:c74a772d",
         "home-provider-canary:KOL-PROVIDER-HOME-CODEX-CANARY-20260713T060518078Z",
         "development-seed-retry:KOL-IMPROVE-SEED-r2-3b01332c"
-        ,"home-portal-canary:ec6f14e"
+        ,"home-portal-canary:ec6f14e",
+        "home-portal-factory-adapter:aff0816"
       ],
       "blockers": [
         "The Home portal canary passes chat, preliminary estimate editor, and PDF, but production has not switched and source-backed prices are not implemented.",
@@ -618,7 +651,7 @@
         "All five retry tasks are terminal failed with zero completed results, result hashes, or truth verdicts."
       ],
       "next_action": "Activate and visually prove the protected Home Wallboard, clear the five Mimo failures, and complete Portal and Shell provider end-to-end scenarios using the now-proven Home Codex route.",
-      "updated_at": "2026-07-13T06:40:10Z"
+      "updated_at": "2026-07-13T07:02:42Z"
     },
     {
       "gate": 6,
