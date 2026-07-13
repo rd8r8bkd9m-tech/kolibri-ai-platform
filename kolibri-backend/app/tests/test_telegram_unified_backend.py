@@ -13,6 +13,14 @@ from app.main import app
 from app.routers import telegram
 
 
+class _FakeCurlProcess:
+    returncode = 0
+
+    async def communicate(self, body):
+        self.body = body
+        return b'{"ok":true,"result":{"id":42,"username":"kolibriai_bot"}}', b""
+
+
 @pytest.fixture()
 def client(monkeypatch):
     engine = create_engine(
@@ -92,6 +100,37 @@ def _process_one(client: TestClient):
     assert row_id is not None
     with next(app.dependency_overrides[get_db]()) as db:
         return asyncio.run(telegram.process_claimed_update(db, row_id, worker_id))
+
+
+def test_bot_api_interface_route_keeps_token_out_of_argv(monkeypatch):
+    captured = {}
+    process = _FakeCurlProcess()
+
+    async def fake_subprocess(*argv, **kwargs):
+        captured["argv"] = argv
+        captured["kwargs"] = kwargs
+        return process
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "secret-token-never-in-argv")
+    monkeypatch.setenv("KOLIBRI_TELEGRAM_EGRESS_INTERFACE", "wg-awg-out")
+    monkeypatch.setattr(telegram.socket, "if_nametoindex", lambda value: 290)
+    monkeypatch.setattr(telegram.asyncio, "create_subprocess_exec", fake_subprocess)
+
+    result = asyncio.run(telegram._bot_api("getMe", {}))
+
+    assert result == {"id": 42, "username": "kolibriai_bot"}
+    argv_text = " ".join(captured["argv"])
+    assert "secret-token-never-in-argv" not in argv_text
+    assert "{{TELEGRAM_BOT_TOKEN}}" in argv_text
+    assert "%TELEGRAM_BOT_TOKEN" in captured["argv"]
+    assert process.body == b""
+
+
+def test_bot_api_rejects_invalid_interface_before_execution(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "configured")
+    monkeypatch.setenv("KOLIBRI_TELEGRAM_EGRESS_INTERFACE", "../../unsafe")
+    with pytest.raises(telegram.TelegramWorkerError, match="telegram_egress_interface_invalid"):
+        asyncio.run(telegram._bot_api("getMe", {}))
 
 
 def test_webhook_is_disabled_by_default_and_has_no_default_secret(monkeypatch):

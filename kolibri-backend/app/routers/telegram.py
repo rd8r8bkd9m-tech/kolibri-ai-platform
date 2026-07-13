@@ -8,17 +8,19 @@ service as ``POST /v1/responses`` and performs the only allowed Bot API sends.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
 import os
 import re
+import socket
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from ipaddress import IPv4Address, IPv6Address, ip_address, ip_network
 from typing import Any
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote, urlencode, urlsplit
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -64,6 +66,7 @@ _DEFAULT_MAX_ATTEMPTS = 3
 _BOT_IDENTITY_ID = "kolibriai-bot"
 _EXPECTED_BOT_USERNAME = "kolibriai_bot"
 _BOT_API_METHODS = frozenset({"getMe", "sendMessage", "editMessageText", "sendPhoto"})
+_NETWORK_INTERFACE = re.compile(r"^[A-Za-z0-9_.:-]{1,15}$")
 _TELEGRAM_WEBHOOK_NETWORKS = tuple(
     ip_network(value)
     for value in (
@@ -538,15 +541,67 @@ async def _bot_api(method: str, payload: dict[str, Any]) -> dict[str, Any]:
     if method not in _BOT_API_METHODS:
         raise TelegramWorkerError("telegram_bot_method_forbidden")
     token = _bot_token()
-    url = f"https://api.telegram.org/bot{token}/{method}"
+    interface = os.getenv("KOLIBRI_TELEGRAM_EGRESS_INTERFACE", "").strip()
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0)) as client:
-            response = await client.post(url, json=payload)
-        data = response.json()
+        if interface:
+            if not _NETWORK_INTERFACE.fullmatch(interface):
+                raise TelegramWorkerError("telegram_egress_interface_invalid")
+            socket.if_nametoindex(interface)
+            # curl is used only for the explicitly configured interface route.
+            # The Bot token is imported from the inherited environment and
+            # expanded inside curl, so it never appears in argv, logs or an
+            # intermediate file.  The request JSON is delivered over stdin.
+            process = await asyncio.create_subprocess_exec(
+                "/usr/bin/curl",
+                "--silent",
+                "--show-error",
+                "--max-time",
+                "15",
+                "--connect-timeout",
+                "5",
+                "--noproxy",
+                "*",
+                "--ipv4",
+                "--interface",
+                interface,
+                "--variable",
+                "%TELEGRAM_BOT_TOKEN",
+                "--expand-url",
+                f"https://api.telegram.org/bot{{{{TELEGRAM_BOT_TOKEN}}}}/{method}",
+                "--header",
+                "Content-Type: application/x-www-form-urlencoded",
+                "--data-binary",
+                "@-",
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            form_payload = {
+                key: json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+                if isinstance(value, (dict, list))
+                else str(value)
+                for key, value in payload.items()
+                if value is not None
+            }
+            stdout, _stderr = await process.communicate(
+                urlencode(form_payload).encode("utf-8")
+            )
+            if process.returncode != 0:
+                raise TelegramWorkerError("telegram_bot_api_unavailable")
+            response_status = 200
+            data = json.loads(stdout)
+        else:
+            url = f"https://api.telegram.org/bot{token}/{method}"
+            async with httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0)) as client:
+                response = await client.post(url, json=payload)
+            response_status = response.status_code
+            data = response.json()
+    except TelegramWorkerError:
+        raise
     except Exception:
         raise TelegramWorkerError("telegram_bot_api_unavailable") from None
     if (
-        response.status_code >= 400
+        response_status >= 400
         or not isinstance(data, dict)
         or data.get("ok") is not True
         or not isinstance(data.get("result"), dict)
