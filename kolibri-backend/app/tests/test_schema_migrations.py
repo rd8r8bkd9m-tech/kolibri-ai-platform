@@ -5,6 +5,7 @@ import sqlalchemy as sa
 from alembic.runtime.migration import MigrationContext
 from sqlalchemy import create_engine
 
+from app import models as _models  # noqa: F401 - register all metadata for isolated runs
 from app.database import Base
 from app.schema_migrations import SchemaAdoptionError, ensure_database_schema
 
@@ -13,7 +14,27 @@ def legacy_engine(path: Path):
     engine = create_engine(f"sqlite:///{path}")
     Base.metadata.create_all(bind=engine)
     with engine.begin() as connection:
+        connection.exec_driver_sql("DROP TABLE estimate_revisions")
+        connection.exec_driver_sql("ALTER TABLE positions DROP COLUMN sort_order")
+        connection.exec_driver_sql("ALTER TABLE sections DROP COLUMN sort_order")
         connection.exec_driver_sql("ALTER TABLE project_messages DROP COLUMN version")
+        connection.execute(sa.text(
+            "INSERT INTO estimates "
+            "(id, version, status, title, client, object_name, region, currency, overhead_rate, "
+            "vat_rate, subtotal, overhead_amount, vat_amount, total, created_at, updated_at) "
+            "VALUES ('estimate_1', 4, 'draft', 'Legacy estimate', '', '', '', 'RUB', '0', "
+            "'22', '100.00', '0.00', '22.00', '122.00', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+        ))
+        connection.execute(sa.text(
+            "INSERT INTO sections (id, estimate_id, title, subtotal) "
+            "VALUES ('section_1', 'estimate_1', 'Works', '100.00')"
+        ))
+        connection.execute(sa.text(
+            "INSERT INTO positions "
+            "(id, section_id, code, name, unit, quantity, price, sum, source, comment) "
+            "VALUES ('position_1', 'section_1', 'W-1', 'Work', 'шт', '2', '50', "
+            "'100.00', '', '')"
+        ))
         connection.execute(sa.text(
             "INSERT INTO projects "
             "(id, scope_id, title, title_source, status, version, message_count, metadata, created_at, updated_at) "
@@ -33,8 +54,8 @@ def test_unversioned_create_all_database_is_adopted_and_backfilled(tmp_path: Pat
     revision = ensure_database_schema(engine)
 
     with engine.connect() as connection:
-        assert revision == "004_telegram_async_queue"
-        assert MigrationContext.configure(connection).get_current_revision() == "004_telegram_async_queue"
+        assert revision == "005_estimate_revisions"
+        assert MigrationContext.configure(connection).get_current_revision() == "005_estimate_revisions"
         columns = {column["name"] for column in sa.inspect(connection).get_columns("project_messages")}
         assert "version" in columns
         telegram_columns = {
@@ -60,6 +81,28 @@ def test_unversioned_create_all_database_is_adopted_and_backfilled(tmp_path: Pat
             column["name"]
             for column in sa.inspect(connection).get_columns("public_api_keys")
         }
+        assert "sort_order" in {
+            column["name"] for column in sa.inspect(connection).get_columns("sections")
+        }
+        assert "sort_order" in {
+            column["name"] for column in sa.inspect(connection).get_columns("positions")
+        }
+        assert {
+            "id", "estimate_id", "version", "snapshot", "created_at",
+        } == {
+            column["name"]
+            for column in sa.inspect(connection).get_columns("estimate_revisions")
+        }
+        backfilled = connection.execute(sa.text(
+            "SELECT version, snapshot FROM estimate_revisions WHERE estimate_id = 'estimate_1'"
+        )).mappings().one()
+        assert backfilled["version"] == 4
+        snapshot = backfilled["snapshot"]
+        if isinstance(snapshot, str):
+            import json
+            snapshot = json.loads(snapshot)
+        assert snapshot["total"] == "122.00"
+        assert snapshot["sections"][0]["positions"][0]["sum"] == "100.00"
         assert connection.execute(sa.text(
             "SELECT version FROM project_messages WHERE id = 'message_1'"
         )).scalar_one() == 1

@@ -315,10 +315,17 @@ export const estimates = {
   },
   get: (id: string) => request<Estimate>(`/estimates/${id}`),
   create: (data: EstimateCreateInput) => request<Estimate>('/estimates', { method: 'POST', body: JSON.stringify(data) }),
-  update: (id: string, data: Partial<EstimateCreateInput & { status: string; sections: EstimateCreateInput['sections'] }>) =>
-    request<Estimate>(`/estimates/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  update: (id: string, data: Partial<EstimateCreateInput & { status: string; sections: EstimateCreateInput['sections'] }> & { version: number }) =>
+    request<Estimate>(`/estimates/${id}`, {
+      method: 'PUT',
+      headers: { 'If-Match': `"${data.version}"` },
+      body: JSON.stringify(data),
+    }),
   delete: (id: string) => request<void>(`/estimates/${id}`, { method: 'DELETE' }),
-  calculate: (id: string) => request<Estimate>(`/estimates/${id}/calculate`, { method: 'POST' }),
+  calculate: (id: string, version: number) => request<Estimate>(`/estimates/${id}/calculate`, {
+    method: 'POST',
+    headers: { 'If-Match': `"${version}"` },
+  }),
   duplicate: (id: string) => request<Estimate>(`/estimates/${id}/duplicate`, { method: 'POST' }),
   pdfUrl: (id: string) => `${BASE}/estimates/${id}/pdf`,
   exportUrl: (id: string, fmt: 'csv' | 'json') => `${BASE}/estimates/${id}/export/${fmt}`,

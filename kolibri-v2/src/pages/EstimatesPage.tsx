@@ -74,6 +74,7 @@ export default function EstimatesPage() {
     if (!current) return
     try {
       const updated = await estimates.update(current.id, {
+        version: current.version,
         sections: current.sections.map(s => ({
           title: s.title,
           positions: s.positions.map(p => ({

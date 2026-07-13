@@ -1,10 +1,20 @@
 """Storage abstraction — DBStorage (SQLAlchemy) and InMemoryStorage (legacy)."""
+import copy
 import uuid
 import random
 from datetime import datetime, timezone
 from typing import Optional, List
 from sqlalchemy.orm import Session
-from app.models import EstimateDB, SectionDB, PositionDB, DocumentDB, AgentDB, NodeDB, TaskDB
+from app.models import (
+    AgentDB,
+    DocumentDB,
+    EstimateDB,
+    EstimateRevisionDB,
+    NodeDB,
+    PositionDB,
+    SectionDB,
+    TaskDB,
+)
 from app.calculator import (
     Estimate as CalcEstimate, EstimateSection as CalcSection,
     EstimatePosition as CalcPosition, EstimateStatus,
@@ -18,6 +28,26 @@ def _now():
 
 def _uid():
     return str(uuid.uuid4())
+
+
+def _iso_z(value: Optional[datetime]) -> str:
+    if value is None:
+        return ""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+class EstimateVersionConflict(RuntimeError):
+    """Raised when an estimate save loses its compare-and-swap."""
+
+    def __init__(self, *, estimate_id: str, expected_version: int, current_version: int):
+        self.estimate_id = estimate_id
+        self.expected_version = expected_version
+        self.current_version = current_version
+        super().__init__(
+            f"estimate {estimate_id} is version {current_version}, expected {expected_version}"
+        )
 
 
 class DBStorage:
@@ -47,62 +77,86 @@ class DBStorage:
         est_id = _uid()
         now = _now()
         e = EstimateDB(
-            id=est_id, title=data.get("title", ""), client=data.get("client", ""),
+            id=est_id, version=1, title=data.get("title", ""), client=data.get("client", ""),
             object_name=data.get("object_name", ""), region=data.get("region", ""),
             currency=data.get("currency", "RUB"),
             overhead_rate=data.get("overhead_rate", "0"),
             vat_rate=data.get("vat_rate", "22"),
             created_at=now, updated_at=now,
         )
-        self.db.add(e)
-        for s_data in data.get("sections", []):
-            sec_id = _uid()
-            s = SectionDB(id=sec_id, estimate_id=est_id, title=s_data.get("title", ""))
-            self.db.add(s)
-            for p_data in s_data.get("positions", []):
-                pos_id = _uid()
-                p = PositionDB(
-                    id=pos_id, section_id=sec_id,
-                    code=p_data.get("code", ""), name=p_data.get("name", ""),
-                    unit=p_data.get("unit", "шт"), quantity=p_data.get("quantity", "0"),
-                    price=p_data.get("price", "0"), source=p_data.get("source", ""),
-                    comment=p_data.get("comment", ""),
-                )
-                self.db.add(p)
-        self.db.commit()
-        self._recalc_estimate(est_id)
-        return self.get_estimate(est_id)
+        try:
+            self.db.add(e)
+            self._replace_sections(e, data.get("sections", []))
+            self._calculate_entity(e)
+            self._append_revision(e)
+            self.db.commit()
+            self.db.refresh(e)
+            return self._est_to_dict(e)
+        except Exception:
+            self.db.rollback()
+            raise
 
-    def update_estimate(self, est_id: str, data: dict) -> Optional[dict]:
-        e = self.db.query(EstimateDB).filter(EstimateDB.id == est_id).first()
-        if not e:
+    def update_estimate(
+        self,
+        est_id: str,
+        data: dict,
+        *,
+        expected_version: int,
+    ) -> Optional[dict]:
+        if self.db.query(EstimateDB.id).filter(EstimateDB.id == est_id).first() is None:
             return None
-        for field in ["title", "client", "object_name", "region", "currency", "overhead_rate", "vat_rate", "status"]:
-            if field in data and data[field] is not None:
-                setattr(e, field, data[field])
-        if "sections" in data and data["sections"] is not None:
-            self.db.query(PositionDB).filter(
-                PositionDB.section_id.in_([s.id for s in e.sections])
-            ).delete(synchronize_session=False)
-            self.db.query(SectionDB).filter(SectionDB.estimate_id == est_id).delete()
-            for s_data in data["sections"]:
-                sec_id = _uid()
-                s = SectionDB(id=sec_id, estimate_id=est_id, title=s_data.get("title", ""))
-                self.db.add(s)
-                for p_data in s_data.get("positions", []):
-                    pos_id = _uid()
-                    p = PositionDB(
-                        id=pos_id, section_id=sec_id,
-                        code=p_data.get("code", ""), name=p_data.get("name", ""),
-                        unit=p_data.get("unit", "шт"), quantity=p_data.get("quantity", "0"),
-                        price=p_data.get("price", "0"), source=p_data.get("source", ""),
-                        comment=p_data.get("comment", ""),
-                    )
-                    self.db.add(p)
-        e.updated_at = _now()
-        self.db.commit()
-        self._recalc_estimate(est_id)
-        return self.get_estimate(est_id)
+
+        now = _now()
+        updated = (
+            self.db.query(EstimateDB)
+            .filter(EstimateDB.id == est_id, EstimateDB.version == expected_version)
+            .update(
+                {
+                    EstimateDB.version: expected_version + 1,
+                    EstimateDB.updated_at: now,
+                },
+                synchronize_session=False,
+            )
+        )
+        if updated != 1:
+            self.db.rollback()
+            current = self.db.query(EstimateDB.version).filter(EstimateDB.id == est_id).scalar()
+            if current is None:
+                return None
+            raise EstimateVersionConflict(
+                estimate_id=est_id,
+                expected_version=expected_version,
+                current_version=int(current),
+            )
+
+        try:
+            self.db.expire_all()
+            e = self.db.query(EstimateDB).filter(EstimateDB.id == est_id).one()
+            for field in [
+                "title",
+                "client",
+                "object_name",
+                "region",
+                "currency",
+                "overhead_rate",
+                "vat_rate",
+                "status",
+            ]:
+                if field in data and data[field] is not None:
+                    setattr(e, field, data[field])
+            if "sections" in data and data["sections"] is not None:
+                self._replace_sections(e, data["sections"])
+            self._calculate_entity(e)
+            self._append_revision(e)
+            self.db.commit()
+            self.db.refresh(e)
+            return self._est_to_dict(e)
+        except Exception:
+            self.db.rollback()
+            raise
+
+    def recalculate_estimate(self, est_id: str, *, expected_version: int) -> Optional[dict]:
+        return self.update_estimate(est_id, {}, expected_version=expected_version)
 
     def delete_estimate(self, est_id: str) -> bool:
         e = self.db.query(EstimateDB).filter(EstimateDB.id == est_id).first()
@@ -131,51 +185,150 @@ class DBStorage:
         }
         return self.create_estimate(new_data)
 
-    def _recalc_estimate(self, est_id: str):
-        d = self.get_estimate(est_id)
-        if not d:
-            return
-        sections = []
-        for s in d.get("sections", []):
-            positions = [
-                CalcPosition(id=p["id"], code=p["code"], name=p["name"], unit=p["unit"],
-                             quantity=p["quantity"], price=p["price"],
-                             source=p.get("source", ""), comment=p.get("comment", ""),
-                             sum=p.get("sum", "0"))
-                for p in s["positions"]
-            ]
-            sections.append(CalcSection(id=s["id"], title=s["title"], positions=positions))
-        calc = CalcEstimate(
-            id=d["id"], title=d["title"],
-            status=EstimateStatus(d.get("status", "draft")),
-            sections=sections, overhead_rate=d.get("overhead_rate", "0"),
-            vat_rate=d.get("vat_rate", "22"),
+    def list_estimate_revisions(self, est_id: str) -> Optional[dict]:
+        if self.db.query(EstimateDB.id).filter(EstimateDB.id == est_id).first() is None:
+            return None
+        revisions = (
+            self.db.query(EstimateRevisionDB)
+            .filter(EstimateRevisionDB.estimate_id == est_id)
+            .order_by(EstimateRevisionDB.version.desc())
+            .all()
         )
-        calc = calculate_estimate(calc)
-        e = self.db.query(EstimateDB).filter(EstimateDB.id == est_id).first()
-        if not e:
-            return
-        e.subtotal = str(calc.subtotal)
-        e.overhead_amount = str(calc.overhead_amount)
-        e.vat_amount = str(calc.vat_amount)
-        e.total = str(calc.total)
-        for si, s in enumerate(e.sections):
-            cs = calc.sections[si]
-            s.subtotal = str(cs.subtotal)
-            for pi, p in enumerate(s.positions):
-                p.sum = str(cs.positions[pi].sum)
-        self.db.commit()
+        return {
+            "items": [
+                {
+                    "id": revision.id,
+                    "estimate_id": revision.estimate_id,
+                    "version": revision.version,
+                    "title": revision.snapshot.get("title", ""),
+                    "status": revision.snapshot.get("status", "draft"),
+                    "total": revision.snapshot.get("total", "0.00"),
+                    "created_at": _iso_z(revision.created_at),
+                }
+                for revision in revisions
+            ],
+            "total": len(revisions),
+        }
+
+    def get_estimate_revision(self, est_id: str, version: int) -> Optional[dict]:
+        revision = (
+            self.db.query(EstimateRevisionDB)
+            .filter(
+                EstimateRevisionDB.estimate_id == est_id,
+                EstimateRevisionDB.version == version,
+            )
+            .first()
+        )
+        if revision is None:
+            return None
+        return {
+            "id": revision.id,
+            "estimate_id": revision.estimate_id,
+            "version": revision.version,
+            "snapshot": copy.deepcopy(revision.snapshot),
+            "created_at": _iso_z(revision.created_at),
+        }
+
+    def get_estimate_snapshot(self, est_id: str, version: Optional[int] = None) -> Optional[dict]:
+        query = self.db.query(EstimateRevisionDB).filter(
+            EstimateRevisionDB.estimate_id == est_id
+        )
+        if version is None:
+            revision = query.order_by(EstimateRevisionDB.version.desc()).first()
+        else:
+            revision = query.filter(EstimateRevisionDB.version == version).first()
+        return copy.deepcopy(revision.snapshot) if revision is not None else None
+
+    def _replace_sections(self, estimate: EstimateDB, sections: list[dict]) -> None:
+        estimate.sections.clear()
+        for section_index, section_data in enumerate(sections):
+            section = SectionDB(
+                id=_uid(),
+                sort_order=section_index,
+                title=section_data.get("title", ""),
+            )
+            estimate.sections.append(section)
+            for position_index, position_data in enumerate(section_data.get("positions", [])):
+                section.positions.append(
+                    PositionDB(
+                        id=_uid(),
+                        sort_order=position_index,
+                        code=position_data.get("code", ""),
+                        name=position_data.get("name", ""),
+                        unit=position_data.get("unit", "шт"),
+                        quantity=position_data.get("quantity", "0"),
+                        price=position_data.get("price", "0"),
+                        source=position_data.get("source", ""),
+                        comment=position_data.get("comment", ""),
+                    )
+                )
+
+    def _calculate_entity(self, estimate: EstimateDB) -> None:
+        calc_sections = []
+        for section in estimate.sections:
+            calc_positions = [
+                CalcPosition(
+                    id=position.id,
+                    code=position.code,
+                    name=position.name,
+                    unit=position.unit,
+                    quantity=position.quantity,
+                    price=position.price,
+                    source=position.source or "",
+                    comment=position.comment or "",
+                    sum=position.sum or "0",
+                )
+                for position in section.positions
+            ]
+            calc_sections.append(
+                CalcSection(id=section.id, title=section.title, positions=calc_positions)
+            )
+        calc = calculate_estimate(
+            CalcEstimate(
+                id=estimate.id,
+                title=estimate.title,
+                status=EstimateStatus(estimate.status or "draft"),
+                sections=calc_sections,
+                overhead_rate=estimate.overhead_rate or "0",
+                vat_rate=estimate.vat_rate or "22",
+            )
+        )
+        estimate.subtotal = str(calc.subtotal)
+        estimate.overhead_amount = str(calc.overhead_amount)
+        estimate.vat_amount = str(calc.vat_amount)
+        estimate.total = str(calc.total)
+        for section, calculated_section in zip(estimate.sections, calc.sections, strict=True):
+            section.subtotal = str(calculated_section.subtotal)
+            for position, calculated_position in zip(
+                section.positions,
+                calculated_section.positions,
+                strict=True,
+            ):
+                position.sum = str(calculated_position.sum)
+
+    def _append_revision(self, estimate: EstimateDB) -> None:
+        self.db.flush()
+        snapshot = self._est_to_dict(estimate)
+        self.db.add(
+            EstimateRevisionDB(
+                id=_uid(),
+                estimate_id=estimate.id,
+                version=estimate.version,
+                snapshot=copy.deepcopy(snapshot),
+                created_at=estimate.updated_at or _now(),
+            )
+        )
 
     def _est_to_dict(self, e: EstimateDB) -> dict:
         return {
-            "id": e.id, "version": e.version, "status": e.status,
+            "id": e.id, "version": int(e.version), "status": e.status,
             "title": e.title, "client": e.client, "object_name": e.object_name,
             "region": e.region, "currency": e.currency,
             "overhead_rate": e.overhead_rate, "vat_rate": e.vat_rate,
             "subtotal": e.subtotal, "overhead_amount": e.overhead_amount,
             "vat_amount": e.vat_amount, "total": e.total,
-            "created_at": e.created_at.isoformat() + "Z" if e.created_at else "",
-            "updated_at": e.updated_at.isoformat() + "Z" if e.updated_at else "",
+            "created_at": _iso_z(e.created_at),
+            "updated_at": _iso_z(e.updated_at),
             "sections": [
                 {
                     "id": s.id, "title": s.title, "subtotal": s.subtotal,

@@ -37,7 +37,7 @@ class EstimateDB(Base):
     __tablename__ = "estimates"
 
     id = Column(String, primary_key=True)
-    version = Column(Integer, default=1)
+    version = Column(Integer, nullable=False, default=1)
     status = Column(String, default="draft")
     title = Column(String, nullable=False)
     client = Column(String, default="")
@@ -53,7 +53,18 @@ class EstimateDB(Base):
     created_at = Column(DateTime, default=_now)
     updated_at = Column(DateTime, default=_now, onupdate=_now)
 
-    sections = relationship("SectionDB", back_populates="estimate", cascade="all, delete-orphan")
+    sections = relationship(
+        "SectionDB",
+        back_populates="estimate",
+        cascade="all, delete-orphan",
+        order_by="SectionDB.sort_order, SectionDB.id",
+    )
+    revisions = relationship(
+        "EstimateRevisionDB",
+        back_populates="estimate",
+        cascade="all, delete-orphan",
+        order_by="EstimateRevisionDB.version",
+    )
 
     __table_args__ = (
         Index("ix_estimates_status", "status"),
@@ -66,11 +77,17 @@ class SectionDB(Base):
 
     id = Column(String, primary_key=True)
     estimate_id = Column(String, ForeignKey("estimates.id", ondelete="CASCADE"), nullable=False)
+    sort_order = Column(Integer, nullable=False, default=0)
     title = Column(String, nullable=False)
     subtotal = Column(String, default="0")
 
     estimate = relationship("EstimateDB", back_populates="sections")
-    positions = relationship("PositionDB", back_populates="section", cascade="all, delete-orphan")
+    positions = relationship(
+        "PositionDB",
+        back_populates="section",
+        cascade="all, delete-orphan",
+        order_by="PositionDB.sort_order, PositionDB.id",
+    )
 
 
 class PositionDB(Base):
@@ -78,6 +95,7 @@ class PositionDB(Base):
 
     id = Column(String, primary_key=True)
     section_id = Column(String, ForeignKey("sections.id", ondelete="CASCADE"), nullable=False)
+    sort_order = Column(Integer, nullable=False, default=0)
     code = Column(String, default="")
     name = Column(String, nullable=False)
     unit = Column(String, default="шт")
@@ -88,6 +106,29 @@ class PositionDB(Base):
     comment = Column(Text, default="")
 
     section = relationship("SectionDB", back_populates="positions")
+
+
+class EstimateRevisionDB(Base):
+    """Append-only snapshot of a successfully saved estimate version."""
+
+    __tablename__ = "estimate_revisions"
+
+    id = Column(String, primary_key=True)
+    estimate_id = Column(
+        String,
+        ForeignKey("estimates.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    version = Column(Integer, nullable=False)
+    snapshot = Column(JSON, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=_now)
+
+    estimate = relationship("EstimateDB", back_populates="revisions")
+
+    __table_args__ = (
+        UniqueConstraint("estimate_id", "version", name="uq_estimate_revisions_version"),
+        Index("ix_estimate_revisions_estimate_version", "estimate_id", "version"),
+    )
 
 
 class DocumentDB(Base):

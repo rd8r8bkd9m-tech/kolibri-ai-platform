@@ -56,14 +56,13 @@ class PositionCreate(BaseModel):
 
 
 class PositionResponse(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
     id: str
     code: str
     name: str
     unit: str
     quantity: str
     price: str
-    sum: str = Field(alias="sum_")
+    sum: str
     source: str = ""
     comment: str = ""
 
@@ -96,6 +95,7 @@ class EstimateCreate(BaseModel):
 
 
 class EstimateUpdate(BaseModel):
+    version: Optional[int] = Field(default=None, ge=1)
     title: Optional[str] = None
     client: Optional[str] = None
     object_name: Optional[str] = None
@@ -133,6 +133,29 @@ class EstimateListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class EstimateRevisionSummary(BaseModel):
+    id: str
+    estimate_id: str
+    version: int
+    title: str
+    status: EstimateStatus
+    total: str
+    created_at: datetime
+
+
+class EstimateRevisionResponse(BaseModel):
+    id: str
+    estimate_id: str
+    version: int
+    snapshot: EstimateResponse
+    created_at: datetime
+
+
+class EstimateRevisionListResponse(BaseModel):
+    items: List[EstimateRevisionSummary]
+    total: int
 
 
 # ---------------------------------------------------------------------------

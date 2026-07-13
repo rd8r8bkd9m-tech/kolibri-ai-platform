@@ -1,16 +1,311 @@
 """Professional PDF generation for Kolibri estimates and documents.
 Uses WeasyPrint for HTML+CSS → PDF with Cyrillic support."""
+from html.parser import HTMLParser
+from io import BytesIO
 import os
+from pathlib import Path
 from decimal import Decimal
 from typing import Dict, Any, Optional
+from xml.sax.saxutils import escape
 from jinja2 import Environment, BaseLoader
 
-# Try WeasyPrint, fallback to HTML-only
+# Prefer WeasyPrint; use ReportLab when native WeasyPrint libraries are unavailable.
+# Both paths return validated PDF bytes and never HTML under a PDF MIME type.
 try:
-    from weasyprint import HTML, CSS
+    from weasyprint import HTML
     WEASYPRINT_AVAILABLE = True
-except ImportError:
+except (ImportError, OSError):
+    HTML = None
     WEASYPRINT_AVAILABLE = False
+
+try:
+    from reportlab.lib import colors
+    from reportlab.lib.enums import TA_CENTER, TA_RIGHT
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import mm
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    REPORTLAB_AVAILABLE = True
+except ImportError:
+    REPORTLAB_AVAILABLE = False
+
+
+class PDFGenerationUnavailable(RuntimeError):
+    """Raised when the configured runtime cannot produce a real PDF."""
+
+
+def _validate_pdf(pdf: bytes) -> bytes:
+    if len(pdf) < 100 or not pdf.startswith(b"%PDF-"):
+        raise PDFGenerationUnavailable("PDF renderer returned an invalid document")
+    return pdf
+
+
+def _render_pdf(html: str) -> bytes:
+    if not WEASYPRINT_AVAILABLE or HTML is None:
+        raise PDFGenerationUnavailable("WeasyPrint is required for PDF generation")
+    return _validate_pdf(HTML(string=html).write_pdf())
+
+
+def _reportlab_fonts() -> tuple[str, str]:
+    if not REPORTLAB_AVAILABLE:
+        raise PDFGenerationUnavailable("ReportLab is required for portable PDF generation")
+    configured = os.getenv("KOLIBRI_PDF_FONT")
+    regular_candidates = [
+        configured,
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/System/Library/Fonts/Supplemental/Arial.ttf",
+        "/Library/Fonts/Arial.ttf",
+    ]
+    bold_candidates = [
+        os.getenv("KOLIBRI_PDF_BOLD_FONT"),
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+        "/Library/Fonts/Arial Bold.ttf",
+    ]
+    regular = next((path for path in regular_candidates if path and Path(path).is_file()), None)
+    bold = next((path for path in bold_candidates if path and Path(path).is_file()), regular)
+    if regular is None or bold is None:
+        raise PDFGenerationUnavailable("A Unicode PDF font is required for Cyrillic output")
+    if "KolibriSans" not in pdfmetrics.getRegisteredFontNames():
+        pdfmetrics.registerFont(TTFont("KolibriSans", regular))
+    if "KolibriSans-Bold" not in pdfmetrics.getRegisteredFontNames():
+        pdfmetrics.registerFont(TTFont("KolibriSans-Bold", bold))
+    return "KolibriSans", "KolibriSans-Bold"
+
+
+def _paragraph(value: object, style):
+    return Paragraph(escape("" if value is None else str(value)).replace("\n", "<br/>"), style)
+
+
+def _reportlab_estimate_pdf(estimate_data: Dict[str, Any]) -> bytes:
+    regular_font, bold_font = _reportlab_fonts()
+    buffer = BytesIO()
+    document = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=15 * mm,
+        leftMargin=20 * mm,
+        topMargin=15 * mm,
+        bottomMargin=18 * mm,
+        title=str(estimate_data.get("title") or "Смета"),
+        author="Колибри",
+    )
+    sample_styles = getSampleStyleSheet()
+    body = ParagraphStyle(
+        "KolibriBody",
+        parent=sample_styles["BodyText"],
+        fontName=regular_font,
+        fontSize=8,
+        leading=10,
+        textColor=colors.HexColor("#0A0A0B"),
+    )
+    small = ParagraphStyle("KolibriSmall", parent=body, fontSize=7, leading=8)
+    heading = ParagraphStyle(
+        "KolibriHeading",
+        parent=body,
+        fontName=bold_font,
+        fontSize=16,
+        leading=19,
+        alignment=TA_CENTER,
+        spaceAfter=4 * mm,
+    )
+    subtitle = ParagraphStyle(
+        "KolibriSubtitle",
+        parent=body,
+        fontSize=10,
+        leading=13,
+        alignment=TA_CENTER,
+        textColor=colors.HexColor("#555555"),
+        spaceAfter=4 * mm,
+    )
+    money = ParagraphStyle(
+        "KolibriMoney",
+        parent=body,
+        fontName=bold_font,
+        alignment=TA_RIGHT,
+    )
+    currency = estimate_data.get("currency", "RUB")
+    story = [
+        _paragraph(f"Смета № {str(estimate_data.get('id', ''))[:8]}", heading),
+        _paragraph(estimate_data.get("title", ""), subtitle),
+    ]
+    meta_rows = [
+        ["Клиент", estimate_data.get("client", "")],
+        ["Объект", estimate_data.get("object_name", "")],
+        ["Регион", estimate_data.get("region", "")],
+        ["Дата", str(estimate_data.get("created_at", ""))[:10]],
+        ["Версия", estimate_data.get("version", 1)],
+    ]
+    meta = Table(
+        [[_paragraph(label, body), _paragraph(value, body)] for label, value in meta_rows],
+        colWidths=[32 * mm, 133 * mm],
+        hAlign="LEFT",
+    )
+    meta.setStyle(
+        TableStyle(
+            [
+                ("FONTNAME", (0, 0), (0, -1), bold_font),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ]
+        )
+    )
+    story.extend([meta, Spacer(1, 4 * mm)])
+
+    column_widths = [8 * mm, 18 * mm, 68 * mm, 12 * mm, 18 * mm, 24 * mm, 27 * mm]
+    for section in estimate_data.get("sections", []):
+        rows = [
+            [
+                _paragraph(section.get("title", ""), body),
+                "",
+                "",
+                "",
+                "",
+                "",
+                _paragraph(
+                    _format_currency(Decimal(section.get("subtotal", "0")), currency),
+                    money,
+                ),
+            ],
+            [
+                _paragraph("№", small),
+                _paragraph("Код", small),
+                _paragraph("Наименование", small),
+                _paragraph("Ед.", small),
+                _paragraph("Кол-во", small),
+                _paragraph("Цена", small),
+                _paragraph("Сумма", small),
+            ],
+        ]
+        for index, position in enumerate(section.get("positions", []), start=1):
+            rows.append(
+                [
+                    _paragraph(index, small),
+                    _paragraph(position.get("code", ""), small),
+                    _paragraph(position.get("name", ""), small),
+                    _paragraph(position.get("unit", ""), small),
+                    _paragraph(_format_ru(Decimal(position.get("quantity", "0"))), small),
+                    _paragraph(
+                        _format_currency(Decimal(position.get("price", "0")), currency),
+                        small,
+                    ),
+                    _paragraph(
+                        _format_currency(Decimal(position.get("sum", "0")), currency),
+                        money,
+                    ),
+                ]
+            )
+        table = Table(rows, colWidths=column_widths, repeatRows=2, hAlign="LEFT")
+        table.setStyle(
+            TableStyle(
+                [
+                    ("SPAN", (0, 0), (5, 0)),
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E8F8F7")),
+                    ("BACKGROUND", (0, 1), (-1, 1), colors.HexColor("#F0F0F0")),
+                    ("FONTNAME", (0, 0), (-1, 1), bold_font),
+                    ("ALIGN", (4, 1), (-1, -1), "RIGHT"),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("GRID", (0, 1), (-1, -1), 0.35, colors.HexColor("#D6D6D6")),
+                    ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#9A9A9A")),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 3),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+                    ("TOPPADDING", (0, 0), (-1, -1), 4),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ]
+            )
+        )
+        story.extend([table, Spacer(1, 4 * mm)])
+
+    total_rows = [
+        ["Подытог", _format_currency(Decimal(estimate_data.get("subtotal", "0")), currency)],
+        [
+            f"Накладные расходы ({estimate_data.get('overhead_rate', '0')}%)",
+            _format_currency(Decimal(estimate_data.get("overhead_amount", "0")), currency),
+        ],
+        [
+            f"НДС ({estimate_data.get('vat_rate', '22')}%)",
+            _format_currency(Decimal(estimate_data.get("vat_amount", "0")), currency),
+        ],
+        ["ИТОГО", _format_currency(Decimal(estimate_data.get("total", "0")), currency)],
+    ]
+    totals = Table(
+        [[_paragraph(label, body), _paragraph(value, money)] for label, value in total_rows],
+        colWidths=[75 * mm, 45 * mm],
+        hAlign="RIGHT",
+    )
+    totals.setStyle(
+        TableStyle(
+            [
+                ("LINEABOVE", (0, -1), (-1, -1), 1.25, colors.HexColor("#0A0A0B")),
+                ("FONTNAME", (0, -1), (-1, -1), bold_font),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ]
+        )
+    )
+    story.append(totals)
+
+    def footer(canvas, doc):
+        canvas.saveState()
+        canvas.setFont(regular_font, 7)
+        canvas.setFillColor(colors.HexColor("#777777"))
+        canvas.drawCentredString(A4[0] / 2, 9 * mm, f"Колибри | Страница {doc.page}")
+        canvas.restoreState()
+
+    document.build(story, onFirstPage=footer, onLaterPages=footer)
+    return _validate_pdf(buffer.getvalue())
+
+
+class _HTMLTextExtractor(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        if tag in {"br", "p", "div", "li", "tr"}:
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in {"p", "div", "li", "tr"}:
+            self.parts.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        self.parts.append(data)
+
+
+def _reportlab_document_pdf(title: str, html_content: str) -> bytes:
+    regular_font, bold_font = _reportlab_fonts()
+    extractor = _HTMLTextExtractor()
+    extractor.feed(html_content)
+    lines = [line.strip() for line in "".join(extractor.parts).splitlines() if line.strip()]
+    buffer = BytesIO()
+    document = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=18 * mm,
+        leftMargin=18 * mm,
+        topMargin=18 * mm,
+        bottomMargin=18 * mm,
+        title=title,
+        author="Колибри",
+    )
+    body = ParagraphStyle("DocumentBody", fontName=regular_font, fontSize=10, leading=15)
+    heading = ParagraphStyle(
+        "DocumentHeading",
+        parent=body,
+        fontName=bold_font,
+        fontSize=17,
+        leading=21,
+        alignment=TA_CENTER,
+        spaceAfter=8 * mm,
+    )
+    story = [_paragraph(title, heading)]
+    for line in lines or [""]:
+        story.extend([_paragraph(line, body), Spacer(1, 2 * mm)])
+    document.build(story)
+    return _validate_pdf(buffer.getvalue())
 
 
 def _format_ru(value: Decimal) -> str:
@@ -33,7 +328,7 @@ def _format_ru(value: Decimal) -> str:
 
 def _format_currency(amount: Decimal, currency: str = "RUB") -> str:
     formatted = _format_ru(amount)
-    symbols = {"RUB": "₽", "USD": "$", "EUR": "€"}
+    symbols = {"RUB": "руб.", "USD": "$", "EUR": "EUR"}
     return f"{formatted} {symbols.get(currency, currency)}"
 
 
@@ -133,7 +428,7 @@ thead { display: table-header-group; }
 
 def generate_estimate_pdf(estimate_data: Dict[str, Any]) -> bytes:
     """Generate professional PDF from estimate data. Returns PDF bytes."""
-    env = Environment(loader=BaseLoader())
+    env = Environment(loader=BaseLoader(), autoescape=True)
     template = env.from_string(ESTIMATE_TEMPLATE)
 
     # Format all monetary values
@@ -178,10 +473,8 @@ def generate_estimate_pdf(estimate_data: Dict[str, Any]) -> bytes:
     html_str = template.render(**ctx)
 
     if WEASYPRINT_AVAILABLE:
-        return HTML(string=html_str).write_pdf()
-    else:
-        # Fallback: return HTML as bytes with PDF content-type wrapper
-        return html_str.encode("utf-8")
+        return _render_pdf(html_str)
+    return _reportlab_estimate_pdf(estimate_data)
 
 
 def generate_document_pdf(document_data: Dict[str, Any]) -> bytes:
@@ -210,5 +503,5 @@ body {{ font-family: "DejaVu Sans", Arial, sans-serif; font-size: 11pt; color: #
 </html>"""
 
     if WEASYPRINT_AVAILABLE:
-        return HTML(string=template).write_pdf()
-    return template.encode("utf-8")
+        return _render_pdf(template)
+    return _reportlab_document_pdf(str(title), str(html_content))

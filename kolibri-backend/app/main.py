@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import List, Optional, Dict, Any
 
-from fastapi import FastAPI, HTTPException, Query, Depends, Request
+from fastapi import FastAPI, HTTPException, Query, Depends, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.security import HTTPBearer
@@ -26,7 +26,7 @@ from app.calculator import (
 )
 from app.pdf_generator import generate_estimate_pdf, generate_document_pdf
 from app.database import Base, engine, SessionLocal, get_db
-from app.storage import DBStorage, seed_db
+from app.storage import DBStorage, EstimateVersionConflict, seed_db
 from app.schema_migrations import ensure_database_schema
 from app import schemas
 from app.control_plane import (
@@ -207,6 +207,71 @@ async def update_me(
 # Estimates
 # ---------------------------------------------------------------------------
 
+def _estimate_etag(version: int) -> str:
+    return f'"{version}"'
+
+
+def _parse_if_match(value: Optional[str]) -> Optional[int]:
+    if value is None:
+        return None
+    token = value.strip()
+    if token.startswith("W/"):
+        token = token[2:].strip()
+    if "," in token or token == "*":
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "invalid_if_match", "message": "If-Match must contain one estimate version"},
+        )
+    if len(token) >= 2 and token[0] == token[-1] == '"':
+        token = token[1:-1]
+    try:
+        version = int(token)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "invalid_if_match", "message": "If-Match must be an integer estimate version"},
+        ) from exc
+    if version < 1:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "invalid_if_match", "message": "If-Match version must be positive"},
+        )
+    return version
+
+
+def _required_estimate_version(if_match: Optional[str], explicit_version: Optional[int]) -> int:
+    header_version = _parse_if_match(if_match)
+    if header_version is None and explicit_version is None:
+        raise HTTPException(
+            status_code=428,
+            detail={
+                "code": "estimate_version_required",
+                "message": "Send If-Match or the current estimate version",
+            },
+        )
+    if header_version is not None and explicit_version is not None and header_version != explicit_version:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "estimate_version_mismatch",
+                "message": "If-Match and body/query version must match",
+            },
+        )
+    return header_version if header_version is not None else int(explicit_version)
+
+
+def _raise_estimate_version_conflict(exc: EstimateVersionConflict) -> None:
+    raise HTTPException(
+        status_code=409,
+        headers={"ETag": _estimate_etag(exc.current_version)},
+        detail={
+            "code": "estimate_version_conflict",
+            "message": "Estimate was changed by another save; reload before retrying",
+            "expected_version": exc.expected_version,
+            "current_version": exc.current_version,
+        },
+    ) from exc
+
 @app.get("/api/v1/estimates", response_model=schemas.EstimateListResponse)
 async def list_estimates(
     page: int = Query(1, ge=1),
@@ -221,29 +286,51 @@ async def list_estimates(
 
 
 @app.post("/api/v1/estimates", response_model=schemas.EstimateResponse, status_code=201)
-async def create_estimate(data: schemas.EstimateCreate, db: Session = Depends(get_db)):
+async def create_estimate(
+    data: schemas.EstimateCreate,
+    response: Response,
+    db: Session = Depends(get_db),
+):
     storage = DBStorage(db)
-    return storage.create_estimate(data.model_dump())
+    result = storage.create_estimate(data.model_dump())
+    response.headers["ETag"] = _estimate_etag(result["version"])
+    return result
 
 
 @app.get("/api/v1/estimates/{est_id}", response_model=schemas.EstimateResponse)
-async def get_estimate(est_id: str, db: Session = Depends(get_db)):
+async def get_estimate(est_id: str, response: Response, db: Session = Depends(get_db)):
     storage = DBStorage(db)
     result = storage.get_estimate(est_id)
     if not result:
         raise HTTPException(404, "Estimate not found")
+    response.headers["ETag"] = _estimate_etag(result["version"])
     return result
 
 
 @app.put("/api/v1/estimates/{est_id}", response_model=schemas.EstimateResponse)
-async def update_estimate(est_id: str, data: schemas.EstimateUpdate, db: Session = Depends(get_db)):
+async def update_estimate(
+    est_id: str,
+    data: schemas.EstimateUpdate,
+    response: Response,
+    if_match: Optional[str] = Header(default=None, alias="If-Match"),
+    db: Session = Depends(get_db),
+):
     storage = DBStorage(db)
     update_data = data.model_dump(exclude_unset=True)
+    expected_version = _required_estimate_version(if_match, update_data.pop("version", None))
     if "status" in update_data and update_data["status"] is not None:
         update_data["status"] = update_data["status"].value if hasattr(update_data["status"], "value") else update_data["status"]
-    result = storage.update_estimate(est_id, update_data)
+    try:
+        result = storage.update_estimate(
+            est_id,
+            update_data,
+            expected_version=expected_version,
+        )
+    except EstimateVersionConflict as exc:
+        _raise_estimate_version_conflict(exc)
     if not result:
         raise HTTPException(404, "Estimate not found")
+    response.headers["ETag"] = _estimate_etag(result["version"])
     return result
 
 
@@ -255,14 +342,24 @@ async def delete_estimate(est_id: str, db: Session = Depends(get_db)):
     return Response(status_code=204)
 
 
-@app.post("/api/v1/estimates/{est_id}/calculate")
-async def calculate_estimate_endpoint(est_id: str, db: Session = Depends(get_db)):
+@app.post("/api/v1/estimates/{est_id}/calculate", response_model=schemas.EstimateResponse)
+async def calculate_estimate_endpoint(
+    est_id: str,
+    response: Response,
+    version: Optional[int] = Query(default=None, ge=1),
+    if_match: Optional[str] = Header(default=None, alias="If-Match"),
+    db: Session = Depends(get_db),
+):
     storage = DBStorage(db)
-    result = storage.get_estimate(est_id)
-    if not result:
+    expected_version = _required_estimate_version(if_match, version)
+    try:
+        result = storage.recalculate_estimate(est_id, expected_version=expected_version)
+    except EstimateVersionConflict as exc:
+        _raise_estimate_version_conflict(exc)
+    if result is None:
         raise HTTPException(404, "Estimate not found")
-    storage.update_estimate(est_id, {})
-    return storage.get_estimate(est_id)
+    response.headers["ETag"] = _estimate_etag(result["version"])
+    return result
 
 
 @app.post("/api/v1/estimates/{est_id}/duplicate")
@@ -274,23 +371,63 @@ async def duplicate_estimate(est_id: str, db: Session = Depends(get_db)):
     return result
 
 
-@app.get("/api/v1/estimates/{est_id}/pdf")
-async def estimate_pdf(est_id: str, db: Session = Depends(get_db)):
-    storage = DBStorage(db)
-    result = storage.get_estimate(est_id)
-    if not result:
+@app.get(
+    "/api/v1/estimates/{est_id}/revisions",
+    response_model=schemas.EstimateRevisionListResponse,
+)
+async def list_estimate_revisions(est_id: str, db: Session = Depends(get_db)):
+    result = DBStorage(db).list_estimate_revisions(est_id)
+    if result is None:
         raise HTTPException(404, "Estimate not found")
+    return result
+
+
+@app.get(
+    "/api/v1/estimates/{est_id}/revisions/{version}",
+    response_model=schemas.EstimateRevisionResponse,
+)
+async def get_estimate_revision(
+    est_id: str,
+    version: int,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    result = DBStorage(db).get_estimate_revision(est_id, version)
+    if result is None:
+        raise HTTPException(404, "Estimate revision not found")
+    response.headers["ETag"] = _estimate_etag(result["version"])
+    return result
+
+
+@app.get("/api/v1/estimates/{est_id}/pdf")
+async def estimate_pdf(
+    est_id: str,
+    version: Optional[int] = Query(default=None, ge=1),
+    db: Session = Depends(get_db),
+):
+    storage = DBStorage(db)
+    result = storage.get_estimate_snapshot(est_id, version)
+    if not result:
+        raise HTTPException(404, "Estimate revision not found")
     pdf_bytes = generate_estimate_pdf(result)
     return Response(content=pdf_bytes, media_type="application/pdf",
-                    headers={"Content-Disposition": f"attachment; filename=estimate_{est_id[:8]}.pdf"})
+                    headers={
+                        "Content-Disposition": f"attachment; filename=estimate_{est_id[:8]}_v{result['version']}.pdf",
+                        "ETag": _estimate_etag(result["version"]),
+                    })
 
 
 @app.get("/api/v1/estimates/{est_id}/export/{fmt}")
-async def export_estimate(est_id: str, fmt: str, db: Session = Depends(get_db)):
+async def export_estimate(
+    est_id: str,
+    fmt: str,
+    version: Optional[int] = Query(default=None, ge=1),
+    db: Session = Depends(get_db),
+):
     storage = DBStorage(db)
-    d = storage.get_estimate(est_id)
+    d = storage.get_estimate_snapshot(est_id, version)
     if not d:
-        raise HTTPException(404, "Estimate not found")
+        raise HTTPException(404, "Estimate revision not found")
     sections = []
     for s in d.get("sections", []):
         positions = [
@@ -310,15 +447,27 @@ async def export_estimate(est_id: str, fmt: str, db: Session = Depends(get_db)):
     if fmt == "csv":
         content = export_to_csv(calc)
         return Response(content=content, media_type="text/csv",
-                        headers={"Content-Disposition": f"attachment; filename=estimate_{est_id[:8]}.csv"})
+                        headers={
+                            "Content-Disposition": f"attachment; filename=estimate_{est_id[:8]}_v{d['version']}.csv",
+                            "ETag": _estimate_etag(d["version"]),
+                        })
     elif fmt == "json":
-        return export_to_json(calc)
+        return JSONResponse(
+            content=d,
+            headers={
+                "Content-Disposition": f"attachment; filename=estimate_{est_id[:8]}_v{d['version']}.json",
+                "ETag": _estimate_etag(d["version"]),
+            },
+        )
     elif fmt == "xlsx":
         from app.xlsx_export import generate_estimate_xlsx
         xlsx_bytes = generate_estimate_xlsx(d)
         return Response(content=xlsx_bytes,
                         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        headers={"Content-Disposition": f"attachment; filename=estimate_{est_id[:8]}.xlsx"})
+                        headers={
+                            "Content-Disposition": f"attachment; filename=estimate_{est_id[:8]}_v{d['version']}.xlsx",
+                            "ETag": _estimate_etag(d["version"]),
+                        })
     raise HTTPException(400, f"Unsupported format: {fmt}")
 
 

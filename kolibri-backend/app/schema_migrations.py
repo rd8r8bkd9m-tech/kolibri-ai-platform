@@ -34,6 +34,7 @@ ALLOWED_UNVERSIONED_TABLES = set(BASELINE_COLUMNS) | {
     "telegram_updates",
     "telegram_bot_identity",
     "public_api_keys",
+    "estimate_revisions",
 }
 
 
@@ -116,12 +117,32 @@ def ensure_database_schema(engine: Engine) -> str:
             "id", "owner_scope", "name", "key_prefix", "secret_hash",
             "created_at", "last_used_at", "revoked_at",
         }
+        section_columns = {
+            column["name"] for column in inspector.get_columns("sections")
+        }
+        position_columns = {
+            column["name"] for column in inspector.get_columns("positions")
+        }
+        estimate_revision_columns = {
+            column["name"] for column in inspector.get_columns("estimate_revisions")
+        }
+        estimate_revision_expected = {
+            "id", "estimate_id", "version", "snapshot", "created_at",
+        }
+        estimate_revision_unique = {
+            tuple(constraint.get("column_names") or [])
+            for constraint in inspector.get_unique_constraints("estimate_revisions")
+        }
         if (
             actual != expected
             or "version" not in columns
             or not telegram_expected.issubset(telegram_columns)
             or not telegram_update_expected.issubset(telegram_update_columns)
             or not public_api_key_expected.issubset(public_api_key_columns)
+            or "sort_order" not in section_columns
+            or "sort_order" not in position_columns
+            or not estimate_revision_expected.issubset(estimate_revision_columns)
+            or ("estimate_id", "version") not in estimate_revision_unique
         ):
             raise SchemaAdoptionError(
                 f"database migration verification failed: revision={actual!r}, expected={expected!r}, "
@@ -131,6 +152,10 @@ def ensure_database_schema(engine: Engine) -> str:
                 "telegram_updates="
                 f"{'present' if telegram_update_expected.issubset(telegram_update_columns) else 'missing'}, "
                 "public_api_keys="
-                f"{'present' if public_api_key_expected.issubset(public_api_key_columns) else 'missing'}"
+                f"{'present' if public_api_key_expected.issubset(public_api_key_columns) else 'missing'}, "
+                "estimate_ordering="
+                f"{'present' if 'sort_order' in section_columns and 'sort_order' in position_columns else 'missing'}, "
+                "estimate_revisions="
+                f"{'present' if estimate_revision_expected.issubset(estimate_revision_columns) and ('estimate_id', 'version') in estimate_revision_unique else 'missing'}"
             )
         return str(actual)
