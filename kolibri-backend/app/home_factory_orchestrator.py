@@ -228,6 +228,7 @@ class HomeControlPlaneClient:
             f"/v1/tasks/{task_id}/heartbeat",
             json_body={
                 "state": "running",
+                "node_id": HOME_NODE_ID,
                 "agent_id": HOME_CODEX_SLOT_ID,
                 "slot_id": HOME_CODEX_SLOT_ID,
                 "attempt_id": attempt_id,
@@ -250,6 +251,7 @@ class HomeControlPlaneClient:
             "POST",
             f"/v1/tasks/{task_id}/complete",
             json_body={
+                "node_id": HOME_NODE_ID,
                 "agent_id": HOME_CODEX_SLOT_ID,
                 "slot_id": HOME_CODEX_SLOT_ID,
                 "attempt_id": attempt_id,
@@ -276,6 +278,7 @@ class HomeControlPlaneClient:
             "POST",
             f"/v1/tasks/{task_id}/fail",
             json_body={
+                "node_id": HOME_NODE_ID,
                 "agent_id": HOME_CODEX_SLOT_ID,
                 "slot_id": HOME_CODEX_SLOT_ID,
                 "attempt_id": attempt_id,
