@@ -26,7 +26,7 @@ from app.calculator import (
 )
 from app.pdf_generator import generate_estimate_pdf, generate_document_pdf
 from app.database import Base, engine, SessionLocal, get_db
-from app.storage import DBStorage, EstimateVersionConflict, seed_db
+from app.storage import DBStorage, EstimateVersionConflict, seed_demo_data_if_enabled
 from app.schema_migrations import ensure_database_schema
 from app import schemas
 from app.control_plane import (
@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI):
     ensure_database_schema(engine)
     db = SessionLocal()
     try:
-        seed_db(db)
+        seed_demo_data_if_enabled(db)
     finally:
         db.close()
     yield

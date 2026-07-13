@@ -36,6 +36,40 @@ _idempotency: dict[str, tuple[str, str]] = {}
 _MAX_RECORDS = 1_000
 _IDEMPOTENCY_KEY = re.compile(r"^[A-Za-z0-9._:-]{1,200}$")
 _FAILED_RESULT_STATUSES = {"error", "failed", "incomplete", "unavailable", "capability_unavailable"}
+_PUBLIC_ACTION_TYPES = {"create_estimate", "create_document", "present_image"}
+
+
+def _public_actions(value: Any) -> list[dict[str, Any]]:
+    """Return only the bounded, user-facing action contract.
+
+    Provider routing metadata must never cross the public compatibility
+    boundary.  Action data is already normalised by ``ai_provider``; this
+    final copy constrains the top-level shape and makes the stored value
+    independent from a mutable provider result.
+    """
+    if not isinstance(value, list):
+        return []
+
+    actions: list[dict[str, Any]] = []
+    for candidate in value:
+        if not isinstance(candidate, dict):
+            continue
+        action_type = str(candidate.get("type") or "")
+        label = str(candidate.get("label") or "").strip()
+        data = candidate.get("data")
+        if (
+            action_type not in _PUBLIC_ACTION_TYPES
+            or not label
+            or len(label) > 120
+            or not isinstance(data, dict)
+        ):
+            continue
+        try:
+            public_data = json.loads(json.dumps(data, ensure_ascii=False))
+        except (TypeError, ValueError):
+            continue
+        actions.append({"type": action_type, "label": label, "data": public_data})
+    return actions
 
 
 async def _authorize_public(request: Request, db: Session = Depends(get_db)) -> None:
@@ -428,6 +462,7 @@ def _new_id() -> str:
 
 def _public_response(record: dict[str, Any]) -> dict[str, Any]:
     content = str(record.get("content") or "")
+    actions = _public_actions(record.get("actions"))
     output = []
     if content:
         output.append({
@@ -455,6 +490,7 @@ def _public_response(record: dict[str, Any]) -> dict[str, Any]:
         "output_text": content,
         "error": record.get("error"),
         "artifacts": [artifact] if isinstance(artifact, dict) else [],
+        "actions": actions,
     }
 
 
@@ -495,6 +531,7 @@ def begin_public_response(messages: list[dict[str, str]]) -> str:
         "upstream_response_id": None,
         "provider_route": None,
         "messages": messages,
+        "actions": [],
         "events": [],
         "last_sequence": 0,
     }
@@ -527,6 +564,8 @@ def record_public_stream_chunk(response_id: str, chunk: dict[str, Any]) -> None:
             "name": tool.get("tool"),
             "status": tool.get("status"),
         })
+    if isinstance(chunk.get("actions"), list):
+        record["actions"] = _public_actions(chunk["actions"])
     if chunk.get("done"):
         record["upstream_response_id"] = chunk.get("response_id")
         record["provider_route"] = chunk.get("provider")
@@ -556,7 +595,10 @@ def record_public_stream_chunk(response_id: str, chunk: dict[str, Any]) -> None:
             if record["status"] == "failed" else None
         )
         event_type = f"response.{record['status']}"
-        _append_event(record, event_type, {"response": _public_response(record)})
+        _append_event(record, event_type, {
+            "response": _public_response(record),
+            "actions": _public_actions(record.get("actions")),
+        })
 
 
 def _request_hash(payload: dict[str, Any]) -> str:
@@ -594,6 +636,7 @@ def _record_result(response_id: str, result: dict[str, Any], messages: list[dict
             "capability": result.get("capability"),
         } if status == "failed" else None,
         "artifact": result.get("artifact"),
+        "actions": _public_actions(result.get("actions")),
         "upstream_response_id": result.get("response_id"),
         "provider_route": result.get("provider"),
         "messages": messages,
@@ -613,6 +656,7 @@ def _record_result(response_id: str, result: dict[str, Any], messages: list[dict
         _append_event(record, terminal, {
             "response": _public_response(record),
             "status": record["status"],
+            "actions": _public_actions(record.get("actions")),
         })
     return record
 
@@ -743,7 +787,11 @@ async def _streaming_response(request: ResponsesRequest, idempotency_key: str | 
                 if existing_status in {"completed", "failed", "cancelled"}
                 else "response.status.updated"
             )
-            yield _sse(existing_event, {"type": existing_event, "response": created})
+            yield _sse(existing_event, {
+                "type": existing_event,
+                "response": created,
+                "actions": _public_actions(existing.get("actions")),
+            })
             return
 
         image_result = await _image_result_if_requested(
@@ -770,7 +818,11 @@ async def _streaming_response(request: ResponsesRequest, idempotency_key: str | 
                     "artifact": record["artifact"],
                 })
             event_type = f"response.{record['status']}"
-            yield _sse(event_type, {"type": event_type, "response": _public_response(record)})
+            yield _sse(event_type, {
+                "type": event_type,
+                "response": _public_response(record),
+                "actions": _public_actions(record.get("actions")),
+            })
             return
 
         text_parts: list[str] = []
@@ -827,7 +879,11 @@ async def _streaming_response(request: ResponsesRequest, idempotency_key: str | 
             record_public_stream_chunk(response_id, final_internal)
         record = _records[response_id]
         event_type = f"response.{record['status']}"
-        yield _sse(event_type, {"type": event_type, "response": _public_response(record)})
+        yield _sse(event_type, {
+            "type": event_type,
+            "response": _public_response(record),
+            "actions": _public_actions(record.get("actions")),
+        })
 
     return StreamingResponse(events(), media_type="text/event-stream", headers={
         "Cache-Control": "no-cache",

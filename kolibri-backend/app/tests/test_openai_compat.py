@@ -102,6 +102,48 @@ def test_responses_sync_is_sanitized_and_retrievable(monkeypatch):
     assert captured["idempotency_key"] == "request-1"
 
 
+def test_responses_sync_preserves_only_public_actions(monkeypatch):
+    action = {
+        "type": "create_estimate",
+        "label": "Открыть предварительную смету",
+        "data": {
+            "title": "Предварительная смета: дом 100 м² — Лениногорск",
+            "region": "Лениногорск, Татарстан",
+            "sections": [],
+        },
+    }
+
+    async def fake_completion(messages, **kwargs):
+        return {
+            "content": "Смета подготовлена.",
+            "actions": [
+                action,
+                {"type": "internal_provider_action", "label": "secret", "data": {}},
+            ],
+            "status": "ready",
+            "provider": "private-provider",
+        }
+
+    monkeypatch.setattr(openai_compat.ai_provider, "chat_completion", fake_completion)
+    with TestClient(app) as client:
+        created = client.post(
+            "/v1/responses",
+            json={"model": "kolibri", "input": "Составь смету"},
+            headers=_AUTH,
+        )
+        fetched = client.get(f"/v1/responses/{created.json()['id']}", headers=_AUTH)
+
+    assert created.status_code == 200
+    assert fetched.status_code == 200
+    assert created.json()["actions"] == [action]
+    assert fetched.json()["actions"] == [action]
+    assert "private-provider" not in json.dumps(created.json())
+    terminal = openai_compat._records[created.json()["id"]]["events"][-1]
+    assert terminal["type"] == "response.completed"
+    assert terminal["actions"] == [action]
+    assert terminal["response"]["actions"] == [action]
+
+
 def test_responses_idempotency_replays_and_conflicts(monkeypatch):
     calls = 0
 
@@ -187,6 +229,48 @@ def test_responses_stream_uses_typed_sse_and_hides_provider(monkeypatch):
     assert "private" not in response.text
     assert "secret" not in response.text
     assert captured["run_id"].startswith("resp_kolibri_")
+
+
+def test_responses_stream_terminal_event_and_status_preserve_actions(monkeypatch):
+    action = {
+        "type": "create_document",
+        "label": "Создать договор",
+        "data": {
+            "title": "Договор подряда",
+            "type": "contract",
+            "content": "<p>Проверенный текст</p>",
+        },
+    }
+
+    async def fake_stream(messages, **kwargs):
+        yield {"content": "Документ подготовлен.", "done": False}
+        yield {
+            "content": "",
+            "done": True,
+            "status": "ready",
+            "actions": [action],
+            "provider": "private-provider",
+        }
+
+    monkeypatch.setattr(openai_compat.ai_provider, "chat_completion_stream", fake_stream)
+    with TestClient(app) as client:
+        streamed = client.post(
+            "/v1/responses",
+            json={"model": "kolibri", "input": "Подготовь договор", "stream": True},
+            headers=_AUTH,
+        )
+        terminal = next(
+            json.loads(line.removeprefix("data: "))
+            for line in streamed.text.splitlines()
+            if line.startswith("data: ") and '"type": "response.completed"' in line
+        )
+        fetched = client.get(f"/v1/responses/{terminal['response']['id']}", headers=_AUTH)
+
+    assert streamed.status_code == 200
+    assert terminal["actions"] == [action]
+    assert terminal["response"]["actions"] == [action]
+    assert fetched.json()["actions"] == [action]
+    assert "private-provider" not in streamed.text
 
 
 def test_public_stream_maps_real_codex_cli_jsonl_events(monkeypatch, tmp_path):

@@ -1,5 +1,6 @@
 """Storage abstraction — DBStorage (SQLAlchemy) and InMemoryStorage (legacy)."""
 import copy
+import os
 import uuid
 import random
 from datetime import datetime, timezone
@@ -576,6 +577,28 @@ class DBStorage:
                 "avg_disk": round(sum(float(n.disk_percent or 0) for n in healthy) / len(healthy), 1) if healthy else 0,
             },
         }
+
+
+_DEMO_SEED_ENV = "KOLIBRI_DEMO_SEED_ENABLED"
+_TRUE_VALUES = {"1", "true", "yes", "on"}
+
+
+def demo_seed_enabled() -> bool:
+    """Return true only after an explicit operator opt-in.
+
+    Production and fresh developer databases must start empty.  Sample rows
+    are useful for an intentional visual demo, but must never masquerade as
+    live estimates, documents, agents, nodes or tasks.
+    """
+    return os.getenv(_DEMO_SEED_ENV, "").strip().lower() in _TRUE_VALUES
+
+
+def seed_demo_data_if_enabled(db: Session) -> bool:
+    """Seed sample rows only when ``KOLIBRI_DEMO_SEED_ENABLED`` is explicit."""
+    if not demo_seed_enabled():
+        return False
+    seed_db(db)
+    return True
 
 
 def seed_db(db: Session):
