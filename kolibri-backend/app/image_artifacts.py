@@ -131,9 +131,10 @@ def _selected_image_route() -> dict[str, Any]:
 
 def image_execution_identity() -> dict[str, str]:
     route = _selected_image_route()
+    state = _read_probe_state()
     return {
-        "provider": _last_verified_provider or str(route["provider"]),
-        "model": _last_verified_model or str(route["model"]),
+        "provider": str(state.get("provider") or _last_verified_provider or route["provider"]),
+        "model": str(state.get("model") or _last_verified_model or route["model"]),
     }
 
 
@@ -142,13 +143,28 @@ def image_capability() -> dict[str, Any]:
     route = _selected_image_route()
     configured = bool(config.enabled and route["configured"])
     probe_ttl = max(1, int(os.getenv("OPENAI_IMAGE_PROBE_TTL_SECONDS", "900")))
+    state = _read_probe_state()
+    verified_at = str(state.get("verified_at") or _last_verified_success or "") or None
+    failure_at = str(state.get("failure_at") or _last_probe_failure or "") or None
+    state_provider = str(state.get("provider") or _last_verified_provider or "") or None
+    verified_age: float | None = None
+    if verified_at:
+        try:
+            verified_age = max(
+                0.0,
+                (datetime.now(timezone.utc) - datetime.fromisoformat(verified_at)).total_seconds(),
+            )
+        except ValueError:
+            verified_age = None
     verified = bool(
         configured
-        and _last_verified_success
-        and _last_verified_monotonic is not None
-        and time.monotonic() - _last_verified_monotonic <= probe_ttl
-        and _last_probe_failure is None
-        and _last_verified_provider == route["provider"]
+        and verified_at
+        and (
+            (_last_verified_monotonic is not None and time.monotonic() - _last_verified_monotonic <= probe_ttl)
+            or (verified_age is not None and verified_age <= probe_ttl)
+        )
+        and failure_at is None
+        and state_provider == route["provider"]
     )
     if verified:
         status = "live"
@@ -175,8 +191,8 @@ def image_capability() -> dict[str, Any]:
             "status": status,
             "provider": route["provider"],
             "model": route["model"],
-            "verified_at": _last_verified_success,
-            "last_failure_at": _last_probe_failure,
+            "verified_at": verified_at,
+            "last_failure_at": failure_at,
         },
         "renderer": {"available": True, "id": "image", "status": "live"},
         "source": {"type": "live_invocation" if verified else "configuration"},
@@ -298,6 +314,41 @@ def _detect_image_type(data: bytes) -> tuple[str, str]:
 
 def _artifact_root() -> Path:
     return Path(os.getenv("KOLIBRI_ARTIFACT_DIR", "./data/artifacts")).expanduser().resolve() / "images"
+
+
+def _probe_state_path() -> Path:
+    return _artifact_root() / ".capability-state.json"
+
+
+def _read_probe_state() -> dict[str, Any]:
+    """Return the cross-process image capability proof.
+
+    Uvicorn workers do not share Python globals.  Persisting only the small,
+    sanitised probe verdict keeps `/v1/capabilities` truthful after a request
+    is handled by another worker or after a service restart.
+    """
+    try:
+        payload = json.loads(_probe_state_path().read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _write_probe_state(*, verified_at: str | None, failure_at: str | None, provider: str | None, model: str | None) -> None:
+    root = _artifact_root()
+    root.mkdir(parents=True, exist_ok=True)
+    target = _probe_state_path()
+    temporary = root / f".{target.name}.{uuid.uuid4().hex}.tmp"
+    payload = {
+        "schema_version": 1,
+        "verified_at": verified_at,
+        "failure_at": failure_at,
+        "provider": provider,
+        "model": model,
+    }
+    temporary.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    os.chmod(temporary, 0o640)
+    temporary.replace(target)
 
 
 def _store_image(data: bytes, *, prompt: str, model: str) -> dict[str, Any]:
@@ -436,6 +487,12 @@ async def generate_image(
         _last_probe_failure = datetime.now(timezone.utc).isoformat()
         _last_verified_provider = None
         _last_verified_model = None
+        _write_probe_state(
+            verified_at=None,
+            failure_at=_last_probe_failure,
+            provider=str(route["provider"]),
+            model=str(route["model"]),
+        )
         raise
     except (httpx.HTTPError, json.JSONDecodeError, ValueError, TypeError) as exc:
         _last_verified_success = None
@@ -443,6 +500,12 @@ async def generate_image(
         _last_probe_failure = datetime.now(timezone.utc).isoformat()
         _last_verified_provider = None
         _last_verified_model = None
+        _write_probe_state(
+            verified_at=None,
+            failure_at=_last_probe_failure,
+            provider=str(route["provider"]),
+            model=str(route["model"]),
+        )
         raise ImageGenerationFailed("The configured image provider did not complete the request.") from exc
 
     if image_bytes is None:
@@ -451,6 +514,12 @@ async def generate_image(
         _last_probe_failure = datetime.now(timezone.utc).isoformat()
         _last_verified_provider = None
         _last_verified_model = None
+        _write_probe_state(
+            verified_at=None,
+            failure_at=_last_probe_failure,
+            provider=str(route["provider"]),
+            model=str(route["model"]),
+        )
         raise ImageGenerationFailed("The configured image provider returned no bytes.")
     artifact = _store_image(image_bytes, prompt=request.prompt, model=model)
     _last_verified_success = datetime.now(timezone.utc).isoformat()
@@ -458,6 +527,12 @@ async def generate_image(
     _last_probe_failure = None
     _last_verified_provider = str(route["provider"])
     _last_verified_model = model
+    _write_probe_state(
+        verified_at=_last_verified_success,
+        failure_at=None,
+        provider=_last_verified_provider,
+        model=_last_verified_model,
+    )
     return artifact
 
 

@@ -16,7 +16,7 @@ _PNG_1X1 = base64.b64decode(
 
 
 @pytest.fixture(autouse=True)
-def reset_image_probe_state(monkeypatch):
+def reset_image_probe_state(monkeypatch, tmp_path):
     monkeypatch.setattr(image_artifacts, "_last_verified_success", None)
     monkeypatch.setattr(image_artifacts, "_last_verified_monotonic", None)
     monkeypatch.setattr(image_artifacts, "_last_probe_failure", None)
@@ -25,6 +25,7 @@ def reset_image_probe_state(monkeypatch):
     monkeypatch.setenv("CODEX_CLI_IMAGE_ENABLED", "false")
     monkeypatch.delenv("OPENAI_REST_IMAGE_ROUTING_ENABLED", raising=False)
     monkeypatch.delenv("KOLIBRI_CODEX_IMAGE_WORKER_URL", raising=False)
+    monkeypatch.setenv("KOLIBRI_ARTIFACT_DIR", str(tmp_path / "artifacts"))
 
 
 def _sse_payloads(response) -> list[dict]:
@@ -125,6 +126,29 @@ def test_image_generation_persists_and_serves_verified_bytes(monkeypatch, tmp_pa
     assert content.headers["etag"] == f'"{artifact["sha256"]}"'
     assert capability["status"] == "live"
     assert capability["invocable"] is True
+
+
+def test_image_capability_proof_is_shared_across_process_state(monkeypatch, tmp_path):
+    monkeypatch.setenv("CODEX_CLI_IMAGE_ENABLED", "false")
+    monkeypatch.setenv("KOLIBRI_CODEX_IMAGE_WORKER_URL", "http://127.0.0.1:18016")
+    monkeypatch.setenv("KOLIBRI_ARTIFACT_DIR", str(tmp_path))
+    now = image_artifacts.datetime.now(image_artifacts.timezone.utc).isoformat()
+    image_artifacts._write_probe_state(
+        verified_at=now,
+        failure_at=None,
+        provider="codex_cli",
+        model="codex-cli:account-default",
+    )
+    monkeypatch.setattr(image_artifacts, "_last_verified_success", None)
+    monkeypatch.setattr(image_artifacts, "_last_verified_monotonic", None)
+    monkeypatch.setattr(image_artifacts, "_last_verified_provider", None)
+    monkeypatch.setattr(image_artifacts, "_last_verified_model", None)
+
+    capability = image_artifacts.image_capability()
+
+    assert capability["status"] == "live"
+    assert capability["invocable"] is True
+    assert capability["route"]["verified_at"] == now
 
 
 def test_codex_cli_is_primary_image_route_and_materializes_real_bytes(monkeypatch, tmp_path):
