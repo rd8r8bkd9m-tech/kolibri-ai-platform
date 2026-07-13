@@ -1,8 +1,8 @@
 {
   "schema_version": "kolibri.program-status.v1",
   "program_id": "kolibri-ai-os-home-first",
-  "as_of": "2026-07-13T06:06:42Z",
-  "source_commit": "77aa7086f9376d87b7735d9eb56c5a791450edc5",
+  "as_of": "2026-07-13T06:40:10Z",
+  "source_commit": "12fc77f67b54c0d177e877127ef26cf2eb5ce150",
   "overall_status": "in_progress",
   "truth_policy": {
     "allowed_gate_statuses": [
@@ -18,17 +18,17 @@
   "summary": {
     "acceptance_gate_progress": {
       "completed": 2,
-      "in_progress": 3,
-      "blocked": 3,
-      "not_started": 3,
+      "in_progress": 5,
+      "blocked": 2,
+      "not_started": 2,
       "total": 11,
       "completed_ratio": 0.1818,
       "interpretation": "Equal gate-count ratio only; gates have unequal scope and this is not an effort estimate."
     },
     "ci": {
       "status": "green",
-      "run_id": 29227617842,
-      "commit": "77aa7086f9376d87b7735d9eb56c5a791450edc5",
+      "run_id": 29229464005,
+      "commit": "12fc77f67b54c0d177e877127ef26cf2eb5ce150",
       "jobs": {
         "ci": "success",
         "rust-1.97": "success",
@@ -45,7 +45,7 @@
     "home_development_environment": {
       "integration_worktree": {
         "status": "clean",
-        "commit": "77aa7086f9376d87b7735d9eb56c5a791450edc5",
+        "commit": "12fc77f67b54c0d177e877127ef26cf2eb5ce150",
         "update_method": "fast_forward"
       },
       "codex_cli_version": "0.144.1",
@@ -146,6 +146,22 @@
         "queue_total": 0,
         "lease_index_total": 0
       }
+    },
+    "home_portal_canary": {
+      "status": "in_progress",
+      "source_commit": "ec6f14e0b8f92dfbb84c9ccfc4d13ab3e237d306",
+      "image": "kolibri-portal:ec6f14e",
+      "home_endpoint": "http://127.0.0.1:8182",
+      "production_switched": false,
+      "chat_http_200": true,
+      "estimate_editor_opened": true,
+      "estimate_status": "preliminary_unverified_prices",
+      "pdf": {
+        "content_type": "application/pdf",
+        "size_bytes": 20234,
+        "sha256": "3b46c0c1ec9f1d71b8884305db74dfa1736a429039264e0529b44f438b092347"
+      },
+      "browser_console_errors": 0
     },
     "runtime_bundle": {
       "digest": "sha256:de00339d64be94772896e956a8bc3e05d125b6db0677285dc6835f2884baa56c"
@@ -465,6 +481,38 @@
       "reference": "sha256:df090eab9ecc4956d60f1a01fbf70d79ac702f4e8100997e5054f525591d951b",
       "uri": null,
       "observed_at": "2026-07-12T22:53:20Z"
+    },
+    {
+      "id": "commit:12fc77f6",
+      "kind": "git_commit",
+      "status": "verified",
+      "reference": "12fc77f67b54c0d177e877127ef26cf2eb5ce150",
+      "uri": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/commit/12fc77f67b54c0d177e877127ef26cf2eb5ce150",
+      "observed_at": "2026-07-13T06:40:10Z"
+    },
+    {
+      "id": "ci-run:29229464005-green",
+      "kind": "continuous_integration",
+      "status": "verified",
+      "reference": "29229464005",
+      "uri": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/actions/runs/29229464005",
+      "observed_at": "2026-07-13T06:40:10Z"
+    },
+    {
+      "id": "home-integration:12fc77f6-clean",
+      "kind": "home_integration_worktree",
+      "status": "verified",
+      "reference": "12fc77f67b54c0d177e877127ef26cf2eb5ce150",
+      "uri": null,
+      "observed_at": "2026-07-13T06:40:10Z"
+    },
+    {
+      "id": "home-portal-canary:ec6f14e",
+      "kind": "home_portal_side_by_side_canary",
+      "status": "verified",
+      "reference": "chat=passed;estimate_editor=passed;pdf=application/pdf,20234,sha256:3b46c0c1ec9f1d71b8884305db74dfa1736a429039264e0529b44f438b092347;console_errors=0;production_switched=false",
+      "uri": null,
+      "observed_at": "2026-07-13T06:40:10Z"
     }
   ],
   "gates": [
@@ -474,8 +522,8 @@
       "name": "Evidence baseline and factual truth",
       "status": "completed",
       "evidence_ids": [
-        "commit:77aa7086",
-        "ci-run:29227617842-green",
+        "commit:12fc77f6",
+        "ci-run:29229464005-green",
         "runtime-bundle:de00339d"
       ],
       "blockers": [],
@@ -497,6 +545,7 @@
         "home-cp-strict-compat:77aa7086",
         "home-provider-canary:KOL-PROVIDER-HOME-CODEX-CANARY-20260713T060518078Z",
         "development-seed-retry:KOL-IMPROVE-SEED-r2-3b01332c"
+        ,"home-integration:12fc77f6-clean"
       ],
       "blockers": [
         "Four retry tasks reached attempt 2 of 2 because their Mimo runner had no usable local session; their retained stderr was classified as mimo_session_not_found.",
@@ -555,32 +604,35 @@
       "gate": 5,
       "id": "gate-5",
       "name": "Portal, Shell, and providers",
-      "status": "blocked",
+      "status": "in_progress",
       "evidence_ids": [
         "wallboard-contract:c74a772d",
         "home-provider-canary:KOL-PROVIDER-HOME-CODEX-CANARY-20260713T060518078Z",
         "development-seed-retry:KOL-IMPROVE-SEED-r2-3b01332c"
+        ,"home-portal-canary:ec6f14e"
       ],
       "blockers": [
-        "Portal is not ready.",
+        "The Home portal canary passes chat, preliminary estimate editor, and PDF, but production has not switched and source-backed prices are not implemented.",
         "Shell is not ready.",
         "The Wallboard Home kiosk and owner browser session are not activated or visually proven.",
         "All five retry tasks are terminal failed with zero completed results, result hashes, or truth verdicts."
       ],
       "next_action": "Activate and visually prove the protected Home Wallboard, clear the five Mimo failures, and complete Portal and Shell provider end-to-end scenarios using the now-proven Home Codex route.",
-      "updated_at": "2026-07-13T06:06:42Z"
+      "updated_at": "2026-07-13T06:40:10Z"
     },
     {
       "gate": 6,
       "id": "gate-6",
       "name": "First useful vertical",
-      "status": "not_started",
-      "evidence_ids": [],
-      "blockers": [
-        "Gate 5 has not passed."
+      "status": "in_progress",
+      "evidence_ids": [
+        "home-portal-canary:ec6f14e"
       ],
-      "next_action": "After Gate 5, execute the source-backed estimate editor, immutable revision, PDF, and XLSX end-to-end release gate.",
-      "updated_at": "2026-07-12T23:38:39Z"
+      "blockers": [
+        "The generated estimate is preliminary and its regional prices have no verified sources or immutable revision evidence."
+      ],
+      "next_action": "Add dated regional price sources, immutable revisions, and XLSX verification to the already working estimate editor and PDF path.",
+      "updated_at": "2026-07-13T06:40:10Z"
     },
     {
       "gate": 7,

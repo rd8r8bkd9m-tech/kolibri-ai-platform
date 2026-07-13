@@ -9,9 +9,10 @@ ROOT = Path(__file__).resolve().parents[1]
 STATUS_PATH = ROOT / "release" / "program-status.json"
 DOC_PATH = ROOT / "docs" / "PROGRAM_STATUS.md"
 ALLOWED_STATUSES = {"completed", "in_progress", "not_started", "blocked"}
-SOURCE_COMMIT = "77aa7086f9376d87b7735d9eb56c5a791450edc5"
+SOURCE_COMMIT = "12fc77f67b54c0d177e877127ef26cf2eb5ce150"
 HOME_INTEGRATION_COMMIT = SOURCE_COMMIT
-CI_RUN_ID = 29227617842
+CONTROL_PLANE_SOURCE_COMMIT = "77aa7086f9376d87b7735d9eb56c5a791450edc5"
+CI_RUN_ID = 29229464005
 BUNDLE_DIGEST = "sha256:de00339d64be94772896e956a8bc3e05d125b6db0677285dc6835f2884baa56c"
 CAMPAIGN_ID = "factory-ca5e3a09-final-20260713"
 RETRY_SNAPSHOT = "sha256:df090eab9ecc4956d60f1a01fbf70d79ac702f4e8100997e5054f525591d951b"
@@ -54,9 +55,9 @@ def test_program_status_schema_and_truth_invariants():
     gate_progress = status["summary"]["acceptance_gate_progress"]
     assert gate_progress == {
         "completed": 2,
-        "in_progress": 3,
-        "blocked": 3,
-        "not_started": 3,
+        "in_progress": 5,
+        "blocked": 2,
+        "not_started": 2,
         "total": 11,
         "completed_ratio": 0.1818,
         "interpretation": (
@@ -191,7 +192,7 @@ def test_program_status_records_only_current_proven_summary():
         "status": "ready",
     }
     assert summary["home_control_plane"]["status"] == "healthy"
-    assert summary["home_control_plane"]["source_commit"] == SOURCE_COMMIT
+    assert summary["home_control_plane"]["source_commit"] == CONTROL_PLANE_SOURCE_COMMIT
     assert summary["home_control_plane"]["nrestarts"] == 0
     assert summary["runtime_bundle"]["digest"] == BUNDLE_DIGEST
     assert summary["fleet_proof"] == {
@@ -243,7 +244,24 @@ def test_program_status_records_only_current_proven_summary():
     ]
 
     assert status["gates"][4]["status"] == "completed"
-    assert status["gates"][5]["status"] == "blocked"
+    assert summary["home_portal_canary"] == {
+        "status": "in_progress",
+        "source_commit": "ec6f14e0b8f92dfbb84c9ccfc4d13ab3e237d306",
+        "image": "kolibri-portal:ec6f14e",
+        "home_endpoint": "http://127.0.0.1:8182",
+        "production_switched": False,
+        "chat_http_200": True,
+        "estimate_editor_opened": True,
+        "estimate_status": "preliminary_unverified_prices",
+        "pdf": {
+            "content_type": "application/pdf",
+            "size_bytes": 20234,
+            "sha256": "3b46c0c1ec9f1d71b8884305db74dfa1736a429039264e0529b44f438b092347",
+        },
+        "browser_console_errors": 0,
+    }
+    assert status["gates"][5]["status"] == "in_progress"
+    assert status["gates"][6]["status"] == "in_progress"
     assert status["gates"][8]["status"] == "blocked"
     assert status["gates"][10]["status"] == "blocked"
 

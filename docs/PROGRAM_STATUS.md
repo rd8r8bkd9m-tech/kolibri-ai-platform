@@ -1,6 +1,6 @@
 # Kolibri AI OS program status
 
-As of `2026-07-13T06:06:42Z` (UTC). Source commit: [`77aa7086`](https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/commit/77aa7086f9376d87b7735d9eb56c5a791450edc5).
+As of `2026-07-13T06:40:10Z` (UTC). Source commit: [`12fc77f6`](https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/commit/12fc77f67b54c0d177e877127ef26cf2eb5ce150).
 
 This is the owner-facing source-backed ledger for the Home-first program. It reports only proven facts and explicit blockers. It does not derive readiness from heartbeat and does not turn missing evidence into zero.
 
@@ -9,9 +9,9 @@ The machine-readable source for `/wallboard` is [`release/program-status.json`](
 ## Acceptance progress
 
 - Completed: `2/11` gates (`18.2%` by equal gate count).
-- In progress: `3/11`.
-- Blocked: `3/11`.
-- Not started: `3/11`.
+- In progress: `5/11`.
+- Blocked: `2/11`.
+- Not started: `2/11`.
 
 The `18.2%` value is a transparent acceptance-gate ratio, not an effort estimate: the gates have unequal scope. The independently verified fleet campaign is `21/21`, while the product release is not ready.
 
@@ -19,13 +19,14 @@ The `18.2%` value is a transparent acceptance-gate ratio, not an effort estimate
 
 | Fact | Current evidence | Evidence ID |
 | --- | --- | --- |
-| Source | Commit `77aa7086f9376d87b7735d9eb56c5a791450edc5` | `commit:77aa7086` |
-| CI | Run `29227617842` is green: `ci`, `rust-1.97`, and `kolibri-shell` all succeeded | `ci-run:29227617842-green` |
-| Home integration | Worktree fast-forwarded cleanly to exact commit `77aa7086f9376d87b7735d9eb56c5a791450edc5` | `home-integration:77aa7086-clean` |
+| Source | Commit `12fc77f67b54c0d177e877127ef26cf2eb5ce150` | `commit:12fc77f6` |
+| CI | Run `29229464005` is green: `ci`, `rust-1.97`, and `kolibri-shell` all succeeded | `ci-run:29229464005-green` |
+| Home integration | Worktree fast-forwarded cleanly to exact commit `12fc77f67b54c0d177e877127ef26cf2eb5ce150` | `home-integration:12fc77f6-clean` |
 | Program Wallboard | Tracked `/wallboard` route and owner-only `/v1/program/status` API are committed and CI-green. They expose `live`, `partial`, `stale`, or `unavailable`, bypass public Shell bootstrap, and have no mock fallback. Home kiosk activation, protected owner browser session, and rendered kiosk evidence are not yet proven. | `wallboard-contract:c74a772d` |
 | Home toolchain | Codex CLI upgraded to `0.144.1`; root helper and sudoers are installed and validated; Home user can read the canonical manifest; `Linger=yes` | `home-codex-cli:0.144.1`, `home-account:helper-sudoers-manifest-linger` |
 | Home Control Plane runtime | Strict compatibility rollout of source `77aa7086` applied from digest-bound plan `sha256:bc393fdaae1344c8cc16f9741ab11e21d926fa96b64d0890faeff2f1c3fe225e`; service is active with `NRestarts=0` | `home-cp-strict-compat:77aa7086` |
 | Home Codex provider | Broker is active, dry-run and readiness passed, and the Home actor is schedulable. Canary `KOL-PROVIDER-HOME-CODEX-CANARY-20260713T060518078Z` completed through the Control Plane with output `KOLIBRI_CODEX_HOME_PROVIDER_OK`. | `home-provider-canary:KOL-PROVIDER-HOME-CODEX-CANARY-20260713T060518078Z` |
+| Home portal canary | Clean Home worktree built image `kolibri-portal:ec6f14e`; the side-by-side canary on Home passed browser chat, opened a preliminary estimate editor, and returned a 20,234-byte PDF with zero console errors. Production was not switched and the prices are not source-verified. | `home-portal-canary:ec6f14e` |
 | Provider proof | Attempt `KOL-PROVIDER-HOME-CODEX-CANARY-20260713T060518078Z-attempt-1`, fence `1`, result `sha256:ac1ba5efd4699498d9afa70ba908110cfb79e118b1600341d02f56053d0a60a7`, binding `sha256:79a390d5eac529db2150452493b34223c79c405f4fddc2dee6b4acb985d29516`; independent verifier `control-plane/home` passed with high-confidence truth verdict. | `home-provider-canary:KOL-PROVIDER-HOME-CODEX-CANARY-20260713T060518078Z` |
 | Device login | Home current-user Codex session is authenticated. Credentials were not copied to workers or from the Mac. | `home-provider-canary:KOL-PROVIDER-HOME-CODEX-CANARY-20260713T060518078Z` |
 | Credential migration | Initial apply failed with root state unchanged because the existing global binding was `mac-codex-provider-v1` epoch 1. The tested next-epoch migration succeeded: root binding is now node `home-codex-provider`, credential `home-codex-provider-v2`, epoch 2 | `home-provider:migration-epoch2` |
@@ -50,8 +51,8 @@ Only `completed`, `in_progress`, `not_started`, and `blocked` are valid gate sta
 | 2 | Contract and design freeze | `in_progress` | `commit:77aa7086`, `ci-run:29227617842-green`, `wallboard-contract:c74a772d` | Freeze the Portal and Shell interaction contracts, responsive component inventory, and executable acceptance fixtures on one reviewed commit. |
 | 3 | Durable foundation | `in_progress` | `home-cp-health:20260712T215412Z`, `runtime-bundle:de00339d` | Run the durable Rust foundation in shadow and pass restart, idempotency, event replay, and fencing parity fixtures without unexplained differences. |
 | 4 | Factory fleet proof | `completed` | `fleet-campaign:factory-ca5e3a09-final-20260713`, `runtime-bundle:de00339d` | Repeat a fresh 21-node capability campaign for every release candidate and retain each result hash and independent verifier binding. |
-| 5 | Portal, Shell, and providers | `blocked` | `wallboard-contract:c74a772d`, `home-provider-canary:KOL-PROVIDER-HOME-CODEX-CANARY-20260713T060518078Z`, `development-seed-retry:KOL-IMPROVE-SEED-r2-3b01332c` | Activate and visually prove the protected Home Wallboard, clear the five Mimo failures, and complete Portal and Shell provider end-to-end scenarios using the now-proven Home Codex route. |
-| 6 | First useful vertical | `not_started` | — | After Gate 5, execute the source-backed estimate editor, immutable revision, PDF, and XLSX end-to-end release gate. |
+| 5 | Portal, Shell, and providers | `in_progress` | `home-portal-canary:ec6f14e`, `home-provider-canary:KOL-PROVIDER-HOME-CODEX-CANARY-20260713T060518078Z` | Keep the proven Home portal as the canonical donor, then finish durable chat/history, source-backed estimates, and the signed switch. |
+| 6 | First useful vertical | `in_progress` | `home-portal-canary:ec6f14e` | Add dated regional price sources, immutable revisions, and XLSX verification to the already working estimate editor and PDF path. |
 | 7 | Full capability product | `not_started` | — | After Gate 6, prove Research, Documents, Code, Site or App preview, Browser, Media, Automations, and developer surfaces with real artifacts. |
 | 8 | Rust authority and scale | `blocked` | `home-cp-health:20260712T215412Z` | Achieve shadow parity, keep it stable for the required observation window, then perform fenced authority canaries before scale benchmarks. |
 | 9 | FormulaLM | `not_started` | — | Build the sanitized dataset manifest and independent evaluation path before admitting any model candidate to shadow inference. |
@@ -66,7 +67,7 @@ Only `completed`, `in_progress`, `not_started`, and `blocked` are valid gate sta
 - Credential migration and actor provisioning are complete and are no longer blockers.
 - The complete Home CLI continuity path from exact checkpoint through tests, commit, push, and PR is not yet proven.
 - Runner binding is no longer a blocker: bindings are verified and leases are cleared for all five retry tasks.
-- Portal is not ready.
+- The Home portal side-by-side canary works for chat, preliminary estimate creation/editor, and PDF, but it is not production-switched and its estimate prices are not source-verified.
 - Shell is not ready.
 - Improvement Controller is not ready.
 - Rust authority is not ready.
