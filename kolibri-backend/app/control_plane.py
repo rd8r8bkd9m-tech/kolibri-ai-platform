@@ -9,6 +9,7 @@ contract.
 
 from __future__ import annotations
 
+import asyncio
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -457,6 +458,97 @@ class HomeControlPlaneAdapter:
                 "as_of": observed_at,
                 "queue_total": _to_int(payload.get("queue_total"), 0),
                 "total_scope": "returned_page" if state else "all_indexed_tasks",
+            },
+        }
+
+    async def cluster_stats(self) -> dict[str, Any]:
+        """Build cluster aggregates only from the authoritative Home API."""
+
+        nodes_payload, first_tasks = await asyncio.gather(
+            self._get("/v1/nodes", {"scope": "active", "limit": 250, "offset": 0}),
+            self._get("/v1/tasks", {"limit": 250, "offset": 0}),
+        )
+        raw_nodes = nodes_payload.get("nodes")
+        node_pagination = _as_dict(nodes_payload.get("pagination"))
+        raw_tasks = first_tasks.get("tasks")
+        task_pagination = _as_dict(first_tasks.get("pagination"))
+        if not isinstance(raw_nodes, list) or "total_indexed" not in node_pagination:
+            raise ControlPlaneUnavailable("control_plane_nodes_contract_invalid")
+        if not isinstance(raw_tasks, list) or "total_indexed" not in task_pagination:
+            raise ControlPlaneUnavailable("control_plane_tasks_contract_invalid")
+
+        total_tasks = _to_int(task_pagination.get("total_indexed"), len(raw_tasks))
+        task_pages = [raw_tasks]
+        for offset in range(250, total_tasks, 250):
+            page = await self._get("/v1/tasks", {"limit": 250, "offset": offset})
+            values = page.get("tasks")
+            if not isinstance(values, list):
+                raise ControlPlaneUnavailable("control_plane_tasks_contract_invalid")
+            task_pages.append(values)
+        tasks = [_as_dict(task) for page in task_pages for task in page]
+        if len(tasks) != total_tasks:
+            raise ControlPlaneUnavailable("control_plane_tasks_pagination_incomplete")
+
+        observed_at = _utc_now()
+        nodes = [self._map_node(_as_dict(node), observed_at) for node in raw_nodes]
+        agents = [self._map_agent(_as_dict(node), observed_at) for node in raw_nodes]
+        mapped_tasks = [self._map_task(task, observed_at) for task in tasks]
+
+        def count(values: list[dict[str, Any]], key: str, states: set[str]) -> int:
+            return sum(1 for value in values if str(value.get(key)) in states)
+
+        def average(field: str) -> float | None:
+            values: list[float] = []
+            for node in nodes:
+                raw = node.get(field)
+                try:
+                    value = float(raw)
+                except (TypeError, ValueError):
+                    continue
+                values.append(value)
+            return round(sum(values) / len(values), 1) if values else None
+
+        availability = (
+            "live"
+            if nodes and all(
+                _as_dict(_as_dict(node.get("capabilities")).get("_truth")).get("availability")
+                == "live"
+                for node in nodes
+            )
+            else "stale"
+        )
+        return {
+            "nodes": {
+                "total": len(nodes),
+                "healthy": count(nodes, "status", {"healthy"}),
+                "degraded": count(nodes, "status", {"degraded", "draining"}),
+                "offline": count(nodes, "status", {"offline", "quarantined"}),
+            },
+            "agents": {
+                "total": len(agents),
+                "active": count(agents, "status", {"active"}),
+                "idle": count(agents, "status", {"idle"}),
+                "paused": count(agents, "status", {"paused"}),
+            },
+            "tasks": {
+                "total": len(mapped_tasks),
+                "running": count(mapped_tasks, "state", {"running", "assigned"}),
+                "queued": count(mapped_tasks, "state", {"queued", "waiting"}),
+                "completed": count(mapped_tasks, "state", {"completed"}),
+                "failed": count(mapped_tasks, "state", {"failed"}),
+                "cancelled": count(mapped_tasks, "state", {"cancelled"}),
+            },
+            "resources": {
+                "avg_cpu": average("cpu_percent"),
+                "avg_ram": average("ram_percent"),
+                "avg_disk": average("disk_percent"),
+            },
+            "truth": {
+                "availability": availability,
+                "source": CONTROL_PLANE_SOURCE,
+                "as_of": observed_at,
+                "membership": _as_dict(nodes_payload.get("membership")),
+                "task_pages": len(task_pages),
             },
         }
 

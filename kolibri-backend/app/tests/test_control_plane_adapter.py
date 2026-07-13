@@ -227,6 +227,67 @@ def test_tasks_map_home_states_and_preserve_verifier_truth():
     assert task["result"]["_truth"]["truth_gate"]["verdict"] == "false"
 
 
+def test_cluster_stats_are_paginated_from_home_without_seed_rows():
+    def task(task_id: str, state: str) -> dict:
+        return {
+            "task_id": task_id,
+            "state": state,
+            "attempt": 1,
+            "created_at": "2026-07-13T06:00:00+00:00",
+            "updated_at": "2026-07-13T06:01:00+00:00",
+            "envelope": {"objective": task_id},
+        }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/nodes":
+            return httpx.Response(200, json={
+                "nodes": [
+                    {
+                        "node_id": "home", "hostname": "home", "health": "online",
+                        "freshness": "fresh", "registered": True, "schedulable": True,
+                        "agent_id": "home-agent", "active_task": "T-running",
+                        "cpu_percent": 20, "ram": {"MemAvailable": "75 kB", "MemTotal": "100 kB"},
+                        "disk": {"used": 50, "total": 100},
+                    },
+                    {
+                        "node_id": "agent01", "hostname": "agent01", "health": "online",
+                        "freshness": "fresh", "registered": True, "schedulable": True,
+                        "agent_id": "agent01-agent", "active_task": None,
+                        "cpu_percent": 40, "ram": {"MemAvailable": "50 kB", "MemTotal": "100 kB"},
+                        "disk": {"used": 70, "total": 100},
+                    },
+                ],
+                "counts": {"fresh": 2, "stale": 0, "total": 2},
+                "membership": {"canonical_total": 2},
+                "pagination": {"total_indexed": 2},
+            })
+        assert request.url.path == "/v1/tasks"
+        offset = int(request.url.params["offset"])
+        if offset == 0:
+            values = [task(f"T-{index}", "completed") for index in range(250)]
+        else:
+            values = [task("T-queued", "queued")]
+        return httpx.Response(200, json={
+            "tasks": values,
+            "queue_total": 1,
+            "pagination": {
+                "limit": 250, "offset": offset, "returned": len(values), "total_indexed": 251,
+            },
+        })
+
+    result = asyncio.run(_adapter(handler).cluster_stats())
+
+    assert result["nodes"] == {"total": 2, "healthy": 2, "degraded": 0, "offline": 0}
+    assert result["agents"] == {"total": 2, "active": 1, "idle": 1, "paused": 0}
+    assert result["tasks"]["total"] == 251
+    assert result["tasks"]["completed"] == 250
+    assert result["tasks"]["queued"] == 1
+    assert result["resources"] == {"avg_cpu": 30.0, "avg_ram": 37.5, "avg_disk": 60.0}
+    assert result["truth"]["source"] == "home_control_plane"
+    assert result["truth"]["availability"] == "live"
+    assert result["truth"]["task_pages"] == 2
+
+
 def test_bad_status_fails_closed_instead_of_returning_seed_data():
     adapter = _adapter(lambda _: httpx.Response(502, json={"error": "upstream"}))
 

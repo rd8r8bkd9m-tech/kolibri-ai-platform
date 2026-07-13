@@ -638,9 +638,12 @@ async def list_tasks(
 # ---------------------------------------------------------------------------
 
 @app.get("/api/v1/cluster/stats")
-async def cluster_stats(db: Session = Depends(get_db)):
-    storage = DBStorage(db)
-    return storage.get_cluster_stats()
+async def cluster_stats():
+    try:
+        adapter = HomeControlPlaneAdapter.from_environment()
+        return await adapter.cluster_stats()
+    except ControlPlaneUnavailable as exc:
+        raise HTTPException(status_code=503, detail=unavailable_detail(exc.reason)) from exc
 
 
 @app.get("/api/v1/analytics")

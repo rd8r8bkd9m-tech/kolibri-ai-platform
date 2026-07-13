@@ -541,8 +541,9 @@ export const tasks = {
 export interface ClusterStats {
   nodes: { total: number; healthy: number; degraded: number; offline: number }
   agents: { total: number; active: number; idle: number; paused: number }
-  tasks: { total: number; running: number; queued: number; completed: number; failed: number }
-  resources: { avg_cpu: number; avg_ram: number; avg_disk: number }
+  tasks: { total: number; running: number; queued: number; completed: number; failed: number; cancelled: number }
+  resources: { avg_cpu: number | null; avg_ram: number | null; avg_disk: number | null }
+  truth: { availability: 'live' | 'stale' | 'unavailable'; source: string; as_of: string; task_pages: number }
 }
 
 export const cluster = {
