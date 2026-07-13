@@ -440,6 +440,10 @@ export const projects = {
     return projectRequest<ProjectListResponse>(`/projects?${qs}`)
   },
   get: (id: string) => projectRequest<Project>(`/projects/${encodeURIComponent(id)}`),
+  claim: (id: string, token: string) => projectRequest<Project>(
+    `/projects/${encodeURIComponent(id)}/claim`,
+    { method: 'POST', body: JSON.stringify({ token }) },
+  ),
   create: (data: { title?: string; metadata?: Record<string, unknown>; client_request_id?: string } = {}, idempotencyKey?: string) =>
     projectRequest<Project>('/projects', {
       method: 'POST',

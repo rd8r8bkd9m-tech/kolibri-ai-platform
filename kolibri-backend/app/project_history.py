@@ -14,11 +14,11 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models import ProjectDB, ProjectMessageDB, ProjectMessageMutationDB
+from app.models import ProjectAccessDB, ProjectDB, ProjectMessageDB, ProjectMessageMutationDB
 
 
 DEFAULT_PROJECT_TITLE = "Новый проект"
@@ -122,7 +122,15 @@ class ProjectHistoryRepository:
         self.scope_id = scope_id
 
     def _project_query(self, *, include_deleted: bool = False):
-        query = self.db.query(ProjectDB).filter(ProjectDB.scope_id == self.scope_id)
+        granted = self.db.query(ProjectAccessDB.id).filter(
+            ProjectAccessDB.project_id == ProjectDB.id,
+            ProjectAccessDB.scope_id == self.scope_id,
+            ProjectAccessDB.permission == "read_write",
+            ProjectAccessDB.revoked_at.is_(None),
+        ).exists()
+        query = self.db.query(ProjectDB).filter(
+            or_(ProjectDB.scope_id == self.scope_id, granted)
+        )
         if not include_deleted:
             query = query.filter(ProjectDB.deleted_at.is_(None))
         return query
@@ -213,6 +221,22 @@ class ProjectHistoryRepository:
     def soft_delete_project(self, project_id: str) -> dict[str, Any]:
         project = self._get_project_row(project_id, lock=True)
         now = _now()
+        if project.scope_id != self.scope_id:
+            access = self.db.query(ProjectAccessDB).filter(
+                ProjectAccessDB.project_id == project_id,
+                ProjectAccessDB.scope_id == self.scope_id,
+                ProjectAccessDB.permission == "read_write",
+                ProjectAccessDB.revoked_at.is_(None),
+            ).with_for_update().first()
+            if access is None:
+                raise ProjectNotFoundError(project_id)
+            access.revoked_at = now
+            self.db.commit()
+            result = project_to_dict(project)
+            result["status"] = "deleted"
+            result["deleted_at"] = now
+            result["updated_at"] = now
+            return result
         project.deleted_at = now
         project.status = "deleted"
         project.version += 1
@@ -222,7 +246,28 @@ class ProjectHistoryRepository:
         return project_to_dict(project)
 
     def restore_project(self, project_id: str) -> dict[str, Any]:
-        project = self._get_project_row(project_id, include_deleted=True, lock=True)
+        owned = self.db.query(ProjectDB).filter(
+            ProjectDB.id == project_id,
+            ProjectDB.scope_id == self.scope_id,
+        ).with_for_update().first()
+        if owned is None:
+            access = self.db.query(ProjectAccessDB).filter(
+                ProjectAccessDB.project_id == project_id,
+                ProjectAccessDB.scope_id == self.scope_id,
+                ProjectAccessDB.permission == "read_write",
+            ).with_for_update().first()
+            project = self.db.query(ProjectDB).filter(
+                ProjectDB.id == project_id,
+                ProjectDB.deleted_at.is_(None),
+            ).with_for_update().first()
+            if access is None or project is None:
+                raise ProjectNotFoundError(project_id)
+            if access.revoked_at is not None:
+                access.revoked_at = None
+                self.db.commit()
+            return project_to_dict(project)
+
+        project = owned
         if project.deleted_at is None:
             return project_to_dict(project)
         project.deleted_at = None
@@ -237,7 +282,6 @@ class ProjectHistoryRepository:
         self._get_project_row(project_id)
         query = self.db.query(ProjectMessageDB).filter(
             ProjectMessageDB.project_id == project_id,
-            ProjectMessageDB.scope_id == self.scope_id,
         )
         total = query.count()
         messages = (
@@ -253,7 +297,6 @@ class ProjectHistoryRepository:
         query = self.db.query(ProjectMessageDB).filter(
             ProjectMessageDB.id == message_id,
             ProjectMessageDB.project_id == project_id,
-            ProjectMessageDB.scope_id == self.scope_id,
         )
         if lock:
             query = query.with_for_update()

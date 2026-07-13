@@ -15,7 +15,7 @@ import os
 import socket
 import uuid
 
-from app.database import Base, SessionLocal, engine
+from app.database import SessionLocal, engine
 from app.routers.telegram import (
     TelegramWorkerError,
     claim_next_update,
@@ -24,6 +24,7 @@ from app.routers.telegram import (
     verify_bot_identity,
 )
 from app.schema_migrations import ensure_database_schema
+from app.project_handoff import validate_project_handoff_configuration
 
 
 def _worker_id() -> str:
@@ -83,7 +84,8 @@ async def _run_one(worker_id: str) -> bool:
 
 
 async def _main(*, once: bool, check_identity: bool) -> int:
-    Base.metadata.create_all(bind=engine)
+    if os.getenv("KOLIBRI_PUBLIC_BASE_URL", "").strip():
+        validate_project_handoff_configuration()
     ensure_database_schema(engine)
     try:
         identity = await _identity_probe()

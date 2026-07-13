@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import List, Optional, Dict, Any
 
-from fastapi import FastAPI, HTTPException, Query, Depends, Header, Request
+from fastapi import FastAPI, HTTPException, Query, Depends, Header, Request, Cookie
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.security import HTTPBearer
@@ -25,7 +25,7 @@ from app.calculator import (
     estimate_to_dict, export_to_csv, export_to_json,
 )
 from app.pdf_generator import generate_estimate_pdf, generate_document_pdf
-from app.database import Base, engine, SessionLocal, get_db
+from app.database import engine, SessionLocal, get_db
 from app.storage import DBStorage, EstimateVersionConflict, seed_demo_data_if_enabled
 from app.schema_migrations import ensure_database_schema
 from app import schemas
@@ -38,7 +38,9 @@ from app.control_plane import (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    Base.metadata.create_all(bind=engine)
+    if os.getenv("KOLIBRI_PUBLIC_BASE_URL", "").strip():
+        from app.project_handoff import validate_project_handoff_configuration
+        validate_project_handoff_configuration()
     ensure_database_schema(engine)
     db = SessionLocal()
     try:
@@ -138,7 +140,11 @@ async def health():
 # ---------------------------------------------------------------------------
 
 @app.post("/api/v1/auth/register", status_code=201)
-async def register(data: schemas.UserRegister, db: Session = Depends(get_db)):
+async def register(
+    data: schemas.UserRegister,
+    anonymous_cookie: str | None = Cookie(default=None, alias="kolibri_session"),
+    db: Session = Depends(get_db),
+):
     from app.models import UserDB
     from app.auth import hash_password, create_access_token
     import uuid
@@ -149,18 +155,35 @@ async def register(data: schemas.UserRegister, db: Session = Depends(get_db)):
         hashed_password=hash_password(data.password),
     )
     db.add(user)
+    from app.project_handoff import adopt_anonymous_project_access
+    adopt_anonymous_project_access(
+        db,
+        anonymous_cookie=anonymous_cookie,
+        target_scope_id=f"user:{user.id}",
+    )
     db.commit()
     token = create_access_token({"sub": user.id})
     return {"access_token": token, "token_type": "bearer", "user": {"id": user.id, "email": user.email, "name": user.name, "role": user.role}}
 
 
 @app.post("/api/v1/auth/login")
-async def login(data: schemas.UserLogin, db: Session = Depends(get_db)):
+async def login(
+    data: schemas.UserLogin,
+    anonymous_cookie: str | None = Cookie(default=None, alias="kolibri_session"),
+    db: Session = Depends(get_db),
+):
     from app.models import UserDB
     from app.auth import verify_password, create_access_token
     user = db.query(UserDB).filter(UserDB.email == data.email).first()
     if not user or not verify_password(data.password, user.hashed_password):
         raise HTTPException(401, "Invalid email or password")
+    from app.project_handoff import adopt_anonymous_project_access
+    adopt_anonymous_project_access(
+        db,
+        anonymous_cookie=anonymous_cookie,
+        target_scope_id=f"user:{user.id}",
+    )
+    db.commit()
     token = create_access_token({"sub": user.id})
     return {"access_token": token, "token_type": "bearer", "user": {"id": user.id, "email": user.email, "name": user.name, "role": user.role}}
 

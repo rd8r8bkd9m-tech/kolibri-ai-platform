@@ -195,6 +195,10 @@ class ProjectUpdate(BaseModel):
         return normalized
 
 
+class ProjectHandoffClaim(BaseModel):
+    token: str = Field(min_length=43, max_length=43, pattern=r"^[A-Za-z0-9_-]{43}$")
+
+
 class ProjectResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

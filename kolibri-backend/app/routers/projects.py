@@ -12,8 +12,16 @@ from app.project_history import (
     ProjectNotFoundError,
     ProjectTransitionError,
 )
+from app.project_handoff import (
+    ProjectHandoffAlreadyClaimed,
+    ProjectHandoffConfigurationError,
+    ProjectHandoffExpired,
+    ProjectHandoffNotFound,
+    claim_project_handoff,
+)
 from app.project_schemas import (
     ProjectCreate,
+    ProjectHandoffClaim,
     ProjectListResponse,
     ProjectMessageCreate,
     ProjectMessageListResponse,
@@ -107,6 +115,39 @@ def create_project(
         raise _conflict(exc) from exc
     response.status_code = 201 if created else 200
     return result
+
+
+@router.post("/{project_id}/claim", response_model=ProjectResponse)
+def claim_project(
+    project_id: str,
+    data: ProjectHandoffClaim,
+    principal: ProjectPrincipal = Depends(resolve_project_principal),
+    db: Session = Depends(get_db),
+):
+    try:
+        return claim_project_handoff(
+            db,
+            project_id=project_id,
+            target_scope_id=principal.scope_id,
+            token=data.token,
+        )
+    except ProjectHandoffNotFound as exc:
+        raise _not_found() from exc
+    except ProjectHandoffConfigurationError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "project_handoff_unavailable", "message": "Project handoff is unavailable"},
+        ) from exc
+    except ProjectHandoffExpired as exc:
+        raise HTTPException(
+            status_code=410,
+            detail={"code": "project_handoff_expired", "message": "Project handoff expired"},
+        ) from exc
+    except ProjectHandoffAlreadyClaimed as exc:
+        raise HTTPException(
+            status_code=410,
+            detail={"code": "project_handoff_already_claimed", "message": "Project handoff was already claimed"},
+        ) from exc
 
 
 @router.get("/{project_id}", response_model=ProjectResponse)

@@ -9,9 +9,14 @@ build/
 # Environment
 .env
 kolibri.db
+*.schema.lock
+*.db-shm
+*.db-wal
 
 # Node
 node_modules/
+.playwright-cli/
+output/
 dist/
 
 # IDE

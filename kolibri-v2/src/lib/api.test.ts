@@ -135,6 +135,26 @@ describe('shell bootstrap and durable project API', () => {
       headers: expect.objectContaining({ 'Idempotency-Key': 'assistant:message_1:completed:1' }),
     }))
   })
+
+  it('redeems a project handoff only after browser bootstrap', async () => {
+    const token = 'A'.repeat(43)
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(bootstrapPayload))
+      .mockResolvedValueOnce(jsonResponse(projectPayload))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(projects.claim('project_1', token)).resolves.toMatchObject({ id: 'project_1' })
+
+    expect(fetchMock.mock.calls.map(call => call[0])).toEqual([
+      '/api/v1/shell/bootstrap',
+      '/api/v1/projects/project_1/claim',
+    ])
+    expect(fetchMock.mock.calls[1]?.[1]).toEqual(expect.objectContaining({
+      method: 'POST',
+      credentials: 'include',
+      body: JSON.stringify({ token }),
+    }))
+  })
 })
 
 describe('safe response stream', () => {

@@ -12,6 +12,7 @@ import CartoonMascot from '@/components/CartoonMascot'
 import { capabilityPrompt, useCapabilities, type UiCapabilityKey } from '@/features/capabilities'
 import { createExecutionPolicy } from '@/features/shell/executionPolicy'
 import { useExecutionMode } from '@/features/shell/executionPolicyContext'
+import { dispatchResponseActivity } from '@/features/shell/responseActivity'
 import { useProjectHistory } from '@/features/projects/projectHistoryContext'
 import { latestResponseId, serverMessageStatus } from '@/features/projects/historyState'
 import { conversationRouteAction, type ConversationRouteSnapshot } from '@/features/projects/conversationRoute'
@@ -392,6 +393,7 @@ export default function ChatPage() {
       timestamp: new Date(),
       work: { stage: 'dispatching', startedAt, elapsedSeconds: 0, events: [] },
     }
+    dispatchResponseActivity(assistantId, true)
     const requestMessages = [...messages, userMessage].map(message => ({ role: message.role, content: message.content }))
 
     setMessages(current => [...current, userMessage, assistantMessage])
@@ -710,6 +712,7 @@ export default function ChatPage() {
       console.error('Chat stream failed', error)
     } finally {
       await patchQueue
+      dispatchResponseActivity(assistantId, false)
       if (durableProject) void refresh().catch(() => undefined)
       if (abortRef.current === controller) abortRef.current = null
       const ownsActiveRequest = activeAssistantRef.current === assistantId

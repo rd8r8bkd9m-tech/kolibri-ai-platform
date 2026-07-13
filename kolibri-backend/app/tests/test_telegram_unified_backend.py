@@ -1,6 +1,7 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
 import time
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from fastapi.testclient import TestClient
@@ -42,6 +43,10 @@ def client(monkeypatch):
     monkeypatch.setenv("KOLIBRI_TELEGRAM_OWNER_APPROVED", "true")
     monkeypatch.setenv("KOLIBRI_TELEGRAM_ALLOWED_CHAT_IDS", "7001,-100123")
     monkeypatch.setenv("KOLIBRI_PUBLIC_BASE_URL", "https://kolibriai.ru")
+    monkeypatch.setenv(
+        "KOLIBRI_PROJECT_HANDOFF_SECRET",
+        "test-project-handoff-secret-0123456789abcdef",
+    )
     monkeypatch.setenv("TELEGRAM_WEBHOOK_SECRET", "test_secret_0123456789_abcdefghijk")
     monkeypatch.delenv("KOLIBRI_TELEGRAM_LIVE_VERIFIED", raising=False)
     monkeypatch.delenv("KOLIBRI_TELEGRAM_REQUIRE_OFFICIAL_SOURCE", raising=False)
@@ -291,6 +296,112 @@ def test_unified_response_persists_one_placeholder_and_deduplicates_update(clien
     assert "/app?project=" in terminal_payload["text"]
 
 
+def test_private_telegram_link_hands_the_same_project_to_one_browser_scope(client, monkeypatch):
+    async def fake_execute(request, *, idempotency_key=None):
+        return {
+            "id": "resp_handoff",
+            "status": "completed",
+            "content": "Продолжаем один проект.",
+        }
+
+    monkeypatch.setattr(telegram, "execute_kolibri_response", fake_execute)
+    assert _post(client, _update(111, "Сохрани контекст между Telegram и Web")).status_code == 200
+    result = _process_one(client)
+    project_id = result["project_id"]
+    terminal_payload = next(
+        payload
+        for method, payload in reversed(client.telegram_bot_calls)
+        if method == "editMessageText"
+    )
+    link = terminal_payload["text"].rsplit("Открыть проект в Колибри: ", 1)[1]
+    parsed = urlsplit(link)
+    assert parsed.path == "/app"
+    assert parse_qs(parsed.query) == {"project": [project_id]}
+    token = parse_qs(parsed.fragment)["handoff"][0]
+    assert len(token) == 43
+    assert token not in parsed.query
+
+    with TestClient(app) as browser:
+        assert browser.post("/api/v1/shell/bootstrap").status_code == 200
+        assert browser.get(f"/api/v1/projects/{project_id}").status_code == 404
+        invalid = browser.post(
+            f"/api/v1/projects/{project_id}/claim",
+            json={"token": "B" * 43},
+        )
+        assert invalid.status_code == 404
+        claimed = browser.post(
+            f"/api/v1/projects/{project_id}/claim",
+            json={"token": token},
+        )
+        assert claimed.status_code == 200
+        assert claimed.json()["id"] == project_id
+        messages = browser.get(f"/api/v1/projects/{project_id}/messages")
+        assert messages.status_code == 200
+        assert [item["content"] for item in messages.json()["items"]] == [
+            "Сохрани контекст между Telegram и Web",
+            "Продолжаем один проект.",
+        ]
+        continued = browser.post(
+            f"/api/v1/projects/{project_id}/messages",
+            json={"role": "user", "content": "Продолжение из браузера"},
+        )
+        assert continued.status_code == 201
+        registered = browser.post(
+            "/api/v1/auth/register",
+            json={
+                "email": "telegram-handoff@example.test",
+                "name": "Telegram Owner",
+                "password": "secure-password",
+            },
+        )
+        assert registered.status_code == 201
+        auth = {"Authorization": f"Bearer {registered.json()['access_token']}"}
+        assert browser.get(f"/api/v1/projects/{project_id}").status_code == 404
+        assert browser.get(f"/api/v1/projects/{project_id}", headers=auth).status_code == 200
+        reclaimed = browser.post(
+            f"/api/v1/projects/{project_id}/claim",
+            headers=auth,
+            json={"token": token},
+        )
+        assert reclaimed.status_code == 200
+        continued_after_login = browser.post(
+            f"/api/v1/projects/{project_id}/messages",
+            headers=auth,
+            json={"role": "user", "content": "Продолжение после входа"},
+        )
+        assert continued_after_login.status_code == 201
+
+    with TestClient(app) as second_browser:
+        assert second_browser.post("/api/v1/shell/bootstrap").status_code == 200
+        assert second_browser.get(f"/api/v1/projects/{project_id}").status_code == 404
+        repeated = second_browser.post(
+            f"/api/v1/projects/{project_id}/claim",
+            json={"token": token},
+        )
+        assert repeated.status_code == 410
+        assert repeated.json()["detail"]["code"] == "project_handoff_already_claimed"
+
+    with next(app.dependency_overrides[get_db]()) as db:
+        telegram_repo = telegram.ProjectHistoryRepository(db, "telegram:7001")
+        assert telegram_repo.get_project(project_id)["id"] == project_id
+        assert telegram_repo.list_messages(project_id, after=0, limit=500)["total"] == 4
+
+
+def test_group_delivery_does_not_emit_forwardable_project_handoff(client, monkeypatch):
+    async def fake_execute(request, *, idempotency_key=None):
+        return {"id": "resp_group", "status": "completed", "content": "Готово в группе."}
+
+    monkeypatch.setattr(telegram, "execute_kolibri_response", fake_execute)
+    assert _post(client, _update(112, "Групповая задача", chat_id=-100123)).status_code == 200
+    _process_one(client)
+    terminal_payload = next(
+        payload
+        for method, payload in reversed(client.telegram_bot_calls)
+        if method == "editMessageText"
+    )
+    assert terminal_payload["text"] == "Готово в группе."
+
+
 def test_history_is_reused_without_construction_only_prompt(client, monkeypatch):
     inputs = []
 
@@ -370,7 +481,7 @@ def test_verified_image_artifact_is_delivered_as_real_photo(client, monkeypatch)
         return {
             "id": "resp_image_1",
             "status": "completed",
-            "content": "Готово. Изображение проверено.",
+            "content": "Готово. Изображение проверено. " + ("Подробное описание. " * 120),
             "artifact": {
                 "id": "397d471e-3512-44ac-afec-89a3fdf78502",
                 "type": "image",
@@ -392,6 +503,8 @@ def test_verified_image_artifact_is_delivered_as_real_photo(client, monkeypatch)
     assert photo["photo"] == "https://kolibriai.ru/api/v1/artifacts/images/397d471e-3512-44ac-afec-89a3fdf78502"
     assert "Готово. Изображение проверено." in photo["caption"]
     assert "/app?project=" in photo["caption"]
+    assert "#handoff=" in photo["caption"]
+    assert len(photo["caption"]) <= 1024
 
     with next(app.dependency_overrides[get_db]()) as db:
         from app.models import ProjectMessageDB

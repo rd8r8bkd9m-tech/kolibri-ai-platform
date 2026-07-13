@@ -35,6 +35,7 @@ from app.models import (
     TelegramUpdateDB,
 )
 from app.project_history import ProjectConflictError, ProjectHistoryRepository
+from app.project_handoff import ProjectHandoffError, issue_project_handoff
 from app.routers.openai_compat import ResponsesRequest, execute_kolibri_response
 
 
@@ -687,6 +688,21 @@ def _response_reply(
 ) -> dict[str, Any]:
     """Return real image bytes by URL only for a verified artifact contract."""
 
+    photo_url = _verified_image_photo_url(artifact)
+    if photo_url:
+        caption = text.strip() or "Изображение создано и проверено."
+        if len(caption) > _MAX_TELEGRAM_CAPTION:
+            caption = f"{caption[: _MAX_TELEGRAM_CAPTION - 1].rstrip()}…"
+        return {
+            "method": "sendPhoto",
+            "chat_id": chat_id,
+            "photo": photo_url,
+            "caption": caption,
+        }
+    return _reply(chat_id, text)
+
+
+def _verified_image_photo_url(artifact: dict[str, Any] | None) -> str | None:
     base_url = _public_base_url()
     if isinstance(artifact, dict) and base_url:
         path = str(artifact.get("url") or "")
@@ -698,16 +714,8 @@ def _response_reply(
             and artifact["size_bytes"] > 0
             and _SHA256.fullmatch(str(artifact.get("sha256") or ""))
         ):
-            caption = text.strip() or "Изображение создано и проверено."
-            if len(caption) > _MAX_TELEGRAM_CAPTION:
-                caption = f"{caption[: _MAX_TELEGRAM_CAPTION - 1].rstrip()}…"
-            return {
-                "method": "sendPhoto",
-                "chat_id": chat_id,
-                "photo": f"{base_url}{path}",
-                "caption": caption,
-            }
-    return _reply(chat_id, text)
+            return f"{base_url}{path}"
+    return None
 
 
 def _local_command(text: str) -> str | None:
@@ -751,20 +759,57 @@ def _conversation(repo: ProjectHistoryRepository, project_id: str) -> list[dict[
     ]
 
 
-def _project_link(project_id: str) -> str:
+def _project_link(
+    db: Session,
+    *,
+    project_id: str,
+    source_scope_id: str,
+    idempotency_key: str,
+) -> str:
     base_url = _public_base_url()
     if not base_url:
         return ""
-    return f"{base_url}/app?project={quote(project_id, safe='')}"
+    try:
+        # A bearer magic link is allowed only in a private Telegram chat.
+        # Group continuity requires verified Telegram WebApp initData instead
+        # of a forwardable link, so groups receive no broken project URL.
+        chat_id = int(source_scope_id.split(":", 1)[1])
+        if chat_id <= 0:
+            return ""
+        token = issue_project_handoff(
+            db,
+            project_id=project_id,
+            source_scope_id=source_scope_id,
+            idempotency_key=idempotency_key,
+        )
+    except (ProjectHandoffError, ValueError, IndexError):
+        return ""
+    return (
+        f"{base_url}/app?project={quote(project_id, safe='')}"
+        f"#handoff={quote(token, safe='')}"
+    )
 
 
-def _with_project_link(text: str, project_id: str) -> str:
-    link = _project_link(project_id)
+def _with_project_link(
+    text: str,
+    project_id: str,
+    *,
+    db: Session,
+    source_scope_id: str,
+    idempotency_key: str,
+    maximum_length: int = _MAX_TELEGRAM_TEXT,
+) -> str:
+    link = _project_link(
+        db,
+        project_id=project_id,
+        source_scope_id=source_scope_id,
+        idempotency_key=idempotency_key,
+    )
     clean = text.strip()
     if not link:
         return clean
     suffix = f"Открыть проект в Колибри: {link}"
-    maximum = _MAX_TELEGRAM_TEXT - len(suffix) - 2
+    maximum = maximum_length - len(suffix) - 2
     if len(clean) > maximum:
         clean = f"{clean[: max(0, maximum - 1)].rstrip()}…"
     return f"{clean}\n\n{suffix}" if clean else suffix
@@ -796,7 +841,18 @@ async def _deliver_result(
     if row.outbound_state == "delivered":
         return str(row.delivery_method or "deduplicated")
     chat_id = int(row.chat_id)
-    linked_content = _with_project_link(content, str(row.project_id or ""))
+    linked_content = _with_project_link(
+        content,
+        str(row.project_id or ""),
+        db=db,
+        source_scope_id=f"telegram:{chat_id}",
+        idempotency_key=f"telegram-update:{row.update_id}:project-handoff",
+        maximum_length=(
+            _MAX_TELEGRAM_CAPTION
+            if _verified_image_photo_url(artifact)
+            else _MAX_TELEGRAM_TEXT
+        ),
+    )
     reply = _response_reply(chat_id, linked_content, artifact)
     method = str(reply.pop("method"))
     if method == "sendMessage" and row.acknowledgement_message_id is not None:

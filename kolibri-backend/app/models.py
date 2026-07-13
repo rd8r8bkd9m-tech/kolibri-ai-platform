@@ -339,6 +339,64 @@ class ProjectMessageMutationDB(Base):
     )
 
 
+class ProjectAccessDB(Base):
+    """Explicit cross-surface access to one project.
+
+    The owner remains ``ProjectDB.scope_id``.  A grant lets a second signed
+    principal continue the same project without weakening the default
+    cross-scope 404 contract for every other project.
+    """
+
+    __tablename__ = "project_access"
+
+    id = Column(String, primary_key=True)
+    project_id = Column(
+        String,
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    scope_id = Column(String, nullable=False)
+    permission = Column(String, nullable=False, default="read_write")
+    source = Column(String, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=_now)
+    revoked_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("project_id", "scope_id", name="uq_project_access_scope"),
+        Index("ix_project_access_scope_project", "scope_id", "project_id"),
+    )
+
+
+class ProjectHandoffDB(Base):
+    """One-use bearer handoff from Telegram to a signed browser session.
+
+    Only a SHA-256 token digest is stored.  The raw token travels in the URL
+    fragment, so it is not sent to nginx or written to access logs.
+    """
+
+    __tablename__ = "project_handoffs"
+
+    id = Column(String, primary_key=True)
+    project_id = Column(
+        String,
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    source_scope_id = Column(String, nullable=False)
+    token_hash = Column(String, nullable=False)
+    idempotency_key = Column(String, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    claimed_by_scope_id = Column(String, nullable=True)
+    claimed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=_now)
+
+    __table_args__ = (
+        UniqueConstraint("token_hash", name="uq_project_handoffs_token_hash"),
+        UniqueConstraint("idempotency_key", name="uq_project_handoffs_idempotency"),
+        Index("ix_project_handoffs_project_expiry", "project_id", "expires_at"),
+    )
+
+
 class TelegramDeliveryEvidenceDB(Base):
     """Latest independently derived Telegram webhook delivery evidence.
 
