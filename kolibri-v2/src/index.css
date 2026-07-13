@@ -2024,8 +2024,24 @@ a:hover .kolibri-mascot {
 }
 .conversation-tool-sheet-swipe-edge:active { cursor: grabbing; }
 .conversation-tool-sheet-handle { position: absolute; top: 9px; left: 50%; width: 42px; height: 5px; border-radius: 999px; background: #8b8b8b; transform: translateX(-50%); }
-.conversation-tool-sheet-close { position: absolute; z-index: 2; top: 14px; right: 14px; display: inline-flex; width: 44px; height: 44px; align-items: center; justify-content: center; overflow: hidden; border-radius: 50%; background: var(--bg-secondary); opacity: 0; pointer-events: none; }
-.conversation-tool-sheet-close:focus-visible { opacity: 1; pointer-events: auto; }
+.conversation-tool-sheet-close {
+  position: absolute;
+  z-index: 4;
+  top: 14px;
+  right: 14px;
+  display: inline-flex;
+  width: 44px;
+  height: 44px;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 50%;
+  background: var(--bg-secondary);
+  opacity: 1;
+  pointer-events: auto;
+}
+.conversation-tool-sheet-close:hover,
+.conversation-tool-sheet-close:focus-visible { background: var(--bg-hover); outline: none; }
 .conversation-tool-sheet-scroll {
   min-height: 0;
   overflow: hidden auto;
