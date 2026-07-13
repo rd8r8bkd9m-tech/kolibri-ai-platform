@@ -81,6 +81,7 @@ SAFE_MIMO_RESULT_FIELDS = {
     "commit",
     "message",
     "next_action",
+    "objective_verdict",
     "output",
     "pr_url",
     "pull_request_url",
@@ -174,6 +175,8 @@ CODEX_PROVIDER_NETWORK_INSTRUCTION = (
     "Do not search when the task does not require current internet information."
 )
 NATIVE_WEB_SEARCH_EVIDENCE_SCHEMA = "kolibri.native-web-search-evidence.v1"
+DIRECT_MIMO_REPOSITORY_BINDING_SCHEMA = "kolibri.direct-mimo-repository-binding.v1"
+IMMUTABLE_GIT_COMMIT = re.compile(r"^[0-9a-f]{40}$")
 MAX_NATIVE_WEB_SEARCH_QUERIES = 3
 MAX_NATIVE_WEB_SEARCH_EVENTS = 12
 MAX_NATIVE_WEB_SEARCH_QUERY_BYTES = 2_048
@@ -428,6 +431,15 @@ class RunnerExecutionError(RuntimeError):
         super().__init__(message)
         self.error_type = error_type
         self.runner = runner
+        self.retry = retry
+
+
+class RepositoryWorktreeError(RuntimeError):
+    """Fail a code task before its runner sees an unbound repository."""
+
+    def __init__(self, error_type: str, message: str, retry: bool = False):
+        super().__init__(message)
+        self.error_type = error_type
         self.retry = retry
 
 
@@ -3651,6 +3663,126 @@ class AgentHost:
         }
         return worktree, artifact_dir, logs
 
+    def prepare_direct_mimo_repository(
+        self,
+        task: dict[str, Any],
+        worktree: Path,
+        artifact_dir: Path,
+        logs: dict[str, str],
+        branch: str | None,
+    ) -> dict[str, Any] | None:
+        """Materialize and bind a requested immutable Git base for Mimo.
+
+        Legacy direct tasks without ``base_commit`` retain their compatibility
+        behavior.  Once a task requests an immutable base, however, the runner
+        is never invoked unless clone, checkout and exact HEAD verification all
+        succeed.
+        """
+
+        envelope = task_envelope(task)
+        task_base = task.get("base_commit")
+        envelope_base = envelope.get("base_commit")
+        if task_base and envelope_base and task_base != envelope_base:
+            raise RepositoryWorktreeError(
+                "repository_base_commit_conflict",
+                "task and envelope base_commit values do not match",
+            )
+        base_commit = str(envelope_base or task_base or "").strip().lower()
+        if not base_commit:
+            return None
+        if not IMMUTABLE_GIT_COMMIT.fullmatch(base_commit):
+            raise RepositoryWorktreeError(
+                "repository_base_commit_invalid",
+                "base_commit must be a full 40-character hexadecimal Git commit",
+            )
+        if not str(self.repo_url or "").strip():
+            raise RepositoryWorktreeError(
+                "repository_source_unavailable",
+                "Agent Host repository source is not configured",
+            )
+
+        worktree.parent.mkdir(parents=True, exist_ok=True)
+        stdout_path = Path(logs["stdout"])
+        stderr_path = Path(logs["stderr"])
+        git_env = {"GIT_TERMINAL_PROMPT": "0"}
+        try:
+            self.run_command(
+                ["git", "clone", "--no-checkout", "--", self.repo_url, str(worktree)],
+                worktree.parent,
+                stdout_path,
+                stderr_path,
+                task,
+                branch,
+                logs,
+                git_env,
+                command_label="git clone --no-checkout <repository> <task-worktree>",
+            )
+            self.run_command(
+                ["git", "checkout", "--detach", base_commit],
+                worktree,
+                stdout_path,
+                stderr_path,
+                task,
+                branch,
+                logs,
+                git_env,
+            )
+            if branch:
+                self.run_command(
+                    ["git", "check-ref-format", "--branch", branch],
+                    worktree,
+                    stdout_path,
+                    stderr_path,
+                    task,
+                    branch,
+                    logs,
+                    git_env,
+                )
+                self.run_command(
+                    ["git", "checkout", "-B", branch, base_commit],
+                    worktree,
+                    stdout_path,
+                    stderr_path,
+                    task,
+                    branch,
+                    logs,
+                    git_env,
+                )
+            checked_out = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"],
+                cwd=str(worktree),
+                text=True,
+                stderr=subprocess.DEVNULL,
+            ).strip().lower()
+        except (OSError, RuntimeError, subprocess.CalledProcessError) as exc:
+            raise RepositoryWorktreeError(
+                "repository_checkout_failed",
+                "repository clone or immutable base checkout failed",
+            ) from exc
+        if checked_out != base_commit:
+            raise RepositoryWorktreeError(
+                "repository_base_commit_mismatch",
+                "checked out repository HEAD does not match requested base_commit",
+            )
+
+        binding = {
+            "schema_version": DIRECT_MIMO_REPOSITORY_BINDING_SCHEMA,
+            "task_id": str(task["task_id"]),
+            "attempt_id": str(task.get("attempt_id") or ""),
+            "base_commit": base_commit,
+            "checked_out_commit": checked_out,
+            "branch": branch,
+            "repository_sha256": hashlib.sha256(
+                str(self.repo_url).encode("utf-8")
+            ).hexdigest(),
+        }
+        binding["binding_sha256"] = canonical_json_sha256(binding)
+        (artifact_dir / "repository-binding.json").write_text(
+            json.dumps(binding, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        return binding
+
     def run_read_only_probe(self, task: dict[str, Any]) -> dict[str, Any]:
         worktree, artifact_dir, logs = self.prepare_dirs(task)
         worktree.mkdir(parents=True, exist_ok=True)
@@ -4015,7 +4147,11 @@ class AgentHost:
             raise RuntimeError("direct mimo task missing objective")
         branch = envelope.get("branch")
         worktree, artifact_dir, logs = self.prepare_dirs(task)
-        worktree.mkdir(parents=True, exist_ok=True)
+        repository_binding = self.prepare_direct_mimo_repository(
+            task, worktree, artifact_dir, logs, branch,
+        )
+        if repository_binding is None:
+            worktree.mkdir(parents=True, exist_ok=True)
         stdout_path = Path(logs["stdout"])
         stderr_path = Path(logs["stderr"])
         self.task_heartbeat(task, worktree, branch, logs)
@@ -4034,10 +4170,16 @@ class AgentHost:
         mimo = shutil.which("mimo")
         if not mimo:
             raise RunnerExecutionError("runner_unavailable", "mimo", "mimo executable is not available on this node")
+        structured_prompt = prompt + (
+            "\n\nReturn a final JSON object with objective_verdict set to "
+            "'passed' only when the requested objective and its acceptance checks "
+            "are actually satisfied; otherwise set it to 'failed'. Also include "
+            "changed_files, tests, blockers, and next_action."
+        )
         command, command_label = self.mimo_auto25_invocation(
             mimo,
             f"owner-task-{task['task_id']}",
-            prompt,
+            structured_prompt,
             worktree,
         )
         payload = self.run_json_payload_command(
@@ -4075,9 +4217,14 @@ class AgentHost:
             "blockers": runner_output.get("blockers"),
             "next_action": runner_output.get("next_action"),
             "changed_files": runner_output.get("changed_files"),
+            "objective_verdict": runner_output.get("objective_verdict"),
         }
         if runner_output:
             result["runner_output"] = runner_output
+        if repository_binding is not None:
+            result["repository_binding"] = repository_binding
+            result["repository"] = str(envelope.get("repository") or self.repo_url)
+            result["base_commit"] = repository_binding["base_commit"]
         result = self.finalize_result(task, result, artifact_dir, worktree)
         result_path = self.write_result(artifact_dir, result)
         result["result_path"] = str(result_path)
@@ -4877,6 +5024,15 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                 result["status"] = "blocked"
                 result["blocked_reason"] = "backend_test_environment_failed"
                 result["next_recommended_task"] = "repair the declared backend test environment requirements or package list, then rerun verification"
+                result_path = self.write_result(artifact_dir, result)
+            elif isinstance(exc, RepositoryWorktreeError):
+                error_type = exc.error_type
+                retry = exc.retry
+                result["status"] = "blocked"
+                result["blocked_reason"] = exc.error_type
+                result["next_recommended_task"] = (
+                    "submit a reachable repository with an existing immutable base_commit"
+                )
                 result_path = self.write_result(artifact_dir, result)
             elif str(exc).startswith("review_clone_auth_failed:"):
                 error_type = "review_clone_auth_failed"

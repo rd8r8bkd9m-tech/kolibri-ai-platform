@@ -148,6 +148,8 @@ LEGACY_LEASE_FENCING_COMPATIBILITY = "pre_migration_attempt_id_owner_only"
 COMPLETION_SUCCESS_STATUSES = frozenset({
     "completed", "healthy", "ok", "passed", "ready", "success",
 })
+DEVELOPMENT_TASK_CONTRACT = "kolibri.development-task.v1"
+DEVELOPMENT_SUCCESS_VERDICTS = frozenset({"pass", "passed"})
 FLEET_PROOF_SCHEMA = "kolibri.fleet-capability-proof.v1"
 DEFAULT_FLEET_PROOF_QUEUE_AGE_SECONDS = 3600
 
@@ -983,6 +985,55 @@ def _supplied_completion_digest(body: dict[str, Any], name: str) -> str | None:
     return values[0] if values else None
 
 
+def task_requires_development_completion_contract(task: dict[str, Any]) -> bool:
+    """Identify code/repository work that must prove its source checkout.
+
+    The explicit contract is authoritative for new producers. ``KOL-DEV-`` is
+    retained as a fail-closed compatibility discriminator so an older producer
+    cannot obtain a successful development claim merely by omitting the new
+    contract field.
+    """
+
+    envelope = task.get("envelope") if isinstance(task.get("envelope"), dict) else {}
+    task_id = str(task.get("task_id") or envelope.get("task_id") or "").upper()
+    return bool(
+        envelope.get("execution_contract") == DEVELOPMENT_TASK_CONTRACT
+        or task_id.startswith("KOL-DEV-")
+    )
+
+
+def development_completion_checks(
+    task: dict[str, Any],
+    result: dict[str, Any],
+) -> dict[str, bool]:
+    """Validate semantic evidence for a development-task completion claim."""
+
+    if not task_requires_development_completion_contract(task):
+        return {}
+    envelope = task.get("envelope") if isinstance(task.get("envelope"), dict) else {}
+    repository = str(envelope.get("repository") or "").strip()
+    base_commit = str(envelope.get("base_commit") or "").strip().lower()
+    result_repository = str(result.get("repository") or "").strip()
+    result_base_commit = str(result.get("base_commit") or "").strip().lower()
+    objective_verdict = str(result.get("objective_verdict") or "").strip().lower()
+    return {
+        "development_contract": envelope.get("execution_contract") == DEVELOPMENT_TASK_CONTRACT,
+        "development_repository": bool(
+            repository and result_repository and result_repository == repository
+        ),
+        "development_base_commit": bool(
+            re.fullmatch(r"[0-9a-f]{40}", base_commit)
+            and result_base_commit == base_commit
+        ),
+        "development_objective_verdict": objective_verdict in DEVELOPMENT_SUCCESS_VERDICTS,
+        "development_not_blocked": not bool(
+            result.get("blocked_reason")
+            or result.get("failure_reason")
+            or result.get("required_artifacts_missing")
+        ),
+    }
+
+
 def verify_task_completion(
     task: dict[str, Any],
     result: Any,
@@ -1054,6 +1105,7 @@ def verify_task_completion(
         "result_sha256": bool(result_digest),
         "binding_sha256": bool(binding_digest),
     }
+    checks.update(development_completion_checks(task, result_object))
     if token_required:
         checks["fencing_token"] = bool(
             type(expected_fencing_token) is int
@@ -2450,13 +2502,26 @@ def external_provider_task_compatible(
     """Permit only the exact read-only Home provider-gateway envelope."""
 
     envelope = task.get("envelope") if isinstance(task.get("envelope"), dict) else {}
-    allowed_fields = {
+    provider_fields = {
         "task_id", "idempotency_key", "kind", "target_node", "required_capability",
         "runner", "objective", "write_scope", "constraints", "max_attempts",
         "fallback_allowed", "source",
     }
-    if set(envelope) != allowed_fields:
+    development_fields = provider_fields | {
+        "execution_contract", "repository", "base_commit",
+    }
+    envelope_fields = frozenset(envelope)
+    if envelope_fields not in {frozenset(provider_fields), frozenset(development_fields)}:
         return False
+    if envelope_fields == development_fields:
+        if not (
+            envelope.get("execution_contract") == DEVELOPMENT_TASK_CONTRACT
+            and isinstance(envelope.get("repository"), str)
+            and envelope["repository"].strip()
+            and isinstance(envelope.get("base_commit"), str)
+            and re.fullmatch(r"[0-9a-fA-F]{40}", envelope["base_commit"].strip())
+        ):
+            return False
     if str(task.get("kind") or envelope.get("kind") or "") != "owner_remote_task":
         return False
     if envelope.get("kind") != "owner_remote_task":
