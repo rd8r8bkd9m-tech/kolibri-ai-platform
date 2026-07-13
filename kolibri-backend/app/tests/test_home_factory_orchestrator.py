@@ -40,18 +40,17 @@ LIVE_PROBE = {
 }
 
 
-def test_control_plane_has_no_default_and_rejects_legacy_authorities():
+def test_control_plane_has_no_default_and_accepts_only_home_authority():
     with pytest.raises(HomeFactoryContractError, match="not_configured"):
         validate_home_control_plane_url(None)
     for value in (
-        "http://10.99.0.2:9101",
-        "http://10.99.0.10:9101",
-        "https://main:9101",
-        "https://primary:9101",
+        "http://192.0.2.10:9101",
+        "https://alternate-control.example:9101",
     ):
-        with pytest.raises(HomeFactoryContractError, match="legacy_control_plane"):
+        with pytest.raises(HomeFactoryContractError, match="home_control_plane_authority"):
             validate_home_control_plane_url(value)
     assert validate_home_control_plane_url("http://10.99.0.1:9101/") == "http://10.99.0.1:9101"
+    assert validate_home_control_plane_url("https://home:9101/") == "https://home:9101"
 
 
 def test_live_probe_adds_home_slot_without_replacing_primary_agent():

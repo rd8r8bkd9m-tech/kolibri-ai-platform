@@ -29,18 +29,7 @@ HOME_CODEX_CAPABILITIES = (
     "codex_provider_broker",
     "runner:codex",
 )
-LEGACY_CONTROL_PLANE_HOSTS = frozenset(
-    {
-        "10.99.0.2",
-        "10.99.0.10",
-        "main",
-        "primary",
-        "kolibri-main",
-        "kolibri-main-api",
-        "kolibri-primary",
-        "kolibri-primary-codex",
-    }
-)
+HOME_CONTROL_PLANE_HOSTS = frozenset({"10.99.0.1", "home"})
 LIVE_RUNNER_STATES = frozenset({"available", "healthy", "live", "ready"})
 
 
@@ -69,8 +58,8 @@ def validate_home_control_plane_url(value: str | None) -> str:
         or parsed.fragment
     ):
         raise HomeFactoryContractError("home_control_plane_url_invalid")
-    if hostname in LEGACY_CONTROL_PLANE_HOSTS:
-        raise HomeFactoryContractError("legacy_control_plane_forbidden")
+    if hostname not in HOME_CONTROL_PLANE_HOSTS:
+        raise HomeFactoryContractError("home_control_plane_authority_required")
     return raw.rstrip("/")
 
 
