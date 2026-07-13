@@ -82,6 +82,12 @@ def test_owner_key_create_use_list_revoke_and_hash_only_persistence(client, monk
     assert secret.startswith("koli_live_")
     assert body["secret_shown_once"] is True
     assert body["revoked"] is False
+    assert created.headers["Cache-Control"] == "no-store"
+    assert created.headers["Pragma"] == "no-cache"
+    assert set(body) == {
+        "id", "object", "name", "prefix", "created_at", "last_used_at",
+        "revoked", "revoked_at", "secret", "secret_shown_once",
+    }
 
     with client.testing_session() as db:
         row = db.query(PublicApiKeyDB).filter(PublicApiKeyDB.id == body["id"]).one()
@@ -91,8 +97,11 @@ def test_owner_key_create_use_list_revoke_and_hash_only_persistence(client, monk
 
     listed = client.get("/api/v1/developer/api-keys", headers=client.owner_headers)
     assert listed.status_code == 200
+    assert listed.headers["Cache-Control"] == "no-store"
+    assert listed.json()["object"] == "list"
     assert listed.json()["data"][0]["id"] == body["id"]
     assert "secret" not in listed.json()["data"][0]
+    assert "secret_shown_once" not in listed.json()["data"][0]
 
     bearer = {"Authorization": f"Bearer {secret}"}
     models = client.get("/v1/models", headers=bearer)
@@ -112,6 +121,8 @@ def test_owner_key_create_use_list_revoke_and_hash_only_persistence(client, monk
     )
     assert revoked.status_code == 200
     assert revoked.json()["revoked"] is True
+    assert "secret" not in revoked.json()
+    assert revoked.headers["Cache-Control"] == "no-store"
     denied = client.get("/v1/models", headers=bearer)
     assert denied.status_code == 401
     assert denied.json()["error"]["code"] == "invalid_api_key"
@@ -125,6 +136,30 @@ def test_api_key_name_must_remain_nonempty_after_normalisation(client):
     )
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "api_key_name_required"
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "json"),
+    [
+        ("get", "/api/v1/developer/api-keys", None),
+        ("post", "/api/v1/developer/api-keys", {"name": "Denied"}),
+        ("delete", "/api/v1/developer/api-keys/key_missing", None),
+    ],
+)
+def test_exact_developer_key_routes_require_owner_header(client, method, path, json):
+    response = client.request(method, path, json=json)
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "owner_authentication_required"
+
+    wrong = client.request(
+        method,
+        path,
+        headers={"X-Kolibri-Owner-Token": "wrong-owner-token"},
+        json=json,
+    )
+    assert wrong.status_code == 401
+    assert wrong.json()["error"]["code"] == "owner_authentication_required"
 
 
 def test_developer_capability_is_hidden_until_admin_route_is_invocable(client, monkeypatch):

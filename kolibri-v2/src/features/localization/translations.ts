@@ -196,9 +196,15 @@ export const ru = {
   'developer.keyCreated': 'Скопируйте новый ключ сейчас — повторно он не показывается.',
   'developer.copyKey': 'Скопировать ключ',
   'developer.keyCopied': 'Ключ скопирован',
+  'developer.hideKey': 'Скрыть секрет',
   'developer.revokeKey': 'Отозвать',
   'developer.signInForKeys': 'Войдите, чтобы управлять API-ключами.',
   'developer.signIn': 'Войти',
+  'developer.ownerToken': 'Токен владельца',
+  'developer.ownerTokenCopy': 'Подтвердите доступ владельца. Токен хранится только в памяти и в текущей сессии вкладки.',
+  'developer.ownerUnlock': 'Открыть доступ',
+  'developer.ownerLock': 'Закрыть доступ',
+  'developer.ownerTokenRejected': 'Токен владельца не принят.',
   'developer.keyRequestFailed': 'Не удалось выполнить операцию с API-ключом.',
 } as const
 
@@ -402,9 +408,15 @@ export const en: Record<TranslationKey, string> = {
   'developer.keyCreated': 'Copy the new key now — it will not be shown again.',
   'developer.copyKey': 'Copy key',
   'developer.keyCopied': 'Key copied',
+  'developer.hideKey': 'Hide secret',
   'developer.revokeKey': 'Revoke',
   'developer.signInForKeys': 'Sign in to manage API keys.',
   'developer.signIn': 'Sign in',
+  'developer.ownerToken': 'Owner token',
+  'developer.ownerTokenCopy': 'Confirm owner access. The token is kept only in memory and this tab session.',
+  'developer.ownerUnlock': 'Unlock access',
+  'developer.ownerLock': 'Lock access',
+  'developer.ownerTokenRejected': 'The owner token was not accepted.',
   'developer.keyRequestFailed': 'The API key operation could not be completed.',
 }
 

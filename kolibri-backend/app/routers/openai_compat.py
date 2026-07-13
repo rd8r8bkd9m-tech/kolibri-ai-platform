@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from app import ai_provider
@@ -110,6 +110,27 @@ class ApiKeyCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=80)
 
 
+class ApiKeyResponse(BaseModel):
+    id: str
+    object: Literal["api_key"] = "api_key"
+    name: str
+    prefix: str
+    created_at: int
+    last_used_at: int | None
+    revoked: bool
+    revoked_at: int | None
+
+
+class ApiKeyCreatedResponse(ApiKeyResponse):
+    secret: str
+    secret_shown_once: Literal[True] = True
+
+
+class ApiKeyListResponse(BaseModel):
+    object: Literal["list"] = "list"
+    data: list[ApiKeyResponse]
+
+
 def _owner_scope() -> str:
     return "owner"
 
@@ -145,6 +166,13 @@ def _public_api_key(row: PublicApiKeyDB) -> dict[str, Any]:
     }
 
 
+def _prevent_owner_response_storage(response: Response) -> None:
+    """Owner metadata and one-time secrets must not enter HTTP caches."""
+
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+
+
 def developer_api_keys_capability() -> dict[str, Any] | None:
     """Advertise the renderer only when owner auth makes routes invocable."""
 
@@ -178,9 +206,20 @@ def developer_api_keys_capability() -> dict[str, Any] | None:
     "/api/v1/developer/api-keys",
     status_code=201,
     dependencies=[Depends(_authorize_api_key_admin)],
+    response_model=ApiKeyCreatedResponse,
 )
-@router.post("/v1/api-keys", status_code=201, dependencies=[Depends(_authorize_api_key_admin)])
-async def create_api_key(request: ApiKeyCreateRequest, db: Session = Depends(get_db)):
+@router.post(
+    "/v1/api-keys",
+    status_code=201,
+    dependencies=[Depends(_authorize_api_key_admin)],
+    response_model=ApiKeyCreatedResponse,
+)
+async def create_api_key(
+    request: ApiKeyCreateRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    _prevent_owner_response_storage(response)
     name = request.name.strip()
     if not name:
         raise HTTPException(status_code=422, detail={"code": "api_key_name_required"})
@@ -203,9 +242,15 @@ async def create_api_key(request: ApiKeyCreateRequest, db: Session = Depends(get
 @router.get(
     "/api/v1/developer/api-keys",
     dependencies=[Depends(_authorize_api_key_admin)],
+    response_model=ApiKeyListResponse,
 )
-@router.get("/v1/api-keys", dependencies=[Depends(_authorize_api_key_admin)])
-async def list_api_keys(db: Session = Depends(get_db)):
+@router.get(
+    "/v1/api-keys",
+    dependencies=[Depends(_authorize_api_key_admin)],
+    response_model=ApiKeyListResponse,
+)
+async def list_api_keys(response: Response, db: Session = Depends(get_db)):
+    _prevent_owner_response_storage(response)
     rows = db.query(PublicApiKeyDB).filter(
         PublicApiKeyDB.owner_scope == _owner_scope()
     ).order_by(PublicApiKeyDB.created_at.desc(), PublicApiKeyDB.id.desc()).all()
@@ -215,9 +260,19 @@ async def list_api_keys(db: Session = Depends(get_db)):
 @router.delete(
     "/api/v1/developer/api-keys/{key_id}",
     dependencies=[Depends(_authorize_api_key_admin)],
+    response_model=ApiKeyResponse,
 )
-@router.delete("/v1/api-keys/{key_id}", dependencies=[Depends(_authorize_api_key_admin)])
-async def revoke_api_key(key_id: str, db: Session = Depends(get_db)):
+@router.delete(
+    "/v1/api-keys/{key_id}",
+    dependencies=[Depends(_authorize_api_key_admin)],
+    response_model=ApiKeyResponse,
+)
+async def revoke_api_key(
+    key_id: str,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    _prevent_owner_response_storage(response)
     row = db.query(PublicApiKeyDB).filter(
         PublicApiKeyDB.id == key_id,
         PublicApiKeyDB.owner_scope == _owner_scope(),

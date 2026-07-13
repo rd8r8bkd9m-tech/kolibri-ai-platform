@@ -45,4 +45,21 @@ describe('developer capability gate', () => {
     expect(isDeveloperSurfaceLive(value, 'responses')).toBe(false)
     expect(liveDeveloperEndpoints(value)).toEqual([])
   })
+
+  it('opens key management only for the live API-key renderer contract', () => {
+    const value = catalog([
+      capability({
+        id: 'developer.api_keys',
+        renderer: { available: true, id: 'developer_api_keys' },
+      }),
+    ])
+
+    expect(isDeveloperSurfaceLive(value, 'apiKeys')).toBe(true)
+    expect(isDeveloperSurfaceLive(catalog([
+      capability({
+        id: 'developer.api_keys',
+        renderer: { available: true, id: 'developer_api' },
+      }),
+    ]), 'apiKeys')).toBe(false)
+  })
 })

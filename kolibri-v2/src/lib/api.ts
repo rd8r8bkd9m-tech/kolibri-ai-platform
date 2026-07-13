@@ -46,6 +46,37 @@ export function setAuthToken(token: string | null) {
 
 export function getAuthToken() { return authToken }
 
+const DEVELOPER_OWNER_TOKEN_SESSION_KEY = 'kolibri_developer_owner_token'
+
+function storedDeveloperOwnerToken(): string | null {
+  try {
+    return typeof sessionStorage === 'undefined'
+      ? null
+      : sessionStorage.getItem(DEVELOPER_OWNER_TOKEN_SESSION_KEY)
+  } catch {
+    return null
+  }
+}
+
+let developerOwnerToken: string | null = storedDeveloperOwnerToken()
+
+/**
+ * The owner credential is deliberately isolated from the persistent user auth
+ * token. It may live only in this module's memory and the current tab session.
+ */
+export function setDeveloperOwnerToken(token: string | null) {
+  developerOwnerToken = token || null
+  try {
+    if (typeof sessionStorage === 'undefined') return
+    if (developerOwnerToken) sessionStorage.setItem(DEVELOPER_OWNER_TOKEN_SESSION_KEY, developerOwnerToken)
+    else sessionStorage.removeItem(DEVELOPER_OWNER_TOKEN_SESSION_KEY)
+  } catch {
+    // In privacy-restricted contexts the in-memory owner token remains usable.
+  }
+}
+
+export function getDeveloperOwnerToken() { return developerOwnerToken }
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json', ...init?.headers as Record<string, string> }
   if (authToken) headers['Authorization'] = `Bearer ${authToken}`
@@ -1035,31 +1066,45 @@ export const auth = {
 
 export interface DeveloperApiKey {
   id: string
+  object: 'api_key'
   name: string
   prefix: string
-  created_at: string
-  last_used_at: string | null
-  revoked_at: string | null
+  created_at: number
+  last_used_at: number | null
+  revoked: boolean
+  revoked_at: number | null
 }
 
 export interface DeveloperApiKeyListResponse {
-  items: DeveloperApiKey[]
+  object: 'list'
+  data: DeveloperApiKey[]
 }
 
 export interface DeveloperApiKeyCreated extends DeveloperApiKey {
   /** The plaintext secret is returned once and must never be persisted by the client. */
-  key: string
+  secret: string
+  secret_shown_once: true
+}
+
+function developerOwnerHeaders(ownerToken: string): Record<string, string> {
+  return { 'X-Kolibri-Owner-Token': ownerToken }
 }
 
 export const developerApiKeys = {
-  list: () => request<DeveloperApiKeyListResponse>('/developer/api-keys'),
-  create: (name: string, idempotencyKey: string) => request<DeveloperApiKeyCreated>('/developer/api-keys', {
-    method: 'POST',
-    headers: { 'Idempotency-Key': idempotencyKey },
-    body: JSON.stringify({ name }),
+  list: (ownerToken: string) => request<DeveloperApiKeyListResponse>('/developer/api-keys', {
+    headers: developerOwnerHeaders(ownerToken),
+    cache: 'no-store',
   }),
-  revoke: (id: string) => request<void>(`/developer/api-keys/${encodeURIComponent(id)}`, {
+  create: (name: string, ownerToken: string) => request<DeveloperApiKeyCreated>('/developer/api-keys', {
+    method: 'POST',
+    headers: developerOwnerHeaders(ownerToken),
+    body: JSON.stringify({ name }),
+    cache: 'no-store',
+  }),
+  revoke: (id: string, ownerToken: string) => request<DeveloperApiKey>(`/developer/api-keys/${encodeURIComponent(id)}`, {
     method: 'DELETE',
+    headers: developerOwnerHeaders(ownerToken),
+    cache: 'no-store',
   }),
 }
 
