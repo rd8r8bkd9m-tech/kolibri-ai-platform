@@ -187,6 +187,30 @@
       "browser_console_errors": 0,
       "observed_at": "2026-07-13T07:02:42Z"
     },
+    "home_portal_provider_fallback": {
+      "status": "verified_side_by_side",
+      "source_commit": "15ac722ca1dc624a9e64951b6fd3bd17686c5727",
+      "image": "kolibri-portal-api:15ac722",
+      "production_switched": false,
+      "focused_tests_passed": 11,
+      "canary": {
+        "first_route_status": 502,
+        "fallback_http_status": 200,
+        "fallback_content": "KOLIBRI_PROVIDER_FALLBACK_OK",
+        "fallback_model": "kimi-k2.7-code",
+        "circuit_breaker_second_request_seconds": 0.03,
+        "fallback_failure_log_count_after_second_request": 1,
+        "raw_upstream_error_exposed": false
+      },
+      "production_observation": {
+        "current_release_retry_http_status": 200,
+        "current_release_retry_seconds": 4.434,
+        "current_release_retry_model": "deepseek-v4-flash",
+        "mimo_status": 401,
+        "cfbt_status": 502
+      },
+      "observed_at": "2026-07-13T07:13:42Z"
+    },
     "runtime_bundle": {
       "digest": "sha256:de00339d64be94772896e956a8bc3e05d125b6db0677285dc6835f2884baa56c"
     },
@@ -545,6 +569,22 @@
       "reference": "source=home_control_plane;membership=21/21;fresh=21;online=21;schedulable=21;active=0;queued=0;idle_agents=21;historical_tasks=424;seeded_fallback=false;mutation_endpoints=read_only;console_errors=0;production_switched=false",
       "uri": null,
       "observed_at": "2026-07-13T07:02:42Z"
+    },
+    {
+      "id": "ci-run:29230836998-green",
+      "kind": "continuous_integration",
+      "status": "verified",
+      "reference": "29230836998",
+      "uri": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/actions/runs/29230836998",
+      "observed_at": "2026-07-13T07:13:42Z"
+    },
+    {
+      "id": "home-portal-provider-fallback:15ac722",
+      "kind": "home_portal_provider_fallback_canary",
+      "status": "verified",
+      "reference": "tests=11_passed;first_route=502;fallback_http=200;content=KOLIBRI_PROVIDER_FALLBACK_OK;circuit_second_seconds=0.03;failure_log_count=1;raw_upstream_error_exposed=false;production_switched=false",
+      "uri": null,
+      "observed_at": "2026-07-13T07:13:42Z"
     }
   ],
   "gates": [
@@ -642,7 +682,8 @@
         "home-provider-canary:KOL-PROVIDER-HOME-CODEX-CANARY-20260713T060518078Z",
         "development-seed-retry:KOL-IMPROVE-SEED-r2-3b01332c"
         ,"home-portal-canary:ec6f14e",
-        "home-portal-factory-adapter:aff0816"
+        "home-portal-factory-adapter:aff0816",
+        "home-portal-provider-fallback:15ac722"
       ],
       "blockers": [
         "The Home portal canary passes chat, preliminary estimate editor, and PDF, but production has not switched and source-backed prices are not implemented.",
@@ -651,7 +692,7 @@
         "All five retry tasks are terminal failed with zero completed results, result hashes, or truth verdicts."
       ],
       "next_action": "Activate and visually prove the protected Home Wallboard, clear the five Mimo failures, and complete Portal and Shell provider end-to-end scenarios using the now-proven Home Codex route.",
-      "updated_at": "2026-07-13T07:02:42Z"
+      "updated_at": "2026-07-13T07:13:42Z"
     },
     {
       "gate": 6,
