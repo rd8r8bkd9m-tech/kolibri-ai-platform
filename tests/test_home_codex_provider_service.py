@@ -135,6 +135,13 @@ def test_rendered_service_uses_api_agent_host_and_scoped_home_identity(tmp_path)
     assert "provider-current" in rendered
     assert "home_systemd_user" in rendered
     assert "codex-provider" in rendered
+    assert rendered.count("ConditionPathExists=") == 3
+    assert "ConditionPathIsRegular=" not in rendered
+    assert (
+        "WorkingDirectory=%h/.local/share/kolibri/home-codex-provider/worktrees"
+        in rendered
+    )
+    assert 'WorkingDirectory="' not in rendered
     assert "NoNewPrivileges=yes" in rendered
     assert "ProtectSystem=strict" in rendered
     assert "auth.json" not in rendered.lower()
@@ -224,6 +231,8 @@ def test_service_validator_rejects_static_control_plane_and_secret_material():
         "KOLIBRI_RELEASE_CURRENT_LINK=/provider-current",
         "KOLIBRI_RELEASE_ROOT=/provider-releases",
         "KOLIBRI_NODE_LABELS_JSON=home_systemd_user",
+        "ConditionPathExists=/manifest",
+        "WorkingDirectory=%h/.local/share/kolibri/home-codex-provider/worktrees",
         "--capabilities codex_provider_broker --max-inflight 1",
         "Restart=on-failure",
         "NoNewPrivileges=yes",
@@ -231,6 +240,14 @@ def test_service_validator_rejects_static_control_plane_and_secret_material():
     ))
     installer.validate_service(baseline)
     for addition in ("KOLIBRI_FACTORY_CONTROL_URL=http://10.99.0.2", "access_token=secret"):
+        with pytest.raises(installer.HomeProviderConfigError) as error:
+            installer.validate_service(f"{baseline}\n{addition}")
+        assert error.value.code == "service_secret_or_static_authority_forbidden"
+
+    for addition in (
+        "ConditionPathIsRegular=/manifest",
+        'WorkingDirectory="/home/ladik/work"',
+    ):
         with pytest.raises(installer.HomeProviderConfigError) as error:
             installer.validate_service(f"{baseline}\n{addition}")
         assert error.value.code == "service_secret_or_static_authority_forbidden"

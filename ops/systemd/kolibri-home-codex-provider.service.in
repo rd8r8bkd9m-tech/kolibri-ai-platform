@@ -4,14 +4,14 @@ Description=Kolibri Home Codex provider actor
 Documentation=https://kolibriai.ru/docs
 After=network-online.target
 Wants=network-online.target
-ConditionPathIsRegular=__MESH_MANIFEST__
-ConditionPathIsRegular=__RUNNER_ACCESS__
-ConditionPathIsRegular=__PROVIDER_CREDENTIAL__
+ConditionPathExists=__MESH_MANIFEST__
+ConditionPathExists=__RUNNER_ACCESS__
+ConditionPathExists=__PROVIDER_CREDENTIAL__
 
 [Service]
 Type=simple
 UMask=0077
-WorkingDirectory=__WORK_ROOT__
+WorkingDirectory=%h/.local/share/kolibri/home-codex-provider/worktrees
 Environment=__HOME_ENV__
 Environment=__PATH_ENV__
 Environment=__PYTHONPATH_ENV__

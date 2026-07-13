@@ -292,6 +292,8 @@ def validate_service(rendered: str) -> None:
         "KOLIBRI_RELEASE_ROOT=",
         "KOLIBRI_NODE_LABELS_JSON=",
         "home_systemd_user",
+        "ConditionPathExists=",
+        "WorkingDirectory=%h/.local/share/kolibri/home-codex-provider/worktrees",
         "--capabilities codex_provider_broker",
         "--max-inflight 1",
         "Restart=on-failure",
@@ -302,6 +304,8 @@ def validate_service(rendered: str) -> None:
         raise HomeProviderConfigError("service_contract_incomplete")
     lowered = rendered.lower()
     forbidden = (
+        "conditionpathisregular=",
+        'workingdirectory="',
         "kolibri_factory_control_url",
         "kolibri_factory_control_urls",
         "authorization=",
