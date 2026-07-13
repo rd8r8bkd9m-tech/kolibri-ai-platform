@@ -194,6 +194,54 @@ def test_direct_mimo_http_401_is_runner_auth_failed_without_prompt_leak(tmp_path
     ]
 
 
+def test_direct_mimo_missing_session_is_classified_without_retry_or_output_leak(
+    tmp_path, monkeypatch
+):
+    agent_host = load_agent_host()
+    monkeypatch.setattr(
+        agent_host.shutil,
+        "which",
+        lambda name: "/usr/bin/mimo" if name == "mimo" else None,
+    )
+    task = make_direct_task("MIMO-SESSION-NOT-FOUND", "harmless owner request")
+
+    class Host(agent_host.AgentHost):
+        def __init__(self, args):
+            super().__init__(args)
+            self.posts = []
+
+        def post(self, path, body):
+            self.posts.append((path, body))
+            return body
+
+        def run_command(
+            self, command, cwd, stdout_path, stderr_path, task, branch, logs,
+            env=None, command_label=None,
+        ):
+            del command, cwd, task, branch, logs, env
+            stdout_path.write_text(f"$ {command_label}\n", encoding="utf-8")
+            stderr_path.write_text(
+                "Error: Session not found; private-provider-detail\n",
+                encoding="utf-8",
+            )
+            raise RuntimeError(f"command failed with rc=1: {command_label}")
+
+    host = Host(make_args(tmp_path))
+    host.run_task(task)
+
+    failures = [item for item in host.posts if item[0].endswith("/fail")]
+    assert len(failures) == 1
+    fail_body = failures[0][1]
+    assert fail_body["error_type"] == "mimo_session_not_found"
+    assert fail_body["retry"] is False
+    assert fail_body["result"]["status"] == "blocked"
+    assert fail_body["result"]["runner"] == "mimo"
+    assert fail_body["result"]["runner_binding_verified"] is True
+    serialized = json.dumps(fail_body, ensure_ascii=False)
+    assert "private-provider-detail" not in serialized
+    assert "no usable local session" in serialized
+
+
 def test_direct_mimo_generic_rc1_posts_strict_runner_bound_fail_and_returns(
     tmp_path, monkeypatch
 ):

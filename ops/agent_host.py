@@ -3136,6 +3136,12 @@ class AgentHost:
             return "task_lease_fenced", f"{runner} lost its authoritative task lease", False
         if "task_process_leak:" in combined:
             return "task_process_leak", f"{runner} left a fenced descendant process", False
+        if runner == "mimo" and "session not found" in combined:
+            return (
+                "mimo_session_not_found",
+                "mimo runner has no usable local session on this node",
+                False,
+            )
         if (
             "requires a newer version" in combined
             or "newer version of codex" in combined
@@ -4844,7 +4850,8 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
                         f"upgrade {exc.runner} on this node, rerun readiness, then restore {runner_capability(exc.runner)}"
                     )
                 elif exc.error_type in {
-                    "runner_auth_blocked", "runner_auth_failed", "runner_access_denied", "runner_policy_blocked",
+                    "mimo_session_not_found", "runner_auth_blocked", "runner_auth_failed",
+                    "runner_access_denied", "runner_policy_blocked",
                 }:
                     result["next_recommended_task"] = (
                         f"repair {exc.runner} auth on this node or route to another online node with {runner_capability(exc.runner)}"

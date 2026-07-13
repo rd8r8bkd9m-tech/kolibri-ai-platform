@@ -1,8 +1,8 @@
 {
   "schema_version": "kolibri.program-status.v1",
   "program_id": "kolibri-ai-os-home-first",
-  "as_of": "2026-07-12T23:38:39Z",
-  "source_commit": "7fc3ff6a24266caa204db02e8c4f05f4a4a2bbde",
+  "as_of": "2026-07-13T00:06:08Z",
+  "source_commit": "c0f6c807617585ceb155d000d51d4c06d82883e4",
   "overall_status": "in_progress",
   "truth_policy": {
     "allowed_gate_statuses": [
@@ -16,10 +16,19 @@
     "heartbeat_is_not_execution_proof": true
   },
   "summary": {
+    "acceptance_gate_progress": {
+      "completed": 2,
+      "in_progress": 3,
+      "blocked": 3,
+      "not_started": 3,
+      "total": 11,
+      "completed_ratio": 0.1818,
+      "interpretation": "Equal gate-count ratio only; gates have unequal scope and this is not an effort estimate."
+    },
     "ci": {
       "status": "green",
-      "run_id": 29213603299,
-      "commit": "7fc3ff6a24266caa204db02e8c4f05f4a4a2bbde",
+      "run_id": 29214360515,
+      "commit": "c0f6c807617585ceb155d000d51d4c06d82883e4",
       "jobs": {
         "ci": "success",
         "rust-1.97": "success",
@@ -37,7 +46,8 @@
       "integration_worktree": {
         "status": "clean",
         "commit": "7fc3ff6a24266caa204db02e8c4f05f4a4a2bbde",
-        "update_method": "fast_forward"
+        "update_method": "fast_forward",
+        "source_update_pending": "c0f6c807617585ceb155d000d51d4c06d82883e4"
       },
       "codex_cli_version": "0.144.1",
       "canonical_manifest_readable": true,
@@ -129,10 +139,11 @@
         "failures": [
           {
             "count": 4,
-            "state": "runtime_error",
+            "state": "mimo_session_not_found",
             "terminal_attempt": 2,
             "max_attempts": 2,
-            "terminal_cause": "mimo_rc_1"
+            "terminal_cause": "mimo_session_not_found",
+            "classification_fix": "implemented_and_locally_verified"
           },
           {
             "count": 1,
@@ -153,6 +164,22 @@
     ]
   },
   "evidence": [
+    {
+      "id": "commit:c0f6c807",
+      "kind": "git_commit",
+      "status": "verified",
+      "reference": "c0f6c807617585ceb155d000d51d4c06d82883e4",
+      "uri": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/commit/c0f6c807617585ceb155d000d51d4c06d82883e4",
+      "observed_at": "2026-07-13T00:06:08Z"
+    },
+    {
+      "id": "ci-run:29214360515-green",
+      "kind": "continuous_integration",
+      "status": "verified",
+      "reference": "29214360515",
+      "uri": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/actions/runs/29214360515",
+      "observed_at": "2026-07-13T00:06:08Z"
+    },
     {
       "id": "commit:7fc3ff6a",
       "kind": "git_commit",
@@ -313,13 +340,13 @@
       "name": "Evidence baseline and factual truth",
       "status": "completed",
       "evidence_ids": [
-        "commit:7fc3ff6a",
-        "ci-run:29213603299-green",
+        "commit:c0f6c807",
+        "ci-run:29214360515-green",
         "runtime-bundle:de00339d"
       ],
       "blockers": [],
       "next_action": "Record the next accepted commit, CI verdict, runtime digest, and evidence timestamps before making any new readiness claim.",
-      "updated_at": "2026-07-12T23:38:39Z"
+      "updated_at": "2026-07-13T00:06:08Z"
     },
     {
       "gate": 1,
@@ -337,11 +364,11 @@
       ],
       "blockers": [
         "The service dry-run is blocked by current_user_codex_session_unavailable; official device login is waiting for the owner to unlock the Mac screen.",
-        "Four retry tasks reached attempt 2 of 2; each terminal attempt failed with Mimo rc=1.",
+        "Four retry tasks reached attempt 2 of 2 because their Mimo runner had no usable local session; their retained stderr was classified as mimo_session_not_found.",
         "The qjns retry is runner_policy_blocked for illegal_access at attempt 1 of 2."
       ],
       "next_action": "Unlock Mac, complete official device login, install and start the service, pass readiness, run a fenced provider canary, then undrain; afterward repair and rerun the five Mimo development seed failures.",
-      "updated_at": "2026-07-12T23:38:39Z"
+      "updated_at": "2026-07-13T00:06:08Z"
     },
     {
       "gate": 2,
@@ -349,14 +376,14 @@
       "name": "Contract and design freeze",
       "status": "in_progress",
       "evidence_ids": [
-        "commit:7fc3ff6a",
-        "ci-run:29213603299-green"
+        "commit:c0f6c807",
+        "ci-run:29214360515-green"
       ],
       "blockers": [
         "Portal and Shell product readiness is not proven."
       ],
       "next_action": "Freeze the Portal and Shell interaction contracts, responsive component inventory, and executable acceptance fixtures on one reviewed commit.",
-      "updated_at": "2026-07-12T23:38:39Z"
+      "updated_at": "2026-07-13T00:06:08Z"
     },
     {
       "gate": 3,
@@ -460,8 +487,8 @@
       "name": "Signed production release",
       "status": "blocked",
       "evidence_ids": [
-        "commit:7fc3ff6a",
-        "ci-run:29213603299-green",
+        "commit:c0f6c807",
+        "ci-run:29214360515-green",
         "home-provider:dry-run-session-unavailable",
         "fleet-campaign:factory-ca5e3a09-final-20260713"
       ],

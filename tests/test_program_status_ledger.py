@@ -9,8 +9,9 @@ ROOT = Path(__file__).resolve().parents[1]
 STATUS_PATH = ROOT / "release" / "program-status.json"
 DOC_PATH = ROOT / "docs" / "PROGRAM_STATUS.md"
 ALLOWED_STATUSES = {"completed", "in_progress", "not_started", "blocked"}
-SOURCE_COMMIT = "7fc3ff6a24266caa204db02e8c4f05f4a4a2bbde"
-CI_RUN_ID = 29213603299
+SOURCE_COMMIT = "c0f6c807617585ceb155d000d51d4c06d82883e4"
+HOME_INTEGRATION_COMMIT = "7fc3ff6a24266caa204db02e8c4f05f4a4a2bbde"
+CI_RUN_ID = 29214360515
 BUNDLE_DIGEST = "sha256:de00339d64be94772896e956a8bc3e05d125b6db0677285dc6835f2884baa56c"
 CAMPAIGN_ID = "factory-ca5e3a09-final-20260713"
 RETRY_SNAPSHOT = "sha256:df090eab9ecc4956d60f1a01fbf70d79ac702f4e8100997e5054f525591d951b"
@@ -47,8 +48,18 @@ def test_program_status_schema_and_truth_invariants():
     assert set(status["truth_policy"]["allowed_gate_statuses"]) == ALLOWED_STATUSES
     assert status["truth_policy"]["unknown_is_not_zero"] is True
     assert status["truth_policy"]["heartbeat_is_not_execution_proof"] is True
-    assert all("percent" not in key.lower() for key in walk_keys(status))
-    assert "%" not in STATUS_PATH.read_text(encoding="utf-8")
+    gate_progress = status["summary"]["acceptance_gate_progress"]
+    assert gate_progress == {
+        "completed": 2,
+        "in_progress": 3,
+        "blocked": 3,
+        "not_started": 3,
+        "total": 11,
+        "completed_ratio": 0.1818,
+        "interpretation": (
+            "Equal gate-count ratio only; gates have unequal scope and this is not an effort estimate."
+        ),
+    }
 
     evidence_ids = [item["id"] for item in status["evidence"]]
     assert len(evidence_ids) == len(set(evidence_ids))
@@ -92,8 +103,9 @@ def test_program_status_records_only_current_proven_summary():
     assert summary["home_development_environment"] == {
         "integration_worktree": {
             "status": "clean",
-            "commit": SOURCE_COMMIT,
+            "commit": HOME_INTEGRATION_COMMIT,
             "update_method": "fast_forward",
+            "source_update_pending": SOURCE_COMMIT,
         },
         "codex_cli_version": "0.144.1",
         "canonical_manifest_readable": True,
@@ -175,10 +187,11 @@ def test_program_status_records_only_current_proven_summary():
     assert retry["failures"] == [
         {
             "count": 4,
-            "state": "runtime_error",
+            "state": "mimo_session_not_found",
             "terminal_attempt": 2,
             "max_attempts": 2,
-            "terminal_cause": "mimo_rc_1",
+            "terminal_cause": "mimo_session_not_found",
+            "classification_fix": "implemented_and_locally_verified",
         },
         {
             "count": 1,
@@ -227,9 +240,10 @@ def test_markdown_owner_view_matches_machine_ledger():
     assert "provision the drained actor" not in document
     assert "5 of 5 terminal failed" in document
     assert "bindings are verified and leases are cleared" in document
-    assert "terminal attempt failed with Mimo rc=1" in document
+    assert "Mimo returned `Session not found`" in document
     assert "`runner_policy_blocked` for `illegal_access` at attempt 1 of 2" in document
     assert "Python 3.14 timeout-classification race" in document
-    assert "does not report a completion percentage" in document
+    assert "Completed: `2/11` gates (`18.2%` by equal gate count)" in document
+    assert "product release is not ready" in document
     for gate in range(11):
         assert f"| {gate} |" in document

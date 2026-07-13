@@ -4,7 +4,7 @@ import hashlib
 import json
 import re
 import sys
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -44,7 +44,11 @@ from vertical_tasks import (
 
 
 SOURCE_URL = "https://supplier.example/prices/aerated-block"
-CAPTURED = "2026-07-11"
+# Price evidence is intentionally accepted only within one UTC day of the
+# request.  Keep the integration fixture current instead of letting a fixed
+# calendar date turn the native-search contract into a midnight-dependent
+# test failure.
+CAPTURED = datetime.now(timezone.utc).date().isoformat()
 QUOTE = "Газобетон D500: от 1 000 до 1 200 руб. за м³, доставка не включена."
 
 
