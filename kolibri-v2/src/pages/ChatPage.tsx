@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import { Paperclip, ArrowUp, Mic, User, ChevronDown, ChevronUp, Plus } from 'lucide-react'
 import { chat, estimates, documents, type ChatAction } from '@/lib/api'
+import { createUuid } from '@/lib/uuid'
 import StatusBird, { type BirdState } from '@/components/StatusBird'
 import CartoonMascot from '@/components/CartoonMascot'
 
@@ -83,7 +84,7 @@ export default function ChatPage() {
 
   const handleSendMessage = useCallback(async (text: string) => {
     if (!text.trim() || loading) return
-    const userMsg: Message = { id: crypto.randomUUID(), role: 'user', content: text, timestamp: new Date() }
+    const userMsg: Message = { id: createUuid(), role: 'user', content: text, timestamp: new Date() }
     setMessages(prev => [...prev, userMsg])
     setInput('')
     setLoading(true)
@@ -93,7 +94,7 @@ export default function ChatPage() {
       const allMessages = [...messages, userMsg].map(m => ({ role: m.role, content: m.content }))
       const res = await chat.send(allMessages)
       const assistantMsg: Message = {
-        id: crypto.randomUUID(),
+        id: createUuid(),
         role: 'assistant',
         content: res.content,
         reasoning: res.reasoning || undefined,
@@ -105,7 +106,7 @@ export default function ChatPage() {
       setTimeout(() => setBirdState('idle'), 2000)
     } catch {
       const errMsg: Message = {
-        id: crypto.randomUUID(),
+        id: createUuid(),
         role: 'assistant',
         content: 'Произошла ошибка при обращении к серверу. Попробуйте ещё раз.',
         timestamp: new Date(),
