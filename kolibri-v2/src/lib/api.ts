@@ -1030,6 +1030,40 @@ export const auth = {
 }
 
 // ---------------------------------------------------------------------------
+// Developer API keys
+// ---------------------------------------------------------------------------
+
+export interface DeveloperApiKey {
+  id: string
+  name: string
+  prefix: string
+  created_at: string
+  last_used_at: string | null
+  revoked_at: string | null
+}
+
+export interface DeveloperApiKeyListResponse {
+  items: DeveloperApiKey[]
+}
+
+export interface DeveloperApiKeyCreated extends DeveloperApiKey {
+  /** The plaintext secret is returned once and must never be persisted by the client. */
+  key: string
+}
+
+export const developerApiKeys = {
+  list: () => request<DeveloperApiKeyListResponse>('/developer/api-keys'),
+  create: (name: string, idempotencyKey: string) => request<DeveloperApiKeyCreated>('/developer/api-keys', {
+    method: 'POST',
+    headers: { 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify({ name }),
+  }),
+  revoke: (id: string) => request<void>(`/developer/api-keys/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  }),
+}
+
+// ---------------------------------------------------------------------------
 // Search
 // ---------------------------------------------------------------------------
 

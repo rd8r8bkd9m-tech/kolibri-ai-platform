@@ -30,6 +30,7 @@ function LayoutShell() {
   const [historyOpen, setHistoryOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [voiceModeActive, setVoiceModeActive] = useState(false)
+  const [conversationHasContent, setConversationHasContent] = useState(false)
   const { projects, error: historyError, deleteProject, restoreProject } = useProjectHistory()
 
   useEffect(() => {
@@ -41,6 +42,15 @@ function LayoutShell() {
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
+  }, [])
+
+  useEffect(() => {
+    const handleConversationState = (event: Event) => {
+      const detail = (event as CustomEvent<{ populated?: boolean }>).detail
+      setConversationHasContent(Boolean(detail?.populated))
+    }
+    window.addEventListener('kolibri:conversation-state', handleConversationState)
+    return () => window.removeEventListener('kolibri:conversation-state', handleConversationState)
   }, [])
 
   useEffect(() => {
@@ -83,11 +93,13 @@ function LayoutShell() {
     onOpen: () => setMobileOpen(true),
     onClose: () => setMobileOpen(false),
   })
+  const conversationHome = location.pathname === '/'
+  const conversationRoute = conversationHome || location.pathname.startsWith('/chat')
 
   return (
     <ExecutionPolicyProvider>
       <CapabilityProvider>
-        <div className={`shell-root ${railPinned ? 'rail-pinned' : ''}`} {...drawerGesture}>
+        <div className={`shell-root ${railPinned ? 'rail-pinned' : ''} ${mobileOpen ? 'is-mobile-navigation-open' : ''} ${conversationRoute ? 'is-conversation-route' : ''} ${conversationHome ? 'is-conversation-home-route' : ''}`} {...drawerGesture}>
           <SystemRail
             expanded={railExpanded || railPinned}
             pinned={railPinned}
@@ -103,8 +115,9 @@ function LayoutShell() {
           <MobileShellHeader
             open={mobileOpen}
             title={title}
-            conversationSurface={location.pathname === '/' || location.pathname.startsWith('/chat')}
-            conversationHome={location.pathname === '/'}
+            conversationSurface={conversationRoute}
+            conversationHome={conversationHome}
+            conversationHasContent={!conversationHome && conversationHasContent}
             voiceModeActive={voiceModeActive}
             onToggle={() => setMobileOpen(value => !value)}
             onNewConversation={() => navigate('/chat')}

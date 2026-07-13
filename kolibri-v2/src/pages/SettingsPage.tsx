@@ -1,8 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
-import { User, Palette, Bell, Shield, Globe, Keyboard, LogOut } from 'lucide-react'
+import { User, Palette, Bell, Shield, Globe, Keyboard, LogOut, Code2 } from 'lucide-react'
+import { Link } from 'react-router'
 import { auth, type AuthUser } from '@/lib/api'
 import { applyKolibriTheme, getStoredTheme, type KolibriTheme } from '@/features/shell/theme'
 import { isSupportedLocale, useLocale, type TranslationKey } from '@/features/localization'
+import OwnerBuildDiagnostics from '@/features/shell/OwnerBuildDiagnostics'
+import { isOwnerRole } from '@/features/shell/releaseIdentity'
 
 const tabs = [
   { id: 'profile', labelKey: 'settings.profile', icon: User },
@@ -172,6 +175,14 @@ function SettingsPageContent({ user, onLogout }: SettingsPageProps) {
                   </button>
                   {saved && <span className="text-[13px] text-emerald-600">{t('settings.saved')}</span>}
                 </div>
+                {isOwnerRole(user?.role) && <OwnerBuildDiagnostics />}
+                <Link
+                  to="/developers"
+                  className="inline-flex min-h-11 items-center gap-2 rounded-[var(--radius-md)] border border-[var(--border-subtle)] px-4 text-[13px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                >
+                  <Code2 size={16} aria-hidden="true" />
+                  {t('settings.developerPortal')}
+                </Link>
               </div>
             )}
 

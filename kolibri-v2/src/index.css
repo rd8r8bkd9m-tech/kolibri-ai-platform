@@ -13,6 +13,8 @@
     --bg-input: #ffffff;
     --glass-surface: rgba(255, 255, 255, 0.86);
     --glass-strong: rgba(255, 255, 255, 0.94);
+    --composer-control: rgba(210, 221, 230, 0.86);
+    --composer-control-foreground: #171717;
     --conversation-top: #ffffff;
     --conversation-mid: #e9f6ff;
     --conversation-bottom: #9cd1f4;
@@ -100,6 +102,8 @@
     --bg-input: #1a1a1a;
     --glass-surface: rgba(28, 30, 32, 0.9);
     --glass-strong: rgba(17, 18, 19, 0.96);
+    --composer-control: rgba(72, 82, 91, 0.92);
+    --composer-control-foreground: #f4f6f8;
     --conversation-top: #111315;
     --conversation-mid: #132430;
     --conversation-bottom: #173f57;
@@ -316,6 +320,189 @@
 button:hover .kolibri-mascot,
 a:hover .kolibri-mascot {
   animation: kolibri-flutter 760ms ease-in-out;
+}
+
+/* Developer surfaces are deliberately quiet: capability truth is the content. */
+.developer-surface {
+  height: 100%;
+  overflow-y: auto;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+}
+
+.developer-frame {
+  width: min(960px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 72px 0 96px;
+}
+
+.developer-heading { max-width: 720px; }
+.developer-eyebrow {
+  margin: 0 0 14px;
+  color: var(--accent-teal);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.developer-heading h1 {
+  margin: 0;
+  font-size: clamp(32px, 5vw, 58px);
+  line-height: 1.02;
+  letter-spacing: -0.055em;
+  font-weight: 680;
+}
+.developer-heading > p:last-child {
+  max-width: 680px;
+  margin: 22px 0 0;
+  color: var(--text-secondary);
+  font-size: 17px;
+  line-height: 1.6;
+}
+
+.developer-tabs {
+  display: flex;
+  gap: 6px;
+  margin: 36px 0 30px;
+  padding-bottom: 1px;
+  overflow-x: auto;
+}
+.developer-tab {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  padding: 0 16px;
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.developer-tab:hover { background: var(--bg-hover); color: var(--text-primary); }
+.developer-tab.is-active { background: var(--text-primary); color: var(--bg-primary); }
+
+.developer-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.developer-card {
+  display: grid;
+  min-height: 250px;
+  grid-template-rows: auto 1fr auto;
+  gap: 24px;
+  padding: 26px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 26px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  transition: border-color 160ms ease, transform 160ms ease;
+}
+.developer-card:hover { border-color: var(--border-hover); transform: translateY(-2px); }
+.developer-card > svg { width: 26px; height: 26px; color: var(--accent-teal); }
+.developer-card h2 { margin: 0 0 10px; font-size: 22px; letter-spacing: -0.025em; }
+.developer-card p { margin: 0; color: var(--text-secondary); font-size: 15px; line-height: 1.55; }
+.developer-card > span { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 650; }
+.developer-card > span svg { width: 16px; height: 16px; }
+
+.developer-panel {
+  margin-top: 18px;
+  padding: 26px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 26px;
+  background: var(--bg-secondary);
+}
+.developer-panel-heading { display: flex; align-items: flex-start; gap: 14px; }
+.developer-panel-heading > svg { width: 24px; height: 24px; margin-top: 2px; color: var(--accent-teal); }
+.developer-panel-heading h2,
+.developer-playground-result h2 { margin: 0 0 8px; font-size: 20px; letter-spacing: -0.02em; }
+.developer-panel-heading p,
+.developer-muted { margin: 0; color: var(--text-secondary); font-size: 14px; line-height: 1.55; }
+
+.developer-key-form { margin-top: 24px; }
+.developer-key-form label,
+.developer-playground label { display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 13px; font-weight: 600; }
+.developer-key-form > div { display: flex; gap: 10px; }
+.developer-key-form input,
+.developer-playground textarea {
+  width: 100%;
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font: inherit;
+  outline: none;
+}
+.developer-key-form input { min-height: 46px; padding: 0 14px; }
+.developer-playground textarea { min-height: 150px; padding: 14px; resize: vertical; line-height: 1.5; }
+.developer-key-form input:focus,
+.developer-playground textarea:focus { border-color: var(--accent-teal); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-teal) 18%, transparent); }
+.developer-key-form button,
+.developer-playground form > button,
+.developer-primary-action {
+  display: inline-flex;
+  min-height: 46px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  background: var(--text-primary);
+  color: var(--bg-primary);
+  padding: 0 18px;
+  font-size: 14px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.developer-primary-action.is-inline { margin-top: 20px; }
+.developer-key-form button:disabled,
+.developer-playground form > button:disabled { opacity: 0.42; cursor: not-allowed; }
+
+.developer-created-key {
+  margin-top: 18px;
+  padding: 16px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--accent-teal) 10%, var(--bg-primary));
+}
+.developer-created-key p { margin: 0 0 10px; font-size: 13px; }
+.developer-created-key code { display: block; overflow-x: auto; padding: 12px; border-radius: 10px; background: var(--bg-primary); font-size: 13px; }
+.developer-created-key button { display: inline-flex; min-height: 44px; align-items: center; gap: 8px; margin-top: 8px; color: var(--accent-teal); font-size: 13px; font-weight: 650; }
+.developer-created-key button svg { width: 16px; height: 16px; }
+.developer-error { margin: 16px 0 0; color: var(--color-error, #c63b3b); font-size: 13px; }
+
+.developer-key-list { margin-top: 20px; }
+.developer-key-row {
+  display: flex;
+  min-height: 68px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-top: 1px solid var(--border-subtle);
+}
+.developer-key-row > div { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
+.developer-key-row strong { overflow: hidden; text-overflow: ellipsis; font-size: 14px; white-space: nowrap; }
+.developer-key-row span { color: var(--text-tertiary); font-size: 12px; }
+.developer-key-row button { display: inline-flex; min-height: 44px; align-items: center; gap: 7px; color: var(--text-secondary); font-size: 13px; }
+.developer-key-row button svg { width: 16px; height: 16px; }
+
+.developer-endpoint-list { margin-top: 20px; border-top: 1px solid var(--border-subtle); }
+.developer-endpoint-row { display: grid; min-height: 60px; grid-template-columns: 58px 1fr; align-items: center; gap: 12px; border-bottom: 1px solid var(--border-subtle); }
+.developer-endpoint-row > span { color: var(--accent-teal); font-size: 12px; font-weight: 800; }
+.developer-endpoint-row code { overflow-x: auto; font-size: 14px; }
+
+.developer-playground form > button { margin-top: 12px; }
+.developer-playground-result { margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--border-subtle); }
+.developer-playground-result p { margin: 0; white-space: pre-wrap; font-size: 16px; line-height: 1.65; }
+
+@media (max-width: 720px) {
+  .developer-frame { width: min(100% - 32px, 620px); padding: 26px 0 72px; }
+  .developer-heading h1 { font-size: 38px; }
+  .developer-heading > p:last-child { margin-top: 16px; font-size: 16px; line-height: 1.55; }
+  .developer-tabs { margin: 26px 0 20px; }
+  .developer-card-grid { grid-template-columns: 1fr; }
+  .developer-card { min-height: 210px; padding: 22px; border-radius: 22px; }
+  .developer-panel { padding: 20px; border-radius: 22px; }
+  .developer-key-form > div { flex-direction: column; }
+  .developer-key-form button { width: 100%; }
+  .developer-key-row button span { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -838,6 +1025,13 @@ a:hover .kolibri-mascot {
 
 .shell-mobile-morph:active {
   transform: scale(0.96);
+}
+
+/* The drawer owns the single mascot while it is visible. */
+.shell-root.is-mobile-navigation-open .conversation-home-mascot,
+.shell-root.is-mobile-navigation-open .conversation-empty .kolibri-mascot,
+.shell-root.is-mobile-navigation-open .shell-mobile-morph .mobile-morph-bird {
+  visibility: hidden;
 }
 
 @media (min-width: 768px) {
@@ -1675,8 +1869,8 @@ a:hover .kolibri-mascot {
 
 .composer-voice-button,
 .composer-voice-mode-button {
-  color: #171717;
-  background: rgba(210, 221, 230, 0.86);
+  color: var(--composer-control-foreground);
+  background: var(--composer-control);
 }
 
 .composer-voice-notice {
@@ -1846,6 +2040,28 @@ a:hover .kolibri-mascot {
 .conversation-tool-list small { display: block; }
 .conversation-tool-list strong { color: var(--text-primary); font-size: 17px; font-weight: 650; line-height: 1.2; letter-spacing: -0.025em; }
 .conversation-tool-list small { margin-top: 3px; color: var(--text-secondary); font-size: 15px; line-height: 1.35; }
+.conversation-tool-list-hint { padding: 18px 8px; color: var(--text-tertiary); font-size: 15px; line-height: 1.45; }
+
+.owner-build-diagnostics {
+  display: grid;
+  gap: 6px;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 18px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.owner-build-diagnostics code {
+  width: fit-content;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  border-radius: 10px;
+  padding: 7px 9px;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
 
 @keyframes working-atmosphere {
   0%, 100% { background-position: 0% 0%; }
@@ -2091,10 +2307,10 @@ a:hover .kolibri-mascot {
 
   .shell-main:has(.conversation-home),
   .shell-main:has(.conversation-page) { padding-top: calc(64px + env(safe-area-inset-top)); }
-  .shell-root:has(.conversation-home) {
+  .shell-root.is-conversation-home-route {
     background: linear-gradient(180deg, var(--conversation-top) 0%, var(--conversation-top) 38%, var(--conversation-mid) 66%, var(--conversation-bottom) 100%);
   }
-  .shell-root:has(.conversation-page) { background: var(--bg-surface); }
+  .shell-root.is-conversation-route:not(.is-conversation-home-route) { background: var(--bg-surface); }
   .shell-root:has(.conversation-page.is-working) {
     background: linear-gradient(180deg, var(--working-c) 0%, var(--conversation-mid) 55%, var(--conversation-bottom) 100%);
     background-size: 100% 140%;

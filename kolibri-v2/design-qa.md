@@ -40,8 +40,8 @@ Combined, same-viewport comparisons:
 - Hamburger opens the componentized navigation drawer.
 - Drawer actions navigate to New project, Recent, Search, Files, and Settings.
 - Edge-swipe gesture code opens from the left edge and closes on a left swipe.
-- `+` opens one modal tool sheet with a horizontal Photo/Camera/Files carousel.
-- Only live-renderable capabilities are listed below the carousel.
+- `+` opens one modal tool sheet with a horizontal quick-action carousel.
+- Estimate and Document are deterministic product actions; every additional control requires a live route, policy permission, and a supported renderer. Photo/Camera upload remains hidden because no upload transport is proven.
 - Voice mode changes the global header and composer controls without duplicate mascot instances.
 - Light and dark settings update the shared document theme and all tokenized surfaces.
 - Conversation background now remains one uninterrupted surface behind the top bar, content and composer in empty, working, answer and voice states.
@@ -55,8 +55,35 @@ Combined, same-viewport comparisons:
 - Resolved: the mobile estimate editor toolbar scrolls within its own surface; position rows are componentized cards with labelled quantity, price and total fields and no numeric spinner controls.
 - P1: conversation history is not yet durable across reloads.
 - Resolved: provider route, response, source-search and artifact-verification stages are backend-authored events; the UI exposes no private chain-of-thought.
-- P2: the app runs from the Vite dev server on the production domain during active development; a hashed release build remains a separate release gate.
+- P2: this implementation pass produced a hashed static build but did not switch the production domain; deployment remains a separate signed release gate.
 
-## Result
+## Prior result
 
-Final result: **blocked** only on product-wide conversation durability. Backend-authored safe work events are now live; provider provenance is visible without exposing private chain-of-thought.
+The prior pass was blocked only on product-wide conversation durability. Backend-authored safe work events were live; provider provenance was visible without exposing private chain-of-thought.
+
+## 2026-07-13 component pass
+
+Implementation changes:
+
+- The full-screen conversation atmosphere is now owned by explicit Shell route state instead of being inferred from child markup.
+- The mobile navigation trigger is a dedicated morphing component: empty state keeps the only bird in the canvas; a populated conversation moves the only bird into the header slot.
+- Left-edge open, left-swipe close and scroll rejection share one tested gesture contract and are disabled outside the mobile breakpoint.
+- The `+` surface now renders a real horizontally scrollable quick-action carousel. It contains deterministic Estimate/Document actions and only backend-confirmed live capabilities; camera/photo upload controls remain hidden because no upload transport is currently proven.
+- Dark and light composer media controls now use shared semantic theme tokens.
+- `/developers`, `/docs`, and `/playground` now share a componentized developer surface. Public endpoints, Playground execution, and API-key controls fail closed until the backend advertises the exact live capability and renderer.
+- The build reads the release identity only from `VITE_KOLIBRI_RELEASE_ID`; the safe release ID is visible only in owner diagnostics.
+
+Automated evidence:
+
+- Vitest: `16` files, `58` tests passed.
+- ESLint: passed.
+- TypeScript and Vite production build: passed.
+
+Current visual comparison blocker:
+
+- The in-app browser runtime exposed no controllable browser window during this pass, so the modified build could not be captured at `390 × 844` and compared with the source references in one combined image.
+- The earlier screenshots above are preserved as historical evidence and are not represented as proof of this new component pass.
+
+final result: blocked
+
+Blocker: a browser-rendered screenshot and same-state comparison of empty, populated, drawer, tool-sheet, keyboard and dark-theme states are still required.

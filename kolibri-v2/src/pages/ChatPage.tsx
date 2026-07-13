@@ -261,6 +261,14 @@ export default function ChatPage() {
   const { createProject, remember, refresh } = useProjectHistory()
   const suggestions = [t('home.suggestionEstimate'), t('home.suggestionContract')]
 
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('kolibri:conversation-state', { detail: { populated: messages.length > 0 } }))
+  }, [messages.length])
+
+  useEffect(() => () => {
+    window.dispatchEvent(new CustomEvent('kolibri:conversation-state', { detail: { populated: false } }))
+  }, [])
+
   useEffect(() => () => abortRef.current?.abort(), [])
 
   useEffect(() => {

@@ -12,6 +12,9 @@ import AgentsPage from './pages/AgentsPage'
 import ServersPage from './pages/ServersPage'
 import SettingsPage from './pages/SettingsPage'
 import LoginPage from './pages/LoginPage'
+import DevelopersPage from './pages/DevelopersPage'
+import DeveloperDocsPage from './pages/DeveloperDocsPage'
+import DeveloperPlaygroundPage from './pages/DeveloperPlaygroundPage'
 import { auth, getAuthToken, type AuthUser } from '@/lib/api'
 import { useLocale } from '@/features/localization'
 
@@ -49,6 +52,9 @@ export default function App() {
         <Route path="documents" element={<DocumentsPage />} />
         <Route path="agents" element={<AgentsPage />} />
         <Route path="servers" element={<ServersPage />} />
+        <Route path="developers" element={<DevelopersPage user={user} />} />
+        <Route path="docs" element={<DeveloperDocsPage />} />
+        <Route path="playground" element={<DeveloperPlaygroundPage />} />
         <Route path="settings" element={<SettingsPage user={user} onLogout={() => { setUser(null); localStorage.removeItem('kolibri_token') }} />} />
       </Route>
     </Routes>

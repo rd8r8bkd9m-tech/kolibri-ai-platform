@@ -1,14 +1,15 @@
-import { ChevronDown, Ellipsis, Menu, NotebookTabs, Pencil, X } from 'lucide-react'
+import { ChevronDown, Ellipsis, NotebookTabs, Pencil } from 'lucide-react'
 import { useState } from 'react'
-import CartoonMascot from '@/components/CartoonMascot'
 import { useExecutionMode } from './executionPolicyContext'
 import { useLocale } from '@/features/localization'
+import MobileNavigationTrigger from './MobileNavigationTrigger'
 
 interface MobileShellHeaderProps {
   open: boolean
   title: string
   conversationSurface?: boolean
   conversationHome?: boolean
+  conversationHasContent?: boolean
   voiceModeActive?: boolean
   onToggle: () => void
   onNewConversation?: () => void
@@ -21,6 +22,7 @@ export default function MobileShellHeader({
   title,
   conversationSurface = false,
   conversationHome = false,
+  conversationHasContent = false,
   voiceModeActive = false,
   onToggle,
   onNewConversation,
@@ -34,14 +36,14 @@ export default function MobileShellHeader({
 
   return (
     <header className={`shell-mobile-header md:hidden ${conversationSurface ? 'is-conversation-surface' : ''}`}>
-      <button onClick={onToggle} className="shell-mobile-morph" aria-label={open ? t('shell.closeMenu') : t('shell.openMenu')}>
-        {open ? <X size={24} /> : (
-          conversationSurface ? <Menu size={28} strokeWidth={1.8} /> : <>
-              <CartoonMascot size={42} className="mobile-morph-bird" />
-              <Menu size={24} className="mobile-morph-menu" />
-            </>
-        )}
-      </button>
+      <MobileNavigationTrigger
+        open={open}
+        conversationSurface={conversationSurface}
+        conversationHasContent={conversationHasContent}
+        openLabel={t('shell.openMenu')}
+        closeLabel={t('shell.closeMenu')}
+        onToggle={onToggle}
+      />
 
       {conversationSurface && !voiceModeActive ? (
         <div className="shell-mobile-mode-wrap">

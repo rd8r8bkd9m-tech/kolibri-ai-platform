@@ -2,6 +2,7 @@ import { useEffect, useRef, type ComponentType, type PointerEvent as ReactPointe
 import { createPortal } from 'react-dom'
 import { Blocks, Calculator, Code2, FileSearch, FileText, Globe2, Image as ImageIcon, Monitor, X } from 'lucide-react'
 import ToolListItem from './ToolListItem'
+import ToolCarousel from './ToolCarousel'
 import type { UiCapability, UiCapabilityKey } from '@/features/capabilities'
 import { shouldDismissToolSheetSwipe } from './toolSheetGesture'
 import { useLocale } from '@/features/localization'
@@ -59,7 +60,7 @@ export default function ToolSheet({
       element.setAttribute('aria-hidden', 'true')
     })
     document.body.style.overflow = 'hidden'
-    window.requestAnimationFrame(() => dialog.querySelector<HTMLElement>('.conversation-tool-list button')?.focus())
+    window.requestAnimationFrame(() => dialog.querySelector<HTMLElement>('[data-tool-sheet-primary]')?.focus())
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault()
@@ -120,6 +121,8 @@ export default function ToolSheet({
       run: () => onCapability(item.key),
     })),
   ]
+  const quickTools = tools.slice(0, 4)
+  const detailedTools = tools.slice(4)
 
   const select = (tool: ToolDefinition) => {
     onClose()
@@ -155,8 +158,16 @@ export default function ToolSheet({
         </div>
 
         <div className="conversation-tool-sheet-scroll">
+          <ToolCarousel
+            label={t('tool.quickActions')}
+            items={quickTools.map(tool => ({ id: tool.id, title: tool.title, icon: tool.icon }))}
+            onSelect={id => {
+              const tool = quickTools.find(item => item.id === id)
+              if (tool) select(tool)
+            }}
+          />
           <div className="conversation-tool-list" aria-label={t('tool.available')}>
-            {tools.map(tool => (
+            {detailedTools.map(tool => (
               <ToolListItem
                 key={tool.id}
                 title={tool.title}
@@ -165,6 +176,7 @@ export default function ToolSheet({
                 onSelect={() => select(tool)}
               />
             ))}
+            {!detailedTools.length && <p className="conversation-tool-list-hint">{t('tool.moreWhenAvailable')}</p>}
           </div>
         </div>
       </section>
