@@ -14,6 +14,7 @@ import LoginPage from './pages/LoginPage'
 import DevelopersPage from './pages/DevelopersPage'
 import DeveloperDocsPage from './pages/DeveloperDocsPage'
 import DeveloperPlaygroundPage from './pages/DeveloperPlaygroundPage'
+import AppRouteRedirect from '@/features/projects/AppRouteRedirect'
 import { auth, getAuthToken, type AuthUser } from '@/lib/api'
 import { useLocale } from '@/features/localization'
 
@@ -43,6 +44,7 @@ export default function App() {
       <Route path="login" element={<LoginPage onLogin={setUser} />} />
       <Route element={<ErrorBoundary><Layout /></ErrorBoundary>}>
         <Route index element={<Home />} />
+        <Route path="app" element={<AppRouteRedirect />} />
         <Route path="chat" element={<ChatPage />} />
         <Route path="chat/:projectId" element={<ChatPage />} />
         <Route path="library" element={<LibraryPage />} />
