@@ -61,6 +61,7 @@ class _ImageConfig:
     model: str
     enabled: bool
     rest_enabled: bool
+    codex_worker_url: str
 
 
 def _config() -> _ImageConfig:
@@ -77,6 +78,7 @@ def _config() -> _ImageConfig:
         enabled=enabled,
         rest_enabled=os.getenv("OPENAI_REST_IMAGE_ROUTING_ENABLED", "").strip().lower()
         in {"1", "true", "yes", "on"},
+        codex_worker_url=os.getenv("KOLIBRI_CODEX_IMAGE_WORKER_URL", "").strip().rstrip("/"),
     )
 
 
@@ -97,20 +99,33 @@ def _codex_cli_route() -> dict[str, Any]:
 
 def _selected_image_route() -> dict[str, Any]:
     config = _config()
+    if config.enabled and config.codex_worker_url in {
+        "http://127.0.0.1:18016",
+        "http://localhost:18016",
+    }:
+        return {
+            "configured": True,
+            "provider": "codex_cli",
+            "model": "codex-cli:account-default",
+            "execution": "local_worker",
+            "worker_url": config.codex_worker_url,
+        }
     codex_route = _codex_cli_route()
     if config.enabled and codex_route["configured"]:
-        return codex_route
+        return {**codex_route, "execution": "direct"}
     rest_configured = bool(config.enabled and config.rest_enabled and config.api_key)
     if rest_configured:
         return {
             "configured": True,
             "provider": "openai",
             "model": config.model,
+            "execution": "rest",
         }
     return {
         "configured": False,
         "provider": "none",
         "model": "none",
+        "execution": "none",
     }
 
 
@@ -352,7 +367,7 @@ async def generate_image(
     if not config.enabled or not route["configured"]:
         raise ImageCapabilityUnavailable("Image generation is not configured.")
     try:
-        if route["provider"] == "codex_cli":
+        if route["provider"] == "codex_cli" and route.get("execution") == "direct":
             from app.codex_cli_image_provider import (
                 CodexCLIImageError,
                 generate_codex_cli_image,
@@ -373,6 +388,24 @@ async def generate_image(
                 raise ImageGenerationFailed("Codex CLI did not return a verified image file.") from exc
             image_bytes = cli_result.data
             model = cli_result.model
+        elif route["provider"] == "codex_cli" and route.get("execution") == "local_worker":
+            timeout = httpx.Timeout(600.0, connect=5.0)
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.post(
+                    f"{route['worker_url']}/v1/images/generations",
+                    json={
+                        "prompt": request.prompt,
+                        "size": request.size,
+                        "quality": request.quality,
+                        "run_id": run_id,
+                    },
+                )
+                response.raise_for_status()
+                payload = response.json()
+                image_bytes, image_url = _extract_image_bytes(payload)
+                if image_url is not None:
+                    raise ImageGenerationFailed("Local image worker returned a remote URL.")
+                model = str(payload.get("model") or route["model"])
         else:
             headers = {
                 "Authorization": f"Bearer {config.api_key}",

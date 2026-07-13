@@ -24,6 +24,7 @@ def reset_image_probe_state(monkeypatch):
     monkeypatch.setattr(image_artifacts, "_last_verified_model", None)
     monkeypatch.setenv("CODEX_CLI_IMAGE_ENABLED", "false")
     monkeypatch.delenv("OPENAI_REST_IMAGE_ROUTING_ENABLED", raising=False)
+    monkeypatch.delenv("KOLIBRI_CODEX_IMAGE_WORKER_URL", raising=False)
 
 
 def _sse_payloads(response) -> list[dict]:
@@ -176,6 +177,41 @@ def test_codex_cli_is_primary_image_route_and_materializes_real_bytes(monkeypatc
     assert capability["status"] == "live"
     assert capability["invocable"] is True
     assert capability["route"]["provider"] == "codex_cli"
+
+
+def test_loopback_codex_worker_preserves_backend_sandbox(monkeypatch, tmp_path):
+    monkeypatch.setenv("CODEX_CLI_IMAGE_ENABLED", "false")
+    monkeypatch.setenv("KOLIBRI_CODEX_IMAGE_WORKER_URL", "http://127.0.0.1:18016")
+    monkeypatch.setenv("KOLIBRI_ARTIFACT_DIR", str(tmp_path))
+
+    async def upstream(request: httpx.Request) -> httpx.Response:
+        assert request.url == "http://127.0.0.1:18016/v1/images/generations"
+        payload = json.loads(request.content)
+        assert payload["prompt"] == "сгенерируй цветы"
+        return httpx.Response(
+            200,
+            json={
+                "model": "codex-cli:account-default",
+                "data": [{"b64_json": base64.b64encode(_PNG_1X1).decode()}],
+            },
+        )
+
+    transport = httpx.MockTransport(upstream)
+    real_client = httpx.AsyncClient
+
+    def client_factory(**kwargs):
+        return real_client(transport=transport, timeout=kwargs.get("timeout"))
+
+    monkeypatch.setattr(image_artifacts.httpx, "AsyncClient", client_factory)
+    artifact = asyncio.run(
+        image_artifacts.generate_image(
+            image_artifacts.ImageGenerationRequest(prompt="сгенерируй цветы")
+        )
+    )
+
+    assert image_artifacts.verify_image_artifact(artifact) == artifact
+    assert artifact["model"] == "codex-cli:account-default"
+    assert image_artifacts.image_execution_identity()["provider"] == "codex_cli"
 
 
 def test_chat_stream_never_claims_image_success_without_artifact(monkeypatch):
