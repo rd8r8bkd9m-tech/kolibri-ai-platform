@@ -1,60 +1,46 @@
-# Vista OS 11.1 Product Release
+# Kolibri AI OS V2.1
 
-Vista OS is a single-window AI operating workspace. It exposes one entry point, one shell and one conversational control surface. Apps are rendered only when the current role, plan and intent allow them.
+A clean Home-first foundation for one continuous project conversation, an OpenAI-compatible `/v1` API, contextual verticals, materialized artifacts, and evidence-gated factory execution.
 
-The first product vertical is implemented end to end:
+## Proven in this branch
 
-```text
-project brief
-→ editable construction estimate
-→ server-side totals
-→ estimate version
-→ verifier-gated factory task
-→ PDF / XLSX / DOCX / JSON / Markdown
-→ SHA-256 evidence
-→ secure client share
-→ download and revocation
-```
-
-## Implemented product capabilities
-
-- strict FastAPI Core API with no production demo fallback;
-- SQLite WAL persistence and tenant/session isolation;
-- signed HMAC session tokens;
-- real estimate CRUD and server-side calculations;
-- real PDF/XLSX/DOCX/JSON/Markdown files;
-- client artifact vault, hashes and expiring share links;
-- workspace/chat/active-project restoration after reload;
-- capability-rendered roles;
-- transparent OpenAI-compatible `/v1/*` and Realtime gateway;
-- node registry, queue, leases, worker execution, artifacts and verifier;
-- installable PWA, hardened Docker deployment and Tauri 2 shell;
-- 1000 machine-readable agent roles.
+- POST-first browser bootstrap without expected 401/403 noise;
+- projects, history, soft delete, and restore;
+- durable Responses with idempotency, resumable SSE, cancel, and restart reconciliation;
+- one public model: `kolibri`;
+- OpenAI-style bearer API keys, stored as SHA-256 hashes and revocable;
+- real estimate items, sources, deterministic totals, immutable revisions, and exports;
+- real PDF/XLSX/DOCX/JSON/Markdown bytes with MIME, size, and SHA-256;
+- persistent task queue, lease, fencing, required-artifact gate, and verifier binding;
+- safe node runtime without arbitrary shell execution;
+- Morphing Conversation Shell with no permanent vertical menu;
+- capability visibility only after route + executor + renderer + evidence + policy gates;
+- Rust shadow contracts for response and task state.
 
 ## Local start
 
 ```bash
-./scripts/dev-fone.sh
+./scripts/dev.sh
 ```
+
+Shell: `http://127.0.0.1:5191`
+API: `http://127.0.0.1:8191`
 
 ## Validation
 
 ```bash
-./scripts/validate-fone.sh
+./scripts/validate.sh
 ./scripts/release-check.sh
 ```
 
-## Production Docker
+The release check runs architecture validation, OpenAPI generation, backend and frontend tests, production build, browser E2E, real PDF verification, source security scan, CycloneDX SBOM generation, and an authenticated factory canary.
 
-```bash
-cp .env.example .env
-# Replace all secrets and origins
-docker compose up --build -d
-```
+## OpenAI-compatible SDK
 
-The local authenticated factory canary is proven. A public 24/7 distributed-fleet claim still requires a real three-server canary and operational observation.
+Create a `sk-kolibri-*` key through `/v1/api-keys`, then configure an OpenAI-compatible client with `base_url=https://kolibriai.ru/v1` and model `kolibri`. Raw keys are shown once; only SHA-256 hashes remain in storage.
 
-## Release documents
+See `docs/api/OPENAI_COMPATIBILITY.ru.md` and `packages/contracts/openai-compatibility.json`.
 
-- [Build report](docs/release/VISTA_OS_11_1_BUILD_REPORT.md)
-- [Architecture](docs/architecture/VISTA_OS_11_ARCHITECTURE.md)
+## Honest boundary
+
+SQLite and Python remain the local clean V2 foundation and compatibility gateway. PostgreSQL, JetStream, replicated S3-compatible CAS, Rust authority, Home deployment, a physical 21/21 campaign, signed rollout, and the 24-hour soak remain mandatory production gates.

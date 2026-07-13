@@ -1,0 +1,42 @@
+{
+  "$schema": "./system-manifest.schema.json",
+  "version": "2026.07.kolibri-ai-os-v2.1-clean-foundation",
+  "product": "Kolibri AI OS",
+  "public_model": "kolibri",
+  "authority": {
+    "control_plane": "home",
+    "legacy_fallbacks_forbidden": ["main", "primary", "hardcoded_ip", "legacy_api"]
+  },
+  "ux": {
+    "direction": "morphing_conversation",
+    "single_project_conversation": true,
+    "permanent_vertical_menu": false,
+    "single_bird_per_surface": true,
+    "desktop": "inline_canvas_with_optional_detach",
+    "mobile": "single_fullscreen_surface_and_sheets"
+  },
+  "api": {
+    "base": "/v1",
+    "openai_compatible": true,
+    "session_bootstrap": "POST /v1/shell/bootstrap",
+    "public_model": "kolibri"
+  },
+  "capability_gate": ["route", "executor", "renderer", "evidence", "policy"],
+  "proven_capabilities": ["chat", "history", "estimates", "documents", "files"],
+  "hidden_until_proven": ["images", "audio", "video", "code", "sites", "browser", "automations"],
+  "factory": {
+    "completion_requires": ["non_empty_result", "result_sha256", "attempt_binding", "artifact_sha256", "verifier_binding"],
+    "heartbeat_is_execution_proof": false,
+    "node_runtime_allows_arbitrary_shell": false
+  },
+  "rust": {
+    "mode": "shadow",
+    "authority": false,
+    "required_before_cutover": ["lifecycle_parity", "restart_durability", "zero_unexplained_diff_24h"]
+  },
+  "formulalm": {
+    "production_weight_mutation_in_request": false,
+    "pipeline": ["sanitize", "consent_license_gate", "candidate", "dataset", "train_distill", "eval", "shadow", "canary", "owner_promotion", "rollback"]
+  },
+  "release_gates": ["source", "design", "backend", "shell", "capability", "estimate", "factory", "rust_formulalm", "signed_release", "soak_24h"]
+}

@@ -1,87 +1,82 @@
-# Vista OS 11.1 Product Release
+# Kolibri AI OS V2.1
 
-Vista OS — единая AI-операционная рабочая среда. У пользователя одна точка входа, один shell и один диалоговый control surface. Функции появляются только по роли, подписке и текущему намерению пользователя.
+Clean Home-first foundation: один проектный диалог, OpenAI-compatible `/v1`, контекстные вертикали, materialized artifacts и доказательная фабрика.
 
-Первая продуктовая вертикаль полностью проходит реальный путь:
+## Что реально работает в этой ветке
 
-```text
-бриф объекта
-→ смета и позиции работ
-→ серверный расчёт
-→ версия сметы
-→ verifier-gated factory task
-→ PDF / XLSX / DOCX / JSON / Markdown
-→ SHA-256
-→ защищённая клиентская ссылка
-→ скачивание и отзыв ссылки
-```
-
-## Что действительно работает
-
-- FastAPI Core API без production demo fallback;
-- SQLite WAL persistence и изоляция пользовательских сессий;
-- подписанные HMAC session tokens;
-- реальный CRUD смет и серверный пересчёт;
-- PDF/XLSX/DOCX/JSON/Markdown generation;
-- client artifact vault, SHA-256 и публичные ссылки;
-- восстановление активного приложения, чата и объекта после reload;
-- роли `client`, `client_pro`, `operator`, `server_admin`, `developer`, `owner`;
-- OpenAI-compatible transparent `/v1/*` и Realtime gateway;
-- node registry, persistent task queue, lease, worker, artifact, verifier;
-- PWA, Docker production shell и Tauri 2 desktop shell;
-- 1000 машинных ролей агентов.
+- POST-first bootstrap без 401/403 шума;
+- проекты, история, soft delete и restore;
+- durable Responses с idempotency, SSE resume и cancel;
+- публичная модель `kolibri`;
+- настоящая вертикаль смет: items, источники, deterministic totals, revisions;
+- реальные PDF/XLSX/DOCX/JSON/Markdown с MIME, size и SHA-256;
+- persistent task queue, lease, fencing, artifact gate и verifier binding;
+- безопасный node runtime без arbitrary shell;
+- Morphing Conversation Shell без постоянного меню вертикалей;
+- capability visibility только при route + executor + renderer + evidence + policy;
+- Rust shadow contracts для response/task state.
 
 ## Локальный запуск
 
-Требования: Python 3.12+, Node.js 22+.
-
 ```bash
-./scripts/dev-fone.sh
+./scripts/dev.sh
 ```
 
-Открыть `http://127.0.0.1:5173`.
+Shell: `http://127.0.0.1:5191`
+API: `http://127.0.0.1:8191`
 
-## Полная проверка
+## Полная локальная проверка
 
 ```bash
-./scripts/validate-fone.sh
-./scripts/release-check.sh
+./scripts/validate.sh
 ```
 
-`release-check.sh` проверяет настоящий HTTP-сценарий, реальные документы, tenant isolation, восстановление workspace, public download/revoke, factory canary и backup/restore.
+## Factory canary
 
-Browser E2E, Tauri native check и Docker build являются обязательными отдельными jobs в GitHub Actions.
-
-## Production Docker
+В одном терминале запустите API, затем:
 
 ```bash
-cp .env.example .env
-openssl rand -hex 32 # сгенерировать каждый секрет отдельно
-nano .env
-docker compose up --build -d
-```
-
-Frontend: `http://SERVER:8080`  
-Backend напрямую доступен только на loopback `127.0.0.1:8000`; внешний доступ идёт через Nginx `/api` и `/v1`.
-
-## Worker-нода
-
-```bash
-sudo ./scripts/install-node.sh \
-  --node-id server-002 \
-  --control-url https://vista.example.com \
-  --join-token "$VISTA_NODE_JOIN_TOKEN" \
-  --signing-secret "$VISTA_NODE_SIGNING_SECRET" \
-  --workers 2 \
-  --capabilities health.probe,estimate.artifacts
+KOLIBRI_NODE_JOIN_TOKEN=canary-secret ./scripts/factory-canary.sh
 ```
 
 ## Честная граница
 
-Локальный authenticated factory canary проходит. Утверждение о 24/7 распределённой фабрике требует canary на реальных control-server + worker-01 + worker-02 и наблюдения за lease recovery/alerts.
+SQLite и Python в этой ветке — локальный clean V2 foundation и compatibility gateway. PostgreSQL, JetStream, SeaweedFS, Rust authority, Home rollout, 21/21 campaign и 24-hour soak остаются отдельными production gates.
 
-## Документы релиза
+## Release evidence
 
-- [Отчёт о сборке](docs/release/VISTA_OS_11_1_BUILD_REPORT.md)
-- [Production deployment](docs/deploy/PRODUCTION_DEPLOYMENT.ru.md)
-- [Архитектура](docs/architecture/VISTA_OS_11_ARCHITECTURE.md)
+Полный локальный контрольный цикл:
+
+```bash
+./scripts/release-check.sh
+```
+
+Он проверяет архитектурный закон, OpenAPI, backend, frontend, production build,
+browser E2E, реальные PDF-байты, безопасность исходников, CycloneDX SBOM и
+аутентифицированный factory canary.
+
+## OpenAI-compatible SDK
+
+Developer/owner создаёт `sk-kolibri-*` key через `/v1/api-keys`. После этого OpenAI-compatible SDK использует:
+
+```python
+from openai import OpenAI
+client = OpenAI(api_key="<KOLIBRI_API_KEY>", base_url="https://kolibriai.ru/v1")
+response = client.responses.create(model="kolibri", input="Привет")
+```
+
+Raw key показывается один раз; в хранилище остаётся SHA-256. Подробнее: `docs/api/OPENAI_COMPATIBILITY.ru.md`.
+
+## Controlled Docker deployment
+
+```bash
+cp .env.example .env
+# замените все placeholder-секреты
+docker compose up --build -d
+```
+
+Shell: `http://localhost:8080`.
+
+Это single-server release candidate. PostgreSQL/JetStream/SeaweedFS, Home
+rollout, физический 3-node canary, кампания 21/21 и 24-часовой soak остаются
+обязательными production gates.

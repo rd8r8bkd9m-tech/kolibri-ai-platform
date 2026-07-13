@@ -1,0 +1,13 @@
+:root {
+  --kolibri-color-ivory: #f4efe6;
+  --kolibri-color-paper: #fbf8f1;
+  --kolibri-color-ink: #172320;
+  --kolibri-color-muted: #6d736f;
+  --kolibri-color-teal: #178f86;
+  --kolibri-color-orange: #ef8552;
+  --kolibri-radius-control: 14px;
+  --kolibri-radius-surface: 24px;
+  --kolibri-control-min: 44px;
+  --kolibri-body-desktop: 16px;
+  --kolibri-body-mobile: 18px;
+}

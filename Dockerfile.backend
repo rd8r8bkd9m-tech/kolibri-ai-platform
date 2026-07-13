@@ -1,11 +1,13 @@
-FROM python:3.12-slim
-ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/app
+FROM python:3.13-slim AS runtime
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app/services/api-gateway
 WORKDIR /app
-RUN groupadd --system vista && useradd --system --gid vista --home /app vista
-COPY backend/requirements.txt /app/backend/requirements.txt
-RUN pip install --no-cache-dir -r /app/backend/requirements.txt
-COPY --chown=vista:vista . /app
-RUN mkdir -p /data/artifacts && chown -R vista:vista /data
-USER vista
+RUN groupadd --system kolibri && useradd --system --gid kolibri --home /app kolibri
+COPY services/api-gateway/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
+COPY --chown=kolibri:kolibri services/api-gateway /app/services/api-gateway
+RUN mkdir -p /var/lib/kolibri/artifacts && chown -R kolibri:kolibri /var/lib/kolibri
+USER kolibri
 EXPOSE 8000
-CMD ["uvicorn","backend.app.main:app","--host","0.0.0.0","--port","8000","--proxy-headers","--forwarded-allow-ips=*"]
+CMD ["python","-B","-m","uvicorn","main:app","--app-dir","services/api-gateway","--host","0.0.0.0","--port","8000","--proxy-headers","--forwarded-allow-ips=*"]

@@ -2,59 +2,52 @@
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
+import re
 
 ROOT = Path(__file__).resolve().parents[1]
-SKIP_PARTS = {'.git', 'node_modules', 'dist', 'var', '__pycache__', '.pytest_cache', 'docs/archive'}
-TEXT_SUFFIXES = {'.py', '.js', '.jsx', '.ts', '.tsx', '.json', '.yaml', '.yml', '.toml', '.md', '.sh', '.html', '.css', '.txt'}
+OUT = ROOT / "release-evidence" / "security-scan.json"
+OUT.parent.mkdir(parents=True, exist_ok=True)
+
+EXCLUDED = {".git", ".venv", "node_modules", "dist", "var", "data", "release-evidence"}
+TEXT_SUFFIXES = {".py", ".ts", ".tsx", ".js", ".json", ".md", ".yml", ".yaml", ".toml", ".sh", ".conf", ".txt", ".example"}
 PATTERNS = {
-    'private_key': re.compile(r'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----'),
-    'github_pat': re.compile(r'\bgh[pousr]_[A-Za-z0-9]{30,}\b'),
-    'aws_access_key': re.compile(r'\bAKIA[0-9A-Z]{16}\b'),
-    'openai_secret': re.compile(r'\bsk-(?:proj-)?[A-Za-z0-9_-]{24,}\b'),
+    "private_key": re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
+    "github_token": re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}\b"),
+    "openai_key": re.compile(r"\bsk-[A-Za-z0-9_-]{24,}\b"),
+    "aws_access_key": re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
+    "generic_secret_assignment": re.compile(r"(?i)\b(?:password|secret|token|api[_-]?key)\s*[:=]\s*['\"](?!replace-|dev-|test-|canary-|\$\{|<)[^'\"\n]{12,}['\"]"),
+}
+FORBIDDEN_LITERALS = {
+    "generic_failure": "Kolibri could not produce a verified response",
+    "legacy_control_ip": "10.99.0.2",
+    "legacy_primary_identity": "primary-candidate",
 }
 
-findings: list[dict[str, object]] = []
-for path in ROOT.rglob('*'):
-    if not path.is_file() or path.suffix.lower() not in TEXT_SUFFIXES:
-        continue
+findings: list[dict] = []
+scanned = 0
+for path in ROOT.rglob("*"):
     relative = path.relative_to(ROOT)
-    rendered = relative.as_posix()
-    if any(part in SKIP_PARTS for part in relative.parts) or rendered.startswith('docs/archive/'):
+    if not path.is_file() or any(part in EXCLUDED for part in relative.parts):
+        continue
+    if path.resolve() in {Path(__file__).resolve(), (ROOT / "tools/validate_architecture.py").resolve()}:
+        continue
+    if path.suffix.lower() not in TEXT_SUFFIXES and path.name not in {"Dockerfile.backend", "Dockerfile.frontend", ".env.example"}:
         continue
     try:
-        content = path.read_text(encoding='utf-8')
-    except UnicodeDecodeError:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
         continue
-    for name, pattern in PATTERNS.items():
-        for match in pattern.finditer(content):
-            findings.append({'rule': name, 'path': rendered, 'offset': match.start()})
+    scanned += 1
+    for kind, pattern in PATTERNS.items():
+        for match in pattern.finditer(text):
+            findings.append({"kind": kind, "path": str(path.relative_to(ROOT)), "line": text.count("\n", 0, match.start()) + 1})
+    if not ("docs" in path.parts and "spec" in path.parts):
+        for kind, literal in FORBIDDEN_LITERALS.items():
+            if literal in text:
+                findings.append({"kind": kind, "path": str(path.relative_to(ROOT)), "line": text[: text.index(literal)].count("\n") + 1})
 
-for forbidden in ['.env', 'id_rsa', 'id_ed25519']:
-    candidate = ROOT / forbidden
-    if candidate.exists():
-        findings.append({'rule': 'forbidden_secret_file', 'path': forbidden})
-
-frontend = '\n'.join(
-    path.read_text(encoding='utf-8')
-    for path in (ROOT / 'frontend' / 'src').rglob('*')
-    if path.is_file() and path.suffix in {'.js', '.jsx', '.ts', '.tsx'}
-)
-if 'OPENAI_API_KEY' in frontend:
-    findings.append({'rule': 'upstream_secret_in_frontend', 'path': 'frontend/src'})
-
-compose = (ROOT / 'docker-compose.yml').read_text(encoding='utf-8')
-backend_docker = (ROOT / 'Dockerfile.backend').read_text(encoding='utf-8')
-if 'USER vista' not in backend_docker:
-    findings.append({'rule': 'backend_container_not_unprivileged', 'path': 'Dockerfile.backend'})
-if 'no-new-privileges:true' not in compose.replace(' ', ''):
-    findings.append({'rule': 'compose_missing_no_new_privileges', 'path': 'docker-compose.yml'})
-
-report = {'status': 'passed' if not findings else 'failed', 'findings': findings}
-output = ROOT / 'var' / 'security-scan.json'
-output.parent.mkdir(parents=True, exist_ok=True)
-output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-if findings:
-    raise SystemExit(json.dumps(report, ensure_ascii=False, indent=2))
-print(f'ok: Vista source security scan passed; report={output}')
+report = {"status": "passed" if not findings else "failed", "scanned_files": scanned, "findings": findings}
+OUT.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+print(json.dumps(report, ensure_ascii=False, indent=2))
+raise SystemExit(0 if not findings else 1)

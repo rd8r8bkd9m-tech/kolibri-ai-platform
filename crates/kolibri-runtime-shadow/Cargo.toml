@@ -1,0 +1,10 @@
+[package]
+name = "kolibri-runtime-shadow"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+kolibri-core = { path = "../kolibri-core" }
+serde.workspace = true
+serde_json.workspace = true

@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "2026.07.kolibri-v2.1-openai-compat",
+  "public_model": "kolibri",
+  "authentication": {
+    "bearer": true,
+    "api_key_prefix": "sk-kolibri-",
+    "api_keys_stored_as_sha256": true,
+    "browser_session_cookie": "Secure HttpOnly in production",
+    "provider_credentials_exposed_to_client": false
+  },
+  "native_resources": {
+    "responses": [
+      "create",
+      "retrieve",
+      "delete",
+      "cancel",
+      "stream",
+      "resume",
+      "input_items",
+      "input_tokens",
+      "compact"
+    ],
+    "conversations": [
+      "create",
+      "retrieve",
+      "update",
+      "delete",
+      "items.create",
+      "items.list",
+      "items.retrieve",
+      "items.delete"
+    ],
+    "chat_completions": [
+      "create",
+      "stream"
+    ],
+    "models": [
+      "list",
+      "retrieve"
+    ],
+    "realtime": [
+      "websocket"
+    ],
+    "projects": [
+      "list",
+      "create",
+      "retrieve",
+      "update",
+      "soft_delete",
+      "restore",
+      "messages"
+    ],
+    "estimates": [
+      "create",
+      "retrieve",
+      "update",
+      "items",
+      "sources",
+      "revisions",
+      "exports"
+    ],
+    "artifacts": [
+      "list",
+      "retrieve",
+      "content"
+    ],
+    "runtime": [
+      "summary",
+      "tasks",
+      "leases",
+      "fencing",
+      "events",
+      "nodes"
+    ]
+  },
+  "provider_gateway": {
+    "mode": "server_side_fail_closed",
+    "requires_roles": [
+      "developer",
+      "owner"
+    ],
+    "owner_only_prefixes": [
+      "organization"
+    ],
+    "resource_prefixes": [
+      "audio",
+      "videos",
+      "images",
+      "embeddings",
+      "evals",
+      "fine_tuning",
+      "graders",
+      "batches",
+      "files",
+      "uploads",
+      "moderations",
+      "vector_stores",
+      "chatkit",
+      "containers",
+      "skills",
+      "assistants",
+      "threads",
+      "completions",
+      "organization",
+      "realtime",
+      "webhooks"
+    ],
+    "client_project_headers_forwarded": false,
+    "server_project_scope": true,
+    "streaming": true,
+    "multipart_and_binary": true,
+    "upstream_request_id_preserved": true,
+    "unconfigured_error_code": "upstream_not_configured"
+  },
+  "non_goals": [
+    "copying proprietary OpenAI model behavior",
+    "exposing upstream provider credentials",
+    "claiming unsupported capabilities as available"
+  ]
+}

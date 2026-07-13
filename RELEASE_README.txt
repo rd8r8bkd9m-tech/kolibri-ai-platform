@@ -1,16 +1,22 @@
-Vista OS 11.1 Product Release
+Kolibri AI OS V2.1 Release Candidate
 
-Local start:
-  ./scripts/dev-fone.sh
+Local development:
+  ./scripts/dev.sh
 
 Validation:
-  python3 -m pip install -r backend/requirements-dev.txt
-  ./scripts/validate-fone.sh
+  ./scripts/validate.sh
+
+Complete release evidence:
   ./scripts/release-check.sh
 
-Production:
-  cp .env.example .env
-  # Replace all placeholder secrets
-  ./scripts/deploy-vista-server.sh
+Factory canary:
+  Start the API with KOLIBRI_NODE_JOIN_TOKEN and KOLIBRI_OWNER_ACCESS_TOKEN,
+  then run ./scripts/factory-canary.sh.
 
-See README.ru.md and docs/release/VISTA_OS_11_1_BUILD_REPORT.md.
+Controlled single-server deployment:
+  cp .env.example .env
+  replace every placeholder secret
+  docker compose up --build -d
+
+This candidate is not evidence of a physical 21-node production campaign.
+See README.ru.md and docs/release/V2_1_BUILD_STATUS.md.
