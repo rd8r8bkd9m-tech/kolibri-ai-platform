@@ -197,6 +197,8 @@ def test_broker_leases_bound_task_persists_hash_and_completes(tmp_path: Path):
             assert body["result"]["response"] == "123"
             assert body["result"]["attempt_id"] == task["attempt_id"]
             assert body["result"]["fencing_token"] == 7
+            assert body["agent_id"] == HOME_CODEX_SLOT_ID
+            assert body["slot_id"] == HOME_CODEX_SLOT_ID
             assert body["fencing_token"] == 7
             assert body["lease_owner"] == f"home:{HOME_CODEX_SLOT_ID}"
             return httpx.Response(200, json={"task": {**task, "state": "completed"}})
@@ -329,6 +331,8 @@ def test_provider_attempt_failure_requests_bounded_task_retry(tmp_path: Path):
     assert len(failure_bodies) == 1
     assert failure_bodies[0]["retry"] is True
     assert failure_bodies[0]["error_type"] == "codex_cli_unavailable"
+    assert failure_bodies[0]["agent_id"] == HOME_CODEX_SLOT_ID
+    assert failure_bodies[0]["slot_id"] == HOME_CODEX_SLOT_ID
     assert failure_bodies[0]["fencing_token"] == 3
     assert broker._advertisement is None
 

@@ -229,6 +229,7 @@ class HomeControlPlaneClient:
             json_body={
                 "state": "running",
                 "agent_id": HOME_CODEX_SLOT_ID,
+                "slot_id": HOME_CODEX_SLOT_ID,
                 "attempt_id": attempt_id,
                 "lease_owner": f"{HOME_NODE_ID}:{HOME_CODEX_SLOT_ID}",
                 "fencing_token": fencing_token,
@@ -249,6 +250,8 @@ class HomeControlPlaneClient:
             "POST",
             f"/v1/tasks/{task_id}/complete",
             json_body={
+                "agent_id": HOME_CODEX_SLOT_ID,
+                "slot_id": HOME_CODEX_SLOT_ID,
                 "attempt_id": attempt_id,
                 "lease_owner": f"{HOME_NODE_ID}:{HOME_CODEX_SLOT_ID}",
                 "fencing_token": fencing_token,
@@ -273,6 +276,8 @@ class HomeControlPlaneClient:
             "POST",
             f"/v1/tasks/{task_id}/fail",
             json_body={
+                "agent_id": HOME_CODEX_SLOT_ID,
+                "slot_id": HOME_CODEX_SLOT_ID,
                 "attempt_id": attempt_id,
                 "lease_owner": f"{HOME_NODE_ID}:{HOME_CODEX_SLOT_ID}",
                 "fencing_token": fencing_token,
