@@ -12,7 +12,7 @@ EnvironmentFile=/etc/kolibri/backend.env
 EnvironmentFile=/etc/kolibri/codex-cli/proxy.env
 EnvironmentFile=/etc/kolibri/codex-cli.env
 Environment=HOME=/home/ladik
-Environment=CODEX_HOME=/home/ladik/.codex
+Environment=CODEX_HOME=__KOLIBRI_STATE_DIR__/codex-home
 Environment=CODEX_CLI_MODEL=
 Environment=CODEX_CLI_IMAGE_MODEL=
 Environment=CODEX_CLI_IMAGE_ENABLED=true
@@ -25,7 +25,8 @@ RestartSec=3
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=__KOLIBRI_STATE_DIR__ /home/ladik/.codex/generated_images
+ReadWritePaths=__KOLIBRI_STATE_DIR__
+BindReadOnlyPaths=/home/ladik/.codex/auth.json:__KOLIBRI_STATE_DIR__/codex-home/auth.json
 
 [Install]
 WantedBy=multi-user.target
