@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
 import os
 import re
 import time
@@ -29,6 +30,7 @@ from app.image_validation import InvalidImageBytes, inspect_image_bytes
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 _MAX_IMAGE_BYTES = 25 * 1024 * 1024
 _last_verified_success: str | None = None
@@ -364,6 +366,10 @@ async def generate_image(
                     run_id=run_id,
                 )
             except CodexCLIImageError as exc:
+                logger.warning(
+                    "Codex CLI image attempt failed: %s",
+                    getattr(exc, "failure_kind", "codex_cli_image_failed"),
+                )
                 raise ImageGenerationFailed("Codex CLI did not return a verified image file.") from exc
             image_bytes = cli_result.data
             model = cli_result.model
