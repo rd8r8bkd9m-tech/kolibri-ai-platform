@@ -341,18 +341,22 @@ ESTIMATE_TEMPLATE = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <style>
-@page { size: A4; margin: 15mm 15mm 20mm 20mm; }
-body { font-family: "DejaVu Sans", "Liberation Sans", Arial, sans-serif; font-size: 10pt; color: #0A0A0B; }
+@page { size: A4 portrait; margin: 15mm 15mm 20mm 20mm; }
+* { box-sizing: border-box; }
+body { margin: 0; font-family: "DejaVu Sans", "Liberation Sans", Arial, sans-serif; font-size: 10pt; color: #0A0A0B; }
 .header { text-align: center; margin-bottom: 8mm; }
 .header h1 { font-size: 16pt; margin: 0 0 4mm 0; }
 .header .subtitle { font-size: 10pt; color: #555; margin: 1mm 0; }
 .info { margin-bottom: 6mm; font-size: 9pt; }
 .info-row { display: flex; justify-content: space-between; margin: 1mm 0; }
-table { width: 100%; border-collapse: collapse; margin: 4mm 0; font-size: 9pt; }
+table { width: 100%; table-layout: fixed; border-collapse: collapse; margin: 4mm 0; font-size: 9pt; }
 th { background: #f0f0f0; padding: 2mm 1mm; text-align: left; border-bottom: 1px solid #333; }
+th, td { overflow-wrap: anywhere; word-break: break-word; }
 td { padding: 1.5mm 1mm; border-bottom: 1px solid #ddd; vertical-align: top; }
 td.num, th.num { text-align: right; }
 td.sum, th.sum { text-align: right; font-weight: bold; }
+td.money-value { white-space: nowrap; font-size: 7pt; font-variant-numeric: tabular-nums; }
+td.source-cell { overflow-wrap: anywhere; word-break: break-word; font-size: 7pt; line-height: 1.25; }
 .section-header { background: #f8f8f8; font-weight: bold; }
 .totals { margin-top: 6mm; width: 60%; margin-left: auto; font-size: 10pt; }
 .totals-row { display: flex; justify-content: space-between; padding: 1.5mm 0; border-bottom: 1px solid #eee; }
@@ -379,20 +383,30 @@ thead { display: table-header-group; }
 
 {% for section in sections %}
 <table>
+  <colgroup>
+    <col style="width:4%">
+    <col style="width:9%">
+    <col style="width:29%">
+    <col style="width:6%">
+    <col style="width:8%">
+    <col style="width:13%">
+    <col style="width:13%">
+    <col style="width:18%">
+  </colgroup>
   <thead>
     <tr class="section-header">
       <th colspan="7">{{ section.title }} ({{ section.position_count }} поз.)</th>
       <th class="sum">{{ section.subtotal }}</th>
     </tr>
     <tr>
-      <th style="width:4%">№</th>
-      <th style="width:12%">Код</th>
-      <th style="width:35%">Наименование</th>
-      <th style="width:7%">Ед.</th>
-      <th style="width:10%" class="num">Кол-во</th>
-      <th style="width:12%" class="num">Цена</th>
-      <th style="width:10%" class="num">Сумма</th>
-      <th style="width:10%">Источник</th>
+      <th>№</th>
+      <th>Код</th>
+      <th>Наименование</th>
+      <th>Ед.</th>
+      <th class="num">Кол-во</th>
+      <th class="num">Цена,<br>{{ currency_unit }}</th>
+      <th class="num">Сумма,<br>{{ currency_unit }}</th>
+      <th>Источник</th>
     </tr>
   </thead>
   <tbody>
@@ -403,9 +417,9 @@ thead { display: table-header-group; }
       <td>{{ pos.name }}</td>
       <td>{{ pos.unit }}</td>
       <td class="num">{{ pos.quantity }}</td>
-      <td class="num">{{ pos.price }}</td>
-      <td class="sum">{{ pos.sum }}</td>
-      <td>{{ pos.source }}</td>
+      <td class="num money-value">{{ pos.price }}</td>
+      <td class="sum money-value">{{ pos.sum }}</td>
+      <td class="source-cell">{{ pos.source }}</td>
     </tr>
     {% endfor %}
   </tbody>
@@ -426,13 +440,18 @@ thead { display: table-header-group; }
 </html>"""
 
 
-def generate_estimate_pdf(estimate_data: Dict[str, Any]) -> bytes:
-    """Generate professional PDF from estimate data. Returns PDF bytes."""
+def _build_estimate_html(estimate_data: Dict[str, Any]) -> str:
+    """Build the exact HTML passed to the estimate PDF renderer."""
     env = Environment(loader=BaseLoader(), autoescape=True)
     template = env.from_string(ESTIMATE_TEMPLATE)
 
     # Format all monetary values
     from decimal import Decimal
+    currency = estimate_data.get("currency", "RUB")
+    currency_unit = {"RUB": "руб.", "USD": "USD", "EUR": "EUR"}.get(
+        currency,
+        currency,
+    )
     sections = []
     for sec in estimate_data.get("sections", []):
         positions = []
@@ -442,13 +461,13 @@ def generate_estimate_pdf(estimate_data: Dict[str, Any]) -> bytes:
                 "name": pos.get("name", ""),
                 "unit": pos.get("unit", ""),
                 "quantity": _format_ru(Decimal(pos.get("quantity", "0"))),
-                "price": _format_currency(Decimal(pos.get("price", "0")), estimate_data.get("currency", "RUB")),
-                "sum": _format_currency(Decimal(pos.get("sum", "0")), estimate_data.get("currency", "RUB")),
+                "price": _format_ru(Decimal(pos.get("price", "0"))),
+                "sum": _format_ru(Decimal(pos.get("sum", "0"))),
                 "source": pos.get("source", ""),
             })
         sections.append({
             "title": sec.get("title", ""),
-            "subtotal": _format_currency(Decimal(sec.get("subtotal", "0")), estimate_data.get("currency", "RUB")),
+            "subtotal": _format_currency(Decimal(sec.get("subtotal", "0")), currency),
             "position_count": len(positions),
             "positions": positions,
         })
@@ -460,17 +479,23 @@ def generate_estimate_pdf(estimate_data: Dict[str, Any]) -> bytes:
         "object_name": estimate_data.get("object_name", ""),
         "region": estimate_data.get("region", ""),
         "date": estimate_data.get("created_at", ""),
-        "currency": estimate_data.get("currency", "RUB"),
+        "currency": currency,
+        "currency_unit": currency_unit,
         "vat_rate": estimate_data.get("vat_rate", "22"),
         "overhead_rate": estimate_data.get("overhead_rate", "0"),
-        "subtotal": _format_currency(Decimal(estimate_data.get("subtotal", "0")), estimate_data.get("currency", "RUB")),
-        "overhead_amount": _format_currency(Decimal(estimate_data.get("overhead_amount", "0")), estimate_data.get("currency", "RUB")),
-        "vat_amount": _format_currency(Decimal(estimate_data.get("vat_amount", "0")), estimate_data.get("currency", "RUB")),
-        "total": _format_currency(Decimal(estimate_data.get("total", "0")), estimate_data.get("currency", "RUB")),
+        "subtotal": _format_currency(Decimal(estimate_data.get("subtotal", "0")), currency),
+        "overhead_amount": _format_currency(Decimal(estimate_data.get("overhead_amount", "0")), currency),
+        "vat_amount": _format_currency(Decimal(estimate_data.get("vat_amount", "0")), currency),
+        "total": _format_currency(Decimal(estimate_data.get("total", "0")), currency),
         "sections": sections,
     }
 
-    html_str = template.render(**ctx)
+    return template.render(**ctx)
+
+
+def generate_estimate_pdf(estimate_data: Dict[str, Any]) -> bytes:
+    """Generate professional PDF from estimate data. Returns PDF bytes."""
+    html_str = _build_estimate_html(estimate_data)
 
     if WEASYPRINT_AVAILABLE:
         return _render_pdf(html_str)
