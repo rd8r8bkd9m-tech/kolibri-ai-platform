@@ -316,3 +316,75 @@ class TelegramDeliveryEvidenceDB(Base):
     origin_network = Column(String, nullable=False)
     verified_at = Column(DateTime, nullable=False, default=_now)
     updated_at = Column(DateTime, nullable=False, default=_now, onupdate=_now)
+
+
+class TelegramUpdateDB(Base):
+    """Durable Telegram ingress and outbound state machine.
+
+    The webhook writes this row before acknowledging Telegram.  A separate
+    worker owns provider execution and Bot API delivery, so a slow provider can
+    never extend webhook latency.  ``update_id`` is the channel idempotency key.
+    """
+
+    __tablename__ = "telegram_updates"
+
+    id = Column(String, primary_key=True)
+    update_id = Column(Integer, nullable=False)
+    chat_id = Column(String, nullable=False)
+    message_id = Column(Integer, nullable=False)
+    payload_hash = Column(String, nullable=False)
+    payload = Column(JSON, nullable=False)
+    state = Column(String, nullable=False, default="queued")
+    attempts = Column(Integer, nullable=False, default=0)
+    lease_owner = Column(String, nullable=True)
+    lease_until = Column(DateTime, nullable=True)
+    project_id = Column(String, nullable=True)
+    assistant_message_id = Column(String, nullable=True)
+    response_id = Column(String, nullable=True)
+    acknowledgement_message_id = Column(Integer, nullable=True)
+    result_message_id = Column(Integer, nullable=True)
+    outbound_state = Column(String, nullable=False, default="pending")
+    delivery_method = Column(String, nullable=True)
+    last_error_code = Column(String, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=_now)
+    updated_at = Column(DateTime, nullable=False, default=_now, onupdate=_now)
+    completed_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("update_id", name="uq_telegram_updates_update_id"),
+        Index("ix_telegram_updates_state_lease", "state", "lease_until", "created_at"),
+        Index("ix_telegram_updates_chat_created", "chat_id", "created_at"),
+    )
+
+
+class TelegramBotIdentityDB(Base):
+    """Sanitised ``getMe`` evidence for the one canonical bot identity."""
+
+    __tablename__ = "telegram_bot_identity"
+
+    id = Column(String, primary_key=True)
+    bot_id = Column(String, nullable=True)
+    username = Column(String, nullable=True)
+    verified = Column(Boolean, nullable=False, default=False)
+    verified_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, nullable=False, default=_now, onupdate=_now)
+
+
+class PublicApiKeyDB(Base):
+    """Owner-scoped public API key metadata; plaintext is never persisted."""
+
+    __tablename__ = "public_api_keys"
+
+    id = Column(String, primary_key=True)
+    owner_scope = Column(String, nullable=False)
+    name = Column(String, nullable=False)
+    key_prefix = Column(String, nullable=False)
+    secret_hash = Column(String, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=_now)
+    last_used_at = Column(DateTime, nullable=True)
+    revoked_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("secret_hash", name="uq_public_api_keys_secret_hash"),
+        Index("ix_public_api_keys_owner_revoked", "owner_scope", "revoked_at", "created_at"),
+    )

@@ -287,6 +287,7 @@ class PDFGenerateResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     version: str
+    release_id: str
     database: str
     timestamp: datetime
 

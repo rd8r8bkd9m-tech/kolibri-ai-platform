@@ -14,11 +14,16 @@ of the following are present in the protected Home-only activation file:
 - the public HTTPS base URL used to deliver verified artifacts;
 - the webhook enable flag.
 
-The Bot API token is not an application environment variable and must not be
-copied into the repository or worker nodes. An owner-controlled activation job
-uses the protected token once to register the exact
+The Bot API token is never loaded by the public ASGI receiver and must not be
+copied into the repository or general worker nodes. Only the canonical
+Home Telegram worker reads it from the protected root-owned
+`/etc/kolibri/telegram.env` file. An owner-controlled activation job uses the
+same protected token to register the exact
 `https://kolibriai.ru/api/v1/telegram/webhook` URL with the same secret, checks
-`getWebhookInfo`, sends one canary update, and records sanitized evidence.
+`getWebhookInfo`, and records sanitized evidence. Before processing any update,
+the canonical worker runs `getMe` and persists only the bot ID, username,
+verification status and timestamp. A username other than exactly
+`@kolibriai_bot` blocks execution without printing the token or credential URL.
 Until that external check succeeds, `/api/v1/telegram/info` reports
 `configured_unverified`, never `live`.
 
@@ -37,9 +42,19 @@ narrow `/32` in `KOLIBRI_TELEGRAM_TRUSTED_PROXY_CIDRS`. The relay overwrites
 mesh address, and the backend walks that chain from right to left. Broad proxy
 trust ranges are rejected.
 
-The production systemd source reads only
-`/etc/kolibri/telegram-webhook.env`. If the file is absent, the explicit unit
-defaults keep Telegram disabled. The file must be root-owned and mode `0600`.
+The backend service reads only `/etc/kolibri/telegram-webhook.env`. If the file
+is absent, the explicit unit defaults keep Telegram disabled. The separate
+`kolibri-telegram-worker.service` additionally reads the protected Bot API
+token file. Both files must be root-owned and mode `0600`; neither belongs in
+the backend process environment.
+
+The webhook returns after authentication and a committed `telegram_updates`
+row. Provider execution and Bot API output never run inside the webhook
+request. Durable `update_id` uniqueness rejects conflicting replays and makes
+exact re-delivery a no-op. The worker sends one visible acknowledgement,
+executes the same canonical Responses contract as Web, and changes that
+message to the terminal text (or sends a verified image artifact). Project and
+message IDs are retained so the reply can link to the same project in Shell.
 
 Required release checks:
 
@@ -51,6 +66,12 @@ Required release checks:
 4. an unapproved chat is rejected before provider execution;
 5. watchdog, GoMesh, legacy sender, polling, and duplicate gateway processes
    remain absent from the Home runtime inventory.
+6. `python -B -m app.telegram_worker --check-identity` reports the sanitized
+   username `kolibriai_bot` and exits successfully before enabling the worker;
+7. webhook acknowledgement is below one second while a deliberately slow
+   provider continues asynchronously;
+8. a duplicate update ID neither invokes Responses again nor sends another
+   acknowledgement or terminal notification.
 
-No source change in this directory registers the webhook, enables the unit, or
-reads the protected Bot API credential.
+No command in this directory registers the webhook, enables the unit, or reads
+the protected Bot API credential automatically.

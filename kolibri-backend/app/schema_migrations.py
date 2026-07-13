@@ -31,6 +31,9 @@ ALLOWED_UNVERSIONED_TABLES = set(BASELINE_COLUMNS) | {
     "project_messages",
     "project_message_mutations",
     "telegram_delivery_evidence",
+    "telegram_updates",
+    "telegram_bot_identity",
+    "public_api_keys",
 }
 
 
@@ -94,11 +97,40 @@ def ensure_database_schema(engine: Engine) -> str:
         telegram_expected = {
             "id", "update_id", "response_method", "origin_network", "verified_at", "updated_at",
         }
-        if actual != expected or "version" not in columns or not telegram_expected.issubset(telegram_columns):
+        telegram_update_columns = {
+            column["name"]
+            for column in inspector.get_columns("telegram_updates")
+        }
+        telegram_update_expected = {
+            "id", "update_id", "chat_id", "message_id", "payload_hash", "payload",
+            "state", "attempts", "lease_owner", "lease_until", "project_id",
+            "assistant_message_id", "response_id", "acknowledgement_message_id",
+            "result_message_id", "outbound_state", "delivery_method", "last_error_code",
+            "created_at", "updated_at", "completed_at",
+        }
+        public_api_key_columns = {
+            column["name"]
+            for column in inspector.get_columns("public_api_keys")
+        }
+        public_api_key_expected = {
+            "id", "owner_scope", "name", "key_prefix", "secret_hash",
+            "created_at", "last_used_at", "revoked_at",
+        }
+        if (
+            actual != expected
+            or "version" not in columns
+            or not telegram_expected.issubset(telegram_columns)
+            or not telegram_update_expected.issubset(telegram_update_columns)
+            or not public_api_key_expected.issubset(public_api_key_columns)
+        ):
             raise SchemaAdoptionError(
                 f"database migration verification failed: revision={actual!r}, expected={expected!r}, "
                 f"project_messages.version={'present' if 'version' in columns else 'missing'}, "
                 "telegram_delivery_evidence="
-                f"{'present' if telegram_expected.issubset(telegram_columns) else 'missing'}"
+                f"{'present' if telegram_expected.issubset(telegram_columns) else 'missing'}, "
+                "telegram_updates="
+                f"{'present' if telegram_update_expected.issubset(telegram_update_columns) else 'missing'}, "
+                "public_api_keys="
+                f"{'present' if public_api_key_expected.issubset(public_api_key_columns) else 'missing'}"
             )
         return str(actual)

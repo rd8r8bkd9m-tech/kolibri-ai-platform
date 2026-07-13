@@ -12,10 +12,11 @@ from typing import List, Optional, Dict, Any
 
 from fastapi import FastAPI, HTTPException, Query, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.security import HTTPBearer
 from contextlib import asynccontextmanager
 from sqlalchemy.orm import Session
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.calculator import (
     Estimate as CalcEstimate, EstimateSection as CalcSection,
@@ -62,9 +63,41 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from app.logging_middleware import RequestLoggingMiddleware, setup_logging
+from app.logging_middleware import (
+    ReleaseIdentityMiddleware,
+    RequestLoggingMiddleware,
+    release_id,
+    setup_logging,
+)
 setup_logging()
 app.add_middleware(RequestLoggingMiddleware)
+app.add_middleware(ReleaseIdentityMiddleware)
+
+
+@app.exception_handler(StarletteHTTPException)
+async def structured_http_error(request: Request, exc: StarletteHTTPException):
+    detail = exc.detail
+    if isinstance(detail, dict):
+        code = str(detail.get("code") or "request_failed")
+        message = str(detail.get("message") or code)
+    else:
+        code = "request_failed"
+        message = str(detail)
+    request_id = getattr(request.state, "request_id", None)
+    return JSONResponse(
+        status_code=exc.status_code,
+        headers=exc.headers,
+        content={
+            "detail": detail,
+            "error": {
+                "message": message,
+                "type": "invalid_request_error" if exc.status_code < 500 else "server_error",
+                "code": code,
+                "request_id": request_id,
+            },
+            "request_id": request_id,
+        },
+    )
 
 from app.routers.telegram import router as telegram_router
 app.include_router(telegram_router)
@@ -91,7 +124,13 @@ app.include_router(deepseek_router)
 
 @app.get("/api/health", response_model=schemas.HealthResponse)
 async def health():
-    return {"status": "ok", "version": "3.0.0", "database": "connected", "timestamp": datetime.now(timezone.utc)}
+    return {
+        "status": "ok",
+        "version": "3.0.0",
+        "release_id": release_id(),
+        "database": "connected",
+        "timestamp": datetime.now(timezone.utc),
+    }
 
 
 # ---------------------------------------------------------------------------

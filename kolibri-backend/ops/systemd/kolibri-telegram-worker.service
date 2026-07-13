@@ -1,7 +1,7 @@
 [Unit]
-Description=Kolibri backend r9 side-by-side canary
-Wants=network-online.target kolibri-codex-http-proxy.service
-After=network-online.target kolibri-codex-http-proxy.service
+Description=Kolibri canonical Telegram Responses worker
+Wants=network-online.target kolibri-backend-r9.service
+After=network-online.target kolibri-backend-r9.service
 
 [Service]
 Type=simple
@@ -11,6 +11,8 @@ WorkingDirectory=/opt/kolibri-ai/canary-r9/backend
 EnvironmentFile=/etc/kolibri/backend.env
 EnvironmentFile=/etc/kolibri/codex-cli/proxy.env
 EnvironmentFile=/etc/kolibri/codex-cli.env
+EnvironmentFile=/etc/kolibri/telegram.env
+EnvironmentFile=/etc/kolibri/telegram-webhook.env
 Environment=HOME=/home/ladik
 Environment=KOLIBRI_RELEASE_ID=kolibri-r17-20260713T1932MSK
 Environment=CODEX_HOME=/home/ladik/.codex
@@ -25,9 +27,6 @@ Environment=CODEX_CLI_IMAGE_MAX_CONCURRENCY=2
 Environment=KOLIBRI_IMAGE_GENERATION_ENABLED=true
 Environment=OPENAI_REST_ROUTING_ENABLED=false
 Environment=OPENAI_REST_IMAGE_ROUTING_ENABLED=false
-Environment=KOLIBRI_TELEGRAM_WEBHOOK_ENABLED=false
-Environment=KOLIBRI_TELEGRAM_OWNER_APPROVED=false
-EnvironmentFile=-/etc/kolibri/telegram-webhook.env
 Environment=DATABASE_URL=sqlite:////var/lib/kolibri/backend-r9/kolibri.db
 Environment=KOLIBRI_ARTIFACT_DIR=/var/lib/kolibri/backend-r9/artifacts
 Environment=XDG_CACHE_HOME=/var/lib/kolibri/backend-r9/cache
@@ -35,13 +34,13 @@ Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONUNBUFFERED=1
 Environment=TMPDIR=/var/lib/kolibri/backend-r9/tmp
 UnsetEnvironment=CODEX_CLI_MODEL KOLIBRI_CODEX_MODEL
-ExecStart=/opt/kolibri-ai/canary-r9/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 18014 --no-access-log
+ExecStart=/opt/kolibri-ai/canary-r9/backend/.venv/bin/python -B -m app.telegram_worker
 Restart=on-failure
 RestartSec=2s
 TimeoutStartSec=45s
 TimeoutStopSec=20s
 KillMode=mixed
-UMask=0027
+UMask=0077
 NoNewPrivileges=yes
 PrivateDevices=yes
 PrivateTmp=no

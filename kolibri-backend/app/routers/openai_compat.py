@@ -16,6 +16,7 @@ import re
 import secrets
 import time
 from collections import OrderedDict
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -23,7 +24,10 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app import ai_provider
+from app.database import get_db
+from app.models import PublicApiKeyDB
 from app.openai_responses import cancel_response, retrieve_response
+from sqlalchemy.orm import Session
 
 
 router = APIRouter()
@@ -34,7 +38,7 @@ _IDEMPOTENCY_KEY = re.compile(r"^[A-Za-z0-9._:-]{1,200}$")
 _FAILED_RESULT_STATUSES = {"error", "failed", "incomplete", "unavailable", "capability_unavailable"}
 
 
-async def _authorize_public(request: Request) -> None:
+async def _authorize_public(request: Request, db: Session = Depends(get_db)) -> None:
     """Fail closed for paid public API routes; browser aliases are separate."""
     if request.url.path.startswith("/api/v1/"):
         return
@@ -43,15 +47,29 @@ async def _authorize_public(request: Request) -> None:
         for item in os.getenv("KOLIBRI_PUBLIC_API_KEY_SHA256", "").split(",")
         if item.strip()
     ]
-    if not configured:
-        raise HTTPException(status_code=503, detail={"code": "public_api_not_configured"})
+    database_configured = db.query(PublicApiKeyDB.id).first() is not None
+    if not configured and not database_configured:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "public_api_not_configured"},
+        )
     authorization = request.headers.get("Authorization", "")
     token = authorization[7:] if authorization.startswith("Bearer ") else ""
     if not token:
         raise HTTPException(status_code=401, detail={"code": "invalid_api_key"})
     digest = hashlib.sha256(token.encode()).hexdigest()
-    if not any(hmac.compare_digest(digest, expected) for expected in configured):
+    env_match = any(hmac.compare_digest(digest, expected) for expected in configured)
+    key = db.query(PublicApiKeyDB).filter(PublicApiKeyDB.secret_hash == digest).first()
+    database_match = bool(
+        key is not None
+        and key.revoked_at is None
+        and hmac.compare_digest(str(key.secret_hash), digest)
+    )
+    if not env_match and not database_match:
         raise HTTPException(status_code=401, detail={"code": "invalid_api_key"})
+    if database_match:
+        key.last_used_at = datetime.now(timezone.utc)
+        db.commit()
 
 
 _PUBLIC_AUTH = [Depends(_authorize_public)]
@@ -86,6 +104,131 @@ class ChatCompletionsRequest(BaseModel):
     messages: list[dict[str, Any]]
     stream: bool = False
     policy: PublicPolicy | None = None
+
+
+class ApiKeyCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+
+
+def _owner_scope() -> str:
+    return "owner"
+
+
+async def _authorize_api_key_admin(
+    owner_token: str | None = Header(default=None, alias="X-Kolibri-Owner-Token"),
+) -> None:
+    expected = os.getenv("KOLIBRI_OWNER_API_ADMIN_TOKEN_SHA256", "").strip().lower()
+    if not expected or not re.fullmatch(r"[0-9a-f]{64}", expected):
+        raise HTTPException(status_code=503, detail={"code": "api_key_admin_not_configured"})
+    supplied = owner_token or ""
+    digest = hashlib.sha256(supplied.encode()).hexdigest()
+    if not supplied or not hmac.compare_digest(digest, expected):
+        raise HTTPException(status_code=401, detail={"code": "owner_authentication_required"})
+
+
+def _public_api_key(row: PublicApiKeyDB) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "object": "api_key",
+        "name": row.name,
+        "prefix": row.key_prefix,
+        "created_at": int(row.created_at.replace(tzinfo=timezone.utc).timestamp()),
+        "last_used_at": (
+            int(row.last_used_at.replace(tzinfo=timezone.utc).timestamp())
+            if row.last_used_at else None
+        ),
+        "revoked": row.revoked_at is not None,
+        "revoked_at": (
+            int(row.revoked_at.replace(tzinfo=timezone.utc).timestamp())
+            if row.revoked_at else None
+        ),
+    }
+
+
+def developer_api_keys_capability() -> dict[str, Any] | None:
+    """Advertise the renderer only when owner auth makes routes invocable."""
+
+    expected = os.getenv("KOLIBRI_OWNER_API_ADMIN_TOKEN_SHA256", "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", expected):
+        return None
+    return {
+        "id": "developer.api_keys",
+        "name": "API-ключи",
+        "description": "Создание, список и отзыв owner-scoped API-ключей.",
+        "kind": "developer",
+        "status": "live",
+        "availability_reason": None,
+        "invocable": True,
+        "permitted": True,
+        "route": {
+            "configured": True,
+            "healthy": True,
+            "status": "live",
+        },
+        "renderer": {
+            "available": True,
+            "id": "developer_api_keys",
+            "status": "live",
+        },
+        "source": {"type": "route_and_owner_auth_configuration"},
+    }
+
+
+@router.post(
+    "/api/v1/developer/api-keys",
+    status_code=201,
+    dependencies=[Depends(_authorize_api_key_admin)],
+)
+@router.post("/v1/api-keys", status_code=201, dependencies=[Depends(_authorize_api_key_admin)])
+async def create_api_key(request: ApiKeyCreateRequest, db: Session = Depends(get_db)):
+    name = request.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail={"code": "api_key_name_required"})
+    plaintext = f"koli_live_{secrets.token_urlsafe(32)}"
+    digest = hashlib.sha256(plaintext.encode()).hexdigest()
+    row = PublicApiKeyDB(
+        id=f"key_{secrets.token_hex(12)}",
+        owner_scope=_owner_scope(),
+        name=name,
+        key_prefix=plaintext[:14],
+        secret_hash=digest,
+        created_at=datetime.now(timezone.utc),
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return {**_public_api_key(row), "secret": plaintext, "secret_shown_once": True}
+
+
+@router.get(
+    "/api/v1/developer/api-keys",
+    dependencies=[Depends(_authorize_api_key_admin)],
+)
+@router.get("/v1/api-keys", dependencies=[Depends(_authorize_api_key_admin)])
+async def list_api_keys(db: Session = Depends(get_db)):
+    rows = db.query(PublicApiKeyDB).filter(
+        PublicApiKeyDB.owner_scope == _owner_scope()
+    ).order_by(PublicApiKeyDB.created_at.desc(), PublicApiKeyDB.id.desc()).all()
+    return {"object": "list", "data": [_public_api_key(row) for row in rows]}
+
+
+@router.delete(
+    "/api/v1/developer/api-keys/{key_id}",
+    dependencies=[Depends(_authorize_api_key_admin)],
+)
+@router.delete("/v1/api-keys/{key_id}", dependencies=[Depends(_authorize_api_key_admin)])
+async def revoke_api_key(key_id: str, db: Session = Depends(get_db)):
+    row = db.query(PublicApiKeyDB).filter(
+        PublicApiKeyDB.id == key_id,
+        PublicApiKeyDB.owner_scope == _owner_scope(),
+    ).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail={"code": "api_key_not_found"})
+    if row.revoked_at is None:
+        row.revoked_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(row)
+    return _public_api_key(row)
 
 
 _TOOL_CAPABILITIES = {

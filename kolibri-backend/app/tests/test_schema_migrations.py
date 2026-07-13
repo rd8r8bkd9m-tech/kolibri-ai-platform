@@ -33,8 +33,8 @@ def test_unversioned_create_all_database_is_adopted_and_backfilled(tmp_path: Pat
     revision = ensure_database_schema(engine)
 
     with engine.connect() as connection:
-        assert revision == "003_telegram_delivery_evidence"
-        assert MigrationContext.configure(connection).get_current_revision() == "003_telegram_delivery_evidence"
+        assert revision == "004_telegram_async_queue"
+        assert MigrationContext.configure(connection).get_current_revision() == "004_telegram_async_queue"
         columns = {column["name"] for column in sa.inspect(connection).get_columns("project_messages")}
         assert "version" in columns
         telegram_columns = {
@@ -43,6 +43,22 @@ def test_unversioned_create_all_database_is_adopted_and_backfilled(tmp_path: Pat
         }
         assert telegram_columns == {
             "id", "update_id", "response_method", "origin_network", "verified_at", "updated_at",
+        }
+        assert {
+            "id", "update_id", "chat_id", "message_id", "payload_hash", "payload", "state",
+            "attempts", "lease_owner", "lease_until", "project_id", "assistant_message_id",
+            "response_id", "acknowledgement_message_id", "result_message_id", "outbound_state",
+            "delivery_method", "last_error_code", "created_at", "updated_at", "completed_at",
+        } == {
+            column["name"]
+            for column in sa.inspect(connection).get_columns("telegram_updates")
+        }
+        assert {
+            "id", "owner_scope", "name", "key_prefix", "secret_hash", "created_at",
+            "last_used_at", "revoked_at",
+        } == {
+            column["name"]
+            for column in sa.inspect(connection).get_columns("public_api_keys")
         }
         assert connection.execute(sa.text(
             "SELECT version FROM project_messages WHERE id = 'message_1'"

@@ -1,31 +1,37 @@
 """Telegram channel adapter for the canonical Kolibri response contract.
 
-This module deliberately contains no polling loop, watchdog, GoMesh reporter
-or direct Bot API sender.  A configured Telegram webhook can return exactly
-one method payload for a new update; repeated updates are acknowledged without
-another send action.  Conversation state uses the same durable project/message
-repository as the Shell, and execution uses the same Codex-first response
-service as ``POST /v1/responses``.
+This module deliberately contains no polling loop, watchdog or GoMesh
+reporter.  The webhook only authenticates and durably enqueues an update before
+returning a fast 2xx.  A separate canonical worker executes the same Responses
+service as ``POST /v1/responses`` and performs the only allowed Bot API sends.
 """
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import json
 import os
 import re
+import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from ipaddress import IPv4Address, IPv6Address, ip_address, ip_network
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import and_, or_
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import TelegramDeliveryEvidenceDB
+from app.models import (
+    TelegramBotIdentityDB,
+    TelegramDeliveryEvidenceDB,
+    TelegramUpdateDB,
+)
 from app.project_history import ProjectConflictError, ProjectHistoryRepository
 from app.routers.openai_compat import ResponsesRequest, execute_kolibri_response
 
@@ -52,6 +58,12 @@ _INSECURE_WEBHOOK_SECRETS = {
 }
 _DELIVERY_EVIDENCE_ID = "telegram-webhook-live"
 _DEFAULT_DELIVERY_EVIDENCE_MAX_AGE_SECONDS = 24 * 60 * 60
+_DEFAULT_IDENTITY_EVIDENCE_MAX_AGE_SECONDS = 24 * 60 * 60
+_DEFAULT_UPDATE_LEASE_SECONDS = 60 * 60
+_DEFAULT_MAX_ATTEMPTS = 3
+_BOT_IDENTITY_ID = "kolibriai-bot"
+_EXPECTED_BOT_USERNAME = "kolibriai_bot"
+_BOT_API_METHODS = frozenset({"getMe", "sendMessage", "editMessageText", "sendPhoto"})
 _TELEGRAM_WEBHOOK_NETWORKS = tuple(
     ip_network(value)
     for value in (
@@ -72,6 +84,14 @@ class _WebhookOrigin:
     trusted_proxy_config_valid: bool
 
 
+class TelegramWorkerError(RuntimeError):
+    """Safe, classified Telegram worker failure without raw provider details."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
 def _enabled(name: str) -> bool:
     return os.getenv(name, "").strip().lower() in _TRUE
 
@@ -85,6 +105,35 @@ def _delivery_evidence_max_age_seconds() -> int:
     except ValueError:
         return _DEFAULT_DELIVERY_EVIDENCE_MAX_AGE_SECONDS
     return min(max(value, 60), 7 * 24 * 60 * 60)
+
+
+def _identity_evidence_max_age_seconds() -> int:
+    raw = os.getenv("KOLIBRI_TELEGRAM_IDENTITY_EVIDENCE_MAX_AGE_SECONDS", "").strip()
+    if not raw:
+        return _DEFAULT_IDENTITY_EVIDENCE_MAX_AGE_SECONDS
+    try:
+        value = int(raw)
+    except ValueError:
+        return _DEFAULT_IDENTITY_EVIDENCE_MAX_AGE_SECONDS
+    return min(max(value, 60), 7 * 24 * 60 * 60)
+
+
+def _update_lease_seconds() -> int:
+    raw = os.getenv("KOLIBRI_TELEGRAM_UPDATE_LEASE_SECONDS", "").strip()
+    try:
+        value = int(raw) if raw else _DEFAULT_UPDATE_LEASE_SECONDS
+    except ValueError:
+        value = _DEFAULT_UPDATE_LEASE_SECONDS
+    return min(max(value, 60), 6 * 60 * 60)
+
+
+def _max_update_attempts() -> int:
+    raw = os.getenv("KOLIBRI_TELEGRAM_MAX_ATTEMPTS", "").strip()
+    try:
+        value = int(raw) if raw else _DEFAULT_MAX_ATTEMPTS
+    except ValueError:
+        value = _DEFAULT_MAX_ATTEMPTS
+    return min(max(value, 1), 10)
 
 
 def _trusted_proxy_networks() -> tuple[tuple[Any, ...], bool]:
@@ -362,6 +411,207 @@ def _persist_delivery_evidence(
     return True
 
 
+def _canonical_ingress(body: dict[str, Any]) -> dict[str, Any] | None:
+    """Validate and minimise a Telegram update before durable persistence."""
+
+    update_id = body.get("update_id")
+    if not isinstance(update_id, int) or update_id < 0:
+        raise HTTPException(status_code=422, detail={"code": "invalid_telegram_update"})
+    message_kind = "message" if isinstance(body.get("message"), dict) else "edited_message"
+    message = body.get("message") or body.get("edited_message")
+    if not isinstance(message, dict):
+        return None
+    chat = message.get("chat")
+    if not isinstance(chat, dict) or not isinstance(chat.get("id"), int):
+        raise HTTPException(status_code=422, detail={"code": "invalid_telegram_chat"})
+    chat_id = chat["id"]
+    if chat_id not in _allowed_chat_ids():
+        raise HTTPException(status_code=403, detail={"code": "telegram_chat_not_allowed"})
+    text = message.get("text")
+    if not isinstance(text, str) or not text.strip():
+        return None
+    message_id = message.get("message_id")
+    if not isinstance(message_id, int) or message_id < 0:
+        raise HTTPException(status_code=422, detail={"code": "invalid_telegram_message"})
+    sender = message.get("from") if isinstance(message.get("from"), dict) else {}
+    sender_id = sender.get("id") if isinstance(sender.get("id"), int) else None
+    return {
+        "update_id": update_id,
+        "chat_id": chat_id,
+        "message_id": message_id,
+        "message_kind": message_kind,
+        "sender_id": sender_id,
+        "text": text.strip(),
+    }
+
+
+def _payload_hash(payload: dict[str, Any]) -> str:
+    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _persist_ingress(db: Session, payload: dict[str, Any]) -> tuple[TelegramUpdateDB, bool]:
+    """Insert one update or return its exact idempotent replay."""
+
+    fingerprint = _payload_hash(payload)
+    existing = db.query(TelegramUpdateDB).filter(
+        TelegramUpdateDB.update_id == payload["update_id"]
+    ).first()
+    if existing is not None:
+        if not hmac.compare_digest(existing.payload_hash, fingerprint):
+            raise HTTPException(status_code=409, detail={"code": "telegram_update_conflict"})
+        return existing, False
+
+    row = TelegramUpdateDB(
+        id=str(uuid.uuid4()),
+        update_id=payload["update_id"],
+        chat_id=str(payload["chat_id"]),
+        message_id=payload["message_id"],
+        payload_hash=fingerprint,
+        payload=payload,
+        state="queued",
+        attempts=0,
+        outbound_state="pending",
+    )
+    db.add(row)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        existing = db.query(TelegramUpdateDB).filter(
+            TelegramUpdateDB.update_id == payload["update_id"]
+        ).first()
+        if existing is None or not hmac.compare_digest(existing.payload_hash, fingerprint):
+            raise HTTPException(status_code=409, detail={"code": "telegram_update_conflict"})
+        return existing, False
+    db.refresh(row)
+    return row, True
+
+
+def _identity_evidence(db: Session | None) -> dict[str, Any]:
+    max_age_seconds = _identity_evidence_max_age_seconds()
+    absent = {
+        "status": "absent" if db is None else "unavailable",
+        "expected_username": _EXPECTED_BOT_USERNAME,
+        "username": None,
+        "verified": False,
+        "verified_at": None,
+        "age_seconds": None,
+        "max_age_seconds": max_age_seconds,
+    }
+    if db is None:
+        return absent
+    try:
+        row = db.get(TelegramBotIdentityDB, _BOT_IDENTITY_ID)
+    except SQLAlchemyError:
+        db.rollback()
+        return absent
+    if row is None:
+        return {**absent, "status": "absent"}
+    verified_at = _utc(row.verified_at)
+    age_seconds = (
+        max(0, int((datetime.now(timezone.utc) - verified_at).total_seconds()))
+        if verified_at else None
+    )
+    current = bool(row.verified and age_seconds is not None and age_seconds <= max_age_seconds)
+    return {
+        "status": "current" if current else "stale" if row.verified else "mismatch",
+        "expected_username": _EXPECTED_BOT_USERNAME,
+        "username": row.username,
+        "verified": current,
+        "verified_at": verified_at.isoformat() if verified_at else None,
+        "age_seconds": age_seconds,
+        "max_age_seconds": max_age_seconds,
+    }
+
+
+def _bot_token() -> str:
+    token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+    if not token:
+        raise TelegramWorkerError("telegram_bot_token_missing")
+    return token
+
+
+async def _bot_api(method: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Call one allowlisted Bot API method without exposing credential URLs."""
+
+    if method not in _BOT_API_METHODS:
+        raise TelegramWorkerError("telegram_bot_method_forbidden")
+    token = _bot_token()
+    url = f"https://api.telegram.org/bot{token}/{method}"
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0)) as client:
+            response = await client.post(url, json=payload)
+        data = response.json()
+    except Exception:
+        raise TelegramWorkerError("telegram_bot_api_unavailable") from None
+    if (
+        response.status_code >= 400
+        or not isinstance(data, dict)
+        or data.get("ok") is not True
+        or not isinstance(data.get("result"), dict)
+    ):
+        description = str(data.get("description") or "") if isinstance(data, dict) else ""
+        if method == "editMessageText" and "message is not modified" in description.lower():
+            return {}
+        raise TelegramWorkerError("telegram_bot_api_rejected")
+    return data["result"]
+
+
+async def verify_bot_identity(db: Session) -> dict[str, Any]:
+    """Persist sanitised ``getMe`` evidence and reject every non-canonical bot."""
+
+    result = await _bot_api("getMe", {})
+    username = str(result.get("username") or "")
+    bot_id = result.get("id")
+    verified = username.lower() == _EXPECTED_BOT_USERNAME and isinstance(bot_id, int)
+    now = datetime.now(timezone.utc)
+    row = db.get(TelegramBotIdentityDB, _BOT_IDENTITY_ID)
+    if row is None:
+        row = TelegramBotIdentityDB(id=_BOT_IDENTITY_ID)
+        db.add(row)
+    row.bot_id = str(bot_id) if isinstance(bot_id, int) else None
+    row.username = username or None
+    row.verified = verified
+    row.verified_at = now
+    row.updated_at = now
+    db.commit()
+    evidence = _identity_evidence(db)
+    if not verified:
+        raise TelegramWorkerError("telegram_bot_identity_mismatch")
+    return evidence
+
+
+def claim_next_update(db: Session, worker_id: str) -> str | None:
+    """Fence one queued or lease-expired update for a single worker."""
+
+    now = datetime.now(timezone.utc)
+    query = db.query(TelegramUpdateDB).filter(
+        or_(
+            TelegramUpdateDB.state.in_(("queued", "retry")),
+            and_(
+                TelegramUpdateDB.state == "processing",
+                TelegramUpdateDB.lease_until.is_not(None),
+                TelegramUpdateDB.lease_until < now,
+            ),
+        ),
+        TelegramUpdateDB.attempts < _max_update_attempts(),
+    ).order_by(TelegramUpdateDB.created_at, TelegramUpdateDB.id)
+    if db.bind is not None and db.bind.dialect.name != "sqlite":
+        query = query.with_for_update(skip_locked=True)
+    row = query.first()
+    if row is None:
+        return None
+    row.state = "processing"
+    row.attempts += 1
+    row.lease_owner = worker_id
+    row.lease_until = now + timedelta(seconds=_update_lease_seconds())
+    row.last_error_code = None
+    row.updated_at = now
+    db.commit()
+    return str(row.id)
+
+
 def _reply(chat_id: int | str, text: str) -> dict[str, Any]:
     """Build a single plain-text Telegram webhook reply.
 
@@ -446,32 +696,96 @@ def _conversation(repo: ProjectHistoryRepository, project_id: str) -> list[dict[
     ]
 
 
-async def _execute_update(body: dict[str, Any], db: Session) -> dict[str, Any]:
-    update_id = body.get("update_id")
-    if not isinstance(update_id, int) or update_id < 0:
-        raise HTTPException(status_code=422, detail={"code": "invalid_telegram_update"})
+def _project_link(project_id: str) -> str:
+    base_url = _public_base_url()
+    if not base_url:
+        return ""
+    return f"{base_url}/app?project={quote(project_id, safe='')}"
 
-    message = body.get("message") or body.get("edited_message")
-    if not isinstance(message, dict):
-        return {"ok": True}
-    chat = message.get("chat")
-    if not isinstance(chat, dict) or not isinstance(chat.get("id"), int):
-        raise HTTPException(status_code=422, detail={"code": "invalid_telegram_chat"})
-    chat_id = chat["id"]
-    if chat_id not in _allowed_chat_ids():
-        raise HTTPException(status_code=403, detail={"code": "telegram_chat_not_allowed"})
-    text = message.get("text")
-    if not isinstance(text, str) or not text.strip():
-        return {"ok": True}
-    text = text.strip()
 
+def _with_project_link(text: str, project_id: str) -> str:
+    link = _project_link(project_id)
+    clean = text.strip()
+    if not link:
+        return clean
+    suffix = f"Открыть проект в Колибри: {link}"
+    maximum = _MAX_TELEGRAM_TEXT - len(suffix) - 2
+    if len(clean) > maximum:
+        clean = f"{clean[: max(0, maximum - 1)].rstrip()}…"
+    return f"{clean}\n\n{suffix}" if clean else suffix
+
+
+async def _send_acknowledgement(row: TelegramUpdateDB, db: Session) -> None:
+    if row.acknowledgement_message_id is not None:
+        return
+    result = await _bot_api(
+        "sendMessage",
+        {"chat_id": int(row.chat_id), "text": "Принято. Выполняю задачу…"},
+    )
+    message_id = result.get("message_id")
+    if not isinstance(message_id, int):
+        raise TelegramWorkerError("telegram_ack_missing_message_id")
+    row.acknowledgement_message_id = message_id
+    row.outbound_state = "acknowledged"
+    row.updated_at = datetime.now(timezone.utc)
+    db.commit()
+
+
+async def _deliver_result(
+    row: TelegramUpdateDB,
+    db: Session,
+    *,
+    content: str,
+    artifact: dict[str, Any] | None,
+) -> str:
+    if row.outbound_state == "delivered":
+        return str(row.delivery_method or "deduplicated")
+    chat_id = int(row.chat_id)
+    linked_content = _with_project_link(content, str(row.project_id or ""))
+    reply = _response_reply(chat_id, linked_content, artifact)
+    method = str(reply.pop("method"))
+    if method == "sendMessage" and row.acknowledgement_message_id is not None:
+        method = "editMessageText"
+        reply["message_id"] = row.acknowledgement_message_id
+    row.outbound_state = "delivery_started"
+    row.delivery_method = method
+    row.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    result = await _bot_api(method, reply)
+    result_message_id = result.get("message_id") if isinstance(result, dict) else None
+    if isinstance(result_message_id, int):
+        row.result_message_id = result_message_id
+    row.outbound_state = "delivered"
+    row.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    return method
+
+
+async def process_claimed_update(db: Session, update_row_id: str, worker_id: str) -> dict[str, Any]:
+    """Execute one fenced update through the canonical Responses service."""
+
+    row = db.get(TelegramUpdateDB, update_row_id)
+    now = datetime.now(timezone.utc)
+    if (
+        row is None
+        or row.state != "processing"
+        or row.lease_owner != worker_id
+        or _utc(row.lease_until) is None
+        or _utc(row.lease_until) <= now
+    ):
+        raise TelegramWorkerError("telegram_update_lease_invalid")
+    identity = _identity_evidence(db)
+    if identity["verified"] is not True:
+        raise TelegramWorkerError("telegram_bot_identity_unverified")
+
+    payload = dict(row.payload or {})
+    update_id = int(payload["update_id"])
+    chat_id = int(payload["chat_id"])
+    text = str(payload["text"])
     scope_id = f"telegram:{chat_id}"
     repo = ProjectHistoryRepository(db, scope_id)
     project, _ = repo.create_project(
-        {
-            "title": "Telegram",
-            "metadata": {"channel": "telegram"},
-        },
+        {"title": "Telegram", "metadata": {"channel": "telegram"}},
         f"telegram-chat:{chat_id}",
     )
     prompt = _normalise_command(text)
@@ -481,56 +795,50 @@ async def _execute_update(body: dict[str, Any], db: Session) -> dict[str, Any]:
             {"role": "user", "content": prompt, "status": "completed", "metadata": {}},
             f"telegram-update:{update_id}:user",
         )
-        placeholder, placeholder_created = repo.append_message(
+        placeholder, _ = repo.append_message(
             project["id"],
             {"role": "assistant", "content": "", "status": "pending", "metadata": {}},
             f"telegram-update:{update_id}:assistant",
         )
     except ProjectConflictError as exc:
-        raise HTTPException(status_code=409, detail={"code": "telegram_update_conflict"}) from exc
+        raise TelegramWorkerError("telegram_update_conflict") from exc
+    row = db.get(TelegramUpdateDB, update_row_id)
+    row.project_id = project["id"]
+    row.assistant_message_id = placeholder["id"]
+    row.updated_at = datetime.now(timezone.utc)
+    db.commit()
 
-    # Telegram retries the same update until it receives a 2xx.  Only the
-    # request that created the durable placeholder may execute or send a
-    # response.  Every retry is a side-effect-free acknowledgement.
-    # A retry may legitimately recover a crash between committing the user
-    # message and committing the placeholder.  Ownership therefore belongs to
-    # the request that creates the placeholder, not necessarily the user row.
-    if not placeholder_created:
-        return {"ok": True, "duplicate": True}
-
+    await _send_acknowledgement(row, db)
     local = _local_command(text)
+    artifact: dict[str, Any] | None = None
     if local is not None:
-        repo.update_message(
-            project["id"],
-            placeholder["id"],
-            {
-                "content": local,
-                "status": "completed",
-                "metadata": {"response_id": f"telegram_local:{update_id}"},
-            },
-            f"telegram-update:{update_id}:terminal",
-        )
-        return _reply(chat_id, local)
-
-    try:
-        record = await execute_kolibri_response(
-            ResponsesRequest(model="kolibri", input=_conversation(repo, project["id"])),
-            idempotency_key=f"telegram:{update_id}:response",
-        )
-        response_id = str(record["id"])
-        content = str(record.get("content") or "").strip()
-        status = str(record.get("status") or "failed")
-        artifact = record.get("artifact") if isinstance(record.get("artifact"), dict) else None
-    except Exception:
-        # Do not leak provider errors, local paths or stderr to Telegram.  The
-        # failed durable placeholder is sufficient for operator diagnosis and
-        # prevents Telegram retries from launching a second attempt.
-        response_id = f"telegram_failed:{update_id}"
-        content = ""
-        status = "failed"
-        artifact = None
-    terminal_status = "completed" if status == "completed" and (content or artifact) else "failed"
-    response_metadata: dict[str, Any] = {"response_id": response_id}
+        response_id = f"telegram_local:{update_id}"
+        content = local
+        response_status = "completed"
+    else:
+        try:
+            record = await execute_kolibri_response(
+                ResponsesRequest(model="kolibri", input=_conversation(repo, project["id"])),
+                idempotency_key=f"telegram:{update_id}:response",
+            )
+            response_id = str(record["id"])
+            content = str(record.get("content") or "").strip()
+            response_status = str(record.get("status") or "failed")
+            artifact = record.get("artifact") if isinstance(record.get("artifact"), dict) else None
+        except Exception:
+            response_id = f"telegram_failed:{update_id}"
+            content = ""
+            response_status = "failed"
+            artifact = None
+    terminal_status = (
+        "completed"
+        if response_status == "completed" and (content or artifact)
+        else "failed"
+    )
+    response_metadata: dict[str, Any] = {
+        "response_id": response_id,
+        "channel": "telegram",
+    }
     if artifact:
         response_metadata["artifact"] = {
             "id": artifact.get("id"),
@@ -540,16 +848,45 @@ async def _execute_update(body: dict[str, Any], db: Session) -> dict[str, Any]:
     repo.update_message(
         project["id"],
         placeholder["id"],
-        {
-            "content": content,
-            "status": terminal_status,
-            "metadata": response_metadata,
-        },
+        {"content": content, "status": terminal_status, "metadata": response_metadata},
         f"telegram-update:{update_id}:terminal",
     )
     if terminal_status != "completed":
-        content = "Исполнение не завершено. Повторите запрос — он будет направлен другому доступному исполнителю."
-    return _response_reply(chat_id, content, artifact if terminal_status == "completed" else None)
+        content = (
+            "Исполнение не завершено. Повторите запрос — он будет направлен "
+            "другому доступному исполнителю."
+        )
+        artifact = None
+    row = db.get(TelegramUpdateDB, update_row_id)
+    row.response_id = response_id
+    method = await _deliver_result(row, db, content=content, artifact=artifact)
+    row = db.get(TelegramUpdateDB, update_row_id)
+    row.state = "completed"
+    row.lease_owner = None
+    row.lease_until = None
+    row.last_error_code = None
+    row.completed_at = datetime.now(timezone.utc)
+    row.updated_at = row.completed_at
+    db.commit()
+    return {
+        "update_id": update_id,
+        "project_id": project["id"],
+        "response_id": response_id,
+        "delivery_method": method,
+        "status": "completed",
+    }
+
+
+def mark_update_failure(db: Session, update_row_id: str, worker_id: str, code: str) -> None:
+    row = db.get(TelegramUpdateDB, update_row_id)
+    if row is None or row.lease_owner != worker_id or row.state != "processing":
+        return
+    row.state = "failed" if row.attempts >= _max_update_attempts() else "retry"
+    row.lease_owner = None
+    row.lease_until = None
+    row.last_error_code = code[:120]
+    row.updated_at = datetime.now(timezone.utc)
+    db.commit()
 
 
 @router.post("/webhook")
@@ -571,34 +908,59 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail={"code": "invalid_telegram_json"}) from exc
     if not isinstance(body, dict):
         raise HTTPException(status_code=422, detail={"code": "invalid_telegram_update"})
-    response = await _execute_update(body, db)
-    update_id = body.get("update_id")
+    payload = _canonical_ingress(body)
+    if payload is None:
+        return {"ok": True, "accepted": False, "ignored": True}
+    row, created = _persist_ingress(db, payload)
+    update_id = payload["update_id"]
     if origin.official_network and isinstance(update_id, int) and update_id >= 0:
-        method = str(response.get("method") or "ack") if isinstance(response, dict) else "ack"
         _persist_delivery_evidence(
             db,
             update_id=update_id,
-            response_method=method,
+            response_method="async_ack",
             origin_network=origin.official_network,
         )
-    return response
+    return {
+        "ok": True,
+        "accepted": created,
+        "duplicate": not created,
+        "update_id": row.update_id,
+    }
 
 
 @router.get("/info")
 async def bot_info(db: Session = Depends(get_db)):
     readiness = _readiness(db)
+    identity = _identity_evidence(db)
+    try:
+        queue = {
+            state: db.query(TelegramUpdateDB).filter(TelegramUpdateDB.state == state).count()
+            for state in ("queued", "processing", "retry", "completed", "failed")
+        }
+    except SQLAlchemyError:
+        db.rollback()
+        queue = {state: None for state in ("queued", "processing", "retry", "completed", "failed")}
     return {
         "webhook_enabled": _enabled("KOLIBRI_TELEGRAM_WEBHOOK_ENABLED"),
         "webhook_ready": _webhook_ready(db),
         "receiver_ready": readiness["receiver_ready"],
         "readiness": readiness,
-        "bot_configured": bool(os.getenv("TELEGRAM_BOT_TOKEN", "").strip()),
-        "execution_contract": "kolibri-responses",
+        "bot_configured": identity["verified"],
+        "bot_identity": identity,
+        "execution_contract": "v1-responses",
         "history_contract": "project-history",
+        "ingress_contract": "durable-async-update-v1",
+        "queue": queue,
         "background_senders": {name: False for name in _BLOCKED_BACKGROUND_SENDERS},
         "background_sender_evidence": {
             "scope": "telegram-adapter-process",
             "fleet_runtime": "unknown",
+        },
+        "outbound_worker": {
+            "kind": "canonical-telegram-worker",
+            "dedupe_key": "update_id",
+            "acknowledgement": "sendMessage",
+            "terminal_text": "editMessageText",
         },
         "commands": [
             {"command": "start", "description": "Начать или продолжить проект"},

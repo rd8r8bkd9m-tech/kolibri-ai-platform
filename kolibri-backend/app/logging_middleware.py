@@ -2,10 +2,32 @@
 import time
 import logging
 import json
+import os
+import re
+import uuid
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 
 logger = logging.getLogger("kolibri")
+_IDENTIFIER = re.compile(r"^[A-Za-z0-9._:-]{1,120}$")
+
+
+def release_id() -> str:
+    value = os.getenv("KOLIBRI_RELEASE_ID", "").strip()
+    return value if _IDENTIFIER.fullmatch(value) else "unversioned"
+
+
+class ReleaseIdentityMiddleware(BaseHTTPMiddleware):
+    """Attach one release identity and request ID to every HTTP response."""
+
+    async def dispatch(self, request: Request, call_next):
+        supplied = request.headers.get("X-Request-ID", "").strip()
+        request_id = supplied if _IDENTIFIER.fullmatch(supplied) else f"req_{uuid.uuid4().hex}"
+        request.state.request_id = request_id
+        response = await call_next(request)
+        response.headers["X-Kolibri-Release"] = release_id()
+        response.headers["X-Request-ID"] = request_id
+        return response
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):

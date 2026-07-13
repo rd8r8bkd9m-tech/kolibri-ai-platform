@@ -1,4 +1,6 @@
+import asyncio
 from datetime import datetime, timedelta, timezone
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -36,8 +38,24 @@ def client(monkeypatch):
     monkeypatch.delenv("KOLIBRI_TELEGRAM_LIVE_VERIFIED", raising=False)
     monkeypatch.delenv("KOLIBRI_TELEGRAM_REQUIRE_OFFICIAL_SOURCE", raising=False)
     monkeypatch.delenv("KOLIBRI_TELEGRAM_TRUSTED_PROXY_CIDRS", raising=False)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token-never-logged")
+    bot_calls = []
+    next_message_id = 9000
+
+    async def fake_bot_api(method, payload):
+        nonlocal next_message_id
+        bot_calls.append((method, dict(payload)))
+        if method == "getMe":
+            return {"id": 42, "username": "kolibriai_bot"}
+        next_message_id += 1
+        return {"message_id": next_message_id}
+
+    monkeypatch.setattr(telegram, "_bot_api", fake_bot_api)
     app.dependency_overrides[get_db] = override_get_db
     with TestClient(app, client=("127.0.0.1", 50000)) as test_client:
+        with testing_session() as db:
+            asyncio.run(telegram.verify_bot_identity(db))
+        test_client.telegram_bot_calls = bot_calls
         yield test_client
     app.dependency_overrides.pop(get_db, None)
     Base.metadata.drop_all(bind=engine)
@@ -65,6 +83,15 @@ def _post(client: TestClient, body: dict, *, forwarded_for: str = "149.154.160.1
             "X-Forwarded-For": forwarded_for,
         },
     )
+
+
+def _process_one(client: TestClient):
+    worker_id = "test-worker"
+    with next(app.dependency_overrides[get_db]()) as db:
+        row_id = telegram.claim_next_update(db, worker_id)
+    assert row_id is not None
+    with next(app.dependency_overrides[get_db]()) as db:
+        return asyncio.run(telegram.process_claimed_update(db, row_id, worker_id))
 
 
 def test_webhook_is_disabled_by_default_and_has_no_default_secret(monkeypatch):
@@ -114,6 +141,45 @@ def test_only_explicitly_allowed_chat_can_use_provider(client, monkeypatch):
     assert denied.json()["detail"]["code"] == "telegram_chat_not_allowed"
 
 
+def test_webhook_ack_is_fast_and_provider_runs_only_after_durable_claim(client, monkeypatch):
+    executed = []
+
+    async def fake_execute(request, *, idempotency_key=None):
+        executed.append(idempotency_key)
+        return {"id": "resp_async", "status": "completed", "content": "Готово"}
+
+    monkeypatch.setattr(telegram, "execute_kolibri_response", fake_execute)
+    started = time.monotonic()
+    response = _post(client, _update(99, "Проверь асинхронный путь"))
+    elapsed = time.monotonic() - started
+    assert response.status_code == 200
+    assert elapsed < 1.0
+    assert response.json()["accepted"] is True
+    assert executed == []
+    with next(app.dependency_overrides[get_db]()) as db:
+        from app.models import TelegramUpdateDB
+        ingress = db.query(TelegramUpdateDB).filter(TelegramUpdateDB.update_id == 99).one()
+        assert ingress.state == "queued"
+        assert ingress.payload["text"] == "Проверь асинхронный путь"
+    _process_one(client)
+    assert executed == ["telegram:99:response"]
+
+
+def test_wrong_bot_identity_is_persisted_and_blocks_worker(client, monkeypatch):
+    async def wrong_bot(method, payload):
+        assert method == "getMe"
+        return {"id": 84, "username": "estimate_generator_bot"}
+
+    monkeypatch.setattr(telegram, "_bot_api", wrong_bot)
+    with next(app.dependency_overrides[get_db]()) as db:
+        with pytest.raises(telegram.TelegramWorkerError, match="telegram_bot_identity_mismatch"):
+            asyncio.run(telegram.verify_bot_identity(db))
+        evidence = telegram._identity_evidence(db)
+        assert evidence["verified"] is False
+        assert evidence["username"] == "estimate_generator_bot"
+        assert evidence["expected_username"] == "kolibriai_bot"
+
+
 def test_unified_response_persists_one_placeholder_and_deduplicates_update(client, monkeypatch):
     calls = []
 
@@ -133,12 +199,22 @@ def test_unified_response_persists_one_placeholder_and_deduplicates_update(clien
 
     assert first.status_code == 200
     assert first.json() == {
-        "method": "sendMessage",
-        "chat_id": 7001,
-        "text": "Готово через единый ответный контур.",
+        "ok": True,
+        "accepted": True,
+        "duplicate": False,
+        "update_id": 101,
     }
     assert repeated.status_code == 200
-    assert repeated.json() == {"ok": True, "duplicate": True}
+    assert repeated.json() == {
+        "ok": True,
+        "accepted": False,
+        "duplicate": True,
+        "update_id": 101,
+    }
+    assert calls == []
+    result = _process_one(client)
+    assert result["status"] == "completed"
+    assert result["delivery_method"] == "editMessageText"
     assert len(calls) == 1
     request, idempotency_key = calls[0]
     assert request.model == "kolibri"
@@ -157,7 +233,23 @@ def test_unified_response_persists_one_placeholder_and_deduplicates_update(clien
             ("assistant", "completed"),
         ]
         assert messages[1].content == "Готово через единый ответный контур."
-        assert messages[1].attributes == {"response_id": "resp_kolibri_telegram_1"}
+        assert messages[1].attributes == {
+            "response_id": "resp_kolibri_telegram_1",
+            "channel": "telegram",
+        }
+        from app.models import TelegramUpdateDB
+        ingress = db.query(TelegramUpdateDB).filter(TelegramUpdateDB.update_id == 101).one()
+        assert ingress.state == "completed"
+        assert ingress.outbound_state == "delivered"
+        assert ingress.response_id == "resp_kolibri_telegram_1"
+        assert ingress.payload_hash
+
+    methods = [method for method, _ in client.telegram_bot_calls]
+    assert methods.count("sendMessage") == 1
+    assert methods.count("editMessageText") == 1
+    terminal_payload = next(payload for method, payload in client.telegram_bot_calls if method == "editMessageText")
+    assert "Готово через единый ответный контур." in terminal_payload["text"]
+    assert "/app?project=" in terminal_payload["text"]
 
 
 def test_history_is_reused_without_construction_only_prompt(client, monkeypatch):
@@ -173,7 +265,9 @@ def test_history_is_reused_without_construction_only_prompt(client, monkeypatch)
 
     monkeypatch.setattr(telegram, "execute_kolibri_response", fake_execute)
     assert _post(client, _update(201, "Как написать HTTP-сервер на Rust?")).status_code == 200
+    _process_one(client)
     assert _post(client, _update(202, "Добавь тесты и пример запуска")).status_code == 200
+    _process_one(client)
 
     assert inputs[1] == [
         {"role": "user", "content": "Как написать HTTP-сервер на Rust?"},
@@ -187,14 +281,25 @@ def test_history_is_reused_without_construction_only_prompt(client, monkeypatch)
 
 def test_help_and_status_contain_no_fake_fleet_values(client):
     start_response = _post(client, _update(300, "/start"))
+    _process_one(client)
     help_response = _post(client, _update(301, "/help"))
+    _process_one(client)
     status_response = _post(client, _update(302, "/status"))
+    _process_one(client)
+    assert start_response.json()["accepted"] is True
+    assert help_response.json()["accepted"] is True
+    assert status_response.json()["accepted"] is True
+    terminal_texts = [
+        payload["text"]
+        for method, payload in client.telegram_bot_calls
+        if method == "editMessageText"
+    ]
     assert all(
-        capability in start_response.json()["text"].lower()
+        capability in terminal_texts[0].lower()
         for capability in ("вопрос", "изображение", "код", "автоматизация")
     )
-    assert "помощник по строительству" not in help_response.json()["text"].lower()
-    status_text = status_response.json()["text"]
+    assert "помощник по строительству" not in terminal_texts[1].lower()
+    status_text = terminal_texts[2]
     assert "21/21" not in status_text
     assert "healthy" not in status_text
     assert "подтвержд" in status_text.lower()
@@ -202,7 +307,7 @@ def test_help_and_status_contain_no_fake_fleet_values(client):
     # Local commands are subject to the same update ledger and cannot emit a
     # second Telegram message when Telegram retries the update.
     repeated = _post(client, _update(300, "/start"))
-    assert repeated.json() == {"ok": True, "duplicate": True}
+    assert repeated.json()["duplicate"] is True
 
 
 def test_provider_exception_finishes_placeholder_without_leaking_details(client, monkeypatch):
@@ -212,12 +317,13 @@ def test_provider_exception_finishes_placeholder_without_leaking_details(client,
     monkeypatch.setattr(telegram, "execute_kolibri_response", broken_execute)
     response = _post(client, _update(350, "Проверь код"))
     assert response.status_code == 200
-    assert response.json()["method"] == "sendMessage"
-    assert "SECRET" not in response.json()["text"]
-    assert "stderr" not in response.json()["text"]
+    _process_one(client)
+    terminal = [payload for method, payload in client.telegram_bot_calls if method == "editMessageText"][-1]
+    assert "SECRET" not in terminal["text"]
+    assert "stderr" not in terminal["text"]
 
     repeated = _post(client, _update(350, "Проверь код"))
-    assert repeated.json() == {"ok": True, "duplicate": True}
+    assert repeated.json()["duplicate"] is True
 
 
 def test_verified_image_artifact_is_delivered_as_real_photo(client, monkeypatch):
@@ -239,12 +345,14 @@ def test_verified_image_artifact_is_delivered_as_real_photo(client, monkeypatch)
     monkeypatch.setattr(telegram, "execute_kolibri_response", fake_execute)
     response = _post(client, _update(360, "Сгенерируй цветы"))
     assert response.status_code == 200
-    assert response.json() == {
-        "method": "sendPhoto",
-        "chat_id": 7001,
-        "photo": "https://kolibriai.ru/api/v1/artifacts/images/397d471e-3512-44ac-afec-89a3fdf78502",
-        "caption": "Готово. Изображение проверено.",
-    }
+    assert response.json()["accepted"] is True
+    result = _process_one(client)
+    assert result["delivery_method"] == "sendPhoto"
+    photo = next(payload for method, payload in client.telegram_bot_calls if method == "sendPhoto")
+    assert photo["chat_id"] == 7001
+    assert photo["photo"] == "https://kolibriai.ru/api/v1/artifacts/images/397d471e-3512-44ac-afec-89a3fdf78502"
+    assert "Готово. Изображение проверено." in photo["caption"]
+    assert "/app?project=" in photo["caption"]
 
     with next(app.dependency_overrides[get_db]()) as db:
         from app.models import ProjectMessageDB
@@ -255,6 +363,7 @@ def test_verified_image_artifact_is_delivered_as_real_photo(client, monkeypatch)
         assert assistant.status == "completed"
         assert assistant.attributes == {
             "response_id": "resp_image_1",
+            "channel": "telegram",
             "artifact": {
                 "id": "397d471e-3512-44ac-afec-89a3fdf78502",
                 "type": "image",
@@ -282,8 +391,10 @@ def test_unverified_artifact_metadata_never_claims_photo_delivery(client, monkey
     monkeypatch.setattr(telegram, "execute_kolibri_response", fake_execute)
     response = _post(client, _update(361, "Сгенерируй цветы"))
     assert response.status_code == 200
-    assert response.json()["method"] == "sendMessage"
-    assert "photo" not in response.json()
+    _process_one(client)
+    methods = [method for method, _ in client.telegram_bot_calls]
+    assert "sendPhoto" not in methods
+    assert "editMessageText" in methods
 
 
 def test_release_contract_has_no_watchdog_gomesh_or_legacy_sender(client):
@@ -291,8 +402,18 @@ def test_release_contract_has_no_watchdog_gomesh_or_legacy_sender(client):
     assert info.status_code == 200
     assert info.json()["receiver_ready"] is True
     assert info.json()["webhook_ready"] is False
-    assert info.json()["execution_contract"] == "kolibri-responses"
+    assert info.json()["execution_contract"] == "v1-responses"
     assert info.json()["history_contract"] == "project-history"
+    assert info.json()["ingress_contract"] == "durable-async-update-v1"
+    assert info.json()["bot_identity"]["username"] == "kolibriai_bot"
+    assert info.json()["bot_identity"]["verified"] is True
+    assert info.json()["queue"] == {
+        "queued": 0,
+        "processing": 0,
+        "retry": 0,
+        "completed": 0,
+        "failed": 0,
+    }
     assert info.json()["background_senders"] == {
         "watchdog": False,
         "gomesh": False,
@@ -352,7 +473,7 @@ def test_static_live_flag_is_ignored_and_official_delivery_is_persisted(client, 
     assert readiness["live_delivery_verified"] is True
     assert readiness["delivery_evidence"]["status"] == "current"
     assert readiness["delivery_evidence"]["update_id"] == 390
-    assert readiness["delivery_evidence"]["response_method"] == "sendMessage"
+    assert readiness["delivery_evidence"]["response_method"] == "async_ack"
     assert readiness["delivery_evidence"]["origin_network"] == "149.154.160.0/20"
     assert readiness["delivery_evidence"]["verified_at"]
     assert readiness["blockers"] == []
