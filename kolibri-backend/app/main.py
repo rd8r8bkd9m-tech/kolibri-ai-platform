@@ -27,6 +27,11 @@ from app.pdf_generator import generate_estimate_pdf, generate_document_pdf
 from app.database import Base, engine, SessionLocal, get_db
 from app.storage import DBStorage, seed_db
 from app import schemas
+from app.control_plane import (
+    ControlPlaneUnavailable,
+    HomeControlPlaneAdapter,
+    unavailable_detail,
+)
 
 
 @asynccontextmanager
@@ -356,34 +361,40 @@ async def list_agents(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     status: Optional[str] = None,
-    db: Session = Depends(get_db),
 ):
-    storage = DBStorage(db)
-    result = storage.list_agents(status=status, page=page, page_size=page_size)
-    return {"items": result["items"], "total": result["total"], "page": page, "page_size": page_size}
+    try:
+        adapter = HomeControlPlaneAdapter.from_environment()
+        return await adapter.list_agents(page=page, page_size=page_size, status=status)
+    except ControlPlaneUnavailable as exc:
+        raise HTTPException(status_code=503, detail=unavailable_detail(exc.reason)) from exc
 
 
 @app.post("/api/v1/agents", status_code=201)
 async def create_agent(data: dict, db: Session = Depends(get_db)):
-    storage = DBStorage(db)
-    return storage.create_agent(data)
+    raise HTTPException(
+        status_code=405,
+        detail="Home Control Plane portal adapter is read-only",
+    )
 
 
 @app.get("/api/v1/agents/{agent_id}")
 async def get_agent(agent_id: str, db: Session = Depends(get_db)):
-    storage = DBStorage(db)
-    result = storage.get_agent(agent_id)
-    if not result:
-        raise HTTPException(404, "Agent not found")
+    try:
+        adapter = HomeControlPlaneAdapter.from_environment()
+        result = await adapter.get_agent(agent_id)
+    except ControlPlaneUnavailable as exc:
+        raise HTTPException(status_code=503, detail=unavailable_detail(exc.reason)) from exc
+    if result is None:
+        raise HTTPException(status_code=404, detail="Agent Host not found")
     return result
 
 
 @app.delete("/api/v1/agents/{agent_id}", status_code=204)
 async def delete_agent(agent_id: str, db: Session = Depends(get_db)):
-    storage = DBStorage(db)
-    if not storage.delete_agent(agent_id):
-        raise HTTPException(404, "Agent not found")
-    return Response(status_code=204)
+    raise HTTPException(
+        status_code=405,
+        detail="Home Control Plane portal adapter is read-only",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -395,11 +406,12 @@ async def list_nodes(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
     status: Optional[str] = None,
-    db: Session = Depends(get_db),
 ):
-    storage = DBStorage(db)
-    result = storage.list_nodes(status=status, page=page, page_size=page_size)
-    return {"items": result["items"], "total": result["total"], "page": page, "page_size": page_size}
+    try:
+        adapter = HomeControlPlaneAdapter.from_environment()
+        return await adapter.list_nodes(page=page, page_size=page_size, status=status)
+    except ControlPlaneUnavailable as exc:
+        raise HTTPException(status_code=503, detail=unavailable_detail(exc.reason)) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -411,11 +423,12 @@ async def list_tasks(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     state: Optional[str] = None,
-    db: Session = Depends(get_db),
 ):
-    storage = DBStorage(db)
-    result = storage.list_tasks(state=state, page=page, page_size=page_size)
-    return {"items": result["items"], "total": result["total"], "page": page, "page_size": page_size}
+    try:
+        adapter = HomeControlPlaneAdapter.from_environment()
+        return await adapter.list_tasks(page=page, page_size=page_size, state=state)
+    except ControlPlaneUnavailable as exc:
+        raise HTTPException(status_code=503, detail=unavailable_detail(exc.reason)) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -482,29 +495,26 @@ async def analytics(db: Session = Depends(get_db)):
 
 @app.patch("/api/v1/agents/{agent_id}")
 async def update_agent(agent_id: str, data: dict, db: Session = Depends(get_db)):
-    storage = DBStorage(db)
-    result = storage.update_agent(agent_id, data)
-    if not result:
-        raise HTTPException(404, "Agent not found")
-    return result
+    raise HTTPException(
+        status_code=405,
+        detail="Home Control Plane portal adapter is read-only",
+    )
 
 
 @app.patch("/api/v1/nodes/{node_id}")
 async def update_node(node_id: str, data: dict, db: Session = Depends(get_db)):
-    storage = DBStorage(db)
-    result = storage.update_node(node_id, data)
-    if not result:
-        raise HTTPException(404, "Node not found")
-    return result
+    raise HTTPException(
+        status_code=405,
+        detail="Home Control Plane portal adapter is read-only",
+    )
 
 
 @app.patch("/api/v1/tasks/{task_id}")
 async def update_task(task_id: str, data: dict, db: Session = Depends(get_db)):
-    storage = DBStorage(db)
-    result = storage.update_task(task_id, data)
-    if not result:
-        raise HTTPException(404, "Task not found")
-    return result
+    raise HTTPException(
+        status_code=405,
+        detail="Home Control Plane portal adapter is read-only",
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Bot, Activity, Circle, ChevronDown, Play, Pause, RotateCcw, Plus, Trash2 } from 'lucide-react'
+import { Bot, Activity, Circle, ChevronDown, Play } from 'lucide-react'
 import { agents, tasks, type Agent, type Task } from '@/lib/api'
 
 const statusConfig: Record<string, { color: string; label: string }> = {
@@ -24,10 +24,7 @@ export default function AgentsPage() {
   const [agentList, setAgentList] = useState<Agent[]>([])
   const [taskList, setTaskList] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
-  const [showCreate, setShowCreate] = useState(false)
-  const [newName, setNewName] = useState('')
-  const [newRole, setNewRole] = useState('')
-  const [newModel, setNewModel] = useState('')
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   useEffect(() => {
     Promise.all([
@@ -36,48 +33,12 @@ export default function AgentsPage() {
     ]).then(([a, t]) => {
       setAgentList(a.items)
       setTaskList(t.items)
-    }).catch(e => console.error('Failed to load agents/tasks', e))
+    }).catch(e => {
+      console.error('Failed to load agents/tasks', e)
+      setLoadError('Данные Home Control Plane временно недоступны')
+    })
     .finally(() => setLoading(false))
   }, [])
-
-  const handleToggleAgent = async (agent: Agent) => {
-    const newStatus = agent.status === 'active' ? 'paused' : 'active'
-    try {
-      await agents.update(agent.id, { status: newStatus })
-      setAgentList(prev => prev.map(a => a.id === agent.id ? { ...a, status: newStatus } : a))
-    } catch (e) { console.error('Failed to update agent', e) }
-  }
-
-  const handleRestartAgent = async (agent: Agent) => {
-    try {
-      await agents.update(agent.id, { status: 'active', progress: 0 })
-      setAgentList(prev => prev.map(a => a.id === agent.id ? { ...a, status: 'active', progress: 0 } : a))
-    } catch (e) { console.error('Failed to restart agent', e) }
-  }
-
-  const handleCancelTask = async (task: Task) => {
-    try {
-      await tasks.update(task.id, { state: 'cancelled' })
-      setTaskList(prev => prev.map(t => t.id === task.id ? { ...t, state: 'cancelled' } : t))
-    } catch (e) { console.error('Failed to cancel task', e) }
-  }
-
-  const handleCreateAgent = async () => {
-    if (!newName.trim()) return
-    try {
-      const created = await agents.create({ name: newName, role: newRole, model: newModel || undefined })
-      setAgentList(prev => [...prev, created])
-      setShowCreate(false)
-      setNewName(''); setNewRole(''); setNewModel('')
-    } catch (e) { console.error('Failed to create agent', e) }
-  }
-
-  const handleDeleteAgent = async (agent: Agent) => {
-    try {
-      await agents.delete(agent.id)
-      setAgentList(prev => prev.filter(a => a.id !== agent.id))
-    } catch (e) { console.error('Failed to delete agent', e) }
-  }
 
   const activeCount = agentList.filter(a => a.status === 'active').length
 
@@ -88,12 +49,13 @@ export default function AgentsPage() {
   return (
     <div className="h-full overflow-y-auto">
       <div className="max-w-[1100px] mx-auto px-4 sm:px-6 py-6">
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-[22px] sm:text-[26px] font-semibold text-[var(--text-primary)] tracking-tight">Агенты и задачи</h1>
-          <button onClick={() => setShowCreate(true)} className="h-9 px-3 bg-[var(--accent-teal)] text-white rounded-[var(--radius-md)] text-[13px] font-medium hover:bg-[var(--accent-teal-hover)] transition-colors flex items-center gap-1.5">
-            <Plus size={15} /> <span className="hidden sm:inline">Новый агент</span>
-          </button>
-        </div>
+        <h1 className="text-[22px] sm:text-[26px] font-semibold text-[var(--text-primary)] tracking-tight mb-6">Агенты и задачи</h1>
+
+        {loadError && (
+          <div className="mb-6 rounded-[var(--radius-lg)] border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-800">
+            {loadError}. Демо-агенты и случайные задачи не показываются.
+          </div>
+        )}
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
           {[
@@ -139,61 +101,25 @@ export default function AgentsPage() {
                   </div>
                 </div>
               )}
-              <div className="flex gap-1 mt-2">
-                <button onClick={() => handleToggleAgent(agent)} className="h-7 px-2 rounded-[var(--radius-sm)] border border-[var(--border-subtle)] text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors flex items-center gap-1">
-                  {agent.status === 'active' ? <><Pause size={11} /> Пауза</> : <><Play size={11} /> Старт</>}
-                </button>
-                <button onClick={() => handleRestartAgent(agent)} className="h-7 px-2 rounded-[var(--radius-sm)] border border-[var(--border-subtle)] text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors flex items-center gap-1"><RotateCcw size={11} /> Перезапуск</button>
-                <button onClick={() => handleDeleteAgent(agent)} className="h-7 px-2 rounded-[var(--radius-sm)] border border-[var(--border-subtle)] text-[11px] text-[var(--text-tertiary)] hover:bg-red-50 hover:text-red-500 hover:border-red-200 transition-colors flex items-center gap-1"><Trash2 size={11} /></button>
-              </div>
             </div>
           ))}
         </div>
 
         <h2 className="text-[16px] font-semibold text-[var(--text-primary)] mb-3">Задачи</h2>
         <div className="border border-[var(--border-subtle)] rounded-[var(--radius-lg)] overflow-hidden">
-          <div className="hidden sm:grid sm:grid-cols-[1fr_140px_120px_100px] gap-2 px-4 py-2.5 bg-[var(--bg-secondary)] text-[11px] text-[var(--text-tertiary)] uppercase tracking-wider border-b border-[var(--border-subtle)]">
-            <span>Название</span><span>Агент</span><span>Статус</span><span className="text-right">Действия</span>
+          <div className="hidden sm:grid sm:grid-cols-[1fr_140px_120px] gap-2 px-4 py-2.5 bg-[var(--bg-secondary)] text-[11px] text-[var(--text-tertiary)] uppercase tracking-wider border-b border-[var(--border-subtle)]">
+            <span>Название</span><span>Агент</span><span>Статус</span>
           </div>
           {taskList.map(task => (
-            <div key={task.id} className="sm:grid sm:grid-cols-[1fr_140px_120px_100px] gap-2 px-4 py-3 border-b border-[var(--border-subtle)] last:border-0 items-center hover:bg-[var(--bg-secondary)]/50 transition-colors">
+            <div key={task.id} className="sm:grid sm:grid-cols-[1fr_140px_120px] gap-2 px-4 py-3 border-b border-[var(--border-subtle)] last:border-0 items-center hover:bg-[var(--bg-secondary)]/50 transition-colors">
               <span className="text-[13px] text-[var(--text-primary)] font-medium">{task.workflow_id}</span>
               <span className="text-[12px] text-[var(--text-secondary)]">{task.owner_agent_id || '—'}</span>
               <span className={`inline-flex px-2 py-0.5 rounded-[var(--radius-pill)] text-[11px] font-medium w-fit ${taskStatus[task.state]?.color || ''}`}>{taskStatus[task.state]?.label || task.state}</span>
-              <div className="flex justify-end gap-1">
-                <button onClick={() => handleCancelTask(task)} className="w-7 h-7 flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] transition-colors"><Pause size={13} /></button>
-              </div>
             </div>
           ))}
         </div>
       </div>
 
-      {/* Create agent modal */}
-      {showCreate && (
-        <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4" onClick={() => setShowCreate(false)}>
-          <div className="bg-[var(--bg-primary)] rounded-[var(--radius-xl)] shadow-xl max-w-[400px] w-full p-6" onClick={e => e.stopPropagation()}>
-            <h2 className="text-[18px] font-semibold text-[var(--text-primary)] mb-4">Новый агент</h2>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-[12px] text-[var(--text-tertiary)] mb-1">Имя</label>
-                <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Название агента" className="w-full h-9 px-3 bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-[var(--radius-md)] text-[13px] outline-none focus:border-[var(--accent-teal)]" />
-              </div>
-              <div>
-                <label className="block text-[12px] text-[var(--text-tertiary)] mb-1">Роль</label>
-                <input value={newRole} onChange={e => setNewRole(e.target.value)} placeholder="estimate_analyst, document_writer..." className="w-full h-9 px-3 bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-[var(--radius-md)] text-[13px] outline-none focus:border-[var(--accent-teal)]" />
-              </div>
-              <div>
-                <label className="block text-[12px] text-[var(--text-tertiary)] mb-1">Модель</label>
-                <input value={newModel} onChange={e => setNewModel(e.target.value)} placeholder="gpt-4, claude, kimi..." className="w-full h-9 px-3 bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-[var(--radius-md)] text-[13px] outline-none focus:border-[var(--accent-teal)]" />
-              </div>
-            </div>
-            <div className="flex gap-2 mt-5">
-              <button onClick={handleCreateAgent} disabled={!newName.trim()} className="flex-1 h-9 bg-[var(--accent-teal)] text-white rounded-[var(--radius-md)] text-[13px] font-medium hover:bg-[var(--accent-teal-hover)] transition-colors disabled:opacity-50">Создать</button>
-              <button onClick={() => setShowCreate(false)} className="h-9 px-3 rounded-[var(--radius-md)] text-[13px] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] transition-colors">Отмена</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
