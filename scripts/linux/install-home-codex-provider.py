@@ -31,6 +31,12 @@ MANAGED_MARKER = ".managed-by-kolibri-home-codex-provider"
 READINESS_REFRESH_SECONDS = 240
 SAFE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 TOKEN_RE = re.compile(r"[A-Za-z0-9._~-]{32,512}\Z")
+SYSTEMD_RAW_PATH_RE = re.compile(r"/[A-Za-z0-9._/+:-]+\Z")
+RAW_PATH_REPLACEMENTS = frozenset({
+    "MESH_MANIFEST",
+    "RUNNER_ACCESS",
+    "PROVIDER_CREDENTIAL",
+})
 RUNTIME_SOURCE_FILES = (
     ("ops/agent_host.py", "agent_host.py"),
     ("ops/control_plane_endpoint.py", "control_plane_endpoint.py"),
@@ -271,12 +277,24 @@ def systemd_quote(value: str) -> str:
     return f'"{escaped}"'
 
 
+def systemd_raw_path(value: str) -> str:
+    """Render a portable unquoted absolute path for path-valued unit directives."""
+    if not SYSTEMD_RAW_PATH_RE.fullmatch(value):
+        raise HomeProviderConfigError("systemd_path_invalid")
+    return value
+
+
 def render_service(template_path: Path, replacements: Mapping[str, str]) -> bytes:
     rendered = require_regular_file(template_path, "service_template_missing").read_text(
         encoding="utf-8"
     )
     for key, value in replacements.items():
-        rendered = rendered.replace(f"__{key}__", systemd_quote(value))
+        rendered_value = (
+            systemd_raw_path(value)
+            if key in RAW_PATH_REPLACEMENTS
+            else systemd_quote(value)
+        )
+        rendered = rendered.replace(f"__{key}__", rendered_value)
     if re.search(r"__[A-Z0-9_]+__", rendered):
         raise HomeProviderConfigError("service_placeholder_unresolved")
     validate_service(rendered)
@@ -292,7 +310,7 @@ def validate_service(rendered: str) -> None:
         "KOLIBRI_RELEASE_ROOT=",
         "KOLIBRI_NODE_LABELS_JSON=",
         "home_systemd_user",
-        "ConditionPathExists=",
+        "ConditionFileNotEmpty=",
         "WorkingDirectory=%h/.local/share/kolibri/home-codex-provider/worktrees",
         "--capabilities codex_provider_broker",
         "--max-inflight 1",
@@ -305,6 +323,8 @@ def validate_service(rendered: str) -> None:
     lowered = rendered.lower()
     forbidden = (
         "conditionpathisregular=",
+        'conditionpathexists="',
+        'conditionfilenotempty="',
         'workingdirectory="',
         "kolibri_factory_control_url",
         "kolibri_factory_control_urls",

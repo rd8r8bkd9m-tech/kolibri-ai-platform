@@ -4,9 +4,9 @@ Description=Kolibri Home Codex provider actor
 Documentation=https://kolibriai.ru/docs
 After=network-online.target
 Wants=network-online.target
-ConditionPathExists=__MESH_MANIFEST__
-ConditionPathExists=__RUNNER_ACCESS__
-ConditionPathExists=__PROVIDER_CREDENTIAL__
+ConditionFileNotEmpty=__MESH_MANIFEST__
+ConditionFileNotEmpty=__RUNNER_ACCESS__
+ConditionFileNotEmpty=__PROVIDER_CREDENTIAL__
 
 [Service]
 Type=simple

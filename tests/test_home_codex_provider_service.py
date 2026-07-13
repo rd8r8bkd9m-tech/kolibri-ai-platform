@@ -3,7 +3,9 @@ from __future__ import annotations
 import importlib.util
 import argparse
 import json
+import shutil
 import stat
+import subprocess
 import sys
 from pathlib import Path
 
@@ -89,7 +91,7 @@ def test_dry_run_builds_home_only_service_without_copying_codex_auth(
 def test_rendered_service_uses_api_agent_host_and_scoped_home_identity(tmp_path):
     installer = load_installer("home_codex_provider_render")
     template = ROOT / "ops" / "systemd" / "kolibri-home-codex-provider.service.in"
-    base = tmp_path / "home provider"
+    base = tmp_path / "home-provider"
     labels = json.dumps({
         "authority": "home",
         "physical_node_id": "home-codex-provider",
@@ -135,8 +137,9 @@ def test_rendered_service_uses_api_agent_host_and_scoped_home_identity(tmp_path)
     assert "provider-current" in rendered
     assert "home_systemd_user" in rendered
     assert "codex-provider" in rendered
-    assert rendered.count("ConditionPathExists=") == 3
+    assert rendered.count("ConditionFileNotEmpty=") == 3
     assert "ConditionPathIsRegular=" not in rendered
+    assert 'ConditionFileNotEmpty="' not in rendered
     assert (
         "WorkingDirectory=%h/.local/share/kolibri/home-codex-provider/worktrees"
         in rendered
@@ -146,6 +149,33 @@ def test_rendered_service_uses_api_agent_host_and_scoped_home_identity(tmp_path)
     assert "ProtectSystem=strict" in rendered
     assert "auth.json" not in rendered.lower()
     assert "token=" not in rendered.lower()
+
+    if sys.platform.startswith("linux") and shutil.which("systemd-analyze"):
+        unit = tmp_path / "kolibri-home-codex-provider.service"
+        unit.write_text(rendered, encoding="utf-8")
+        verified = subprocess.run(
+            [
+                "systemd-analyze",
+                "--user",
+                "--man=no",
+                "--recursive-errors=yes",
+                "verify",
+                str(unit),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        diagnostic = f"{verified.stdout}\n{verified.stderr}"
+        assert verified.returncode == 0, diagnostic
+        for forbidden in (
+            "Unknown key",
+            "Unknown lvalue",
+            "not an absolute path",
+            "ConditionPathIsRegular",
+        ):
+            assert forbidden not in diagnostic
 
 
 @pytest.mark.parametrize("value", [
@@ -231,7 +261,7 @@ def test_service_validator_rejects_static_control_plane_and_secret_material():
         "KOLIBRI_RELEASE_CURRENT_LINK=/provider-current",
         "KOLIBRI_RELEASE_ROOT=/provider-releases",
         "KOLIBRI_NODE_LABELS_JSON=home_systemd_user",
-        "ConditionPathExists=/manifest",
+        "ConditionFileNotEmpty=/manifest",
         "WorkingDirectory=%h/.local/share/kolibri/home-codex-provider/worktrees",
         "--capabilities codex_provider_broker --max-inflight 1",
         "Restart=on-failure",
@@ -246,11 +276,25 @@ def test_service_validator_rejects_static_control_plane_and_secret_material():
 
     for addition in (
         "ConditionPathIsRegular=/manifest",
+        'ConditionFileNotEmpty="/manifest"',
         'WorkingDirectory="/home/ladik/work"',
     ):
         with pytest.raises(installer.HomeProviderConfigError) as error:
             installer.validate_service(f"{baseline}\n{addition}")
         assert error.value.code == "service_secret_or_static_authority_forbidden"
+
+
+@pytest.mark.parametrize("value", [
+    "relative/path",
+    "/home/ladik/path with spaces",
+    "/home/ladik/%h",
+    "/home/ladik/path\\escape",
+])
+def test_systemd_raw_path_rejects_nonportable_values(value):
+    installer = load_installer(f"home_codex_provider_systemd_path_{abs(hash(value))}")
+    with pytest.raises(installer.HomeProviderConfigError) as error:
+        installer.systemd_raw_path(value)
+    assert error.value.code == "systemd_path_invalid"
 
 
 def test_installer_source_never_reads_or_copies_codex_auth_file():
