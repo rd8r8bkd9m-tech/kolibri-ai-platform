@@ -133,7 +133,7 @@ function LayoutShell() {
             onHistory={() => setHistoryOpen(true)}
             onSearch={() => setSearchOpen(true)}
             onFiles={() => navigate('/library')}
-            onAgents={() => navigate('/agents')}
+            onAgents={() => navigate('/control')}
             onSettings={() => navigate('/settings')}
             recentItems={projects}
             onRecent={selectHistoryItem}

@@ -3,9 +3,22 @@ import type { CapabilityCatalog, DiscoveredCapability } from '@/features/capabil
 
 export type DeveloperSurface = 'responses' | 'chat' | 'realtime' | 'apiKeys'
 
+// The public backend advertises the Responses provider through the exact
+// capability IDs below. A live item is backed by a successful tool invocation,
+// so it is stronger evidence than a configured-only provider flag.
+const RESPONSES_MANIFEST_IDS = [
+  'openai.web_search',
+  'openai.file_search',
+  'openai.code_interpreter',
+  'openai.image_generation',
+  'openai.remote_mcp',
+  'openai.computer',
+  'openai.multi_agent',
+] as const
+
 const SURFACE_ALIASES: Record<DeveloperSurface, readonly string[]> = {
-  responses: ['developer.responses', 'api.responses', 'openai.responses', 'responses.create'],
-  chat: ['developer.chat_completions', 'api.chat_completions', 'openai.chat_completions'],
+  responses: ['developer.responses', 'api.responses', 'openai.responses', 'responses.create', ...RESPONSES_MANIFEST_IDS],
+  chat: ['developer.chat_completions', 'api.chat_completions', 'openai.chat_completions', ...RESPONSES_MANIFEST_IDS],
   realtime: ['developer.realtime', 'api.realtime', 'openai.realtime'],
   apiKeys: ['developer.api_keys', 'api_keys.manage'],
 }
@@ -21,6 +34,14 @@ function normalized(value: string | undefined): string {
   return value?.trim().toLowerCase() ?? ''
 }
 
+function isLiveResponsesManifestProbe(capability: DiscoveredCapability, surface: DeveloperSurface): boolean {
+  if (surface !== 'responses' && surface !== 'chat') return false
+  return RESPONSES_MANIFEST_IDS.includes(normalized(capability.id) as typeof RESPONSES_MANIFEST_IDS[number])
+    && capability.availability === 'live'
+    && capability.invocable
+    && capability.sourceType === 'live_invocation'
+}
+
 export function liveDeveloperCapability(
   catalog: CapabilityCatalog,
   surface: DeveloperSurface,
@@ -28,8 +49,13 @@ export function liveDeveloperCapability(
   if (catalog.availability === 'unavailable') return undefined
   return catalog.capabilities.find(capability => (
     SURFACE_ALIASES[surface].includes(normalized(capability.id))
-    && SURFACE_RENDERERS[surface].includes(normalized(capability.renderer.id))
-    && isUiInvocableCapability(capability)
+    && (
+      isLiveResponsesManifestProbe(capability, surface)
+      || (
+        SURFACE_RENDERERS[surface].includes(normalized(capability.renderer.id))
+        && isUiInvocableCapability(capability)
+      )
+    )
   ))
 }
 
@@ -44,6 +70,7 @@ export interface DeveloperEndpoint {
 }
 
 const ENDPOINTS: readonly DeveloperEndpoint[] = [
+  { method: 'GET', path: '/v1/models', surface: 'responses' },
   { method: 'POST', path: '/v1/responses', surface: 'responses' },
   { method: 'POST', path: '/v1/chat/completions', surface: 'chat' },
   { method: 'POST', path: '/v1/realtime/sessions', surface: 'realtime' },

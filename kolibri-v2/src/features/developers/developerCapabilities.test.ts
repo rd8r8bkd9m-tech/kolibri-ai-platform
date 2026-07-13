@@ -31,9 +31,46 @@ describe('developer capability gate', () => {
     ]))
 
     expect(result.map(endpoint => endpoint.path)).toEqual([
+      '/v1/models',
       '/v1/responses',
       '/v1/chat/completions',
     ])
+  })
+
+  it('uses the exact live Responses manifest IDs emitted by the backend', () => {
+    const result = liveDeveloperEndpoints(catalog([
+      capability({
+        id: 'openai.web_search',
+        name: 'Web search',
+        route: {},
+        renderer: {},
+        permitted: undefined,
+        sourceType: 'live_invocation',
+      }),
+    ]))
+
+    expect(result.map(endpoint => endpoint.path)).toEqual([
+      '/v1/models',
+      '/v1/responses',
+      '/v1/chat/completions',
+    ])
+  })
+
+  it('does not infer a developer route from configured-only provider tools', () => {
+    const value = catalog([
+      capability({
+        id: 'openai.web_search',
+        name: 'Web search',
+        availability: 'partial',
+        invocable: false,
+        route: {},
+        renderer: {},
+        permitted: undefined,
+        sourceType: 'configuration',
+      }),
+    ])
+
+    expect(liveDeveloperEndpoints(value)).toEqual([])
   })
 
   it('fails closed for incomplete evidence and unrelated capabilities', () => {

@@ -79,7 +79,7 @@ export default function ServersPage() {
 
         {loadError && (
           <div className="mb-6 rounded-[var(--radius-lg)] border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-800">
-            {loadError}. Значения не заменены нулями или демо-данными.
+            {loadError}. Отсутствующие значения не заменены неподтверждёнными данными.
           </div>
         )}
 

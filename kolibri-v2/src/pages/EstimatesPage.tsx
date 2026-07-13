@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Search, FileText, ArrowLeft, Download, Sparkles, MoreHorizontal, Copy, FileDown, Trash2 } from 'lucide-react'
+import { Plus, Search, FileText, ArrowLeft, Download, Sparkles, MoreHorizontal, Copy, FileDown, Trash2, Calculator, FileSpreadsheet } from 'lucide-react'
 import { useSearchParams } from 'react-router'
 import { estimates, ai, type Estimate } from '@/lib/api'
 import { formatDate, formatNum } from '@/lib/utils'
 import EstimatePositionRow, { type EditingEstimateCell } from '@/features/estimates/EstimatePositionRow'
+import EstimateRevisionHistory from '@/features/estimates/EstimateRevisionHistory'
 
 const statusLabels: Record<string, { text: string; className: string }> = {
   draft: { text: 'Черновик', className: 'bg-gray-100 text-gray-600' },
@@ -23,6 +24,10 @@ export default function EstimatesPage() {
   const [aiResult, setAiResult] = useState<string | null>(null)
   const [aiLoading, setAiLoading] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [mutation, setMutation] = useState<'saving' | 'calculating' | null>(null)
+  const [mutationError, setMutationError] = useState<string | null>(null)
+  const [dirty, setDirty] = useState(false)
+  const [revisionRefreshToken, setRevisionRefreshToken] = useState(0)
 
   const fetchList = useCallback(() => {
     return estimates.list({ search: search || undefined, page_size: 50 })
@@ -52,6 +57,8 @@ export default function EstimatesPage() {
     try {
       const est = await fetchEstimate(id)
       setCurrent(est)
+      setDirty(false)
+      setMutationError(null)
       setView('editor')
     } catch (e) { console.error('Failed to load estimate', e) }
   }, [fetchEstimate])
@@ -64,28 +71,61 @@ export default function EstimatesPage() {
       .then(est => {
         if (!active) return
         setCurrent(est)
+        setDirty(false)
+        setMutationError(null)
         setView('editor')
       })
       .catch(e => { if (active) console.error('Failed to load estimate', e) })
     return () => { active = false }
   }, [editId, fetchEstimate])
 
+  const updatePayload = (estimate: Estimate) => ({
+    version: estimate.version,
+    sections: estimate.sections.map(s => ({
+      title: s.title,
+      positions: s.positions.map(p => ({
+        code: p.code, name: p.name, unit: p.unit,
+        quantity: p.quantity, price: p.price,
+        source: p.source, comment: p.comment,
+      })),
+    })),
+  })
+
+  const acceptMutation = (updated: Estimate) => {
+    setCurrent(updated)
+    setList(items => items.map(item => item.id === updated.id ? updated : item))
+    setDirty(false)
+    setRevisionRefreshToken(value => value + 1)
+  }
+
   const handleSave = async () => {
     if (!current) return
+    setMutation('saving')
+    setMutationError(null)
     try {
-      const updated = await estimates.update(current.id, {
-        version: current.version,
-        sections: current.sections.map(s => ({
-          title: s.title,
-          positions: s.positions.map(p => ({
-            code: p.code, name: p.name, unit: p.unit,
-            quantity: p.quantity, price: p.price,
-            source: p.source, comment: p.comment,
-          })),
-        })),
-      })
-      setCurrent(updated)
-    } catch (e) { console.error('Failed to save', e) }
+      acceptMutation(await estimates.update(current.id, updatePayload(current)))
+    } catch (e) {
+      console.error('Failed to save', e)
+      setMutationError('Не удалось сохранить смету. Обновите данные и повторите попытку.')
+    } finally {
+      setMutation(null)
+    }
+  }
+
+  const handleRecalculate = async () => {
+    if (!current) return
+    setMutation('calculating')
+    setMutationError(null)
+    try {
+      acceptMutation(dirty
+        ? await estimates.update(current.id, updatePayload(current))
+        : await estimates.calculate(current.id, current.version))
+    } catch (e) {
+      console.error('Failed to recalculate', e)
+      setMutationError('Не удалось пересчитать смету. Обновите данные и повторите попытку.')
+    } finally {
+      setMutation(null)
+    }
   }
 
   const handleAiAnalyze = async () => {
@@ -101,7 +141,7 @@ export default function EstimatesPage() {
 
   const handleDownloadPdf = () => {
     if (!current) return
-    window.open(estimates.pdfUrl(current.id), '_blank')
+    window.open(estimates.pdfUrl(current.id, current.version), '_blank', 'noopener,noreferrer')
   }
 
   const handleDuplicate = async () => {
@@ -114,9 +154,9 @@ export default function EstimatesPage() {
     } catch (e) { console.error('Failed to duplicate', e) }
   }
 
-  const handleExport = (fmt: 'csv' | 'json') => {
+  const handleExport = (fmt: 'csv' | 'json' | 'xlsx') => {
     if (!current) return
-    window.open(estimates.exportUrl(current.id, fmt), '_blank')
+    window.open(estimates.exportUrl(current.id, fmt, current.version), '_blank', 'noopener,noreferrer')
     setMenuOpen(false)
   }
 
@@ -152,11 +192,16 @@ export default function EstimatesPage() {
         positions: s.positions.map(p => p.id !== posId ? p : { ...p, [field]: value }),
       }),
     })
+    setDirty(true)
+    setMutationError(null)
     setEditingCell(null)
   }
 
   const sectionTotal = (positions: Estimate['sections'][0]['positions']) =>
-    positions.reduce((sum, p) => sum + parseFloat(p.quantity) * parseFloat(p.price), 0)
+    positions.reduce((sum, p) => {
+      const value = Number.parseFloat(p.quantity) * Number.parseFloat(p.price)
+      return sum + (Number.isFinite(value) ? value : 0)
+    }, 0)
 
   // --- EDITOR VIEW ---
   if (view === 'editor' && current) {
@@ -178,6 +223,12 @@ export default function EstimatesPage() {
               <button onClick={handleDownloadPdf} className="estimate-editor-action border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors flex items-center gap-1.5">
                 <Download size={14} /> PDF
               </button>
+              <button onClick={() => handleExport('xlsx')} className="estimate-editor-action border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors flex items-center gap-1.5">
+                <FileSpreadsheet size={14} /> XLSX
+              </button>
+              <button onClick={() => void handleRecalculate()} disabled={mutation !== null} className="estimate-editor-action border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors flex items-center gap-1.5 disabled:opacity-50">
+                <Calculator size={14} /> {mutation === 'calculating' ? 'Считаю…' : 'Пересчитать'}
+              </button>
               <div className="estimate-editor-menu-anchor">
                 <button aria-label="Дополнительные действия" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)} className="estimate-editor-icon-button rounded-[var(--radius-md)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors">
                   <MoreHorizontal size={16} />
@@ -195,6 +246,9 @@ export default function EstimatesPage() {
                       <button onClick={() => handleExport('json')} className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors">
                         <FileDown size={14} /> Экспорт JSON
                       </button>
+                      <button onClick={() => handleExport('xlsx')} className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors">
+                        <FileSpreadsheet size={14} /> Экспорт XLSX
+                      </button>
                       <div className="border-t border-[var(--border-subtle)] my-1" />
                       <button onClick={handleDelete} className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-red-600 hover:bg-red-50 transition-colors">
                         <Trash2 size={14} /> Удалить
@@ -203,9 +257,17 @@ export default function EstimatesPage() {
                   </>
                 )}
               </div>
-              <button onClick={handleSave} className="estimate-editor-action bg-[var(--accent-teal)] text-white font-medium hover:bg-[var(--accent-teal-hover)] transition-colors">Сохранить</button>
+              <button onClick={() => void handleSave()} disabled={mutation !== null || !dirty} className="estimate-editor-action bg-[var(--accent-teal)] text-white font-medium hover:bg-[var(--accent-teal-hover)] transition-colors disabled:cursor-not-allowed disabled:opacity-50">
+                {mutation === 'saving' ? 'Сохраняю…' : dirty ? 'Сохранить' : 'Сохранено'}
+              </button>
             </div>
           </header>
+
+          {mutationError && (
+            <div className="mb-4 rounded-[var(--radius-md)] border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700" role="alert">
+              {mutationError}
+            </div>
+          )}
 
           <div className="estimate-meta-grid grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4 text-[13px]">
             <div className="estimate-meta-card p-3 rounded-[var(--radius-md)] bg-[var(--bg-secondary)]">
@@ -221,8 +283,8 @@ export default function EstimatesPage() {
               <p className="text-[var(--text-primary)] font-medium">{current.region || '—'}</p>
             </div>
             <div className="estimate-meta-card p-3 rounded-[var(--radius-md)] bg-[var(--bg-secondary)]">
-              <span className="text-[var(--text-tertiary)]">Дата</span>
-              <p className="text-[var(--text-primary)] font-medium">{formatDate(current.created_at)}</p>
+              <span className="text-[var(--text-tertiary)]">Версия</span>
+              <p className="text-[var(--text-primary)] font-medium">{current.version}{dirty ? ' · есть изменения' : ''}</p>
             </div>
           </div>
 
@@ -260,6 +322,12 @@ export default function EstimatesPage() {
               </div>
             </div>
           </div>
+
+          <EstimateRevisionHistory
+            estimateId={current.id}
+            currentVersion={current.version}
+            refreshToken={revisionRefreshToken}
+          />
 
           {/* AI Analysis result */}
           {aiResult && (

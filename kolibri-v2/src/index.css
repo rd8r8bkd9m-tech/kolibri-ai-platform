@@ -1297,6 +1297,26 @@ a:hover .kolibri-mascot {
 .conversation-message-actions button[aria-pressed='true'] { background: var(--bg-hover); color: var(--text-primary); }
 .conversation-answer-disclaimer { margin-top: 6px; color: var(--text-tertiary); font-size: 13px; line-height: 1.45; }
 
+.conversation-retry-action {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  padding: 8px 14px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 620;
+}
+
+.conversation-retry-action:hover {
+  border-color: var(--border-hover);
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
 .conversation-actions {
   display: flex;
   flex-wrap: wrap;

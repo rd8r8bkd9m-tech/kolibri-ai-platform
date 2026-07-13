@@ -1,11 +1,10 @@
 import { useState, useEffect } from 'react'
-import { Routes, Route } from 'react-router'
+import { Navigate, Routes, Route } from 'react-router'
 import Layout from './components/Layout'
 import ErrorBoundary from './components/ErrorBoundary'
 import Home from './pages/Home'
 import ChatPage from './pages/ChatPage'
 import LibraryPage from './pages/LibraryPage'
-import AppsPage from './pages/AppsPage'
 import EstimatesPage from './pages/EstimatesPage'
 import DocumentsPage from './pages/DocumentsPage'
 import AgentsPage from './pages/AgentsPage'
@@ -47,10 +46,11 @@ export default function App() {
         <Route path="chat" element={<ChatPage />} />
         <Route path="chat/:projectId" element={<ChatPage />} />
         <Route path="library" element={<LibraryPage />} />
-        <Route path="apps" element={<AppsPage />} />
+        <Route path="apps" element={<Navigate to="/chat" replace />} />
         <Route path="estimates" element={<EstimatesPage />} />
         <Route path="documents" element={<DocumentsPage />} />
         <Route path="agents" element={<AgentsPage />} />
+        <Route path="control" element={<AgentsPage />} />
         <Route path="servers" element={<ServersPage />} />
         <Route path="developers" element={<DevelopersPage user={user} />} />
         <Route path="docs" element={<DeveloperDocsPage />} />

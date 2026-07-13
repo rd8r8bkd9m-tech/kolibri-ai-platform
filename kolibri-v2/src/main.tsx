@@ -1,5 +1,5 @@
 import { createRoot } from 'react-dom/client'
-import { HashRouter } from 'react-router'
+import { BrowserRouter } from 'react-router'
 import './index.css'
 import App from './App'
 import { disableLegacyServiceWorker } from './platform/disableLegacyServiceWorker'
@@ -14,9 +14,9 @@ initializeKolibriTheme()
 disableLegacyServiceWorker()
 
 createRoot(document.getElementById('root')!).render(
-  <HashRouter>
+  <BrowserRouter>
     <LocaleProvider>
       <App />
     </LocaleProvider>
-  </HashRouter>
+  </BrowserRouter>
 )

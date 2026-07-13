@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   ensureShellBootstrap,
+  estimates,
   normalizeStreamEvent,
   projects,
   readEventStream,
@@ -252,5 +253,13 @@ describe('safe response stream', () => {
     expect(handler).toHaveBeenCalledTimes(2)
     expect(handler.mock.calls[0]?.[0]).toMatchObject({ event: 'response.output_text.delta', id: '1' })
     expect(handler.mock.calls[1]?.[0].data).toBe('{"type":"response.completed",\n"response_id":"resp_1"}')
+  })
+})
+
+describe('revision-backed estimate artifacts', () => {
+  it('builds immutable revision export URLs for PDF, XLSX and JSON', () => {
+    expect(estimates.pdfUrl('estimate_1', 4)).toBe('/api/v1/estimates/estimate_1/pdf?version=4')
+    expect(estimates.exportUrl('estimate_1', 'xlsx', 4)).toBe('/api/v1/estimates/estimate_1/export/xlsx?version=4')
+    expect(estimates.exportUrl('estimate_1', 'json', 2)).toBe('/api/v1/estimates/estimate_1/export/json?version=2')
   })
 })

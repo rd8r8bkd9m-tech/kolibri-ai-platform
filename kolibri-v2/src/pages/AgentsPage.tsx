@@ -53,7 +53,7 @@ export default function AgentsPage() {
 
         {loadError && (
           <div className="mb-6 rounded-[var(--radius-lg)] border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-800">
-            {loadError}. Демо-агенты и случайные задачи не показываются.
+            {loadError}. Неподтверждённые агенты и задачи не показываются.
           </div>
         )}
 

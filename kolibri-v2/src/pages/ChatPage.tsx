@@ -232,6 +232,16 @@ function MessageActions({ content, onRetry }: { content: string; onRetry: () => 
   )
 }
 
+function MessageRetryAction({ onRetry }: { onRetry: () => void }) {
+  const { t } = useLocale()
+  return (
+    <button type="button" className="conversation-retry-action" onClick={onRetry}>
+      <RotateCw size={18} aria-hidden="true" />
+      <span>{t('chat.retryAnswer')}</span>
+    </button>
+  )
+}
+
 export default function ChatPage() {
   const { t } = useLocale()
   const [messages, setMessages] = useState<Message[]>([])
@@ -250,6 +260,7 @@ export default function ChatPage() {
   const activeServerMessageRef = useRef<string | null>(null)
   const activeProjectRef = useRef<string | null>(null)
   const activeResponseRef = useRef<string | null>(null)
+  const cancelInFlightRef = useRef(false)
   const activeAssistantContentRef = useRef('')
   const previousResponseRef = useRef<string | null>(null)
   const draftProjectKeyRef = useRef(createUuid())
@@ -712,25 +723,23 @@ export default function ChatPage() {
     }
   }, [capabilityMenu, createProject, loading, messages, mode, navigate, project, refresh, remember, routeProjectId, t])
 
-  const handleCancel = useCallback(() => {
+  const handleCancel = useCallback(async () => {
+    if (cancelInFlightRef.current) return
     const assistantId = activeAssistantRef.current
-    const serverAssistantId = activeServerMessageRef.current
-    const projectId = activeProjectRef.current
     const responseId = activeResponseRef.current
-    const content = activeAssistantContentRef.current || t('chat.cancelled')
-    abortRef.current?.abort()
-    abortRef.current = null
-    if (responseId) void responses.cancel(responseId).catch(() => undefined)
-    if (projectId && serverAssistantId) {
-      void projectsApi.updateMessage(projectId, serverAssistantId, {
-        content,
-        status: 'cancelled',
-        metadata: { response_id: responseId },
-      }, `assistant:${serverAssistantId}:cancelled`).catch(cause => {
-        setHistoryError(cause instanceof Error ? cause.message : 'Не удалось сохранить отмену. Чат продолжает работать.')
-      })
+    if (!assistantId || !responseId) {
+      setHistoryError('Отмена станет доступна после подтверждения задачи сервером.')
+      return
     }
-    if (assistantId) {
+
+    cancelInFlightRef.current = true
+    try {
+      const cancelled = await responses.cancel(responseId)
+      if (cancelled.status !== 'cancelled') throw new Error('cancel_not_confirmed')
+      if (activeAssistantRef.current !== assistantId || activeResponseRef.current !== responseId) return
+
+      abortRef.current?.abort()
+      abortRef.current = null
       setMessages(current => current.map(message => message.id === assistantId && message.work ? {
         ...message,
         content: message.content || t('chat.cancelled'),
@@ -745,12 +754,19 @@ export default function ChatPage() {
           }),
         },
       } : message))
+      setHistoryError(null)
+      activeAssistantRef.current = null
+      activeServerMessageRef.current = null
+      activeAssistantContentRef.current = ''
+      activeResponseRef.current = null
+      setLoading(false)
+    } catch (cause) {
+      setHistoryError(cause instanceof Error && cause.message !== 'cancel_not_confirmed'
+        ? cause.message
+        : 'Сервер не подтвердил отмену. Задача продолжает выполняться.')
+    } finally {
+      cancelInFlightRef.current = false
     }
-    activeAssistantRef.current = null
-    activeServerMessageRef.current = null
-    activeAssistantContentRef.current = ''
-    activeResponseRef.current = null
-    setLoading(false)
   }, [t])
 
   const selectCapability = (key: UiCapabilityKey) => {
@@ -864,6 +880,14 @@ export default function ChatPage() {
                     />
                     <p className="conversation-answer-disclaimer">{t('chat.disclaimer')}</p>
                   </>
+                )}
+                {message.role === 'assistant' && (message.work?.stage === 'failed' || message.work?.stage === 'cancelled') && (
+                  <MessageRetryAction
+                    onRetry={() => {
+                      const previous = messages.slice(0, messageIndex).reverse().find(item => item.role === 'user')
+                      if (previous) void handleSendMessage(previous.content)
+                    }}
+                  />
                 )}
               </article>
             ))}

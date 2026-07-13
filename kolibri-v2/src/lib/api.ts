@@ -142,6 +142,29 @@ export interface EstimateListResponse {
   page_size: number
 }
 
+export interface EstimateRevisionSummary {
+  id: string
+  estimate_id: string
+  version: number
+  title: string
+  status: Estimate['status']
+  total: string
+  created_at: string
+}
+
+export interface EstimateRevisionListResponse {
+  items: EstimateRevisionSummary[]
+  total: number
+}
+
+export interface EstimateRevisionResponse {
+  id: string
+  estimate_id: string
+  version: number
+  snapshot: Estimate
+  created_at: string
+}
+
 export interface Document {
   id: string
   title: string
@@ -327,8 +350,11 @@ export const estimates = {
     headers: { 'If-Match': `"${version}"` },
   }),
   duplicate: (id: string) => request<Estimate>(`/estimates/${id}/duplicate`, { method: 'POST' }),
-  pdfUrl: (id: string) => `${BASE}/estimates/${id}/pdf`,
-  exportUrl: (id: string, fmt: 'csv' | 'json') => `${BASE}/estimates/${id}/export/${fmt}`,
+  revisions: (id: string) => request<EstimateRevisionListResponse>(`/estimates/${id}/revisions`),
+  revision: (id: string, version: number) => request<EstimateRevisionResponse>(`/estimates/${id}/revisions/${version}`),
+  pdfUrl: (id: string, version?: number) => `${BASE}/estimates/${id}/pdf${version ? `?version=${version}` : ''}`,
+  exportUrl: (id: string, fmt: 'csv' | 'json' | 'xlsx', version?: number) =>
+    `${BASE}/estimates/${id}/export/${fmt}${version ? `?version=${version}` : ''}`,
 }
 
 // ---------------------------------------------------------------------------
