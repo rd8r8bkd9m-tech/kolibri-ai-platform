@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -31,8 +33,11 @@ def client(monkeypatch):
     monkeypatch.setenv("KOLIBRI_TELEGRAM_ALLOWED_CHAT_IDS", "7001,-100123")
     monkeypatch.setenv("KOLIBRI_PUBLIC_BASE_URL", "https://kolibriai.ru")
     monkeypatch.setenv("TELEGRAM_WEBHOOK_SECRET", "test_secret_0123456789_abcdefghijk")
+    monkeypatch.delenv("KOLIBRI_TELEGRAM_LIVE_VERIFIED", raising=False)
+    monkeypatch.delenv("KOLIBRI_TELEGRAM_REQUIRE_OFFICIAL_SOURCE", raising=False)
+    monkeypatch.delenv("KOLIBRI_TELEGRAM_TRUSTED_PROXY_CIDRS", raising=False)
     app.dependency_overrides[get_db] = override_get_db
-    with TestClient(app) as test_client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as test_client:
         yield test_client
     app.dependency_overrides.pop(get_db, None)
     Base.metadata.drop_all(bind=engine)
@@ -51,11 +56,14 @@ def _update(update_id: int, text: str, chat_id: int = 7001) -> dict:
     }
 
 
-def _post(client: TestClient, body: dict):
+def _post(client: TestClient, body: dict, *, forwarded_for: str = "149.154.160.1"):
     return client.post(
         "/api/v1/telegram/webhook",
         json=body,
-        headers={"X-Telegram-Bot-Api-Secret-Token": "test_secret_0123456789_abcdefghijk"},
+        headers={
+            "X-Telegram-Bot-Api-Secret-Token": "test_secret_0123456789_abcdefghijk",
+            "X-Forwarded-For": forwarded_for,
+        },
     )
 
 
@@ -69,6 +77,7 @@ def test_webhook_is_disabled_by_default_and_has_no_default_secret(monkeypatch):
     readiness = telegram._readiness()
     assert readiness["status"] == "disabled"
     assert readiness["live_delivery_verified"] is False
+    assert readiness["delivery_evidence"]["status"] == "absent"
     assert set(readiness["blockers"]) == {
         "webhook_disabled",
         "owner_approval_required",
@@ -293,16 +302,26 @@ def test_release_contract_has_no_watchdog_gomesh_or_legacy_sender(client):
         "scope": "telegram-adapter-process",
         "fleet_runtime": "unknown",
     }
-    assert info.json()["readiness"] == {
-        "status": "configured_unverified",
-        "receiver_ready": True,
-        "owner_approved": True,
-        "secret_valid": True,
-        "allowed_chat_count": 2,
-        "public_base_configured": True,
-        "live_delivery_verified": False,
-        "blockers": [],
+    readiness = info.json()["readiness"]
+    assert readiness["status"] == "configured_unverified"
+    assert readiness["receiver_ready"] is True
+    assert readiness["owner_approved"] is True
+    assert readiness["secret_valid"] is True
+    assert readiness["allowed_chat_count"] == 2
+    assert readiness["public_base_configured"] is True
+    assert readiness["require_official_source"] is False
+    assert readiness["trusted_proxy_config_valid"] is True
+    assert readiness["live_delivery_verified"] is False
+    assert readiness["delivery_evidence"] == {
+        "status": "absent",
+        "verified_at": None,
+        "age_seconds": None,
+        "max_age_seconds": 86400,
+        "update_id": None,
+        "response_method": None,
+        "origin_network": None,
     }
+    assert readiness["blockers"] == []
     source = open(telegram.__file__, encoding="utf-8").read().lower()
     assert "sendmessage" in source
     assert "send_photo" not in source
@@ -310,26 +329,100 @@ def test_release_contract_has_no_watchdog_gomesh_or_legacy_sender(client):
     assert "httpx.post" not in source
 
 
-def test_readiness_becomes_ready_only_after_live_delivery_evidence(client, monkeypatch):
+def test_static_live_flag_is_ignored_and_official_delivery_is_persisted(client, monkeypatch):
     before = client.get("/api/v1/telegram/info")
     assert before.status_code == 200
     assert before.json()["webhook_ready"] is False
     assert before.json()["readiness"]["status"] == "configured_unverified"
 
     monkeypatch.setenv("KOLIBRI_TELEGRAM_LIVE_VERIFIED", "true")
+    still_unverified = client.get("/api/v1/telegram/info")
+    assert still_unverified.status_code == 200
+    assert still_unverified.json()["webhook_ready"] is False
+    assert still_unverified.json()["readiness"]["delivery_evidence"]["status"] == "absent"
+
+    delivered = _post(client, _update(390, "/start"))
+    assert delivered.status_code == 200
     after = client.get("/api/v1/telegram/info")
     assert after.status_code == 200
     assert after.json()["webhook_ready"] is True
-    assert after.json()["readiness"] == {
-        "status": "ready",
-        "receiver_ready": True,
-        "owner_approved": True,
-        "secret_valid": True,
-        "allowed_chat_count": 2,
-        "public_base_configured": True,
-        "live_delivery_verified": True,
-        "blockers": [],
-    }
+    readiness = after.json()["readiness"]
+    assert readiness["status"] == "ready"
+    assert readiness["receiver_ready"] is True
+    assert readiness["live_delivery_verified"] is True
+    assert readiness["delivery_evidence"]["status"] == "current"
+    assert readiness["delivery_evidence"]["update_id"] == 390
+    assert readiness["delivery_evidence"]["response_method"] == "sendMessage"
+    assert readiness["delivery_evidence"]["origin_network"] == "149.154.160.0/20"
+    assert readiness["delivery_evidence"]["verified_at"]
+    assert readiness["blockers"] == []
+
+
+def test_spoofed_forwarded_for_does_not_create_delivery_evidence(client):
+    # The right-most untrusted hop is the origin. A public client cannot put a
+    # Telegram address to its left and obtain live status.
+    response = _post(client, _update(391, "/start"), forwarded_for="149.154.160.1, 203.0.113.7")
+    assert response.status_code == 200
+    info = client.get("/api/v1/telegram/info").json()
+    assert info["webhook_ready"] is False
+    assert info["readiness"]["delivery_evidence"]["status"] == "absent"
+
+
+def test_official_source_can_be_required_through_explicit_mesh_relay(client, monkeypatch):
+    monkeypatch.setenv("KOLIBRI_TELEGRAM_REQUIRE_OFFICIAL_SOURCE", "true")
+    monkeypatch.setenv("KOLIBRI_TELEGRAM_TRUSTED_PROXY_CIDRS", "10.99.0.44/32")
+
+    denied = _post(client, _update(392, "/start"), forwarded_for="149.154.160.1, 203.0.113.7")
+    assert denied.status_code == 403
+    assert denied.json()["detail"]["code"] == "telegram_origin_not_verified"
+
+    accepted = _post(client, _update(393, "/start"), forwarded_for="149.154.160.1, 10.99.0.44")
+    assert accepted.status_code == 200
+    info = client.get("/api/v1/telegram/info").json()
+    assert info["webhook_ready"] is True
+    assert info["readiness"]["delivery_evidence"]["origin_network"] == "149.154.160.0/20"
+
+
+def test_broad_or_telegram_proxy_trust_is_fail_closed(client, monkeypatch):
+    monkeypatch.setenv("KOLIBRI_TELEGRAM_REQUIRE_OFFICIAL_SOURCE", "true")
+    for invalid in ("0.0.0.0/0", "10.99.0.0/16", "149.154.160.0/20", "not-a-cidr"):
+        monkeypatch.setenv("KOLIBRI_TELEGRAM_TRUSTED_PROXY_CIDRS", invalid)
+        info = client.get("/api/v1/telegram/info").json()
+        assert info["receiver_ready"] is False
+        assert info["readiness"]["trusted_proxy_config_valid"] is False
+        assert "trusted_proxy_cidrs_invalid" in info["readiness"]["blockers"]
+
+
+def test_delivery_evidence_database_failure_reports_partial(monkeypatch):
+    from sqlalchemy.exc import OperationalError
+
+    class BrokenSession:
+        def get(self, model, key):
+            raise OperationalError("SELECT", {}, RuntimeError("database unavailable"))
+
+        def rollback(self):
+            self.rolled_back = True
+
+    db = BrokenSession()
+    evidence = telegram._delivery_evidence(db)
+    assert evidence["status"] == "unavailable"
+    assert evidence["verified_at"] is None
+    assert db.rolled_back is True
+
+
+def test_stale_delivery_evidence_returns_to_configured_unverified(client):
+    assert _post(client, _update(394, "/start")).status_code == 200
+    with next(app.dependency_overrides[get_db]()) as db:
+        from app.models import TelegramDeliveryEvidenceDB
+
+        evidence = db.get(TelegramDeliveryEvidenceDB, "telegram-webhook-live")
+        evidence.verified_at = datetime.now(timezone.utc) - timedelta(days=2)
+        db.commit()
+
+    info = client.get("/api/v1/telegram/info").json()
+    assert info["webhook_ready"] is False
+    assert info["readiness"]["status"] == "configured_unverified"
+    assert info["readiness"]["delivery_evidence"]["status"] == "stale"
 
 
 def test_invalid_secret_is_rejected(client):

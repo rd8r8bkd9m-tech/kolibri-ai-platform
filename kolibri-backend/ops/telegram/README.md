@@ -22,6 +22,21 @@ uses the protected token once to register the exact
 Until that external check succeeds, `/api/v1/telegram/info` reports
 `configured_unverified`, never `live`.
 
+Readiness never trusts a static environment flag. The receiver derives the
+original client address through an explicit trusted-proxy chain, accepts live
+evidence only from Telegram's current official webhook networks, and stores a
+minimal singleton evidence row in the application database. The row contains
+only the update ID, response method, official network and timestamp; it does
+not store a token, secret header, user text or exact source address. Evidence
+expires, so a broken route returns to `configured_unverified` instead of
+remaining permanently green.
+
+When the stateless public relay is used, install its exact mesh address as a
+narrow `/32` in `KOLIBRI_TELEGRAM_TRUSTED_PROXY_CIDRS`. The relay overwrites
+`X-Forwarded-For` with Telegram's socket address. Home nginx appends the relay
+mesh address, and the backend walks that chain from right to left. Broad proxy
+trust ranges are rejected.
+
 The production systemd source reads only
 `/etc/kolibri/telegram-webhook.env`. If the file is absent, the explicit unit
 defaults keep Telegram disabled. The file must be root-owned and mode `0600`.

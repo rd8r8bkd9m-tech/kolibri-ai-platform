@@ -33,10 +33,17 @@ def test_unversioned_create_all_database_is_adopted_and_backfilled(tmp_path: Pat
     revision = ensure_database_schema(engine)
 
     with engine.connect() as connection:
-        assert revision == "002_project_history"
-        assert MigrationContext.configure(connection).get_current_revision() == "002_project_history"
+        assert revision == "003_telegram_delivery_evidence"
+        assert MigrationContext.configure(connection).get_current_revision() == "003_telegram_delivery_evidence"
         columns = {column["name"] for column in sa.inspect(connection).get_columns("project_messages")}
         assert "version" in columns
+        telegram_columns = {
+            column["name"]
+            for column in sa.inspect(connection).get_columns("telegram_delivery_evidence")
+        }
+        assert telegram_columns == {
+            "id", "update_id", "response_method", "origin_network", "verified_at", "updated_at",
+        }
         assert connection.execute(sa.text(
             "SELECT version FROM project_messages WHERE id = 'message_1'"
         )).scalar_one() == 1

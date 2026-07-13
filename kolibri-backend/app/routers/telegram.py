@@ -14,13 +14,18 @@ import hmac
 import json
 import os
 import re
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from ipaddress import IPv4Address, IPv6Address, ip_address, ip_network
 from typing import Any
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.models import TelegramDeliveryEvidenceDB
 from app.project_history import ProjectConflictError, ProjectHistoryRepository
 from app.routers.openai_compat import ResponsesRequest, execute_kolibri_response
 
@@ -45,10 +50,118 @@ _INSECURE_WEBHOOK_SECRETS = {
     "secret",
     "telegram-webhook-secret",
 }
+_DELIVERY_EVIDENCE_ID = "telegram-webhook-live"
+_DEFAULT_DELIVERY_EVIDENCE_MAX_AGE_SECONDS = 24 * 60 * 60
+_TELEGRAM_WEBHOOK_NETWORKS = tuple(
+    ip_network(value)
+    for value in (
+        "149.154.160.0/20",
+        "91.108.4.0/22",
+    )
+)
+_LOOPBACK_PROXY_NETWORKS = (
+    ip_network("127.0.0.0/8"),
+    ip_network("::1/128"),
+)
+
+
+@dataclass(frozen=True)
+class _WebhookOrigin:
+    address: IPv4Address | IPv6Address | None
+    official_network: str | None
+    trusted_proxy_config_valid: bool
 
 
 def _enabled(name: str) -> bool:
     return os.getenv(name, "").strip().lower() in _TRUE
+
+
+def _delivery_evidence_max_age_seconds() -> int:
+    raw = os.getenv("KOLIBRI_TELEGRAM_DELIVERY_EVIDENCE_MAX_AGE_SECONDS", "").strip()
+    if not raw:
+        return _DEFAULT_DELIVERY_EVIDENCE_MAX_AGE_SECONDS
+    try:
+        value = int(raw)
+    except ValueError:
+        return _DEFAULT_DELIVERY_EVIDENCE_MAX_AGE_SECONDS
+    return min(max(value, 60), 7 * 24 * 60 * 60)
+
+
+def _trusted_proxy_networks() -> tuple[tuple[Any, ...], bool]:
+    """Return an explicit, narrow proxy trust set.
+
+    Loopback is trusted because the production ASGI service sits behind the
+    Home nginx process.  Mesh relay addresses must be added explicitly as /32
+    (or another narrow subnet) in the protected runtime configuration.  Broad
+    trust ranges are rejected so an attacker cannot make a forged
+    X-Forwarded-For value look like Telegram.
+    """
+
+    networks: list[Any] = list(_LOOPBACK_PROXY_NETWORKS)
+    raw = os.getenv("KOLIBRI_TELEGRAM_TRUSTED_PROXY_CIDRS", "").strip()
+    if not raw:
+        return tuple(networks), True
+    valid = True
+    for item in raw.split(","):
+        candidate = item.strip()
+        if not candidate:
+            valid = False
+            continue
+        try:
+            network = ip_network(candidate, strict=False)
+        except ValueError:
+            valid = False
+            continue
+        minimum_prefix = 24 if network.version == 4 else 64
+        if network.prefixlen < minimum_prefix:
+            valid = False
+            continue
+        if any(network.overlaps(telegram) for telegram in _TELEGRAM_WEBHOOK_NETWORKS):
+            valid = False
+            continue
+        networks.append(network)
+    return tuple(networks), valid
+
+
+def _in_networks(address: IPv4Address | IPv6Address, networks: tuple[Any, ...]) -> bool:
+    return any(address.version == network.version and address in network for network in networks)
+
+
+def _request_origin(request: Request) -> _WebhookOrigin:
+    trusted, trusted_config_valid = _trusted_proxy_networks()
+    peer_value = request.client.host if request.client is not None else ""
+    try:
+        peer = ip_address(peer_value)
+    except ValueError:
+        return _WebhookOrigin(None, None, trusted_config_valid)
+
+    origin = peer
+    if _in_networks(peer, trusted):
+        forwarded = request.headers.get("X-Forwarded-For", "")
+        if forwarded:
+            chain: list[IPv4Address | IPv6Address] = []
+            for item in forwarded.split(","):
+                try:
+                    chain.append(ip_address(item.strip()))
+                except ValueError:
+                    return _WebhookOrigin(None, None, trusted_config_valid)
+            chain.append(peer)
+            index = len(chain) - 1
+            while index >= 0 and _in_networks(chain[index], trusted):
+                index -= 1
+            if index < 0:
+                return _WebhookOrigin(None, None, trusted_config_valid)
+            origin = chain[index]
+
+    official_network = next(
+        (
+            str(network)
+            for network in _TELEGRAM_WEBHOOK_NETWORKS
+            if origin.version == network.version and origin in network
+        ),
+        None,
+    )
+    return _WebhookOrigin(origin, official_network, trusted_config_valid)
 
 
 def _webhook_secret() -> str:
@@ -93,13 +206,65 @@ def _public_base_url() -> str | None:
     return value
 
 
-def _readiness() -> dict[str, Any]:
+def _utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _delivery_evidence(db: Session | None) -> dict[str, Any]:
+    max_age_seconds = _delivery_evidence_max_age_seconds()
+    unavailable = {
+        "status": "unavailable" if db is not None else "absent",
+        "verified_at": None,
+        "age_seconds": None,
+        "max_age_seconds": max_age_seconds,
+        "update_id": None,
+        "response_method": None,
+        "origin_network": None,
+    }
+    if db is None:
+        return unavailable
+    try:
+        row = db.get(TelegramDeliveryEvidenceDB, _DELIVERY_EVIDENCE_ID)
+    except SQLAlchemyError:
+        db.rollback()
+        return unavailable
+    if row is None:
+        return {
+            "status": "absent",
+            "verified_at": None,
+            "age_seconds": None,
+            "max_age_seconds": max_age_seconds,
+            "update_id": None,
+            "response_method": None,
+            "origin_network": None,
+        }
+    verified_at = _utc(row.verified_at)
+    age_seconds = max(0, int((datetime.now(timezone.utc) - verified_at).total_seconds()))
+    return {
+        "status": "current" if age_seconds <= max_age_seconds else "stale",
+        "verified_at": verified_at.isoformat(),
+        "age_seconds": age_seconds,
+        "max_age_seconds": max_age_seconds,
+        "update_id": row.update_id,
+        "response_method": row.response_method,
+        "origin_network": row.origin_network,
+    }
+
+
+def _readiness(db: Session | None = None) -> dict[str, Any]:
     enabled = _enabled("KOLIBRI_TELEGRAM_WEBHOOK_ENABLED")
     owner_approved = _enabled("KOLIBRI_TELEGRAM_OWNER_APPROVED")
     secret_valid = _secret_is_valid()
     allowed_chat_count = len(_allowed_chat_ids())
     public_base_configured = _public_base_url() is not None
-    live_delivery_verified = _enabled("KOLIBRI_TELEGRAM_LIVE_VERIFIED")
+    _, trusted_proxy_config_valid = _trusted_proxy_networks()
+    require_official_source = _enabled("KOLIBRI_TELEGRAM_REQUIRE_OFFICIAL_SOURCE")
+    evidence = _delivery_evidence(db)
+    live_delivery_verified = evidence["status"] == "current"
     blockers: list[str] = []
     if not enabled:
         blockers.append("webhook_disabled")
@@ -111,6 +276,8 @@ def _readiness() -> dict[str, Any]:
         blockers.append("allowed_chat_ids_required")
     if not public_base_configured:
         blockers.append("public_https_base_url_required")
+    if require_official_source and not trusted_proxy_config_valid:
+        blockers.append("trusted_proxy_cidrs_invalid")
     if blockers:
         status = "disabled" if not enabled else "blocked"
     else:
@@ -122,17 +289,20 @@ def _readiness() -> dict[str, Any]:
         "secret_valid": secret_valid,
         "allowed_chat_count": allowed_chat_count,
         "public_base_configured": public_base_configured,
+        "require_official_source": require_official_source,
+        "trusted_proxy_config_valid": trusted_proxy_config_valid,
         "live_delivery_verified": live_delivery_verified,
+        "delivery_evidence": evidence,
         "blockers": blockers,
     }
 
 
-def _webhook_ready() -> bool:
-    readiness = _readiness()
+def _webhook_ready(db: Session | None = None) -> bool:
+    readiness = _readiness(db)
     return bool(readiness["receiver_ready"] and readiness["live_delivery_verified"])
 
 
-def _verify_webhook(request: Request) -> None:
+def _verify_webhook(request: Request) -> _WebhookOrigin:
     """Require an explicitly enabled webhook and a non-default secret."""
 
     readiness = _readiness()
@@ -150,6 +320,46 @@ def _verify_webhook(request: Request) -> None:
     supplied = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
     if not hmac.compare_digest(supplied, expected):
         raise HTTPException(status_code=403, detail={"code": "invalid_webhook_secret"})
+    origin = _request_origin(request)
+    if _enabled("KOLIBRI_TELEGRAM_REQUIRE_OFFICIAL_SOURCE") and not origin.official_network:
+        raise HTTPException(status_code=403, detail={"code": "telegram_origin_not_verified"})
+    return origin
+
+
+def _persist_delivery_evidence(
+    db: Session,
+    *,
+    update_id: int,
+    response_method: str,
+    origin_network: str,
+) -> bool:
+    try:
+        now = datetime.now(timezone.utc)
+        row = db.get(TelegramDeliveryEvidenceDB, _DELIVERY_EVIDENCE_ID)
+        if row is None:
+            row = TelegramDeliveryEvidenceDB(
+                id=_DELIVERY_EVIDENCE_ID,
+                update_id=update_id,
+                response_method=response_method,
+                origin_network=origin_network,
+                verified_at=now,
+                updated_at=now,
+            )
+            db.add(row)
+        else:
+            row.update_id = update_id
+            row.response_method = response_method
+            row.origin_network = origin_network
+            row.verified_at = now
+            row.updated_at = now
+        db.commit()
+    except SQLAlchemyError:
+        # Delivery of the user response is more important than the auxiliary
+        # readiness snapshot.  A failed evidence write leaves readiness
+        # partial and will be retried by the next valid Telegram update.
+        db.rollback()
+        return False
+    return True
 
 
 def _reply(chat_id: int | str, text: str) -> dict[str, Any]:
@@ -344,7 +554,7 @@ async def _execute_update(body: dict[str, Any], db: Session) -> dict[str, Any]:
 
 @router.post("/webhook")
 async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
-    _verify_webhook(request)
+    origin = _verify_webhook(request)
     declared_length = request.headers.get("content-length")
     if declared_length:
         try:
@@ -361,15 +571,25 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail={"code": "invalid_telegram_json"}) from exc
     if not isinstance(body, dict):
         raise HTTPException(status_code=422, detail={"code": "invalid_telegram_update"})
-    return await _execute_update(body, db)
+    response = await _execute_update(body, db)
+    update_id = body.get("update_id")
+    if origin.official_network and isinstance(update_id, int) and update_id >= 0:
+        method = str(response.get("method") or "ack") if isinstance(response, dict) else "ack"
+        _persist_delivery_evidence(
+            db,
+            update_id=update_id,
+            response_method=method,
+            origin_network=origin.official_network,
+        )
+    return response
 
 
 @router.get("/info")
-async def bot_info():
-    readiness = _readiness()
+async def bot_info(db: Session = Depends(get_db)):
+    readiness = _readiness(db)
     return {
         "webhook_enabled": _enabled("KOLIBRI_TELEGRAM_WEBHOOK_ENABLED"),
-        "webhook_ready": _webhook_ready(),
+        "webhook_ready": _webhook_ready(db),
         "receiver_ready": readiness["receiver_ready"],
         "readiness": readiness,
         "bot_configured": bool(os.getenv("TELEGRAM_BOT_TOKEN", "").strip()),

@@ -296,3 +296,23 @@ class ProjectMessageMutationDB(Base):
         UniqueConstraint("message_id", "idempotency_key", name="uq_message_mutations_idempotency"),
         Index("ix_message_mutations_scope_created", "scope_id", "created_at"),
     )
+
+
+class TelegramDeliveryEvidenceDB(Base):
+    """Latest independently derived Telegram webhook delivery evidence.
+
+    This is deliberately a singleton instead of an append-only copy of every
+    Telegram update.  The durable project/message ledger remains the audit log
+    for user content; this row records only the minimum non-secret facts needed
+    to prove that an update reached the canonical receiver from an official
+    Telegram webhook network.
+    """
+
+    __tablename__ = "telegram_delivery_evidence"
+
+    id = Column(String, primary_key=True)
+    update_id = Column(Integer, nullable=False)
+    response_method = Column(String, nullable=False)
+    origin_network = Column(String, nullable=False)
+    verified_at = Column(DateTime, nullable=False, default=_now)
+    updated_at = Column(DateTime, nullable=False, default=_now, onupdate=_now)

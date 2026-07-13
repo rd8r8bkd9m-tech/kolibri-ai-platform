@@ -30,6 +30,7 @@ ALLOWED_UNVERSIONED_TABLES = set(BASELINE_COLUMNS) | {
     "projects",
     "project_messages",
     "project_message_mutations",
+    "telegram_delivery_evidence",
 }
 
 
@@ -84,10 +85,20 @@ def ensure_database_schema(engine: Engine) -> str:
 
         expected = ScriptDirectory.from_config(config).get_current_head()
         actual = MigrationContext.configure(connection).get_current_revision()
-        columns = {column["name"] for column in sa.inspect(connection).get_columns("project_messages")}
-        if actual != expected or "version" not in columns:
+        inspector = sa.inspect(connection)
+        columns = {column["name"] for column in inspector.get_columns("project_messages")}
+        telegram_columns = {
+            column["name"]
+            for column in inspector.get_columns("telegram_delivery_evidence")
+        }
+        telegram_expected = {
+            "id", "update_id", "response_method", "origin_network", "verified_at", "updated_at",
+        }
+        if actual != expected or "version" not in columns or not telegram_expected.issubset(telegram_columns):
             raise SchemaAdoptionError(
                 f"database migration verification failed: revision={actual!r}, expected={expected!r}, "
-                f"project_messages.version={'present' if 'version' in columns else 'missing'}"
+                f"project_messages.version={'present' if 'version' in columns else 'missing'}, "
+                "telegram_delivery_evidence="
+                f"{'present' if telegram_expected.issubset(telegram_columns) else 'missing'}"
             )
         return str(actual)
