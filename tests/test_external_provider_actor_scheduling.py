@@ -590,11 +590,24 @@ def test_external_actor_http_auth_replay_rotation_and_all_six_mutations(monkeypa
         key: copy.deepcopy(value) for key, value in register_body.items()
         if key in {
             "node_id", "hostname", "agent_id", "pid", "capabilities", "runners",
-            "runner_readiness", "labels", "cpu", "ram", "disk",
+            "runner_readiness", "release_installer", "agent_host_runtime", "labels",
+            "cpu", "ram", "disk",
         }
+    }
+    heartbeat_body["release_installer"] = {
+        "status": "unavailable",
+        "capability": "release_bundle_apply",
+        "reasons": ["provider_actor_has_no_release_helper"],
+    }
+    heartbeat_body["agent_host_runtime"] = {
+        "status": "managed",
+        "release_id": "home-provider-test-runtime",
+        "manifest_digest": "sha256:" + "c" * 64,
     }
     assert_auth_gate(f"/v1/nodes/{node_id}/heartbeat", heartbeat_body, success_status=200)
     assert nodes[node_id]["external_provider_auth"] == marker_v1
+    assert nodes[node_id]["release_installer"] == heartbeat_body["release_installer"]
+    assert nodes[node_id]["agent_host_runtime"] == heartbeat_body["agent_host_runtime"]
 
     lease_body = {
         "node_id": node_id,

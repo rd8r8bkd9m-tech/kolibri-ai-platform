@@ -87,6 +87,16 @@ def external_heartbeat_body() -> dict[str, Any]:
         "capabilities": ["codex_provider_broker", "runner:codex"],
         "runners": {},
         "runner_readiness": {},
+        "release_installer": {
+            "status": "unavailable",
+            "capability": "release_bundle_apply",
+            "reasons": ["provider_actor_has_no_release_helper"],
+        },
+        "agent_host_runtime": {
+            "status": "managed",
+            "release_id": "home-provider-test-runtime",
+            "manifest_digest": "sha256:" + "c" * 64,
+        },
         "labels": {
             "provider": "codex",
             "runtime": "macos_launchagent",

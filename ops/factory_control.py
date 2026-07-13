@@ -3650,6 +3650,16 @@ class Handler(BaseHTTPRequestHandler):
                         if isinstance(body.get("runner_readiness"), dict)
                         else {}
                     ),
+                    "release_installer": (
+                        body.get("release_installer")
+                        if isinstance(body.get("release_installer"), dict)
+                        else {}
+                    ),
+                    "agent_host_runtime": (
+                        body.get("agent_host_runtime")
+                        if isinstance(body.get("agent_host_runtime"), dict)
+                        else {}
+                    ),
                 }
                 marker = external_provider_actor_auth_marker(node_id)
                 if external_provider_actor_identity(node_id, node) is not None:
@@ -3680,7 +3690,7 @@ class Handler(BaseHTTPRequestHandler):
                     allowed_heartbeat_fields = {
                         "node_id", "hostname", "agent_id", "pid", "capabilities", "runners",
                         "runner_readiness", "release_installer", "labels", "active_task",
-                        "cpu", "ram", "disk",
+                        "agent_host_runtime", "cpu", "ram", "disk",
                     }
                     if set(body) - allowed_heartbeat_fields:
                         response(self, 400, {"error": "external_provider_actor_heartbeat_field_forbidden"})
