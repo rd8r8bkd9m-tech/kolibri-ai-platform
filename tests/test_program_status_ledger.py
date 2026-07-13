@@ -9,9 +9,9 @@ ROOT = Path(__file__).resolve().parents[1]
 STATUS_PATH = ROOT / "release" / "program-status.json"
 DOC_PATH = ROOT / "docs" / "PROGRAM_STATUS.md"
 ALLOWED_STATUSES = {"completed", "in_progress", "not_started", "blocked"}
-SOURCE_COMMIT = "c0f6c807617585ceb155d000d51d4c06d82883e4"
-HOME_INTEGRATION_COMMIT = "7fc3ff6a24266caa204db02e8c4f05f4a4a2bbde"
-CI_RUN_ID = 29214360515
+SOURCE_COMMIT = "45eef8aa3ce4a15858cf2284d31bf4da286dbc59"
+HOME_INTEGRATION_COMMIT = SOURCE_COMMIT
+CI_RUN_ID = 29214898086
 BUNDLE_DIGEST = "sha256:de00339d64be94772896e956a8bc3e05d125b6db0677285dc6835f2884baa56c"
 CAMPAIGN_ID = "factory-ca5e3a09-final-20260713"
 RETRY_SNAPSHOT = "sha256:df090eab9ecc4956d60f1a01fbf70d79ac702f4e8100997e5054f525591d951b"
@@ -105,7 +105,6 @@ def test_program_status_records_only_current_proven_summary():
             "status": "clean",
             "commit": HOME_INTEGRATION_COMMIT,
             "update_method": "fast_forward",
-            "source_update_pending": SOURCE_COMMIT,
         },
         "codex_cli_version": "0.144.1",
         "canonical_manifest_readable": True,
@@ -191,7 +190,7 @@ def test_program_status_records_only_current_proven_summary():
             "terminal_attempt": 2,
             "max_attempts": 2,
             "terminal_cause": "mimo_session_not_found",
-            "classification_fix": "implemented_and_locally_verified",
+            "classification_fix": "committed_ci_green",
         },
         {
             "count": 1,

@@ -1,6 +1,6 @@
 # Kolibri AI OS program status
 
-As of `2026-07-13T00:06:08Z` (UTC). Source commit: [`c0f6c807`](https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/commit/c0f6c807617585ceb155d000d51d4c06d82883e4).
+As of `2026-07-13T00:17:44Z` (UTC). Source commit: [`45eef8aa`](https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/commit/45eef8aa3ce4a15858cf2284d31bf4da286dbc59).
 
 This is the owner-facing source-backed ledger for the Home-first program. It reports only proven facts and explicit blockers. It does not derive readiness from heartbeat and does not turn missing evidence into zero.
 
@@ -19,9 +19,9 @@ The `18.2%` value is a transparent acceptance-gate ratio, not an effort estimate
 
 | Fact | Current evidence | Evidence ID |
 | --- | --- | --- |
-| Source | Commit `c0f6c807617585ceb155d000d51d4c06d82883e4` | `commit:c0f6c807` |
-| CI | Run `29214360515` is green: `ci`, `rust-1.97`, and `kolibri-shell` all succeeded | `ci-run:29214360515-green` |
-| Home integration | Worktree fast-forwarded cleanly to exact commit `7fc3ff6a24266caa204db02e8c4f05f4a4a2bbde` | `home-integration:7fc3ff6a-clean` |
+| Source | Commit `45eef8aa3ce4a15858cf2284d31bf4da286dbc59` | `commit:45eef8aa` |
+| CI | Run `29214898086` is green: `ci`, `rust-1.97`, and `kolibri-shell` all succeeded | `ci-run:29214898086-green` |
+| Home integration | Worktree fast-forwarded cleanly to exact commit `45eef8aa3ce4a15858cf2284d31bf4da286dbc59` | `home-integration:45eef8aa-clean` |
 | Home toolchain | Codex CLI upgraded to `0.144.1`; root helper and sudoers are installed and validated; Home user can read the canonical manifest; `Linger=yes` | `home-codex-cli:0.144.1`, `home-account:helper-sudoers-manifest-linger` |
 | Home Control Plane runtime | Active with `NRestarts=0` | `home-cp-runtime:active-nrestarts0` |
 | Home Codex provider | Broker and safe credential provisioner are committed and CI-green; service is not activated, no provider canary exists, and dry-run is blocked by `current_user_codex_session_unavailable` | `home-provider:dry-run-session-unavailable` |
@@ -43,9 +43,9 @@ Only `completed`, `in_progress`, `not_started`, and `blocked` are valid gate sta
 
 | Gate | Scope | Status | Evidence | Exact next action |
 | --- | --- | --- | --- | --- |
-| 0 | Evidence baseline and factual truth | `completed` | `commit:c0f6c807`, `ci-run:29214360515-green`, `runtime-bundle:de00339d` | Record the next accepted commit, CI verdict, runtime digest, and evidence timestamps before making any new readiness claim. |
-| 1 | Home development authority | `in_progress` | `home-cp-runtime:active-nrestarts0`, `home-integration:7fc3ff6a-clean`, `home-codex-cli:0.144.1`, `home-account:helper-sudoers-manifest-linger`, `home-provider:migration-epoch2`, `home-provider:dry-run-session-unavailable`, `development-seed-retry:KOL-IMPROVE-SEED-r2-3b01332c` | Unlock Mac, complete official device login, install and start the service, pass readiness, run a fenced provider canary, then undrain; afterward repair and rerun the five Mimo development seed failures. |
-| 2 | Contract and design freeze | `in_progress` | `commit:c0f6c807`, `ci-run:29214360515-green` | Freeze the Portal and Shell interaction contracts, responsive component inventory, and executable acceptance fixtures on one reviewed commit. |
+| 0 | Evidence baseline and factual truth | `completed` | `commit:45eef8aa`, `ci-run:29214898086-green`, `runtime-bundle:de00339d` | Record the next accepted commit, CI verdict, runtime digest, and evidence timestamps before making any new readiness claim. |
+| 1 | Home development authority | `in_progress` | `home-cp-runtime:active-nrestarts0`, `home-integration:45eef8aa-clean`, `home-codex-cli:0.144.1`, `home-account:helper-sudoers-manifest-linger`, `home-provider:migration-epoch2`, `home-provider:dry-run-session-unavailable`, `development-seed-retry:KOL-IMPROVE-SEED-r2-3b01332c` | Unlock Mac, complete official device login, install and start the service, pass readiness, run a fenced provider canary, then undrain; afterward repair and rerun the five Mimo development seed failures. |
+| 2 | Contract and design freeze | `in_progress` | `commit:45eef8aa`, `ci-run:29214898086-green` | Freeze the Portal and Shell interaction contracts, responsive component inventory, and executable acceptance fixtures on one reviewed commit. |
 | 3 | Durable foundation | `in_progress` | `home-cp-health:20260712T215412Z`, `runtime-bundle:de00339d` | Run the durable Rust foundation in shadow and pass restart, idempotency, event replay, and fencing parity fixtures without unexplained differences. |
 | 4 | Factory fleet proof | `completed` | `fleet-campaign:factory-ca5e3a09-final-20260713`, `runtime-bundle:de00339d` | Repeat a fresh 21-node capability campaign for every release candidate and retain each result hash and independent verifier binding. |
 | 5 | Portal, Shell, and providers | `blocked` | `home-provider:dry-run-session-unavailable`, `development-seed-retry:KOL-IMPROVE-SEED-r2-3b01332c` | Unlock Mac, complete device login, install and start the service, pass readiness, run a fenced canary, and undrain; then clear the Mimo failures and pass the provider and Shell end-to-end scenarios. |
@@ -53,7 +53,7 @@ Only `completed`, `in_progress`, `not_started`, and `blocked` are valid gate sta
 | 7 | Full capability product | `not_started` | — | After Gate 6, prove Research, Documents, Code, Site or App preview, Browser, Media, Automations, and developer surfaces with real artifacts. |
 | 8 | Rust authority and scale | `blocked` | `home-cp-health:20260712T215412Z` | Achieve shadow parity, keep it stable for the required observation window, then perform fenced authority canaries before scale benchmarks. |
 | 9 | FormulaLM | `not_started` | — | Build the sanitized dataset manifest and independent evaluation path before admitting any model candidate to shadow inference. |
-| 10 | Signed production release | `blocked` | `commit:c0f6c807`, `ci-run:29214360515-green`, `home-provider:dry-run-session-unavailable`, `fleet-campaign:factory-ca5e3a09-final-20260713` | Complete the preceding product and authority gates, then build a signed candidate and run canary, progressive rollout, full end-to-end verification, and the required soak. |
+| 10 | Signed production release | `blocked` | `commit:45eef8aa`, `ci-run:29214898086-green`, `home-provider:dry-run-session-unavailable`, `fleet-campaign:factory-ca5e3a09-final-20260713` | Complete the preceding product and authority gates, then build a signed candidate and run canary, progressive rollout, full end-to-end verification, and the required soak. |
 
 ## Current blockers
 

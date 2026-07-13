@@ -1,8 +1,8 @@
 {
   "schema_version": "kolibri.program-status.v1",
   "program_id": "kolibri-ai-os-home-first",
-  "as_of": "2026-07-13T00:06:08Z",
-  "source_commit": "c0f6c807617585ceb155d000d51d4c06d82883e4",
+  "as_of": "2026-07-13T00:17:44Z",
+  "source_commit": "45eef8aa3ce4a15858cf2284d31bf4da286dbc59",
   "overall_status": "in_progress",
   "truth_policy": {
     "allowed_gate_statuses": [
@@ -27,8 +27,8 @@
     },
     "ci": {
       "status": "green",
-      "run_id": 29214360515,
-      "commit": "c0f6c807617585ceb155d000d51d4c06d82883e4",
+      "run_id": 29214898086,
+      "commit": "45eef8aa3ce4a15858cf2284d31bf4da286dbc59",
       "jobs": {
         "ci": "success",
         "rust-1.97": "success",
@@ -45,9 +45,8 @@
     "home_development_environment": {
       "integration_worktree": {
         "status": "clean",
-        "commit": "7fc3ff6a24266caa204db02e8c4f05f4a4a2bbde",
-        "update_method": "fast_forward",
-        "source_update_pending": "c0f6c807617585ceb155d000d51d4c06d82883e4"
+        "commit": "45eef8aa3ce4a15858cf2284d31bf4da286dbc59",
+        "update_method": "fast_forward"
       },
       "codex_cli_version": "0.144.1",
       "canonical_manifest_readable": true,
@@ -143,7 +142,7 @@
             "terminal_attempt": 2,
             "max_attempts": 2,
             "terminal_cause": "mimo_session_not_found",
-            "classification_fix": "implemented_and_locally_verified"
+            "classification_fix": "committed_ci_green"
           },
           {
             "count": 1,
@@ -164,6 +163,30 @@
     ]
   },
   "evidence": [
+    {
+      "id": "commit:45eef8aa",
+      "kind": "git_commit",
+      "status": "verified",
+      "reference": "45eef8aa3ce4a15858cf2284d31bf4da286dbc59",
+      "uri": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/commit/45eef8aa3ce4a15858cf2284d31bf4da286dbc59",
+      "observed_at": "2026-07-13T00:17:44Z"
+    },
+    {
+      "id": "ci-run:29214898086-green",
+      "kind": "continuous_integration",
+      "status": "verified",
+      "reference": "29214898086",
+      "uri": "https://github.com/rd8r8bkd9m-tech/kolibri-ai-platform/actions/runs/29214898086",
+      "observed_at": "2026-07-13T00:17:44Z"
+    },
+    {
+      "id": "home-integration:45eef8aa-clean",
+      "kind": "home_integration_worktree",
+      "status": "verified",
+      "reference": "45eef8aa3ce4a15858cf2284d31bf4da286dbc59",
+      "uri": null,
+      "observed_at": "2026-07-13T00:17:44Z"
+    },
     {
       "id": "commit:c0f6c807",
       "kind": "git_commit",
@@ -340,13 +363,13 @@
       "name": "Evidence baseline and factual truth",
       "status": "completed",
       "evidence_ids": [
-        "commit:c0f6c807",
-        "ci-run:29214360515-green",
+        "commit:45eef8aa",
+        "ci-run:29214898086-green",
         "runtime-bundle:de00339d"
       ],
       "blockers": [],
       "next_action": "Record the next accepted commit, CI verdict, runtime digest, and evidence timestamps before making any new readiness claim.",
-      "updated_at": "2026-07-13T00:06:08Z"
+      "updated_at": "2026-07-13T00:17:44Z"
     },
     {
       "gate": 1,
@@ -355,7 +378,7 @@
       "status": "in_progress",
       "evidence_ids": [
         "home-cp-runtime:active-nrestarts0",
-        "home-integration:7fc3ff6a-clean",
+        "home-integration:45eef8aa-clean",
         "home-codex-cli:0.144.1",
         "home-account:helper-sudoers-manifest-linger",
         "home-provider:migration-epoch2",
@@ -368,7 +391,7 @@
         "The qjns retry is runner_policy_blocked for illegal_access at attempt 1 of 2."
       ],
       "next_action": "Unlock Mac, complete official device login, install and start the service, pass readiness, run a fenced provider canary, then undrain; afterward repair and rerun the five Mimo development seed failures.",
-      "updated_at": "2026-07-13T00:06:08Z"
+      "updated_at": "2026-07-13T00:17:44Z"
     },
     {
       "gate": 2,
@@ -376,14 +399,14 @@
       "name": "Contract and design freeze",
       "status": "in_progress",
       "evidence_ids": [
-        "commit:c0f6c807",
-        "ci-run:29214360515-green"
+        "commit:45eef8aa",
+        "ci-run:29214898086-green"
       ],
       "blockers": [
         "Portal and Shell product readiness is not proven."
       ],
       "next_action": "Freeze the Portal and Shell interaction contracts, responsive component inventory, and executable acceptance fixtures on one reviewed commit.",
-      "updated_at": "2026-07-13T00:06:08Z"
+      "updated_at": "2026-07-13T00:17:44Z"
     },
     {
       "gate": 3,
@@ -487,8 +510,8 @@
       "name": "Signed production release",
       "status": "blocked",
       "evidence_ids": [
-        "commit:c0f6c807",
-        "ci-run:29214360515-green",
+        "commit:45eef8aa",
+        "ci-run:29214898086-green",
         "home-provider:dry-run-session-unavailable",
         "fleet-campaign:factory-ca5e3a09-final-20260713"
       ],
