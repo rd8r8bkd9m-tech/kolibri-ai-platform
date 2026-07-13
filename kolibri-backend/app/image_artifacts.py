@@ -168,7 +168,10 @@ def image_capability() -> dict[str, Any]:
 
 def capability_catalog() -> dict[str, Any]:
     from app.openai_responses import responses_capability_manifest
-    from app.routers.openai_compat import developer_api_keys_capability
+    from app.routers.openai_compat import (
+        developer_api_keys_capability,
+        developer_response_capabilities,
+    )
 
     capability = image_capability()
     responses_manifest = responses_capability_manifest()
@@ -176,6 +179,7 @@ def capability_catalog() -> dict[str, Any]:
     developer_capability = developer_api_keys_capability()
     if developer_capability is not None:
         capabilities.append(developer_capability)
+    capabilities.extend(developer_response_capabilities())
     if any(item["status"] == "live" for item in capabilities):
         status = "live"
     elif any(item["status"] in {"partial", "unverified"} for item in capabilities):

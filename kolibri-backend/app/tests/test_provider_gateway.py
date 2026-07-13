@@ -7,6 +7,7 @@ import pytest
 
 from app import ai_provider, healthcheck
 from app.providers import get_provider, list_providers
+from app.routers.openai_compat import developer_response_capabilities
 
 
 @pytest.fixture(autouse=True)
@@ -72,6 +73,25 @@ def test_route_snapshot_requires_server_credential_and_live_success(monkeypatch)
     assert snapshot["status"] == "live"
     assert snapshot["routable"] is True
     assert snapshot["verified_at"]
+
+
+def test_developer_text_surfaces_require_live_provider_invocation(monkeypatch):
+    provider = ai_provider.PROVIDERS["openai_codex"]
+    monkeypatch.setitem(provider, "routable", True)
+    monkeypatch.setitem(provider, "key", "server-credential")
+
+    assert developer_response_capabilities() == []
+
+    ai_provider._record_provider_success(provider)
+    capabilities = developer_response_capabilities()
+    assert [item["id"] for item in capabilities] == [
+        "developer.responses",
+        "developer.chat_completions",
+    ]
+    assert all(item["status"] == "live" for item in capabilities)
+    assert all(item["invocable"] is True for item in capabilities)
+    assert all(item["source"] == {"type": "live_invocation"} for item in capabilities)
+    assert all(item["renderer"]["id"] == "developer_api" for item in capabilities)
 
 
 def test_missing_server_credential_fails_before_network(monkeypatch):

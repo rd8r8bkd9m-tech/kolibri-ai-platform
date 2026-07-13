@@ -236,6 +236,65 @@ def developer_api_keys_capability() -> dict[str, Any] | None:
     }
 
 
+def developer_response_capabilities() -> list[dict[str, Any]]:
+    """Advertise public text APIs only after a real provider invocation.
+
+    A configured binary or credential is not enough.  The runtime route state
+    becomes ``live`` only after the provider has completed an invocation in
+    this process, which keeps the Developer Portal honest after restarts and
+    provider failures.
+    """
+
+    from app.ai_provider import PROVIDERS, provider_route_snapshot
+
+    live_route: dict[str, Any] | None = None
+    for provider in PROVIDERS.values():
+        snapshot = provider_route_snapshot(provider)
+        if snapshot.get("status") == "live" and snapshot.get("verified_at"):
+            live_route = snapshot
+            break
+    if live_route is None:
+        return []
+
+    route = {
+        "configured": True,
+        "healthy": True,
+        "status": "live",
+        "provider": str(live_route.get("id") or "kolibri"),
+        "model": str(live_route.get("model") or "kolibri"),
+        "verified_at": live_route["verified_at"],
+    }
+    source = {"type": "live_invocation"}
+    return [
+        {
+            "id": "developer.responses",
+            "name": "Responses API",
+            "description": "OpenAI-compatible durable responses and streaming.",
+            "kind": "developer",
+            "status": "live",
+            "availability_reason": None,
+            "invocable": True,
+            "permitted": True,
+            "route": route,
+            "renderer": {"available": True, "id": "developer_api", "status": "live"},
+            "source": source,
+        },
+        {
+            "id": "developer.chat_completions",
+            "name": "Chat Completions API",
+            "description": "OpenAI-compatible chat completions surface.",
+            "kind": "developer",
+            "status": "live",
+            "availability_reason": None,
+            "invocable": True,
+            "permitted": True,
+            "route": dict(route),
+            "renderer": {"available": True, "id": "developer_api", "status": "live"},
+            "source": dict(source),
+        },
+    ]
+
+
 @router.post(
     "/api/v1/developer/api-keys",
     status_code=201,
