@@ -166,7 +166,7 @@ def generate_estimate_pdf(estimate_data: Dict[str, Any]) -> bytes:
         "region": estimate_data.get("region", ""),
         "date": estimate_data.get("created_at", ""),
         "currency": estimate_data.get("currency", "RUB"),
-        "vat_rate": estimate_data.get("vat_rate", "20"),
+        "vat_rate": estimate_data.get("vat_rate", "22"),
         "overhead_rate": estimate_data.get("overhead_rate", "0"),
         "subtotal": _format_currency(Decimal(estimate_data.get("subtotal", "0")), estimate_data.get("currency", "RUB")),
         "overhead_amount": _format_currency(Decimal(estimate_data.get("overhead_amount", "0")), estimate_data.get("currency", "RUB")),

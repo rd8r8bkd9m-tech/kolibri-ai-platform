@@ -1,184 +1,173 @@
-"""Provider healthcheck — probe capabilities and verify connectivity."""
-import os
-import json
+"""Safe live entitlement probes for server-credential provider routes.
+
+The probe never accepts browser/consumer sessions, never returns upstream
+response bodies, and records only bounded health facts used by routing.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Any, Dict
+
 import httpx
-from typing import Dict, Any
-from app.providers import get_provider, PROVIDERS
+
+from app import ai_provider
+from app.providers import get_provider
+
+
+def _safe_http_result(response: httpx.Response) -> dict[str, Any]:
+    return {
+        "ok": response.status_code == 200,
+        "status": response.status_code,
+    }
+
+
+def _runtime_route(provider_id: str) -> dict | None:
+    mapping = {
+        "openai": "openai_codex",
+        "mimo": "mimo",
+        "deepseek": "deepseek_flash",
+        "kimi_official": "kimi_code",
+        "kimi_proxy_cfbt": "cfbt",
+    }
+    return ai_provider.PROVIDERS.get(mapping.get(provider_id, provider_id))
 
 
 async def probe_provider(provider_id: str) -> Dict[str, Any]:
-    """Run full healthcheck on a provider."""
-    p = get_provider(provider_id)
-    if not p:
-        return {"error": f"Provider {provider_id} not found"}
+    """Verify credential, model entitlement and a minimal chat invocation."""
+    provider = get_provider(provider_id)
+    if not provider:
+        return {"provider": provider_id, "status": "not_found", "error_code": "provider_not_found"}
 
-    base = p.base_url
-    key = p.api_key
-    model = p.default_model
-    headers = {}
-    if key:
-        headers["Authorization"] = f"Bearer {key}"
-
-    result = {
-        "provider": p.id,
-        "name": p.name,
-        "base_url": base,
-        "official_kimi": p.official,
-        "custom_proxy": p.custom_proxy,
+    checked_at = datetime.now(timezone.utc).isoformat()
+    base_result: dict[str, Any] = {
+        "provider": provider.id,
+        "name": provider.name,
+        "protocol": provider.protocol,
+        "checked_at": checked_at,
+        "credential_source": provider.credential_source,
         "secret_exposed": False,
+        "model": provider.default_model,
         "tests": {},
     }
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        # 1. Models endpoint
-        result["tests"]["models"] = await _test_models(client, base, headers, model)
+    if provider.protocol == "codex_cli_jsonl":
+        from app.codex_cli_provider import CodexCLIError, probe_codex_cli
 
-        # 2. Chat completions
-        chat_result = await _test_chat(client, base, headers, model)
-        result["tests"]["chat"] = chat_result
+        result = await probe_codex_cli()
+        route = _runtime_route(provider.id)
+        if result.get("status") == "live":
+            if route is not None:
+                ai_provider._record_provider_success(route)
+            provider.capabilities.chat = "true"
+            provider.capabilities.streaming = "true"
+            provider.capabilities.models = "true"
+            result["capabilities"] = {
+                "chat": provider.capabilities.chat,
+                "models": provider.capabilities.models,
+                "streaming": provider.capabilities.streaming,
+                "tools": provider.capabilities.tools,
+                "json_schema": provider.capabilities.json_schema,
+                "files": provider.capabilities.files,
+                "batch": provider.capabilities.batch,
+            }
+        elif route is not None:
+            ai_provider._record_provider_failure(
+                route,
+                CodexCLIError(str(result.get("error_code") or "codex_cli_probe_failed")),
+            )
+        return result
 
-        # 3. Streaming
-        result["tests"]["streaming"] = await _test_streaming(client, base, headers, model)
+    if not provider.routing_enabled or provider.credential_source != "server_env":
+        return {
+            **base_result,
+            "status": "unavailable",
+            "entitlement": "blocked_by_policy",
+            "error_code": "provider_route_not_permitted",
+        }
+    if not provider.api_key:
+        return {
+            **base_result,
+            "status": "unavailable",
+            "entitlement": "unverified",
+            "error_code": "server_credential_missing",
+        }
+    if not provider.default_model:
+        return {
+            **base_result,
+            "status": "unavailable",
+            "entitlement": "unverified",
+            "error_code": "provider_model_missing",
+        }
 
-        # 4. JSON output
-        result["tests"]["json"] = await _test_json(client, base, headers, model)
-
-        # 5. Tool calling
-        result["tests"]["tools"] = await _test_tools(client, base, headers, model)
-
-        # 6. Timeout test
-        result["tests"]["timeout"] = await _test_timeout(client, base, headers)
-
-        # 7. Invalid key test
-        result["tests"]["invalid_key"] = await _test_invalid_key(client, base)
-
-        # 8. Error shape test
-        result["tests"]["error_shape"] = await _test_error_shape(client, base, headers)
-
-    # Update capabilities
-    caps = p.capabilities
-    caps.models = "true" if result["tests"]["models"].get("ok") else "false"
-    caps.chat = "true" if result["tests"]["chat"].get("ok") else "false"
-    caps.streaming = "true" if result["tests"]["streaming"].get("ok") else "false"
-    caps.json_schema = "true" if result["tests"]["json"].get("ok") else "false"
-    caps.tools = "true" if result["tests"]["tools"].get("ok") else "false"
-
-    result["model_used"] = model
-    result["capabilities"] = {
-        "chat": caps.chat, "models": caps.models, "streaming": caps.streaming,
-        "tools": caps.tools, "json_schema": caps.json_schema,
-        "files": caps.files, "batch": caps.batch,
+    headers = {
+        "Authorization": f"Bearer {provider.api_key}",
+        "Content-Type": "application/json",
     }
-
-    return result
-
-
-async def _test_models(client, base, headers, model):
+    route = _runtime_route(provider.id)
     try:
-        r = await client.get(f"{base}/models", headers=headers)
-        if r.status_code == 200:
-            data = r.json()
-            models = [m["id"] for m in data.get("data", [])]
-            return {"ok": True, "status": 200, "models": models}
-        return {"ok": False, "status": r.status_code, "error": r.text[:200]}
-    except Exception as e:
-        return {"ok": False, "error": str(e)[:200]}
+        timeout = httpx.Timeout(20.0, connect=8.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            models_response = await client.get(f"{provider.base_url.rstrip('/')}/models", headers=headers)
+            base_result["tests"]["models"] = _safe_http_result(models_response)
+            if provider.protocol == "responses":
+                chat_response = await client.post(
+                    f"{provider.base_url.rstrip('/')}/responses",
+                    headers=headers,
+                    json={
+                        "model": provider.default_model,
+                        "input": "Reply with OK.",
+                        "max_output_tokens": 8,
+                        "store": False,
+                    },
+                )
+            else:
+                chat_response = await client.post(
+                    f"{provider.base_url.rstrip('/')}/chat/completions",
+                    headers=headers,
+                    json={
+                        "model": provider.default_model,
+                        "messages": [{"role": "user", "content": "Reply with OK."}],
+                        "max_tokens": 8,
+                    },
+                )
+            base_result["tests"]["chat"] = _safe_http_result(chat_response)
+            chat_response.raise_for_status()
+            payload = chat_response.json()
+            if provider.protocol == "responses":
+                from app.openai_responses import parse_response
 
-
-async def _test_chat(client, base, headers, model):
-    if not model:
-        return {"ok": False, "error": "No model configured"}
-    try:
-        r = await client.post(f"{base}/chat/completions", headers={**headers, "Content-Type": "application/json"},
-                              json={"model": model, "messages": [{"role": "user", "content": "Reply OK"}]})
-        if r.status_code == 200:
-            data = r.json()
-            msg = data["choices"][0]["message"]
-            content = msg.get("content") or ""
-            reasoning = msg.get("reasoning_content") or ""
-            return {"ok": True, "status": 200, "content": content[:100], "reasoning": reasoning[:100], "has_content": bool(content), "has_reasoning": bool(reasoning)}
-        return {"ok": False, "status": r.status_code, "error": r.text[:200]}
-    except Exception as e:
-        return {"ok": False, "error": str(e)[:200]}
-
-
-async def _test_streaming(client, base, headers, model):
-    if not model:
-        return {"ok": False, "error": "No model configured"}
-    try:
-        r = await client.post(f"{base}/chat/completions", headers={**headers, "Content-Type": "application/json"},
-                              json={"model": model, "messages": [{"role": "user", "content": "Hi"}], "stream": True, "max_tokens": 5})
-        if r.status_code == 200:
-            chunks = r.text[:500]
-            return {"ok": True, "status": 200, "sample": chunks[:200]}
-        return {"ok": False, "status": r.status_code, "error": r.text[:200]}
-    except Exception as e:
-        return {"ok": False, "error": str(e)[:200]}
-
-
-async def _test_json(client, base, headers, model):
-    if not model:
-        return {"ok": False, "error": "No model configured"}
-    try:
-        r = await client.post(f"{base}/chat/completions", headers={**headers, "Content-Type": "application/json"},
-                              json={"model": model, "messages": [{"role": "user", "content": 'Reply with JSON: {"status":"ok"}'}]})
-        if r.status_code == 200:
-            data = r.json()
-            msg = data["choices"][0]["message"]
-            content = msg.get("content") or ""
+                content = str(parse_response(payload).get("content") or "").strip()
+            else:
+                content = str(payload["choices"][0]["message"].get("content") or "").strip()
             if not content:
-                reasoning = msg.get("reasoning_content") or ""
-                return {"ok": True, "valid_json": False, "note": "content null, reasoning present", "reasoning": reasoning[:100]}
-            try:
-                json.loads(content)
-                return {"ok": True, "valid_json": True}
-            except json.JSONDecodeError:
-                return {"ok": True, "valid_json": False, "content": content[:100]}
-        return {"ok": False, "status": r.status_code, "error": r.text[:200]}
-    except Exception as e:
-        return {"ok": False, "error": str(e)[:200]}
+                raise ValueError("provider_returned_empty_content")
+    except Exception as exc:
+        if route is not None:
+            ai_provider._record_provider_failure(route, exc)
+        failure_kind = ai_provider._safe_failure_kind(exc)
+        return {
+            **base_result,
+            "status": "unavailable",
+            "entitlement": "denied" if failure_kind in {"http_401", "http_403", "http_404"} else "unverified",
+            "error_code": failure_kind,
+        }
 
-
-async def _test_tools(client, base, headers, model):
-    if not model:
-        return {"ok": False, "error": "No model configured"}
-    tools = [{"type": "function", "function": {"name": "get_weather", "description": "Get weather", "parameters": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}}}]
-    try:
-        r = await client.post(f"{base}/chat/completions", headers={**headers, "Content-Type": "application/json"},
-                              json={"model": model, "messages": [{"role": "user", "content": "What's the weather in Moscow?"}], "tools": tools, "max_tokens": 50})
-        if r.status_code == 200:
-            data = r.json()
-            msg = data["choices"][0]["message"]
-            has_tool_calls = bool(msg.get("tool_calls"))
-            return {"ok": True, "tool_calls": has_tool_calls}
-        return {"ok": False, "status": r.status_code, "error": r.text[:200]}
-    except Exception as e:
-        return {"ok": False, "error": str(e)[:200]}
-
-
-async def _test_timeout(client, base, headers):
-    try:
-        async with httpx.AsyncClient(timeout=2) as short_client:
-            r = await short_client.get(f"{base}/models", headers=headers)
-            return {"ok": True, "reachable": True}
-    except httpx.TimeoutException:
-        return {"ok": True, "reachable": False, "note": "Timeout is expected for slow endpoints"}
-    except Exception as e:
-        return {"ok": False, "error": str(e)[:200]}
-
-
-async def _test_invalid_key(client, base):
-    try:
-        r = await client.get(f"{base}/models", headers={"Authorization": "Bearer invalid-key-test"})
-        return {"ok": True, "status": r.status_code, "rejects_invalid": r.status_code in (401, 403)}
-    except Exception as e:
-        return {"ok": False, "error": str(e)[:200]}
-
-
-async def _test_error_shape(client, base, headers):
-    try:
-        r = await client.post(f"{base}/chat/completions", headers={**headers, "Content-Type": "application/json"},
-                              json={"model": "nonexistent-model-xyz", "messages": [{"role": "user", "content": "test"}]})
-        return {"ok": True, "status": r.status_code, "error_shape": r.text[:300]}
-    except Exception as e:
-        return {"ok": False, "error": str(e)[:200]}
+    if route is not None:
+        ai_provider._record_provider_success(route)
+    provider.capabilities.chat = "true"
+    provider.capabilities.models = "true" if base_result["tests"]["models"]["ok"] else "unknown"
+    return {
+        **base_result,
+        "status": "live",
+        "entitlement": "granted",
+        "capabilities": {
+            "chat": provider.capabilities.chat,
+            "models": provider.capabilities.models,
+            "streaming": provider.capabilities.streaming,
+            "tools": provider.capabilities.tools,
+            "json_schema": provider.capabilities.json_schema,
+            "files": provider.capabilities.files,
+            "batch": provider.capabilities.batch,
+        },
+    }

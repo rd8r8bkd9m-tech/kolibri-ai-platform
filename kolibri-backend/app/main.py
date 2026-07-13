@@ -26,6 +26,7 @@ from app.calculator import (
 from app.pdf_generator import generate_estimate_pdf, generate_document_pdf
 from app.database import Base, engine, SessionLocal, get_db
 from app.storage import DBStorage, seed_db
+from app.schema_migrations import ensure_database_schema
 from app import schemas
 from app.control_plane import (
     ControlPlaneUnavailable,
@@ -37,6 +38,7 @@ from app.control_plane import (
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    ensure_database_schema(engine)
     db = SessionLocal()
     try:
         seed_db(db)
@@ -66,6 +68,18 @@ app.add_middleware(RequestLoggingMiddleware)
 
 from app.routers.telegram import router as telegram_router
 app.include_router(telegram_router)
+
+from app.image_artifacts import router as image_artifacts_router
+app.include_router(image_artifacts_router)
+
+from app.routers.projects import router as projects_router
+app.include_router(projects_router)
+
+from app.routers.shell import router as shell_router
+app.include_router(shell_router)
+
+from app.routers.openai_compat import router as openai_compat_router
+app.include_router(openai_compat_router)
 
 from proxy.deepseek_proxy import router as deepseek_router
 app.include_router(deepseek_router)
@@ -251,7 +265,7 @@ async def export_estimate(est_id: str, fmt: str, db: Session = Depends(get_db)):
     calc = CalcEstimate(
         id=d["id"], title=d["title"], status=EstimateStatus(d.get("status", "draft")),
         sections=sections, overhead_rate=d.get("overhead_rate", "0"),
-        vat_rate=d.get("vat_rate", "20"),
+        vat_rate=d.get("vat_rate", "22"),
     )
     calc = calculate_estimate(calc)
     if fmt == "csv":
@@ -539,9 +553,71 @@ async def chat(request: Request, data: schemas.ChatRequest):
     await check_rate_limit(request, chat_limiter)
     if not data.messages:
         raise HTTPException(400, "No messages provided")
+    messages = [{"role": m.role, "content": m.content} for m in data.messages]
+    from app.image_artifacts import (
+        IMAGE_CAPABILITY_ID,
+        ImageCapabilityUnavailable,
+        ImageGenerationFailed,
+        ImageGenerationRequest,
+        generate_invocable_image,
+        image_execution_identity,
+        is_image_generation_request,
+    )
+    image_prompt = data.messages[-1].content
+    if is_image_generation_request(image_prompt):
+        policy = data.policy.model_dump() if data.policy else None
+        try:
+            artifact = await generate_invocable_image(
+                ImageGenerationRequest(prompt=image_prompt),
+                policy=policy,
+            )
+        except ImageCapabilityUnavailable:
+            return {
+                "content": "Генерация изображений сейчас недоступна.",
+                "actions": [],
+                "status": "capability_unavailable",
+                "provider": "none",
+                "model": "none",
+                "error_code": "capability_unavailable",
+                "recoverable": True,
+                "capability": IMAGE_CAPABILITY_ID,
+            }
+        except ImageGenerationFailed:
+            image_identity = image_execution_identity()
+            return {
+                "content": "Провайдер изображений не вернул проверенный файл. Изображение не создано.",
+                "actions": [],
+                "status": "failed",
+                "provider": image_identity["provider"],
+                "model": image_identity["model"],
+                "error_code": "image_artifact_verification_failed",
+                "recoverable": True,
+                "capability": IMAGE_CAPABILITY_ID,
+            }
+        image_identity = image_execution_identity()
+        return {
+            "content": "Изображение создано и сохранено в текущем проекте.",
+            "actions": [{"type": "present_image", "label": "Открыть изображение", "data": artifact}],
+            "status": "ready",
+            "provider": image_identity["provider"],
+            "model": artifact["model"],
+        }
+    from app.truth_policy import resolve_current_information
+    truth_result = await resolve_current_information(messages)
+    if truth_result is not None and truth_result.get("status") == "source_backed":
+        return truth_result
     from app.ai_provider import chat_completion
     try:
-        result = await chat_completion([{"role": m.role, "content": m.content} for m in data.messages])
+        policy = data.policy.model_dump() if data.policy else None
+        task_type = "analyze" if data.policy and data.policy.mode == "deep" else "fast" if data.policy else "chat"
+        result = await chat_completion(
+            messages,
+            task_type=task_type,
+            previous_response_id=data.previous_response_id,
+            background=data.background,
+            policy=policy,
+            idempotency_key=request.headers.get("Idempotency-Key"),
+        )
         return result
     except Exception:
         return {
@@ -557,16 +633,113 @@ async def chat_stream(request: Request, data: schemas.ChatRequest):
     await check_rate_limit(request, chat_limiter)
     if not data.messages:
         raise HTTPException(400, "No messages provided")
-    from app.ai_provider import chat_completion_stream
+    messages = [{"role": m.role, "content": m.content} for m in data.messages]
+    from app.ai_provider import chat_completion_stream, work_summary_event
+    from app.image_artifacts import (
+        IMAGE_CAPABILITY_ID,
+        ImageCapabilityUnavailable,
+        ImageGenerationFailed,
+        ImageGenerationRequest,
+        generate_invocable_image,
+        image_execution_identity,
+        is_image_generation_request,
+    )
+    from app.truth_policy import requires_current_evidence, resolve_current_information
+    from app.routers.openai_compat import begin_public_response, record_public_stream_chunk
+    image_prompt = data.messages[-1].content
+    public_response_id = begin_public_response(messages)
 
     async def event_generator():
         try:
-            async for chunk in chat_completion_stream([{"role": m.role, "content": m.content} for m in data.messages]):
+            yield f"data: {json.dumps({'type': 'response.created', 'response': {'id': public_response_id, 'object': 'response', 'status': 'in_progress', 'model': 'kolibri'}, 'content': '', 'done': False})}\n\n"
+            yield f"data: {json.dumps(work_summary_event('accepted', 'Запрос принят', status='completed'))}\n\n"
+            if is_image_generation_request(image_prompt):
+                policy = data.policy.model_dump() if data.policy else None
+                yield f"data: {json.dumps(work_summary_event('tool_execution', 'Создаю изображение', status='active'))}\n\n"
+                try:
+                    artifact = await generate_invocable_image(
+                        ImageGenerationRequest(prompt=image_prompt),
+                        policy=policy,
+                        run_id=public_response_id,
+                    )
+                except ImageCapabilityUnavailable:
+                    final = {"content": "Генерация изображений сейчас недоступна.", "done": True, "actions": [], "status": "capability_unavailable", "provider": "none", "model": "none", "fallback_used": False, "error_code": "capability_unavailable", "recoverable": True, "capability": IMAGE_CAPABILITY_ID, "response_id": public_response_id}
+                    record_public_stream_chunk(public_response_id, final)
+                    yield f'data: {json.dumps(final)}\n\n'
+                    return
+                except ImageGenerationFailed:
+                    image_identity = image_execution_identity()
+                    final = {"content": "Провайдер изображений не вернул проверенный файл. Изображение не создано.", "done": True, "actions": [], "status": "failed", "provider": image_identity["provider"], "model": image_identity["model"], "fallback_used": False, "error_code": "image_artifact_verification_failed", "recoverable": True, "capability": IMAGE_CAPABILITY_ID, "response_id": public_response_id}
+                    record_public_stream_chunk(public_response_id, final)
+                    yield f'data: {json.dumps(final)}\n\n'
+                    return
+                image_identity = image_execution_identity()
+                yield f"data: {json.dumps(work_summary_event('artifact_verification', 'Формат, размер и контрольная сумма изображения проверены', status='completed', provider=image_identity['provider'], model=artifact['model'], artifact_type='image', artifact_id=artifact['id']))}\n\n"
+                content_chunk = {"content": "Изображение создано и сохранено в текущем проекте.", "done": False, "response_id": public_response_id}
+                final = {"content": "", "done": True, "actions": [{"type": "present_image", "label": "Открыть изображение", "data": artifact}], "status": "ready", "provider": image_identity["provider"], "model": artifact["model"], "fallback_used": False, "response_id": public_response_id}
+                record_public_stream_chunk(public_response_id, content_chunk)
+                record_public_stream_chunk(public_response_id, final)
+                yield f'data: {json.dumps(content_chunk)}\n\n'
+                yield f'data: {json.dumps(final)}\n\n'
+                return
+            current_information = requires_current_evidence(messages)
+            if current_information:
+                yield f"data: {json.dumps(work_summary_event('provider_route', 'Выполняю поиск актуальных источников', status='active', provider='web_search', model='deterministic-evidence-renderer'))}\n\n"
+            truth_result = await resolve_current_information(messages)
+            if truth_result is not None and truth_result.get("status") == "source_backed":
+                truth_provider = str(truth_result.get("provider") or "web_search")
+                truth_model = str(truth_result.get("model") or "deterministic-evidence-renderer")
+                route_status = "completed" if truth_result.get("status") == "source_backed" else "failed"
+                route_summary = (
+                    "Проверяемые источники получены"
+                    if route_status == "completed"
+                    else "Поиск не вернул проверяемых источников"
+                )
+                yield f"data: {json.dumps(work_summary_event('provider_route', route_summary, status=route_status, provider=truth_provider, model=truth_model))}\n\n"
+                if route_status == "completed":
+                    yield f"data: {json.dumps(work_summary_event('response_received', 'Ответ собран из найденных источников', status='completed', provider=truth_provider, model=truth_model))}\n\n"
+                final = dict(truth_result)
+                content = str(final.pop("content", ""))
+                if content:
+                    content_chunk = {'content': content, 'done': False, 'response_id': public_response_id}
+                    record_public_stream_chunk(public_response_id, content_chunk)
+                    yield f"data: {json.dumps(content_chunk)}\n\n"
+                final["content"] = ""
+                final["done"] = True
+                final["response_id"] = public_response_id
+                record_public_stream_chunk(public_response_id, final)
+                yield f"data: {json.dumps(final)}\n\n"
+                return
+            if truth_result is not None:
+                yield f"data: {json.dumps(work_summary_event('provider_route', 'Встроенный поиск не вернул проверяемых источников; продолжаю через Codex web search', status='failed', provider='web_search', model='deterministic-evidence-renderer'))}\n\n"
+            policy = data.policy.model_dump() if data.policy else None
+            task_type = "analyze" if data.policy and data.policy.mode == "deep" else "fast" if data.policy else "chat"
+            async for chunk in chat_completion_stream(
+                messages,
+                task_type=task_type,
+                previous_response_id=data.previous_response_id,
+                background=data.background,
+                policy=policy,
+                idempotency_key=request.headers.get("Idempotency-Key"),
+                run_id=public_response_id,
+            ):
+                record_public_stream_chunk(public_response_id, chunk)
+                if chunk.get("response_id"):
+                    chunk = {**chunk, "response_id": public_response_id}
                 yield f"data: {json.dumps(chunk)}\n\n"
         except Exception:
-            yield f'data: {json.dumps({"content": "Не удалось завершить потоковый ответ. Повторите запрос — он будет направлен другому исполнителю.", "done": True, "status": "error", "error_code": "provider_stream_failed"})}\n\n'
+            final = {"content": "Не удалось завершить потоковый ответ. Повторите запрос — он будет направлен другому исполнителю.", "done": True, "actions": [], "status": "error", "provider": "none", "model": "none", "fallback_used": True, "error_code": "provider_stream_failed", "response_id": public_response_id}
+            record_public_stream_chunk(public_response_id, final)
+            yield f'data: {json.dumps(final)}\n\n'
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.post("/api/v1/ai/analyze-estimate")
@@ -624,6 +797,7 @@ async def get_provider_endpoint(provider_id: str):
     return {
         "id": p.id, "name": p.name, "base_url": p.base_url,
         "protocol": p.protocol, "official": p.official, "custom_proxy": p.custom_proxy,
+        "routing_enabled": p.routing_enabled, "credential_source": p.credential_source,
         "model": p.default_model, "has_key": bool(p.api_key),
         "capabilities": {
             "chat": p.capabilities.chat, "models": p.capabilities.models,
@@ -642,31 +816,16 @@ async def healthcheck_provider(provider_id: str):
 
 @app.post("/api/v1/providers/test-all")
 async def test_all_providers():
-    """Test all providers and return results."""
-    from app.ai_provider import PROVIDERS
-    results = {}
-    for name, provider in PROVIDERS.items():
-        try:
-            import httpx
-            headers = {"Content-Type": "application/json"}
-            if provider["key"]:
-                headers["Authorization"] = f"Bearer {provider['key']}"
-            async with httpx.AsyncClient(timeout=15) as client:
-                resp = await client.post(
-                    provider["url"],
-                    json={"model": provider["model"], "messages": [{"role": "user", "content": "hi"}], "max_tokens": 5},
-                    headers=headers,
-                )
-                if resp.status_code == 200:
-                    data = resp.json()
-                    msg = data["choices"][0]["message"]
-                    content = msg.get("content") or msg.get("reasoning_content") or ""
-                    results[name] = {"status": "ok", "model": provider["model"], "response": content[:50]}
-                else:
-                    results[name] = {"status": "error", "model": provider["model"], "error": resp.text[:100]}
-        except Exception as e:
-            results[name] = {"status": "error", "model": provider["model"], "error": str(e)[:100]}
-    return results
+    """Run bounded, sanitized server-credential probes for every registered route."""
+    import asyncio
+
+    from app.healthcheck import probe_provider
+    from app.providers import PROVIDERS
+
+    provider_ids = list(PROVIDERS)
+    probe_results = await asyncio.gather(*(probe_provider(provider_id) for provider_id in provider_ids))
+    results = dict(zip(provider_ids, probe_results, strict=True))
+    return {"status": "completed", "providers": results}
 
 
 # ---------------------------------------------------------------------------

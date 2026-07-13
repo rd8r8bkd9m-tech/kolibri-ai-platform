@@ -51,7 +51,7 @@ class DBStorage:
             object_name=data.get("object_name", ""), region=data.get("region", ""),
             currency=data.get("currency", "RUB"),
             overhead_rate=data.get("overhead_rate", "0"),
-            vat_rate=data.get("vat_rate", "20"),
+            vat_rate=data.get("vat_rate", "22"),
             created_at=now, updated_at=now,
         )
         self.db.add(e)
@@ -149,7 +149,7 @@ class DBStorage:
             id=d["id"], title=d["title"],
             status=EstimateStatus(d.get("status", "draft")),
             sections=sections, overhead_rate=d.get("overhead_rate", "0"),
-            vat_rate=d.get("vat_rate", "20"),
+            vat_rate=d.get("vat_rate", "22"),
         )
         calc = calculate_estimate(calc)
         e = self.db.query(EstimateDB).filter(EstimateDB.id == est_id).first()

@@ -30,7 +30,23 @@ export default function ServersPage() {
     finally { setLoading(false); setRefreshing(false) }
   }, [])
 
-  useEffect(() => { loadNodes() }, [loadNodes])
+  useEffect(() => {
+    let active = true
+    void nodes.list({ page_size: 100 })
+      .then(data => {
+        if (active) setNodeList(data.items)
+      })
+      .catch(e => {
+        if (!active) return
+        console.error('Failed to load nodes', e)
+        setNodeList([])
+        setLoadError('Данные Home Control Plane временно недоступны')
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+    return () => { active = false }
+  }, [])
 
   if (loading) {
     return <div className="flex items-center justify-center h-full text-[var(--text-tertiary)]">Загрузка...</div>

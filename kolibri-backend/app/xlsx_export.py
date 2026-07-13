@@ -92,7 +92,7 @@ def generate_estimate_xlsx(estimate: dict) -> bytes:
     ws[f'F{row}'].number_format = money_format
     row += 1
 
-    ws[f'E{row}'] = f'НДС ({estimate.get("vat_rate", "20")}%):'
+    ws[f'E{row}'] = f'НДС ({estimate.get("vat_rate", "22")}%):'
     ws[f'E{row}'].font = Font(name="Arial", bold=True, size=11)
     ws[f'F{row}'] = float(estimate.get('vat_amount', 0))
     ws[f'F{row}'].number_format = money_format

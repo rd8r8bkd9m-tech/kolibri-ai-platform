@@ -10,12 +10,38 @@ export class ApiError extends Error {
   }
 }
 
-let authToken: string | null = localStorage.getItem('kolibri_token')
+function errorDetail(body: unknown, fallback: string): string {
+  if (!body || typeof body !== 'object') return fallback
+  const payload = body as Record<string, unknown>
+  if (typeof payload.message === 'string') return payload.message
+  if (typeof payload.detail === 'string') return payload.detail
+  if (payload.detail && typeof payload.detail === 'object') {
+    const detail = payload.detail as Record<string, unknown>
+    if (typeof detail.message === 'string') return detail.message
+    if (typeof detail.code === 'string') return detail.code
+  }
+  return fallback
+}
+
+function storedAuthToken(): string | null {
+  try {
+    return typeof localStorage === 'undefined' ? null : localStorage.getItem('kolibri_token')
+  } catch {
+    return null
+  }
+}
+
+let authToken: string | null = storedAuthToken()
 
 export function setAuthToken(token: string | null) {
   authToken = token
-  if (token) localStorage.setItem('kolibri_token', token)
-  else localStorage.removeItem('kolibri_token')
+  try {
+    if (typeof localStorage === 'undefined') return
+    if (token) localStorage.setItem('kolibri_token', token)
+    else localStorage.removeItem('kolibri_token')
+  } catch {
+    // In privacy-restricted contexts the in-memory token remains usable.
+  }
 }
 
 export function getAuthToken() { return authToken }
@@ -23,12 +49,11 @@ export function getAuthToken() { return authToken }
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json', ...init?.headers as Record<string, string> }
   if (authToken) headers['Authorization'] = `Bearer ${authToken}`
-  const res = await fetch(`${BASE}${path}`, { headers, ...init })
+  const res = await fetch(`${BASE}${path}`, { ...init, headers, credentials: 'include' })
   if (!res.ok) {
     let detail = `API ${res.status}`
     try {
-      const body = await res.json()
-      detail = body.detail || body.message || detail
+      detail = errorDetail(await res.json(), detail)
     } catch { /* ignore parse error */ }
     throw new ApiError(res.status, detail)
   }
@@ -101,6 +126,20 @@ export interface Document {
   updated_at: string
 }
 
+export interface ImageArtifact {
+  id: string
+  type: 'image'
+  title: string
+  prompt: string
+  mime_type: 'image/png' | 'image/jpeg' | 'image/webp'
+  size_bytes: number
+  sha256: string
+  model: string
+  created_at: string
+  url: string
+  download_url: string
+}
+
 export interface LibraryItem {
   id: string
   title: string
@@ -113,6 +152,57 @@ export interface LibraryItem {
   file_size: number
   created_at: string
   updated_at: string
+}
+
+export interface ShellBootstrap {
+  session_id: string
+  session_type: 'anonymous' | 'authenticated'
+  restored: boolean
+  expires_at: string | null
+}
+
+export interface Project {
+  id: string
+  title: string
+  title_source: 'default' | 'message' | 'manual'
+  status: 'active' | 'deleted'
+  version: number
+  message_count: number
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+  last_message_at: string | null
+  deleted_at: string | null
+}
+
+export interface ProjectListResponse {
+  items: Project[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export type ProjectMessageRole = 'user' | 'assistant' | 'system' | 'tool'
+export type ProjectMessageStatus = 'pending' | 'streaming' | 'completed' | 'failed' | 'cancelled'
+
+export interface ProjectMessage {
+  id: string
+  project_id: string
+  sequence: number
+  version: number
+  role: ProjectMessageRole
+  content: string
+  status: ProjectMessageStatus
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface ProjectMessageListResponse {
+  items: ProjectMessage[]
+  total: number
+  after: number
+  limit: number
 }
 
 export interface Agent {
@@ -241,6 +331,94 @@ export const library = {
 }
 
 // ---------------------------------------------------------------------------
+// Shell bootstrap and durable project history
+// ---------------------------------------------------------------------------
+
+let shellBootstrapPromise: Promise<ShellBootstrap> | null = null
+
+export function resetShellBootstrapForTests() {
+  shellBootstrapPromise = null
+}
+
+export function ensureShellBootstrap(force = false): Promise<ShellBootstrap> {
+  if (force) shellBootstrapPromise = null
+  if (!shellBootstrapPromise) {
+    shellBootstrapPromise = request<ShellBootstrap>('/shell/bootstrap', { method: 'POST' })
+      .catch(error => {
+        shellBootstrapPromise = null
+        throw error
+      })
+  }
+  return shellBootstrapPromise
+}
+
+async function projectRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  await ensureShellBootstrap()
+  try {
+    return await request<T>(path, init)
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 428) throw error
+    await ensureShellBootstrap(true)
+    return request<T>(path, init)
+  }
+}
+
+export const shell = {
+  bootstrap: ensureShellBootstrap,
+}
+
+export const projects = {
+  list: (params?: { page?: number; page_size?: number; include_deleted?: boolean }) => {
+    const qs = new URLSearchParams()
+    if (params?.page) qs.set('page', String(params.page))
+    if (params?.page_size) qs.set('page_size', String(params.page_size))
+    if (params?.include_deleted) qs.set('include_deleted', 'true')
+    return projectRequest<ProjectListResponse>(`/projects?${qs}`)
+  },
+  get: (id: string) => projectRequest<Project>(`/projects/${encodeURIComponent(id)}`),
+  create: (data: { title?: string; metadata?: Record<string, unknown>; client_request_id?: string } = {}, idempotencyKey?: string) =>
+    projectRequest<Project>('/projects', {
+      method: 'POST',
+      headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
+      body: JSON.stringify(data),
+    }),
+  update: (id: string, data: { title?: string; metadata?: Record<string, unknown> }) =>
+    projectRequest<Project>(`/projects/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  delete: (id: string) =>
+    projectRequest<Project>(`/projects/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  restore: (id: string) =>
+    projectRequest<Project>(`/projects/${encodeURIComponent(id)}/restore`, { method: 'POST' }),
+  listMessages: (id: string, params?: { after?: number; limit?: number }) => {
+    const qs = new URLSearchParams()
+    if (params?.after !== undefined) qs.set('after', String(params.after))
+    if (params?.limit) qs.set('limit', String(params.limit))
+    return projectRequest<ProjectMessageListResponse>(`/projects/${encodeURIComponent(id)}/messages?${qs}`)
+  },
+  appendMessage: (
+    projectId: string,
+    data: { role: ProjectMessageRole; content: string; status?: ProjectMessageStatus; metadata?: Record<string, unknown>; client_message_id?: string },
+    idempotencyKey?: string,
+  ) => projectRequest<ProjectMessage>(`/projects/${encodeURIComponent(projectId)}/messages`, {
+    method: 'POST',
+    headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
+    body: JSON.stringify(data),
+  }),
+  updateMessage: (
+    projectId: string,
+    messageId: string,
+    data: { content?: string; status?: ProjectMessageStatus; metadata?: Record<string, unknown> },
+    idempotencyKey?: string,
+  ) => projectRequest<ProjectMessage>(
+    `/projects/${encodeURIComponent(projectId)}/messages/${encodeURIComponent(messageId)}`,
+    {
+      method: 'PATCH',
+      headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
+      body: JSON.stringify(data),
+    },
+  ),
+}
+
+// ---------------------------------------------------------------------------
 // Agents
 // ---------------------------------------------------------------------------
 
@@ -322,6 +500,323 @@ export interface ChatResponse {
   reasoning?: string
   actions: ChatAction[]
   status: string
+  error_code?: string
+  recoverable?: boolean
+  capability?: string
+}
+
+export type ChatWorkStage =
+  | 'accepted'
+  | 'planning'
+  | 'provider_route'
+  | 'provider_attempt'
+  | 'response_received'
+  | 'tool_execution'
+  | 'source_retrieval'
+  | 'artifact_materialization'
+  | 'artifact_verification'
+  | 'background'
+  | 'resuming'
+  | 'verification'
+  | 'cancelled'
+
+export interface ChatWorkSummary {
+  stage: ChatWorkStage
+  summary: string
+  status: 'active' | 'completed' | 'failed'
+  provider?: string
+  model?: string
+  artifact_type?: string
+  artifact_id?: string
+}
+
+export type SafeResponseEventType =
+  | 'response.created'
+  | 'response.status.updated'
+  | 'response.output_text.delta'
+  | 'response.tool.started'
+  | 'response.tool.completed'
+  | 'response.work_summary.updated'
+  | 'response.source.added'
+  | 'response.artifact.ready'
+  | 'response.completed'
+  | 'response.failed'
+  | 'response.cancelled'
+  | 'provider.attempt.failed'
+
+const SAFE_RESPONSE_EVENT_TYPES = new Set<SafeResponseEventType>([
+  'response.created',
+  'response.status.updated',
+  'response.output_text.delta',
+  'response.tool.started',
+  'response.tool.completed',
+  'response.work_summary.updated',
+  'response.source.added',
+  'response.artifact.ready',
+  'response.completed',
+  'response.failed',
+  'response.cancelled',
+  'provider.attempt.failed',
+])
+
+export interface ProviderAttemptFailedEvent {
+  type: 'provider.attempt.failed'
+  provider: string
+  model?: string
+  failure_kind: string
+  will_retry: boolean
+}
+
+export interface ChatStreamEvent {
+  type?: SafeResponseEventType
+  response_id?: string
+  sequence?: number
+  content?: string
+  done?: boolean
+  status?: string
+  error_code?: string
+  recoverable?: boolean
+  capability?: string
+  actions?: ChatAction[]
+  provider?: string
+  model?: string
+  fallback_used?: boolean
+  work_summary?: ChatWorkSummary
+  provider_event?: ProviderAttemptFailedEvent
+}
+
+export type ChatExecutionMode = 'fast' | 'deep'
+
+export interface ChatExecutionPolicy {
+  mode: ChatExecutionMode
+  reasoning_effort: 'low' | 'high'
+  tool_choice: 'auto'
+  background: boolean
+  allowed_capabilities: string[]
+}
+
+export interface ChatAttachmentRef {
+  id: string
+  name: string
+  mime_type: string
+  size_bytes: number
+}
+
+export interface ChatRequestOptions {
+  policy?: ChatExecutionPolicy
+  project_id?: string
+  previous_response_id?: string
+  attachments?: ChatAttachmentRef[]
+  idempotencyKey?: string
+}
+
+export interface ServerSentEvent {
+  event?: string
+  id?: string
+  data: string
+}
+
+function parseSseFrame(frame: string): ServerSentEvent | null {
+  const normalized = frame.replace(/\r\n/g, '\n')
+  const data: string[] = []
+  let event: string | undefined
+  let id: string | undefined
+  for (const line of normalized.split('\n')) {
+    if (!line || line.startsWith(':')) continue
+    const separator = line.indexOf(':')
+    const field = separator === -1 ? line : line.slice(0, separator)
+    const value = separator === -1 ? '' : line.slice(separator + 1).replace(/^ /, '')
+    if (field === 'data') data.push(value)
+    else if (field === 'event') event = value
+    else if (field === 'id') id = value
+  }
+  if (!data.length) return null
+  return { event, id, data: data.join('\n') }
+}
+
+export async function readEventStream(
+  response: Response,
+  onEvent: (event: ServerSentEvent) => void,
+): Promise<void> {
+  if (!response.ok || !response.body) throw new ApiError(response.status, `Event stream ${response.status}`)
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  while (true) {
+    const { value, done } = await reader.read()
+    buffer += decoder.decode(value, { stream: !done }).replace(/\r\n/g, '\n')
+    const frames = buffer.split('\n\n')
+    buffer = frames.pop() ?? ''
+    for (const frame of frames) {
+      const parsed = parseSseFrame(frame)
+      if (parsed) onEvent(parsed)
+    }
+    if (done) break
+  }
+  const trailing = parseSseFrame(buffer)
+  if (trailing) onEvent(trailing)
+}
+
+function safeWorkStatus(value: unknown): ChatWorkSummary['status'] {
+  return value === 'completed' || value === 'failed' ? value : 'active'
+}
+
+const SAFE_WORK_STAGES = new Set<ChatWorkStage>([
+  'accepted',
+  'planning',
+  'provider_route',
+  'provider_attempt',
+  'response_received',
+  'tool_execution',
+  'source_retrieval',
+  'artifact_materialization',
+  'artifact_verification',
+  'background',
+  'resuming',
+  'verification',
+  'cancelled',
+])
+
+function safeString(value: unknown, maxLength = 240): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const normalized = value.trim()
+  return normalized ? normalized.slice(0, maxLength) : undefined
+}
+
+function normalizeWorkSummaryPayload(value: unknown): ChatWorkSummary | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const payload = value as Record<string, unknown>
+  const stage = safeString(payload.stage) as ChatWorkStage | undefined
+  const summary = safeString(payload.summary)
+  if (!stage || !SAFE_WORK_STAGES.has(stage) || !summary) return undefined
+  return {
+    stage,
+    summary,
+    status: safeWorkStatus(payload.status),
+    provider: safeString(payload.provider, 80),
+    model: safeString(payload.model, 120),
+    artifact_type: safeString(payload.artifact_type, 80),
+    artifact_id: safeString(payload.artifact_id, 160),
+  }
+}
+
+function normalizeProviderFailurePayload(value: unknown): ProviderAttemptFailedEvent | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const payload = value as Record<string, unknown>
+  if (payload.type !== 'provider.attempt.failed') return undefined
+  return {
+    type: 'provider.attempt.failed',
+    provider: safeString(payload.provider, 80) ?? 'unknown',
+    model: safeString(payload.model, 120),
+    failure_kind: safeString(payload.failure_kind, 80) ?? 'provider_error',
+    will_retry: payload.will_retry === true,
+  }
+}
+
+function workSummaryFromResponseEvent(type: SafeResponseEventType, payload: Record<string, unknown>): ChatWorkSummary | undefined {
+  if (type === 'response.work_summary.updated' && payload.work_summary && typeof payload.work_summary === 'object') {
+    return normalizeWorkSummaryPayload(payload.work_summary)
+  }
+  const name = typeof payload.name === 'string' ? payload.name : undefined
+  const title = typeof payload.title === 'string' ? payload.title : undefined
+  if (type === 'response.tool.started' || type === 'response.tool.completed') {
+    return {
+      stage: 'tool_execution',
+      status: type.endsWith('completed') ? 'completed' : 'active',
+      summary: `${type.endsWith('completed') ? 'Инструмент завершён' : 'Запущен инструмент'}${name ? `: ${name}` : ''}`,
+    }
+  }
+  if (type === 'response.source.added') {
+    return { stage: 'source_retrieval', status: 'completed', summary: `Добавлен источник${title ? `: ${title}` : ''}` }
+  }
+  if (type === 'response.artifact.ready') {
+    return {
+      stage: 'artifact_verification',
+      status: 'completed',
+      summary: `Артефакт готов${title ? `: ${title}` : ''}`,
+      artifact_type: typeof payload.artifact_type === 'string' ? payload.artifact_type : undefined,
+      artifact_id: typeof payload.artifact_id === 'string' ? payload.artifact_id : undefined,
+    }
+  }
+  if (type === 'response.status.updated') {
+    const status = typeof payload.status === 'string' ? payload.status : 'running'
+    return {
+      stage: status === 'queued' ? 'background' : status === 'verifying' ? 'verification' : 'planning',
+      status: safeWorkStatus(status),
+      summary: typeof payload.summary === 'string' ? payload.summary : `Статус задачи: ${status}`,
+    }
+  }
+  if (type === 'response.cancelled') return { stage: 'cancelled', status: 'completed', summary: 'Задача отменена' }
+  return undefined
+}
+
+export function normalizeStreamEvent(envelope: ServerSentEvent): ChatStreamEvent | null {
+  if (!envelope.data || envelope.data === '[DONE]') return null
+  let payload: Record<string, unknown>
+  try {
+    const parsed = JSON.parse(envelope.data) as unknown
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+    payload = parsed as Record<string, unknown>
+  } catch {
+    return null
+  }
+
+  const rawType = typeof payload.type === 'string' ? payload.type : envelope.event
+  if (rawType && !SAFE_RESPONSE_EVENT_TYPES.has(rawType as SafeResponseEventType)) return null
+  const type = rawType as SafeResponseEventType | undefined
+  if (!type) {
+    return {
+      content: typeof payload.content === 'string' ? payload.content : undefined,
+      done: payload.done === true,
+      status: safeString(payload.status, 40),
+      error_code: safeString(payload.error_code, 120),
+      recoverable: payload.recoverable === true,
+      capability: safeString(payload.capability, 120),
+      actions: Array.isArray(payload.actions) ? payload.actions as ChatAction[] : undefined,
+      provider: safeString(payload.provider, 80),
+      model: safeString(payload.model, 120),
+      fallback_used: payload.fallback_used === true,
+      work_summary: normalizeWorkSummaryPayload(payload.work_summary),
+      provider_event: normalizeProviderFailurePayload(payload.provider_event),
+      response_id: safeString(payload.response_id, 160),
+      sequence: typeof payload.sequence === 'number' ? payload.sequence : undefined,
+    }
+  }
+  const response = payload.response && typeof payload.response === 'object'
+    ? payload.response as Record<string, unknown>
+    : undefined
+  const responseError = response?.error && typeof response.error === 'object'
+    ? response.error as Record<string, unknown>
+    : undefined
+  const responseId = typeof payload.response_id === 'string'
+    ? payload.response_id
+    : typeof response?.id === 'string' ? response.id : undefined
+  const sequence = typeof payload.sequence === 'number' ? payload.sequence : undefined
+
+  if (type === 'provider.attempt.failed') {
+    return {
+      type,
+      response_id: responseId,
+      sequence,
+      provider_event: normalizeProviderFailurePayload(payload),
+    }
+  }
+
+  const workSummary = workSummaryFromResponseEvent(type, payload)
+  const delta = type === 'response.output_text.delta' && typeof payload.delta === 'string' ? payload.delta : undefined
+  const terminal = type === 'response.completed' || type === 'response.failed' || type === 'response.cancelled'
+  return {
+    type,
+    response_id: responseId,
+    sequence,
+    content: delta,
+    done: terminal,
+    status: type === 'response.failed' ? 'failed' : type === 'response.cancelled' ? 'cancelled' : terminal ? 'completed' : undefined,
+    error_code: safeString(payload.error_code, 120) ?? safeString(responseError?.code, 120),
+    recoverable: payload.recoverable === true || responseError?.recoverable === true,
+    capability: safeString(payload.capability, 120) ?? safeString(responseError?.capability, 120),
+    work_summary: workSummary,
+  }
 }
 
 interface LegacyChatResponse {
@@ -330,11 +825,15 @@ interface LegacyChatResponse {
   reasoning?: string
   actions?: ChatAction[]
   status?: string
+  error_code?: string
+  recoverable?: boolean
+  capability?: string
 }
 
 function normalizeChatResponse(payload: LegacyChatResponse): ChatResponse {
-  const content = payload.content ?? payload.response
-  if (!content?.trim()) {
+  const content = payload.content ?? payload.response ?? ''
+  const failed = ['error', 'failed', 'incomplete', 'unavailable', 'capability_unavailable'].includes(payload.status ?? '')
+  if (!content.trim() && !failed && !payload.error_code) {
     throw new ApiError(502, 'Kolibri API returned an empty response')
   }
 
@@ -343,17 +842,125 @@ function normalizeChatResponse(payload: LegacyChatResponse): ChatResponse {
     reasoning: payload.reasoning,
     actions: Array.isArray(payload.actions) ? payload.actions : [],
     status: payload.status ?? 'completed',
+    error_code: payload.error_code,
+    recoverable: payload.recoverable === true,
+    capability: payload.capability,
   }
 }
 
 export const chat = {
-  send: async (messages: { role: string; content: string }[]) => {
+  send: async (messages: { role: string; content: string }[], options: ChatRequestOptions = {}) => {
     const payload = await request<LegacyChatResponse>('/chat', {
       method: 'POST',
-      body: JSON.stringify({ messages }),
+      headers: options.idempotencyKey ? { 'Idempotency-Key': options.idempotencyKey } : undefined,
+      body: JSON.stringify({ messages, ...options, idempotencyKey: undefined }),
     })
     return normalizeChatResponse(payload)
   },
+  stream: async (
+    messages: { role: string; content: string }[],
+    onEvent: (event: ChatStreamEvent) => void,
+    signal?: AbortSignal,
+    options: ChatRequestOptions = {},
+  ) => {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (authToken) headers.Authorization = `Bearer ${authToken}`
+    if (options.idempotencyKey) headers['Idempotency-Key'] = options.idempotencyKey
+    const response = await fetch(`${BASE}/chat/stream`, {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: JSON.stringify({ messages, ...options, idempotencyKey: undefined }),
+      signal,
+    })
+    let finalEvent: ChatStreamEvent = { done: false }
+    await readEventStream(response, envelope => {
+      const event = normalizeStreamEvent(envelope)
+      if (event) {
+        finalEvent = event
+        onEvent(event)
+      }
+    })
+
+    return finalEvent
+  },
+}
+
+// ---------------------------------------------------------------------------
+// Durable OpenAI-compatible responses
+// ---------------------------------------------------------------------------
+
+export type DurableResponseStatus =
+  | 'queued'
+  | 'planning'
+  | 'running'
+  | 'waiting_for_input'
+  | 'approval_required'
+  | 'verifying'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+
+export interface DurableResponse {
+  id: string
+  object: 'response'
+  status: DurableResponseStatus
+  created_at?: string | number
+  updated_at?: string | number
+  output_text?: string
+  last_sequence?: number
+  error?: { code?: string; message?: string } | null
+}
+
+export interface CreateResponseInput {
+  input: string | { role: string; content: string }[]
+  policy: ChatExecutionPolicy
+  project_id?: string
+  attachments?: ChatAttachmentRef[]
+  idempotencyKey?: string
+}
+
+export const responses = {
+  create: ({ idempotencyKey, ...data }: CreateResponseInput, signal?: AbortSignal) =>
+    request<DurableResponse>('/responses', {
+      method: 'POST',
+      headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
+      body: JSON.stringify({ model: 'kolibri', background: data.policy.background, ...data }),
+      signal,
+    }),
+  get: (id: string, signal?: AbortSignal) =>
+    request<DurableResponse>(`/responses/${encodeURIComponent(id)}`, { signal }),
+  stream: async (
+    id: string,
+    onEvent: (event: ChatStreamEvent) => void,
+    options: { startingAfter?: number; signal?: AbortSignal } = {},
+  ) => {
+    const qs = new URLSearchParams()
+    if (options.startingAfter !== undefined) qs.set('starting_after', String(options.startingAfter))
+    const headers: Record<string, string> = { Accept: 'text/event-stream' }
+    if (authToken) headers.Authorization = `Bearer ${authToken}`
+    const response = await fetch(`${BASE}/responses/${encodeURIComponent(id)}/events?${qs}`, {
+      headers,
+      credentials: 'include',
+      signal: options.signal,
+    })
+    let finalEvent: ChatStreamEvent = { response_id: id, done: false }
+    await readEventStream(response, envelope => {
+      const event = normalizeStreamEvent(envelope)
+      if (!event) return
+      finalEvent = { ...event, response_id: event.response_id ?? id }
+      onEvent(finalEvent)
+    })
+    return finalEvent
+  },
+  resume: (
+    id: string,
+    startingAfter: number,
+    onEvent: (event: ChatStreamEvent) => void,
+    signal?: AbortSignal,
+  ) => responses.stream(id, onEvent, { startingAfter, signal }),
+  cancel: (id: string) =>
+    request<DurableResponse>(`/responses/${encodeURIComponent(id)}/cancel`, { method: 'POST' }),
 }
 
 // ---------------------------------------------------------------------------

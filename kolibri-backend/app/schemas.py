@@ -1,6 +1,6 @@
 """Pydantic v2 schemas for Kolibri API."""
 from pydantic import BaseModel, Field, ConfigDict
-from typing import List, Optional
+from typing import List, Optional, Literal
 from datetime import datetime
 from enum import Enum
 
@@ -91,7 +91,7 @@ class EstimateCreate(BaseModel):
     region: str = ""
     currency: str = "RUB"
     overhead_rate: str = "0"
-    vat_rate: str = "20"
+    vat_rate: str = "22"
     sections: List[SectionCreate] = []
 
 
@@ -300,9 +300,20 @@ class ChatMessage(BaseModel):
     content: str
 
 
+class ChatPolicy(BaseModel):
+    mode: Literal["fast", "deep"] = "fast"
+    reasoning_effort: Literal["low", "high"] = "low"
+    tool_choice: Literal["auto"] = "auto"
+    background: bool = False
+    allowed_capabilities: List[str] = Field(default_factory=list, max_length=32)
+
+
 class ChatRequest(BaseModel):
     messages: List[ChatMessage]
     context: Optional[str] = None
+    previous_response_id: Optional[str] = None
+    background: bool = False
+    policy: Optional[ChatPolicy] = None
 
 
 class ChatAction(BaseModel):
@@ -311,15 +322,30 @@ class ChatAction(BaseModel):
     data: Optional[dict] = None
 
 
+class ChatSource(BaseModel):
+    citation: int
+    title: str
+    url: str
+    snippet: str = ""
+    retrieved_at: str
+
+
 class ChatResponse(BaseModel):
     content: str
     reasoning: str = ""
-    actions: List[ChatAction] = []
+    actions: List[ChatAction] = Field(default_factory=list)
     status: str = "idle"
     provider: str = ""
     model: str = ""
     speed_ms: int = 0
     fallback_used: bool = False
+    error_code: Optional[str] = None
+    recoverable: bool = False
+    capability: Optional[str] = None
+    sources: List[ChatSource] = Field(default_factory=list)
+    truth: dict = Field(default_factory=dict)
+    response_id: Optional[str] = None
+    tool_events: List[dict] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

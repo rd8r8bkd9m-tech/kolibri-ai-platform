@@ -22,9 +22,13 @@ class Provider:
     base_url: str
     api_key_env: str
     model_env: str
+    default_model_id: str = ""
     protocol: str = "openai_compatible"
     official: bool = False
     custom_proxy: bool = True
+    routing_enabled: bool = True
+    credential_source: str = "server_env"
+    route_id: str | None = None
     capabilities: ProviderCapabilities = field(default_factory=ProviderCapabilities)
 
     @property
@@ -33,7 +37,7 @@ class Provider:
 
     @property
     def default_model(self) -> str:
-        return os.getenv(self.model_env, "")
+        return os.getenv(self.model_env, "") or self.default_model_id
 
 
 # ---------------------------------------------------------------------------
@@ -52,16 +56,37 @@ def get_provider(provider_id: str) -> Optional[Provider]:
 
 
 def list_providers() -> list:
-    return [
-        {
+    from app.ai_provider import PROVIDERS as RUNTIME_PROVIDERS, provider_route_snapshot
+
+    items = []
+    for p in PROVIDERS.values():
+        runtime_route = RUNTIME_PROVIDERS.get(p.route_id or p.id)
+        route = (
+            provider_route_snapshot(runtime_route)
+            if runtime_route is not None
+            else {
+                "id": p.route_id or p.id,
+                "model": p.default_model,
+                "configured": bool(p.api_key),
+                "routable": False,
+                "status": "unavailable",
+                "verified_at": None,
+                "failure_kind": None,
+                "credential_source": p.credential_source,
+            }
+        )
+        items.append({
             "id": p.id,
             "name": p.name,
             "base_url": p.base_url,
             "protocol": p.protocol,
             "official": p.official,
             "custom_proxy": p.custom_proxy,
+            "routing_enabled": p.routing_enabled,
+            "credential_source": p.credential_source,
             "model": p.default_model,
             "has_key": bool(p.api_key),
+            "route": route,
             "capabilities": {
                 "chat": p.capabilities.chat,
                 "models": p.capabilities.models,
@@ -71,9 +96,8 @@ def list_providers() -> list:
                 "files": p.capabilities.files,
                 "batch": p.capabilities.batch,
             },
-        }
-        for p in PROVIDERS.values()
-    ]
+        })
+    return items
 
 
 # ---------------------------------------------------------------------------
@@ -89,6 +113,7 @@ register_provider(Provider(
     protocol="openai_compatible",
     official=False,
     custom_proxy=True,
+    routing_enabled=False,
     capabilities=ProviderCapabilities(
         chat="probe", models="probe", streaming="probe",
         tools="probe", json_schema="probe", files="unknown", batch="unknown",
@@ -102,12 +127,14 @@ register_provider(Provider(
     base_url=os.getenv("KIMI_BASE_URL", "https://api.moonshot.ai/v1"),
     api_key_env="KIMI_API_KEY",
     model_env="KIMI_MODEL",
+    default_model_id="kimi-k2.7-code",
     protocol="openai_compatible",
     official=True,
     custom_proxy=False,
+    route_id="kimi_code",
     capabilities=ProviderCapabilities(
-        chat="true", models="true", streaming="true",
-        tools="true", json_schema="true", files="true", batch="true",
+        chat="probe", models="probe", streaming="probe",
+        tools="probe", json_schema="probe", files="probe", batch="probe",
     ),
 ))
 
@@ -118,11 +145,13 @@ register_provider(Provider(
     base_url=os.getenv("MIMO_BASE_URL", "https://token-plan-sgp.xiaomimimo.com/v1"),
     api_key_env="MIMO_API_KEY",
     model_env="MIMO_MODEL",
+    default_model_id="mimo-v2.5-pro",
     protocol="openai_compatible",
     official=False,
     custom_proxy=False,
+    route_id="mimo",
     capabilities=ProviderCapabilities(
-        chat="true", models="unknown", streaming="unknown",
+        chat="probe", models="probe", streaming="probe",
         tools="unknown", json_schema="unknown", files="unknown", batch="unknown",
     ),
 ))
@@ -137,25 +166,52 @@ register_provider(Provider(
     protocol="openai_compatible",
     official=False,
     custom_proxy=True,
+    routing_enabled=False,
+    credential_source="browser_session_forbidden",
     capabilities=ProviderCapabilities(
         chat="probe", models="unknown", streaming="unknown",
         tools="unknown", json_schema="unknown", files="unknown", batch="unknown",
     ),
 ))
 
-# Register OpenAI
+# Register the Home-owned Codex CLI route.  It authenticates through the
+# existing local Codex login and intentionally has no API key field.
+register_provider(Provider(
+    id="codex_cli",
+    name="Codex CLI (Home)",
+    base_url="local://codex-cli",
+    api_key_env="",
+    model_env="CODEX_CLI_MODEL",
+    default_model_id=os.getenv("KOLIBRI_CODEX_MODEL", "") or "account-default",
+    protocol="codex_cli_jsonl",
+    official=True,
+    custom_proxy=False,
+    routing_enabled=os.getenv("CODEX_CLI_ENABLED", "true").lower() in {"1", "true", "yes", "on"},
+    credential_source="home_codex_cli_login",
+    route_id="codex_cli",
+    capabilities=ProviderCapabilities(
+        chat="probe", models="probe", streaming="probe",
+        tools="probe", json_schema="unknown", files="unknown", batch="unknown",
+    ),
+))
+
+# Register OpenAI REST as an explicit opt-in fallback.  Normal production
+# execution uses Codex CLI above, not an OpenAI API key.
 register_provider(Provider(
     id="openai",
     name="OpenAI",
     base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
     api_key_env="OPENAI_API_KEY",
     model_env="OPENAI_MODEL",
-    protocol="openai_compatible",
+    default_model_id="gpt-5.6-sol",
+    protocol="responses",
     official=True,
     custom_proxy=False,
+    routing_enabled=os.getenv("OPENAI_REST_ROUTING_ENABLED", "").lower() in {"1", "true", "yes", "on"},
+    route_id="openai_codex",
     capabilities=ProviderCapabilities(
-        chat="true", models="true", streaming="true",
-        tools="true", json_schema="true", files="true", batch="unknown",
+        chat="probe", models="probe", streaming="probe",
+        tools="probe", json_schema="probe", files="probe", batch="probe",
     ),
 ))
 
@@ -166,12 +222,14 @@ register_provider(Provider(
     base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
     api_key_env="DEEPSEEK_API_KEY",
     model_env="DEEPSEEK_MODEL",
+    default_model_id="deepseek-v4-flash",
     protocol="openai_compatible",
     official=True,
     custom_proxy=False,
+    route_id="deepseek_flash",
     capabilities=ProviderCapabilities(
-        chat="true", models="true", streaming="true",
-        tools="true", json_schema="true", files="unknown", batch="unknown",
+        chat="probe", models="probe", streaming="probe",
+        tools="probe", json_schema="probe", files="unknown", batch="unknown",
     ),
 ))
 
@@ -185,6 +243,8 @@ register_provider(Provider(
     protocol="openai_compatible",
     official=False,
     custom_proxy=True,
+    routing_enabled=False,
+    credential_source="internal_service",
     capabilities=ProviderCapabilities(
         chat="probe", models="probe", streaming="unknown",
         tools="unknown", json_schema="unknown", files="unknown", batch="unknown",

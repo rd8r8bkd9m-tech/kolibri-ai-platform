@@ -13,8 +13,10 @@ import ServersPage from './pages/ServersPage'
 import SettingsPage from './pages/SettingsPage'
 import LoginPage from './pages/LoginPage'
 import { auth, getAuthToken, type AuthUser } from '@/lib/api'
+import { useLocale } from '@/features/localization'
 
 export default function App() {
+  const { t } = useLocale()
   const [user, setUser] = useState<AuthUser | null>(null)
   const [checking, setChecking] = useState(() => Boolean(getAuthToken()))
 
@@ -31,15 +33,16 @@ export default function App() {
   }, [])
 
   if (checking) {
-    return <div className="flex items-center justify-center h-[100dvh] text-[var(--text-tertiary)]">Загрузка...</div>
+    return <div className="flex items-center justify-center h-[100dvh] text-[var(--text-tertiary)]">{t('app.loading')}</div>
   }
 
   return (
     <Routes>
       <Route path="login" element={<LoginPage onLogin={setUser} />} />
-      <Route element={<ErrorBoundary><Layout user={user} onLogout={() => { setUser(null); localStorage.removeItem('kolibri_token') }} /></ErrorBoundary>}>
+      <Route element={<ErrorBoundary><Layout /></ErrorBoundary>}>
         <Route index element={<Home />} />
         <Route path="chat" element={<ChatPage />} />
+        <Route path="chat/:projectId" element={<ChatPage />} />
         <Route path="library" element={<LibraryPage />} />
         <Route path="apps" element={<AppsPage />} />
         <Route path="estimates" element={<EstimatesPage />} />

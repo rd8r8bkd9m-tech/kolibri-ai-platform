@@ -26,6 +26,7 @@ class VATRate:
     ZERO = D("0")
     TEN = D("10")
     TWENTY = D("20")
+    STANDARD = D("22")
 
 
 # ---------------------------------------------------------------------------
@@ -69,7 +70,7 @@ class Estimate:
     region: str = ""
     currency: str = "RUB"
     overhead_rate: D = field(default=D("0"))
-    vat_rate: D = field(default=D("20"))
+    vat_rate: D = field(default=D("22"))
     subtotal: D = field(default=D("0"))
     overhead_amount: D = field(default=D("0"))
     vat_amount: D = field(default=D("0"))

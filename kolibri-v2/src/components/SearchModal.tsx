@@ -16,50 +16,68 @@ export default function SearchModal({ open, onClose }: SearchModalProps) {
   const navigate = useNavigate()
 
   useEffect(() => {
-    if (open) {
-      setQuery('')
-      setResults([])
-      setTimeout(() => inputRef.current?.focus(), 100)
-    }
+    if (!open) return
+    const timer = window.setTimeout(() => inputRef.current?.focus(), 100)
+    return () => window.clearTimeout(timer)
   }, [open])
 
   useEffect(() => {
-    if (!query.trim()) {
-      setResults([])
-      return
-    }
+    if (!query.trim()) return
+
+    let active = true
     const timer = setTimeout(async () => {
       setLoading(true)
       try {
         const res = await search.all(query, ['estimates', 'documents', 'positions'], 10)
-        setResults(res.results)
-      } catch { setResults([]) }
-      finally { setLoading(false) }
+        if (active) setResults(res.results)
+      } catch {
+        if (active) setResults([])
+      } finally {
+        if (active) setLoading(false)
+      }
     }, 300)
-    return () => clearTimeout(timer)
+    return () => {
+      active = false
+      clearTimeout(timer)
+    }
   }, [query])
+
+  const handleClose = () => {
+    setQuery('')
+    setResults([])
+    setLoading(false)
+    onClose()
+  }
+
+  const handleQueryChange = (value: string) => {
+    setQuery(value)
+    if (!value.trim()) {
+      setResults([])
+      setLoading(false)
+    }
+  }
 
   const handleSelect = (r: SearchResult) => {
     if (r.type === 'estimate') navigate(`/estimates?edit=${r.id}`)
     else if (r.type === 'document') navigate(`/documents?edit=${r.id}`)
-    onClose()
+    handleClose()
   }
 
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 bg-black/30 z-50 flex items-start justify-center pt-[15vh] p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/30 z-50 flex items-start justify-center pt-[15vh] p-4" onClick={handleClose}>
       <div className="bg-[var(--bg-primary)] rounded-[var(--radius-xl)] shadow-xl max-w-[560px] w-full overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border-subtle)]">
           <Search size={16} className="text-[var(--text-tertiary)] flex-shrink-0" />
           <input
             ref={inputRef}
             value={query}
-            onChange={e => setQuery(e.target.value)}
+            onChange={e => handleQueryChange(e.target.value)}
             placeholder="Поиск по сметам, документам, позициям..."
             className="flex-1 text-[14px] bg-transparent outline-none text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)]"
           />
-          <button onClick={onClose} className="w-6 h-6 flex items-center justify-center rounded text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">
+          <button onClick={handleClose} className="w-11 h-11 sm:w-6 sm:h-6 flex items-center justify-center rounded text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">
             <X size={16} />
           </button>
         </div>

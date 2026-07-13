@@ -1,0 +1,539 @@
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from app.database import Base, get_db
+from app.main import app
+
+
+@pytest.fixture()
+def client():
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    testing_session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    def override_get_db():
+        db = testing_session()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app) as test_client:
+        bootstrap = test_client.post("/api/v1/shell/bootstrap")
+        assert bootstrap.status_code == 200
+        yield test_client
+    app.dependency_overrides.pop(get_db, None)
+    Base.metadata.drop_all(bind=engine)
+    engine.dispose()
+
+
+def test_create_append_and_reload_project_history(client: TestClient):
+    created = client.post("/api/v1/projects", json={})
+    assert created.status_code == 201
+    project = created.json()
+    assert project["title"] == "Новый проект"
+    assert project["title_source"] == "default"
+    assert project["message_count"] == 0
+
+    user = client.post(
+        f"/api/v1/projects/{project['id']}/messages",
+        json={"role": "user", "content": "Составь смету на строительство одноэтажного дома 100 м² в Лениногорске"},
+    )
+    assert user.status_code == 201
+    assert user.json()["sequence"] == 1
+
+    assistant = client.post(
+        f"/api/v1/projects/{project['id']}/messages",
+        json={"role": "assistant", "content": "Начинаю расчёт сметы."},
+    )
+    assert assistant.status_code == 201
+    assert assistant.json()["sequence"] == 2
+
+    reloaded_project = client.get(f"/api/v1/projects/{project['id']}")
+    assert reloaded_project.status_code == 200
+    reloaded = reloaded_project.json()
+    assert reloaded["title"] == "Составь смету на строительство одноэтажного дома 100 м² в Лениногорске"
+    assert reloaded["title_source"] == "message"
+    assert reloaded["message_count"] == 2
+    assert reloaded["last_message_at"] is not None
+
+    messages = client.get(f"/api/v1/projects/{project['id']}/messages")
+    assert messages.status_code == 200
+    payload = messages.json()
+    assert payload["total"] == 2
+    assert [item["role"] for item in payload["items"]] == ["user", "assistant"]
+    assert [item["sequence"] for item in payload["items"]] == [1, 2]
+
+    projects = client.get("/api/v1/projects")
+    assert projects.status_code == 200
+    assert projects.json()["items"][0]["id"] == project["id"]
+
+
+def test_project_soft_delete_restore_and_message_recovery(client: TestClient):
+    project = client.post("/api/v1/projects", json={"title": "Рабочий чат"}).json()
+    client.post(
+        f"/api/v1/projects/{project['id']}/messages",
+        json={"role": "user", "content": "Сохрани этот диалог"},
+    )
+
+    deleted = client.delete(f"/api/v1/projects/{project['id']}")
+    assert deleted.status_code == 200
+    assert deleted.json()["status"] == "deleted"
+    assert deleted.json()["deleted_at"] is not None
+    assert client.get(f"/api/v1/projects/{project['id']}").status_code == 404
+    assert client.get(f"/api/v1/projects/{project['id']}/messages").status_code == 404
+    assert client.get("/api/v1/projects").json()["total"] == 0
+
+    deleted_list = client.get("/api/v1/projects?include_deleted=true").json()
+    assert deleted_list["total"] == 1
+    assert deleted_list["items"][0]["status"] == "deleted"
+
+    restored = client.post(f"/api/v1/projects/{project['id']}/restore")
+    assert restored.status_code == 200
+    assert restored.json()["status"] == "active"
+    assert restored.json()["deleted_at"] is None
+    assert client.get(f"/api/v1/projects/{project['id']}/messages").json()["total"] == 1
+
+    # Restore is idempotent and does not bump the version twice.
+    version = restored.json()["version"]
+    restored_again = client.post(f"/api/v1/projects/{project['id']}/restore")
+    assert restored_again.status_code == 200
+    assert restored_again.json()["version"] == version
+
+
+def test_manual_title_is_not_replaced_by_first_message(client: TestClient):
+    project = client.post("/api/v1/projects", json={"title": "Дом в Татарстане"}).json()
+    assert project["title_source"] == "manual"
+
+    client.post(
+        f"/api/v1/projects/{project['id']}/messages",
+        json={"role": "user", "content": "Это первое сообщение с другим названием"},
+    )
+    reloaded = client.get(f"/api/v1/projects/{project['id']}").json()
+    assert reloaded["title"] == "Дом в Татарстане"
+    assert reloaded["title_source"] == "manual"
+
+    updated = client.patch(
+        f"/api/v1/projects/{project['id']}",
+        json={"title": "Смета: дом 100 м²", "metadata": {"vertical": "estimate"}},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["title"] == "Смета: дом 100 м²"
+    assert updated.json()["metadata"] == {"vertical": "estimate"}
+
+
+def test_project_and_message_idempotency(client: TestClient):
+    headers = {"Idempotency-Key": "create-project-1"}
+    first = client.post("/api/v1/projects", json={"title": "Один проект"}, headers=headers)
+    repeated = client.post("/api/v1/projects", json={"title": "Один проект"}, headers=headers)
+    conflict = client.post("/api/v1/projects", json={"title": "Другой проект"}, headers=headers)
+
+    assert first.status_code == 201
+    assert repeated.status_code == 200
+    assert repeated.json()["id"] == first.json()["id"]
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"]["code"] == "idempotency_conflict"
+
+    project_id = first.json()["id"]
+    message_headers = {"Idempotency-Key": "message-1"}
+    message_data = {"role": "user", "content": "Привет"}
+    message = client.post(
+        f"/api/v1/projects/{project_id}/messages",
+        json=message_data,
+        headers=message_headers,
+    )
+    message_repeat = client.post(
+        f"/api/v1/projects/{project_id}/messages",
+        json=message_data,
+        headers=message_headers,
+    )
+    message_conflict = client.post(
+        f"/api/v1/projects/{project_id}/messages",
+        json={"role": "user", "content": "Другой текст"},
+        headers=message_headers,
+    )
+
+    assert message.status_code == 201
+    assert message_repeat.status_code == 200
+    assert message_repeat.json()["id"] == message.json()["id"]
+    assert message_conflict.status_code == 409
+    assert client.get(f"/api/v1/projects/{project_id}/messages").json()["total"] == 1
+
+
+def test_missing_and_cross_scope_projects_are_404(client: TestClient):
+    assert client.get("/api/v1/projects/missing").status_code == 404
+    assert client.post("/api/v1/projects/missing/messages", json={"role": "user", "content": "x"}).status_code == 404
+    assert client.post("/api/v1/projects/missing/restore").status_code == 404
+
+    project = client.post("/api/v1/projects", json={"title": "Изолированный проект"}).json()
+    with TestClient(app) as another_browser:
+        bootstrap = another_browser.post("/api/v1/shell/bootstrap")
+        assert bootstrap.status_code == 200
+        assert another_browser.get(
+            f"/api/v1/projects/{project['id']}",
+            headers={"X-Kolibri-Session": "forged-scope"},
+        ).status_code == 404
+    assert client.get(f"/api/v1/projects/{project['id']}").status_code == 200
+
+
+def test_message_reload_cursor_is_stable(client: TestClient):
+    project = client.post("/api/v1/projects", json={}).json()
+    for content in ("one", "two", "three"):
+        client.post(
+            f"/api/v1/projects/{project['id']}/messages",
+            json={"role": "user", "content": content},
+        )
+
+    response = client.get(f"/api/v1/projects/{project['id']}/messages?after=1&limit=1")
+    assert response.status_code == 200
+    assert response.json()["total"] == 3
+    assert [(item["sequence"], item["content"]) for item in response.json()["items"]] == [(2, "two")]
+
+
+def test_shell_bootstrap_creates_and_restores_signed_http_only_session(client: TestClient):
+    first = client.post("/api/v1/shell/bootstrap")
+    assert first.status_code == 200
+    first_payload = first.json()
+    assert first_payload["session_type"] == "anonymous"
+    assert first_payload["restored"] is True
+    assert len(first_payload["session_id"]) == 32
+    assert "kolibri_session" not in first_payload
+
+    set_cookie = first.headers["set-cookie"]
+    assert "HttpOnly" in set_cookie
+    assert "SameSite=lax" in set_cookie
+    assert "Path=/" in set_cookie
+
+    second = client.post("/api/v1/shell/bootstrap")
+    assert second.status_code == 200
+    assert second.json()["restored"] is True
+    assert second.json()["session_id"] == first_payload["session_id"]
+
+    secure = client.post("/api/v1/shell/bootstrap", headers={"X-Forwarded-Proto": "https"})
+    assert secure.status_code == 200
+    assert "Secure" in secure.headers["set-cookie"]
+
+
+def test_bootstrap_replaces_tampered_cookie_and_invalid_bearer_without_auth_errors(client: TestClient):
+    client.cookies.clear()
+    client.cookies.set("kolibri_session", "tampered.value", domain="testserver.local", path="/")
+    response = client.post(
+        "/api/v1/shell/bootstrap",
+        headers={"Authorization": "Bearer invalid-token"},
+    )
+    assert response.status_code == 200
+    assert response.status_code not in {401, 403}
+    assert response.json()["session_type"] == "anonymous"
+    assert response.json()["restored"] is False
+    signed_cookie = client.cookies.get("kolibri_session")
+    assert signed_cookie != "tampered.value"
+    assert len(signed_cookie) > 100
+
+
+def test_missing_or_forged_session_never_becomes_shared_scope(client: TestClient):
+    project = client.post("/api/v1/projects", json={"title": "Private"}).json()
+
+    with TestClient(app) as unbootstrapped:
+        missing = unbootstrapped.get("/api/v1/projects")
+        assert missing.status_code == 428
+        assert missing.json()["detail"]["code"] == "session_bootstrap_required"
+
+        unbootstrapped.cookies.set("kolibri_session", "forged.payload")
+        forged = unbootstrapped.get(f"/api/v1/projects/{project['id']}")
+        assert forged.status_code == 428
+        assert forged.status_code not in {401, 403}
+
+        recovered = unbootstrapped.post("/api/v1/shell/bootstrap")
+        assert recovered.status_code == 200
+        assert recovered.json()["restored"] is False
+        assert unbootstrapped.get(f"/api/v1/projects/{project['id']}").status_code == 404
+
+
+def test_authenticated_principal_overrides_anonymous_cookie(client: TestClient):
+    registered = client.post(
+        "/api/v1/auth/register",
+        json={"email": "history@example.test", "name": "History Owner", "password": "secure-password"},
+    )
+    assert registered.status_code == 201
+    token = registered.json()["access_token"]
+    auth = {"Authorization": f"Bearer {token}"}
+
+    project = client.post("/api/v1/projects", json={"title": "Authenticated"}, headers=auth)
+    assert project.status_code == 201
+    project_id = project.json()["id"]
+    assert client.get(f"/api/v1/projects/{project_id}").status_code == 404
+    assert client.get(f"/api/v1/projects/{project_id}", headers=auth).status_code == 200
+
+    bootstrap = client.post("/api/v1/shell/bootstrap", headers=auth)
+    assert bootstrap.status_code == 200
+    assert bootstrap.json()["session_type"] == "authenticated"
+    assert bootstrap.json()["session_id"] == registered.json()["user"]["id"]
+
+
+def test_assistant_placeholder_streams_and_finalizes_without_duplicate_rows(client: TestClient):
+    project = client.post("/api/v1/projects", json={}).json()
+    placeholder = client.post(
+        f"/api/v1/projects/{project['id']}/messages",
+        json={"role": "assistant", "content": "", "status": "pending"},
+        headers={"Idempotency-Key": "assistant-placeholder"},
+    )
+    assert placeholder.status_code == 201
+    message_id = placeholder.json()["id"]
+    assert placeholder.json()["version"] == 1
+
+    streaming = client.patch(
+        f"/api/v1/projects/{project['id']}/messages/{message_id}",
+        json={"content": "Начинаю", "status": "streaming"},
+        headers={"Idempotency-Key": "assistant-stream-1"},
+    )
+    assert streaming.status_code == 200
+    assert streaming.json()["status"] == "streaming"
+    assert streaming.json()["version"] == 2
+
+    completed = client.patch(
+        f"/api/v1/projects/{project['id']}/messages/{message_id}",
+        json={"content": "Готовый проверенный ответ", "status": "completed"},
+        headers={"Idempotency-Key": "assistant-final-1"},
+    )
+    repeated = client.patch(
+        f"/api/v1/projects/{project['id']}/messages/{message_id}",
+        json={"content": "Готовый проверенный ответ", "status": "completed"},
+        headers={"Idempotency-Key": "assistant-final-1"},
+    )
+    assert completed.status_code == 200
+    assert repeated.status_code == 200
+    assert completed.json() == repeated.json()
+    assert completed.json()["version"] == 3
+
+    messages = client.get(f"/api/v1/projects/{project['id']}/messages").json()
+    assert messages["total"] == 1
+    assert messages["items"][0]["id"] == message_id
+    assert messages["items"][0]["content"] == "Готовый проверенный ответ"
+
+
+def test_send_stream_and_reload_keeps_exactly_one_assistant_placeholder(client: TestClient):
+    project = client.post(
+        "/api/v1/projects",
+        json={"client_request_id": "send-stream-reload-project"},
+        headers={"Idempotency-Key": "project:send-stream-reload"},
+    ).json()
+    user = client.post(
+        f"/api/v1/projects/{project['id']}/messages",
+        json={
+            "role": "user",
+            "content": "привет",
+            "status": "completed",
+            "client_message_id": "send-stream-user",
+        },
+        headers={"Idempotency-Key": "message:send-stream-user"},
+    )
+    assert user.status_code == 201
+
+    placeholder_payload = {
+        "role": "assistant",
+        "content": "",
+        "status": "pending",
+        "client_message_id": "send-stream-assistant",
+    }
+    placeholder = client.post(
+        f"/api/v1/projects/{project['id']}/messages",
+        json=placeholder_payload,
+        headers={"Idempotency-Key": "message:send-stream-assistant"},
+    )
+    repeated_placeholder = client.post(
+        f"/api/v1/projects/{project['id']}/messages",
+        json=placeholder_payload,
+        headers={"Idempotency-Key": "message:send-stream-assistant"},
+    )
+    assert placeholder.status_code == 201
+    assert repeated_placeholder.status_code == 200
+    assert repeated_placeholder.json()["id"] == placeholder.json()["id"]
+
+    message_id = placeholder.json()["id"]
+    assert client.patch(
+        f"/api/v1/projects/{project['id']}/messages/{message_id}",
+        json={"content": "При", "status": "streaming", "metadata": {"response_id": "resp_kolibri_1"}},
+        headers={"Idempotency-Key": "assistant:stream:1"},
+    ).status_code == 200
+    assert client.patch(
+        f"/api/v1/projects/{project['id']}/messages/{message_id}",
+        json={"content": "Привет!", "status": "completed", "metadata": {"response_id": "resp_kolibri_1"}},
+        headers={"Idempotency-Key": "assistant:completed:1"},
+    ).status_code == 200
+
+    reloaded = client.get(f"/api/v1/projects/{project['id']}/messages").json()["items"]
+    assert [item["role"] for item in reloaded] == ["user", "assistant"]
+    assistants = [item for item in reloaded if item["role"] == "assistant"]
+    assert len(assistants) == 1
+    assert assistants[0]["id"] == message_id
+    assert assistants[0]["status"] == "completed"
+    assert assistants[0]["content"] == "Привет!"
+
+
+def test_verified_artifact_metadata_survives_reload_without_duplicate_assistant(client: TestClient):
+    project = client.post("/api/v1/projects", json={}).json()
+    placeholder = client.post(
+        f"/api/v1/projects/{project['id']}/messages",
+        json={"role": "assistant", "content": "", "status": "pending"},
+        headers={"Idempotency-Key": "artifact-assistant-placeholder"},
+    ).json()
+    artifact_id = "11111111-1111-4111-8111-111111111111"
+    artifact = {
+        "id": artifact_id,
+        "type": "image",
+        "title": "Цветы",
+        "prompt": "Букет полевых цветов",
+        "mime_type": "image/png",
+        "size_bytes": 2048,
+        "sha256": "a" * 64,
+        "model": "gpt-image-1",
+        "created_at": "2026-07-13T13:00:00Z",
+        "url": f"/api/v1/artifacts/images/{artifact_id}",
+        "download_url": f"/api/v1/artifacts/images/{artifact_id}?download=true",
+    }
+    completed = client.patch(
+        f"/api/v1/projects/{project['id']}/messages/{placeholder['id']}",
+        json={
+            "content": "Изображение готово.",
+            "status": "completed",
+            "metadata": {
+                "response_id": "resp_kolibri_image_1",
+                "work_events": [{
+                    "stage": "artifact_verification",
+                    "status": "completed",
+                    "summary": "Файл проверен",
+                    "artifact_type": "image",
+                    "artifact_id": artifact_id,
+                }],
+                "artifact": artifact,
+            },
+        },
+        headers={"Idempotency-Key": "artifact-assistant-complete"},
+    )
+    assert completed.status_code == 200
+
+    reloaded = client.get(f"/api/v1/projects/{project['id']}/messages").json()["items"]
+    assistants = [item for item in reloaded if item["role"] == "assistant"]
+    assert len(assistants) == 1
+    assert assistants[0]["id"] == placeholder["id"]
+    assert assistants[0]["status"] == "completed"
+    assert assistants[0]["metadata"]["artifact"]["url"] == artifact["url"]
+    assert assistants[0]["metadata"]["artifact"]["sha256"] == artifact["sha256"]
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {
+            "artifact": {
+                "id": "11111111-1111-4111-8111-111111111111",
+                "type": "image",
+                "title": "Подделка",
+                "prompt": "Поддельный файл",
+                "mime_type": "image/png",
+                "size_bytes": 100,
+                "sha256": "b" * 64,
+                "model": "fake",
+                "created_at": "2026-07-13T13:00:00Z",
+                "url": "https://attacker.invalid/fake.png",
+                "download_url": "https://attacker.invalid/fake.png?download=true",
+            },
+        },
+        {"unknown_runtime_payload": {"success": True}},
+        {
+            "actions": [{
+                "type": "create_document",
+                "label": "Создать документ",
+                "data": {"title": "Документ", "variables": {"x": "y"}},
+            }],
+            "artifact": {
+                "type": "document",
+                "id": "22222222-2222-4222-8222-222222222222",
+                "title": "Уже созданный документ",
+            },
+        },
+    ],
+)
+def test_project_history_rejects_fake_or_ambiguous_artifact_metadata(client: TestClient, metadata: dict):
+    project = client.post("/api/v1/projects", json={}).json()
+    placeholder = client.post(
+        f"/api/v1/projects/{project['id']}/messages",
+        json={"role": "assistant", "content": "", "status": "pending"},
+    ).json()
+    rejected = client.patch(
+        f"/api/v1/projects/{project['id']}/messages/{placeholder['id']}",
+        json={"content": "Нельзя сохранять", "status": "completed", "metadata": metadata},
+    )
+    assert rejected.status_code == 422
+    reloaded = client.get(f"/api/v1/projects/{project['id']}/messages").json()["items"]
+    assert len(reloaded) == 1
+    assert reloaded[0]["status"] == "pending"
+    assert reloaded[0]["metadata"] == {}
+
+
+def test_message_finalization_rejects_invalid_transitions_and_cross_scope_updates(client: TestClient):
+    project = client.post("/api/v1/projects", json={}).json()
+    user_message = client.post(
+        f"/api/v1/projects/{project['id']}/messages",
+        json={"role": "user", "content": "User messages are immutable"},
+    ).json()
+    immutable = client.patch(
+        f"/api/v1/projects/{project['id']}/messages/{user_message['id']}",
+        json={"content": "Changed"},
+    )
+    assert immutable.status_code == 409
+    assert immutable.json()["detail"]["code"] == "invalid_message_transition"
+
+    assistant = client.post(
+        f"/api/v1/projects/{project['id']}/messages",
+        json={"role": "assistant", "content": "Done", "status": "completed"},
+    ).json()
+    invalid = client.patch(
+        f"/api/v1/projects/{project['id']}/messages/{assistant['id']}",
+        json={"status": "streaming"},
+    )
+    assert invalid.status_code == 409
+
+    with TestClient(app) as another_browser:
+        another_browser.post("/api/v1/shell/bootstrap")
+        cross_scope = another_browser.patch(
+            f"/api/v1/projects/{project['id']}/messages/{assistant['id']}",
+            json={"status": "completed"},
+        )
+        assert cross_scope.status_code == 404
+
+
+def test_message_update_idempotency_conflict_is_detected(client: TestClient):
+    project = client.post("/api/v1/projects", json={}).json()
+    assistant = client.post(
+        f"/api/v1/projects/{project['id']}/messages",
+        json={"role": "assistant", "content": "", "status": "pending"},
+    ).json()
+    url = f"/api/v1/projects/{project['id']}/messages/{assistant['id']}"
+    headers = {"Idempotency-Key": "same-update-key"}
+    assert client.patch(url, json={"content": "A", "status": "streaming"}, headers=headers).status_code == 200
+    conflict = client.patch(url, json={"content": "B", "status": "streaming"}, headers=headers)
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"]["code"] == "idempotency_conflict"
+
+
+def test_empty_completed_assistant_placeholder_is_rejected(client: TestClient):
+    project = client.post("/api/v1/projects", json={}).json()
+    placeholder = client.post(
+        f"/api/v1/projects/{project['id']}/messages",
+        json={"role": "assistant", "content": "", "status": "pending"},
+    ).json()
+    completed = client.patch(
+        f"/api/v1/projects/{project['id']}/messages/{placeholder['id']}",
+        json={"status": "completed"},
+    )
+    assert completed.status_code == 409
+    assert completed.json()["detail"]["code"] == "invalid_message_transition"

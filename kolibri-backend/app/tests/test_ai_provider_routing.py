@@ -15,6 +15,7 @@ def reset_provider_circuits(monkeypatch):
 
 
 def test_uncredentialed_cfbt_is_not_a_route(monkeypatch):
+    monkeypatch.setenv("CODEX_CLI_ENABLED", "false")
     for provider in ai_provider.PROVIDERS.values():
         monkeypatch.setitem(provider, "key", "")
 
@@ -22,6 +23,7 @@ def test_uncredentialed_cfbt_is_not_a_route(monkeypatch):
 
 
 def test_chat_prefers_working_official_route(monkeypatch):
+    monkeypatch.setenv("CODEX_CLI_ENABLED", "false")
     for provider in ai_provider.PROVIDERS.values():
         monkeypatch.setitem(provider, "key", "")
     monkeypatch.setitem(ai_provider.PROVIDERS["deepseek_flash"], "key", "configured")

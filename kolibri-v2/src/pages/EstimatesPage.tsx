@@ -3,6 +3,7 @@ import { Plus, Search, FileText, ArrowLeft, Download, Sparkles, MoreHorizontal, 
 import { useSearchParams } from 'react-router'
 import { estimates, ai, type Estimate } from '@/lib/api'
 import { formatDate, formatNum } from '@/lib/utils'
+import EstimatePositionRow, { type EditingEstimateCell } from '@/features/estimates/EstimatePositionRow'
 
 const statusLabels: Record<string, { text: string; className: string }> = {
   draft: { text: 'Черновик', className: 'bg-gray-100 text-gray-600' },
@@ -17,35 +18,57 @@ export default function EstimatesPage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [current, setCurrent] = useState<Estimate | null>(null)
-  const [editingCell, setEditingCell] = useState<{ secId: string; posId: string; field: 'quantity' | 'price' } | null>(null)
+  const [editingCell, setEditingCell] = useState<EditingEstimateCell | null>(null)
   const [searchParams] = useSearchParams()
   const [aiResult, setAiResult] = useState<string | null>(null)
   const [aiLoading, setAiLoading] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
 
+  const fetchList = useCallback(() => {
+    return estimates.list({ search: search || undefined, page_size: 50 })
+  }, [search])
+
   const loadList = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await estimates.list({ search: search || undefined, page_size: 50 })
+      const data = await fetchList()
       setList(data.items)
     } catch (e) { console.error('Failed to load estimates', e) }
     finally { setLoading(false) }
-  }, [search])
-
-  useEffect(() => { loadList() }, [loadList])
+  }, [fetchList])
 
   useEffect(() => {
-    const editId = searchParams.get('edit')
-    if (editId) openEditor(editId)
-  }, [searchParams])
+    let active = true
+    void fetchList()
+      .then(data => { if (active) setList(data.items) })
+      .catch(e => { if (active) console.error('Failed to load estimates', e) })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [fetchList])
 
-  const openEditor = async (id: string) => {
+  const fetchEstimate = useCallback((id: string) => estimates.get(id), [])
+
+  const openEditor = useCallback(async (id: string) => {
     try {
-      const est = await estimates.get(id)
+      const est = await fetchEstimate(id)
       setCurrent(est)
       setView('editor')
     } catch (e) { console.error('Failed to load estimate', e) }
-  }
+  }, [fetchEstimate])
+
+  const editId = searchParams.get('edit')
+  useEffect(() => {
+    if (!editId) return
+    let active = true
+    void fetchEstimate(editId)
+      .then(est => {
+        if (!active) return
+        setCurrent(est)
+        setView('editor')
+      })
+      .catch(e => { if (active) console.error('Failed to load estimate', e) })
+    return () => { active = false }
+  }, [editId, fetchEstimate])
 
   const handleSave = async () => {
     if (!current) return
@@ -137,29 +160,31 @@ export default function EstimatesPage() {
   // --- EDITOR VIEW ---
   if (view === 'editor' && current) {
     return (
-      <div className="h-full overflow-y-auto">
-        <div className="max-w-[1100px] mx-auto px-4 sm:px-6 py-4">
-          <div className="flex items-center gap-3 mb-4">
-            <button onClick={() => { setView('list'); setCurrent(null) }} className="w-8 h-8 flex items-center justify-center rounded-[var(--radius-md)] hover:bg-[var(--bg-hover)] transition-colors">
+      <div className="estimate-editor-page h-full overflow-y-auto">
+        <div className="estimate-editor-shell max-w-[1100px] mx-auto px-4 sm:px-6 py-4">
+          <header className="estimate-editor-header">
+            <div className="estimate-editor-identity">
+            <button aria-label="К списку смет" onClick={() => { setView('list'); setCurrent(null) }} className="estimate-editor-icon-button rounded-[var(--radius-md)] hover:bg-[var(--bg-hover)] transition-colors">
               <ArrowLeft size={18} />
             </button>
             <h1 className="text-[18px] sm:text-[20px] font-semibold text-[var(--text-primary)] truncate">{current.title}</h1>
-            <span className={`px-2 py-0.5 rounded-[var(--radius-pill)] text-[11px] font-medium ${statusLabels[current.status]?.className || ''}`}>{statusLabels[current.status]?.text}</span>
-            <div className="ml-auto flex items-center gap-2">
-              <button onClick={handleAiAnalyze} disabled={aiLoading} className="h-8 px-3 rounded-[var(--radius-md)] border border-[var(--accent-lavender)]/30 text-[13px] text-[var(--accent-lavender)] hover:bg-[var(--accent-lavender)]/10 transition-colors flex items-center gap-1.5 disabled:opacity-50">
+            <span className={`estimate-editor-status px-2 py-0.5 rounded-[var(--radius-pill)] text-[11px] font-medium ${statusLabels[current.status]?.className || ''}`}>{statusLabels[current.status]?.text}</span>
+            </div>
+            <div className="estimate-editor-toolbar" role="toolbar" aria-label="Действия со сметой">
+              <button onClick={handleAiAnalyze} disabled={aiLoading} className="estimate-editor-action border border-[var(--accent-lavender)]/30 text-[var(--accent-lavender)] hover:bg-[var(--accent-lavender)]/10 transition-colors flex items-center gap-1.5 disabled:opacity-50">
                 <Sparkles size={14} /> {aiLoading ? 'Анализ...' : 'AI анализ'}
               </button>
-              <button onClick={handleDownloadPdf} className="h-8 px-3 rounded-[var(--radius-md)] border border-[var(--border-subtle)] text-[13px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors flex items-center gap-1.5">
+              <button onClick={handleDownloadPdf} className="estimate-editor-action border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors flex items-center gap-1.5">
                 <Download size={14} /> PDF
               </button>
-              <div className="relative">
-                <button onClick={() => setMenuOpen(!menuOpen)} className="w-8 h-8 flex items-center justify-center rounded-[var(--radius-md)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors">
+              <div className="estimate-editor-menu-anchor">
+                <button aria-label="Дополнительные действия" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)} className="estimate-editor-icon-button rounded-[var(--radius-md)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors">
                   <MoreHorizontal size={16} />
                 </button>
                 {menuOpen && (
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
-                    <div className="absolute right-0 top-10 z-50 w-52 bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-[var(--radius-lg)] shadow-lg py-1">
+                    <div className="estimate-editor-menu absolute right-0 top-10 z-50 w-52 bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-[var(--radius-lg)] shadow-lg py-1">
                       <button onClick={handleDuplicate} className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors">
                         <Copy size={14} /> Дублировать
                       </button>
@@ -177,69 +202,54 @@ export default function EstimatesPage() {
                   </>
                 )}
               </div>
-              <button onClick={handleSave} className="h-8 px-3 rounded-[var(--radius-md)] bg-[var(--accent-teal)] text-white text-[13px] font-medium hover:bg-[var(--accent-teal-hover)] transition-colors">Сохранить</button>
+              <button onClick={handleSave} className="estimate-editor-action bg-[var(--accent-teal)] text-white font-medium hover:bg-[var(--accent-teal-hover)] transition-colors">Сохранить</button>
             </div>
-          </div>
+          </header>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4 text-[13px]">
-            <div className="p-3 rounded-[var(--radius-md)] bg-[var(--bg-secondary)]">
+          <div className="estimate-meta-grid grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4 text-[13px]">
+            <div className="estimate-meta-card p-3 rounded-[var(--radius-md)] bg-[var(--bg-secondary)]">
               <span className="text-[var(--text-tertiary)]">Клиент</span>
               <p className="text-[var(--text-primary)] font-medium">{current.client || '—'}</p>
             </div>
-            <div className="p-3 rounded-[var(--radius-md)] bg-[var(--bg-secondary)]">
+            <div className="estimate-meta-card p-3 rounded-[var(--radius-md)] bg-[var(--bg-secondary)]">
               <span className="text-[var(--text-tertiary)]">Объект</span>
               <p className="text-[var(--text-primary)] font-medium">{current.object_name || '—'}</p>
             </div>
-            <div className="p-3 rounded-[var(--radius-md)] bg-[var(--bg-secondary)]">
+            <div className="estimate-meta-card p-3 rounded-[var(--radius-md)] bg-[var(--bg-secondary)]">
               <span className="text-[var(--text-tertiary)]">Регион</span>
               <p className="text-[var(--text-primary)] font-medium">{current.region || '—'}</p>
             </div>
-            <div className="p-3 rounded-[var(--radius-md)] bg-[var(--bg-secondary)]">
+            <div className="estimate-meta-card p-3 rounded-[var(--radius-md)] bg-[var(--bg-secondary)]">
               <span className="text-[var(--text-tertiary)]">Дата</span>
               <p className="text-[var(--text-primary)] font-medium">{formatDate(current.created_at)}</p>
             </div>
           </div>
 
           {current.sections.map(section => (
-            <div key={section.id} className="mb-4">
-              <div className="flex items-center justify-between mb-2">
+            <section key={section.id} className="estimate-section mb-4">
+              <div className="estimate-section-header flex items-center justify-between mb-2">
                 <h3 className="text-[14px] font-semibold text-[var(--text-primary)]">{section.title}</h3>
                 <span className="text-[13px] font-medium text-[var(--text-secondary)]">{formatNum(String(sectionTotal(section.positions)))} ₽</span>
               </div>
-              <div className="border border-[var(--border-subtle)] rounded-[var(--radius-lg)] overflow-hidden">
-                <div className="hidden sm:grid sm:grid-cols-[60px_1fr_60px_80px_100px_100px] gap-2 px-4 py-2 bg-[var(--bg-secondary)] text-[11px] text-[var(--text-tertiary)] uppercase tracking-wider border-b border-[var(--border-subtle)]">
+              <div className="estimate-positions">
+                <div className="estimate-position-head">
                   <span>Код</span><span>Наименование</span><span>Ед.</span><span className="text-right">Кол-во</span><span className="text-right">Цена</span><span className="text-right">Сумма</span>
                 </div>
-                {section.positions.map(pos => {
-                  const sum = parseFloat(pos.quantity) * parseFloat(pos.price)
-                  return (
-                    <div key={pos.id} className="sm:grid sm:grid-cols-[60px_1fr_60px_80px_100px_100px] gap-2 px-4 py-2.5 border-b border-[var(--border-subtle)] last:border-0 items-center hover:bg-[var(--bg-secondary)]/50 transition-colors">
-                      <span className="text-[12px] text-[var(--text-tertiary)] font-mono">{pos.code}</span>
-                      <span className="text-[13px] text-[var(--text-primary)]">{pos.name}</span>
-                      <span className="text-[12px] text-[var(--text-secondary)]">{pos.unit}</span>
-                      <div className="text-right">
-                        {editingCell?.secId === section.id && editingCell?.posId === pos.id && editingCell?.field === 'quantity' ? (
-                          <input autoFocus type="number" defaultValue={pos.quantity} onBlur={e => updatePosition(section.id, pos.id, 'quantity', e.target.value)} onKeyDown={e => e.key === 'Enter' && updatePosition(section.id, pos.id, 'quantity', (e.target as HTMLInputElement).value)} className="w-16 text-right text-[13px] border border-[var(--accent-teal)] rounded px-1 outline-none" />
-                        ) : (
-                          <button onClick={() => setEditingCell({ secId: section.id, posId: pos.id, field: 'quantity' })} className="text-[13px] text-[var(--text-primary)] hover:text-[var(--accent-teal)] transition-colors">{pos.quantity}</button>
-                        )}
-                      </div>
-                      <div className="text-right">
-                        {editingCell?.secId === section.id && editingCell?.posId === pos.id && editingCell?.field === 'price' ? (
-                          <input autoFocus type="number" step="0.01" defaultValue={pos.price} onBlur={e => updatePosition(section.id, pos.id, 'price', e.target.value)} onKeyDown={e => e.key === 'Enter' && updatePosition(section.id, pos.id, 'price', (e.target as HTMLInputElement).value)} className="w-20 text-right text-[13px] border border-[var(--accent-teal)] rounded px-1 outline-none" />
-                        ) : (
-                          <button onClick={() => setEditingCell({ secId: section.id, posId: pos.id, field: 'price' })} className="text-[13px] text-[var(--text-primary)] hover:text-[var(--accent-teal)] transition-colors">{formatNum(pos.price)}</button>
-                        )}
-                      </div>
-                      <span className="text-[13px] font-medium text-[var(--text-primary)] text-right">{formatNum(String(sum))}</span>
-                    </div>
-                  )
-                })}
+                {section.positions.map(pos => (
+                  <EstimatePositionRow
+                    key={pos.id}
+                    sectionId={section.id}
+                    position={pos}
+                    editingCell={editingCell}
+                    onEdit={field => setEditingCell({ secId: section.id, posId: pos.id, field })}
+                    onCommit={(field, value) => updatePosition(section.id, pos.id, field, value)}
+                  />
+                ))}
               </div>
-            </div>
+            </section>
           ))}
 
-          <div className="border border-[var(--border-subtle)] rounded-[var(--radius-lg)] p-4 bg-[var(--bg-secondary)]">
+          <div className="estimate-summary border border-[var(--border-subtle)] rounded-[var(--radius-lg)] p-4 bg-[var(--bg-secondary)]">
             <div className="space-y-2 text-[14px]">
               <div className="flex justify-between"><span className="text-[var(--text-secondary)]">Подытог</span><span className="font-medium">{formatNum(current.subtotal)} ₽</span></div>
               <div className="flex justify-between"><span className="text-[var(--text-secondary)]">НДС ({current.vat_rate}%)</span><span className="font-medium">{formatNum(current.vat_amount)} ₽</span></div>
@@ -252,7 +262,7 @@ export default function EstimatesPage() {
 
           {/* AI Analysis result */}
           {aiResult && (
-            <div className="mt-4 border border-[var(--accent-lavender)]/20 rounded-[var(--radius-lg)] p-4 bg-[var(--accent-lavender)]/5">
+            <div className="estimate-ai-result mt-4 border border-[var(--accent-lavender)]/20 rounded-[var(--radius-lg)] p-4 bg-[var(--accent-lavender)]/5">
               <div className="flex items-center gap-2 mb-2">
                 <Sparkles size={14} className="text-[var(--accent-lavender)]" />
                 <span className="text-[13px] font-medium text-[var(--accent-lavender)]">AI-анализ</span>
@@ -277,7 +287,10 @@ export default function EstimatesPage() {
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" />
               <input
                 value={search}
-                onChange={e => setSearch(e.target.value)}
+                onChange={e => {
+                  setLoading(true)
+                  setSearch(e.target.value)
+                }}
                 placeholder="Поиск..."
                 className="h-9 pl-8 pr-3 w-full sm:w-56 bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-[var(--radius-md)] text-[13px] outline-none focus:border-[var(--accent-teal)] transition-colors"
               />

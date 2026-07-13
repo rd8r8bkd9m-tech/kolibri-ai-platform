@@ -26,34 +26,57 @@ export default function DocumentsPage() {
   const [aiGenerating, setAiGenerating] = useState(false)
   const [search, setSearch] = useState('')
 
+  const fetchList = useCallback(() => {
+    return documents.list({ page_size: 50 })
+  }, [])
+
   const loadList = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await documents.list({ page_size: 50 })
+      const data = await fetchList()
       setList(data.items)
     } catch (e) { console.error('Failed to load documents', e) }
     finally { setLoading(false) }
-  }, [])
+  }, [fetchList])
 
-  useEffect(() => { loadList() }, [loadList])
+  useEffect(() => {
+    let active = true
+    void fetchList()
+      .then(data => { if (active) setList(data.items) })
+      .catch(e => { if (active) console.error('Failed to load documents', e) })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [fetchList])
 
   useEffect(() => {
     templates.list().then(setTmplList).catch(() => {})
   }, [])
 
-  useEffect(() => {
-    const editId = searchParams.get('edit')
-    if (editId) openDoc(editId)
-  }, [searchParams])
+  const fetchDoc = useCallback((id: string) => documents.get(id), [])
 
-  const openDoc = async (id: string) => {
+  const openDoc = useCallback(async (id: string) => {
     try {
-      const doc = await documents.get(id)
+      const doc = await fetchDoc(id)
       setCurrent(doc)
       setView('editor')
       setEditMode(false)
     } catch (e) { console.error('Failed to load document', e) }
-  }
+  }, [fetchDoc])
+
+  const editId = searchParams.get('edit')
+  useEffect(() => {
+    if (!editId) return
+    let active = true
+    void fetchDoc(editId)
+      .then(doc => {
+        if (!active) return
+        setCurrent(doc)
+        setView('editor')
+        setEditMode(false)
+      })
+      .catch(e => { if (active) console.error('Failed to load document', e) })
+    return () => { active = false }
+  }, [editId, fetchDoc])
 
   const handleNew = () => {
     setShowTemplates(true)
@@ -123,36 +146,38 @@ export default function DocumentsPage() {
   // --- EDITOR ---
   if (view === 'editor' && current) {
     return (
-      <div className="h-full overflow-y-auto">
-        <div className="max-w-[900px] mx-auto px-4 sm:px-6 py-4">
-          <div className="flex items-center gap-3 mb-4">
-            <button onClick={() => { setView('list'); setCurrent(null) }} className="w-8 h-8 flex items-center justify-center rounded-[var(--radius-md)] hover:bg-[var(--bg-hover)] transition-colors"><ArrowLeft size={18} /></button>
-            <h1 className="text-[18px] sm:text-[20px] font-semibold text-[var(--text-primary)] truncate">{current.title}</h1>
-            <span className={`px-2 py-0.5 rounded-[var(--radius-pill)] text-[11px] font-medium ${statusLabels[current.status]?.className || ''}`}>{statusLabels[current.status]?.text || current.status}</span>
-            <div className="ml-auto flex gap-2">
-              <button onClick={handleAiGenerate} disabled={aiGenerating} className="h-8 px-3 rounded-[var(--radius-md)] border border-[var(--accent-lavender)]/30 text-[13px] text-[var(--accent-lavender)] hover:bg-[var(--accent-lavender)]/10 transition-colors flex items-center gap-1.5 disabled:opacity-50">
+      <div className="document-page h-full overflow-y-auto">
+        <div className="document-editor-shell max-w-[900px] mx-auto px-4 sm:px-6 py-4">
+          <header className="document-editor-header">
+            <div className="document-editor-identity">
+              <button aria-label="К списку документов" onClick={() => { setView('list'); setCurrent(null) }} className="document-editor-icon-button rounded-[var(--radius-md)] hover:bg-[var(--bg-hover)] transition-colors"><ArrowLeft size={18} /></button>
+              <h1 className="text-[18px] sm:text-[20px] font-semibold text-[var(--text-primary)] truncate">{current.title}</h1>
+              <span className={`document-editor-status px-2 py-0.5 rounded-[var(--radius-pill)] text-[11px] font-medium ${statusLabels[current.status]?.className || ''}`}>{statusLabels[current.status]?.text || current.status}</span>
+            </div>
+            <div className="document-editor-actions" role="toolbar" aria-label="Действия с документом">
+              <button onClick={handleAiGenerate} disabled={aiGenerating} className="document-editor-action border border-[var(--accent-lavender)]/30 text-[var(--accent-lavender)] hover:bg-[var(--accent-lavender)]/10 transition-colors flex items-center gap-1.5 disabled:opacity-50">
                 <Sparkles size={14} /> {aiGenerating ? 'Генерация...' : 'AI текст'}
               </button>
-              <button onClick={() => setEditMode(!editMode)} className="h-8 px-3 rounded-[var(--radius-md)] border border-[var(--border-subtle)] text-[13px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors">{editMode ? 'Просмотр' : 'Редактировать'}</button>
-              {editMode && <button onClick={handleSave} className="h-8 px-3 rounded-[var(--radius-md)] bg-[var(--accent-teal)] text-white text-[13px] font-medium hover:bg-[var(--accent-teal-hover)] transition-colors">Сохранить</button>}
-              <button onClick={handleDownloadPdf} className="h-8 px-3 rounded-[var(--radius-md)] border border-[var(--border-subtle)] text-[13px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors flex items-center gap-1.5"><Download size={14} /> PDF</button>
-              <button onClick={handleDownloadDocx} className="h-8 px-3 rounded-[var(--radius-md)] border border-[var(--border-subtle)] text-[13px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors flex items-center gap-1.5"><FileSpreadsheet size={14} /> DOCX</button>
-              <button onClick={handleDelete} className="w-8 h-8 flex items-center justify-center rounded-[var(--radius-md)] text-[var(--text-tertiary)] hover:text-red-600 hover:bg-red-50 transition-colors" title="Удалить"><Trash2 size={15} /></button>
+              <button onClick={() => setEditMode(!editMode)} className="document-editor-action border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors">{editMode ? 'Просмотр' : 'Редактировать'}</button>
+              {editMode && <button onClick={handleSave} className="document-editor-action bg-[var(--accent-teal)] text-white font-medium hover:bg-[var(--accent-teal-hover)] transition-colors">Сохранить</button>}
+              <button onClick={handleDownloadPdf} className="document-editor-action border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors flex items-center gap-1.5"><Download size={14} /> PDF</button>
+              <button onClick={handleDownloadDocx} className="document-editor-action border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors flex items-center gap-1.5"><FileSpreadsheet size={14} /> DOCX</button>
+              <button aria-label="Удалить документ" onClick={handleDelete} className="document-editor-icon-button text-[var(--text-tertiary)] hover:text-red-600 hover:bg-red-50 transition-colors" title="Удалить"><Trash2 size={15} /></button>
             </div>
-          </div>
+          </header>
 
           {editMode && (
-            <div className="flex items-center gap-1 p-2 mb-3 rounded-[var(--radius-md)] bg-[var(--bg-secondary)] border border-[var(--border-subtle)]">
+            <div className="document-format-toolbar rounded-[var(--radius-md)] bg-[var(--bg-secondary)] border border-[var(--border-subtle)]" role="toolbar" aria-label="Форматирование документа">
               {[{ icon: Bold, cmd: 'bold' }, { icon: Italic, cmd: 'italic' }, { icon: Underline, cmd: 'underline' }, { icon: List, cmd: 'insertUnorderedList' }, { icon: ListOrdered, cmd: 'insertOrderedList' }].map(({ icon: Icon, cmd }) => (
-                <button key={cmd} onClick={() => document.execCommand(cmd)} className="w-8 h-8 flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors"><Icon size={15} /></button>
+                <button key={cmd} onClick={() => document.execCommand(cmd)} className="document-format-action rounded-[var(--radius-sm)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors"><Icon size={15} /></button>
               ))}
             </div>
           )}
 
           {editMode ? (
-            <div contentEditable suppressContentEditableWarning className="min-h-[500px] p-6 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[14px] leading-relaxed outline-none focus:border-[var(--accent-teal)] transition-colors" dangerouslySetInnerHTML={{ __html: current.content }} />
+            <div contentEditable suppressContentEditableWarning className="document-editor-canvas is-editing min-h-[500px] p-6 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[14px] leading-relaxed outline-none focus:border-[var(--accent-teal)] transition-colors" dangerouslySetInnerHTML={{ __html: current.content }} />
           ) : (
-            <div className="p-6 sm:p-10 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-white shadow-sm" dangerouslySetInnerHTML={{ __html: current.content.replace(/<h2>/g, '<h2 style="font-size:18px;font-weight:700;margin-bottom:16px;">').replace(/<h3>/g, '<h3 style="font-size:15px;font-weight:600;margin:20px 0 8px;">').replace(/<p>/g, '<p style="margin-bottom:8px;line-height:1.7;color:#374151;">') }} />
+            <div className="document-editor-canvas is-previewing p-6 sm:p-10 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-sm" dangerouslySetInnerHTML={{ __html: current.content.replace(/<h2>/g, '<h2 style="font-size:18px;font-weight:700;margin-bottom:16px;">').replace(/<h3>/g, '<h3 style="font-size:15px;font-weight:600;margin:20px 0 8px;">').replace(/<p>/g, '<p style="margin-bottom:8px;line-height:1.7;color:var(--text-secondary);">') }} />
           )}
         </div>
       </div>

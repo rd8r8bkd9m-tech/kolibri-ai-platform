@@ -34,20 +34,22 @@ export default function LibraryPage() {
     }
   }
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      const data = await library.list({
-        item_type: activeFilter === 'Все' ? undefined : activeFilter,
-        search: search || undefined,
-        page_size: 50,
-      })
-      setItems(data.items)
-    } catch (e) { console.error('Failed to load library', e) }
-    finally { setLoading(false) }
+  const fetchItems = useCallback(() => {
+    return library.list({
+      item_type: activeFilter === 'Все' ? undefined : activeFilter,
+      search: search || undefined,
+      page_size: 50,
+    })
   }, [activeFilter, search])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    let active = true
+    void fetchItems()
+      .then(data => { if (active) setItems(data.items) })
+      .catch(e => { if (active) console.error('Failed to load library', e) })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [fetchItems])
 
   return (
     <div className="h-full overflow-y-auto">
@@ -55,8 +57,8 @@ export default function LibraryPage() {
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-[22px] sm:text-[26px] font-semibold text-[var(--text-primary)] tracking-tight">Библиотека</h1>
           <div className="flex items-center gap-1 bg-[var(--bg-elevated)] rounded-[var(--radius-md)] p-0.5">
-            <button onClick={() => setViewMode('grid')} className={`p-1.5 rounded-[var(--radius-sm)] transition-colors ${viewMode === 'grid' ? 'bg-white shadow-sm text-[var(--text-primary)]' : 'text-[var(--text-tertiary)]'}`}><LayoutGrid size={16} /></button>
-            <button onClick={() => setViewMode('list')} className={`p-1.5 rounded-[var(--radius-sm)] transition-colors ${viewMode === 'list' ? 'bg-white shadow-sm text-[var(--text-primary)]' : 'text-[var(--text-tertiary)]'}`}><List size={16} /></button>
+            <button onClick={() => setViewMode('grid')} className={`p-1.5 rounded-[var(--radius-sm)] transition-colors ${viewMode === 'grid' ? 'bg-[var(--bg-surface)] shadow-sm text-[var(--text-primary)]' : 'text-[var(--text-tertiary)]'}`}><LayoutGrid size={16} /></button>
+            <button onClick={() => setViewMode('list')} className={`p-1.5 rounded-[var(--radius-sm)] transition-colors ${viewMode === 'list' ? 'bg-[var(--bg-surface)] shadow-sm text-[var(--text-primary)]' : 'text-[var(--text-tertiary)]'}`}><List size={16} /></button>
           </div>
         </div>
 
@@ -64,7 +66,10 @@ export default function LibraryPage() {
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" />
           <input
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={e => {
+              setLoading(true)
+              setSearch(e.target.value)
+            }}
             placeholder="Поиск по библиотеке..."
             className="w-full h-10 pl-9 pr-4 bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-[var(--radius-lg)] text-[14px] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] outline-none focus:border-[var(--accent-teal)] focus:ring-2 focus:ring-[var(--accent-teal)]/10 transition-all"
           />
@@ -75,7 +80,10 @@ export default function LibraryPage() {
           {filters.map(f => (
             <button
               key={f}
-              onClick={() => setActiveFilter(f)}
+              onClick={() => {
+                setLoading(true)
+                setActiveFilter(f)
+              }}
               className={`px-3 py-1.5 rounded-[var(--radius-pill)] text-[13px] whitespace-nowrap transition-colors ${
                 activeFilter === f
                   ? 'bg-[var(--accent-teal)]/10 text-[var(--accent-teal)] font-medium'

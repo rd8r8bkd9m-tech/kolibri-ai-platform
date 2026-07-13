@@ -1,6 +1,18 @@
 """SQLAlchemy ORM models for Kolibri."""
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, Integer, Float, DateTime, ForeignKey, Text, JSON, Boolean, Index
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    JSON,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -33,7 +45,7 @@ class EstimateDB(Base):
     region = Column(String, default="")
     currency = Column(String, default="RUB")
     overhead_rate = Column(String, default="0")
-    vat_rate = Column(String, default="20")
+    vat_rate = Column(String, default="22")
     subtotal = Column(String, default="0")
     overhead_amount = Column(String, default="0")
     vat_amount = Column(String, default="0")
@@ -181,4 +193,106 @@ class CatalogItemDB(Base):
         Index("ix_catalog_code", "code"),
         Index("ix_catalog_category", "category"),
         Index("ix_catalog_region", "region"),
+    )
+
+
+class ProjectDB(Base):
+    """Durable project/thread metadata.
+
+    ``scope_id`` is deliberately separate from a user foreign key so signed
+    anonymous sessions and authenticated principals share one durable public
+    contract without sharing data.
+    """
+
+    __tablename__ = "projects"
+
+    id = Column(String, primary_key=True)
+    scope_id = Column(String, nullable=False)
+    title = Column(String, nullable=False, default="Новый проект")
+    title_source = Column(String, nullable=False, default="default")
+    status = Column(String, nullable=False, default="active")
+    version = Column(Integer, nullable=False, default=1)
+    message_count = Column(Integer, nullable=False, default=0)
+    attributes = Column("metadata", JSON, nullable=False, default=dict)
+    idempotency_key = Column(String, nullable=True)
+    create_request_hash = Column(String, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=_now)
+    updated_at = Column(DateTime, nullable=False, default=_now, onupdate=_now)
+    last_message_at = Column(DateTime, nullable=True)
+    deleted_at = Column(DateTime, nullable=True)
+
+    messages = relationship(
+        "ProjectMessageDB",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        order_by="ProjectMessageDB.sequence",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("scope_id", "idempotency_key", name="uq_projects_scope_idempotency"),
+        Index("ix_projects_scope_deleted_updated", "scope_id", "deleted_at", "updated_at"),
+        Index("ix_projects_scope_last_message", "scope_id", "last_message_at"),
+    )
+
+
+class ProjectMessageDB(Base):
+    """Immutable chat message belonging to a project."""
+
+    __tablename__ = "project_messages"
+
+    id = Column(String, primary_key=True)
+    project_id = Column(
+        String,
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    scope_id = Column(String, nullable=False)
+    sequence = Column(Integer, nullable=False)
+    version = Column(Integer, nullable=False, default=1)
+    role = Column(String, nullable=False)
+    content = Column(Text, nullable=False)
+    status = Column(String, nullable=False, default="completed")
+    attributes = Column("metadata", JSON, nullable=False, default=dict)
+    idempotency_key = Column(String, nullable=True)
+    request_hash = Column(String, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=_now)
+    updated_at = Column(DateTime, nullable=False, default=_now, onupdate=_now)
+
+    project = relationship("ProjectDB", back_populates="messages")
+    mutations = relationship(
+        "ProjectMessageMutationDB",
+        back_populates="message",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("project_id", "sequence", name="uq_project_messages_sequence"),
+        UniqueConstraint("project_id", "idempotency_key", name="uq_project_messages_idempotency"),
+        Index("ix_project_messages_project_sequence", "project_id", "sequence"),
+        Index("ix_project_messages_scope_created", "scope_id", "created_at"),
+    )
+
+
+class ProjectMessageMutationDB(Base):
+    """Idempotency ledger for message lifecycle mutations."""
+
+    __tablename__ = "project_message_mutations"
+
+    id = Column(String, primary_key=True)
+    message_id = Column(
+        String,
+        ForeignKey("project_messages.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    scope_id = Column(String, nullable=False)
+    idempotency_key = Column(String, nullable=False)
+    request_hash = Column(String, nullable=False)
+    response_payload = Column(JSON, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=_now)
+
+    message = relationship("ProjectMessageDB", back_populates="mutations")
+
+    __table_args__ = (
+        UniqueConstraint("message_id", "idempotency_key", name="uq_message_mutations_idempotency"),
+        Index("ix_message_mutations_scope_created", "scope_id", "created_at"),
     )
