@@ -192,8 +192,15 @@ def test_revision_backed_pdf_xlsx_and_json_exports(client: TestClient):
         assert "xl/worksheets/sheet1.xml" in archive.namelist()
     workbook = load_workbook(io.BytesIO(xlsx.content), read_only=False)
     worksheet = workbook["Смета"]
+    assert worksheet["F11"].data_type == "f"
+    assert worksheet["F11"].value == "=ROUND(D11*E11,2)"
+    assert worksheet["B11"].alignment.wrap_text is True
+    assert worksheet.row_dimensions[11].height >= 18
+    assert worksheet.column_dimensions["B"].width >= 48
     assert worksheet.column_dimensions["E"].width >= 30
     assert worksheet.column_dimensions["F"].width >= 19
+    assert worksheet.page_setup.fitToHeight == 0
+    assert workbook.calculation.calcMode == "auto"
     workbook.close()
 
     first_json = client.get(
