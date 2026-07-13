@@ -487,6 +487,20 @@
         "x-kolibri-implementation": "target"
       }
     },
+    "/v1/program/status": {
+      "get": {
+        "tags": ["owner-control"],
+        "operationId": "getProgramStatus",
+        "responses": {
+          "200": { "$ref": "#/components/responses/Success" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "503": { "$ref": "#/components/responses/Error" }
+        },
+        "x-kolibri-visibility": "owner-only",
+        "x-kolibri-rule": "read-only Home Program Ledger projection; missing data is unavailable, never zero",
+        "x-kolibri-implementation": "compatibility"
+      }
+    },
     "/v1/runtime/dags": {
       "get": {
         "tags": ["runtime"],

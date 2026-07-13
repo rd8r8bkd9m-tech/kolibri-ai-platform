@@ -22,7 +22,7 @@ this directory and may depend only on packages declared in its own
 | `src/domain` | framework-free state, values, reducers, calculations | `domain` |
 | `src/services` | browser/API adapters and safe stream normalization | `services`, `domain` |
 | `src/components` | accessible presentational primitives | `components`, `domain` |
-| `src/features` | chat, work trace, estimate, project and composer use cases | `features`, `components`, `services`, `domain` |
+| `src/features` | chat, work trace, estimate, project, composer and owner wallboard use cases | `features`, `components`, `services`, `domain` |
 | `src/app` | composition, responsive shell and global styling | `app`, `features`, `components`, `services`, `domain` |
 | `src/dev` | deterministic local visual-QA fixture only | all layers except `app` |
 
@@ -37,6 +37,9 @@ present in the production build.
   is presented as an explicit unavailable/retry state.
 - Browser code talks only to the unified same-origin gateway. It never selects
   a provider or Control Plane endpoint.
+- `/wallboard` bypasses public Shell bootstrap and consumes only the
+  owner-authenticated `/v1/program/status` projection. A missing, stale or
+  unauthorized ledger is explicit; the UI never substitutes zero counts.
 - Work Trace renders normalized, user-safe events. Raw prompts, credentials,
   hidden reasoning, internal hostnames, and provider secrets are not UI data.
 - The estimate artifact owns deterministic arithmetic; totals are derived from

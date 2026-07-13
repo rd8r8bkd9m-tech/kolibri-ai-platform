@@ -137,3 +137,24 @@ test("development fixture is gated by Vite DEV and dynamically imported", async 
   assert.match(entry, /await import\(["']@dev\/estimateFixture["']\)/);
   assert.doesNotMatch(entry, /^import .*@dev\/estimateFixture/m);
 });
+
+test("wallboard is a tracked owner projection and bypasses public shell bootstrap", async () => {
+  const entry = await readFile(resolve(srcRoot, "main.tsx"), "utf8");
+  const wallboardBranch = entry.indexOf('window.location.pathname === "/wallboard"');
+  const shellClientResolution = entry.indexOf("const client = await resolveClient()");
+  assert.ok(wallboardBranch >= 0, "tracked /wallboard route is missing");
+  assert.ok(
+    wallboardBranch < shellClientResolution,
+    "/wallboard must not bootstrap a public Shell session",
+  );
+
+  const wallboard = await readFile(
+    resolve(srcRoot, "features/wallboard/ProgramWallboard.tsx"),
+    "utf8",
+  );
+  const client = await readFile(resolve(srcRoot, "services/programStatusClient.ts"), "utf8");
+  assert.match(client, /\/v1\/program\/status/);
+  assert.match(client, /credentials:\s*["']include["']/);
+  assert.doesNotMatch(wallboard, /online_nodes|mock|fixture/i);
+  assert.doesNotMatch(client, /release\/program-status\.json/);
+});

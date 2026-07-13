@@ -29,6 +29,7 @@ from public_responses_api import (
 )
 from public_estimate_api import router as public_estimate_router
 from public_image_api import router as public_image_router
+from program_status_api import router as program_status_router
 from public_errors import public_provider_failure
 from product_capabilities import (
     build_product_capability_matrix,
@@ -715,6 +716,7 @@ app.include_router(openai_compatibility_router)
 app.include_router(public_responses_router)
 app.include_router(public_estimate_router)
 app.include_router(public_image_router)
+app.include_router(program_status_router)
 app.include_router(execution_router)
 
 frontend_path = Path(
