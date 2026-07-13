@@ -135,8 +135,11 @@ def generate_estimate_xlsx(estimate: dict) -> bytes:
     ws.column_dimensions['B'].width = 35
     ws.column_dimensions['C'].width = 8
     ws.column_dimensions['D'].width = 10
-    ws.column_dimensions['E'].width = 12
-    ws.column_dimensions['F'].width = 15
+    # The totals block uses column E for full Russian labels (for example
+    # ``Накладные расходы (10%)``).  Keep those labels readable in Excel,
+    # LibreOffice and the in-app renderer instead of clipping them.
+    ws.column_dimensions['E'].width = 30
+    ws.column_dimensions['F'].width = 19
     ws.freeze_panes = 'A8'
     ws.sheet_view.showGridLines = False
     ws.print_title_rows = '1:8'

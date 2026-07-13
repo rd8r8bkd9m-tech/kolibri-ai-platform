@@ -2,6 +2,7 @@ import io
 import zipfile
 
 import pytest
+from openpyxl import load_workbook
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -189,6 +190,11 @@ def test_revision_backed_pdf_xlsx_and_json_exports(client: TestClient):
         assert "[Content_Types].xml" in archive.namelist()
         assert "xl/workbook.xml" in archive.namelist()
         assert "xl/worksheets/sheet1.xml" in archive.namelist()
+    workbook = load_workbook(io.BytesIO(xlsx.content), read_only=False)
+    worksheet = workbook["Смета"]
+    assert worksheet.column_dimensions["E"].width >= 30
+    assert worksheet.column_dimensions["F"].width >= 19
+    workbook.close()
 
     first_json = client.get(
         f"/api/v1/estimates/{estimate_id}/export/json?version=1"
