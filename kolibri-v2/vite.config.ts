@@ -4,7 +4,9 @@ import { defineConfig } from "vite"
 
 // https://vite.dev/config/
 export default defineConfig({
-  base: './',
+  // BrowserRouter deep links (for example /chat/:id and /developers) must
+  // always load the same root-scoped hashed assets after a hard reload.
+  base: '/',
   plugins: [react()],
   server: {
     port: 3000,
