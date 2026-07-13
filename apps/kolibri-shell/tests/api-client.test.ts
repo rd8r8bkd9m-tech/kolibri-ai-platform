@@ -52,6 +52,39 @@ describe('KolibriHttpClient', () => {
     expect(snapshot.capabilities).toHaveLength(2);
   });
 
+  it('uses the atomic production bootstrap payload without follow-up discovery 404s', async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe(SHELL_BOOTSTRAP_ENDPOINT);
+      expect(init?.method).toBe('POST');
+      expect(JSON.parse(String(init?.body))).toEqual({});
+      return jsonResponse({
+        session: { id: 'session-production' },
+        projects: [
+          { id: 'project-production', title: 'Первый проект', updated_at: '2026-07-13T00:00:00Z' },
+        ],
+        capabilities: [
+          {
+            id: 'chat',
+            label: 'Диалог',
+            available: true,
+            evidence_gate: { route: true, executor: true, renderer: true, evidence: true },
+          },
+        ],
+      });
+    });
+
+    const snapshot = await new KolibriHttpClient('', fetcher as typeof fetch).bootstrap();
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(snapshot.sessionId).toBe('session-production');
+    expect(snapshot.projects).toEqual([
+      expect.objectContaining({ id: 'project-production', title: 'Первый проект' }),
+    ]);
+    expect(snapshot.capabilities).toEqual([
+      expect.objectContaining({ id: 'chat', name: 'Диалог', status: 'available', invocable: true }),
+    ]);
+  });
+
   it('streams text, safe work trace and a verified artifact from Responses SSE', async () => {
     const sha = 'b'.repeat(64);
     const frames = [

@@ -25,6 +25,7 @@ function record(value: unknown): JsonRecord {
 }
 
 function arrayFromEnvelope(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
   const body = record(value);
   const data = body.data;
   if (Array.isArray(data)) return data;
@@ -42,9 +43,14 @@ function normalizeCapabilities(value: unknown): CapabilityRecord[] {
   return arrayFromEnvelope(value)
     .map(record)
     .map((item): CapabilityRecord => {
+      const evidenceGate = record(item.evidence_gate);
+      const evidenceReady = Object.keys(evidenceGate).length > 0
+        && Object.values(evidenceGate).every((state) => state === true);
       const status: CapabilityRecord['status'] =
         item.status === 'available' || item.status === 'degraded'
           ? item.status
+          : item.available === true && evidenceReady
+            ? 'available'
           : 'unavailable';
       const kind: CapabilityRecord['kind'] =
         item.kind === 'plugin' || item.kind === 'skill' || item.kind === 'tool'
@@ -52,10 +58,10 @@ function normalizeCapabilities(value: unknown): CapabilityRecord[] {
           : 'capability';
       return {
         id: safeString(item.id) ?? '',
-        name: safeString(item.name) ?? safeString(item.id) ?? '',
+        name: safeString(item.name) ?? safeString(item.label) ?? safeString(item.id) ?? '',
         description: safeString(item.description),
         status,
-        invocable: item.invocable === true,
+        invocable: item.invocable === true || (item.available === true && evidenceReady),
         kind,
       };
     })
@@ -313,15 +319,34 @@ export class KolibriHttpClient implements KolibriClient {
   }
 
   async bootstrap(signal?: AbortSignal): Promise<BootstrapSnapshot> {
-    const session = await this.json(SHELL_BOOTSTRAP_ENDPOINT, { method: 'POST', signal });
-    const [capabilityResult, projectResult] = await Promise.allSettled([
-      this.json('/v1/capabilities', { signal }),
-      this.json('/v1/projects', { signal }),
-    ]);
+    const session = await this.json(SHELL_BOOTSTRAP_ENDPOINT, {
+      method: 'POST',
+      signal,
+      body: JSON.stringify({}),
+    });
     const sessionBody = record(session);
     const nested = record(sessionBody.data);
+    const sessionRecord = record(sessionBody.session);
+    const embeddedCapabilities = Array.isArray(sessionBody.capabilities)
+      ? normalizeCapabilities(sessionBody.capabilities)
+      : [];
+    const embeddedProjects = Array.isArray(sessionBody.projects)
+      ? normalizeProjects(sessionBody.projects)
+      : [];
+    const [capabilityResult, projectResult] = await Promise.allSettled([
+      embeddedCapabilities.length
+        ? Promise.resolve(sessionBody.capabilities)
+        : this.json('/v1/capabilities', { signal }),
+      embeddedProjects.length
+        ? Promise.resolve(sessionBody.projects)
+        : this.json('/v1/projects', { signal }),
+    ]);
     return {
-      sessionId: safeString(sessionBody.id) ?? safeString(nested.id) ?? safeString(nested.session_id),
+      sessionId:
+        safeString(sessionBody.id) ??
+        safeString(sessionRecord.id) ??
+        safeString(nested.id) ??
+        safeString(nested.session_id),
       capabilities:
         capabilityResult.status === 'fulfilled'
           ? normalizeCapabilities(capabilityResult.value)
