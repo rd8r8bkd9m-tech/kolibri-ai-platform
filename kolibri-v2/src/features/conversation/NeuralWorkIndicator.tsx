@@ -30,14 +30,37 @@ const stageGroup: Record<ChatWorkStage, number> = {
 
 function nodeStates(events: ChatWorkSummary[], state: WorkIndicatorState): NodeState[] {
   const nodes: NodeState[] = ['future', 'future', 'future', 'future', 'future']
+
+  // First pass: collect raw states from events
   for (const event of events) {
     const index = stageGroup[event.stage]
     if (event.status === 'failed') nodes[index] = 'failed'
     else if (event.status === 'completed' && nodes[index] !== 'failed') nodes[index] = 'completed'
     else if (nodes[index] === 'future') nodes[index] = 'active'
   }
+
+  // Second pass: find the highest active group index
+  let highestActiveIndex = -1
+  for (let i = nodes.length - 1; i >= 0; i--) {
+    if (nodes[i] === 'active') {
+      highestActiveIndex = i
+      break
+    }
+  }
+
+  // Third pass: only observed active groups before the highest active are complete.
+  if (highestActiveIndex >= 0) {
+    for (let i = 0; i < highestActiveIndex; i++) {
+      if (nodes[i] === 'active') {
+        nodes[i] = 'completed'
+      }
+    }
+  }
+
+  // Handle terminal states
   if (state === 'completed') nodes[4] = 'completed'
   if (state === 'failed' || state === 'cancelled') nodes[4] = 'failed'
+
   return nodes
 }
 
