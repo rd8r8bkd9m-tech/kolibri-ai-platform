@@ -134,6 +134,16 @@ SECRET_REDACTION_MARKERS = (
     "secret",
     "token",
 )
+SERIALIZED_TOOL_CALL_MARKERS = (
+    "<tool_call",
+    "</tool_call>",
+    "<function_call",
+    "</function_call>",
+    "<read>",
+    "</read>",
+    "<file_path>",
+    "</file_path>",
+)
 
 
 class BackendTestEnvironmentError(RuntimeError):
@@ -1294,6 +1304,21 @@ class AgentHost:
         return str(cls.parse_json_response_payload(stdout_path).get("response") or "")
 
     @staticmethod
+    def serialized_tool_call_marker(response_text: str) -> str | None:
+        """Return the first unexecuted tool marker emitted as answer text.
+
+        ``mimo run`` is a response-only transport in the current Agent Host.
+        A model can still *describe* a tool call in its final text.  That is
+        not execution evidence and must never be promoted to ``completed``.
+        Mixed prose plus a serialized tool call is rejected as well; checking
+        only responses that consist entirely of ``<tool_call>`` allowed false
+        completions through the factory verifier.
+        """
+
+        normalized = response_text.casefold()
+        return next((marker for marker in SERIALIZED_TOOL_CALL_MARKERS if marker in normalized), None)
+
+    @staticmethod
     def _read_runner_output_for_error(stdout_path: Path, stderr_path: Path) -> str:
         chunks = []
         for path in (stdout_path, stderr_path):
@@ -1348,6 +1373,14 @@ class AgentHost:
         payload = self.parse_json_response_payload(stdout_path)
         if not payload.get("response"):
             raise RuntimeError(f"{empty_response_label} completed without text response")
+        marker = self.serialized_tool_call_marker(str(payload["response"]))
+        if marker is not None:
+            raise RunnerExecutionError(
+                "response_only_tool_call_output",
+                "mimo",
+                f"mimo response-only runner emitted an unexecuted serialized tool call ({marker})",
+                retry=False,
+            )
         return payload
 
     def run_json_text_command(

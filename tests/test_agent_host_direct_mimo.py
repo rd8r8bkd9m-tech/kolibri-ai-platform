@@ -114,6 +114,84 @@ def test_direct_mimo_stdout_useful_json_completes_with_non_empty_response(tmp_pa
     ]
 
 
+def test_direct_mimo_mixed_prose_and_serialized_tool_call_is_not_completed(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setattr(agent_host.shutil, "which", lambda name: "/usr/bin/mimo" if name == "mimo" else None)
+
+    class Host(agent_host.AgentHost):
+        def __init__(self, args):
+            super().__init__(args)
+            self.posts = []
+
+        def post(self, path, body):
+            self.posts.append((path, body))
+            return body
+
+        def run_command(self, command, cwd, stdout_path, stderr_path, task, branch, logs, env=None, command_label=None):
+            del command, cwd, task, branch, logs, env
+            stdout_path.write_text(
+                f"$ {command_label}\n"
+                + json.dumps({
+                    "type": "assistant_message",
+                    "message": (
+                        "Начинаю реальную проверку.\n\n"
+                        "<tool_call>\n"
+                        '{"name":"shell","arguments":{"command":"curl https://example.test"}}\n'
+                        "</tool_call>"
+                    ),
+                })
+                + "\n",
+                encoding="utf-8",
+            )
+            stderr_path.write_text("", encoding="utf-8")
+
+    host = Host(make_args(tmp_path))
+    host.run_task(make_direct_task("MIMO-UNEXECUTED-TOOL"))
+
+    assert not [body for path, body in host.posts if path.endswith("/complete")]
+    fail_posts = [body for path, body in host.posts if path.endswith("/fail")]
+    assert len(fail_posts) == 1
+    assert fail_posts[0]["error_type"] == "response_only_tool_call_output"
+    assert fail_posts[0]["retry"] is False
+    assert "curl https://example.test" not in json.dumps(fail_posts[0], ensure_ascii=False)
+
+
+def test_direct_mimo_serialized_read_call_is_not_completed(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setattr(agent_host.shutil, "which", lambda name: "/usr/bin/mimo" if name == "mimo" else None)
+
+    class Host(agent_host.AgentHost):
+        def __init__(self, args):
+            super().__init__(args)
+            self.posts = []
+
+        def post(self, path, body):
+            self.posts.append((path, body))
+            return body
+
+        def run_command(self, command, cwd, stdout_path, stderr_path, task, branch, logs, env=None, command_label=None):
+            del command, cwd, task, branch, logs, env
+            stdout_path.write_text(
+                f"$ {command_label}\n"
+                + json.dumps({
+                    "type": "assistant_message",
+                    "message": "<read><file_path>/workspace</file_path></read>",
+                })
+                + "\n",
+                encoding="utf-8",
+            )
+            stderr_path.write_text("", encoding="utf-8")
+
+    host = Host(make_args(tmp_path))
+    host.run_task(make_direct_task("MIMO-UNEXECUTED-READ"))
+
+    assert not [body for path, body in host.posts if path.endswith("/complete")]
+    fail_posts = [body for path, body in host.posts if path.endswith("/fail")]
+    assert len(fail_posts) == 1
+    assert fail_posts[0]["error_type"] == "response_only_tool_call_output"
+    assert fail_posts[0]["retry"] is False
+
+
 def test_direct_mimo_http_401_is_runner_auth_failed_without_prompt_leak(tmp_path, monkeypatch):
     agent_host = load_agent_host()
     monkeypatch.setattr(agent_host.shutil, "which", lambda name: "/usr/bin/mimo" if name == "mimo" else None)
