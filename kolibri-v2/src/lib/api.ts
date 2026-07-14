@@ -1,4 +1,41 @@
-const BASE = '/api/v1'
+const DEFAULT_API_BASE = '/api/v1'
+const CANARY_PATH_PREFIX = '/__canary/'
+const CANARY_RELEASE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/
+
+function hasUnsafeCanaryPathSegment(pathname: string): boolean {
+  if (pathname.includes('//')) return true
+
+  for (const segment of pathname.split('/')) {
+    if (!segment) continue
+
+    try {
+      const decodedSegment = decodeURIComponent(segment)
+      if (decodedSegment === '.' || decodedSegment === '..') return true
+      if (decodedSegment.includes('/') || decodedSegment.includes('\\')) return true
+    } catch {
+      return true
+    }
+  }
+
+  return false
+}
+
+export function resolveApiBase(pathname?: string | null): string {
+  if (typeof pathname !== 'string') return DEFAULT_API_BASE
+  if (!pathname.startsWith(CANARY_PATH_PREFIX)) return DEFAULT_API_BASE
+  if (hasUnsafeCanaryPathSegment(pathname)) return DEFAULT_API_BASE
+
+  const rest = pathname.slice(CANARY_PATH_PREFIX.length)
+  const releaseIdEnd = rest.indexOf('/')
+  if (releaseIdEnd <= 0) return DEFAULT_API_BASE
+
+  const releaseId = rest.slice(0, releaseIdEnd)
+  if (!CANARY_RELEASE_ID_PATTERN.test(releaseId)) return DEFAULT_API_BASE
+
+  return `/__canary/${releaseId}${DEFAULT_API_BASE}`
+}
+
+const BASE = resolveApiBase(typeof window === 'undefined' ? undefined : window.location.pathname)
 
 export class ApiError extends Error {
   status: number

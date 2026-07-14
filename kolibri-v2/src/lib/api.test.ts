@@ -6,6 +6,7 @@ import {
   projects,
   readEventStream,
   resetShellBootstrapForTests,
+  resolveApiBase,
 } from './api'
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -41,6 +42,60 @@ beforeEach(() => resetShellBootstrapForTests())
 afterEach(() => {
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
+})
+
+describe('API base resolution', () => {
+  it('uses the production API base without a browser canary pathname', () => {
+    expect(resolveApiBase()).toBe('/api/v1')
+    expect(resolveApiBase('/')).toBe('/api/v1')
+    expect(resolveApiBase('/chat')).toBe('/api/v1')
+    expect(resolveApiBase('/__canary-preview/release_1/')).toBe('/api/v1')
+  })
+
+  it('resolves paired canary API bases for valid canary pathnames', () => {
+    const maxLengthReleaseId = 'a'.repeat(160)
+
+    expect(resolveApiBase('/__canary/release_1.2:3-/')).toBe('/__canary/release_1.2:3-/api/v1')
+    expect(resolveApiBase('/__canary/A/app/path')).toBe('/__canary/A/api/v1')
+    expect(resolveApiBase(`/__canary/${maxLengthReleaseId}/`)).toBe(`/__canary/${maxLengthReleaseId}/api/v1`)
+  })
+
+  it('rejects malformed, traversal, double-slash and too-long canary pathnames', () => {
+    const malformedPathnames = [
+      '/__canary/',
+      '/__canary/release_1',
+      '/__canary//release_1/',
+      '/__canary/release_1//app',
+      '/__canary/.release_1/',
+      '/__canary/release id/',
+      '/__canary/../app/',
+      '/__canary/release_1/../app',
+      '/__canary/release_1/%2e%2e/app',
+      `/__canary/${'a'.repeat(161)}/`,
+    ]
+
+    for (const pathname of malformedPathnames) {
+      expect(resolveApiBase(pathname)).toBe('/api/v1')
+    }
+  })
+
+  it('computes module API URLs from the browser pathname', async () => {
+    vi.resetModules()
+    vi.stubGlobal('window', { location: { pathname: '/__canary/release_1/' } })
+
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(bootstrapPayload))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const api = await import('./api')
+
+    await api.ensureShellBootstrap()
+
+    expect(fetchMock).toHaveBeenCalledWith('/__canary/release_1/api/v1/shell/bootstrap', expect.objectContaining({
+      method: 'POST',
+      credentials: 'include',
+    }))
+    expect(api.estimates.pdfUrl('estimate_1', 4)).toBe('/__canary/release_1/api/v1/estimates/estimate_1/pdf?version=4')
+  })
 })
 
 describe('shell bootstrap and durable project API', () => {
