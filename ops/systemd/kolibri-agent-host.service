@@ -1,15 +1,16 @@
 [Unit]
-Description=Kolibri persistent Agent Host
+Description=Kolibri signed Agent Host runtime
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-EnvironmentFile=/etc/kolibri-agent-host.env
+EnvironmentFile=/etc/kolibri-node.env
 ExecStart=/usr/local/bin/kolibri-agent-host
 Restart=always
 RestartSec=5
 KillSignal=SIGTERM
+TimeoutStopSec=30
 
 [Install]
 WantedBy=multi-user.target

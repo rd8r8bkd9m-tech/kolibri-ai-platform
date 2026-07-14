@@ -31,6 +31,9 @@ def make_task(envelope=None):
         "kind": (envelope or {}).get("kind", "read_only_probe"),
         "attempt": 1,
         "attempt_id": f"{task_id}-attempt-1",
+        "lease_id": f"{task_id.lower()}-lease-1",
+        "fencing_token": 1,
+        "executor_release_id": "unversioned",
         "envelope": envelope or {},
     }
 

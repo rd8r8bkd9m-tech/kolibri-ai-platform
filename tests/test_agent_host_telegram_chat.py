@@ -37,6 +37,9 @@ def make_chat_task(task_id, message):
         "kind": "telegram_chat_response",
         "attempt": 1,
         "attempt_id": f"{task_id}-attempt-1",
+        "lease_id": f"{task_id.lower()}-lease-1",
+        "fencing_token": 1,
+        "executor_release_id": "unversioned",
         "envelope": {
             "kind": "telegram_chat_response",
             "message": message,

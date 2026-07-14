@@ -28,7 +28,8 @@ def test_fabric_catalog_represents_every_server_through_api_or_relay():
     control = load_control()
     nodes = {node["node_id"]: node for node in control.fabric_nodes([])}
 
-    assert {"home", "main", "uiap", "qjns", "9fts", "new"} <= set(nodes)
+    assert {"home", "uiap", "qjns", "9fts", "new"} <= set(nodes)
+    assert "main" not in nodes
     for node in nodes.values():
         assert node["management_path"] == "protected_fabric_api"
         assert node["fallback_api_relay"] == "/v1/fabric/relay"

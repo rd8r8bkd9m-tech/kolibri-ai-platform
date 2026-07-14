@@ -50,6 +50,9 @@ def test_gomesh_read_only_permission_pack_evidence_is_classified(tmp_path):
         "kind": "read_only_probe",
         "attempt": 1,
         "attempt_id": "GOMESH-RO-1-attempt-1",
+        "lease_id": "gomesh-ro-1-lease-1",
+        "fencing_token": 1,
+        "executor_release_id": "unversioned",
         "envelope": {
             "kind": "read_only_probe",
             "permission_pack": "gomesh_read_only_no_push",
@@ -92,6 +95,9 @@ def test_read_only_no_push_envelope_blocks_write_worktree_and_git_push_runtime(t
         "kind": "impl_factory_smoke",
         "attempt": 1,
         "attempt_id": "GOMESH-RO-BLOCK-1-attempt-1",
+        "lease_id": "gomesh-ro-block-1-lease-1",
+        "fencing_token": 1,
+        "executor_release_id": "unversioned",
         "max_retries": 3,
         "envelope": {
             "kind": "impl_factory_smoke",

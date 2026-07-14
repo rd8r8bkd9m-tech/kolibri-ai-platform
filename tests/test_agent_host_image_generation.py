@@ -51,6 +51,9 @@ def test_agent_host_generates_telegram_image_with_configured_command(tmp_path, m
         "task_id": "TGIMG-1",
         "attempt": 1,
         "attempt_id": "TGIMG-1-attempt-1",
+        "lease_id": "tgimg-1-lease-1",
+        "fencing_token": 1,
+        "executor_release_id": "unversioned",
         "envelope": {
             "kind": "telegram_image_generation",
             "prompt": "Нарисуй птичку Колибри",

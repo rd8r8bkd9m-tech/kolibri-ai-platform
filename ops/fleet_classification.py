@@ -141,7 +141,6 @@ class FleetClassification:
 SERVERS_DATA: list[tuple] = [
     # (node_id, canonical_name, role, internal_ip, external_ip, ssh_alias, lifecycle, api_port)
     ("home", "plastilin", "control", "192.168.88.210", "178.207.11.90", "kolibri-home", "active", 9101),
-    ("main", "kolibri-main-api", "control", "10.99.0.2", "104.253.43.117", "kolibri-main", "active", 8000),
     ("primary-candidate", "kolibri", "hybrid", "10.99.0.10", "78.17.4.108", "kolibri-primary-codex", "active", None),
     ("uiap", "kolibri-rag-knowledge", "model", "10.99.0.3", "31.57.26.151", "kolibri-uiap", "active", 8002),
     ("qjns", "kolibri-tools-executor", "execution", "10.99.0.4", "217.60.63.97", "kolibri-qjns", "active", 8003),

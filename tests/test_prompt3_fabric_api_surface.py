@@ -51,9 +51,10 @@ def test_fleet_aliases_return_catalog_topology_capabilities_and_routes():
     topology = control.fleet_topology(nodes)
     route = control.fabric_route(target_node="9fts", required_capability="implementation", registered_nodes=registered)
 
-    assert {"home", "main", "uiap", "qjns", "9fts", "new"} <= {node["node_id"] for node in nodes}
+    assert {"home", "uiap", "qjns", "9fts", "new"} <= {node["node_id"] for node in nodes}
+    assert "main" not in {node["node_id"] for node in nodes}
     assert capability_map["implementation"] == ["9fts"]
-    assert {"from": "main", "to": "9fts", "type": "protected_fabric_api"} in topology["edges"]
+    assert {"from": "home", "to": "9fts", "type": "protected_fabric_api"} in topology["edges"]
     assert topology["relay_endpoint"] == "/v1/fabric/relay"
     assert route["route"]["endpoint"] == "/v1/nodes/9fts"
 

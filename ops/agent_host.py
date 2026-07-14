@@ -106,6 +106,8 @@ BACKEND_TEST_ENV_KEYS = (
 )
 BACKEND_TEST_ENV_TYPES = {"backend_python", "python_backend"}
 SUPPORTED_AI_RUNNERS = {"api", "codex", "local_llm", "mimo"}
+LEASE_FENCE_FIELDS = ("attempt_id", "lease_id", "fencing_token")
+RUNTIME_RELEASE_ID = os.environ.get("KOLIBRI_RUNTIME_RELEASE_ID", "unversioned")
 RUNNER_AUTH_FAILURE_MARKERS = (
     "401",
     "403",
@@ -158,6 +160,10 @@ class PermissionContractError(RuntimeError):
         self.classification = classification
         permissions = ", ".join(classification.get("forbidden_permissions") or [])
         super().__init__(f"read-only/no-push permission pack forbids requested runtime permissions: {permissions}")
+
+
+class LeaseContractError(RuntimeError):
+    """Raised when Control Plane work is missing or changes its lease fence."""
 
 
 def utc_now() -> str:
@@ -901,6 +907,10 @@ class AgentHost:
         self.max_inflight = args.max_inflight
         self.hostname = platform.node()
         self.pid = os.getpid()
+        self.runtime_release_id = str(getattr(args, "runtime_release_id", RUNTIME_RELEASE_ID) or "unversioned")
+        self._last_node_heartbeat = 0.0
+        self._registered = False
+        self._active_lease_fences: dict[str, dict[str, Any]] = {}
         self.runner_status = self.detect_runner_status()
         self.capabilities = self.capabilities_with_runners()
         self.work_root.mkdir(parents=True, exist_ok=True)
@@ -913,9 +923,9 @@ class AgentHost:
         return self._request_with_failover("GET", path)
 
     def _ordered_control_urls(self) -> list[str]:
-        urls = [self.control_url]
-        urls.extend(url for url in self.control_urls if url != self.control_url)
-        return urls
+        # A request-local relay may succeed, but it must never become a sticky
+        # replacement for the configured Home authority on the next request.
+        return list(self.control_urls)
 
     def _request_with_failover(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
         last_exc: Exception | None = None
@@ -968,9 +978,11 @@ class AgentHost:
             "pid": self.pid,
             "capabilities": self.capabilities,
             "runners": self.runner_status,
+            "runtime_release_id": self.runtime_release_id,
             **machine_stats(),
         }
         self.post("/v1/nodes/register", body)
+        self._registered = True
 
     def node_heartbeat(self, active_task: str | None = None) -> None:
         body = {
@@ -981,12 +993,68 @@ class AgentHost:
             "capabilities": self.capabilities,
             "runners": self.runner_status,
             "active_task": active_task,
+            "runtime_release_id": self.runtime_release_id,
             **machine_stats(),
         }
         self.post(f"/v1/nodes/{self.node_id}/heartbeat", body)
+        self._last_node_heartbeat = time.time()
+
+    def _fence_from_leased_task(self, task: dict[str, Any]) -> dict[str, Any]:
+        task_id = str(task.get("task_id") or "").strip()
+        if not task_id:
+            raise LeaseContractError("leased task is missing task_id")
+        missing = [field for field in LEASE_FENCE_FIELDS if task.get(field) is None]
+        if missing:
+            raise LeaseContractError(
+                f"leased task {task_id} is missing Control Plane fence fields: {', '.join(missing)}"
+            )
+        expected_release = str(task.get("executor_release_id") or "unversioned")
+        if expected_release != self.runtime_release_id:
+            raise LeaseContractError(
+                f"leased task {task_id} targets runtime release {expected_release}, not {self.runtime_release_id}"
+            )
+        fence = {
+            "attempt_id": task["attempt_id"],
+            "lease_id": task["lease_id"],
+            "fencing_token": task["fencing_token"],
+            "node_id": self.node_id,
+            "agent_id": self.agent_id,
+            "runtime_release_id": self.runtime_release_id,
+        }
+        if task.get("lease_slot_id") is not None:
+            fence["slot_id"] = task["lease_slot_id"]
+        return fence
+
+    def _remember_lease_fence(self, task: dict[str, Any]) -> dict[str, Any]:
+        task_id = str(task.get("task_id") or "").strip()
+        fence = self._fence_from_leased_task(task)
+        existing = self._active_lease_fences.get(task_id)
+        if existing is not None and existing != fence:
+            raise LeaseContractError(f"lease fence changed for active task {task_id}")
+        self._active_lease_fences[task_id] = dict(fence)
+        return dict(fence)
+
+    def _task_mutation_fence(self, task: dict[str, Any]) -> dict[str, Any]:
+        task_id = str(task.get("task_id") or "").strip()
+        remembered = self._active_lease_fences.get(task_id)
+        observed = self._fence_from_leased_task(task)
+        if remembered is None:
+            self._active_lease_fences[task_id] = dict(observed)
+            remembered = observed
+        if remembered != observed:
+            raise LeaseContractError(f"task {task_id} no longer matches its leased fence")
+        return dict(remembered)
+
+    def _forget_lease_fence(self, task: dict[str, Any]) -> None:
+        task_id = str(task.get("task_id") or "").strip()
+        if task_id:
+            self._active_lease_fences.pop(task_id, None)
 
     def task_heartbeat(self, task: dict[str, Any], worktree: Path, branch: str | None, logs: dict[str, str], pid: int | None = None) -> dict[str, Any]:
+        if time.time() - self._last_node_heartbeat >= self.heartbeat_interval:
+            self.node_heartbeat(active_task=task["task_id"])
         body = {
+            **self._task_mutation_fence(task),
             "state": "running",
             "pid": pid or self.pid,
             "worktree": str(worktree),
@@ -1001,8 +1069,13 @@ class AgentHost:
             "agent_id": self.agent_id,
             "capabilities": self.capabilities,
             "runners": self.runner_status,
+            "runtime_release_id": self.runtime_release_id,
         })
-        return sanitize_task_permissions(task) if isinstance(task, dict) else task
+        if not isinstance(task, dict):
+            return task
+        sanitized = sanitize_task_permissions(task)
+        self._remember_lease_fence(sanitized)
+        return sanitized
 
     def run_command(
         self,
@@ -1459,18 +1532,22 @@ class AgentHost:
 
     def complete(self, task: dict[str, Any], result: dict[str, Any], result_path: Path) -> None:
         self.post(f"/v1/tasks/{task['task_id']}/complete", {
+            **self._task_mutation_fence(task),
             "result_reference": str(result_path),
             "result": result,
         })
+        self._forget_lease_fence(task)
 
     def fail(self, task: dict[str, Any], error_type: str, error: str, result: dict[str, Any] | None, result_path: Path | None, retry: bool = True) -> None:
         self.post(f"/v1/tasks/{task['task_id']}/fail", {
+            **self._task_mutation_fence(task),
             "error_type": error_type,
             "error": error,
             "result": result,
             "result_reference": str(result_path) if result_path else None,
             "retry": retry,
         })
+        self._forget_lease_fence(task)
 
     def validate_runtime_permission_contract(self, task: dict[str, Any]) -> dict[str, Any]:
         classification = classify_permission_pack(task)
@@ -2411,12 +2488,17 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
             self.fail(task, error_type, redact_sensitive_text(str(exc)), result, result_path, retry=retry)
 
     def loop(self) -> None:
-        self.register()
-        last_node_heartbeat = 0.0
         while not STOP:
-            if time.time() - last_node_heartbeat >= self.heartbeat_interval:
-                self.node_heartbeat()
-                last_node_heartbeat = time.time()
+            try:
+                if not self._registered:
+                    self.register()
+                if time.time() - self._last_node_heartbeat >= self.heartbeat_interval:
+                    self.node_heartbeat()
+            except Exception as exc:
+                self._registered = False
+                print(f"{utc_now()} control_plane_heartbeat_failed {exc}", flush=True)
+                time.sleep(5)
+                continue
             try:
                 task = self.lease()
             except Exception as exc:
@@ -2438,8 +2520,9 @@ def handle_stop(signum: int, frame: Any) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--control-url", default=os.environ.get("KOLIBRI_FACTORY_CONTROL_URL", "http://10.99.0.2:9101"))
-    parser.add_argument("--control-urls", default=os.environ.get("KOLIBRI_FACTORY_CONTROL_URLS") or os.environ.get("KOLIBRI_FACTORY_CONTROL_URL", "http://10.99.0.2:9101"))
+    parser.add_argument("--control-url", default=os.environ.get("KOLIBRI_FACTORY_CONTROL_URL", "http://127.0.0.1:9101"))
+    parser.add_argument("--control-urls", default=os.environ.get("KOLIBRI_FACTORY_CONTROL_URLS") or os.environ.get("KOLIBRI_FACTORY_CONTROL_URL", "http://127.0.0.1:9101"))
+    parser.add_argument("--runtime-release-id", default=RUNTIME_RELEASE_ID)
     parser.add_argument("--node-id", default=os.environ.get("KOLIBRI_NODE_ID", platform.node()))
     parser.add_argument("--agent-id", default=os.environ.get("KOLIBRI_AGENT_ID"))
     parser.add_argument("--capabilities", default=os.environ.get("KOLIBRI_AGENT_CAPABILITIES", "read_only_probe"))

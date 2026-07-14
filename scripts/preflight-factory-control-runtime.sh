@@ -65,8 +65,10 @@ if missing_fabric:
     raise SystemExit(f"factory_control_fabric_routes_missing:{missing_fabric}")
 
 nodes = module.fabric_nodes([])
-if {"home", "main", "uiap", "qjns", "9fts", "new"} - {node["node_id"] for node in nodes}:
+if {"home", "uiap", "qjns", "9fts", "new"} - {node["node_id"] for node in nodes}:
     raise SystemExit("factory_control_fabric_catalog_incomplete")
+if "main" in {node["node_id"] for node in nodes}:
+    raise SystemExit("factory_control_legacy_main_identity_present")
 
 print("factory_control_runtime_preflight=ok")
 PY

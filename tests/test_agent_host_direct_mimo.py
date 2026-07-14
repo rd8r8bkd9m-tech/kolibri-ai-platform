@@ -36,6 +36,9 @@ def make_direct_task(task_id, objective="repair the contract"):
         "kind": "owner_remote_task",
         "attempt": 1,
         "attempt_id": f"{task_id}-attempt-1",
+        "lease_id": f"{task_id.lower()}-lease-1",
+        "fencing_token": 1,
+        "executor_release_id": "unversioned",
         "max_retries": 1,
         "envelope": {
             "kind": "owner_remote_task",

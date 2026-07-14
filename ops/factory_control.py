@@ -74,6 +74,9 @@ REDIS_PORT = int(os.environ.get("FACTORY_REDIS_PORT", "6379"))
 LEASE_DURATION = int(os.environ.get("FACTORY_LEASE_DURATION", "60"))
 MAX_RETRIES = int(os.environ.get("FACTORY_MAX_RETRIES", "3"))
 FABRIC_API_VERSION = "2026-07-01"
+LEASE_CONTRACT_VERSION = "2026-07-14.lease-v1"
+LEASE_FENCE_FIELDS = ("attempt_id", "lease_id", "fencing_token")
+RUNTIME_RELEASE_ID = os.environ.get("KOLIBRI_RUNTIME_RELEASE_ID", "unversioned")
 CANONICAL_RESPONSE_STATUSES = {"completed", "running", "blocked", "failed", "partial"}
 FALLBACK_REASON_TAXONOMY = {
     "api_unreachable",
@@ -102,6 +105,7 @@ STATE_CANCELLED = "cancelled"
 STATE_RETRY = "retry_scheduled"
 STATE_DEAD = "dead_letter"
 TERMINAL_STATES = {STATE_COMPLETED, STATE_FAILED, STATE_CANCELLED, STATE_DEAD}
+ACTIVE_LEASE_STATES = {STATE_LEASED, STATE_RUNNING, STATE_REVIEW}
 BLOCKED_RUNNER_STATES = {"blocked", "degraded", "runner_auth_blocked", "unavailable"}
 
 FABRIC_NODE_CATALOG = {
@@ -110,13 +114,6 @@ FABRIC_NODE_CATALOG = {
         "role": "command_node_gateway",
         "display_name": "Связной",
         "api_paths": ["fabric_api", "fallback_relay"],
-        "ssh": "emergency_bootstrap_diagnostic_only",
-    },
-    "main": {
-        "node_id": "main",
-        "role": "control_plane",
-        "display_name": "Директор",
-        "api_paths": ["fabric_api", "control_plane_api", "artifact_api"],
         "ssh": "emergency_bootstrap_diagnostic_only",
     },
     "uiap": {
@@ -645,7 +642,7 @@ def canonical_response_envelope(
         "task_id": task_id or "",
         "trace_id": trace_id or task_id or "",
         "status": status,
-        "node": node or "main",
+        "node": node or "home",
         "route_used": route_used or "protected_fabric_api",
         "fallback_nodes": fallback_nodes or [],
         "artifacts": artifacts or [],
@@ -677,12 +674,11 @@ def fleet_capabilities(nodes: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def fleet_topology(nodes: list[dict[str, Any]]) -> dict[str, Any]:
-    edges = [{"from": "home", "to": "main", "type": "command_api"}]
-    edges.extend(
-        {"from": "main", "to": node["node_id"], "type": "protected_fabric_api"}
+    edges = [
+        {"from": "home", "to": node["node_id"], "type": "protected_fabric_api"}
         for node in nodes
-        if node["node_id"] != "main"
-    )
+        if node["node_id"] != "home"
+    ]
     return {
         "nodes": nodes,
         "edges": edges,
@@ -717,7 +713,7 @@ def admin_denied_envelope(body: dict[str, Any], *, endpoint: str) -> dict[str, A
         status="blocked",
         task_id=task_id,
         trace_id=trace_id,
-        node=body.get("target_node") or "main",
+        node=body.get("target_node") or "home",
         route_used=endpoint,
         blocked_reason="admin_scope_denied",
         repair_task={
@@ -751,7 +747,7 @@ def task_artifact_envelope(task: dict[str, Any] | None, task_id: str) -> dict[st
     return canonical_response_envelope(
         status="completed" if artifacts else "partial",
         task_id=task_id,
-        node=(task.get("lease_owner") or "main").split(":", 1)[0],
+        node=(task.get("lease_owner") or "home").split(":", 1)[0],
         artifacts=artifacts,
         data={"task_state": task.get("state"), "result_reference": task.get("result_reference")},
         next_action="collect listed artifact paths from the authenticated artifact API" if artifacts else "wait for task completion or annotate result artifacts",
@@ -874,9 +870,15 @@ def normalize_task(envelope: dict[str, Any]) -> dict[str, Any]:
         "state": STATE_QUEUED,
         "attempt": 0,
         "max_retries": int(envelope.get("max_retries", MAX_RETRIES)),
+        "lease_contract_version": LEASE_CONTRACT_VERSION,
         "attempt_id": None,
+        "lease_id": None,
+        "lease_slot_id": None,
+        "fencing_token": None,
         "lease_owner": None,
         "lease_until": None,
+        "control_release_id": RUNTIME_RELEASE_ID,
+        "executor_release_id": None,
         "heartbeat_at": None,
         "result_reference": None,
         "result": None,
@@ -900,6 +902,90 @@ def ensure_list(value: Any) -> list[Any]:
 
 def runner_capability_names(runner: str) -> set[str]:
     return {f"runner:{runner}", f"runner_{runner}", f"{runner}_runner"}
+
+
+def validate_task_mutation_fence(task: dict[str, Any], body: dict[str, Any]) -> str | None:
+    """Require the full lease fence before a worker may mutate a task.
+
+    The only compatibility path is an idempotent replay of a legacy terminal
+    task that never had a fence. Active work is never accepted unfenced.
+    """
+    provided = [field for field in LEASE_FENCE_FIELDS if body.get(field) is not None]
+    stored = [field for field in LEASE_FENCE_FIELDS if task.get(field) is not None]
+    state = task.get("state")
+
+    if state in TERMINAL_STATES and not stored and not provided:
+        return None
+    if len(provided) != len(LEASE_FENCE_FIELDS):
+        return "lease_fence_fields_required"
+    if len(stored) != len(LEASE_FENCE_FIELDS):
+        return "lease_fence_not_issued"
+    if state not in ACTIVE_LEASE_STATES and state not in TERMINAL_STATES:
+        return "lease_is_not_active"
+    for field in LEASE_FENCE_FIELDS:
+        if str(body.get(field)) != str(task.get(field)):
+            return f"stale_{field}"
+
+    lease_owner = str(task.get("lease_owner") or "")
+    expected_node, _, expected_agent = lease_owner.partition(":")
+    if body.get("node_id") is not None and str(body.get("node_id")) != expected_node:
+        return "lease_node_mismatch"
+    if body.get("agent_id") is not None and str(body.get("agent_id")) != expected_agent:
+        return "lease_agent_mismatch"
+    if body.get("slot_id") is not None and str(body.get("slot_id")) != str(task.get("lease_slot_id") or ""):
+        return "lease_slot_mismatch"
+    executor_release_id = task.get("executor_release_id")
+    if executor_release_id and str(body.get("runtime_release_id") or "") != str(executor_release_id):
+        return "executor_release_mismatch"
+    return None
+
+
+def issue_task_lease(
+    task: dict[str, Any],
+    *,
+    node_id: str,
+    agent_id: str,
+    slot_id: str | None = None,
+    executor_release_id: str | None = None,
+) -> dict[str, Any]:
+    """Create a unique durable lease and monotonically fenced attempt."""
+    leased = dict(task)
+    leased["state"] = STATE_LEASED
+    leased["attempt"] = int(leased.get("attempt", 0)) + 1
+    leased["attempt_id"] = f"{leased['task_id']}-attempt-{leased['attempt']}"
+    leased["lease_id"] = uuid.uuid4().hex
+    leased["lease_slot_id"] = slot_id
+    leased["fencing_token"] = leased["attempt"]
+    leased["lease_owner"] = f"{node_id}:{agent_id}"
+    leased["lease_until"] = now_ts() + LEASE_DURATION
+    leased["heartbeat_at"] = utc_now()
+    leased["lease_contract_version"] = LEASE_CONTRACT_VERSION
+    leased["control_release_id"] = RUNTIME_RELEASE_ID
+    leased["executor_release_id"] = executor_release_id or "unversioned"
+    return leased
+
+
+def preserve_terminal_lease_evidence(task: dict[str, Any]) -> dict[str, Any]:
+    """Freeze the exact lease/release identity authorized to close a task."""
+    if task.get("terminal_lease_evidence") is not None:
+        return task
+    if task.get("state") not in TERMINAL_STATES:
+        return task
+    if not any(task.get(field) is not None for field in LEASE_FENCE_FIELDS):
+        return task
+    task["terminal_lease_evidence"] = {
+        "lease_contract_version": task.get("lease_contract_version") or LEASE_CONTRACT_VERSION,
+        "attempt_id": task.get("attempt_id"),
+        "lease_id": task.get("lease_id"),
+        "fencing_token": task.get("fencing_token"),
+        "lease_owner": task.get("lease_owner"),
+        "lease_slot_id": task.get("lease_slot_id"),
+        "control_release_id": task.get("control_release_id"),
+        "executor_release_id": task.get("executor_release_id"),
+        "terminal_state": task.get("state"),
+        "closed_at": utc_now(),
+    }
+    return task
 
 
 def runner_state(node: dict[str, Any], runner: str) -> str | None:
@@ -974,7 +1060,7 @@ def requeue_expired_leases() -> None:
     current = now_ts()
     for task_id in all_task_ids():
         task = load_task(task_id)
-        if not task or task.get("state") not in {STATE_LEASED, STATE_RUNNING, STATE_REVIEW}:
+        if not task or task.get("state") not in ACTIVE_LEASE_STATES:
             continue
         lease_until = float(task.get("lease_until") or 0)
         if lease_until >= current:
@@ -982,6 +1068,8 @@ def requeue_expired_leases() -> None:
         if int(task.get("attempt", 0)) < int(task.get("max_retries", MAX_RETRIES)):
             task["state"] = STATE_RETRY
             task["lease_owner"] = None
+            task["lease_id"] = None
+            task["lease_slot_id"] = None
             task["lease_until"] = None
             task["error_type"] = "lease_expired"
             task["error"] = "lease expired before task completion"
@@ -993,6 +1081,7 @@ def requeue_expired_leases() -> None:
             task["state"] = STATE_DEAD
             task["error_type"] = "lease_expired"
             task["error"] = "lease expired and retry budget exhausted"
+            preserve_terminal_lease_evidence(task)
             save_task(task)
             redis.command("RPUSH", key("dead_letter"), task_id)
 
@@ -1138,9 +1227,24 @@ class Handler(BaseHTTPRequestHandler):
                 pong = redis.command("PING")
                 response(self, 200, canonical_response_envelope(
                     status="completed",
-                    node="main",
+                    node="home",
                     route_used="/v1/health",
-                    data={"redis": pong, "queue_backend": "redis", "time": utc_now(), "fabric_api_version": FABRIC_API_VERSION, "truth_factory": "enabled"},
+                    data={
+                        "redis": pong,
+                        "queue_backend": "redis",
+                        "time": utc_now(),
+                        "fabric_api_version": FABRIC_API_VERSION,
+                        "lease_contract_version": LEASE_CONTRACT_VERSION,
+                        "runtime_release_id": RUNTIME_RELEASE_ID,
+                        "authority": "home",
+                        "truth_factory": "enabled",
+                        "status_semantics": {
+                            "online": "node responds",
+                            "fresh": "heartbeat is within the configured freshness window",
+                            "active": "node reports a currently executing task",
+                            "verified": "a real task has immutable evidence and an independent verdict",
+                        },
+                    },
                     next_action="use /v1/fleet/route before dispatching work to a node",
                 ))
                 return
@@ -1204,7 +1308,7 @@ class Handler(BaseHTTPRequestHandler):
                 status = "completed" if route.get("status") == "ok" else "blocked"
                 response(self, 200 if status == "completed" else 503, canonical_response_envelope(
                     status=status,
-                    node=route.get("route", {}).get("target_node") or route.get("target_node") or "main",
+                    node=route.get("route", {}).get("target_node") or route.get("target_node") or "home",
                     route_used="/v1/fleet/route",
                     fallback_nodes=route.get("fallback_nodes", []),
                     blocked_reason=route.get("reason", ""),
@@ -1314,7 +1418,7 @@ class Handler(BaseHTTPRequestHandler):
                 response(self, 200, canonical_response_envelope(
                     status="completed" if task.get("state") in TERMINAL_STATES else "running",
                     task_id=task_id,
-                    node=(task.get("lease_owner") or "main").split(":", 1)[0],
+                    node=(task.get("lease_owner") or "home").split(":", 1)[0],
                     route_used="/v1/agents/status",
                     data={"task": task},
                     next_action="poll /v1/agents/artifacts/{task_id}" if task.get("state") in TERMINAL_STATES else "continue polling status",
@@ -1349,6 +1453,9 @@ class Handler(BaseHTTPRequestHandler):
                     "ram": body.get("ram"),
                     "disk": body.get("disk"),
                     "agent_id": body.get("agent_id"),
+                    "runtime_release_id": body.get("runtime_release_id") or "unversioned",
+                    "active_task": None,
+                    "execution_status": "idle",
                 }
                 set_json(node_key(node_id), node)
                 redis.command("SADD", key("node_ids"), node_id)
@@ -1360,6 +1467,7 @@ class Handler(BaseHTTPRequestHandler):
                 node.update(body)
                 node["health"] = "online"
                 node["heartbeat_at"] = utc_now()
+                node["execution_status"] = "active" if body.get("active_task") else "idle"
                 set_json(node_key(node_id), node)
                 redis.command("SADD", key("node_ids"), node_id)
                 response(self, 200, node)
@@ -1427,7 +1535,7 @@ class Handler(BaseHTTPRequestHandler):
                     status="running",
                     task_id=task["task_id"],
                     trace_id=envelope.get("trace_id") or task["task_id"],
-                    node=envelope.get("target_node") or "main",
+                    node=envelope.get("target_node") or "home",
                     route_used="/v1/agents/tasks",
                     data={"task": task},
                     next_action="poll /v1/agents/status/{task_id}",
@@ -1509,12 +1617,12 @@ class Handler(BaseHTTPRequestHandler):
                     if not compatible(task, node_id, capabilities, node):
                         continue
                     remove_from_queue(task_id)
-                    task["state"] = STATE_LEASED
-                    task["attempt"] = int(task.get("attempt", 0)) + 1
-                    task["attempt_id"] = f"{task_id}-attempt-{task['attempt']}"
-                    task["lease_owner"] = f"{node_id}:{agent_id}"
-                    task["lease_until"] = now_ts() + LEASE_DURATION
-                    task["heartbeat_at"] = utc_now()
+                    task = issue_task_lease(
+                        task,
+                        node_id=node_id,
+                        agent_id=agent_id,
+                        executor_release_id=str(body.get("runtime_release_id") or "unversioned"),
+                    )
                     save_task(task)
                     response(self, 200, task)
                     return
@@ -1525,6 +1633,18 @@ class Handler(BaseHTTPRequestHandler):
                 task = load_task(task_id)
                 if not task:
                     response(self, 404, {"error": "task_not_found", "task_id": task_id})
+                    return
+                fence_error = validate_task_mutation_fence(task, body)
+                if fence_error:
+                    response(self, 409, {
+                        "error": "stale_or_invalid_lease",
+                        "reason": fence_error,
+                        "task_id": task_id,
+                        "attempt_id": task.get("attempt_id"),
+                    })
+                    return
+                if task.get("state") in TERMINAL_STATES:
+                    response(self, 200, task)
                     return
                 if task.get("state") not in TERMINAL_STATES:
                     task["state"] = body.get("state") or STATE_RUNNING
@@ -1543,6 +1663,18 @@ class Handler(BaseHTTPRequestHandler):
                 if not task:
                     response(self, 404, {"error": "task_not_found", "task_id": task_id})
                     return
+                fence_error = validate_task_mutation_fence(task, body)
+                if fence_error:
+                    response(self, 409, {
+                        "error": "stale_or_invalid_lease",
+                        "reason": fence_error,
+                        "task_id": task_id,
+                        "attempt_id": task.get("attempt_id"),
+                    })
+                    return
+                if task.get("state") in TERMINAL_STATES:
+                    response(self, 200, {"task": task, "review_task": None})
+                    return
                 result = body.get("result", body)
                 needs_review = task.get("envelope", {}).get("create_review_on_complete")
                 has_pr = bool(result.get("pull_request_url") or result.get("pr_url"))
@@ -1551,6 +1683,7 @@ class Handler(BaseHTTPRequestHandler):
                 task["result_reference"] = body.get("result_reference") or result.get("result_path")
                 task["heartbeat_at"] = utc_now()
                 task["lease_until"] = None
+                preserve_terminal_lease_evidence(task)
                 # Truth gate: verify completion has evidence
                 task = truth_gate_on_complete(task, result)
                 save_task(task)
@@ -1571,6 +1704,7 @@ class Handler(BaseHTTPRequestHandler):
                 review_task = None
                 if task.get("state") == STATE_WAITING_REVIEW and (result.get("pull_request_url") or result.get("pr_url")):
                     task["state"] = STATE_COMPLETED
+                    preserve_terminal_lease_evidence(task)
                     save_task(task)
                     review_task = create_review_task(task, result)
                 else:
@@ -1582,6 +1716,18 @@ class Handler(BaseHTTPRequestHandler):
                 task = load_task(task_id)
                 if not task:
                     response(self, 404, {"error": "task_not_found", "task_id": task_id})
+                    return
+                fence_error = validate_task_mutation_fence(task, body)
+                if fence_error:
+                    response(self, 409, {
+                        "error": "stale_or_invalid_lease",
+                        "reason": fence_error,
+                        "task_id": task_id,
+                        "attempt_id": task.get("attempt_id"),
+                    })
+                    return
+                if task.get("state") in TERMINAL_STATES:
+                    response(self, 200, task)
                     return
                 error_type = body.get("error_type", "runtime_error")
                 error = body.get("error", "")
@@ -1601,6 +1747,7 @@ class Handler(BaseHTTPRequestHandler):
                     enqueue(task_id)
                 else:
                     task["state"] = STATE_FAILED
+                    preserve_terminal_lease_evidence(task)
                     save_task(task)
                 response(self, 200, task)
                 return
@@ -1614,6 +1761,7 @@ class Handler(BaseHTTPRequestHandler):
                 task["state"] = STATE_CANCELLED
                 task["cancel_requested_at"] = utc_now()
                 task["lease_until"] = None
+                preserve_terminal_lease_evidence(task)
                 save_task(task)
                 response(self, 200, task)
                 return
@@ -1634,11 +1782,12 @@ class Handler(BaseHTTPRequestHandler):
                 task["state"] = STATE_CANCELLED
                 task["cancel_requested_at"] = utc_now()
                 task["lease_until"] = None
+                preserve_terminal_lease_evidence(task)
                 save_task(task)
                 response(self, 200, canonical_response_envelope(
                     status="completed",
                     task_id=task_id,
-                    node=(task.get("lease_owner") or "main").split(":", 1)[0],
+                    node=(task.get("lease_owner") or "home").split(":", 1)[0],
                     route_used="/v1/agents/cancel",
                     data={"task": task},
                     next_action="poll /v1/agents/status/{task_id} to confirm terminal state",
