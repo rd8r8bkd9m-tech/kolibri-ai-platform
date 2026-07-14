@@ -5,7 +5,7 @@ from io import BytesIO
 import os
 from pathlib import Path
 from decimal import Decimal
-from typing import Dict, Any, Mapping, Optional
+from typing import Any, Callable, Dict, Mapping, Optional
 from urllib.parse import urlsplit
 from xml.sax.saxutils import escape
 from jinja2 import Environment, BaseLoader
@@ -47,6 +47,32 @@ def _render_pdf(html: str) -> bytes:
     if not WEASYPRINT_AVAILABLE or HTML is None:
         raise PDFGenerationUnavailable("WeasyPrint is required for PDF generation")
     return _validate_pdf(HTML(string=html).write_pdf())
+
+
+def _render_with_portable_fallback(
+    html: str,
+    fallback: Callable[[], bytes],
+) -> bytes:
+    """Render with WeasyPrint, falling back when its native runtime fails.
+
+    Importing WeasyPrint only proves that its Python package is present.  The
+    actual render can still fail later when a worker has an incomplete or
+    incompatible native Pango/Cairo/font stack.  ReportLab is our independent
+    renderer, so a runtime failure in the preferred renderer must not turn an
+    otherwise valid PDF request into a 502.
+    """
+
+    if WEASYPRINT_AVAILABLE:
+        try:
+            return _render_pdf(html)
+        except Exception:
+            try:
+                return fallback()
+            except Exception as fallback_error:
+                raise PDFGenerationUnavailable(
+                    "Both configured PDF renderers failed"
+                ) from fallback_error
+    return fallback()
 
 
 def _reportlab_fonts() -> tuple[str, str]:
@@ -532,10 +558,10 @@ def _build_estimate_html(estimate_data: Dict[str, Any]) -> str:
 def generate_estimate_pdf(estimate_data: Dict[str, Any]) -> bytes:
     """Generate professional PDF from estimate data. Returns PDF bytes."""
     html_str = _build_estimate_html(estimate_data)
-
-    if WEASYPRINT_AVAILABLE:
-        return _render_pdf(html_str)
-    return _reportlab_estimate_pdf(estimate_data)
+    return _render_with_portable_fallback(
+        html_str,
+        lambda: _reportlab_estimate_pdf(estimate_data),
+    )
 
 
 def generate_document_pdf(document_data: Dict[str, Any]) -> bytes:
@@ -563,6 +589,7 @@ body {{ font-family: "DejaVu Sans", Arial, sans-serif; font-size: 11pt; color: #
 </body>
 </html>"""
 
-    if WEASYPRINT_AVAILABLE:
-        return _render_pdf(template)
-    return _reportlab_document_pdf(str(title), str(html_content))
+    return _render_with_portable_fallback(
+        template,
+        lambda: _reportlab_document_pdf(str(title), str(html_content)),
+    )
