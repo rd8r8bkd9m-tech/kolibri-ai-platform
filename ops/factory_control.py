@@ -107,6 +107,12 @@ STATE_DEAD = "dead_letter"
 TERMINAL_STATES = {STATE_COMPLETED, STATE_FAILED, STATE_CANCELLED, STATE_DEAD}
 ACTIVE_LEASE_STATES = {STATE_LEASED, STATE_RUNNING, STATE_REVIEW}
 BLOCKED_RUNNER_STATES = {"blocked", "degraded", "runner_auth_blocked", "unavailable"}
+SERIALIZED_TOOL_CALL_MARKERS = (
+    "<tool_call",
+    "<function_call",
+    "<read>",
+    "<file_path>",
+)
 
 FABRIC_NODE_CATALOG = {
     "home": {
@@ -513,6 +519,26 @@ def truth_gate_on_complete(task: dict, result: dict) -> dict:
         "evidence_count": evidence_count,
     }
     return task
+
+
+def unexecuted_response_only_tool_call(result: dict[str, Any]) -> str | None:
+    """Return a serialized tool marker that a response-only runner did not execute.
+
+    Response-only providers are allowed to return prose, but they cannot claim a
+    tool result.  The Agent Host normally rejects this before completion.  The
+    Control Plane repeats the check so an older or compromised worker cannot
+    turn serialized tool markup into a verified terminal result.
+    """
+
+    runner_contract = result.get("runner_contract")
+    response_only = isinstance(runner_contract, dict) and runner_contract.get("execution_scope") == "response_only"
+    if not response_only:
+        return None
+    response_text = result.get("response")
+    if not isinstance(response_text, str):
+        return None
+    lowered = response_text.lower()
+    return next((marker for marker in SERIALIZED_TOOL_CALL_MARKERS if marker in lowered), None)
 
 
 def truth_gate_on_fail(task: dict, error_type: str, error: str) -> dict:
@@ -1676,6 +1702,16 @@ class Handler(BaseHTTPRequestHandler):
                     response(self, 200, {"task": task, "review_task": None})
                     return
                 result = body.get("result", body)
+                serialized_marker = unexecuted_response_only_tool_call(result)
+                if serialized_marker is not None:
+                    response(self, 422, {
+                        "error": "unexecuted_tool_call_output",
+                        "reason": "response_only_runner_emitted_serialized_tool_call",
+                        "marker": serialized_marker,
+                        "task_id": task_id,
+                        "attempt_id": task.get("attempt_id"),
+                    })
+                    return
                 needs_review = task.get("envelope", {}).get("create_review_on_complete")
                 has_pr = bool(result.get("pull_request_url") or result.get("pr_url"))
                 task["state"] = STATE_COMPLETED if (not needs_review or has_pr) else STATE_WAITING_REVIEW

@@ -175,6 +175,48 @@ def test_http_rejects_unfenced_and_stale_completion_and_replays_matching(monkeyp
         thread.join(timeout=2)
 
 
+def test_http_rejects_serialized_tool_call_from_response_only_runner(monkeypatch):
+    control = load_control()
+    fake = FakeRedis()
+    monkeypatch.setattr(control, "redis", fake)
+    server = control.ThreadingHTTPServer(("127.0.0.1", 0), control.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        control.create_task({"task_id": "HTTP-RESPONSE-ONLY-1", "required_capability": "generic_implementation"})
+        status, leased = post_json(base_url, "/v1/tasks/lease", {
+            "node_id": "agent-01",
+            "agent_id": "agent-01",
+            "capabilities": ["generic_implementation"],
+            "runtime_release_id": "worker-release-http",
+        })
+        assert status == 200
+        fence = {
+            "attempt_id": leased["attempt_id"],
+            "lease_id": leased["lease_id"],
+            "fencing_token": leased["fencing_token"],
+            "node_id": "agent-01",
+            "agent_id": "agent-01",
+            "runtime_release_id": "worker-release-http",
+        }
+        result = {
+            "status": "completed",
+            "runner_contract": {"execution_scope": "response_only"},
+            "response": "Checking production. <tool_call>{\"name\":\"shell\"}</tool_call>",
+        }
+        status, error = post_json(base_url, "/v1/tasks/HTTP-RESPONSE-ONLY-1/complete", {**fence, "result": result})
+        assert status == 422
+        assert error["error"] == "unexecuted_tool_call_output"
+        stored = json.loads(fake.kv[control.task_key("HTTP-RESPONSE-ONLY-1")])
+        assert stored["state"] == control.STATE_LEASED
+        assert "truth_gate" not in stored
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
 def test_health_and_node_status_expose_truthful_release_identity(monkeypatch):
     control = load_control()
     fake = FakeRedis()
