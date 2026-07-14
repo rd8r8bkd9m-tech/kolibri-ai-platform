@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -128,18 +129,46 @@ def _codex_cli_route() -> dict[str, Any]:
     }
 
 
+def _validated_loopback_worker_url(value: str) -> str | None:
+    """Return a safe local-worker URL without coupling it to a release port.
+
+    Image workers are intentionally reachable only over loopback. Release
+    candidates use different ports, so pinning one port makes the capability
+    disappear on every subsequent release even when its worker is healthy.
+    """
+
+    if not value:
+        return None
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError:
+        return None
+    if (
+        parsed.scheme != "http"
+        or parsed.hostname not in {"127.0.0.1", "localhost"}
+        or port is None
+        or port < 1
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+    ):
+        return None
+    return value.rstrip("/")
+
+
 def _selected_image_route() -> dict[str, Any]:
     config = _config()
-    if config.enabled and config.codex_worker_url in {
-        "http://127.0.0.1:18016",
-        "http://localhost:18016",
-    }:
+    worker_url = _validated_loopback_worker_url(config.codex_worker_url)
+    if config.enabled and worker_url:
         return {
             "configured": True,
             "provider": "codex_cli",
             "model": "codex-cli:account-default",
             "execution": "local_worker",
-            "worker_url": config.codex_worker_url,
+            "worker_url": worker_url,
         }
     codex_route = _codex_cli_route()
     if config.enabled and codex_route["configured"]:

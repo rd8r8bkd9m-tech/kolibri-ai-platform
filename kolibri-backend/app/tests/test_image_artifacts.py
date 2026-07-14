@@ -77,6 +77,77 @@ def test_image_capability_ignores_unverified_health_flag(monkeypatch):
 
 
 @pytest.mark.parametrize(
+    "worker_url",
+    [
+        "http://127.0.0.1:18016",
+        "http://127.0.0.1:18017",
+        "http://localhost:19000/",
+    ],
+)
+def test_image_route_accepts_release_scoped_loopback_worker_ports(
+    monkeypatch,
+    worker_url,
+):
+    monkeypatch.setenv("CODEX_CLI_IMAGE_ENABLED", "false")
+    monkeypatch.setenv("KOLIBRI_CODEX_IMAGE_WORKER_URL", worker_url)
+
+    route = image_artifacts._selected_image_route()
+
+    assert route == {
+        "configured": True,
+        "provider": "codex_cli",
+        "model": "codex-cli:account-default",
+        "execution": "local_worker",
+        "worker_url": worker_url.rstrip("/"),
+    }
+
+
+def test_p6_worker_port_is_reported_as_configured_not_unavailable(monkeypatch):
+    monkeypatch.setenv("CODEX_CLI_IMAGE_ENABLED", "false")
+    monkeypatch.setenv(
+        "KOLIBRI_CODEX_IMAGE_WORKER_URL",
+        "http://127.0.0.1:18017",
+    )
+
+    capability = image_artifacts.image_capability()
+
+    assert capability["status"] == "partial"
+    assert capability["invocable"] is False
+    assert capability["route"]["configured"] is True
+    assert capability["route"]["provider"] == "codex_cli"
+
+
+@pytest.mark.parametrize(
+    "worker_url",
+    [
+        "https://127.0.0.1:18017",
+        "http://10.99.0.2:18017",
+        "http://127.0.0.1",
+        "http://127.0.0.1:0",
+        "http://127.0.0.1:18017/v1",
+        "http://user@127.0.0.1:18017",
+        "http://127.0.0.1:18017?redirect=external",
+        "http://127.0.0.1:99999",
+    ],
+)
+def test_image_route_rejects_nonlocal_or_ambiguous_worker_urls(
+    monkeypatch,
+    worker_url,
+):
+    monkeypatch.setenv("CODEX_CLI_IMAGE_ENABLED", "false")
+    monkeypatch.setenv("KOLIBRI_CODEX_IMAGE_WORKER_URL", worker_url)
+
+    route = image_artifacts._selected_image_route()
+
+    assert route == {
+        "configured": False,
+        "provider": "none",
+        "model": "none",
+        "execution": "none",
+    }
+
+
+@pytest.mark.parametrize(
     ("prompt", "expected"),
     [
         ("сгенерируй цветы", True),
@@ -369,11 +440,11 @@ def test_image_edit_reads_verified_source_and_persists_new_revision(monkeypatch,
 
 def test_loopback_codex_worker_preserves_backend_sandbox(monkeypatch, tmp_path):
     monkeypatch.setenv("CODEX_CLI_IMAGE_ENABLED", "false")
-    monkeypatch.setenv("KOLIBRI_CODEX_IMAGE_WORKER_URL", "http://127.0.0.1:18016")
+    monkeypatch.setenv("KOLIBRI_CODEX_IMAGE_WORKER_URL", "http://127.0.0.1:18017")
     monkeypatch.setenv("KOLIBRI_ARTIFACT_DIR", str(tmp_path))
 
     async def upstream(request: httpx.Request) -> httpx.Response:
-        assert request.url == "http://127.0.0.1:18016/v1/images/generations"
+        assert request.url == "http://127.0.0.1:18017/v1/images/generations"
         payload = json.loads(request.content)
         assert payload["prompt"] == "сгенерируй цветы"
         return httpx.Response(
