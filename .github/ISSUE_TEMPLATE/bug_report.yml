@@ -1,0 +1,82 @@
+name: Bug report
+description: Сообщить о воспроизводимой ошибке Kolibri
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Не публикуйте credentials, cookies, `.env`, персональные данные или внутреннюю топологию. Security reports отправляйте по процедуре из SECURITY.md.
+  - type: input
+    id: surface
+    attributes:
+      label: Surface / URL
+      description: Затронутая страница или API endpoint.
+      placeholder: https://kolibriai.ru/app или POST /v1/responses
+    validations:
+      required: true
+  - type: input
+    id: release
+    attributes:
+      label: Release ID
+      description: Значение из response header или health response; не имя ветки.
+      placeholder: release-id или unknown
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Минимальная последовательность действий без секретов.
+      placeholder: |
+        1. Открыть …
+        2. Нажать …
+        3. Получить …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+      description: Добавьте sanitized status/error/request ID, если есть.
+    validations:
+      required: true
+  - type: input
+    id: observed_at
+    attributes:
+      label: Observed at (UTC)
+      placeholder: 2026-07-14T12:00:00Z
+    validations:
+      required: true
+  - type: dropdown
+    id: client
+    attributes:
+      label: Client
+      options:
+        - Mobile web
+        - Desktop web
+        - API client
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: capability
+    attributes:
+      label: Capability evidence (optional)
+      description: Для tool-проблем укажите status и reason.code из /v1/capabilities.
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety confirmation
+      options:
+        - label: Я удалил credentials, cookies, PII и приватные документы.
+          required: true
+        - label: Это не security vulnerability; иначе я использую SECURITY.md.
+          required: true

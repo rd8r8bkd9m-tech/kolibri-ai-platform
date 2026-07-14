@@ -1,0 +1,46 @@
+name: Feature request
+description: Предложить измеримое улучшение продукта
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: User problem
+      description: Какую реальную задачу пользователя нужно решить?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Опишите результат, а не конкретную реализацию.
+    validations:
+      required: true
+  - type: textarea
+    id: scenario
+    attributes:
+      label: End-to-end scenario
+      placeholder: user action → tool/provider → result → persistence → renderer/download → reopen
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Проверяемые PASS/FAIL условия, включая mobile/desktop при необходимости.
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints and risks
+      description: Auth, privacy, licensing, cost, external credentials or migration concerns.
+  - type: checkboxes
+    id: truth
+    attributes:
+      label: Truth contract
+      options:
+        - label: Предложение не требует mock, placeholder или ложного success.
+          required: true
