@@ -523,9 +523,11 @@ def work_summary_event(
         "summary": summary,
         "status": status,
     }
+    # ``provider`` and ``model`` remain accepted for internal call-site
+    # compatibility, but are intentionally absent from the public trace.
+    # Provenance belongs to the protected control surface.
+    _ = provider, model
     optional = {
-        "provider": provider,
-        "model": model,
         "artifact_type": artifact_type,
         "artifact_id": artifact_id,
     }
@@ -542,7 +544,20 @@ def _select_provider(task_type: str = "chat") -> dict:
     3. deepseek_pro  — 2.3 сек (лучший баланс)
     4. mimo          — 3.3 сек (бесплатный)
     5. deepseek_flash— 3.5 сек (бюджетный)
-    6. cfbt          — 3.9 сек (бесплатный)
+    6. cfbt          — 3.9 сек (бесплатный,
+    "codex_result": {
+        "id": "codex_result",
+        "url": os.getenv("CODEX_RESULT_BASE_URL", "http://127.0.0.1:8000") + "/codex/result",
+        "model": os.getenv("CODEX_RESULT_MODEL", "codex-result-v1"),
+        "key": os.getenv("CODEX_RESULT_API_KEY", ""),
+        "credential_source": "server_env",
+        "routable": True,
+        "cost": "low",
+        "speed_ms": 0,
+        "speed": "adaptive",
+        "quality": "best",
+    }
+)
     """
     def _available(name: str) -> bool:
         p = PROVIDERS.get(name)

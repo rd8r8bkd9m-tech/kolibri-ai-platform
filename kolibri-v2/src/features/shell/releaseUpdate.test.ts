@@ -69,6 +69,22 @@ describe('frontend release update detection', () => {
     )).resolves.toBe(false)
   })
 
+  it('probes the isolated canary root instead of production', async () => {
+    const canary = vi.fn().mockResolvedValue(new Response(
+      '<script type="module" src="/__canary/release-1/assets/index.js"></script>',
+      { status: 200, headers: { 'X-Kolibri-Release': 'release-1' } },
+    ))
+    await expect(frontendUpdateAvailable(
+      '/__canary/release-1/assets/index.js',
+      canary,
+      'https://kolibriai.ru',
+      1_000,
+      'release-1',
+      '/__canary/release-1/',
+    )).resolves.toBe(false)
+    expect(canary).toHaveBeenCalledWith('/__canary/release-1/', expect.objectContaining({ cache: 'no-store' }))
+  })
+
   it('aborts a stalled release probe so later checks can run', async () => {
     vi.useFakeTimers()
     try {

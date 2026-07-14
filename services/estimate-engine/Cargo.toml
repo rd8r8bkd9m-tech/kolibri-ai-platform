@@ -1,0 +1,19 @@
+[package]
+name = "estimate-engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+axum.workspace = true
+kolibri-estimates = { path = "../../crates/kolibri-estimates" }
+serde.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+tower.workspace = true
+
+[lints]
+workspace = true
+

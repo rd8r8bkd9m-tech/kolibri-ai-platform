@@ -14,6 +14,7 @@ import {
 import { isVerifiedFileArtifact, verifyFileArtifact } from '@/features/conversation/fileArtifact'
 import { isFailedResponse, persistedResponseStatus, responseFailureMessage } from '@/features/conversation/responseState'
 import WorkTrace, { type WorkStage } from '@/features/conversation/WorkTrace'
+import { dedupeWorkSummaries } from '@/features/conversation/workTraceState'
 import CartoonMascot from '@/components/CartoonMascot'
 import { capabilityPrompt, useCapabilities, type UiCapabilityKey } from '@/features/capabilities'
 import { createExecutionPolicy } from '@/features/shell/executionPolicy'
@@ -119,17 +120,7 @@ async function materializeAction(action: ChatAction, signal?: AbortSignal): Prom
 }
 
 function appendWorkSummary(events: ChatWorkSummary[], next: ChatWorkSummary): ChatWorkSummary[] {
-  const previous = events.at(-1)
-  if (previous
-    && previous.stage === next.stage
-    && previous.status === next.status
-    && previous.summary === next.summary
-    && previous.provider === next.provider
-    && previous.model === next.model
-    && previous.artifact_id === next.artifact_id) {
-    return events
-  }
-  return [...events, next]
+  return dedupeWorkSummaries([...events, next])
 }
 
 function artifactMaterializationEvent(
@@ -220,6 +211,8 @@ function restoredMessage(message: ProjectMessage): Message | null {
   if (message.role !== 'user' && message.role !== 'assistant') return null
   const metadata = restoreConversationMetadata(message.metadata)
   const stage = message.role === 'assistant' ? serverMessageStatus(message.status) : undefined
+  const startedAt = Date.parse(message.created_at) || Date.now()
+  const finishedAt = Date.parse(message.updated_at) || startedAt
   return {
     id: message.id,
     serverId: message.id,
@@ -231,8 +224,8 @@ function restoredMessage(message: ProjectMessage): Message | null {
     timestamp: new Date(message.created_at),
     work: stage ? {
       stage,
-      startedAt: Date.parse(message.created_at) || Date.now(),
-      elapsedSeconds: 0,
+      startedAt,
+      elapsedSeconds: Math.max(0, Math.floor((finishedAt - startedAt) / 1000)),
       events: metadata.workEvents,
     } : undefined,
   }

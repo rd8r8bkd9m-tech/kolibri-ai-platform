@@ -8,6 +8,7 @@ an actual completed output item has been observed.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -23,6 +24,12 @@ _IDEMPOTENCY_KEY = re.compile(r"^[A-Za-z0-9._:-]{1,200}$")
 _REASONING_EFFORTS = {"none", "low", "medium", "high", "xhigh", "max"}
 _REASONING_CONTEXTS = {"auto", "all_turns", "current_turn"}
 _REASONING_SUMMARIES = {"auto", "concise", "detailed"}
+_MAX_REASONING_BUFFER_CHARS = 2_400
+_MAX_PUBLIC_REASONING_SUMMARY_CHARS = 600
+_SECRET_IN_SUMMARY = re.compile(
+    r"(?i)(?:bearer\s+\S+|(?:sk|koli)[_-][A-Za-z0-9._-]{12,}|"
+    r"(?:api[_ -]?key|token|password|secret)\s*[:=]\s*\S+)"
+)
 _TOOL_ITEM_CAPABILITY = {
     "web_search_call": "web_search",
     "file_search_call": "file_search",
@@ -69,6 +76,33 @@ def _reasoning_config() -> dict[str, str]:
     if mode == "pro":
         result["mode"] = "pro"
     return result
+
+
+def _reasoning_summary_identity(event: dict[str, Any]) -> tuple[str, str, str]:
+    """Return stable opaque IDs for one official summary item.
+
+    Upstream item IDs are deliberately not exposed.  The output and summary
+    indices keep fragmented delta and done events attached to the same public
+    excerpt when an item ID is absent.
+    """
+
+    source_key = ":".join(
+        (
+            str(event.get("item_id") or "item"),
+            str(event.get("output_index") or 0),
+            str(event.get("summary_index") or 0),
+        )
+    )
+    digest = hashlib.sha256(source_key.encode("utf-8")).hexdigest()[:24]
+    return source_key, f"summary_{digest}", f"step_{digest}"
+
+
+def _sanitize_reasoning_summary(value: str) -> str:
+    """Bound an official provider summary without exposing secret-like data."""
+
+    cleaned = _SECRET_IN_SUMMARY.sub("[скрыто]", value)
+    cleaned = " ".join(cleaned.split())
+    return cleaned[:_MAX_PUBLIC_REASONING_SUMMARY_CHARS].strip()
 
 
 def _remote_mcp_tool() -> dict[str, Any] | None:
@@ -234,6 +268,7 @@ def build_response_payload(
         # the server did not configure.
         mode = str(policy.get("mode") or "fast")
         payload["reasoning"]["effort"] = "high" if mode == "deep" else "low"
+        payload["reasoning"]["summary"] = "auto" if mode == "deep" else "concise"
         background = background or (mode == "deep" and bool(policy.get("background")))
     if instructions:
         payload["instructions"] = instructions
@@ -355,6 +390,7 @@ async def stream_response(
         policy=policy,
         idempotency_key=idempotency_key,
     )
+    summary_buffers: dict[str, str] = {}
     async with httpx.AsyncClient(timeout=httpx.Timeout(180.0, connect=10.0)) as client:
         async with client.stream("POST", str(provider["url"]), json=payload, headers=headers) as response:
             response.raise_for_status()
@@ -386,13 +422,47 @@ async def stream_response(
                 elif event_type == "response.reasoning_summary_text.delta":
                     delta = str(event.get("delta") or "")
                     if delta:
+                        source_key, summary_id, step_id = _reasoning_summary_identity(event)
+                        accumulated = (summary_buffers.get(source_key, "") + delta)[
+                            :_MAX_REASONING_BUFFER_CHARS
+                        ]
+                        summary_buffers[source_key] = accumulated
+                        public_summary = _sanitize_reasoning_summary(accumulated)
+                        if not public_summary:
+                            continue
                         yield {
                             "content": "",
                             "done": False,
                             "work_summary": {
+                                "kind": "reasoning_excerpt",
+                                "step_id": step_id,
+                                "summary_id": summary_id,
                                 "stage": "reasoning_summary",
-                                "summary": delta,
+                                "summary": public_summary,
                                 "status": "active",
+                                "occurred_at": datetime.now(timezone.utc).isoformat(),
+                            },
+                        }
+                elif event_type == "response.reasoning_summary_text.done":
+                    source_key, summary_id, step_id = _reasoning_summary_identity(event)
+                    upstream_text = str(event.get("text") or "")
+                    accumulated = summary_buffers.get(source_key, "")
+                    if upstream_text:
+                        accumulated = upstream_text[:_MAX_REASONING_BUFFER_CHARS]
+                    public_summary = _sanitize_reasoning_summary(accumulated)
+                    if public_summary:
+                        summary_buffers[source_key] = accumulated
+                        yield {
+                            "content": "",
+                            "done": False,
+                            "work_summary": {
+                                "kind": "reasoning_excerpt",
+                                "step_id": step_id,
+                                "summary_id": summary_id,
+                                "stage": "reasoning_summary",
+                                "summary": public_summary,
+                                "status": "completed",
+                                "occurred_at": datetime.now(timezone.utc).isoformat(),
                             },
                         }
                 elif event_type in {"response.output_item.added", "response.output_item.done"}:

@@ -34,6 +34,12 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const DECIMAL = /^-?\d+(?:\.\d+)?$/
 const ACTION_TYPES = new Set(['create_estimate', 'create_document', 'present_image', 'present_artifact'])
 const WORK_STATUSES = new Set(['active', 'completed', 'failed'])
+const WORK_STAGES = new Set<ChatWorkSummary['stage']>([
+  'accepted', 'planning', 'reasoning_summary', 'provider_route', 'provider_attempt',
+  'response_received', 'tool_execution', 'source_retrieval', 'calculation',
+  'artifact_materialization', 'artifact_verification', 'background', 'resuming',
+  'verification', 'cancelled',
+])
 
 function record(value: unknown): UnknownRecord | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -297,16 +303,33 @@ function normalizeWorkEvent(value: unknown): ChatWorkSummary | null {
   const stage = requiredString(event.stage, 80)
   const status = requiredString(event.status, 20)
   const summary = requiredString(event.summary, 600)
-  if (!stage || !status || !summary || !WORK_STATUSES.has(status)) return null
+  if (!stage || !WORK_STAGES.has(stage as ChatWorkSummary['stage']) || !status || !summary || !WORK_STATUSES.has(status)) return null
+  const kind = event.kind === 'reasoning_excerpt' ? 'reasoning_excerpt' : 'stage'
+  const stepId = optionalMetadataString(event.step_id, 160)
+  const summaryId = optionalMetadataString(event.summary_id, 160)
+  const occurredAt = optionalMetadataString(event.occurred_at, 48)
+  const responseId = optionalMetadataString(event.response_id, 160)
+  const sequence = event.sequence === undefined
+    ? undefined
+    : Number.isSafeInteger(event.sequence) && Number(event.sequence) >= 0 ? Number(event.sequence) : null
   const provider = optionalMetadataString(event.provider, 80)
   const model = optionalMetadataString(event.model, 120)
   const artifactType = optionalMetadataString(event.artifact_type, 40)
   const artifactId = optionalMetadataString(event.artifact_id, 160)
-  if (provider === null || model === null || artifactType === null || artifactId === null) return null
+  if (
+    stepId === null || summaryId === null || occurredAt === null || responseId === null || sequence === null
+    || provider === null || model === null || artifactType === null || artifactId === null
+  ) return null
   return {
+    kind,
+    ...(stepId ? { step_id: stepId } : {}),
+    ...(summaryId ? { summary_id: summaryId } : {}),
     stage: stage as ChatWorkSummary['stage'],
     status: status as ChatWorkSummary['status'],
     summary,
+    ...(occurredAt ? { occurred_at: occurredAt } : {}),
+    ...(responseId ? { response_id: responseId } : {}),
+    ...(sequence !== undefined ? { sequence } : {}),
     ...(provider ? { provider } : {}),
     ...(model ? { model } : {}),
     ...(artifactType ? { artifact_type: artifactType } : {}),

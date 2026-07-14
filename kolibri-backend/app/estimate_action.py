@@ -13,6 +13,7 @@ import re
 from typing import Any, Iterable, Mapping
 
 from app.estimate_evidence import evaluate_price_evidence
+from app.project_facts import resolve_project_region
 
 
 MONEY_QUANT = Decimal("0.01")
@@ -59,6 +60,7 @@ def build_estimate_action(
     *,
     verified_evidence: Any = None,
     scope_verified: bool = False,
+    project_fact: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build an editable estimate action with deterministic totals.
 
@@ -69,13 +71,18 @@ def build_estimate_action(
     """
 
     area = _extract_area(prompt)
-    location = _extract_location(prompt)
     candidate_data = candidate if isinstance(candidate, Mapping) else {}
+    region_fact = resolve_project_region(
+        prompt,
+        project_fact=project_fact,
+        candidate_region=candidate_data.get("region"),
+    )
+    location = region_fact.region
     sections = _normalise_sections(candidate_data.get("sections"))
 
     title = _clean_text(candidate_data.get("title"), limit=160) or _default_title(area, location)
     object_name = _clean_text(candidate_data.get("object_name"), limit=240) or _default_object_name(area)
-    region = _clean_text(candidate_data.get("region"), limit=240) or location
+    region = location
     currency = "RUB"
 
     # Tax/overhead policy depends on the contractor, counterparty and whether
@@ -142,17 +149,6 @@ def _extract_area(prompt: str) -> Decimal | None:
         return None
     value = _decimal(match.group("area"), default=Decimal("0"))
     return value if value > 0 else None
-
-
-def _extract_location(prompt: str) -> str:
-    lowered = prompt.casefold()
-    if "лениногорск" in lowered and "татарстан" in lowered:
-        return "Лениногорск, Татарстан"
-    if "лениногорск" in lowered:
-        return "Лениногорск"
-    if "татарстан" in lowered:
-        return "Татарстан"
-    return ""
 
 
 def _default_title(area: Decimal | None, location: str) -> str:

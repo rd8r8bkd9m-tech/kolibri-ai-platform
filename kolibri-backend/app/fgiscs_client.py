@@ -39,6 +39,8 @@ _TOKEN_STOP = {
 }
 _CITY_TO_SUBJECT_HINT = {
     "лениногорск": "татарстан",
+    "самара": "самарская",
+    "москва": "москва",
 }
 
 
@@ -143,6 +145,7 @@ class FgisCsClient:
                 position=position,
                 resource=resource,
                 region=region,
+                project_region=region_text,
                 period=period,
                 observed_at=timestamp,
             )
@@ -175,6 +178,11 @@ class FgisCsClient:
         if not ranked:
             return None
         ranked.sort(key=lambda item: (-item[0], str(item[1].get("name") or "")))
+        # Equal best scores are ambiguous (for example, similarly named
+        # autonomous territories).  Price research must fail closed instead
+        # of silently choosing the alphabetically first subject.
+        if len(ranked) > 1 and ranked[0][0] == ranked[1][0]:
+            return None
         subject = ranked[0][1]
         subject_id = int(subject["id"])
         zones = await self._get_json(
@@ -299,6 +307,7 @@ class FgisCsClient:
         position: Mapping[str, Any],
         resource: FgisResource,
         region: FgisRegion,
+        project_region: str,
         period: FgisPeriod,
         observed_at: datetime,
     ) -> dict[str, Any]:
@@ -326,6 +335,7 @@ class FgisCsClient:
             ),
             "source_type": "official_catalog",
             "region": region.subject_name,
+            "project_region": project_region,
             "observed_at": observed_at.isoformat().replace("+00:00", "Z"),
             "price_date": period.price_date.isoformat(),
             "unit": resource.unit,

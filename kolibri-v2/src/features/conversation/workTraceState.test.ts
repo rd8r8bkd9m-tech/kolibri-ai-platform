@@ -31,18 +31,54 @@ describe('public work trace state', () => {
     expect(result[1]).toMatchObject({ status: 'active', provider: 'mimo' })
   })
 
-  it('does not repeat equal provider and model names in the compact line', () => {
+  it('never exposes provider or model names in the public compact line', () => {
     expect(workSummaryLabel(event({
       stage: 'provider_route',
       summary: 'Подключаю доступного исполнителя',
       provider: 'deepseek-v4-flash',
       model: 'deepseek-v4-flash',
-    }))).toBe('Подключаю доступного исполнителя · deepseek-v4-flash')
+    }))).toBe('Подключаю доступного исполнителя')
   })
 
-  it('hides a completed trace unless the user had explicitly opened its details', () => {
-    expect(shouldRenderWorkTrace('completed', false)).toBe(false)
+  it('keeps a completed trace available after the answer finishes', () => {
+    expect(shouldRenderWorkTrace('completed', false)).toBe(true)
     expect(shouldRenderWorkTrace('completed', true)).toBe(true)
     expect(shouldRenderWorkTrace('failed', false)).toBe(true)
+  })
+
+  it('replaces fragmented reasoning excerpts by summary id', () => {
+    const result = dedupeWorkSummaries([
+      event({
+        kind: 'reasoning_excerpt', stage: 'reasoning_summary', summary_id: 'summary_1',
+        response_id: 'resp_1', sequence: 4, summary: 'Сверяю',
+      }),
+      event({
+        kind: 'reasoning_excerpt', stage: 'reasoning_summary', summary_id: 'summary_1',
+        response_id: 'resp_1', sequence: 5, summary: 'Сверяю цены по региону объекта',
+      }),
+    ])
+
+    expect(result).toEqual([
+      event({
+        kind: 'reasoning_excerpt', stage: 'reasoning_summary', summary_id: 'summary_1',
+        response_id: 'resp_1', sequence: 5, summary: 'Сверяю цены по региону объекта',
+      }),
+    ])
+  })
+
+  it('ignores duplicate and out-of-order durable events', () => {
+    const latest = event({
+      kind: 'reasoning_excerpt', stage: 'reasoning_summary', summary_id: 'summary_1',
+      response_id: 'resp_1', sequence: 8, summary: 'Проверяю итог',
+    })
+    const result = dedupeWorkSummaries([
+      latest,
+      latest,
+      event({
+        kind: 'reasoning_excerpt', stage: 'reasoning_summary', summary_id: 'summary_1',
+        response_id: 'resp_1', sequence: 7, summary: 'Проверяю',
+      }),
+    ])
+    expect(result).toEqual([latest])
   })
 })

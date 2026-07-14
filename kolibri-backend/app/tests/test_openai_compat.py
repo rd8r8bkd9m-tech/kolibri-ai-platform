@@ -9,9 +9,11 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 import pytest
+from pydantic import ValidationError
 
 from app.main import app
 from app.codex_cli_provider import get_codex_cli_provider
+from app.project_schemas import ProjectMessageMetadata
 from app.routers import openai_compat
 
 _API_KEY = "public-test-key"
@@ -41,6 +43,18 @@ _CHAT_RESPONSE_FORMAT = {
         if key != "type"
     },
 }
+
+
+def _typed_sse_events(raw: str, event_type: str) -> list[dict]:
+    events: list[dict] = []
+    for block in raw.split("\n\n"):
+        lines = block.splitlines()
+        if f"event: {event_type}" not in lines:
+            continue
+        data = next((line[6:] for line in lines if line.startswith("data: ")), None)
+        if data:
+            events.append(json.loads(data))
+    return events
 
 
 def _fake_codex(tmp_path: Path, body: str) -> Path:
@@ -437,6 +451,21 @@ def test_responses_stream_uses_typed_sse_and_hides_provider(monkeypatch):
             json={"model": "kolibri", "input": "Привет", "stream": True},
             headers=_AUTH,
         )
+        live_work_events = _typed_sse_events(
+            response.text,
+            "response.work_summary.updated",
+        )
+        response_id = _typed_sse_events(response.text, "response.created")[0][
+            "response"
+        ]["id"]
+        replay = client.get(
+            f"/v1/responses/{response_id}/events?starting_after=0",
+            headers=_AUTH,
+        )
+        replay_work_events = _typed_sse_events(
+            replay.text,
+            "response.work_summary.updated",
+        )
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")
@@ -450,6 +479,97 @@ def test_responses_stream_uses_typed_sse_and_hides_provider(monkeypatch):
     assert "private" not in response.text
     assert "secret" not in response.text
     assert captured["run_id"].startswith("resp_kolibri_")
+    assert len(live_work_events) == 1
+    assert live_work_events == replay_work_events
+    assert live_work_events[0] == next(
+        event
+        for event in openai_compat._records[response_id]["events"]
+        if event["type"] == "response.work_summary.updated"
+    )
+    assert live_work_events[0]["response_id"] == response_id
+    assert isinstance(live_work_events[0]["sequence"], int)
+    assert live_work_events[0]["work_summary"] == {
+        "kind": "stage",
+        "step_id": live_work_events[0]["work_summary"]["step_id"],
+        "summary_id": None,
+        "stage": "provider_route",
+        "status": "active",
+        "summary": "Ищу",
+        "occurred_at": live_work_events[0]["work_summary"]["occurred_at"],
+    }
+
+
+def test_work_summary_sanitizer_bounds_stage_and_rejects_raw_reasoning():
+    response_id = openai_compat.begin_public_response(
+        [{"role": "user", "content": "Проверка"}],
+        owner_scope=_API_SCOPE,
+    )
+    appended = openai_compat.record_public_stream_chunk(
+        response_id,
+        {
+            "work_summary": {
+                "stage": "private_internal_stage",
+                "status": "running",
+                "summary": "Codex читает https://secret.example и Bearer abcdefghijklmnop",
+                "provider": "mimo",
+                "model": "private-model",
+            }
+        },
+    )
+    rejected = openai_compat.record_public_stream_chunk(
+        response_id,
+        {
+            "work_summary": {
+                "stage": "reasoning_summary",
+                "status": "active",
+                "summary": "Нельзя сохранять",
+                "reasoning_content": "PRIVATE CHAIN OF THOUGHT",
+            }
+        },
+    )
+
+    assert len(appended) == 1
+    assert rejected == []
+    public = appended[0]["work_summary"]
+    assert public["stage"] == "background"
+    assert public["status"] == "active"
+    assert "Codex" not in public["summary"]
+    assert "https://" not in public["summary"]
+    assert "Bearer" not in public["summary"]
+    serialized = json.dumps(openai_compat._records[response_id], ensure_ascii=False)
+    assert "PRIVATE CHAIN" not in serialized
+    assert "mimo" not in serialized
+    assert "private-model" not in serialized
+
+
+def test_persisted_work_trace_metadata_uses_strict_canonical_schema():
+    event = {
+        "kind": "reasoning_excerpt",
+        "step_id": "step_reasoning_1",
+        "summary_id": "summary_reasoning_1",
+        "stage": "reasoning_summary",
+        "status": "completed",
+        "summary": "Сверяю источники",
+        "occurred_at": "2026-07-14T12:00:00+00:00",
+        "provider": "must-not-persist",
+        "model": "must-not-persist",
+    }
+    metadata = ProjectMessageMetadata(work_events=[event]).model_dump(
+        exclude_none=True,
+        exclude_defaults=True,
+    )
+    assert metadata["work_events"][0]["summary_id"] == "summary_reasoning_1"
+    assert "provider" not in metadata["work_events"][0]
+    assert "model" not in metadata["work_events"][0]
+
+    with pytest.raises(ValidationError):
+        ProjectMessageMetadata(work_events=[{**event, "stage": "private_stage"}])
+    with pytest.raises(ValidationError):
+        ProjectMessageMetadata(work_events=[{**event, "summary_id": None}])
+    with pytest.raises(ValidationError):
+        ProjectMessageMetadata(
+            work_events=[{**event, "reasoning_content": "PRIVATE"}]
+        )
 
 
 def test_responses_stream_provider_exception_becomes_terminal_sanitized_failure(monkeypatch):

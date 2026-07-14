@@ -1,6 +1,7 @@
-import { CheckCircle2, ChevronDown, CircleAlert, LoaderCircle } from 'lucide-react'
+import { ChevronDown } from 'lucide-react'
 import { useState } from 'react'
 import type { ChatWorkSummary } from '@/lib/api'
+import NeuralWorkIndicator from './NeuralWorkIndicator'
 import { dedupeWorkSummaries, shouldRenderWorkTrace, workSummaryLabel } from './workTraceState'
 import { translateKnownTraceSummary, useLocale, type TranslationKey } from '@/features/localization'
 
@@ -20,9 +21,14 @@ const stageCopy: Record<WorkStage, TranslationKey> = {
   cancelled: 'trace.cancelled',
 }
 
+function indicatorState(stage: WorkStage) {
+  if (stage === 'dispatching') return 'connecting' as const
+  if (stage === 'streaming') return 'active' as const
+  return stage
+}
+
 export default function WorkTrace({ stage, elapsedSeconds, events }: WorkTraceProps) {
   const { locale, t } = useLocale()
-  const pending = stage === 'dispatching' || stage === 'streaming'
   const [expanded, setExpanded] = useState(false)
   const visibleEvents = dedupeWorkSummaries(events)
   const localizedEvents = visibleEvents.map(event => ({
@@ -30,26 +36,38 @@ export default function WorkTrace({ stage, elapsedSeconds, events }: WorkTracePr
     summary: translateKnownTraceSummary(locale, event.summary),
   }))
   const latest = localizedEvents.at(-1)
-  const summary = latest ? workSummaryLabel(latest) : t(stageCopy[stage])
-  const StatusIcon = pending ? LoaderCircle : stage === 'failed' || stage === 'cancelled' ? CircleAlert : CheckCircle2
+  const currentSummary = latest ? workSummaryLabel(latest) : t(stageCopy[stage])
+  const completedSummary = `${t('trace.worked', { count: elapsedSeconds })} · ${t('trace.steps', { count: localizedEvents.length })}`
+  const summary = stage === 'completed' ? completedSummary : currentSummary
 
   if (!shouldRenderWorkTrace(stage, expanded)) return null
 
   return (
     <details className={`work-trace ${stage}`} open={expanded} onToggle={event => setExpanded(event.currentTarget.open)}>
-      <summary>
-        <StatusIcon size={17} className={pending ? 'animate-spin' : undefined} />
-        <span className="work-trace-current">{summary}</span>
-        <span className="ml-auto tabular-nums text-[var(--text-tertiary)]">{t('trace.seconds', { count: elapsedSeconds })}</span>
-        {localizedEvents.length > 0 && <ChevronDown size={16} className="work-trace-chevron" />}
+      <summary title={currentSummary} aria-label={`${t('trace.title')}: ${summary}`}>
+        <NeuralWorkIndicator
+          state={indicatorState(stage)}
+          events={localizedEvents}
+          label={`${t('trace.title')}: ${summary}`}
+          latestSummary={currentSummary}
+        />
+        <span className="work-trace-current" aria-live="polite" aria-atomic="true">{summary}</span>
+        <span className="work-trace-title">{t('trace.title')}</span>
+        <ChevronDown size={16} className="work-trace-chevron" />
       </summary>
       {localizedEvents.length > 0 && (
         <div className="work-trace-body">
-          {localizedEvents.map((event, index) => (
-            <span key={`${event.stage}-${event.status}-${event.provider ?? ''}-${event.model ?? ''}-${index}`} className={event.status === 'completed' ? 'done' : event.status}>
-              {workSummaryLabel(event)}
-            </span>
-          ))}
+          <strong>{t('trace.excerpts')}</strong>
+          <ol>
+            {localizedEvents.map((event, index) => (
+              <li
+                key={event.summary_id ?? event.step_id ?? `${event.stage}-${event.status}-${event.sequence ?? index}`}
+                className={event.status === 'completed' ? 'done' : event.status}
+              >
+                {workSummaryLabel(event)}
+              </li>
+            ))}
+          </ol>
         </div>
       )}
     </details>

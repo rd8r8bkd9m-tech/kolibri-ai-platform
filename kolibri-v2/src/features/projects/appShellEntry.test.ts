@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { shouldRedirectAppEntry } from './appShellEntry'
+import { shouldRedirectAppEntry } from './appShellEntryState'
 
 describe('/app shell entry', () => {
   it('keeps the canonical empty shell on /app', () => {

@@ -173,8 +173,10 @@ def test_client_policy_can_only_reduce_server_tools_and_select_bounded_mode(monk
         },
     )
     assert fast["reasoning"]["effort"] == "low"
+    assert fast["reasoning"]["summary"] == "concise"
     assert "background" not in fast
     assert "tools" not in fast
+    assert payload["reasoning"]["summary"] == "auto"
 
 
 def test_nonstream_response_maps_text_safe_summary_and_tools(monkeypatch):
@@ -217,7 +219,27 @@ def test_nonstream_response_maps_text_safe_summary_and_tools(monkeypatch):
 def test_stream_maps_text_reasoning_summary_and_tool_lifecycle(monkeypatch):
     events = [
         {"type": "response.created", "response": {"id": "resp_stream_1"}},
-        {"type": "response.reasoning_summary_text.delta", "delta": "Проверяю источники"},
+        {
+            "type": "response.reasoning_summary_text.delta",
+            "item_id": "reasoning-item-private-id",
+            "output_index": 0,
+            "summary_index": 0,
+            "delta": "Проверяю ",
+        },
+        {
+            "type": "response.reasoning_summary_text.delta",
+            "item_id": "reasoning-item-private-id",
+            "output_index": 0,
+            "summary_index": 0,
+            "delta": "источники",
+        },
+        {
+            "type": "response.reasoning_summary_text.done",
+            "item_id": "reasoning-item-private-id",
+            "output_index": 0,
+            "summary_index": 0,
+            "text": "Проверяю источники",
+        },
         {
             "type": "response.output_item.added",
             "item": {"id": "ws_1", "type": "web_search_call", "status": "in_progress"},
@@ -245,8 +267,19 @@ def test_stream_maps_text_reasoning_summary_and_tool_lifecycle(monkeypatch):
 
     output = asyncio.run(collect())
     assert next(item for item in output if item.get("content"))["content"] == "Привет"
-    summary = next(item["work_summary"] for item in output if item.get("work_summary"))
-    assert summary == {"stage": "reasoning_summary", "summary": "Проверяю источники", "status": "active"}
+    summaries = [item["work_summary"] for item in output if item.get("work_summary")]
+    assert [item["summary"] for item in summaries] == [
+        "Проверяю",
+        "Проверяю источники",
+        "Проверяю источники",
+    ]
+    assert [item["status"] for item in summaries] == ["active", "active", "completed"]
+    assert len({item["summary_id"] for item in summaries}) == 1
+    assert len({item["step_id"] for item in summaries}) == 1
+    assert all(item["kind"] == "reasoning_excerpt" for item in summaries)
+    assert all(item["stage"] == "reasoning_summary" for item in summaries)
+    assert all(item["occurred_at"] for item in summaries)
+    assert "reasoning-item-private-id" not in json.dumps(summaries, ensure_ascii=False)
     assert [item["tool_event"]["type"] for item in output if item.get("tool_event")] == [
         "tool.started",
         "tool.completed",
