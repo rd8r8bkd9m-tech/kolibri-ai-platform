@@ -22,14 +22,25 @@ from pathlib import Path
 from typing import Any, Literal
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
+from app.artifact_store import (
+    ArtifactIntegrityError,
+    ArtifactNotFound,
+    ArtifactStoreError,
+    ArtifactValidationError,
+    _assert_artifact_scope,
+    get_artifact_store,
+    router as artifact_store_router,
+)
 from app.image_validation import InvalidImageBytes, inspect_image_bytes
+from app.public_scope import authorize_public_scope, resolve_optional_public_scope
 
 
 router = APIRouter()
+router.include_router(artifact_store_router)
 logger = logging.getLogger(__name__)
 
 _MAX_IMAGE_BYTES = 25 * 1024 * 1024
@@ -38,9 +49,29 @@ _last_verified_monotonic: float | None = None
 _last_probe_failure: str | None = None
 _last_verified_provider: str | None = None
 _last_verified_model: str | None = None
+_last_verified_release_id: str | None = None
+
+
+def _runtime_release_id() -> str:
+    from app.capability_runtime import capability_release_id
+
+    return capability_release_id()
+
+
+def _image_probe_ttl_seconds() -> int:
+    from app.capability_runtime import capability_probe_ttl_seconds
+
+    return capability_probe_ttl_seconds("OPENAI_IMAGE_PROBE_TTL_SECONDS")
 
 
 class ImageGenerationRequest(BaseModel):
+    prompt: str = Field(min_length=3, max_length=8_000)
+    size: Literal["1024x1024", "1024x1536", "1536x1024"] = "1024x1024"
+    quality: Literal["low", "medium", "high"] = "high"
+
+
+class ImageEditRequest(BaseModel):
+    source_artifact_id: str = Field(min_length=36, max_length=36)
     prompt: str = Field(min_length=3, max_length=8_000)
     size: Literal["1024x1024", "1024x1536", "1536x1024"] = "1024x1024"
     quality: Literal["low", "medium", "high"] = "high"
@@ -132,9 +163,18 @@ def _selected_image_route() -> dict[str, Any]:
 def image_execution_identity() -> dict[str, str]:
     route = _selected_image_route()
     state = _read_probe_state()
+    global_current = _last_verified_release_id == _runtime_release_id()
     return {
-        "provider": str(state.get("provider") or _last_verified_provider or route["provider"]),
-        "model": str(state.get("model") or _last_verified_model or route["model"]),
+        "provider": str(
+            state.get("provider")
+            or (_last_verified_provider if global_current else None)
+            or route["provider"]
+        ),
+        "model": str(
+            state.get("model")
+            or (_last_verified_model if global_current else None)
+            or route["model"]
+        ),
     }
 
 
@@ -142,11 +182,24 @@ def image_capability() -> dict[str, Any]:
     config = _config()
     route = _selected_image_route()
     configured = bool(config.enabled and route["configured"])
-    probe_ttl = max(1, int(os.getenv("OPENAI_IMAGE_PROBE_TTL_SECONDS", "900")))
+    probe_ttl = _image_probe_ttl_seconds()
     state = _read_probe_state()
-    verified_at = str(state.get("verified_at") or _last_verified_success or "") or None
-    failure_at = str(state.get("failure_at") or _last_probe_failure or "") or None
-    state_provider = str(state.get("provider") or _last_verified_provider or "") or None
+    global_current = _last_verified_release_id == _runtime_release_id()
+    verified_at = str(
+        state.get("verified_at")
+        or (_last_verified_success if global_current else None)
+        or ""
+    ) or None
+    failure_at = str(
+        state.get("failure_at")
+        or (_last_probe_failure if global_current else None)
+        or ""
+    ) or None
+    state_provider = str(
+        state.get("provider")
+        or (_last_verified_provider if global_current else None)
+        or ""
+    ) or None
     verified_age: float | None = None
     if verified_at:
         try:
@@ -160,7 +213,11 @@ def image_capability() -> dict[str, Any]:
         configured
         and verified_at
         and (
-            (_last_verified_monotonic is not None and time.monotonic() - _last_verified_monotonic <= probe_ttl)
+            (
+                global_current
+                and _last_verified_monotonic is not None
+                and time.monotonic() - _last_verified_monotonic <= probe_ttl
+            )
             or (verified_age is not None and verified_age <= probe_ttl)
         )
         and failure_at is None
@@ -200,31 +257,11 @@ def image_capability() -> dict[str, Any]:
 
 
 def capability_catalog() -> dict[str, Any]:
-    from app.openai_responses import responses_capability_manifest
-    from app.routers.openai_compat import (
-        developer_api_keys_capability,
-        developer_response_capabilities,
-    )
+    """Compatibility entry point backed by the canonical runtime registry."""
 
-    capability = image_capability()
-    responses_manifest = responses_capability_manifest()
-    capabilities = [capability, *responses_manifest["capabilities"]]
-    developer_capability = developer_api_keys_capability()
-    if developer_capability is not None:
-        capabilities.append(developer_capability)
-    capabilities.extend(developer_response_capabilities())
-    if any(item["status"] == "live" for item in capabilities):
-        status = "live"
-    elif any(item["status"] in {"partial", "unverified"} for item in capabilities):
-        status = "partial"
-    else:
-        status = "unavailable"
-    return {
-        "schema_version": "2026-07-13",
-        "status": status,
-        "as_of": datetime.now(timezone.utc).isoformat(),
-        "capabilities": capabilities,
-    }
+    from app.capability_runtime import capability_snapshot
+
+    return capability_snapshot()
 
 
 IMAGE_CAPABILITY_ID = "image.generate"
@@ -331,7 +368,13 @@ def _read_probe_state() -> dict[str, Any]:
         payload = json.loads(_probe_state_path().read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return {}
-    return payload if isinstance(payload, dict) else {}
+    if (
+        not isinstance(payload, dict)
+        or payload.get("schema_version") != 2
+        or payload.get("release_id") != _runtime_release_id()
+    ):
+        return {}
+    return payload
 
 
 def _write_probe_state(*, verified_at: str | None, failure_at: str | None, provider: str | None, model: str | None) -> None:
@@ -340,7 +383,8 @@ def _write_probe_state(*, verified_at: str | None, failure_at: str | None, provi
     target = _probe_state_path()
     temporary = root / f".{target.name}.{uuid.uuid4().hex}.tmp"
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
+        "release_id": _runtime_release_id(),
         "verified_at": verified_at,
         "failure_at": failure_at,
         "provider": provider,
@@ -351,42 +395,94 @@ def _write_probe_state(*, verified_at: str | None, failure_at: str | None, provi
     temporary.replace(target)
 
 
-def _store_image(data: bytes, *, prompt: str, model: str) -> dict[str, Any]:
+def _store_image(
+    data: bytes,
+    *,
+    prompt: str,
+    model: str,
+    source_artifact_id: str | None = None,
+    scope_id: str | None = None,
+) -> dict[str, Any]:
     try:
         details = inspect_image_bytes(data, max_bytes=_MAX_IMAGE_BYTES)
     except InvalidImageBytes as exc:
         raise ImageGenerationFailed("Provider output is not a supported image artifact.") from exc
     mime_type, extension = details.mime_type, details.extension
-    digest = hashlib.sha256(data).hexdigest()
-    artifact_id = str(uuid.uuid4())
-    root = _artifact_root()
-    root.mkdir(parents=True, exist_ok=True)
-    content_path = root / f"{artifact_id}{extension}"
-    metadata_path = root / f"{artifact_id}.json"
-    temporary_path = root / f".{artifact_id}.tmp"
-    temporary_path.write_bytes(data)
-    os.chmod(temporary_path, 0o640)
-    temporary_path.replace(content_path)
-    created_at = datetime.now(timezone.utc).isoformat()
+    try:
+        stored = get_artifact_store().put_bytes(
+            data,
+            artifact_type="image",
+            mime_type=mime_type,
+            filename=f"kolibri-generated{extension}",
+            title="Сгенерированное изображение",
+            metadata={
+                "prompt": prompt,
+                "model": model,
+                "width": details.width,
+                "height": details.height,
+                **(
+                    {"scope_key": hashlib.sha256(scope_id.encode()).hexdigest()}
+                    if scope_id is not None
+                    else {}
+                ),
+                **(
+                    {"source_artifact_id": source_artifact_id}
+                    if source_artifact_id is not None
+                    else {}
+                ),
+            },
+            route_prefix="/api/v1/artifacts/images",
+        )
+    except ArtifactStoreError as exc:
+        raise ImageGenerationFailed("Image artifact could not be persisted.") from exc
     artifact = {
-        "id": artifact_id,
+        "id": stored["id"],
         "type": "image",
         "title": "Сгенерированное изображение",
         "prompt": prompt,
         "mime_type": mime_type,
         "size_bytes": len(data),
-        "sha256": digest,
+        "sha256": stored["sha256"],
         "model": model,
-        "created_at": created_at,
-        "url": f"/api/v1/artifacts/images/{artifact_id}",
-        "download_url": f"/api/v1/artifacts/images/{artifact_id}?download=true",
-        "_filename": content_path.name,
-        "_width": details.width,
-        "_height": details.height,
+        "created_at": stored["created_at"],
+        "url": stored["url"],
+        "download_url": stored["download_url"],
+        **(
+            {"source_artifact_id": source_artifact_id}
+            if source_artifact_id is not None
+            else {}
+        ),
     }
-    metadata_path.write_text(json.dumps(artifact, ensure_ascii=False), encoding="utf-8")
-    os.chmod(metadata_path, 0o640)
-    return {key: value for key, value in artifact.items() if not key.startswith("_")}
+    return artifact
+
+
+def _source_image_bytes(
+    artifact_id: str,
+    *,
+    scope_id: str | None = None,
+) -> tuple[bytes, dict[str, Any]]:
+    """Open and independently verify one existing raster artifact."""
+
+    try:
+        normalized_id = str(uuid.UUID(artifact_id))
+        store = get_artifact_store()
+        _assert_artifact_scope(store.get(normalized_id), scope_id)
+        stored = store.open(normalized_id)
+    except (ValueError, ArtifactStoreError) as exc:
+        raise ImageGenerationFailed("Source image artifact is not retrievable.") from exc
+    if stored.manifest.get("type") != "image":
+        raise ImageGenerationFailed("Source artifact is not an image.")
+    try:
+        details = inspect_image_bytes(stored.content, max_bytes=_MAX_IMAGE_BYTES)
+    except InvalidImageBytes as exc:
+        raise ImageGenerationFailed("Source image bytes failed validation.") from exc
+    if (
+        stored.manifest.get("mime_type") != details.mime_type
+        or stored.manifest.get("size_bytes") != len(stored.content)
+        or stored.manifest.get("sha256") != hashlib.sha256(stored.content).hexdigest()
+    ):
+        raise ImageGenerationFailed("Source image integrity check failed.")
+    return stored.content, stored.manifest
 
 
 def _extract_image_bytes(payload: dict[str, Any]) -> tuple[bytes | None, str | None]:
@@ -410,9 +506,10 @@ async def generate_image(
     request: ImageGenerationRequest,
     *,
     run_id: str | None = None,
+    scope_id: str | None = None,
 ) -> dict[str, Any]:
     global _last_probe_failure, _last_verified_model, _last_verified_monotonic
-    global _last_verified_provider, _last_verified_success
+    global _last_verified_provider, _last_verified_release_id, _last_verified_success
     config = _config()
     route = _selected_image_route()
     if not config.enabled or not route["configured"]:
@@ -487,6 +584,7 @@ async def generate_image(
         _last_probe_failure = datetime.now(timezone.utc).isoformat()
         _last_verified_provider = None
         _last_verified_model = None
+        _last_verified_release_id = _runtime_release_id()
         _write_probe_state(
             verified_at=None,
             failure_at=_last_probe_failure,
@@ -500,6 +598,7 @@ async def generate_image(
         _last_probe_failure = datetime.now(timezone.utc).isoformat()
         _last_verified_provider = None
         _last_verified_model = None
+        _last_verified_release_id = _runtime_release_id()
         _write_probe_state(
             verified_at=None,
             failure_at=_last_probe_failure,
@@ -514,6 +613,7 @@ async def generate_image(
         _last_probe_failure = datetime.now(timezone.utc).isoformat()
         _last_verified_provider = None
         _last_verified_model = None
+        _last_verified_release_id = _runtime_release_id()
         _write_probe_state(
             verified_at=None,
             failure_at=_last_probe_failure,
@@ -521,12 +621,18 @@ async def generate_image(
             model=str(route["model"]),
         )
         raise ImageGenerationFailed("The configured image provider returned no bytes.")
-    artifact = _store_image(image_bytes, prompt=request.prompt, model=model)
+    artifact = _store_image(
+        image_bytes,
+        prompt=request.prompt,
+        model=model,
+        scope_id=scope_id,
+    )
     _last_verified_success = datetime.now(timezone.utc).isoformat()
     _last_verified_monotonic = time.monotonic()
     _last_probe_failure = None
     _last_verified_provider = str(route["provider"])
     _last_verified_model = model
+    _last_verified_release_id = _runtime_release_id()
     _write_probe_state(
         verified_at=_last_verified_success,
         failure_at=None,
@@ -536,11 +642,213 @@ async def generate_image(
     return artifact
 
 
+async def edit_image(
+    request: ImageEditRequest,
+    *,
+    run_id: str | None = None,
+    scope_id: str | None = None,
+) -> dict[str, Any]:
+    """Edit a persisted image through an actual image-capable route.
+
+    The source is opened from immutable CAS and verified before it reaches the
+    provider.  The provider output is persisted as a new immutable artifact;
+    the source revision is never mutated in place.
+    """
+
+    global _last_probe_failure, _last_verified_model, _last_verified_monotonic
+    global _last_verified_provider, _last_verified_release_id, _last_verified_success
+    source_bytes, source_manifest = _source_image_bytes(
+        request.source_artifact_id,
+        scope_id=scope_id,
+    )
+    config = _config()
+    route = _selected_image_route()
+    if not config.enabled or not route["configured"]:
+        raise ImageCapabilityUnavailable("Image editing is not configured.")
+    try:
+        if route["provider"] == "codex_cli" and route.get("execution") == "direct":
+            from app.codex_cli_image_provider import CodexCLIImageError, edit_codex_cli_image
+
+            try:
+                result = await edit_codex_cli_image(
+                    request.prompt,
+                    source_bytes,
+                    size=request.size,
+                    quality=request.quality,
+                    run_id=run_id,
+                )
+            except CodexCLIImageError as exc:
+                raise ImageGenerationFailed(
+                    "Codex CLI did not return a verified edited image."
+                ) from exc
+            image_bytes = result.data
+            model = result.model
+        elif route["provider"] == "codex_cli" and route.get("execution") == "local_worker":
+            timeout = httpx.Timeout(600.0, connect=5.0)
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.post(
+                    f"{route['worker_url']}/v1/images/edits",
+                    json={
+                        "prompt": request.prompt,
+                        "size": request.size,
+                        "quality": request.quality,
+                        "run_id": run_id,
+                        "source_b64": base64.b64encode(source_bytes).decode("ascii"),
+                    },
+                )
+                response.raise_for_status()
+                payload = response.json()
+                image_bytes, image_url = _extract_image_bytes(payload)
+                if image_url is not None:
+                    raise ImageGenerationFailed("Local image worker returned a remote URL.")
+                model = str(payload.get("model") or route["model"])
+        elif route["provider"] == "openai":
+            # The REST route remains opt-in.  Send a multipart edit request;
+            # no browser/CLI session credential crosses this boundary.
+            headers = {"Authorization": f"Bearer {config.api_key}"}
+            files = {
+                "image": (
+                    str(source_manifest.get("filename") or "source.png"),
+                    source_bytes,
+                    str(source_manifest.get("mime_type") or "image/png"),
+                )
+            }
+            data = {
+                "model": config.model,
+                "prompt": request.prompt,
+                "size": request.size,
+                "quality": request.quality,
+                "n": "1",
+            }
+            timeout = httpx.Timeout(180.0, connect=15.0)
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+                response = await client.post(
+                    f"{config.base_url}/images/edits",
+                    headers=headers,
+                    data=data,
+                    files=files,
+                )
+                response.raise_for_status()
+                image_bytes, image_url = _extract_image_bytes(response.json())
+                if image_url:
+                    download = await client.get(image_url)
+                    download.raise_for_status()
+                    image_bytes = download.content
+            model = config.model
+        else:  # pragma: no cover - selected route is exhaustive.
+            raise ImageCapabilityUnavailable("Image editing is not configured.")
+    except ImageCapabilityUnavailable:
+        raise
+    except ImageGenerationFailed:
+        _last_probe_failure = datetime.now(timezone.utc).isoformat()
+        _last_verified_release_id = _runtime_release_id()
+        from app.capability_runtime import record_capability_invocation
+
+        record_capability_invocation(
+            "image.edit",
+            succeeded=False,
+            error_code="image_edit_failed",
+            provider=str(route["provider"]),
+            model=str(route["model"]),
+        )
+        raise
+    except (httpx.HTTPError, json.JSONDecodeError, ValueError, TypeError) as exc:
+        _last_probe_failure = datetime.now(timezone.utc).isoformat()
+        _last_verified_release_id = _runtime_release_id()
+        from app.capability_runtime import record_capability_invocation
+
+        record_capability_invocation(
+            "image.edit",
+            succeeded=False,
+            error_code="image_edit_provider_failed",
+            provider=str(route["provider"]),
+            model=str(route["model"]),
+        )
+        raise ImageGenerationFailed(
+            "The configured image provider did not complete the edit."
+        ) from exc
+
+    if image_bytes is None:
+        _last_probe_failure = datetime.now(timezone.utc).isoformat()
+        _last_verified_release_id = _runtime_release_id()
+        from app.capability_runtime import record_capability_invocation
+
+        record_capability_invocation(
+            "image.edit",
+            succeeded=False,
+            error_code="image_edit_no_bytes",
+            provider=str(route["provider"]),
+            model=str(route["model"]),
+        )
+        raise ImageGenerationFailed("The configured image provider returned no bytes.")
+    artifact = _store_image(
+        image_bytes,
+        prompt=request.prompt,
+        model=model,
+        source_artifact_id=str(source_manifest["id"]),
+        scope_id=scope_id,
+    )
+    _last_verified_success = datetime.now(timezone.utc).isoformat()
+    _last_verified_monotonic = time.monotonic()
+    _last_probe_failure = None
+    _last_verified_provider = str(route["provider"])
+    _last_verified_model = model
+    _last_verified_release_id = _runtime_release_id()
+    from app.capability_runtime import record_capability_invocation
+
+    record_capability_invocation(
+        "image.edit",
+        succeeded=True,
+        provider=_last_verified_provider,
+        model=model,
+        evidence_id=artifact["sha256"],
+    )
+    return verify_image_artifact(artifact)
+
+
 def _metadata(artifact_id: str) -> dict[str, Any]:
     try:
         normalized_id = str(uuid.UUID(artifact_id))
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="Image artifact not found") from exc
+    try:
+        stored = get_artifact_store().get(normalized_id)
+    except ArtifactNotFound:
+        stored = None
+    except (ArtifactValidationError, ArtifactIntegrityError) as exc:
+        raise HTTPException(status_code=409, detail="Image artifact integrity check failed") from exc
+    if stored is not None:
+        internal = stored.get("metadata")
+        if stored.get("type") != "image" or not isinstance(internal, dict):
+            raise HTTPException(status_code=404, detail="Image artifact not found")
+        return {
+            "id": normalized_id,
+            "type": "image",
+            "title": stored.get("title") or "Сгенерированное изображение",
+            "prompt": internal.get("prompt") or "",
+            "mime_type": stored.get("mime_type"),
+            "size_bytes": stored.get("size_bytes"),
+            "sha256": stored.get("sha256"),
+            "model": internal.get("model") or "",
+            "created_at": stored.get("created_at"),
+            "url": stored.get("url"),
+            "download_url": stored.get("download_url"),
+            **(
+                {"source_artifact_id": internal.get("source_artifact_id")}
+                if internal.get("source_artifact_id")
+                else {}
+            ),
+            "_storage": "unified",
+            "_revision": stored.get("revision"),
+            "_width": internal.get("width"),
+            "_height": internal.get("height"),
+            "_scope_key": internal.get("scope_key"),
+        }
+
+    # Read-only compatibility for controlled migration of images created
+    # before the unified CAS was introduced.  Public access remains
+    # fail-closed unless an old manifest already carries an owner scope key.
+    # New writes never use this flat layout.
     metadata_path = _artifact_root() / f"{normalized_id}.json"
     try:
         metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
@@ -548,7 +856,23 @@ def _metadata(artifact_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="Image artifact not found") from exc
     if not isinstance(metadata, dict) or metadata.get("id") != normalized_id:
         raise HTTPException(status_code=404, detail="Image artifact not found")
+    metadata["_scope_key"] = metadata.pop("scope_key", None)
+    metadata["_storage"] = "legacy"
     return metadata
+
+
+def _legacy_content_path(artifact_id: str, filename: str) -> Path:
+    root = _artifact_root().resolve()
+    if not filename or filename != Path(filename).name:
+        raise ImageGenerationFailed("Image artifact filename is invalid.")
+    content_path = (root / filename).resolve(strict=False)
+    try:
+        content_path.relative_to(root)
+    except ValueError as exc:
+        raise ImageGenerationFailed("Image artifact filename is invalid.") from exc
+    if not filename.startswith(f"{artifact_id}."):
+        raise ImageGenerationFailed("Image artifact filename does not match its identifier.")
+    return content_path
 
 
 def verify_image_artifact(artifact: dict[str, Any]) -> dict[str, Any]:
@@ -579,11 +903,21 @@ def verify_image_artifact(artifact: dict[str, Any]) -> dict[str, Any]:
     except HTTPException as exc:
         raise ImageGenerationFailed("Image artifact metadata is not retrievable.") from exc
     filename = str(metadata.get("_filename") or "")
-    content_path = _artifact_root() / filename
-    try:
-        content = content_path.read_bytes()
-    except FileNotFoundError as exc:
-        raise ImageGenerationFailed("Image artifact bytes are not retrievable.") from exc
+    if metadata.get("_storage") == "unified":
+        try:
+            stored = get_artifact_store().open(
+                normalized_id,
+                revision=int(metadata.get("_revision") or 1),
+            )
+        except ArtifactStoreError as exc:
+            raise ImageGenerationFailed("Image artifact bytes are not retrievable.") from exc
+        content = stored.content
+    else:
+        content_path = _legacy_content_path(normalized_id, filename)
+        try:
+            content = content_path.read_bytes()
+        except FileNotFoundError as exc:
+            raise ImageGenerationFailed("Image artifact bytes are not retrievable.") from exc
 
     try:
         details = inspect_image_bytes(content, max_bytes=_MAX_IMAGE_BYTES)
@@ -593,7 +927,7 @@ def verify_image_artifact(artifact: dict[str, Any]) -> dict[str, Any]:
     expected_filename = f"{normalized_id}{detected_extension}"
     digest = hashlib.sha256(content).hexdigest()
     size_bytes = len(content)
-    if filename != expected_filename:
+    if metadata.get("_storage") != "unified" and filename != expected_filename:
         raise ImageGenerationFailed("Image artifact filename does not match its identifier.")
     for key in ("id", "type", "mime_type", "size_bytes", "sha256", "url", "download_url"):
         if artifact.get(key) != metadata.get(key):
@@ -616,14 +950,15 @@ async def generate_invocable_image(
     *,
     policy: dict[str, Any] | None = None,
     run_id: str | None = None,
+    scope_id: str | None = None,
 ) -> dict[str, Any]:
     """Generate through the proved image route; never fall back to chat."""
     if not _image_route_is_invocable(policy):
         raise ImageCapabilityUnavailable("No configured and policy-permitted image route is invocable.")
     artifact = (
-        await generate_image(request, run_id=run_id)
+        await generate_image(request, run_id=run_id, scope_id=scope_id)
         if run_id is not None
-        else await generate_image(request)
+        else await generate_image(request, scope_id=scope_id)
     )
     return verify_image_artifact(artifact)
 
@@ -636,25 +971,69 @@ async def get_capabilities():
 
 @router.post("/api/v1/images/generations", status_code=201)
 @router.post("/v1/images/generations", status_code=201, include_in_schema=False)
-async def create_image(request: ImageGenerationRequest):
+async def create_image(
+    request: ImageGenerationRequest,
+    scope_id: str = Depends(authorize_public_scope),
+):
     try:
-        return verify_image_artifact(await generate_image(request))
+        return verify_image_artifact(await generate_image(request, scope_id=scope_id))
     except ImageCapabilityUnavailable as exc:
         raise HTTPException(status_code=503, detail="Генерация изображений сейчас не подключена.") from exc
     except ImageGenerationFailed as exc:
         raise HTTPException(status_code=502, detail="Провайдер изображений не вернул проверенный артефакт.") from exc
 
 
+@router.post("/api/v1/images/edits", status_code=201)
+@router.post("/v1/images/edits", status_code=201, include_in_schema=False)
+async def create_image_edit(
+    request: ImageEditRequest,
+    scope_id: str = Depends(authorize_public_scope),
+):
+    try:
+        return await edit_image(request, scope_id=scope_id)
+    except ImageCapabilityUnavailable as exc:
+        raise HTTPException(status_code=503, detail="Редактирование изображений сейчас не подключено.") from exc
+    except ImageGenerationFailed as exc:
+        raise HTTPException(status_code=502, detail="Провайдер не вернул проверенный результат редактирования.") from exc
+
+
 @router.get("/api/v1/artifacts/images/{artifact_id}")
 @router.get("/v1/artifacts/images/{artifact_id}", include_in_schema=False)
-async def get_image_artifact(artifact_id: str, download: bool = False):
+async def get_image_artifact(
+    artifact_id: str,
+    download: bool = False,
+    scope_id: str | None = Depends(resolve_optional_public_scope),
+):
     metadata = _metadata(artifact_id)
+    try:
+        if metadata.get("_storage") == "unified":
+            _assert_artifact_scope(get_artifact_store().get(artifact_id), scope_id)
+        else:
+            # Preserve old bytes for an explicit migration job, but never
+            # expose an unscoped flat-file artifact through the public API.
+            _assert_artifact_scope(
+                {"metadata": {"scope_key": metadata.get("_scope_key")}},
+                scope_id,
+            )
+    except ArtifactStoreError as exc:
+        raise HTTPException(status_code=404, detail="Image artifact not found") from exc
     try:
         verified = verify_image_artifact({key: value for key, value in metadata.items() if not key.startswith("_")})
     except ImageGenerationFailed as exc:
         raise HTTPException(status_code=409, detail="Image artifact integrity check failed") from exc
-    content_path = _artifact_root() / str(metadata.get("_filename", ""))
-    content = content_path.read_bytes()
+    if metadata.get("_storage") == "unified":
+        try:
+            content = get_artifact_store().open(
+                verified["id"],
+                revision=int(metadata.get("_revision") or 1),
+            ).content
+        except ArtifactStoreError as exc:
+            raise HTTPException(status_code=409, detail="Image artifact integrity check failed") from exc
+    else:
+        content_path = _legacy_content_path(
+            verified["id"], str(metadata.get("_filename", ""))
+        )
+        content = content_path.read_bytes()
     headers = {"ETag": f'"{verified["sha256"]}"', "Cache-Control": "private, max-age=31536000, immutable"}
     if download:
         headers["Content-Disposition"] = f'attachment; filename="kolibri-{artifact_id}.{verified["mime_type"].split("/")[-1]}"'

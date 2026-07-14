@@ -5,7 +5,13 @@ import remarkGfm from 'remark-gfm'
 import { Copy, FileText, Image as ImageIcon, PencilLine, RotateCw, ThumbsDown, ThumbsUp, Volume2 } from 'lucide-react'
 import Composer from '@/features/conversation/Composer'
 import ArtifactCard, { type ConversationArtifact } from '@/features/conversation/ArtifactCard'
-import { normalizeImageArtifact } from '@/features/conversation/imageArtifact'
+import {
+  expectsImageArtifact,
+  isVerifiedImageArtifact,
+  safeContentBeforeImageVerification,
+  verifyImageArtifact,
+} from '@/features/conversation/imageArtifact'
+import { isVerifiedFileArtifact, verifyFileArtifact } from '@/features/conversation/fileArtifact'
 import { isFailedResponse, persistedResponseStatus, responseFailureMessage } from '@/features/conversation/responseState'
 import WorkTrace, { type WorkStage } from '@/features/conversation/WorkTrace'
 import CartoonMascot from '@/components/CartoonMascot'
@@ -19,7 +25,6 @@ import { conversationRouteAction, type ConversationRouteSnapshot } from '@/featu
 import {
   buildPersistedConversationMetadata,
   hydratePersistedArtifact,
-  imageArtifactFromReference,
   normalizePersistedAction,
   restoreConversationMetadata,
   type PersistedArtifactReference,
@@ -42,6 +47,12 @@ import { LocalizedMultiline, useLocale, type Translate } from '@/features/locali
 
 function normalizeEstimateAction(data: Record<string, unknown>): Parameters<typeof estimates.create>[0] {
   const sections = Array.isArray(data.sections) ? data.sections : []
+  const estimateStatus = data.estimate_status === 'needs_input' || data.estimate_status === 'source_backed' || data.estimate_status === 'verified'
+    ? data.estimate_status
+    : 'preliminary'
+  const pricingStatus = data.pricing_status === 'needs_input' || data.pricing_status === 'source_backed' || data.pricing_status === 'verified'
+    ? data.pricing_status
+    : 'preliminary'
   return {
     title: String(data.title || 'Предварительная смета'),
     client: typeof data.client === 'string' ? data.client : '',
@@ -49,7 +60,17 @@ function normalizeEstimateAction(data: Record<string, unknown>): Parameters<type
     region: typeof data.region === 'string' ? data.region : '',
     currency: typeof data.currency === 'string' ? data.currency : 'RUB',
     overhead_rate: typeof data.overhead_rate === 'string' ? data.overhead_rate : '0',
-    vat_rate: typeof data.vat_rate === 'string' ? data.vat_rate : '22',
+    vat_rate: typeof data.vat_rate === 'string' ? data.vat_rate : '0',
+    estimate_status: estimateStatus,
+    pricing_status: pricingStatus,
+    scope_status: data.scope_status === 'verified' ? 'verified' : 'unverified',
+    price_sources: Array.isArray(data.price_sources) ? data.price_sources as Parameters<typeof estimates.create>[0]['price_sources'] : [],
+    evidence_issues: Array.isArray(data.evidence_issues) ? data.evidence_issues as Parameters<typeof estimates.create>[0]['evidence_issues'] : [],
+    totals: data.totals && typeof data.totals === 'object' ? data.totals as Parameters<typeof estimates.create>[0]['totals'] : undefined,
+    price_as_of: typeof data.price_as_of === 'string' ? data.price_as_of : null,
+    assumptions: Array.isArray(data.assumptions) ? data.assumptions.filter((item): item is string => typeof item === 'string') : [],
+    questions: Array.isArray(data.questions) ? data.questions.filter((item): item is string => typeof item === 'string') : [],
+    source_note: typeof data.source_note === 'string' ? data.source_note : '',
     sections: sections.map(sectionValue => {
       const section = sectionValue && typeof sectionValue === 'object' ? sectionValue as Record<string, unknown> : {}
       const positions = Array.isArray(section.positions) ? section.positions : []
@@ -63,7 +84,14 @@ function normalizeEstimateAction(data: Record<string, unknown>): Parameters<type
             unit: String(position.unit || 'шт'),
             quantity: String(position.quantity ?? '0'),
             price: String(position.price ?? '0'),
+            sum: typeof position.sum === 'string' ? position.sum : undefined,
             source: typeof position.source === 'string' ? position.source : '',
+            source_evidence: position.source_evidence && typeof position.source_evidence === 'object'
+              ? position.source_evidence as NonNullable<NonNullable<Parameters<typeof estimates.create>[0]['sections']>[number]['positions']>[number]['source_evidence']
+              : null,
+            price_evidence: Array.isArray(position.price_evidence)
+              ? position.price_evidence as NonNullable<NonNullable<Parameters<typeof estimates.create>[0]['sections']>[number]['positions']>[number]['price_evidence']
+              : [],
             comment: typeof position.comment === 'string' ? position.comment : '',
           }
         }),
@@ -72,7 +100,7 @@ function normalizeEstimateAction(data: Record<string, unknown>): Parameters<type
   }
 }
 
-async function materializeAction(action: ChatAction): Promise<ConversationArtifact | null> {
+async function materializeAction(action: ChatAction, signal?: AbortSignal): Promise<ConversationArtifact | null> {
   const validatedAction = normalizePersistedAction(action)
   if (!validatedAction?.data) return null
   if (validatedAction.type === 'create_estimate') {
@@ -82,7 +110,10 @@ async function materializeAction(action: ChatAction): Promise<ConversationArtifa
     return { type: 'document', value: await documents.create(validatedAction.data as unknown as Parameters<typeof documents.create>[0]) }
   }
   if (validatedAction.type === 'present_image') {
-    return { type: 'image', value: normalizeImageArtifact(validatedAction.data) }
+    return { type: 'image', value: await verifyImageArtifact(validatedAction.data, { signal }) }
+  }
+  if (validatedAction.type === 'present_artifact') {
+    return { type: 'file', value: await verifyFileArtifact(validatedAction.data, { signal }) }
   }
   return null
 }
@@ -130,12 +161,25 @@ function artifactMaterializationEvent(
       artifact_type: 'document',
     }
   }
-  if (action.type === 'present_image' && status === 'failed') {
+  if (action.type === 'present_image') {
     return {
       stage: 'artifact_verification',
-      status: 'failed',
-      summary: t('trace.imageVerificationFailed'),
+      status,
+      summary: status === 'active'
+        ? t('trace.imageVerifying')
+        : status === 'completed'
+          ? t('trace.imageVerified')
+          : t('trace.imageVerificationFailed'),
       artifact_type: 'image',
+      artifact_id: typeof action.data?.id === 'string' ? action.data.id : undefined,
+    }
+  }
+  if (action.type === 'present_artifact') {
+    return {
+      stage: 'artifact_verification',
+      status,
+      summary: status === 'failed' ? t('trace.artifactFailed') : status === 'completed' ? t('trace.artifactReady') : t('trace.artifactPreparing'),
+      artifact_type: typeof action.data?.type === 'string' ? action.data.type : 'file',
       artifact_id: typeof action.data?.id === 'string' ? action.data.id : undefined,
     }
   }
@@ -182,7 +226,7 @@ function restoredMessage(message: ProjectMessage): Message | null {
     role: message.role,
     content: message.content,
     actions: metadata.actions.length ? metadata.actions : undefined,
-    artifact: imageArtifactFromReference(metadata.artifact),
+    artifact: undefined,
     artifactReference: metadata.artifact,
     timestamp: new Date(message.created_at),
     work: stage ? {
@@ -267,6 +311,7 @@ export default function ChatPage() {
   const draftProjectKeyRef = useRef(createUuid())
   const skipLoadProjectRef = useRef<string | null>(null)
   const routeSnapshotRef = useRef<ConversationRouteSnapshot>({ initialized: false, projectId: null })
+  const verifiedObjectUrlsRef = useRef(new Set<string>())
   const navigate = useNavigate()
   const { projectId: routeProjectId } = useParams<{ projectId?: string }>()
   const [searchParams] = useSearchParams()
@@ -282,6 +327,27 @@ export default function ChatPage() {
   }, [])
 
   useEffect(() => () => abortRef.current?.abort(), [])
+
+  useEffect(() => {
+    const activeUrls = new Set(messages.flatMap(message => {
+      const artifact = message.artifact
+      if (artifact?.type === 'image' && isVerifiedImageArtifact(artifact.value)) return [artifact.value.object_url]
+      if (artifact?.type === 'file' && isVerifiedFileArtifact(artifact.value)) return [artifact.value.object_url]
+      return []
+    }))
+    for (const url of verifiedObjectUrlsRef.current) {
+      if (!activeUrls.has(url)) {
+        URL.revokeObjectURL(url)
+        verifiedObjectUrlsRef.current.delete(url)
+      }
+    }
+    activeUrls.forEach(url => verifiedObjectUrlsRef.current.add(url))
+  }, [messages])
+
+  useEffect(() => () => {
+    verifiedObjectUrlsRef.current.forEach(url => URL.revokeObjectURL(url))
+    verifiedObjectUrlsRef.current.clear()
+  }, [])
 
   useEffect(() => {
     let active = true
@@ -338,21 +404,64 @@ export default function ChatPage() {
           const reference = message.artifactReference
           if (!reference || message.artifact) return message
           try {
-            const artifact = await hydratePersistedArtifact(reference, {
-              estimate: estimates.get,
-              document: documents.get,
-            })
+            const artifact: ConversationArtifact = reference.type === 'image'
+              ? { type: 'image', value: await verifyImageArtifact(reference.value) }
+              : reference.type === 'file'
+                ? { type: 'file', value: await verifyFileArtifact(reference.value) }
+                : await hydratePersistedArtifact(reference, {
+                estimate: estimates.get,
+                document: documents.get,
+              })
             return { ...message, artifact }
           } catch {
             // History remains readable if a referenced artifact was removed or
             // fails integrity checks. A fake card is never substituted.
-            return message
+            if (reference.type !== 'image') return message
+            return {
+              ...message,
+              content: responseFailureMessage({
+                status: 'failed',
+                error_code: 'image_artifact_verification_failed',
+                capability: 'image.generate',
+              }, t),
+              work: {
+                stage: 'failed' as const,
+                startedAt: message.work?.startedAt ?? Date.now(),
+                elapsedSeconds: message.work?.elapsedSeconds ?? 0,
+                events: appendWorkSummary(message.work?.events ?? [], {
+                  stage: 'artifact_verification',
+                  status: 'failed',
+                  summary: t('trace.imageVerificationFailed'),
+                  artifact_type: 'image',
+                  artifact_id: reference.value.id,
+                }),
+              },
+            }
           }
         }))
+        let previousPromptExpectsImage = false
+        const safeHydrated = hydrated.map(message => {
+          if (message.role === 'user') {
+            previousPromptExpectsImage = expectsImageArtifact(message.content)
+            return message
+          }
+          if (!previousPromptExpectsImage
+            || message.artifact?.type === 'image'
+            || message.work?.stage !== 'completed') return message
+          return {
+            ...message,
+            content: responseFailureMessage({
+              status: 'failed',
+              error_code: 'image_artifact_verification_failed',
+              capability: 'image.generate',
+            }, t),
+            work: message.work ? { ...message.work, stage: 'failed' as const } : undefined,
+          }
+        })
         if (!active) return
         setProject(loadedProject)
         remember(loadedProject)
-        setMessages(hydrated)
+        setMessages(safeHydrated)
         previousResponseRef.current = latestResponseId(loadedMessages.items)
         setHistoryError(null)
       })
@@ -362,7 +471,7 @@ export default function ChatPage() {
       })
       .finally(() => { if (active) setHistoryLoading(false) })
     return () => { active = false }
-  }, [remember, routeProjectId])
+  }, [remember, routeProjectId, t])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: loading ? 'auto' : 'smooth' })
@@ -381,6 +490,7 @@ export default function ChatPage() {
   const handleSendMessage = useCallback(async (rawText: string) => {
     const text = rawText.trim()
     if (!text || loading) return
+    const imageExpected = expectsImageArtifact(text)
 
     const userId = createUuid()
     const userMessage: Message = { id: userId, role: 'user', content: text, timestamp: new Date() }
@@ -490,16 +600,21 @@ export default function ChatPage() {
     }
 
     const persistStreaming = () => {
-      if (!assistantContent || Date.now() - lastStreamingPatchAt < 700) return
+      const safeContent = safeContentBeforeImageVerification(assistantContent, imageExpected)
+      if (!safeContent || Date.now() - lastStreamingPatchAt < 700) return
       lastStreamingPatchAt = Date.now()
-      void persistAssistant('streaming', assistantContent, buildPersistedConversationMetadata({
+      void persistAssistant('streaming', safeContent, buildPersistedConversationMetadata({
         responseId,
         workEvents,
       }))
     }
 
     const requestOptions = {
-      policy: createExecutionPolicy(mode, capabilityMenu.map(item => item.capability.id)),
+      policy: createExecutionPolicy(
+        mode,
+        capabilityMenu.map(item => item.capability.id),
+        imageExpected ? ['image.generate'] : [],
+      ),
       project_id: durableProject?.id,
       previous_response_id: previousResponseRef.current ?? undefined,
       idempotencyKey: `response:${assistantId}`,
@@ -517,7 +632,7 @@ export default function ChatPage() {
           activeAssistantContentRef.current = assistantContent
           receivedDelta = true
         }
-        if (event.actions) {
+        if (event.actions?.length) {
           assistantActions = event.actions
             .map(normalizePersistedAction)
             .filter((action): action is ChatAction => action !== null)
@@ -535,7 +650,9 @@ export default function ChatPage() {
           if (message.id !== assistantId) return message
           return {
             ...message,
-            content: assistantContent,
+            content: failed
+              ? assistantContent
+              : safeContentBeforeImageVerification(assistantContent, imageExpected),
             actions: event.actions ? assistantActions : message.actions,
             work: {
               ...message.work!,
@@ -552,13 +669,13 @@ export default function ChatPage() {
         responseId = finalEvent.response_id
         previousResponseRef.current = finalEvent.response_id
       }
-      if (finalEvent.actions) {
+      if (finalEvent.actions?.length) {
         assistantActions = finalEvent.actions
           .map(normalizePersistedAction)
           .filter((action): action is ChatAction => action !== null)
       }
 
-      const action = assistantActions.find(item => ['create_estimate', 'create_document', 'present_image'].includes(item.type))
+      const action = assistantActions.find(item => ['create_estimate', 'create_document', 'present_image', 'present_artifact'].includes(item.type))
       if (action) {
         const startedMaterialization = artifactMaterializationEvent(action, 'active', t)
         if (startedMaterialization) {
@@ -573,7 +690,7 @@ export default function ChatPage() {
           } : message))
         }
         try {
-          const artifact = await materializeAction(action)
+          const artifact = await materializeAction(action, controller.signal)
           if (artifact) {
             materializedArtifact = artifact
             const completedMaterialization = artifactMaterializationEvent(action, 'completed', t)
@@ -581,6 +698,7 @@ export default function ChatPage() {
             assistantActions = []
             setMessages(current => current.map(message => message.id === assistantId ? {
               ...message,
+              content: assistantContent,
               artifact,
               actions: [],
               work: {
@@ -617,7 +735,33 @@ export default function ChatPage() {
           console.error('Artifact materialization failed', error)
         }
       }
-      const finalStatus = persistedResponseStatus(finalEvent.status, artifactFailed, assistantContent)
+      if (imageExpected && materializedArtifact?.type !== 'image' && !artifactFailed && !isFailedResponse(finalEvent)) {
+        artifactFailed = true
+        assistantActions = []
+        assistantContent = responseFailureMessage({
+          status: 'failed',
+          error_code: 'image_artifact_verification_failed',
+          capability: 'image.generate',
+        }, t)
+        activeAssistantContentRef.current = assistantContent
+        workEvents = appendWorkSummary(workEvents, {
+          stage: 'artifact_verification',
+          status: 'failed',
+          summary: t('trace.imageVerificationFailed'),
+          artifact_type: 'image',
+        })
+        setMessages(current => current.map(message => message.id === assistantId ? {
+          ...message,
+          content: assistantContent,
+          actions: [],
+          work: {
+            ...message.work!,
+            stage: 'failed',
+            events: workEvents,
+          },
+        } : message))
+      }
+      const finalStatus = persistedResponseStatus(finalEvent.status, artifactFailed, assistantContent, materializedArtifact !== null)
       const finalContent = assistantContent || (finalStatus === 'completed'
         ? assistantContent
         : finalStatus === 'cancelled' ? t('chat.cancelled') : responseFailureMessage(finalEvent, t))
@@ -651,13 +795,17 @@ export default function ChatPage() {
             .filter((action): action is ChatAction => action !== null)
           const fallbackAction = fallbackFailed
             ? undefined
-            : assistantActions.find(item => ['create_estimate', 'create_document', 'present_image'].includes(item.type))
+            : assistantActions.find(item => ['create_estimate', 'create_document', 'present_image', 'present_artifact'].includes(item.type))
           let fallbackArtifact: ConversationArtifact | null = null
           let fallbackArtifactFailed = false
           if (fallbackAction) {
             try {
-              fallbackArtifact = await materializeAction(fallbackAction)
+              const startedMaterialization = artifactMaterializationEvent(fallbackAction, 'active', t)
+              if (startedMaterialization) workEvents = appendWorkSummary(workEvents, startedMaterialization)
+              fallbackArtifact = await materializeAction(fallbackAction, controller.signal)
               materializedArtifact = fallbackArtifact
+              const completedMaterialization = artifactMaterializationEvent(fallbackAction, 'completed', t)
+              if (completedMaterialization) workEvents = appendWorkSummary(workEvents, completedMaterialization)
             } catch (cause) {
               fallbackArtifactFailed = true
               assistantActions = []
@@ -672,13 +820,34 @@ export default function ChatPage() {
               console.error('Fallback artifact materialization failed', cause)
             }
           }
-          const fallbackTerminalFailed = fallbackFailed || fallbackArtifactFailed
+          const fallbackMissingImage = imageExpected && fallbackArtifact?.type !== 'image' && !fallbackFailed
+          if (fallbackMissingImage) {
+            assistantActions = []
+            assistantContent = responseFailureMessage({
+              status: 'failed',
+              error_code: 'image_artifact_verification_failed',
+              capability: 'image.generate',
+            }, t)
+            activeAssistantContentRef.current = assistantContent
+            workEvents = appendWorkSummary(workEvents, {
+              stage: 'artifact_verification',
+              status: 'failed',
+              summary: t('trace.imageVerificationFailed'),
+              artifact_type: 'image',
+            })
+          }
+          const fallbackTerminalFailed = fallbackFailed || fallbackArtifactFailed || fallbackMissingImage
           setMessages(current => current.map(message => message.id === assistantId ? {
             ...message,
             content: assistantContent,
             actions: fallbackArtifact ? [] : assistantActions,
             artifact: fallbackArtifact ?? message.artifact,
-            work: { ...message.work!, stage: fallbackTerminalFailed ? 'failed' : 'completed', elapsedSeconds: Math.floor((Date.now() - startedAt) / 1000) },
+            work: {
+              ...message.work!,
+              stage: fallbackTerminalFailed ? 'failed' : 'completed',
+              elapsedSeconds: Math.floor((Date.now() - startedAt) / 1000),
+              events: workEvents,
+            },
           } : message))
           await persistAssistant(
             fallbackTerminalFailed ? 'failed' : 'completed',
@@ -795,7 +964,19 @@ export default function ChatPage() {
         const created = await documents.create(action.data as unknown as Parameters<typeof documents.create>[0])
         navigate(`/documents?edit=${created.id}`)
       } else if (action.type === 'present_image' && action.data) {
-        window.open(normalizeImageArtifact(action.data).url, '_blank', 'noopener,noreferrer')
+        const value = await verifyImageArtifact(action.data)
+        setMessages(current => current.map(message => message.id === messageId ? {
+          ...message,
+          artifact: { type: 'image', value },
+          actions: [],
+        } : message))
+      } else if (action.type === 'present_artifact' && action.data) {
+        const value = await verifyFileArtifact(action.data)
+        setMessages(current => current.map(message => message.id === messageId ? {
+          ...message,
+          artifact: { type: 'file', value },
+          actions: [],
+        } : message))
       }
     } finally {
       setActionBusy(null)
@@ -851,18 +1032,28 @@ export default function ChatPage() {
                     onOpen={() => {
                       if (!message.artifact) return
                       if (message.artifact.type === 'image') {
-                        window.open(message.artifact.value.url, '_blank', 'noopener,noreferrer')
+                        if (isVerifiedImageArtifact(message.artifact.value)) {
+                          window.open(message.artifact.value.object_url, '_blank', 'noopener,noreferrer')
+                        }
+                      } else if (message.artifact.type === 'file') {
+                        if (isVerifiedFileArtifact(message.artifact.value)) {
+                          window.open(message.artifact.value.preview_url || message.artifact.value.object_url, '_blank', 'noopener,noreferrer')
+                        }
                       } else {
                         navigate(message.artifact.type === 'estimate'
                           ? `/estimates?edit=${message.artifact.value.id}`
                           : `/documents?edit=${message.artifact.value.id}`)
                       }
                     }}
+                    onRetry={message.artifact.type === 'image' ? () => {
+                      const previous = messages.slice(0, messageIndex).reverse().find(item => item.role === 'user')
+                      if (previous) void handleSendMessage(previous.content)
+                    } : undefined}
                   />
                 )}
-                {message.actions && message.actions.length > 0 && (
+                {message.actions?.some(action => action.type !== 'present_image') && (
                   <div className="conversation-actions">
-                    {message.actions.map((action, index) => (
+                    {message.actions.filter(action => action.type !== 'present_image').map((action, index) => (
                       <ActionButton
                         key={`${action.type}-${index}`}
                         action={action}
@@ -872,7 +1063,7 @@ export default function ChatPage() {
                     ))}
                   </div>
                 )}
-                {message.role === 'assistant' && message.content && message.work?.stage === 'completed' && (
+                {message.role === 'assistant' && message.content && message.work?.stage === 'completed' && message.artifact?.type !== 'image' && (
                   <>
                     <MessageActions
                       content={message.content}
@@ -904,8 +1095,6 @@ export default function ChatPage() {
           value={input}
           onChange={setInput}
           onSend={() => void handleSendMessage(input)}
-          onEstimate={() => setInput(`${t('home.suggestionEstimate')}: `)}
-          onDocument={() => setInput(`${t('home.suggestionContract')}: `)}
           capabilities={capabilityMenu}
           onCapability={selectCapability}
           onCancel={handleCancel}

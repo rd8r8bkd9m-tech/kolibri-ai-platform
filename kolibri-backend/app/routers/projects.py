@@ -4,6 +4,11 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
 from app.browser_session import ProjectPrincipal, resolve_project_principal
+from app.artifact_store import (
+    ArtifactStoreError,
+    _assert_http_artifact_access,
+    get_artifact_store,
+)
 from app.database import get_db
 from app.project_history import (
     MessageNotFoundError,
@@ -24,6 +29,9 @@ from app.project_schemas import (
     ProjectHandoffClaim,
     ProjectListResponse,
     ProjectMessageCreate,
+    PersistedFileAction,
+    PersistedFileArtifact,
+    PersistedFileArtifactReference,
     ProjectMessageListResponse,
     ProjectMessageResponse,
     ProjectMessageUpdate,
@@ -40,6 +48,54 @@ def _message_payload(data: ProjectMessageCreate | ProjectMessageUpdate, *, exclu
     if "metadata" in payload and data.metadata is not None:
         payload["metadata"] = data.metadata.model_dump(exclude_none=True, exclude_defaults=True)
     return payload
+
+
+def _persisted_file_artifacts(
+    data: ProjectMessageCreate | ProjectMessageUpdate,
+) -> list[PersistedFileArtifact]:
+    metadata = data.metadata
+    if metadata is None:
+        return []
+    artifacts: list[PersistedFileArtifact] = []
+    if isinstance(metadata.artifact, PersistedFileArtifactReference):
+        artifacts.append(metadata.artifact.value)
+    artifacts.extend(
+        action.data
+        for action in metadata.actions
+        if isinstance(action, PersistedFileAction)
+    )
+    return artifacts
+
+
+def _verify_persisted_file_artifacts(
+    data: ProjectMessageCreate | ProjectMessageUpdate,
+    principal: ProjectPrincipal,
+) -> None:
+    """Bind browser-persisted file metadata to real scoped CAS bytes."""
+
+    artifacts = _persisted_file_artifacts(data)
+    if not artifacts:
+        return
+    store = get_artifact_store()
+    try:
+        for artifact in artifacts:
+            stored = store.open(artifact.id, revision=artifact.revision)
+            _assert_http_artifact_access(stored.manifest, principal)
+            submitted = artifact.model_dump(exclude_none=True)
+            canonical = {
+                key: stored.manifest.get(key)
+                for key in submitted
+            }
+            if canonical != submitted or not stored.content:
+                raise ValueError("artifact_manifest_mismatch")
+    except (ArtifactStoreError, ValueError) as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "artifact_manifest_unverified",
+                "message": "Artifact metadata is not bound to scoped CAS bytes",
+            },
+        ) from exc
 
 
 def _idempotency_key(value: str | None) -> str | None:
@@ -95,6 +151,13 @@ def list_projects(
         page=page,
         page_size=page_size,
     )
+    from app.capability_runtime import record_capability_invocation
+
+    record_capability_invocation(
+        "project.history",
+        succeeded=True,
+        provider="postgres-project-history",
+    )
     return {**result, "page": page, "page_size": page_size}
 
 
@@ -113,6 +176,14 @@ def create_project(
         )
     except ProjectConflictError as exc:
         raise _conflict(exc) from exc
+    from app.capability_runtime import record_capability_invocation
+
+    record_capability_invocation(
+        "project.history",
+        succeeded=True,
+        provider="postgres-project-history",
+        evidence_id=str(result.get("id") or ""),
+    )
     response.status_code = 201 if created else 200
     return result
 
@@ -230,6 +301,7 @@ def append_project_message(
     principal: ProjectPrincipal = Depends(resolve_project_principal),
     db: Session = Depends(get_db),
 ):
+    _verify_persisted_file_artifacts(data, principal)
     try:
         result, created = ProjectHistoryRepository(db, principal.scope_id).append_message(
             project_id,
@@ -253,6 +325,7 @@ def update_project_message(
     principal: ProjectPrincipal = Depends(resolve_project_principal),
     db: Session = Depends(get_db),
 ):
+    _verify_persisted_file_artifacts(data, principal)
     try:
         result, _ = ProjectHistoryRepository(db, principal.scope_id).update_message(
             project_id,

@@ -1,33 +1,32 @@
-"""Deterministic search — exact and fuzzy search across all Kolibri data."""
-import re
+"""Deterministic principal-scoped search across public Kolibri resources."""
 from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import Session
-from app.models import EstimateDB, SectionDB, PositionDB, DocumentDB, AgentDB, NodeDB, TaskDB
+from app.models import DocumentDB, EstimateDB, PositionDB, SectionDB
 
 
 class SearchEngine:
-    """Deterministic search across all Kolibri entities."""
+    """Deterministic search inside one signed browser/user principal."""
     
-    def __init__(self, db: Session):
+    PUBLIC_ENTITY_TYPES = frozenset({"estimates", "documents", "positions"})
+
+    def __init__(self, db: Session, scope_id: str):
+        if not scope_id:
+            raise RuntimeError("search requires an explicit principal scope")
         self.db = db
+        self.scope_id = scope_id
     
     def search(self, query: str, entity_types: Optional[List[str]] = None, limit: int = 20) -> Dict[str, List[Dict]]:
         """Search across all entities."""
         query_lower = query.lower().strip()
         results = {}
         
-        types = entity_types or ["estimates", "documents", "agents", "nodes", "tasks"]
+        requested_types = entity_types or ["estimates", "documents", "positions"]
+        types = [name for name in requested_types if name in self.PUBLIC_ENTITY_TYPES]
         
         if "estimates" in types:
             results["estimates"] = self._search_estimates(query_lower, limit)
         if "documents" in types:
             results["documents"] = self._search_documents(query_lower, limit)
-        if "agents" in types:
-            results["agents"] = self._search_agents(query_lower, limit)
-        if "nodes" in types:
-            results["nodes"] = self._search_nodes(query_lower, limit)
-        if "tasks" in types:
-            results["tasks"] = self._search_tasks(query_lower, limit)
         if "positions" in types:
             results["positions"] = self._search_positions(query_lower, limit)
         
@@ -35,7 +34,7 @@ class SearchEngine:
     
     def _search_estimates(self, query: str, limit: int) -> List[Dict]:
         results = []
-        for est in self.db.query(EstimateDB).all():
+        for est in self.db.query(EstimateDB).filter(EstimateDB.scope_id == self.scope_id).all():
             score = self._score(query, [
                 est.title or "",
                 est.client or "",
@@ -58,7 +57,7 @@ class SearchEngine:
     
     def _search_documents(self, query: str, limit: int) -> List[Dict]:
         results = []
-        for doc in self.db.query(DocumentDB).all():
+        for doc in self.db.query(DocumentDB).filter(DocumentDB.scope_id == self.scope_id).all():
             score = self._score(query, [
                 doc.title or "",
                 doc.client or "",
@@ -80,7 +79,14 @@ class SearchEngine:
     
     def _search_positions(self, query: str, limit: int) -> List[Dict]:
         results = []
-        for pos in self.db.query(PositionDB).all():
+        positions = (
+            self.db.query(PositionDB)
+            .join(SectionDB, PositionDB.section_id == SectionDB.id)
+            .join(EstimateDB, SectionDB.estimate_id == EstimateDB.id)
+            .filter(EstimateDB.scope_id == self.scope_id)
+            .all()
+        )
+        for pos in positions:
             score = self._score(query, [
                 pos.name or "",
                 pos.code or "",
@@ -96,65 +102,6 @@ class SearchEngine:
                     "quantity": pos.quantity,
                     "price": pos.price,
                     "sum": pos.sum,
-                    "score": score,
-                })
-        results.sort(key=lambda x: x["score"], reverse=True)
-        return results[:limit]
-    
-    def _search_agents(self, query: str, limit: int) -> List[Dict]:
-        results = []
-        for agent in self.db.query(AgentDB).all():
-            score = self._score(query, [
-                agent.name or "",
-                agent.role or "",
-                agent.current_task or "",
-            ])
-            if score > 0:
-                results.append({
-                    "type": "agent",
-                    "id": agent.id,
-                    "name": agent.name,
-                    "role": agent.role,
-                    "status": agent.status,
-                    "score": score,
-                })
-        results.sort(key=lambda x: x["score"], reverse=True)
-        return results[:limit]
-    
-    def _search_nodes(self, query: str, limit: int) -> List[Dict]:
-        results = []
-        for node in self.db.query(NodeDB).all():
-            score = self._score(query, [
-                node.name or "",
-                node.region or "",
-                node.ip_address or "",
-            ])
-            if score > 0:
-                results.append({
-                    "type": "node",
-                    "id": node.id,
-                    "name": node.name,
-                    "region": node.region,
-                    "status": node.status,
-                    "score": score,
-                })
-        results.sort(key=lambda x: x["score"], reverse=True)
-        return results[:limit]
-    
-    def _search_tasks(self, query: str, limit: int) -> List[Dict]:
-        results = []
-        for task in self.db.query(TaskDB).all():
-            score = self._score(query, [
-                task.workflow_id or "",
-                task.state or "",
-            ])
-            if score > 0:
-                results.append({
-                    "type": "task",
-                    "id": task.id,
-                    "workflow_id": task.workflow_id,
-                    "state": task.state,
-                    "priority": task.priority,
                     "score": score,
                 })
         results.sort(key=lambda x: x["score"], reverse=True)
@@ -178,9 +125,14 @@ class SearchEngine:
                     score += 10
         return score
     
-    def search_with_context(self, query: str, client_id: Optional[str] = None) -> Dict[str, Any]:
+    def search_with_context(
+        self,
+        query: str,
+        entity_types: Optional[List[str]] = None,
+        limit: int = 20,
+    ) -> Dict[str, Any]:
         """Search with additional context."""
-        results = self.search(query)
+        results = self.search(query, entity_types=entity_types, limit=limit)
         
         # Flatten results
         all_results = []
@@ -195,6 +147,6 @@ class SearchEngine:
         return {
             "query": query,
             "total": len(all_results),
-            "results": all_results[:20],
+            "results": all_results[:limit],
             "by_type": {k: len(v) for k, v in results.items()},
         }

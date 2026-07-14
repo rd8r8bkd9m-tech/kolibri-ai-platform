@@ -1,12 +1,14 @@
 import base64
 import asyncio
+import hashlib
 import json
+import uuid
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from app import ai_provider, codex_cli_image_provider, image_artifacts
+from app import ai_provider, capability_runtime, codex_cli_image_provider, image_artifacts
 from app.main import app
 
 
@@ -22,6 +24,9 @@ def reset_image_probe_state(monkeypatch, tmp_path):
     monkeypatch.setattr(image_artifacts, "_last_probe_failure", None)
     monkeypatch.setattr(image_artifacts, "_last_verified_provider", None)
     monkeypatch.setattr(image_artifacts, "_last_verified_model", None)
+    monkeypatch.setattr(image_artifacts, "_last_verified_release_id", None)
+    monkeypatch.setenv("KOLIBRI_RELEASE_ID", "kolibri-image-release-a")
+    monkeypatch.setenv("KOLIBRI_CAPABILITY_PROBE_TTL_SECONDS", "25200")
     monkeypatch.setenv("CODEX_CLI_IMAGE_ENABLED", "false")
     monkeypatch.delenv("OPENAI_REST_IMAGE_ROUTING_ENABLED", raising=False)
     monkeypatch.delenv("KOLIBRI_CODEX_IMAGE_WORKER_URL", raising=False)
@@ -44,12 +49,15 @@ def test_image_capability_fails_closed_without_credential(monkeypatch):
         response = client.get("/api/v1/capabilities")
 
     assert response.status_code == 200
-    capability = response.json()["capabilities"][0]
+    capability = next(
+        item for item in response.json()["capabilities"] if item["id"] == "image.generate"
+    )
     assert capability["id"] == "image.generate"
     assert capability["status"] == "unavailable"
     assert capability["invocable"] is False
-    assert capability["route"]["healthy"] is False
-    assert capability["renderer"] == {"available": True, "id": "image", "status": "live"}
+    assert capability["routes"][0]["configured"] is False
+    assert capability["renderer"]["registered"] is True
+    assert capability["renderer"]["id"] == "image"
 
 
 def test_image_capability_ignores_unverified_health_flag(monkeypatch):
@@ -106,6 +114,7 @@ def test_image_generation_persists_and_serves_verified_bytes(monkeypatch, tmp_pa
     monkeypatch.setattr(image_artifacts.httpx, "AsyncClient", client_factory)
 
     with TestClient(app) as client:
+        assert client.post("/api/v1/shell/bootstrap").status_code == 200
         created = client.post(
             "/api/v1/images/generations",
             json={"prompt": "Создай кинематографичный портрет султана"},
@@ -113,7 +122,11 @@ def test_image_generation_persists_and_serves_verified_bytes(monkeypatch, tmp_pa
         assert created.status_code == 201
         artifact = created.json()
         content = client.get(artifact["url"])
-        capability = client.get("/api/v1/capabilities").json()["capabilities"][0]
+        capability = next(
+            item
+            for item in client.get("/api/v1/capabilities").json()["capabilities"]
+            if item["id"] == "image.generate"
+        )
 
     assert artifact["type"] == "image"
     assert artifact["mime_type"] == "image/png"
@@ -124,8 +137,84 @@ def test_image_generation_persists_and_serves_verified_bytes(monkeypatch, tmp_pa
     assert content.headers["content-type"] == "image/png"
     assert content.content == _PNG_1X1
     assert content.headers["etag"] == f'"{artifact["sha256"]}"'
-    assert capability["status"] == "live"
+    assert capability["status"] == "available"
     assert capability["invocable"] is True
+
+    with TestClient(app) as other_session:
+        assert other_session.post("/api/v1/shell/bootstrap").status_code == 200
+        denied = other_session.get(artifact["url"])
+    assert denied.status_code == 404
+
+
+def test_legacy_unscoped_image_is_quarantined_without_deleting_files(monkeypatch, tmp_path):
+    monkeypatch.setenv("KOLIBRI_ARTIFACT_DIR", str(tmp_path))
+    artifact_id = str(uuid.uuid4())
+    filename = f"{artifact_id}.png"
+    root = tmp_path / "images"
+    root.mkdir(parents=True)
+    content_path = root / filename
+    metadata_path = root / f"{artifact_id}.json"
+    content_path.write_bytes(_PNG_1X1)
+    metadata_path.write_text(
+        json.dumps(
+            {
+                "id": artifact_id,
+                "type": "image",
+                "title": "Legacy image",
+                "prompt": "legacy",
+                "mime_type": "image/png",
+                "size_bytes": len(_PNG_1X1),
+                "sha256": hashlib.sha256(_PNG_1X1).hexdigest(),
+                "model": "legacy-provider",
+                "created_at": "2026-07-01T00:00:00+00:00",
+                "url": f"/api/v1/artifacts/images/{artifact_id}",
+                "download_url": (
+                    f"/api/v1/artifacts/images/{artifact_id}?download=true"
+                ),
+                "_filename": filename,
+                "_width": 1,
+                "_height": 1,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with TestClient(app) as client:
+        assert client.post("/api/v1/shell/bootstrap").status_code == 200
+        denied = client.get(f"/api/v1/artifacts/images/{artifact_id}")
+
+    assert denied.status_code == 404
+    assert denied.json()["detail"] == "Image artifact not found"
+    assert content_path.read_bytes() == _PNG_1X1
+    assert metadata_path.exists()
+
+
+def test_openai_api_key_can_reopen_its_image_on_canonical_api_url(monkeypatch, tmp_path):
+    api_key = "image-api-owner-key"
+    scope_id = f"api-key-sha256:{hashlib.sha256(api_key.encode()).hexdigest()}"
+    monkeypatch.setenv("KOLIBRI_PUBLIC_API_KEY_SHA256", hashlib.sha256(api_key.encode()).hexdigest())
+    monkeypatch.setenv("KOLIBRI_ARTIFACT_DIR", str(tmp_path))
+    artifact = image_artifacts._store_image(
+        _PNG_1X1,
+        prompt="сгенерируй цветы",
+        model="gpt-image-2",
+        scope_id=scope_id,
+    )
+
+    with TestClient(app) as client:
+        reopened = client.get(
+            artifact["url"],
+            headers={"Authorization": f"Bearer {api_key}"},
+        )
+        denied = client.get(
+            artifact["url"],
+            headers={"Authorization": "Bearer another-owner-key"},
+        )
+
+    assert reopened.status_code == 200
+    assert reopened.headers["content-type"] == "image/png"
+    assert reopened.content == _PNG_1X1
+    assert denied.status_code == 404
 
 
 def test_image_capability_proof_is_shared_across_process_state(monkeypatch, tmp_path):
@@ -149,6 +238,31 @@ def test_image_capability_proof_is_shared_across_process_state(monkeypatch, tmp_
     assert capability["status"] == "live"
     assert capability["invocable"] is True
     assert capability["route"]["verified_at"] == now
+
+
+def test_image_capability_proof_does_not_transfer_to_another_release(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setenv("CODEX_CLI_IMAGE_ENABLED", "false")
+    monkeypatch.setenv("KOLIBRI_CODEX_IMAGE_WORKER_URL", "http://127.0.0.1:18016")
+    monkeypatch.setenv("KOLIBRI_ARTIFACT_DIR", str(tmp_path))
+    now = image_artifacts.datetime.now(image_artifacts.timezone.utc).isoformat()
+    image_artifacts._write_probe_state(
+        verified_at=now,
+        failure_at=None,
+        provider="codex_cli",
+        model="codex-cli:account-default",
+    )
+
+    assert image_artifacts.image_capability()["status"] == "live"
+
+    monkeypatch.setenv("KOLIBRI_RELEASE_ID", "kolibri-image-release-b")
+    capability = image_artifacts.image_capability()
+
+    assert image_artifacts._read_probe_state() == {}
+    assert capability["status"] == "partial"
+    assert capability["invocable"] is False
 
 
 def test_codex_cli_is_primary_image_route_and_materializes_real_bytes(monkeypatch, tmp_path):
@@ -203,6 +317,56 @@ def test_codex_cli_is_primary_image_route_and_materializes_real_bytes(monkeypatc
     assert capability["route"]["provider"] == "codex_cli"
 
 
+def test_image_edit_reads_verified_source_and_persists_new_revision(monkeypatch, tmp_path):
+    monkeypatch.setenv("CODEX_CLI_IMAGE_ENABLED", "true")
+    monkeypatch.setenv("KOLIBRI_ARTIFACT_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        image_artifacts,
+        "_codex_cli_route",
+        lambda: {
+            "configured": True,
+            "provider": "codex_cli",
+            "model": "codex-cli:account-default",
+        },
+    )
+    scope_id = "test:image-edit-owner"
+    source = image_artifacts._store_image(
+        _PNG_1X1,
+        prompt="source",
+        model="codex-cli:account-default",
+        scope_id=scope_id,
+    )
+
+    async def fake_edit(prompt, source_image, *, size, quality, run_id=None):
+        assert prompt == "Сделай фон тёплым"
+        assert source_image == _PNG_1X1
+        return codex_cli_image_provider.CodexCLIImageResult(
+            data=_PNG_1X1,
+            mime_type="image/png",
+            width=1,
+            height=1,
+            sha256=image_artifacts.hashlib.sha256(_PNG_1X1).hexdigest(),
+            model="codex-cli:account-default",
+        )
+
+    monkeypatch.setattr(codex_cli_image_provider, "edit_codex_cli_image", fake_edit)
+    edited = asyncio.run(
+        image_artifacts.edit_image(
+            image_artifacts.ImageEditRequest(
+                source_artifact_id=source["id"],
+                prompt="Сделай фон тёплым",
+            ),
+            scope_id=scope_id,
+        )
+    )
+
+    assert edited["id"] != source["id"]
+    assert edited["source_artifact_id"] == source["id"]
+    assert edited["sha256"] == source["sha256"]
+    assert image_artifacts.verify_image_artifact(edited) == edited
+    assert capability_runtime.capability_by_id("image.edit")["status"] == "available"
+
+
 def test_loopback_codex_worker_preserves_backend_sandbox(monkeypatch, tmp_path):
     monkeypatch.setenv("CODEX_CLI_IMAGE_ENABLED", "false")
     monkeypatch.setenv("KOLIBRI_CODEX_IMAGE_WORKER_URL", "http://127.0.0.1:18016")
@@ -243,6 +407,7 @@ def test_chat_stream_never_claims_image_success_without_artifact(monkeypatch):
     monkeypatch.delenv("OPENAI_IMAGE_ROUTE_HEALTHY", raising=False)
 
     with TestClient(app) as client:
+        assert client.post("/api/v1/shell/bootstrap").status_code == 200
         response = client.post(
             "/api/v1/chat/stream",
             json={"messages": [{"role": "user", "content": "сгенерируй цветы"}]},
@@ -286,6 +451,7 @@ def test_chat_stream_emits_present_image_only_after_verified_artifact(monkeypatc
     monkeypatch.setattr(image_artifacts, "generate_image", fake_generate)
 
     with TestClient(app) as client:
+        assert client.post("/api/v1/shell/bootstrap").status_code == 200
         response = client.post(
             "/api/v1/chat/stream",
             json={"messages": [{"role": "user", "content": "сгенерируй цветы"}]},
@@ -345,6 +511,7 @@ def test_chat_stream_rejects_action_shaped_metadata_without_bytes(monkeypatch, t
     monkeypatch.setattr(image_artifacts, "generate_image", fake_generate)
 
     with TestClient(app) as client:
+        assert client.post("/api/v1/shell/bootstrap").status_code == 200
         response = client.post(
             "/api/v1/chat/stream",
             json={"messages": [{"role": "user", "content": "сгенерируй цветы"}]},
@@ -368,6 +535,7 @@ def test_non_stream_image_unavailable_is_structured_and_never_calls_text_provide
 
     monkeypatch.setattr(ai_provider, "chat_completion", forbidden_text_provider)
     with TestClient(app) as client:
+        assert client.post("/api/v1/shell/bootstrap").status_code == 200
         response = client.post(
             "/api/v1/chat",
             json={"messages": [{"role": "user", "content": "сгенерируй цветы"}]},
@@ -418,6 +586,7 @@ def test_responses_image_intent_fails_closed_without_text_provider(monkeypatch):
 
     monkeypatch.setattr(ai_provider, "chat_completion", forbidden_text_provider)
     with TestClient(app) as client:
+        assert client.post("/api/v1/shell/bootstrap").status_code == 200
         response = client.post(
             "/api/v1/responses",
             json={"model": "kolibri", "input": "сгенерируй цветы"},
@@ -438,12 +607,12 @@ def test_responses_image_intent_fails_closed_without_text_provider(monkeypatch):
 
 def test_system_prompt_keeps_kolibri_identity_and_uses_live_catalog(monkeypatch):
     monkeypatch.setattr(
-        image_artifacts,
-        "capability_catalog",
+        capability_runtime,
+        "capability_snapshot",
         lambda: {
             "capabilities": [
-                {"id": "image.generate", "name": "Изображение", "status": "live", "invocable": True},
-                {"id": "openai.web_search", "name": "Веб-поиск", "status": "unverified", "invocable": False},
+                {"id": "image.generate", "name": "Изображение", "status": "available", "invocable": True},
+                {"id": "openai.web_search", "name": "Веб-поиск", "status": "degraded", "invocable": False},
             ]
         },
     )
@@ -452,6 +621,11 @@ def test_system_prompt_keeps_kolibri_identity_and_uses_live_catalog(monkeypatch)
 
     assert "универсальная AI-операционная система" in prompt
     assert "Никогда не представляйся" in prompt
+    assert "Не имитируй выполнение" in prompt
+    assert "не раскрывай private reasoning" in prompt
+    assert "проверь capability/инструмент" in prompt
+    assert "Недоступно в текущем сеансе" in prompt
+    assert "без лишнего подтверждения" in prompt
     assert "Изображение" in prompt
     assert "Веб-поиск" not in prompt.split("Подтверждённые доступные возможности", 1)[-1]
 
@@ -468,10 +642,46 @@ def test_system_prompt_keeps_kolibri_identity_and_uses_live_catalog(monkeypatch)
     result, stream = asyncio.run(execute())
 
     assert result["provider"] == "kolibri_catalog"
-    assert result["model"] == "capability-catalog-v1"
+    assert result["model"] == "kolibri.capabilities.v1"
     assert result["content"].startswith("Я — Колибри")
     assert "строительн" not in result["content"].lower()
     assert "Изображение" in result["content"]
     assert stream[0]["content"] == result["content"]
     assert stream[-1]["done"] is True
     assert stream[-1]["provider"] == "kolibri_catalog"
+
+
+def test_custom_specialization_is_composed_with_kolibri_solo_prompt(monkeypatch):
+    captured: dict = {}
+    provider = {"id": "test", "model": "test-model"}
+
+    monkeypatch.setattr(ai_provider, "_get_providers_for_task", lambda _task: [provider])
+
+    async def fake_call(selected_provider, messages, **_kwargs):
+        captured["provider"] = selected_provider
+        captured["messages"] = messages
+        return {
+            "content": "Готовый результат",
+            "reasoning": "",
+            "actions": [],
+            "status": "idle",
+            "provider": "test",
+            "model": "test-model",
+            "speed_ms": 1,
+        }
+
+    monkeypatch.setattr(ai_provider, "_call_ai", fake_call)
+    result = asyncio.run(
+        ai_provider.chat_completion(
+            [{"role": "user", "content": "Проверь расчёт"}],
+            system="Ты — эксперт по строительным сметам.",
+        )
+    )
+
+    system_prompt = captured["messages"][0]["content"]
+    assert captured["provider"] is provider
+    assert result["content"] == "Готовый результат"
+    assert "универсальная AI-операционная система" in system_prompt
+    assert "Режим автономного универсального исполнителя" in system_prompt
+    assert "Ты — эксперт по строительным сметам." in system_prompt
+    assert "специализация не отменяет идентичность Колибри" in system_prompt

@@ -155,11 +155,55 @@ class CodexCLIImageResult:
     model: str
 
 
-def _image_prompt(prompt: str, *, size: str, quality: str) -> str:
-    return "\n".join(
-        [
-            "Ты — изолированный внутренний исполнитель генерации изображений Kolibri.",
-            "Используй встроенный инструмент генерации изображений.",
+@dataclass(frozen=True)
+class _CodexCLIImageTurn:
+    thread_id: str | None
+    candidate_paths: tuple[str, ...]
+
+
+def _generated_path_candidates(value: Any, generated_root: Path) -> list[str]:
+    """Extract only path-shaped strings inside the trusted image root.
+
+    Codex JSONL may put the generated path in an image-tool item or embed it
+    in an otherwise human-readable completed message.  Prose is never treated
+    as evidence: a candidate must be an absolute descendant of the resolved
+    ``CODEX_HOME/generated_images`` root and later passes the fd-based byte
+    verifier.
+    """
+
+    root_text = str(generated_root)
+    path_pattern = re.compile(
+        rf"{re.escape(root_text)}/[A-Za-z0-9._/-]{{1,4096}}"
+    )
+    candidates: list[str] = []
+    pending: list[Any] = [value]
+    visited = 0
+    while pending and visited < 512:
+        current = pending.pop()
+        visited += 1
+        if isinstance(current, str):
+            candidates.extend(
+                candidate.rstrip(".,;:")
+                for candidate in path_pattern.findall(current)
+            )
+        elif isinstance(current, Mapping):
+            pending.extend(current.values())
+        elif isinstance(current, (list, tuple)):
+            pending.extend(current)
+    return candidates
+
+
+def _image_prompt(
+    prompt: str,
+    *,
+    size: str,
+    quality: str,
+    source_image_path: Path | None = None,
+) -> str:
+    instructions = [
+            "$imagegen",
+            "Ты — изолированный внутренний исполнитель изображений Kolibri.",
+            "Вызови встроенный skill $imagegen и используй его реальный результат.",
             "Создай ровно одно итоговое растровое изображение PNG, JPEG или WebP.",
             "Не используй shell, команды, файловый редактор, поиск файлов или другие инструменты.",
             "В финальном сообщении верни только точный абсолютный путь файла, созданного встроенным image_generation.",
@@ -167,6 +211,21 @@ def _image_prompt(prompt: str, *, size: str, quality: str) -> str:
             "Путь и утверждение об успехе не считаются результатом без независимой проверки реальных байтов.",
             "Не раскрывай рассуждения, команды, credentials, локальные пути или внутреннюю топологию.",
             f"Желаемый размер: {size}. Качество: {quality}.",
+    ]
+    if source_image_path is not None:
+        instructions.extend(
+            [
+                "Это задача редактирования существующего изображения, а не генерация с нуля.",
+                "Передай встроенному image_generation ровно один referenced_image_path, указанный ниже.",
+                "Не изменяй и не копируй исходный файл; создай новый итоговый файл.",
+                "Путь к исходному изображению задаётся доверенным host-процессом:",
+                "<kolibri_source_image_path>",
+                str(source_image_path),
+                "</kolibri_source_image_path>",
+            ]
+        )
+    instructions.extend(
+        [
             "Пользовательское описание находится только между маркерами ниже:",
             "<kolibri_image_request>",
             prompt,
@@ -175,6 +234,7 @@ def _image_prompt(prompt: str, *, size: str, quality: str) -> str:
             "",
         ]
     )
+    return "\n".join(instructions)
 
 
 class CodexCLIImageProvider:
@@ -304,12 +364,14 @@ class CodexCLIImageProvider:
         process: asyncio.subprocess.Process,
         *,
         run_id: str,
-    ) -> str:
+        generated_root: Path,
+    ) -> _CodexCLIImageTurn:
         if process.stdout is None:
             raise CodexCLIImageUnavailable()
         output_bytes = 0
         turn_completed = False
         turn_failed = False
+        thread_id: str | None = None
         artifact_paths: list[str] = []
         while True:
             try:
@@ -328,16 +390,20 @@ class CodexCLIImageProvider:
             if not isinstance(event, Mapping):
                 raise CodexCLIImageError("codex_cli_image_invalid_jsonl")
             event_type = str(event.get("type") or "")
-            if event_type == "turn.completed":
+            if event_type == "thread.started":
+                candidate_thread_id = str(event.get("thread_id") or "")
+                if candidate_thread_id:
+                    thread_id = candidate_thread_id
+            elif event_type == "turn.completed":
                 turn_completed = True
             elif event_type == "turn.failed":
                 turn_failed = True
             elif event_type == "item.completed":
                 item = event.get("item")
-                if isinstance(item, Mapping) and str(item.get("type") or "") == "agent_message":
-                    text = str(item.get("text") or "").strip()
-                    if text:
-                        artifact_paths.append(text)
+                if isinstance(item, Mapping):
+                    artifact_paths.extend(
+                        _generated_path_candidates(item, generated_root)
+                    )
 
             # Codex may emit a recoverable top-level ``error`` (or an
             # ``item.completed`` whose item type is ``error``) for an optional
@@ -353,10 +419,92 @@ class CodexCLIImageProvider:
             raise CodexCLIImageError()
         if not turn_completed:
             raise CodexCLIImageError("codex_cli_image_incomplete_turn")
-        unique_paths = list(dict.fromkeys(artifact_paths))
-        if len(unique_paths) != 1:
+        return _CodexCLIImageTurn(
+            thread_id=thread_id,
+            candidate_paths=tuple(dict.fromkeys(artifact_paths)),
+        )
+
+    def _thread_artifact_paths(
+        self,
+        *,
+        generated_root: Path,
+        thread_id: str | None,
+    ) -> list[str]:
+        if not thread_id:
+            return []
+        try:
+            normalized_thread_id = str(uuid.UUID(thread_id))
+            root = generated_root.resolve(strict=True)
+            thread_root = (root / normalized_thread_id).resolve(strict=True)
+            thread_root.relative_to(root)
+        except (ValueError, FileNotFoundError, OSError):
+            return []
+        if not thread_root.is_dir():
+            return []
+        paths: list[str] = []
+        for index, candidate in enumerate(thread_root.rglob("*"), start=1):
+            if index > self.settings.max_workspace_entries:
+                raise CodexCLIImageInvalidArtifact("codex_cli_image_entry_limit")
+            try:
+                mode = candidate.lstat().st_mode
+            except OSError as exc:
+                raise CodexCLIImageInvalidArtifact() from exc
+            if stat.S_ISREG(mode):
+                paths.append(str(candidate))
+        return paths
+
+    def _verified_turn_image(
+        self,
+        turn: _CodexCLIImageTurn,
+        *,
+        generated_root: Path,
+        not_before_ns: int,
+    ) -> CodexCLIImageResult:
+        candidates = list(turn.candidate_paths)
+        if not candidates:
+            # Built-in $imagegen stores output below a directory named after
+            # the Codex thread.  Bind the fallback scan to that exact thread;
+            # never scan the shared root where concurrent attempts live.
+            candidates = self._thread_artifact_paths(
+                generated_root=generated_root,
+                thread_id=turn.thread_id,
+            )
+        if not candidates:
             raise CodexCLIImageInvalidArtifact()
-        return unique_paths[0]
+        if len(candidates) == 1:
+            return self._read_verified_image(
+                candidates[0],
+                generated_root=generated_root,
+                not_before_ns=not_before_ns,
+            )
+
+        # Current image_generation may return two visual variants even when
+        # the request asks for one.  Accept the first provider-ordered variant
+        # only when every candidate is a fresh, valid raster inside the exact
+        # Codex thread directory.  Multiple unbound/shared-root paths remain a
+        # hard failure, so one attempt cannot claim another attempt's output.
+        try:
+            normalized_thread_id = str(uuid.UUID(str(turn.thread_id or "")))
+            root = generated_root.resolve(strict=True)
+            thread_root = (root / normalized_thread_id).resolve(strict=True)
+            thread_root.relative_to(root)
+        except (ValueError, FileNotFoundError, OSError):
+            raise CodexCLIImageInvalidArtifact() from None
+
+        verified: list[CodexCLIImageResult] = []
+        for candidate in candidates:
+            try:
+                Path(candidate).resolve(strict=True).relative_to(thread_root)
+            except (ValueError, FileNotFoundError, OSError):
+                raise CodexCLIImageInvalidArtifact() from None
+            verified.append(
+                self._read_verified_image(
+                    candidate,
+                    generated_root=generated_root,
+                    not_before_ns=not_before_ns,
+                )
+            )
+        return verified[0]
 
     def _read_verified_image(
         self,
@@ -443,13 +591,22 @@ class CodexCLIImageProvider:
         size: str = "1024x1024",
         quality: str = "high",
         run_id: str | None = None,
+        source_image: bytes | None = None,
     ) -> CodexCLIImageResult:
         run_id = run_id or f"codex_image_{uuid.uuid4().hex}"
         if not _RUN_ID.fullmatch(run_id):
             raise CodexCLIImageError("codex_cli_image_invalid_run_id")
-        prompt_bytes = _image_prompt(prompt, size=size, quality=quality).encode("utf-8")
-        if len(prompt_bytes) > self.settings.cli.max_prompt_bytes:
-            raise CodexCLIImageError("codex_cli_image_prompt_too_large")
+        source_details = None
+        if source_image is not None:
+            try:
+                source_details = inspect_image_bytes(
+                    source_image,
+                    max_bytes=self.settings.max_image_bytes,
+                )
+            except InvalidImageBytes as exc:
+                raise CodexCLIImageInvalidArtifact(
+                    "codex_cli_image_invalid_source"
+                ) from exc
         try:
             await asyncio.wait_for(
                 self._semaphore.acquire(), timeout=self.settings.queue_timeout_seconds
@@ -486,6 +643,30 @@ class CodexCLIImageProvider:
                 scratch = attempt_root / "scratch"
                 workspace.mkdir(mode=0o700)
                 scratch.mkdir(mode=0o700)
+                source_path: Path | None = None
+                if source_details is not None and source_image is not None:
+                    source_path = workspace / f"source{source_details.extension}"
+                    descriptor = os.open(
+                        source_path,
+                        os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+                        0o600,
+                    )
+                    try:
+                        view = memoryview(source_image)
+                        written = 0
+                        while written < len(view):
+                            written += os.write(descriptor, view[written:])
+                        os.fsync(descriptor)
+                    finally:
+                        os.close(descriptor)
+                prompt_bytes = _image_prompt(
+                    prompt,
+                    size=size,
+                    quality=quality,
+                    source_image_path=source_path,
+                ).encode("utf-8")
+                if len(prompt_bytes) > self.settings.cli.max_prompt_bytes:
+                    raise CodexCLIImageError("codex_cli_image_prompt_too_large")
                 env.update(
                     {
                         "TMPDIR": str(scratch),
@@ -519,12 +700,16 @@ class CodexCLIImageProvider:
                     await process.stdin.wait_closed()
                 try:
                     async with asyncio.timeout(self.settings.attempt_timeout_seconds):
-                        claimed_path = await self._consume_jsonl(process, run_id=run_id)
+                        turn = await self._consume_jsonl(
+                            process,
+                            run_id=run_id,
+                            generated_root=generated_root,
+                        )
                 except TimeoutError as exc:
                     await self._terminate(process)
                     raise CodexCLIImageTimeout() from exc
-                return self._read_verified_image(
-                    claimed_path,
+                return self._verified_turn_image(
+                    turn,
                     generated_root=generated_root,
                     not_before_ns=attempt_started_ns,
                 )
@@ -571,6 +756,23 @@ async def generate_codex_cli_image(
 ) -> CodexCLIImageResult:
     return await get_codex_cli_image_provider().generate(
         prompt, size=size, quality=quality, run_id=run_id
+    )
+
+
+async def edit_codex_cli_image(
+    prompt: str,
+    source_image: bytes,
+    *,
+    size: str = "1024x1024",
+    quality: str = "high",
+    run_id: str | None = None,
+) -> CodexCLIImageResult:
+    return await get_codex_cli_image_provider().generate(
+        prompt,
+        size=size,
+        quality=quality,
+        run_id=run_id,
+        source_image=source_image,
     )
 
 

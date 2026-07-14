@@ -21,4 +21,16 @@ describe('execution policy', () => {
       allowed_capabilities: ['code.execute', 'mcp.invoke'],
     })
   })
+
+  it('allows an explicit cold capability to perform its first live probe', () => {
+    expect(createExecutionPolicy(
+      'deep',
+      ['web.search', 'image.generate'],
+      ['image.generate', 'document.pdf'],
+    ).allowed_capabilities).toEqual([
+      'document.pdf',
+      'image.generate',
+      'web.search',
+    ])
+  })
 })

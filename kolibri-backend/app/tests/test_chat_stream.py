@@ -5,7 +5,13 @@ import httpx
 from fastapi.testclient import TestClient
 
 from app import ai_provider
+from app.fgiscs_client import FgisCsClient
 from app.main import app
+
+
+def _bootstrap(client: TestClient) -> None:
+    response = client.post("/api/v1/shell/bootstrap")
+    assert response.status_code == 200, response.text
 
 
 def _sse_payloads(response) -> list[dict]:
@@ -49,6 +55,7 @@ def test_chat_stream_emits_token_deltas_and_structured_final_event(monkeypatch):
     monkeypatch.setattr(ai_provider, "_stream_ai", fake_stream)
 
     with TestClient(app) as client:
+        _bootstrap(client)
         response = client.post(
             "/api/v1/chat/stream",
             json={"messages": [{"role": "user", "content": "Привет"}]},
@@ -101,6 +108,7 @@ def test_chat_stream_falls_back_before_first_token(monkeypatch):
     monkeypatch.setattr(ai_provider, "_stream_ai", fake_stream)
 
     with TestClient(app) as client:
+        _bootstrap(client)
         response = client.post(
             "/api/v1/chat/stream",
             json={"messages": [{"role": "user", "content": "Ответь"}]},
@@ -167,6 +175,7 @@ def test_chat_stream_extracts_create_estimate_action_in_final_event(monkeypatch)
     monkeypatch.setattr(ai_provider, "_stream_ai", fake_stream)
 
     with TestClient(app) as client:
+        _bootstrap(client)
         response = client.post(
             "/api/v1/chat/stream",
             json={"messages": [{"role": "user", "content": "Составь смету"}]},
@@ -175,7 +184,11 @@ def test_chat_stream_extracts_create_estimate_action_in_final_event(monkeypatch)
 
     final = _sse_payloads(response)[-1]
     assert _sse_payloads(response)[-2] == {
-        "content": "Смета подготовлена. Результат сохранён в текущем проекте.",
+        "content": (
+            "Готовой сметы пока нет: исполнитель не сформировал достаточный "
+            "индивидуальный состав либо не найдены подтверждённые цены. "
+            "Откройте результат и уточните исходные данные."
+        ),
         "done": False,
     }
     assert final["done"] is True
@@ -185,20 +198,21 @@ def test_chat_stream_extracts_create_estimate_action_in_final_event(monkeypatch)
     assert len(final["actions"]) == 1
     action = final["actions"][0]
     assert action["type"] == "create_estimate"
-    assert action["label"] == "Открыть предварительную смету"
+    assert action["label"] == "Уточнить данные для сметы"
     assert action["data"]["title"] == "Дом 100 м² — Лениногорск"
-    assert action["data"]["estimate_status"] == "preliminary"
-    assert action["data"]["pricing_status"] == "preliminary"
+    assert action["data"]["estimate_status"] == "needs_input"
+    assert action["data"]["pricing_status"] == "needs_input"
     assert action["data"]["price_sources"] == []
     position = action["data"]["sections"][0]["positions"][0]
     assert position["unit"] == "м²"
-    assert position["sum"] == "1500000.00"
+    assert position["price"] == "0"
+    assert position["sum"] == "0.00"
     assert position["source"] == ""
     assert action["data"]["totals"] == {
-        "subtotal": "1500000.00",
+        "subtotal": "0.00",
         "overhead_amount": "0.00",
-        "vat_amount": "330000.00",
-        "total": "1830000.00",
+        "vat_amount": "0.00",
+        "total": "0.00",
     }
     assert "reasoning" not in final
 
@@ -218,6 +232,7 @@ def test_chat_stream_synthesizes_typed_estimate_for_plain_text_provider_response
     )
 
     with TestClient(app) as client:
+        _bootstrap(client)
         response = client.post(
             "/api/v1/chat/stream",
             json={"messages": [{"role": "user", "content": prompt}]},
@@ -234,28 +249,15 @@ def test_chat_stream_synthesizes_typed_estimate_for_plain_text_provider_response
     action = final["actions"][0]
     data = action["data"]
     assert action["type"] == "create_estimate"
-    assert data["title"] == (
-        "Предварительная смета: одноэтажный дом 100 м² — Лениногорск, Татарстан"
-    )
+    assert data["title"] == "Смета: одноэтажный дом 100 м² — Лениногорск, Татарстан"
     assert data["object_name"] == "Одноэтажный дом 100 м²"
     assert data["region"] == "Лениногорск, Татарстан"
-    assert data["pricing_status"] == "preliminary"
+    assert data["pricing_status"] == "needs_input"
+    assert data["estimate_status"] == "needs_input"
     assert data["price_sources"] == []
-    positions = [
-        position
-        for section in data["sections"]
-        for position in section["positions"]
-    ]
-    assert len(positions) >= 6
-    assert all(position["source"] == "" for position in positions)
-    expected_subtotal = sum(
-        float(position["quantity"]) * float(position["price"])
-        for position in positions
-    )
-    assert float(data["totals"]["subtotal"]) == expected_subtotal
-    assert float(data["totals"]["total"]) == expected_subtotal * 1.22
-    assert data["vat_rate"] == "22"
-    assert data["tax_basis"]["as_of"] == "2026-01-01"
+    assert data["sections"] == []
+    assert data["totals"]["total"] == "0.00"
+    assert data["vat_rate"] == "0"
 
 
 def test_chat_nonstream_never_exposes_raw_estimate_json(monkeypatch):
@@ -290,15 +292,30 @@ def test_chat_nonstream_never_exposes_raw_estimate_json(monkeypatch):
     assert result["status"] == "ready"
 
 
-def test_chat_replaces_zero_price_provider_draft_with_useful_preliminary_budget(monkeypatch):
+def test_chat_preserves_zero_price_provider_draft_as_needs_input(monkeypatch):
     provider = _provider("zero-provider", "zero-model")
     monkeypatch.setattr(ai_provider, "_get_providers_for_task", lambda _: [provider])
 
     async def fake_call(selected, messages, system=None):
         return {
-            "content": '{"action":"create_estimate","title":"Дом","sections":[{"title":"Фундамент","positions":[{"name":"Плита","unit":"м2","quantity":"100","price":"0"}]}]}',
+            "content": "Черновик позиций подготовлен.",
             "reasoning": "",
-            "actions": [],
+            "actions": [{
+                "type": "create_estimate",
+                "label": "Открыть смету",
+                "data": {
+                    "title": "Дом",
+                    "sections": [{
+                        "title": "Фундамент",
+                        "positions": [{
+                            "name": "Плита",
+                            "unit": "м2",
+                            "quantity": "100",
+                            "price": "0",
+                        }],
+                    }],
+                },
+            }],
             "status": "idle",
             "provider": "zero-provider",
             "model": "zero-model",
@@ -314,19 +331,20 @@ def test_chat_replaces_zero_price_provider_draft_with_useful_preliminary_budget(
 
     result = response.json()
     action = result["actions"][0]
-    assert action["data"]["pricing_status"] == "preliminary"
-    assert Decimal(action["data"]["totals"]["total"]) > 0
-    assert all(
-        Decimal(position["price"]) > 0
-        for section in action["data"]["sections"]
-        for position in section["positions"]
-    )
+    assert action["data"]["pricing_status"] == "needs_input"
+    assert action["data"]["estimate_status"] == "needs_input"
+    assert Decimal(action["data"]["totals"]["total"]) == 0
+    positions = [position for section in action["data"]["sections"] for position in section["positions"]]
+    assert len(positions) == 1
+    assert positions[0]["name"] == "Плита"
+    assert positions[0]["price"] == "0"
 
 
-def test_chat_stream_returns_local_preliminary_estimate_when_routes_are_exhausted(monkeypatch):
+def test_chat_stream_returns_needs_input_action_when_routes_are_exhausted(monkeypatch):
     monkeypatch.setattr(ai_provider, "_get_providers_for_task", lambda _: [])
 
     with TestClient(app) as client:
+        _bootstrap(client)
         response = client.post(
             "/api/v1/chat/stream",
             json={"messages": [{"role": "user", "content": "Составь смету на дом 100 м²"}]},
@@ -338,7 +356,55 @@ def test_chat_stream_returns_local_preliminary_estimate_when_routes_are_exhauste
     assert final["provider"] == "local_contract"
     assert final["model"] == "deterministic-estimate-v1"
     assert final["fallback_used"] is False
-    assert final["actions"][0]["data"]["pricing_status"] == "preliminary"
+    assert final["actions"][0]["data"]["pricing_status"] == "needs_input"
+    assert final["actions"][0]["data"]["sections"] == []
+
+
+def test_chat_stream_interruption_survives_estimate_attestation_runtime_error(monkeypatch):
+    provider = _provider("interrupted-provider", "interrupted-model")
+    monkeypatch.setattr(ai_provider, "_get_providers_for_task", lambda _: [provider])
+    monkeypatch.setenv("KOLIBRI_ESTIMATE_FGIS_ENABLED", "true")
+    content = (
+        "```json\n"
+        '{"action":"create_estimate","title":"Дом 100 м² — Лениногорск",'
+        '"region":"Лениногорск, Татарстан","sections":[{"title":"Материалы",'
+        '"positions":[{"code":"01.2.03.03-0064","name":"Мастика",'
+        '"unit":"т","quantity":"2","price":"999999"}]}]}'
+        "\n```"
+    )
+
+    async def interrupted_stream(selected, messages, system=None):
+        yield {"content": content, "done": False}
+        request = httpx.Request("POST", selected["url"])
+        raise httpx.ReadError("stream interrupted", request=request)
+
+    async def failing_enrich(self, draft, **_kwargs):
+        draft["sections"][0]["positions"][0]["price"] = "46445.29"
+        raise RuntimeError("estimate_evidence_signing_key_not_configured")
+
+    monkeypatch.setattr(ai_provider, "_stream_ai", interrupted_stream)
+    monkeypatch.setattr(FgisCsClient, "enrich_draft", failing_enrich)
+
+    with TestClient(app) as client:
+        _bootstrap(client)
+        response = client.post(
+            "/api/v1/chat/stream",
+            json={"messages": [{"role": "user", "content": "Составь смету на дом 100 м²"}]},
+            headers={"X-Forwarded-For": "stream-estimate-attestation-failure"},
+        )
+
+    final = _sse_payloads(response)[-1]
+    assert response.status_code == 200
+    assert final["done"] is True
+    assert final["status"] == "ready"
+    assert final["error_code"] == "provider_stream_interrupted"
+    action = final["actions"][0]
+    position = action["data"]["sections"][0]["positions"][0]
+    assert position["price"] == "0"
+    assert position["sum"] == "0.00"
+    assert position["price_evidence"] == []
+    assert action["data"]["pricing_status"] == "needs_input"
+    assert action["data"]["totals"]["total"] == "0.00"
 
 
 def test_chat_stream_extracts_safe_document_content(monkeypatch):
@@ -358,6 +424,7 @@ def test_chat_stream_extracts_safe_document_content(monkeypatch):
     monkeypatch.setattr(ai_provider, "_stream_ai", fake_stream)
 
     with TestClient(app) as client:
+        _bootstrap(client)
         response = client.post(
             "/api/v1/chat/stream",
             json={"messages": [{"role": "user", "content": "Подготовь договор"}]},
@@ -366,7 +433,7 @@ def test_chat_stream_extracts_safe_document_content(monkeypatch):
 
     payloads = _sse_payloads(response)
     assert payloads[-2] == {
-        "content": "Документ подготовлен. Результат сохранён в текущем проекте.",
+        "content": "Документ подготовлен для сохранения в текущем проекте.",
         "done": False,
     }
     assert payloads[-1]["actions"] == [

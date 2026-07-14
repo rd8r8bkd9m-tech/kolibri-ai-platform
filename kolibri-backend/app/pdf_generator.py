@@ -5,7 +5,8 @@ from io import BytesIO
 import os
 from pathlib import Path
 from decimal import Decimal
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Mapping, Optional
+from urllib.parse import urlsplit
 from xml.sax.saxutils import escape
 from jinja2 import Environment, BaseLoader
 
@@ -341,7 +342,16 @@ ESTIMATE_TEMPLATE = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <style>
-@page { size: A4 portrait; margin: 15mm 15mm 20mm 20mm; }
+@page {
+  size: A4 portrait;
+  margin: 15mm 15mm 20mm 20mm;
+  @bottom-center {
+    content: "Документ сформирован системой Колибри · Страница " counter(page) " из " counter(pages);
+    font-family: "DejaVu Sans", "Liberation Sans", Arial, sans-serif;
+    font-size: 8pt;
+    color: #666;
+  }
+}
 * { box-sizing: border-box; }
 body { margin: 0; font-family: "DejaVu Sans", "Liberation Sans", Arial, sans-serif; font-size: 10pt; color: #0A0A0B; }
 .header { text-align: center; margin-bottom: 8mm; }
@@ -357,11 +367,11 @@ td.num, th.num { text-align: right; }
 td.sum, th.sum { text-align: right; font-weight: bold; }
 td.money-value { white-space: nowrap; font-size: 7pt; font-variant-numeric: tabular-nums; }
 td.source-cell { overflow-wrap: anywhere; word-break: break-word; font-size: 7pt; line-height: 1.25; }
+td.source-cell a { color: #245f75; text-decoration: none; }
 .section-header { background: #f8f8f8; font-weight: bold; }
 .totals { margin-top: 6mm; width: 60%; margin-left: auto; font-size: 10pt; }
 .totals-row { display: flex; justify-content: space-between; padding: 1.5mm 0; border-bottom: 1px solid #eee; }
 .totals-row.grand { font-weight: bold; font-size: 12pt; border-top: 2px solid #333; margin-top: 2mm; }
-.footer { margin-top: 10mm; font-size: 8pt; color: #666; text-align: center; }
 .page-break { page-break-after: always; }
 tr { page-break-inside: avoid; }
 thead { display: table-header-group; }
@@ -371,7 +381,7 @@ thead { display: table-header-group; }
 <div class="header">
   <h1>Смета № {{ estimate_id[:8] }}</h1>
   <div class="subtitle">{{ title }}</div>
-  <div class="subtitle">{{ client }} | {{ object_name }} | {{ region }}</div>
+  {% if context_line %}<div class="subtitle">{{ context_line }}</div>{% endif %}
 </div>
 
 <div class="info">
@@ -419,7 +429,9 @@ thead { display: table-header-group; }
       <td class="num">{{ pos.quantity }}</td>
       <td class="num money-value">{{ pos.price }}</td>
       <td class="sum money-value">{{ pos.sum }}</td>
-      <td class="source-cell">{{ pos.source }}</td>
+      <td class="source-cell">
+        {% if pos.source_url %}<a href="{{ pos.source_url }}">{{ pos.source_label }}</a>{% else %}{{ pos.source_label }}{% endif %}
+      </td>
     </tr>
     {% endfor %}
   </tbody>
@@ -433,9 +445,6 @@ thead { display: table-header-group; }
   <div class="totals-row grand"><span>ИТОГО:</span><span>{{ total }}</span></div>
 </div>
 
-<div class="footer">
-  Документ сформирован системой Колибри | Страница <span class="pageNumber"></span>
-</div>
 </body>
 </html>"""
 
@@ -456,6 +465,23 @@ def _build_estimate_html(estimate_data: Dict[str, Any]) -> str:
     for sec in estimate_data.get("sections", []):
         positions = []
         for pos in sec.get("positions", []):
+            evidence = pos.get("price_evidence")
+            first_evidence = (
+                evidence[0]
+                if isinstance(evidence, list) and evidence and isinstance(evidence[0], Mapping)
+                else {}
+            )
+            source_candidate = str(first_evidence.get("url") or pos.get("source") or "").strip()
+            parsed_source = urlsplit(source_candidate)
+            source_url = (
+                source_candidate
+                if parsed_source.scheme in {"http", "https"} and parsed_source.hostname
+                else ""
+            )
+            source_label = str(first_evidence.get("source_title") or pos.get("source") or "").strip()
+            source_date = str(first_evidence.get("price_date") or "").strip()
+            if source_label and source_date:
+                source_label = f"{source_label} · {source_date}"
             positions.append({
                 "code": pos.get("code", ""),
                 "name": pos.get("name", ""),
@@ -463,7 +489,8 @@ def _build_estimate_html(estimate_data: Dict[str, Any]) -> str:
                 "quantity": _format_ru(Decimal(pos.get("quantity", "0"))),
                 "price": _format_ru(Decimal(pos.get("price", "0"))),
                 "sum": _format_ru(Decimal(pos.get("sum", "0"))),
-                "source": pos.get("source", ""),
+                "source_label": source_label,
+                "source_url": source_url,
             })
         sections.append({
             "title": sec.get("title", ""),
@@ -472,13 +499,22 @@ def _build_estimate_html(estimate_data: Dict[str, Any]) -> str:
             "positions": positions,
         })
 
+    title = str(estimate_data.get("title") or "")
+    context_parts = []
+    for value in (
+        estimate_data.get("client", ""),
+        estimate_data.get("object_name", ""),
+        estimate_data.get("region", ""),
+    ):
+        text = " ".join(str(value or "").split()).strip()
+        if text and text.casefold() not in title.casefold():
+            context_parts.append(text)
+
     ctx = {
         "estimate_id": estimate_data.get("id", ""),
-        "title": estimate_data.get("title", ""),
-        "client": estimate_data.get("client", ""),
-        "object_name": estimate_data.get("object_name", ""),
-        "region": estimate_data.get("region", ""),
-        "date": estimate_data.get("created_at", ""),
+        "title": title,
+        "context_line": " · ".join(context_parts),
+        "date": str(estimate_data.get("created_at") or "")[:10],
         "currency": currency,
         "currency_unit": currency_unit,
         "vat_rate": estimate_data.get("vat_rate", "22"),

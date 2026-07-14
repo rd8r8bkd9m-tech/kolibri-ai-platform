@@ -134,3 +134,13 @@ def test_estimate_table_stays_inside_a4_and_keeps_money_readable():
         > 1
         for cell in source_cells
     )
+
+
+def test_estimate_header_uses_human_date_and_real_page_counter():
+    html = pdf_generator._build_estimate_html(_wide_estimate())
+
+    assert "2026-07-13" in html
+    assert "counter(page)" in html
+    assert "counter(pages)" in html
+    assert 'class="pageNumber"' not in html
+    assert "Заказчик · Одноэтажный дом 100 м² · Лениногорск, Татарстан" in html

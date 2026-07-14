@@ -1,23 +1,41 @@
 export type CapabilityAvailability = 'live' | 'partial' | 'unavailable'
 
 export interface CapabilityRouteEvidence {
+  id?: string
   healthy?: boolean
   status?: string
   provider?: string
   model?: string
+  configured?: boolean
+  permitted?: boolean
+  credentialReady?: boolean
+  probeState?: string
+  probeFresh?: boolean
 }
 
 export interface CapabilityRendererEvidence {
   available?: boolean
   id?: string
   status?: string
+  required?: boolean
+  registered?: boolean
+  healthy?: boolean
 }
 
 export type UiCapabilityKey =
+  | 'estimate.create'
+  | 'document.editor'
   | 'web.search'
   | 'file.search'
+  | 'document.pdf'
+  | 'document.docx'
+  | 'document.xlsx'
+  | 'document.pptx'
   | 'code.execute'
   | 'image.generate'
+  | 'image.edit'
+  | 'site.create'
+  | 'app.create'
   | 'browser.use'
   | 'mcp.invoke'
 
@@ -26,6 +44,8 @@ export interface UiCapability {
   capability: DiscoveredCapability
   title: string
   description: string
+  enabled: boolean
+  disabledReason?: string
 }
 
 export interface DiscoveredCapability {
@@ -35,6 +55,7 @@ export interface DiscoveredCapability {
   kind?: string
   availability: CapabilityAvailability
   availabilityReason?: string
+  reasonCode?: string
   invocable: boolean
   permitted?: boolean
   route: CapabilityRouteEvidence

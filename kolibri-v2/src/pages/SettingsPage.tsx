@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { User, Palette, Bell, Shield, Globe, Keyboard, LogOut, Code2 } from 'lucide-react'
+import { User, Palette, Shield, Globe, Keyboard, LogOut, Code2 } from 'lucide-react'
 import { Link } from 'react-router'
 import { auth, type AuthUser } from '@/lib/api'
 import { applyKolibriTheme, getStoredTheme, type KolibriTheme } from '@/features/shell/theme'
@@ -10,7 +10,6 @@ import { isOwnerRole } from '@/features/shell/releaseIdentity'
 const tabs = [
   { id: 'profile', labelKey: 'settings.profile', icon: User },
   { id: 'appearance', labelKey: 'settings.appearance', icon: Palette },
-  { id: 'notifications', labelKey: 'settings.notifications', icon: Bell },
   { id: 'security', labelKey: 'settings.security', icon: Shield },
   { id: 'language', labelKey: 'settings.language', icon: Globe },
   { id: 'shortcuts', labelKey: 'settings.shortcuts', icon: Keyboard },
@@ -84,6 +83,7 @@ function SettingsPageContent({ user, onLogout }: SettingsPageProps) {
   }, [theme])
 
   const handleSaveProfile = async () => {
+    if (!user) return
     setSaving(true)
     setSaved(false)
     try {
@@ -128,7 +128,7 @@ function SettingsPageContent({ user, onLogout }: SettingsPageProps) {
           {/* Sidebar */}
           <nav className="md:w-48 flex-shrink-0">
             <div className="flex md:flex-col gap-1 overflow-x-auto md:overflow-visible pb-2 md:pb-0">
-              {tabs.map(tab => (
+              {tabs.filter(tab => tab.id !== 'security' || Boolean(user)).map(tab => (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
@@ -161,20 +161,24 @@ function SettingsPageContent({ user, onLogout }: SettingsPageProps) {
                     </div>
                   </div>
                 </div>
-                <div className="pb-4 border-b border-[var(--border-subtle)]">
-                  <label className="block text-[12px] text-[var(--text-tertiary)] mb-1.5">{t('settings.name')}</label>
-                  <input value={name} onChange={e => setName(e.target.value)} className="w-full h-9 px-3 bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-[var(--radius-md)] text-[13px] text-[var(--text-primary)] outline-none focus:border-[var(--accent-teal)] transition-colors" />
-                </div>
-                <div className="pb-4 border-b border-[var(--border-subtle)]">
-                  <label className="block text-[12px] text-[var(--text-tertiary)] mb-1.5">Email</label>
-                  <input value={email} onChange={e => setEmail(e.target.value)} type="email" className="w-full h-9 px-3 bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-[var(--radius-md)] text-[13px] text-[var(--text-primary)] outline-none focus:border-[var(--accent-teal)] transition-colors" />
-                </div>
-                <div className="flex items-center gap-3">
-                  <button onClick={handleSaveProfile} disabled={saving} className="h-9 px-4 bg-[var(--accent-teal)] text-white rounded-[var(--radius-md)] text-[13px] font-medium hover:bg-[var(--accent-teal-hover)] transition-colors disabled:opacity-50">
-                    {saving ? t('settings.saving') : t('settings.save')}
-                  </button>
-                  {saved && <span className="text-[13px] text-emerald-600">{t('settings.saved')}</span>}
-                </div>
+                {user ? <>
+                  <div className="pb-4 border-b border-[var(--border-subtle)]">
+                    <label className="block text-[12px] text-[var(--text-tertiary)] mb-1.5">{t('settings.name')}</label>
+                    <input value={name} onChange={e => setName(e.target.value)} className="w-full h-9 px-3 bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-[var(--radius-md)] text-[13px] text-[var(--text-primary)] outline-none focus:border-[var(--accent-teal)] transition-colors" />
+                  </div>
+                  <div className="pb-4 border-b border-[var(--border-subtle)]">
+                    <label className="block text-[12px] text-[var(--text-tertiary)] mb-1.5">Email</label>
+                    <input value={email} onChange={e => setEmail(e.target.value)} type="email" className="w-full h-9 px-3 bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-[var(--radius-md)] text-[13px] text-[var(--text-primary)] outline-none focus:border-[var(--accent-teal)] transition-colors" />
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button onClick={handleSaveProfile} disabled={saving} className="h-9 px-4 bg-[var(--accent-teal)] text-white rounded-[var(--radius-md)] text-[13px] font-medium hover:bg-[var(--accent-teal-hover)] transition-colors disabled:opacity-50">
+                      {saving ? t('settings.saving') : t('settings.save')}
+                    </button>
+                    {saved && <span className="text-[13px] text-emerald-600">{t('settings.saved')}</span>}
+                  </div>
+                </> : <Link to="/login" className="inline-flex min-h-11 items-center rounded-[var(--radius-md)] bg-[var(--accent-teal)] px-4 text-[13px] font-medium text-white">
+                  {t('developer.signIn')}
+                </Link>}
                 {isOwnerRole(user?.role) && <OwnerBuildDiagnostics />}
                 <Link
                   to="/developers"
@@ -218,27 +222,6 @@ function SettingsPageContent({ user, onLogout }: SettingsPageProps) {
               </div>
             )}
 
-            {activeTab === 'notifications' && (
-              <div className="space-y-4">
-                <h2 className="text-[16px] font-semibold text-[var(--text-primary)] mb-4">{t('settings.notifications')}</h2>
-                {[
-                  { label: t('settings.push'), desc: t('settings.pushDescription'), key: 'notif-push' },
-                  { label: t('settings.emailNotifications'), desc: t('settings.emailNotificationsDescription'), key: 'notif-email' },
-                  { label: t('settings.agentNotifications'), desc: t('settings.agentNotificationsDescription'), key: 'notif-agents' },
-                  { label: t('settings.serverNotifications'), desc: t('settings.serverNotificationsDescription'), key: 'notif-servers' },
-                  { label: t('settings.sound'), desc: t('settings.soundDescription'), key: 'notif-sound' },
-                ].map(n => (
-                  <div key={n.label} className="flex items-center justify-between py-2">
-                    <div>
-                      <p className="text-[14px] text-[var(--text-primary)]">{n.label}</p>
-                      <p className="text-[12px] text-[var(--text-tertiary)]">{n.desc}</p>
-                    </div>
-                    <Toggle storageKey={n.key} defaultOn />
-                  </div>
-                ))}
-              </div>
-            )}
-
             {activeTab === 'security' && (
               <div className="space-y-6">
                 <h2 className="text-[16px] font-semibold text-[var(--text-primary)] mb-4">{t('settings.security')}</h2>
@@ -250,15 +233,6 @@ function SettingsPageContent({ user, onLogout }: SettingsPageProps) {
                     {passwordError && <p className="text-[12px] text-red-500">{passwordError}</p>}
                     {passwordSaved && <p className="text-[12px] text-emerald-600">{t('settings.passwordChanged')}</p>}
                     <button onClick={handleChangePassword} className="h-8 px-3 rounded-[var(--radius-md)] border border-[var(--border-subtle)] text-[13px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors">{t('settings.changePasswordAction')}</button>
-                  </div>
-                </div>
-                <div className="p-4 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-secondary)]">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-[14px] font-medium text-[var(--text-primary)] mb-1">{t('settings.twoFactor')}</p>
-                      <p className="text-[12px] text-[var(--text-tertiary)]">{t('settings.twoFactorDescription')}</p>
-                    </div>
-                    <Toggle storageKey="kolibri-2fa" />
                   </div>
                 </div>
                 {user && (
@@ -305,12 +279,9 @@ function SettingsPageContent({ user, onLogout }: SettingsPageProps) {
               <div className="space-y-4">
                 <h2 className="text-[16px] font-semibold text-[var(--text-primary)] mb-4">{t('settings.shortcuts')}</h2>
                 {[
-                  { action: t('settings.shortcutNewChat'), key: 'Ctrl + K' },
-                  { action: t('settings.shortcutSearch'), key: 'Ctrl + /' },
+                  { action: t('settings.shortcutSearch'), key: 'Ctrl / ⌘ + K' },
                   { action: t('settings.shortcutSend'), key: 'Enter' },
                   { action: t('settings.shortcutNewLine'), key: 'Shift + Enter' },
-                  { action: t('settings.shortcutLibrary'), key: 'Ctrl + L' },
-                  { action: t('settings.shortcutSettings'), key: 'Ctrl + ,' },
                 ].map(s => (
                   <div key={s.action} className="flex items-center justify-between py-2 border-b border-[var(--border-subtle)]">
                     <span className="text-[14px] text-[var(--text-primary)]">{s.action}</span>

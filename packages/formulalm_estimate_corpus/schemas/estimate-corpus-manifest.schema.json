@@ -1,0 +1,177 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kolibriai.ru/schemas/formulalm/estimate-corpus-local-candidate-2.0.0.json",
+  "title": "FormulaLM signed unapproved estimate local-candidate manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "manifest_version",
+    "candidate_id",
+    "created_at",
+    "candidate_contract",
+    "authorization",
+    "integrity",
+    "purpose",
+    "candidate_records",
+    "capacity_limit_records",
+    "collection_complete",
+    "source_acquisition",
+    "source_snapshot",
+    "record_set_sha256",
+    "content_root_sha256",
+    "schemas",
+    "calculator_boundary",
+    "split_policy",
+    "stats",
+    "files"
+  ],
+  "properties": {
+    "manifest_version": { "const": "2.0.0" },
+    "candidate_id": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "candidate_contract": { "const": "local_candidate_integrity_only" },
+    "authorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "training_authorized", "approval", "required_next_gate"],
+      "properties": {
+        "state": { "const": "unapproved_local_candidate" },
+        "training_authorized": { "const": false },
+        "approval": { "type": "null" },
+        "required_next_gate": { "const": "separately_signed_data_and_training_approval" }
+      }
+    },
+    "integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "signature_required",
+        "signature_format",
+        "signer_identity",
+        "namespace",
+        "trust_root_policy"
+      ],
+      "properties": {
+        "signature_required": { "const": true },
+        "signature_format": { "const": "sshsig" },
+        "signer_identity": { "const": "kolibri-formulalm-estimate-corpus-candidate" },
+        "namespace": { "const": "kolibri-formulalm-estimate-corpus-candidate-v1" },
+        "trust_root_policy": { "const": "fixed_root_owned_allowed_signers" }
+      }
+    },
+    "purpose": { "type": "string", "minLength": 1 },
+    "candidate_records": { "type": "integer", "minimum": 1, "maximum": 10000 },
+    "capacity_limit_records": { "const": 10000 },
+    "collection_complete": { "const": false },
+    "source_acquisition": { "const": "provided_snapshot_only_no_network_fetch" },
+    "source_snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "bytes", "records"],
+      "properties": {
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "bytes": { "type": "integer", "minimum": 1 },
+        "records": { "type": "integer", "minimum": 1, "maximum": 10000 }
+      }
+    },
+    "record_set_sha256": { "$ref": "#/$defs/sha256" },
+    "content_root_sha256": { "$ref": "#/$defs/sha256" },
+    "schemas": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["record", "manifest"],
+      "properties": {
+        "record": { "type": "string", "minLength": 1 },
+        "manifest": { "type": "string", "minLength": 1 }
+      }
+    },
+    "calculator_boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "trained",
+        "engine",
+        "candidate_learning_views",
+        "training_authorized",
+        "excluded_fields",
+        "eval_only_file"
+      ],
+      "properties": {
+        "trained": { "const": false },
+        "engine": { "const": "deterministic_decimal" },
+        "candidate_learning_views": { "type": "array", "minItems": 2 },
+        "training_authorized": { "const": false },
+        "excluded_fields": {
+          "type": "array",
+          "contains": { "const": "line_total" }
+        },
+        "eval_only_file": { "const": "eval/decimal-boundary.jsonl" }
+      }
+    },
+    "split_policy": {
+      "type": "object",
+      "required": [
+        "method",
+        "eval_ratio_requested",
+        "component_count",
+        "project_overlap",
+        "source_group_overlap"
+      ],
+      "properties": {
+        "method": { "const": "connected_components_by_project_or_source_group" },
+        "eval_ratio_requested": { "type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1 },
+        "component_count": { "type": "integer", "minimum": 1 },
+        "project_overlap": { "type": "array", "maxItems": 0 },
+        "source_group_overlap": { "type": "array", "maxItems": 0 }
+      }
+    },
+    "stats": { "type": "object" },
+    "files": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "restricted_normalized_records",
+        "train_learning",
+        "eval_learning",
+        "decimal_boundary_eval",
+        "dedup_report",
+        "stats",
+        "evaluation_report"
+      ],
+      "properties": {
+        "restricted_normalized_records": { "$ref": "#/$defs/artifact_with_records" },
+        "train_learning": { "$ref": "#/$defs/artifact_with_records" },
+        "eval_learning": { "$ref": "#/$defs/artifact_with_records" },
+        "decimal_boundary_eval": { "$ref": "#/$defs/artifact_with_records" },
+        "dedup_report": { "$ref": "#/$defs/artifact_with_records" },
+        "stats": { "$ref": "#/$defs/artifact" },
+        "evaluation_report": { "$ref": "#/$defs/artifact" }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "bytes", "training_eligible"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "bytes": { "type": "integer", "minimum": 0 },
+        "records": { "type": "integer", "minimum": 0 },
+        "training_eligible": { "const": false }
+      }
+    },
+    "artifact_with_records": {
+      "allOf": [
+        { "$ref": "#/$defs/artifact" },
+        {
+          "type": "object",
+          "required": ["records"],
+          "properties": { "records": { "type": "integer", "minimum": 0 } }
+        }
+      ]
+    }
+  }
+}

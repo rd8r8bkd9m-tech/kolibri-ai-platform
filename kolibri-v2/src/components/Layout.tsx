@@ -11,16 +11,18 @@ import { ExecutionPolicyProvider } from '@/features/shell/ExecutionPolicyProvide
 import { ProjectHistoryProvider } from '@/features/projects/ProjectHistoryProvider'
 import { useProjectHistory } from '@/features/projects/projectHistoryContext'
 import { useLocale } from '@/features/localization'
+import { isOwnerRole } from '@/features/shell/releaseIdentity'
+import type { AuthUser } from '@/lib/api'
 
-export default function Layout() {
+export default function Layout({ user }: { user: AuthUser | null }) {
   return (
     <ProjectHistoryProvider>
-      <LayoutShell />
+      <LayoutShell user={user} />
     </ProjectHistoryProvider>
   )
 }
 
-function LayoutShell() {
+function LayoutShell({ user }: { user: AuthUser | null }) {
   const { t } = useLocale()
   const navigate = useNavigate()
   const location = useLocation()
@@ -93,7 +95,7 @@ function LayoutShell() {
     onOpen: () => setMobileOpen(true),
     onClose: () => setMobileOpen(false),
   })
-  const conversationHome = location.pathname === '/'
+  const conversationHome = location.pathname.replace(/\/+$/, '') === '/app'
   const conversationRoute = conversationHome || location.pathname.startsWith('/chat')
 
   return (
@@ -134,6 +136,7 @@ function LayoutShell() {
             onSearch={() => setSearchOpen(true)}
             onFiles={() => navigate('/library')}
             onAgents={() => navigate('/control')}
+            showOwnerControl={isOwnerRole(user?.role)}
             onSettings={() => navigate('/settings')}
             recentItems={projects}
             onRecent={selectHistoryItem}

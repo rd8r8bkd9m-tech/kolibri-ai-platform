@@ -10,6 +10,7 @@ export {
   uiInvocableCapabilities,
 } from './normalize'
 export { capabilityPrompt, findUiCapability, uiCapabilityMenu } from './uiRegistry'
+export { capabilityIcons } from './capabilityIcons'
 export type {
   CapabilityAvailability,
   CapabilityCatalog,

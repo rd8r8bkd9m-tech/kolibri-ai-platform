@@ -106,7 +106,7 @@ def test_submit_uses_home_control_plane_and_requires_independent_verifier():
     assert calls[0][2]["required_capability"] == "runner:codex"
     assert "required_capabilities" not in calls[0][2]
     assert calls[0][2]["idempotency_key"] == "idem-test"
-    assert calls[0][2]["max_attempts"] == 1
+    assert calls[0][2]["max_attempts"] == 2
     assert calls[0][2]["fallback_allowed"] is False
     assert calls[0][2]["source"] == {
         "kind": "kolibri_provider_gateway",

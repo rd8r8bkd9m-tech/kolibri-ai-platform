@@ -1,4 +1,5 @@
 import os
+from io import StringIO
 from pathlib import Path
 import subprocess
 import sys
@@ -7,18 +8,81 @@ import time
 
 import pytest
 import sqlalchemy as sa
+from alembic import command
 from alembic.runtime.migration import MigrationContext
+from alembic.operations import Operations
 from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
 
 from app import models as _models  # noqa: F401 - register all metadata for isolated runs
 from app.database import Base
-from app.schema_migrations import SchemaAdoptionError, ensure_database_schema
+from app.schema_migrations import SchemaAdoptionError, _config, ensure_database_schema
+from app.storage import DBStorage
+
+
+def test_estimate_truth_json_defaults_compile_for_sqlite_and_postgresql():
+    for dialect_name in ("sqlite", "postgresql"):
+        output = StringIO()
+        context = MigrationContext.configure(
+            dialect_name=dialect_name,
+            opts={"as_sql": True, "output_buffer": output},
+        )
+        operations = Operations(context)
+        operations.add_column(
+            "estimates",
+            sa.Column(
+                "assumptions",
+                sa.JSON(),
+                nullable=False,
+                server_default="[]",
+            ),
+        )
+        statement = output.getvalue()
+        assert "assumptions JSON" in statement
+        assert "DEFAULT '[]'" in statement
+        assert "NOT NULL" in statement
+
+
+def test_fresh_alembic_chain_creates_scoped_documents_and_estimate_relation(
+    tmp_path: Path,
+):
+    engine = create_engine(f"sqlite:///{tmp_path / 'fresh-alembic.db'}")
+    with engine.begin() as connection:
+        command.upgrade(_config(connection), "head")
+        inspector = sa.inspect(connection)
+        document_columns = {
+            column["name"]: column for column in inspector.get_columns("documents")
+        }
+        assert MigrationContext.configure(connection).get_current_revision() == (
+            "010_durable_responses"
+        )
+        assert {"scope_id", "estimate_id"}.issubset(document_columns)
+        assert document_columns["scope_id"]["nullable"] is False
+        assert any(
+            tuple(foreign_key.get("constrained_columns") or []) == ("estimate_id",)
+            and foreign_key.get("referred_table") == "estimates"
+            and tuple(foreign_key.get("referred_columns") or []) == ("id",)
+            and str((foreign_key.get("options") or {}).get("ondelete") or "").upper()
+            == "SET NULL"
+            for foreign_key in inspector.get_foreign_keys("documents")
+        )
+        assert {
+            "ix_documents_scope_created_at",
+            "ix_documents_scope_status",
+        }.issubset({index["name"] for index in inspector.get_indexes("documents")})
+    engine.dispose()
 
 
 def legacy_engine(path: Path):
     engine = create_engine(f"sqlite:///{path}")
     Base.metadata.create_all(bind=engine)
     with engine.begin() as connection:
+        connection.exec_driver_sql("DROP INDEX ix_estimates_scope_created_at")
+        connection.exec_driver_sql("DROP INDEX ix_estimates_scope_status")
+        connection.exec_driver_sql("ALTER TABLE estimates DROP COLUMN scope_id")
+        connection.exec_driver_sql("DROP INDEX ix_documents_scope_created_at")
+        connection.exec_driver_sql("DROP INDEX ix_documents_scope_status")
+        connection.exec_driver_sql("ALTER TABLE documents DROP COLUMN scope_id")
         connection.exec_driver_sql("DROP TABLE estimate_revisions")
         connection.exec_driver_sql("ALTER TABLE positions DROP COLUMN sort_order")
         connection.exec_driver_sql("ALTER TABLE sections DROP COLUMN sort_order")
@@ -39,6 +103,13 @@ def legacy_engine(path: Path):
             "(id, section_id, code, name, unit, quantity, price, sum, source, comment) "
             "VALUES ('position_1', 'section_1', 'W-1', 'Work', 'шт', '2', '50', "
             "'100.00', '', '')"
+        ))
+        connection.execute(sa.text(
+            "INSERT INTO documents "
+            "(id, title, type, status, client, project, content, variables, template, "
+            "estimate_id, created_at, updated_at) "
+            "VALUES ('document_1', 'Legacy document', 'contract', 'draft', '', '', "
+            "'private legacy content', '{}', '', 'estimate_1', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
         ))
         connection.execute(sa.text(
             "INSERT INTO projects "
@@ -79,8 +150,8 @@ def test_unversioned_create_all_database_is_adopted_and_backfilled(tmp_path: Pat
     revision = ensure_database_schema(engine)
 
     with engine.connect() as connection:
-        assert revision == "006_project_handoffs"
-        assert MigrationContext.configure(connection).get_current_revision() == "006_project_handoffs"
+        assert revision == "010_durable_responses"
+        assert MigrationContext.configure(connection).get_current_revision() == "010_durable_responses"
         columns = {column["name"] for column in sa.inspect(connection).get_columns("project_messages")}
         assert "version" in columns
         telegram_columns = {
@@ -113,6 +184,37 @@ def test_unversioned_create_all_database_is_adopted_and_backfilled(tmp_path: Pat
             column["name"] for column in sa.inspect(connection).get_columns("positions")
         }
         assert {
+            "scope_id", "estimate_status", "pricing_status", "scope_status", "source_note",
+            "assumptions", "questions", "price_sources", "evidence_issues",
+        }.issubset({
+            column["name"] for column in sa.inspect(connection).get_columns("estimates")
+        })
+        scope_column = next(
+            column
+            for column in sa.inspect(connection).get_columns("estimates")
+            if column["name"] == "scope_id"
+        )
+        assert scope_column["nullable"] is False
+        assert connection.execute(sa.text(
+            "SELECT scope_id FROM estimates WHERE id = 'estimate_1'"
+        )).scalar_one() == "legacy:quarantined"
+        document_columns = {
+            column["name"] for column in sa.inspect(connection).get_columns("documents")
+        }
+        assert {"scope_id", "estimate_id"}.issubset(document_columns)
+        document_scope_column = next(
+            column
+            for column in sa.inspect(connection).get_columns("documents")
+            if column["name"] == "scope_id"
+        )
+        assert document_scope_column["nullable"] is False
+        assert connection.execute(sa.text(
+            "SELECT scope_id FROM documents WHERE id = 'document_1'"
+        )).scalar_one() == "legacy:quarantined"
+        assert "price_evidence" in {
+            column["name"] for column in sa.inspect(connection).get_columns("positions")
+        }
+        assert {
             "id", "estimate_id", "version", "snapshot", "created_at",
         } == {
             column["name"]
@@ -141,9 +243,21 @@ def test_unversioned_create_all_database_is_adopted_and_backfilled(tmp_path: Pat
             snapshot = json.loads(snapshot)
         assert snapshot["total"] == "122.00"
         assert snapshot["sections"][0]["positions"][0]["sum"] == "100.00"
+        assert snapshot["estimate_status"] == "preliminary"
+        assert snapshot["pricing_status"] == "preliminary"
+        assert snapshot["scope_status"] == "unverified"
+        assert snapshot["price_sources"] == []
+        assert snapshot["sections"][0]["positions"][0]["price_evidence"] == []
         assert connection.execute(sa.text(
             "SELECT version FROM project_messages WHERE id = 'message_1'"
         )).scalar_one() == 1
+    with Session(engine) as session:
+        assert DBStorage(session, scope_id="anon:other-session").get_estimate(
+            "estimate_1"
+        ) is None
+        assert DBStorage(session, scope_id="anon:other-session").get_document(
+            "document_1"
+        ) is None
     engine.dispose()
 
 
@@ -329,7 +443,7 @@ def test_sqlite_schema_creation_waits_for_cross_process_lock(tmp_path: Path):
         holder_stdout, holder_stderr = holder.communicate(timeout=30)
         assert holder.returncode == 0, holder_stderr or holder_stdout
         assert runner.returncode == 0, runner_stderr or runner_stdout
-        assert runner_stdout.strip().endswith("006_project_handoffs")
+        assert runner_stdout.strip().endswith("010_durable_responses")
     finally:
         release_path.touch(exist_ok=True)
         for process in (runner, holder):

@@ -1,4 +1,4 @@
-import { uiInvocableCapabilities } from './normalize'
+import { isUiInvocableCapability } from './normalize'
 import type { CapabilityCatalog, DiscoveredCapability, UiCapability, UiCapabilityKey } from './types'
 
 interface UiCapabilityDefinition {
@@ -11,6 +11,20 @@ interface UiCapabilityDefinition {
 
 const DEFINITIONS: readonly UiCapabilityDefinition[] = [
   {
+    key: 'estimate.create',
+    aliases: ['estimate.create'],
+    renderers: ['estimate_editor'],
+    title: 'Смета',
+    description: 'Создать и редактировать смету',
+  },
+  {
+    key: 'document.editor',
+    aliases: ['document.editor'],
+    renderers: ['document_editor'],
+    title: 'Документ',
+    description: 'Создать редактируемый документ',
+  },
+  {
     key: 'web.search',
     aliases: ['web.search', 'web_search', 'search.web'],
     renderers: ['sources', 'research', 'web'],
@@ -19,10 +33,38 @@ const DEFINITIONS: readonly UiCapabilityDefinition[] = [
   },
   {
     key: 'file.search',
-    aliases: ['file.search', 'file_search', 'files.search', 'files'],
-    renderers: ['file', 'files', 'document'],
+    aliases: ['file.search', 'file.upload', 'file_search', 'files.search', 'files'],
+    renderers: ['file', 'files', 'document', 'file_search'],
     title: 'Файлы',
     description: 'Добавить и проанализировать файлы',
+  },
+  {
+    key: 'document.pdf',
+    aliases: ['document.pdf'],
+    renderers: ['pdf'],
+    title: 'PDF',
+    description: 'Создать проверенный PDF-документ',
+  },
+  {
+    key: 'document.docx',
+    aliases: ['document.docx'],
+    renderers: ['document'],
+    title: 'Документ',
+    description: 'Создать редактируемый DOCX',
+  },
+  {
+    key: 'document.xlsx',
+    aliases: ['document.xlsx'],
+    renderers: ['spreadsheet'],
+    title: 'Таблица',
+    description: 'Создать и скачать XLSX',
+  },
+  {
+    key: 'document.pptx',
+    aliases: ['document.pptx'],
+    renderers: ['presentation'],
+    title: 'Презентация',
+    description: 'Создать и скачать PPTX',
   },
   {
     key: 'code.execute',
@@ -37,6 +79,27 @@ const DEFINITIONS: readonly UiCapabilityDefinition[] = [
     renderers: ['image'],
     title: 'Изображение',
     description: 'Создать и показать проверенный файл',
+  },
+  {
+    key: 'image.edit',
+    aliases: ['image.edit', 'images.edit'],
+    renderers: ['image'],
+    title: 'Редактировать изображение',
+    description: 'Изменить сохранённое изображение',
+  },
+  {
+    key: 'site.create',
+    aliases: ['site.create', 'website.create'],
+    renderers: ['project_preview'],
+    title: 'Сайт',
+    description: 'Создать файлы, preview и ZIP',
+  },
+  {
+    key: 'app.create',
+    aliases: ['app.create', 'application.create'],
+    renderers: ['project_preview'],
+    title: 'Приложение',
+    description: 'Создать приложение, preview и ZIP',
   },
   {
     key: 'browser.use',
@@ -70,14 +133,16 @@ function matchesDefinition(capability: DiscoveredCapability, definition: UiCapab
  * hidden even when the server advertises them as live.
  */
 export function uiCapabilityMenu(catalog: CapabilityCatalog): UiCapability[] {
-  const live = uiInvocableCapabilities(catalog)
+  if (catalog.availability === 'unavailable') return []
+  const visible = catalog.capabilities.filter(isUiInvocableCapability)
   return DEFINITIONS.flatMap(definition => {
-    const capability = live.find(candidate => matchesDefinition(candidate, definition))
+    const capability = visible.find(candidate => matchesDefinition(candidate, definition))
     return capability ? [{
       key: definition.key,
       capability,
       title: definition.title,
       description: definition.description,
+      enabled: true,
     }] : []
   })
 }
@@ -91,10 +156,19 @@ export function findUiCapability(
 
 export function capabilityPrompt(key: UiCapabilityKey): string {
   const prompts: Record<UiCapabilityKey, string> = {
+    'estimate.create': 'Создай смету: ',
+    'document.editor': 'Создай редактируемый документ: ',
     'web.search': 'Найди в интернете актуальную информацию и укажи источники: ',
     'file.search': 'Проанализируй прикреплённые файлы: ',
+    'document.pdf': 'Создай PDF-документ: ',
+    'document.docx': 'Создай редактируемый документ: ',
+    'document.xlsx': 'Создай таблицу XLSX: ',
+    'document.pptx': 'Создай презентацию PPTX: ',
     'code.execute': 'Создай, выполни и проверь код: ',
     'image.generate': 'Создай изображение: ',
+    'image.edit': 'Отредактируй прикреплённое изображение: ',
+    'site.create': 'Создай готовый сайт с preview и файлами: ',
+    'app.create': 'Создай готовое приложение с preview и файлами: ',
     'browser.use': 'Открой браузер и выполни задачу: ',
     'mcp.invoke': 'Используй подходящие подключённые инструменты: ',
   }

@@ -112,6 +112,7 @@ def test_stream_current_question_falls_back_to_tool_enabled_provider(monkeypatch
     monkeypatch.setattr(ai_provider, "chat_completion_stream", provider_with_search)
 
     with TestClient(app) as client:
+        assert client.post("/api/v1/shell/bootstrap").status_code == 200
         response = client.post(
             "/api/v1/chat/stream",
             json={"messages": [{"role": "user", "content": QUESTION}]},
@@ -145,6 +146,7 @@ def test_stream_current_question_returns_structured_sources(monkeypatch):
     monkeypatch.setattr(truth_policy, "web_search", results)
 
     with TestClient(app) as client:
+        assert client.post("/api/v1/shell/bootstrap").status_code == 200
         response = client.post(
             "/api/v1/chat/stream",
             json={"messages": [{"role": "user", "content": QUESTION}]},

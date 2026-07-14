@@ -88,9 +88,28 @@ export function normalizeAvailability(value: unknown): CapabilityAvailability {
 
 function routeEvidence(record: UnknownRecord): CapabilityRouteEvidence {
   const route = nestedRecord(record, 'route')
+  const routes = Array.isArray(record.routes)
+    ? record.routes.filter(isRecord)
+    : []
+  const selectedRouteId = firstString(record.selected_route_id)
+  const selected = routes.find(candidate => firstString(candidate.id) === selectedRouteId)
+    ?? routes.find(candidate => {
+      const probe = nestedRecord(candidate, 'probe')
+      const credential = nestedRecord(candidate, 'credential')
+      return candidate.configured === true
+        && candidate.permitted === true
+        && credential?.ready === true
+        && probe?.state === 'succeeded'
+        && probe?.fresh === true
+    })
+    ?? routes.find(candidate => candidate.configured === true && candidate.permitted === true)
+    ?? routes[0]
+  const probe = selected ? nestedRecord(selected, 'probe') : undefined
+  const credential = selected ? nestedRecord(selected, 'credential') : undefined
   const status = firstString(
     route?.status,
     record.route_status,
+    probe?.state,
   )
   const explicitHealthy = firstBoolean(
     route?.healthy,
@@ -99,12 +118,25 @@ function routeEvidence(record: UnknownRecord): CapabilityRouteEvidence {
     record.route_available,
     record.healthy_route,
   )
+  const canonicalHealthy = selected
+    ? selected.configured === true
+      && selected.permitted === true
+      && credential?.ready === true
+      && probe?.state === 'succeeded'
+      && probe?.fresh === true
+    : undefined
 
   return {
-    healthy: explicitHealthy ?? (status ? normalizeAvailability(status) === 'live' : undefined),
+    id: firstString(selected?.id),
+    healthy: explicitHealthy ?? canonicalHealthy ?? (status ? normalizeAvailability(status) === 'live' : undefined),
     status,
-    provider: firstString(route?.provider, record.provider),
-    model: firstString(route?.model, record.model),
+    provider: firstString(route?.provider, probe?.provider, record.provider),
+    model: firstString(route?.model, probe?.model, record.model),
+    configured: firstBoolean(selected?.configured),
+    permitted: firstBoolean(selected?.permitted),
+    credentialReady: firstBoolean(credential?.ready),
+    probeState: firstString(probe?.state),
+    probeFresh: firstBoolean(probe?.fresh),
   }
 }
 
@@ -121,11 +153,20 @@ function rendererEvidence(record: UnknownRecord): CapabilityRendererEvidence {
     record.renderer_implemented,
     record.has_renderer,
   )
+  const required = firstBoolean(renderer?.required)
+  const registered = firstBoolean(renderer?.registered)
+  const healthy = firstBoolean(renderer?.healthy)
 
   return {
-    available: explicitAvailable ?? (status ? normalizeAvailability(status) === 'live' : undefined),
+    available: explicitAvailable
+      ?? (registered !== undefined
+        ? registered === true && (required === false || healthy !== false)
+        : status ? normalizeAvailability(status) === 'live' : undefined),
     id: firstString(renderer?.id, renderer?.name, record.renderer_id),
     status,
+    required,
+    registered,
+    healthy,
   }
 }
 
@@ -138,6 +179,7 @@ export function normalizeCapability(value: unknown): DiscoveredCapability | null
 
   const policy = nestedRecord(value, 'policy')
   const source = nestedRecord(value, 'source')
+  const reason = nestedRecord(value, 'reason')
 
   return {
     id,
@@ -145,7 +187,8 @@ export function normalizeCapability(value: unknown): DiscoveredCapability | null
     description: firstString(value.description),
     kind: firstString(value.kind, value.type),
     availability: normalizeAvailability(value.status ?? value.availability),
-    availabilityReason: firstString(value.availability_reason, value.reason),
+    availabilityReason: firstString(value.availability_reason, reason?.message, value.reason),
+    reasonCode: firstString(value.reason_code, reason?.code),
     invocable: firstBoolean(value.invocable, value.ui_invocable) === true,
     permitted: firstBoolean(value.permitted, value.policy_allowed, policy?.permitted, policy?.allowed),
     route: routeEvidence(value),

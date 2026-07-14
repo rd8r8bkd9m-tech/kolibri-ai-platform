@@ -13,12 +13,13 @@ interface MobileNavigationDrawerProps {
   onSearch: () => void
   onFiles: () => void
   onAgents: () => void
+  showOwnerControl: boolean
   onSettings: () => void
   recentItems: Project[]
   onRecent: (projectId: string) => void
 }
 
-export default function MobileNavigationDrawer({ open, onClose, onNavigate, onNew, onHistory, onSearch, onFiles, onAgents, onSettings, recentItems, onRecent }: MobileNavigationDrawerProps) {
+export default function MobileNavigationDrawer({ open, onClose, onNavigate, onNew, onHistory, onSearch, onFiles, onAgents, showOwnerControl, onSettings, recentItems, onRecent }: MobileNavigationDrawerProps) {
   const { t } = useLocale()
   const dialogRef = useRef<HTMLElement>(null)
   const returnFocusRef = useRef<HTMLElement | null>(null)
@@ -26,7 +27,7 @@ export default function MobileNavigationDrawer({ open, onClose, onNavigate, onNe
     { label: t('shell.newProject'), icon: Plus, action: onNew },
     { label: t('drawer.searchProjects'), icon: Search, action: onSearch },
     { label: t('drawer.library'), icon: Files, action: onFiles },
-    { label: t('drawer.agents'), icon: Bot, action: onAgents },
+    ...(showOwnerControl ? [{ label: t('drawer.agents'), icon: Bot, action: onAgents }] : []),
   ]
 
   useEffect(() => {

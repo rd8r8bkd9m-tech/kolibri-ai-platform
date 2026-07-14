@@ -96,6 +96,27 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 // Types
 // ---------------------------------------------------------------------------
 
+export type EstimateTruthStatus = 'needs_input' | 'preliminary' | 'source_backed' | 'verified'
+
+export interface PriceSourceEvidence {
+  position_code?: string
+  source_id?: string
+  url?: string
+  source_title?: string
+  source_type?: string
+  region?: string
+  observed_at?: string
+  price_date?: string
+  unit?: string
+  unit_price?: string
+  vat_status?: string
+  quote?: string
+  currency?: string
+  content_sha256?: string
+  verification?: string
+  attestation?: string
+}
+
 export interface Position {
   id: string
   code: string
@@ -105,7 +126,22 @@ export interface Position {
   price: string
   sum: string
   source: string
+  source_evidence?: PriceSourceEvidence | null
+  price_evidence?: PriceSourceEvidence[]
   comment: string
+}
+
+export interface EstimateEvidenceIssue {
+  code: string
+  position_code?: string
+  message: string
+}
+
+export interface EstimateTotals {
+  subtotal: string
+  overhead_amount: string
+  vat_amount: string
+  total: string
 }
 
 export interface Section {
@@ -131,6 +167,15 @@ export interface Estimate {
   vat_amount: string
   total: string
   sections: Section[]
+  estimate_status?: EstimateTruthStatus
+  pricing_status?: EstimateTruthStatus
+  scope_status?: 'unverified' | 'verified'
+  price_sources?: PriceSourceEvidence[]
+  evidence_issues?: EstimateEvidenceIssue[]
+  price_as_of?: string | null
+  assumptions?: string[]
+  questions?: string[]
+  source_note?: string
   created_at: string
   updated_at: string
 }
@@ -192,6 +237,26 @@ export interface ImageArtifact {
   created_at: string
   url: string
   download_url: string
+}
+
+export interface FileArtifact {
+  id: string
+  type: 'document.pdf' | 'document.docx' | 'document.xlsx' | 'document.pptx' | 'site.bundle' | 'app.bundle'
+  revision: number
+  title: string
+  filename: string
+  mime_type: string
+  size_bytes: number
+  sha256: string
+  created_at: string
+  updated_at: string
+  metadata: Record<string, unknown>
+  url: string
+  download_url: string
+  revision_url: string
+  revision_download_url: string
+  reopen_url: string
+  history_url: string
 }
 
 export interface LibraryItem {
@@ -259,6 +324,83 @@ export interface ProjectMessageListResponse {
   limit: number
 }
 
+export type FactoryAvailability = 'live' | 'partial' | 'stale' | 'unavailable'
+
+export interface FactoryConnectionTruth {
+  status: 'online' | 'offline' | 'unknown'
+  connected: boolean
+  reported_health: unknown
+  source: 'node_health_report'
+}
+
+export interface FactoryFreshnessTruth {
+  status: 'fresh' | 'degraded' | 'stale' | 'unknown'
+  fresh: boolean
+  heartbeat_at: string | null
+  heartbeat_age_seconds: number | null
+}
+
+export interface FactoryCapabilityExecution {
+  name: string
+  runner: string | null
+  runner_status: string | null
+  executable: boolean
+  reasons: string[]
+}
+
+export interface FactoryExecutionTruth {
+  status: 'active' | 'ready' | 'blocked' | 'quarantined' | 'unavailable'
+  active: boolean
+  reported_active: boolean
+  active_task_id: string | null
+  executable: boolean
+  executable_capabilities: string[]
+  blocked: boolean
+  blocked_reasons: string[]
+  quarantined: boolean
+  quarantine_reason: string | null
+  schedulable: boolean
+}
+
+export interface FactoryTaskEvidence {
+  task_id: string
+  capability: string | null
+  attempt_id: string | null
+  completed_at: string | null
+  result_sha256: string
+  binding_sha256: string
+  verifier: string
+  verifier_schema: string | null
+  evidence_source: string
+}
+
+export interface FactoryVerificationTruth {
+  status: 'verified' | 'unverified' | 'unavailable'
+  verified: boolean
+  last_successful_task: FactoryTaskEvidence | null
+  source: string
+  as_of: string | null
+  reason: string | null
+}
+
+export interface FactoryCapabilities {
+  items?: string[]
+  runners?: Record<string, unknown>
+  execution?: FactoryCapabilityExecution[]
+  executable_items?: string[]
+  [key: string]: unknown
+}
+
+export interface FactoryListTruth {
+  availability: FactoryAvailability
+  source: string
+  as_of: string
+  membership?: Record<string, unknown>
+  freshness?: Record<string, unknown>
+  verification?: Record<string, unknown>
+  derivation?: string
+}
+
 export interface Agent {
   id: string
   name: string
@@ -266,9 +408,13 @@ export interface Agent {
   status: string
   node_id: string | null
   current_task: string | null
-  progress: number
+  progress: number | null
   model: string | null
-  capabilities: Record<string, unknown>
+  connection: FactoryConnectionTruth
+  freshness: FactoryFreshnessTruth
+  execution: FactoryExecutionTruth
+  verification: FactoryVerificationTruth
+  capabilities: FactoryCapabilities
   cost_accumulated: string
   heartbeat_at: string | null
 }
@@ -279,6 +425,10 @@ export interface Node {
   region: string
   ip_address: string
   status: string
+  connection: FactoryConnectionTruth
+  freshness: FactoryFreshnessTruth
+  execution: FactoryExecutionTruth
+  verification: FactoryVerificationTruth
   cpu_percent: string
   ram_percent: string
   disk_percent: string
@@ -287,7 +437,7 @@ export interface Node {
   task_count: number
   ping_ms: number
   max_agents: number
-  capabilities: Record<string, unknown>
+  capabilities: FactoryCapabilities
 }
 
 export interface Task {
@@ -300,7 +450,7 @@ export interface Task {
   budget_limit: string | null
   attempts: number
   max_retries: number
-  result: Record<string, unknown> | null
+  result?: Record<string, unknown> | null
   created_at: string
   updated_at: string
 }
@@ -310,6 +460,7 @@ export interface PaginatedList<T> {
   total: number
   page: number
   page_size: number
+  truth?: FactoryListTruth
 }
 
 export interface EstimateCreateInput {
@@ -320,7 +471,17 @@ export interface EstimateCreateInput {
   currency?: string
   overhead_rate?: string
   vat_rate?: string
-  sections?: { title: string; positions?: { code: string; name: string; unit: string; quantity: string; price: string; source?: string; comment?: string }[] }[]
+  estimate_status?: EstimateTruthStatus
+  pricing_status?: EstimateTruthStatus
+  scope_status?: 'unverified' | 'verified'
+  price_sources?: PriceSourceEvidence[]
+  evidence_issues?: EstimateEvidenceIssue[]
+  totals?: EstimateTotals
+  price_as_of?: string | null
+  assumptions?: string[]
+  questions?: string[]
+  source_note?: string
+  sections?: { title: string; positions?: { code: string; name: string; unit: string; quantity: string; price: string; sum?: string; source?: string; source_evidence?: PriceSourceEvidence | null; price_evidence?: PriceSourceEvidence[]; comment?: string }[] }[]
 }
 
 // ---------------------------------------------------------------------------
@@ -543,11 +704,21 @@ export const tasks = {
 // ---------------------------------------------------------------------------
 
 export interface ClusterStats {
-  nodes: { total: number; healthy: number; degraded: number; offline: number }
-  agents: { total: number; active: number; idle: number; paused: number }
+  nodes: {
+    membership_total: number
+    connected: number
+    fresh: number
+    capability_executable: number
+    active: number
+    verified: number
+    blocked: number
+    quarantined: number
+    stale: number
+  }
+  agents: { membership_total: number; active: number; idle: number; paused: number; executable: number; verified: number }
   tasks: { total: number; running: number; queued: number; completed: number; failed: number; cancelled: number }
   resources: { avg_cpu: number | null; avg_ram: number | null; avg_disk: number | null }
-  truth: { availability: 'live' | 'stale' | 'unavailable'; source: string; as_of: string; task_pages: number }
+  truth: { availability: FactoryAvailability; source: string; as_of: string; task_pages: number; verification?: Record<string, unknown> }
 }
 
 export const cluster = {
@@ -819,6 +990,28 @@ function workSummaryFromResponseEvent(type: SafeResponseEventType, payload: Reco
   return undefined
 }
 
+function actionsFromResponseEvent(
+  type: SafeResponseEventType,
+  payload: Record<string, unknown>,
+  response?: Record<string, unknown>,
+): ChatAction[] | undefined {
+  const actions = Array.isArray(payload.actions)
+    ? payload.actions
+    : Array.isArray(response?.actions) ? response.actions : undefined
+  if (actions) return actions.filter((value): value is ChatAction => Boolean(value && typeof value === 'object'))
+
+  if (type !== 'response.artifact.ready') return undefined
+  const artifact = payload.artifact && typeof payload.artifact === 'object' && !Array.isArray(payload.artifact)
+    ? payload.artifact as Record<string, unknown>
+    : payload.data && typeof payload.data === 'object' && !Array.isArray(payload.data)
+      ? payload.data as Record<string, unknown>
+      : undefined
+  if (!artifact) return undefined
+  return payload.artifact_type === 'image'
+    ? [{ type: 'present_image', label: 'Открыть изображение', data: artifact }]
+    : [{ type: 'present_artifact', label: 'Открыть артефакт', data: artifact }]
+}
+
 export function normalizeStreamEvent(envelope: ServerSentEvent): ChatStreamEvent | null {
   if (!envelope.data || envelope.data === '[DONE]') return null
   let payload: Record<string, unknown>
@@ -872,6 +1065,7 @@ export function normalizeStreamEvent(envelope: ServerSentEvent): ChatStreamEvent
   }
 
   const workSummary = workSummaryFromResponseEvent(type, payload)
+  const actions = actionsFromResponseEvent(type, payload, response)
   const delta = type === 'response.output_text.delta' && typeof payload.delta === 'string' ? payload.delta : undefined
   const terminal = type === 'response.completed' || type === 'response.failed' || type === 'response.cancelled'
   return {
@@ -884,6 +1078,7 @@ export function normalizeStreamEvent(envelope: ServerSentEvent): ChatStreamEvent
     error_code: safeString(payload.error_code, 120) ?? safeString(responseError?.code, 120),
     recoverable: payload.recoverable === true || responseError?.recoverable === true,
     capability: safeString(payload.capability, 120) ?? safeString(responseError?.capability, 120),
+    actions,
     work_summary: workSummary,
   }
 }
@@ -902,14 +1097,15 @@ interface LegacyChatResponse {
 function normalizeChatResponse(payload: LegacyChatResponse): ChatResponse {
   const content = payload.content ?? payload.response ?? ''
   const failed = ['error', 'failed', 'incomplete', 'unavailable', 'capability_unavailable'].includes(payload.status ?? '')
-  if (!content.trim() && !failed && !payload.error_code) {
+  const actions = Array.isArray(payload.actions) ? payload.actions : []
+  if (!content.trim() && !actions.length && !failed && !payload.error_code) {
     throw new ApiError(502, 'Kolibri API returned an empty response')
   }
 
   return {
     content,
     reasoning: payload.reasoning,
-    actions: Array.isArray(payload.actions) ? payload.actions : [],
+    actions,
     status: payload.status ?? 'completed',
     error_code: payload.error_code,
     recoverable: payload.recoverable === true,

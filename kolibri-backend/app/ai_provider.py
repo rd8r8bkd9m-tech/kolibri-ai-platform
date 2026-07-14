@@ -1,4 +1,5 @@
 """AI provider — multi-model auto-routing for Kolibri."""
+from copy import deepcopy
 import os
 import json
 import time
@@ -7,7 +8,12 @@ from html import escape
 import httpx
 from typing import List, Dict, Optional
 
-from app.estimate_action import build_estimate_action, ensure_estimate_action, is_estimate_request
+from app.estimate_action import (
+    build_estimate_action,
+    ensure_estimate_action,
+    is_estimate_request,
+    latest_user_text,
+)
 
 AI_TIMEOUT = int(os.getenv("AI_TIMEOUT", "60"))
 PROVIDER_FAILURE_COOLDOWN_SECONDS = int(os.getenv("PROVIDER_FAILURE_COOLDOWN_SECONDS", "60"))
@@ -144,6 +150,31 @@ PROVIDERS = {
     },
 }
 
+SOLO_BEHAVIOR_PROMPT = """Режим автономного универсального исполнителя:
+1. Сам определи тип задачи и выбери только реально доступный маршрут.
+2. Уточняй минимум: если безопасное разумное предположение позволяет продолжить,
+   зафиксируй его и выполни задачу. Спрашивай только о блокирующих данных.
+3. До обещания действия проверь capability/инструмент. Не имитируй выполнение:
+   файл считается созданным только после записи, источник — проверенным только
+   после реального поиска, API — вызванным только после вызова, артефакт — готовым
+   только после получения bytes/hash, а смета — рассчитанной только backend-движком.
+4. Многошаговую задачу доводи до практически полезного результата в текущем
+   сеансе. Не перекладывай на пользователя то, что можешь выполнить сам.
+5. Для свежих данных используй веб-поиск и источники; для проекта — реальное
+   чтение файлов. Не выдумывай содержимое, доступ или результат инструмента.
+6. Внутренний план используй для выполнения, но не раскрывай private reasoning.
+   Пользователю показывай только безопасный Work Trace, проверки и итог.
+7. При недоступности сообщи: что недоступно, проверяемую причину и ближайший
+   реально выполнимый вариант. Используй формат: «Недоступно в текущем сеансе:
+   <что именно>. Причина: <нет инструмента/нет доступа/нет данных>. Могу вместо
+   этого: <реальный ближайший вариант>». Не выдавай черновик за завершённый результат.
+8. Если действие доступно, выполняй его без лишнего подтверждения. Подтверждение
+   запрашивай только перед рискованным, необратимым, финансовым действием либо
+   когда необходимы персональные данные или отдельное разрешение владельца.
+
+Приоритет: точность и проверяемость выше скорости и красивой формулировки;
+готовый подтверждённый результат выше обещаний; безопасность выше имитации."""
+
 SYSTEM_PROMPT = """Ты — Колибри, универсальная AI-операционная система и единый интерфейс пользователя.
 Ты помогаешь превращать обычную фразу в проверенный результат: ответ, исследование,
 смету, документ, изображение, код, сайт, приложение или автоматизацию — но только
@@ -158,11 +189,13 @@ DeepSeek, Mimo, Codex, строительным ассистентом или д
 
 Когда пользователь просит создать смету — верни только JSON-действие в формате:
 ```json
-{"action": "create_estimate", "title": "...", "sections": [{"title": "...", "positions": [{"code":"...", "name":"...", "unit":"...", "quantity":"...", "price":"...", "source":""}]}]}
+{"action":"create_estimate","title":"...","object_name":"...","region":"город, регион","assumptions":["..."],"questions":["..."],"sections":[{"title":"...","positions":[{"code":"код КСР/ресурса, только если уверен; иначе пусто","name":"точное индивидуальное наименование ресурса или работы","unit":"...","quantity":"...","price":"0","comment":"основание количества"}]}]}
 ```
-Не объявляй цены актуальными и не выдумывай источники. Если нет проверенных
-датированных источников, оставляй source пустым: результат будет предварительным,
-а все суммы пересчитает детерминированный backend.
+Не используй укрупнённый фиксированный шаблон. Сформируй индивидуальную ведомость
+по запросу: отдельные ресурсы, работы, машины и труд. Не выдумывай коды КСР,
+цены и источники. Оставляй price равным 0: backend сам подберёт последний реально
+опубликованный региональный период ФГИС ЦС, проверит код, единицу, НДС и формулу.
+Неподтверждённые строки останутся без цены, а все суммы пересчитает Decimal-движок.
 
 Когда просит создать документ — верни:
 ```json
@@ -177,14 +210,14 @@ DeepSeek, Mimo, Codex, строительным ассистентом или д
 
 def _live_capability_names() -> list[str]:
     try:
-        from app.image_artifacts import capability_catalog
+        from app.capability_runtime import capability_snapshot
 
-        catalog = capability_catalog()
+        catalog = capability_snapshot()
         return [
             str(item.get("name") or item.get("id"))
             for item in catalog.get("capabilities", [])
             if isinstance(item, dict)
-            and item.get("status") == "live"
+            and item.get("status") == "available"
             and item.get("invocable") is True
         ]
     except Exception:
@@ -199,7 +232,21 @@ def _kolibri_system_prompt() -> str:
         if live
         else "Подтверждённые invocable-возможности этого сеанса не обнаружены. Не заявляй обратное."
     )
-    return f"{SYSTEM_PROMPT}\n\n{capability_context}"
+    return f"{SYSTEM_PROMPT}\n\n{SOLO_BEHAVIOR_PROMPT}\n\n{capability_context}"
+
+
+def _compose_system_prompt(specialization: Optional[str] = None) -> str:
+    """Add a task specialization without dropping Kolibri/Solo invariants."""
+
+    base = _kolibri_system_prompt()
+    if not specialization:
+        return base
+    return (
+        f"{base}\n\nДополнительная специализация для текущей задачи:\n"
+        f"{specialization.strip()}\n\n"
+        "Эта специализация не отменяет идентичность Колибри, проверку capabilities, "
+        "запрет имитации и остальные правила режима Solo."
+    )
 
 
 def _is_self_description_request(messages: List[Dict[str, str]]) -> bool:
@@ -220,24 +267,21 @@ def _is_self_description_request(messages: List[Dict[str, str]]) -> bool:
 
 
 def _capability_self_description() -> dict:
-    live = _live_capability_names()
-    tools = (
-        " Сейчас подтверждены: " + ", ".join(live) + "."
-        if live
-        else " Дополнительные инструменты сейчас не подтверждены; я не буду заявлять недоступные функции."
-    )
+    from app.capability_registry import capability_self_description
+    from app.capability_runtime import capability_snapshot
+
+    description = capability_self_description(capability_snapshot())
     return {
-        "content": (
-            "Я — Колибри, единая AI-операционная система для диалога и выполнения задач."
-            + tools
-        ),
+        "content": description["content"],
         "reasoning": "",
         "actions": [],
-        "status": "idle",
+        "status": description["status"],
         "provider": "kolibri_catalog",
-        "model": "capability-catalog-v1",
+        "model": "kolibri.capabilities.v1",
         "speed_ms": 0,
         "fallback_used": False,
+        "capabilities": description["capabilities"],
+        "as_of": description["as_of"],
     }
 
 
@@ -334,20 +378,42 @@ def _provider_is_configured(name: str, provider: dict) -> bool:
 
 
 def _provider_is_healthy(provider: dict) -> bool:
+    from app.capability_runtime import capability_release_id
+
+    state = _provider_route_state.get(_provider_id(provider), {})
+    if state.get("release_id") != capability_release_id():
+        return True
     return _provider_blocked_until.get(_provider_id(provider), 0) <= time.monotonic()
 
 
 def _record_provider_success(provider: dict) -> None:
+    from app.capability_runtime import capability_release_id
+
     provider_id = _provider_id(provider)
+    verified_at = datetime.now(timezone.utc).isoformat()
     _provider_blocked_until.pop(provider_id, None)
     _provider_route_state[provider_id] = {
+        "release_id": capability_release_id(),
         "status": "live",
-        "verified_at": datetime.now(timezone.utc).isoformat(),
+        "verified_at": verified_at,
         "failure_kind": None,
     }
+    # Persist only the sanitised verdict; prompts and provider output never
+    # enter the capability evidence ledger.
+    from app.capability_runtime import record_capability_invocation
+
+    record_capability_invocation(
+        "chat.responses",
+        succeeded=True,
+        provider=provider_id,
+        model=str(provider.get("model") or ""),
+        evidence_id=f"provider:{provider_id}:{verified_at}",
+    )
 
 
 def _record_provider_failure(provider: dict, error: Exception) -> None:
+    from app.capability_runtime import capability_release_id
+
     cooldown = PROVIDER_FAILURE_COOLDOWN_SECONDS
     status_code = error.response.status_code if isinstance(error, httpx.HTTPStatusError) else None
     if status_code in {401, 403}:
@@ -355,6 +421,7 @@ def _record_provider_failure(provider: dict, error: Exception) -> None:
     provider_id = _provider_id(provider)
     _provider_blocked_until[provider_id] = time.monotonic() + cooldown
     _provider_route_state[provider_id] = {
+        "release_id": capability_release_id(),
         "status": "blocked",
         "verified_at": datetime.now(timezone.utc).isoformat(),
         "failure_kind": _safe_failure_kind(error),
@@ -376,6 +443,8 @@ def _safe_failure_kind(error: Exception) -> str:
 
 def provider_route_snapshot(provider: dict) -> dict:
     """Return safe runtime route state without URLs, tokens or upstream text."""
+    from app.capability_runtime import capability_release_id
+
     provider_id = _provider_id(provider)
     if provider.get("protocol") == "codex_cli":
         from app.codex_cli_provider import codex_cli_configuration
@@ -396,7 +465,8 @@ def provider_route_snapshot(provider: dict) -> dict:
             and provider.get("model")
             and provider.get("url")
         )
-    state = _provider_route_state.get(provider_id, {})
+    raw_state = _provider_route_state.get(provider_id, {})
+    state = raw_state if raw_state.get("release_id") == capability_release_id() else {}
     circuit_open = not _provider_is_healthy(provider)
     if not configured:
         status = "unavailable"
@@ -520,18 +590,26 @@ async def chat_completion(
     messages: List[Dict[str, str]],
     task_type: str = "chat",
     system: Optional[str] = None,
+    raw_json_output: bool = False,
     previous_response_id: Optional[str] = None,
     background: bool = False,
     policy: Optional[dict] = None,
     idempotency_key: Optional[str] = None,
 ) -> dict:
     """Call AI with auto-routing and fallback."""
-    image_result = await _image_completion_if_requested(messages, policy)
+    # Structured-output transports own their exact JSON contract.  Intent
+    # helpers (image routing, self-description and estimate materialisation)
+    # must not replace or rewrite the provider JSON before schema validation.
+    image_result = (
+        None
+        if raw_json_output
+        else await _image_completion_if_requested(messages, policy)
+    )
     if image_result is not None:
         return image_result
-    if system is None and _is_self_description_request(messages):
+    if not raw_json_output and system is None and _is_self_description_request(messages):
         return _capability_self_description()
-    full_messages = [{"role": "system", "content": system or _kolibri_system_prompt()}] + messages
+    full_messages = [{"role": "system", "content": _compose_system_prompt(system)}] + messages
     
     # Get ordered list of providers to try
     providers_to_try = _get_providers_for_task(task_type)
@@ -551,16 +629,19 @@ async def chat_completion(
             else:
                 result = await _call_ai(provider, full_messages)
             _record_provider_success(provider)
-            result["actions"] = ensure_estimate_action(messages, result.get("actions", []))
+            result["actions"] = (
+                []
+                if raw_json_output
+                else await _materialize_estimate_actions(
+                    messages, result.get("actions", [])
+                )
+            )
             if result["actions"]:
                 result["status"] = "ready"
-            if is_estimate_request(messages) and result["actions"]:
+            if not raw_json_output and is_estimate_request(messages) and result["actions"]:
                 # Provider JSON is an internal typed draft.  Never expose the
                 # raw fenced object next to the materialised estimate editor.
-                result["content"] = (
-                    "Предварительная смета подготовлена и открыта для редактирования. "
-                    "Цены пока не подтверждены актуальными региональными источниками."
-                )
+                result["content"] = _estimate_result_message(result["actions"])
                 result["reasoning"] = ""
             result["fallback_used"] = len(providers_to_try) > 1 and provider != providers_to_try[0]
             result["provider_attempts"] = provider_attempts + [{
@@ -584,13 +665,14 @@ async def chat_completion(
             continue
     
     # All providers failed
-    local_actions = ensure_estimate_action(messages, [])
+    local_actions = (
+        []
+        if raw_json_output
+        else await _materialize_estimate_actions(messages, [])
+    )
     return {
-        "content": (
-            "Подготовлена редактируемая предварительная смета. "
-            "Актуальные региональные источники цен ещё не подтверждены."
-            if local_actions
-            else "Не удалось завершить ответ через доступные маршруты. Повторите запрос — он будет направлен другому исполнителю."
+        "content": _estimate_result_message(local_actions) if local_actions else (
+            "Не удалось завершить ответ через доступные маршруты. Повторите запрос — он будет направлен другому исполнителю."
         ),
         "reasoning": "",
         "actions": local_actions,
@@ -628,6 +710,107 @@ def _get_providers_for_task(task_type: str) -> list:
         order = ("codex_cli", "mimo", "deepseek_pro", "deepseek_flash", "kimi_code", "cfbt")
     
     return [PROVIDERS[name] for name in order if _available(name)]
+
+
+def _estimate_source_collection_enabled() -> bool:
+    return os.getenv("KOLIBRI_ESTIMATE_FGIS_ENABLED", "true").lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
+async def _materialize_estimate_actions(
+    messages: List[Dict[str, str]],
+    actions: list[dict],
+) -> list[dict]:
+    """Cross the estimate price trust boundary through official evidence only."""
+
+    normalized = ensure_estimate_action(messages, actions)
+    estimate = next((item for item in normalized if item.get("type") == "create_estimate"), None)
+    if estimate is None:
+        return normalized
+
+    draft = deepcopy(estimate.get("data") or {})
+    # Provider prices are scope suggestions, not price evidence.  Zero them
+    # before research so an unmatched row cannot silently retain an invented
+    # amount in the editor or totals.
+    for section in draft.get("sections", []):
+        if not isinstance(section, dict):
+            continue
+        for position in section.get("positions", []):
+            if not isinstance(position, dict):
+                continue
+            position["price"] = "0.00"
+            position["sum"] = "0.00"
+            position["source"] = ""
+            position["price_evidence"] = []
+
+    trusted_evidence: list[dict] = []
+    if _estimate_source_collection_enabled():
+        try:
+            from app.fgiscs_client import FgisCsClient
+
+            draft, trusted_evidence = await FgisCsClient().enrich_draft(draft)
+        except Exception:
+            # Price research is an optional, untrusted boundary.  Transport,
+            # payload and local attestation/configuration failures must all
+            # degrade to zero unverified prices instead of aborting the chat or
+            # its SSE stream.  asyncio cancellation remains a BaseException and
+            # is therefore not swallowed here.
+            trusted_evidence = []
+
+    final_estimate = build_estimate_action(
+        latest_user_text(messages),
+        draft,
+        verified_evidence=trusted_evidence,
+        scope_verified=False,
+    )
+    # The collector assigns a price before the shared evidence contract makes
+    # its final freshness/region/unit/attestation decision.  If that decision
+    # rejects a record, do not leave the now-unbound amount in totals under a
+    # softer "preliminary" label: zero it and derive the action again.
+    sanitized = deepcopy(final_estimate["data"])
+    removed_rejected_price = False
+    for section in sanitized.get("sections", []):
+        for position in section.get("positions", []):
+            if position.get("price_evidence"):
+                continue
+            if str(position.get("price") or "0") not in {"0", "0.0", "0.00"}:
+                removed_rejected_price = True
+            position["price"] = "0.00"
+            position["sum"] = "0.00"
+            position["source"] = ""
+    if removed_rejected_price:
+        final_estimate = build_estimate_action(
+            latest_user_text(messages),
+            sanitized,
+            verified_evidence=trusted_evidence,
+            scope_verified=False,
+        )
+    return [
+        final_estimate if item is estimate else item
+        for item in normalized
+    ]
+
+
+def _estimate_result_message(actions: list[dict]) -> str:
+    estimate = next((item for item in actions if item.get("type") == "create_estimate"), None)
+    status = str((estimate or {}).get("data", {}).get("estimate_status") or "needs_input")
+    if status == "verified":
+        return "Проверенная смета рассчитана и подготовлена для сохранения в редакторе."
+    if status == "source_backed":
+        return (
+            "Индивидуальная смета рассчитана по последним опубликованным региональным "
+            "ценам ФГИС ЦС и подготовлена для редактора. Объёмы требуют проверки по проекту."
+        )
+    if status == "preliminary":
+        return (
+            "Индивидуальная ведомость сформирована, но не все строки имеют подходящий "
+            "актуальный региональный источник. Неподтверждённые цены не включены."
+        )
+    return (
+        "Готовой сметы пока нет: исполнитель не сформировал достаточный индивидуальный "
+        "состав либо не найдены подтверждённые цены. Откройте результат и уточните исходные данные."
+    )
 
 
 async def analyze_estimate(estimate_data: dict) -> dict:
@@ -831,6 +1014,8 @@ async def chat_completion_stream(
     messages: List[Dict[str, str]],
     task_type: str = "chat",
     *,
+    system: Optional[str] = None,
+    raw_json_output: bool = False,
     previous_response_id: Optional[str] = None,
     background: bool = False,
     policy: Optional[dict] = None,
@@ -872,7 +1057,7 @@ async def chat_completion_stream(
             } if image_result.get("error_code") else {}),
         }
         return
-    if _is_self_description_request(messages):
+    if system is None and _is_self_description_request(messages):
         result = _capability_self_description()
         yield {"content": result["content"], "done": False}
         yield {
@@ -885,7 +1070,7 @@ async def chat_completion_stream(
             "fallback_used": False,
         }
         return
-    full_messages = [{"role": "system", "content": _kolibri_system_prompt()}] + messages
+    full_messages = [{"role": "system", "content": _compose_system_prompt(system)}] + messages
     providers_to_try = _get_providers_for_task(task_type)
     estimate_requested = is_estimate_request(messages)
 
@@ -937,6 +1122,9 @@ async def chat_completion_stream(
                     continue
                 emitted_content = True
                 content_parts.append(token)
+                if raw_json_output:
+                    yield {"content": token, "done": False}
+                    continue
                 if structured_output:
                     continue
 
@@ -989,13 +1177,15 @@ async def chat_completion_stream(
                 provider=provider_id,
                 model=provider_model,
             )
-            actions = ensure_estimate_action(messages, _extract_actions("".join(content_parts)))
+            actions = [] if raw_json_output else await _materialize_estimate_actions(
+                messages, _extract_actions("".join(content_parts))
+            )
             if structured_output and actions:
                 action_type = actions[0].get("type")
                 summary = {
-                    "create_estimate": "Смета подготовлена. Результат сохранён в текущем проекте.",
-                    "create_document": "Документ подготовлен. Результат сохранён в текущем проекте.",
-                }.get(action_type, "Результат подготовлен и сохранён в текущем проекте.")
+                    "create_estimate": _estimate_result_message(actions),
+                    "create_document": "Документ подготовлен для сохранения в текущем проекте.",
+                }.get(action_type, "Результат подготовлен для сохранения в текущем проекте.")
                 yield {
                     "content": summary,
                     "done": False,
@@ -1041,7 +1231,9 @@ async def chat_completion_stream(
                 yield {
                     "content": "",
                     "done": True,
-                    "actions": ensure_estimate_action(messages, _extract_actions("".join(content_parts))),
+                    "actions": await _materialize_estimate_actions(
+                        messages, _extract_actions("".join(content_parts))
+                    ),
                     "status": "ready" if estimate_requested else "incomplete",
                     "provider": _provider_id(provider),
                     "model": provider.get("model", ""),
@@ -1051,7 +1243,7 @@ async def chat_completion_stream(
                 return
             continue
 
-    local_actions = ensure_estimate_action(messages, [])
+    local_actions = await _materialize_estimate_actions(messages, [])
     if local_actions:
         yield work_summary_event(
             "response_received",
@@ -1061,11 +1253,8 @@ async def chat_completion_stream(
             model="deterministic-estimate-v1",
         )
     yield {
-        "content": (
-            "Подготовлена редактируемая предварительная смета. "
-            "Актуальные региональные источники цен ещё не подтверждены."
-            if local_actions
-            else "Не удалось завершить ответ через доступные маршруты. Повторите запрос — он будет направлен другому исполнителю."
+        "content": _estimate_result_message(local_actions) if local_actions else (
+            "Не удалось завершить ответ через доступные маршруты. Повторите запрос — он будет направлен другому исполнителю."
         ),
         "done": True,
         "actions": local_actions,

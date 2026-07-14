@@ -19,6 +19,9 @@ node_modules/
 output/
 dist/
 
+# Runtime evidence is release-scoped state, never source.
+data/artifacts/runtime/
+
 # IDE
 .vscode/
 .idea/

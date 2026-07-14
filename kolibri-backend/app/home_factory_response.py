@@ -39,21 +39,25 @@ class HomeFactoryResponseError(RuntimeError):
 class HomeFactoryResponseSettings:
     control_plane_url: str
     release_id: str
-    timeout_seconds: float = 240.0
+    # This is an observer budget, not the task lifetime.  The durable task
+    # remains owned by Home after a browser disconnect.  A one-hour default
+    # removes the former short user-visible cutoff while retaining a bounded
+    # safety ceiling for a single HTTP observer.
+    timeout_seconds: float = 3_600.0
     poll_seconds: float = 0.25
     request_timeout_seconds: float = 5.0
 
     @classmethod
     def from_env(cls) -> "HomeFactoryResponseSettings":
         try:
-            timeout = float(os.getenv("KOLIBRI_FACTORY_RESPONSE_TIMEOUT_SECONDS", "240"))
+            timeout = float(os.getenv("KOLIBRI_FACTORY_RESPONSE_TIMEOUT_SECONDS", "3600"))
             poll = float(os.getenv("KOLIBRI_FACTORY_RESPONSE_POLL_SECONDS", "0.25"))
             request_timeout = float(
                 os.getenv("KOLIBRI_FACTORY_RESPONSE_REQUEST_TIMEOUT_SECONDS", "5")
             )
         except ValueError as exc:
             raise HomeFactoryResponseError("home_factory_timeout_invalid") from exc
-        if not 10 <= timeout <= 900 or not 0.05 <= poll <= 5 or not 1 <= request_timeout <= 30:
+        if not 10 <= timeout <= 86_400 or not 0.05 <= poll <= 5 or not 1 <= request_timeout <= 30:
             raise HomeFactoryResponseError("home_factory_timeout_invalid")
         try:
             control_plane_url = validate_home_control_plane_url(
@@ -248,7 +252,9 @@ class HomeFactoryResponseClient:
                 "max_wall_seconds": min(86_400, max(10, int(self.settings.timeout_seconds))),
                 "network": "provider_managed_only",
             },
-            "max_attempts": 1,
+            # One retry is allowed for an execution failure.  Provider
+            # fallback still stays disabled and never changes Control Plane.
+            "max_attempts": 2,
             "fallback_allowed": False,
             "source": {
                 "kind": "kolibri_provider_gateway",

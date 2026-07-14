@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -23,6 +24,16 @@ CONTROL_PLANE_ENV = "KOLIBRI_CONTROL_PLANE_URL"
 CONTROL_PLANE_SOURCE = "home_control_plane"
 DEFAULT_TIMEOUT_SECONDS = 2.0
 MAX_TIMEOUT_SECONDS = 10.0
+FLEET_PROOF_PATH = "/v1/runtime/fleet-proof"
+SHA256_PATTERN = re.compile(r"^(?:sha256:)?[0-9a-f]{64}$")
+CONNECTED_HEALTH_STATES = frozenset({"online", "healthy", "ready"})
+DISCONNECTED_HEALTH_STATES = frozenset({"offline", "disconnected", "failed"})
+RUNNER_EXECUTABLE_STATES = frozenset({
+    "available", "healthy", "online", "ready", "running",
+})
+RUNNER_BLOCKED_STATES = frozenset({
+    "blocked", "degraded", "disabled", "runner_auth_blocked", "unavailable",
+})
 
 
 class ControlPlaneUnavailable(RuntimeError):
@@ -108,28 +119,255 @@ def _memory_kib(value: Any) -> int | None:
 
 def _node_status(node: dict[str, Any]) -> str:
     health = str(node.get("health") or "").lower()
-    freshness = str(node.get("freshness") or "stale").lower()
     if not node.get("registered") or health == "quarantined":
         return "quarantined"
-    if freshness == "stale":
-        return "offline"
     if node.get("draining"):
         return "draining"
-    if freshness == "degraded":
-        return "degraded"
-    if freshness == "fresh" and health in {"online", "healthy", "ready"}:
-        return "healthy"
-    return "degraded"
+    if health in CONNECTED_HEALTH_STATES:
+        return "connected"
+    if health in DISCONNECTED_HEALTH_STATES:
+        return "disconnected"
+    return "degraded" if health == "degraded" else "unknown"
 
 
 def _agent_status(node: dict[str, Any]) -> str:
     freshness = str(node.get("freshness") or "stale").lower()
     health = str(node.get("health") or "").lower()
-    if freshness == "stale" or health not in {"online", "healthy", "ready"}:
+    if freshness == "stale" or health not in CONNECTED_HEALTH_STATES:
         return "error"
     if node.get("draining"):
         return "paused"
     return "active" if node.get("active_task") else "idle"
+
+
+def _connection_truth(node: dict[str, Any]) -> dict[str, Any]:
+    health = str(node.get("health") or "").strip().lower()
+    if health in CONNECTED_HEALTH_STATES:
+        status = "online"
+        connected = True
+    elif health in DISCONNECTED_HEALTH_STATES:
+        status = "offline"
+        connected = False
+    else:
+        status = "unknown"
+        connected = False
+    return {
+        "status": status,
+        "connected": connected,
+        "reported_health": node.get("reported_health") or node.get("health"),
+        "source": "node_health_report",
+    }
+
+
+def _freshness_truth(node: dict[str, Any]) -> dict[str, Any]:
+    raw = str(node.get("freshness") or "unknown").strip().lower()
+    status = raw if raw in {"fresh", "degraded", "stale"} else "unknown"
+    return {
+        "status": status,
+        "fresh": status == "fresh",
+        "heartbeat_at": node.get("heartbeat_at"),
+        "heartbeat_age_seconds": node.get("heartbeat_age_seconds"),
+    }
+
+
+def _active_task_id(node: dict[str, Any]) -> str | None:
+    value = node.get("active_task")
+    if isinstance(value, dict):
+        token = value.get("task_id") or value.get("id")
+    else:
+        token = value
+    return str(token or "").strip() or None
+
+
+def _runner_for_capability(capability: str) -> str | None:
+    value = capability.strip().lower()
+    if value.startswith("runner:"):
+        return value.partition(":")[2] or None
+    if value.startswith("runner_"):
+        return value.removeprefix("runner_") or None
+    if value.endswith("_runner"):
+        return value.removesuffix("_runner") or None
+    return None
+
+
+def _runner_status(node: dict[str, Any], runner_name: str) -> str | None:
+    for collection_name in ("runners", "runner_status"):
+        raw = _as_dict(node.get(collection_name)).get(runner_name)
+        if isinstance(raw, dict):
+            raw = raw.get("status")
+        if raw is not None:
+            return str(raw).strip().lower() or None
+    return None
+
+
+def _capability_execution(node: dict[str, Any]) -> list[dict[str, Any]]:
+    connection = _connection_truth(node)
+    freshness = _freshness_truth(node)
+    health = str(node.get("health") or "").strip().lower()
+    quarantined = bool(
+        not node.get("registered")
+        or health == "quarantined"
+        or node.get("lifecycle") == "quarantined"
+        or node.get("quarantine_reason")
+    )
+    base_reasons: list[str] = []
+    if quarantined:
+        base_reasons.append("quarantined")
+    if not connection["connected"]:
+        base_reasons.append("not_connected")
+    if not freshness["fresh"]:
+        base_reasons.append("heartbeat_not_fresh")
+    if not node.get("schedulable"):
+        base_reasons.append("not_schedulable")
+    if node.get("draining"):
+        base_reasons.append("draining")
+
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw_capability in _as_list(node.get("capabilities")):
+        capability = str(raw_capability).strip()
+        if not capability or capability in seen:
+            continue
+        seen.add(capability)
+        runner = _runner_for_capability(capability)
+        runner_status = _runner_status(node, runner) if runner else None
+        reasons = list(base_reasons)
+        if runner and runner_status not in RUNNER_EXECUTABLE_STATES:
+            reasons.append(
+                "runner_status_unavailable"
+                if runner_status is None
+                else f"runner_{runner_status}"
+            )
+        result.append({
+            "name": capability,
+            "runner": runner,
+            "runner_status": runner_status,
+            "executable": not reasons,
+            "reasons": reasons,
+        })
+    return result
+
+
+def _execution_truth(node: dict[str, Any], capability_execution: list[dict[str, Any]]) -> dict[str, Any]:
+    connection = _connection_truth(node)
+    freshness = _freshness_truth(node)
+    task_id = _active_task_id(node)
+    health = str(node.get("health") or "").strip().lower()
+    quarantined = bool(
+        not node.get("registered")
+        or health == "quarantined"
+        or node.get("lifecycle") == "quarantined"
+        or node.get("quarantine_reason")
+    )
+    executable_items = [
+        item["name"] for item in capability_execution if item["executable"]
+    ]
+    runner_blocked = bool(capability_execution) and not executable_items and any(
+        item.get("runner_status") in RUNNER_BLOCKED_STATES
+        for item in capability_execution
+    )
+    blocked_reasons: list[str] = []
+    if node.get("draining"):
+        blocked_reasons.append("draining")
+    if health == "blocked":
+        blocked_reasons.append("reported_blocked")
+    if runner_blocked:
+        blocked_reasons.append("all_reported_runner_capabilities_blocked")
+    blocked = bool(blocked_reasons) and not quarantined
+    reported_active = task_id is not None
+    active = bool(
+        reported_active
+        and connection["connected"]
+        and freshness["fresh"]
+        and not quarantined
+    )
+    if quarantined:
+        status = "quarantined"
+    elif blocked:
+        status = "blocked"
+    elif active:
+        status = "active"
+    elif executable_items:
+        status = "ready"
+    else:
+        status = "unavailable"
+    return {
+        "status": status,
+        "active": active,
+        "reported_active": reported_active,
+        "active_task_id": task_id,
+        "executable": bool(executable_items),
+        "executable_capabilities": executable_items,
+        "blocked": blocked,
+        "blocked_reasons": blocked_reasons,
+        "quarantined": quarantined,
+        "quarantine_reason": node.get("quarantine_reason"),
+        "schedulable": bool(node.get("schedulable")),
+    }
+
+
+def _verification_truth(
+    proof: dict[str, Any] | None,
+    proof_truth: dict[str, Any] | None,
+) -> dict[str, Any]:
+    source = "home_control_plane_fleet_proof"
+    truth = proof_truth or {}
+    if truth.get("availability") != "live":
+        return {
+            "status": "unavailable",
+            "verified": False,
+            "last_successful_task": None,
+            "source": source,
+            "as_of": truth.get("as_of"),
+            "reason": truth.get("reason") or "fleet_proof_unavailable",
+        }
+    completion = _as_dict((proof or {}).get("strict_verified_completion"))
+    result_sha256 = str(completion.get("result_sha256") or "").strip().lower()
+    binding_sha256 = str(completion.get("binding_sha256") or "").strip().lower()
+    valid = bool(
+        completion.get("proven") is True
+        and completion.get("task_id")
+        and SHA256_PATTERN.fullmatch(result_sha256)
+        and SHA256_PATTERN.fullmatch(binding_sha256)
+        and completion.get("verifier") == "control-plane/home"
+        and completion.get("verifier_schema")
+        == "kolibri.control-plane-completion-verifier.v1"
+    )
+    last_successful_task = None
+    if valid:
+        last_successful_task = {
+            "task_id": str(completion["task_id"]),
+            "capability": completion.get("kind"),
+            "attempt_id": completion.get("attempt_id"),
+            "completed_at": completion.get("completed_at"),
+            "result_sha256": result_sha256,
+            "binding_sha256": binding_sha256,
+            "verifier": completion.get("verifier"),
+            "verifier_schema": completion.get("verifier_schema"),
+            "evidence_source": FLEET_PROOF_PATH,
+        }
+    return {
+        "status": "verified" if valid else "unverified",
+        "verified": valid,
+        "last_successful_task": last_successful_task,
+        "source": source,
+        "as_of": truth.get("as_of"),
+        "reason": None if valid else "no_strict_verified_completion",
+    }
+
+
+def _list_availability(items: list[dict[str, Any]]) -> str:
+    values = {
+        str(_as_dict(_as_dict(item.get("capabilities")).get("_truth")).get("availability"))
+        for item in items
+    }
+    if not values:
+        return "live"
+    if values == {"live"}:
+        return "live"
+    if "live" in values:
+        return "partial"
+    return "stale"
 
 
 def _task_state(value: Any) -> str:
@@ -194,6 +432,52 @@ class HomeControlPlaneAdapter:
             raise ControlPlaneUnavailable("control_plane_contract_invalid")
         return payload
 
+    async def _fleet_proof_optional(
+        self,
+    ) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
+        """Read strict execution proof without hiding otherwise valid fleet data.
+
+        Older or temporarily degraded Home deployments may still serve the
+        membership endpoint while the proof endpoint is unavailable.  In that
+        case the portal may show membership/freshness, but verification remains
+        explicitly unavailable and can never be inferred from a heartbeat.
+        """
+
+        observed_at = _utc_now()
+        try:
+            payload = await self._get(FLEET_PROOF_PATH, {})
+        except ControlPlaneUnavailable as exc:
+            return {}, {
+                "availability": "unavailable",
+                "source": CONTROL_PLANE_SOURCE,
+                "as_of": observed_at,
+                "reason": exc.reason,
+            }
+        rows = payload.get("nodes")
+        if (
+            payload.get("schema_version") != "kolibri.fleet-capability-proof.v1"
+            or not isinstance(rows, list)
+        ):
+            return {}, {
+                "availability": "unavailable",
+                "source": CONTROL_PLANE_SOURCE,
+                "as_of": observed_at,
+                "reason": "control_plane_fleet_proof_contract_invalid",
+            }
+        by_node: dict[str, dict[str, Any]] = {}
+        for raw in rows:
+            row = _as_dict(raw)
+            node_id = str(row.get("node_id") or "").strip()
+            if node_id:
+                by_node[node_id] = row
+        return by_node, {
+            "availability": "live",
+            "source": CONTROL_PLANE_SOURCE,
+            "as_of": payload.get("observed_at") or observed_at,
+            "status": payload.get("status"),
+            "summary": _as_dict(payload.get("summary")),
+        }
+
     async def list_nodes(
         self,
         *,
@@ -204,32 +488,40 @@ class HomeControlPlaneAdapter:
         offset = (page - 1) * page_size
         control_plane_limit = 250 if status else page_size
         control_plane_offset = 0 if status else offset
-        payload = await self._get(
-            "/v1/nodes",
-            {
-                "scope": "active",
-                "limit": control_plane_limit,
-                "offset": control_plane_offset,
-            },
+        payload, proof_result = await asyncio.gather(
+            self._get(
+                "/v1/nodes",
+                {
+                    "scope": "active",
+                    "limit": control_plane_limit,
+                    "offset": control_plane_offset,
+                },
+            ),
+            self._fleet_proof_optional(),
         )
+        proof_by_node, proof_truth = proof_result
         raw_nodes = payload.get("nodes")
         pagination = _as_dict(payload.get("pagination"))
         if not isinstance(raw_nodes, list) or "total_indexed" not in pagination:
             raise ControlPlaneUnavailable("control_plane_nodes_contract_invalid")
 
         observed_at = _utc_now()
-        items = [self._map_node(_as_dict(node), observed_at) for node in raw_nodes]
+        items = [
+            self._map_node(
+                _as_dict(node),
+                observed_at,
+                proof_by_node.get(str(_as_dict(node).get("node_id") or "")),
+                proof_truth,
+            )
+            for node in raw_nodes
+        ]
         if status:
             items = [node for node in items if node["status"] == status]
             total = len(items)
             items = items[offset:offset + page_size]
         else:
             total = _to_int(pagination.get("total_indexed"), len(items))
-        availabilities = [
-            _as_dict(_as_dict(item.get("capabilities")).get("_truth")).get("availability")
-            for item in items
-        ]
-        availability = "live" if "live" in availabilities else "stale"
+        availability = _list_availability(items)
         return {
             "items": items,
             "total": total,
@@ -241,6 +533,7 @@ class HomeControlPlaneAdapter:
                 "as_of": observed_at,
                 "membership": _as_dict(payload.get("membership")),
                 "freshness": _as_dict(payload.get("counts")),
+                "verification": proof_truth,
             },
         }
 
@@ -256,43 +549,52 @@ class HomeControlPlaneAdapter:
         offset = (page - 1) * page_size
         control_plane_limit = 250 if status else page_size
         control_plane_offset = 0 if status else offset
-        payload = await self._get(
-            "/v1/nodes",
-            {
-                "scope": "active",
-                "limit": control_plane_limit,
-                "offset": control_plane_offset,
-            },
+        payload, proof_result = await asyncio.gather(
+            self._get(
+                "/v1/nodes",
+                {
+                    "scope": "active",
+                    "limit": control_plane_limit,
+                    "offset": control_plane_offset,
+                },
+            ),
+            self._fleet_proof_optional(),
         )
+        proof_by_node, proof_truth = proof_result
         raw_nodes = payload.get("nodes")
         pagination = _as_dict(payload.get("pagination"))
         if not isinstance(raw_nodes, list) or "total_indexed" not in pagination:
             raise ControlPlaneUnavailable("control_plane_agents_contract_invalid")
 
         observed_at = _utc_now()
-        items = [self._map_agent(_as_dict(node), observed_at) for node in raw_nodes]
+        items = [
+            self._map_agent(
+                _as_dict(node),
+                observed_at,
+                proof_by_node.get(str(_as_dict(node).get("node_id") or "")),
+                proof_truth,
+            )
+            for node in raw_nodes
+        ]
         if status:
             items = [agent for agent in items if agent["status"] == status]
             total = len(items)
             items = items[offset:offset + page_size]
         else:
             total = _to_int(pagination.get("total_indexed"), len(items))
-        availabilities = [
-            _as_dict(_as_dict(item.get("capabilities")).get("_truth")).get("availability")
-            for item in items
-        ]
         return {
             "items": items,
             "total": total,
             "page": page,
             "page_size": page_size,
             "truth": {
-                "availability": "live" if "live" in availabilities else "stale",
+                "availability": _list_availability(items),
                 "source": CONTROL_PLANE_SOURCE,
                 "as_of": observed_at,
                 "membership": _as_dict(payload.get("membership")),
                 "freshness": _as_dict(payload.get("counts")),
                 "derivation": "one_agent_host_per_active_node",
+                "verification": proof_truth,
             },
         }
 
@@ -303,22 +605,22 @@ class HomeControlPlaneAdapter:
             None,
         )
 
-    def _map_agent(self, node: dict[str, Any], observed_at: str) -> dict[str, Any]:
+    def _map_agent(
+        self,
+        node: dict[str, Any],
+        observed_at: str,
+        proof: dict[str, Any] | None = None,
+        proof_truth: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         node_id = str(node.get("node_id") or "").strip()
         if not node_id:
             raise ControlPlaneUnavailable("control_plane_agent_node_id_missing")
         agent_id = str(node.get("agent_id") or node_id).strip()
         freshness = str(node.get("freshness") or "stale").lower()
         availability = "live" if freshness == "fresh" else "stale"
-        raw_active_task = node.get("active_task")
-        if isinstance(raw_active_task, dict):
-            current_task = str(
-                raw_active_task.get("task_id")
-                or raw_active_task.get("id")
-                or ""
-            ).strip() or None
-        else:
-            current_task = str(raw_active_task or "").strip() or None
+        current_task = _active_task_id(node)
+        capability_execution = _capability_execution(node)
+        execution = _execution_truth(node, capability_execution)
 
         runner_summary: dict[str, dict[str, Any]] = {}
         for runner_name, runner_value in _as_dict(node.get("runners")).items():
@@ -339,11 +641,17 @@ class HomeControlPlaneAdapter:
             "status": _agent_status(node),
             "node_id": node_id,
             "current_task": current_task,
-            "progress": 0,
+            "progress": None,
             "model": None,
+            "connection": _connection_truth(node),
+            "freshness": _freshness_truth(node),
+            "execution": execution,
+            "verification": _verification_truth(proof, proof_truth),
             "capabilities": {
                 "items": [str(value) for value in _as_list(node.get("capabilities"))],
                 "runners": runner_summary,
+                "execution": capability_execution,
+                "executable_items": execution["executable_capabilities"],
                 "progress_availability": "unavailable",
                 "_truth": {
                     "availability": availability,
@@ -361,7 +669,13 @@ class HomeControlPlaneAdapter:
             "heartbeat_at": node.get("heartbeat_at"),
         }
 
-    def _map_node(self, node: dict[str, Any], observed_at: str) -> dict[str, Any]:
+    def _map_node(
+        self,
+        node: dict[str, Any],
+        observed_at: str,
+        proof: dict[str, Any] | None = None,
+        proof_truth: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         node_id = str(node.get("node_id") or "").strip()
         if not node_id:
             raise ControlPlaneUnavailable("control_plane_node_id_missing")
@@ -379,9 +693,13 @@ class HomeControlPlaneAdapter:
 
         raw_capabilities = node.get("capabilities")
         capability_items = [str(value) for value in _as_list(raw_capabilities)]
+        capability_execution = _capability_execution(node)
+        execution = _execution_truth(node, capability_execution)
         capabilities = {
             "items": capability_items,
             "runners": _as_dict(node.get("runners")),
+            "execution": capability_execution,
+            "executable_items": execution["executable_capabilities"],
             "cpu_cores": node.get("cpu"),
             "metrics_availability": {
                 "cpu_percent": "live" if node.get("cpu_percent") is not None else "unavailable",
@@ -402,19 +720,22 @@ class HomeControlPlaneAdapter:
                 "reported_health": node.get("reported_health"),
             },
         }
-        lease_owner = str(node.get("agent_id") or "")
         return {
             "id": node_id,
             "name": str(node.get("hostname") or node_id),
             "region": str(_as_dict(node.get("labels")).get("region") or ""),
             "ip_address": str(node.get("mesh_ip") or node.get("internal_ip") or ""),
             "status": _node_status(node),
+            "connection": _connection_truth(node),
+            "freshness": _freshness_truth(node),
+            "execution": execution,
+            "verification": _verification_truth(proof, proof_truth),
             "cpu_percent": str(node.get("cpu_percent")) if node.get("cpu_percent") is not None else "unavailable",
             "ram_percent": ram_percent or "unavailable",
             "disk_percent": disk_percent or "unavailable",
             "network_mbps": str(node.get("network_mbps")) if node.get("network_mbps") is not None else "unavailable",
-            "agent_count": 1 if lease_owner else 0,
-            "task_count": 1 if node.get("active_task") else 0,
+            "agent_count": 1 if node.get("agent_id") else 0,
+            "task_count": 1 if execution["reported_active"] else 0,
             "ping_ms": _to_int(node.get("ping_ms"), -1),
             "max_agents": _to_int(node.get("max_agents"), 0),
             "capabilities": capabilities,
@@ -464,10 +785,12 @@ class HomeControlPlaneAdapter:
     async def cluster_stats(self) -> dict[str, Any]:
         """Build cluster aggregates only from the authoritative Home API."""
 
-        nodes_payload, first_tasks = await asyncio.gather(
+        nodes_payload, first_tasks, proof_result = await asyncio.gather(
             self._get("/v1/nodes", {"scope": "active", "limit": 250, "offset": 0}),
             self._get("/v1/tasks", {"limit": 250, "offset": 0}),
+            self._fleet_proof_optional(),
         )
+        proof_by_node, proof_truth = proof_result
         raw_nodes = nodes_payload.get("nodes")
         node_pagination = _as_dict(nodes_payload.get("pagination"))
         raw_tasks = first_tasks.get("tasks")
@@ -490,8 +813,24 @@ class HomeControlPlaneAdapter:
             raise ControlPlaneUnavailable("control_plane_tasks_pagination_incomplete")
 
         observed_at = _utc_now()
-        nodes = [self._map_node(_as_dict(node), observed_at) for node in raw_nodes]
-        agents = [self._map_agent(_as_dict(node), observed_at) for node in raw_nodes]
+        nodes = [
+            self._map_node(
+                _as_dict(node),
+                observed_at,
+                proof_by_node.get(str(_as_dict(node).get("node_id") or "")),
+                proof_truth,
+            )
+            for node in raw_nodes
+        ]
+        agents = [
+            self._map_agent(
+                _as_dict(node),
+                observed_at,
+                proof_by_node.get(str(_as_dict(node).get("node_id") or "")),
+                proof_truth,
+            )
+            for node in raw_nodes
+        ]
         mapped_tasks = [self._map_task(task, observed_at) for task in tasks]
 
         def count(values: list[dict[str, Any]], key: str, states: set[str]) -> int:
@@ -508,27 +847,80 @@ class HomeControlPlaneAdapter:
                 values.append(value)
             return round(sum(values) / len(values), 1) if values else None
 
-        availability = (
-            "live"
-            if nodes and all(
-                _as_dict(_as_dict(node.get("capabilities")).get("_truth")).get("availability")
-                == "live"
-                for node in nodes
-            )
-            else "stale"
+        availability = _list_availability(nodes)
+        strict_working = sum(
+            1
+            for node in nodes
+            if _as_dict(node.get("connection")).get("connected") is True
+            and _as_dict(node.get("freshness")).get("fresh") is True
+            and _as_dict(node.get("execution")).get("executable") is True
+            and _as_dict(node.get("execution")).get("blocked") is not True
+            and _as_dict(node.get("execution")).get("quarantined") is not True
+            and _as_dict(node.get("verification")).get("verified") is True
+        )
+        unavailable_nodes = sum(
+            1
+            for node in nodes
+            if _as_dict(node.get("connection")).get("connected") is not True
+            or _as_dict(node.get("freshness")).get("status") == "stale"
+            or _as_dict(node.get("execution")).get("quarantined") is True
         )
         return {
             "nodes": {
+                "membership_total": len(nodes),
+                "connected": sum(
+                    1 for node in nodes
+                    if _as_dict(node.get("connection")).get("connected") is True
+                ),
+                "fresh": sum(
+                    1 for node in nodes
+                    if _as_dict(node.get("freshness")).get("fresh") is True
+                ),
+                "capability_executable": sum(
+                    1 for node in nodes
+                    if _as_dict(node.get("execution")).get("executable") is True
+                ),
+                "active": sum(
+                    1 for node in nodes
+                    if _as_dict(node.get("execution")).get("active") is True
+                ),
+                "verified": sum(
+                    1 for node in nodes
+                    if _as_dict(node.get("verification")).get("verified") is True
+                ),
+                "blocked": sum(
+                    1 for node in nodes
+                    if _as_dict(node.get("execution")).get("blocked") is True
+                ),
+                "quarantined": sum(
+                    1 for node in nodes
+                    if _as_dict(node.get("execution")).get("quarantined") is True
+                ),
+                "stale": sum(
+                    1 for node in nodes
+                    if _as_dict(node.get("freshness")).get("status") == "stale"
+                ),
+                # Compatibility aliases are intentionally stricter than the
+                # old heartbeat-derived meaning.  ``healthy`` now requires a
+                # fresh, executable node and a strict verified completion.
                 "total": len(nodes),
-                "healthy": count(nodes, "status", {"healthy"}),
-                "degraded": count(nodes, "status", {"degraded", "draining"}),
-                "offline": count(nodes, "status", {"offline", "quarantined"}),
+                "healthy": strict_working,
+                "degraded": max(0, len(nodes) - strict_working - unavailable_nodes),
+                "offline": unavailable_nodes,
             },
             "agents": {
-                "total": len(agents),
+                "membership_total": len(agents),
                 "active": count(agents, "status", {"active"}),
                 "idle": count(agents, "status", {"idle"}),
                 "paused": count(agents, "status", {"paused"}),
+                "executable": sum(
+                    1 for agent in agents
+                    if _as_dict(agent.get("execution")).get("executable") is True
+                ),
+                "verified": sum(
+                    1 for agent in agents
+                    if _as_dict(agent.get("verification")).get("verified") is True
+                ),
             },
             "tasks": {
                 "total": len(mapped_tasks),
@@ -549,6 +941,7 @@ class HomeControlPlaneAdapter:
                 "as_of": observed_at,
                 "membership": _as_dict(nodes_payload.get("membership")),
                 "task_pages": len(task_pages),
+                "verification": proof_truth,
             },
         }
 

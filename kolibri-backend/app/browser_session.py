@@ -14,7 +14,8 @@ from datetime import datetime, timezone
 
 from fastapi import Cookie, Depends, HTTPException, Request, Response
 from fastapi.security import HTTPAuthorizationCredentials
-from jose import JWTError, jwt
+import jwt
+from jwt import InvalidTokenError
 from sqlalchemy.orm import Session
 
 from app.auth import ALGORITHM, SECRET_KEY, security
@@ -114,7 +115,7 @@ def _optional_user(
         return None
     try:
         payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
-    except JWTError:
+    except InvalidTokenError:
         return None
     user_id = payload.get("sub")
     if not isinstance(user_id, str) or not user_id:
@@ -122,10 +123,10 @@ def _optional_user(
     return db.query(UserDB).filter(UserDB.id == user_id, UserDB.is_active.is_(True)).first()
 
 
-def resolve_project_principal(
+def resolve_optional_project_principal(
     anonymous_cookie: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
     user: UserDB | None = Depends(_optional_user),
-) -> ProjectPrincipal:
+) -> ProjectPrincipal | None:
     if user is not None:
         return ProjectPrincipal(scope_id=f"user:{user.id}", kind="authenticated", public_id=user.id)
     anonymous = validate_anonymous_session(anonymous_cookie)
@@ -135,6 +136,14 @@ def resolve_project_principal(
             kind="anonymous",
             public_id=anonymous.public_id,
         )
+    return None
+
+
+def resolve_project_principal(
+    principal: ProjectPrincipal | None = Depends(resolve_optional_project_principal),
+) -> ProjectPrincipal:
+    if principal is not None:
+        return principal
     raise HTTPException(
         status_code=428,
         detail={

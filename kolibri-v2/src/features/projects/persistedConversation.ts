@@ -1,12 +1,18 @@
 import type { ConversationArtifact } from '@/features/conversation/ArtifactCard'
 import { normalizeImageArtifact } from '@/features/conversation/imageArtifact'
+import { normalizeFileArtifact } from '@/features/conversation/fileArtifact'
+import { calculateEstimateTotals, calculatePositionSum } from '@/features/estimates/estimateMath'
 import type {
   ChatAction,
   ChatWorkSummary,
   Document,
   Estimate,
   EstimateCreateInput,
+  EstimateEvidenceIssue,
+  EstimateTruthStatus,
+  FileArtifact,
   ImageArtifact,
+  PriceSourceEvidence,
 } from '@/lib/api'
 
 type UnknownRecord = Record<string, unknown>
@@ -15,6 +21,7 @@ export type PersistedArtifactReference =
   | { type: 'estimate'; id: string; version: number; title: string }
   | { type: 'document'; id: string; title: string }
   | { type: 'image'; value: ImageArtifact }
+  | { type: 'file'; value: FileArtifact }
 
 export interface RestoredConversationMetadata {
   responseId?: string
@@ -25,7 +32,7 @@ export interface RestoredConversationMetadata {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const DECIMAL = /^-?\d+(?:\.\d+)?$/
-const ACTION_TYPES = new Set(['create_estimate', 'create_document', 'present_image'])
+const ACTION_TYPES = new Set(['create_estimate', 'create_document', 'present_image', 'present_artifact'])
 const WORK_STATUSES = new Set(['active', 'completed', 'failed'])
 
 function record(value: unknown): UnknownRecord | null {
@@ -52,6 +59,86 @@ function decimalString(value: unknown): string | null {
     : null
 }
 
+function stringList(value: unknown, maxItems = 100, maxLength = 2_000): string[] | null {
+  if (value === undefined) return []
+  if (!Array.isArray(value) || value.length > maxItems) return null
+  const items: string[] = []
+  for (const entry of value) {
+    const item = requiredString(entry, maxLength)
+    if (!item) return null
+    items.push(item)
+  }
+  return items
+}
+
+function normalizePriceEvidence(value: unknown): PriceSourceEvidence | null {
+  const evidence = record(value)
+  if (!evidence) return null
+  const positionCode = requiredString(evidence.position_code, 80)
+  const sourceId = requiredString(evidence.source_id, 160)
+  const url = requiredString(evidence.url, 2_000)
+  const title = requiredString(evidence.source_title, 500)
+  const sourceType = requiredString(evidence.source_type, 80)
+  const region = requiredString(evidence.region, 240)
+  const observedAt = requiredString(evidence.observed_at, 64)
+  const priceDate = requiredString(evidence.price_date, 10)
+  const unit = requiredString(evidence.unit, 40)
+  const unitPrice = decimalString(evidence.unit_price)
+  const vatStatus = requiredString(evidence.vat_status, 120)
+  const quote = requiredString(evidence.quote, 500)
+  const currency = requiredString(evidence.currency, 8)
+  const sha256 = requiredString(evidence.content_sha256, 64)
+  const verification = requiredString(evidence.verification, 40)
+  const attestation = requiredString(evidence.attestation, 64)
+  if (!positionCode || !sourceId || !url || !title || !sourceType || !region || !observedAt || !priceDate || !unit || unitPrice === null || !vatStatus || !quote || !currency || !sha256 || !verification || !attestation) return null
+  if (!['official_index', 'official_catalog', 'government_procurement', 'supplier_quote', 'supplier_catalog', 'marketplace', 'user_document'].includes(sourceType)) return null
+  if (!['included', 'excluded', 'not_applicable', 'unknown'].includes(vatStatus)) return null
+  if (!['source_backed', 'verified'].includes(verification)) return null
+  if (verification === 'verified' && vatStatus === 'unknown') return null
+  if (!/^[a-f0-9]{64}$/.test(sha256)) return null
+  if (!/^[a-f0-9]{64}$/.test(attestation)) return null
+  try {
+    const parsed = new URL(url)
+    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.hash) return null
+  } catch {
+    return null
+  }
+  return {
+    position_code: positionCode,
+    source_id: sourceId,
+    url,
+    source_title: title,
+    source_type: sourceType,
+    region,
+    observed_at: observedAt,
+    price_date: priceDate,
+    unit,
+    unit_price: unitPrice,
+    vat_status: vatStatus,
+    quote,
+    currency,
+    content_sha256: sha256,
+    verification,
+    attestation,
+  }
+}
+
+function normalizeEvidenceIssues(value: unknown): EstimateEvidenceIssue[] | null {
+  if (value === undefined) return []
+  if (!Array.isArray(value) || value.length > 200) return null
+  const result: EstimateEvidenceIssue[] = []
+  for (const raw of value) {
+    const issue = record(raw)
+    if (!issue) return null
+    const code = requiredString(issue.code, 80)
+    const positionCode = optionalString(issue.position_code, 80)
+    const message = requiredString(issue.message, 500)
+    if (!code || positionCode === null || !message) return null
+    result.push({ code, position_code: positionCode || undefined, message })
+  }
+  return result
+}
+
 function normalizeEstimateDraft(value: unknown): EstimateCreateInput | null {
   const data = record(value)
   if (!data) return null
@@ -61,8 +148,13 @@ function normalizeEstimateDraft(value: unknown): EstimateCreateInput | null {
   const region = optionalString(data.region, 240)
   const currency = optionalString(data.currency, 8, 'RUB')
   const overheadRate = data.overhead_rate === undefined ? '0' : decimalString(data.overhead_rate)
-  const vatRate = data.vat_rate === undefined ? '22' : decimalString(data.vat_rate)
+  const vatRate = data.vat_rate === undefined ? '0' : decimalString(data.vat_rate)
+  const assumptions = stringList(data.assumptions)
+  const questions = stringList(data.questions)
+  const sourceNote = optionalString(data.source_note, 2_000)
+  const evidenceIssues = normalizeEvidenceIssues(data.evidence_issues)
   if (!title || client === null || objectName === null || region === null || currency === null || overheadRate === null || vatRate === null) return null
+  if (assumptions === null || questions === null || sourceNote === null || evidenceIssues === null) return null
   if (!Array.isArray(data.sections) || data.sections.length > 100) return null
 
   let positionsTotal = 0
@@ -83,13 +175,46 @@ function normalizeEstimateDraft(value: unknown): EstimateCreateInput | null {
       const unit = requiredString(position.unit, 40)
       const quantity = decimalString(position.quantity)
       const price = decimalString(position.price)
-      const source = optionalString(position.source, 1_000)
       const comment = optionalString(position.comment, 1_000)
-      if (code === null || !name || !unit || quantity === null || price === null || source === null || comment === null) return null
-      positions.push({ code, name, unit, quantity, price, source, comment })
+      if (code === null || !name || !unit || quantity === null || price === null || comment === null) return null
+      if (Number(quantity) < 0 || Number(price) < 0) return null
+      const rawEvidence = Array.isArray(position.price_evidence)
+        ? position.price_evidence
+        : position.source_evidence === undefined ? [] : [position.source_evidence]
+      if (rawEvidence.length > 50) return null
+      const priceEvidence = rawEvidence
+        .map(normalizePriceEvidence)
+        .filter((item): item is PriceSourceEvidence => item !== null)
+        .filter(item => item.position_code === code)
+      const source = priceEvidence.find(item => item.url)?.url || ''
+      positions.push({
+        code,
+        name,
+        unit,
+        quantity,
+        price,
+        sum: calculatePositionSum({ quantity, price }),
+        source,
+        price_evidence: priceEvidence,
+        comment,
+      })
     }
     sections.push({ title: sectionTitle, positions })
   }
+
+  const allPositions = sections.flatMap(section => section.positions ?? [])
+  const positive = allPositions.filter(position => Number(position.quantity) > 0 && Number(position.price) > 0)
+  const complete = positive.length > 0 && positive.length === allPositions.length
+  // A create_estimate action is browser-visible message metadata, not an
+  // authoritative persisted estimate. Preserve syntactically valid evidence
+  // (including its opaque attestation) so the server can verify it during
+  // materialization, but never promote truth from a value the browser cannot
+  // authenticate. Only a hydrated persisted artifact may display a promoted
+  // source-backed/verified status.
+  const pricingStatus: EstimateTruthStatus = complete ? 'preliminary' : 'needs_input'
+  const estimateStatus: EstimateTruthStatus = pricingStatus
+  const priceSources = allPositions.flatMap(position => position.price_evidence ?? [])
+  const totals = calculateEstimateTotals(sections, overheadRate, vatRate)
 
   return {
     title,
@@ -99,6 +224,15 @@ function normalizeEstimateDraft(value: unknown): EstimateCreateInput | null {
     currency,
     overhead_rate: overheadRate,
     vat_rate: vatRate,
+    estimate_status: estimateStatus,
+    pricing_status: pricingStatus,
+    scope_status: 'unverified',
+    price_sources: priceSources,
+    evidence_issues: evidenceIssues,
+    totals,
+    assumptions,
+    questions,
+    source_note: sourceNote,
     sections,
   }
 }
@@ -131,7 +265,11 @@ export function normalizePersistedAction(value: unknown): ChatAction | null {
   if (!type || !label || !ACTION_TYPES.has(type)) return null
   if (type === 'create_estimate') {
     const data = normalizeEstimateDraft(action.data)
-    return data ? { type, label, data: data as unknown as UnknownRecord } : null
+    if (!data) return null
+    const safeLabel = data.estimate_status === 'needs_input'
+      ? 'Уточнить данные для сметы'
+      : 'Открыть предварительную смету'
+    return { type, label: safeLabel, data: data as unknown as UnknownRecord }
   }
   if (type === 'create_document') {
     const data = normalizeDocumentDraft(action.data)
@@ -139,7 +277,10 @@ export function normalizePersistedAction(value: unknown): ChatAction | null {
   }
   try {
     const data = record(action.data)
-    return data ? { type, label, data: normalizeImageArtifact(data) as unknown as UnknownRecord } : null
+    if (!data) return null
+    return type === 'present_image'
+      ? { type, label, data: normalizeImageArtifact(data) as unknown as UnknownRecord }
+      : { type, label, data: normalizeFileArtifact(data) as unknown as UnknownRecord }
   } catch {
     return null
   }
@@ -197,6 +338,14 @@ function persistedArtifactReference(value: unknown): PersistedArtifactReference 
       return undefined
     }
   }
+  if (type === 'file') {
+    try {
+      const value = record(artifact.value)
+      return value ? { type, value: normalizeFileArtifact(value) } : undefined
+    } catch {
+      return undefined
+    }
+  }
   return undefined
 }
 
@@ -212,11 +361,16 @@ export function conversationArtifactReference(artifact: ConversationArtifact): P
   if (artifact.type === 'document') {
     return { type: 'document', id: artifact.value.id, title: artifact.value.title }
   }
-  return { type: 'image', value: normalizeImageArtifact(artifact.value as unknown as UnknownRecord) }
+  if (artifact.type === 'image') {
+    return { type: 'image', value: normalizeImageArtifact(artifact.value as unknown as UnknownRecord) }
+  }
+  return { type: 'file', value: normalizeFileArtifact(artifact.value as unknown as UnknownRecord) }
 }
 
 function artifactReferenceJson(reference: PersistedArtifactReference): Record<string, unknown> {
-  return reference.type === 'image' ? { ...reference.value } : { ...reference }
+  if (reference.type === 'image') return { ...reference.value }
+  if (reference.type === 'file') return { type: 'file', value: { ...reference.value } }
+  return { ...reference }
 }
 
 export function buildPersistedConversationMetadata(input: {
@@ -277,6 +431,7 @@ export async function hydratePersistedArtifact(
   },
 ): Promise<ConversationArtifact> {
   if (reference.type === 'image') return { type: 'image', value: reference.value }
+  if (reference.type === 'file') return { type: 'file', value: reference.value }
   if (reference.type === 'estimate') {
     const value = await loaders.estimate(reference.id)
     if (value.id !== reference.id || value.version < reference.version) {

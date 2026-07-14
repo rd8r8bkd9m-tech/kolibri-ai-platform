@@ -6,6 +6,7 @@ import os
 import json
 import uuid
 import base64
+from urllib.parse import urlsplit
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import List, Optional, Dict, Any
@@ -26,7 +27,12 @@ from app.calculator import (
 )
 from app.pdf_generator import generate_estimate_pdf, generate_document_pdf
 from app.database import engine, SessionLocal, get_db
-from app.storage import DBStorage, EstimateVersionConflict, seed_demo_data_if_enabled
+from app.storage import (
+    DBStorage,
+    DocumentEstimateNotFound,
+    EstimateVersionConflict,
+    seed_demo_data_if_enabled,
+)
 from app.schema_migrations import ensure_database_schema
 from app import schemas
 from app.control_plane import (
@@ -34,6 +40,13 @@ from app.control_plane import (
     HomeControlPlaneAdapter,
     unavailable_detail,
 )
+from app.browser_session import (
+    ProjectPrincipal,
+    resolve_optional_project_principal,
+    resolve_project_principal,
+)
+from app.auth import require_operator_user
+from app.operator_api import is_operator_api_path, safe_cluster_stats, safe_task_page
 
 
 @asynccontextmanager
@@ -42,6 +55,9 @@ async def lifespan(app: FastAPI):
         from app.project_handoff import validate_project_handoff_configuration
         validate_project_handoff_configuration()
     ensure_database_schema(engine)
+    from app.response_store import recover_interrupted_responses
+
+    recover_interrupted_responses()
     db = SessionLocal()
     try:
         seed_demo_data_if_enabled(db)
@@ -57,9 +73,40 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
+def _cors_allowed_origins() -> list[str]:
+    defaults = [
+        "https://kolibriai.ru",
+        "https://www.kolibriai.ru",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
+    configured = os.getenv("KOLIBRI_CORS_ALLOWED_ORIGINS", "")
+    candidates = configured.split(",") if configured.strip() else defaults
+    origins: list[str] = []
+    for raw in candidates:
+        origin = raw.strip().rstrip("/")
+        parsed = urlsplit(origin)
+        if (
+            not origin
+            or origin == "*"
+            or parsed.scheme not in {"http", "https"}
+            or not parsed.netloc
+            or parsed.path
+            or parsed.query
+            or parsed.fragment
+        ):
+            continue
+        if origin not in origins:
+            origins.append(origin)
+    return origins
+
+
+_CORS_ALLOWED_ORIGINS = _cors_allowed_origins()
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_CORS_ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -74,6 +121,16 @@ from app.logging_middleware import (
 setup_logging()
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(ReleaseIdentityMiddleware)
+
+
+@app.middleware("http")
+async def keep_operator_responses_private(request: Request, call_next):
+    """Operator data and auth errors must never enter shared browser caches."""
+
+    response = await call_next(request)
+    if is_operator_api_path(request.url.path):
+        response.headers["Cache-Control"] = "private, no-store"
+    return response
 
 
 @app.exception_handler(StarletteHTTPException)
@@ -106,6 +163,12 @@ app.include_router(telegram_router)
 
 from app.image_artifacts import router as image_artifacts_router
 app.include_router(image_artifacts_router)
+
+from app.artifact_store import router as artifact_store_router
+app.include_router(artifact_store_router)
+
+from app.tool_router import router as tool_router
+app.include_router(tool_router)
 
 from app.routers.projects import router as projects_router
 app.include_router(projects_router)
@@ -301,9 +364,10 @@ async def list_estimates(
     page_size: int = Query(20, ge=1, le=100),
     status: Optional[str] = None,
     search: Optional[str] = None,
+    principal: ProjectPrincipal = Depends(resolve_project_principal),
     db: Session = Depends(get_db),
 ):
-    storage = DBStorage(db)
+    storage = DBStorage(db, principal.scope_id)
     result = storage.list_estimates(status=status, search=search, page=page, page_size=page_size)
     return {"items": result["items"], "total": result["total"], "page": page, "page_size": page_size}
 
@@ -312,17 +376,42 @@ async def list_estimates(
 async def create_estimate(
     data: schemas.EstimateCreate,
     response: Response,
+    principal: ProjectPrincipal = Depends(resolve_project_principal),
     db: Session = Depends(get_db),
 ):
-    storage = DBStorage(db)
-    result = storage.create_estimate(data.model_dump())
+    storage = DBStorage(db, principal.scope_id)
+    try:
+        result = storage.create_estimate(data.model_dump())
+    except Exception:
+        from app.capability_runtime import record_capability_invocation
+
+        record_capability_invocation(
+            "estimate.create",
+            succeeded=False,
+            error_code="estimate_storage_failed",
+            provider="estimate-storage",
+        )
+        raise
+    from app.capability_runtime import record_capability_invocation
+
+    record_capability_invocation(
+        "estimate.create",
+        succeeded=True,
+        provider="estimate-storage",
+        evidence_id=str(result["id"]),
+    )
     response.headers["ETag"] = _estimate_etag(result["version"])
     return result
 
 
 @app.get("/api/v1/estimates/{est_id}", response_model=schemas.EstimateResponse)
-async def get_estimate(est_id: str, response: Response, db: Session = Depends(get_db)):
-    storage = DBStorage(db)
+async def get_estimate(
+    est_id: str,
+    response: Response,
+    principal: ProjectPrincipal = Depends(resolve_project_principal),
+    db: Session = Depends(get_db),
+):
+    storage = DBStorage(db, principal.scope_id)
     result = storage.get_estimate(est_id)
     if not result:
         raise HTTPException(404, "Estimate not found")
@@ -336,9 +425,10 @@ async def update_estimate(
     data: schemas.EstimateUpdate,
     response: Response,
     if_match: Optional[str] = Header(default=None, alias="If-Match"),
+    principal: ProjectPrincipal = Depends(resolve_project_principal),
     db: Session = Depends(get_db),
 ):
-    storage = DBStorage(db)
+    storage = DBStorage(db, principal.scope_id)
     update_data = data.model_dump(exclude_unset=True)
     expected_version = _required_estimate_version(if_match, update_data.pop("version", None))
     if "status" in update_data and update_data["status"] is not None:
@@ -358,8 +448,12 @@ async def update_estimate(
 
 
 @app.delete("/api/v1/estimates/{est_id}", status_code=204)
-async def delete_estimate(est_id: str, db: Session = Depends(get_db)):
-    storage = DBStorage(db)
+async def delete_estimate(
+    est_id: str,
+    principal: ProjectPrincipal = Depends(resolve_project_principal),
+    db: Session = Depends(get_db),
+):
+    storage = DBStorage(db, principal.scope_id)
     if not storage.delete_estimate(est_id):
         raise HTTPException(404, "Estimate not found")
     return Response(status_code=204)
@@ -371,9 +465,10 @@ async def calculate_estimate_endpoint(
     response: Response,
     version: Optional[int] = Query(default=None, ge=1),
     if_match: Optional[str] = Header(default=None, alias="If-Match"),
+    principal: ProjectPrincipal = Depends(resolve_project_principal),
     db: Session = Depends(get_db),
 ):
-    storage = DBStorage(db)
+    storage = DBStorage(db, principal.scope_id)
     expected_version = _required_estimate_version(if_match, version)
     try:
         result = storage.recalculate_estimate(est_id, expected_version=expected_version)
@@ -386,8 +481,12 @@ async def calculate_estimate_endpoint(
 
 
 @app.post("/api/v1/estimates/{est_id}/duplicate")
-async def duplicate_estimate(est_id: str, db: Session = Depends(get_db)):
-    storage = DBStorage(db)
+async def duplicate_estimate(
+    est_id: str,
+    principal: ProjectPrincipal = Depends(resolve_project_principal),
+    db: Session = Depends(get_db),
+):
+    storage = DBStorage(db, principal.scope_id)
     result = storage.duplicate_estimate(est_id)
     if not result:
         raise HTTPException(404, "Estimate not found")
@@ -398,8 +497,12 @@ async def duplicate_estimate(est_id: str, db: Session = Depends(get_db)):
     "/api/v1/estimates/{est_id}/revisions",
     response_model=schemas.EstimateRevisionListResponse,
 )
-async def list_estimate_revisions(est_id: str, db: Session = Depends(get_db)):
-    result = DBStorage(db).list_estimate_revisions(est_id)
+async def list_estimate_revisions(
+    est_id: str,
+    principal: ProjectPrincipal = Depends(resolve_project_principal),
+    db: Session = Depends(get_db),
+):
+    result = DBStorage(db, principal.scope_id).list_estimate_revisions(est_id)
     if result is None:
         raise HTTPException(404, "Estimate not found")
     return result
@@ -413,9 +516,10 @@ async def get_estimate_revision(
     est_id: str,
     version: int,
     response: Response,
+    principal: ProjectPrincipal = Depends(resolve_project_principal),
     db: Session = Depends(get_db),
 ):
-    result = DBStorage(db).get_estimate_revision(est_id, version)
+    result = DBStorage(db, principal.scope_id).get_estimate_revision(est_id, version)
     if result is None:
         raise HTTPException(404, "Estimate revision not found")
     response.headers["ETag"] = _estimate_etag(result["version"])
@@ -426,9 +530,10 @@ async def get_estimate_revision(
 async def estimate_pdf(
     est_id: str,
     version: Optional[int] = Query(default=None, ge=1),
+    principal: ProjectPrincipal = Depends(resolve_project_principal),
     db: Session = Depends(get_db),
 ):
-    storage = DBStorage(db)
+    storage = DBStorage(db, principal.scope_id)
     result = storage.get_estimate_snapshot(est_id, version)
     if not result:
         raise HTTPException(404, "Estimate revision not found")
@@ -445,9 +550,10 @@ async def export_estimate(
     est_id: str,
     fmt: str,
     version: Optional[int] = Query(default=None, ge=1),
+    principal: ProjectPrincipal = Depends(resolve_project_principal),
     db: Session = Depends(get_db),
 ):
-    storage = DBStorage(db)
+    storage = DBStorage(db, principal.scope_id)
     d = storage.get_estimate_snapshot(est_id, version)
     if not d:
         raise HTTPException(404, "Estimate revision not found")
@@ -504,24 +610,55 @@ async def list_documents(
     page_size: int = Query(20, ge=1, le=100),
     type: Optional[str] = None,
     db: Session = Depends(get_db),
+    principal: ProjectPrincipal = Depends(resolve_project_principal),
 ):
-    storage = DBStorage(db)
+    storage = DBStorage(db, principal.scope_id)
     result = storage.list_documents(type_=type, page=page, page_size=page_size)
     return {"items": result["items"], "total": result["total"], "page": page, "page_size": page_size}
 
 
 @app.post("/api/v1/documents", status_code=201)
-async def create_document(data: schemas.DocumentCreate, db: Session = Depends(get_db)):
-    storage = DBStorage(db)
+async def create_document(
+    data: schemas.DocumentCreate,
+    db: Session = Depends(get_db),
+    principal: ProjectPrincipal = Depends(resolve_project_principal),
+):
+    storage = DBStorage(db, principal.scope_id)
     d = data.model_dump()
     if "type" in d and hasattr(d["type"], "value"):
         d["type"] = d["type"].value
-    return storage.create_document(d)
+    try:
+        result = storage.create_document(d)
+    except DocumentEstimateNotFound:
+        raise HTTPException(404, "Estimate not found") from None
+    except Exception:
+        from app.capability_runtime import record_capability_invocation
+
+        record_capability_invocation(
+            "document.editor",
+            succeeded=False,
+            error_code="document_storage_failed",
+            provider="document-storage",
+        )
+        raise
+    from app.capability_runtime import record_capability_invocation
+
+    record_capability_invocation(
+        "document.editor",
+        succeeded=True,
+        provider="document-storage",
+        evidence_id=str(result["id"]),
+    )
+    return result
 
 
 @app.get("/api/v1/documents/{doc_id}")
-async def get_document(doc_id: str, db: Session = Depends(get_db)):
-    storage = DBStorage(db)
+async def get_document(
+    doc_id: str,
+    db: Session = Depends(get_db),
+    principal: ProjectPrincipal = Depends(resolve_project_principal),
+):
+    storage = DBStorage(db, principal.scope_id)
     result = storage.get_document(doc_id)
     if not result:
         raise HTTPException(404, "Document not found")
@@ -529,28 +666,44 @@ async def get_document(doc_id: str, db: Session = Depends(get_db)):
 
 
 @app.put("/api/v1/documents/{doc_id}")
-async def update_document(doc_id: str, data: schemas.DocumentUpdate, db: Session = Depends(get_db)):
-    storage = DBStorage(db)
+async def update_document(
+    doc_id: str,
+    data: schemas.DocumentUpdate,
+    db: Session = Depends(get_db),
+    principal: ProjectPrincipal = Depends(resolve_project_principal),
+):
+    storage = DBStorage(db, principal.scope_id)
     update_data = data.model_dump(exclude_unset=True)
     if "type" in update_data and update_data["type"] is not None and hasattr(update_data["type"], "value"):
         update_data["type"] = update_data["type"].value
-    result = storage.update_document(doc_id, update_data)
+    try:
+        result = storage.update_document(doc_id, update_data)
+    except DocumentEstimateNotFound:
+        raise HTTPException(404, "Estimate not found") from None
     if not result:
         raise HTTPException(404, "Document not found")
     return result
 
 
 @app.delete("/api/v1/documents/{doc_id}", status_code=204)
-async def delete_document(doc_id: str, db: Session = Depends(get_db)):
-    storage = DBStorage(db)
+async def delete_document(
+    doc_id: str,
+    db: Session = Depends(get_db),
+    principal: ProjectPrincipal = Depends(resolve_project_principal),
+):
+    storage = DBStorage(db, principal.scope_id)
     if not storage.delete_document(doc_id):
         raise HTTPException(404, "Document not found")
     return Response(status_code=204)
 
 
 @app.get("/api/v1/documents/{doc_id}/pdf")
-async def document_pdf(doc_id: str, db: Session = Depends(get_db)):
-    storage = DBStorage(db)
+async def document_pdf(
+    doc_id: str,
+    db: Session = Depends(get_db),
+    principal: ProjectPrincipal = Depends(resolve_project_principal),
+):
+    storage = DBStorage(db, principal.scope_id)
     result = storage.get_document(doc_id)
     if not result:
         raise HTTPException(404, "Document not found")
@@ -570,8 +723,9 @@ async def list_library(
     item_type: Optional[str] = None,
     search: Optional[str] = None,
     db: Session = Depends(get_db),
+    principal: ProjectPrincipal = Depends(resolve_project_principal),
 ):
-    storage = DBStorage(db)
+    storage = DBStorage(db, principal.scope_id)
     items = storage.list_library(item_type=item_type, search=search)
     start = (page - 1) * page_size
     return {"items": items[start:start + page_size], "total": len(items), "page": page, "page_size": page_size}
@@ -586,6 +740,7 @@ async def list_agents(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     status: Optional[str] = None,
+    _operator = Depends(require_operator_user),
 ):
     try:
         adapter = HomeControlPlaneAdapter.from_environment()
@@ -595,7 +750,11 @@ async def list_agents(
 
 
 @app.post("/api/v1/agents", status_code=201)
-async def create_agent(data: dict, db: Session = Depends(get_db)):
+async def create_agent(
+    data: dict,
+    _operator = Depends(require_operator_user),
+    db: Session = Depends(get_db),
+):
     raise HTTPException(
         status_code=405,
         detail="Home Control Plane portal adapter is read-only",
@@ -603,7 +762,11 @@ async def create_agent(data: dict, db: Session = Depends(get_db)):
 
 
 @app.get("/api/v1/agents/{agent_id}")
-async def get_agent(agent_id: str, db: Session = Depends(get_db)):
+async def get_agent(
+    agent_id: str,
+    _operator = Depends(require_operator_user),
+    db: Session = Depends(get_db),
+):
     try:
         adapter = HomeControlPlaneAdapter.from_environment()
         result = await adapter.get_agent(agent_id)
@@ -615,7 +778,11 @@ async def get_agent(agent_id: str, db: Session = Depends(get_db)):
 
 
 @app.delete("/api/v1/agents/{agent_id}", status_code=204)
-async def delete_agent(agent_id: str, db: Session = Depends(get_db)):
+async def delete_agent(
+    agent_id: str,
+    _operator = Depends(require_operator_user),
+    db: Session = Depends(get_db),
+):
     raise HTTPException(
         status_code=405,
         detail="Home Control Plane portal adapter is read-only",
@@ -631,6 +798,7 @@ async def list_nodes(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
     status: Optional[str] = None,
+    _operator = Depends(require_operator_user),
 ):
     try:
         adapter = HomeControlPlaneAdapter.from_environment()
@@ -648,10 +816,13 @@ async def list_tasks(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     state: Optional[str] = None,
+    _operator = Depends(require_operator_user),
 ):
     try:
         adapter = HomeControlPlaneAdapter.from_environment()
-        return await adapter.list_tasks(page=page, page_size=page_size, state=state)
+        return safe_task_page(
+            await adapter.list_tasks(page=page, page_size=page_size, state=state)
+        )
     except ControlPlaneUnavailable as exc:
         raise HTTPException(status_code=503, detail=unavailable_detail(exc.reason)) from exc
 
@@ -661,16 +832,19 @@ async def list_tasks(
 # ---------------------------------------------------------------------------
 
 @app.get("/api/v1/cluster/stats")
-async def cluster_stats():
+async def cluster_stats(_operator = Depends(require_operator_user)):
     try:
         adapter = HomeControlPlaneAdapter.from_environment()
-        return await adapter.cluster_stats()
+        return safe_cluster_stats(await adapter.cluster_stats())
     except ControlPlaneUnavailable as exc:
         raise HTTPException(status_code=503, detail=unavailable_detail(exc.reason)) from exc
 
 
 @app.get("/api/v1/analytics")
-async def analytics(db: Session = Depends(get_db)):
+async def analytics(
+    _operator = Depends(require_operator_user),
+    db: Session = Depends(get_db),
+):
     from app.models import EstimateDB, DocumentDB, AgentDB, TaskDB
     from decimal import Decimal
 
@@ -722,7 +896,12 @@ async def analytics(db: Session = Depends(get_db)):
 
 
 @app.patch("/api/v1/agents/{agent_id}")
-async def update_agent(agent_id: str, data: dict, db: Session = Depends(get_db)):
+async def update_agent(
+    agent_id: str,
+    data: dict,
+    _operator = Depends(require_operator_user),
+    db: Session = Depends(get_db),
+):
     raise HTTPException(
         status_code=405,
         detail="Home Control Plane portal adapter is read-only",
@@ -730,7 +909,12 @@ async def update_agent(agent_id: str, data: dict, db: Session = Depends(get_db))
 
 
 @app.patch("/api/v1/nodes/{node_id}")
-async def update_node(node_id: str, data: dict, db: Session = Depends(get_db)):
+async def update_node(
+    node_id: str,
+    data: dict,
+    _operator = Depends(require_operator_user),
+    db: Session = Depends(get_db),
+):
     raise HTTPException(
         status_code=405,
         detail="Home Control Plane portal adapter is read-only",
@@ -738,7 +922,12 @@ async def update_node(node_id: str, data: dict, db: Session = Depends(get_db)):
 
 
 @app.patch("/api/v1/tasks/{task_id}")
-async def update_task(task_id: str, data: dict, db: Session = Depends(get_db)):
+async def update_task(
+    task_id: str,
+    data: dict,
+    _operator = Depends(require_operator_user),
+    db: Session = Depends(get_db),
+):
     raise HTTPException(
         status_code=405,
         detail="Home Control Plane portal adapter is read-only",
@@ -762,7 +951,11 @@ async def generate_pdf(data: schemas.PDFGenerateRequest):
 # ---------------------------------------------------------------------------
 
 @app.post("/api/v1/chat", response_model=schemas.ChatResponse)
-async def chat(request: Request, data: schemas.ChatRequest):
+async def chat(
+    request: Request,
+    data: schemas.ChatRequest,
+    principal: ProjectPrincipal | None = Depends(resolve_optional_project_principal),
+):
     from app.rate_limiter import check_rate_limit, chat_limiter
     await check_rate_limit(request, chat_limiter)
     if not data.messages:
@@ -779,11 +972,17 @@ async def chat(request: Request, data: schemas.ChatRequest):
     )
     image_prompt = data.messages[-1].content
     if is_image_generation_request(image_prompt):
+        if principal is None:
+            raise HTTPException(
+                status_code=428,
+                detail={"code": "session_bootstrap_required"},
+            )
         policy = data.policy.model_dump() if data.policy else None
         try:
             artifact = await generate_invocable_image(
                 ImageGenerationRequest(prompt=image_prompt),
                 policy=policy,
+                scope_id=principal.scope_id,
             )
         except ImageCapabilityUnavailable:
             return {
@@ -832,6 +1031,15 @@ async def chat(request: Request, data: schemas.ChatRequest):
             policy=policy,
             idempotency_key=request.headers.get("Idempotency-Key"),
         )
+        if str(result.get("status") or "") not in {"error", "failed", "unavailable", "capability_unavailable"}:
+            from app.capability_runtime import record_capability_invocation
+
+            record_capability_invocation(
+                "chat.responses",
+                succeeded=True,
+                provider=str(result.get("provider") or "kolibri"),
+                model=str(result.get("model") or "kolibri"),
+            )
         return result
     except Exception:
         return {
@@ -842,7 +1050,11 @@ async def chat(request: Request, data: schemas.ChatRequest):
 
 
 @app.post("/api/v1/chat/stream")
-async def chat_stream(request: Request, data: schemas.ChatRequest):
+async def chat_stream(
+    request: Request,
+    data: schemas.ChatRequest,
+    principal: ProjectPrincipal = Depends(resolve_project_principal),
+):
     from app.rate_limiter import check_rate_limit, chat_limiter
     await check_rate_limit(request, chat_limiter)
     if not data.messages:
@@ -861,7 +1073,10 @@ async def chat_stream(request: Request, data: schemas.ChatRequest):
     from app.truth_policy import requires_current_evidence, resolve_current_information
     from app.routers.openai_compat import begin_public_response, record_public_stream_chunk
     image_prompt = data.messages[-1].content
-    public_response_id = begin_public_response(messages)
+    public_response_id = begin_public_response(
+        messages,
+        owner_scope=principal.scope_id,
+    )
 
     async def event_generator():
         try:
@@ -875,6 +1090,7 @@ async def chat_stream(request: Request, data: schemas.ChatRequest):
                         ImageGenerationRequest(prompt=image_prompt),
                         policy=policy,
                         run_id=public_response_id,
+                        scope_id=principal.scope_id,
                     )
                 except ImageCapabilityUnavailable:
                     final = {"content": "Генерация изображений сейчас недоступна.", "done": True, "actions": [], "status": "capability_unavailable", "provider": "none", "model": "none", "fallback_used": False, "error_code": "capability_unavailable", "recoverable": True, "capability": IMAGE_CAPABILITY_ID, "response_id": public_response_id}
@@ -893,6 +1109,14 @@ async def chat_stream(request: Request, data: schemas.ChatRequest):
                 final = {"content": "", "done": True, "actions": [{"type": "present_image", "label": "Открыть изображение", "data": artifact}], "status": "ready", "provider": image_identity["provider"], "model": artifact["model"], "fallback_used": False, "response_id": public_response_id}
                 record_public_stream_chunk(public_response_id, content_chunk)
                 record_public_stream_chunk(public_response_id, final)
+                from app.capability_runtime import record_capability_invocation
+                record_capability_invocation(
+                    "chat.streaming",
+                    succeeded=True,
+                    provider=image_identity["provider"],
+                    model=str(artifact["model"]),
+                    evidence_id=str(artifact["sha256"]),
+                )
                 yield f'data: {json.dumps(content_chunk)}\n\n'
                 yield f'data: {json.dumps(final)}\n\n'
                 return
@@ -922,6 +1146,13 @@ async def chat_stream(request: Request, data: schemas.ChatRequest):
                 final["done"] = True
                 final["response_id"] = public_response_id
                 record_public_stream_chunk(public_response_id, final)
+                from app.capability_runtime import record_capability_invocation
+                record_capability_invocation(
+                    "chat.streaming",
+                    succeeded=True,
+                    provider=truth_provider,
+                    model=truth_model,
+                )
                 yield f"data: {json.dumps(final)}\n\n"
                 return
             if truth_result is not None:
@@ -938,10 +1169,29 @@ async def chat_stream(request: Request, data: schemas.ChatRequest):
                 run_id=public_response_id,
             ):
                 record_public_stream_chunk(public_response_id, chunk)
+                if (
+                    chunk.get("done") is True
+                    and str(chunk.get("status") or "")
+                    not in {"error", "failed", "unavailable", "capability_unavailable"}
+                ):
+                    from app.capability_runtime import record_capability_invocation
+                    record_capability_invocation(
+                        "chat.streaming",
+                        succeeded=True,
+                        provider=str(chunk.get("provider") or "kolibri"),
+                        model=str(chunk.get("model") or "kolibri"),
+                    )
                 if chunk.get("response_id"):
                     chunk = {**chunk, "response_id": public_response_id}
                 yield f"data: {json.dumps(chunk)}\n\n"
         except Exception:
+            from app.capability_runtime import record_capability_invocation
+            record_capability_invocation(
+                "chat.streaming",
+                succeeded=False,
+                error_code="provider_stream_failed",
+                provider="kolibri",
+            )
             final = {"content": "Не удалось завершить потоковый ответ. Повторите запрос — он будет направлен другому исполнителю.", "done": True, "actions": [], "status": "error", "provider": "none", "model": "none", "fallback_used": True, "error_code": "provider_stream_failed", "response_id": public_response_id}
             record_public_stream_chunk(public_response_id, final)
             yield f'data: {json.dumps(final)}\n\n'
@@ -957,9 +1207,13 @@ async def chat_stream(request: Request, data: schemas.ChatRequest):
 
 
 @app.post("/api/v1/ai/analyze-estimate")
-async def ai_analyze_estimate(est_id: str, db: Session = Depends(get_db)):
+async def ai_analyze_estimate(
+    est_id: str,
+    db: Session = Depends(get_db),
+    principal: ProjectPrincipal = Depends(resolve_project_principal),
+):
     from app.ai_provider import analyze_estimate
-    storage = DBStorage(db)
+    storage = DBStorage(db, principal.scope_id)
     est = storage.get_estimate(est_id)
     if not est:
         raise HTTPException(404, "Estimate not found")
@@ -997,13 +1251,16 @@ async def ai_suggest(data: dict):
 # ---------------------------------------------------------------------------
 
 @app.get("/api/v1/providers")
-async def list_providers_endpoint():
+async def list_providers_endpoint(_operator = Depends(require_operator_user)):
     from app.providers import list_providers
     return list_providers()
 
 
 @app.get("/api/v1/providers/{provider_id}")
-async def get_provider_endpoint(provider_id: str):
+async def get_provider_endpoint(
+    provider_id: str,
+    _operator = Depends(require_operator_user),
+):
     from app.providers import get_provider
     p = get_provider(provider_id)
     if not p:
@@ -1023,13 +1280,16 @@ async def get_provider_endpoint(provider_id: str):
 
 
 @app.post("/api/v1/providers/{provider_id}/healthcheck")
-async def healthcheck_provider(provider_id: str):
+async def healthcheck_provider(
+    provider_id: str,
+    _operator = Depends(require_operator_user),
+):
     from app.healthcheck import probe_provider
     return await probe_provider(provider_id)
 
 
 @app.post("/api/v1/providers/test-all")
-async def test_all_providers():
+async def test_all_providers(_operator = Depends(require_operator_user)):
     """Run bounded, sanitized server-credential probes for every registered route."""
     import asyncio
 
@@ -1061,12 +1321,16 @@ async def get_template(template_id: str):
 
 
 @app.post("/api/v1/templates/{template_id}/create-document", status_code=201)
-async def create_document_from_template(template_id: str, db: Session = Depends(get_db)):
+async def create_document_from_template(
+    template_id: str,
+    db: Session = Depends(get_db),
+    principal: ProjectPrincipal = Depends(resolve_project_principal),
+):
     from app.templates import get_template as _get
     t = _get(template_id)
     if not t:
         raise HTTPException(404, "Template not found")
-    storage = DBStorage(db)
+    storage = DBStorage(db, principal.scope_id)
     return storage.create_document({
         "title": t["title"], "type": t["type"], "content": t["content"],
     })
@@ -1143,8 +1407,12 @@ async def catalog_stats(db: Session = Depends(get_db)):
 # ---------------------------------------------------------------------------
 
 @app.get("/api/v1/documents/{doc_id}/docx")
-async def document_docx(doc_id: str, db: Session = Depends(get_db)):
-    storage = DBStorage(db)
+async def document_docx(
+    doc_id: str,
+    db: Session = Depends(get_db),
+    principal: ProjectPrincipal = Depends(resolve_project_principal),
+):
+    storage = DBStorage(db, principal.scope_id)
     result = storage.get_document(doc_id)
     if not result:
         raise HTTPException(404, "Document not found")
@@ -1184,69 +1452,69 @@ async def web_search_endpoint(data: dict):
 # ---------------------------------------------------------------------------
 
 @app.post("/api/v1/search")
-async def search_endpoint(data: dict, db: Session = Depends(get_db)):
+async def search_endpoint(
+    data: dict,
+    db: Session = Depends(get_db),
+    principal: ProjectPrincipal = Depends(resolve_project_principal),
+):
     from app.search_engine import SearchEngine
     query = data.get("query", "")
     if not query:
         raise HTTPException(400, "Query required")
     entity_types = data.get("types")
     limit = data.get("limit", 20)
-    engine = SearchEngine(db)
-    return engine.search_with_context(query, entity_types)
+    engine = SearchEngine(db, principal.scope_id)
+    return engine.search_with_context(query, entity_types=entity_types, limit=limit)
 
 
 # ---------------------------------------------------------------------------
 # Client Context
 # ---------------------------------------------------------------------------
 
+
+def _raise_legacy_context_retired() -> None:
+    """Fail closed instead of trusting a caller-controlled legacy client id.
+
+    The project/session scoped repositories supersede this in-memory context
+    API.  Keeping an explicit tombstone preserves a stable migration signal
+    without exposing or deleting any legacy context data.
+    """
+
+    raise HTTPException(
+        status_code=410,
+        detail={
+            "code": "legacy_context_retired",
+            "message": "Legacy client context is retired; use project-scoped APIs",
+        },
+        headers={"Cache-Control": "private, no-store"},
+    )
+
+
 @app.get("/api/v1/context/{client_id}")
 async def get_context(client_id: str):
-    from app.context_manager import context_manager
-    ctx = context_manager.get_context(client_id)
-    if not ctx:
-        return {"client_id": client_id, "exists": False}
-    return {
-        "client_id": ctx.client_id,
-        "client_name": ctx.client_name,
-        "project": ctx.project,
-        "region": ctx.region,
-        "estimates_count": len(ctx.estimates),
-        "documents_count": len(ctx.documents),
-        "conversations_count": len(ctx.conversations),
-        "preferences": ctx.preferences,
-        "last_updated": ctx.last_updated,
-    }
+    _raise_legacy_context_retired()
 
 
 @app.post("/api/v1/context/{client_id}")
 async def update_context(client_id: str, data: dict):
-    from app.context_manager import context_manager
-    ctx = context_manager.update_context(client_id, data)
-    return {"status": "ok", "client_id": ctx.client_id}
+    _raise_legacy_context_retired()
 
 
 @app.post("/api/v1/context/{client_id}/estimate")
 async def add_estimate_to_context(client_id: str, data: dict):
-    from app.context_manager import context_manager
-    context_manager.add_estimate(client_id, data)
-    return {"status": "ok"}
+    _raise_legacy_context_retired()
 
 
 @app.post("/api/v1/context/{client_id}/document")
 async def add_document_to_context(client_id: str, data: dict):
-    from app.context_manager import context_manager
-    context_manager.add_document(client_id, data)
-    return {"status": "ok"}
+    _raise_legacy_context_retired()
 
 
 @app.post("/api/v1/context/{client_id}/message")
 async def add_message_to_context(client_id: str, data: dict):
-    from app.context_manager import context_manager
-    context_manager.add_conversation(client_id, data)
-    return {"status": "ok"}
+    _raise_legacy_context_retired()
 
 
 @app.get("/api/v1/context/{client_id}/ai-context")
 async def get_ai_context(client_id: str):
-    from app.context_manager import context_manager
-    return {"context": context_manager.build_ai_context(client_id)}
+    _raise_legacy_context_retired()

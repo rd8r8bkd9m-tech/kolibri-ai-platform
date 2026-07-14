@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowUp, AudioLines, Blocks, Calculator, Code2, FileSearch, FileText, Globe2, Image as ImageIcon, Mic, Monitor, Plus, Square, X } from 'lucide-react'
+import { ArrowUp, AudioLines, Mic, Plus, Square, X } from 'lucide-react'
 import { useVisualViewportInset } from './useVisualViewportInset'
 import ToolSheet from './ToolSheet'
-import type { UiCapability, UiCapabilityKey } from '@/features/capabilities'
+import { capabilityIcons, type UiCapability, type UiCapabilityKey } from '@/features/capabilities'
 import { getSpeechRecognitionConstructor, resolveComposerMediaControls, type BrowserSpeechRecognition } from './composerRuntime'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { useLocale } from '@/features/localization'
@@ -11,8 +11,6 @@ interface ComposerProps {
   value: string
   onChange: (value: string) => void
   onSend: () => void
-  onEstimate: () => void
-  onDocument: () => void
   capabilities?: UiCapability[]
   onCapability?: (key: UiCapabilityKey) => void
   onCancel?: () => void
@@ -25,8 +23,6 @@ export default function Composer({
   value,
   onChange,
   onSend,
-  onEstimate,
-  onDocument,
   capabilities = [],
   onCapability = () => undefined,
   onCancel,
@@ -46,6 +42,7 @@ export default function Composer({
   const mediaControls = resolveComposerMediaControls({ scope: window })
   const voiceAvailable = mediaControls.voiceInput
   const isMobile = useIsMobile()
+  const toolsAvailable = capabilities.length > 0
   useVisualViewportInset()
 
   useEffect(() => () => {
@@ -112,34 +109,16 @@ export default function Composer({
   return (
     <div className="conversation-composer-wrap">
       <ToolSheet
-        open={toolsOpen && isMobile}
+        open={toolsOpen && isMobile && toolsAvailable}
         capabilities={capabilities}
         onClose={() => setToolsOpen(false)}
-        onEstimate={onEstimate}
-        onDocument={onDocument}
         onCapability={onCapability}
       />
       {voiceNotice && <div className={voiceModeActive ? 'sr-only' : 'composer-voice-notice'} role="status">{voiceNotice}</div>}
-      {toolsOpen && (
+      {toolsOpen && toolsAvailable && (
         <div className="conversation-tool-menu hidden md:grid" role="menu" aria-label={t('composer.tools')}>
-          <button role="menuitem" onClick={() => { setToolsOpen(false); onEstimate() }}>
-            <Calculator size={19} />
-            <span><strong>{t('tool.estimate')}</strong><small>{t('tool.estimateDescription')}</small></span>
-          </button>
-          <button role="menuitem" onClick={() => { setToolsOpen(false); onDocument() }}>
-            <FileText size={19} />
-            <span><strong>{t('tool.document')}</strong><small>{t('tool.documentDescription')}</small></span>
-          </button>
           {capabilities.map(item => {
-            const icons: Record<UiCapabilityKey, typeof Globe2> = {
-              'web.search': Globe2,
-              'file.search': FileSearch,
-              'code.execute': Code2,
-              'image.generate': ImageIcon,
-              'browser.use': Monitor,
-              'mcp.invoke': Blocks,
-            }
-            const Icon = icons[item.key]
+            const Icon = capabilityIcons[item.key]
             return <button key={item.key} role="menuitem" onClick={() => {
               setToolsOpen(false)
               onCapability(item.key)
@@ -167,15 +146,15 @@ export default function Composer({
           </div>
         </div>
       ) : <div className="conversation-composer">
-        <button
-          type="button"
-          aria-label={toolsOpen ? t('composer.closeTools') : t('composer.openTools')}
-          aria-expanded={toolsOpen}
-          onClick={() => setToolsOpen(open => !open)}
-          className="composer-tool-button"
-        >
-          {toolsOpen ? <X size={21} /> : <Plus size={22} />}
-        </button>
+        {toolsAvailable && <button
+            type="button"
+            aria-label={toolsOpen ? t('composer.closeTools') : t('composer.openTools')}
+            aria-expanded={toolsOpen}
+            onClick={() => setToolsOpen(open => !open)}
+            className="composer-tool-button"
+          >
+            {toolsOpen ? <X size={21} /> : <Plus size={22} />}
+          </button>}
         <textarea
           ref={textareaRef}
           value={value}

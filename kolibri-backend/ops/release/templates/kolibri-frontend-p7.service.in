@@ -1,0 +1,32 @@
+[Unit]
+Description=Kolibri P7 immutable frontend @@RELEASE_ID@@
+After=network.target kolibri-backend-p7.service
+
+[Service]
+Type=simple
+User=@@RUNTIME_USER@@
+Group=@@RUNTIME_GROUP@@
+WorkingDirectory=@@BACKEND_DIR@@
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+ExecStart=@@VENV_DIR@@/bin/python -B @@STATIC_SERVER@@ --root @@FRONTEND_DIR@@ --release-id @@RELEASE_ID@@ --host 127.0.0.1 --port @@FRONTEND_PORT@@
+Restart=on-failure
+RestartSec=2s
+TimeoutStartSec=30s
+TimeoutStopSec=15s
+KillMode=mixed
+UMask=0027
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

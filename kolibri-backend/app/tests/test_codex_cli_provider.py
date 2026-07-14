@@ -16,6 +16,7 @@ from app.codex_cli_provider import (
     CodexCLIProvider,
     CodexCLISettings,
     CodexCLITimeout,
+    _resolve_binary,
     _safe_environment,
 )
 
@@ -305,12 +306,40 @@ def test_home_defaults_and_legacy_model_oss_aliases(monkeypatch, tmp_path):
     settings = CodexCLISettings.from_env()
     argv = CodexCLIProvider(settings)._argv(settings.binary)
 
-    assert settings.binary == "/usr/local/bin/codex"
+    assert settings.binary == "codex"
     assert settings.model == "account-model"
     assert settings.oss is True
     assert "--oss" in argv
     assert argv[argv.index("--model") + 1] == "account-model"
     assert argv[argv.index("--enable") + 1] == "respect_system_proxy"
+
+
+def test_default_binary_resolves_portably_from_process_path(monkeypatch, tmp_path):
+    binary = _fake_codex(tmp_path, "raise SystemExit(2)\n")
+    portable_binary = binary.rename(tmp_path / "codex")
+    monkeypatch.delenv("CODEX_CLI_BINARY", raising=False)
+    monkeypatch.delenv("KOLIBRI_CODEX_CLI_BINARY", raising=False)
+    monkeypatch.setenv("CODEX_CLI_CWD", str(tmp_path))
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}/usr/bin:/bin")
+
+    settings = CodexCLISettings.from_env()
+    resolved = _resolve_binary(settings, _safe_environment(settings))
+
+    assert settings.binary == "codex"
+    assert resolved == str(portable_binary.resolve())
+    assert CodexCLIProvider(settings).configuration_snapshot()["configured"] is True
+
+
+def test_explicit_absolute_binary_remains_fail_closed(monkeypatch, tmp_path):
+    missing = tmp_path / "missing-codex"
+    monkeypatch.setenv("CODEX_CLI_BINARY", str(missing))
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}/usr/bin:/bin")
+    _fake_codex(tmp_path, "raise SystemExit(2)\n")
+
+    settings = CodexCLISettings.from_env()
+
+    assert _resolve_binary(settings, _safe_environment(settings)) is None
+    assert CodexCLIProvider(settings).configuration_snapshot()["configured"] is False
 
 
 def test_proxy_precedence_and_process_proxy_inheritance(monkeypatch, tmp_path):

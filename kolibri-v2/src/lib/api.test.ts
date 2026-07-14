@@ -176,6 +176,58 @@ describe('safe response stream', () => {
     })).toMatchObject({ response_id: 'resp_1', status: 'completed', done: true })
   })
 
+  it('keeps the typed image artifact action for byte verification after streaming', () => {
+    const artifact = {
+      id: '11111111-1111-4111-8111-111111111111',
+      type: 'image',
+      title: 'Цветы',
+      prompt: 'сгенерируй цветы',
+      mime_type: 'image/png',
+      size_bytes: 2048,
+      sha256: 'a'.repeat(64),
+      model: 'codex-cli:account-default',
+      created_at: '2026-07-14T10:00:00Z',
+      url: '/api/v1/artifacts/images/11111111-1111-4111-8111-111111111111',
+      download_url: '/api/v1/artifacts/images/11111111-1111-4111-8111-111111111111?download=true',
+    }
+    expect(normalizeStreamEvent({
+      event: 'response.artifact.ready',
+      data: JSON.stringify({
+        type: 'response.artifact.ready',
+        response_id: 'resp_image_1',
+        artifact_type: 'image',
+        artifact_id: artifact.id,
+        artifact,
+      }),
+    })).toMatchObject({
+      type: 'response.artifact.ready',
+      response_id: 'resp_image_1',
+      actions: [{ type: 'present_image', data: artifact }],
+      work_summary: { stage: 'artifact_verification', artifact_type: 'image', artifact_id: artifact.id },
+    })
+  })
+
+  it('keeps non-image artifact manifests for the same fail-closed byte verification path', () => {
+    const artifact = {
+      id: '33333333-3333-4333-8333-333333333333',
+      type: 'document.pdf',
+      title: 'Отчёт',
+    }
+    expect(normalizeStreamEvent({
+      event: 'response.artifact.ready',
+      data: JSON.stringify({
+        type: 'response.artifact.ready',
+        response_id: 'resp_pdf_1',
+        artifact_type: 'document.pdf',
+        artifact_id: artifact.id,
+        artifact,
+      }),
+    })).toMatchObject({
+      actions: [{ type: 'present_artifact', data: artifact }],
+      work_summary: { artifact_type: 'document.pdf', artifact_id: artifact.id },
+    })
+  })
+
   it('exposes only sanitized provider failure facts', () => {
     expect(normalizeStreamEvent({
       data: JSON.stringify({

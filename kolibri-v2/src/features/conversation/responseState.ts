@@ -30,8 +30,9 @@ export function persistedResponseStatus(
   status: string | undefined,
   artifactFailed: boolean,
   content: string,
+  artifactReady = false,
 ): ProjectMessageStatus {
   if (status === 'cancelled') return 'cancelled'
-  if (artifactFailed || FAILED_STATUSES.has(status ?? '') || !content.trim()) return 'failed'
+  if (artifactFailed || FAILED_STATUSES.has(status ?? '') || (!content.trim() && !artifactReady)) return 'failed'
   return 'completed'
 }

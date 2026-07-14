@@ -25,7 +25,17 @@ export function CapabilityProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const controller = new AbortController()
     void discoverCapabilities({ signal: controller.signal })
-      .then(setCatalog)
+      .then(nextCatalog => {
+        if (!controller.signal.aborted) setCatalog(nextCatalog)
+      })
+      .catch(error => {
+        // Route changes intentionally abort the in-flight discovery request.
+        // Consume that cancellation so it never becomes an unhandled browser
+        // rejection; real transport failures are normalized by discovery().
+        if (!(error instanceof DOMException && error.name === 'AbortError')) {
+          setCatalog(EMPTY_CATALOG)
+        }
+      })
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
   }, [])

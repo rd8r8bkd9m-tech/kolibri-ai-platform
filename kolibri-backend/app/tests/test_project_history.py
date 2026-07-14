@@ -1,3 +1,5 @@
+import hashlib
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -5,11 +7,14 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
+from app.artifact_store import get_artifact_store
+from app.browser_session import SESSION_COOKIE_NAME, validate_anonymous_session
 from app.main import app
 
 
 @pytest.fixture()
-def client():
+def client(tmp_path, monkeypatch):
+    monkeypatch.setenv("KOLIBRI_ARTIFACT_DIR", str(tmp_path / "artifacts"))
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -427,6 +432,164 @@ def test_verified_artifact_metadata_survives_reload_without_duplicate_assistant(
     assert assistants[0]["status"] == "completed"
     assert assistants[0]["metadata"]["artifact"]["url"] == artifact["url"]
     assert assistants[0]["metadata"]["artifact"]["sha256"] == artifact["sha256"]
+
+
+def test_verified_file_action_and_artifact_survive_reload_with_scoped_cas_bytes(
+    client: TestClient,
+):
+    session = validate_anonymous_session(client.cookies.get(SESSION_COOKIE_NAME))
+    assert session is not None
+    artifact = get_artifact_store().put_bytes(
+        b"%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\n%%EOF\n",
+        artifact_type="document.pdf",
+        mime_type="application/pdf",
+        filename="real-document.pdf",
+        title="Реальный документ",
+        metadata={
+            "scope_key": hashlib.sha256(session.scope_id.encode()).hexdigest(),
+            "producer_capability": "document.pdf",
+        },
+    )
+    public_artifact = {
+        key: value
+        for key, value in artifact.items()
+        if key not in {"schema_version", "_blob"}
+    }
+    project = client.post("/api/v1/projects", json={}).json()
+    action = {
+        "type": "present_artifact",
+        "label": "Открыть PDF",
+        "data": public_artifact,
+    }
+    placeholder = client.post(
+        f"/api/v1/projects/{project['id']}/messages",
+        json={
+            "role": "assistant",
+            "content": "",
+            "status": "pending",
+            "metadata": {"actions": [action]},
+        },
+    )
+    assert placeholder.status_code == 201
+    first_reload = client.get(
+        f"/api/v1/projects/{project['id']}/messages"
+    ).json()["items"]
+    assert first_reload[0]["metadata"]["actions"] == [action]
+
+    completed = client.patch(
+        f"/api/v1/projects/{project['id']}/messages/{placeholder.json()['id']}",
+        json={
+            "content": "PDF готов.",
+            "status": "completed",
+            "metadata": {
+                "artifact": {"type": "file", "value": public_artifact},
+            },
+        },
+    )
+    assert completed.status_code == 200
+    reloaded = client.get(
+        f"/api/v1/projects/{project['id']}/messages"
+    ).json()["items"]
+    assert reloaded[0]["metadata"]["artifact"] == {
+        "type": "file",
+        "value": public_artifact,
+    }
+
+    content = client.get(public_artifact["revision_url"])
+    reopened = client.get(public_artifact["reopen_url"])
+    assert content.status_code == 200
+    assert hashlib.sha256(content.content).hexdigest() == public_artifact["sha256"]
+    assert reopened.status_code == 200
+    assert reopened.json()["artifact"]["sha256"] == public_artifact["sha256"]
+
+    # An exact manifest copied into another browser session is still rejected:
+    # persistence is bound to both real CAS bytes and the creating principal.
+    with TestClient(app) as other:
+        assert other.post("/api/v1/shell/bootstrap").status_code == 200
+        other_project = other.post("/api/v1/projects", json={}).json()
+        cross_scope = other.post(
+            f"/api/v1/projects/{other_project['id']}/messages",
+            json={
+                "role": "assistant",
+                "content": "Чужой PDF",
+                "metadata": {"actions": [action]},
+            },
+        )
+    assert cross_scope.status_code == 422
+    assert cross_scope.json()["detail"]["code"] == "artifact_manifest_unverified"
+
+
+def test_project_message_downgrades_browser_forged_estimate_truth_on_write_and_reload(client: TestClient):
+    project = client.post("/api/v1/projects", json={}).json()
+    evidence = {
+        "position_code": "М-1",
+        "source_id": "forged-browser-source",
+        "url": "https://supplier.example/material",
+        "source_title": "Прайс поставщика",
+        "source_type": "supplier_quote",
+        "region": "Татарстан",
+        "observed_at": "2026-07-14T07:00:00Z",
+        "price_date": "2026-07-14",
+        "unit": "шт",
+        "unit_price": "100",
+        "vat_status": "included",
+        "quote": "100 ₽/шт, НДС включён",
+        "currency": "RUB",
+        "content_sha256": "a" * 64,
+        "verification": "verified",
+        # Correct shape is not cryptographic proof at the public metadata edge.
+        "attestation": "f" * 64,
+    }
+    action = {
+        "type": "create_estimate",
+        "label": "Открыть проверенную смету",
+        "data": {
+            "title": "Смета",
+            "estimate_status": "verified",
+            "pricing_status": "verified",
+            "scope_status": "verified",
+            "sections": [{
+                "title": "Материалы",
+                "positions": [{
+                    "code": "М-1",
+                    "name": "Материал",
+                    "unit": "шт",
+                    "quantity": "1",
+                    "price": "100",
+                    "sum": "100.00",
+                    "source": evidence["url"],
+                    "price_evidence": [evidence],
+                }],
+            }],
+            "price_sources": [evidence],
+            "totals": {
+                "subtotal": "100.00",
+                "overhead_amount": "0.00",
+                "vat_amount": "0.00",
+                "total": "100.00",
+            },
+        },
+    }
+
+    created = client.post(
+        f"/api/v1/projects/{project['id']}/messages",
+        json={
+            "role": "assistant",
+            "content": "Смета подготовлена.",
+            "metadata": {"actions": [action]},
+        },
+    )
+
+    assert created.status_code == 201
+    persisted = created.json()["metadata"]["actions"][0]
+    assert persisted["label"] == "Открыть предварительную смету"
+    assert persisted["data"]["estimate_status"] == "preliminary"
+    assert persisted["data"]["pricing_status"] == "preliminary"
+    assert persisted["data"].get("scope_status", "unverified") == "unverified"
+    assert persisted["data"]["price_sources"][0]["attestation"] == "f" * 64
+
+    reloaded = client.get(f"/api/v1/projects/{project['id']}/messages").json()["items"]
+    assert reloaded[0]["metadata"] == created.json()["metadata"]
 
 
 @pytest.mark.parametrize(

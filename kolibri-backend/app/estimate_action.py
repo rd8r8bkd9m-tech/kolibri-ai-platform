@@ -1,9 +1,9 @@
-"""Typed estimate action contract for conversational estimate requests.
+"""Typed, evidence-aware estimate action contract.
 
-Provider output is treated as an untrusted draft.  This module owns intent
-detection, canonical field normalisation and all arithmetic exposed in the
-chat action.  A provider cannot promote its own prices to ``source_backed``:
-that status is reserved for a future evidence verifier.
+Provider output is an untrusted *scope draft*: it may propose individual
+sections, positions, quantities and prices, but it cannot prove a price or
+promote an estimate.  Arithmetic and promotion are owned by this module.
+Verified web/document evidence crosses a separate keyword-only trust boundary.
 """
 
 from __future__ import annotations
@@ -11,6 +11,8 @@ from __future__ import annotations
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import re
 from typing import Any, Iterable, Mapping
+
+from app.estimate_evidence import evaluate_price_evidence
 
 
 MONEY_QUANT = Decimal("0.01")
@@ -20,6 +22,7 @@ ESTIMATE_REQUEST_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 AREA_RE = re.compile(r"(?P<area>\d{1,4}(?:[.,]\d{1,2})?)\s*(?:м\s*[²2]|кв\.?\s*м)", re.IGNORECASE)
+ESTIMATE_STATUSES = {"needs_input", "preliminary", "source_backed", "verified"}
 
 
 def latest_user_text(messages: Iterable[Mapping[str, Any]]) -> str:
@@ -36,7 +39,7 @@ def is_estimate_request(messages: Iterable[Mapping[str, Any]]) -> bool:
 def ensure_estimate_action(
     messages: Iterable[Mapping[str, Any]], actions: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
-    """Return a canonical estimate action whenever the user requested one."""
+    """Return a canonical action without inventing a fallback estimate."""
     prompt = latest_user_text(messages)
     if not ESTIMATE_REQUEST_RE.search(prompt):
         return actions
@@ -50,76 +53,95 @@ def ensure_estimate_action(
     return [build_estimate_action(prompt, candidate), *other_actions]
 
 
-def build_estimate_action(prompt: str, candidate: Any = None) -> dict[str, Any]:
-    """Build a preliminary, editable and deterministically calculated action.
+def build_estimate_action(
+    prompt: str,
+    candidate: Any = None,
+    *,
+    verified_evidence: Any = None,
+    scope_verified: bool = False,
+) -> dict[str, Any]:
+    """Build an editable estimate action with deterministic totals.
 
-    Prices returned by a language model are kept only as *unverified budget
-    assumptions*.  Source fields are deliberately blank until a separate
-    evidence collector and verifier attaches dated regional evidence.
+    ``candidate`` is always untrusted model output.  Source-like fields inside
+    it are discarded.  Only ``verified_evidence`` is parsed as evidence; that
+    argument must be populated by the web/document evidence verifier, never by
+    a provider response parser.
     """
+
     area = _extract_area(prompt)
     location = _extract_location(prompt)
     candidate_data = candidate if isinstance(candidate, Mapping) else {}
     sections = _normalise_sections(candidate_data.get("sections"))
-    if not sections or not _has_positive_price(sections):
-        sections = _fallback_sections(area)
 
-    title = _clean_text(candidate_data.get("title")) or _default_title(area, location)
-    object_name = _clean_text(candidate_data.get("object_name")) or _default_object_name(area)
-    region = _clean_text(candidate_data.get("region")) or location
-    # The editor contract currently exposes one common tax policy.  Do not let
-    # an untrusted model silently override it.  Russia's standard VAT rate is
-    # 22% for supplies performed from 2026-01-01 (Federal Law 425-FZ).
+    title = _clean_text(candidate_data.get("title"), limit=160) or _default_title(area, location)
+    object_name = _clean_text(candidate_data.get("object_name"), limit=240) or _default_object_name(area)
+    region = _clean_text(candidate_data.get("region"), limit=240) or location
+    currency = "RUB"
+
+    # Tax/overhead policy depends on the contractor, counterparty and whether
+    # evidence quotes already include VAT.  A model may not silently add it.
     overhead_rate = "0"
-    vat_rate = "22"
+    vat_rate = "0"
+    evidence = evaluate_price_evidence(
+        sections,
+        region=region,
+        currency=currency,
+        trusted_records=verified_evidence,
+    )
+    pricing_status = evidence["pricing_status"]
+    if pricing_status == "needs_input":
+        estimate_status = "needs_input"
+    elif pricing_status == "preliminary":
+        estimate_status = "preliminary"
+    elif pricing_status == "verified" and scope_verified:
+        estimate_status = "verified"
+    else:
+        estimate_status = "source_backed"
+
     totals = _calculate_totals(sections, overhead_rate=overhead_rate, vat_rate=vat_rate)
+    assumptions = _normalise_text_list(candidate_data.get("assumptions"), limit=50)
+    assumptions.extend(_default_assumptions(area, sections))
+    questions = _normalise_text_list(candidate_data.get("questions"), limit=50)
+    questions.extend(_required_questions(sections, region, pricing_status, scope_verified))
 
     data = {
         "title": title,
-        "client": _clean_text(candidate_data.get("client")),
+        "client": _clean_text(candidate_data.get("client"), limit=240),
         "object_name": object_name,
         "region": region,
-        "currency": "RUB",
+        "currency": currency,
         "overhead_rate": overhead_rate,
         "vat_rate": vat_rate,
         "sections": sections,
-        "estimate_status": "preliminary",
-        "pricing_status": "preliminary",
-        "price_sources": [],
-        "tax_basis": {
-            "name": "Федеральный закон от 28.11.2025 № 425-ФЗ",
-            "as_of": "2026-01-01",
-            "url": "https://www.nalog.gov.ru/rn77/about_fts/about_nalog/16594097/",
-        },
-        "source_note": (
-            "Подтверждённые актуальные региональные источники цен не приложены. "
-            "Ставки являются редактируемыми бюджетными предположениями и не должны "
-            "использоваться как коммерческое предложение без актуализации."
-        ),
-        "assumptions": [
-            "Площадь принята по запросу пользователя." if area else "Площадь объекта требует уточнения.",
-            "Объёмы и ставки являются предварительными бюджетными предположениями.",
-            "Итоги рассчитаны backend-движком Decimal, а не языковой моделью.",
-        ],
-        "questions": [
-            "Предоставьте проект, спецификации и конструктивную схему для расчёта объёмов.",
-            "Подтвердите комплектацию, материалы, инженерные системы и уровень отделки.",
-            "Разрешите сбор датированных цен поставщиков и региональных индексов для статуса source_backed.",
-        ],
+        "estimate_status": estimate_status,
+        "pricing_status": pricing_status,
+        "scope_status": "verified" if scope_verified else "unverified",
+        "price_sources": evidence["price_sources"],
+        "evidence_issues": evidence["evidence_issues"],
+        "source_note": _source_note(estimate_status, pricing_status),
+        "assumptions": _dedupe(assumptions),
+        "questions": _dedupe(questions),
         "totals": totals,
+    }
+    labels = {
+        "needs_input": "Уточнить данные для сметы",
+        "preliminary": "Открыть предварительную смету",
+        "source_backed": "Открыть смету с источниками",
+        "verified": "Открыть проверенную смету",
     }
     return {
         "type": "create_estimate",
-        "label": "Открыть предварительную смету",
+        "label": labels[estimate_status],
         "data": data,
     }
 
 
-def _extract_area(prompt: str) -> Decimal:
+def _extract_area(prompt: str) -> Decimal | None:
     match = AREA_RE.search(prompt)
     if not match:
-        return Decimal("100")
-    return _decimal(match.group("area"), default=Decimal("100"))
+        return None
+    value = _decimal(match.group("area"), default=Decimal("0"))
+    return value if value > 0 else None
 
 
 def _extract_location(prompt: str) -> str:
@@ -133,51 +155,27 @@ def _extract_location(prompt: str) -> str:
     return ""
 
 
-def _default_title(area: Decimal, location: str) -> str:
-    area_text = _plain_decimal(area)
+def _default_title(area: Decimal | None, location: str) -> str:
+    object_text = f"одноэтажный дом {_plain_decimal(area)} м²" if area is not None else "строительные работы"
     suffix = f" — {location}" if location else ""
-    return f"Предварительная смета: одноэтажный дом {area_text} м²{suffix}"
+    return f"Смета: {object_text}{suffix}"
 
 
-def _default_object_name(area: Decimal) -> str:
-    return f"Одноэтажный дом { _plain_decimal(area) } м²"
-
-
-def _fallback_sections(area: Decimal) -> list[dict[str, Any]]:
-    roof_area = (area * Decimal("1.30")).quantize(MONEY_QUANT, rounding=ROUND_HALF_UP)
-    return [
-        _section("Подготовка", [
-            _position("ПР-01", "Предпроектная подготовка и организация работ", "компл", "1", "250000"),
-        ]),
-        _section("Фундамент", [
-            _position("ФН-01", "Комплекс устройства фундамента", "м²", area, "15000"),
-        ]),
-        _section("Коробка здания", [
-            _position("КР-01", "Несущая коробка и перекрытия, комплект работ и материалов", "м²", area, "30000"),
-        ]),
-        _section("Кровля", [
-            _position("КВ-01", "Кровельная система, комплект работ и материалов", "м²", roof_area, "12000"),
-        ]),
-        _section("Инженерные системы", [
-            _position("ИС-01", "Базовый комплекс инженерных систем", "м²", area, "18000"),
-        ]),
-        _section("Отделка", [
-            _position("ОТ-01", "Базовая внутренняя отделка", "м²", area, "25000"),
-        ]),
-    ]
-
-
-def _section(title: str, positions: list[dict[str, str]]) -> dict[str, Any]:
-    return {"title": title, "positions": positions}
+def _default_object_name(area: Decimal | None) -> str:
+    return f"Одноэтажный дом {_plain_decimal(area)} м²" if area is not None else ""
 
 
 def _position(
-    code: str, name: str, unit: str, quantity: Any, price: Any, comment: str = ""
-) -> dict[str, str]:
+    code: str,
+    name: str,
+    unit: str,
+    quantity: Any,
+    price: Any,
+    comment: str = "",
+) -> dict[str, Any]:
     quantity_text = _decimal_text(quantity)
     price_text = _decimal_text(price)
     line_total = _money(_decimal(quantity_text) * _decimal(price_text))
-    note = comment.strip() or "Бюджетная ставка без подтверждённого актуального источника; требуется актуализация."
     return {
         "code": code,
         "name": name,
@@ -186,41 +184,54 @@ def _position(
         "price": price_text,
         "sum": line_total,
         "source": "",
-        "comment": note,
+        "price_evidence": [],
+        "comment": comment,
     }
 
 
 def _normalise_sections(value: Any) -> list[dict[str, Any]]:
+    """Preserve an individual provider draft while discarding fake sources."""
     if not isinstance(value, list):
         return []
     sections: list[dict[str, Any]] = []
-    for section_index, raw_section in enumerate(value, start=1):
+    used_codes: set[str] = set()
+    for section_index, raw_section in enumerate(value[:100], start=1):
         if not isinstance(raw_section, Mapping):
             continue
-        raw_positions = raw_section.get("positions")
+        raw_positions = raw_section.get("positions", raw_section.get("items"))
         if not isinstance(raw_positions, list):
             continue
-        positions: list[dict[str, str]] = []
-        for position_index, raw_position in enumerate(raw_positions, start=1):
+        positions: list[dict[str, Any]] = []
+        for position_index, raw_position in enumerate(raw_positions[:500], start=1):
             if not isinstance(raw_position, Mapping):
                 continue
             quantity = _decimal(raw_position.get("quantity"), default=Decimal("0"))
-            price = _decimal(raw_position.get("price"), default=Decimal("0"))
-            if quantity <= 0 or price < 0:
+            price = _decimal(
+                raw_position.get("price", raw_position.get("unit_price")),
+                default=Decimal("0"),
+            )
+            if quantity < 0 or price < 0:
                 continue
-            positions.append(_position(
-                _clean_text(raw_position.get("code")) or f"AI-{section_index:02d}-{position_index:03d}",
-                _clean_text(raw_position.get("name")) or "Позиция",
-                _normalise_unit(raw_position.get("unit")),
-                quantity,
-                price,
-                _clean_text(raw_position.get("comment")),
-            ))
+            base_code = _clean_text(raw_position.get("code"), limit=80) or f"AI-{section_index:02d}-{position_index:03d}"
+            code = _unique_code(base_code, used_codes)
+            positions.append(
+                _position(
+                    code,
+                    _clean_text(raw_position.get("name"), limit=320) or f"Позиция {position_index}",
+                    _normalise_unit(raw_position.get("unit")),
+                    quantity,
+                    price,
+                    _clean_text(raw_position.get("comment"), limit=1_000),
+                )
+            )
         if positions:
-            sections.append({
-                "title": _clean_text(raw_section.get("title")) or f"Раздел {section_index}",
-                "positions": positions,
-            })
+            sections.append(
+                {
+                    "title": _clean_text(raw_section.get("title", raw_section.get("name")), limit=240)
+                    or f"Раздел {section_index}",
+                    "positions": positions,
+                }
+            )
     return sections
 
 
@@ -229,13 +240,15 @@ def _calculate_totals(
 ) -> dict[str, str]:
     subtotal = sum(
         (
-            _decimal(position.get("quantity")) * _decimal(position.get("price"))
+            (_decimal(position.get("quantity")) * _decimal(position.get("price"))).quantize(
+                MONEY_QUANT,
+                rounding=ROUND_HALF_UP,
+            )
             for section in sections
             for position in section.get("positions", [])
         ),
         Decimal("0"),
-    )
-    subtotal = subtotal.quantize(MONEY_QUANT, rounding=ROUND_HALF_UP)
+    ).quantize(MONEY_QUANT, rounding=ROUND_HALF_UP)
     overhead = (subtotal * _decimal(overhead_rate) / Decimal("100")).quantize(
         MONEY_QUANT, rounding=ROUND_HALF_UP
     )
@@ -251,22 +264,97 @@ def _calculate_totals(
     }
 
 
-def _has_positive_price(sections: list[dict[str, Any]]) -> bool:
-    return any(
-        _decimal(position.get("price")) > 0
+def _default_assumptions(area: Decimal | None, sections: list[dict[str, Any]]) -> list[str]:
+    result = ["Итоги пересчитаны backend-движком Decimal; суммы модели не используются."]
+    if area is not None:
+        result.append("Площадь объекта взята из запроса пользователя.")
+    if not sections:
+        result.append("Состав работ и ресурсов ещё не сформирован исполнителем.")
+    return result
+
+
+def _required_questions(
+    sections: list[dict[str, Any]],
+    region: str,
+    pricing_status: str,
+    scope_verified: bool,
+) -> list[str]:
+    questions: list[str] = []
+    if not sections:
+        questions.append("Нужны конструктив, комплектация и исходные данные для индивидуального состава работ.")
+    elif any(
+        _decimal(position.get("quantity")) <= 0 or _decimal(position.get("price")) <= 0
         for section in sections
         for position in section.get("positions", [])
-    )
+    ):
+        questions.append("Уточните объёмы и разрешите подбор актуальных цен для строк без стоимости.")
+    if not region:
+        questions.append("Укажите город и регион объекта для регионального подбора цен.")
+    if pricing_status in {"needs_input", "preliminary"}:
+        questions.append("Нужен сбор датированных интернет-источников по каждой цене.")
+    if not scope_verified:
+        questions.append("Нужны проект и спецификации для проверки объёмов и состава работ.")
+    questions.append("Подтвердите налоговый режим и учитывать ли НДС/накладные расходы отдельно.")
+    return questions
+
+
+def _source_note(estimate_status: str, pricing_status: str) -> str:
+    if estimate_status == "verified":
+        return "Все объёмы и цены связаны с проверенными исходными данными и датированными источниками."
+    if pricing_status == "verified":
+        return "Цены проверены по датированным источникам; объёмы и состав работ ещё требуют независимой проверки."
+    if pricing_status == "source_backed":
+        return "Каждая цена связана с датированным источником, но независимая проверка ещё не завершена."
+    if pricing_status == "preliminary":
+        return "Часть или все цены пока не имеют подходящих актуальных региональных источников."
+    return "Готовой сметы нет: требуются индивидуальные позиции, объёмы и подтверждённые цены."
+
+
+def _normalise_text_list(value: Any, *, limit: int) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [text for item in value[:limit] if (text := _clean_text(item, limit=1_000))]
+
+
+def _dedupe(values: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        key = value.casefold()
+        if key not in seen:
+            seen.add(key)
+            result.append(value)
+    return result
+
+
+def _unique_code(base: str, used: set[str]) -> str:
+    candidate = base
+    suffix = 2
+    while candidate in used:
+        tail = f"-{suffix}"
+        candidate = f"{base[: max(1, 80 - len(tail))]}{tail}"
+        suffix += 1
+    used.add(candidate)
+    return candidate
 
 
 def _normalise_unit(value: Any) -> str:
-    unit = _clean_text(value)
-    aliases = {"м2": "м²", "м^2": "м²", "кв.м": "м²", "комплект": "компл"}
+    unit = _clean_text(value, limit=40)
+    aliases = {
+        "м2": "м²",
+        "м^2": "м²",
+        "кв.м": "м²",
+        "м3": "м³",
+        "м^3": "м³",
+        "куб.м": "м³",
+        "комплект": "компл",
+    }
     return aliases.get(unit.casefold(), unit) if unit else "шт"
 
 
-def _clean_text(value: Any) -> str:
-    return " ".join(str(value or "").split()).strip()
+def _clean_text(value: Any, *, limit: int | None = None) -> str:
+    text = " ".join(str(value or "").split()).strip()
+    return text[:limit] if limit is not None else text
 
 
 def _decimal(value: Any, default: Decimal = Decimal("0")) -> Decimal:

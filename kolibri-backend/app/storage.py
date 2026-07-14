@@ -3,6 +3,7 @@ import copy
 import os
 import uuid
 import random
+from decimal import Decimal, InvalidOperation
 from datetime import datetime, timezone
 from typing import Optional, List
 from sqlalchemy.orm import Session
@@ -20,6 +21,11 @@ from app.calculator import (
     Estimate as CalcEstimate, EstimateSection as CalcSection,
     EstimatePosition as CalcPosition, EstimateStatus,
     calculate_estimate,
+)
+from app.estimate_evidence import (
+    PriceEvidenceRecord,
+    evidence_attestation_is_valid,
+    evaluate_price_evidence,
 )
 
 
@@ -39,6 +45,49 @@ def _iso_z(value: Optional[datetime]) -> str:
     return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def _enum_value(value, default: str) -> str:
+    if value is None:
+        return default
+    return str(value.value if hasattr(value, "value") else value)
+
+
+def _decimal(value) -> Decimal:
+    try:
+        parsed = Decimal(str(value if value is not None else "0"))
+    except (InvalidOperation, ValueError):
+        return Decimal("0")
+    return parsed if parsed.is_finite() else Decimal("0")
+
+
+def _json_list(value) -> list:
+    return copy.deepcopy(value) if isinstance(value, list) else []
+
+
+def _dedupe_issues(value) -> list[dict]:
+    """Return bounded, stable current-state evidence issues."""
+
+    result: list[dict] = []
+    seen: set[tuple[str, str, str]] = set()
+    for raw in _json_list(value):
+        if not isinstance(raw, dict):
+            continue
+        issue = {
+            "code": str(raw.get("code") or "")[:80],
+            "position_code": str(raw.get("position_code") or "")[:80],
+            "message": str(raw.get("message") or "")[:500],
+        }
+        if not issue["code"] or not issue["message"]:
+            continue
+        identity = (issue["code"], issue["position_code"], issue["message"])
+        if identity in seen:
+            continue
+        seen.add(identity)
+        result.append(issue)
+        if len(result) >= 200:
+            break
+    return result
+
+
 class EstimateVersionConflict(RuntimeError):
     """Raised when an estimate save loses its compare-and-swap."""
 
@@ -51,16 +100,53 @@ class EstimateVersionConflict(RuntimeError):
         )
 
 
+class DocumentEstimateNotFound(RuntimeError):
+    """A document attempted to reference an estimate outside its scope."""
+
+
 class DBStorage:
     """Persistent storage using SQLAlchemy."""
 
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, scope_id: Optional[str] = None):
         self.db = db
+        self.scope_id = scope_id
+
+    def _estimate_scope(self) -> str:
+        """Return the mandatory estimate principal or fail closed."""
+
+        if not self.scope_id:
+            raise RuntimeError("estimate storage requires an explicit principal scope")
+        return self.scope_id
+
+    def _document_scope(self) -> str:
+        """Return the mandatory document principal or fail closed."""
+
+        if not self.scope_id:
+            raise RuntimeError("document storage requires an explicit principal scope")
+        return self.scope_id
+
+    def _require_owned_document_estimate(self, estimate_id: Optional[str]) -> None:
+        """Prevent cross-scope estimate references without disclosing ownership."""
+
+        if not estimate_id:
+            return
+        owned = (
+            self.db.query(EstimateDB.id)
+            .filter(
+                EstimateDB.id == estimate_id,
+                EstimateDB.scope_id == self._document_scope(),
+            )
+            .first()
+        )
+        if owned is None:
+            raise DocumentEstimateNotFound("linked estimate is not available")
 
     # ── Estimates ────────────────────────────────────────────────────────────
 
     def list_estimates(self, status: Optional[str] = None, search: Optional[str] = None, page: int = 1, page_size: int = 20) -> dict:
-        q = self.db.query(EstimateDB)
+        q = self.db.query(EstimateDB).filter(
+            EstimateDB.scope_id == self._estimate_scope()
+        )
         if status:
             q = q.filter(EstimateDB.status == status)
         if search:
@@ -71,24 +157,54 @@ class DBStorage:
         return {"items": [self._est_to_dict(e) for e in items], "total": total}
 
     def get_estimate(self, est_id: str) -> Optional[dict]:
-        e = self.db.query(EstimateDB).filter(EstimateDB.id == est_id).first()
+        e = (
+            self.db.query(EstimateDB)
+            .filter(
+                EstimateDB.id == est_id,
+                EstimateDB.scope_id == self._estimate_scope(),
+            )
+            .first()
+        )
         return self._est_to_dict(e) if e else None
 
-    def create_estimate(self, data: dict) -> dict:
+    def create_estimate(self, data: dict, *, trusted_scope: bool = False) -> dict:
         est_id = _uid()
         now = _now()
         e = EstimateDB(
-            id=est_id, version=1, title=data.get("title", ""), client=data.get("client", ""),
+            id=est_id, scope_id=self._estimate_scope(), version=1,
+            title=data.get("title", ""), client=data.get("client", ""),
             object_name=data.get("object_name", ""), region=data.get("region", ""),
             currency=data.get("currency", "RUB"),
             overhead_rate=data.get("overhead_rate", "0"),
             vat_rate=data.get("vat_rate", "22"),
+            # Scope verification is a server-side verifier decision.  Public
+            # CRUD may carry the field for round-tripping, but it cannot mint
+            # a verified scope by posting that enum value itself.
+            scope_status=(
+                _enum_value(data.get("scope_status"), "unverified")
+                if trusted_scope
+                else "unverified"
+            ),
+            # ``source_note`` is derived below from persisted evidence.  A
+            # provider/client string cannot promote the truth shown in UI.
+            source_note="",
+            assumptions=_json_list(data.get("assumptions")),
+            questions=_json_list(data.get("questions")),
+            evidence_issues=_dedupe_issues(data.get("evidence_issues")),
             created_at=now, updated_at=now,
         )
         try:
             self.db.add(e)
-            self._replace_sections(e, data.get("sections", []))
+            evidence_issues, _price_changed, _scope_changed = self._replace_sections(
+                e,
+                data.get("sections", []),
+                top_level_evidence=data.get("price_sources"),
+            )
+            e.evidence_issues = _dedupe_issues(
+                _json_list(e.evidence_issues) + evidence_issues
+            )
             self._calculate_entity(e)
+            self._derive_truth(e)
             self._append_revision(e)
             self.db.commit()
             self.db.refresh(e)
@@ -103,14 +219,25 @@ class DBStorage:
         data: dict,
         *,
         expected_version: int,
+        trusted_scope: bool = False,
     ) -> Optional[dict]:
-        if self.db.query(EstimateDB.id).filter(EstimateDB.id == est_id).first() is None:
+        scope_id = self._estimate_scope()
+        if (
+            self.db.query(EstimateDB.id)
+            .filter(EstimateDB.id == est_id, EstimateDB.scope_id == scope_id)
+            .first()
+            is None
+        ):
             return None
 
         now = _now()
         updated = (
             self.db.query(EstimateDB)
-            .filter(EstimateDB.id == est_id, EstimateDB.version == expected_version)
+            .filter(
+                EstimateDB.id == est_id,
+                EstimateDB.scope_id == scope_id,
+                EstimateDB.version == expected_version,
+            )
             .update(
                 {
                     EstimateDB.version: expected_version + 1,
@@ -121,7 +248,11 @@ class DBStorage:
         )
         if updated != 1:
             self.db.rollback()
-            current = self.db.query(EstimateDB.version).filter(EstimateDB.id == est_id).scalar()
+            current = (
+                self.db.query(EstimateDB.version)
+                .filter(EstimateDB.id == est_id, EstimateDB.scope_id == scope_id)
+                .scalar()
+            )
             if current is None:
                 return None
             raise EstimateVersionConflict(
@@ -132,7 +263,16 @@ class DBStorage:
 
         try:
             self.db.expire_all()
-            e = self.db.query(EstimateDB).filter(EstimateDB.id == est_id).one()
+            e = (
+                self.db.query(EstimateDB)
+                .filter(EstimateDB.id == est_id, EstimateDB.scope_id == scope_id)
+                .one()
+            )
+            original_scope_metadata = (
+                str(e.object_name or ""),
+                str(e.region or ""),
+                tuple(str(item) for item in (e.assumptions or [])),
+            )
             for field in [
                 "title",
                 "client",
@@ -145,9 +285,48 @@ class DBStorage:
             ]:
                 if field in data and data[field] is not None:
                     setattr(e, field, data[field])
-            if "sections" in data and data["sections"] is not None:
-                self._replace_sections(e, data["sections"])
+            for field in ["assumptions", "questions"]:
+                if field in data and data[field] is not None:
+                    setattr(e, field, _json_list(data[field]))
+            scope_metadata_changed = original_scope_metadata != (
+                str(e.object_name or ""),
+                str(e.region or ""),
+                tuple(str(item) for item in (e.assumptions or [])),
+            )
+            requested_evidence_issues = (
+                _dedupe_issues(data["evidence_issues"])
+                if data.get("evidence_issues") is not None
+                else None
+            )
+            if "scope_status" in data and data["scope_status"] is not None:
+                requested_scope = _enum_value(data["scope_status"], "unverified")
+                if trusted_scope or requested_scope != "verified":
+                    e.scope_status = requested_scope
+
+            sections_payload = data.get("sections") if "sections" in data else None
+            if sections_payload is None and (
+                data.get("price_sources") is not None or scope_metadata_changed
+            ):
+                sections_payload = self._sections_for_replacement(e)
+            if sections_payload is not None:
+                evidence_issues, price_changed, scope_changed = self._replace_sections(
+                    e,
+                    sections_payload,
+                    top_level_evidence=data.get("price_sources"),
+                    preserve_existing=True,
+                )
+                # A section/evidence save represents a new current truth
+                # evaluation. Stale issues from older revisions remain in
+                # those immutable snapshots, not on the live estimate.
+                e.evidence_issues = _dedupe_issues(
+                    (requested_evidence_issues or []) + evidence_issues
+                )
+                if price_changed or scope_changed or scope_metadata_changed:
+                    e.scope_status = "unverified"
+            elif requested_evidence_issues is not None:
+                e.evidence_issues = requested_evidence_issues
             self._calculate_entity(e)
+            self._derive_truth(e)
             self._append_revision(e)
             self.db.commit()
             self.db.refresh(e)
@@ -160,7 +339,14 @@ class DBStorage:
         return self.update_estimate(est_id, {}, expected_version=expected_version)
 
     def delete_estimate(self, est_id: str) -> bool:
-        e = self.db.query(EstimateDB).filter(EstimateDB.id == est_id).first()
+        e = (
+            self.db.query(EstimateDB)
+            .filter(
+                EstimateDB.id == est_id,
+                EstimateDB.scope_id == self._estimate_scope(),
+            )
+            .first()
+        )
         if not e:
             return False
         self.db.delete(e)
@@ -176,18 +362,41 @@ class DBStorage:
             "client": orig["client"], "object_name": orig["object_name"],
             "region": orig["region"], "currency": orig["currency"],
             "overhead_rate": orig["overhead_rate"], "vat_rate": orig["vat_rate"],
+            "scope_status": orig["scope_status"],
+            "source_note": orig["source_note"],
+            "assumptions": copy.deepcopy(orig["assumptions"]),
+            "questions": copy.deepcopy(orig["questions"]),
+            "price_sources": copy.deepcopy(orig["price_sources"]),
+            "evidence_issues": copy.deepcopy(orig["evidence_issues"]),
             "sections": [
                 {"title": s["title"], "positions": [
-                    {k: p[k] for k in ["code", "name", "unit", "quantity", "price", "source", "comment"]}
+                    {
+                        k: copy.deepcopy(p[k])
+                        for k in [
+                            "code", "name", "unit", "quantity", "price",
+                            "source", "price_evidence", "comment",
+                        ]
+                    }
                     for p in s["positions"]
                 ]}
                 for s in orig["sections"]
             ],
         }
-        return self.create_estimate(new_data)
+        # A duplicate is an internal copy of an already persisted immutable
+        # revision, not a new client assertion.  Preserve its existing scope
+        # verdict while the copied evidence is independently re-evaluated.
+        return self.create_estimate(new_data, trusted_scope=True)
 
     def list_estimate_revisions(self, est_id: str) -> Optional[dict]:
-        if self.db.query(EstimateDB.id).filter(EstimateDB.id == est_id).first() is None:
+        if (
+            self.db.query(EstimateDB.id)
+            .filter(
+                EstimateDB.id == est_id,
+                EstimateDB.scope_id == self._estimate_scope(),
+            )
+            .first()
+            is None
+        ):
             return None
         revisions = (
             self.db.query(EstimateRevisionDB)
@@ -203,6 +412,8 @@ class DBStorage:
                     "version": revision.version,
                     "title": revision.snapshot.get("title", ""),
                     "status": revision.snapshot.get("status", "draft"),
+                    "estimate_status": revision.snapshot.get("estimate_status", "preliminary"),
+                    "pricing_status": revision.snapshot.get("pricing_status", "preliminary"),
                     "total": revision.snapshot.get("total", "0.00"),
                     "created_at": _iso_z(revision.created_at),
                 }
@@ -214,9 +425,11 @@ class DBStorage:
     def get_estimate_revision(self, est_id: str, version: int) -> Optional[dict]:
         revision = (
             self.db.query(EstimateRevisionDB)
+            .join(EstimateDB, EstimateRevisionDB.estimate_id == EstimateDB.id)
             .filter(
                 EstimateRevisionDB.estimate_id == est_id,
                 EstimateRevisionDB.version == version,
+                EstimateDB.scope_id == self._estimate_scope(),
             )
             .first()
         )
@@ -231,8 +444,13 @@ class DBStorage:
         }
 
     def get_estimate_snapshot(self, est_id: str, version: Optional[int] = None) -> Optional[dict]:
-        query = self.db.query(EstimateRevisionDB).filter(
-            EstimateRevisionDB.estimate_id == est_id
+        query = (
+            self.db.query(EstimateRevisionDB)
+            .join(EstimateDB, EstimateRevisionDB.estimate_id == EstimateDB.id)
+            .filter(
+                EstimateRevisionDB.estimate_id == est_id,
+                EstimateDB.scope_id == self._estimate_scope(),
+            )
         )
         if version is None:
             revision = query.order_by(EstimateRevisionDB.version.desc()).first()
@@ -240,9 +458,147 @@ class DBStorage:
             revision = query.filter(EstimateRevisionDB.version == version).first()
         return copy.deepcopy(revision.snapshot) if revision is not None else None
 
-    def _replace_sections(self, estimate: EstimateDB, sections: list[dict]) -> None:
+    def _sections_for_replacement(self, estimate: EstimateDB) -> list[dict]:
+        return [
+            {
+                "title": section.title,
+                "positions": [
+                    {
+                        "code": position.code,
+                        "name": position.name,
+                        "unit": position.unit,
+                        "quantity": position.quantity,
+                        "price": position.price,
+                        "source": position.source or "",
+                        "price_evidence": copy.deepcopy(position.price_evidence or []),
+                        "comment": position.comment or "",
+                    }
+                    for position in section.positions
+                ],
+            }
+            for section in estimate.sections
+        ]
+
+    def _replace_sections(
+        self,
+        estimate: EstimateDB,
+        sections: list[dict],
+        *,
+        top_level_evidence=None,
+        preserve_existing: bool = False,
+    ) -> tuple[list[dict], bool, bool]:
+        existing_layout = tuple(
+            (
+                str(section.title),
+                tuple(str(position.code or "") for position in section.positions),
+            )
+            for section in estimate.sections
+        )
+        existing = {
+            position.code: {
+                "price": position.price,
+                "quantity": position.quantity,
+                "unit": position.unit,
+                "name": position.name,
+                "source": position.source or "",
+                "price_evidence": copy.deepcopy(position.price_evidence or []),
+            }
+            for section in estimate.sections
+            for position in section.positions
+            if position.code
+        }
+        prepared = copy.deepcopy(sections if isinstance(sections, list) else [])
+        price_changed_codes: set[str] = set()
+        prepared_layout = tuple(
+            (
+                str(section.get("title") or ""),
+                tuple(
+                    str(position.get("code") or "")
+                    for position in section.get("positions", [])
+                    if isinstance(position, dict)
+                ),
+            )
+            for section in prepared
+            if isinstance(section, dict)
+        )
+        # Layout is part of scope: adding, deleting, reordering or moving a
+        # line (and changing a section title/order) invalidates the old scope
+        # verdict even when every surviving line keeps the same values.
+        scope_changed = preserve_existing and existing_layout != prepared_layout
+        trusted_records = _json_list(top_level_evidence)
+        for section in prepared:
+            for position in section.get("positions", []):
+                code = str(position.get("code") or "")
+                old = existing.get(code) if preserve_existing else None
+                incoming_evidence = _json_list(position.get("price_evidence"))
+                if old is not None:
+                    if _decimal(old["price"]) != _decimal(position.get("price")):
+                        price_changed_codes.add(code)
+                        incoming_evidence = []
+                    elif not incoming_evidence:
+                        incoming_evidence = copy.deepcopy(old["price_evidence"])
+                    if (
+                        _decimal(old["quantity"]) != _decimal(position.get("quantity"))
+                        or str(old["unit"]) != str(position.get("unit"))
+                        or str(old["name"]) != str(position.get("name"))
+                    ):
+                        scope_changed = True
+                position["price_evidence"] = incoming_evidence
+                trusted_records.extend(incoming_evidence)
+
+        # The estimate action carries the same immutable records both at the
+        # estimate level and on each position.  Collapse that transport
+        # duplication before strict evaluation so a valid source is not
+        # reported as a duplicate.  A manual price change is different: no
+        # evidence supplied in the same edit may immediately re-certify the
+        # changed value.  It must pass through a fresh collection/verifier
+        # cycle in a later mutation.
+        deduplicated_records: list[dict] = []
+        seen_records: set[tuple[str, str, str]] = set()
+        for record in trusted_records:
+            if not isinstance(record, dict):
+                continue
+            position_code = str(record.get("position_code") or "")
+            if position_code in price_changed_codes:
+                continue
+            identity = (
+                position_code,
+                str(record.get("source_id") or ""),
+                str(record.get("content_sha256") or ""),
+            )
+            if identity in seen_records:
+                continue
+            seen_records.add(identity)
+            deduplicated_records.append(record)
+
+        trusted_mutated_codes: set[str] = set()
+        for raw in deduplicated_records:
+            try:
+                record = PriceEvidenceRecord.model_validate(raw)
+            except (TypeError, ValueError):
+                continue
+            if evidence_attestation_is_valid(record):
+                trusted_mutated_codes.add(record.position_code)
+
+        evidence_result = evaluate_price_evidence(
+            prepared,
+            region=estimate.region or "",
+            currency=estimate.currency or "RUB",
+            trusted_records=deduplicated_records,
+        )
+        # A trusted collector may assign the price before the final shared
+        # verifier checks region/unit/freshness/binding.  When that verifier
+        # rejects the signed record, the collector-mutated amount must not
+        # survive as an apparently usable manual price in totals.
+        for section in prepared:
+            for position in section.get("positions", []):
+                code = str(position.get("code") or "")
+                if code in trusted_mutated_codes and not position.get("price_evidence"):
+                    position["price"] = "0.00"
+                    position["sum"] = "0.00"
+                    position["source"] = ""
         estimate.sections.clear()
-        for section_index, section_data in enumerate(sections):
+        for section_index, section_data in enumerate(prepared):
             section = SectionDB(
                 id=_uid(),
                 sort_order=section_index,
@@ -260,9 +616,75 @@ class DBStorage:
                         quantity=position_data.get("quantity", "0"),
                         price=position_data.get("price", "0"),
                         source=position_data.get("source", ""),
+                        price_evidence=copy.deepcopy(position_data.get("price_evidence") or []),
                         comment=position_data.get("comment", ""),
                     )
                 )
+        issues = list(evidence_result["evidence_issues"])
+        issues.extend(
+            {
+                "code": "manual_price_change",
+                "position_code": code,
+                "message": "Цена изменена вручную; прежний источник удалён.",
+            }
+            for code in sorted(price_changed_codes)
+        )
+        return issues, bool(price_changed_codes), scope_changed
+
+    def _derive_truth(self, estimate: EstimateDB) -> None:
+        positions = [position for section in estimate.sections for position in section.positions]
+        complete = bool(positions) and all(
+            _decimal(position.quantity) > 0 and _decimal(position.price) > 0
+            for position in positions
+        )
+        source_backed = complete and all(position.price_evidence for position in positions)
+        independently_verified = source_backed and all(
+            any(record.get("verification") == "verified" for record in position.price_evidence)
+            for position in positions
+        )
+        if not complete:
+            pricing_status = "needs_input"
+        elif not source_backed:
+            pricing_status = "preliminary"
+        elif independently_verified:
+            pricing_status = "verified"
+        else:
+            pricing_status = "source_backed"
+        if pricing_status == "verified" and estimate.scope_status == "verified":
+            estimate_status = "verified"
+        elif pricing_status in {"source_backed", "verified"}:
+            estimate_status = "source_backed"
+        else:
+            estimate_status = pricing_status
+        estimate.pricing_status = pricing_status
+        estimate.estimate_status = estimate_status
+        estimate.price_sources = [
+            copy.deepcopy(record)
+            for position in positions
+            for record in (position.price_evidence or [])
+        ]
+        issue_codes = {
+            str(issue.get("code") or "")
+            for issue in (estimate.evidence_issues or [])
+            if isinstance(issue, dict)
+        }
+        if "manual_price_change" in issue_codes:
+            estimate.source_note = (
+                "Цена изменена вручную; прежний источник снят, требуется повторный "
+                "сбор и проверка цены."
+            )
+        elif estimate_status == "needs_input":
+            estimate.source_note = "Требуются индивидуальные объёмы и подтверждённые цены."
+        elif pricing_status == "preliminary":
+            estimate.source_note = "Цены не подтверждены источниками для каждой строки."
+        elif pricing_status == "source_backed":
+            estimate.source_note = "Цены связаны с актуальными датированными источниками."
+        elif estimate.scope_status != "verified":
+            estimate.source_note = (
+                "Цены независимо проверены; исходные объёмы и состав работ ещё не подтверждены."
+            )
+        else:
+            estimate.source_note = "Цены и исходные объёмы независимо проверены."
 
     def _calculate_entity(self, estimate: EstimateDB) -> None:
         calc_sections = []
@@ -323,6 +745,14 @@ class DBStorage:
     def _est_to_dict(self, e: EstimateDB) -> dict:
         return {
             "id": e.id, "version": int(e.version), "status": e.status,
+            "estimate_status": e.estimate_status or "needs_input",
+            "pricing_status": e.pricing_status or "needs_input",
+            "scope_status": e.scope_status or "unverified",
+            "source_note": e.source_note or "",
+            "assumptions": copy.deepcopy(e.assumptions or []),
+            "questions": copy.deepcopy(e.questions or []),
+            "price_sources": copy.deepcopy(e.price_sources or []),
+            "evidence_issues": copy.deepcopy(e.evidence_issues or []),
             "title": e.title, "client": e.client, "object_name": e.object_name,
             "region": e.region, "currency": e.currency,
             "overhead_rate": e.overhead_rate, "vat_rate": e.vat_rate,
@@ -337,7 +767,9 @@ class DBStorage:
                         {
                             "id": p.id, "code": p.code, "name": p.name, "unit": p.unit,
                             "quantity": p.quantity, "price": p.price, "sum": p.sum,
-                            "source": p.source, "comment": p.comment or "",
+                            "source": p.source,
+                            "price_evidence": copy.deepcopy(p.price_evidence or []),
+                            "comment": p.comment or "",
                         }
                         for p in s.positions
                     ],
@@ -349,7 +781,9 @@ class DBStorage:
     # ── Documents ────────────────────────────────────────────────────────────
 
     def list_documents(self, type_: Optional[str] = None, page: int = 1, page_size: int = 20) -> dict:
-        q = self.db.query(DocumentDB)
+        q = self.db.query(DocumentDB).filter(
+            DocumentDB.scope_id == self._document_scope()
+        )
         if type_:
             q = q.filter(DocumentDB.type == type_)
         total = q.count()
@@ -357,14 +791,23 @@ class DBStorage:
         return {"items": [self._doc_to_dict(d) for d in items], "total": total}
 
     def get_document(self, doc_id: str) -> Optional[dict]:
-        d = self.db.query(DocumentDB).filter(DocumentDB.id == doc_id).first()
+        d = (
+            self.db.query(DocumentDB)
+            .filter(
+                DocumentDB.id == doc_id,
+                DocumentDB.scope_id == self._document_scope(),
+            )
+            .first()
+        )
         return self._doc_to_dict(d) if d else None
 
     def create_document(self, data: dict) -> dict:
+        self._require_owned_document_estimate(data.get("estimate_id"))
         doc_id = _uid()
         now = _now()
         d = DocumentDB(
-            id=doc_id, title=data.get("title", ""), type=data.get("type", "custom"),
+            id=doc_id, scope_id=self._document_scope(),
+            title=data.get("title", ""), type=data.get("type", "custom"),
             client=data.get("client", ""), project=data.get("project", ""),
             content=data.get("content", ""), variables=data.get("variables", {}),
             template=data.get("template", ""),
@@ -376,9 +819,18 @@ class DBStorage:
         return self._doc_to_dict(d)
 
     def update_document(self, doc_id: str, data: dict) -> Optional[dict]:
-        d = self.db.query(DocumentDB).filter(DocumentDB.id == doc_id).first()
+        d = (
+            self.db.query(DocumentDB)
+            .filter(
+                DocumentDB.id == doc_id,
+                DocumentDB.scope_id == self._document_scope(),
+            )
+            .first()
+        )
         if not d:
             return None
+        if "estimate_id" in data:
+            self._require_owned_document_estimate(data.get("estimate_id"))
         for field in ["title", "type", "client", "project", "content", "variables", "template", "status", "estimate_id"]:
             if field in data and data[field] is not None:
                 setattr(d, field, data[field])
@@ -387,7 +839,14 @@ class DBStorage:
         return self._doc_to_dict(d)
 
     def delete_document(self, doc_id: str) -> bool:
-        d = self.db.query(DocumentDB).filter(DocumentDB.id == doc_id).first()
+        d = (
+            self.db.query(DocumentDB)
+            .filter(
+                DocumentDB.id == doc_id,
+                DocumentDB.scope_id == self._document_scope(),
+            )
+            .first()
+        )
         if not d:
             return False
         self.db.delete(d)
@@ -408,14 +867,15 @@ class DBStorage:
 
     def list_library(self, item_type: Optional[str] = None, search: Optional[str] = None) -> List[dict]:
         items = []
-        for e in self.db.query(EstimateDB).all():
+        scope_id = self._document_scope()
+        for e in self.db.query(EstimateDB).filter(EstimateDB.scope_id == scope_id).all():
             items.append({"id": e.id, "title": e.title, "item_type": "estimate",
                           "source_id": e.id, "source_type": "estimate",
                           "status": e.status, "client": e.client or "",
                           "project": e.object_name or "", "file_size": 0,
                           "created_at": e.created_at.isoformat() + "Z" if e.created_at else "",
                           "updated_at": e.updated_at.isoformat() + "Z" if e.updated_at else ""})
-        for d in self.db.query(DocumentDB).all():
+        for d in self.db.query(DocumentDB).filter(DocumentDB.scope_id == scope_id).all():
             items.append({"id": d.id, "title": d.title, "item_type": "document",
                           "source_id": d.id, "source_type": "document",
                           "status": d.status, "client": d.client or "",
@@ -606,7 +1066,7 @@ def seed_db(db: Session):
     if db.query(EstimateDB).count() > 0:
         return
 
-    storage = DBStorage(db)
+    storage = DBStorage(db, scope_id="demo:seed")
 
     storage.create_estimate({
         "title": "Смета на электромонтаж дома 120 м²",

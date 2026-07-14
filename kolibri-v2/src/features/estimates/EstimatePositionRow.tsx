@@ -1,7 +1,10 @@
 import type { Position } from '@/lib/api'
 import { formatNum } from '@/lib/utils'
+import { CircleAlert, ShieldCheck } from 'lucide-react'
+import type { PositionEvidenceView } from './estimateEvidence'
+import type { EstimateNumericField } from './estimateMath'
 
-export type EstimateNumericField = 'quantity' | 'price'
+export type { EstimateNumericField } from './estimateMath'
 
 export interface EditingEstimateCell {
   secId: string
@@ -13,6 +16,7 @@ interface EstimatePositionRowProps {
   sectionId: string
   position: Position
   editingCell: EditingEstimateCell | null
+  evidence?: PositionEvidenceView
   onEdit: (field: EstimateNumericField) => void
   onCommit: (field: EstimateNumericField, value: string) => void
 }
@@ -25,6 +29,7 @@ export default function EstimatePositionRow({
   sectionId,
   position,
   editingCell,
+  evidence,
   onEdit,
   onCommit,
 }: EstimatePositionRowProps) {
@@ -33,8 +38,6 @@ export default function EstimatePositionRow({
     && editingCell.posId === position.id
     && editingCell.field === field
   )
-  const sum = Number.parseFloat(position.quantity) * Number.parseFloat(position.price)
-
   const numericField = (field: EstimateNumericField, value: string, formattedValue: string) => (
     <div className={`estimate-position-field estimate-position-${field}`}>
       <span className="estimate-position-label">{field === 'quantity' ? 'Количество' : 'Цена, ₽'}</span>
@@ -43,6 +46,7 @@ export default function EstimatePositionRow({
           autoFocus
           type="text"
           inputMode="decimal"
+          maxLength={32}
           enterKeyHint="done"
           defaultValue={value}
           aria-label={field === 'quantity' ? `Количество: ${position.name}` : `Цена: ${position.name}`}
@@ -74,13 +78,23 @@ export default function EstimatePositionRow({
       <div className="estimate-position-name-wrap">
         <span className="estimate-position-name">{position.name}</span>
         <span className="estimate-position-unit-mobile">Ед.: {position.unit}</span>
+        {evidence && (evidence.verified && evidence.evidence?.url ? (
+          <a className="estimate-position-source verified" href={evidence.evidence.url} target="_blank" rel="noreferrer">
+            <ShieldCheck size={13} aria-hidden="true" />
+            {evidence.evidence.source_title || 'Проверенный источник цены'}
+          </a>
+        ) : (
+          <span className="estimate-position-source unverified">
+            <CircleAlert size={13} aria-hidden="true" />{evidence.reason}
+          </span>
+        ))}
       </div>
       <span className="estimate-position-unit">{position.unit}</span>
       {numericField('quantity', position.quantity, position.quantity)}
       {numericField('price', position.price, formatNum(position.price))}
       <div className="estimate-position-sum">
         <span className="estimate-position-label">Сумма, ₽</span>
-        <strong>{formatNum(String(Number.isFinite(sum) ? sum : 0))}</strong>
+        <strong>{formatNum(position.sum)}</strong>
       </div>
     </div>
   )

@@ -5,13 +5,9 @@ import { estimates, ai, type Estimate } from '@/lib/api'
 import { formatDate, formatNum } from '@/lib/utils'
 import EstimatePositionRow, { type EditingEstimateCell } from '@/features/estimates/EstimatePositionRow'
 import EstimateRevisionHistory from '@/features/estimates/EstimateRevisionHistory'
-
-const statusLabels: Record<string, { text: string; className: string }> = {
-  draft: { text: 'Черновик', className: 'bg-gray-100 text-gray-600' },
-  ready: { text: 'Готова', className: 'bg-[#e8f8f7] text-[#3ABAB4]' },
-  approved: { text: 'Утверждена', className: 'bg-[#e8f0e8] text-[#10b981]' },
-  archived: { text: 'В архиве', className: 'bg-gray-100 text-gray-400' },
-}
+import EstimateEvidencePanel, { EstimateTruthBadge } from '@/features/estimates/EstimateEvidencePanel'
+import { estimateEvidenceSummary } from '@/features/estimates/estimateEvidence'
+import { estimateTotalsEqual, recalculateEstimate, updateEstimatePosition } from '@/features/estimates/estimateMath'
 
 export default function EstimatesPage() {
   const [view, setView] = useState<'list' | 'editor'>('list')
@@ -81,21 +77,39 @@ export default function EstimatesPage() {
 
   const updatePayload = (estimate: Estimate) => ({
     version: estimate.version,
+    overhead_rate: estimate.overhead_rate,
+    vat_rate: estimate.vat_rate,
+    estimate_status: estimate.estimate_status,
+    pricing_status: estimate.pricing_status,
+    scope_status: estimate.scope_status,
+    price_sources: estimate.price_sources,
+    evidence_issues: estimate.evidence_issues,
+    price_as_of: estimate.price_as_of,
+    assumptions: estimate.assumptions,
+    questions: estimate.questions,
+    source_note: estimate.source_note,
     sections: estimate.sections.map(s => ({
       title: s.title,
       positions: s.positions.map(p => ({
         code: p.code, name: p.name, unit: p.unit,
         quantity: p.quantity, price: p.price,
-        source: p.source, comment: p.comment,
+        source: p.source,
+        source_evidence: p.source_evidence,
+        price_evidence: p.price_evidence,
+        comment: p.comment,
       })),
     })),
   })
 
   const acceptMutation = (updated: Estimate) => {
+    const recalculated = recalculateEstimate(updated)
     setCurrent(updated)
     setList(items => items.map(item => item.id === updated.id ? updated : item))
     setDirty(false)
     setRevisionRefreshToken(value => value + 1)
+    if (!estimateTotalsEqual(updated, recalculated)) {
+      setMutationError('Сервер вернул итоги, которые не совпадают с детерминированным расчётом. Экспорт заблокирован до повторной проверки.')
+    }
   }
 
   const handleSave = async () => {
@@ -141,6 +155,10 @@ export default function EstimatesPage() {
 
   const handleDownloadPdf = () => {
     if (!current) return
+    if (dirty || !estimateTotalsEqual(current, recalculateEstimate(current))) {
+      setMutationError('Сначала сохраните согласованные итоги сметы, затем формируйте PDF.')
+      return
+    }
     window.open(estimates.pdfUrl(current.id, current.version), '_blank', 'noopener,noreferrer')
   }
 
@@ -156,6 +174,10 @@ export default function EstimatesPage() {
 
   const handleExport = (fmt: 'csv' | 'json' | 'xlsx') => {
     if (!current) return
+    if (dirty || !estimateTotalsEqual(current, recalculateEstimate(current))) {
+      setMutationError('Сначала сохраните согласованные итоги сметы, затем выполняйте экспорт.')
+      return
+    }
     window.open(estimates.exportUrl(current.id, fmt, current.version), '_blank', 'noopener,noreferrer')
     setMenuOpen(false)
   }
@@ -185,26 +207,23 @@ export default function EstimatesPage() {
 
   const updatePosition = (secId: string, posId: string, field: 'quantity' | 'price', value: string) => {
     if (!current) return
-    setCurrent({
-      ...current,
-      sections: current.sections.map(s => s.id !== secId ? s : {
-        ...s,
-        positions: s.positions.map(p => p.id !== posId ? p : { ...p, [field]: value }),
-      }),
-    })
+    const updated = updateEstimatePosition(current, secId, posId, field, value)
+    if (!updated) {
+      setMutationError('Введите неотрицательное число, например 12,5.')
+      setEditingCell(null)
+      return
+    }
+    setCurrent(updated)
     setDirty(true)
     setMutationError(null)
     setEditingCell(null)
   }
 
-  const sectionTotal = (positions: Estimate['sections'][0]['positions']) =>
-    positions.reduce((sum, p) => {
-      const value = Number.parseFloat(p.quantity) * Number.parseFloat(p.price)
-      return sum + (Number.isFinite(value) ? value : 0)
-    }, 0)
-
   // --- EDITOR VIEW ---
   if (view === 'editor' && current) {
+    const evidence = estimateEvidenceSummary(current)
+    const evidenceByPosition = new Map(evidence.rows.map(row => [row.position.id, row]))
+    const canExport = !dirty && estimateTotalsEqual(current, recalculateEstimate(current))
     return (
       <div className="estimate-editor-page h-full overflow-y-auto">
         <div className="estimate-editor-shell max-w-[1100px] mx-auto px-4 sm:px-6 py-4">
@@ -214,16 +233,16 @@ export default function EstimatesPage() {
               <ArrowLeft size={18} />
             </button>
             <h1 className="text-[18px] sm:text-[20px] font-semibold text-[var(--text-primary)] truncate">{current.title}</h1>
-            <span className={`estimate-editor-status px-2 py-0.5 rounded-[var(--radius-pill)] text-[11px] font-medium ${statusLabels[current.status]?.className || ''}`}>{statusLabels[current.status]?.text}</span>
+            <EstimateTruthBadge status={evidence.estimateStatus} />
             </div>
             <div className="estimate-editor-toolbar" role="toolbar" aria-label="Действия со сметой">
               <button onClick={handleAiAnalyze} disabled={aiLoading} className="estimate-editor-action border border-[var(--accent-lavender)]/30 text-[var(--accent-lavender)] hover:bg-[var(--accent-lavender)]/10 transition-colors flex items-center gap-1.5 disabled:opacity-50">
                 <Sparkles size={14} /> {aiLoading ? 'Анализ...' : 'AI анализ'}
               </button>
-              <button onClick={handleDownloadPdf} className="estimate-editor-action border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors flex items-center gap-1.5">
+              <button onClick={handleDownloadPdf} disabled={!canExport} className="estimate-editor-action border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors flex items-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-50">
                 <Download size={14} /> PDF
               </button>
-              <button onClick={() => handleExport('xlsx')} className="estimate-editor-action border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors flex items-center gap-1.5">
+              <button onClick={() => handleExport('xlsx')} disabled={!canExport} className="estimate-editor-action border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors flex items-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-50">
                 <FileSpreadsheet size={14} /> XLSX
               </button>
               <button onClick={() => void handleRecalculate()} disabled={mutation !== null} className="estimate-editor-action border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors flex items-center gap-1.5 disabled:opacity-50">
@@ -240,13 +259,13 @@ export default function EstimatesPage() {
                       <button onClick={handleDuplicate} className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors">
                         <Copy size={14} /> Дублировать
                       </button>
-                      <button onClick={() => handleExport('csv')} className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors">
+                      <button onClick={() => handleExport('csv')} disabled={!canExport} className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors disabled:cursor-not-allowed disabled:opacity-50">
                         <FileDown size={14} /> Экспорт CSV
                       </button>
-                      <button onClick={() => handleExport('json')} className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors">
+                      <button onClick={() => handleExport('json')} disabled={!canExport} className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors disabled:cursor-not-allowed disabled:opacity-50">
                         <FileDown size={14} /> Экспорт JSON
                       </button>
-                      <button onClick={() => handleExport('xlsx')} className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors">
+                      <button onClick={() => handleExport('xlsx')} disabled={!canExport} className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors disabled:cursor-not-allowed disabled:opacity-50">
                         <FileSpreadsheet size={14} /> Экспорт XLSX
                       </button>
                       <div className="border-t border-[var(--border-subtle)] my-1" />
@@ -288,11 +307,13 @@ export default function EstimatesPage() {
             </div>
           </div>
 
+          <EstimateEvidencePanel estimate={current} />
+
           {current.sections.map(section => (
             <section key={section.id} className="estimate-section mb-4">
               <div className="estimate-section-header flex items-center justify-between mb-2">
                 <h3 className="text-[14px] font-semibold text-[var(--text-primary)]">{section.title}</h3>
-                <span className="text-[13px] font-medium text-[var(--text-secondary)]">{formatNum(String(sectionTotal(section.positions)))} ₽</span>
+                <span className="text-[13px] font-medium text-[var(--text-secondary)]">{formatNum(section.subtotal)} ₽</span>
               </div>
               <div className="estimate-positions">
                 <div className="estimate-position-head">
@@ -304,6 +325,7 @@ export default function EstimatesPage() {
                     sectionId={section.id}
                     position={pos}
                     editingCell={editingCell}
+                    evidence={evidenceByPosition.get(pos.id)}
                     onEdit={field => setEditingCell({ secId: section.id, posId: pos.id, field })}
                     onCommit={(field, value) => updatePosition(section.id, pos.id, field, value)}
                   />
@@ -315,6 +337,7 @@ export default function EstimatesPage() {
           <div className="estimate-summary border border-[var(--border-subtle)] rounded-[var(--radius-lg)] p-4 bg-[var(--bg-secondary)]">
             <div className="space-y-2 text-[14px]">
               <div className="flex justify-between"><span className="text-[var(--text-secondary)]">Подытог</span><span className="font-medium">{formatNum(current.subtotal)} ₽</span></div>
+              <div className="flex justify-between"><span className="text-[var(--text-secondary)]">Накладные ({current.overhead_rate}%)</span><span className="font-medium">{formatNum(current.overhead_amount)} ₽</span></div>
               <div className="flex justify-between"><span className="text-[var(--text-secondary)]">НДС ({current.vat_rate}%)</span><span className="font-medium">{formatNum(current.vat_amount)} ₽</span></div>
               <div className="flex justify-between pt-2 border-t border-[var(--border-subtle)]">
                 <span className="font-semibold text-[var(--text-primary)]">ИТОГО</span>
@@ -384,7 +407,9 @@ export default function EstimatesPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
                     <h3 className="text-[14px] font-medium text-[var(--text-primary)] truncate group-hover:text-[var(--accent-teal)] transition-colors">{est.title}</h3>
-                    <span className={`px-2 py-0.5 rounded-[var(--radius-pill)] text-[11px] font-medium flex-shrink-0 ${statusLabels[est.status]?.className || ''}`}>{statusLabels[est.status]?.text}</span>
+                    {est.status === 'archived'
+                      ? <span className="estimate-truth-badge preliminary">В архиве</span>
+                      : <EstimateTruthBadge status={estimateEvidenceSummary(est).estimateStatus} />}
                   </div>
                   <p className="text-[12px] text-[var(--text-tertiary)]">{est.client || '—'} · {est.object_name || '—'} · {formatDate(est.created_at)}</p>
                 </div>

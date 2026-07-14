@@ -28,6 +28,11 @@ from sqlalchemy import and_, or_
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.control_plane import (
+    CONTROL_PLANE_SOURCE,
+    ControlPlaneUnavailable,
+    HomeControlPlaneAdapter,
+)
 from app.database import get_db
 from app.models import (
     TelegramBotIdentityDB,
@@ -79,6 +84,9 @@ _LOOPBACK_PROXY_NETWORKS = (
     ip_network("127.0.0.0/8"),
     ip_network("::1/128"),
 )
+_FACTORY_STATUS_COMMAND = re.compile(r"^/status(?:@[a-z0-9_]+)?(?:\s|$)", re.IGNORECASE)
+_FACTORY_STATUS_24_7 = re.compile(r"\b24\s*(?:/|x|х|на)\s*7\b", re.IGNORECASE)
+_SAFE_CONTROL_PLANE_REASON = re.compile(r"^control_plane_[a-z0-9_]{1,64}$")
 
 
 @dataclass(frozen=True)
@@ -738,6 +746,121 @@ def _local_command(text: str) -> str | None:
     return None
 
 
+def _is_factory_status_request(text: str) -> bool:
+    """Recognise owner status questions without turning general factory work into a probe."""
+
+    clean = " ".join(text.casefold().replace("ё", "е").split())
+    if _FACTORY_STATUS_COMMAND.match(clean):
+        return True
+    has_factory = "фабрик" in clean or "kolibri factory" in clean
+    if has_factory and re.search(r"\b(?:статус|состояние)\b", clean):
+        return True
+    if has_factory and re.search(
+        r"\b(?:работает|работать|заработает|заработала|запущена|запущен|активна|активен)\b",
+        clean,
+    ):
+        return True
+    if _FACTORY_STATUS_24_7.search(clean):
+        without_punctuation = re.sub(r"[^0-9a-zа-я/х ]+", " ", clean)
+        compact = " ".join(without_punctuation.split())
+        return has_factory or compact in {"24/7", "24 х 7", "24 x 7", "24 на 7"}
+    return False
+
+
+def _home_control_plane_adapter() -> HomeControlPlaneAdapter:
+    return HomeControlPlaneAdapter.from_environment()
+
+
+def _factory_status_group(
+    stats: dict[str, Any],
+    name: str,
+    fields: tuple[str, ...],
+) -> dict[str, int]:
+    group = stats.get(name)
+    if not isinstance(group, dict):
+        raise ControlPlaneUnavailable("control_plane_status_contract_invalid")
+    result: dict[str, int] = {}
+    for field in fields:
+        value = group.get(field)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ControlPlaneUnavailable("control_plane_status_contract_invalid")
+        result[field] = value
+    return result
+
+
+def _factory_status_content(stats: dict[str, Any]) -> str:
+    truth = stats.get("truth")
+    if not isinstance(truth, dict):
+        raise ControlPlaneUnavailable("control_plane_status_contract_invalid")
+    availability = truth.get("availability")
+    source = truth.get("source")
+    raw_as_of = truth.get("as_of")
+    if availability not in {"live", "stale"} or source != CONTROL_PLANE_SOURCE:
+        raise ControlPlaneUnavailable("control_plane_status_contract_invalid")
+    if not isinstance(raw_as_of, str) or not raw_as_of.strip():
+        raise ControlPlaneUnavailable("control_plane_status_contract_invalid")
+    try:
+        parsed_as_of = datetime.fromisoformat(raw_as_of.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ControlPlaneUnavailable("control_plane_status_contract_invalid") from exc
+    if parsed_as_of.tzinfo is None:
+        raise ControlPlaneUnavailable("control_plane_status_contract_invalid")
+    as_of = parsed_as_of.astimezone(timezone.utc).isoformat()
+
+    nodes = _factory_status_group(
+        stats,
+        "nodes",
+        ("total", "healthy", "degraded", "offline"),
+    )
+    agents = _factory_status_group(
+        stats,
+        "agents",
+        ("total", "active", "idle", "paused"),
+    )
+    tasks = _factory_status_group(
+        stats,
+        "tasks",
+        ("total", "running", "queued", "completed", "failed", "cancelled"),
+    )
+    return (
+        "Фабрика Kolibri — инструментальный снимок Home Control Plane\n"
+        f"Доступность: {availability}\n"
+        f"as_of: {as_of}\n"
+        f"Узлы: всего {nodes['total']}; исправны {nodes['healthy']}; "
+        f"деградировали {nodes['degraded']}; недоступны {nodes['offline']}\n"
+        f"Исполнители: всего {agents['total']}; активны {agents['active']}; "
+        f"ожидают {agents['idle']}; приостановлены {agents['paused']}\n"
+        f"Задачи: всего {tasks['total']}; выполняются {tasks['running']}; "
+        f"в очереди {tasks['queued']}; завершены {tasks['completed']}; "
+        f"ошибки {tasks['failed']}; отменены {tasks['cancelled']}\n"
+        "Непрерывность 24/7 одним снимком не подтверждается."
+    )
+
+
+def _factory_status_unavailable(reason: str) -> str:
+    safe_reason = (
+        reason
+        if _SAFE_CONTROL_PLANE_REASON.fullmatch(reason)
+        else "control_plane_unavailable"
+    )
+    return (
+        "Недоступно в текущем сеансе: подтверждённое состояние фабрики. "
+        f"Причина: {safe_reason}. "
+        "Могу вместо этого: повторить инструментальную проверку после восстановления "
+        "Home Control Plane."
+    )
+
+
+async def _factory_status_reply() -> str:
+    try:
+        stats = await _home_control_plane_adapter().cluster_stats()
+        return _factory_status_content(stats)
+    except ControlPlaneUnavailable as exc:
+        return _factory_status_unavailable(exc.reason)
+    except Exception:
+        return _factory_status_unavailable("control_plane_unavailable")
+
+
 def _normalise_command(text: str) -> str:
     command = text.split(maxsplit=1)[0].split("@", 1)[0].lower() if text.startswith("/") else ""
     tail = text.split(maxsplit=1)[1].strip() if " " in text else ""
@@ -837,22 +960,25 @@ async def _deliver_result(
     *,
     content: str,
     artifact: dict[str, Any] | None,
+    include_project_link: bool = True,
 ) -> str:
     if row.outbound_state == "delivered":
         return str(row.delivery_method or "deduplicated")
     chat_id = int(row.chat_id)
-    linked_content = _with_project_link(
-        content,
-        str(row.project_id or ""),
-        db=db,
-        source_scope_id=f"telegram:{chat_id}",
-        idempotency_key=f"telegram-update:{row.update_id}:project-handoff",
-        maximum_length=(
-            _MAX_TELEGRAM_CAPTION
-            if _verified_image_photo_url(artifact)
-            else _MAX_TELEGRAM_TEXT
-        ),
-    )
+    linked_content = content.strip()
+    if include_project_link:
+        linked_content = _with_project_link(
+            content,
+            str(row.project_id or ""),
+            db=db,
+            source_scope_id=f"telegram:{chat_id}",
+            idempotency_key=f"telegram-update:{row.update_id}:project-handoff",
+            maximum_length=(
+                _MAX_TELEGRAM_CAPTION
+                if _verified_image_photo_url(artifact)
+                else _MAX_TELEGRAM_TEXT
+            ),
+        )
     reply = _response_reply(chat_id, linked_content, artifact)
     method = str(reply.pop("method"))
     if method == "sendMessage" and row.acknowledgement_message_id is not None:
@@ -920,9 +1046,14 @@ async def process_claimed_update(db: Session, update_row_id: str, worker_id: str
     db.commit()
 
     await _send_acknowledgement(row, db)
-    local = _local_command(text)
+    factory_status_request = chat_id > 0 and _is_factory_status_request(text)
+    local = None if factory_status_request else _local_command(text)
     artifact: dict[str, Any] | None = None
-    if local is not None:
+    if factory_status_request:
+        response_id = f"telegram_factory_status:{update_id}"
+        content = await _factory_status_reply()
+        response_status = "completed"
+    elif local is not None:
         response_id = f"telegram_local:{update_id}"
         content = local
         response_status = "completed"
@@ -931,6 +1062,7 @@ async def process_claimed_update(db: Session, update_row_id: str, worker_id: str
             record = await execute_kolibri_response(
                 ResponsesRequest(model="kolibri", input=_conversation(repo, project["id"])),
                 idempotency_key=f"telegram:{update_id}:response",
+                owner_scope=scope_id,
             )
             response_id = str(record["id"])
             content = str(record.get("content") or "").strip()
@@ -970,7 +1102,13 @@ async def process_claimed_update(db: Session, update_row_id: str, worker_id: str
         artifact = None
     row = db.get(TelegramUpdateDB, update_row_id)
     row.response_id = response_id
-    method = await _deliver_result(row, db, content=content, artifact=artifact)
+    method = await _deliver_result(
+        row,
+        db,
+        content=content,
+        artifact=artifact,
+        include_project_link=not factory_status_request,
+    )
     row = db.get(TelegramUpdateDB, update_row_id)
     row.state = "completed"
     row.lease_owner = None

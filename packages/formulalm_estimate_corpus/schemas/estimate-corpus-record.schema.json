@@ -1,0 +1,227 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kolibriai.ru/schemas/formulalm/estimate-corpus-record-1.0.0.json",
+  "title": "FormulaLM Russian estimate local-candidate input record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "record_id",
+    "project_id",
+    "source_group_id",
+    "document_id",
+    "source",
+    "rights",
+    "privacy",
+    "provenance",
+    "geography",
+    "period",
+    "estimate",
+    "quality"
+  ],
+  "properties": {
+    "record_id": { "$ref": "#/$defs/id" },
+    "project_id": { "$ref": "#/$defs/id" },
+    "source_group_id": { "$ref": "#/$defs/id" },
+    "document_id": { "$ref": "#/$defs/id" },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_id",
+        "source_type",
+        "owner",
+        "source_uri",
+        "access_class",
+        "retrieved_at",
+        "snapshot_sha256"
+      ],
+      "properties": {
+        "source_id": { "$ref": "#/$defs/id" },
+        "source_type": { "type": "string", "minLength": 1 },
+        "owner": { "type": "string", "minLength": 1 },
+        "source_uri": { "type": "string", "minLength": 1 },
+        "access_class": {
+          "enum": ["open_data", "public_official", "user_provided"]
+        },
+        "retrieved_at": { "type": "string", "format": "date-time" },
+        "snapshot_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "rights": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["basis", "training_allowed", "allowed_uses", "verified_at"],
+      "properties": {
+        "basis": {
+          "enum": ["open_license", "public_official_record", "user_consent"]
+        },
+        "training_allowed": { "const": true },
+        "allowed_uses": {
+          "type": "array",
+          "uniqueItems": true,
+          "contains": { "const": "formula_lm_estimate_training" },
+          "minContains": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "verified_at": { "type": "string", "format": "date-time" },
+        "license_id": { "type": "string", "minLength": 1 },
+        "license_url": { "type": "string", "format": "uri" },
+        "rights_review_id": { "type": "string", "minLength": 1 },
+        "terms_url": { "type": "string", "format": "uri" },
+        "consent_id": { "type": "string", "minLength": 1 },
+        "consented_at": { "type": "string", "format": "date-time" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "basis": { "const": "open_license" } } },
+          "then": { "required": ["license_id", "license_url"] }
+        },
+        {
+          "if": {
+            "properties": { "basis": { "const": "public_official_record" } }
+          },
+          "then": { "required": ["rights_review_id", "terms_url"] }
+        },
+        {
+          "if": { "properties": { "basis": { "const": "user_consent" } } },
+          "then": { "required": ["consent_id", "consented_at"] }
+        }
+      ]
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contains_pii",
+        "contains_secrets",
+        "private_reasoning_included"
+      ],
+      "properties": {
+        "contains_pii": { "const": false },
+        "contains_secrets": { "const": false },
+        "private_reasoning_included": { "const": false }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "document_sha256",
+        "extractor_name",
+        "extractor_version",
+        "extracted_at"
+      ],
+      "properties": {
+        "document_sha256": { "$ref": "#/$defs/sha256" },
+        "extractor_name": { "type": "string", "minLength": 1 },
+        "extractor_version": { "type": "string", "minLength": 1 },
+        "extracted_at": { "type": "string", "format": "date-time" },
+        "lineage_sha256": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/sha256" }
+        }
+      }
+    },
+    "geography": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["country_code", "region_code", "region_name", "municipality"],
+      "properties": {
+        "country_code": { "const": "RU" },
+        "region_code": { "type": "string", "minLength": 1 },
+        "region_name": { "type": "string", "minLength": 1 },
+        "municipality": { "type": "string" }
+      }
+    },
+    "period": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["year", "quarter", "price_basis_date"],
+      "properties": {
+        "year": { "type": "integer", "minimum": 2000 },
+        "quarter": { "type": "integer", "minimum": 1, "maximum": 4 },
+        "price_basis_date": { "type": "string", "format": "date" }
+      }
+    },
+    "estimate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "title",
+        "object_type",
+        "status",
+        "scope_summary",
+        "assumptions",
+        "lines"
+      ],
+      "properties": {
+        "title": { "type": "string", "minLength": 1 },
+        "object_type": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["preliminary", "source_backed", "verified"] },
+        "scope_summary": { "type": "string", "minLength": 1 },
+        "assumptions": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "lines": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "line_id",
+              "section",
+              "name",
+              "unit",
+              "quantity",
+              "unit_price",
+              "line_total",
+              "evidence_ids"
+            ],
+            "properties": {
+              "line_id": { "$ref": "#/$defs/id" },
+              "section": { "type": "string", "minLength": 1 },
+              "code": { "type": ["string", "null"] },
+              "name": { "type": "string", "minLength": 1 },
+              "unit": { "type": "string", "minLength": 1 },
+              "quantity": { "$ref": "#/$defs/decimal" },
+              "unit_price": { "$ref": "#/$defs/decimal" },
+              "line_total": { "$ref": "#/$defs/decimal" },
+              "evidence_ids": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["human_reviewed", "verifier_status", "source_coverage"],
+      "properties": {
+        "human_reviewed": { "type": "boolean" },
+        "verifier_status": { "enum": ["pass", "partial"] },
+        "source_coverage": { "$ref": "#/$defs/decimal" }
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "decimal": {
+      "oneOf": [
+        { "type": "number" },
+        { "type": "string", "pattern": "^[+-]?[0-9]+(?:[.,][0-9]+)?$" }
+      ]
+    }
+  }
+}

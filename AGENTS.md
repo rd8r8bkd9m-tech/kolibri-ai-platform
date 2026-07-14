@@ -1,5 +1,20 @@
 # AGENTS.md — Kolibri
 
+## Mandatory toolchain policy
+
+- Use only the versions pinned in `toolchains.json`; today that means Node.js
+  24.18.0 LTS, Python 3.14.6 and Rust 1.97.0.
+- EOL, preview, beta, nightly and unpinned system toolchains are forbidden for
+  builds, tests and releases.
+- A version update starts by updating `toolchains.json`, `.node-version`,
+  `.python-version`, `rust-toolchain.toml`, CI and container bases in one
+  reviewed commit. Official checksums or signatures must be verified before a
+  runtime is installed on Home or a worker.
+- Production never follows an unbounded `latest` tag. The newest supported
+  stable/LTS release is pinned, tested on canary, then rolled out to the fleet.
+- A release is blocked when its build/runtime version differs from the pinned
+  manifest or when a canonical node reports an EOL toolchain.
+
 ## Project overview
 
 Колибри (Kolibri) is an AI workspace platform for construction estimates, documents, and agents. Two main parts:
@@ -12,15 +27,15 @@ No monorepo tool — these are independent projects. Root `plan.md` and `plan-ph
 ## Commands
 
 ```bash
-# Frontend (run from kolibri-v2/)
-npm install
+# Frontend (run from kolibri-v2/ with Node from toolchains.json)
+npm ci
 npm run dev        # Vite dev server on port 3000 (proxies /api → :8000)
 npm run build      # tsc -b && vite build
 npm run lint       # ESLint
 
-# Backend (run from kolibri-backend/)
+# Backend (run from kolibri-backend/ with Python from toolchains.json)
 python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+pip install --require-hashes -r requirements.lock
 uvicorn app.main:app --reload   # API on :8000
 
 # Docker (from repo root)

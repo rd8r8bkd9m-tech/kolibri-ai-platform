@@ -1,0 +1,15 @@
+User-agent: *
+Allow: /
+Disallow: /app
+Disallow: /chat
+Disallow: /library
+Disallow: /apps
+Disallow: /estimates
+Disallow: /documents
+Disallow: /agents
+Disallow: /control
+Disallow: /servers
+Disallow: /settings
+Disallow: /login
+Disallow: /playground
+Disallow: /share

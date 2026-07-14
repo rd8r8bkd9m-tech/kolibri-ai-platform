@@ -1,3 +1,4 @@
+import asyncio
 import json
 import hashlib
 import stat
@@ -15,6 +16,31 @@ from app.routers import openai_compat
 
 _API_KEY = "public-test-key"
 _AUTH = {"Authorization": f"Bearer {_API_KEY}"}
+_API_SCOPE = f"api-key-sha256:{hashlib.sha256(_API_KEY.encode()).hexdigest()}"
+_RESPONSE_TEXT_SCHEMA = {
+    "format": {
+        "type": "json_schema",
+        "name": "answer",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "answer": {"type": "string"},
+                "score": {"type": "integer", "minimum": 0, "maximum": 10},
+            },
+            "required": ["answer", "score"],
+            "additionalProperties": False,
+        },
+    }
+}
+_CHAT_RESPONSE_FORMAT = {
+    "type": "json_schema",
+    "json_schema": {
+        key: value
+        for key, value in _RESPONSE_TEXT_SCHEMA["format"].items()
+        if key != "type"
+    },
+}
 
 
 def _fake_codex(tmp_path: Path, body: str) -> Path:
@@ -39,12 +65,18 @@ def _configure_fake_codex(monkeypatch, binary: Path, cwd: Path) -> None:
 
 @pytest.fixture(autouse=True)
 def reset_registry(monkeypatch):
+    from app.rate_limiter import chat_limiter
+
     monkeypatch.setenv("KOLIBRI_PUBLIC_API_KEY_SHA256", hashlib.sha256(_API_KEY.encode()).hexdigest())
     openai_compat._records.clear()
     openai_compat._idempotency.clear()
+    openai_compat._inflight.clear()
+    chat_limiter._requests.clear()
     yield
     openai_compat._records.clear()
     openai_compat._idempotency.clear()
+    openai_compat._inflight.clear()
+    chat_limiter._requests.clear()
 
 
 def test_models_exposes_only_public_kolibri_model():
@@ -144,6 +176,64 @@ def test_responses_sync_preserves_only_public_actions(monkeypatch):
     assert terminal["response"]["actions"] == [action]
 
 
+def test_responses_preserves_only_contract_valid_present_artifact(monkeypatch):
+    artifact_id = "d7950ed4-c855-4754-883c-a63af2b85a0b"
+    canonical = f"/api/v1/artifacts/{artifact_id}"
+    artifact = {
+        "id": artifact_id,
+        "type": "document.pdf",
+        "revision": 1,
+        "title": "Проверенный PDF",
+        "filename": "report.pdf",
+        "mime_type": "application/pdf",
+        "size_bytes": 42,
+        "sha256": "a" * 64,
+        "created_at": "2026-07-14T10:00:00+00:00",
+        "updated_at": "2026-07-14T10:00:00+00:00",
+        "metadata": {
+            "scope_key": "b" * 64,
+            "producer_capability": "document.pdf",
+        },
+        "url": canonical,
+        "download_url": f"{canonical}?download=true",
+        "revision_url": f"{canonical}?revision=1",
+        "revision_download_url": f"{canonical}?revision=1&download=true",
+        "reopen_url": f"{canonical}/reopen",
+        "history_url": f"{canonical}/history",
+    }
+    action = {
+        "type": "present_artifact",
+        "label": "Открыть PDF",
+        "data": artifact,
+    }
+
+    async def fake_completion(messages, **kwargs):
+        malformed = {
+            **action,
+            "data": {**artifact, "mime_type": "text/html"},
+        }
+        return {
+            "content": "PDF готов.",
+            "actions": [action, malformed],
+            "status": "ready",
+            "provider": "private-provider",
+        }
+
+    monkeypatch.setattr(openai_compat.ai_provider, "chat_completion", fake_completion)
+    with TestClient(app) as client:
+        created = client.post(
+            "/v1/responses",
+            json={"model": "kolibri", "input": "Создай PDF"},
+            headers=_AUTH,
+        )
+        fetched = client.get(f"/v1/responses/{created.json()['id']}", headers=_AUTH)
+
+    assert created.status_code == 200
+    assert created.json()["actions"] == [action]
+    assert fetched.json()["actions"] == [action]
+    assert openai_compat._records[created.json()["id"]]["events"][-1]["actions"] == [action]
+
+
 def test_responses_idempotency_replays_and_conflicts(monkeypatch):
     calls = 0
 
@@ -173,6 +263,137 @@ def test_responses_idempotency_replays_and_conflicts(monkeypatch):
     assert first.json()["id"] == replay.json()["id"]
     assert calls == 1
     assert conflict.status_code == 409
+
+
+def test_concurrent_idempotent_responses_invoke_provider_once(monkeypatch):
+    calls = 0
+
+    async def fake_completion(messages, **kwargs):
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(0.05)
+        return {"content": "Один ответ", "status": "idle"}
+
+    monkeypatch.setattr(openai_compat.ai_provider, "chat_completion", fake_completion)
+
+    async def execute():
+        request = openai_compat.ResponsesRequest(model="kolibri", input="Один запрос")
+        return await asyncio.gather(
+            openai_compat.execute_kolibri_response(
+                request,
+                idempotency_key="concurrent-key",
+                owner_scope=_API_SCOPE,
+            ),
+            openai_compat.execute_kolibri_response(
+                request,
+                idempotency_key="concurrent-key",
+                owner_scope=_API_SCOPE,
+            ),
+        )
+
+    first, second = asyncio.run(execute())
+    assert calls == 1
+    assert first["id"] == second["id"]
+    assert first["content"] == "Один ответ"
+
+
+def test_response_events_and_scoped_idempotency_survive_backend_restart(monkeypatch):
+    calls = 0
+
+    async def fake_completion(messages, **kwargs):
+        nonlocal calls
+        calls += 1
+        return {"content": "Пережил перезапуск", "status": "idle"}
+
+    monkeypatch.setattr(openai_compat.ai_provider, "chat_completion", fake_completion)
+    body = {"model": "kolibri", "input": "Долговечный ответ"}
+    headers = {**_AUTH, "Idempotency-Key": "restart-proof"}
+    with TestClient(app) as first_process:
+        created = first_process.post("/v1/responses", json=body, headers=headers)
+    assert created.status_code == 200
+    response_id = created.json()["id"]
+
+    # A fresh app lifespan with empty process caches must recover the response,
+    # ordered event stream and idempotency claim from SQL authority alone.
+    openai_compat._records.clear()
+    openai_compat._idempotency.clear()
+    openai_compat._inflight.clear()
+    with TestClient(app) as restarted_process:
+        fetched = restarted_process.get(f"/v1/responses/{response_id}", headers=_AUTH)
+        events = restarted_process.get(
+            f"/v1/responses/{response_id}/events?starting_after=0",
+            headers=_AUTH,
+        )
+        replay = restarted_process.post("/v1/responses", json=body, headers=headers)
+
+    assert fetched.status_code == 200
+    assert fetched.json() == created.json()
+    assert "event: response.created" in events.text
+    assert "event: response.output_text.delta" in events.text
+    assert "event: response.completed" in events.text
+    assert replay.status_code == 200
+    assert replay.json()["id"] == response_id
+    assert calls == 1
+
+
+def test_response_ownership_and_idempotency_are_scoped_per_api_key(monkeypatch):
+    other_key = "second-public-test-key"
+    monkeypatch.setenv(
+        "KOLIBRI_PUBLIC_API_KEY_SHA256",
+        ",".join([
+            hashlib.sha256(_API_KEY.encode()).hexdigest(),
+            hashlib.sha256(other_key.encode()).hexdigest(),
+        ]),
+    )
+    calls = 0
+
+    async def fake_completion(messages, **kwargs):
+        nonlocal calls
+        calls += 1
+        return {"content": messages[-1]["content"], "status": "idle"}
+
+    monkeypatch.setattr(openai_compat.ai_provider, "chat_completion", fake_completion)
+    other_auth = {"Authorization": f"Bearer {other_key}"}
+    with TestClient(app) as client:
+        first = client.post(
+            "/v1/responses",
+            json={"model": "kolibri", "input": "Первый владелец"},
+            headers={**_AUTH, "Idempotency-Key": "shared-key"},
+        )
+        second = client.post(
+            "/v1/responses",
+            json={"model": "kolibri", "input": "Второй владелец"},
+            headers={**other_auth, "Idempotency-Key": "shared-key"},
+        )
+        replay = client.post(
+            "/v1/responses",
+            json={"model": "kolibri", "input": "Первый владелец"},
+            headers={**_AUTH, "Idempotency-Key": "shared-key"},
+        )
+        cross_get = client.get(
+            f"/v1/responses/{first.json()['id']}", headers=other_auth
+        )
+        cross_cancel = client.post(
+            f"/v1/responses/{first.json()['id']}/cancel", headers=other_auth
+        )
+        cross_previous = client.post(
+            "/v1/responses",
+            json={
+                "model": "kolibri",
+                "input": "Продолжить чужой ответ",
+                "previous_response_id": first.json()["id"],
+            },
+            headers=other_auth,
+        )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["id"] != second.json()["id"]
+    assert replay.json()["id"] == first.json()["id"]
+    assert calls == 2
+    assert cross_get.status_code == 404
+    assert cross_cancel.status_code == 404
+    assert cross_previous.status_code == 404
 
 
 def test_responses_stream_uses_typed_sse_and_hides_provider(monkeypatch):
@@ -229,6 +450,34 @@ def test_responses_stream_uses_typed_sse_and_hides_provider(monkeypatch):
     assert "private" not in response.text
     assert "secret" not in response.text
     assert captured["run_id"].startswith("resp_kolibri_")
+
+
+def test_responses_stream_provider_exception_becomes_terminal_sanitized_failure(monkeypatch):
+    async def fake_stream(messages, **kwargs):
+        yield {"content": "Частичный ответ", "done": False}
+        raise RuntimeError("SECRET provider URL and credential")
+
+    monkeypatch.setattr(openai_compat.ai_provider, "chat_completion_stream", fake_stream)
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/responses",
+            json={"model": "kolibri", "input": "Привет", "stream": True},
+            headers=_AUTH,
+        )
+        response_id = next(iter(openai_compat._records))
+        fetched = client.get(f"/v1/responses/{response_id}", headers=_AUTH)
+
+    assert response.status_code == 200
+    assert "event: response.output_text.delta" in response.text
+    assert "event: response.failed" in response.text
+    assert "SECRET" not in response.text
+    assert fetched.status_code == 200
+    assert fetched.json()["status"] == "failed"
+    assert fetched.json()["error"] == {
+        "code": "provider_stream_failed",
+        "recoverable": True,
+        "capability": None,
+    }
 
 
 def test_responses_stream_terminal_event_and_status_preserve_actions(monkeypatch):
@@ -410,6 +659,55 @@ def test_background_response_status_and_cancel_are_truthful(monkeypatch):
     assert cancelled == ["resp_upstream_bg"]
 
 
+def test_cancel_wins_provider_terminal_race_and_is_idempotent(monkeypatch):
+    response_id = openai_compat.begin_public_response(
+        [{"role": "user", "content": "Долгая задача"}],
+        owner_scope=_API_SCOPE,
+    )
+
+    async def racing_cancel(run_id):
+        assert run_id == response_id
+        # Reproduce the live race: the executor reports a terminal provider
+        # failure while process cancellation is awaiting I/O.
+        openai_compat.record_public_stream_chunk(
+            response_id,
+            {
+                "done": True,
+                "status": "failed",
+                "error_code": "late_provider_failure",
+            },
+        )
+        return True
+
+    async def image_cancel(run_id):
+        assert run_id == response_id
+        return False
+
+    monkeypatch.setattr(
+        "app.codex_cli_provider.cancel_codex_cli_run",
+        racing_cancel,
+    )
+    monkeypatch.setattr(
+        "app.codex_cli_image_provider.cancel_codex_cli_image_run",
+        image_cancel,
+    )
+
+    with TestClient(app) as client:
+        first = client.post(f"/v1/responses/{response_id}/cancel", headers=_AUTH)
+        second = client.post(f"/v1/responses/{response_id}/cancel", headers=_AUTH)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["status"] == "cancelled"
+    assert second.json()["status"] == "cancelled"
+    record = openai_compat._records[response_id]
+    assert record["status"] == "cancelled"
+    assert record["error"] is None
+    terminal_types = [event["type"] for event in record["events"]]
+    assert terminal_types.count("response.cancelled") == 1
+    assert "response.failed" not in terminal_types
+
+
 def test_chat_completions_and_realtime_contracts(monkeypatch):
     async def fake_completion(messages, **kwargs):
         return {"content": "Ответ", "status": "idle"}
@@ -470,6 +768,7 @@ def test_internal_response_alias_has_resume_events_and_chat_rate_limit(monkeypat
     rate_key = "compat-rate-test"
     chat_limiter._requests.pop(rate_key, None)
     with TestClient(app) as client:
+        assert client.post("/api/v1/shell/bootstrap").status_code == 200
         created = client.post(
             "/api/v1/responses",
             json={"model": "kolibri", "input": "Hello"},
@@ -511,3 +810,292 @@ def test_invalid_idempotency_key_is_rejected_before_provider(monkeypatch):
 
     assert response.status_code == 400
     assert response.json()["detail"]["code"] == "invalid_idempotency_key"
+
+
+def test_responses_strict_json_is_validated_canonical_and_idempotent(monkeypatch):
+    captured: list[dict] = []
+
+    async def fake_completion(messages, **kwargs):
+        captured.append(kwargs)
+        assert kwargs["raw_json_output"] is True
+        return {
+            "content": '{"score":7,"answer":"точно"}',
+            "status": "idle",
+            "provider": "test-provider",
+            "model": "test-model",
+        }
+
+    monkeypatch.setattr(openai_compat.ai_provider, "chat_completion", fake_completion)
+    body = {
+        "model": "kolibri",
+        "input": "Верни JSON",
+        "text": _RESPONSE_TEXT_SCHEMA,
+    }
+    with TestClient(app) as client:
+        created = client.post(
+            "/v1/responses",
+            json=body,
+            headers={**_AUTH, "Idempotency-Key": "structured-1"},
+        )
+        replay = client.post(
+            "/v1/responses",
+            json=body,
+            headers={**_AUTH, "Idempotency-Key": "structured-1"},
+        )
+        conflict = client.post(
+            "/v1/responses",
+            json={
+                **body,
+                "text": {
+                    "format": {
+                        **_RESPONSE_TEXT_SCHEMA["format"],
+                        "name": "different",
+                    }
+                },
+            },
+            headers={**_AUTH, "Idempotency-Key": "structured-1"},
+        )
+
+    assert created.status_code == 200, created.text
+    assert created.json()["output_text"] == '{"answer":"точно","score":7}'
+    assert created.json()["output_parsed"] == {"answer": "точно", "score": 7}
+    assert replay.json()["id"] == created.json()["id"]
+    assert conflict.status_code == 409
+    assert len(captured) == 1
+    assert "additionalProperties" in captured[0]["system"]
+
+
+def test_structured_json_rejects_unsupported_schema_and_invalid_provider_output(monkeypatch):
+    async def invalid_completion(messages, **kwargs):
+        return {
+            "content": '{"answer":"missing score"}',
+            "status": "idle",
+            "provider": "test-provider",
+        }
+
+    monkeypatch.setattr(openai_compat.ai_provider, "chat_completion", invalid_completion)
+    unsupported = {
+        "format": {
+            "type": "json_schema",
+            "name": "bad",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {"value": {"type": "string", "pattern": "x"}},
+                "required": ["value"],
+                "additionalProperties": False,
+            },
+        }
+    }
+    with TestClient(app) as client:
+        bad_schema = client.post(
+            "/v1/responses",
+            json={"model": "kolibri", "input": "x", "text": unsupported},
+            headers=_AUTH,
+        )
+        bad_output = client.post(
+            "/v1/responses",
+            json={"model": "kolibri", "input": "x", "text": _RESPONSE_TEXT_SCHEMA},
+            headers=_AUTH,
+        )
+
+    assert bad_schema.status_code == 422
+    assert bad_schema.json()["detail"]["code"] == "json_schema_keyword_unsupported"
+    assert bad_output.status_code == 502
+    assert bad_output.json()["detail"]["code"] == "structured_output_validation_failed"
+    assert bad_output.json()["detail"]["reason_code"] == "structured_output_properties_mismatch"
+
+
+def test_responses_structured_stream_buffers_until_schema_validation(monkeypatch):
+    async def fake_stream(messages, **kwargs):
+        assert kwargs["raw_json_output"] is True
+        assert "JSON" in kwargs["system"]
+        yield {"content": '{"score":4,', "done": False}
+        yield {"content": '"answer":"ok"}', "done": False}
+        yield {
+            "content": "",
+            "done": True,
+            "status": "idle",
+            "provider": "test-provider",
+            "model": "test-model",
+        }
+
+    monkeypatch.setattr(openai_compat.ai_provider, "chat_completion_stream", fake_stream)
+    with TestClient(app) as client:
+        streamed = client.post(
+            "/v1/responses",
+            json={
+                "model": "kolibri",
+                "input": "JSON",
+                "stream": True,
+                "text": _RESPONSE_TEXT_SCHEMA,
+            },
+            headers=_AUTH,
+        )
+
+    deltas = [
+        json.loads(line[6:])["delta"]
+        for line in streamed.text.splitlines()
+        if line.startswith("data: ") and '"type": "response.output_text.delta"' in line
+    ]
+    assert streamed.status_code == 200
+    assert deltas == ['{"answer":"ok","score":4}']
+    assert "event: response.completed" in streamed.text
+
+
+def test_chat_completions_strict_json_sync_and_stream(monkeypatch):
+    async def fake_completion(messages, **kwargs):
+        assert kwargs["raw_json_output"] is True
+        return {
+            "content": '{"score":8,"answer":"chat"}',
+            "status": "idle",
+            "provider": "test-provider",
+        }
+
+    async def fake_stream(messages, **kwargs):
+        assert kwargs["raw_json_output"] is True
+        yield {"content": '{"score":9,', "done": False}
+        yield {"content": '"answer":"stream"}', "done": False}
+        yield {"content": "", "done": True, "status": "idle", "provider": "test-provider"}
+
+    monkeypatch.setattr(openai_compat.ai_provider, "chat_completion", fake_completion)
+    with TestClient(app) as client:
+        sync = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "kolibri",
+                "messages": [{"role": "user", "content": "JSON"}],
+                "response_format": _CHAT_RESPONSE_FORMAT,
+            },
+            headers=_AUTH,
+        )
+        monkeypatch.setattr(openai_compat.ai_provider, "chat_completion_stream", fake_stream)
+        streamed = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "kolibri",
+                "messages": [{"role": "user", "content": "JSON"}],
+                "response_format": _CHAT_RESPONSE_FORMAT,
+                "stream": True,
+            },
+            headers=_AUTH,
+        )
+
+    message = sync.json()["choices"][0]["message"]
+    assert sync.status_code == 200
+    assert message["content"] == '{"answer":"chat","score":8}'
+    assert message["parsed"] == {"answer": "chat", "score": 8}
+    assert '{\\"answer\\":\\"stream\\",\\"score\\":9}' in streamed.text
+    assert streamed.text.rstrip().endswith("data: [DONE]")
+
+
+def test_response_retry_creates_fresh_id_and_is_idempotent(monkeypatch):
+    calls = 0
+
+    async def fake_completion(messages, **kwargs):
+        nonlocal calls
+        calls += 1
+        return {
+            "content": f"Ответ {calls}",
+            "status": "idle",
+            "provider": "test-provider",
+        }
+
+    monkeypatch.setattr(openai_compat.ai_provider, "chat_completion", fake_completion)
+    with TestClient(app) as client:
+        original = client.post(
+            "/v1/responses",
+            json={"model": "kolibri", "input": "Повтори"},
+            headers=_AUTH,
+        )
+        response_id = original.json()["id"]
+        first = client.post(
+            f"/v1/responses/{response_id}/retry",
+            headers={**_AUTH, "Idempotency-Key": "retry-one"},
+        )
+        replay = client.post(
+            f"/v1/responses/{response_id}/retry",
+            headers={**_AUTH, "Idempotency-Key": "retry-one"},
+        )
+        second = client.post(
+            f"/v1/responses/{response_id}/retry",
+            headers={**_AUTH, "Idempotency-Key": "retry-two"},
+        )
+        missing = client.post("/v1/responses/missing/retry", headers=_AUTH)
+
+    assert first.status_code == 200, first.text
+    assert first.json()["id"] != response_id
+    assert first.json()["retry_of"] == response_id
+    assert replay.json()["id"] == first.json()["id"]
+    assert second.json()["id"] not in {response_id, first.json()["id"]}
+    assert calls == 3
+    assert missing.status_code == 404
+
+
+def test_response_retry_rejects_nonterminal_context(monkeypatch):
+    with TestClient(app) as client:
+        response_id = openai_compat.begin_public_response(
+            [{"role": "user", "content": "ещё выполняется"}],
+            owner_scope=_API_SCOPE,
+        )
+        response = client.post(f"/v1/responses/{response_id}/retry", headers=_AUTH)
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "response_not_terminal"
+
+
+def test_interrupted_response_is_failed_once_on_restart_and_can_be_retried(monkeypatch):
+    async def fake_completion(messages, **kwargs):
+        return {"content": "recovered", "status": "idle", "provider": "test-provider"}
+
+    monkeypatch.setattr(openai_compat.ai_provider, "chat_completion", fake_completion)
+    with TestClient(app):
+        response_id = openai_compat.begin_public_response(
+            [{"role": "user", "content": "crash me"}],
+            owner_scope=_API_SCOPE,
+        )
+
+    openai_compat._records.clear()
+    openai_compat._idempotency.clear()
+    with TestClient(app) as restarted:
+        fetched = restarted.get(f"/v1/responses/{response_id}", headers=_AUTH)
+        events = restarted.get(f"/v1/responses/{response_id}/events", headers=_AUTH)
+        retried = restarted.post(f"/v1/responses/{response_id}/retry", headers=_AUTH)
+
+    assert fetched.status_code == 200
+    assert fetched.json()["status"] == "failed"
+    assert fetched.json()["error"] == {
+        "code": "response_interrupted",
+        "recoverable": True,
+        "capability": None,
+    }
+    event_payloads = [
+        json.loads(line.removeprefix("data: "))
+        for line in events.text.splitlines()
+        if line.startswith("data: ")
+    ]
+    interrupted = [
+        item for item in event_payloads
+        if item["type"] == "response.failed"
+        and item.get("error", {}).get("code") == "response_interrupted"
+    ]
+    assert len(interrupted) == 1
+    assert retried.status_code == 200
+    assert retried.json()["retry_of"] == response_id
+
+    openai_compat._records.clear()
+    with TestClient(app) as restarted_again:
+        events_again = restarted_again.get(
+            f"/v1/responses/{response_id}/events",
+            headers=_AUTH,
+        )
+    event_payloads_again = [
+        json.loads(line.removeprefix("data: "))
+        for line in events_again.text.splitlines()
+        if line.startswith("data: ")
+    ]
+    assert len([
+        item for item in event_payloads_again
+        if item["type"] == "response.failed"
+        and item.get("error", {}).get("code") == "response_interrupted"
+    ]) == 1

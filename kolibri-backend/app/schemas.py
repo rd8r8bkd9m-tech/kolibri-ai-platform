@@ -4,12 +4,26 @@ from typing import List, Optional, Literal
 from datetime import datetime
 from enum import Enum
 
+from app.estimate_evidence import PriceEvidenceRecord
+
 
 class EstimateStatus(str, Enum):
     DRAFT = "draft"
     READY = "ready"
     APPROVED = "approved"
     ARCHIVED = "archived"
+
+
+class EstimateTruthStatus(str, Enum):
+    NEEDS_INPUT = "needs_input"
+    PRELIMINARY = "preliminary"
+    SOURCE_BACKED = "source_backed"
+    VERIFIED = "verified"
+
+
+class EstimateScopeStatus(str, Enum):
+    UNVERIFIED = "unverified"
+    VERIFIED = "verified"
 
 
 class DocumentType(str, Enum):
@@ -52,6 +66,7 @@ class PositionCreate(BaseModel):
     quantity: str
     price: str
     source: str = ""
+    price_evidence: List[PriceEvidenceRecord] = Field(default_factory=list, max_length=50)
     comment: str = ""
 
 
@@ -64,19 +79,26 @@ class PositionResponse(BaseModel):
     price: str
     sum: str
     source: str = ""
+    price_evidence: List[PriceEvidenceRecord] = Field(default_factory=list, max_length=50)
     comment: str = ""
 
 
 class SectionCreate(BaseModel):
     title: str
-    positions: List[PositionCreate] = []
+    positions: List[PositionCreate] = Field(default_factory=list)
 
 
 class SectionResponse(BaseModel):
     id: str
     title: str
     subtotal: str
-    positions: List[PositionResponse] = []
+    positions: List[PositionResponse] = Field(default_factory=list)
+
+
+class EstimateEvidenceIssue(BaseModel):
+    code: str = Field(min_length=1, max_length=80)
+    position_code: str = Field(default="", max_length=80)
+    message: str = Field(min_length=1, max_length=500)
 
 
 # ---------------------------------------------------------------------------
@@ -91,7 +113,15 @@ class EstimateCreate(BaseModel):
     currency: str = "RUB"
     overhead_rate: str = "0"
     vat_rate: str = "22"
-    sections: List[SectionCreate] = []
+    estimate_status: Optional[EstimateTruthStatus] = None
+    pricing_status: Optional[EstimateTruthStatus] = None
+    scope_status: EstimateScopeStatus = EstimateScopeStatus.UNVERIFIED
+    source_note: str = ""
+    assumptions: List[str] = Field(default_factory=list, max_length=100)
+    questions: List[str] = Field(default_factory=list, max_length=100)
+    price_sources: List[PriceEvidenceRecord] = Field(default_factory=list, max_length=5_000)
+    evidence_issues: List[EstimateEvidenceIssue] = Field(default_factory=list, max_length=200)
+    sections: List[SectionCreate] = Field(default_factory=list)
 
 
 class EstimateUpdate(BaseModel):
@@ -104,6 +134,14 @@ class EstimateUpdate(BaseModel):
     overhead_rate: Optional[str] = None
     vat_rate: Optional[str] = None
     status: Optional[EstimateStatus] = None
+    estimate_status: Optional[EstimateTruthStatus] = None
+    pricing_status: Optional[EstimateTruthStatus] = None
+    scope_status: Optional[EstimateScopeStatus] = None
+    source_note: Optional[str] = None
+    assumptions: Optional[List[str]] = Field(default=None, max_length=100)
+    questions: Optional[List[str]] = Field(default=None, max_length=100)
+    price_sources: Optional[List[PriceEvidenceRecord]] = Field(default=None, max_length=5_000)
+    evidence_issues: Optional[List[EstimateEvidenceIssue]] = Field(default=None, max_length=200)
     sections: Optional[List[SectionCreate]] = None
 
 
@@ -112,6 +150,14 @@ class EstimateResponse(BaseModel):
     id: str
     version: int
     status: EstimateStatus
+    estimate_status: EstimateTruthStatus
+    pricing_status: EstimateTruthStatus
+    scope_status: EstimateScopeStatus
+    source_note: str
+    assumptions: List[str] = Field(default_factory=list)
+    questions: List[str] = Field(default_factory=list)
+    price_sources: List[PriceEvidenceRecord] = Field(default_factory=list)
+    evidence_issues: List[EstimateEvidenceIssue] = Field(default_factory=list)
     title: str
     client: str
     object_name: str
@@ -123,7 +169,7 @@ class EstimateResponse(BaseModel):
     overhead_amount: str
     vat_amount: str
     total: str
-    sections: List[SectionResponse] = []
+    sections: List[SectionResponse] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
@@ -141,6 +187,8 @@ class EstimateRevisionSummary(BaseModel):
     version: int
     title: str
     status: EstimateStatus
+    estimate_status: EstimateTruthStatus
+    pricing_status: EstimateTruthStatus
     total: str
     created_at: datetime
 

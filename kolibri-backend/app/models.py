@@ -17,6 +17,10 @@ from sqlalchemy.orm import relationship
 from app.database import Base
 
 
+LEGACY_ESTIMATE_SCOPE = "legacy:quarantined"
+LEGACY_DOCUMENT_SCOPE = "legacy:quarantined"
+
+
 def _now():
     return datetime.now(timezone.utc)
 
@@ -37,8 +41,33 @@ class EstimateDB(Base):
     __tablename__ = "estimates"
 
     id = Column(String, primary_key=True)
+    # Estimate ownership is bound to the same signed browser/user principal as
+    # project history.  The server default is intentionally unreachable by a
+    # public principal: legacy or accidentally unscoped rows fail closed.
+    scope_id = Column(
+        String,
+        nullable=False,
+        default=LEGACY_ESTIMATE_SCOPE,
+        server_default=LEGACY_ESTIMATE_SCOPE,
+    )
     version = Column(Integer, nullable=False, default=1)
     status = Column(String, default="draft")
+    # ``status`` above is the legacy editor lifecycle.  Truth/pricing status is
+    # intentionally separate and can never turn ``draft`` into ``ready``.
+    estimate_status = Column(
+        String, nullable=False, default="needs_input", server_default="needs_input"
+    )
+    pricing_status = Column(
+        String, nullable=False, default="needs_input", server_default="needs_input"
+    )
+    scope_status = Column(
+        String, nullable=False, default="unverified", server_default="unverified"
+    )
+    source_note = Column(Text, nullable=False, default="", server_default="")
+    assumptions = Column(JSON, nullable=False, default=list, server_default="[]")
+    questions = Column(JSON, nullable=False, default=list, server_default="[]")
+    price_sources = Column(JSON, nullable=False, default=list, server_default="[]")
+    evidence_issues = Column(JSON, nullable=False, default=list, server_default="[]")
     title = Column(String, nullable=False)
     client = Column(String, default="")
     object_name = Column(String, default="")
@@ -69,6 +98,8 @@ class EstimateDB(Base):
     __table_args__ = (
         Index("ix_estimates_status", "status"),
         Index("ix_estimates_created_at", "created_at"),
+        Index("ix_estimates_scope_created_at", "scope_id", "created_at"),
+        Index("ix_estimates_scope_status", "scope_id", "status"),
     )
 
 
@@ -103,6 +134,7 @@ class PositionDB(Base):
     price = Column(String, default="0")
     sum = Column(String, default="0")
     source = Column(String, default="")
+    price_evidence = Column(JSON, nullable=False, default=list, server_default="[]")
     comment = Column(Text, default="")
 
     section = relationship("SectionDB", back_populates="positions")
@@ -135,6 +167,15 @@ class DocumentDB(Base):
     __tablename__ = "documents"
 
     id = Column(String, primary_key=True)
+    # Documents use the same signed browser/user principal boundary as
+    # projects and estimates.  Legacy rows are deliberately unreachable until
+    # an explicit audited owner migration assigns them to a real scope.
+    scope_id = Column(
+        String,
+        nullable=False,
+        default=LEGACY_DOCUMENT_SCOPE,
+        server_default=LEGACY_DOCUMENT_SCOPE,
+    )
     title = Column(String, nullable=False)
     type = Column(String, default="custom")
     status = Column(String, default="draft")
@@ -151,6 +192,8 @@ class DocumentDB(Base):
         Index("ix_documents_type", "type"),
         Index("ix_documents_status", "status"),
         Index("ix_documents_created_at", "created_at"),
+        Index("ix_documents_scope_created_at", "scope_id", "created_at"),
+        Index("ix_documents_scope_status", "scope_id", "status"),
     )
 
 
@@ -336,6 +379,66 @@ class ProjectMessageMutationDB(Base):
     __table_args__ = (
         UniqueConstraint("message_id", "idempotency_key", name="uq_message_mutations_idempotency"),
         Index("ix_message_mutations_scope_created", "scope_id", "created_at"),
+    )
+
+
+class PublicResponseDB(Base):
+    """Durable, owner-scoped OpenAI-compatible response authority."""
+
+    __tablename__ = "public_responses"
+
+    id = Column(String, primary_key=True)
+    owner_scope = Column(String, nullable=False)
+    status = Column(String, nullable=False)
+    idempotency_key = Column(String, nullable=True)
+    request_hash = Column(String, nullable=True)
+    payload = Column(JSON, nullable=False, default=dict)
+    created_at = Column(DateTime, nullable=False, default=_now)
+    updated_at = Column(DateTime, nullable=False, default=_now, onupdate=_now)
+
+    events = relationship(
+        "PublicResponseEventDB",
+        back_populates="response",
+        cascade="all, delete-orphan",
+        order_by="PublicResponseEventDB.sequence",
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "owner_scope",
+            "idempotency_key",
+            name="uq_public_responses_scope_idempotency",
+        ),
+        Index("ix_public_responses_scope_updated", "owner_scope", "updated_at"),
+        Index("ix_public_responses_status_updated", "status", "updated_at"),
+    )
+
+
+class PublicResponseEventDB(Base):
+    """Immutable ordered event belonging to one durable response."""
+
+    __tablename__ = "public_response_events"
+
+    id = Column(String, primary_key=True)
+    response_id = Column(
+        String,
+        ForeignKey("public_responses.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    sequence = Column(Integer, nullable=False)
+    event_type = Column(String, nullable=False)
+    payload = Column(JSON, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=_now)
+
+    response = relationship("PublicResponseDB", back_populates="events")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "response_id",
+            "sequence",
+            name="uq_public_response_events_sequence",
+        ),
+        Index("ix_public_response_events_response_sequence", "response_id", "sequence"),
     )
 
 

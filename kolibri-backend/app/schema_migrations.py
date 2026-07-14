@@ -40,6 +40,8 @@ ALLOWED_UNVERSIONED_TABLES = set(BASELINE_COLUMNS) | {
     "estimate_revisions",
     "project_access",
     "project_handoffs",
+    "public_responses",
+    "public_response_events",
 }
 
 _PROJECT_ACCESS_NULLABLE = {
@@ -286,11 +288,42 @@ def _ensure_database_schema(engine: Engine) -> str:
             "id", "owner_scope", "name", "key_prefix", "secret_hash",
             "created_at", "last_used_at", "revoked_at",
         }
+        public_response_columns = {
+            column["name"] for column in inspector.get_columns("public_responses")
+        }
+        public_response_expected = {
+            "id", "owner_scope", "status", "idempotency_key", "request_hash",
+            "payload", "created_at", "updated_at",
+        }
+        public_response_unique = {
+            tuple(constraint.get("column_names") or [])
+            for constraint in inspector.get_unique_constraints("public_responses")
+        }
+        public_response_event_columns = {
+            column["name"] for column in inspector.get_columns("public_response_events")
+        }
+        public_response_event_expected = {
+            "id", "response_id", "sequence", "event_type", "payload", "created_at",
+        }
+        public_response_event_unique = {
+            tuple(constraint.get("column_names") or [])
+            for constraint in inspector.get_unique_constraints("public_response_events")
+        }
         section_columns = {
             column["name"] for column in inspector.get_columns("sections")
         }
         position_columns = {
             column["name"] for column in inspector.get_columns("positions")
+        }
+        estimate_columns = {
+            column["name"] for column in inspector.get_columns("estimates")
+        }
+        estimate_column_contract = {
+            column["name"]: column for column in inspector.get_columns("estimates")
+        }
+        estimate_truth_expected = {
+            "scope_id", "estimate_status", "pricing_status", "scope_status", "source_note",
+            "assumptions", "questions", "price_sources", "evidence_issues",
         }
         estimate_revision_columns = {
             column["name"] for column in inspector.get_columns("estimate_revisions")
@@ -302,6 +335,13 @@ def _ensure_database_schema(engine: Engine) -> str:
             tuple(constraint.get("column_names") or [])
             for constraint in inspector.get_unique_constraints("estimate_revisions")
         }
+        document_columns = {
+            column["name"] for column in inspector.get_columns("documents")
+        }
+        document_column_contract = {
+            column["name"]: column for column in inspector.get_columns("documents")
+        }
+        document_expected = {"scope_id", "estimate_id"}
         project_access_issues = _table_contract_issues(
             inspector,
             "project_access",
@@ -321,10 +361,19 @@ def _ensure_database_schema(engine: Engine) -> str:
             or not telegram_expected.issubset(telegram_columns)
             or not telegram_update_expected.issubset(telegram_update_columns)
             or not public_api_key_expected.issubset(public_api_key_columns)
+            or not public_response_expected.issubset(public_response_columns)
+            or ("owner_scope", "idempotency_key") not in public_response_unique
+            or not public_response_event_expected.issubset(public_response_event_columns)
+            or ("response_id", "sequence") not in public_response_event_unique
             or "sort_order" not in section_columns
             or "sort_order" not in position_columns
+            or "price_evidence" not in position_columns
+            or not estimate_truth_expected.issubset(estimate_columns)
+            or bool(estimate_column_contract.get("scope_id", {}).get("nullable", True))
             or not estimate_revision_expected.issubset(estimate_revision_columns)
             or ("estimate_id", "version") not in estimate_revision_unique
+            or not document_expected.issubset(document_columns)
+            or bool(document_column_contract.get("scope_id", {}).get("nullable", True))
             or project_access_issues
             or project_handoff_issues
         ):
@@ -339,10 +388,16 @@ def _ensure_database_schema(engine: Engine) -> str:
                 f"{'present' if telegram_update_expected.issubset(telegram_update_columns) else 'missing'}, "
                 "public_api_keys="
                 f"{'present' if public_api_key_expected.issubset(public_api_key_columns) else 'missing'}, "
+                "durable_responses="
+                f"{'present' if public_response_expected.issubset(public_response_columns) and ('owner_scope', 'idempotency_key') in public_response_unique and public_response_event_expected.issubset(public_response_event_columns) and ('response_id', 'sequence') in public_response_event_unique else 'missing'}, "
                 "estimate_ordering="
                 f"{'present' if 'sort_order' in section_columns and 'sort_order' in position_columns else 'missing'}, "
+                "estimate_truth="
+                f"{'present' if estimate_truth_expected.issubset(estimate_columns) and 'price_evidence' in position_columns and not bool(estimate_column_contract.get('scope_id', {}).get('nullable', True)) else 'missing'}, "
                 "estimate_revisions="
                 f"{'present' if estimate_revision_expected.issubset(estimate_revision_columns) and ('estimate_id', 'version') in estimate_revision_unique else 'missing'}, "
+                "document_scope="
+                f"{'present' if document_expected.issubset(document_columns) and not bool(document_column_contract.get('scope_id', {}).get('nullable', True)) else 'missing'}, "
                 "project_access="
                 f"{'present' if not project_access_issues else 'invalid: ' + '; '.join(project_access_issues)}, "
                 "project_handoffs="

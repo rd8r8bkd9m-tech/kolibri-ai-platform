@@ -26,7 +26,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
         : await auth.register(email, name, password)
       setAuthToken(res.access_token)
       onLogin(res.user)
-      navigate('/')
+      navigate('/app')
     } catch {
       setError(mode === 'login' ? 'Неверный email или пароль' : 'Ошибка регистрации')
     } finally {

@@ -1,0 +1,26 @@
+{
+  "schema_version": "kolibri.toolchains.v1",
+  "policy": "newest-supported-stable-or-lts-pinned",
+  "as_of": "2026-07-14",
+  "node": {
+    "version": "24.18.0",
+    "channel": "lts",
+    "status": "supported"
+  },
+  "python": {
+    "version": "3.14.6",
+    "channel": "stable",
+    "status": "supported"
+  },
+  "rust": {
+    "version": "1.97.0",
+    "channel": "stable",
+    "status": "supported"
+  },
+  "fleet_contract": {
+    "official_integrity_verification_required": true,
+    "preview_and_eol_forbidden": true,
+    "canary_before_fleet": true,
+    "runtime_must_match_manifest": true
+  }
+}

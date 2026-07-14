@@ -135,13 +135,17 @@ def _bounded_float(name: str, default: float, minimum: float, maximum: float) ->
 @dataclass(frozen=True)
 class CodexCLISettings:
     enabled: bool = True
-    binary: str = "/usr/local/bin/codex"
+    # Resolve the account-authorized CLI from the service PATH unless the
+    # deployment pins an absolute path.  Linux Home units continue to pin
+    # /usr/local/bin/codex, while Homebrew installs on Apple workers resolve
+    # /opt/homebrew/bin/codex without a machine-specific source change.
+    binary: str = "codex"
     model: str = ""
     oss: bool = False
     cwd: Path = Path(".")
     max_concurrency: int = 4
     queue_timeout_seconds: float = 15.0
-    attempt_timeout_seconds: float = 300.0
+    attempt_timeout_seconds: float = 3_600.0
     terminate_grace_seconds: float = 2.0
     health_timeout_seconds: float = 8.0
     max_prompt_bytes: int = 256 * 1024
@@ -169,14 +173,19 @@ class CodexCLISettings:
             binary=_first_env(
                 "CODEX_CLI_BINARY",
                 "KOLIBRI_CODEX_CLI_BINARY",
-                default="/usr/local/bin/codex",
+                default="codex",
             ),
             model=_first_env("CODEX_CLI_MODEL", "KOLIBRI_CODEX_MODEL"),
             oss=_bool_env_alias("CODEX_CLI_OSS", "KOLIBRI_CODEX_OSS", False),
             cwd=cwd,
             max_concurrency=_bounded_int("CODEX_CLI_MAX_CONCURRENCY", 4, 1, 32),
             queue_timeout_seconds=_bounded_float("CODEX_CLI_QUEUE_TIMEOUT_SECONDS", 15.0, 0.1, 300.0),
-            attempt_timeout_seconds=_bounded_float("CODEX_CLI_ATTEMPT_TIMEOUT_SECONDS", 300.0, 1.0, 3600.0),
+            attempt_timeout_seconds=_bounded_float(
+                "CODEX_CLI_ATTEMPT_TIMEOUT_SECONDS",
+                3_600.0,
+                1.0,
+                86_400.0,
+            ),
             terminate_grace_seconds=_bounded_float("CODEX_CLI_TERMINATE_GRACE_SECONDS", 2.0, 0.05, 15.0),
             health_timeout_seconds=_bounded_float("CODEX_CLI_HEALTH_TIMEOUT_SECONDS", 8.0, 0.5, 30.0),
             max_prompt_bytes=_bounded_int("CODEX_CLI_MAX_PROMPT_BYTES", 256 * 1024, 1024, 4 * 1024 * 1024),

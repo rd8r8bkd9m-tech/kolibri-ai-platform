@@ -9,6 +9,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.control_plane import ControlPlaneUnavailable
 from app.database import Base, get_db
 from app.main import app
 from app.routers import telegram
@@ -176,7 +177,7 @@ def test_owner_approval_and_strong_secret_are_required(client, monkeypatch):
 
 
 def test_only_explicitly_allowed_chat_can_use_provider(client, monkeypatch):
-    async def must_not_execute(request, *, idempotency_key=None):
+    async def must_not_execute(request, *, idempotency_key=None, owner_scope=None):
         raise AssertionError("an unapproved chat reached the provider")
 
     monkeypatch.setattr(telegram, "execute_kolibri_response", must_not_execute)
@@ -188,8 +189,8 @@ def test_only_explicitly_allowed_chat_can_use_provider(client, monkeypatch):
 def test_webhook_ack_is_fast_and_provider_runs_only_after_durable_claim(client, monkeypatch):
     executed = []
 
-    async def fake_execute(request, *, idempotency_key=None):
-        executed.append(idempotency_key)
+    async def fake_execute(request, *, idempotency_key=None, owner_scope=None):
+        executed.append((idempotency_key, owner_scope))
         return {"id": "resp_async", "status": "completed", "content": "Готово"}
 
     monkeypatch.setattr(telegram, "execute_kolibri_response", fake_execute)
@@ -206,7 +207,7 @@ def test_webhook_ack_is_fast_and_provider_runs_only_after_durable_claim(client, 
         assert ingress.state == "queued"
         assert ingress.payload["text"] == "Проверь асинхронный путь"
     _process_one(client)
-    assert executed == ["telegram:99:response"]
+    assert executed == [("telegram:99:response", "telegram:7001")]
 
 
 def test_wrong_bot_identity_is_persisted_and_blocks_worker(client, monkeypatch):
@@ -227,7 +228,7 @@ def test_wrong_bot_identity_is_persisted_and_blocks_worker(client, monkeypatch):
 def test_unified_response_persists_one_placeholder_and_deduplicates_update(client, monkeypatch):
     calls = []
 
-    async def fake_execute(request, *, idempotency_key=None):
+    async def fake_execute(request, *, idempotency_key=None, owner_scope=None):
         calls.append((request, idempotency_key))
         return {
             "id": "resp_kolibri_telegram_1",
@@ -297,7 +298,7 @@ def test_unified_response_persists_one_placeholder_and_deduplicates_update(clien
 
 
 def test_private_telegram_link_hands_the_same_project_to_one_browser_scope(client, monkeypatch):
-    async def fake_execute(request, *, idempotency_key=None):
+    async def fake_execute(request, *, idempotency_key=None, owner_scope=None):
         return {
             "id": "resp_handoff",
             "status": "completed",
@@ -388,7 +389,7 @@ def test_private_telegram_link_hands_the_same_project_to_one_browser_scope(clien
 
 
 def test_group_delivery_does_not_emit_forwardable_project_handoff(client, monkeypatch):
-    async def fake_execute(request, *, idempotency_key=None):
+    async def fake_execute(request, *, idempotency_key=None, owner_scope=None):
         return {"id": "resp_group", "status": "completed", "content": "Готово в группе."}
 
     monkeypatch.setattr(telegram, "execute_kolibri_response", fake_execute)
@@ -405,7 +406,7 @@ def test_group_delivery_does_not_emit_forwardable_project_handoff(client, monkey
 def test_history_is_reused_without_construction_only_prompt(client, monkeypatch):
     inputs = []
 
-    async def fake_execute(request, *, idempotency_key=None):
+    async def fake_execute(request, *, idempotency_key=None, owner_scope=None):
         inputs.append(request.input)
         return {
             "id": f"resp_{len(inputs)}",
@@ -453,6 +454,8 @@ def test_help_and_status_contain_no_fake_fleet_values(client):
     assert "21/21" not in status_text
     assert "healthy" not in status_text
     assert "подтвержд" in status_text.lower()
+    assert "#handoff=" not in status_text
+    assert "/app?project=" not in status_text
 
     # Local commands are subject to the same update ledger and cannot emit a
     # second Telegram message when Telegram retries the update.
@@ -460,8 +463,146 @@ def test_help_and_status_contain_no_fake_fleet_values(client):
     assert repeated.json()["duplicate"] is True
 
 
+@pytest.mark.parametrize(
+    "query",
+    (
+        "/status",
+        "Фабрика работает?",
+        "Какой сейчас статус фабрики?",
+        "Фабрика работает 24/7?",
+    ),
+)
+def test_private_factory_status_uses_home_truth_without_provider_or_handoff(
+    client,
+    monkeypatch,
+    query,
+):
+    probes = []
+
+    class FakeHomeControlPlane:
+        async def cluster_stats(self):
+            probes.append("cluster_stats")
+            return {
+                "nodes": {"total": 21, "healthy": 18, "degraded": 2, "offline": 1},
+                "agents": {"total": 21, "active": 4, "idle": 16, "paused": 1},
+                "tasks": {
+                    "total": 37,
+                    "running": 4,
+                    "queued": 3,
+                    "completed": 27,
+                    "failed": 2,
+                    "cancelled": 1,
+                },
+                "resources": {"avg_cpu": 35.0, "avg_ram": 51.0, "avg_disk": 62.0},
+                "truth": {
+                    "availability": "live",
+                    "source": "home_control_plane",
+                    "as_of": "2026-07-14T10:11:12+00:00",
+                },
+            }
+
+    async def must_not_execute(request, *, idempotency_key=None):
+        raise AssertionError("factory status reached the AI provider")
+
+    def must_not_issue_handoff(*args, **kwargs):
+        raise AssertionError("factory status minted a project handoff")
+
+    monkeypatch.setattr(
+        telegram,
+        "_home_control_plane_adapter",
+        lambda: FakeHomeControlPlane(),
+    )
+    monkeypatch.setattr(telegram, "execute_kolibri_response", must_not_execute)
+    monkeypatch.setattr(telegram, "issue_project_handoff", must_not_issue_handoff)
+
+    response = _post(client, _update(320, query))
+    assert response.status_code == 200
+    _process_one(client)
+
+    assert probes == ["cluster_stats"]
+    terminal = [
+        payload["text"]
+        for method, payload in client.telegram_bot_calls
+        if method == "editMessageText"
+    ][-1]
+    assert "Доступность: live" in terminal
+    assert "as_of: 2026-07-14T10:11:12+00:00" in terminal
+    assert "Узлы: всего 21; исправны 18; деградировали 2; недоступны 1" in terminal
+    assert "Исполнители: всего 21; активны 4; ожидают 16; приостановлены 1" in terminal
+    assert (
+        "Задачи: всего 37; выполняются 4; в очереди 3; завершены 27; "
+        "ошибки 2; отменены 1"
+    ) in terminal
+    assert "Непрерывность 24/7 одним снимком не подтверждается." in terminal
+    assert "#handoff=" not in terminal
+    assert "/app?project=" not in terminal
+
+
+def test_factory_status_probe_failure_is_honest_and_skips_provider(client, monkeypatch):
+    class UnavailableHomeControlPlane:
+        async def cluster_stats(self):
+            raise ControlPlaneUnavailable("control_plane_timeout")
+
+    async def must_not_execute(request, *, idempotency_key=None):
+        raise AssertionError("failed factory status probe reached the AI provider")
+
+    monkeypatch.setattr(
+        telegram,
+        "_home_control_plane_adapter",
+        lambda: UnavailableHomeControlPlane(),
+    )
+    monkeypatch.setattr(telegram, "execute_kolibri_response", must_not_execute)
+
+    response = _post(client, _update(321, "Статус фабрики"))
+    assert response.status_code == 200
+    _process_one(client)
+
+    terminal = [
+        payload["text"]
+        for method, payload in client.telegram_bot_calls
+        if method == "editMessageText"
+    ][-1]
+    assert terminal == (
+        "Недоступно в текущем сеансе: подтверждённое состояние фабрики. "
+        "Причина: control_plane_timeout. "
+        "Могу вместо этого: повторить инструментальную проверку после восстановления "
+        "Home Control Plane."
+    )
+    assert "#handoff=" not in terminal
+    assert "/app?project=" not in terminal
+
+
+def test_factory_status_unexpected_failure_does_not_leak_details(client, monkeypatch):
+    class BrokenHomeControlPlane:
+        async def cluster_stats(self):
+            raise RuntimeError("SECRET backend topology and credentials")
+
+    async def must_not_execute(request, *, idempotency_key=None):
+        raise AssertionError("failed factory status probe reached the AI provider")
+
+    monkeypatch.setattr(
+        telegram,
+        "_home_control_plane_adapter",
+        lambda: BrokenHomeControlPlane(),
+    )
+    monkeypatch.setattr(telegram, "execute_kolibri_response", must_not_execute)
+
+    response = _post(client, _update(322, "Фабрика уже работает?"))
+    assert response.status_code == 200
+    _process_one(client)
+    terminal = [
+        payload["text"]
+        for method, payload in client.telegram_bot_calls
+        if method == "editMessageText"
+    ][-1]
+    assert "Причина: control_plane_unavailable." in terminal
+    assert "SECRET" not in terminal
+    assert "credentials" not in terminal
+    assert "#handoff=" not in terminal
+
+
 def test_provider_exception_finishes_placeholder_without_leaking_details(client, monkeypatch):
-    async def broken_execute(request, *, idempotency_key=None):
+    async def broken_execute(request, *, idempotency_key=None, owner_scope=None):
         raise RuntimeError("SECRET local/path provider stderr")
 
     monkeypatch.setattr(telegram, "execute_kolibri_response", broken_execute)
@@ -477,7 +618,7 @@ def test_provider_exception_finishes_placeholder_without_leaking_details(client,
 
 
 def test_verified_image_artifact_is_delivered_as_real_photo(client, monkeypatch):
-    async def fake_execute(request, *, idempotency_key=None):
+    async def fake_execute(request, *, idempotency_key=None, owner_scope=None):
         return {
             "id": "resp_image_1",
             "status": "completed",
@@ -525,7 +666,7 @@ def test_verified_image_artifact_is_delivered_as_real_photo(client, monkeypatch)
 
 
 def test_unverified_artifact_metadata_never_claims_photo_delivery(client, monkeypatch):
-    async def fake_execute(request, *, idempotency_key=None):
+    async def fake_execute(request, *, idempotency_key=None, owner_scope=None):
         return {
             "id": "resp_bad_image",
             "status": "completed",

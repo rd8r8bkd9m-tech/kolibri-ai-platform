@@ -1,5 +1,11 @@
-import { describe, expect, it } from 'vitest'
-import { normalizeImageArtifact } from './imageArtifact'
+import { createHash } from 'node:crypto'
+import { describe, expect, it, vi } from 'vitest'
+import {
+  expectsImageArtifact,
+  normalizeImageArtifact,
+  safeContentBeforeImageVerification,
+  verifyImageArtifact,
+} from './imageArtifact'
 
 const artifact = {
   id: 'c1c4425b-b4ee-4bb9-83dc-2f78053c4348',
@@ -32,5 +38,66 @@ describe('normalizeImageArtifact', () => {
     expect(() => normalizeImageArtifact({ ...artifact, ...patch })).toThrow(
       'verified artifact contract',
     )
+  })
+})
+
+describe('verified image bytes boundary', () => {
+  const pngBytes = Uint8Array.from(Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+    'base64',
+  ))
+  const verifiedMetadata = {
+    ...artifact,
+    size_bytes: pngBytes.byteLength,
+    sha256: createHash('sha256').update(pngBytes).digest('hex'),
+  }
+
+  it('returns a runtime object URL only after MIME, bytes, digest and decode pass', async () => {
+    const decode = vi.fn().mockResolvedValue(undefined)
+    const createObjectURL = vi.fn().mockReturnValue('blob:verified-flowers')
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(pngBytes, {
+      status: 200,
+      headers: { 'Content-Type': 'image/png' },
+    }))
+
+    await expect(verifyImageArtifact(verifiedMetadata, {
+      fetchImpl,
+      decode,
+      createObjectURL,
+    })).resolves.toEqual({ ...verifiedMetadata, object_url: 'blob:verified-flowers' })
+    expect(fetchImpl).toHaveBeenCalledWith(verifiedMetadata.url, expect.objectContaining({
+      method: 'GET',
+      credentials: 'include',
+      cache: 'no-store',
+    }))
+    expect(decode).toHaveBeenCalledOnce()
+    expect(createObjectURL).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    ['wrong MIME', new Response(pngBytes, { headers: { 'Content-Type': 'text/html' } })],
+    ['missing bytes', new Response(new Uint8Array(), { headers: { 'Content-Type': 'image/png' } })],
+    ['wrong raster signature', new Response(new Uint8Array(pngBytes.byteLength), { headers: { 'Content-Type': 'image/png' } })],
+  ])('does not create a card URL for %s', async (_label, response) => {
+    const createObjectURL = vi.fn().mockReturnValue('blob:must-not-exist')
+    await expect(verifyImageArtifact(verifiedMetadata, {
+      fetchImpl: vi.fn().mockResolvedValue(response),
+      decode: vi.fn().mockResolvedValue(undefined),
+      createObjectURL,
+    })).rejects.toThrow()
+    expect(createObjectURL).not.toHaveBeenCalled()
+  })
+})
+
+describe('image response copy gate', () => {
+  it('treats the public flower prompt as an artifact request', () => {
+    expect(expectsImageArtifact('сгенерируй цветы')).toBe(true)
+    expect(expectsImageArtifact('Подготовь договор подряда')).toBe(false)
+  })
+
+  it('never shows a provider success claim before raster bytes are verified', () => {
+    expect(safeContentBeforeImageVerification('Изображение создано.', false)).toBe('')
+    expect(safeContentBeforeImageVerification('Генерирую файл…', true)).toBe('')
+    expect(safeContentBeforeImageVerification('Обычный текстовый ответ', false)).toBe('Обычный текстовый ответ')
   })
 })

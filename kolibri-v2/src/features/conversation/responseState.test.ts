@@ -25,4 +25,9 @@ describe('image response fail-closed state', () => {
   it('keeps a verified non-empty response completed', () => {
     expect(persistedResponseStatus('ready', false, 'Изображение создано и проверено.')).toBe('completed')
   })
+
+  it('keeps a byte-verified artifact completed without inventing provider prose', () => {
+    expect(persistedResponseStatus('completed', false, '', true)).toBe('completed')
+    expect(persistedResponseStatus('completed', false, '', false)).toBe('failed')
+  })
 })

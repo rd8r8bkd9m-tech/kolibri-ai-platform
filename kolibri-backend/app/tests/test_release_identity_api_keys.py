@@ -13,7 +13,7 @@ from app.models import PublicApiKeyDB
 
 
 @pytest.fixture()
-def client(monkeypatch):
+def client(monkeypatch, tmp_path):
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -33,6 +33,8 @@ def client(monkeypatch):
     )
     monkeypatch.setenv("KOLIBRI_RELEASE_ID", "kolibri-r17-20260713T1932MSK")
     monkeypatch.delenv("KOLIBRI_PUBLIC_API_KEY_SHA256", raising=False)
+    monkeypatch.setenv("KOLIBRI_ARTIFACT_DIR", str(tmp_path / "artifacts"))
+    monkeypatch.setenv("KOLIBRI_CAPABILITY_PROBE_FILE", str(tmp_path / "capability-probes.json"))
     app.dependency_overrides[get_db] = override_get_db
     with TestClient(app) as test_client:
         test_client.owner_headers = {"X-Kolibri-Owner-Token": owner_token}
@@ -114,6 +116,13 @@ def test_owner_key_create_use_list_revoke_and_hash_only_persistence(client, monk
     )
     assert response.status_code == 200
     assert response.json()["output_text"] == "Ответ через ключ разработчика."
+    proved = next(
+        item
+        for item in client.get("/api/v1/capabilities").json()["capabilities"]
+        if item["id"] == "developer.api_keys"
+    )
+    assert proved["status"] == "available"
+    assert proved["invocable"] is True
 
     revoked = client.delete(
         f"/api/v1/developer/api-keys/{body['id']}",
@@ -162,19 +171,21 @@ def test_exact_developer_key_routes_require_owner_header(client, method, path, j
     assert wrong.json()["error"]["code"] == "owner_authentication_required"
 
 
-def test_developer_capability_is_hidden_until_admin_route_is_invocable(client, monkeypatch):
+def test_developer_capability_is_truthful_until_admin_route_is_invocable(client, monkeypatch):
     manifest = client.get("/api/v1/capabilities").json()
     capability = next(
         item for item in manifest["capabilities"] if item["id"] == "developer.api_keys"
     )
-    assert capability["status"] == "live"
-    assert capability["invocable"] is True
-    assert capability["renderer"] == {
-        "available": True,
-        "id": "developer_api_keys",
-        "status": "live",
-    }
+    assert capability["status"] == "degraded"
+    assert capability["invocable"] is False
+    assert capability["reason"]["code"] == "probe_not_run"
+    assert capability["renderer"]["required"] is False
 
     monkeypatch.delenv("KOLIBRI_OWNER_API_ADMIN_TOKEN_SHA256", raising=False)
-    hidden = client.get("/api/v1/capabilities").json()
-    assert all(item["id"] != "developer.api_keys" for item in hidden["capabilities"])
+    unavailable = client.get("/api/v1/capabilities").json()
+    capability = next(
+        item for item in unavailable["capabilities"] if item["id"] == "developer.api_keys"
+    )
+    assert capability["status"] == "unavailable"
+    assert capability["invocable"] is False
+    assert capability["reason"]["code"] == "route_not_configured"

@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from app.codex_cli_image_provider import (
     CodexCLIImageError,
     codex_cli_image_configuration,
+    edit_codex_cli_image,
     generate_codex_cli_image,
 )
 
@@ -29,6 +30,10 @@ class WorkerImageRequest(BaseModel):
     size: Literal["1024x1024", "1024x1536", "1536x1024"] = "1024x1024"
     quality: Literal["low", "medium", "high"] = "high"
     run_id: str | None = Field(default=None, max_length=200)
+
+
+class WorkerImageEditRequest(WorkerImageRequest):
+    source_b64: str = Field(min_length=16, max_length=40_000_000)
 
 
 @app.get("/health")
@@ -46,6 +51,35 @@ async def create_image(request: WorkerImageRequest) -> dict[str, object]:
     try:
         result = await generate_codex_cli_image(
             request.prompt,
+            size=request.size,
+            quality=request.quality,
+            run_id=request.run_id,
+        )
+    except CodexCLIImageError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={"code": getattr(exc, "failure_kind", "codex_cli_image_failed")},
+        ) from exc
+    return {
+        "created": 1,
+        "model": result.model,
+        "data": [{"b64_json": base64.b64encode(result.data).decode("ascii")}],
+    }
+
+
+@app.post("/v1/images/edits")
+async def edit_image(request: WorkerImageEditRequest) -> dict[str, object]:
+    try:
+        source = base64.b64decode(request.source_b64, validate=True)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "source_image_invalid_base64"},
+        ) from exc
+    try:
+        result = await edit_codex_cli_image(
+            request.prompt,
+            source,
             size=request.size,
             quality=request.quality,
             run_id=request.run_id,

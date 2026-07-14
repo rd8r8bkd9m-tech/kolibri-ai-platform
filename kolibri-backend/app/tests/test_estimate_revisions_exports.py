@@ -31,6 +31,8 @@ def client():
 
     app.dependency_overrides[get_db] = override_get_db
     with TestClient(app) as test_client:
+        bootstrap = test_client.post("/api/v1/shell/bootstrap")
+        assert bootstrap.status_code == 200, bootstrap.text
         yield test_client
     app.dependency_overrides.pop(get_db, None)
     Base.metadata.drop_all(bind=engine)

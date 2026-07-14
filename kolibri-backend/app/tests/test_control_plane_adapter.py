@@ -8,6 +8,58 @@ import pytest
 from app.control_plane import ControlPlaneUnavailable, HomeControlPlaneAdapter
 
 
+RESULT_SHA256 = "a" * 64
+BINDING_SHA256 = "b" * 64
+
+
+def _proof_response(*rows: dict) -> httpx.Response:
+    return httpx.Response(200, json={
+        "schema_version": "kolibri.fleet-capability-proof.v1",
+        "status": "complete" if rows else "incomplete",
+        "source": "control-plane/home",
+        "observed_at": "2026-07-13T06:46:00+00:00",
+        "summary": {
+            "canonical_total": len(rows),
+            "strict_verified_total": sum(
+                1
+                for row in rows
+                if row.get("strict_verified_completion", {}).get("proven") is True
+            ),
+        },
+        "nodes": list(rows),
+    })
+
+
+def _verified_proof(node_id: str, task_id: str = "TASK-VERIFIED") -> dict:
+    return {
+        "node_id": node_id,
+        "strict_verified_completion": {
+            "proven": True,
+            "task_id": task_id,
+            "kind": "read_only_probe",
+            "attempt_id": "attempt-1",
+            "completed_at": "2026-07-13T06:45:50+00:00",
+            "result_sha256": RESULT_SHA256,
+            "binding_sha256": BINDING_SHA256,
+            "verifier": "control-plane/home",
+            "verifier_schema": "kolibri.control-plane-completion-verifier.v1",
+        },
+    }
+
+
+def _unverified_proof(node_id: str) -> dict:
+    return {
+        "node_id": node_id,
+        "strict_verified_completion": {
+            "proven": False,
+            "task_id": None,
+            "result_sha256": None,
+            "binding_sha256": None,
+            "verifier": None,
+        },
+    }
+
+
 def _adapter(handler) -> HomeControlPlaneAdapter:
     return HomeControlPlaneAdapter(
         base_url="http://home-control.invalid",
@@ -18,6 +70,8 @@ def _adapter(handler) -> HomeControlPlaneAdapter:
 
 def test_nodes_are_mapped_from_live_control_plane_with_truth():
     def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/runtime/fleet-proof":
+            return _proof_response(_verified_proof("home", "TASK-1"))
         assert request.url.path == "/v1/nodes"
         assert request.url.params["scope"] == "active"
         return httpx.Response(
@@ -60,7 +114,21 @@ def test_nodes_are_mapped_from_live_control_plane_with_truth():
     assert result["truth"]["source"] == "home_control_plane"
     node = result["items"][0]
     assert node["id"] == "home"
-    assert node["status"] == "healthy"
+    assert node["status"] == "connected"
+    assert node["connection"] == {
+        "status": "online",
+        "connected": True,
+        "reported_health": "online",
+        "source": "node_health_report",
+    }
+    assert node["freshness"]["fresh"] is True
+    assert node["execution"]["active"] is True
+    assert node["execution"]["executable"] is True
+    assert node["verification"]["verified"] is True
+    evidence = node["verification"]["last_successful_task"]
+    assert evidence["task_id"] == "TASK-1"
+    assert evidence["result_sha256"] == RESULT_SHA256
+    assert evidence["binding_sha256"] == BINDING_SHA256
     assert node["ram_percent"] == "75.0"
     assert node["disk_percent"] == "25.0"
     assert node["cpu_percent"] == "unavailable"
@@ -71,7 +139,9 @@ def test_nodes_are_mapped_from_live_control_plane_with_truth():
 
 
 def test_stale_node_is_explicit_and_never_reported_healthy():
-    def handler(_: httpx.Request) -> httpx.Response:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/runtime/fleet-proof":
+            return _proof_response(_unverified_proof("agent01"))
         return httpx.Response(
             200,
             json={
@@ -95,12 +165,20 @@ def test_stale_node_is_explicit_and_never_reported_healthy():
     )
 
     assert result["truth"]["availability"] == "stale"
-    assert result["items"][0]["status"] == "offline"
-    assert result["items"][0]["capabilities"]["_truth"]["availability"] == "stale"
+    node = result["items"][0]
+    assert node["status"] == "connected"
+    assert node["connection"]["connected"] is True
+    assert node["freshness"]["status"] == "stale"
+    assert node["execution"]["executable"] is False
+    assert node["execution"]["active"] is False
+    assert node["verification"]["verified"] is False
+    assert node["capabilities"]["_truth"]["availability"] == "stale"
 
 
 def test_agents_are_derived_from_agent_hosts_without_seeded_roles():
     def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/runtime/fleet-proof":
+            return _proof_response(_verified_proof("agent01", "TASK-LIVE"))
         assert request.url.path == "/v1/nodes"
         return httpx.Response(
             200,
@@ -142,8 +220,11 @@ def test_agents_are_derived_from_agent_hosts_without_seeded_roles():
     assert agent["role"] == "agent_host"
     assert agent["status"] == "active"
     assert agent["current_task"] == "TASK-LIVE"
-    assert agent["progress"] == 0
+    assert agent["progress"] is None
     assert agent["capabilities"]["progress_availability"] == "unavailable"
+    assert agent["execution"]["active"] is True
+    assert agent["execution"]["executable"] is True
+    assert agent["verification"]["verified"] is True
     assert agent["capabilities"]["_truth"]["availability"] == "live"
     assert agent["capabilities"]["runners"]["mimo"] == {
         "status": "available",
@@ -153,7 +234,9 @@ def test_agents_are_derived_from_agent_hosts_without_seeded_roles():
 
 
 def test_agent_without_active_task_is_idle_not_active():
-    def handler(_: httpx.Request) -> httpx.Response:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/runtime/fleet-proof":
+            return _proof_response(_unverified_proof("agent02"))
         return httpx.Response(
             200,
             json={
@@ -180,7 +263,126 @@ def test_agent_without_active_task_is_idle_not_active():
     agent = result["items"][0]
     assert agent["status"] == "idle"
     assert agent["current_task"] is None
+    assert agent["execution"]["active"] is False
+    assert agent["verification"]["verified"] is False
     assert agent["capabilities"]["_truth"]["activity_source"] == "none"
+
+
+def test_runner_catalog_membership_is_not_executable_or_verified_when_blocked():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/runtime/fleet-proof":
+            return _proof_response(_unverified_proof("agent03"))
+        return httpx.Response(200, json={
+            "nodes": [{
+                "node_id": "agent03",
+                "agent_id": "agent03-agent-host",
+                "hostname": "worker-03",
+                "health": "online",
+                "reported_health": "online",
+                "freshness": "fresh",
+                "heartbeat_at": "2026-07-13T06:45:19+00:00",
+                "registered": True,
+                "schedulable": True,
+                "active_task": None,
+                "capabilities": ["runner:mimo"],
+                "runners": {
+                    "mimo": {
+                        "status": "blocked",
+                        "error_type": "provider_risk_control",
+                    },
+                },
+            }],
+            "counts": {"fresh": 1, "stale": 0, "total": 1},
+            "membership": {"canonical_total": 21},
+            "pagination": {"total_indexed": 21},
+        })
+
+    result = asyncio.run(
+        _adapter(handler).list_nodes(page=1, page_size=50, status=None)
+    )
+
+    node = result["items"][0]
+    assert node["connection"]["connected"] is True
+    assert node["freshness"]["fresh"] is True
+    assert node["execution"]["blocked"] is True
+    assert node["execution"]["executable"] is False
+    assert node["execution"]["active"] is False
+    assert node["verification"]["verified"] is False
+    assert node["capabilities"]["execution"] == [{
+        "name": "runner:mimo",
+        "runner": "mimo",
+        "runner_status": "blocked",
+        "executable": False,
+        "reasons": ["runner_blocked"],
+    }]
+
+
+def test_missing_fleet_proof_is_unavailable_not_a_fake_unverified_zero():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/runtime/fleet-proof":
+            return httpx.Response(404, json={"error": "not_found"})
+        return httpx.Response(200, json={
+            "nodes": [{
+                "node_id": "home",
+                "health": "online",
+                "freshness": "fresh",
+                "registered": True,
+                "schedulable": True,
+                "capabilities": ["read_only_probe"],
+            }],
+            "counts": {"fresh": 1, "stale": 0, "total": 1},
+            "membership": {"canonical_total": 1},
+            "pagination": {"total_indexed": 1},
+        })
+
+    result = asyncio.run(
+        _adapter(handler).list_nodes(page=1, page_size=50, status=None)
+    )
+
+    assert result["truth"]["verification"]["availability"] == "unavailable"
+    verification = result["items"][0]["verification"]
+    assert verification["status"] == "unavailable"
+    assert verification["last_successful_task"] is None
+
+
+def test_quarantined_membership_and_untrusted_verifier_never_become_working():
+    forged = _verified_proof("worker-missing")
+    forged["strict_verified_completion"]["verifier"] = "worker/self"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/runtime/fleet-proof":
+            return _proof_response(forged)
+        return httpx.Response(200, json={
+            "nodes": [{
+                "node_id": "worker-missing",
+                "hostname": "worker-missing",
+                "health": "quarantined",
+                "reported_health": "missing",
+                "freshness": "stale",
+                "registered": False,
+                "schedulable": False,
+                "active_task": None,
+                "quarantine_reason": "missing_agent_host_registration",
+                "capabilities": [],
+            }],
+            "counts": {"fresh": 0, "stale": 1, "total": 1},
+            "membership": {"canonical_total": 1, "registered_total": 0},
+            "pagination": {"total_indexed": 1},
+        })
+
+    result = asyncio.run(
+        _adapter(handler).list_nodes(page=1, page_size=50, status=None)
+    )
+
+    node = result["items"][0]
+    assert node["status"] == "quarantined"
+    assert node["connection"]["connected"] is False
+    assert node["freshness"]["fresh"] is False
+    assert node["execution"]["active"] is False
+    assert node["execution"]["executable"] is False
+    assert node["execution"]["quarantined"] is True
+    assert node["verification"]["verified"] is False
+    assert node["verification"]["last_successful_task"] is None
 
 
 def test_tasks_map_home_states_and_preserve_verifier_truth():
@@ -239,6 +441,11 @@ def test_cluster_stats_are_paginated_from_home_without_seed_rows():
         }
 
     def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/runtime/fleet-proof":
+            return _proof_response(
+                _verified_proof("home", "T-running"),
+                _unverified_proof("agent01"),
+            )
         if request.url.path == "/v1/nodes":
             return httpx.Response(200, json={
                 "nodes": [
@@ -246,6 +453,7 @@ def test_cluster_stats_are_paginated_from_home_without_seed_rows():
                         "node_id": "home", "hostname": "home", "health": "online",
                         "freshness": "fresh", "registered": True, "schedulable": True,
                         "agent_id": "home-agent", "active_task": "T-running",
+                        "capabilities": ["read_only_probe"],
                         "cpu_percent": 20, "ram": {"MemAvailable": "75 kB", "MemTotal": "100 kB"},
                         "disk": {"used": 50, "total": 100},
                     },
@@ -253,6 +461,7 @@ def test_cluster_stats_are_paginated_from_home_without_seed_rows():
                         "node_id": "agent01", "hostname": "agent01", "health": "online",
                         "freshness": "fresh", "registered": True, "schedulable": True,
                         "agent_id": "agent01-agent", "active_task": None,
+                        "capabilities": ["read_only_probe"],
                         "cpu_percent": 40, "ram": {"MemAvailable": "50 kB", "MemTotal": "100 kB"},
                         "disk": {"used": 70, "total": 100},
                     },
@@ -277,8 +486,29 @@ def test_cluster_stats_are_paginated_from_home_without_seed_rows():
 
     result = asyncio.run(_adapter(handler).cluster_stats())
 
-    assert result["nodes"] == {"total": 2, "healthy": 2, "degraded": 0, "offline": 0}
-    assert result["agents"] == {"total": 2, "active": 1, "idle": 1, "paused": 0}
+    assert result["nodes"] == {
+        "membership_total": 2,
+        "connected": 2,
+        "fresh": 2,
+        "capability_executable": 2,
+        "active": 1,
+        "verified": 1,
+        "blocked": 0,
+        "quarantined": 0,
+        "stale": 0,
+        "total": 2,
+        "healthy": 1,
+        "degraded": 1,
+        "offline": 0,
+    }
+    assert result["agents"] == {
+        "membership_total": 2,
+        "active": 1,
+        "idle": 1,
+        "paused": 0,
+        "executable": 2,
+        "verified": 1,
+    }
     assert result["tasks"]["total"] == 251
     assert result["tasks"]["completed"] == 250
     assert result["tasks"]["queued"] == 1
@@ -286,6 +516,7 @@ def test_cluster_stats_are_paginated_from_home_without_seed_rows():
     assert result["truth"]["source"] == "home_control_plane"
     assert result["truth"]["availability"] == "live"
     assert result["truth"]["task_pages"] == 2
+    assert result["truth"]["verification"]["availability"] == "live"
 
 
 def test_bad_status_fails_closed_instead_of_returning_seed_data():

@@ -36,6 +36,44 @@ describe('capability UI gate', () => {
     expect(uiCapabilityMenu(catalog).map(item => item.key)).toEqual(['web.search', 'image.generate'])
   })
 
+  it('does not invent legacy estimate or document tools when discovery is empty', () => {
+    expect(uiCapabilityMenu({ availability: 'unavailable', capabilities: [] })).toEqual([])
+  })
+
+  it('hides canonical degraded capabilities until a fresh invocation makes them invocable', () => {
+    const catalog = normalizeCapabilityCatalog({
+      status: 'degraded',
+      capabilities: [{
+        id: 'document.pdf',
+        name: 'PDF',
+        status: 'degraded',
+        invocable: false,
+        policy: { permitted: true },
+        renderer: { required: true, id: 'pdf', registered: true, healthy: null },
+        routes: [{
+          id: 'kolibri-backend',
+          configured: true,
+          permitted: true,
+          credential: { ready: true },
+          probe: { state: 'never', fresh: false },
+        }],
+      }],
+    })
+    expect(uiCapabilityMenu(catalog)).toEqual([])
+  })
+
+  it('shows estimate and document editors only from their exact live backend contracts', () => {
+    const catalog = {
+      availability: 'partial' as const,
+      capabilities: [
+        capability({ id: 'estimate.create', name: 'Смета', renderer: { available: true, id: 'estimate_editor' } }),
+        capability({ id: 'document.editor', name: 'Документ', renderer: { available: true, id: 'document_editor' } }),
+        capability({ id: 'estimate.create', name: 'Непроверенная смета', route: { healthy: false }, renderer: { available: true, id: 'estimate_editor' } }),
+      ],
+    }
+    expect(uiCapabilityMenu(catalog).map(item => item.key)).toEqual(['estimate.create', 'document.editor'])
+  })
+
   it('normalizes an explicit live backend contract without optimistic defaults', () => {
     const catalog = normalizeCapabilityCatalog({
       status: 'live',

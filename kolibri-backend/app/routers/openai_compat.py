@@ -1,13 +1,14 @@
 """Sanitised OpenAI-compatible public surface for the ``kolibri`` model.
 
-Provider identities and raw upstream payloads never cross this boundary.  The
-current compatibility registry is process-local; durable response ownership
-belongs to the forthcoming Rust/PostgreSQL response authority.
+Provider identities and raw upstream payloads never cross this boundary.
+Response ownership, idempotency and ordered public events are persisted by the
+SQL response authority; process memory is only a bounded read-through cache.
 """
 
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import Future
 import hashlib
 import hmac
 import json
@@ -15,6 +16,7 @@ import os
 import re
 import secrets
 import time
+import threading
 from collections import OrderedDict
 from datetime import datetime, timezone
 from typing import Any, Literal
@@ -26,17 +28,41 @@ from pydantic import BaseModel, Field
 from app import ai_provider
 from app.database import get_db
 from app.models import PublicApiKeyDB
+from app.project_schemas import PersistedFileAction
+from app.public_scope import authorize_public_scope as _authorize_public
 from app.openai_responses import cancel_response, retrieve_response
+from app.response_store import (
+    ResponseIdempotencyConflict,
+    find_idempotent_response,
+    load_response_record,
+    save_response_record,
+)
+from app.structured_output import (
+    StructuredOutputError,
+    StructuredOutputSpec,
+    chat_spec,
+    instruction as structured_instruction,
+    parse_and_validate,
+    responses_spec,
+)
 from sqlalchemy.orm import Session
 
 
 router = APIRouter()
 _records: OrderedDict[str, dict[str, Any]] = OrderedDict()
-_idempotency: dict[str, tuple[str, str]] = {}
+_idempotency: dict[tuple[str, str], tuple[str, str]] = {}
+_inflight: dict[tuple[str, str], tuple[str, Future[dict[str, Any]]]] = {}
+_inflight_lock = threading.Lock()
 _MAX_RECORDS = 1_000
 _IDEMPOTENCY_KEY = re.compile(r"^[A-Za-z0-9._:-]{1,200}$")
 _FAILED_RESULT_STATUSES = {"error", "failed", "incomplete", "unavailable", "capability_unavailable"}
-_PUBLIC_ACTION_TYPES = {"create_estimate", "create_document", "present_image"}
+_TERMINAL_RESPONSE_STATUSES = {"cancelled", "completed", "failed"}
+_PUBLIC_ACTION_TYPES = {
+    "create_estimate",
+    "create_document",
+    "present_image",
+    "present_artifact",
+}
 
 
 def _public_actions(value: Any) -> list[dict[str, Any]]:
@@ -65,45 +91,19 @@ def _public_actions(value: Any) -> list[dict[str, Any]]:
         ):
             continue
         try:
+            if action_type == "present_artifact":
+                # Generic files/sites/apps cross a stricter boundary than
+                # legacy inline drafts: exact MIME, producer, digest and
+                # canonical retrieval URLs are required before the action is
+                # allowed into durable Responses or SSE.
+                validated = PersistedFileAction.model_validate(candidate)
+                actions.append(validated.model_dump(mode="json", exclude_none=True))
+                continue
             public_data = json.loads(json.dumps(data, ensure_ascii=False))
         except (TypeError, ValueError):
             continue
         actions.append({"type": action_type, "label": label, "data": public_data})
     return actions
-
-
-async def _authorize_public(request: Request, db: Session = Depends(get_db)) -> None:
-    """Fail closed for paid public API routes; browser aliases are separate."""
-    if request.url.path.startswith("/api/v1/"):
-        return
-    configured = [
-        item.strip().lower()
-        for item in os.getenv("KOLIBRI_PUBLIC_API_KEY_SHA256", "").split(",")
-        if item.strip()
-    ]
-    database_configured = db.query(PublicApiKeyDB.id).first() is not None
-    if not configured and not database_configured:
-        raise HTTPException(
-            status_code=503,
-            detail={"code": "public_api_not_configured"},
-        )
-    authorization = request.headers.get("Authorization", "")
-    token = authorization[7:] if authorization.startswith("Bearer ") else ""
-    if not token:
-        raise HTTPException(status_code=401, detail={"code": "invalid_api_key"})
-    digest = hashlib.sha256(token.encode()).hexdigest()
-    env_match = any(hmac.compare_digest(digest, expected) for expected in configured)
-    key = db.query(PublicApiKeyDB).filter(PublicApiKeyDB.secret_hash == digest).first()
-    database_match = bool(
-        key is not None
-        and key.revoked_at is None
-        and hmac.compare_digest(str(key.secret_hash), digest)
-    )
-    if not env_match and not database_match:
-        raise HTTPException(status_code=401, detail={"code": "invalid_api_key"})
-    if database_match:
-        key.last_used_at = datetime.now(timezone.utc)
-        db.commit()
 
 
 _PUBLIC_AUTH = [Depends(_authorize_public)]
@@ -130,6 +130,7 @@ class ResponsesRequest(BaseModel):
     previous_response_id: str | None = None
     reasoning: dict[str, Any] = Field(default_factory=dict)
     tools: list[dict[str, Any]] | None = None
+    text: dict[str, Any] | None = None
     policy: PublicPolicy | None = None
 
 
@@ -137,6 +138,7 @@ class ChatCompletionsRequest(BaseModel):
     model: str = "kolibri"
     messages: list[dict[str, Any]]
     stream: bool = False
+    response_format: dict[str, Any] | None = None
     policy: PublicPolicy | None = None
 
 
@@ -208,90 +210,22 @@ def _prevent_owner_response_storage(response: Response) -> None:
 
 
 def developer_api_keys_capability() -> dict[str, Any] | None:
-    """Advertise the renderer only when owner auth makes routes invocable."""
+    """Compatibility wrapper around the canonical runtime verdict."""
 
-    expected = os.getenv("KOLIBRI_OWNER_API_ADMIN_TOKEN_SHA256", "").strip().lower()
-    if not re.fullmatch(r"[0-9a-f]{64}", expected):
-        return None
-    return {
-        "id": "developer.api_keys",
-        "name": "API-ключи",
-        "description": "Создание, список и отзыв owner-scoped API-ключей.",
-        "kind": "developer",
-        "status": "live",
-        "availability_reason": None,
-        "invocable": True,
-        "permitted": True,
-        "route": {
-            "configured": True,
-            "healthy": True,
-            "status": "live",
-        },
-        "renderer": {
-            "available": True,
-            "id": "developer_api_keys",
-            "status": "live",
-        },
-        "source": {"type": "route_and_owner_auth_configuration"},
-    }
+    from app.capability_runtime import capability_by_id
+
+    return capability_by_id("developer.api_keys")
 
 
 def developer_response_capabilities() -> list[dict[str, Any]]:
-    """Advertise public text APIs only after a real provider invocation.
+    """Compatibility wrapper; no static ``live`` claims remain here."""
 
-    A configured binary or credential is not enough.  The runtime route state
-    becomes ``live`` only after the provider has completed an invocation in
-    this process, which keeps the Developer Portal honest after restarts and
-    provider failures.
-    """
+    from app.capability_runtime import capability_by_id
 
-    from app.ai_provider import PROVIDERS, provider_route_snapshot
-
-    live_route: dict[str, Any] | None = None
-    for provider in PROVIDERS.values():
-        snapshot = provider_route_snapshot(provider)
-        if snapshot.get("status") == "live" and snapshot.get("verified_at"):
-            live_route = snapshot
-            break
-    if live_route is None:
-        return []
-
-    route = {
-        "configured": True,
-        "healthy": True,
-        "status": "live",
-        "provider": str(live_route.get("id") or "kolibri"),
-        "model": str(live_route.get("model") or "kolibri"),
-        "verified_at": live_route["verified_at"],
-    }
-    source = {"type": "live_invocation"}
     return [
-        {
-            "id": "developer.responses",
-            "name": "Responses API",
-            "description": "OpenAI-compatible durable responses and streaming.",
-            "kind": "developer",
-            "status": "live",
-            "availability_reason": None,
-            "invocable": True,
-            "permitted": True,
-            "route": route,
-            "renderer": {"available": True, "id": "developer_api", "status": "live"},
-            "source": source,
-        },
-        {
-            "id": "developer.chat_completions",
-            "name": "Chat Completions API",
-            "description": "OpenAI-compatible chat completions surface.",
-            "kind": "developer",
-            "status": "live",
-            "availability_reason": None,
-            "invocable": True,
-            "permitted": True,
-            "route": dict(route),
-            "renderer": {"available": True, "id": "developer_api", "status": "live"},
-            "source": dict(source),
-        },
+        capability
+        for capability_id in ("developer.responses", "developer.chat_completions")
+        if (capability := capability_by_id(capability_id)) is not None
     ]
 
 
@@ -376,6 +310,14 @@ async def revoke_api_key(
         row.revoked_at = datetime.now(timezone.utc)
         db.commit()
         db.refresh(row)
+    from app.capability_runtime import record_capability_invocation
+
+    record_capability_invocation(
+        "developer.api_keys",
+        succeeded=True,
+        provider="kolibri-api-key-revoke",
+        evidence_id=str(row.id),
+    )
     return _public_api_key(row)
 
 
@@ -458,6 +400,7 @@ async def _image_result_if_requested(
     policy: dict[str, Any] | None,
     *,
     run_id: str | None = None,
+    owner_scope: str | None = None,
 ) -> dict[str, Any] | None:
     """Route image intent exclusively through the verified artifact service."""
     from app.image_artifacts import (
@@ -481,6 +424,7 @@ async def _image_result_if_requested(
             ImageGenerationRequest(prompt=prompt),
             policy=policy,
             run_id=run_id,
+            scope_id=owner_scope,
         )
     except ImageCapabilityUnavailable:
         return {
@@ -539,7 +483,7 @@ def _public_response(record: dict[str, Any]) -> dict[str, Any]:
             "status": "completed",
             "artifact": artifact,
         })
-    return {
+    payload = {
         "id": record["id"],
         "object": "response",
         "created_at": record["created_at"],
@@ -551,11 +495,17 @@ def _public_response(record: dict[str, Any]) -> dict[str, Any]:
         "artifacts": [artifact] if isinstance(artifact, dict) else [],
         "actions": actions,
     }
+    if "structured_output" in record:
+        payload["output_parsed"] = record["structured_output"]
+    if record.get("retry_of"):
+        payload["retry_of"] = record["retry_of"]
+    return payload
 
 
 def _store(record: dict[str, Any]) -> None:
     record.setdefault("events", [])
     record.setdefault("last_sequence", 0)
+    save_response_record(record)
     _records[record["id"]] = record
     _records.move_to_end(record["id"])
     while len(_records) > _MAX_RECORDS:
@@ -563,6 +513,26 @@ def _store(record: dict[str, Any]) -> None:
         for key, (_, stored_id) in list(_idempotency.items()):
             if stored_id == response_id:
                 _idempotency.pop(key, None)
+
+
+def _request_owner_scope(request: Request) -> str:
+    scope = getattr(request.state, "kolibri_response_scope", None)
+    if not isinstance(scope, str) or not scope:
+        raise HTTPException(status_code=500, detail={"code": "response_scope_missing"})
+    return scope
+
+
+def _owned_record(response_id: str, owner_scope: str) -> dict[str, Any] | None:
+    record = _records.get(response_id)
+    if record is None:
+        record = load_response_record(response_id)
+        if record is not None:
+            _records[response_id] = record
+    if record is None or not hmac.compare_digest(
+        str(record.get("owner_scope") or ""), owner_scope
+    ):
+        return None
+    return record
 
 
 def _append_event(record: dict[str, Any], event_type: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -578,7 +548,13 @@ def _append_event(record: dict[str, Any], event_type: str, payload: dict[str, An
     return event
 
 
-def begin_public_response(messages: list[dict[str, str]]) -> str:
+def begin_public_response(
+    messages: list[dict[str, str]],
+    *,
+    owner_scope: str = "internal:legacy",
+    idempotency_key: str | None = None,
+    request_hash: str | None = None,
+) -> str:
     """Create the canonical Kolibri response ID used by legacy chat streams."""
     response_id = _new_id()
     record = {
@@ -590,6 +566,9 @@ def begin_public_response(messages: list[dict[str, str]]) -> str:
         "upstream_response_id": None,
         "provider_route": None,
         "messages": messages,
+        "owner_scope": owner_scope,
+        "idempotency_key": idempotency_key,
+        "request_hash": request_hash,
         "actions": [],
         "events": [],
         "last_sequence": 0,
@@ -601,7 +580,7 @@ def begin_public_response(messages: list[dict[str, str]]) -> str:
 
 def record_public_stream_chunk(response_id: str, chunk: dict[str, Any]) -> None:
     record = _records.get(response_id)
-    if not record or record["status"] in {"cancelled", "completed", "failed"}:
+    if not record or record["status"] in _TERMINAL_RESPONSE_STATUSES:
         return
     if chunk.get("content"):
         delta = str(chunk["content"])
@@ -665,25 +644,113 @@ def _request_hash(payload: dict[str, Any]) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
-def _idempotent_record(key: str | None, request_hash: str) -> dict[str, Any] | None:
+def _structured_request_error(exc: StructuredOutputError) -> HTTPException:
+    return HTTPException(
+        status_code=422,
+        detail={"code": exc.code, "path": exc.path},
+    )
+
+
+def _structured_provider_error(exc: StructuredOutputError) -> HTTPException:
+    return HTTPException(
+        status_code=502,
+        detail={
+            "code": "structured_output_validation_failed",
+            "reason_code": exc.code,
+            "path": exc.path,
+            "recoverable": True,
+        },
+    )
+
+
+def _record_structured_verdict(
+    *,
+    succeeded: bool,
+    response_id: str,
+    provider: str,
+    model: str = "",
+    error_code: str | None = None,
+) -> None:
+    from app.capability_runtime import record_capability_invocation
+
+    record_capability_invocation(
+        "developer.structured_json",
+        succeeded=succeeded,
+        error_code=error_code,
+        provider=provider,
+        model=model or None,
+        evidence_id=response_id,
+    )
+
+
+def _validate_structured_result(
+    raw: str,
+    spec: StructuredOutputSpec,
+    *,
+    response_id: str,
+    provider: str,
+    model: str = "",
+) -> tuple[str, Any]:
+    try:
+        canonical, parsed = parse_and_validate(raw, spec)
+    except StructuredOutputError as exc:
+        _record_structured_verdict(
+            succeeded=False,
+            response_id=response_id,
+            provider=provider,
+            model=model,
+            error_code=exc.code,
+        )
+        raise _structured_provider_error(exc) from exc
+    _record_structured_verdict(
+        succeeded=True,
+        response_id=response_id,
+        provider=provider,
+        model=model,
+    )
+    return canonical, parsed
+
+
+def _idempotent_record(
+    key: str | None,
+    request_hash: str,
+    owner_scope: str,
+) -> dict[str, Any] | None:
     if not key:
         return None
-    existing = _idempotency.get(key)
+    existing = _idempotency.get((owner_scope, key))
     if not existing:
-        return None
-    previous_hash, response_id = existing
+        record = find_idempotent_response(owner_scope, key)
+        if record is None:
+            return None
+        previous_hash = str(record.get("request_hash") or "")
+        response_id = str(record["id"])
+        _records[response_id] = record
+        _idempotency[(owner_scope, key)] = (previous_hash, response_id)
+    else:
+        previous_hash, response_id = existing
     if previous_hash != request_hash:
         raise HTTPException(status_code=409, detail={"code": "idempotency_conflict"})
-    return _records.get(response_id)
+    return _records.get(response_id) or load_response_record(response_id)
 
 
-def _record_result(response_id: str, result: dict[str, Any], messages: list[dict[str, str]]) -> dict[str, Any]:
+def _record_result(
+    response_id: str,
+    result: dict[str, Any],
+    messages: list[dict[str, str]],
+    *,
+    owner_scope: str,
+) -> dict[str, Any]:
     status = str(result.get("status") or "completed")
     if status in {"idle", "ready", "source_backed", "preliminary"}:
         status = "completed"
     elif status in _FAILED_RESULT_STATUSES:
         status = "failed"
-    record = _records.get(response_id, {})
+    record = _records.get(response_id) or load_response_record(response_id) or {}
+    # Cancellation is a terminal user decision. A provider that finishes (or
+    # fails) after the cancellation transition must not replace it.
+    if record.get("status") == "cancelled":
+        return record
     record.update({
         "id": response_id,
         "created_at": record.get("created_at", int(time.time())),
@@ -699,24 +766,26 @@ def _record_result(response_id: str, result: dict[str, Any], messages: list[dict
         "upstream_response_id": result.get("response_id"),
         "provider_route": result.get("provider"),
         "messages": messages,
+        "owner_scope": owner_scope,
     })
+    had_events = bool(record.get("events"))
     _store(record)
-    if not record.get("events"):
+    if not had_events:
         _append_event(record, "response.created", {"response": _public_response(record)})
-        if record["content"]:
-            _append_event(record, "response.output_text.delta", {"delta": record["content"]})
-        if isinstance(record.get("artifact"), dict):
-            _append_event(record, "response.artifact.ready", {
-                "artifact_type": "image",
-                "artifact_id": record["artifact"].get("id"),
-                "artifact": record["artifact"],
-            })
-        terminal = f"response.{record['status']}" if record["status"] in {"completed", "failed", "cancelled"} else "response.status.updated"
-        _append_event(record, terminal, {
-            "response": _public_response(record),
-            "status": record["status"],
-            "actions": _public_actions(record.get("actions")),
+    if record["content"]:
+        _append_event(record, "response.output_text.delta", {"delta": record["content"]})
+    if isinstance(record.get("artifact"), dict):
+        _append_event(record, "response.artifact.ready", {
+            "artifact_type": "image",
+            "artifact_id": record["artifact"].get("id"),
+            "artifact": record["artifact"],
         })
+    terminal = f"response.{record['status']}" if record["status"] in _TERMINAL_RESPONSE_STATUSES else "response.status.updated"
+    _append_event(record, terminal, {
+        "response": _public_response(record),
+        "status": record["status"],
+        "actions": _public_actions(record.get("actions")),
+    })
     return record
 
 
@@ -724,12 +793,23 @@ async def _execute_response(
     request: ResponsesRequest,
     *,
     idempotency_key: str | None,
-) -> tuple[dict[str, Any], list[dict[str, str]], dict[str, Any] | None, str]:
+    owner_scope: str,
+) -> tuple[
+    dict[str, Any],
+    list[dict[str, str]],
+    dict[str, Any] | None,
+    str,
+    StructuredOutputSpec | None,
+]:
     _ensure_public_model(request.model)
+    try:
+        structured = responses_spec(request.text)
+    except StructuredOutputError as exc:
+        raise _structured_request_error(exc) from exc
     messages = _normalise_messages(request.input)
     previous_upstream_id = None
     if request.previous_response_id:
-        previous = _records.get(request.previous_response_id)
+        previous = _owned_record(request.previous_response_id, owner_scope)
         if not previous:
             raise HTTPException(status_code=404, detail={"code": "response_not_found"})
         previous_upstream_id = previous.get("upstream_response_id")
@@ -747,17 +827,19 @@ async def _execute_response(
         "previous": request.previous_response_id,
         "policy": policy,
         "background": request.background,
+        "text": request.text,
     })
-    existing = _idempotent_record(idempotency_key, fingerprint)
+    existing = _idempotent_record(idempotency_key, fingerprint, owner_scope)
     if existing:
-        return existing, messages, policy, fingerprint
-    return {}, messages, policy, fingerprint
+        return existing, messages, policy, fingerprint, structured
+    return {}, messages, policy, fingerprint, structured
 
 
 async def execute_kolibri_response(
     request: ResponsesRequest,
     *,
     idempotency_key: str | None = None,
+    owner_scope: str = "internal:service",
 ) -> dict[str, Any]:
     """Execute one non-streaming response through the canonical provider path.
 
@@ -768,32 +850,137 @@ async def execute_kolibri_response(
     """
 
     _validate_idempotency_key(idempotency_key)
-    existing, messages, policy, fingerprint = await _execute_response(
+    existing, messages, policy, fingerprint, structured = await _execute_response(
         request,
         idempotency_key=idempotency_key,
+        owner_scope=owner_scope,
     )
     if existing:
         return existing
 
-    response_id = _new_id()
-    task_type = "analyze" if policy and policy["mode"] == "deep" else "fast" if policy else "chat"
-    result = await _image_result_if_requested(messages, policy, run_id=response_id)
-    if result is None:
-        result = await ai_provider.chat_completion(
-            messages,
-            task_type=task_type,
-            previous_response_id=(
-                _records.get(request.previous_response_id, {}).get("upstream_response_id")
-                if request.previous_response_id else None
-            ),
-            background=request.background,
-            policy=policy,
-            idempotency_key=idempotency_key,
-        )
-    record = _record_result(response_id, result, messages)
+    inflight_key: tuple[str, str] | None = None
+    inflight_future: Future[dict[str, Any]] | None = None
+    inflight_leader = True
     if idempotency_key:
-        _idempotency[idempotency_key] = (fingerprint, response_id)
-    return record
+        inflight_key = (owner_scope, idempotency_key)
+        with _inflight_lock:
+            current = _inflight.get(inflight_key)
+            if current is None:
+                inflight_future = Future()
+                _inflight[inflight_key] = (fingerprint, inflight_future)
+            else:
+                current_fingerprint, inflight_future = current
+                if current_fingerprint != fingerprint:
+                    raise HTTPException(
+                        status_code=409,
+                        detail={"code": "idempotency_conflict"},
+                    )
+                inflight_leader = False
+        if not inflight_leader:
+            return await asyncio.wrap_future(inflight_future)
+
+    try:
+        try:
+            response_id = begin_public_response(
+                messages,
+                owner_scope=owner_scope,
+                idempotency_key=idempotency_key,
+                request_hash=fingerprint if idempotency_key else None,
+            )
+        except ResponseIdempotencyConflict:
+            existing = _idempotent_record(idempotency_key, fingerprint, owner_scope)
+            if existing is None:
+                raise
+            if inflight_future is not None and not inflight_future.done():
+                inflight_future.set_result(existing)
+            return existing
+        if idempotency_key:
+            _idempotency[(owner_scope, idempotency_key)] = (fingerprint, response_id)
+        task_type = "analyze" if policy and policy["mode"] == "deep" else "fast" if policy else "chat"
+        result = await _image_result_if_requested(
+            messages,
+            policy,
+            run_id=response_id,
+            owner_scope=owner_scope,
+        )
+        if structured and result is not None:
+            raise HTTPException(
+                status_code=422,
+                detail={"code": "structured_output_incompatible_with_image"},
+            )
+        if result is None:
+            result = await ai_provider.chat_completion(
+                messages,
+                task_type=task_type,
+                previous_response_id=(
+                    (_owned_record(request.previous_response_id, owner_scope) or {}).get("upstream_response_id")
+                    if request.previous_response_id else None
+                ),
+                background=request.background,
+                policy=policy,
+                idempotency_key=idempotency_key,
+                system=structured_instruction(structured) if structured else None,
+                raw_json_output=structured is not None,
+            )
+        if structured and str(result.get("status") or "") not in _FAILED_RESULT_STATUSES:
+            result = dict(result)
+            canonical, parsed = _validate_structured_result(
+                str(result.get("content") or ""),
+                structured,
+                response_id=response_id,
+                provider=str(result.get("provider") or "kolibri"),
+                model=str(result.get("model") or ""),
+            )
+            result["content"] = canonical
+            result["structured_output"] = parsed
+        record = _record_result(
+            response_id,
+            result,
+            messages,
+            owner_scope=owner_scope,
+        )
+        if structured and "structured_output" in result:
+            record["structured_output"] = result["structured_output"]
+            record["structured_request"] = request.text
+            _store(record)
+        if record.get("status") == "completed":
+            from app.capability_runtime import record_capability_invocation
+
+            record_capability_invocation(
+                "developer.responses",
+                succeeded=True,
+                provider=str(result.get("provider") or "kolibri"),
+                model=str(result.get("model") or "kolibri"),
+                evidence_id=response_id,
+            )
+        if inflight_future is not None and not inflight_future.done():
+            inflight_future.set_result(record)
+        return record
+    except BaseException as exc:
+        response_id = locals().get("response_id")
+        if isinstance(response_id, str):
+            pending = _owned_record(response_id, owner_scope)
+            if pending is not None and pending.get("status") not in _TERMINAL_RESPONSE_STATUSES:
+                _record_result(
+                    response_id,
+                    {
+                        "content": "",
+                        "status": "failed",
+                        "error_code": "response_execution_failed",
+                        "recoverable": True,
+                    },
+                    messages,
+                    owner_scope=owner_scope,
+                )
+        if inflight_future is not None and not inflight_future.done():
+            inflight_future.set_exception(exc)
+        raise
+    finally:
+        if inflight_key is not None and inflight_future is not None:
+            with _inflight_lock:
+                current = _inflight.get(inflight_key)
+                if current is not None and current[1] is inflight_future:
+                    _inflight.pop(inflight_key, None)
 
 
 @router.post("/api/v1/responses", include_in_schema=False, dependencies=_PUBLIC_AUTH)
@@ -808,8 +995,16 @@ async def create_public_response(
     await check_rate_limit(http_request, chat_limiter)
     if request.stream:
         _validate_idempotency_key(idempotency_key)
-        return await _streaming_response(request, idempotency_key)
-    record = await execute_kolibri_response(request, idempotency_key=idempotency_key)
+        return await _streaming_response(
+            request,
+            idempotency_key,
+            owner_scope=_request_owner_scope(http_request),
+        )
+    record = await execute_kolibri_response(
+        request,
+        idempotency_key=idempotency_key,
+        owner_scope=_request_owner_scope(http_request),
+    )
     return _public_response(record)
 
 
@@ -825,16 +1020,44 @@ async def stream_public_response(
     await check_rate_limit(http_request, chat_limiter)
     _validate_idempotency_key(idempotency_key)
     request.stream = True
-    return await _streaming_response(request, idempotency_key)
-
-
-async def _streaming_response(request: ResponsesRequest, idempotency_key: str | None):
-    existing, messages, policy, fingerprint = await _execute_response(
-        request, idempotency_key=idempotency_key
+    return await _streaming_response(
+        request,
+        idempotency_key,
+        owner_scope=_request_owner_scope(http_request),
     )
-    response_id = existing.get("id") or begin_public_response(messages)
+
+
+async def _streaming_response(
+    request: ResponsesRequest,
+    idempotency_key: str | None,
+    *,
+    owner_scope: str,
+):
+    existing, messages, policy, fingerprint, structured = await _execute_response(
+        request,
+        idempotency_key=idempotency_key,
+        owner_scope=owner_scope,
+    )
+    if existing:
+        response_id = str(existing["id"])
+    else:
+        try:
+            response_id = begin_public_response(
+                messages,
+                owner_scope=owner_scope,
+                idempotency_key=idempotency_key,
+                request_hash=fingerprint if idempotency_key else None,
+            )
+        except ResponseIdempotencyConflict:
+            existing = _idempotent_record(idempotency_key, fingerprint, owner_scope)
+            if existing is None:
+                raise
+            response_id = str(existing["id"])
+    if structured and not existing:
+        _records[response_id]["structured_request"] = request.text
+        _store(_records[response_id])
     if idempotency_key and not existing:
-        _idempotency[idempotency_key] = (fingerprint, response_id)
+        _idempotency[(owner_scope, idempotency_key)] = (fingerprint, response_id)
     task_type = "analyze" if policy and policy["mode"] == "deep" else "fast" if policy else "chat"
     async def events():
         created = _public_response(existing or _records[response_id])
@@ -854,9 +1077,27 @@ async def _streaming_response(request: ResponsesRequest, idempotency_key: str | 
             return
 
         image_result = await _image_result_if_requested(
-            messages, policy, run_id=response_id
+            messages,
+            policy,
+            run_id=response_id,
+            owner_scope=owner_scope,
         )
         if image_result is not None:
+            if structured:
+                failure = {
+                    "content": "",
+                    "done": True,
+                    "status": "failed",
+                    "error_code": "structured_output_incompatible_with_image",
+                    "recoverable": False,
+                }
+                record_public_stream_chunk(response_id, failure)
+                record = _records[response_id]
+                yield _sse("response.failed", {
+                    "type": "response.failed",
+                    "response": _public_response(record),
+                })
+                return
             if image_result.get("content"):
                 content_chunk = {"content": str(image_result["content"]), "done": False}
                 record_public_stream_chunk(response_id, content_chunk)
@@ -877,6 +1118,15 @@ async def _streaming_response(request: ResponsesRequest, idempotency_key: str | 
                     "artifact": record["artifact"],
                 })
             event_type = f"response.{record['status']}"
+            if record["status"] == "completed":
+                from app.capability_runtime import record_capability_invocation
+                record_capability_invocation(
+                    "developer.responses",
+                    succeeded=True,
+                    provider=str(image_result.get("provider") or "kolibri"),
+                    model=str(image_result.get("model") or "kolibri"),
+                    evidence_id=response_id,
+                )
             yield _sse(event_type, {
                 "type": event_type,
                 "response": _public_response(record),
@@ -886,28 +1136,32 @@ async def _streaming_response(request: ResponsesRequest, idempotency_key: str | 
 
         text_parts: list[str] = []
         final_internal: dict[str, Any] = {}
-        async for chunk in ai_provider.chat_completion_stream(
+        async for chunk in _safe_provider_stream(
             messages,
             task_type=task_type,
             previous_response_id=(
-                _records.get(request.previous_response_id, {}).get("upstream_response_id")
+                (_owned_record(request.previous_response_id, owner_scope) or {}).get("upstream_response_id")
                 if request.previous_response_id else None
             ),
             background=request.background,
             policy=policy,
             idempotency_key=idempotency_key,
             run_id=response_id,
+            system=structured_instruction(structured) if structured else None,
+            raw_json_output=structured is not None,
         ):
-            record_public_stream_chunk(response_id, chunk)
             if chunk.get("content"):
                 delta = str(chunk["content"])
                 text_parts.append(delta)
-                yield _sse("response.output_text.delta", {
-                    "type": "response.output_text.delta",
-                    "response_id": response_id,
-                    "delta": delta,
-                })
+                if not structured:
+                    record_public_stream_chunk(response_id, chunk)
+                    yield _sse("response.output_text.delta", {
+                        "type": "response.output_text.delta",
+                        "response_id": response_id,
+                        "delta": delta,
+                    })
             elif isinstance(chunk.get("work_summary"), dict):
+                record_public_stream_chunk(response_id, chunk)
                 summary = chunk["work_summary"]
                 yield _sse("response.work_summary.updated", {
                     "type": "response.work_summary.updated",
@@ -917,6 +1171,7 @@ async def _streaming_response(request: ResponsesRequest, idempotency_key: str | 
                     "status": summary.get("status"),
                 })
             elif isinstance(chunk.get("tool_event"), dict):
+                record_public_stream_chunk(response_id, chunk)
                 tool = chunk["tool_event"]
                 event_type = "response.tool.completed" if tool.get("type") == "tool.completed" else "response.tool.started"
                 yield _sse(event_type, {
@@ -928,6 +1183,13 @@ async def _streaming_response(request: ResponsesRequest, idempotency_key: str | 
                 })
             if chunk.get("done"):
                 final_internal = chunk
+                if (
+                    not structured
+                    and not chunk.get("content")
+                    and not isinstance(chunk.get("work_summary"), dict)
+                    and not isinstance(chunk.get("tool_event"), dict)
+                ):
+                    record_public_stream_chunk(response_id, chunk)
         if not final_internal:
             final_internal = {
                 "content": "",
@@ -935,8 +1197,66 @@ async def _streaming_response(request: ResponsesRequest, idempotency_key: str | 
                 "status": "failed",
                 "error_code": "provider_stream_failed",
             }
-            record_public_stream_chunk(response_id, final_internal)
+            if not structured:
+                record_public_stream_chunk(response_id, final_internal)
+        if structured:
+            final_status = str(final_internal.get("status") or "completed")
+            if final_status not in _FAILED_RESULT_STATUSES and final_status != "cancelled":
+                try:
+                    canonical, parsed = _validate_structured_result(
+                        "".join(text_parts),
+                        structured,
+                        response_id=response_id,
+                        provider=str(final_internal.get("provider") or "kolibri"),
+                        model=str(final_internal.get("model") or ""),
+                    )
+                except HTTPException as exc:
+                    detail = exc.detail if isinstance(exc.detail, dict) else {}
+                    failure = {
+                        "content": "",
+                        "done": True,
+                        "status": "failed",
+                        "error_code": "structured_output_validation_failed",
+                        "recoverable": True,
+                    }
+                    record_public_stream_chunk(response_id, failure)
+                    record = _records[response_id]
+                    yield _sse("response.failed", {
+                        "type": "response.failed",
+                        "response": _public_response(record),
+                        "error": {
+                            "code": "structured_output_validation_failed",
+                            "reason_code": detail.get("reason_code"),
+                            "path": detail.get("path"),
+                        },
+                    })
+                    return
+                record_public_stream_chunk(
+                    response_id,
+                    {"content": canonical, "done": False},
+                )
+                record = _records[response_id]
+                record["structured_output"] = parsed
+                _store(record)
+                yield _sse("response.output_text.delta", {
+                    "type": "response.output_text.delta",
+                    "response_id": response_id,
+                    "delta": canonical,
+                })
+            record_public_stream_chunk(
+                response_id,
+                {**final_internal, "content": "", "done": True},
+            )
         record = _records[response_id]
+        if record["status"] == "completed":
+            from app.capability_runtime import record_capability_invocation
+            record_capability_invocation(
+                "developer.responses",
+                succeeded=True,
+                provider=str(final_internal.get("provider") or "kolibri"),
+                model=str(final_internal.get("model") or "kolibri"),
+                evidence_id=response_id,
+            )
         event_type = f"response.{record['status']}"
         yield _sse(event_type, {
             "type": event_type,
@@ -950,14 +1270,34 @@ async def _streaming_response(request: ResponsesRequest, idempotency_key: str | 
     })
 
 
+async def _safe_provider_stream(*args: Any, **kwargs: Any):
+    """Convert provider transport failures into one bounded terminal event."""
+
+    try:
+        async for chunk in ai_provider.chat_completion_stream(*args, **kwargs):
+            yield chunk
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        # Do not leak provider URLs, credentials or transport exception text.
+        # The canonical response recorder turns this into response.failed.
+        yield {
+            "content": "",
+            "done": True,
+            "status": "failed",
+            "error_code": "provider_stream_failed",
+            "recoverable": True,
+        }
+
+
 def _sse(event_type: str, payload: dict[str, Any]) -> str:
     return f"event: {event_type}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
 @router.get("/api/v1/responses/{response_id}", include_in_schema=False, dependencies=_PUBLIC_AUTH)
 @router.get("/v1/responses/{response_id}", dependencies=_PUBLIC_AUTH)
-async def get_public_response(response_id: str):
-    record = _records.get(response_id)
+async def get_public_response(response_id: str, request: Request):
+    record = _owned_record(response_id, _request_owner_scope(request))
     if not record:
         raise HTTPException(status_code=404, detail={"code": "response_not_found"})
     if record["status"] in {"queued", "in_progress"} and record.get("provider_route") == "openai_codex":
@@ -973,14 +1313,19 @@ async def get_public_response(response_id: str):
 
 @router.get("/api/v1/responses/{response_id}/events", include_in_schema=False, dependencies=_PUBLIC_AUTH)
 @router.get("/v1/responses/{response_id}/events", dependencies=_PUBLIC_AUTH)
-async def public_response_events(response_id: str, starting_after: int = 0):
-    if response_id not in _records:
+async def public_response_events(
+    response_id: str,
+    request: Request,
+    starting_after: int = 0,
+):
+    owner_scope = _request_owner_scope(request)
+    if _owned_record(response_id, owner_scope) is None:
         raise HTTPException(status_code=404, detail={"code": "response_not_found"})
 
     async def events():
         sequence = max(0, int(starting_after))
         while True:
-            record = _records.get(response_id)
+            record = _owned_record(response_id, owner_scope)
             if not record:
                 return
             if record["status"] in {"queued", "in_progress"} and record.get("provider_route") == "openai_codex":
@@ -1019,27 +1364,97 @@ async def public_response_events(response_id: str, starting_after: int = 0):
 
 @router.post("/api/v1/responses/{response_id}/cancel", include_in_schema=False, dependencies=_PUBLIC_AUTH)
 @router.post("/v1/responses/{response_id}/cancel", dependencies=_PUBLIC_AUTH)
-async def cancel_public_response(response_id: str):
-    record = _records.get(response_id)
+async def cancel_public_response(response_id: str, request: Request):
+    record = _owned_record(response_id, _request_owner_scope(request))
     if not record:
         raise HTTPException(status_code=404, detail={"code": "response_not_found"})
-    if record["status"] not in {"completed", "failed", "cancelled"}:
+    if record["status"] not in _TERMINAL_RESPONSE_STATUSES:
         from app.codex_cli_provider import cancel_codex_cli_run
         from app.codex_cli_image_provider import cancel_codex_cli_image_run
 
-        # The call is safe even when the selected route is not Codex CLI: in
-        # that case no process owns this public response ID and it is a no-op.
-        await cancel_codex_cli_run(response_id)
-        await cancel_codex_cli_image_run(response_id)
+        # Commit the scope-checked terminal transition before awaiting process
+        # or provider I/O. Provider streams observe this status and cannot
+        # overwrite it while cancellation is in flight.
+        record["status"] = "cancelled"
+        record["error"] = None
+        _append_event(record, "response.cancelled", {"response": _public_response(record)})
+
+        # Cleanup is best effort. The public state is already terminal, so a
+        # transport error must not turn cancel into a 5xx or let a late result
+        # win the race.
+        cancel_operations = [
+            cancel_codex_cli_run(response_id),
+            cancel_codex_cli_image_run(response_id),
+        ]
         upstream_id = record.get("upstream_response_id")
         if upstream_id and record.get("provider_route") == "openai_codex":
-            await cancel_response(ai_provider.PROVIDERS["openai_codex"], upstream_id)
-        # The execution stream may have reached a terminal state while the
-        # process/provider cancellation was in flight. Never overwrite it or
-        # append a duplicate terminal event.
-        if record["status"] not in {"completed", "failed", "cancelled"}:
-            record["status"] = "cancelled"
-            _append_event(record, "response.cancelled", {"response": _public_response(record)})
+            cancel_operations.append(
+                cancel_response(ai_provider.PROVIDERS["openai_codex"], upstream_id)
+            )
+        await asyncio.gather(*cancel_operations, return_exceptions=True)
+    from app.capability_runtime import record_capability_invocation
+
+    record_capability_invocation(
+        "response.cancel",
+        succeeded=True,
+        provider="openai-compatible-responses",
+        evidence_id=response_id,
+    )
+    return _public_response(record)
+
+
+@router.post(
+    "/api/v1/responses/{response_id}/retry",
+    include_in_schema=False,
+    dependencies=_PUBLIC_AUTH,
+)
+@router.post("/v1/responses/{response_id}/retry", dependencies=_PUBLIC_AUTH)
+async def retry_public_response(
+    response_id: str,
+    http_request: Request,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+):
+    """Create a fresh response attempt from one terminal response context."""
+
+    from app.capability_runtime import record_capability_invocation
+    from app.rate_limiter import chat_limiter, check_rate_limit
+
+    await check_rate_limit(http_request, chat_limiter)
+    _validate_idempotency_key(idempotency_key)
+    owner_scope = _request_owner_scope(http_request)
+    source = _owned_record(response_id, owner_scope)
+    if source is None:
+        raise HTTPException(status_code=404, detail={"code": "response_not_found"})
+    if source.get("status") not in {"completed", "failed", "cancelled"}:
+        raise HTTPException(status_code=409, detail={"code": "response_not_terminal"})
+    messages = source.get("messages")
+    if not isinstance(messages, list) or not messages:
+        raise HTTPException(status_code=409, detail={"code": "response_context_unavailable"})
+
+    scoped_key = None
+    if idempotency_key:
+        scoped_digest = hashlib.sha256(
+            f"{response_id}\0{idempotency_key}".encode()
+        ).hexdigest()
+        scoped_key = f"retry:{scoped_digest}"
+    retry_request = ResponsesRequest(
+        model="kolibri",
+        input=messages,
+        text=source.get("structured_request"),
+    )
+    record = await execute_kolibri_response(
+        retry_request,
+        idempotency_key=scoped_key,
+        owner_scope=owner_scope,
+    )
+    record["retry_of"] = response_id
+    _store(record)
+    record_capability_invocation(
+        "response.retry",
+        succeeded=True,
+        provider="openai-compatible-responses",
+        evidence_id=record["id"],
+    )
     return _public_response(record)
 
 
@@ -1055,11 +1470,18 @@ async def chat_completions(
     _validate_idempotency_key(idempotency_key)
     _ensure_public_model(request.model)
     messages = _normalise_messages(request.messages)
+    try:
+        structured = chat_spec(request.response_format)
+    except StructuredOutputError as exc:
+        raise _structured_request_error(exc) from exc
     policy = _policy(request.policy)
     task_type = "analyze" if policy and policy["mode"] == "deep" else "fast" if policy else "chat"
     completion_id = f"chatcmpl_{secrets.token_hex(12)}"
     image_result = await _image_result_if_requested(
-        messages, policy, run_id=completion_id
+        messages,
+        policy,
+        run_id=completion_id,
+        owner_scope=_request_owner_scope(http_request),
     )
     if image_result is not None and image_result.get("status") in _FAILED_RESULT_STATUSES:
         raise HTTPException(status_code=503, detail={
@@ -1067,6 +1489,11 @@ async def chat_completions(
             "capability": image_result.get("capability"),
             "recoverable": image_result.get("recoverable") is True,
         })
+    if structured and image_result is not None:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "structured_output_incompatible_with_image"},
+        )
     if request.stream:
         async def events():
             if image_result is not None:
@@ -1084,15 +1511,34 @@ async def chat_completions(
                     "artifact": artifact,
                 }
                 yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                from app.capability_runtime import record_capability_invocation
+                record_capability_invocation(
+                    "developer.chat_completions",
+                    succeeded=True,
+                    provider=str(image_result.get("provider") or "kolibri"),
+                    model=str(image_result.get("model") or "kolibri"),
+                    evidence_id=completion_id,
+                )
                 yield "data: [DONE]\n\n"
                 return
-            async for chunk in ai_provider.chat_completion_stream(
+            text_parts: list[str] = []
+            final_chunk: dict[str, Any] = {}
+            async for chunk in _safe_provider_stream(
                 messages,
                 task_type=task_type,
                 policy=policy,
                 idempotency_key=idempotency_key,
+                system=structured_instruction(structured) if structured else None,
+                raw_json_output=structured is not None,
             ):
                 if chunk.get("content"):
+                    text_parts.append(str(chunk["content"]))
+                    if structured:
+                        continue
+                    failed = (
+                        str(chunk.get("status") or "") in _FAILED_RESULT_STATUSES
+                        or str(chunk.get("status") or "") == "cancelled"
+                    )
                     payload = {
                         "id": completion_id,
                         "object": "chat.completion.chunk",
@@ -1102,14 +1548,87 @@ async def chat_completions(
                     }
                     yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
                 if chunk.get("done"):
+                    final_chunk = chunk
+                    if structured:
+                        continue
                     payload = {
                         "id": completion_id,
                         "object": "chat.completion.chunk",
                         "created": int(time.time()),
                         "model": "kolibri",
-                        "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                        "choices": [{
+                            "index": 0,
+                            "delta": {},
+                            "finish_reason": "error" if failed else "stop",
+                        }],
+                        **(
+                            {"error": {"code": chunk.get("error_code") or "provider_stream_failed"}}
+                            if failed else {}
+                        ),
                     }
                     yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                    if str(chunk.get("status") or "") not in _FAILED_RESULT_STATUSES:
+                        from app.capability_runtime import record_capability_invocation
+                        record_capability_invocation(
+                            "developer.chat_completions",
+                            succeeded=True,
+                            provider=str(chunk.get("provider") or "kolibri"),
+                            model=str(chunk.get("model") or "kolibri"),
+                            evidence_id=completion_id,
+                        )
+            if structured:
+                status = str(final_chunk.get("status") or "failed")
+                if status in _FAILED_RESULT_STATUSES or status == "cancelled":
+                    payload = {
+                        "id": completion_id,
+                        "object": "chat.completion.chunk",
+                        "created": int(time.time()),
+                        "model": "kolibri",
+                        "choices": [{"index": 0, "delta": {}, "finish_reason": "error"}],
+                        "error": {"code": "provider_stream_failed"},
+                    }
+                    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                else:
+                    try:
+                        canonical, parsed = _validate_structured_result(
+                            "".join(text_parts),
+                            structured,
+                            response_id=completion_id,
+                            provider=str(final_chunk.get("provider") or "kolibri"),
+                            model=str(final_chunk.get("model") or ""),
+                        )
+                    except HTTPException as exc:
+                        detail = exc.detail if isinstance(exc.detail, dict) else {}
+                        payload = {
+                            "id": completion_id,
+                            "object": "chat.completion.chunk",
+                            "created": int(time.time()),
+                            "model": "kolibri",
+                            "choices": [{"index": 0, "delta": {}, "finish_reason": "error"}],
+                            "error": detail,
+                        }
+                        yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                    else:
+                        payload = {
+                            "id": completion_id,
+                            "object": "chat.completion.chunk",
+                            "created": int(time.time()),
+                            "model": "kolibri",
+                            "choices": [{
+                                "index": 0,
+                                "delta": {"content": canonical, "parsed": parsed},
+                                "finish_reason": None,
+                            }],
+                        }
+                        yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                        payload = {
+                            "id": completion_id,
+                            "object": "chat.completion.chunk",
+                            "created": int(time.time()),
+                            "model": "kolibri",
+                            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                        }
+                        yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
             yield "data: [DONE]\n\n"
 
         return StreamingResponse(events(), media_type="text/event-stream")
@@ -1119,7 +1638,29 @@ async def chat_completions(
         task_type=task_type,
         policy=policy,
         idempotency_key=idempotency_key,
+        system=structured_instruction(structured) if structured else None,
+        raw_json_output=structured is not None,
     )
+    parsed_output: Any = None
+    if structured and str(result.get("status") or "") not in _FAILED_RESULT_STATUSES:
+        result = dict(result)
+        canonical, parsed_output = _validate_structured_result(
+            str(result.get("content") or ""),
+            structured,
+            response_id=completion_id,
+            provider=str(result.get("provider") or "kolibri"),
+            model=str(result.get("model") or ""),
+        )
+        result["content"] = canonical
+    if str(result.get("status") or "") not in _FAILED_RESULT_STATUSES:
+        from app.capability_runtime import record_capability_invocation
+        record_capability_invocation(
+            "developer.chat_completions",
+            succeeded=True,
+            provider=str(result.get("provider") or "kolibri"),
+            model=str(result.get("model") or "kolibri"),
+            evidence_id=completion_id,
+        )
     return {
         "id": completion_id,
         "object": "chat.completion",
@@ -1130,6 +1671,7 @@ async def chat_completions(
             "message": {
                 "role": "assistant",
                 "content": str(result.get("content") or ""),
+                **({"parsed": parsed_output} if structured else {}),
                 **({"artifact": result["artifact"]} if isinstance(result.get("artifact"), dict) else {}),
             },
             "finish_reason": "stop" if result.get("status") != "error" else "content_filter",

@@ -33,8 +33,6 @@ export default function Home() {
             value={input}
             onChange={setInput}
             onSend={() => startConversation()}
-            onEstimate={() => setInput(`${t('home.suggestionEstimate')}: `)}
-            onDocument={() => setInput(`${t('home.suggestionContract')}: `)}
             capabilities={capabilityMenu}
             onCapability={(key: UiCapabilityKey) => setInput(capabilityPrompt(key))}
             placeholder={t('composer.placeholder')}

@@ -80,7 +80,13 @@ def test_developer_text_surfaces_require_live_provider_invocation(monkeypatch):
     monkeypatch.setitem(provider, "routable", True)
     monkeypatch.setitem(provider, "key", "server-credential")
 
-    assert developer_response_capabilities() == []
+    configured = developer_response_capabilities()
+    assert [item["id"] for item in configured] == [
+        "developer.responses",
+        "developer.chat_completions",
+    ]
+    assert all(item["status"] == "degraded" for item in configured)
+    assert all(item["invocable"] is False for item in configured)
 
     ai_provider._record_provider_success(provider)
     capabilities = developer_response_capabilities()
@@ -88,10 +94,10 @@ def test_developer_text_surfaces_require_live_provider_invocation(monkeypatch):
         "developer.responses",
         "developer.chat_completions",
     ]
-    assert all(item["status"] == "live" for item in capabilities)
+    assert all(item["status"] == "available" for item in capabilities)
     assert all(item["invocable"] is True for item in capabilities)
     assert all(item["source"] == {"type": "live_invocation"} for item in capabilities)
-    assert all(item["renderer"]["id"] == "developer_api" for item in capabilities)
+    assert all(item["renderer"]["required"] is False for item in capabilities)
 
 
 def test_missing_server_credential_fails_before_network(monkeypatch):

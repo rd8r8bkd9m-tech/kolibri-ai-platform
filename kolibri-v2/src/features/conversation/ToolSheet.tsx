@@ -1,9 +1,9 @@
 import { useEffect, useRef, type ComponentType, type PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { Blocks, Calculator, Code2, FileSearch, FileText, Globe2, Image as ImageIcon, Monitor, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import ToolListItem from './ToolListItem'
 import ToolCarousel from './ToolCarousel'
-import type { UiCapability, UiCapabilityKey } from '@/features/capabilities'
+import { capabilityIcons, type UiCapability, type UiCapabilityKey } from '@/features/capabilities'
 import { shouldDismissToolSheetSwipe } from './toolSheetGesture'
 import { useLocale } from '@/features/localization'
 
@@ -11,8 +11,6 @@ interface ToolSheetProps {
   open: boolean
   capabilities: UiCapability[]
   onClose: () => void
-  onEstimate: () => void
-  onDocument: () => void
   onCapability: (key: UiCapabilityKey) => void
 }
 
@@ -28,8 +26,6 @@ export default function ToolSheet({
   open,
   capabilities,
   onClose,
-  onEstimate,
-  onDocument,
   onCapability,
 }: ToolSheetProps) {
   const { t } = useLocale()
@@ -89,30 +85,7 @@ export default function ToolSheet({
 
   if (!open) return null
 
-  const capabilityIcons: Record<UiCapabilityKey, ToolDefinition['icon']> = {
-    'web.search': Globe2,
-    'file.search': FileSearch,
-    'code.execute': Code2,
-    'image.generate': ImageIcon,
-    'browser.use': Monitor,
-    'mcp.invoke': Blocks,
-  }
-
   const tools: ToolDefinition[] = [
-    {
-      id: 'estimate',
-      title: t('tool.estimate'),
-      description: t('tool.estimateDescription'),
-      icon: Calculator,
-      run: onEstimate,
-    },
-    {
-      id: 'document',
-      title: t('tool.document'),
-      description: t('tool.documentDescription'),
-      icon: FileText,
-      run: onDocument,
-    },
     ...capabilities.map(item => ({
       id: item.key,
       title: item.title,
