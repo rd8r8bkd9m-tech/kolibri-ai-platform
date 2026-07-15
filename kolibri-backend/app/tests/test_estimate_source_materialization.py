@@ -36,6 +36,20 @@ def _provider_action(price: str = "999999") -> dict:
     }
 
 
+async def _collect_streamed_materialization(actions: list[dict]):
+    trace: list[dict] = []
+    materialized: list[dict] | None = None
+    async for event, result in ai_provider._stream_estimate_materialization(
+        MESSAGES, actions
+    ):
+        if event is not None:
+            trace.append(event["work_summary"])
+        if result is not None:
+            materialized = result
+    assert materialized is not None
+    return materialized, trace
+
+
 def test_materialization_replaces_provider_price_only_with_trusted_source(monkeypatch):
     monkeypatch.setenv("KOLIBRI_ESTIMATE_FGIS_ENABLED", "true")
 
@@ -67,7 +81,9 @@ def test_materialization_replaces_provider_price_only_with_trusted_source(monkey
         })]
 
     monkeypatch.setattr(FgisCsClient, "enrich_draft", fake_enrich)
-    actions = asyncio.run(ai_provider._materialize_estimate_actions(MESSAGES, [_provider_action()]))
+    actions, trace = asyncio.run(
+        _collect_streamed_materialization([_provider_action()])
+    )
 
     data = actions[0]["data"]
     position = data["sections"][0]["positions"][0]
@@ -77,11 +93,25 @@ def test_materialization_replaces_provider_price_only_with_trusted_source(monkey
     assert data["pricing_status"] == "verified"
     assert data["estimate_status"] == "source_backed"
     assert position["source"].startswith("https://fgiscs.minstroyrf.ru/")
+    assert trace == [
+        {
+            "stage": "source_retrieval",
+            "summary": "Подбираю актуальные региональные цены",
+            "status": "active",
+        },
+        {
+            "stage": "source_retrieval",
+            "summary": "Актуальные цены подтверждены источниками",
+            "status": "completed",
+        },
+    ]
 
 
 def test_materialization_never_retains_unverified_provider_price(monkeypatch):
     monkeypatch.setenv("KOLIBRI_ESTIMATE_FGIS_ENABLED", "false")
-    actions = asyncio.run(ai_provider._materialize_estimate_actions(MESSAGES, [_provider_action()]))
+    actions, trace = asyncio.run(
+        _collect_streamed_materialization([_provider_action()])
+    )
 
     data = actions[0]["data"]
     position = data["sections"][0]["positions"][0]
@@ -91,6 +121,18 @@ def test_materialization_never_retains_unverified_provider_price(monkeypatch):
     assert data["totals"]["total"] == "0.00"
     assert data["pricing_status"] == "needs_input"
     assert data["estimate_status"] == "needs_input"
+    assert trace == [
+        {
+            "stage": "source_retrieval",
+            "summary": "Подбираю актуальные региональные цены",
+            "status": "active",
+        },
+        {
+            "stage": "source_retrieval",
+            "summary": "Не удалось подтвердить цены — нужны уточнения",
+            "status": "failed",
+        },
+    ]
 
 
 def test_action_total_equals_sum_of_rounded_money_lines():

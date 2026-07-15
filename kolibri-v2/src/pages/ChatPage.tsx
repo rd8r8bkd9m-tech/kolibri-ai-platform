@@ -12,6 +12,11 @@ import {
   verifyImageArtifact,
 } from '@/features/conversation/imageArtifact'
 import { isVerifiedFileArtifact, verifyFileArtifact } from '@/features/conversation/fileArtifact'
+import {
+  estimateActionNeedsClarification,
+  estimateClarificationPrompt,
+  shouldAutoMaterializeAction,
+} from '@/features/conversation/estimateActionPolicy'
 import { isFailedResponse, persistedResponseStatus, responseFailureMessage } from '@/features/conversation/responseState'
 import WorkTrace, { type WorkStage } from '@/features/conversation/WorkTrace'
 import { mergeReplayedWorkSummaries } from '@/features/conversation/workTraceState'
@@ -106,6 +111,7 @@ async function materializeAction(action: ChatAction, signal?: AbortSignal): Prom
   const validatedAction = normalizePersistedAction(action)
   if (!validatedAction?.data) return null
   if (validatedAction.type === 'create_estimate') {
+    if (estimateActionNeedsClarification(validatedAction)) return null
     return { type: 'estimate', value: await estimates.create(normalizeEstimateAction(validatedAction.data)) }
   }
   if (validatedAction.type === 'create_document') {
@@ -691,7 +697,7 @@ export default function ChatPage() {
           .filter((action): action is ChatAction => action !== null)
       }
 
-      const action = assistantActions.find(item => ['create_estimate', 'create_document', 'present_image', 'present_artifact'].includes(item.type))
+      const action = assistantActions.find(shouldAutoMaterializeAction)
       if (action) {
         const startedMaterialization = artifactMaterializationEvent(action, 'active', t)
         if (startedMaterialization) {
@@ -811,7 +817,7 @@ export default function ChatPage() {
             .filter((action): action is ChatAction => action !== null)
           const fallbackAction = fallbackFailed
             ? undefined
-            : assistantActions.find(item => ['create_estimate', 'create_document', 'present_image', 'present_artifact'].includes(item.type))
+            : assistantActions.find(shouldAutoMaterializeAction)
           let fallbackArtifact: ConversationArtifact | null = null
           let fallbackArtifactFailed = false
           if (fallbackAction) {
@@ -973,21 +979,27 @@ export default function ChatPage() {
     if (actionBusy) return
     setActionBusy(actionKey)
     try {
-      if (action.type === 'create_estimate' && action.data) {
-        const created = await estimates.create(action.data as unknown as Parameters<typeof estimates.create>[0])
+      const validatedAction = normalizePersistedAction(action)
+      if (!validatedAction?.data) return
+      if (validatedAction.type === 'create_estimate') {
+        if (estimateActionNeedsClarification(validatedAction)) {
+          setInput(estimateClarificationPrompt(validatedAction))
+          return
+        }
+        const created = await estimates.create(normalizeEstimateAction(validatedAction.data))
         navigate(`/estimates?edit=${created.id}`)
-      } else if (action.type === 'create_document' && action.data) {
-        const created = await documents.create(action.data as unknown as Parameters<typeof documents.create>[0])
+      } else if (validatedAction.type === 'create_document') {
+        const created = await documents.create(validatedAction.data as unknown as Parameters<typeof documents.create>[0])
         navigate(`/documents?edit=${created.id}`)
-      } else if (action.type === 'present_image' && action.data) {
-        const value = await verifyImageArtifact(action.data)
+      } else if (validatedAction.type === 'present_image') {
+        const value = await verifyImageArtifact(validatedAction.data)
         setMessages(current => current.map(message => message.id === messageId ? {
           ...message,
           artifact: { type: 'image', value },
           actions: [],
         } : message))
-      } else if (action.type === 'present_artifact' && action.data) {
-        const value = await verifyFileArtifact(action.data)
+      } else if (validatedAction.type === 'present_artifact') {
+        const value = await verifyFileArtifact(validatedAction.data)
         setMessages(current => current.map(message => message.id === messageId ? {
           ...message,
           artifact: { type: 'file', value },

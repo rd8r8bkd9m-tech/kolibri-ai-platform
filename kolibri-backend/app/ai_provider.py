@@ -7,7 +7,7 @@ import time
 from datetime import datetime, timezone
 from html import escape
 import httpx
-from typing import List, Dict, Optional
+from typing import AsyncIterator, List, Dict, Optional
 
 from app.estimate_action import (
     build_estimate_action,
@@ -928,6 +928,56 @@ async def _materialize_estimate_actions(
     ]
 
 
+def _estimate_materialization_requested(
+    messages: List[Dict[str, str]],
+    actions: list[dict],
+) -> bool:
+    return is_estimate_request(messages) or any(
+        isinstance(action, dict) and action.get("type") == "create_estimate"
+        for action in actions
+    )
+
+
+def _estimate_price_research_outcome(actions: list[dict]) -> dict:
+    estimate = next(
+        (item for item in actions if item.get("type") == "create_estimate"),
+        None,
+    )
+    pricing_status = str(
+        (estimate or {}).get("data", {}).get("pricing_status") or "needs_input"
+    )
+    if pricing_status in {"source_backed", "verified"}:
+        return work_summary_event(
+            "source_retrieval",
+            "Актуальные цены подтверждены источниками",
+            status="completed",
+        )
+    return work_summary_event(
+        "source_retrieval",
+        "Не удалось подтвердить цены — нужны уточнения",
+        status="failed",
+    )
+
+
+async def _stream_estimate_materialization(
+    messages: List[Dict[str, str]],
+    actions: list[dict],
+) -> AsyncIterator[tuple[dict | None, list[dict] | None]]:
+    """Emit observable price-research facts around estimate materialization."""
+
+    trace_requested = _estimate_materialization_requested(messages, actions)
+    if trace_requested:
+        yield work_summary_event(
+            "source_retrieval",
+            "Подбираю актуальные региональные цены",
+            status="active",
+        ), None
+    materialized = await _materialize_estimate_actions(messages, actions)
+    if trace_requested:
+        yield _estimate_price_research_outcome(materialized), None
+    yield None, materialized
+
+
 def _estimate_result_message(actions: list[dict]) -> str:
     estimate = next((item for item in actions if item.get("type") == "create_estimate"), None)
     status = str((estimate or {}).get("data", {}).get("estimate_status") or "needs_input")
@@ -944,8 +994,9 @@ def _estimate_result_message(actions: list[dict]) -> str:
             "актуальный региональный источник. Неподтверждённые цены не включены."
         )
     return (
-        "Готовой сметы пока нет: исполнитель не сформировал достаточный индивидуальный "
-        "состав либо не найдены подтверждённые цены. Откройте результат и уточните исходные данные."
+        "Готовой сметы пока нет: не сформирован достаточный индивидуальный состав "
+        "либо не найдены подтверждённые цены. Нужны уточнения: подтвердите состав работ, "
+        "объёмы и возможность подбора актуальных региональных цен."
     )
 
 
@@ -1316,9 +1367,16 @@ async def chat_completion_stream(
                 provider=provider_id,
                 model=provider_model,
             )
-            actions = [] if raw_json_output else await _materialize_estimate_actions(
-                messages, _extract_actions("".join(content_parts))
-            )
+            candidate_actions = _extract_actions("".join(content_parts))
+            actions: list[dict] = []
+            if not raw_json_output:
+                async for trace_event, materialized in _stream_estimate_materialization(
+                    messages, candidate_actions
+                ):
+                    if trace_event is not None:
+                        yield trace_event
+                    if materialized is not None:
+                        actions = materialized
             if structured_output and actions:
                 action_type = actions[0].get("type")
                 summary = {
@@ -1367,12 +1425,18 @@ async def chat_completion_stream(
                 f"failure={_safe_failure_kind(e)} trying_next={not emitted_content}"
             )
             if emitted_content:
+                interrupted_actions: list[dict] = []
+                async for trace_event, materialized in _stream_estimate_materialization(
+                    messages, _extract_actions("".join(content_parts))
+                ):
+                    if trace_event is not None:
+                        yield trace_event
+                    if materialized is not None:
+                        interrupted_actions = materialized
                 yield {
                     "content": "",
                     "done": True,
-                    "actions": await _materialize_estimate_actions(
-                        messages, _extract_actions("".join(content_parts))
-                    ),
+                    "actions": interrupted_actions,
                     "status": "ready" if estimate_requested else "incomplete",
                     "provider": _provider_id(provider),
                     "model": provider.get("model", ""),
@@ -1382,11 +1446,34 @@ async def chat_completion_stream(
                 return
             continue
 
-    local_actions = await _materialize_estimate_actions(messages, [])
+    local_actions: list[dict] = []
+    async for trace_event, materialized in _stream_estimate_materialization(
+        messages, []
+    ):
+        if trace_event is not None:
+            yield trace_event
+        if materialized is not None:
+            local_actions = materialized
     if local_actions:
+        local_estimate = next(
+            (
+                item
+                for item in local_actions
+                if item.get("type") == "create_estimate"
+            ),
+            None,
+        )
+        local_summary = (
+            "Подготовлен запрос на уточнение данных для сметы"
+            if str(
+                (local_estimate or {}).get("data", {}).get("estimate_status")
+                or "needs_input"
+            ) == "needs_input"
+            else "Подготовлен локальный детерминированный результат"
+        )
         yield work_summary_event(
             "response_received",
-            "Подготовлен локальный детерминированный результат",
+            local_summary,
             status="completed",
             provider="local_contract",
             model="deterministic-estimate-v1",

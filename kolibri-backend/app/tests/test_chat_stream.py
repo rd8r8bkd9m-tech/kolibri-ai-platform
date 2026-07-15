@@ -619,9 +619,10 @@ def test_chat_stream_extracts_create_estimate_action_in_final_event(monkeypatch)
     final = legacy_payloads[-1]
     assert legacy_payloads[-2] == {
         "content": (
-            "Готовой сметы пока нет: исполнитель не сформировал достаточный "
-            "индивидуальный состав либо не найдены подтверждённые цены. "
-            "Откройте результат и уточните исходные данные."
+            "Готовой сметы пока нет: не сформирован достаточный индивидуальный "
+            "состав либо не найдены подтверждённые цены. Нужны уточнения: "
+            "подтвердите состав работ, объёмы и возможность подбора актуальных "
+            "региональных цен."
         ),
         "done": False,
     }
@@ -648,6 +649,22 @@ def test_chat_stream_extracts_create_estimate_action_in_final_event(monkeypatch)
         "vat_amount": "0.00",
         "total": "0.00",
     }
+    price_research = [
+        summary
+        for summary in _work_summaries(response)
+        if summary["stage"] == "source_retrieval"
+        and summary["summary"] in {
+            "Подбираю актуальные региональные цены",
+            "Не удалось подтвердить цены — нужны уточнения",
+        }
+    ]
+    assert [
+        (summary["status"], summary["summary"])
+        for summary in price_research
+    ] == [
+        ("active", "Подбираю актуальные региональные цены"),
+        ("failed", "Не удалось подтвердить цены — нужны уточнения"),
+    ]
     assert "reasoning" not in final
 
 
