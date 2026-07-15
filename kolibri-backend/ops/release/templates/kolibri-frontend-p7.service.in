@@ -9,7 +9,7 @@ Group=@@RUNTIME_GROUP@@
 WorkingDirectory=@@BACKEND_DIR@@
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONUNBUFFERED=1
-ExecStart=@@VENV_DIR@@/bin/python -B @@STATIC_SERVER@@ --root @@FRONTEND_DIR@@ --release-id @@RELEASE_ID@@ --host 127.0.0.1 --port @@FRONTEND_PORT@@
+ExecStart=@@VENV_DIR@@/bin/python -B @@STATIC_SERVER@@ --root @@FRONTEND_DIR@@ --release-id @@RELEASE_ID@@ --base-path @@FRONTEND_BASE_PATH@@ --host 127.0.0.1 --port @@FRONTEND_PORT@@
 Restart=on-failure
 RestartSec=2s
 TimeoutStartSec=30s

@@ -461,6 +461,68 @@ def test_build_requires_a_clean_committed_worktree(source_repo: Path, tmp_path: 
         )
 
 
+def test_darwin_release_commands_require_explicit_apple_capability_worker(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    monkeypatch.setattr(p7.platform, "system", lambda: "Darwin")
+    monkeypatch.delenv(p7.APPLE_CAPABILITY_WORKER_ENV, raising=False)
+
+    with pytest.raises(p7.P7ReleaseError, match="p7_darwin_requires_apple_capability_worker"):
+        p7.build_release(
+            repo=tmp_path / "missing",
+            output_root=tmp_path / "releases",
+            release_id="kolibri-p7-darwin",
+            frontend_builder=fake_frontend_builder,
+        )
+    with pytest.raises(p7.P7ReleaseError, match="p7_darwin_requires_apple_capability_worker"):
+        p7.verify_release(tmp_path / "missing-release")
+    with pytest.raises(p7.P7ReleaseError, match="p7_darwin_requires_apple_capability_worker"):
+        p7.verify_gate_evidence(
+            tmp_path / "gates.json",
+            tmp_path / "gates.json.sig",
+            {},
+            "1" * 64,
+        )
+    with pytest.raises(p7.P7ReleaseError, match="p7_darwin_requires_apple_capability_worker"):
+        p7.paired_switch_plan(
+            release_dir=tmp_path / "candidate",
+            rollback_release_dir=tmp_path / "rollback",
+            gate_evidence_path=tmp_path / "gates.json",
+            gate_evidence_signature_path=tmp_path / "gates.json.sig",
+            rollback_signature_path=tmp_path / "rollback.sig",
+            rollback_health_evidence_path=tmp_path / "rollback-health.json",
+            rollback_health_signature_path=tmp_path / "rollback-health.json.sig",
+            previous_route_config_sha256="1" * 64,
+            owner_approval_path=tmp_path / "approval.json",
+            owner_approval_signature_path=tmp_path / "approval.json.sig",
+            signature_path=tmp_path / "release-manifest.json.sig",
+        )
+
+    monkeypatch.setenv(p7.APPLE_CAPABILITY_WORKER_ENV, "1")
+    with pytest.raises(p7.P7ReleaseError, match="p7_release_id_invalid"):
+        p7.build_release(
+            repo=tmp_path / "missing",
+            output_root=tmp_path / "releases",
+            release_id="../bad",
+            frontend_builder=fake_frontend_builder,
+        )
+    with pytest.raises(p7.P7ReleaseError, match="p7_previous_route_config_sha_invalid"):
+        p7.paired_switch_plan(
+            release_dir=tmp_path / "candidate",
+            rollback_release_dir=tmp_path / "rollback",
+            gate_evidence_path=tmp_path / "gates.json",
+            gate_evidence_signature_path=tmp_path / "gates.json.sig",
+            rollback_signature_path=tmp_path / "rollback.sig",
+            rollback_health_evidence_path=tmp_path / "rollback-health.json",
+            rollback_health_signature_path=tmp_path / "rollback-health.json.sig",
+            previous_route_config_sha256="not-a-sha",
+            owner_approval_path=tmp_path / "approval.json",
+            owner_approval_signature_path=tmp_path / "approval.json.sig",
+            signature_path=tmp_path / "release-manifest.json.sig",
+        )
+
+
 def test_unsigned_candidate_binds_commit_artifacts_routes_and_one_release_identity(
     source_repo: Path, tmp_path: Path
 ):

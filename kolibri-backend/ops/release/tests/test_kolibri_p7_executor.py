@@ -75,6 +75,40 @@ def test_render_paired_site_rewrites_all_routes_and_supports_static_p6():
         assert "kolibri-p7-test" in rendered
 
 
+def test_render_canary_site_adds_release_prefix_without_touching_production_routes():
+    release_id = "kolibri-p7-canary-test"
+    rendered = executor.render_canary_site(
+        PROXY_SITE,
+        release_id=release_id,
+        candidate_backend="http://127.0.0.1:18018",
+        candidate_frontend="http://127.0.0.1:15194",
+    ).decode()
+
+    blocks = executor._location_blocks(rendered)
+    original = PROXY_SITE.decode()
+    original_blocks = executor._location_blocks(original)
+    for route in (*executor.BACKEND_ROUTES, "/"):
+        start, end, _ = original_blocks[route]
+        rendered_start, rendered_end, _ = blocks[route]
+        assert rendered[rendered_start:rendered_end] == original[start:end]
+
+    base = executor.canary_base_path(release_id)
+    for route in executor.BACKEND_ROUTES:
+        start, end, _ = blocks[f"{base}{route.lstrip('/')}"]
+        assert executor._proxy_pass(rendered[start:end]) == f"http://127.0.0.1:18018{route}"
+    start, end, _ = blocks[base]
+    assert executor._proxy_pass(rendered[start:end]) == "http://127.0.0.1:15194"
+    assert f"X-Forwarded-Prefix {base.rstrip('/')}" in rendered
+
+    with pytest.raises(executor.P7ExecutorError, match="p7_canary_route_already_exists"):
+        executor.render_canary_site(
+            rendered.encode(),
+            release_id=release_id,
+            candidate_backend="http://127.0.0.1:18018",
+            candidate_frontend="http://127.0.0.1:15194",
+        )
+
+
 def test_render_paired_site_rejects_route_drift_and_ambiguous_frontend():
     drifted = PROXY_SITE.replace(b"18015", b"19999", 1)
     with pytest.raises(executor.P7ExecutorError, match="p7_active_backend_route_drift"):
@@ -208,7 +242,52 @@ def test_runtime_units_bind_exact_account_secret_paths_and_ports(tmp_path: Path)
     assert f"Environment=HOME={Path.home()}" in backend_unit
     assert "--port 18018" in backend_unit
     assert "--port 15194" in frontend_unit
+    assert "--base-path / " in frontend_unit
     assert "@@" not in backend_unit + frontend_unit
+
+
+def test_runtime_units_accept_only_release_bound_canary_base_path(tmp_path: Path):
+    backend = tmp_path / "runtime" / "backend"
+    templates = backend / "ops" / "release" / "templates"
+    templates.mkdir(parents=True)
+    source_templates = SCRIPT.parent / "templates"
+    for name in ("kolibri-backend-p7.service.in", "kolibri-frontend-p7.service.in"):
+        (templates / name).write_bytes((source_templates / name).read_bytes())
+    runtime = executor.RuntimePaths(
+        tmp_path / "release" / "kolibri-p7-unit-test",
+        backend,
+        tmp_path / "runtime" / "frontend",
+        tmp_path / "runtime" / "data",
+        tmp_path / "runtime" / "data" / "kolibri.db",
+        tmp_path / "runtime" / "data" / "venv",
+        os.getuid(),
+        os.getgid(),
+        Path.home(),
+    )
+    runtime.frontend_dir.mkdir(parents=True)
+    runtime.data_dir.mkdir(parents=True)
+    config_root = tmp_path / "config"
+    config_root.mkdir()
+    user = pwd.getpwuid(os.getuid()).pw_name
+    group = grp.getgrgid(os.getgid()).gr_name
+    config = executor.dataclasses.replace(
+        _executor_config(config_root, _dummy_inputs(tmp_path)),
+        runtime_user=user,
+        runtime_group=group,
+        frontend_base_path="/__canary/kolibri-p7-unit-test/",
+    )
+
+    executor.install_runtime_units(runtime, config)
+
+    frontend_unit = (config.systemd_dir / executor.FRONTEND_SERVICE).read_text()
+    assert "--base-path /__canary/kolibri-p7-unit-test/" in frontend_unit
+
+    bad_config = executor.dataclasses.replace(
+        config,
+        frontend_base_path="/__canary/other-release/",
+    )
+    with pytest.raises(executor.P7ExecutorError, match="p7_frontend_base_path_invalid"):
+        executor.install_runtime_units(runtime, bad_config)
 
 
 def test_consistent_sqlite_backup_is_integrity_checked_and_source_preserved(tmp_path: Path):
@@ -395,6 +474,17 @@ def test_locked_environment_rejects_runtime_python_drift(tmp_path: Path):
         executor.install_locked_environment(runtime, config, runner, "3.14.4")
 
     assert len(runner.commands) == 1
+
+
+def test_darwin_executor_requires_explicit_apple_capability_worker(monkeypatch):
+    monkeypatch.setattr(executor.platform, "system", lambda: "Darwin")
+    monkeypatch.delenv("KOLIBRI_APPLE_CAPABILITY_WORKER", raising=False)
+
+    with pytest.raises(executor.P7ExecutorError, match="p7_darwin_requires_apple_capability_worker"):
+        executor.require_p7_runtime_host()
+
+    monkeypatch.setenv("KOLIBRI_APPLE_CAPABILITY_WORKER", "1")
+    executor.require_p7_runtime_host()
 
 
 def test_locked_environment_uses_hashes_no_deps_and_pip_check(tmp_path: Path):

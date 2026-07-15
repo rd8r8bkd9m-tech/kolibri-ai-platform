@@ -25,6 +25,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import platform
 from pathlib import Path, PurePosixPath
 import grp
 import pwd
@@ -49,6 +50,7 @@ EXPECTED_FRONTEND_PORT = 15194
 EXPECTED_SCHEMA_HEAD = "010_durable_responses"
 BACKEND_ROUTES = ("/api/v1/", "/api/", "/v1/", "/ws/")
 FRONTEND_ROUTE = "/"
+CANARY_PREFIX = "/__canary"
 BACKEND_SERVICE = "kolibri-backend-p7.service"
 FRONTEND_SERVICE = "kolibri-frontend-p7.service"
 REQUIREMENTS_LOCK = "kolibri-backend/requirements.lock"
@@ -74,6 +76,20 @@ class P7ExecutorError(RuntimeError):
     def __init__(self, code: str):
         self.code = code
         super().__init__(code)
+
+
+def _apple_capability_worker_enabled() -> bool:
+    return os.getenv("KOLIBRI_APPLE_CAPABILITY_WORKER", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def require_p7_runtime_host() -> None:
+    if platform.system() == "Darwin" and not _apple_capability_worker_enabled():
+        raise P7ExecutorError("p7_darwin_requires_apple_capability_worker")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -107,6 +123,7 @@ class ExecutorConfig:
     systemd_dir: Path
     lock_path: Path
     public_base_url: str = "https://kolibriai.ru"
+    frontend_base_path: str = "/"
     python_binary: str = "/usr/bin/python3"
     nginx_binary: str = "/usr/sbin/nginx"
     systemctl_binary: str = "/usr/bin/systemctl"
@@ -692,6 +709,21 @@ def render_unit(template: Path, values: Mapping[str, str]) -> bytes:
     return text.encode("utf-8")
 
 
+def canary_base_path(release_id: str) -> str:
+    if not SAFE_ID.fullmatch(release_id):
+        raise P7ExecutorError("p7_release_id_invalid")
+    return f"{CANARY_PREFIX}/{release_id}/"
+
+
+def _validated_frontend_base_path(raw: str, release_id: str) -> str:
+    if raw == "/":
+        return raw
+    expected = canary_base_path(release_id)
+    if raw != expected:
+        raise P7ExecutorError("p7_frontend_base_path_invalid")
+    return raw
+
+
 def atomic_write(path: Path, content: bytes, *, mode: int, reference: os.stat_result | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
     temporary = path.with_name(f".{path.name}.p7-{os.getpid()}")
@@ -721,6 +753,7 @@ def install_runtime_units(runtime: RuntimePaths, config: ExecutorConfig) -> list
     if runtime.runtime_uid is None or runtime.runtime_gid is None or runtime.runtime_home is None:
         raise P7ExecutorError("p7_runtime_account_binding_missing")
     templates = runtime.backend_dir / "ops" / "release" / "templates"
+    frontend_base_path = _validated_frontend_base_path(config.frontend_base_path, runtime.release_dir.name)
     values = {
         "RELEASE_ID": runtime.release_dir.name,
         "BACKEND_DIR": str(runtime.backend_dir),
@@ -732,6 +765,7 @@ def install_runtime_units(runtime: RuntimePaths, config: ExecutorConfig) -> list
         "RUNTIME_SECRET_FILE": str(config.runtime_secret_file),
         "BACKEND_PORT": str(EXPECTED_BACKEND_PORT),
         "FRONTEND_PORT": str(EXPECTED_FRONTEND_PORT),
+        "FRONTEND_BASE_PATH": frontend_base_path,
         "RUNTIME_USER": config.runtime_user,
         "RUNTIME_GROUP": config.runtime_group,
         "RUNTIME_HOME": str(runtime.runtime_home) if runtime.runtime_home is not None else "",
@@ -975,6 +1009,117 @@ def render_paired_site(
     return candidate.encode("utf-8")
 
 
+def _proxy_common_headers(indent: str) -> str:
+    return (
+        f"{indent}proxy_http_version 1.1;\n"
+        f"{indent}proxy_set_header Host $host;\n"
+        f"{indent}proxy_set_header X-Real-IP $remote_addr;\n"
+        f"{indent}proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n"
+        f"{indent}proxy_set_header X-Forwarded-Proto $scheme;\n"
+    )
+
+
+def _canary_backend_location(
+    *,
+    indent: str,
+    release_id: str,
+    route: str,
+    candidate_backend: str,
+) -> str:
+    base = canary_base_path(release_id)
+    location = f"{base}{route.lstrip('/')}"
+    target = f"{candidate_backend.rstrip('/')}{route}"
+    inner = indent + "    "
+    websocket_headers = ""
+    if route == "/ws/":
+        websocket_headers = (
+            f"{inner}proxy_set_header Upgrade $http_upgrade;\n"
+            f"{inner}proxy_set_header Connection \"upgrade\";\n"
+        )
+    return (
+        f"{indent}location {location} {{\n"
+        f"{inner}# Kolibri isolated P7 canary {release_id}\n"
+        f"{_proxy_common_headers(inner)}"
+        f"{inner}proxy_set_header X-Forwarded-Prefix {base.rstrip('/')};\n"
+        f"{websocket_headers}"
+        f"{inner}proxy_pass {target};\n"
+        f"{indent}}}\n"
+    )
+
+
+def _canary_frontend_location(
+    *,
+    indent: str,
+    release_id: str,
+    candidate_frontend: str,
+) -> str:
+    base = canary_base_path(release_id)
+    inner = indent + "    "
+    return (
+        f"{indent}location {base} {{\n"
+        f"{inner}# Kolibri isolated P7 canary {release_id}\n"
+        f"{_proxy_common_headers(inner)}"
+        f"{inner}proxy_set_header X-Forwarded-Prefix {base.rstrip('/')};\n"
+        f"{inner}proxy_pass {candidate_frontend.rstrip('/')};\n"
+        f"{indent}}}\n"
+    )
+
+
+def render_canary_site(
+    active: bytes,
+    *,
+    release_id: str,
+    candidate_backend: str,
+    candidate_frontend: str,
+) -> bytes:
+    try:
+        text = active.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise P7ExecutorError("p7_nginx_site_not_utf8") from exc
+    blocks = _location_blocks(text)
+    if FRONTEND_ROUTE not in blocks:
+        raise P7ExecutorError("p7_nginx_routes_missing")
+    base = canary_base_path(release_id)
+    canary_routes = tuple(f"{base}{route.lstrip('/')}" for route in BACKEND_ROUTES) + (base,)
+    if any(route in blocks for route in canary_routes):
+        raise P7ExecutorError("p7_canary_route_already_exists")
+
+    frontend_start, _frontend_end, indent = blocks[FRONTEND_ROUTE]
+    rendered_blocks = [
+        _canary_backend_location(
+            indent=indent,
+            release_id=release_id,
+            route=route,
+            candidate_backend=candidate_backend,
+        )
+        for route in BACKEND_ROUTES
+    ]
+    rendered_blocks.append(
+        _canary_frontend_location(
+            indent=indent,
+            release_id=release_id,
+            candidate_frontend=candidate_frontend,
+        )
+    )
+    insertion = "".join(rendered_blocks)
+    candidate = text[:frontend_start] + insertion + text[frontend_start:]
+
+    rendered = _location_blocks(candidate)
+    for route in BACKEND_ROUTES:
+        canary_route = f"{base}{route.lstrip('/')}"
+        start, end, _ = rendered[canary_route]
+        if _proxy_pass(candidate[start:end]) != f"{candidate_backend.rstrip('/')}{route}":
+            raise P7ExecutorError("p7_canary_backend_render_failed")
+    start, end, _ = rendered[base]
+    if _proxy_pass(candidate[start:end]) != candidate_frontend.rstrip("/"):
+        raise P7ExecutorError("p7_canary_frontend_render_failed")
+    for route, (start, end, _) in blocks.items():
+        shift = len(insertion) if start >= frontend_start else 0
+        if candidate[start + shift : end + shift] != text[start:end]:
+            raise P7ExecutorError("p7_canary_modified_existing_route")
+    return candidate.encode("utf-8")
+
+
 def isolated_nginx_test(
     candidate: bytes,
     *,
@@ -1162,6 +1307,7 @@ def execute(
     client_factory: Callable[[str], HttpClient] = HttpClient,
     migrate_hook: Callable[[RuntimePaths, CommandRunner], dict[str, Any]] = migrate_candidate_database,
 ) -> dict[str, Any]:
+    require_p7_runtime_host()
     if os.geteuid() != 0:
         raise P7ExecutorError("p7_executor_root_required")
     if not SAFE_SERVICE.fullmatch(config.previous_backend_service) or not SAFE_PREVIOUS_BACKEND_SERVICE.fullmatch(
@@ -1445,6 +1591,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--systemd-dir", default="/etc/systemd/system")
     parser.add_argument("--lock-path", default="/run/lock/kolibri-p7-executor.lock")
     parser.add_argument("--public-base-url", default="https://kolibriai.ru")
+    parser.add_argument("--frontend-base-path", default="/")
     parser.add_argument("--python-binary", default="/usr/bin/python3")
     parser.add_argument("--nginx-binary", default="/usr/sbin/nginx")
     parser.add_argument("--systemctl-binary", default="/usr/bin/systemctl")
@@ -1482,6 +1629,7 @@ def config_from_args(args: argparse.Namespace) -> ExecutorConfig:
         systemd_dir=Path(args.systemd_dir),
         lock_path=Path(args.lock_path),
         public_base_url=args.public_base_url,
+        frontend_base_path=args.frontend_base_path,
         python_binary=args.python_binary,
         nginx_binary=args.nginx_binary,
         systemctl_binary=args.systemctl_binary,

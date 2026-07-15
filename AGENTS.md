@@ -14,6 +14,9 @@
   stable/LTS release is pinned, tested on canary, then rolled out to the fleet.
 - A release is blocked when its build/runtime version differs from the pinned
   manifest or when a canonical node reports an EOL toolchain.
+- Darwin/macOS hosts are SSH/API/Git transport only for P7. They must not run
+  P7 build, test or release commands unless explicitly invoked as an
+  Apple-capability worker (`KOLIBRI_APPLE_CAPABILITY_WORKER=1`).
 
 ## Project overview
 

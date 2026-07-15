@@ -71,6 +71,7 @@ GIT_OBJECT = re.compile(r"^[0-9a-f]{40,64}$")
 TOOL_VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.+_-]{0,63}$")
 MAX_ARCHIVE_FILES = 30_000
 MAX_ARCHIVE_BYTES = 2 * 1024 * 1024 * 1024
+APPLE_CAPABILITY_WORKER_ENV = "KOLIBRI_APPLE_CAPABILITY_WORKER"
 
 EXCLUDED_COMPONENTS = frozenset(
     {
@@ -130,6 +131,20 @@ class P7ReleaseError(RuntimeError):
     def __init__(self, code: str):
         super().__init__(code)
         self.code = code
+
+
+def _apple_capability_worker_enabled() -> bool:
+    return os.getenv(APPLE_CAPABILITY_WORKER_ENV, "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def require_p7_release_host() -> None:
+    if platform.system() == "Darwin" and not _apple_capability_worker_enabled():
+        raise P7ReleaseError("p7_darwin_requires_apple_capability_worker")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1005,6 +1020,7 @@ def build_release(
     signing_key: Path | None = None,
     ssh_keygen: str | None = None,
 ) -> dict[str, Any]:
+    require_p7_release_host()
     release_id = _validate_release_id(release_id)
     backend_port = _validate_port(backend_port, "backend")
     frontend_port = _validate_port(frontend_port, "frontend")
@@ -1313,6 +1329,7 @@ def verify_release(
     signature_path: Path | None = None,
     ssh_keygen: str | None = None,
 ) -> dict[str, Any]:
+    require_p7_release_host()
     result, _snapshot = _verify_release_snapshot(
         release_dir,
         repo=repo,
@@ -1621,6 +1638,7 @@ def verify_gate_evidence(
     *,
     ssh_keygen: str | None = None,
 ) -> dict[str, Any]:
+    require_p7_release_host()
     snapshot = _read_canonical_snapshot(evidence_path, "p7_gate_evidence_unreadable")
     verify_collector_signature(
         snapshot.raw,
@@ -1645,6 +1663,7 @@ def verify_rollback_health_evidence(
     *,
     ssh_keygen: str | None = None,
 ) -> dict[str, Any]:
+    require_p7_release_host()
     snapshot = _read_canonical_snapshot(evidence_path, "p7_rollback_health_evidence_invalid")
     evidence = snapshot.payload
     verify_collector_signature(
@@ -1721,6 +1740,7 @@ def verify_owner_approval(
     *,
     ssh_keygen: str | None = None,
 ) -> dict[str, Any]:
+    require_p7_release_host()
     if set(expected_bindings) != APPROVAL_BINDING_KEYS:
         raise P7ReleaseError("p7_owner_approval_binding_set_invalid")
     snapshot = _read_canonical_snapshot(approval_path, "p7_owner_approval_invalid")
@@ -1765,6 +1785,7 @@ def paired_switch_plan(
     repo: Path | None = None,
     ssh_keygen: str | None = None,
 ) -> dict[str, Any]:
+    require_p7_release_host()
     if not SHA256.fullmatch(previous_route_config_sha256):
         raise P7ReleaseError("p7_previous_route_config_sha_invalid")
     verified, manifest_snapshot = _verify_release_snapshot(
