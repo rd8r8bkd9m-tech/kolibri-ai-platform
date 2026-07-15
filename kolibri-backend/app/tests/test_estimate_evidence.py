@@ -167,6 +167,43 @@ def test_trusted_source_promotes_only_to_source_backed():
     assert persisted.label == "Открыть предварительную смету"
 
 
+def test_partial_source_backed_prices_open_preliminary_editor_without_fake_totals():
+    candidate = _candidate()
+    candidate["sections"][0]["positions"].append({
+        "code": "UNKNOWN-02",
+        "name": "Неисследованный дополнительный материал",
+        "unit": "шт",
+        "quantity": "3",
+        "price": "0",
+    })
+    evidence = _trusted_evidence()
+
+    action = build_estimate_action(
+        "Составь смету",
+        candidate,
+        verified_evidence=[evidence],
+    )
+    data = action["data"]
+    first, unknown = data["sections"][0]["positions"]
+
+    assert action["label"] == "Открыть предварительную смету"
+    assert data["pricing_status"] == "preliminary"
+    assert data["estimate_status"] == "preliminary"
+    assert first["price"] == "15000"
+    assert first["price_evidence"][0]["url"] == evidence["url"]
+    assert unknown["price"] == "0"
+    assert unknown["sum"] == "0.00"
+    assert unknown["price_evidence"] == []
+    assert data["totals"]["total"] == "1500000.00"
+    assert "строки без актуальной цены" in data["source_note"].casefold()
+    assert any("в сумму не включены" in item.casefold() for item in data["assumptions"])
+
+    persisted = PersistedEstimateAction.model_validate(action)
+    assert persisted.data.pricing_status == "preliminary"
+    assert persisted.data.estimate_status == "preliminary"
+    assert persisted.label == "Открыть предварительную смету"
+
+
 def test_federal_source_is_compatible_but_explicitly_flagged_as_non_local():
     evidence = _trusted_evidence(region="Россия")
     action = build_estimate_action(

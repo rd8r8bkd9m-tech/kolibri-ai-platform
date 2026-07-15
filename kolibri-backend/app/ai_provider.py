@@ -955,6 +955,12 @@ def _estimate_price_research_outcome(actions: list[dict]) -> dict:
             "Актуальные цены подтверждены источниками",
             status="completed",
         )
+    if pricing_status == "preliminary":
+        return work_summary_event(
+            "source_retrieval",
+            "Часть цен подтверждена; неизвестные строки исключены из итога",
+            status="completed",
+        )
     return work_summary_event(
         "source_retrieval",
         "Не удалось подтвердить цены — нужны уточнения",

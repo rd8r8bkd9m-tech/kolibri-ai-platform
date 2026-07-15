@@ -155,6 +155,109 @@ def test_search_queries_are_normalized_and_follow_exact_subject_federal_order():
     assert "!!!" not in " ".join(queries)
 
 
+def test_verbose_provider_rows_match_real_visible_supplier_labels():
+    cases = [
+        (
+            "Профилированный лист стеновой оцинкованный или с полимерным "
+            "покрытием для забора высотой 2 м",
+            "м²",
+            "312",
+            "<html><title>Профнастил С8 — Казань</title><body>"
+            "Казань. Профнастил С8 оцинкованный 0,45 мм: "
+            "312 руб./м2, с НДС. Обновлено 15.07.2026.</body></html>",
+        ),
+        (
+            "Труба стальная профильная для столбов забора",
+            "м",
+            "331",
+            "<html><title>Труба профильная 60x60 — Казань</title><body>"
+            "Казань. Труба стальная профильная 60x60: "
+            "331 руб./м, с НДС. Обновлено 15.07.2026.</body></html>",
+        ),
+    ]
+
+    for name, unit, expected_price, html in cases:
+        enriched, evidence, _queries = asyncio.run(
+            _run_collector(
+                _draft(
+                    region="Лениногорск, Республика Татарстан",
+                    unit=unit,
+                    name=name,
+                ),
+                html=html,
+                title="Каталог поставщика — Татарстан",
+            )
+        )
+
+        position = enriched["sections"][0]["positions"][0]
+        assert position["price"] == expected_price
+        assert len(evidence) == 1
+        assert evidence[0]["region"] == "Татарстан"
+        assert evidence[0]["project_region"] == "Лениногорск, Республика Татарстан"
+        assert evidence[0]["unit"] == unit
+        assert evidence[0]["unit_price"] == expected_price
+        assert evidence[0]["content_sha256"] == hashlib.sha256(html.encode("utf-8")).hexdigest()
+        assert evidence[0]["price_date"] == "2026-07-15"
+        assert evidence[0]["vat_status"] == "included"
+
+
+def test_known_city_subject_alias_never_crosses_project_region():
+    html = (
+        "<html><title>Профнастил С8 — Казань</title><body>"
+        "Казань. Профнастил С8 312 руб./м2, с НДС. "
+        "Обновлено 15.07.2026.</body></html>"
+    )
+
+    enriched, evidence, _queries = asyncio.run(
+        _run_collector(
+            _draft(region="Самарская область", unit="м²", name="Профнастил С8"),
+            html=html,
+        )
+    )
+
+    assert evidence == []
+    assert enriched["sections"][0]["positions"][0]["price"] == "0"
+
+
+def test_semantic_resource_match_fails_closed_for_related_but_wrong_prices():
+    cases = [
+        (
+            "Профнастил С8",
+            "м²",
+            "<html><title>Профнастил С21</title><body>Татарстан. "
+            "Профнастил С21 450 руб./м2, с НДС. Обновлено 15.07.2026.</body></html>",
+        ),
+        (
+            "Труба профильная 60x60",
+            "м",
+            "<html><title>Труба профильная 40x20</title><body>Татарстан. "
+            "Труба профильная 40x20 331 руб./м, с НДС. Обновлено 15.07.2026.</body></html>",
+        ),
+        (
+            "Профнастил",
+            "м²",
+            "<html><title>Монтаж профнастила</title><body>Татарстан. "
+            "Монтаж профнастила 312 руб./м2, с НДС. Обновлено 15.07.2026.</body></html>",
+        ),
+        (
+            "Труба стальная профильная для столбов забора",
+            "м",
+            "<html><title>Труба медная круглая</title><body>Татарстан. "
+            "Труба медная круглая 331 руб./м, с НДС. Обновлено 15.07.2026.</body></html>",
+        ),
+    ]
+
+    for name, unit, html in cases:
+        enriched, evidence, _queries = asyncio.run(
+            _run_collector(
+                _draft(region="Лениногорск, Татарстан", unit=unit, name=name),
+                html=html,
+            )
+        )
+        assert evidence == []
+        assert enriched["sections"][0]["positions"][0]["price"] == "0"
+
+
 def test_schema_org_product_offer_is_bound_to_requested_region_unit_and_fetched_bytes():
     html = """
     <html><head><title>Каталог строительного поставщика</title>

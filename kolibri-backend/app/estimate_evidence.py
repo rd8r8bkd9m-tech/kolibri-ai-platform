@@ -300,10 +300,16 @@ def evaluate_price_evidence(
         for position in ordered_positions
         if _decimal(position.get("quantity")) <= 0 or _decimal(position.get("price")) <= 0
     ]
-    needs_input = not ordered_positions or bool(incomplete_positions)
+    has_accepted_price = any(position["price_evidence"] for position in priced_positions)
+    needs_input = not ordered_positions or not priced_positions
     if needs_input:
         pricing_status = "needs_input"
-    elif not priced_positions or not all(position["price_evidence"] for position in priced_positions):
+    elif incomplete_positions:
+        # A real fetched price is useful even when research found no safe price
+        # for every row. Keep unknown rows at zero and expose an explicitly
+        # incomplete editable draft rather than suppressing the whole result.
+        pricing_status = "preliminary" if has_accepted_price else "needs_input"
+    elif not all(position["price_evidence"] for position in priced_positions):
         pricing_status = "preliminary"
     elif all(
         any(record["verification"] == "verified" for record in position["price_evidence"])

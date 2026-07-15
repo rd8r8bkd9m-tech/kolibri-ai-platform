@@ -108,6 +108,15 @@ def build_estimate_action(
     totals = _calculate_totals(sections, overhead_rate=overhead_rate, vat_rate=vat_rate)
     assumptions = _normalise_text_list(candidate_data.get("assumptions"), limit=50)
     assumptions.extend(_default_assumptions(area, sections))
+    if pricing_status == "preliminary" and any(
+        _decimal(position.get("quantity")) <= 0 or _decimal(position.get("price")) <= 0
+        for section in sections
+        for position in section.get("positions", [])
+    ):
+        assumptions.append(
+            "Итог включает только строки с подтверждённой ценой; строки без цены "
+            "сохранены для доисследования и в сумму не включены."
+        )
     questions = _normalise_text_list(candidate_data.get("questions"), limit=50)
     questions.extend(_required_questions(sections, region, pricing_status, scope_verified))
 
@@ -302,7 +311,10 @@ def _source_note(estimate_status: str, pricing_status: str) -> str:
     if pricing_status == "source_backed":
         return "Каждая цена связана с датированным источником, но независимая проверка ещё не завершена."
     if pricing_status == "preliminary":
-        return "Часть или все цены пока не имеют подходящих актуальных региональных источников."
+        return (
+            "Смета неполная: подтверждённые строки включены в итог, а строки без "
+            "актуальной цены сохранены с нулём и в сумму не включены."
+        )
     return "Готовой сметы нет: требуются индивидуальные позиции, объёмы и подтверждённые цены."
 
 

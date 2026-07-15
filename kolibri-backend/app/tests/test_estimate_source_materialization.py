@@ -107,6 +107,67 @@ def test_materialization_replaces_provider_price_only_with_trusted_source(monkey
     ]
 
 
+def test_materialization_keeps_partial_real_prices_as_preliminary_editor(monkeypatch):
+    monkeypatch.setenv("KOLIBRI_ESTIMATE_FGIS_ENABLED", "true")
+    monkeypatch.setenv("KOLIBRI_ESTIMATE_COMMERCIAL_FALLBACK_ENABLED", "false")
+    provider_action = _provider_action()
+    provider_action["data"]["sections"][0]["positions"].append({
+        "code": "UNKNOWN-02",
+        "name": "Неисследованный дополнительный материал",
+        "unit": "шт",
+        "quantity": "3",
+        "price": "777",
+    })
+
+    async def fake_enrich(self, draft, **_kwargs):
+        position = draft["sections"][0]["positions"][0]
+        unknown = draft["sections"][0]["positions"][1]
+        now = datetime.now(timezone.utc)
+        assert position["price"] == "0.00"
+        assert unknown["price"] == "0.00"
+        position["price"] = "46445.29"
+        return draft, [attest_price_evidence({
+            "position_code": position["code"],
+            "source_id": "fgiscs:426:202:01.2.03.03-0064",
+            "url": "https://fgiscs.minstroyrf.ru/catalog/01.2.03.03-0064",
+            "source_title": "ФГИС ЦС — Татарстан, II квартал 2026",
+            "source_type": "official_catalog",
+            "region": "Республика Татарстан",
+            "observed_at": now.isoformat().replace("+00:00", "Z"),
+            "price_date": now.date().isoformat(),
+            "unit": "т",
+            "vat_status": "excluded",
+            "quote": "Сметная цена 46445.29 руб./т, без НДС.",
+            "unit_price": "46445.29",
+            "currency": "RUB",
+            "content_sha256": "c" * 64,
+            "verification": "verified",
+        })]
+
+    monkeypatch.setattr(FgisCsClient, "enrich_draft", fake_enrich)
+    actions, trace = asyncio.run(_collect_streamed_materialization([provider_action]))
+
+    data = actions[0]["data"]
+    first, unknown = data["sections"][0]["positions"]
+    assert actions[0]["label"] == "Открыть предварительную смету"
+    assert data["pricing_status"] == "preliminary"
+    assert data["estimate_status"] == "preliminary"
+    assert first["price"] == "46445.29"
+    assert first["sum"] == "92890.58"
+    assert first["price_evidence"]
+    assert unknown["price"] == "0"
+    assert unknown["sum"] == "0.00"
+    assert unknown["price_evidence"] == []
+    assert data["totals"]["total"] == "92890.58"
+    assert any("в сумму не включены" in item.casefold() for item in data["assumptions"])
+    assert trace[-1] == {
+        "stage": "source_retrieval",
+        "summary": "Часть цен подтверждена; неизвестные строки исключены из итога",
+        "status": "completed",
+    }
+    assert PersistedEstimateAction.model_validate(actions[0]).data.pricing_status == "preliminary"
+
+
 def test_materialization_never_retains_unverified_provider_price(monkeypatch):
     monkeypatch.setenv("KOLIBRI_ESTIMATE_FGIS_ENABLED", "false")
     actions, trace = asyncio.run(

@@ -228,7 +228,6 @@ class PersistedEstimateDraft(_StrictMetadataModel):
         if flattened_keys != top_level_keys:
             raise ValueError("price_sources must exactly match position evidence")
         positive = [position for position in positions if _metadata_decimal(position.quantity) > 0 and _metadata_decimal(position.price) > 0]
-        complete = bool(positive) and len(positive) == len(positions)
         # Project-message actions are public/browser-submitted metadata.  A
         # 64-hex attestation is only opaque input here: this contract cannot
         # establish that it came from the trusted collector.  Keep evidence
@@ -236,7 +235,10 @@ class PersistedEstimateDraft(_StrictMetadataModel):
         # HMAC is actually verified, but never persist a promoted display
         # status in an executable action.  Promoted truth is represented only
         # by a server-derived persisted artifact reference.
-        safe_status = "preliminary" if complete else "needs_input"
+        # Preliminary is intentionally non-promoted: it is safe to persist a
+        # partial draft when at least one deterministic line has a real value.
+        # Unknown rows remain zero and cannot contribute to totals.
+        safe_status = "preliminary" if positive else "needs_input"
         self.pricing_status = safe_status
         self.estimate_status = safe_status
         self.scope_status = "unverified"

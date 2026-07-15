@@ -40,6 +40,8 @@ MAX_RESEARCH_SECONDS = 25.0
 MAX_REDIRECTS = 5
 COMMERCIAL_PRICE_TTL_DAYS = 30
 MIN_NAME_COVERAGE = Decimal("0.45")
+MIN_RESOURCE_WINDOW_COVERAGE = Decimal("0.45")
+MAX_RESOURCE_MATCH_TERMS = 6
 LOCAL_PRICE_WINDOW_CHARS = 160
 MAX_SEARCH_QUERIES_PER_POSITION = 3
 MAX_FETCHED_CANDIDATES_PER_POSITION = 10
@@ -72,7 +74,35 @@ _STOP_WORDS = {
     "для", "при", "работ", "работы", "материал", "материалы", "строительный",
     "строительные", "монтаж", "устройство", "цена", "купить", "руб", "ндс",
 }
+_RESOURCE_MATCH_STOP_WORDS = _STOP_WORDS | {
+    "в", "высота", "высотой", "длина", "длиной", "до", "забор", "забора",
+    "из", "или", "листа", "м", "м2", "м3", "мм", "на", "ограждение",
+    "ограждения", "ориентировочно", "пог", "по", "с", "стеновой", "ширина",
+    "шириной",
+}
+_RESOURCE_SERVICE_STEMS = {
+    "бурен", "демон", "монта", "окрас", "работ", "сварк", "услуг", "устан",
+    "устро",
+}
+_RESOURCE_CONFLICT_GROUPS = (
+    {"алюми", "дерев", "медн", "пласт", "сталь"},
+    {"карье", "кварц", "речно"},
+    {"кругл", "профи"},
+)
+_RESOURCE_SPEC_RE = re.compile(
+    r"^(?:[a-zа-яё]{1,5}\d{1,5}|\d+(?:x\d+){1,3})$",
+    re.IGNORECASE,
+)
 _REGION_STOP_WORDS = {"республика", "область", "край", "город", "россия", "рф"}
+_REGION_SUBJECT_ALIASES = {
+    "татарстан": (
+        "татарстан",
+        "казань",
+        "лениногорск",
+        "набережные челны",
+        "альметьевск",
+    ),
+}
 _FEDERAL_REGION_RE = re.compile(
     r"(?:"
     r"по\s+всей\s+россии|"
@@ -595,6 +625,7 @@ def _normalise_resource_query(value: Any) -> str:
     text = _normalise_search_term(value, maximum=320).casefold()
     replacements = (
         (r"\bпрофилированн\w*\s+лист\w*\b", "профнастил"),
+        (r"\bлист\w*\s+профилированн\w*\b", "профнастил"),
         (r"\bпрофлист\w*\b", "профнастил"),
         (r"\bпогонн\w*\s+метр\w*\b", "пог.м"),
         (r"\bквадратн\w*\s+метр\w*\b", "м²"),
@@ -602,17 +633,27 @@ def _normalise_resource_query(value: Any) -> str:
     )
     for pattern, replacement in replacements:
         text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
-    # Long provider-generated row labels hurt commercial search precision.
-    # Preserve the leading resource/specification tokens but remove duplicate
-    # words and cap the phrase so locality/unit terms remain influential.
+    text = re.sub(
+        r"\bоцинкованн\w*\s+или\s+(?:с\s+)?полимерн\w*\s+покрыт\w*\b",
+        " ",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.split(r"\bдля\b", text, maxsplit=1)[0]
+
+    # Search the product kernel, not an entire AI-authored sentence. Keep
+    # grade/dimension markers (С8, В25, 60x60), but drop application prose.
     tokens: list[str] = []
-    seen: set[str] = set()
-    for token in text.split():
-        if token in seen:
+    seen_stems: set[str] = set()
+    for token in _tokens(text):
+        if token in _RESOURCE_MATCH_STOP_WORDS:
             continue
-        seen.add(token)
+        stem = _stem(token)
+        if stem in seen_stems:
+            continue
+        seen_stems.add(stem)
         tokens.append(token)
-        if len(tokens) >= 14:
+        if len(tokens) >= MAX_RESOURCE_MATCH_TERMS:
             break
     return " ".join(tokens)
 
@@ -915,12 +956,106 @@ def _parse_unit_price(
 
 
 def _window_mentions_resource(resource_name: str, text: str) -> bool:
-    expected = set(_tokens(resource_name)) - _STOP_WORDS
-    if not expected:
+    expected = _resource_match_terms(resource_name, expected=True)
+    actual = _resource_match_terms(text, expected=False)
+    if not expected or not actual:
         return False
-    actual = set(_tokens(text)) - _STOP_WORDS
+
+    expected_stems = {_stem(token) for token in expected}
     actual_stems = {_stem(token) for token in actual}
-    return all(token in actual or _stem(token) in actual_stems for token in expected)
+    matched_stems = expected_stems & actual_stems
+    coverage = Decimal(len(matched_stems)) / Decimal(len(expected_stems))
+    minimum_matches = 1 if len(expected_stems) == 1 else 2
+    if len(matched_stems) < minimum_matches or coverage < MIN_RESOURCE_WINDOW_COVERAGE:
+        return False
+
+    # A shared descriptive adjective is not enough. At least one concrete
+    # lexical product anchor must be present next to the price.
+    anchors = {
+        stem
+        for token in expected
+        if not _is_resource_spec_token(token)
+        for stem in (_stem(token),)
+        if len(stem) >= 4 and stem not in _RESOURCE_SERVICE_STEMS
+    }
+    if not (anchors & actual_stems):
+        return False
+
+    # Model/grade/dimension markers are price-sensitive. C8 must never bind
+    # to C21, and 60x60 must never bind to 40x20.
+    expected_specs = {token for token in expected if _is_resource_spec_token(token)}
+    if expected_specs and not (expected_specs & set(actual)):
+        return False
+
+    if _resource_is_service(resource_name) != _resource_is_service(text):
+        return False
+
+    # Fail closed on explicit material/profile conflicts while allowing a
+    # shorter supplier label to omit a modifier altogether.
+    for group in _RESOURCE_CONFLICT_GROUPS:
+        expected_values = expected_stems & group
+        actual_values = actual_stems & group
+        if expected_values and actual_values and expected_values.isdisjoint(actual_values):
+            return False
+    return True
+
+
+def _resource_match_terms(value: str, *, expected: bool) -> list[str]:
+    text = unescape(str(value or "")).casefold().replace("×", "x")
+    text = re.sub(r"(?<=\d)[хx]\s*(?=\d)", "x", text)
+    text = re.sub(r"(?<=\d)\s*x\s*(?=\d)", "x", text)
+    replacements = (
+        (r"\bпрофилированн\w*\s+лист\w*\b", "профнастил"),
+        (r"\bлист\w*\s+профилированн\w*\b", "профнастил"),
+        (r"\bпрофлист\w*\b", "профнастил"),
+        (r"\bпрофнастил\w*\b", "профнастил"),
+    )
+    for pattern, replacement in replacements:
+        text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+    if expected:
+        # Provider-generated rows append application/quantity prose after the
+        # product kernel. It is useful for takeoff but should not require the
+        # supplier title to repeat every word.
+        text = re.split(r"\bдля\b", text, maxsplit=1)[0]
+        text = re.sub(
+            r"\bоцинкованн\w*\s+или\s+(?:с\s+)?полимерн\w*\s+покрыт\w*\b",
+            " ",
+            text,
+            flags=re.IGNORECASE,
+        )
+
+    terms: list[str] = []
+    seen_stems: set[str] = set()
+    for raw in _tokens(text):
+        token = _canonical_resource_token(raw)
+        if token in _RESOURCE_MATCH_STOP_WORDS or (token.isdigit() and len(token) < 2):
+            continue
+        stem = _stem(token)
+        if stem in seen_stems:
+            continue
+        seen_stems.add(stem)
+        terms.append(token)
+        if expected and len(terms) >= MAX_RESOURCE_MATCH_TERMS:
+            break
+    return terms
+
+
+def _resource_is_service(value: str) -> bool:
+    stems = [_stem(_canonical_resource_token(token)) for token in _tokens(value)]
+    # A supplier description may mention that a material is "для работ".
+    # Treat it as a service only when an action noun leads the local label.
+    return bool(set(stems[:3]) & _RESOURCE_SERVICE_STEMS)
+
+
+def _canonical_resource_token(token: str) -> str:
+    normalized = token.casefold()
+    if re.search(r"\d", normalized):
+        normalized = normalized.translate(str.maketrans({"с": "c", "в": "b"}))
+    return normalized
+
+
+def _is_resource_spec_token(token: str) -> bool:
+    return bool(_RESOURCE_SPEC_RE.fullmatch(token))
 
 
 def _unit_regex(unit: str) -> str:
@@ -995,13 +1130,14 @@ def _confidence(
 
 
 def _name_coverage(resource_name: str, text: str) -> Decimal:
-    expected = set(_tokens(resource_name)) - _STOP_WORDS
-    actual = set(_tokens(text)) - _STOP_WORDS
+    expected = set(_resource_match_terms(resource_name, expected=True))
+    actual = set(_resource_match_terms(text, expected=False))
     if not expected or not actual:
         return Decimal("0")
+    actual_stems = {_stem(item) for item in actual}
     matched = {
         token for token in expected
-        if token in actual or _stem(token) in {_stem(item) for item in actual}
+        if token in actual or _stem(token) in actual_stems
     }
     return (Decimal(len(matched)) / Decimal(len(expected))).quantize(Decimal("0.0001"))
 
@@ -1028,8 +1164,27 @@ def _resolve_evidence_region(text: str, project_region: str) -> str | None:
         if len(matched) == len(expected):
             return _clean_text(project_region, limit=240)
         return ", ".join(_display_region_token(token) for token in matched)
+    source_subject = _known_region_subject(text)
+    project_subject = _known_region_subject(project_region)
+    if source_subject and source_subject == project_subject:
+        return _display_region_token(source_subject)
     if _FEDERAL_REGION_RE.search(text):
         return "Россия"
+    return None
+
+
+def _known_region_subject(value: str) -> str | None:
+    actual = _tokens(value)
+    if not actual:
+        return None
+    for subject, aliases in _REGION_SUBJECT_ALIASES.items():
+        for alias in aliases:
+            alias_tokens = _tokens(alias)
+            if alias_tokens and all(
+                any(_region_word_matches(token, candidate) for candidate in actual)
+                for token in alias_tokens
+            ):
+                return subject
     return None
 
 
