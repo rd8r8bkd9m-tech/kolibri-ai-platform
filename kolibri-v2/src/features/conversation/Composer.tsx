@@ -17,6 +17,11 @@ interface ComposerProps {
   busy?: boolean
   placeholder?: string
   autoFocus?: boolean
+  realtimeVoice?: {
+    capabilityLive: boolean
+    rendererReady: boolean
+    transportReady: boolean
+  }
 }
 
 export default function Composer({
@@ -29,6 +34,7 @@ export default function Composer({
   busy = false,
   placeholder,
   autoFocus = false,
+  realtimeVoice,
 }: ComposerProps) {
   const { locale, t } = useLocale()
   const resolvedPlaceholder = placeholder ?? t('composer.defaultPlaceholder')
@@ -39,8 +45,14 @@ export default function Composer({
   const [listening, setListening] = useState(false)
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null)
   const voiceBaseValueRef = useRef('')
-  const mediaControls = resolveComposerMediaControls({ scope: window })
+  const mediaControls = resolveComposerMediaControls({
+    scope: window,
+    realtimeVoiceCapabilityLive: realtimeVoice?.capabilityLive,
+    realtimeVoiceRendererReady: realtimeVoice?.rendererReady,
+    realtimeVoiceTransportReady: realtimeVoice?.transportReady,
+  })
   const voiceAvailable = mediaControls.voiceInput
+  const voiceModeAvailable = mediaControls.voiceConversation
   const isMobile = useIsMobile()
   const toolsAvailable = capabilities.length > 0
   useVisualViewportInset()
@@ -64,6 +76,7 @@ export default function Composer({
   }
 
   const startVoiceInput = (continuous = false, openSurface = false) => {
+    if (openSurface && !voiceModeAvailable) return
     const SpeechRecognitionCtor = getSpeechRecognitionConstructor(window)
     if (!SpeechRecognitionCtor) return
 
@@ -129,7 +142,7 @@ export default function Composer({
           })}
         </div>
       )}
-      {voiceModeActive && voiceAvailable ? (
+      {voiceModeActive && voiceModeAvailable ? (
         <div className="composer-voice-surface" aria-label={t('composer.voiceMode')}>
           <div className="composer-voice-controls composer-voice-controls-left" aria-hidden="true" />
           <div className="composer-voice-live" aria-hidden="true">
@@ -191,9 +204,9 @@ export default function Composer({
             <button type="button" aria-label={t('composer.voiceInput')} className="composer-voice-button" onClick={() => startVoiceInput(false)}>
               <Mic size={22} strokeWidth={2.1} />
             </button>
-            <button type="button" aria-label={t('composer.voiceMode')} className="composer-voice-mode-button" onClick={() => startVoiceInput(true, true)}>
+            {voiceModeAvailable && <button type="button" aria-label={t('composer.voiceMode')} className="composer-voice-mode-button" onClick={() => startVoiceInput(true, true)}>
               <AudioLines size={23} strokeWidth={2.1} />
-            </button>
+            </button>}
           </> : null}
       </div>}
       <p className="composer-disclaimer">{t('composer.disclaimer')}</p>

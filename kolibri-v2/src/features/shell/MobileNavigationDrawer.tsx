@@ -1,8 +1,9 @@
 import { useEffect, useRef, type ComponentType } from 'react'
 import { Bot, Files, Plus, Search, Settings, X } from 'lucide-react'
 import CartoonMascot from '@/components/CartoonMascot'
-import type { Project } from '@/lib/api'
+import type { AuthUser, Project } from '@/lib/api'
 import { useLocale } from '@/features/localization'
+import { verifiedDisplayName, verifiedInitials } from '@/features/auth/shellIdentity'
 
 interface MobileNavigationDrawerProps {
   open: boolean
@@ -17,10 +18,13 @@ interface MobileNavigationDrawerProps {
   onSettings: () => void
   recentItems: Project[]
   onRecent: (projectId: string) => void
+  user: AuthUser | null
 }
 
-export default function MobileNavigationDrawer({ open, onClose, onNavigate, onNew, onHistory, onSearch, onFiles, onAgents, showOwnerControl, onSettings, recentItems, onRecent }: MobileNavigationDrawerProps) {
+export default function MobileNavigationDrawer({ open, onClose, onNavigate, onNew, onHistory, onSearch, onFiles, onAgents, showOwnerControl, onSettings, recentItems, onRecent, user }: MobileNavigationDrawerProps) {
   const { t } = useLocale()
+  const displayName = verifiedDisplayName(user) ?? t('settings.guest')
+  const initials = verifiedInitials(user) ?? 'К'
   const dialogRef = useRef<HTMLElement>(null)
   const returnFocusRef = useRef<HTMLElement | null>(null)
   const actions: Array<{ label: string; icon: ComponentType<{ size?: number; strokeWidth?: number }>; action: () => void }> = [
@@ -85,8 +89,8 @@ export default function MobileNavigationDrawer({ open, onClose, onNavigate, onNe
           )) : <p>{t('drawer.empty')}</p>}
         </section>
         <button type="button" className="mobile-navigation-profile" onClick={() => onNavigate(onSettings)}>
-          <span className="mobile-navigation-avatar">ВК</span>
-          <span><strong>Владислав Кочуров</strong><small>{t('drawer.profileSettings')}</small></span>
+          <span className="mobile-navigation-avatar">{initials}</span>
+          <span><strong>{displayName}</strong><small>{t('drawer.profileSettings')}</small></span>
           <Settings size={23} strokeWidth={1.8} />
         </button>
       </aside>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useNavigate, useParams, useSearchParams } from 'react-router'
+import { useNavigate, useOutletContext, useParams, useSearchParams } from 'react-router'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Copy, FileText, Image as ImageIcon, PencilLine, RotateCw, ThumbsDown, ThumbsUp, Volume2 } from 'lucide-react'
@@ -51,6 +51,8 @@ import {
 } from '@/lib/api'
 import { createUuid } from '@/lib/uuid'
 import { LocalizedMultiline, useLocale, type Translate } from '@/features/localization'
+import { verifiedFirstName, type ShellOutletContext } from '@/features/auth/shellIdentity'
+import { canOfferSpeechOutput } from '@/features/conversation/composerRuntime'
 
 function normalizeEstimateAction(data: Record<string, unknown>): Parameters<typeof estimates.create>[0] {
   const sections = Array.isArray(data.sections) ? data.sections : []
@@ -252,6 +254,7 @@ function MessageActions({ content, onRetry }: { content: string; onRetry: () => 
   const { locale, t } = useLocale()
   const [rating, setRating] = useState<'up' | 'down' | null>(null)
   const [copied, setCopied] = useState(false)
+  const speechOutputAvailable = canOfferSpeechOutput(window)
 
   const copy = async () => {
     await navigator.clipboard.writeText(content)
@@ -272,7 +275,7 @@ function MessageActions({ content, onRetry }: { content: string; onRetry: () => 
       <button type="button" aria-label={t('chat.inaccurate')} aria-pressed={rating === 'down'} onClick={() => setRating(current => current === 'down' ? null : 'down')}><ThumbsDown size={21} /></button>
       <button type="button" aria-label={t('chat.retryAnswer')} onClick={onRetry}><RotateCw size={20} /></button>
       <button type="button" aria-label={copied ? t('chat.copied') : t('chat.copy')} onClick={() => void copy()}><Copy size={20} /></button>
-      <button type="button" aria-label={t('chat.speak')} onClick={speak}><Volume2 size={22} /></button>
+      {speechOutputAvailable && <button type="button" aria-label={t('chat.speak')} onClick={speak}><Volume2 size={22} /></button>}
     </div>
   )
 }
@@ -289,6 +292,8 @@ function MessageRetryAction({ onRetry }: { onRetry: () => void }) {
 
 export default function ChatPage() {
   const { t } = useLocale()
+  const { user } = useOutletContext<ShellOutletContext>()
+  const firstName = verifiedFirstName(user)
   const [messages, setMessages] = useState<Message[]>([])
   const [project, setProject] = useState<Project | null>(null)
   const [historyLoading, setHistoryLoading] = useState(false)
@@ -915,7 +920,7 @@ export default function ChatPage() {
         setLoading(false)
       }
     }
-  }, [capabilityMenu, createProject, loading, messages, mode, navigate, project, refresh, remember, routeProjectId, t])
+  }, [capabilityMenu, createProject, loading, messages, mode, navigate, project, refresh, remember, routeProjectId, setInput, t])
 
   const handleCancel = useCallback(async () => {
     if (cancelInFlightRef.current) return
@@ -1035,7 +1040,10 @@ export default function ChatPage() {
           <div className="conversation-empty">
             <p className="conversation-eyebrow">{t('chat.newProject')}</p>
             <CartoonMascot size={34} className="conversation-empty-mascot" />
-            <h2><span className="conversation-empty-desktop-title">{t('chat.start')}</span><span className="conversation-empty-mobile-title"><LocalizedMultiline text={t('chat.mobileStart')} /></span></h2>
+            <h2><span className="conversation-empty-desktop-title">{t('chat.start')}</span><span className="conversation-empty-mobile-title"><LocalizedMultiline text={firstName
+              ? t('chat.mobileStartKnown', { name: firstName })
+              : t('chat.mobileStartGuest')
+            } /></span></h2>
             <p>{t('chat.emptyCopy')}</p>
             <div className="conversation-suggestions">
               {suggestions.map(suggestion => (

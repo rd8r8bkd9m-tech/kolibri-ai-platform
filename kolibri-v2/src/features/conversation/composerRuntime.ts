@@ -22,6 +22,9 @@ export type BrowserSpeechRecognitionConstructor = new () => BrowserSpeechRecogni
 interface SpeechRecognitionScope {
   SpeechRecognition?: BrowserSpeechRecognitionConstructor
   webkitSpeechRecognition?: BrowserSpeechRecognitionConstructor
+  isSecureContext?: boolean
+  speechSynthesis?: unknown
+  SpeechSynthesisUtterance?: unknown
 }
 
 export function getSpeechRecognitionConstructor(
@@ -33,7 +36,17 @@ export function getSpeechRecognitionConstructor(
 }
 
 export function canOfferLocalVoiceInput(scope: unknown): boolean {
-  return getSpeechRecognitionConstructor(scope) !== null
+  if (!scope || typeof scope !== 'object') return false
+  const candidate = scope as SpeechRecognitionScope
+  return candidate.isSecureContext !== false && getSpeechRecognitionConstructor(scope) !== null
+}
+
+export function canOfferSpeechOutput(scope: unknown): boolean {
+  if (!scope || typeof scope !== 'object') return false
+  const candidate = scope as SpeechRecognitionScope
+  return candidate.isSecureContext !== false
+    && Boolean(candidate.speechSynthesis)
+    && typeof candidate.SpeechSynthesisUtterance === 'function'
 }
 
 export interface ComposerMediaEvidence {
@@ -42,34 +55,64 @@ export interface ComposerMediaEvidence {
   uploadCapabilityLive?: boolean
   uploadRendererReady?: boolean
   uploadTransportReady?: boolean
+  realtimeVoiceCapabilityLive?: boolean
+  realtimeVoiceRendererReady?: boolean
+  realtimeVoiceTransportReady?: boolean
 }
 
 export interface ComposerMediaControls {
   voiceInput: boolean
+  voiceConversation: boolean
   fileUpload: boolean
   cameraUpload: boolean
 }
 
 export function resolveComposerMediaControls(evidence: ComposerMediaEvidence): ComposerMediaControls {
+  const voiceInput = canOfferLocalVoiceInput(evidence.scope)
   const uploadReady = Boolean(
     evidence.uploadCapabilityLive
     && evidence.uploadRendererReady
     && evidence.uploadTransportReady,
   )
   return {
-    voiceInput: canOfferLocalVoiceInput(evidence.scope),
+    voiceInput,
+    voiceConversation: Boolean(
+      voiceInput
+      && evidence.realtimeVoiceCapabilityLive
+      && evidence.realtimeVoiceRendererReady
+      && evidence.realtimeVoiceTransportReady,
+    ),
     fileUpload: uploadReady,
     cameraUpload: uploadReady,
   }
 }
 
 export function getKeyboardInsetPx(
-  innerHeight: number,
+  layoutHeight: number,
   viewportHeight: number,
   viewportOffsetTop: number,
 ): number {
-  if (![innerHeight, viewportHeight, viewportOffsetTop].every(Number.isFinite)) {
+  if (![layoutHeight, viewportHeight, viewportOffsetTop].every(Number.isFinite)) {
     return 0
   }
-  return Math.max(0, Math.round(innerHeight - viewportHeight - viewportOffsetTop))
+  return Math.max(0, Math.round(layoutHeight - viewportHeight - viewportOffsetTop))
+}
+
+export function getAdaptiveKeyboardInsetPx(
+  innerHeight: number,
+  shellHeight: number | null,
+  viewportHeight: number,
+  viewportOffsetTop: number,
+): number {
+  const measuredShellHeight = typeof shellHeight === 'number' && Number.isFinite(shellHeight) && shellHeight > 0
+    ? shellHeight
+    : innerHeight
+  // Android commonly resizes innerHeight, while iOS may keep the layout
+  // viewport tall. The smaller measured layout prevents applying the keyboard
+  // displacement twice when dynamic viewport units have already resized Shell.
+  return getKeyboardInsetPx(
+    Math.min(innerHeight, measuredShellHeight),
+    viewportHeight,
+    viewportOffsetTop,
+  )
 }

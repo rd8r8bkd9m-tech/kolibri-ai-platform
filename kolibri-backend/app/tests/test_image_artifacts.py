@@ -998,6 +998,8 @@ def test_system_prompt_keeps_kolibri_identity_and_uses_live_catalog(monkeypatch)
     assert "Не имитируй выполнение" in prompt
     assert "не раскрывай private reasoning" in prompt
     assert "проверь capability/инструмент" in prompt
+    assert "не перенаправляй пользователя к строительным работам" in prompt
+    assert "Сметный JSON разрешён только для явного запроса на смету" in prompt
     assert "Недоступно в текущем сеансе" in prompt
     assert "без лишнего подтверждения" in prompt
     assert "Изображение" in prompt

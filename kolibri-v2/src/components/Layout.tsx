@@ -13,6 +13,7 @@ import { useProjectHistory } from '@/features/projects/projectHistoryContext'
 import { useLocale } from '@/features/localization'
 import { isOwnerRole } from '@/features/shell/releaseIdentity'
 import type { AuthUser } from '@/lib/api'
+import type { ShellOutletContext } from '@/features/auth/shellIdentity'
 
 export default function Layout({ user }: { user: AuthUser | null }) {
   return (
@@ -140,10 +141,11 @@ function LayoutShell({ user }: { user: AuthUser | null }) {
             onSettings={() => navigate('/settings')}
             recentItems={projects}
             onRecent={selectHistoryItem}
+            user={user}
           />
 
           <main className="shell-main">
-            <Outlet />
+            <Outlet context={{ user } satisfies ShellOutletContext} />
           </main>
 
           <HistoryPanel

@@ -2477,7 +2477,7 @@ a:hover .kolibri-mascot {
 
 .conversation-composer {
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr) 48px 48px;
+  grid-template-columns: 48px minmax(0, 1fr) 48px;
   align-items: end;
   gap: 6px;
   border: 1px solid var(--border-subtle);
@@ -2485,6 +2485,10 @@ a:hover .kolibri-mascot {
   padding: 7px;
   background: var(--bg-surface);
   box-shadow: 0 12px 38px rgba(34, 31, 27, 0.11), 0 2px 8px rgba(34, 31, 27, 0.05);
+}
+
+.conversation-composer:has(.composer-voice-mode-button) {
+  grid-template-columns: 48px minmax(0, 1fr) 48px 48px;
 }
 
 .conversation-composer:has(.composer-send-button) {
@@ -2496,6 +2500,10 @@ a:hover .kolibri-mascot {
 }
 
 .conversation-composer:not(:has(.composer-tool-button)) {
+  grid-template-columns: minmax(0, 1fr) 48px;
+}
+
+.conversation-composer:not(:has(.composer-tool-button)):has(.composer-voice-mode-button) {
   grid-template-columns: minmax(0, 1fr) 48px 48px;
 }
 
@@ -3121,16 +3129,18 @@ a:hover .kolibri-mascot {
   .conversation-composer {
     border: 0;
     border-radius: 28px;
-    grid-template-columns: 44px minmax(0, 1fr) 44px 44px;
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
     gap: 4px;
     padding: 6px;
     background: color-mix(in srgb, var(--bg-surface) 94%, var(--conversation-mid));
     box-shadow: 0 10px 36px rgba(69, 105, 133, 0.13);
     backdrop-filter: blur(22px);
   }
+  .conversation-composer:has(.composer-voice-mode-button) { grid-template-columns: 44px minmax(0, 1fr) 44px 44px; }
   .conversation-composer:has(.composer-send-button) { grid-template-columns: 44px minmax(0, 1fr) 44px; }
   .conversation-composer:not(:has(.composer-send-button)):not(:has(.composer-voice-button)):not(:has(.composer-voice-mode-button)) { grid-template-columns: 44px minmax(0, 1fr); }
-  .conversation-composer:not(:has(.composer-tool-button)) { grid-template-columns: minmax(0, 1fr) 44px 44px; }
+  .conversation-composer:not(:has(.composer-tool-button)) { grid-template-columns: minmax(0, 1fr) 44px; }
+  .conversation-composer:not(:has(.composer-tool-button)):has(.composer-voice-mode-button) { grid-template-columns: minmax(0, 1fr) 44px 44px; }
   .conversation-composer:not(:has(.composer-tool-button)):has(.composer-send-button) { grid-template-columns: minmax(0, 1fr) 44px; }
   .conversation-composer:not(:has(.composer-tool-button)):not(:has(.composer-send-button)):not(:has(.composer-voice-button)):not(:has(.composer-voice-mode-button)) { grid-template-columns: minmax(0, 1fr); }
   .composer-tool-button,

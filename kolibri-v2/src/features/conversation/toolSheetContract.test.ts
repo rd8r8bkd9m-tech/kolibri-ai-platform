@@ -35,9 +35,10 @@ describe('mobile tool sheet capability truth', () => {
     expect(composer).toContain('open={toolsOpen && isMobile && toolsAvailable}')
   })
 
-  it('allocates distinct desktop and mobile columns for both voice controls', () => {
-    expect(css).toMatch(/\.conversation-composer\s*\{[^}]*grid-template-columns:\s*48px minmax\(0, 1fr\) 48px 48px;/s)
-    expect(css).toMatch(/@media[^]*\.conversation-composer\s*\{[^}]*grid-template-columns:\s*44px minmax\(0, 1fr\) 44px 44px;/s)
+  it('adds the second voice column only when a verified realtime control exists', () => {
+    expect(css).toMatch(/\.conversation-composer\s*\{[^}]*grid-template-columns:\s*48px minmax\(0, 1fr\) 48px;/s)
+    expect(css).toMatch(/\.conversation-composer:has\(\.composer-voice-mode-button\)\s*\{[^}]*48px minmax\(0, 1fr\) 48px 48px;/s)
+    expect(composer).toContain('{voiceModeAvailable && <button')
   })
 
   it('keeps mobile safe-area and touch behavior wired without querying CSS env from JS', () => {
