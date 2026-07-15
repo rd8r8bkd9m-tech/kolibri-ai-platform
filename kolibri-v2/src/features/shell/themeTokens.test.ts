@@ -12,6 +12,10 @@ describe('mobile conversation theme tokens', () => {
     expect(css).toContain('.shell-mobile-mode span { color: var(--text-secondary);')
   })
 
+  it('keeps mobile action buttons at the minimum accessible target size', () => {
+    expect(css).toMatch(/\.shell-mobile-actions button\s*\{[^}]*width:\s*44px;[^}]*min-width:\s*44px;[^}]*height:\s*44px;[^}]*min-height:\s*44px;[^}]*flex:\s*0 0 44px;/s)
+  })
+
   it('uses theme surfaces and inherited text for the mobile user bubble', () => {
     expect(css).toMatch(/\.conversation-message\.user\s*\{[^}]*background:\s*var\(--bg-elevated\);[^}]*color:\s*var\(--text-primary\);/s)
     expect(css).toContain('.conversation-message.user .conversation-message-content { color: inherit;')
