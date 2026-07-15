@@ -58,12 +58,27 @@ def test_image_capability_fails_closed_without_credential(monkeypatch):
     assert capability["id"] == "image.generate"
     assert capability["status"] == "unavailable"
     assert capability["invocable"] is False
-    assert "routes" not in capability
-    assert "selected_route_id" not in capability
+    assert capability["selected_route_id"] is None
+    assert capability["routes"] == [
+        {
+            "id": "image.generate.route.primary",
+            "configured": False,
+            "permitted": True,
+            "probe": {
+                "state": "never",
+                "fresh": False,
+                "checked_at": None,
+                "ttl_seconds": 25200,
+                "evidence_id": None,
+                "error_code": None,
+            },
+        }
+    ]
     assert "policy" not in capability
     assert capability["reason"]["code"] == "route_not_configured"
     assert capability["renderer"]["registered"] is True
     assert capability["renderer"]["id"] == "image"
+    _assert_public_payload_has_no_image_topology(response.json())
 
 
 def test_image_capability_ignores_unverified_health_flag(monkeypatch):
@@ -1073,7 +1088,7 @@ def _assert_public_payload_has_no_image_topology(payload):
     walk(payload)
 
 
-def test_public_capability_catalog_strips_routes_credentials_and_provider_probe(monkeypatch):
+def test_public_capability_catalog_exposes_redacted_route_proof_without_topology(monkeypatch):
     internal = {
         "schema_version": "kolibri.capabilities.v1",
         "status": "available",
@@ -1115,8 +1130,29 @@ def test_public_capability_catalog_strips_routes_credentials_and_provider_probe(
                 "probe": {
                     "state": "succeeded",
                     "fresh": True,
+                    "checked_at": "2026-07-15T00:00:00+00:00",
+                    "ttl_seconds": 25200,
+                    "evidence_id": "sha256:abc123",
+                    "error_code": None,
                     "provider": "codex_cli",
                     "model": "codex-cli:account-default",
+                },
+            }, {
+                "id": "deepseek_private_route",
+                "configured": True,
+                "permitted": True,
+                "credential": {
+                    "source": "server_env",
+                    "ready": True,
+                },
+                "probe": {
+                    "state": "failed",
+                    "fresh": False,
+                    "checked_at": "2026-07-14T23:00:00+00:00",
+                    "ttl_seconds": 25200,
+                    "error_code": "provider_transport_failed",
+                    "provider": "deepseek_private_route",
+                    "model": "deepseek-secret-model",
                 },
             }],
         }],
@@ -1139,9 +1175,29 @@ def test_public_capability_catalog_strips_routes_credentials_and_provider_probe(
         "registered": True,
         "healthy": True,
     }
+    assert capability["source"] == {"type": "live_invocation"}
     assert capability["reason"]["code"] == "live_invocation"
-    for forbidden_key in ("routes", "selected_route_id", "policy", "credential", "probe"):
+    assert capability["selected_route_id"] == "image.generate.route.primary"
+    assert capability["routes"] == [
+        {
+            "id": "image.generate.route.primary",
+            "configured": True,
+            "permitted": True,
+            "probe": {
+                "state": "succeeded",
+                "fresh": True,
+                "checked_at": "2026-07-15T00:00:00+00:00",
+                "ttl_seconds": 25200,
+                "evidence_id": "sha256:abc123",
+                "error_code": None,
+            },
+        }
+    ]
+    for forbidden_key in ("policy", "credential", "probe"):
         assert forbidden_key not in capability
+    for forbidden_key in ("provider", "model", "credential"):
+        assert forbidden_key not in capability["routes"][0]
+        assert forbidden_key not in capability["routes"][0]["probe"]
     _assert_public_payload_has_no_image_topology(body)
     assert internal["capabilities"][0]["routes"][0]["probe"]["provider"] == "codex_cli"
 

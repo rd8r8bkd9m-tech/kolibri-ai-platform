@@ -9,6 +9,7 @@ preview was created.
 from __future__ import annotations
 
 import base64
+from datetime import datetime, timezone
 from io import BytesIO
 import hashlib
 import hmac
@@ -210,6 +211,7 @@ async def _web_search(arguments: dict[str, Any]) -> dict[str, Any]:
                 "title": str(item.get("title") or url)[:500],
                 "snippet": str(item.get("snippet") or "")[:4_000],
                 "url": url,
+                "retrieved_at": _safe_retrieved_at(item.get("retrieved_at")),
             }
         )
     if not sources:
@@ -225,6 +227,19 @@ async def _web_search(arguments: dict[str, Any]) -> dict[str, Any]:
         evidence_id="sha256:" + json_hash(sources),
     )
     return {"query": query, "sources": sources, "total": len(sources)}
+
+
+def _safe_retrieved_at(value: Any) -> str:
+    if isinstance(value, str) and value.strip():
+        try:
+            parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        except ValueError:
+            parsed = None
+        if parsed is not None:
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc).isoformat()
+    return datetime.now(timezone.utc).isoformat()
 
 
 def json_hash(value: Any) -> str:

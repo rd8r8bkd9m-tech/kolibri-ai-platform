@@ -46,6 +46,7 @@ from app.capability_registry import (
 logger = logging.getLogger(__name__)
 _CAPABILITY_ID = re.compile(r"^[a-z][a-z0-9_.-]{1,79}$")
 _RELEASE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$")
+_PUBLIC_SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$")
 _PROBE_LEDGER_SCHEMA = "kolibri.capability-probes.v2"
 _DEFAULT_PROBE_TTL_SECONDS = 7 * 60 * 60
 _MIN_PROBE_TTL_SECONDS = 60
@@ -654,6 +655,10 @@ def public_capability_snapshot() -> dict[str, Any]:
             ),
             "status": value.get("status"),
         }
+        selected_route_alias, public_routes = _public_route_proofs(value)
+        public["selected_route_id"] = selected_route_alias
+        public["routes"] = public_routes
+        public["source"] = _public_source(value, selected_route_alias, public_routes)
         public["reason"] = {
             "code": str(reason.get("code") or "unavailable"),
             "message": str(reason.get("message") or "Возможность недоступна."),
@@ -685,6 +690,115 @@ def public_capability_snapshot() -> dict[str, Any]:
         )
         if key in snapshot
     } | {"capabilities": capabilities}
+
+
+def _public_route_alias(capability_id: str) -> str:
+    safe_capability = (
+        capability_id
+        if _CAPABILITY_ID.fullmatch(capability_id)
+        else f"capability-{hashlib.sha256(capability_id.encode('utf-8')).hexdigest()[:16]}"
+    )
+    return f"{safe_capability}.route.primary"
+
+
+def _public_source(
+    capability: dict[str, Any],
+    selected_route_id: str | None,
+    routes: list[dict[str, Any]],
+) -> dict[str, str]:
+    if capability.get("status") != "available" or capability.get("invocable") is not True:
+        return {"type": "runtime_evidence"}
+    for route in routes:
+        if route.get("id") != selected_route_id:
+            continue
+        probe = route.get("probe")
+        if (
+            isinstance(probe, dict)
+            and probe.get("state") == ProbeState.SUCCEEDED.value
+            and probe.get("fresh") is True
+        ):
+            return {"type": "live_invocation"}
+    return {"type": "runtime_evidence"}
+
+
+def _public_evidence(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if _PUBLIC_SAFE_ID.fullmatch(text):
+        return text
+    return f"sha256:{hashlib.sha256(text.encode('utf-8')).hexdigest()}"
+
+
+def _public_error_code(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = re.sub(r"[^a-z0-9_.-]+", "_", str(value).lower()).strip("_")
+    return text[:80] or None
+
+
+def _public_probe(probe: Any) -> dict[str, Any]:
+    raw = probe if isinstance(probe, dict) else {}
+    state = str(raw.get("state") or "never")
+    if state not in {item.value for item in ProbeState}:
+        state = ProbeState.NEVER.value
+    try:
+        ttl_seconds = int(raw.get("ttl_seconds") or 0)
+    except (TypeError, ValueError):
+        ttl_seconds = 0
+    if ttl_seconds <= 0:
+        ttl_seconds = capability_probe_ttl_seconds()
+    checked_at = _parse_time(raw.get("checked_at"))
+    evidence_id = _public_evidence(raw.get("evidence_id"))
+    error_code = _public_error_code(raw.get("error_code"))
+    fresh = (
+        state == ProbeState.SUCCEEDED.value
+        and checked_at is not None
+        and raw.get("fresh") is True
+    )
+    return {
+        "state": state,
+        "fresh": fresh,
+        "checked_at": checked_at.isoformat() if checked_at else None,
+        "ttl_seconds": ttl_seconds,
+        "evidence_id": evidence_id,
+        "error_code": error_code,
+    }
+
+
+def _public_route_proofs(capability: dict[str, Any]) -> tuple[str | None, list[dict[str, Any]]]:
+    routes = [route for route in capability.get("routes", []) if isinstance(route, dict)]
+    if not routes:
+        return None, []
+
+    selected_internal = str(capability.get("selected_route_id") or "")
+    selected_route = next(
+        (route for route in routes if str(route.get("id") or "") == selected_internal),
+        None,
+    )
+    proof_route = selected_route
+    if proof_route is None:
+        proof_route = next(
+            (
+                route
+                for route in routes
+                if isinstance(route.get("probe"), dict)
+                and route["probe"].get("state") != ProbeState.NEVER.value
+            ),
+            routes[0],
+        )
+
+    alias = _public_route_alias(str(capability.get("id") or "capability"))
+    public_route = {
+        "id": alias,
+        "configured": proof_route.get("configured") is True,
+        "permitted": proof_route.get("permitted") is True,
+        "probe": _public_probe(proof_route.get("probe")),
+    }
+    selected_alias = alias if selected_route is proof_route else None
+    return selected_alias, [public_route]
 
 
 def capability_by_id(capability_id: str) -> dict[str, Any] | None:
