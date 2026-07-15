@@ -12,6 +12,7 @@ import stat
 import subprocess
 import sys
 import tarfile
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -107,6 +108,43 @@ def test_render_canary_site_adds_release_prefix_without_touching_production_rout
             candidate_backend="http://127.0.0.1:18018",
             candidate_frontend="http://127.0.0.1:15194",
         )
+
+
+def test_render_canary_site_uses_preferred_prefix_with_existing_regex_asset_location():
+    active = b"""server {
+    location /api/v1/ { proxy_pass http://127.0.0.1:18015; }
+    location /api/ { proxy_pass http://127.0.0.1:18015; }
+    location /v1/ { proxy_pass http://127.0.0.1:18015; }
+    location /ws/ { proxy_pass http://127.0.0.1:18015; }
+    location ~* \\.(?:js|css)$ {
+        expires 1y;
+        add_header Cache-Control public;
+    }
+    location / { proxy_pass http://127.0.0.1:15193; }
+}
+"""
+    release_id = "kolibri-p7-canary-assets"
+
+    rendered = executor.render_canary_site(
+        active,
+        release_id=release_id,
+        candidate_backend="http://127.0.0.1:18018",
+        candidate_frontend="http://127.0.0.1:15194",
+    ).decode()
+
+    base = executor.canary_base_path(release_id)
+    assert f"location ^~ {base}assets/" not in rendered
+    assert f"location ^~ {base}api/" in rendered
+    assert f"location ^~ {base} {{" in rendered
+    assert "location ~* \\.(?:js|css)$" in rendered
+    assert "expires 1y;" in rendered
+    original = active.decode()
+    rendered_blocks = executor._location_blocks(rendered)
+    original_blocks = executor._location_blocks(original)
+    for route in (*executor.BACKEND_ROUTES, "/"):
+        start, end, _ = original_blocks[route]
+        rendered_start, rendered_end, _ = rendered_blocks[route]
+        assert rendered[rendered_start:rendered_end] == original[start:end]
 
 
 def test_render_paired_site_rejects_route_drift_and_ambiguous_frontend():
@@ -324,6 +362,160 @@ def test_consistent_sqlite_backup_rejects_another_writer(tmp_path: Path):
         blocker.close()
 
 
+def test_online_sqlite_snapshot_does_not_require_draining_writer(tmp_path: Path):
+    source = tmp_path / "source.db"
+    with sqlite3.connect(source) as connection:
+        connection.execute("PRAGMA foreign_keys=ON")
+        connection.execute("CREATE TABLE sample(value TEXT)")
+        connection.execute("INSERT INTO sample VALUES ('committed')")
+    destination = tmp_path / "candidate" / "kolibri.db"
+    destination.parent.mkdir()
+    writer = sqlite3.connect(source)
+    writer.execute("BEGIN IMMEDIATE")
+    writer.execute("INSERT INTO sample VALUES ('uncommitted')")
+    try:
+        evidence = executor.online_sqlite_snapshot(source, destination)
+    finally:
+        writer.rollback()
+        writer.close()
+
+    assert evidence["writer_drained"] is False
+    assert evidence["online_snapshot"] is True
+    assert evidence["quick_check"] == "ok"
+    assert evidence["foreign_key_check"] == "ok"
+    assert evidence["backup_sha256"] == executor.sha256_file(destination)
+    with sqlite3.connect(destination) as connection:
+        rows = connection.execute("SELECT value FROM sample").fetchall()
+    assert rows == [("committed",)]
+
+
+def test_online_sqlite_snapshot_allows_wal_writer_commit_during_backup(tmp_path: Path):
+    source = tmp_path / "source.db"
+    blob = "x" * 4096
+    with sqlite3.connect(source) as connection:
+        connection.execute("PRAGMA page_size=512")
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("CREATE TABLE sample(batch TEXT, item INTEGER, payload TEXT)")
+        for batch in range(160):
+            connection.execute("INSERT INTO sample VALUES (?, ?, ?)", (f"seed-{batch}", 0, blob))
+            connection.execute("INSERT INTO sample VALUES (?, ?, ?)", (f"seed-{batch}", 1, blob))
+    destination = tmp_path / "candidate" / "kolibri.db"
+    destination.parent.mkdir()
+    progress_seen = threading.Event()
+    backup_progress_triggered = threading.Event()
+    commit_done = threading.Event()
+    hook_timeout = threading.Event()
+    committed_batches: list[str] = []
+
+    def writer() -> None:
+        progress_seen.wait(timeout=5)
+        with sqlite3.connect(source, timeout=5.0) as connection:
+            connection.execute("PRAGMA journal_mode=WAL")
+            for index in range(3):
+                batch = f"writer-{index}"
+                connection.execute("BEGIN IMMEDIATE")
+                connection.execute("INSERT INTO sample VALUES (?, ?, ?)", (batch, 0, blob))
+                connection.execute("INSERT INTO sample VALUES (?, ?, ?)", (batch, 1, blob))
+                connection.commit()
+                committed_batches.append(batch)
+        commit_done.set()
+
+    thread = threading.Thread(target=writer)
+    thread.start()
+
+    def progress(_status: int, remaining: int, _total: int) -> None:
+        if remaining > 0 and not progress_seen.is_set():
+            backup_progress_triggered.set()
+            progress_seen.set()
+            if not commit_done.wait(timeout=5):
+                hook_timeout.set()
+
+    try:
+        evidence = executor.online_sqlite_snapshot(
+            source,
+            destination,
+            deadline_seconds=15,
+            backup_pages=1,
+            backup_sleep=0.001,
+            progress_hook=progress,
+        )
+    finally:
+        progress_seen.set()
+        thread.join(timeout=5)
+
+    assert not thread.is_alive()
+    assert backup_progress_triggered.is_set()
+    assert not hook_timeout.is_set()
+    assert committed_batches == ["writer-0", "writer-1", "writer-2"]
+    assert evidence["quick_check"] == "ok"
+    assert evidence["foreign_key_check"] == "ok"
+    with sqlite3.connect(destination) as connection:
+        candidate_batches = dict(
+            connection.execute(
+                "SELECT batch, COUNT(*) FROM sample GROUP BY batch HAVING batch LIKE 'writer-%'"
+            ).fetchall()
+        )
+        seed_count = connection.execute(
+            "SELECT COUNT(*) FROM sample WHERE batch LIKE 'seed-%'"
+        ).fetchone()[0]
+    assert seed_count == 320
+    assert all(count == 2 for count in candidate_batches.values())
+
+
+@pytest.mark.parametrize("deadline_pragma", ["quick_check", "foreign_key_check"])
+def test_online_sqlite_snapshot_deadline_interrupts_candidate_pragmas(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    deadline_pragma: str,
+):
+    source = tmp_path / "source.db"
+    with sqlite3.connect(source) as connection:
+        connection.execute("PRAGMA foreign_keys=ON")
+        connection.execute("CREATE TABLE parent(id INTEGER PRIMARY KEY)")
+        connection.execute("CREATE TABLE child(parent_id INTEGER REFERENCES parent(id))")
+        connection.execute("INSERT INTO parent VALUES (1)")
+        connection.execute("INSERT INTO child VALUES (1)")
+    destination = tmp_path / "candidate" / "kolibri.db"
+    destination.parent.mkdir()
+    now = {"value": 0.0}
+    target_connections: list[RecordingConnection] = []
+    real_connect = sqlite3.connect
+
+    class RecordingConnection(sqlite3.Connection):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.progress_handler_calls: list[tuple[object, int]] = []
+
+        def set_progress_handler(self, progress_handler, n):
+            self.progress_handler_calls.append((progress_handler, n))
+            return super().set_progress_handler(progress_handler, n)
+
+        def execute(self, sql, parameters=(), /):
+            if isinstance(sql, str) and sql == f"PRAGMA {deadline_pragma}":
+                now["value"] = 2.0
+            return super().execute(sql, parameters)
+
+    def connect(database, *args, **kwargs):
+        if kwargs.get("uri"):
+            return real_connect(database, *args, **kwargs)
+        connection = real_connect(database, *args, factory=RecordingConnection, **kwargs)
+        target_connections.append(connection)
+        return connection
+
+    monkeypatch.setattr(executor.time, "monotonic", lambda: now["value"])
+    monkeypatch.setattr(executor.sqlite3, "connect", connect)
+
+    with pytest.raises(executor.P7ExecutorError, match="p7_sqlite_online_snapshot_deadline_exceeded"):
+        executor.online_sqlite_snapshot(source, destination, deadline_seconds=1.0)
+
+    assert len(target_connections) == 1
+    progress_calls = target_connections[0].progress_handler_calls
+    assert progress_calls[-2][1] == 1
+    assert progress_calls[-2][0] is not None
+    assert progress_calls[-1] == (None, 0)
+    assert not destination.exists()
+
+
 def test_runtime_secret_gate_does_not_accept_missing_or_short_values(tmp_path: Path):
     secret_file = tmp_path / "backend.env"
     manifest = {
@@ -346,6 +538,7 @@ def _valid_plan() -> dict:
     return {
         "schema_version": executor.EXPECTED_PLAN_SCHEMA,
         "status": "planned_not_applied",
+        "activation_mode": "production",
         "production_applied": False,
         "release_id": "kolibri-p7-test",
         "source_commit": "a" * 40,
@@ -423,6 +616,84 @@ def test_reverify_plan_calls_existing_planner_and_enforces_exact_ports_and_lock(
     manifest["targets"]["backend"]["port"] = 18015
     with pytest.raises(executor.P7ExecutorError, match="p7_exact_runtime_target_invalid"):
         executor.reverify_plan(_snapshot(tmp_path, plan), FakeP7)
+
+
+def test_reverify_plan_rejects_legacy_or_tampered_activation_mode(tmp_path: Path):
+    signed_plan = _valid_plan()
+    manifest = {
+        "targets": {
+            "backend": {"port": 18018, "origin": "http://127.0.0.1:18018"},
+            "frontend": {"port": 15194, "origin": "http://127.0.0.1:15194"},
+        },
+        "toolchain": {"lockfiles": {executor.REQUIREMENTS_LOCK: {"sha256": "4" * 64}}},
+    }
+    rollback = {"release_id": "kolibri-p6", "targets": {}}
+
+    class FakeP7:
+        @staticmethod
+        def canonical_json(payload):
+            return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+
+        @staticmethod
+        def paired_switch_plan(**_kwargs):
+            return signed_plan
+
+        @staticmethod
+        def load_manifest(path):
+            return (manifest, path / "release-manifest.json", "1" * 64) if path.name == "candidate" else (
+                rollback,
+                path / "release-manifest.json",
+                "2" * 64,
+            )
+
+    legacy = dict(signed_plan)
+    legacy.pop("activation_mode")
+    with pytest.raises(executor.P7ExecutorError, match="p7_plan_recomputation_mismatch"):
+        executor.reverify_plan(_snapshot(tmp_path, legacy), FakeP7)
+
+    tampered = {
+        **signed_plan,
+        "activation_mode": "canary",
+        "canary_base_path": executor.canary_base_path(signed_plan["release_id"]),
+    }
+    with pytest.raises(executor.P7ExecutorError, match="p7_plan_recomputation_mismatch"):
+        executor.reverify_plan(_snapshot(tmp_path, tampered), FakeP7)
+
+
+def test_reverify_plan_rejects_ambiguous_canary_base_path(tmp_path: Path):
+    canary_plan = {
+        **_valid_plan(),
+        "activation_mode": "canary",
+        "canary_base_path": "/__canary/other-release/",
+    }
+    manifest = {
+        "targets": {
+            "backend": {"port": 18018, "origin": "http://127.0.0.1:18018"},
+            "frontend": {"port": 15194, "origin": "http://127.0.0.1:15194"},
+        },
+        "toolchain": {"lockfiles": {executor.REQUIREMENTS_LOCK: {"sha256": "4" * 64}}},
+    }
+    rollback = {"release_id": "kolibri-p6", "targets": {}}
+
+    class FakeP7:
+        @staticmethod
+        def canonical_json(payload):
+            return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+
+        @staticmethod
+        def paired_switch_plan(**_kwargs):
+            return canary_plan
+
+        @staticmethod
+        def load_manifest(path):
+            return (manifest, path / "release-manifest.json", "1" * 64) if path.name == "candidate" else (
+                rollback,
+                path / "release-manifest.json",
+                "2" * 64,
+            )
+
+    with pytest.raises(executor.P7ExecutorError, match="p7_plan_canary_base_path_invalid"):
+        executor.reverify_plan(_snapshot(tmp_path, canary_plan), FakeP7)
 
 
 class FakeRunner(executor.CommandRunner):
@@ -534,21 +805,67 @@ def test_isolated_nginx_test_uses_candidate_without_replacing_active(tmp_path: P
 
 
 class RouteClient:
-    def __init__(self, base_url: str, *, bad_header: bool = False):
+    ASSET_PATH = "/assets/index-a1b2c3d4.js"
+
+    def __init__(
+        self,
+        base_url: str,
+        *,
+        bad_header: bool = False,
+        prefix: str = "/",
+        header_mode: str = "both",
+    ):
         self.base_url = base_url
         self.bad_header = bad_header
+        self.prefix = prefix
+        self.header_mode = header_mode
+        self.paths: list[tuple[str, str]] = []
 
     def request(self, method: str, path: str, payload=None):
+        self.paths.append((method, path))
         release = "wrong" if self.bad_header else "kolibri-p7-test"
-        headers = {"x-kolibri-release": release, "content-type": "application/json"}
-        if path == "/api/health":
-            return executor.HttpResult(200, headers, b'{"status":"ok","release_id":"kolibri-p7-test"}')
-        if path == "/":
-            return executor.HttpResult(200, headers, b"kolibri-p7-test")
-        if path == "/api/v1/__kolibri_p7_missing__":
-            return executor.HttpResult(404, headers, b'{"detail":"not found"}')
-        if method == "POST" and path == "/api/v1/shell/bootstrap":
-            return executor.HttpResult(200, headers, b'{"session_type":"anonymous"}')
+        release_headers = {"x-kolibri-release": release}
+        if self.header_mode == "both":
+            release_headers["x-kolibri-release-id"] = release
+        elif self.header_mode == "alias_only":
+            release_headers = {"x-kolibri-release-id": release}
+        elif self.header_mode == "conflicting":
+            release_headers["x-kolibri-release-id"] = "kolibri-p7-other"
+
+        def expected(relative: str) -> str:
+            return relative if self.prefix == "/" else self.prefix + relative.lstrip("/")
+
+        if path == expected("/api/health"):
+            return executor.HttpResult(
+                200,
+                {**release_headers, "content-type": "application/json"},
+                b'{"status":"ok","release_id":"kolibri-p7-test"}',
+            )
+        if path == expected("/"):
+            html_asset_path = expected(self.ASSET_PATH) if self.prefix != "/" else self.ASSET_PATH
+            body = (
+                f"<html><script type=\"module\" src=\"{html_asset_path}\"></script>"
+                "kolibri-p7-test</html>"
+            ).encode("utf-8")
+            return executor.HttpResult(200, {**release_headers, "content-type": "text/html"}, body)
+        if path == expected(self.ASSET_PATH):
+            return executor.HttpResult(
+                200,
+                {**release_headers, "content-type": "text/javascript; charset=utf-8"},
+                b"console.log('kolibri-p7-test');",
+            )
+        if path == expected("/api/v1/__kolibri_p7_missing__"):
+            return executor.HttpResult(
+                404,
+                {**release_headers, "content-type": "application/json"},
+                b'{"detail":"not found"}',
+            )
+        if method == "POST" and path == expected("/api/v1/shell/bootstrap"):
+            return executor.HttpResult(
+                200,
+                {**release_headers, "content-type": "application/json"},
+                b'{"session_type":"anonymous"}',
+            )
         raise AssertionError((method, path, payload))
 
 
@@ -559,6 +876,9 @@ def test_public_post_gates_require_exact_release_on_every_surface():
         client_factory=lambda base: RouteClient(base),
     )
     assert passed["status"] == "passed"
+    assert passed["frontend_asset"]["production_path"] == RouteClient.ASSET_PATH
+    assert passed["frontend_asset"]["request_path"] == RouteClient.ASSET_PATH
+    assert passed["frontend_asset"]["content_type"] == "text/javascript"
 
     with pytest.raises(executor.P7ExecutorError, match="p7_public_post_gate_failed"):
         executor.public_post_gates(
@@ -566,6 +886,178 @@ def test_public_post_gates_require_exact_release_on_every_surface():
             "kolibri-p7-test",
             client_factory=lambda base: RouteClient(base, bad_header=True),
         )
+
+
+def test_public_post_gates_require_canonical_release_header_and_reject_alias_conflict():
+    canonical_only = executor.public_post_gates(
+        "https://kolibriai.invalid",
+        "kolibri-p7-test",
+        client_factory=lambda base: RouteClient(base, header_mode="canonical_only"),
+    )
+    assert canonical_only["status"] == "passed"
+
+    for header_mode in ("alias_only", "conflicting"):
+        with pytest.raises(executor.P7ExecutorError, match="p7_public_post_gate_failed"):
+            executor.public_post_gates(
+                "https://kolibriai.invalid",
+                "kolibri-p7-test",
+                client_factory=lambda base, mode=header_mode: RouteClient(base, header_mode=mode),
+            )
+
+
+def test_public_post_gates_are_prefix_aware_for_canary():
+    client = RouteClient(
+        "https://kolibriai.invalid",
+        prefix="/__canary/kolibri-p7-test/",
+    )
+
+    passed = executor.public_post_gates(
+        "https://kolibriai.invalid",
+        "kolibri-p7-test",
+        base_path="/__canary/kolibri-p7-test/",
+        client_factory=lambda _base: client,
+    )
+
+    assert passed["status"] == "passed"
+    assert passed["frontend_asset"]["production_path"] == RouteClient.ASSET_PATH
+    assert passed["frontend_asset"]["request_path"] == f"/__canary/kolibri-p7-test{RouteClient.ASSET_PATH}"
+    assert client.paths == [
+        ("GET", "/__canary/kolibri-p7-test/api/health"),
+        ("GET", "/__canary/kolibri-p7-test/"),
+        ("GET", "/__canary/kolibri-p7-test/assets/index-a1b2c3d4.js"),
+        ("GET", "/__canary/kolibri-p7-test/api/v1/__kolibri_p7_missing__"),
+        ("POST", "/__canary/kolibri-p7-test/api/v1/shell/bootstrap"),
+    ]
+    with pytest.raises(executor.P7ExecutorError, match="p7_canary_base_path_invalid"):
+        executor.public_post_gates(
+            "https://kolibriai.invalid",
+            "kolibri-p7-test",
+            base_path="/__canary/other-release/",
+            client_factory=lambda _base: client,
+        )
+
+
+def test_public_post_gates_canary_resolves_relative_asset_under_signed_base():
+    class RelativeAssetCanaryClient(RouteClient):
+        def request(self, method: str, path: str, payload=None):
+            if path == self.prefix:
+                self.paths.append((method, path))
+                body = b'<html><script type="module" src="./assets/index-a1b2c3d4.js"></script>kolibri-p7-test</html>'
+                headers = {
+                    "x-kolibri-release": "kolibri-p7-test",
+                    "x-kolibri-release-id": "kolibri-p7-test",
+                    "content-type": "text/html",
+                }
+                return executor.HttpResult(200, headers, body)
+            return super().request(method, path, payload)
+
+    client = RelativeAssetCanaryClient(
+        "https://kolibriai.invalid",
+        prefix="/__canary/kolibri-p7-test/",
+    )
+
+    passed = executor.public_post_gates(
+        "https://kolibriai.invalid",
+        "kolibri-p7-test",
+        base_path="/__canary/kolibri-p7-test/",
+        client_factory=lambda _base: client,
+    )
+
+    assert passed["frontend_asset"]["request_path"] == "/__canary/kolibri-p7-test/assets/index-a1b2c3d4.js"
+    assert client.paths[2] == ("GET", "/__canary/kolibri-p7-test/assets/index-a1b2c3d4.js")
+
+
+def test_public_post_gates_canary_rejects_absolute_root_asset_outside_signed_base():
+    class RootAbsoluteAssetCanaryClient(RouteClient):
+        def request(self, method: str, path: str, payload=None):
+            if path == self.prefix:
+                self.paths.append((method, path))
+                body = (
+                    f"<html><script type=\"module\" src=\"{self.ASSET_PATH}\"></script>"
+                    "kolibri-p7-test</html>"
+                ).encode("utf-8")
+                headers = {
+                    "x-kolibri-release": "kolibri-p7-test",
+                    "x-kolibri-release-id": "kolibri-p7-test",
+                    "content-type": "text/html",
+                }
+                return executor.HttpResult(200, headers, body)
+            if path.endswith(self.ASSET_PATH):
+                raise AssertionError(f"unexpected rewritten asset probe: {path}")
+            return super().request(method, path, payload)
+
+    client = RootAbsoluteAssetCanaryClient(
+        "https://kolibriai.invalid",
+        prefix="/__canary/kolibri-p7-test/",
+    )
+
+    with pytest.raises(executor.P7ExecutorError, match="p7_frontend_hashed_asset_missing"):
+        executor.public_post_gates(
+            "https://kolibriai.invalid",
+            "kolibri-p7-test",
+            base_path="/__canary/kolibri-p7-test/",
+            client_factory=lambda _base: client,
+        )
+
+    assert client.paths == [
+        ("GET", "/__canary/kolibri-p7-test/api/health"),
+        ("GET", "/__canary/kolibri-p7-test/"),
+    ]
+
+
+def test_public_post_gates_reject_html_or_empty_hashed_asset():
+    class HtmlAssetClient(RouteClient):
+        def request(self, method: str, path: str, payload=None):
+            if path == self.ASSET_PATH:
+                self.paths.append((method, path))
+                return executor.HttpResult(
+                    200,
+                    {
+                        "x-kolibri-release": "kolibri-p7-test",
+                        "x-kolibri-release-id": "kolibri-p7-test",
+                        "content-type": "text/html",
+                    },
+                    b"<html></html>",
+                )
+            return super().request(method, path, payload)
+
+    with pytest.raises(executor.P7ExecutorError, match="p7_public_asset_gate_failed"):
+        executor.public_post_gates(
+            "https://kolibriai.invalid",
+            "kolibri-p7-test",
+            client_factory=lambda base: HtmlAssetClient(base),
+        )
+
+
+def test_direct_release_identity_probe_allows_canary_frontend_prefix():
+    paths: list[tuple[str, str]] = []
+
+    class DirectClient:
+        def __init__(self, base_url: str):
+            self.base_url = base_url
+
+        def request(self, method: str, path: str, payload=None):
+            paths.append((self.base_url, path))
+            headers = {"x-kolibri-release": "kolibri-p7-test"}
+            if self.base_url.endswith(":18018") and path == "/api/health":
+                return executor.HttpResult(200, headers, b'{"status":"ok","release_id":"kolibri-p7-test"}')
+            if self.base_url.endswith(":15194") and path == "/__canary/kolibri-p7-test/":
+                return executor.HttpResult(200, headers, b"kolibri-p7-test")
+            raise AssertionError((method, path, payload))
+
+    passed = executor.probe_release_identity(
+        "http://127.0.0.1:18018",
+        "http://127.0.0.1:15194",
+        "kolibri-p7-test",
+        frontend_path="/__canary/kolibri-p7-test/",
+        client_factory=DirectClient,
+    )
+
+    assert passed["status"] == "passed"
+    assert paths == [
+        ("http://127.0.0.1:18018", "/api/health"),
+        ("http://127.0.0.1:15194", "/__canary/kolibri-p7-test/"),
+    ]
 
 
 def _executor_config(tmp_path: Path, inputs: executor.SignedInputs) -> executor.ExecutorConfig:
@@ -610,9 +1102,23 @@ def _dummy_inputs(tmp_path: Path) -> executor.SignedInputs:
     return executor.SignedInputs(path, path, path, path, path, path, path, path, path, path, path)
 
 
-def _patch_orchestration(monkeypatch, tmp_path: Path, config: executor.ExecutorConfig, *, fail_public=False):
+def _patch_orchestration(
+    monkeypatch,
+    tmp_path: Path,
+    config: executor.ExecutorConfig,
+    *,
+    activation_mode: str = "production",
+    fail_public=False,
+    fail_production_regression=False,
+    capture: dict | None = None,
+    unit_backups: list[executor.UnitBackup] | None = None,
+):
+    capture = capture if capture is not None else {}
     plan = _valid_plan()
     plan["atomic_switch"]["expected_previous_config_sha256"] = executor.sha256_file(config.active_site)
+    plan["activation_mode"] = activation_mode
+    if activation_mode == "canary":
+        plan["canary_base_path"] = executor.canary_base_path(plan["release_id"])
     snapshot = SimpleNamespace(digests={"plan.json": "a" * 64})
     manifest = {
         "targets": {
@@ -649,22 +1155,53 @@ def _patch_orchestration(monkeypatch, tmp_path: Path, config: executor.ExecutorC
     monkeypatch.setattr(executor, "stage_release", lambda *_args, **_kwargs: runtime)
     monkeypatch.setattr(executor, "require_runtime_secrets", lambda *_args: None)
     monkeypatch.setattr(executor, "install_locked_environment", lambda *_args: None)
-    monkeypatch.setattr(executor, "install_runtime_units", lambda *_args: [])
+    def fake_install_runtime_units(_runtime, runtime_config):
+        capture["frontend_base_path"] = runtime_config.frontend_base_path
+        if unit_backups is not None:
+            for backup in unit_backups:
+                backup.path.write_text("candidate unit\n", encoding="utf-8")
+        return unit_backups if unit_backups is not None else []
+
+    monkeypatch.setattr(executor, "install_runtime_units", fake_install_runtime_units)
+
     def fake_backup(_source, destination):
         destination.touch()
-        return {"status": "ok"}
+        capture["database_backup"] = "consistent"
+        return {"status": "ok", "writer_drained": True}
+
+    def fake_online_snapshot(_source, destination):
+        destination.touch()
+        capture["database_backup"] = "online"
+        return {"status": "ok", "writer_drained": False, "online_snapshot": True}
 
     monkeypatch.setattr(executor, "consistent_sqlite_backup", fake_backup)
-    monkeypatch.setattr(executor, "probe_release_identity", lambda *_args, **_kwargs: {"status": "passed"})
+    monkeypatch.setattr(executor, "online_sqlite_snapshot", fake_online_snapshot)
+
+    def fake_probe_release_identity(*_args, **kwargs):
+        capture["direct_frontend_path"] = kwargs.get("frontend_path", "/")
+        return {"status": "passed"}
+
+    monkeypatch.setattr(executor, "probe_release_identity", fake_probe_release_identity)
     monkeypatch.setattr(executor, "isolated_nginx_test", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(executor, "_service_active", lambda *_args: None)
-    monkeypatch.setattr(executor, "probe_rollback_identity", lambda *_args, **_kwargs: {"status": "passed"})
+    def fake_probe_rollback_identity(_base_url, release_id, **_kwargs):
+        capture.setdefault("rollback_identity_release_ids", []).append(release_id)
+        if fail_production_regression and len(capture["rollback_identity_release_ids"]) == 1:
+            raise executor.P7ExecutorError("p7_rollback_identity_probe_failed")
+        capture["rollback_identity_probed"] = True
+        return {"status": "passed", "release_id": release_id}
+
+    monkeypatch.setattr(executor, "probe_rollback_identity", fake_probe_rollback_identity)
     if fail_public:
         def fail(*_args, **_kwargs):
             raise executor.P7ExecutorError("p7_public_post_gate_failed")
         monkeypatch.setattr(executor, "public_post_gates", fail)
     else:
-        monkeypatch.setattr(executor, "public_post_gates", lambda *_args, **_kwargs: {"status": "passed"})
+        def fake_public_post_gates(*_args, **kwargs):
+            capture["public_base_path"] = kwargs.get("base_path", "/")
+            return {"status": "passed"}
+
+        monkeypatch.setattr(executor, "public_post_gates", fake_public_post_gates)
     return lambda *_args: {
         "status": "migrated_verified",
         "schema_head": executor.EXPECTED_SCHEMA_HEAD,
@@ -684,6 +1221,62 @@ def test_execute_success_switches_once_and_leaves_previous_writer_stopped(monkey
     assert ("systemctl", "stop", "kolibri-backend-p6.service") in runner.commands
     assert ("systemctl", "start", "kolibri-backend-p6.service") not in runner.commands
     assert b"127.0.0.1:18018" in config.active_site.read_bytes()
+
+
+def test_execute_canary_success_never_stops_p6_and_only_inserts_prefix(monkeypatch, tmp_path: Path):
+    config = executor.dataclasses.replace(
+        _executor_config(tmp_path, _dummy_inputs(tmp_path)),
+        frontend_base_path="/__canary/unsigned-runtime-value/",
+    )
+    original = config.active_site.read_bytes()
+    runner = FakeRunner()
+    capture: dict = {}
+    migrate = _patch_orchestration(
+        monkeypatch,
+        tmp_path,
+        config,
+        activation_mode="canary",
+        capture=capture,
+    )
+    real_render_canary = executor.render_canary_site
+
+    def wrapped_render_canary(*args, **kwargs):
+        capture["render_canary_used"] = True
+        return real_render_canary(*args, **kwargs)
+
+    monkeypatch.setattr(executor, "render_canary_site", wrapped_render_canary)
+
+    result = executor.execute(config, runner=runner, p7_module=object(), migrate_hook=migrate)
+
+    canary_base = executor.canary_base_path("kolibri-p7-test")
+    assert result["status"] == "canary_applied_verified"
+    assert result["activation_mode"] == "canary"
+    assert result["production_applied"] is False
+    assert result["canary_base_path"] == canary_base
+    assert result["production_regression_gate"] == {"status": "passed", "release_id": "kolibri-p6"}
+    assert capture["rollback_identity_release_ids"] == ["kolibri-p6"]
+    assert capture["database_backup"] == "online"
+    assert capture["frontend_base_path"] == canary_base
+    assert capture["direct_frontend_path"] == canary_base
+    assert capture["public_base_path"] == canary_base
+    assert capture["render_canary_used"] is True
+    assert sum(command == ("systemctl", "reload", "nginx") for command in runner.commands) == 1
+    assert ("systemctl", "stop", "kolibri-backend-p6.service") not in runner.commands
+    assert ("systemctl", "start", "kolibri-backend-p6.service") not in runner.commands
+
+    rendered = config.active_site.read_bytes().decode()
+    original_text = original.decode()
+    rendered_blocks = executor._location_blocks(rendered)
+    original_blocks = executor._location_blocks(original_text)
+    for route in (*executor.BACKEND_ROUTES, "/"):
+        start, end, _ = original_blocks[route]
+        rendered_start, rendered_end, _ = rendered_blocks[route]
+        assert rendered[rendered_start:rendered_end] == original_text[start:end]
+    for route in executor.BACKEND_ROUTES:
+        start, end, _ = rendered_blocks[f"{canary_base}{route.lstrip('/')}"]
+        assert executor._proxy_pass(rendered[start:end]) == f"http://127.0.0.1:18018{route}"
+    start, end, _ = rendered_blocks[canary_base]
+    assert executor._proxy_pass(rendered[start:end]) == "http://127.0.0.1:15194"
 
 
 def test_execute_public_failure_restores_exact_p6_bytes_and_service(monkeypatch, tmp_path: Path):
@@ -709,6 +1302,80 @@ def test_execute_public_failure_restores_exact_p6_bytes_and_service(monkeypatch,
     result_files = list(config.state_root.glob("*/result.json"))
     assert len(result_files) == 1
     assert json.loads(result_files[0].read_text())["status"] == "rolled_back_verified"
+
+
+def test_execute_canary_failure_rolls_back_only_canary_and_candidate_units(monkeypatch, tmp_path: Path):
+    config = _executor_config(tmp_path, _dummy_inputs(tmp_path))
+    original = config.active_site.read_bytes()
+    backend_unit = config.systemd_dir / executor.BACKEND_SERVICE
+    frontend_unit = config.systemd_dir / executor.FRONTEND_SERVICE
+    backend_unit.write_text("old backend unit\n", encoding="utf-8")
+    frontend_unit.write_text("old frontend unit\n", encoding="utf-8")
+    unit_backups = [
+        executor.UnitBackup(backend_unit, True, backend_unit.read_bytes(), backend_unit.lstat()),
+        executor.UnitBackup(frontend_unit, True, frontend_unit.read_bytes(), frontend_unit.lstat()),
+    ]
+    runner = FakeRunner()
+    capture: dict = {}
+    migrate = _patch_orchestration(
+        monkeypatch,
+        tmp_path,
+        config,
+        activation_mode="canary",
+        fail_public=True,
+        capture=capture,
+        unit_backups=unit_backups,
+    )
+
+    with pytest.raises(executor.P7ExecutorError, match="p7_public_post_gate_failed"):
+        executor.execute(config, runner=runner, p7_module=object(), migrate_hook=migrate)
+
+    assert config.active_site.read_bytes() == original
+    assert backend_unit.read_text(encoding="utf-8") == "old backend unit\n"
+    assert frontend_unit.read_text(encoding="utf-8") == "old frontend unit\n"
+    assert capture["database_backup"] == "online"
+    assert capture["rollback_identity_probed"] is True
+    assert sum(command == ("systemctl", "reload", "nginx") for command in runner.commands) == 2
+    assert ("systemctl", "stop", "kolibri-backend-p6.service") not in runner.commands
+    assert ("systemctl", "start", "kolibri-backend-p6.service") not in runner.commands
+    assert any(command[:3] == ("systemctl", "disable", "--now") for command in runner.commands)
+    result_files = list(config.state_root.glob("*/result.json"))
+    assert len(result_files) == 1
+    audit = json.loads(result_files[0].read_text())
+    assert audit["status"] == "canary_rolled_back_verified"
+    assert audit["activation_mode"] == "canary"
+    assert audit["canary_base_path"] == executor.canary_base_path("kolibri-p7-test")
+
+
+def test_execute_canary_regression_probe_failure_rolls_back_only_canary(monkeypatch, tmp_path: Path):
+    config = _executor_config(tmp_path, _dummy_inputs(tmp_path))
+    original = config.active_site.read_bytes()
+    runner = FakeRunner()
+    capture: dict = {}
+    migrate = _patch_orchestration(
+        monkeypatch,
+        tmp_path,
+        config,
+        activation_mode="canary",
+        fail_production_regression=True,
+        capture=capture,
+    )
+
+    with pytest.raises(executor.P7ExecutorError, match="p7_rollback_identity_probe_failed"):
+        executor.execute(config, runner=runner, p7_module=object(), migrate_hook=migrate)
+
+    assert config.active_site.read_bytes() == original
+    assert capture["public_base_path"] == executor.canary_base_path("kolibri-p7-test")
+    assert capture["rollback_identity_release_ids"] == ["kolibri-p6", "kolibri-p6"]
+    assert sum(command == ("systemctl", "reload", "nginx") for command in runner.commands) == 2
+    assert ("systemctl", "stop", "kolibri-backend-p6.service") not in runner.commands
+    assert ("systemctl", "start", "kolibri-backend-p6.service") not in runner.commands
+    assert any(command[:3] == ("systemctl", "disable", "--now") for command in runner.commands)
+    result_files = list(config.state_root.glob("*/result.json"))
+    assert len(result_files) == 1
+    audit = json.loads(result_files[0].read_text())
+    assert audit["status"] == "canary_rolled_back_verified"
+    assert audit["failure_code"] == "p7_rollback_identity_probe_failed"
 
 
 def test_execute_partial_candidate_start_is_stopped_and_p6_restarted(monkeypatch, tmp_path: Path):

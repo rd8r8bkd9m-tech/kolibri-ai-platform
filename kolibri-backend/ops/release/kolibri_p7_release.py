@@ -35,8 +35,8 @@ from typing import Any, Callable, Iterable, Sequence
 SCHEMA_VERSION = "kolibri.p7.release.v1"
 GATE_SCHEMA_VERSION = "kolibri.p7.functional-gates.v3"
 ROLLBACK_HEALTH_SCHEMA_VERSION = "kolibri.p7.rollback-health.v1"
-APPROVAL_SCHEMA_VERSION = "kolibri.p7.owner-approval.v1"
-PLAN_SCHEMA_VERSION = "kolibri.p7.paired-switch-plan.v2"
+APPROVAL_SCHEMA_VERSION = "kolibri.p7.owner-approval.v2"
+PLAN_SCHEMA_VERSION = "kolibri.p7.paired-switch-plan.v3"
 RELEASE_SIGNATURE_NAMESPACE = "kolibri-p7-release"
 GATE_SIGNATURE_NAMESPACE = "kolibri-p7-functional-gates"
 ROLLBACK_HEALTH_SIGNATURE_NAMESPACE = "kolibri-p7-rollback-health"
@@ -50,7 +50,7 @@ COLLECTOR_TRUST_ROOT = Path("/etc/kolibri/trust/p7-gate-collector.allowed_signer
 OWNER_SIGNER_IDENTITY = "kolibri-owner"
 COLLECTOR_SIGNER_IDENTITY = "kolibri-p7-gate-collector"
 TRUST_ROOT_REQUIRED_UID = 0
-APPROVAL_BINDING_KEYS = frozenset(
+APPROVAL_COMMON_BINDING_KEYS = frozenset(
     {
         "release_id",
         "manifest_sha256",
@@ -61,6 +61,8 @@ APPROVAL_BINDING_KEYS = frozenset(
         "previous_route_config_sha256",
     }
 )
+ACTIVATION_MODES = frozenset({"production", "canary"})
+CANARY_PREFIX = "/__canary"
 DEFAULT_BACKEND_PORT = 18018
 DEFAULT_FRONTEND_PORT = 15194
 BACKEND_ROUTES = ("/api/v1/", "/api/", "/v1/", "/ws/")
@@ -259,6 +261,24 @@ def require_clean_commit(repo: Path) -> tuple[str, str]:
 def _validate_release_id(value: str) -> str:
     if not SAFE_ID.fullmatch(value):
         raise P7ReleaseError("p7_release_id_invalid")
+    return value
+
+
+def _validate_activation_mode(value: Any) -> str:
+    if not isinstance(value, str) or value not in ACTIVATION_MODES:
+        raise P7ReleaseError("p7_activation_mode_invalid")
+    return value
+
+
+def canary_base_path(release_id: str) -> str:
+    release_id = _validate_release_id(release_id)
+    return f"{CANARY_PREFIX}/{release_id}/"
+
+
+def _validate_canary_base_path(value: Any, release_id: str) -> str:
+    expected = canary_base_path(release_id)
+    if not isinstance(value, str) or value != expected:
+        raise P7ReleaseError("p7_canary_base_path_invalid")
     return value
 
 
@@ -1741,7 +1761,7 @@ def verify_owner_approval(
     ssh_keygen: str | None = None,
 ) -> dict[str, Any]:
     require_p7_release_host()
-    if set(expected_bindings) != APPROVAL_BINDING_KEYS:
+    if set(expected_bindings) != APPROVAL_COMMON_BINDING_KEYS:
         raise P7ReleaseError("p7_owner_approval_binding_set_invalid")
     snapshot = _read_canonical_snapshot(approval_path, "p7_owner_approval_invalid")
     approval = snapshot.payload
@@ -1751,7 +1771,22 @@ def verify_owner_approval(
         namespace=APPROVAL_SIGNATURE_NAMESPACE,
         ssh_keygen=ssh_keygen,
     )
-    required_keys = {"schema_version", "action", "approval_id", *expected_bindings}
+    release_id = expected_bindings["release_id"]
+    activation_mode = _validate_activation_mode(approval.get("activation_mode"))
+    required_keys = {
+        "schema_version",
+        "action",
+        "approval_id",
+        *expected_bindings,
+        "activation_mode",
+    }
+    canary_path: str | None = None
+    if activation_mode == "canary":
+        canary_path = _validate_canary_base_path(
+            approval.get("canary_base_path"),
+            release_id,
+        )
+        required_keys.add("canary_base_path")
     if (
         set(approval) != required_keys
         or approval.get("schema_version") != APPROVAL_SCHEMA_VERSION
@@ -1760,13 +1795,17 @@ def verify_owner_approval(
         or any(approval.get(key) != value for key, value in expected_bindings.items())
     ):
         raise P7ReleaseError("p7_owner_approval_binding_mismatch")
-    return {
+    result = {
         "schema_version": APPROVAL_SCHEMA_VERSION,
         "approval_id": approval["approval_id"],
         "approval_sha256": snapshot.sha256,
+        "activation_mode": activation_mode,
         "signer_identity": OWNER_SIGNER_IDENTITY,
         "signature_verified": True,
     }
+    if canary_path is not None:
+        result["canary_base_path"] = canary_path
+    return result
 
 
 def paired_switch_plan(
@@ -1839,9 +1878,16 @@ def paired_switch_plan(
         ssh_keygen=ssh_keygen,
     )
     targets = manifest["targets"]
-    return {
+    activation_mode = approval["activation_mode"]
+    canary_path = approval.get("canary_base_path")
+    candidate_routes = {
+        **targets["backend"]["routes"],
+        **targets["frontend"]["routes"],
+    }
+    plan: dict[str, Any] = {
         "schema_version": PLAN_SCHEMA_VERSION,
         "status": "planned_not_applied",
+        "activation_mode": activation_mode,
         "production_applied": False,
         "release_id": manifest["release_id"],
         "source_commit": verified["source_commit"],
@@ -1854,10 +1900,7 @@ def paired_switch_plan(
         },
         "owner_approval": approval,
         "targets": targets,
-        "candidate_routes": {
-            **targets["backend"]["routes"],
-            **targets["frontend"]["routes"],
-        },
+        "candidate_routes": candidate_routes,
         "functional_gate_attestation": gate_attestation,
         "atomic_switch": {
             "single_site_config_replacement": True,
@@ -1899,6 +1942,53 @@ def paired_switch_plan(
             "owner_approval_and_all_bindings_must_be_reverified": True,
         },
     }
+    if activation_mode == "canary":
+        assert isinstance(canary_path, str)
+        prefixed_routes = {
+            f"{canary_path}{route.lstrip('/')}": origin
+            for route, origin in targets["backend"]["routes"].items()
+        }
+        prefixed_routes[canary_path] = targets["frontend"]["origin"]
+        plan["canary_base_path"] = canary_path
+        plan["candidate_routes"] = prefixed_routes
+        plan["atomic_switch"] = {
+            "single_site_config_replacement": True,
+            "frontend_and_backend_must_switch_together": True,
+            "expected_previous_config_sha256": previous_route_config_sha256,
+            "release_prefixed_canary_locations_only": True,
+            "production_routes_replaced": False,
+            "previous_backend_service_must_remain_running": True,
+            "production_database_must_not_be_mutated": True,
+            "steps": [
+                "verify candidate manifest, artifacts and pinned-owner signature",
+                "verify collector-signed P7 functional gate evidence",
+                "verify signed rollback manifest artifacts and collector-signed health evidence",
+                "verify the signed owner approval binds activation_mode and the canary base path",
+                "take an online SQLite snapshot without stopping the previous writer",
+                "start both side-by-side services on the explicit loopback ports",
+                "require direct health and canary-mounted frontend release identity",
+                "copy the active site config and verify its exact SHA-256",
+                "render only release-prefixed canary locations",
+                "validate the complete candidate config",
+                "atomically install the canary locations and reload once",
+                "repeat release identity, JSON 404 and bootstrap gates at the canary prefix",
+                "run a fresh production root P6 regression probe against the signed rollback release identity",
+            ],
+        }
+        plan["rollback"] = {
+            **plan["rollback"],
+            "trigger": "any failed canary step, prefixed post-activation gate or production regression probe",
+            "canary_only": True,
+            "previous_backend_service_was_not_stopped": True,
+            "steps": [
+                "restore the byte-for-byte saved site config if canary locations were installed",
+                "validate config and reload only if nginx had loaded the canary config",
+                "stop and disable only the exact candidate P7 units",
+                "restore candidate unit files",
+                "verify the previous public P6 route still serves the rollback release identity",
+            ],
+        }
+    return plan
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -22,6 +22,7 @@ import dataclasses
 import datetime as dt
 import fcntl
 import hashlib
+from html.parser import HTMLParser
 import importlib.util
 import json
 import os
@@ -37,6 +38,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 from typing import Any, Callable, Iterable, Mapping, Sequence
 import urllib.error
 import urllib.parse
@@ -44,13 +46,14 @@ import urllib.request
 
 
 EXECUTOR_SCHEMA_VERSION = "kolibri.p7.executor-result.v1"
-EXPECTED_PLAN_SCHEMA = "kolibri.p7.paired-switch-plan.v2"
+EXPECTED_PLAN_SCHEMA = "kolibri.p7.paired-switch-plan.v3"
 EXPECTED_BACKEND_PORT = 18018
 EXPECTED_FRONTEND_PORT = 15194
 EXPECTED_SCHEMA_HEAD = "010_durable_responses"
 BACKEND_ROUTES = ("/api/v1/", "/api/", "/v1/", "/ws/")
 FRONTEND_ROUTE = "/"
 CANARY_PREFIX = "/__canary"
+ACTIVATION_MODES = frozenset({"production", "canary"})
 BACKEND_SERVICE = "kolibri-backend-p7.service"
 FRONTEND_SERVICE = "kolibri-frontend-p7.service"
 REQUIREMENTS_LOCK = "kolibri-backend/requirements.lock"
@@ -68,6 +71,15 @@ SHA256 = re.compile(r"^[0-9a-f]{64}$")
 MAX_INPUT_BYTES = 2 * 1024 * 1024 * 1024
 MAX_ARCHIVE_FILES = 30_000
 MAX_ARCHIVE_BYTES = 2 * 1024 * 1024 * 1024
+HASHED_FRONTEND_ASSET = re.compile(r"(?:^|[-.])[A-Za-z0-9_-]{8,}\.(?:js|css)$", re.IGNORECASE)
+JAVASCRIPT_MIME_TYPES = frozenset(
+    {
+        "application/ecmascript",
+        "application/javascript",
+        "text/ecmascript",
+        "text/javascript",
+    }
+)
 
 
 class P7ExecutorError(RuntimeError):
@@ -441,6 +453,9 @@ def reverify_plan(snapshot: SnapshotInputs, p7) -> VerifiedPlan:
         raise P7ExecutorError("p7_plan_contract_invalid")
     manifest, _, manifest_sha = p7.load_manifest(snapshot.release_dir)
     rollback_manifest, _, rollback_sha = p7.load_manifest(snapshot.rollback_release_dir)
+    release_id = str(recomputed.get("release_id") or "")
+    activation_mode = _activation_mode(recomputed.get("activation_mode"))
+    _plan_canary_base_path(recomputed, release_id, activation_mode)
     targets = manifest.get("targets", {})
     if (
         targets.get("backend", {}).get("port") != EXPECTED_BACKEND_PORT
@@ -715,6 +730,45 @@ def canary_base_path(release_id: str) -> str:
     return f"{CANARY_PREFIX}/{release_id}/"
 
 
+def _activation_mode(value: Any) -> str:
+    if not isinstance(value, str) or value not in ACTIVATION_MODES:
+        raise P7ExecutorError("p7_activation_mode_invalid")
+    return value
+
+
+def _plan_canary_base_path(plan: Mapping[str, Any], release_id: str, activation_mode: str) -> str | None:
+    if activation_mode == "production":
+        if "canary_base_path" in plan:
+            raise P7ExecutorError("p7_plan_canary_base_path_invalid")
+        return None
+    value = plan.get("canary_base_path")
+    expected = canary_base_path(release_id)
+    if not isinstance(value, str) or value != expected:
+        raise P7ExecutorError("p7_plan_canary_base_path_invalid")
+    return value
+
+
+def _canary_public_path(base_path: str, relative: str) -> str:
+    if (
+        not base_path.startswith("/")
+        or not base_path.endswith("/")
+        or "//" in base_path
+        or "?" in base_path
+        or "#" in base_path
+    ):
+        raise P7ExecutorError("p7_canary_base_path_invalid")
+    if any(character in relative for character in ("\x00", "?", "#")) or "//" in relative:
+        raise P7ExecutorError("p7_canary_probe_path_invalid")
+    raw = relative.strip()
+    if raw.startswith(("http://", "https://")):
+        raise P7ExecutorError("p7_canary_probe_path_invalid")
+    path = PurePosixPath("/" + raw.lstrip("/"))
+    if any(part in {"", ".", ".."} for part in path.parts[1:]):
+        raise P7ExecutorError("p7_canary_probe_path_invalid")
+    suffix = path.as_posix().lstrip("/")
+    return base_path + suffix if suffix else base_path
+
+
 def _validated_frontend_base_path(raw: str, release_id: str) -> str:
     if raw == "/":
         return raw
@@ -847,6 +901,82 @@ def consistent_sqlite_backup(source: Path, destination: Path) -> dict[str, Any]:
     }
 
 
+def online_sqlite_snapshot(
+    source: Path,
+    destination: Path,
+    *,
+    deadline_seconds: float = 30.0,
+    backup_pages: int = 1024,
+    backup_sleep: float = 0.01,
+    progress_hook: Callable[[int, int, int], None] | None = None,
+) -> dict[str, Any]:
+    metadata = _regular_metadata(source, "p7_source_database_invalid")
+    if destination.exists():
+        raise P7ExecutorError("p7_candidate_database_exists")
+    if deadline_seconds <= 0 or backup_pages <= 0 or backup_sleep < 0:
+        raise P7ExecutorError("p7_sqlite_online_snapshot_options_invalid")
+    deadline = time.monotonic() + deadline_seconds
+    deadline_exceeded = False
+
+    def deadline_expired() -> bool:
+        nonlocal deadline_exceeded
+        if time.monotonic() >= deadline:
+            deadline_exceeded = True
+            return True
+        return False
+
+    def require_deadline() -> None:
+        if deadline_expired():
+            raise sqlite3.OperationalError("sqlite online backup deadline exceeded")
+
+    def progress(status: int, remaining: int, total: int) -> None:
+        require_deadline()
+        if progress_hook is not None:
+            progress_hook(status, remaining, total)
+        require_deadline()
+
+    def pragma_progress() -> int:
+        return 1 if deadline_expired() else 0
+
+    temporary = destination.with_name(f".{destination.name}.online-{os.getpid()}")
+    try:
+        source_uri = f"file:{urllib.parse.quote(str(source))}?mode=ro"
+        with sqlite3.connect(source_uri, uri=True, timeout=5.0) as source_connection, sqlite3.connect(temporary) as target:
+            source_connection.execute("PRAGMA query_only=ON")
+            require_deadline()
+            source_connection.backup(target, pages=backup_pages, progress=progress, sleep=backup_sleep)
+            target.commit()
+            require_deadline()
+            target.set_progress_handler(pragma_progress, 1)
+            try:
+                if target.execute("PRAGMA quick_check").fetchone() != ("ok",):
+                    raise P7ExecutorError("p7_database_backup_integrity_failed")
+                if target.execute("PRAGMA foreign_key_check").fetchall():
+                    raise P7ExecutorError("p7_database_backup_foreign_key_failed")
+            finally:
+                target.set_progress_handler(None, 0)
+            require_deadline()
+        os.chmod(temporary, 0o600)
+        with contextlib.suppress(PermissionError):
+            os.chown(temporary, metadata.st_uid, metadata.st_gid)
+        os.replace(temporary, destination)
+        _fsync_directory(destination.parent)
+    except sqlite3.Error as exc:
+        if deadline_exceeded:
+            raise P7ExecutorError("p7_sqlite_online_snapshot_deadline_exceeded") from exc
+        raise P7ExecutorError("p7_sqlite_online_snapshot_failed") from exc
+    finally:
+        temporary.unlink(missing_ok=True)
+    return {
+        "backup_sha256": sha256_file(destination),
+        "size_bytes": destination.stat().st_size,
+        "quick_check": "ok",
+        "foreign_key_check": "ok",
+        "writer_drained": False,
+        "online_snapshot": True,
+    }
+
+
 def migrate_candidate_database(runtime: RuntimePaths, runner: CommandRunner) -> dict[str, Any]:
     helper = runtime.backend_dir / "ops" / "release" / "kolibri_p7_migrate.py"
     result = runner.run(
@@ -886,7 +1016,7 @@ def _location_blocks(text: str) -> dict[str, tuple[int, int, str]]:
     for line in lines:
         offsets.append(cursor)
         cursor += len(line)
-    matcher = re.compile(r"^(?P<indent>\s*)location\s+(?:=\s+)?(?P<path>/\S*)\s*\{")
+    matcher = re.compile(r"^(?P<indent>\s*)location\s+(?:(?:=|\^~)\s+)?(?P<path>/\S*)\s*\{")
     blocks: dict[str, tuple[int, int, str]] = {}
     index = 0
     while index < len(lines):
@@ -1037,7 +1167,7 @@ def _canary_backend_location(
             f"{inner}proxy_set_header Connection \"upgrade\";\n"
         )
     return (
-        f"{indent}location {location} {{\n"
+        f"{indent}location ^~ {location} {{\n"
         f"{inner}# Kolibri isolated P7 canary {release_id}\n"
         f"{_proxy_common_headers(inner)}"
         f"{inner}proxy_set_header X-Forwarded-Prefix {base.rstrip('/')};\n"
@@ -1056,7 +1186,7 @@ def _canary_frontend_location(
     base = canary_base_path(release_id)
     inner = indent + "    "
     return (
-        f"{indent}location {base} {{\n"
+        f"{indent}location ^~ {base} {{\n"
         f"{inner}# Kolibri isolated P7 canary {release_id}\n"
         f"{_proxy_common_headers(inner)}"
         f"{inner}proxy_set_header X-Forwarded-Prefix {base.rstrip('/')};\n"
@@ -1170,23 +1300,162 @@ def _json_object(result: HttpResult, code: str) -> dict[str, Any]:
     return payload
 
 
+def _release_header(headers: Mapping[str, str]) -> str | None:
+    return headers.get("x-kolibri-release")
+
+
+def _release_header_matches(result: HttpResult, release_id: str) -> bool:
+    canonical = _release_header(result.headers)
+    alias = result.headers.get("x-kolibri-release-id")
+    return canonical == release_id and alias in {None, release_id}
+
+
+class _FrontendAssetParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.assets: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        values = {name.lower(): value for name, value in attrs if value is not None}
+        if tag.lower() == "script" and "src" in values:
+            self.assets.append(values["src"])
+        elif tag.lower() == "link" and "href" in values:
+            self.assets.append(values["href"])
+
+
+def _normalized_public_path(path: str) -> str | None:
+    if not path.startswith("/") or "//" in path or "\x00" in path:
+        return None
+    try:
+        decoded = urllib.parse.unquote(path)
+    except ValueError:
+        return None
+    if "\x00" in decoded:
+        return None
+    candidate = PurePosixPath(decoded)
+    if not candidate.is_absolute() or any(part in {"", ".", ".."} for part in candidate.parts[1:]):
+        return None
+    return candidate.as_posix()
+
+
+def _asset_extension(path: str) -> str | None:
+    suffix = PurePosixPath(urllib.parse.unquote(path)).suffix.lower()
+    return suffix[1:] if suffix in {".js", ".css"} else None
+
+
+def _is_hashed_frontend_asset(path: str) -> bool:
+    if _asset_extension(path) is None:
+        return False
+    name = PurePosixPath(urllib.parse.unquote(path)).name
+    return HASHED_FRONTEND_ASSET.search(name) is not None
+
+
+def _frontend_asset_paths(raw_asset: str, *, base_path: str) -> tuple[str, str] | None:
+    raw = raw_asset.strip()
+    if not raw:
+        return None
+    parsed = urllib.parse.urlsplit(raw)
+    if parsed.scheme or parsed.netloc or parsed.query or parsed.fragment:
+        return None
+    if not parsed.path:
+        return None
+    public_path = parsed.path
+    is_absolute_asset = public_path.startswith("/")
+    if not is_absolute_asset:
+        public_path = urllib.parse.urljoin(base_path, public_path)
+    public_path = _normalized_public_path(public_path)
+    if public_path is None:
+        return None
+    if base_path != "/":
+        if is_absolute_asset and not public_path.startswith(base_path):
+            return None
+        if not public_path.startswith(base_path):
+            return None
+        suffix = public_path[len(base_path) :]
+        production_path = "/" + suffix.lstrip("/")
+    else:
+        production_path = public_path
+    production_path = _normalized_public_path(production_path)
+    if production_path is None or not _is_hashed_frontend_asset(production_path):
+        return None
+    request_path = production_path if base_path == "/" else _canary_public_path(base_path, production_path)
+    return production_path, request_path
+
+
+def _extract_frontend_asset(html: bytes, *, base_path: str) -> tuple[str, str]:
+    try:
+        text = html.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise P7ExecutorError("p7_frontend_html_invalid") from exc
+    parser = _FrontendAssetParser()
+    try:
+        parser.feed(text)
+    except (ValueError, AssertionError) as exc:
+        raise P7ExecutorError("p7_frontend_html_invalid") from exc
+    for raw_asset in parser.assets:
+        paths = _frontend_asset_paths(raw_asset, base_path=base_path)
+        if paths is not None:
+            return paths
+    raise P7ExecutorError("p7_frontend_hashed_asset_missing")
+
+
+def _asset_mime_matches(path: str, content_type: str) -> bool:
+    mime = content_type.split(";", 1)[0].strip().lower()
+    extension = _asset_extension(path)
+    if extension == "css":
+        return mime == "text/css"
+    if extension == "js":
+        return mime in JAVASCRIPT_MIME_TYPES
+    return False
+
+
+def _probe_frontend_asset(
+    client: HttpClient,
+    frontend: HttpResult,
+    release_id: str,
+    *,
+    base_path: str,
+) -> dict[str, Any]:
+    production_path, request_path = _extract_frontend_asset(frontend.body, base_path=base_path)
+    asset = client.request("GET", request_path)
+    content_type = asset.headers.get("content-type", "")
+    if (
+        asset.status != 200
+        or not _release_header_matches(asset, release_id)
+        or not _asset_mime_matches(production_path, content_type)
+        or not asset.body
+        or "text/html" in content_type.lower()
+    ):
+        raise P7ExecutorError("p7_public_asset_gate_failed")
+    return {
+        "status": "passed",
+        "production_path": production_path,
+        "request_path": request_path,
+        "http_status": asset.status,
+        "content_type": content_type.split(";", 1)[0].strip().lower(),
+        "size_bytes": len(asset.body),
+        "release_id": release_id,
+    }
+
+
 def probe_release_identity(
     backend_url: str,
     frontend_url: str,
     release_id: str,
     *,
+    frontend_path: str = "/",
     client_factory: Callable[[str], HttpClient] = HttpClient,
 ) -> dict[str, Any]:
     backend = client_factory(backend_url).request("GET", "/api/health")
     payload = _json_object(backend, "p7_backend_health_invalid")
-    frontend = client_factory(frontend_url).request("GET", "/")
+    frontend = client_factory(frontend_url).request("GET", frontend_path)
     if (
         backend.status != 200
         or payload.get("status") != "ok"
         or payload.get("release_id") != release_id
-        or backend.headers.get("x-kolibri-release") != release_id
+        or not _release_header_matches(backend, release_id)
         or frontend.status != 200
-        or frontend.headers.get("x-kolibri-release") != release_id
+        or not _release_header_matches(frontend, release_id)
         or release_id.encode("utf-8") not in frontend.body
     ):
         raise P7ExecutorError("p7_release_identity_probe_failed")
@@ -1216,7 +1485,7 @@ def probe_rollback_identity(
         backend.status != 200
         or payload.get("status") != "ok"
         or payload.get("release_id") != release_id
-        or backend.headers.get("x-kolibri-release") != release_id
+        or not _release_header_matches(backend, release_id)
         or frontend.status != 200
         or release_id.encode("utf-8") not in frontend.body
     ):
@@ -1228,28 +1497,45 @@ def public_post_gates(
     base_url: str,
     release_id: str,
     *,
+    base_path: str = "/",
     client_factory: Callable[[str], HttpClient] = HttpClient,
 ) -> dict[str, Any]:
     client = client_factory(base_url)
-    health = client.request("GET", "/api/health")
+    if base_path == "/":
+        frontend_path = "/"
+        health_path = "/api/health"
+        missing_path = "/api/v1/__kolibri_p7_missing__"
+        bootstrap_path = "/api/v1/shell/bootstrap"
+    else:
+        if base_path != canary_base_path(release_id):
+            raise P7ExecutorError("p7_canary_base_path_invalid")
+        frontend_path = _canary_public_path(base_path, "/")
+        health_path = _canary_public_path(base_path, "/api/health")
+        missing_path = _canary_public_path(base_path, "/api/v1/__kolibri_p7_missing__")
+        bootstrap_path = _canary_public_path(base_path, "/api/v1/shell/bootstrap")
+    health = client.request("GET", health_path)
     health_payload = _json_object(health, "p7_public_health_invalid")
-    frontend = client.request("GET", "/")
-    missing = client.request("GET", "/api/v1/__kolibri_p7_missing__")
-    bootstrap = client.request("POST", "/api/v1/shell/bootstrap", {})
-    bootstrap_payload = _json_object(bootstrap, "p7_public_bootstrap_invalid")
+    frontend = client.request("GET", frontend_path)
     if (
         health.status != 200
         or health_payload.get("status") != "ok"
         or health_payload.get("release_id") != release_id
-        or health.headers.get("x-kolibri-release") != release_id
+        or not _release_header_matches(health, release_id)
         or frontend.status != 200
-        or frontend.headers.get("x-kolibri-release") != release_id
+        or not _release_header_matches(frontend, release_id)
         or release_id.encode("utf-8") not in frontend.body
-        or missing.status != 404
+    ):
+        raise P7ExecutorError("p7_public_post_gate_failed")
+    frontend_asset = _probe_frontend_asset(client, frontend, release_id, base_path=base_path)
+    missing = client.request("GET", missing_path)
+    bootstrap = client.request("POST", bootstrap_path, {})
+    bootstrap_payload = _json_object(bootstrap, "p7_public_bootstrap_invalid")
+    if (
+        missing.status != 404
         or "application/json" not in missing.headers.get("content-type", "")
-        or missing.headers.get("x-kolibri-release") != release_id
+        or not _release_header_matches(missing, release_id)
         or bootstrap.status != 200
-        or bootstrap.headers.get("x-kolibri-release") != release_id
+        or not _release_header_matches(bootstrap, release_id)
         or bootstrap_payload.get("session_type") not in {"anonymous", "authenticated"}
     ):
         raise P7ExecutorError("p7_public_post_gate_failed")
@@ -1257,6 +1543,7 @@ def public_post_gates(
         "status": "passed",
         "release_id": release_id,
         "frontend": frontend.status,
+        "frontend_asset": frontend_asset,
         "health": health.status,
         "json_404": missing.status,
         "session_bootstrap": bootstrap.status,
@@ -1346,6 +1633,9 @@ def execute(
         snapshot = snapshot_inputs(config.inputs, execution_dir)
         verified = reverify_plan(snapshot, p7)
         release_id = str(verified.plan["release_id"])
+        activation_mode = _activation_mode(verified.plan.get("activation_mode"))
+        canary_path = _plan_canary_base_path(verified.plan, release_id, activation_mode)
+        frontend_base_path = canary_path or "/"
         expected_previous_sha = str(
             verified.plan["atomic_switch"]["expected_previous_config_sha256"]
         )
@@ -1385,12 +1675,19 @@ def execute(
                 str(verified.manifest["toolchain"]["python"]),
             )
             _candidate_units_quiescent(runner, config.systemctl_binary)
-            unit_backups = install_runtime_units(runtime, config)
+            runtime_config = dataclasses.replace(
+                config,
+                frontend_base_path=frontend_base_path,
+            )
+            unit_backups = install_runtime_units(runtime, runtime_config)
             runner.run((config.systemctl_binary, "daemon-reload"), timeout=30)
 
-            runner.run((config.systemctl_binary, "stop", config.previous_backend_service), timeout=60)
-            previous_stopped = True
-            database_evidence = consistent_sqlite_backup(config.source_database, runtime.database)
+            if activation_mode == "production":
+                runner.run((config.systemctl_binary, "stop", config.previous_backend_service), timeout=60)
+                previous_stopped = True
+                database_evidence = consistent_sqlite_backup(config.source_database, runtime.database)
+            else:
+                database_evidence = online_sqlite_snapshot(config.source_database, runtime.database)
             if runtime.runtime_uid is None or runtime.runtime_gid is None:
                 raise P7ExecutorError("p7_runtime_account_binding_missing")
             os.chown(runtime.database, runtime.runtime_uid, runtime.runtime_gid)
@@ -1421,18 +1718,27 @@ def execute(
                 backend_origin,
                 frontend_origin,
                 release_id,
+                frontend_path=frontend_base_path,
                 client_factory=client_factory,
             )
-            rollback_backend = verified.rollback_manifest["targets"]["backend"]["origin"]
-            rollback_frontend = verified.rollback_manifest["targets"]["frontend"]["origin"]
-            candidate_site = render_paired_site(
-                active_bytes,
-                release_id=release_id,
-                candidate_backend=backend_origin,
-                candidate_frontend=frontend_origin,
-                rollback_backend=rollback_backend,
-                rollback_frontend=rollback_frontend,
-            )
+            if activation_mode == "production":
+                rollback_backend = verified.rollback_manifest["targets"]["backend"]["origin"]
+                rollback_frontend = verified.rollback_manifest["targets"]["frontend"]["origin"]
+                candidate_site = render_paired_site(
+                    active_bytes,
+                    release_id=release_id,
+                    candidate_backend=backend_origin,
+                    candidate_frontend=frontend_origin,
+                    rollback_backend=rollback_backend,
+                    rollback_frontend=rollback_frontend,
+                )
+            else:
+                candidate_site = render_canary_site(
+                    active_bytes,
+                    release_id=release_id,
+                    candidate_backend=backend_origin,
+                    candidate_frontend=frontend_origin,
+                )
             isolated_nginx_test(
                 candidate_site,
                 active_site=config.active_site,
@@ -1458,12 +1764,21 @@ def execute(
             public_gate = public_post_gates(
                 config.public_base_url,
                 release_id,
+                base_path=frontend_base_path,
                 client_factory=client_factory,
             )
+            production_regression_gate: dict[str, Any] | None = None
+            if activation_mode == "canary":
+                production_regression_gate = probe_rollback_identity(
+                    config.public_base_url,
+                    str(verified.rollback_manifest["release_id"]),
+                    client_factory=client_factory,
+                )
             audit = {
                 "schema_version": EXECUTOR_SCHEMA_VERSION,
-                "status": "applied_verified",
-                "production_applied": True,
+                "status": "canary_applied_verified" if activation_mode == "canary" else "applied_verified",
+                "activation_mode": activation_mode,
+                "production_applied": activation_mode == "production",
                 "release_id": release_id,
                 "manifest_sha256": verified.plan["manifest_sha256"],
                 "source_commit": verified.plan["source_commit"],
@@ -1478,6 +1793,10 @@ def execute(
                 "nginx_reload_count": 1,
                 "rollback_ready": True,
             }
+            if production_regression_gate is not None:
+                audit["production_regression_gate"] = production_regression_gate
+            if canary_path is not None:
+                audit["canary_base_path"] = canary_path
             _write_audit(execution_dir / "result.json", audit)
             return audit
         except Exception as original:
@@ -1542,9 +1861,13 @@ def execute(
                     )
                 except Exception:
                     rollback_errors.append("public_rollback_identity_failed")
+            rollback_status = "rollback_failed" if rollback_errors else "rolled_back_verified"
+            if activation_mode == "canary":
+                rollback_status = "canary_rollback_failed" if rollback_errors else "canary_rolled_back_verified"
             failure_audit = {
                 "schema_version": EXECUTOR_SCHEMA_VERSION,
-                "status": "rollback_failed" if rollback_errors else "rolled_back_verified",
+                "status": rollback_status,
+                "activation_mode": activation_mode,
                 "production_applied": False,
                 "release_id": release_id,
                 "previous_release_id": verified.rollback_manifest["release_id"],
@@ -1554,6 +1877,8 @@ def execute(
                 "restored_site_sha256": sha256_file(config.active_site) if config.active_site.is_file() else None,
                 "input_digests": snapshot.digests,
             }
+            if canary_path is not None:
+                failure_audit["canary_base_path"] = canary_path
             with contextlib.suppress(Exception):
                 _write_audit(execution_dir / "result.json", failure_audit)
             if rollback_errors:

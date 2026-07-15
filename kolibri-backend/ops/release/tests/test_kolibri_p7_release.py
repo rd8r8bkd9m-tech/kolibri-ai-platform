@@ -996,6 +996,7 @@ def test_owner_approval_is_signature_and_all_digest_bound(
             "schema_version": p7.APPROVAL_SCHEMA_VERSION,
             "action": "paired_switch",
             "approval_id": "approval-bound-test",
+            "activation_mode": "production",
             **expected,
         },
     )
@@ -1012,6 +1013,7 @@ def test_owner_approval_is_signature_and_all_digest_bound(
         ssh_keygen=ssh_keygen,
     )
     assert verified["signature_verified"] is True
+    assert verified["activation_mode"] == "production"
 
     wrong_expected = {**expected, "gate_evidence_sha256": "9" * 64}
     with pytest.raises(p7.P7ReleaseError, match="p7_owner_approval_binding_mismatch"):
@@ -1019,6 +1021,101 @@ def test_owner_approval_is_signature_and_all_digest_bound(
             approval_path,
             signature,
             wrong_expected,
+            ssh_keygen=ssh_keygen,
+        )
+
+
+def test_owner_approval_binds_canary_mode_and_exact_base_path(
+    tmp_path: Path,
+    ssh_material: tuple[Path, Path, str, str],
+):
+    owner_key, _owner_root, _owner_identity, ssh_keygen = ssh_material
+    release_id = "kolibri-p7-canary"
+    expected = {
+        "release_id": release_id,
+        "manifest_sha256": "1" * 64,
+        "gate_evidence_sha256": "2" * 64,
+        "rollback_release_id": "kolibri-p6-prior",
+        "rollback_manifest_sha256": "3" * 64,
+        "rollback_health_evidence_sha256": "4" * 64,
+        "previous_route_config_sha256": "5" * 64,
+    }
+    approval = {
+        "schema_version": p7.APPROVAL_SCHEMA_VERSION,
+        "action": "paired_switch",
+        "approval_id": "approval-canary-bound",
+        "activation_mode": "canary",
+        "canary_base_path": p7.canary_base_path(release_id),
+        **expected,
+    }
+    approval_path = write_canonical(tmp_path / "canary-approval.json", approval)
+    signature = sign_document(
+        approval_path,
+        owner_key,
+        p7.APPROVAL_SIGNATURE_NAMESPACE,
+        ssh_keygen,
+    )
+
+    verified = p7.verify_owner_approval(
+        approval_path,
+        signature,
+        expected,
+        ssh_keygen=ssh_keygen,
+    )
+    assert verified["activation_mode"] == "canary"
+    assert verified["canary_base_path"] == f"/__canary/{release_id}/"
+
+    approval["canary_base_path"] = "/__canary/other-release/"
+    write_canonical(approval_path, approval)
+    signature = sign_document(
+        approval_path,
+        owner_key,
+        p7.APPROVAL_SIGNATURE_NAMESPACE,
+        ssh_keygen,
+    )
+    with pytest.raises(p7.P7ReleaseError, match="p7_canary_base_path_invalid"):
+        p7.verify_owner_approval(
+            approval_path,
+            signature,
+            expected,
+            ssh_keygen=ssh_keygen,
+        )
+
+
+def test_legacy_owner_approval_without_activation_mode_fails_closed(
+    tmp_path: Path,
+    ssh_material: tuple[Path, Path, str, str],
+):
+    owner_key, _owner_root, _owner_identity, ssh_keygen = ssh_material
+    expected = {
+        "release_id": "kolibri-p7-candidate",
+        "manifest_sha256": "1" * 64,
+        "gate_evidence_sha256": "2" * 64,
+        "rollback_release_id": "kolibri-p6-prior",
+        "rollback_manifest_sha256": "3" * 64,
+        "rollback_health_evidence_sha256": "4" * 64,
+        "previous_route_config_sha256": "5" * 64,
+    }
+    approval_path = write_canonical(
+        tmp_path / "legacy-approval.json",
+        {
+            "schema_version": "kolibri.p7.owner-approval.v1",
+            "action": "paired_switch",
+            "approval_id": "approval-legacy",
+            **expected,
+        },
+    )
+    signature = sign_document(
+        approval_path,
+        owner_key,
+        p7.APPROVAL_SIGNATURE_NAMESPACE,
+        ssh_keygen,
+    )
+    with pytest.raises(p7.P7ReleaseError, match="p7_activation_mode_invalid"):
+        p7.verify_owner_approval(
+            approval_path,
+            signature,
+            expected,
             ssh_keygen=ssh_keygen,
         )
 
@@ -1117,6 +1214,7 @@ def test_paired_switch_plan_is_signature_gate_bound_and_has_atomic_rollback(
             "schema_version": p7.APPROVAL_SCHEMA_VERSION,
             "action": "paired_switch",
             "approval_id": "approval-p7-test",
+            "activation_mode": "production",
             "release_id": manifest["release_id"],
             "manifest_sha256": manifest_sha,
             "gate_evidence_sha256": p7.sha256_file(evidence_path),
@@ -1150,6 +1248,8 @@ def test_paired_switch_plan_is_signature_gate_bound_and_has_atomic_rollback(
     )
 
     assert plan["status"] == "planned_not_applied"
+    assert plan["activation_mode"] == "production"
+    assert "canary_base_path" not in plan
     assert plan["production_applied"] is False
     assert plan["signature"]["verified"] is True
     assert plan["owner_approval"]["signature_verified"] is True
@@ -1165,6 +1265,102 @@ def test_paired_switch_plan_is_signature_gate_bound_and_has_atomic_rollback(
     assert plan["rollback"]["restore_config_sha256"] == "b" * 64
     assert plan["rollback"]["bound_candidate_manifest_sha256"] == plan["manifest_sha256"]
     assert plan["executor_contract"]["this_tool_can_apply"] is False
+
+
+def test_canary_switch_plan_is_signed_prefix_bound(
+    source_repo: Path,
+    tmp_path: Path,
+    ssh_material: tuple[Path, Path, str, str],
+    collector_material: tuple[Path, Path, str, str],
+):
+    _result, release_dir = build_candidate(
+        source_repo,
+        tmp_path,
+        signed=ssh_material,
+        release_id="kolibri-p7-canary-plan",
+    )
+    _rollback_result, rollback_dir = build_candidate(
+        source_repo,
+        tmp_path,
+        signed=ssh_material,
+        release_id="kolibri-p6-canary-plan",
+    )
+    owner_key, _owner_root, _owner_identity, ssh_keygen = ssh_material
+    collector_key, _collector_root, _collector_identity, _ = collector_material
+    previous_config_sha = "c" * 64
+    evidence_path = write_canonical(
+        tmp_path / "canary-gates.json",
+        valid_gate_evidence(release_dir),
+    )
+    evidence_signature = sign_document(
+        evidence_path,
+        collector_key,
+        p7.GATE_SIGNATURE_NAMESPACE,
+        ssh_keygen,
+    )
+    rollback_health_path = write_canonical(
+        tmp_path / "canary-rollback-health.json",
+        valid_rollback_health_evidence(rollback_dir, previous_config_sha),
+    )
+    rollback_health_signature = sign_document(
+        rollback_health_path,
+        collector_key,
+        p7.ROLLBACK_HEALTH_SIGNATURE_NAMESPACE,
+        ssh_keygen,
+    )
+    manifest, _, manifest_sha = p7.load_manifest(release_dir)
+    rollback_manifest, _, rollback_manifest_sha = p7.load_manifest(rollback_dir)
+    canary_base = p7.canary_base_path(manifest["release_id"])
+    approval_path = write_canonical(
+        tmp_path / "canary-owner-approval.json",
+        {
+            "schema_version": p7.APPROVAL_SCHEMA_VERSION,
+            "action": "paired_switch",
+            "approval_id": "approval-p7-canary-test",
+            "activation_mode": "canary",
+            "canary_base_path": canary_base,
+            "release_id": manifest["release_id"],
+            "manifest_sha256": manifest_sha,
+            "gate_evidence_sha256": p7.sha256_file(evidence_path),
+            "rollback_release_id": rollback_manifest["release_id"],
+            "rollback_manifest_sha256": rollback_manifest_sha,
+            "rollback_health_evidence_sha256": p7.sha256_file(rollback_health_path),
+            "previous_route_config_sha256": previous_config_sha,
+        },
+    )
+    approval_signature = sign_document(
+        approval_path,
+        owner_key,
+        p7.APPROVAL_SIGNATURE_NAMESPACE,
+        ssh_keygen,
+    )
+
+    plan = p7.paired_switch_plan(
+        release_dir=release_dir,
+        rollback_release_dir=rollback_dir,
+        gate_evidence_path=evidence_path,
+        gate_evidence_signature_path=evidence_signature,
+        rollback_signature_path=rollback_dir / "release-manifest.json.sig",
+        rollback_health_evidence_path=rollback_health_path,
+        rollback_health_signature_path=rollback_health_signature,
+        previous_route_config_sha256=previous_config_sha,
+        owner_approval_path=approval_path,
+        owner_approval_signature_path=approval_signature,
+        signature_path=release_dir / "release-manifest.json.sig",
+        repo=source_repo,
+        ssh_keygen=ssh_keygen,
+    )
+
+    assert plan["activation_mode"] == "canary"
+    assert plan["production_applied"] is False
+    assert plan["canary_base_path"] == canary_base
+    assert plan["candidate_routes"][canary_base] == "http://127.0.0.1:15194"
+    assert plan["candidate_routes"][f"{canary_base}api/"] == "http://127.0.0.1:18018"
+    assert "/" not in plan["candidate_routes"]
+    assert plan["atomic_switch"]["release_prefixed_canary_locations_only"] is True
+    assert plan["atomic_switch"]["production_routes_replaced"] is False
+    assert any("production root P6 regression probe" in step for step in plan["atomic_switch"]["steps"])
+    assert plan["rollback"]["canary_only"] is True
 
 
 def test_switch_plan_never_accepts_unsigned_candidate(
