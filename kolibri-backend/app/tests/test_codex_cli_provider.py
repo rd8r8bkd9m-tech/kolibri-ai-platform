@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from app import codex_cli_provider
 from app.codex_cli_provider import (
     CodexCLICancelled,
     CodexCLIError,
@@ -316,6 +317,7 @@ def test_home_defaults_and_legacy_model_oss_aliases(monkeypatch, tmp_path):
         "CODEX_CLI_OSS",
     ):
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(codex_cli_provider.sys, "platform", "darwin")
     monkeypatch.setenv("CODEX_CLI_CWD", str(tmp_path))
     monkeypatch.setenv("KOLIBRI_CODEX_MODEL", "account-model")
     monkeypatch.setenv("KOLIBRI_CODEX_OSS", "true")
@@ -331,13 +333,85 @@ def test_home_defaults_and_legacy_model_oss_aliases(monkeypatch, tmp_path):
     assert argv[argv.index("--enable") + 1] == "respect_system_proxy"
 
 
-def test_default_binary_resolves_portably_from_process_path(monkeypatch, tmp_path):
-    binary = _fake_codex(tmp_path, "raise SystemExit(2)\n")
-    portable_binary = binary.rename(tmp_path / "codex")
+def test_linux_home_default_prefers_existing_wrapper(monkeypatch, tmp_path):
+    wrapper_dir = tmp_path / "usr-local-bin"
+    wrapper_dir.mkdir()
+    wrapper = _fake_codex(wrapper_dir, "raise SystemExit(2)\n")
+    path_dir = tmp_path / "path-bin"
+    path_dir.mkdir()
+    _fake_codex(path_dir, "raise SystemExit(2)\n").rename(path_dir / "codex")
     monkeypatch.delenv("CODEX_CLI_BINARY", raising=False)
     monkeypatch.delenv("KOLIBRI_CODEX_CLI_BINARY", raising=False)
+    monkeypatch.setattr(codex_cli_provider.sys, "platform", "linux")
+    monkeypatch.setattr(codex_cli_provider, "_LINUX_HOME_CODEX_WRAPPER", wrapper)
     monkeypatch.setenv("CODEX_CLI_CWD", str(tmp_path))
-    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}/usr/bin:/bin")
+    monkeypatch.setenv("PATH", f"{path_dir}{os.pathsep}/usr/bin:/bin")
+
+    settings = CodexCLISettings.from_env()
+    direct_default = CodexCLISettings(cwd=tmp_path)
+    resolved = _resolve_binary(settings, _safe_environment(settings))
+
+    assert settings.binary == str(wrapper)
+    assert direct_default.binary == str(wrapper)
+    assert resolved == str(wrapper.resolve())
+    assert CodexCLIProvider(settings).configuration_snapshot()["configured"] is True
+
+
+def test_explicit_codex_cli_binary_wins_over_linux_home_wrapper(monkeypatch, tmp_path):
+    wrapper_dir = tmp_path / "usr-local-bin"
+    wrapper_dir.mkdir()
+    wrapper = _fake_codex(wrapper_dir, "raise SystemExit(2)\n")
+    explicit_dir = tmp_path / "explicit-bin"
+    explicit_dir.mkdir()
+    explicit = _fake_codex(explicit_dir, "raise SystemExit(2)\n")
+    monkeypatch.setattr(codex_cli_provider.sys, "platform", "linux")
+    monkeypatch.setattr(codex_cli_provider, "_LINUX_HOME_CODEX_WRAPPER", wrapper)
+    monkeypatch.setenv("CODEX_CLI_BINARY", str(explicit))
+    monkeypatch.setenv("KOLIBRI_CODEX_CLI_BINARY", str(wrapper))
+    monkeypatch.setenv("CODEX_CLI_CWD", str(tmp_path))
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+
+    settings = CodexCLISettings.from_env()
+    resolved = _resolve_binary(settings, _safe_environment(settings))
+
+    assert settings.binary == str(explicit)
+    assert resolved == str(explicit.resolve())
+
+
+def test_explicit_codex_name_resolves_path_even_when_linux_wrapper_exists(monkeypatch, tmp_path):
+    wrapper_dir = tmp_path / "usr-local-bin"
+    wrapper_dir.mkdir()
+    wrapper = _fake_codex(wrapper_dir, "raise SystemExit(2)\n")
+    path_dir = tmp_path / "path-bin"
+    path_dir.mkdir()
+    raw_codex = _fake_codex(path_dir, "raise SystemExit(2)\n").rename(path_dir / "codex")
+    monkeypatch.setattr(codex_cli_provider.sys, "platform", "linux")
+    monkeypatch.setattr(codex_cli_provider, "_LINUX_HOME_CODEX_WRAPPER", wrapper)
+    monkeypatch.setenv("CODEX_CLI_BINARY", "codex")
+    monkeypatch.setenv("CODEX_CLI_CWD", str(tmp_path))
+    monkeypatch.setenv("PATH", f"{path_dir}{os.pathsep}/usr/bin:/bin")
+
+    settings = CodexCLISettings.from_env()
+    resolved = _resolve_binary(settings, _safe_environment(settings))
+
+    assert settings.binary == "codex"
+    assert resolved == str(raw_codex.resolve())
+
+
+def test_non_linux_default_resolves_portably_from_process_path(monkeypatch, tmp_path):
+    path_dir = tmp_path / "path-bin"
+    path_dir.mkdir()
+    binary = _fake_codex(path_dir, "raise SystemExit(2)\n")
+    portable_binary = binary.rename(path_dir / "codex")
+    wrapper_dir = tmp_path / "usr-local-bin"
+    wrapper_dir.mkdir()
+    wrapper = _fake_codex(wrapper_dir, "raise SystemExit(2)\n")
+    monkeypatch.delenv("CODEX_CLI_BINARY", raising=False)
+    monkeypatch.delenv("KOLIBRI_CODEX_CLI_BINARY", raising=False)
+    monkeypatch.setattr(codex_cli_provider.sys, "platform", "darwin")
+    monkeypatch.setattr(codex_cli_provider, "_LINUX_HOME_CODEX_WRAPPER", wrapper)
+    monkeypatch.setenv("CODEX_CLI_CWD", str(tmp_path))
+    monkeypatch.setenv("PATH", f"{path_dir}{os.pathsep}/usr/bin:/bin")
 
     settings = CodexCLISettings.from_env()
     resolved = _resolve_binary(settings, _safe_environment(settings))

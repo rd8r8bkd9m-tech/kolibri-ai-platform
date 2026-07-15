@@ -4,6 +4,7 @@ import asyncio
 import base64
 import hashlib
 import json
+import os
 import stat
 import textwrap
 import uuid
@@ -11,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from app import image_artifacts
+from app import codex_cli_provider, image_artifacts
 from app.codex_cli_image_provider import (
     CodexCLIImageCancelled,
     CodexCLIImageInvalidArtifact,
@@ -19,7 +20,7 @@ from app.codex_cli_image_provider import (
     CodexCLIImageSettings,
     CodexCLIImageTimeout,
 )
-from app.codex_cli_provider import CodexCLISettings
+from app.codex_cli_provider import CodexCLISettings, _resolve_binary, _safe_environment
 
 
 _PNG_1X1 = base64.b64decode(
@@ -80,6 +81,27 @@ def _isolated_codex_home(tmp_path, monkeypatch):
     monkeypatch.setenv("CODEX_HOME", str(codex_home))
 
 
+def test_image_settings_default_to_linux_home_wrapper(monkeypatch, tmp_path):
+    wrapper_dir = tmp_path / "usr-local-bin"
+    wrapper_dir.mkdir()
+    wrapper = _fake_codex(wrapper_dir, "raise SystemExit(2)\n")
+    path_dir = tmp_path / "path-bin"
+    path_dir.mkdir()
+    _fake_codex(path_dir, "raise SystemExit(2)\n").rename(path_dir / "codex")
+    monkeypatch.delenv("CODEX_CLI_BINARY", raising=False)
+    monkeypatch.delenv("KOLIBRI_CODEX_CLI_BINARY", raising=False)
+    monkeypatch.setattr(codex_cli_provider.sys, "platform", "linux")
+    monkeypatch.setattr(codex_cli_provider, "_LINUX_HOME_CODEX_WRAPPER", wrapper)
+    monkeypatch.setenv("CODEX_CLI_CWD", str(tmp_path))
+    monkeypatch.setenv("PATH", f"{path_dir}{os.pathsep}/usr/bin:/bin")
+
+    settings = CodexCLIImageSettings.from_env()
+    resolved = _resolve_binary(settings.cli, _safe_environment(settings.cli))
+
+    assert settings.cli.binary == str(wrapper)
+    assert resolved == str(wrapper.resolve())
+
+
 def test_success_uses_shell_free_image_tool_and_materializes_verified_artifact(
     tmp_path, monkeypatch
 ):
@@ -111,8 +133,10 @@ def test_success_uses_shell_free_image_tool_and_materializes_verified_artifact(
     assert (result.width, result.height) == (1, 1)
     assert result.sha256 == hashlib.sha256(_PNG_1X1).hexdigest()
     assert result.model == "codex-cli:account-default"
-    assert captured["stdin"].splitlines()[0] == "$imagegen"
-    assert "Вызови встроенный skill $imagegen" in captured["stdin"]
+    assert captured["stdin"].splitlines()[0] == "Ты — изолированный внутренний исполнитель изображений Kolibri."
+    assert "Используй встроенный инструмент генерации изображений." in captured["stdin"]
+    assert "$imagegen" not in captured["stdin"]
+    assert "skill $imagegen" not in captured["stdin"]
     assert "сгенерируй цветы; touch OUTSIDE" in captured["stdin"]
     assert "сгенерируй цветы; touch OUTSIDE" not in captured["argv"]
     assert ["--sandbox", "read-only"] == captured["argv"][
@@ -172,6 +196,8 @@ def test_edit_materializes_verified_new_image_from_host_bound_source(tmp_path):
     assert result.sha256 != hashlib.sha256(_PNG_1X1).hexdigest()
     assert captured["source_sha256"] == hashlib.sha256(_PNG_1X1).hexdigest()
     assert "referenced_image_path" in captured["prompt"]
+    assert "$imagegen" not in captured["prompt"]
+    assert "skill $imagegen" not in captured["prompt"]
     assert "Сделай фон тёплым" in captured["prompt"]
     assert not Path(captured["source"]).exists()
 

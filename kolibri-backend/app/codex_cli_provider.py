@@ -28,7 +28,7 @@ import signal
 import sys
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, AsyncIterator, Iterable, Mapping
 
@@ -63,6 +63,7 @@ _TOOL_TYPES: dict[str, tuple[str, str]] = {
     "web_search": ("codex.web_search", "Ищу актуальные источники"),
     "file_change": ("codex.file_check", "Проверяю изменения"),
 }
+_LINUX_HOME_CODEX_WRAPPER = Path("/usr/local/bin/codex")
 
 
 class CodexCLIError(RuntimeError):
@@ -132,14 +133,22 @@ def _bounded_float(name: str, default: float, minimum: float, maximum: float) ->
     return max(minimum, min(maximum, value))
 
 
+def _is_executable_file(path: Path) -> bool:
+    return path.is_file() and os.access(path, os.X_OK)
+
+
+def _default_codex_binary() -> str:
+    if sys.platform.startswith("linux") and _is_executable_file(_LINUX_HOME_CODEX_WRAPPER):
+        return str(_LINUX_HOME_CODEX_WRAPPER)
+    return "codex"
+
+
 @dataclass(frozen=True)
 class CodexCLISettings:
     enabled: bool = True
-    # Resolve the account-authorized CLI from the service PATH unless the
-    # deployment pins an absolute path.  Linux Home units continue to pin
-    # /usr/local/bin/codex, while Homebrew installs on Apple workers resolve
-    # /opt/homebrew/bin/codex without a machine-specific source change.
-    binary: str = "codex"
+    # Environment pins win.  Otherwise Linux Home prefers the wrapper that
+    # injects gateway configuration; Mac and other hosts keep PATH resolution.
+    binary: str = field(default_factory=_default_codex_binary)
     model: str = ""
     oss: bool = False
     cwd: Path = Path(".")
@@ -173,7 +182,7 @@ class CodexCLISettings:
             binary=_first_env(
                 "CODEX_CLI_BINARY",
                 "KOLIBRI_CODEX_CLI_BINARY",
-                default="codex",
+                default=_default_codex_binary(),
             ),
             model=_first_env("CODEX_CLI_MODEL", "KOLIBRI_CODEX_MODEL"),
             oss=_bool_env_alias("CODEX_CLI_OSS", "KOLIBRI_CODEX_OSS", False),
