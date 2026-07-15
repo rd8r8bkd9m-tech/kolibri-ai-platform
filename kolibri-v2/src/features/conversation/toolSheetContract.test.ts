@@ -49,3 +49,9 @@ describe('mobile tool sheet capability truth', () => {
     expect(composerRuntime).not.toContain('env(safe-area-inset-bottom')
   })
 })
+
+describe('conversation scroll containment', () => {
+  it('keeps the outer shell stationary while the message thread scrolls', () => {
+    expect(css).toMatch(/\.conversation-page\s*\{[^}]*overflow:\s*hidden;/s)
+  })
+})

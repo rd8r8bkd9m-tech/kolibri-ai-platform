@@ -1742,6 +1742,7 @@ a:hover .kolibri-mascot {
   position: relative;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
 }
 
 .conversation-project-header {
