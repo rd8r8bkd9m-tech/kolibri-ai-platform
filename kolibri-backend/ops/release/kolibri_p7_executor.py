@@ -560,6 +560,25 @@ def _prepare_runtime_parent(path: Path, uid: int, gid: int) -> None:
             raise P7ExecutorError("p7_runtime_parent_not_traversable")
 
 
+def bind_runtime_read_group(root: Path, runtime_gid: int) -> None:
+    """Keep staged files root-owned but readable by the runtime group."""
+    for directory, dirnames, filenames in os.walk(root, followlinks=False):
+        paths = [Path(directory), *(Path(directory) / name for name in (*dirnames, *filenames))]
+        for path in paths:
+            metadata = path.lstat()
+            os.chown(path, -1, runtime_gid, follow_symlinks=False)
+            if stat.S_ISLNK(metadata.st_mode):
+                continue
+            mode = stat.S_IMODE(metadata.st_mode)
+            if stat.S_ISDIR(metadata.st_mode):
+                mode |= stat.S_IRGRP | stat.S_IXGRP
+            elif stat.S_ISREG(metadata.st_mode):
+                mode |= stat.S_IRGRP
+                if mode & stat.S_IXUSR:
+                    mode |= stat.S_IXGRP
+            os.chmod(path, mode, follow_symlinks=False)
+
+
 def stage_release(
     verified: VerifiedPlan,
     release_root: Path,
@@ -602,6 +621,7 @@ def stage_release(
             or sha256_file(lock) != expected_lock.get("sha256")
         ):
             raise P7ExecutorError("p7_staged_release_integrity_failed")
+        bind_runtime_read_group(temporary, runtime_gid)
         data_dir.mkdir(parents=True, exist_ok=False, mode=0o750)
         try:
             for relative in ("artifacts", "cache", "tmp"):
