@@ -4,6 +4,8 @@ import asyncio
 from datetime import datetime, timezone
 from decimal import Decimal
 import hashlib
+import re
+import time
 
 import httpx
 
@@ -15,6 +17,11 @@ from app.project_schemas import PersistedEstimateAction
 
 
 NOW = datetime(2026, 7, 15, 9, 0, tzinfo=timezone.utc)
+PUBLIC_TEST_IP = "93.184.216.34"
+
+
+async def _public_resolver(_hostname: str):
+    return [PUBLIC_TEST_IP]
 
 
 def _html_response(html: str, status_code: int = 200) -> httpx.Response:
@@ -67,7 +74,11 @@ async def _run_collector(
 
     transport = httpx.MockTransport(handler)
     async with httpx.AsyncClient(transport=transport, follow_redirects=True) as http_client:
-        client = CommercialPriceResearchClient(searcher=searcher, client=http_client)
+        client = CommercialPriceResearchClient(
+            searcher=searcher,
+            client=http_client,
+            dns_resolver=_public_resolver,
+        )
         enriched, evidence = await client.enrich_draft(draft, observed_at=NOW)
     return enriched, evidence, queries
 
@@ -148,6 +159,101 @@ def test_commercial_fallback_rejects_stale_source_ttl():
     assert enriched["sections"][0]["positions"][0]["price"] == "0"
 
 
+def test_commercial_fallback_rejects_private_literal_https_url():
+    async def searcher(_query: str, _limit: int):
+        return [{"title": "Бетон товарный В25", "url": "https://127.0.0.1/catalog"}]
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise AssertionError("private literal URL must not be fetched")
+
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+            client = CommercialPriceResearchClient(
+                searcher=searcher,
+                client=http_client,
+                dns_resolver=_public_resolver,
+            )
+            return await client.enrich_draft(_draft(region="Москва"), observed_at=NOW)
+
+    enriched, evidence = asyncio.run(scenario())
+
+    assert evidence == []
+    assert enriched["sections"][0]["positions"][0]["price"] == "0"
+
+
+def test_commercial_fallback_rejects_dns_resolution_to_private_address():
+    async def searcher(_query: str, _limit: int):
+        return [{"title": "Бетон товарный В25", "url": "https://supplier.example/catalog"}]
+
+    async def private_resolver(hostname: str):
+        assert hostname == "supplier.example"
+        return ["10.10.10.10"]
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise AssertionError("host resolving to private address must not be fetched")
+
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+            client = CommercialPriceResearchClient(
+                searcher=searcher,
+                client=http_client,
+                dns_resolver=private_resolver,
+            )
+            return await client.enrich_draft(_draft(region="Москва"), observed_at=NOW)
+
+    enriched, evidence = asyncio.run(scenario())
+
+    assert evidence == []
+    assert enriched["sections"][0]["positions"][0]["price"] == "0"
+
+
+def test_commercial_fallback_revalidates_redirect_target_before_following():
+    public_url = "https://supplier.example/catalog"
+    requests: list[str] = []
+
+    async def searcher(_query: str, _limit: int):
+        return [{"title": "Бетон товарный В25", "url": public_url}]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(str(request.url))
+        if str(request.url) == public_url:
+            return httpx.Response(
+                302,
+                headers={"location": "https://127.0.0.1/private"},
+            )
+        raise AssertionError("private redirect target must not be fetched")
+
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler), follow_redirects=True) as http_client:
+            client = CommercialPriceResearchClient(
+                searcher=searcher,
+                client=http_client,
+                dns_resolver=_public_resolver,
+            )
+            return await client.enrich_draft(_draft(region="Москва"), observed_at=NOW)
+
+    enriched, evidence = asyncio.run(scenario())
+
+    assert requests == [public_url]
+    assert evidence == []
+    assert enriched["sections"][0]["positions"][0]["price"] == "0"
+
+
+def test_commercial_fallback_rejects_unrelated_price_elsewhere_on_page():
+    filler = " Подробное техническое описание." * 12
+    html = (
+        "<html><title>Бетон товарный В25 Москва</title><body>"
+        f"Москва. Бетон товарный В25 поставляется по запросу.{filler} "
+        "Песок карьерный: 7 800 руб./м3, с НДС. "
+        "Обновлено 15.07.2026.</body></html>"
+    )
+
+    enriched, evidence, _queries = asyncio.run(_run_collector(_draft(region="Москва"), html=html))
+
+    assert evidence == []
+    assert enriched["sections"][0]["positions"][0]["price"] == "0"
+
+
 def test_commercial_fallback_no_results_keeps_rows_needing_input():
     async def no_results(query: str, limit: int):
         assert "Москва" in query
@@ -155,7 +261,11 @@ def test_commercial_fallback_no_results_keeps_rows_needing_input():
 
     async def scenario():
         async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _request: _html_response(""))) as http_client:
-            client = CommercialPriceResearchClient(searcher=no_results, client=http_client)
+            client = CommercialPriceResearchClient(
+                searcher=no_results,
+                client=http_client,
+                dns_resolver=_public_resolver,
+            )
             return await client.enrich_draft(_draft(region="Москва"), observed_at=NOW)
 
     enriched, evidence = asyncio.run(scenario())
@@ -169,6 +279,117 @@ def test_commercial_fallback_no_results_keeps_rows_needing_input():
     assert action["data"]["pricing_status"] == "needs_input"
     assert action["data"]["estimate_status"] == "needs_input"
     assert action["data"]["sections"][0]["positions"][0]["price"] == "0"
+
+
+def test_commercial_fallback_bounds_row_concurrency_and_keeps_output_order():
+    row_count = 8
+    draft = {
+        "title": "Смета",
+        "region": "Москва",
+        "sections": [
+            {
+                "title": "Материалы",
+                "positions": [
+                    {
+                        "code": f"AI-{index:02}",
+                        "name": f"Бетон товарный В25 позиция {index}",
+                        "unit": "м³",
+                        "quantity": "1",
+                        "price": "0",
+                    }
+                    for index in range(row_count)
+                ],
+            }
+        ],
+    }
+    active = 0
+    max_active = 0
+
+    async def searcher(query: str, limit: int):
+        nonlocal active, max_active
+        assert limit == 5
+        match = re.search(r"позиция\s+(\d+)", query)
+        assert match is not None
+        index = int(match.group(1))
+        active += 1
+        max_active = max(max_active, active)
+        try:
+            await asyncio.sleep((row_count - index) * 0.01)
+        finally:
+            active -= 1
+        return [{
+            "title": f"Бетон товарный В25 позиция {index}",
+            "url": f"https://supplier.example/catalog/{index}",
+        }]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        index = int(str(request.url).rstrip("/").rsplit("/", 1)[1])
+        price = 7000 + index
+        html = (
+            f"<html><title>Бетон товарный В25 позиция {index} Москва</title>"
+            f"<body>Москва. Бетон товарный В25 позиция {index}: "
+            f"{price} руб./м3, с НДС. Обновлено 15.07.2026.</body></html>"
+        )
+        return _html_response(html)
+
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+            client = CommercialPriceResearchClient(
+                searcher=searcher,
+                client=http_client,
+                dns_resolver=_public_resolver,
+                max_concurrent_rows=99,
+            )
+            return await client.enrich_draft(draft, observed_at=NOW)
+
+    enriched, evidence = asyncio.run(scenario())
+
+    assert max_active == 6
+    assert [record["position_code"] for record in evidence] == [
+        f"AI-{index:02}" for index in range(row_count)
+    ]
+    assert [
+        position["price"]
+        for position in enriched["sections"][0]["positions"]
+    ] == [str(7000 + index) for index in range(row_count)]
+
+
+def test_commercial_fallback_budget_expiry_cancels_remaining_work_without_result():
+    started = 0
+    cancelled = 0
+
+    async def slow_searcher(_query: str, _limit: int):
+        nonlocal started, cancelled
+        started += 1
+        try:
+            await asyncio.sleep(5)
+        except asyncio.CancelledError:
+            cancelled += 1
+            raise
+        return [{"title": "Бетон товарный В25", "url": "https://supplier.example/catalog"}]
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise AssertionError("budget expiry must cancel before fetch")
+
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+            client = CommercialPriceResearchClient(
+                searcher=slow_searcher,
+                client=http_client,
+                dns_resolver=_public_resolver,
+                research_budget_seconds=0.01,
+            )
+            return await client.enrich_draft(_draft(region="Москва"), observed_at=NOW)
+
+    started_at = time.perf_counter()
+    enriched, evidence = asyncio.run(scenario())
+    elapsed = time.perf_counter() - started_at
+
+    assert elapsed < 0.5
+    assert started == 1
+    assert cancelled == 1
+    assert evidence == []
+    assert enriched["sections"][0]["positions"][0]["price"] == "0"
 
 
 def test_commercial_fallback_release_gate_truth_fields_and_binding():
@@ -219,7 +440,11 @@ def test_commercial_fallback_does_not_override_existing_official_price():
 
     async def scenario():
         async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _request: _html_response(""))) as http_client:
-            client = CommercialPriceResearchClient(searcher=forbidden_search, client=http_client)
+            client = CommercialPriceResearchClient(
+                searcher=forbidden_search,
+                client=http_client,
+                dns_resolver=_public_resolver,
+            )
             return await client.enrich_draft(
                 _draft(region="Москва", price="125.50"),
                 observed_at=NOW,

@@ -9,15 +9,19 @@ snippets and provider prose are never converted into prices.
 
 from __future__ import annotations
 
+import asyncio
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import hashlib
 from html import unescape
+import inspect
+import ipaddress
 import re
+import socket
 from typing import Any, Awaitable, Callable, Iterable, Mapping
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 
@@ -26,11 +30,16 @@ from app.web_search import web_search
 
 
 Search = Callable[[str, int], Awaitable[list[dict[str, str]]]]
+DnsResolver = Callable[[str], Awaitable[Iterable[str]] | Iterable[str]]
 
 MAX_CANDIDATES_PER_POSITION = 5
 MAX_FETCHED_BYTES = 1_000_000
+MAX_CONCURRENT_PRICE_ROWS = 6
+MAX_RESEARCH_SECONDS = 25.0
+MAX_REDIRECTS = 5
 COMMERCIAL_PRICE_TTL_DAYS = 30
 MIN_NAME_COVERAGE = Decimal("0.45")
+LOCAL_PRICE_WINDOW_CHARS = 160
 
 TOKEN_RE = re.compile(r"[a-zа-яё0-9]+", re.IGNORECASE)
 TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
@@ -77,13 +86,25 @@ class CommercialPriceResearchClient:
         *,
         searcher: Search | None = None,
         client: httpx.AsyncClient | None = None,
+        dns_resolver: DnsResolver | None = None,
         timeout_seconds: float = 12.0,
         ttl_days: int = COMMERCIAL_PRICE_TTL_DAYS,
+        max_concurrent_rows: int = MAX_CONCURRENT_PRICE_ROWS,
+        research_budget_seconds: float = MAX_RESEARCH_SECONDS,
     ) -> None:
         self._searcher = searcher or web_search
         self._external_client = client
+        self._dns_resolver = dns_resolver or _default_dns_resolver
         self._timeout = httpx.Timeout(timeout_seconds, connect=min(timeout_seconds, 5.0))
         self._ttl_days = ttl_days
+        self._max_concurrent_rows = max(
+            1,
+            min(MAX_CONCURRENT_PRICE_ROWS, int(max_concurrent_rows)),
+        )
+        self._research_budget_seconds = max(
+            0.0,
+            min(MAX_RESEARCH_SECONDS, float(research_budget_seconds)),
+        )
 
     async def enrich_draft(
         self,
@@ -117,15 +138,13 @@ class CommercialPriceResearchClient:
         timestamp = (observed_at or datetime.now(timezone.utc)).astimezone(timezone.utc)
         evidence: list[dict[str, Any]] = []
         async with self._client_context() as client:
-            for position in unmatched:
-                parsed = await self._research_position(
-                    client,
-                    position,
-                    region=region_text,
-                    observed_at=timestamp,
-                )
-                if parsed is None:
-                    continue
+            priced_rows = await self._research_positions(
+                client,
+                unmatched,
+                region=region_text,
+                observed_at=timestamp,
+            )
+            for position, parsed in priced_rows:
                 price_text = _decimal_text(parsed.unit_price)
                 position["price"] = price_text
                 position["comment"] = _append_comment(
@@ -167,6 +186,56 @@ class CommercialPriceResearchClient:
                     )
                 )
         return enriched, evidence
+
+    async def _research_positions(
+        self,
+        client: httpx.AsyncClient,
+        positions: list[dict[str, Any]],
+        *,
+        region: str,
+        observed_at: datetime,
+    ) -> list[tuple[dict[str, Any], ParsedPagePrice]]:
+        if not positions or self._research_budget_seconds <= 0:
+            return []
+
+        semaphore = asyncio.Semaphore(self._max_concurrent_rows)
+
+        async def worker(
+            index: int,
+            position: dict[str, Any],
+        ) -> tuple[int, dict[str, Any], ParsedPagePrice | None]:
+            async with semaphore:
+                parsed = await self._research_position(
+                    client,
+                    position,
+                    region=region,
+                    observed_at=observed_at,
+                )
+                return index, position, parsed
+
+        tasks = [
+            asyncio.create_task(worker(index, position))
+            for index, position in enumerate(positions)
+        ]
+        done, pending = await asyncio.wait(tasks, timeout=self._research_budget_seconds)
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+
+        completed: list[tuple[int, dict[str, Any], ParsedPagePrice]] = []
+        for task in done:
+            try:
+                index, position, parsed = task.result()
+            except asyncio.CancelledError:
+                continue
+            except Exception:
+                continue
+            if parsed is not None:
+                completed.append((index, position, parsed))
+
+        completed.sort(key=lambda item: item[0])
+        return [(position, parsed) for _index, position, parsed in completed]
 
     async def _research_position(
         self,
@@ -214,21 +283,15 @@ class CommercialPriceResearchClient:
         region: str,
         observed_at: datetime,
     ) -> ParsedPagePrice | None:
+        fetched = await self._fetch_response(client, url)
+        if fetched is None:
+            return None
+        response, final_url = fetched
         try:
-            response = await client.get(
-                url,
-                headers={
-                    "Accept": "text/html, text/plain;q=0.9, */*;q=0.1",
-                    "User-Agent": "KolibriAI-EstimatePriceResearch/1.0",
-                },
-            )
             response.raise_for_status()
         except Exception:
             return None
 
-        final_url = _safe_https_url(str(response.url))
-        if not final_url:
-            return None
         content_type = response.headers.get("content-type", "").casefold()
         if content_type and not any(
             allowed in content_type
@@ -251,7 +314,7 @@ class CommercialPriceResearchClient:
             return None
         if not _text_mentions_region(searchable, region):
             return None
-        price_match = _parse_unit_price(visible_text, unit)
+        price_match = _parse_unit_price(visible_text, unit, resource_name=resource_name)
         if price_match is None:
             return None
 
@@ -275,6 +338,45 @@ class CommercialPriceResearchClient:
             confidence=confidence,
         )
 
+    async def _fetch_response(
+        self,
+        client: httpx.AsyncClient,
+        url: str,
+    ) -> tuple[httpx.Response, str] | None:
+        current_url = await _safe_public_https_url(url, self._dns_resolver)
+        if current_url is None:
+            return None
+
+        headers = {
+            "Accept": "text/html, text/plain;q=0.9, */*;q=0.1",
+            "User-Agent": "KolibriAI-EstimatePriceResearch/1.0",
+        }
+        for _redirect_count in range(MAX_REDIRECTS + 1):
+            try:
+                response = await client.get(
+                    current_url,
+                    headers=headers,
+                    follow_redirects=False,
+                )
+            except Exception:
+                return None
+
+            if not response.is_redirect:
+                return response, current_url
+
+            location = response.headers.get("location")
+            await response.aclose()
+            if not location:
+                return None
+            redirected_url = urljoin(current_url, location)
+            current_url = await _safe_public_https_url(
+                redirected_url,
+                self._dns_resolver,
+            )
+            if current_url is None:
+                return None
+        return None
+
     def _client_context(self):
         if self._external_client is not None:
             return _BorrowedClient(self._external_client)
@@ -295,6 +397,14 @@ class _BorrowedClient:
         return None
 
 
+async def _default_dns_resolver(hostname: str) -> list[str]:
+    def resolve() -> list[str]:
+        results = socket.getaddrinfo(hostname, 443, type=socket.SOCK_STREAM)
+        return sorted({str(item[4][0]) for item in results})
+
+    return await asyncio.to_thread(resolve)
+
+
 def _safe_https_url(value: Any) -> str | None:
     candidate = str(value or "").strip()
     try:
@@ -312,6 +422,62 @@ def _safe_https_url(value: Any) -> str | None:
     return candidate
 
 
+async def _safe_public_https_url(
+    value: Any,
+    dns_resolver: DnsResolver,
+) -> str | None:
+    candidate = _safe_https_url(value)
+    if not candidate:
+        return None
+    hostname = urlsplit(candidate).hostname
+    if not hostname or not await _hostname_resolves_publicly(hostname, dns_resolver):
+        return None
+    return candidate
+
+
+async def _hostname_resolves_publicly(
+    hostname: str,
+    dns_resolver: DnsResolver,
+) -> bool:
+    host = hostname.rstrip(".")
+    if not host:
+        return False
+
+    literal = _ip_address(host)
+    if literal is not None:
+        return _public_ip_address(literal)
+
+    try:
+        resolved = dns_resolver(host)
+        if inspect.isawaitable(resolved):
+            resolved = await resolved
+        addresses = [address for address in (_ip_address(item) for item in resolved) if address]
+    except Exception:
+        return False
+    return bool(addresses) and all(_public_ip_address(address) for address in addresses)
+
+
+def _ip_address(value: Any) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    try:
+        return ipaddress.ip_address(str(value).strip())
+    except ValueError:
+        return None
+
+
+def _public_ip_address(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    mapped = getattr(address, "ipv4_mapped", None)
+    if mapped is not None:
+        address = mapped
+    return not (
+        address.is_loopback
+        or address.is_private
+        or address.is_link_local
+        or address.is_multicast
+        or address.is_unspecified
+        or address.is_reserved
+    )
+
+
 def _extract_title(html: str) -> str:
     match = TITLE_RE.search(html)
     return _clean_text(unescape(match.group(1)), limit=500) if match else ""
@@ -323,7 +489,12 @@ def _visible_text(html: str) -> str:
     return _clean_text(unescape(text), limit=200_000)
 
 
-def _parse_unit_price(text: str, unit: str) -> tuple[Decimal, str] | None:
+def _parse_unit_price(
+    text: str,
+    unit: str,
+    *,
+    resource_name: str,
+) -> tuple[Decimal, str] | None:
     unit_re = _unit_regex(_normalise_unit(unit))
     if not unit_re:
         return None
@@ -342,17 +513,26 @@ def _parse_unit_price(text: str, unit: str) -> tuple[Decimal, str] | None:
         ),
     )
     for pattern in patterns:
-        match = pattern.search(text)
-        if not match:
-            continue
-        price = _decimal(match.group("price"))
-        if price <= 0:
-            continue
-        start = max(0, match.start() - 120)
-        end = min(len(text), match.end() + 180)
-        quote = _clean_text(text[start:end], limit=500)
-        return price, quote
+        for match in pattern.finditer(text):
+            price = _decimal(match.group("price"))
+            if price <= 0:
+                continue
+            start = max(0, match.start() - LOCAL_PRICE_WINDOW_CHARS)
+            end = min(len(text), match.end() + LOCAL_PRICE_WINDOW_CHARS)
+            quote = _clean_text(text[start:end], limit=500)
+            if not _window_mentions_resource(resource_name, quote):
+                continue
+            return price, quote
     return None
+
+
+def _window_mentions_resource(resource_name: str, text: str) -> bool:
+    expected = set(_tokens(resource_name)) - _STOP_WORDS
+    if not expected:
+        return False
+    actual = set(_tokens(text)) - _STOP_WORDS
+    actual_stems = {_stem(token) for token in actual}
+    return all(token in actual or _stem(token) in actual_stems for token in expected)
 
 
 def _unit_regex(unit: str) -> str:

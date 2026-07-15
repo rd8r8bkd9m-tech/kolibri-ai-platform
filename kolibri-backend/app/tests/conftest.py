@@ -8,13 +8,14 @@ from sqlalchemy.pool import StaticPool
 
 @pytest.fixture(autouse=True)
 def disable_live_estimate_price_collection(monkeypatch, tmp_path):
-    """Unit tests never depend on the live FGIS CS portal.
+    """Unit tests never depend on live estimate price collection.
 
     The official adapter has its own MockTransport contract tests.  Production
     keeps collection enabled by default and the release manifest pins it on.
     """
 
     monkeypatch.setenv("KOLIBRI_ESTIMATE_FGIS_ENABLED", "false")
+    monkeypatch.setenv("KOLIBRI_ESTIMATE_COMMERCIAL_FALLBACK_ENABLED", "false")
     # Runtime proof and artifact tests must never mutate the repository data
     # directory or leak evidence between tests.
     monkeypatch.setenv("KOLIBRI_ARTIFACT_DIR", str(tmp_path / "artifacts"))
