@@ -1030,8 +1030,17 @@ async def chat(
             "provider": "kolibri",
             "model": "kolibri",
         }
+    from app.estimate_action import is_estimate_request
     from app.truth_policy import resolve_current_information
-    truth_result = await resolve_current_information(messages)
+
+    # Current regional prices are part of estimate materialisation, where
+    # fetched evidence is bound to rows before deterministic calculation.
+    # The generic current-information renderer must not consume that request.
+    truth_result = (
+        None
+        if is_estimate_request(messages)
+        else await resolve_current_information(messages)
+    )
     if truth_result is not None and truth_result.get("status") == "source_backed":
         return _public_legacy_chat_result(truth_result)
     from app.ai_provider import chat_completion
@@ -1088,6 +1097,7 @@ async def chat_stream(
         is_image_generation_request,
         public_image_artifact,
     )
+    from app.estimate_action import is_estimate_request
     from app.truth_policy import requires_current_evidence, resolve_current_information
     from app.routers.openai_compat import (
         begin_public_response,
@@ -1096,6 +1106,7 @@ async def chat_stream(
     )
     from app.capability_runtime import try_record_capability_invocation
     image_prompt = data.messages[-1].content
+    estimate_request = is_estimate_request(messages)
     public_response_id = begin_public_response(
         messages,
         owner_scope=principal.scope_id,
@@ -1265,7 +1276,12 @@ async def chat_stream(
                 if final_payload:
                     yield sse(final_payload)
                 return
-            current_information = requires_current_evidence(messages)
+            # Explicit estimate creation owns its regional price-research
+            # subflow; generic web search remains authoritative for pure web
+            # questions only.
+            current_information = (
+                not estimate_request and requires_current_evidence(messages)
+            )
             if current_information:
                 for event in live_canonical_events(
                     work_summary_event(
@@ -1275,7 +1291,11 @@ async def chat_stream(
                     )
                 ):
                     yield sse(event)
-            truth_result = await resolve_current_information(messages)
+            truth_result = (
+                None
+                if estimate_request
+                else await resolve_current_information(messages)
+            )
             if truth_result is not None and truth_result.get("status") == "source_backed":
                 truth_provider = str(truth_result.get("provider") or "web_search")
                 truth_model = str(truth_result.get("model") or "deterministic-evidence-renderer")

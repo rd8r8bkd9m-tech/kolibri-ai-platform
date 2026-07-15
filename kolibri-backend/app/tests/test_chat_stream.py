@@ -5,7 +5,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from app import ai_provider, capability_runtime
+from app import ai_provider, capability_runtime, truth_policy
 from app.fgiscs_client import FgisCsClient
 from app.main import app
 from app.routers import openai_compat
@@ -51,6 +51,114 @@ def _provider(provider_id: str, model: str) -> dict:
         "key": "configured",
         "url": "https://provider.invalid/v1/chat/completions",
     }
+
+
+def test_estimate_with_current_web_prices_keeps_estimate_vertical(monkeypatch):
+    prompt = (
+        "создай настоящую предварительную смету на строительство забора "
+        "9 погонных метров высота 2 метра из профлиста в городе Лениногорск, "
+        "Татарстан; используй актуальные цены из интернета по региону и покажи источники"
+    )
+    truth_calls: list[str] = []
+    estimate_calls: list[str] = []
+
+    async def generic_truth(messages, **kwargs):
+        truth_calls.append(messages[-1]["content"])
+        return {
+            "content": "Только ссылки из общего веб-поиска",
+            "actions": [],
+            "status": "source_backed",
+            "provider": "web_search",
+            "model": "deterministic-evidence-renderer",
+            "sources": [{"url": "https://prices.example/profnastil"}],
+        }
+
+    async def estimate_stream(messages, **kwargs):
+        estimate_calls.append(messages[-1]["content"])
+        yield {
+            "content": "",
+            "done": True,
+            "actions": [{
+                "type": "create_estimate",
+                "label": "Открыть предварительную смету",
+                "data": {
+                    "title": "Смета: забор — Лениногорск",
+                    "region": "Лениногорск, Татарстан",
+                },
+            }],
+            "status": "ready",
+            "provider": "estimate-provider",
+            "model": "estimate-model",
+            "fallback_used": False,
+        }
+
+    monkeypatch.setattr(truth_policy, "resolve_current_information", generic_truth)
+    monkeypatch.setattr(ai_provider, "chat_completion_stream", estimate_stream)
+
+    with TestClient(app) as client:
+        _bootstrap(client)
+        response = client.post(
+            "/api/v1/chat/stream",
+            json={"messages": [{"role": "user", "content": prompt}]},
+            headers={"X-Forwarded-For": "estimate-current-prices-routing"},
+        )
+
+    assert response.status_code == 200
+    assert truth_calls == []
+    assert estimate_calls == [prompt]
+    payloads = _sse_payloads(response)
+    final = next(
+        payload for payload in reversed(payloads)
+        if payload.get("done") is True and "type" not in payload
+    )
+    assert final["actions"][0]["type"] == "create_estimate"
+    assert final["actions"][0]["data"]["region"] == "Лениногорск, Татарстан"
+    assert "Только ссылки" not in json.dumps(payloads, ensure_ascii=False)
+
+
+def test_pure_current_web_query_keeps_generic_truth_route(monkeypatch):
+    prompt = "Найди актуальные цены на профлист в Лениногорске и покажи источники"
+    truth_calls: list[str] = []
+    provider_calls: list[str] = []
+
+    async def generic_truth(messages, **kwargs):
+        truth_calls.append(messages[-1]["content"])
+        return {
+            "content": "Источник: https://prices.example/profnastil",
+            "actions": [],
+            "status": "source_backed",
+            "provider": "web_search",
+            "model": "deterministic-evidence-renderer",
+            "sources": [{"url": "https://prices.example/profnastil"}],
+        }
+
+    async def provider_stream(messages, **kwargs):
+        provider_calls.append(messages[-1]["content"])
+        yield {"content": "Неверный маршрут", "done": True, "actions": []}
+
+    monkeypatch.setattr(truth_policy, "resolve_current_information", generic_truth)
+    monkeypatch.setattr(ai_provider, "chat_completion_stream", provider_stream)
+
+    with TestClient(app) as client:
+        _bootstrap(client)
+        response = client.post(
+            "/api/v1/chat/stream",
+            json={"messages": [{"role": "user", "content": prompt}]},
+            headers={"X-Forwarded-For": "pure-current-web-routing"},
+        )
+
+    assert response.status_code == 200
+    assert truth_calls == [prompt]
+    assert provider_calls == []
+    payloads = _sse_payloads(response)
+    assert "https://prices.example/profnastil" in "".join(
+        str(payload.get("content") or "") for payload in payloads
+    )
+    assert all(
+        action.get("type") != "create_estimate"
+        for payload in payloads
+        for action in payload.get("actions", [])
+    )
 
 
 def test_chat_stream_emits_token_deltas_and_structured_final_event(monkeypatch):
