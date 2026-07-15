@@ -314,6 +314,15 @@ export default function ChatPage() {
   const { menu: capabilityMenu, loading: capabilitiesLoading } = useCapabilities()
   const { mode } = useExecutionMode()
   const bottomRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!openClarificationKey) return
+    const frame = window.requestAnimationFrame(() => {
+      const scroller = bottomRef.current?.closest<HTMLElement>('.conversation-scroll')
+      if (scroller) scroller.scrollTop = scroller.scrollHeight
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [openClarificationKey])
   const autoSentRef = useRef(false)
   const abortRef = useRef<AbortController | null>(null)
   const activeAssistantRef = useRef<string | null>(null)
