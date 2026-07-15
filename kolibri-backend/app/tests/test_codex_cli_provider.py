@@ -16,6 +16,7 @@ from app.codex_cli_provider import (
     CodexCLIProvider,
     CodexCLISettings,
     CodexCLITimeout,
+    _normalise_messages,
     _resolve_binary,
     _safe_environment,
 )
@@ -69,6 +70,22 @@ def _collect(provider: CodexCLIProvider, prompt: str, *, run_id: str = "run-test
         ]
 
     return asyncio.run(collect())
+
+
+def test_project_json_policy_uses_strict_project_prompt():
+    prompt = _normalise_messages(
+        [
+            {"role": "system", "content": "Верни ровно один JSON-объект без Markdown."},
+            {"role": "user", "content": "Создай минимальный рабочий site P7."},
+        ],
+        policy={"output_contract": "kolibri.project.v1"},
+    )
+
+    assert "Единственный допустимый финальный ответ: один JSON-объект UTF-8." in prompt
+    assert "Контракт проекта:" in prompt
+    assert "Контекст диалога:" not in prompt
+    assert "Верни ровно один JSON-объект без Markdown." in prompt
+    assert prompt.rstrip().endswith("Верни только JSON по контракту выше. Никакого текста вне JSON.")
 
 
 def test_success_uses_stdin_fixed_argv_and_sanitized_agent_message(tmp_path):

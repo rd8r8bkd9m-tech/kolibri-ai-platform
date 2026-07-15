@@ -224,16 +224,36 @@ def _sanitize_text(value: Any, *, limit: int = 64_000) -> str:
     return text
 
 
-def _normalise_messages(messages: Iterable[Mapping[str, Any]]) -> str:
-    lines = [
-        "Ты работаешь как внутренний исполнитель Kolibri.",
-        "Верни только полезный пользователю результат на русском языке.",
-        "Не раскрывай private chain-of-thought, локальные пути, команды, credentials или внутреннюю топологию.",
-        "Не утверждай, что изображение, документ или другой файл создан, если transport не передал реальный artifact bytes/hash contract.",
-        "Не представляйся Codex или сторонним провайдером.",
-        "",
-        "Контекст диалога:",
-    ]
+def _normalise_messages(
+    messages: Iterable[Mapping[str, Any]],
+    *,
+    policy: Mapping[str, Any] | None = None,
+) -> str:
+    project_json = (
+        isinstance(policy, Mapping)
+        and policy.get("output_contract") == "kolibri.project.v1"
+    )
+    if project_json:
+        lines = [
+            "Ты работаешь как внутренний исполнитель Kolibri для сборки статического проекта.",
+            "Единственный допустимый финальный ответ: один JSON-объект UTF-8.",
+            "Ответ должен начинаться символом { и заканчиваться символом }.",
+            "Не добавляй Markdown, code fences, пояснения, вводный текст или послесловие.",
+            "Не раскрывай private chain-of-thought, локальные пути, команды, credentials или внутреннюю топологию.",
+            "Не заявляй о публикации, деплое или созданном файле вне возвращенного JSON.",
+            "",
+            "Контракт проекта:",
+        ]
+    else:
+        lines = [
+            "Ты работаешь как внутренний исполнитель Kolibri.",
+            "Верни только полезный пользователю результат на русском языке.",
+            "Не раскрывай private chain-of-thought, локальные пути, команды, credentials или внутреннюю топологию.",
+            "Не утверждай, что изображение, документ или другой файл создан, если transport не передал реальный artifact bytes/hash contract.",
+            "Не представляйся Codex или сторонним провайдером.",
+            "",
+            "Контекст диалога:",
+        ]
     for message in messages:
         role = str(message.get("role") or "user").lower()
         if role not in {"system", "developer", "user", "assistant"}:
@@ -246,6 +266,13 @@ def _normalise_messages(messages: Iterable[Mapping[str, Any]]) -> str:
                 if isinstance(part, Mapping) and part.get("type") in {"text", "input_text", "output_text"}
             )
         lines.append(f"[{role}]\n{str(content or '')}")
+    if project_json:
+        lines.extend(
+            [
+                "",
+                "Верни только JSON по контракту выше. Никакого текста вне JSON.",
+            ]
+        )
     return "\n\n".join(lines).strip() + "\n"
 
 
@@ -514,9 +541,8 @@ class CodexCLIProvider:
         policy: Mapping[str, Any] | None = None,
         run_id: str | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
-        del policy  # Policy affects routing; Codex remains locked to read-only here.
         run_id = run_id or f"codex_{uuid.uuid4().hex}"
-        prompt = _normalise_messages(messages)
+        prompt = _normalise_messages(messages, policy=policy)
         prompt_bytes = prompt.encode("utf-8")
         if len(prompt_bytes) > self.settings.max_prompt_bytes:
             raise CodexCLIError("codex_cli_prompt_too_large")

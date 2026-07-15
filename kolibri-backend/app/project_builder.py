@@ -31,6 +31,14 @@ MAX_PROJECT_TITLE = 160
 MAX_PROJECT_PATH = 240
 
 _CAPABILITIES = {"site.create", "app.create"}
+_PROJECT_PROVIDER_ORDER = (
+    "codex_cli",
+    "mimo",
+    "deepseek_pro",
+    "deepseek_flash",
+    "kimi_code",
+    "cfbt",
+)
 _TEXT_EXTENSIONS = {
     ".css",
     ".html",
@@ -236,6 +244,45 @@ def _project_system_prompt(capability_id: str) -> str:
     )
 
 
+def _project_output_policy(capability_id: str) -> dict[str, Any]:
+    return {
+        "mode": "project_builder",
+        "capability": capability_id,
+        "output_contract": "kolibri.project.v1",
+        "raw_json_output": True,
+        "allowed_capabilities": [],
+    }
+
+
+def _configured_project_providers(ai_provider: Any) -> list[dict[str, Any]]:
+    """Return configured project routes even if the shared chat circuit is blocked.
+
+    Project builders maintain their own capability probe.  A stale or failed
+    chat response must not prevent the builder from proving a fresh ZIP
+    lifecycle for this specific capability.
+    """
+
+    healthy = ai_provider._get_providers_for_task("code")
+    if healthy:
+        return healthy
+
+    providers = getattr(ai_provider, "PROVIDERS", {})
+    configured: list[dict[str, Any]] = []
+    for name in _PROJECT_PROVIDER_ORDER:
+        provider = providers.get(name) if isinstance(providers, dict) else None
+        if not isinstance(provider, dict) or provider in configured:
+            continue
+        if provider.get("routable", True) is not True:
+            continue
+        try:
+            snapshot = ai_provider.provider_route_snapshot(provider)
+        except Exception:
+            continue
+        if isinstance(snapshot, dict) and snapshot.get("configured") is True:
+            configured.append(provider)
+    return configured
+
+
 async def invoke_project_provider(capability_id: str, prompt: str) -> dict[str, Any]:
     """Invoke the real configured provider gateway; no local fallback exists."""
 
@@ -249,23 +296,32 @@ async def invoke_project_provider(capability_id: str, prompt: str) -> dict[str, 
     # exact project JSON object and validates it below.
     from app import ai_provider
 
-    providers = ai_provider._get_providers_for_task("code")
+    providers = _configured_project_providers(ai_provider)
     if not providers:
         raise ProjectBuildError("project_provider_unavailable", retryable=True)
     messages = [
         {"role": "system", "content": _project_system_prompt(capability_id)},
         {"role": "user", "content": prompt.strip()},
     ]
+    policy = _project_output_policy(capability_id)
+    last_project_error: ProjectBuildError | None = None
     for provider in providers:
         try:
-            result = await ai_provider._call_ai(provider, messages)
+            result = await ai_provider._call_ai(provider, messages, policy=policy)
             if not isinstance(result, dict) or not str(result.get("content") or "").strip():
                 raise ValueError("provider_returned_empty_content")
+            parse_project_payload(result.get("content"))
             ai_provider._record_provider_success(provider)
             return result
+        except ProjectBuildError as exc:
+            last_project_error = exc
+            ai_provider._record_provider_failure(provider, exc)
+            continue
         except Exception as exc:
             ai_provider._record_provider_failure(provider, exc)
             continue
+    if last_project_error is not None:
+        raise last_project_error
     raise ProjectBuildError("project_provider_routes_exhausted", retryable=True)
 
 

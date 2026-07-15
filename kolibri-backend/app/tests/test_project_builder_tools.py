@@ -153,6 +153,92 @@ def test_project_e2e_provider_zip_cas_download_reopen_and_preview(
     assert project_builder.deterministic_project_zip(payload, capability_id) == downloaded.content
 
 
+def test_project_builder_uses_configured_route_when_shared_text_circuit_is_empty(
+    monkeypatch,
+    browser_client,
+):
+    provider = {
+        "id": "codex_cli",
+        "model": "account-default",
+        "protocol": "codex_cli",
+        "routable": True,
+        "key": "",
+        "credential_source": "home_codex_cli_login",
+    }
+    calls: list[dict] = []
+
+    monkeypatch.setattr(ai_provider, "PROVIDERS", {"codex_cli": provider})
+    monkeypatch.setattr(ai_provider, "_get_providers_for_task", lambda _task: [])
+    monkeypatch.setattr(
+        ai_provider,
+        "provider_route_snapshot",
+        lambda _provider: {
+            "id": "codex_cli",
+            "model": "account-default",
+            "configured": True,
+            "routable": False,
+            "status": "blocked",
+            "verified_at": "2026-07-15T10:31:00+00:00",
+            "failure_kind": "invalid_provider_response",
+            "credential_source": "home_codex_cli_login",
+        },
+    )
+    monkeypatch.setattr(ai_provider, "_record_provider_success", lambda _provider: None)
+    monkeypatch.setattr(ai_provider, "_record_provider_failure", lambda _provider, _exc: None)
+
+    async def provider_transport_boundary(provider_arg, messages, **kwargs):
+        calls.append({"provider": provider_arg, "messages": messages, "kwargs": kwargs})
+        return {
+            "content": _provider_payload("Circuit proof"),
+            "provider": "codex_cli",
+            "model": "account-default",
+            "status": "ready",
+        }
+
+    monkeypatch.setattr(ai_provider, "_call_ai", provider_transport_boundary)
+
+    response = browser_client.post(
+        "/api/v1/tools/invoke",
+        json={
+            "tool": "site.create",
+            "arguments": {
+                "prompt": "Создай минимальный рабочий site P7 с доступным интерфейсом и заголовком Kolibri proof."
+            },
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert calls
+    assert calls[0]["provider"] is provider
+    assert calls[0]["kwargs"]["policy"] == {
+        "mode": "project_builder",
+        "capability": "site.create",
+        "output_contract": "kolibri.project.v1",
+        "raw_json_output": True,
+        "allowed_capabilities": [],
+    }
+    assert "Верни ровно один JSON-объект без Markdown" in calls[0]["messages"][0]["content"]
+    result = response.json()["result"]
+    artifact = result["artifact"]
+    downloaded = browser_client.get(artifact["download_url"])
+    reopened = browser_client.get(artifact["reopen_url"])
+    preview = browser_client.get(result["preview_url"], headers={"Accept": "text/html"})
+
+    assert downloaded.status_code == 200
+    assert downloaded.headers["content-type"].startswith("application/zip")
+    assert downloaded.content.startswith(b"PK")
+    assert hashlib.sha256(downloaded.content).hexdigest() == artifact["sha256"]
+    with zipfile.ZipFile(BytesIO(downloaded.content)) as archive:
+        assert "kolibri-project.json" in archive.namelist()
+        assert b"Kolibri proof" in archive.read("index.html")
+    assert reopened.status_code == 200
+    assert reopened.json()["integrity"]["digest"] == artifact["sha256"]
+    assert preview.status_code == 200
+    assert preview.headers["content-type"].startswith("text/html")
+    assert "sandbox allow-scripts" in preview.headers["content-security-policy"]
+    assert b"Kolibri proof" in preview.content
+
+
 def test_preview_is_project_scope_enforced(monkeypatch, browser_client):
     async def provider_transport_boundary(_capability: str, _prompt: str):
         return {
