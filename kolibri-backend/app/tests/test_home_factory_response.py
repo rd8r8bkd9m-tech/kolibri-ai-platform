@@ -6,6 +6,7 @@ import json
 import httpx
 import pytest
 
+from app import ai_provider
 from app.home_factory_response import (
     HomeFactoryResponseClient,
     HomeFactoryResponseError,
@@ -106,7 +107,7 @@ def test_submit_uses_home_control_plane_and_requires_independent_verifier():
     assert calls[0][2]["required_capability"] == "runner:codex"
     assert "required_capabilities" not in calls[0][2]
     assert calls[0][2]["idempotency_key"] == "idem-test"
-    assert calls[0][2]["max_attempts"] == 2
+    assert calls[0][2]["max_attempts"] == 1
     assert calls[0][2]["fallback_allowed"] is False
     assert calls[0][2]["source"] == {
         "kind": "kolibri_provider_gateway",
@@ -156,3 +157,39 @@ def test_stream_emits_factory_stages_then_verified_text_deltas():
         str(event.get("content") or "") for event in events
     )
     assert events[-1]["response_meta"]["task_id"] == "KOL-RESP-stream"
+
+
+def test_chat_stream_forwards_run_id_to_home_factory_route(monkeypatch):
+    provider = {
+        "id": "home_factory",
+        "model": "kolibri",
+        "protocol": "home_factory",
+    }
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        ai_provider,
+        "_get_providers_for_task",
+        lambda _task_type: [provider],
+    )
+
+    async def fake_stream(selected, messages, **kwargs):
+        assert selected is provider
+        captured.update(kwargs)
+        yield {"content": "Проверенный ответ", "done": False}
+        yield {"content": "", "done": True}
+
+    monkeypatch.setattr(ai_provider, "_stream_ai", fake_stream)
+
+    async def collect():
+        return [
+            event
+            async for event in ai_provider.chat_completion_stream(
+                [{"role": "user", "content": "Привет"}],
+                run_id="resp_correlated",
+            )
+        ]
+
+    events = asyncio.run(collect())
+    assert captured["run_id"] == "resp_correlated"
+    assert events[-1]["done"] is True

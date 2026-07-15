@@ -1114,9 +1114,12 @@ async def chat_completion_stream(
                 stream_kwargs["policy"] = policy
             if idempotency_key:
                 stream_kwargs["idempotency_key"] = idempotency_key
-            # Correlation belongs to the local CLI route only; never smuggle
-            # it into a provider policy or an external REST payload.
-            if provider.get("protocol") == "codex_cli" and run_id:
+            # Correlation is supported only by the bounded local CLI and Home
+            # factory transports; never smuggle it into external REST payloads.
+            if (
+                provider.get("protocol") in {"codex_cli", "home_factory"}
+                and run_id
+            ):
                 stream_kwargs["run_id"] = run_id
             stream = (
                 _stream_ai(provider, full_messages, **stream_kwargs)

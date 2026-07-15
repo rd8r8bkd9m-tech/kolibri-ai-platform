@@ -252,9 +252,9 @@ class HomeFactoryResponseClient:
                 "max_wall_seconds": min(86_400, max(10, int(self.settings.timeout_seconds))),
                 "network": "provider_managed_only",
             },
-            # One retry is allowed for an execution failure.  Provider
-            # fallback still stays disabled and never changes Control Plane.
-            "max_attempts": 2,
+            # The external Home Codex slot accepts one fenced attempt per task.
+            # A retry must be a new idempotently correlated task.
+            "max_attempts": 1,
             "fallback_allowed": False,
             "source": {
                 "kind": "kolibri_provider_gateway",
