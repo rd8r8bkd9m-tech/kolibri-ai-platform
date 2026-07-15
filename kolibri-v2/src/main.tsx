@@ -5,8 +5,10 @@ import App from './App'
 import { disableLegacyServiceWorker } from './platform/disableLegacyServiceWorker'
 import { initializeKolibriTheme } from './features/shell/theme'
 import { LocaleProvider } from './features/localization'
+import { publishBuildReleaseIdentity } from './features/shell/releaseIdentity'
 
 initializeKolibriTheme()
+publishBuildReleaseIdentity()
 
 const publicBase = import.meta.env.BASE_URL
 const routerBasename = publicBase === '/' ? undefined : publicBase.replace(/\/$/, '')
