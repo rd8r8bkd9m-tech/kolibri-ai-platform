@@ -319,7 +319,11 @@ export default function ChatPage() {
     if (!openClarificationKey) return
     const frame = window.requestAnimationFrame(() => {
       const scroller = bottomRef.current?.closest<HTMLElement>('.conversation-scroll')
-      if (scroller) scroller.scrollTop = scroller.scrollHeight
+      const card = scroller?.querySelector<HTMLElement>('.estimate-clarification-card')
+      if (scroller && card) {
+        const top = card.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop
+        scroller.scrollTop = Math.max(0, top - 12)
+      }
     })
     return () => window.cancelAnimationFrame(frame)
   }, [openClarificationKey])
