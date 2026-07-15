@@ -10,7 +10,7 @@ import sys
 import re
 from pathlib import Path
 
-ADMIN_TASK_KINDS = {"admin_exec", "admin_service", "admin_git", "admin_rotate_keys"}
+ADMIN_TASK_KINDS = {"admin_exec", "admin_service", "admin_git", "admin_rotate_keys", "admin_self_update"}
 
 ADMIN_HANDLER_METHODS = '''
     # ── Admin task handlers ─────────────────────────────────────────
@@ -244,6 +244,67 @@ ADMIN_HANDLER_METHODS = '''
         result_path = self.write_result(artifact_dir, result)
         result["result_path"] = str(result_path)
         return result
+
+    def run_admin_self_update(self, task: dict[str, Any]) -> dict[str, Any]:
+        envelope = task.get("envelope", {})
+        objective = json.loads(envelope.get("objective") or "{}")
+        binary_url = objective.get("binary_url", "")
+        expected_sha256 = objective.get("sha256", "")
+        new_caps = objective.get("capabilities", "")
+        worktree, artifact_dir, logs = self.prepare_dirs(task)
+        worktree.mkdir(parents=True, exist_ok=True)
+        self.task_heartbeat(task, worktree, None, logs)
+        staging_dir = Path("/var/lib/kolibri-agent/pending-update")
+        try:
+            import urllib.request as _urllib_req
+            import hashlib as _hl
+            import subprocess as _sp
+            # Download new binary to staging dir (writable by agent)
+            staging_dir.mkdir(parents=True, exist_ok=True)
+            resp = _urllib_req.urlopen(binary_url, timeout=60)
+            new_data = resp.read()
+            actual_sha256 = _hl.sha256(new_data).hexdigest()
+            if expected_sha256 and actual_sha256 != expected_sha256:
+                raise RuntimeError(f"sha256 mismatch: expected {expected_sha256}, got {actual_sha256}")
+            # Write binary to staging
+            binary_staging = staging_dir / "kolibri-agent-host"
+            binary_staging.write_bytes(new_data)
+            binary_staging.chmod(0o755)
+            # Write capabilities to staging
+            if new_caps:
+                (staging_dir / "capabilities").write_text(new_caps)
+            # Trigger the privileged helper to apply the update
+            _sp.run(
+                ["systemctl", "start", "kolibri-agent-self-update.service"],
+                timeout=15, capture_output=True,
+            )
+            result = {
+                "node_id": self.node_id, "hostname": self.hostname,
+                "task_id": task["task_id"], "agent_id": self.agent_id,
+                "attempt_id": task.get("attempt_id"), "pid": self.pid,
+                "heartbeat_at": utc_now(), "worktree": str(worktree),
+                "branch": None, "log_paths": logs,
+                "result_path": str(artifact_dir / "result.json"),
+                "status": "completed", "kind": "admin_self_update",
+                "binary_url": binary_url, "sha256": actual_sha256,
+                "staging_dir": str(staging_dir),
+                "new_capabilities": new_caps,
+                "message": "Update staged, helper service applied",
+            }
+        except Exception as exc:
+            result = {
+                "node_id": self.node_id, "hostname": self.hostname,
+                "task_id": task["task_id"], "agent_id": self.agent_id,
+                "attempt_id": task.get("attempt_id"), "pid": self.pid,
+                "heartbeat_at": utc_now(), "worktree": str(worktree),
+                "branch": None, "log_paths": logs,
+                "result_path": str(artifact_dir / "result.json"),
+                "status": "failed", "kind": "admin_self_update",
+                "error_type": "runtime_error", "error": str(exc),
+            }
+        result_path = self.write_result(artifact_dir, result)
+        result["result_path"] = str(result_path)
+        return result
 '''
 
 ADMIN_DISPATCH_CASES = '''
@@ -255,6 +316,8 @@ ADMIN_DISPATCH_CASES = '''
                 result = self.run_admin_git(task)
             elif kind == "admin_rotate_keys":
                 result = self.run_admin_rotate_keys(task)
+            elif kind == "admin_self_update":
+                result = self.run_admin_self_update(task)
 '''
 
 

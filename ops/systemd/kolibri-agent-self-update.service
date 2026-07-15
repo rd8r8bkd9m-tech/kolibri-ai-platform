@@ -1,0 +1,9 @@
+[Unit]
+Description=Kolibri Agent Host self-update helper
+After=kolibri-agent-host.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/kolibri-agent-self-update-helper.sh
+User=root
+Group=root

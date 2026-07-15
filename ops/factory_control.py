@@ -1895,6 +1895,26 @@ class Handler(BaseHTTPRequestHandler):
                     next_action="model generation endpoints remain safe stubs until authenticated model routes are online",
                 ))
                 return
+            if path == "/v1/admin/agent-host-binary":
+                binary_path = Path(os.environ.get(
+                    "KOLIBRI_AGENT_HOST_BINARY",
+                    "/usr/local/bin/kolibri-agent-host",
+                ))
+                if not binary_path.exists():
+                    response(self, 404, {"error": "binary_not_found"})
+                    return
+                data = binary_path.read_bytes()
+                import hashlib as _hl
+                sha256 = _hl.sha256(data).hexdigest()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("X-Binary-SHA256", sha256)
+                self.send_header("X-Binary-Size", str(len(data)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(data)
+                return
             if path == "/v1/fabric/health":
                 pong = redis.command("PING")
                 response(self, 200, {
@@ -2249,6 +2269,49 @@ class Handler(BaseHTTPRequestHandler):
                     status="running", task_id=task["task_id"],
                     node=target, route_used="/v1/admin/rotate-keys",
                     data={"task": task},
+                    next_action=f"poll /v1/agents/status/{task['task_id']}",
+                ))
+                return
+            if path == "/v1/admin/self-update":
+                auth = validate_miniapp(self, body)
+                if not auth.get("ok"):
+                    response(self, 401, {"error": auth.get("error", "unauthorized")})
+                    return
+                target = body.get("target_node")
+                if not target:
+                    response(self, 400, {"error": "target_node required"})
+                    return
+                # Build binary URL — agents download from control plane
+                cp_host = os.environ.get("KOLIBRI_SELF_UPDATE_HOST", "10.99.0.1")
+                cp_port = os.environ.get("KOLIBRI_SELF_UPDATE_PORT", "9101")
+                binary_url = body.get("binary_url") or f"http://{cp_host}:{cp_port}/v1/admin/agent-host-binary"
+                import hashlib as _hl
+                binary_path = Path(os.environ.get(
+                    "KOLIBRI_AGENT_HOST_BINARY", "/usr/local/bin/kolibri-agent-host"))
+                expected_sha256 = ""
+                if binary_path.exists():
+                    expected_sha256 = _hl.sha256(binary_path.read_bytes()).hexdigest()
+                new_caps = body.get("capabilities") or (
+                    "generic_implementation,read_only_probe,"
+                    "admin_exec,admin_service,admin_git,admin_rotate_keys,admin_self_update"
+                )
+                envelope = {
+                    "kind": "admin_self_update",
+                    "target_node": target,
+                    "required_capability": "admin_exec",
+                    "objective": json.dumps({
+                        "binary_url": binary_url,
+                        "sha256": expected_sha256,
+                        "capabilities": new_caps,
+                    }),
+                    "source": {"kind": "admin_api", "user_id": auth["user"]["id"], "endpoint": "/v1/admin/self-update"},
+                    "max_retries": 0,
+                }
+                task = create_task(envelope)
+                response(self, 202, canonical_response_envelope(
+                    status="running", task_id=task["task_id"],
+                    node=target, route_used="/v1/admin/self-update",
+                    data={"task": task, "binary_url": binary_url, "sha256": expected_sha256},
                     next_action=f"poll /v1/agents/status/{task['task_id']}",
                 ))
                 return
