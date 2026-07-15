@@ -52,6 +52,6 @@ describe('mobile tool sheet capability truth', () => {
 
 describe('conversation scroll containment', () => {
   it('keeps the outer shell stationary while the message thread scrolls', () => {
-    expect(css).toMatch(/\.conversation-page\s*\{[^}]*overflow:\s*hidden;/s)
+    expect(css).toMatch(/\.conversation-page\s*\{[^}]*overflow:\s*clip;/s)
   })
 })
