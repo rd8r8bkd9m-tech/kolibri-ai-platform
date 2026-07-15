@@ -188,6 +188,20 @@ def _verified_result(task: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _completion_verification_pending(task: Mapping[str, Any]) -> bool:
+    """Return true only while Control Plane has not published a verdict yet.
+
+    A task result and its independent verifier are persisted by separate
+    Control Plane transitions.  The task can therefore be briefly observable
+    as ``completed`` before ``completion_verifier`` is attached.  A present
+    verdict (including ``failed``) is terminal and must still fail closed.
+    """
+    verifier = task.get("completion_verifier")
+    return not isinstance(verifier, Mapping) or not str(
+        verifier.get("verdict") or ""
+    )
+
+
 class HomeFactoryResponseClient:
     def __init__(
         self,
@@ -271,7 +285,16 @@ class HomeFactoryResponseClient:
             task = await self._request("GET", f"/v1/tasks/{task_id}")
             state = str(task.get("state") or "")
             if state == "completed":
-                return _verified_result(task)
+                try:
+                    return _verified_result(task)
+                except HomeFactoryResponseError as exc:
+                    if (
+                        exc.failure_kind == "home_factory_completion_unverified"
+                        and _completion_verification_pending(task)
+                    ):
+                        await asyncio.sleep(self.settings.poll_seconds)
+                        continue
+                    raise
             if state in _TERMINAL_STATES:
                 raise HomeFactoryResponseError(
                     str(task.get("error_type") or f"home_factory_task_{state}")

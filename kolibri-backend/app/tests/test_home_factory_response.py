@@ -120,6 +120,37 @@ def test_submit_uses_home_control_plane_and_requires_independent_verifier():
     assert calls[1][0:2] == ("GET", "/v1/tasks/KOL-RESP-resp_test")
 
 
+def test_submit_waits_when_completed_result_precedes_verifier():
+    polls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal polls
+        if request.method == "POST":
+            body = json.loads(request.content)
+            return httpx.Response(
+                201, json={"task_id": body["task_id"], "state": "queued"}
+            )
+        polls += 1
+        task = _completed(request.url.path.rsplit("/", 1)[-1])
+        if polls == 1:
+            task.pop("completion_verifier")
+        return httpx.Response(200, json=task)
+
+    client = HomeFactoryResponseClient(
+        _settings(), transport=httpx.MockTransport(handler)
+    )
+    result = asyncio.run(
+        client.submit(
+            [{"role": "user", "content": "Привет"}],
+            run_id="verifier-race",
+        )
+    )
+
+    assert polls == 2
+    assert result["content"] == "Проверенный ответ"
+    assert result["task_id"] == "KOL-RESP-verifier-race"
+
+
 def test_submit_fails_closed_when_completion_is_not_verified():
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "POST":
