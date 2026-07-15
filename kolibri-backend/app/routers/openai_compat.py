@@ -54,6 +54,8 @@ _records: OrderedDict[str, dict[str, Any]] = OrderedDict()
 _idempotency: dict[tuple[str, str], tuple[str, str]] = {}
 _inflight: dict[tuple[str, str], tuple[str, Future[dict[str, Any]]]] = {}
 _inflight_lock = threading.Lock()
+_background_tasks: dict[str, asyncio.Task[None]] = {}
+_background_tasks_lock = threading.Lock()
 _MAX_RECORDS = 1_000
 _IDEMPOTENCY_KEY = re.compile(r"^[A-Za-z0-9._:-]{1,200}$")
 _FAILED_RESULT_STATUSES = {"error", "failed", "incomplete", "unavailable", "capability_unavailable"}
@@ -1023,7 +1025,7 @@ def _record_result(
     record = _records.get(response_id) or load_response_record(response_id) or {}
     # Cancellation is a terminal user decision. A provider that finishes (or
     # fails) after the cancellation transition must not replace it.
-    if record.get("status") == "cancelled":
+    if record.get("status") in _TERMINAL_RESPONSE_STATUSES:
         return record
     artifact = result.get("artifact")
     if isinstance(artifact, dict):
@@ -1068,6 +1070,159 @@ def _record_result(
         "actions": _public_actions(record.get("actions")),
     })
     return record
+
+
+def _response_task_type(policy: dict[str, Any] | None) -> str:
+    return "analyze" if policy and policy["mode"] == "deep" else "fast" if policy else "chat"
+
+
+def _previous_upstream_response_id(
+    request: ResponsesRequest,
+    owner_scope: str,
+) -> str | None:
+    if not request.previous_response_id:
+        return None
+    previous = _owned_record(request.previous_response_id, owner_scope)
+    upstream_id = previous.get("upstream_response_id") if previous else None
+    return str(upstream_id) if upstream_id else None
+
+
+def _record_execution_failure(
+    response_id: str,
+    messages: list[dict[str, str]],
+    *,
+    owner_scope: str,
+) -> None:
+    pending = _owned_record(response_id, owner_scope)
+    if pending is not None and pending.get("status") not in _TERMINAL_RESPONSE_STATUSES:
+        _record_result(
+            response_id,
+            {
+                "content": "",
+                "status": "failed",
+                "error_code": "response_execution_failed",
+                "recoverable": True,
+            },
+            messages,
+            owner_scope=owner_scope,
+        )
+
+
+def _track_background_task(response_id: str, task: asyncio.Task[None]) -> None:
+    with _background_tasks_lock:
+        _background_tasks[response_id] = task
+
+    def _discard(completed: asyncio.Task[None]) -> None:
+        with _background_tasks_lock:
+            if _background_tasks.get(response_id) is completed:
+                _background_tasks.pop(response_id, None)
+        try:
+            completed.result()
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            # The task records a durable failure before exiting; retrieving the
+            # exception here prevents an unhandled-task warning.
+            pass
+
+    task.add_done_callback(_discard)
+
+
+async def _run_response_provider(
+    request: ResponsesRequest,
+    *,
+    response_id: str,
+    messages: list[dict[str, str]],
+    policy: dict[str, Any] | None,
+    structured: StructuredOutputSpec | None,
+    idempotency_key: str | None,
+    owner_scope: str,
+) -> dict[str, Any]:
+    task_type = _response_task_type(policy)
+    result = await _image_result_if_requested(
+        messages,
+        policy,
+        run_id=response_id,
+        owner_scope=owner_scope,
+    )
+    if structured and result is not None:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "structured_output_incompatible_with_image"},
+        )
+    if result is None:
+        result = await ai_provider.chat_completion(
+            messages,
+            task_type=task_type,
+            previous_response_id=_previous_upstream_response_id(request, owner_scope),
+            background=request.background,
+            policy=policy,
+            idempotency_key=idempotency_key,
+            system=structured_instruction(structured) if structured else None,
+            raw_json_output=structured is not None,
+        )
+    if structured and str(result.get("status") or "") not in _FAILED_RESULT_STATUSES:
+        result = dict(result)
+        canonical, parsed = _validate_structured_result(
+            str(result.get("content") or ""),
+            structured,
+            response_id=response_id,
+            provider=str(result.get("provider") or "kolibri"),
+            model=str(result.get("model") or ""),
+        )
+        result["content"] = canonical
+        result["structured_output"] = parsed
+    record = _record_result(
+        response_id,
+        result,
+        messages,
+        owner_scope=owner_scope,
+    )
+    if (
+        structured
+        and "structured_output" in result
+        and record.get("status") != "cancelled"
+    ):
+        record["structured_output"] = result["structured_output"]
+        record["structured_request"] = request.text
+        _store(record)
+    if record.get("status") == "completed":
+        from app.capability_runtime import try_record_capability_invocation
+
+        try_record_capability_invocation(
+            "developer.responses",
+            succeeded=True,
+            provider=str(result.get("_provider") or result.get("provider") or "kolibri"),
+            model=str(result.get("_model") or result.get("model") or "kolibri"),
+            evidence_id=response_id,
+        )
+    return record
+
+
+async def _run_response_provider_background(
+    request: ResponsesRequest,
+    *,
+    response_id: str,
+    messages: list[dict[str, str]],
+    policy: dict[str, Any] | None,
+    structured: StructuredOutputSpec | None,
+    idempotency_key: str | None,
+    owner_scope: str,
+) -> None:
+    try:
+        await _run_response_provider(
+            request,
+            response_id=response_id,
+            messages=messages,
+            policy=policy,
+            structured=structured,
+            idempotency_key=idempotency_key,
+            owner_scope=owner_scope,
+        )
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        _record_execution_failure(response_id, messages, owner_scope=owner_scope)
 
 
 async def _execute_response(
@@ -1177,82 +1332,22 @@ async def execute_kolibri_response(
             return existing
         if idempotency_key:
             _idempotency[(owner_scope, idempotency_key)] = (fingerprint, response_id)
-        task_type = "analyze" if policy and policy["mode"] == "deep" else "fast" if policy else "chat"
-        result = await _image_result_if_requested(
-            messages,
-            policy,
-            run_id=response_id,
+        record = await _run_response_provider(
+            request,
+            response_id=response_id,
+            messages=messages,
+            policy=policy,
+            structured=structured,
+            idempotency_key=idempotency_key,
             owner_scope=owner_scope,
         )
-        if structured and result is not None:
-            raise HTTPException(
-                status_code=422,
-                detail={"code": "structured_output_incompatible_with_image"},
-            )
-        if result is None:
-            result = await ai_provider.chat_completion(
-                messages,
-                task_type=task_type,
-                previous_response_id=(
-                    (_owned_record(request.previous_response_id, owner_scope) or {}).get("upstream_response_id")
-                    if request.previous_response_id else None
-                ),
-                background=request.background,
-                policy=policy,
-                idempotency_key=idempotency_key,
-                system=structured_instruction(structured) if structured else None,
-                raw_json_output=structured is not None,
-            )
-        if structured and str(result.get("status") or "") not in _FAILED_RESULT_STATUSES:
-            result = dict(result)
-            canonical, parsed = _validate_structured_result(
-                str(result.get("content") or ""),
-                structured,
-                response_id=response_id,
-                provider=str(result.get("provider") or "kolibri"),
-                model=str(result.get("model") or ""),
-            )
-            result["content"] = canonical
-            result["structured_output"] = parsed
-        record = _record_result(
-            response_id,
-            result,
-            messages,
-            owner_scope=owner_scope,
-        )
-        if structured and "structured_output" in result:
-            record["structured_output"] = result["structured_output"]
-            record["structured_request"] = request.text
-            _store(record)
-        if record.get("status") == "completed":
-            from app.capability_runtime import try_record_capability_invocation
-
-            try_record_capability_invocation(
-                "developer.responses",
-                succeeded=True,
-                provider=str(result.get("_provider") or result.get("provider") or "kolibri"),
-                model=str(result.get("_model") or result.get("model") or "kolibri"),
-                evidence_id=response_id,
-            )
         if inflight_future is not None and not inflight_future.done():
             inflight_future.set_result(record)
         return record
     except BaseException as exc:
         response_id = locals().get("response_id")
         if isinstance(response_id, str):
-            pending = _owned_record(response_id, owner_scope)
-            if pending is not None and pending.get("status") not in _TERMINAL_RESPONSE_STATUSES:
-                _record_result(
-                    response_id,
-                    {
-                        "content": "",
-                        "status": "failed",
-                        "error_code": "response_execution_failed",
-                        "recoverable": True,
-                    },
-                    messages,
-                    owner_scope=owner_scope,
-                )
+            _record_execution_failure(response_id, messages, owner_scope=owner_scope)
         if inflight_future is not None and not inflight_future.done():
             inflight_future.set_exception(exc)
         raise
@@ -1262,6 +1357,55 @@ async def execute_kolibri_response(
                 current = _inflight.get(inflight_key)
                 if current is not None and current[1] is inflight_future:
                     _inflight.pop(inflight_key, None)
+
+
+async def create_background_kolibri_response(
+    request: ResponsesRequest,
+    *,
+    idempotency_key: str | None = None,
+    owner_scope: str = "internal:service",
+) -> dict[str, Any]:
+    _validate_idempotency_key(idempotency_key)
+    existing, messages, policy, fingerprint, structured = await _execute_response(
+        request,
+        idempotency_key=idempotency_key,
+        owner_scope=owner_scope,
+    )
+    if existing:
+        return existing
+
+    try:
+        response_id = begin_public_response(
+            messages,
+            owner_scope=owner_scope,
+            idempotency_key=idempotency_key,
+            request_hash=fingerprint if idempotency_key else None,
+        )
+    except ResponseIdempotencyConflict:
+        existing = _idempotent_record(idempotency_key, fingerprint, owner_scope)
+        if existing is None:
+            raise
+        return existing
+    if idempotency_key:
+        _idempotency[(owner_scope, idempotency_key)] = (fingerprint, response_id)
+    if structured:
+        _records[response_id]["structured_request"] = request.text
+        _store(_records[response_id])
+
+    task = asyncio.create_task(
+        _run_response_provider_background(
+            request,
+            response_id=response_id,
+            messages=messages,
+            policy=policy,
+            structured=structured,
+            idempotency_key=idempotency_key,
+            owner_scope=owner_scope,
+        ),
+        name=f"kolibri-response-{response_id}",
+    )
+    _track_background_task(response_id, task)
+    return _records[response_id]
 
 
 @router.post("/api/v1/responses", include_in_schema=False, dependencies=_PUBLIC_AUTH)
@@ -1281,11 +1425,19 @@ async def create_public_response(
             idempotency_key,
             owner_scope=_request_owner_scope(http_request),
         )
-    record = await execute_kolibri_response(
-        request,
-        idempotency_key=idempotency_key,
-        owner_scope=_request_owner_scope(http_request),
-    )
+    owner_scope = _request_owner_scope(http_request)
+    if request.background:
+        record = await create_background_kolibri_response(
+            request,
+            idempotency_key=idempotency_key,
+            owner_scope=owner_scope,
+        )
+    else:
+        record = await execute_kolibri_response(
+            request,
+            idempotency_key=idempotency_key,
+            owner_scope=owner_scope,
+        )
     return _public_response(record)
 
 
@@ -1612,7 +1764,8 @@ def snapshot_public_response_events(response_id: str) -> list[dict[str, Any]]:
 @router.get("/api/v1/responses/{response_id}", include_in_schema=False, dependencies=_PUBLIC_AUTH)
 @router.get("/v1/responses/{response_id}", dependencies=_PUBLIC_AUTH)
 async def get_public_response(response_id: str, request: Request):
-    record = _owned_record(response_id, _request_owner_scope(request))
+    owner_scope = _request_owner_scope(request)
+    record = _owned_record(response_id, owner_scope)
     if not record:
         raise HTTPException(status_code=404, detail={"code": "response_not_found"})
     if record["status"] in _NONTERMINAL_RESPONSE_STATUSES and record.get("provider_route") == "openai_codex":
@@ -1620,9 +1773,14 @@ async def get_public_response(response_id: str, request: Request):
         if upstream_id:
             provider = ai_provider.PROVIDERS["openai_codex"]
             parsed = await retrieve_response(provider, upstream_id)
-            record["status"] = parsed["status"]
-            record["content"] = parsed["content"]
-            _store(record)
+            current = _owned_record(response_id, owner_scope)
+            if current is not None and current.get("status") not in _TERMINAL_RESPONSE_STATUSES:
+                current["status"] = parsed["status"]
+                current["content"] = parsed["content"]
+                _store(current)
+                record = current
+            elif current is not None:
+                record = current
     return _public_response(record)
 
 
@@ -1648,16 +1806,23 @@ async def public_response_events(
                 if upstream_id:
                     try:
                         parsed = await retrieve_response(ai_provider.PROVIDERS["openai_codex"], upstream_id)
-                        if parsed["status"] != record["status"]:
-                            record["status"] = parsed["status"]
-                            if parsed.get("content") and not record.get("content"):
-                                record["content"] = parsed["content"]
-                                _append_event(record, "response.output_text.delta", {"delta": parsed["content"]})
+                        current = _owned_record(response_id, owner_scope)
+                        if current is not None:
+                            record = current
+                        if (
+                            current is not None
+                            and current.get("status") not in _TERMINAL_RESPONSE_STATUSES
+                            and parsed["status"] != current["status"]
+                        ):
+                            current["status"] = parsed["status"]
+                            if parsed.get("content") and not current.get("content"):
+                                current["content"] = parsed["content"]
+                                _append_event(current, "response.output_text.delta", {"delta": parsed["content"]})
                             terminal = parsed["status"] in {"completed", "failed", "cancelled"}
                             event_type = f"response.{parsed['status']}" if terminal else "response.status.updated"
-                            _append_event(record, event_type, {
+                            _append_event(current, event_type, {
                                 "status": parsed["status"],
-                                "response": _public_response(record),
+                                "response": _public_response(current),
                             })
                     except Exception:
                         # A transient status-poll error is not a terminal task

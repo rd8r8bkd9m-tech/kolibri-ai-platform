@@ -77,6 +77,19 @@ def _configure_fake_codex(monkeypatch, binary: Path, cwd: Path) -> None:
     openai_compat.ai_provider._provider_blocked_until.pop("codex_cli", None)
 
 
+def _wait_for_background_tasks(timeout: float = 2.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        with openai_compat._background_tasks_lock:
+            tasks = list(openai_compat._background_tasks.values())
+        if not tasks or all(task.done() for task in tasks):
+            return
+        time.sleep(0.02)
+    with openai_compat._background_tasks_lock:
+        pending = [task for task in openai_compat._background_tasks.values() if not task.done()]
+    assert not pending
+
+
 @pytest.fixture(autouse=True)
 def reset_registry(monkeypatch):
     from app.rate_limiter import chat_limiter
@@ -85,8 +98,14 @@ def reset_registry(monkeypatch):
     openai_compat._records.clear()
     openai_compat._idempotency.clear()
     openai_compat._inflight.clear()
+    openai_compat._background_tasks.clear()
     chat_limiter._requests.clear()
     yield
+    with openai_compat._background_tasks_lock:
+        for task in openai_compat._background_tasks.values():
+            if not task.done():
+                task.cancel()
+        openai_compat._background_tasks.clear()
     openai_compat._records.clear()
     openai_compat._idempotency.clear()
     openai_compat._inflight.clear()
@@ -831,15 +850,86 @@ def test_background_response_status_and_cancel_are_truthful(monkeypatch):
             headers=_AUTH,
         )
         response_id = created.json()["id"]
+        _wait_for_background_tasks()
         status = client.get(f"/v1/responses/{response_id}", headers=_AUTH)
         cancel = client.post(f"/v1/responses/{response_id}/cancel", headers=_AUTH)
         repeat = client.post(f"/v1/responses/{response_id}/cancel", headers=_AUTH)
 
-    assert created.json()["status"] == "queued"
+    assert created.json()["status"] in {"queued", "in_progress"}
     assert status.json()["status"] == "in_progress"
     assert cancel.json()["status"] == "cancelled"
     assert repeat.json()["status"] == "cancelled"
     assert cancelled == ["resp_upstream_bg"]
+
+
+def test_background_response_returns_before_completion_cancel_wins_and_retry_completes(monkeypatch):
+    started = threading.Event()
+    release = threading.Event()
+    calls: list[bool] = []
+
+    async def fake_completion(messages, **kwargs):
+        is_background = bool(kwargs["background"])
+        calls.append(is_background)
+        if is_background:
+            started.set()
+            await asyncio.to_thread(release.wait)
+            return {
+                "content": "Поздний фоновый результат",
+                "status": "idle",
+                "provider": "test-provider",
+            }
+        return {
+            "content": "Повтор выполнен",
+            "status": "idle",
+            "provider": "test-provider",
+        }
+
+    monkeypatch.setattr(openai_compat.ai_provider, "chat_completion", fake_completion)
+    body = {"model": "kolibri", "input": "Долгая фоновая задача", "background": True}
+    headers = {**_AUTH, "Idempotency-Key": "background-create"}
+
+    with TestClient(app) as client:
+        created = client.post("/v1/responses", json=body, headers=headers)
+        replay = client.post("/v1/responses", json=body, headers=headers)
+        conflict = client.post(
+            "/v1/responses",
+            json={**body, "input": "Другая фоновая задача"},
+            headers=headers,
+        )
+        response_id = created.json()["id"]
+        assert started.wait(1)
+        cancelled = client.post(f"/v1/responses/{response_id}/cancel", headers=_AUTH)
+        release.set()
+        _wait_for_background_tasks()
+        fetched = client.get(f"/v1/responses/{response_id}", headers=_AUTH)
+        retried = client.post(
+            f"/v1/responses/{response_id}/retry",
+            headers={**_AUTH, "Idempotency-Key": "retry-background"},
+        )
+        retry_replay = client.post(
+            f"/v1/responses/{response_id}/retry",
+            headers={**_AUTH, "Idempotency-Key": "retry-background"},
+        )
+
+    assert created.status_code == 200
+    assert created.json()["status"] in {"queued", "in_progress"}
+    assert created.json()["output_text"] == ""
+    assert replay.status_code == 200
+    assert replay.json()["id"] == response_id
+    assert conflict.status_code == 409
+    assert cancelled.status_code == 200
+    assert cancelled.json()["status"] == "cancelled"
+    assert fetched.json()["status"] == "cancelled"
+    assert fetched.json()["output_text"] == ""
+    terminal_types = [event["type"] for event in openai_compat._records[response_id]["events"]]
+    assert terminal_types.count("response.cancelled") == 1
+    assert "response.completed" not in terminal_types
+    assert retried.status_code == 200
+    assert retried.json()["status"] == "completed"
+    assert retried.json()["output_text"] == "Повтор выполнен"
+    assert retried.json()["retry_of"] == response_id
+    assert retry_replay.json()["id"] == retried.json()["id"]
+    assert calls == [True, False]
 
 
 def test_streaming_background_response_remains_nonterminal_and_replayable(monkeypatch):
