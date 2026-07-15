@@ -78,10 +78,15 @@ describe('persisted conversation artifacts', () => {
         summary_id: 'summary_1',
         stage: 'reasoning_summary',
         status: 'completed',
-        response_id: 'resp_1',
-        sequence: 17,
       }],
     })
+    expect(metadata).toMatchObject({ response_id: 'resp_1' })
+    expect(metadata.work_events).toEqual([
+      expect.not.objectContaining({ response_id: expect.anything() }),
+    ])
+    expect(metadata.work_events).toEqual([
+      expect.not.objectContaining({ sequence: expect.anything() }),
+    ])
     expect(JSON.stringify(metadata)).not.toContain('reasoning_content')
   })
 

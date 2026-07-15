@@ -336,16 +336,12 @@ function normalizeWorkEvent(value: unknown): ChatWorkSummary | null {
   const stepId = optionalMetadataString(event.step_id, 160)
   const summaryId = optionalMetadataString(event.summary_id, 160)
   const occurredAt = optionalMetadataString(event.occurred_at, 48)
-  const responseId = optionalMetadataString(event.response_id, 160)
-  const sequence = event.sequence === undefined
-    ? undefined
-    : Number.isSafeInteger(event.sequence) && Number(event.sequence) >= 0 ? Number(event.sequence) : null
   const provider = optionalMetadataString(event.provider, 80)
   const model = optionalMetadataString(event.model, 120)
   const artifactType = optionalMetadataString(event.artifact_type, 40)
   const artifactId = optionalMetadataString(event.artifact_id, 160)
   if (
-    stepId === null || summaryId === null || occurredAt === null || responseId === null || sequence === null
+    stepId === null || summaryId === null || occurredAt === null
     || provider === null || model === null || artifactType === null || artifactId === null
   ) return null
   return {
@@ -356,8 +352,6 @@ function normalizeWorkEvent(value: unknown): ChatWorkSummary | null {
     status: status as ChatWorkSummary['status'],
     summary,
     ...(occurredAt ? { occurred_at: occurredAt } : {}),
-    ...(responseId ? { response_id: responseId } : {}),
-    ...(sequence !== undefined ? { sequence } : {}),
     ...(provider ? { provider } : {}),
     ...(model ? { model } : {}),
     ...(artifactType ? { artifact_type: artifactType } : {}),
