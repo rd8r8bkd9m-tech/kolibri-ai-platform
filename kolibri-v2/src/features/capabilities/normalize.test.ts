@@ -89,4 +89,33 @@ describe('capability UI gate', () => {
     })
     expect(uiCapabilityMenu(catalog).map(item => item.key)).toEqual(['browser.use'])
   })
+
+  it('keeps a topology-free public capability invocable', () => {
+    const payload = {
+      status: 'available',
+      capabilities: [{
+        id: 'image.generate',
+        name: 'Изображение',
+        status: 'available',
+        invocable: true,
+        permitted: true,
+        route: { healthy: true, status: 'available' },
+        renderer: {
+          required: true,
+          id: 'image',
+          registered: true,
+          healthy: true,
+        },
+        reason: {
+          code: 'live_invocation',
+          message: 'Маршрут подтверждён.',
+        },
+      }],
+    }
+
+    const catalog = normalizeCapabilityCatalog(payload)
+    expect(isUiInvocableCapability(catalog.capabilities[0])).toBe(true)
+    expect(uiCapabilityMenu(catalog).map(item => item.key)).toContain('image.generate')
+    expect(JSON.stringify(payload)).not.toMatch(/codex|mimo|deepseek|provider|credential|selected_route/i)
+  })
 })

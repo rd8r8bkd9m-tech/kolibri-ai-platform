@@ -288,9 +288,9 @@ def image_capability() -> dict[str, Any]:
 def capability_catalog() -> dict[str, Any]:
     """Compatibility entry point backed by the canonical runtime registry."""
 
-    from app.capability_runtime import capability_snapshot
+    from app.capability_runtime import public_capability_snapshot
 
-    return capability_snapshot()
+    return public_capability_snapshot()
 
 
 IMAGE_CAPABILITY_ID = "image.generate"
@@ -515,6 +515,40 @@ def _store_image(
             else {}
         ),
     }
+    return artifact
+
+
+_PUBLIC_IMAGE_ARTIFACT_FIELDS = (
+    "id",
+    "type",
+    "title",
+    "prompt",
+    "mime_type",
+    "size_bytes",
+    "sha256",
+    "created_at",
+    "url",
+    "download_url",
+    "source_artifact_id",
+)
+
+
+def public_image_artifact(value: Any) -> dict[str, Any]:
+    """Serialize one verified image without exposing execution topology.
+
+    Provider/model provenance remains in the immutable artifact metadata and
+    capability telemetry. Every browser and OpenAI-compatible surface uses
+    this bounded projection and exposes only the public kolibri model.
+    """
+
+    if not isinstance(value, dict) or value.get("type") != "image":
+        return {}
+    artifact = {
+        field: value[field]
+        for field in _PUBLIC_IMAGE_ARTIFACT_FIELDS
+        if field in value
+    }
+    artifact["model"] = "kolibri"
     return artifact
 
 
@@ -1063,7 +1097,8 @@ async def create_image(
     scope_id: str = Depends(authorize_public_scope),
 ):
     try:
-        return verify_image_artifact(await generate_image(request, scope_id=scope_id))
+        verified = verify_image_artifact(await generate_image(request, scope_id=scope_id))
+        return public_image_artifact(verified)
     except ImageCapabilityUnavailable as exc:
         raise HTTPException(status_code=503, detail="Генерация изображений сейчас не подключена.") from exc
     except ImageGenerationFailed as exc:
@@ -1077,7 +1112,7 @@ async def create_image_edit(
     scope_id: str = Depends(authorize_public_scope),
 ):
     try:
-        return await edit_image(request, scope_id=scope_id)
+        return public_image_artifact(await edit_image(request, scope_id=scope_id))
     except ImageCapabilityUnavailable as exc:
         raise HTTPException(status_code=503, detail="Редактирование изображений сейчас не подключено.") from exc
     except ImageGenerationFailed as exc:

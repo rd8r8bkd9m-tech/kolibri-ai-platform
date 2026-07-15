@@ -613,6 +613,80 @@ def capability_snapshot() -> dict[str, Any]:
     return snapshot
 
 
+def public_capability_snapshot() -> dict[str, Any]:
+    """Return the public capability catalog without provider topology.
+
+    The protected control plane keeps the full runtime evidence. Browser
+    clients receive only product labels, the derived availability verdict,
+    renderer state and a bounded technical reason.
+    """
+
+    snapshot = capability_snapshot()
+    capabilities: list[dict[str, Any]] = []
+    for value in snapshot.get("capabilities", []):
+        if not isinstance(value, dict):
+            continue
+        reason = value.get("reason")
+        renderer = value.get("renderer")
+        policy = value.get("policy")
+        public: dict[str, Any] = {
+            key: value.get(key)
+            for key in (
+                "id",
+                "name",
+                "description",
+                "kind",
+                "catalog_listed",
+                "status",
+                "invocable",
+                "verified_at",
+            )
+        }
+        public["permitted"] = (
+            policy.get("permitted") is True
+            if isinstance(policy, dict)
+            else False
+        )
+        public["route"] = {
+            "healthy": (
+                value.get("status") == "available"
+                and value.get("invocable") is True
+            ),
+            "status": value.get("status"),
+        }
+        public["reason"] = {
+            "code": str(reason.get("code") or "unavailable"),
+            "message": str(reason.get("message") or "Возможность недоступна."),
+        } if isinstance(reason, dict) else {
+            "code": "unavailable",
+            "message": "Возможность недоступна.",
+        }
+        public["renderer"] = {
+            "required": renderer.get("required") is True,
+            "id": renderer.get("id"),
+            "registered": renderer.get("registered") is True,
+            "healthy": renderer.get("healthy"),
+        } if isinstance(renderer, dict) else {
+            "required": False,
+            "id": None,
+            "registered": False,
+            "healthy": None,
+        }
+        capabilities.append(public)
+    return {
+        key: snapshot.get(key)
+        for key in (
+            "schema_version",
+            "status",
+            "as_of",
+            "counts",
+            "release_id",
+            "probe_ttl_seconds",
+        )
+        if key in snapshot
+    } | {"capabilities": capabilities}
+
+
 def capability_by_id(capability_id: str) -> dict[str, Any] | None:
     for item in capability_snapshot()["capabilities"]:
         if item.get("id") == capability_id:
@@ -644,6 +718,7 @@ __all__ = [
     "capability_probe_ttl_seconds",
     "capability_release_id",
     "capability_snapshot",
+    "public_capability_snapshot",
     "record_capability_invocation",
     "require_available",
 ]

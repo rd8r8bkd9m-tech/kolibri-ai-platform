@@ -967,8 +967,8 @@ async def chat(
         ImageGenerationFailed,
         ImageGenerationRequest,
         generate_invocable_image,
-        image_execution_identity,
         is_image_generation_request,
+        public_image_artifact,
     )
     image_prompt = data.messages[-1].content
     if is_image_generation_request(image_prompt):
@@ -979,41 +979,40 @@ async def chat(
             )
         policy = data.policy.model_dump() if data.policy else None
         try:
-            artifact = await generate_invocable_image(
+            internal_artifact = await generate_invocable_image(
                 ImageGenerationRequest(prompt=image_prompt),
                 policy=policy,
                 scope_id=principal.scope_id,
             )
+            artifact = public_image_artifact(internal_artifact)
         except ImageCapabilityUnavailable:
             return {
                 "content": "Генерация изображений сейчас недоступна.",
                 "actions": [],
                 "status": "capability_unavailable",
-                "provider": "none",
-                "model": "none",
+                "provider": "kolibri",
+                "model": "kolibri",
                 "error_code": "capability_unavailable",
                 "recoverable": True,
                 "capability": IMAGE_CAPABILITY_ID,
             }
         except ImageGenerationFailed:
-            image_identity = image_execution_identity()
             return {
                 "content": "Провайдер изображений не вернул проверенный файл. Изображение не создано.",
                 "actions": [],
                 "status": "failed",
-                "provider": image_identity["provider"],
-                "model": image_identity["model"],
+                "provider": "kolibri",
+                "model": "kolibri",
                 "error_code": "image_artifact_verification_failed",
                 "recoverable": True,
                 "capability": IMAGE_CAPABILITY_ID,
             }
-        image_identity = image_execution_identity()
         return {
             "content": "Изображение создано и сохранено в текущем проекте.",
             "actions": [{"type": "present_image", "label": "Открыть изображение", "data": artifact}],
             "status": "ready",
-            "provider": image_identity["provider"],
-            "model": artifact["model"],
+            "provider": "kolibri",
+            "model": "kolibri",
         }
     from app.truth_policy import resolve_current_information
     truth_result = await resolve_current_information(messages)
@@ -1069,6 +1068,7 @@ async def chat_stream(
         generate_invocable_image,
         image_execution_identity,
         is_image_generation_request,
+        public_image_artifact,
     )
     from app.truth_policy import requires_current_evidence, resolve_current_information
     from app.routers.openai_compat import begin_public_response, record_public_stream_chunk
@@ -1156,22 +1156,22 @@ async def chat_stream(
                 ):
                     yield sse(event)
                 try:
-                    artifact = await generate_invocable_image(
+                    internal_artifact = await generate_invocable_image(
                         ImageGenerationRequest(prompt=image_prompt),
                         policy=policy,
                         run_id=public_response_id,
                         scope_id=principal.scope_id,
                     )
+                    artifact = public_image_artifact(internal_artifact)
                 except ImageCapabilityUnavailable:
-                    final = {"content": "Генерация изображений сейчас недоступна.", "done": True, "actions": [], "status": "capability_unavailable", "provider": "none", "model": "none", "fallback_used": False, "error_code": "capability_unavailable", "recoverable": True, "capability": IMAGE_CAPABILITY_ID, "response_id": public_response_id}
+                    final = {"content": "Генерация изображений сейчас недоступна.", "done": True, "actions": [], "status": "capability_unavailable", "provider": "kolibri", "model": "kolibri", "fallback_used": False, "error_code": "capability_unavailable", "recoverable": True, "capability": IMAGE_CAPABILITY_ID, "response_id": public_response_id}
                     canonical_events(final)
                     legacy = legacy_stream_payload(final)
                     if legacy:
                         yield sse(legacy)
                     return
                 except ImageGenerationFailed:
-                    image_identity = image_execution_identity()
-                    final = {"content": "Провайдер изображений не вернул проверенный файл. Изображение не создано.", "done": True, "actions": [], "status": "failed", "provider": image_identity["provider"], "model": image_identity["model"], "fallback_used": False, "error_code": "image_artifact_verification_failed", "recoverable": True, "capability": IMAGE_CAPABILITY_ID, "response_id": public_response_id}
+                    final = {"content": "Провайдер изображений не вернул проверенный файл. Изображение не создано.", "done": True, "actions": [], "status": "failed", "provider": "kolibri", "model": "kolibri", "fallback_used": False, "error_code": "image_artifact_verification_failed", "recoverable": True, "capability": IMAGE_CAPABILITY_ID, "response_id": public_response_id}
                     canonical_events(final)
                     legacy = legacy_stream_payload(final)
                     if legacy:
@@ -1189,14 +1189,14 @@ async def chat_stream(
                 ):
                     yield sse(event)
                 content_chunk = {"content": "Изображение создано и сохранено в текущем проекте.", "done": False, "response_id": public_response_id}
-                final = {"content": "", "done": True, "actions": [{"type": "present_image", "label": "Открыть изображение", "data": artifact}], "status": "ready", "provider": image_identity["provider"], "model": artifact["model"], "fallback_used": False, "response_id": public_response_id}
+                final = {"content": "", "done": True, "actions": [{"type": "present_image", "label": "Открыть изображение", "data": artifact}], "status": "ready", "provider": "kolibri", "model": "kolibri", "fallback_used": False, "response_id": public_response_id}
                 canonical_events(content_chunk)
                 canonical_events(final)
                 try_record_capability_invocation(
                     "chat.streaming",
                     succeeded=True,
                     provider=image_identity["provider"],
-                    model=str(artifact["model"]),
+                    model=str(internal_artifact["model"]),
                     evidence_id=str(artifact["sha256"]),
                 )
                 content_payload = legacy_stream_payload(content_chunk)

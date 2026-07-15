@@ -55,7 +55,10 @@ def test_image_capability_fails_closed_without_credential(monkeypatch):
     assert capability["id"] == "image.generate"
     assert capability["status"] == "unavailable"
     assert capability["invocable"] is False
-    assert capability["routes"][0]["configured"] is False
+    assert "routes" not in capability
+    assert "selected_route_id" not in capability
+    assert "policy" not in capability
+    assert capability["reason"]["code"] == "route_not_configured"
     assert capability["renderer"]["registered"] is True
     assert capability["renderer"]["id"] == "image"
 
@@ -200,6 +203,7 @@ def test_image_generation_persists_and_serves_verified_bytes(monkeypatch, tmp_pa
         )
 
     assert artifact["type"] == "image"
+    assert artifact["model"] == "kolibri"
     assert artifact["mime_type"] == "image/png"
     assert artifact["size_bytes"] == len(_PNG_1X1)
     assert len(artifact["sha256"]) == 64
@@ -589,7 +593,8 @@ def test_chat_stream_never_claims_image_success_without_artifact(monkeypatch):
     assert final["error_code"] == "capability_unavailable"
     assert final["capability"] == "image.generate"
     assert final["recoverable"] is True
-    assert final["provider"] == "none"
+    assert final["provider"] == "kolibri"
+    assert final["model"] == "kolibri"
     assert final["actions"] == []
     assert "недоступна" in final["content"]
     assert "Изображение создано" not in final["content"]
@@ -657,10 +662,11 @@ def test_chat_stream_emits_present_image_only_after_verified_artifact(monkeypatc
 
     assert payloads[-2]["content"].startswith("Изображение создано")
     assert payloads[-1]["status"] == "ready"
-    assert payloads[-1]["provider"] == "openai"
-    assert payloads[-1]["model"] == "gpt-image-2"
+    public_artifact = image_artifacts.public_image_artifact(artifact)
+    assert payloads[-1]["provider"] == "kolibri"
+    assert payloads[-1]["model"] == "kolibri"
     assert payloads[-1]["actions"] == [
-        {"type": "present_image", "label": "Открыть изображение", "data": artifact}
+        {"type": "present_image", "label": "Открыть изображение", "data": public_artifact}
     ]
     summaries = [
         payload["work_summary"]
@@ -697,7 +703,8 @@ def test_chat_stream_emits_present_image_only_after_verified_artifact(monkeypatc
         if payload.get("type") == "response.artifact.ready"
     ]
     assert len(artifact_ready) == 1
-    assert artifact_ready[0]["artifact"] == artifact
+    assert artifact_ready[0]["artifact"] == public_artifact
+    assert artifact_ready[0]["artifact"]["model"] == "kolibri"
     assert [
         payload["type"]
         for payload in replay_payloads
@@ -935,3 +942,267 @@ def test_custom_specialization_is_composed_with_kolibri_solo_prompt(monkeypatch)
     assert "Режим автономного универсального исполнителя" in system_prompt
     assert "Ты — эксперт по строительным сметам." in system_prompt
     assert "специализация не отменяет идентичность Колибри" in system_prompt
+
+
+def _assert_public_payload_has_no_image_topology(payload):
+    serialized = json.dumps(payload, ensure_ascii=False).lower()
+    for forbidden in (
+        "codex_cli",
+        "codex-cli",
+        "account-default",
+        "mimo",
+        "deepseek",
+        "gpt-image",
+    ):
+        assert forbidden not in serialized
+
+    def walk(value):
+        if isinstance(value, dict):
+            for key, nested in value.items():
+                if key == "provider":
+                    assert nested in {"kolibri", None}
+                if key == "model":
+                    assert nested in {"kolibri", None}
+                walk(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                walk(nested)
+
+    walk(payload)
+
+
+def test_public_capability_catalog_strips_routes_credentials_and_provider_probe(monkeypatch):
+    internal = {
+        "schema_version": "kolibri.capabilities.v1",
+        "status": "available",
+        "as_of": "2026-07-15T00:00:00+00:00",
+        "counts": {"available": 1, "degraded": 0, "unavailable": 0},
+        "release_id": "p7-test",
+        "probe_ttl_seconds": 25200,
+        "capabilities": [{
+            "id": "image.generate",
+            "name": "Изображение",
+            "description": "Создание изображения.",
+            "kind": "media",
+            "catalog_listed": True,
+            "status": "available",
+            "invocable": True,
+            "verified_at": "2026-07-15T00:00:00+00:00",
+            "reason": {"code": "live_invocation", "message": "Маршрут подтверждён."},
+            "selected_route_id": "codex_cli",
+            "policy": {
+                "evaluated": True,
+                "permitted": True,
+                "decision_id": "internal-policy",
+            },
+            "renderer": {
+                "required": True,
+                "id": "image",
+                "registered": True,
+                "healthy": True,
+                "evidence_id": "internal-renderer-evidence",
+            },
+            "routes": [{
+                "id": "codex_cli",
+                "configured": True,
+                "permitted": True,
+                "credential": {
+                    "source": "home_codex_cli_login",
+                    "ready": True,
+                },
+                "probe": {
+                    "state": "succeeded",
+                    "fresh": True,
+                    "provider": "codex_cli",
+                    "model": "codex-cli:account-default",
+                },
+            }],
+        }],
+    }
+    monkeypatch.setattr(capability_runtime, "capability_snapshot", lambda: internal)
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/capabilities")
+
+    assert response.status_code == 200
+    body = response.json()
+    capability = body["capabilities"][0]
+    assert capability["status"] == "available"
+    assert capability["invocable"] is True
+    assert capability["permitted"] is True
+    assert capability["route"] == {"healthy": True, "status": "available"}
+    assert capability["renderer"] == {
+        "required": True,
+        "id": "image",
+        "registered": True,
+        "healthy": True,
+    }
+    assert capability["reason"]["code"] == "live_invocation"
+    for forbidden_key in ("routes", "selected_route_id", "policy", "credential", "probe"):
+        assert forbidden_key not in capability
+    _assert_public_payload_has_no_image_topology(body)
+    assert internal["capabilities"][0]["routes"][0]["probe"]["provider"] == "codex_cli"
+
+
+def test_all_public_image_surfaces_use_kolibri_identity(monkeypatch, tmp_path):
+    monkeypatch.setenv("OPENAI_API_KEY", "configured-for-test")
+    monkeypatch.setenv("OPENAI_REST_IMAGE_ROUTING_ENABLED", "true")
+    monkeypatch.setenv("KOLIBRI_ARTIFACT_DIR", str(tmp_path))
+    api_key = "koli_test_public_image_topology"
+    monkeypatch.setenv(
+        "KOLIBRI_PUBLIC_API_KEY_SHA256",
+        hashlib.sha256(api_key.encode()).hexdigest(),
+    )
+    api_headers = {"Authorization": f"Bearer {api_key}"}
+
+    async def upstream(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith(("/images/generations", "/images/edits"))
+        return httpx.Response(
+            200,
+            json={"data": [{"b64_json": base64.b64encode(_PNG_1X1).decode()}]},
+        )
+
+    transport = httpx.MockTransport(upstream)
+    real_client = httpx.AsyncClient
+
+    def client_factory(**kwargs):
+        return real_client(
+            transport=transport,
+            timeout=kwargs.get("timeout"),
+            follow_redirects=kwargs.get("follow_redirects", False),
+        )
+
+    monkeypatch.setattr(image_artifacts.httpx, "AsyncClient", client_factory)
+
+    payloads = []
+    with TestClient(app) as client:
+        assert client.post("/api/v1/shell/bootstrap").status_code == 200
+
+        generated = client.post(
+            "/api/v1/images/generations",
+            json={"prompt": "Создай изображение жёлтой канарейки"},
+        )
+        assert generated.status_code == 201
+        generated_artifact = generated.json()
+        payloads.append(generated_artifact)
+
+        edited = client.post(
+            "/api/v1/images/edits",
+            json={
+                "source_artifact_id": generated_artifact["id"],
+                "prompt": "Сделай фон тёплым",
+            },
+        )
+        assert edited.status_code == 201
+        payloads.append(edited.json())
+
+        chat = client.post(
+            "/api/v1/chat",
+            json={"messages": [{"role": "user", "content": "Создай изображение букета"}]},
+            headers={"X-Forwarded-For": "public-image-chat"},
+        )
+        assert chat.status_code == 200
+        payloads.append(chat.json())
+
+        chat_stream = client.post(
+            "/api/v1/chat/stream",
+            json={"messages": [{"role": "user", "content": "Создай изображение поля цветов"}]},
+            headers={"X-Forwarded-For": "public-image-chat-stream"},
+        )
+        assert chat_stream.status_code == 200
+        payloads.extend(_sse_payloads(chat_stream))
+
+        responses = client.post(
+            "/v1/responses",
+            json={"model": "kolibri", "input": "Создай изображение канарейки"},
+            headers={**api_headers, "X-Forwarded-For": "public-image-responses"},
+        )
+        assert responses.status_code == 200
+        response_payload = responses.json()
+        payloads.append(response_payload)
+
+        reopened = client.get(
+            f"/v1/responses/{response_payload['id']}",
+            headers=api_headers,
+        )
+        replay = client.get(
+            f"/v1/responses/{response_payload['id']}/events",
+            headers=api_headers,
+        )
+        assert reopened.status_code == 200
+        assert replay.status_code == 200
+        payloads.append(reopened.json())
+        payloads.extend(_sse_payloads(replay))
+
+        streamed_response = client.post(
+            "/v1/responses",
+            json={
+                "model": "kolibri",
+                "input": "Создай изображение цветка",
+                "stream": True,
+            },
+            headers={**api_headers, "X-Forwarded-For": "public-image-responses-stream"},
+        )
+        assert streamed_response.status_code == 200
+        payloads.extend(_sse_payloads(streamed_response))
+
+        completion = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "kolibri",
+                "messages": [{"role": "user", "content": "Создай изображение сада"}],
+            },
+            headers={**api_headers, "X-Forwarded-For": "public-image-completion"},
+        )
+        assert completion.status_code == 200
+        payloads.append(completion.json())
+
+        streamed_completion = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "kolibri",
+                "messages": [{"role": "user", "content": "Создай изображение дерева"}],
+                "stream": True,
+            },
+            headers={**api_headers, "X-Forwarded-For": "public-image-completion-stream"},
+        )
+        assert streamed_completion.status_code == 200
+        payloads.extend([
+            json.loads(line.removeprefix("data: "))
+            for line in streamed_completion.text.splitlines()
+            if line.startswith("data: ") and line != "data: [DONE]"
+        ])
+
+        catalog = client.get("/api/v1/capabilities")
+        assert catalog.status_code == 200
+        image_capability = next(
+            item
+            for item in catalog.json()["capabilities"]
+            if item["id"] == "image.generate"
+        )
+        assert image_capability["invocable"] is True
+        assert image_capability["permitted"] is True
+        assert image_capability["route"]["healthy"] is True
+        payloads.append(image_capability)
+
+    for payload in payloads:
+        _assert_public_payload_has_no_image_topology(payload)
+
+    image_artifacts_in_payloads = []
+
+    def collect(value):
+        if isinstance(value, dict):
+            if value.get("type") == "image" and "sha256" in value:
+                image_artifacts_in_payloads.append(value)
+            for nested in value.values():
+                collect(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                collect(nested)
+
+    collect(payloads)
+    assert image_artifacts_in_payloads
+    assert all(item["model"] == "kolibri" for item in image_artifacts_in_payloads)
+    probe = capability_runtime.capability_invocation_probe("image.generate")
+    assert probe.provider == "openai"
+    assert probe.model == "gpt-image-2"

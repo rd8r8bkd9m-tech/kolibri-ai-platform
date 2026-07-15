@@ -175,7 +175,14 @@ def _public_actions(value: Any) -> list[dict[str, Any]]:
                 validated = PersistedFileAction.model_validate(candidate)
                 actions.append(validated.model_dump(mode="json", exclude_none=True))
                 continue
-            public_data = json.loads(json.dumps(data, ensure_ascii=False))
+            if action_type == "present_image":
+                from app.image_artifacts import public_image_artifact
+
+                public_data = public_image_artifact(data)
+                if not public_data:
+                    continue
+            else:
+                public_data = json.loads(json.dumps(data, ensure_ascii=False))
         except (TypeError, ValueError):
             continue
         actions.append({"type": action_type, "label": label, "data": public_data})
@@ -619,6 +626,7 @@ async def _image_result_if_requested(
         generate_invocable_image,
         image_execution_identity,
         is_image_generation_request,
+        public_image_artifact,
     )
 
     prompt = next(
@@ -628,12 +636,13 @@ async def _image_result_if_requested(
     if not is_image_generation_request(prompt):
         return None
     try:
-        artifact = await generate_invocable_image(
+        internal_artifact = await generate_invocable_image(
             ImageGenerationRequest(prompt=prompt),
             policy=policy,
             run_id=run_id,
             scope_id=owner_scope,
         )
+        artifact = public_image_artifact(internal_artifact)
     except ImageCapabilityUnavailable:
         return {
             "content": "",
@@ -642,10 +651,10 @@ async def _image_result_if_requested(
             "error_code": "capability_unavailable",
             "recoverable": True,
             "capability": IMAGE_CAPABILITY_ID,
-            "provider": "none",
+            "provider": "kolibri",
+            "model": "kolibri",
         }
     except ImageGenerationFailed:
-        image_identity = image_execution_identity()
         return {
             "content": "",
             "actions": [],
@@ -653,8 +662,8 @@ async def _image_result_if_requested(
             "error_code": "image_artifact_verification_failed",
             "recoverable": True,
             "capability": IMAGE_CAPABILITY_ID,
-            "provider": image_identity["provider"],
-            "model": image_identity["model"],
+            "provider": "kolibri",
+            "model": "kolibri",
         }
     image_identity = image_execution_identity()
     return {
@@ -662,8 +671,10 @@ async def _image_result_if_requested(
         "actions": [{"type": "present_image", "label": "Открыть изображение", "data": artifact}],
         "artifact": artifact,
         "status": "ready",
-        "provider": image_identity["provider"],
-        "model": artifact["model"],
+        "provider": "kolibri",
+        "model": "kolibri",
+        "_provider": image_identity["provider"],
+        "_model": internal_artifact["model"],
     }
 
 
@@ -685,6 +696,9 @@ def _public_response(record: dict[str, Any]) -> dict[str, Any]:
         })
     artifact = record.get("artifact")
     if isinstance(artifact, dict):
+        from app.image_artifacts import public_image_artifact
+
+        artifact = public_image_artifact(artifact)
         output.append({
             "id": f"artifact_{artifact.get('id')}",
             "type": "artifact",
@@ -842,7 +856,7 @@ def record_public_stream_chunk(
             )
     if chunk.get("done"):
         record["upstream_response_id"] = chunk.get("response_id")
-        record["provider_route"] = chunk.get("provider")
+        record["provider_route"] = chunk.get("_provider") or chunk.get("provider")
         actions = chunk.get("actions")
         if isinstance(actions, list):
             for action in actions:
@@ -851,12 +865,14 @@ def record_public_stream_chunk(
                     and action.get("type") == "present_image"
                     and isinstance(action.get("data"), dict)
                 ):
-                    record["artifact"] = action["data"]
+                    from app.image_artifacts import public_image_artifact
+
+                    record["artifact"] = public_image_artifact(action["data"])
                     appended.append(
                         _append_event(record, "response.artifact.ready", {
                             "artifact_type": "image",
-                            "artifact_id": action["data"].get("id"),
-                            "artifact": action["data"],
+                            "artifact_id": record["artifact"].get("id"),
+                            "artifact": record["artifact"],
                         })
                     )
                     break
@@ -1009,6 +1025,13 @@ def _record_result(
     # fails) after the cancellation transition must not replace it.
     if record.get("status") == "cancelled":
         return record
+    artifact = result.get("artifact")
+    if isinstance(artifact, dict):
+        from app.image_artifacts import public_image_artifact
+
+        artifact = public_image_artifact(artifact)
+    else:
+        artifact = None
     record.update({
         "id": response_id,
         "created_at": record.get("created_at", int(time.time())),
@@ -1019,10 +1042,10 @@ def _record_result(
             "recoverable": result.get("recoverable") is True,
             "capability": result.get("capability"),
         } if status == "failed" else None,
-        "artifact": result.get("artifact"),
+        "artifact": artifact,
         "actions": _public_actions(result.get("actions")),
         "upstream_response_id": result.get("response_id"),
-        "provider_route": result.get("provider"),
+        "provider_route": result.get("_provider") or result.get("provider"),
         "messages": messages,
         "owner_scope": owner_scope,
     })
@@ -1207,8 +1230,8 @@ async def execute_kolibri_response(
             try_record_capability_invocation(
                 "developer.responses",
                 succeeded=True,
-                provider=str(result.get("provider") or "kolibri"),
-                model=str(result.get("model") or "kolibri"),
+                provider=str(result.get("_provider") or result.get("provider") or "kolibri"),
+                model=str(result.get("_model") or result.get("model") or "kolibri"),
                 evidence_id=response_id,
             )
         if inflight_future is not None and not inflight_future.done():
@@ -1381,8 +1404,8 @@ async def _streaming_response(
                 try_record_capability_invocation(
                     "developer.responses",
                     succeeded=True,
-                    provider=str(image_result.get("provider") or "kolibri"),
-                    model=str(image_result.get("model") or "kolibri"),
+                    provider=str(image_result.get("_provider") or image_result.get("provider") or "kolibri"),
+                    model=str(image_result.get("_model") or image_result.get("model") or "kolibri"),
                     evidence_id=response_id,
                 )
             yield _sse(event_type, {
@@ -1560,6 +1583,25 @@ def _sse(event_type: str, payload: dict[str, Any]) -> str:
     return f"event: {event_type}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
+def _public_persisted_event(
+    value: dict[str, Any],
+    record: dict[str, Any],
+) -> dict[str, Any]:
+    """Project durable replay through the same public boundary as live SSE."""
+
+    event = json.loads(json.dumps(value, ensure_ascii=False))
+    if isinstance(event.get("artifact"), dict):
+        from app.image_artifacts import public_image_artifact
+
+        event["artifact"] = public_image_artifact(event["artifact"])
+        event["artifact_id"] = event["artifact"].get("id")
+    if isinstance(event.get("actions"), list):
+        event["actions"] = _public_actions(event["actions"])
+    if isinstance(event.get("response"), dict):
+        event["response"] = _public_response(record)
+    return event
+
+
 @router.get("/api/v1/responses/{response_id}", include_in_schema=False, dependencies=_PUBLIC_AUTH)
 @router.get("/v1/responses/{response_id}", dependencies=_PUBLIC_AUTH)
 async def get_public_response(response_id: str, request: Request):
@@ -1617,7 +1659,8 @@ async def public_response_events(
             pending = [event for event in record.get("events", []) if int(event["sequence"]) > sequence]
             for event in pending:
                 sequence = int(event["sequence"])
-                yield _sse(str(event["type"]), event)
+                public_event = _public_persisted_event(event, record)
+                yield _sse(str(public_event["type"]), public_event)
             if record["status"] in {"completed", "failed", "cancelled"}:
                 return
             await asyncio.sleep(0.25)
@@ -1781,8 +1824,8 @@ async def chat_completions(
                 record_capability_invocation(
                     "developer.chat_completions",
                     succeeded=True,
-                    provider=str(image_result.get("provider") or "kolibri"),
-                    model=str(image_result.get("model") or "kolibri"),
+                    provider=str(image_result.get("_provider") or image_result.get("provider") or "kolibri"),
+                    model=str(image_result.get("_model") or image_result.get("model") or "kolibri"),
                     evidence_id=completion_id,
                 )
                 yield "data: [DONE]\n\n"
@@ -1923,8 +1966,8 @@ async def chat_completions(
         record_capability_invocation(
             "developer.chat_completions",
             succeeded=True,
-            provider=str(result.get("provider") or "kolibri"),
-            model=str(result.get("model") or "kolibri"),
+            provider=str(result.get("_provider") or result.get("provider") or "kolibri"),
+            model=str(result.get("_model") or result.get("model") or "kolibri"),
             evidence_id=completion_id,
         )
     return {
