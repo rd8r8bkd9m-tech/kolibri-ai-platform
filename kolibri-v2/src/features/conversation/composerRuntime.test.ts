@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { canOfferLocalVoiceInput, getSpeechRecognitionConstructor, resolveComposerMediaControls, type BrowserSpeechRecognition } from './composerRuntime'
+import {
+  canOfferLocalVoiceInput,
+  getKeyboardInsetPx,
+  getSpeechRecognitionConstructor,
+  resolveComposerMediaControls,
+  type BrowserSpeechRecognition,
+} from './composerRuntime'
 
 class RecognitionStub implements BrowserSpeechRecognition {
   continuous = false
@@ -46,5 +52,12 @@ describe('composer runtime capability contract', () => {
       fileUpload: false,
       cameraUpload: false,
     })
+  })
+
+  it('calculates visual viewport keyboard inset without negative values', () => {
+    expect(getKeyboardInsetPx(800, 500, 0)).toBe(300)
+    expect(getKeyboardInsetPx(800, 500, 24.4)).toBe(276)
+    expect(getKeyboardInsetPx(600, 800, 0)).toBe(0)
+    expect(getKeyboardInsetPx(800, Number.NaN, 0)).toBe(0)
   })
 })

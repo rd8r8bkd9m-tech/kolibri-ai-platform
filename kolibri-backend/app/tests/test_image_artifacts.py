@@ -210,11 +210,99 @@ def test_image_generation_persists_and_serves_verified_bytes(monkeypatch, tmp_pa
     assert content.headers["etag"] == f'"{artifact["sha256"]}"'
     assert capability["status"] == "available"
     assert capability["invocable"] is True
+    probe = capability_runtime.capability_invocation_probe("image.generate")
+    assert probe.state.value == "succeeded"
+    assert probe.provider == "openai"
+    assert probe.model == "gpt-image-2"
+    assert probe.evidence_id == artifact["id"]
 
     with TestClient(app) as other_session:
         assert other_session.post("/api/v1/shell/bootstrap").status_code == 200
         denied = other_session.get(artifact["url"])
     assert denied.status_code == 404
+
+
+def test_image_generation_records_failed_invocation_when_unconfigured(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_REST_IMAGE_ROUTING_ENABLED", raising=False)
+    monkeypatch.delenv("KOLIBRI_CODEX_IMAGE_WORKER_URL", raising=False)
+    monkeypatch.setenv("CODEX_CLI_IMAGE_ENABLED", "false")
+
+    with pytest.raises(image_artifacts.ImageCapabilityUnavailable):
+        asyncio.run(
+            image_artifacts.generate_image(
+                image_artifacts.ImageGenerationRequest(prompt="сгенерируй цветы"),
+            ),
+        )
+
+    probe = capability_runtime.capability_invocation_probe("image.generate")
+    assert probe.state.value == "failed"
+    assert probe.error_code == "image_route_not_configured"
+
+
+def test_image_generation_returns_verified_artifact_when_evidence_writes_fail(monkeypatch, tmp_path):
+    monkeypatch.setenv("OPENAI_API_KEY", "configured-for-test")
+    monkeypatch.setenv("OPENAI_REST_IMAGE_ROUTING_ENABLED", "true")
+    monkeypatch.setenv("KOLIBRI_ARTIFACT_DIR", str(tmp_path))
+
+    async def upstream(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"data": [{"b64_json": base64.b64encode(_PNG_1X1).decode()}]})
+
+    transport = httpx.MockTransport(upstream)
+    real_client = httpx.AsyncClient
+
+    def client_factory(**kwargs):
+        return real_client(transport=transport, timeout=kwargs.get("timeout"), follow_redirects=True)
+
+    def fail_evidence(*args, **kwargs):
+        raise OSError("evidence store unavailable")
+
+    monkeypatch.setattr(image_artifacts.httpx, "AsyncClient", client_factory)
+    monkeypatch.setattr(image_artifacts, "_write_probe_state", fail_evidence)
+    monkeypatch.setattr(capability_runtime, "record_capability_invocation", fail_evidence)
+
+    with TestClient(app) as client:
+        assert client.post("/api/v1/shell/bootstrap").status_code == 200
+        created = client.post(
+            "/api/v1/images/generations",
+            json={"prompt": "Создай изображение букета"},
+        )
+        assert created.status_code == 201
+        artifact = created.json()
+        content = client.get(artifact["url"])
+
+    assert artifact["type"] == "image"
+    assert artifact["sha256"] == hashlib.sha256(_PNG_1X1).hexdigest()
+    assert content.status_code == 200
+    assert content.content == _PNG_1X1
+
+
+def test_image_generation_provider_error_is_not_masked_by_evidence_failure(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "configured-for-test")
+    monkeypatch.setenv("OPENAI_REST_IMAGE_ROUTING_ENABLED", "true")
+
+    async def upstream(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, request=request)
+
+    transport = httpx.MockTransport(upstream)
+    real_client = httpx.AsyncClient
+
+    def client_factory(**kwargs):
+        return real_client(transport=transport, timeout=kwargs.get("timeout"), follow_redirects=True)
+
+    def fail_evidence(*args, **kwargs):
+        raise OSError("evidence store unavailable")
+
+    monkeypatch.setattr(image_artifacts.httpx, "AsyncClient", client_factory)
+    monkeypatch.setattr(image_artifacts, "_write_probe_state", fail_evidence)
+    monkeypatch.setattr(capability_runtime, "record_capability_invocation", fail_evidence)
+
+    with pytest.raises(image_artifacts.ImageGenerationFailed, match="provider did not complete"):
+        asyncio.run(
+            image_artifacts.generate_image(
+                image_artifacts.ImageGenerationRequest(prompt="сгенерируй цветы"),
+            ),
+        )
 
 
 def test_legacy_unscoped_image_is_quarantined_without_deleting_files(monkeypatch, tmp_path):
@@ -484,9 +572,18 @@ def test_chat_stream_never_claims_image_success_without_artifact(monkeypatch):
             json={"messages": [{"role": "user", "content": "сгенерируй цветы"}]},
             headers={"X-Forwarded-For": "image-unavailable"},
         )
+        payloads = _sse_payloads(response)
+        response_id = next(
+            payload["response"]["id"]
+            for payload in payloads
+            if payload.get("type") == "response.created"
+        )
+        replay = client.get(
+            f"/api/v1/responses/{response_id}/events?starting_after=0"
+        )
 
     assert response.status_code == 200
-    final = _sse_payloads(response)[-1]
+    final = payloads[-1]
     assert final["done"] is True
     assert final["status"] == "capability_unavailable"
     assert final["error_code"] == "capability_unavailable"
@@ -498,8 +595,24 @@ def test_chat_stream_never_claims_image_success_without_artifact(monkeypatch):
     assert "Изображение создано" not in final["content"]
     assert not any(
         payload.get("work_summary", {}).get("stage") == "artifact_verification"
-        for payload in _sse_payloads(response)
+        for payload in payloads
     )
+    assert not any(payload.get("type") == "response.output_text.delta" for payload in payloads)
+    replay_payloads = _sse_payloads(replay)
+    assert [
+        payload["delta"]
+        for payload in replay_payloads
+        if payload.get("type") == "response.output_text.delta"
+    ] == [final["content"]]
+    assert not any(
+        payload.get("type") == "response.artifact.ready"
+        for payload in replay_payloads
+    )
+    assert [
+        payload["type"]
+        for payload in replay_payloads
+        if payload.get("type") in {"response.completed", "response.failed"}
+    ] == ["response.failed"]
 
 
 def test_chat_stream_emits_present_image_only_after_verified_artifact(monkeypatch, tmp_path):
@@ -519,7 +632,11 @@ def test_chat_stream_emits_present_image_only_after_verified_artifact(monkeypatc
     async def fake_generate(request, **_kwargs):
         return artifact
 
+    def fail_evidence(*args, **kwargs):
+        raise OSError("evidence ledger unavailable")
+
     monkeypatch.setattr(image_artifacts, "generate_image", fake_generate)
+    monkeypatch.setattr(capability_runtime, "record_capability_invocation", fail_evidence)
 
     with TestClient(app) as client:
         assert client.post("/api/v1/shell/bootstrap").status_code == 200
@@ -528,8 +645,16 @@ def test_chat_stream_emits_present_image_only_after_verified_artifact(monkeypatc
             json={"messages": [{"role": "user", "content": "сгенерируй цветы"}]},
             headers={"X-Forwarded-For": "image-success"},
         )
+        payloads = _sse_payloads(response)
+        response_id = next(
+            payload["response"]["id"]
+            for payload in payloads
+            if payload.get("type") == "response.created"
+        )
+        replay = client.get(
+            f"/api/v1/responses/{response_id}/events?starting_after=0"
+        )
 
-    payloads = _sse_payloads(response)
     assert payloads[-2]["content"].startswith("Изображение создано")
     assert payloads[-1]["status"] == "ready"
     assert payloads[-1]["provider"] == "openai"
@@ -552,6 +677,32 @@ def test_chat_stream_emits_present_image_only_after_verified_artifact(monkeypatc
     assert verification["artifact_type"] == "image"
     assert verification["artifact_id"] == artifact["id"]
     assert "reasoning" not in verification
+    assert not any(
+        payload.get("type") in {
+            "response.output_text.delta",
+            "response.artifact.ready",
+            "response.completed",
+        }
+        for payload in payloads
+    )
+    replay_payloads = _sse_payloads(replay)
+    assert [
+        payload["delta"]
+        for payload in replay_payloads
+        if payload.get("type") == "response.output_text.delta"
+    ] == ["Изображение создано и сохранено в текущем проекте."]
+    artifact_ready = [
+        payload
+        for payload in replay_payloads
+        if payload.get("type") == "response.artifact.ready"
+    ]
+    assert len(artifact_ready) == 1
+    assert artifact_ready[0]["artifact"] == artifact
+    assert [
+        payload["type"]
+        for payload in replay_payloads
+        if payload.get("type") in {"response.completed", "response.failed"}
+    ] == ["response.completed"]
 
 
 def test_chat_stream_rejects_action_shaped_metadata_without_bytes(monkeypatch, tmp_path):
@@ -588,14 +739,42 @@ def test_chat_stream_rejects_action_shaped_metadata_without_bytes(monkeypatch, t
             json={"messages": [{"role": "user", "content": "сгенерируй цветы"}]},
             headers={"X-Forwarded-For": "image-fake-metadata"},
         )
+        payloads = _sse_payloads(response)
+        response_id = next(
+            payload["response"]["id"]
+            for payload in payloads
+            if payload.get("type") == "response.created"
+        )
+        replay = client.get(
+            f"/api/v1/responses/{response_id}/events?starting_after=0"
+        )
 
-    final = _sse_payloads(response)[-1]
+    final = payloads[-1]
     assert final["done"] is True
     assert final["status"] == "failed"
     assert final["error_code"] == "image_artifact_verification_failed"
     assert final["recoverable"] is True
     assert final["actions"] == []
     assert "Изображение создано" not in final["content"]
+    assert not any(
+        payload.get("type") == "response.artifact.ready"
+        for payload in payloads
+    )
+    replay_payloads = _sse_payloads(replay)
+    assert [
+        payload["delta"]
+        for payload in replay_payloads
+        if payload.get("type") == "response.output_text.delta"
+    ] == [final["content"]]
+    assert not any(
+        payload.get("type") == "response.artifact.ready"
+        for payload in replay_payloads
+    )
+    assert [
+        payload["type"]
+        for payload in replay_payloads
+        if payload.get("type") in {"response.completed", "response.failed"}
+    ] == ["response.failed"]
 
 
 def test_non_stream_image_unavailable_is_structured_and_never_calls_text_provider(monkeypatch):

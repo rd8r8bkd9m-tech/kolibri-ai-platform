@@ -14,6 +14,30 @@ UUID_PATTERN = r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9
 SHA256_PATTERN = r"^[0-9a-f]{64}$"
 DECIMAL_PATTERN = r"^-?\d+(?:\.\d+)?$"
 MAX_MESSAGE_METADATA_BYTES = 300_000
+WORK_STAGE_ALIASES = {
+    "answer": "response_received",
+    "calculating": "tool_execution",
+    "sourcing": "source_retrieval",
+    "verifying": "verification",
+    "retrying": "resuming",
+    "factory_dispatch": "provider_route",
+    "factory_verified": "verification",
+    "codex_turn": "tool_execution",
+    "plan_updated": "planning",
+}
+WORK_STATUS_ALIASES = {
+    "queued": "active",
+    "in_progress": "active",
+    "running": "active",
+    "success": "completed",
+    "ready": "completed",
+    "idle": "completed",
+    "error": "failed",
+    "unavailable": "failed",
+    "retrying": "active",
+    "waiting": "active",
+    "recovering": "active",
+}
 
 
 class _StrictMetadataModel(BaseModel):
@@ -50,18 +74,11 @@ class PersistedWorkEvent(_StrictMetadataModel):
         "verification",
         "cancelled",
         "reasoning_summary",
-        "factory_dispatch",
-        "factory_verified",
-        "codex_turn",
-        "plan_updated",
     ]
     status: Literal[
         "active",
         "completed",
         "failed",
-        "waiting",
-        "recovering",
-        "cancelled",
     ]
     summary: str = Field(min_length=1, max_length=600)
     occurred_at: str | None = Field(default=None, min_length=1, max_length=64)
@@ -71,6 +88,23 @@ class PersistedWorkEvent(_StrictMetadataModel):
     model: str | None = Field(default=None, max_length=120)
     artifact_type: str | None = Field(default=None, max_length=40)
     artifact_id: str | None = Field(default=None, max_length=160)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_public_aliases(cls, value):
+        if not isinstance(value, dict):
+            return value
+        data = dict(value)
+        raw_stage = str(data.get("stage") or "").strip().lower()
+        stage = WORK_STAGE_ALIASES.get(raw_stage, raw_stage)
+        if stage:
+            data["stage"] = stage
+        raw_status = str(data.get("status") or "").strip().lower()
+        if raw_status == "cancelled":
+            data["status"] = "completed" if stage == "cancelled" else "failed"
+        elif raw_status:
+            data["status"] = WORK_STATUS_ALIASES.get(raw_status, raw_status)
+        return data
 
     @model_validator(mode="after")
     def enforce_canonical_work_trace(self):

@@ -58,6 +58,15 @@ _MAX_RECORDS = 1_000
 _IDEMPOTENCY_KEY = re.compile(r"^[A-Za-z0-9._:-]{1,200}$")
 _FAILED_RESULT_STATUSES = {"error", "failed", "incomplete", "unavailable", "capability_unavailable"}
 _TERMINAL_RESPONSE_STATUSES = {"cancelled", "completed", "failed"}
+_NONTERMINAL_RESPONSE_STATUSES = {
+    "queued",
+    "planning",
+    "in_progress",
+    "running",
+    "waiting_for_input",
+    "approval_required",
+    "verifying",
+}
 _PUBLIC_ACTION_TYPES = {
     "create_estimate",
     "create_document",
@@ -80,10 +89,6 @@ _PUBLIC_WORK_STAGES = {
     "verification",
     "cancelled",
     "reasoning_summary",
-    "factory_dispatch",
-    "factory_verified",
-    "codex_turn",
-    "plan_updated",
 }
 _PUBLIC_WORK_STAGE_ALIASES = {
     "answer": "response_received",
@@ -91,6 +96,10 @@ _PUBLIC_WORK_STAGE_ALIASES = {
     "sourcing": "source_retrieval",
     "verifying": "verification",
     "retrying": "resuming",
+    "factory_dispatch": "provider_route",
+    "factory_verified": "verification",
+    "codex_turn": "tool_execution",
+    "plan_updated": "planning",
 }
 _PUBLIC_WORK_STATUS_ALIASES = {
     "queued": "active",
@@ -101,15 +110,14 @@ _PUBLIC_WORK_STATUS_ALIASES = {
     "idle": "completed",
     "error": "failed",
     "unavailable": "failed",
-    "retrying": "recovering",
+    "retrying": "active",
+    "waiting": "active",
+    "recovering": "active",
 }
 _PUBLIC_WORK_STATUSES = {
     "active",
     "completed",
     "failed",
-    "waiting",
-    "recovering",
-    "cancelled",
 }
 _PUBLIC_WORK_ID = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 _PUBLIC_SUMMARY_SECRET = re.compile(
@@ -117,7 +125,9 @@ _PUBLIC_SUMMARY_SECRET = re.compile(
     r"(?:api[_ -]?key|token|password|secret)\s*[:=]\s*\S+|"
     r"https?://\S+|/(?:Users|home|srv|etc)/\S+|"
     r"\b(?:\d{1,3}\.){3}\d{1,3}\b|"
-    r"\b(?:mimo|deepseek|codex|kimi|openai|anthropic|claude|gemini|"
+    r"\b(?:home|control[\s_-]*plane|"
+    r"(?:node|agent)(?:[\s_-]*\d+|[\s_-]+[A-Za-z0-9._-]+)|"
+    r"mimo|deepseek|codex|kimi|openai|anthropic|claude|gemini|"
     r"gpt-[A-Za-z0-9._-]+)\b)"
 )
 _FORBIDDEN_WORK_SUMMARY_KEYS = {
@@ -256,7 +266,9 @@ def _sanitize_public_work_summary(
         stage = "background"
 
     raw_status = str(value.get("status") or "active").strip().lower()
-    status = _PUBLIC_WORK_STATUS_ALIASES.get(raw_status, raw_status)
+    status = "completed" if raw_status == "cancelled" and stage == "cancelled" else (
+        "failed" if raw_status == "cancelled" else _PUBLIC_WORK_STATUS_ALIASES.get(raw_status, raw_status)
+    )
     if status not in _PUBLIC_WORK_STATUSES:
         status = "active"
 
@@ -451,6 +463,14 @@ async def create_api_key(
     db.add(row)
     db.commit()
     db.refresh(row)
+    from app.capability_runtime import try_record_capability_invocation
+
+    try_record_capability_invocation(
+        "developer.api_keys",
+        succeeded=True,
+        provider="kolibri-api-key-create",
+        evidence_id=str(row.id),
+    )
     return {**_public_api_key(row), "secret": plaintext, "secret_shown_once": True}
 
 
@@ -498,9 +518,9 @@ async def revoke_api_key(
         row.revoked_at = datetime.now(timezone.utc)
         db.commit()
         db.refresh(row)
-    from app.capability_runtime import record_capability_invocation
+    from app.capability_runtime import try_record_capability_invocation
 
-    record_capability_invocation(
+    try_record_capability_invocation(
         "developer.api_keys",
         succeeded=True,
         provider="kolibri-api-key-revoke",
@@ -841,6 +861,22 @@ def record_public_stream_chunk(
                     )
                     break
         status = str(chunk.get("status") or "completed")
+        if status in _NONTERMINAL_RESPONSE_STATUSES:
+            record["status"] = status
+            record["error"] = None
+            appended.append(
+                _append_event(
+                    record,
+                    "response.status.updated",
+                    {
+                        "response": _public_response(record),
+                        "status": status,
+                        "actions": _public_actions(record.get("actions")),
+                        "sources": _public_sources(record.get("sources")),
+                    },
+                )
+            )
+            return appended
         record["status"] = "failed" if status in _FAILED_RESULT_STATUSES else "cancelled" if status == "cancelled" else "completed"
         record["error"] = (
             {
@@ -893,9 +929,9 @@ def _record_structured_verdict(
     model: str = "",
     error_code: str | None = None,
 ) -> None:
-    from app.capability_runtime import record_capability_invocation
+    from app.capability_runtime import try_record_capability_invocation
 
-    record_capability_invocation(
+    try_record_capability_invocation(
         "developer.structured_json",
         succeeded=succeeded,
         error_code=error_code,
@@ -1166,9 +1202,9 @@ async def execute_kolibri_response(
             record["structured_request"] = request.text
             _store(record)
         if record.get("status") == "completed":
-            from app.capability_runtime import record_capability_invocation
+            from app.capability_runtime import try_record_capability_invocation
 
-            record_capability_invocation(
+            try_record_capability_invocation(
                 "developer.responses",
                 succeeded=True,
                 provider=str(result.get("provider") or "kolibri"),
@@ -1341,8 +1377,8 @@ async def _streaming_response(
                 })
             event_type = f"response.{record['status']}"
             if record["status"] == "completed":
-                from app.capability_runtime import record_capability_invocation
-                record_capability_invocation(
+                from app.capability_runtime import try_record_capability_invocation
+                try_record_capability_invocation(
                     "developer.responses",
                     succeeded=True,
                     provider=str(image_result.get("provider") or "kolibri"),
@@ -1474,18 +1510,23 @@ async def _streaming_response(
             )
         record = _records[response_id]
         if record["status"] == "completed":
-            from app.capability_runtime import record_capability_invocation
-            record_capability_invocation(
+            from app.capability_runtime import try_record_capability_invocation
+            try_record_capability_invocation(
                 "developer.responses",
                 succeeded=True,
                 provider=str(final_internal.get("provider") or "kolibri"),
                 model=str(final_internal.get("model") or "kolibri"),
                 evidence_id=response_id,
             )
-        event_type = f"response.{record['status']}"
+        event_type = (
+            f"response.{record['status']}"
+            if record["status"] in _TERMINAL_RESPONSE_STATUSES
+            else "response.status.updated"
+        )
         yield _sse(event_type, {
             "type": event_type,
             "response": _public_response(record),
+            "status": record["status"],
             "actions": _public_actions(record.get("actions")),
         })
 
@@ -1525,7 +1566,7 @@ async def get_public_response(response_id: str, request: Request):
     record = _owned_record(response_id, _request_owner_scope(request))
     if not record:
         raise HTTPException(status_code=404, detail={"code": "response_not_found"})
-    if record["status"] in {"queued", "in_progress"} and record.get("provider_route") == "openai_codex":
+    if record["status"] in _NONTERMINAL_RESPONSE_STATUSES and record.get("provider_route") == "openai_codex":
         upstream_id = record.get("upstream_response_id")
         if upstream_id:
             provider = ai_provider.PROVIDERS["openai_codex"]
@@ -1553,7 +1594,7 @@ async def public_response_events(
             record = _owned_record(response_id, owner_scope)
             if not record:
                 return
-            if record["status"] in {"queued", "in_progress"} and record.get("provider_route") == "openai_codex":
+            if record["status"] in _NONTERMINAL_RESPONSE_STATUSES and record.get("provider_route") == "openai_codex":
                 upstream_id = record.get("upstream_response_id")
                 if upstream_id:
                     try:
@@ -1617,9 +1658,9 @@ async def cancel_public_response(response_id: str, request: Request):
                 cancel_response(ai_provider.PROVIDERS["openai_codex"], upstream_id)
             )
         await asyncio.gather(*cancel_operations, return_exceptions=True)
-    from app.capability_runtime import record_capability_invocation
+    from app.capability_runtime import try_record_capability_invocation
 
-    record_capability_invocation(
+    try_record_capability_invocation(
         "response.cancel",
         succeeded=True,
         provider="openai-compatible-responses",
@@ -1641,7 +1682,7 @@ async def retry_public_response(
 ):
     """Create a fresh response attempt from one terminal response context."""
 
-    from app.capability_runtime import record_capability_invocation
+    from app.capability_runtime import try_record_capability_invocation
     from app.rate_limiter import chat_limiter, check_rate_limit
 
     await check_rate_limit(http_request, chat_limiter)
@@ -1674,7 +1715,7 @@ async def retry_public_response(
     )
     record["retry_of"] = response_id
     _store(record)
-    record_capability_invocation(
+    try_record_capability_invocation(
         "response.retry",
         succeeded=True,
         provider="openai-compatible-responses",

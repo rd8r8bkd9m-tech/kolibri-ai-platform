@@ -85,6 +85,29 @@ describe('persisted conversation artifacts', () => {
     expect(JSON.stringify(metadata)).not.toContain('reasoning_content')
   })
 
+  it('normalizes backend work-trace aliases before persisting history', () => {
+    const metadata = buildPersistedConversationMetadata({
+      responseId: 'resp_alias',
+      workEvents: [
+        {
+          stage: 'factory_dispatch' as never,
+          status: 'waiting' as never,
+          summary: 'Передаю в Home Control Plane',
+        },
+        {
+          stage: 'codex_turn' as never,
+          status: 'recovering' as never,
+          summary: 'Codex выполняет шаг',
+        },
+      ],
+    })
+
+    expect(restoreConversationMetadata(metadata).workEvents).toMatchObject([
+      { stage: 'provider_route', status: 'active' },
+      { stage: 'tool_execution', status: 'active' },
+    ])
+  })
+
   it('persists and restores the exact verified image URL and hash', async () => {
     const artifact: ConversationArtifact = { type: 'image', value: image }
     const metadata = buildPersistedConversationMetadata({

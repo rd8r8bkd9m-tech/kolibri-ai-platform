@@ -6,7 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app import ai_provider
+from app import ai_provider, capability_runtime
 from app.database import Base, get_db
 from app.main import app
 from app.models import PublicApiKeyDB
@@ -97,6 +97,14 @@ def test_owner_key_create_use_list_revoke_and_hash_only_persistence(client, monk
         assert secret not in row.secret_hash
         assert row.key_prefix == secret[:14]
 
+    created_capability = next(
+        item
+        for item in client.get("/api/v1/capabilities").json()["capabilities"]
+        if item["id"] == "developer.api_keys"
+    )
+    assert created_capability["status"] == "available"
+    assert created_capability["invocable"] is True
+
     listed = client.get("/api/v1/developer/api-keys", headers=client.owner_headers)
     assert listed.status_code == 200
     assert listed.headers["Cache-Control"] == "no-store"
@@ -135,6 +143,54 @@ def test_owner_key_create_use_list_revoke_and_hash_only_persistence(client, monk
     denied = client.get("/v1/models", headers=bearer)
     assert denied.status_code == 401
     assert denied.json()["error"]["code"] == "invalid_api_key"
+
+
+def test_api_key_create_returns_one_time_secret_when_evidence_write_fails(client, monkeypatch):
+    def fail_evidence(*args, **kwargs):
+        raise OSError("probe ledger unavailable")
+
+    monkeypatch.setattr(capability_runtime, "record_capability_invocation", fail_evidence)
+
+    created = client.post(
+        "/api/v1/developer/api-keys",
+        headers=client.owner_headers,
+        json={"name": "Evidence down"},
+    )
+
+    assert created.status_code == 201
+    body = created.json()
+    assert body["secret"].startswith("koli_live_")
+    assert body["secret_shown_once"] is True
+
+    with client.testing_session() as db:
+        row = db.query(PublicApiKeyDB).filter(PublicApiKeyDB.id == body["id"]).one()
+        assert row.key_prefix == body["secret"][:14]
+        assert row.secret_hash == hashlib.sha256(body["secret"].encode()).hexdigest()
+
+
+def test_api_key_revoke_survives_evidence_write_failure(client, monkeypatch):
+    created = client.post(
+        "/api/v1/developer/api-keys",
+        headers=client.owner_headers,
+        json={"name": "Revoke evidence down"},
+    )
+    assert created.status_code == 201
+    key_id = created.json()["id"]
+
+    def fail_evidence(*args, **kwargs):
+        raise OSError("probe ledger unavailable")
+
+    monkeypatch.setattr(capability_runtime, "record_capability_invocation", fail_evidence)
+    revoked = client.delete(
+        f"/api/v1/developer/api-keys/{key_id}",
+        headers=client.owner_headers,
+    )
+
+    assert revoked.status_code == 200
+    assert revoked.json()["revoked"] is True
+    with client.testing_session() as db:
+        row = db.query(PublicApiKeyDB).filter(PublicApiKeyDB.id == key_id).one()
+        assert row.revoked_at is not None
 
 
 def test_api_key_name_must_remain_nonempty_after_normalisation(client):

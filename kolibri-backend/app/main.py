@@ -1072,35 +1072,89 @@ async def chat_stream(
     )
     from app.truth_policy import requires_current_evidence, resolve_current_information
     from app.routers.openai_compat import begin_public_response, record_public_stream_chunk
+    from app.capability_runtime import try_record_capability_invocation
     image_prompt = data.messages[-1].content
     public_response_id = begin_public_response(
         messages,
         owner_scope=principal.scope_id,
     )
+    nonterminal_response_statuses = {
+        "queued",
+        "planning",
+        "in_progress",
+        "running",
+        "waiting_for_input",
+        "approval_required",
+        "verifying",
+    }
+
+    def sse(payload: dict[str, Any]) -> str:
+        return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
     def canonical_events(chunk: dict) -> list[dict]:
         return record_public_stream_chunk(public_response_id, chunk)
 
-    def canonical_work_events(chunk: dict) -> list[dict]:
-        return [event for event in canonical_events(chunk) if event.get("type") == "response.work_summary.updated"]
+    def live_canonical_events(chunk: dict) -> list[dict]:
+        return [
+            event
+            for event in canonical_events(chunk)
+            if event.get("type") in {
+                "response.status.updated",
+                "response.work_summary.updated",
+                "response.tool.started",
+                "response.tool.completed",
+            }
+        ]
+
+    def legacy_stream_payload(chunk: dict) -> dict[str, Any] | None:
+        payload = dict(chunk)
+        payload.pop("work_summary", None)
+        payload.pop("tool_event", None)
+        payload.pop("response_id", None)
+        status = str(payload.get("status") or "").strip().lower()
+        if payload.get("done") is True and status in nonterminal_response_statuses:
+            # A provider may close its upload stream after accepting a durable
+            # background response.  Keep that handoff non-terminal for the
+            # legacy client and bind it to the public response used for replay.
+            payload["done"] = False
+            payload["response_id"] = public_response_id
+        provider_event = payload.get("provider_event")
+        if isinstance(provider_event, dict):
+            raw_failure_kind = str(provider_event.get("failure_kind") or "provider_error").lower()
+            safe_failure_kind = "".join(
+                character if character.isalnum() or character in "._-" else "_"
+                for character in raw_failure_kind
+            )[:80] or "provider_error"
+            payload["provider_event"] = {
+                "type": "provider.attempt.failed",
+                "failure_kind": safe_failure_kind,
+                "will_retry": provider_event.get("will_retry") is True,
+            }
+        if (
+            payload.get("content")
+            or payload.get("done") is True
+            or isinstance(payload.get("provider_event"), dict)
+        ):
+            return payload
+        return None
 
     async def event_generator():
         try:
-            yield f"data: {json.dumps({'type': 'response.created', 'response': {'id': public_response_id, 'object': 'response', 'status': 'in_progress', 'model': 'kolibri'}, 'content': '', 'done': False})}\n\n"
-            for event in canonical_work_events(
+            yield sse({'type': 'response.created', 'response': {'id': public_response_id, 'object': 'response', 'status': 'in_progress', 'model': 'kolibri'}, 'content': '', 'done': False})
+            for event in live_canonical_events(
                 work_summary_event("accepted", "Запрос принят", status="completed")
             ):
-                yield f"data: {json.dumps(event)}\n\n"
+                yield sse(event)
             if is_image_generation_request(image_prompt):
                 policy = data.policy.model_dump() if data.policy else None
-                for event in canonical_work_events(
+                for event in live_canonical_events(
                     work_summary_event(
                         "tool_execution",
                         "Создаю изображение",
                         status="active",
                     )
                 ):
-                    yield f"data: {json.dumps(event)}\n\n"
+                    yield sse(event)
                 try:
                     artifact = await generate_invocable_image(
                         ImageGenerationRequest(prompt=image_prompt),
@@ -1110,17 +1164,21 @@ async def chat_stream(
                     )
                 except ImageCapabilityUnavailable:
                     final = {"content": "Генерация изображений сейчас недоступна.", "done": True, "actions": [], "status": "capability_unavailable", "provider": "none", "model": "none", "fallback_used": False, "error_code": "capability_unavailable", "recoverable": True, "capability": IMAGE_CAPABILITY_ID, "response_id": public_response_id}
-                    for event in canonical_events(final):
-                        yield f'data: {json.dumps(event)}\n\n'
+                    canonical_events(final)
+                    legacy = legacy_stream_payload(final)
+                    if legacy:
+                        yield sse(legacy)
                     return
                 except ImageGenerationFailed:
                     image_identity = image_execution_identity()
                     final = {"content": "Провайдер изображений не вернул проверенный файл. Изображение не создано.", "done": True, "actions": [], "status": "failed", "provider": image_identity["provider"], "model": image_identity["model"], "fallback_used": False, "error_code": "image_artifact_verification_failed", "recoverable": True, "capability": IMAGE_CAPABILITY_ID, "response_id": public_response_id}
-                    for event in canonical_events(final):
-                        yield f'data: {json.dumps(event)}\n\n'
+                    canonical_events(final)
+                    legacy = legacy_stream_payload(final)
+                    if legacy:
+                        yield sse(legacy)
                     return
                 image_identity = image_execution_identity()
-                for event in canonical_work_events(
+                for event in live_canonical_events(
                     work_summary_event(
                         "artifact_verification",
                         "Формат, размер и контрольная сумма изображения проверены",
@@ -1129,31 +1187,35 @@ async def chat_stream(
                         artifact_id=artifact["id"],
                     )
                 ):
-                    yield f"data: {json.dumps(event)}\n\n"
+                    yield sse(event)
                 content_chunk = {"content": "Изображение создано и сохранено в текущем проекте.", "done": False, "response_id": public_response_id}
                 final = {"content": "", "done": True, "actions": [{"type": "present_image", "label": "Открыть изображение", "data": artifact}], "status": "ready", "provider": image_identity["provider"], "model": artifact["model"], "fallback_used": False, "response_id": public_response_id}
-                public_events = [*canonical_events(content_chunk), *canonical_events(final)]
-                from app.capability_runtime import record_capability_invocation
-                record_capability_invocation(
+                canonical_events(content_chunk)
+                canonical_events(final)
+                try_record_capability_invocation(
                     "chat.streaming",
                     succeeded=True,
                     provider=image_identity["provider"],
                     model=str(artifact["model"]),
                     evidence_id=str(artifact["sha256"]),
                 )
-                for event in public_events:
-                    yield f'data: {json.dumps(event)}\n\n'
+                content_payload = legacy_stream_payload(content_chunk)
+                final_payload = legacy_stream_payload(final)
+                if content_payload:
+                    yield sse(content_payload)
+                if final_payload:
+                    yield sse(final_payload)
                 return
             current_information = requires_current_evidence(messages)
             if current_information:
-                for event in canonical_work_events(
+                for event in live_canonical_events(
                     work_summary_event(
                         "source_retrieval",
                         "Выполняю поиск актуальных источников",
                         status="active",
                     )
                 ):
-                    yield f"data: {json.dumps(event)}\n\n"
+                    yield sse(event)
             truth_result = await resolve_current_information(messages)
             if truth_result is not None and truth_result.get("status") == "source_backed":
                 truth_provider = str(truth_result.get("provider") or "web_search")
@@ -1164,52 +1226,54 @@ async def chat_stream(
                     if route_status == "completed"
                     else "Поиск не вернул проверяемых источников"
                 )
-                for event in canonical_work_events(
+                for event in live_canonical_events(
                     work_summary_event(
                         "source_retrieval",
                         route_summary,
                         status=route_status,
                     )
                 ):
-                    yield f"data: {json.dumps(event)}\n\n"
+                    yield sse(event)
                 if route_status == "completed":
-                    for event in canonical_work_events(
+                    for event in live_canonical_events(
                         work_summary_event(
                             "response_received",
                             "Ответ собран из найденных источников",
                             status="completed",
                         )
                     ):
-                        yield f"data: {json.dumps(event)}\n\n"
+                        yield sse(event)
                 final = dict(truth_result)
                 content = str(final.pop("content", ""))
                 if content:
                     content_chunk = {'content': content, 'done': False, 'response_id': public_response_id}
-                    for event in canonical_events(content_chunk):
-                        yield f"data: {json.dumps(event)}\n\n"
+                    canonical_events(content_chunk)
+                    legacy = legacy_stream_payload(content_chunk)
+                    if legacy:
+                        yield sse(legacy)
                 final["content"] = ""
                 final["done"] = True
                 final["response_id"] = public_response_id
-                public_events = canonical_events(final)
-                from app.capability_runtime import record_capability_invocation
-                record_capability_invocation(
+                canonical_events(final)
+                try_record_capability_invocation(
                     "chat.streaming",
                     succeeded=True,
                     provider=truth_provider,
                     model=truth_model,
                 )
-                for event in public_events:
-                    yield f"data: {json.dumps(event)}\n\n"
+                legacy = legacy_stream_payload(final)
+                if legacy:
+                    yield sse(legacy)
                 return
             if truth_result is not None:
-                for event in canonical_work_events(
+                for event in live_canonical_events(
                     work_summary_event(
                         "source_retrieval",
                         "Встроенный поиск не вернул проверяемых источников; продолжаю через резервный поиск",
                         status="failed",
                     )
                 ):
-                    yield f"data: {json.dumps(event)}\n\n"
+                    yield sse(event)
             policy = data.policy.model_dump() if data.policy else None
             task_type = "analyze" if data.policy and data.policy.mode == "deep" else "fast" if data.policy else "chat"
             async for chunk in chat_completion_stream(
@@ -1224,41 +1288,59 @@ async def chat_stream(
                 provider_event = chunk.get("provider_event")
                 if isinstance(provider_event, dict):
                     will_retry = provider_event.get("will_retry") is True
-                    for event in canonical_work_events(
+                    for event in live_canonical_events(
                         work_summary_event(
                             "provider_attempt",
                             "Маршрут недоступен, переключаюсь на следующий" if will_retry else "Доступный маршрут не завершил запрос",
                             status="failed",
                         )
                     ):
-                        yield f"data: {json.dumps(event)}\n\n"
+                        yield sse(event)
+                    legacy = legacy_stream_payload(chunk)
+                    if legacy:
+                        yield sse(legacy)
                     continue
                 appended_events = record_public_stream_chunk(public_response_id, chunk)
+                legacy = legacy_stream_payload(chunk)
+                if legacy:
+                    yield sse(legacy)
                 if (
                     chunk.get("done") is True
                     and str(chunk.get("status") or "")
-                    not in {"error", "failed", "unavailable", "capability_unavailable"}
+                    not in {
+                        "error",
+                        "failed",
+                        "unavailable",
+                        "capability_unavailable",
+                        *nonterminal_response_statuses,
+                    }
                 ):
-                    from app.capability_runtime import record_capability_invocation
-                    record_capability_invocation(
+                    try_record_capability_invocation(
                         "chat.streaming",
                         succeeded=True,
                         provider=str(chunk.get("provider") or "kolibri"),
                         model=str(chunk.get("model") or "kolibri"),
                     )
                 for event in appended_events:
-                    yield f"data: {json.dumps(event)}\n\n"
+                    if event.get("type") in {
+                        "response.work_summary.updated",
+                        "response.tool.started",
+                        "response.tool.completed",
+                        "response.status.updated",
+                    }:
+                        yield sse(event)
         except Exception:
-            from app.capability_runtime import record_capability_invocation
-            record_capability_invocation(
+            try_record_capability_invocation(
                 "chat.streaming",
                 succeeded=False,
                 error_code="provider_stream_failed",
                 provider="kolibri",
             )
             final = {"content": "Не удалось завершить потоковый ответ. Повторите запрос — он будет направлен другому исполнителю.", "done": True, "actions": [], "status": "error", "provider": "none", "model": "none", "fallback_used": True, "error_code": "provider_stream_failed", "response_id": public_response_id}
-            for event in canonical_events(final):
-                yield f'data: {json.dumps(event)}\n\n'
+            canonical_events(final)
+            legacy = legacy_stream_payload(final)
+            if legacy:
+                yield sse(legacy)
 
     return StreamingResponse(
         event_generator(),

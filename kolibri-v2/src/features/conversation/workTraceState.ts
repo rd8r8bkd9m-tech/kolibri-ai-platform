@@ -25,6 +25,10 @@ function durableEventIdentity(event: ChatWorkSummary): string | null {
   return null
 }
 
+function isCanonicalProviderAttempt(event: ChatWorkSummary): boolean {
+  return event.stage === 'provider_attempt' && durableEventIdentity(event) !== null
+}
+
 function growingSummaryIdentity(event: ChatWorkSummary): string | null {
   return event.summary_id ? `${event.response_id ?? ''}:${event.summary_id}` : null
 }
@@ -56,9 +60,17 @@ function sameEvent(left: ChatWorkSummary, right: ChatWorkSummary): boolean {
  */
 export function dedupeWorkSummaries(events: ChatWorkSummary[]): ChatWorkSummary[] {
   return events.reduce<ChatWorkSummary[]>((current, event) => {
-    const durableIdentity = durableEventIdentity(event)
-    if (durableIdentity && current.some(candidate => durableEventIdentity(candidate) === durableIdentity)) {
-      return current
+    if (event.stage === 'provider_attempt') {
+      const canonical = isCanonicalProviderAttempt(event)
+      if (!canonical && current.some(isCanonicalProviderAttempt)) return current
+      if (canonical) {
+        const withoutLegacyAttempt = current.filter(candidate => (
+          candidate.stage !== 'provider_attempt' || isCanonicalProviderAttempt(candidate)
+        ))
+        if (withoutLegacyAttempt.length !== current.length) {
+          return dedupeWorkSummaries([...withoutLegacyAttempt, event])
+        }
+      }
     }
     const summaryIdentity = growingSummaryIdentity(event)
     if (summaryIdentity) {
@@ -75,11 +87,21 @@ export function dedupeWorkSummaries(events: ChatWorkSummary[]): ChatWorkSummary[
         return next
       }
     }
+    const durableIdentity = durableEventIdentity(event)
+    if (durableIdentity && current.some(candidate => durableEventIdentity(candidate) === durableIdentity)) {
+      return current
+    }
     const identity = routeIdentity(event)
     if (identity) {
       const previousIndex = current.findIndex(candidate => routeIdentity(candidate) === identity)
       if (previousIndex >= 0) {
-        if (sameEvent(current[previousIndex], event)) return current
+        const previous = current[previousIndex]
+        if (
+          Number.isSafeInteger(previous.sequence)
+          && Number.isSafeInteger(event.sequence)
+          && (previous.sequence as number) > (event.sequence as number)
+        ) return current
+        if (sameEvent(previous, event)) return current
         const next = [...current]
         next[previousIndex] = event
         return next
@@ -89,6 +111,13 @@ export function dedupeWorkSummaries(events: ChatWorkSummary[]): ChatWorkSummary[
     }
     return [...current, event]
   }, [])
+}
+
+export function mergeReplayedWorkSummaries(
+  existing: ChatWorkSummary[],
+  replayed: ChatWorkSummary[],
+): ChatWorkSummary[] {
+  return dedupeWorkSummaries([...existing, ...replayed])
 }
 
 export function workSummaryLabel(event: ChatWorkSummary): string {

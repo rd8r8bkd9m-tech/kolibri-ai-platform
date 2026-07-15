@@ -21,6 +21,8 @@
     --working-a: rgba(119, 223, 211, 0.88);
     --working-b: rgba(209, 247, 237, 0.72);
     --working-c: rgba(234, 240, 255, 0.72);
+    --safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);
+    --keyboard-inset: 0px;
 
     --text-primary: #171715;
     --text-secondary: #66645f;
@@ -2457,7 +2459,7 @@ a:hover .kolibri-mascot {
   z-index: 20;
   inset: auto 0 0;
   pointer-events: none;
-  padding: 20px 24px calc(18px + env(safe-area-inset-bottom) + var(--keyboard-inset, 0px));
+  padding: 20px 24px calc(18px + var(--safe-area-inset-bottom) + var(--keyboard-inset, 0px));
   background: linear-gradient(to bottom, transparent, var(--bg-primary) 26%);
 }
 
@@ -2509,9 +2511,12 @@ a:hover .kolibri-mascot {
   display: inline-flex;
   width: 48px;
   height: 48px;
+  min-width: 44px;
+  min-height: 44px;
   align-items: center;
   justify-content: center;
   border-radius: 50%;
+  touch-action: manipulation;
   transition: transform 140ms ease, background 140ms ease, color 140ms ease;
 }
 
@@ -2562,6 +2567,7 @@ a:hover .kolibri-mascot {
   color: var(--text-primary);
   font-size: 16px;
   line-height: 1.5;
+  touch-action: manipulation;
 }
 
 .conversation-composer-input::placeholder { color: var(--text-tertiary); }
@@ -2648,7 +2654,7 @@ a:hover .kolibri-mascot {
   overflow: hidden;
   flex-direction: column;
   border-radius: 28px 28px 0 0;
-  padding: 0 0 calc(22px + env(safe-area-inset-bottom));
+  padding: 0 0 calc(22px + var(--safe-area-inset-bottom));
   background: var(--bg-surface);
   box-shadow: 0 -18px 54px rgba(20, 20, 20, 0.13);
 }
@@ -3076,7 +3082,7 @@ a:hover .kolibri-mascot {
   .conversation-home-composer {
     position: fixed;
     z-index: 30;
-    inset: auto 12px calc(18px + env(safe-area-inset-bottom) + var(--keyboard-inset, 0px));
+    inset: auto 12px calc(18px + var(--safe-area-inset-bottom) + var(--keyboard-inset, 0px));
     margin: 0;
   }
   .conversation-suggestions { align-items: stretch; flex-direction: column; }
@@ -3108,7 +3114,7 @@ a:hover .kolibri-mascot {
   .neural-work-indicator { width: 50px; min-width: 50px; }
   .neural-stage-nodes { gap: 3px; }
   .work-trace-body { border-top: 0; padding: 4px 0 0 60px; }
-  .conversation-dock { padding: 10px 12px calc(10px + env(safe-area-inset-bottom) + var(--keyboard-inset, 0px)); }
+  .conversation-dock { padding: 10px 12px calc(10px + var(--safe-area-inset-bottom) + var(--keyboard-inset, 0px)); }
   .conversation-composer {
     border: 0;
     border-radius: 28px;
@@ -3134,7 +3140,7 @@ a:hover .kolibri-mascot {
   .composer-voice-controls > button { width: 44px; height: 44px; flex-basis: 44px; }
   .conversation-home-composer:has(.composer-voice-surface) {
     inset-inline: 24px;
-    bottom: calc(52px + env(safe-area-inset-bottom));
+    bottom: calc(52px + var(--safe-area-inset-bottom));
   }
   .conversation-composer-input { min-height: 44px; padding: 10px 6px 7px; font-size: 16px; }
   .conversation-composer-input::placeholder { white-space: nowrap; }

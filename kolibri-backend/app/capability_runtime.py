@@ -17,6 +17,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -42,6 +43,7 @@ from app.capability_registry import (
 )
 
 
+logger = logging.getLogger(__name__)
 _CAPABILITY_ID = re.compile(r"^[a-z][a-z0-9_.-]{1,79}$")
 _RELEASE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$")
 _PROBE_LEDGER_SCHEMA = "kolibri.capability-probes.v2"
@@ -224,6 +226,32 @@ def record_capability_invocation(
             "evidence_id": safe_evidence,
         }
         _write_ledger_unlocked(probes)
+
+
+def try_record_capability_invocation(
+    capability_id: str,
+    *,
+    succeeded: bool,
+    error_code: str | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    evidence_id: str | None = None,
+) -> bool:
+    """Best-effort wrapper for optional runtime evidence writes."""
+
+    try:
+        record_capability_invocation(
+            capability_id,
+            succeeded=succeeded,
+            error_code=error_code,
+            provider=provider,
+            model=model,
+            evidence_id=evidence_id,
+        )
+    except Exception:
+        logger.exception("Capability evidence write failed for %s", capability_id)
+        return False
+    return True
 
 
 def capability_invocation_probe(

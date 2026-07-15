@@ -184,7 +184,7 @@ function ImageCard({ image, onOpen, onRetry }: { image: ImageArtifact; onOpen: (
           <div>
             <span className="artifact-kicker">Изображение</span>
             <h3>{image.title}</h3>
-            <p>{image.model} · {imageSize(image.size_bytes)} · байты проверены</p>
+            <p>{imageSize(image.size_bytes)} · байты проверены</p>
           </div>
           <ImageIcon size={26} />
         </header>

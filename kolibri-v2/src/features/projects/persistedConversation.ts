@@ -40,6 +40,30 @@ const WORK_STAGES = new Set<ChatWorkSummary['stage']>([
   'artifact_materialization', 'artifact_verification', 'background', 'resuming',
   'verification', 'cancelled',
 ])
+const WORK_STAGE_ALIASES: Record<string, ChatWorkSummary['stage']> = {
+  answer: 'response_received',
+  calculating: 'tool_execution',
+  sourcing: 'source_retrieval',
+  verifying: 'verification',
+  retrying: 'resuming',
+  factory_dispatch: 'provider_route',
+  factory_verified: 'verification',
+  codex_turn: 'tool_execution',
+  plan_updated: 'planning',
+}
+const WORK_STATUS_ALIASES: Record<string, ChatWorkSummary['status']> = {
+  queued: 'active',
+  in_progress: 'active',
+  running: 'active',
+  success: 'completed',
+  ready: 'completed',
+  idle: 'completed',
+  error: 'failed',
+  unavailable: 'failed',
+  retrying: 'active',
+  waiting: 'active',
+  recovering: 'active',
+}
 
 function record(value: unknown): UnknownRecord | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -300,8 +324,12 @@ function optionalMetadataString(value: unknown, maxLength: number): string | und
 function normalizeWorkEvent(value: unknown): ChatWorkSummary | null {
   const event = record(value)
   if (!event) return null
-  const stage = requiredString(event.stage, 80)
-  const status = requiredString(event.status, 20)
+  const rawStage = requiredString(event.stage, 80)
+  const stage = rawStage ? WORK_STAGE_ALIASES[rawStage.toLowerCase()] ?? rawStage : null
+  const rawStatus = requiredString(event.status, 20)
+  const status = rawStatus === 'cancelled'
+    ? stage === 'cancelled' ? 'completed' : 'failed'
+    : rawStatus ? WORK_STATUS_ALIASES[rawStatus.toLowerCase()] ?? rawStatus : null
   const summary = requiredString(event.summary, 600)
   if (!stage || !WORK_STAGES.has(stage as ChatWorkSummary['stage']) || !status || !summary || !WORK_STATUSES.has(status)) return null
   const kind = event.kind === 'reasoning_excerpt' ? 'reasoning_excerpt' : 'stage'

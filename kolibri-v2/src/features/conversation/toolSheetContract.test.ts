@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 const css = readFileSync(new URL('../../index.css', import.meta.url), 'utf8')
 const component = readFileSync(new URL('./ToolSheet.tsx', import.meta.url), 'utf8')
 const composer = readFileSync(new URL('./Composer.tsx', import.meta.url), 'utf8')
+const composerRuntime = readFileSync(new URL('./composerRuntime.ts', import.meta.url), 'utf8')
 
 describe('mobile tool sheet close contract', () => {
   it('keeps a labelled 44px close control above the scrollable carousel', () => {
@@ -37,5 +38,13 @@ describe('mobile tool sheet capability truth', () => {
   it('allocates distinct desktop and mobile columns for both voice controls', () => {
     expect(css).toMatch(/\.conversation-composer\s*\{[^}]*grid-template-columns:\s*48px minmax\(0, 1fr\) 48px 48px;/s)
     expect(css).toMatch(/@media[^]*\.conversation-composer\s*\{[^}]*grid-template-columns:\s*44px minmax\(0, 1fr\) 44px 44px;/s)
+  })
+
+  it('keeps mobile safe-area and touch behavior wired without querying CSS env from JS', () => {
+    expect(css).toContain('--safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);')
+    expect(css).toMatch(/\.conversation-dock\s*\{[^}]*var\(--safe-area-inset-bottom\)[^}]*var\(--keyboard-inset/s)
+    expect(css).toMatch(/\.composer-tool-button,[^}]*touch-action:\s*manipulation;/s)
+    expect(composerRuntime).not.toContain('getPropertyValue')
+    expect(composerRuntime).not.toContain('env(safe-area-inset-bottom')
   })
 })

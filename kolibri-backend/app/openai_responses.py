@@ -28,8 +28,69 @@ _MAX_REASONING_BUFFER_CHARS = 2_400
 _MAX_PUBLIC_REASONING_SUMMARY_CHARS = 600
 _SECRET_IN_SUMMARY = re.compile(
     r"(?i)(?:bearer\s+\S+|(?:sk|koli)[_-][A-Za-z0-9._-]{12,}|"
-    r"(?:api[_ -]?key|token|password|secret)\s*[:=]\s*\S+)"
+    r"(?:api[_ -]?key|token|password|secret)\s*[:=]\s*\S+|"
+    r"https?://\S+|/(?:Users|home|srv|etc)/\S+|"
+    r"\b(?:\d{1,3}\.){3}\d{1,3}\b|"
+    r"\b(?:home|control[\s_-]*plane|"
+    r"(?:node|agent)(?:[\s_-]*\d+|[\s_-]+[A-Za-z0-9._-]+)|"
+    r"mimo|deepseek|codex|kimi|openai|anthropic|claude|gemini|"
+    r"gpt-[A-Za-z0-9._-]+)\b)"
 )
+_PUBLIC_WORK_STAGES = {
+    "accepted",
+    "planning",
+    "provider_route",
+    "provider_attempt",
+    "response_received",
+    "tool_execution",
+    "source_retrieval",
+    "calculation",
+    "artifact_materialization",
+    "artifact_verification",
+    "background",
+    "resuming",
+    "verification",
+    "cancelled",
+    "reasoning_summary",
+}
+_PUBLIC_WORK_STAGE_ALIASES = {
+    "answer": "response_received",
+    "calculating": "tool_execution",
+    "sourcing": "source_retrieval",
+    "verifying": "verification",
+    "retrying": "resuming",
+    "factory_dispatch": "provider_route",
+    "factory_verified": "verification",
+    "codex_turn": "tool_execution",
+    "plan_updated": "planning",
+}
+_PUBLIC_WORK_STATUSES = {
+    "active",
+    "completed",
+    "failed",
+}
+_PUBLIC_WORK_STATUS_ALIASES = {
+    "queued": "active",
+    "in_progress": "active",
+    "running": "active",
+    "success": "completed",
+    "ready": "completed",
+    "idle": "completed",
+    "error": "failed",
+    "unavailable": "failed",
+    "retrying": "active",
+    "waiting": "active",
+    "recovering": "active",
+}
+_FORBIDDEN_WORK_SUMMARY_KEYS = {
+    "reasoning",
+    "reasoning_content",
+    "reasoning_text",
+    "prompt",
+    "prompts",
+    "tool_arguments",
+    "credentials",
+}
 _TOOL_ITEM_CAPABILITY = {
     "web_search_call": "web_search",
     "file_search_call": "file_search",
@@ -103,6 +164,98 @@ def _sanitize_reasoning_summary(value: str) -> str:
     cleaned = _SECRET_IN_SUMMARY.sub("[скрыто]", value)
     cleaned = " ".join(cleaned.split())
     return cleaned[:_MAX_PUBLIC_REASONING_SUMMARY_CHARS].strip()
+
+
+def _public_work_timestamp(value: Any) -> str:
+    candidate = str(value or "")
+    if candidate:
+        try:
+            parsed = datetime.fromisoformat(candidate.replace("Z", "+00:00"))
+            if parsed.tzinfo is not None:
+                return parsed.isoformat()
+        except ValueError:
+            pass
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _public_work_summary_identity(
+    event: dict[str, Any],
+    summary: dict[str, Any],
+    *,
+    stage: str,
+) -> tuple[str, str | None]:
+    response_id = str(event.get("response_id") or "")
+    upstream_summary_id = str(summary.get("summary_id") or "")
+    upstream_step_id = str(summary.get("step_id") or "")
+    upstream_item_id = str(event.get("item_id") or "")
+    if upstream_summary_id:
+        source_key = f"{response_id}:summary:{upstream_summary_id}"
+    elif upstream_step_id:
+        source_key = f"{response_id}:step:{upstream_step_id}"
+    elif upstream_item_id:
+        source_key = f"{response_id}:item:{upstream_item_id}"
+    else:
+        source_key = ":".join(
+            (
+                response_id,
+                "stage",
+                stage,
+                str(summary.get("artifact_type") or ""),
+                str(summary.get("artifact_id") or ""),
+            )
+        )
+    digest = hashlib.sha256(source_key.encode("utf-8")).hexdigest()[:24]
+    step_id = f"step_{digest}"
+    summary_id = (
+        f"summary_{digest}"
+        if stage == "reasoning_summary" or summary.get("summary_id") is not None
+        else None
+    )
+    return step_id, summary_id
+
+
+def _sanitize_upstream_work_summary(
+    event: dict[str, Any],
+    value: dict[str, Any],
+) -> dict[str, Any] | None:
+    if _FORBIDDEN_WORK_SUMMARY_KEYS.intersection(value):
+        return None
+
+    raw_stage = str(value.get("stage") or "background").strip().lower()
+    if raw_stage in {"reasoning_content", "reasoning_text", "chain_of_thought"}:
+        return None
+    stage = _PUBLIC_WORK_STAGE_ALIASES.get(raw_stage, raw_stage)
+    if stage not in _PUBLIC_WORK_STAGES:
+        stage = "background"
+
+    raw_status = str(value.get("status") or "active").strip().lower()
+    status = "completed" if raw_status == "cancelled" and stage == "cancelled" else (
+        "failed" if raw_status == "cancelled" else _PUBLIC_WORK_STATUS_ALIASES.get(raw_status, raw_status)
+    )
+    if status not in _PUBLIC_WORK_STATUSES:
+        status = "active"
+
+    summary = _sanitize_reasoning_summary(str(value.get("summary") or ""))
+    if not summary:
+        return None
+
+    step_id, summary_id = _public_work_summary_identity(event, value, stage=stage)
+    public: dict[str, Any] = {
+        "kind": "reasoning_excerpt" if stage == "reasoning_summary" else "stage",
+        "step_id": step_id,
+        "summary_id": summary_id,
+        "stage": stage,
+        "status": status,
+        "summary": summary,
+        "occurred_at": _public_work_timestamp(value.get("occurred_at")),
+    }
+    artifact_type = str(value.get("artifact_type") or "")
+    artifact_id = str(value.get("artifact_id") or "")
+    if re.fullmatch(r"[a-z0-9._-]{1,40}", artifact_type):
+        public["artifact_type"] = artifact_type
+    if re.fullmatch(r"[A-Za-z0-9_-]{1,160}", artifact_id):
+        public["artifact_id"] = artifact_id
+    return public
 
 
 def _remote_mcp_tool() -> dict[str, Any] | None:
@@ -391,6 +544,7 @@ async def stream_response(
         idempotency_key=idempotency_key,
     )
     summary_buffers: dict[str, str] = {}
+    work_summary_sequence = 0
     async with httpx.AsyncClient(timeout=httpx.Timeout(180.0, connect=10.0)) as client:
         async with client.stream("POST", str(provider["url"]), json=payload, headers=headers) as response:
             response.raise_for_status()
@@ -430,9 +584,12 @@ async def stream_response(
                         public_summary = _sanitize_reasoning_summary(accumulated)
                         if not public_summary:
                             continue
+                        work_summary_sequence += 1
                         yield {
                             "content": "",
                             "done": False,
+                            "response_id": str(event.get("response_id") or ""),
+                            "sequence": work_summary_sequence,
                             "work_summary": {
                                 "kind": "reasoning_excerpt",
                                 "step_id": step_id,
@@ -452,9 +609,12 @@ async def stream_response(
                     public_summary = _sanitize_reasoning_summary(accumulated)
                     if public_summary:
                         summary_buffers[source_key] = accumulated
+                        work_summary_sequence += 1
                         yield {
                             "content": "",
                             "done": False,
+                            "response_id": str(event.get("response_id") or ""),
+                            "sequence": work_summary_sequence,
                             "work_summary": {
                                 "kind": "reasoning_excerpt",
                                 "step_id": step_id,
@@ -471,6 +631,19 @@ async def stream_response(
                         tool_event = _tool_event(item, "started" if event_type.endswith("added") else "completed")
                         if tool_event:
                             yield {"content": "", "done": False, "tool_event": tool_event}
+                elif event_type == "response.work_summary.updated":
+                    candidate = event.get("work_summary")
+                    if isinstance(candidate, dict):
+                        public_summary = _sanitize_upstream_work_summary(event, candidate)
+                        if public_summary is not None:
+                            work_summary_sequence += 1
+                            yield {
+                                "content": "",
+                                "done": False,
+                                "response_id": str(event.get("response_id") or ""),
+                                "sequence": work_summary_sequence,
+                                "work_summary": public_summary,
+                            }
                 elif event_type == "response.completed":
                     response_payload = event.get("response") if isinstance(event.get("response"), dict) else {}
                     yield {

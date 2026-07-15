@@ -168,6 +168,8 @@ export default function Composer({
           placeholder={resolvedPlaceholder}
           rows={1}
           autoFocus={autoFocus}
+          inputMode="text"
+          enterKeyHint="send"
           className="conversation-composer-input"
         />
         {busy && onCancel ? <button

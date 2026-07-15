@@ -28,7 +28,7 @@ describe('ArtifactCard image renderer', () => {
     expect(html).toContain(`alt="${image.prompt}"`)
     expect(html).toContain(`href="${verifiedImage.object_url}"`)
     expect(html).not.toContain(`src="${image.url}"`)
-    expect(html).toContain('codex-cli:account-default')
+    expect(html).not.toContain('codex-cli:account-default')
     expect(html).toContain('байты проверены')
     expect(html).toContain('На весь экран')
     expect(html).toContain('Скачать')

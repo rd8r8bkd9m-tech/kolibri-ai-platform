@@ -10,6 +10,14 @@ interface NeuralWorkIndicatorProps {
   latestSummary?: string
 }
 
+const STAGE_LABELS: Record<number, string> = {
+  0: 'Подготовка',
+  1: 'Источники',
+  2: 'Выполнение',
+  3: 'Проверка',
+  4: 'Результат',
+}
+
 const stageGroup: Record<ChatWorkStage, number> = {
   accepted: 0,
   planning: 0,
@@ -64,30 +72,70 @@ function nodeStates(events: ChatWorkSummary[], state: WorkIndicatorState): NodeS
   return nodes
 }
 
+function nodeLabel(nodeState: NodeState): string {
+  if (nodeState === 'completed') return 'завершено'
+  if (nodeState === 'active') return 'выполняется'
+  if (nodeState === 'failed') return 'ошибка'
+  return 'ожидание'
+}
+
+function buildTimelineDescription(nodes: NodeState[], state: WorkIndicatorState): string {
+  const parts: string[] = []
+  for (let i = 0; i < nodes.length; i++) {
+    const nodeState = nodes[i]
+    if (nodeState !== 'future') {
+      parts.push(`${STAGE_LABELS[i]}: ${nodeLabel(nodeState)}`)
+    }
+  }
+  if (state === 'completed') parts.push('Готово')
+  else if (state === 'failed') parts.push('Ошибка')
+  else if (state === 'cancelled') parts.push('Отменено')
+  else if (state === 'waiting') parts.push('Ожидание')
+  return parts.join(', ')
+}
+
 export default function NeuralWorkIndicator({ state, events, label, latestSummary }: NeuralWorkIndicatorProps) {
   const connecting = events.length === 0 && (state === 'connecting' || state === 'active' || state === 'recovering')
   const title = latestSummary || label
+  const nodes = connecting ? null : nodeStates(events, state)
+  const timelineDescription = nodes ? buildTimelineDescription(nodes, state) : ''
+  const ariaLabel = connecting
+    ? `${label}: подключение`
+    : [label, timelineDescription].filter(Boolean).join(': ')
 
-  return (
-    <span
-      className={`neural-work-indicator is-${connecting ? 'connecting' : 'staged'} state-${state}`}
-      role="img"
-      aria-label={label}
-      title={title}
-    >
-      {connecting ? (
+  if (connecting) {
+    return (
+      <span
+        className={`neural-work-indicator is-connecting state-${state}`}
+        role="status"
+        aria-label={ariaLabel}
+        title={title}
+      >
         <span className="neural-connection-dots" aria-hidden="true">
           <span />
           <span />
           <span />
         </span>
-      ) : (
-        <span className="neural-stage-nodes" aria-hidden="true">
-          {nodeStates(events, state).map((nodeState, index) => (
-            <span key={index} className={`neural-node is-${nodeState}`} />
-          ))}
-        </span>
-      )}
+      </span>
+    )
+  }
+
+  return (
+    <span
+      className={`neural-work-indicator is-staged state-${state}`}
+      title={title}
+    >
+      <span className="sr-only">{ariaLabel}</span>
+      <span className="neural-stage-nodes" role="list" aria-label="Этапы выполнения">
+        {nodes!.map((nodeState, index) => (
+          <span
+            key={index}
+            className={`neural-node is-${nodeState}`}
+            role="listitem"
+            aria-label={`${STAGE_LABELS[index]}: ${nodeLabel(nodeState)}`}
+          />
+        ))}
+      </span>
     </span>
   )
 }

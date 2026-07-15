@@ -370,6 +370,25 @@ def _image_route_is_invocable(policy: dict[str, Any] | None = None) -> bool:
     )
 
 
+def _record_image_generation_invocation(
+    *,
+    route: dict[str, Any],
+    succeeded: bool,
+    evidence_id: str | None = None,
+    error_code: str | None = None,
+) -> None:
+    from app.capability_runtime import try_record_capability_invocation
+
+    try_record_capability_invocation(
+        IMAGE_CAPABILITY_ID,
+        succeeded=succeeded,
+        provider=str(route.get("provider") or "unknown"),
+        model=str(route.get("model") or "unknown"),
+        evidence_id=evidence_id,
+        error_code=error_code,
+    )
+
+
 def _detect_image_type(data: bytes) -> tuple[str, str]:
     try:
         details = inspect_image_bytes(data, max_bytes=_MAX_IMAGE_BYTES)
@@ -422,6 +441,20 @@ def _write_probe_state(*, verified_at: str | None, failure_at: str | None, provi
     temporary.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     os.chmod(temporary, 0o640)
     temporary.replace(target)
+
+
+def _try_write_probe_state(*, verified_at: str | None, failure_at: str | None, provider: str | None, model: str | None) -> bool:
+    try:
+        _write_probe_state(
+            verified_at=verified_at,
+            failure_at=failure_at,
+            provider=provider,
+            model=model,
+        )
+    except Exception:
+        logger.exception("Image capability probe-state write failed")
+        return False
+    return True
 
 
 def _store_image(
@@ -542,6 +575,11 @@ async def generate_image(
     config = _config()
     route = _selected_image_route()
     if not config.enabled or not route["configured"]:
+        _record_image_generation_invocation(
+            route=route,
+            succeeded=False,
+            error_code="image_route_not_configured",
+        )
         raise ImageCapabilityUnavailable("Image generation is not configured.")
     try:
         if route["provider"] == "codex_cli" and route.get("execution") == "direct":
@@ -614,11 +652,16 @@ async def generate_image(
         _last_verified_provider = None
         _last_verified_model = None
         _last_verified_release_id = _runtime_release_id()
-        _write_probe_state(
+        _try_write_probe_state(
             verified_at=None,
             failure_at=_last_probe_failure,
             provider=str(route["provider"]),
             model=str(route["model"]),
+        )
+        _record_image_generation_invocation(
+            route=route,
+            succeeded=False,
+            error_code="image_generation_failed",
         )
         raise
     except (httpx.HTTPError, json.JSONDecodeError, ValueError, TypeError) as exc:
@@ -628,11 +671,16 @@ async def generate_image(
         _last_verified_provider = None
         _last_verified_model = None
         _last_verified_release_id = _runtime_release_id()
-        _write_probe_state(
+        _try_write_probe_state(
             verified_at=None,
             failure_at=_last_probe_failure,
             provider=str(route["provider"]),
             model=str(route["model"]),
+        )
+        _record_image_generation_invocation(
+            route=route,
+            succeeded=False,
+            error_code="image_provider_request_failed",
         )
         raise ImageGenerationFailed("The configured image provider did not complete the request.") from exc
 
@@ -643,11 +691,16 @@ async def generate_image(
         _last_verified_provider = None
         _last_verified_model = None
         _last_verified_release_id = _runtime_release_id()
-        _write_probe_state(
+        _try_write_probe_state(
             verified_at=None,
             failure_at=_last_probe_failure,
             provider=str(route["provider"]),
             model=str(route["model"]),
+        )
+        _record_image_generation_invocation(
+            route=route,
+            succeeded=False,
+            error_code="image_bytes_missing",
         )
         raise ImageGenerationFailed("The configured image provider returned no bytes.")
     artifact = _store_image(
@@ -662,11 +715,16 @@ async def generate_image(
     _last_verified_provider = str(route["provider"])
     _last_verified_model = model
     _last_verified_release_id = _runtime_release_id()
-    _write_probe_state(
+    _try_write_probe_state(
         verified_at=_last_verified_success,
         failure_at=None,
         provider=_last_verified_provider,
         model=_last_verified_model,
+    )
+    _record_image_generation_invocation(
+        route={**route, "model": model},
+        succeeded=True,
+        evidence_id=str(artifact.get("id") or ""),
     )
     return artifact
 
@@ -771,9 +829,9 @@ async def edit_image(
     except ImageGenerationFailed:
         _last_probe_failure = datetime.now(timezone.utc).isoformat()
         _last_verified_release_id = _runtime_release_id()
-        from app.capability_runtime import record_capability_invocation
+        from app.capability_runtime import try_record_capability_invocation
 
-        record_capability_invocation(
+        try_record_capability_invocation(
             "image.edit",
             succeeded=False,
             error_code="image_edit_failed",
@@ -784,9 +842,9 @@ async def edit_image(
     except (httpx.HTTPError, json.JSONDecodeError, ValueError, TypeError) as exc:
         _last_probe_failure = datetime.now(timezone.utc).isoformat()
         _last_verified_release_id = _runtime_release_id()
-        from app.capability_runtime import record_capability_invocation
+        from app.capability_runtime import try_record_capability_invocation
 
-        record_capability_invocation(
+        try_record_capability_invocation(
             "image.edit",
             succeeded=False,
             error_code="image_edit_provider_failed",
@@ -800,9 +858,9 @@ async def edit_image(
     if image_bytes is None:
         _last_probe_failure = datetime.now(timezone.utc).isoformat()
         _last_verified_release_id = _runtime_release_id()
-        from app.capability_runtime import record_capability_invocation
+        from app.capability_runtime import try_record_capability_invocation
 
-        record_capability_invocation(
+        try_record_capability_invocation(
             "image.edit",
             succeeded=False,
             error_code="image_edit_no_bytes",
@@ -823,9 +881,9 @@ async def edit_image(
     _last_verified_provider = str(route["provider"])
     _last_verified_model = model
     _last_verified_release_id = _runtime_release_id()
-    from app.capability_runtime import record_capability_invocation
+    from app.capability_runtime import try_record_capability_invocation
 
-    record_capability_invocation(
+    try_record_capability_invocation(
         "image.edit",
         succeeded=True,
         provider=_last_verified_provider,

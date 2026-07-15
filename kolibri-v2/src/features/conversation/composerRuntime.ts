@@ -62,3 +62,14 @@ export function resolveComposerMediaControls(evidence: ComposerMediaEvidence): C
     cameraUpload: uploadReady,
   }
 }
+
+export function getKeyboardInsetPx(
+  innerHeight: number,
+  viewportHeight: number,
+  viewportOffsetTop: number,
+): number {
+  if (![innerHeight, viewportHeight, viewportOffsetTop].every(Number.isFinite)) {
+    return 0
+  }
+  return Math.max(0, Math.round(innerHeight - viewportHeight - viewportOffsetTop))
+}

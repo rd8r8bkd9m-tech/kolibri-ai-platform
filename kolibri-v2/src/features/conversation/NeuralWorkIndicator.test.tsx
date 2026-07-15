@@ -28,7 +28,8 @@ describe('NeuralWorkIndicator', () => {
     expect(html).toContain('is-staged')
     expect((html.match(/neural-node /g) ?? [])).toHaveLength(5)
     expect(renderedNodeStates(html)).toEqual(['future', 'active', 'future', 'future', 'future'])
-    expect(html).toContain('aria-label="Сверяю источники"')
+    expect(html).toContain('Сверяю источники: Источники: выполняется')
+    expect(html).not.toContain('role="img"')
   })
 
   it('does not complete unobserved earlier groups when a later group becomes active', () => {
@@ -82,5 +83,33 @@ describe('NeuralWorkIndicator', () => {
       />,
     )
     expect(renderedNodeStates(html)).toEqual(['future', 'future', 'completed', 'future', 'completed'])
+  })
+
+  it('labels the staged timeline without adding fake progress', () => {
+    const html = renderToStaticMarkup(
+      <NeuralWorkIndicator
+        state="active"
+        label="Выполняю расчёт"
+        events={[{ stage: 'tool_execution', status: 'active', summary: 'Выполняю расчёт' }]}
+      />,
+    )
+    expect(html).toContain('role="list"')
+    expect(html).toContain('role="listitem"')
+    expect(html).toContain('aria-label="Этапы выполнения"')
+    expect(html).toContain('aria-label="Подготовка: ожидание"')
+    expect(html).toContain('aria-label="Выполнение: выполняется"')
+    expect(html).toContain('aria-label="Результат: ожидание"')
+    expect(renderedNodeStates(html)).toEqual(['future', 'future', 'active', 'future', 'future'])
+  })
+
+  it('stays in connecting mode when no confirmed event has arrived', () => {
+    const html = renderToStaticMarkup(
+      <NeuralWorkIndicator state="recovering" events={[]} label="Восстановление" />,
+    )
+    expect(html).toContain('is-connecting')
+    expect(html).toContain('role="status"')
+    expect(html).toContain('aria-label="Восстановление: подключение"')
+    expect(html).not.toContain('neural-stage-nodes')
+    expect(html).not.toContain('role="img"')
   })
 })

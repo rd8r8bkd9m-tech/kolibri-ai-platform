@@ -14,7 +14,7 @@ import {
 import { isVerifiedFileArtifact, verifyFileArtifact } from '@/features/conversation/fileArtifact'
 import { isFailedResponse, persistedResponseStatus, responseFailureMessage } from '@/features/conversation/responseState'
 import WorkTrace, { type WorkStage } from '@/features/conversation/WorkTrace'
-import { dedupeWorkSummaries } from '@/features/conversation/workTraceState'
+import { mergeReplayedWorkSummaries } from '@/features/conversation/workTraceState'
 import CartoonMascot from '@/components/CartoonMascot'
 import { capabilityPrompt, useCapabilities, type UiCapabilityKey } from '@/features/capabilities'
 import { createExecutionPolicy } from '@/features/shell/executionPolicy'
@@ -35,6 +35,7 @@ import {
   documents,
   estimates,
   projects as projectsApi,
+  resumeResponseAfterDisconnect,
   responses,
   type ChatAction,
   type ChatStreamEvent,
@@ -120,7 +121,7 @@ async function materializeAction(action: ChatAction, signal?: AbortSignal): Prom
 }
 
 function appendWorkSummary(events: ChatWorkSummary[], next: ChatWorkSummary): ChatWorkSummary[] {
-  return dedupeWorkSummaries([...events, next])
+  return mergeReplayedWorkSummaries(events, [next])
 }
 
 function artifactMaterializationEvent(
@@ -613,15 +614,23 @@ export default function ChatPage() {
       idempotencyKey: `response:${assistantId}`,
     }
 
-    try {
-      const finalEvent = await chat.stream(requestMessages, event => {
+    let activeDurableResponseId: string | null = null
+    let replayingDurableStream = false
+    let replayedContent = ''
+    const handleStreamEvent = (event: ChatStreamEvent) => {
         if (event.response_id) {
+          activeDurableResponseId = event.response_id
           responseId = event.response_id
           activeResponseRef.current = event.response_id
           previousResponseRef.current = event.response_id
         }
         if (event.content) {
-          assistantContent += event.content
+          if (replayingDurableStream && event.type === 'response.output_text.delta') {
+            replayedContent += event.content
+            assistantContent = replayedContent
+          } else {
+            assistantContent += event.content
+          }
           activeAssistantContentRef.current = assistantContent
           receivedDelta = true
         }
@@ -656,7 +665,21 @@ export default function ChatPage() {
           }
         }))
         if (!terminal) persistStreaming()
-      }, controller.signal, requestOptions)
+    }
+
+    try {
+      let finalEvent: ChatStreamEvent
+      try {
+        finalEvent = await chat.stream(requestMessages, handleStreamEvent, controller.signal, requestOptions)
+      } catch (streamError) {
+        if (controller.signal.aborted || !activeDurableResponseId) throw streamError
+        replayingDurableStream = true
+        replayedContent = ''
+        finalEvent = await resumeResponseAfterDisconnect(activeDurableResponseId, handleStreamEvent, {
+          signal: controller.signal,
+        })
+        replayingDurableStream = false
+      }
 
       if (finalEvent.response_id) {
         responseId = finalEvent.response_id

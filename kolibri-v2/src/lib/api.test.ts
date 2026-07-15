@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  chat,
   ensureShellBootstrap,
   estimates,
   normalizeStreamEvent,
   projects,
   readEventStream,
+  responses,
+  resumeResponseAfterDisconnect,
   resetShellBootstrapForTests,
   resolveApiBase,
 } from './api'
@@ -213,6 +216,35 @@ describe('shell bootstrap and durable project API', () => {
 })
 
 describe('safe response stream', () => {
+  it('resumes from zero once, then continues after the last canonical sequence', async () => {
+    const cursors: number[] = []
+    const replayed: number[] = []
+    const resume = vi.spyOn(responses, 'resume')
+    resume.mockImplementationOnce(async (_id, startingAfter, onEvent) => {
+      cursors.push(startingAfter)
+      onEvent({ type: 'response.output_text.delta', response_id: 'resp_1', sequence: 1, content: 'A', done: false })
+      onEvent({ type: 'response.output_text.delta', response_id: 'resp_1', sequence: 2, content: 'B', done: false })
+      throw new Error('peer closed connection')
+    })
+    resume.mockImplementationOnce(async (_id, startingAfter, onEvent) => {
+      cursors.push(startingAfter)
+      onEvent({ type: 'response.output_text.delta', response_id: 'resp_1', sequence: 2, content: 'B', done: false })
+      const terminal = { type: 'response.completed', response_id: 'resp_1', sequence: 3, done: true } as const
+      onEvent(terminal)
+      return terminal
+    })
+
+    const terminal = await resumeResponseAfterDisconnect(
+      'resp_1',
+      event => { if (event.sequence !== undefined) replayed.push(event.sequence) },
+      { retryDelayMs: 0 },
+    )
+
+    expect(cursors).toEqual([0, 2])
+    expect(replayed).toEqual([1, 2, 3])
+    expect(terminal).toMatchObject({ sequence: 3, done: true })
+  })
+
   it('normalizes output deltas and terminal events', () => {
     expect(normalizeStreamEvent({
       event: 'response.output_text.delta',
@@ -229,6 +261,83 @@ describe('safe response stream', () => {
     expect(normalizeStreamEvent({
       data: JSON.stringify({ type: 'response.completed', response: { id: 'resp_1' } }),
     })).toMatchObject({ response_id: 'resp_1', status: 'completed', done: true })
+  })
+
+  it('never treats a legacy durable handoff as a terminal response', () => {
+    expect(normalizeStreamEvent({
+      data: JSON.stringify({
+        content: '',
+        done: true,
+        status: 'queued',
+        response_id: 'resp_background_legacy',
+      }),
+    })).toMatchObject({
+      response_id: 'resp_background_legacy',
+      status: 'queued',
+      done: false,
+    })
+  })
+
+  it('continues a clean background handoff from its canonical sequence', async () => {
+    const initialStream = [
+      'event: response.created',
+      'data: {"type":"response.created","response":{"id":"resp_background_1","status":"in_progress"}}',
+      '',
+      'event: response.status.updated',
+      'id: 2',
+      'data: {"type":"response.status.updated","response_id":"resp_background_1","sequence":2,"status":"queued","response":{"id":"resp_background_1","status":"queued"}}',
+      '',
+      '',
+    ].join('\n')
+    const replayStream = [
+      'event: response.output_text.delta',
+      'id: 3',
+      'data: {"type":"response.output_text.delta","response_id":"resp_background_1","sequence":3,"delta":"Фоновый ответ готов"}',
+      '',
+      'event: response.completed',
+      'id: 4',
+      'data: {"type":"response.completed","response_id":"resp_background_1","sequence":4,"response":{"id":"resp_background_1","status":"completed"}}',
+      '',
+      '',
+    ].join('\n')
+    const eventStream = (body: string) => new Response(body, {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+    })
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(eventStream(initialStream))
+      .mockResolvedValueOnce(eventStream(replayStream))
+    vi.stubGlobal('fetch', fetchMock)
+    const received: Array<ReturnType<typeof normalizeStreamEvent>> = []
+
+    const terminal = await chat.stream(
+      [{ role: 'user', content: 'Долгая задача' }],
+      event => received.push(event),
+      undefined,
+      {
+        policy: {
+          mode: 'deep',
+          reasoning_effort: 'high',
+          tool_choice: 'auto',
+          background: true,
+          allowed_capabilities: [],
+        },
+      },
+    )
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      '/api/v1/responses/resp_background_1/events?starting_after=2',
+    )
+    expect(received.filter(event => event?.content).map(event => event?.content)).toEqual([
+      'Фоновый ответ готов',
+    ])
+    expect(terminal).toMatchObject({
+      type: 'response.completed',
+      response_id: 'resp_background_1',
+      sequence: 4,
+      done: true,
+    })
   })
 
   it('normalizes the canonical nested reasoning excerpt without private fields', () => {
@@ -382,6 +491,53 @@ describe('safe response stream', () => {
       provider_event: undefined,
       response_id: undefined,
       sequence: undefined,
+    })
+  })
+
+  it('maps backend-only work-trace aliases into the canonical public contract', () => {
+    expect(normalizeStreamEvent({
+      event: 'response.work_summary.updated',
+      data: JSON.stringify({
+        type: 'response.work_summary.updated',
+        response_id: 'resp_alias',
+        sequence: 18,
+        work_summary: {
+          stage: 'factory_dispatch',
+          status: 'waiting',
+          summary: 'Передаю в Home Control Plane',
+        },
+      }),
+    })?.work_summary).toMatchObject({
+      stage: 'provider_route',
+      status: 'active',
+      response_id: 'resp_alias',
+      sequence: 18,
+    })
+
+    expect(normalizeStreamEvent({
+      data: JSON.stringify({
+        work_summary: {
+          stage: 'codex_turn',
+          status: 'recovering',
+          summary: 'Codex продолжает выполнение',
+        },
+      }),
+    })?.work_summary).toMatchObject({
+      stage: 'tool_execution',
+      status: 'active',
+    })
+
+    expect(normalizeStreamEvent({
+      data: JSON.stringify({
+        work_summary: {
+          stage: 'plan_updated',
+          status: 'cancelled',
+          summary: 'План остановлен',
+        },
+      }),
+    })?.work_summary).toMatchObject({
+      stage: 'planning',
+      status: 'failed',
     })
   })
 

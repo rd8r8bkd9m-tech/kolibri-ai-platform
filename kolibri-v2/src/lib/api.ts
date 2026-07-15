@@ -844,6 +844,16 @@ const SAFE_RESPONSE_EVENT_TYPES = new Set<SafeResponseEventType>([
   'provider.attempt.failed',
 ])
 
+const NONTERMINAL_RESPONSE_STATUSES = new Set([
+  'queued',
+  'planning',
+  'in_progress',
+  'running',
+  'waiting_for_input',
+  'approval_required',
+  'verifying',
+])
+
 export interface ProviderAttemptFailedEvent {
   type: 'provider.attempt.failed'
   provider: string
@@ -942,10 +952,6 @@ export async function readEventStream(
   if (trailing) onEvent(trailing)
 }
 
-function safeWorkStatus(value: unknown): ChatWorkSummary['status'] {
-  return value === 'completed' || value === 'failed' ? value : 'active'
-}
-
 const SAFE_WORK_STAGES = new Set<ChatWorkStage>([
   'accepted',
   'planning',
@@ -964,6 +970,46 @@ const SAFE_WORK_STAGES = new Set<ChatWorkStage>([
   'cancelled',
 ])
 
+const WORK_STAGE_ALIASES: Record<string, ChatWorkStage> = {
+  answer: 'response_received',
+  calculating: 'tool_execution',
+  sourcing: 'source_retrieval',
+  verifying: 'verification',
+  retrying: 'resuming',
+  factory_dispatch: 'provider_route',
+  factory_verified: 'verification',
+  codex_turn: 'tool_execution',
+  plan_updated: 'planning',
+}
+
+const WORK_STATUS_ALIASES: Record<string, ChatWorkSummary['status']> = {
+  queued: 'active',
+  in_progress: 'active',
+  running: 'active',
+  success: 'completed',
+  ready: 'completed',
+  idle: 'completed',
+  error: 'failed',
+  unavailable: 'failed',
+  retrying: 'active',
+  waiting: 'active',
+  recovering: 'active',
+}
+
+function safeWorkStage(value: unknown): ChatWorkStage | undefined {
+  const normalized = safeString(value, 80)?.toLowerCase()
+  if (!normalized) return undefined
+  const stage = WORK_STAGE_ALIASES[normalized] ?? normalized
+  return SAFE_WORK_STAGES.has(stage as ChatWorkStage) ? stage as ChatWorkStage : undefined
+}
+
+function safeWorkStatus(value: unknown, stage?: ChatWorkStage): ChatWorkSummary['status'] {
+  if (value === 'completed' || value === 'failed') return value
+  if (value === 'cancelled') return stage === 'cancelled' ? 'completed' : 'failed'
+  if (typeof value !== 'string') return 'active'
+  return WORK_STATUS_ALIASES[value.trim().toLowerCase()] ?? 'active'
+}
+
 function safeString(value: unknown, maxLength = 240): string | undefined {
   if (typeof value !== 'string') return undefined
   const normalized = value.trim()
@@ -973,9 +1019,9 @@ function safeString(value: unknown, maxLength = 240): string | undefined {
 function normalizeWorkSummaryPayload(value: unknown): ChatWorkSummary | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
   const payload = value as Record<string, unknown>
-  const stage = safeString(payload.stage) as ChatWorkStage | undefined
+  const stage = safeWorkStage(payload.stage)
   const summary = safeString(payload.summary)
-  if (!stage || !SAFE_WORK_STAGES.has(stage) || !summary) return undefined
+  if (!stage || !summary) return undefined
   const kind = payload.kind === 'reasoning_excerpt' ? 'reasoning_excerpt' : 'stage'
   return {
     kind,
@@ -983,7 +1029,7 @@ function normalizeWorkSummaryPayload(value: unknown): ChatWorkSummary | undefine
     summary_id: safeString(payload.summary_id, 160),
     stage,
     summary,
-    status: safeWorkStatus(payload.status),
+    status: safeWorkStatus(payload.status, stage),
     occurred_at: safeString(payload.occurred_at, 48),
     response_id: safeString(payload.response_id, 160),
     sequence: typeof payload.sequence === 'number' && Number.isSafeInteger(payload.sequence) && payload.sequence >= 0
@@ -1091,10 +1137,11 @@ export function normalizeStreamEvent(envelope: ServerSentEvent): ChatStreamEvent
   if (rawType && !SAFE_RESPONSE_EVENT_TYPES.has(rawType as SafeResponseEventType)) return null
   const type = rawType as SafeResponseEventType | undefined
   if (!type) {
+    const status = safeString(payload.status, 40)
     return {
       content: typeof payload.content === 'string' ? payload.content : undefined,
-      done: payload.done === true,
-      status: safeString(payload.status, 40),
+      done: payload.done === true && !NONTERMINAL_RESPONSE_STATUSES.has(status ?? ''),
+      status,
       error_code: safeString(payload.error_code, 120),
       recoverable: payload.recoverable === true,
       capability: safeString(payload.capability, 120),
@@ -1132,13 +1179,20 @@ export function normalizeStreamEvent(envelope: ServerSentEvent): ChatStreamEvent
   const actions = actionsFromResponseEvent(type, payload, response)
   const delta = type === 'response.output_text.delta' && typeof payload.delta === 'string' ? payload.delta : undefined
   const terminal = type === 'response.completed' || type === 'response.failed' || type === 'response.cancelled'
+  const responseStatus = safeString(payload.status, 40) ?? safeString(response?.status, 40)
   return {
     type,
     response_id: responseId,
     sequence,
     content: delta,
     done: terminal,
-    status: type === 'response.failed' ? 'failed' : type === 'response.cancelled' ? 'cancelled' : terminal ? 'completed' : undefined,
+    status: type === 'response.failed'
+      ? 'failed'
+      : type === 'response.cancelled'
+        ? 'cancelled'
+        : terminal
+          ? 'completed'
+          : type === 'response.status.updated' ? responseStatus : undefined,
     error_code: safeString(payload.error_code, 120) ?? safeString(responseError?.code, 120),
     recoverable: payload.recoverable === true || responseError?.recoverable === true,
     capability: safeString(payload.capability, 120) ?? safeString(responseError?.capability, 120),
@@ -1203,14 +1257,36 @@ export const chat = {
       signal,
     })
     let finalEvent: ChatStreamEvent = { done: false }
+    let durableResponseId: string | undefined
+    let lastSequence = 0
+    let receivedDurableHandoff = false
     await readEventStream(response, envelope => {
       const event = normalizeStreamEvent(envelope)
       if (event) {
         finalEvent = event
+        durableResponseId = event.response_id ?? durableResponseId
+        if (Number.isSafeInteger(event.sequence) && (event.sequence as number) > lastSequence) {
+          lastSequence = event.sequence as number
+        }
+        if (
+          event.type === 'response.status.updated'
+          && NONTERMINAL_RESPONSE_STATUSES.has(event.status ?? '')
+        ) {
+          receivedDurableHandoff = true
+        }
         onEvent(event)
       }
     })
 
+    if (finalEvent.done !== true && durableResponseId) {
+      if (!receivedDurableHandoff) {
+        throw new ApiError(502, 'Chat stream ended before a durable background handoff')
+      }
+      return resumeResponseAfterDisconnect(durableResponseId, onEvent, {
+        signal,
+        startingAfter: lastSequence,
+      })
+    }
     return finalEvent
   },
 }
@@ -1290,6 +1366,53 @@ export const responses = {
   ) => responses.stream(id, onEvent, { startingAfter, signal }),
   cancel: (id: string) =>
     request<DurableResponse>(`/responses/${encodeURIComponent(id)}/cancel`, { method: 'POST' }),
+}
+
+export async function resumeResponseAfterDisconnect(
+  id: string,
+  onEvent: (event: ChatStreamEvent) => void,
+  options: {
+    signal?: AbortSignal
+    maxAttempts?: number
+    retryDelayMs?: number
+    startingAfter?: number
+  } = {},
+): Promise<ChatStreamEvent> {
+  const maxAttempts = Math.min(5, Math.max(1, Math.trunc(options.maxAttempts ?? 3)))
+  const retryDelayMs = Math.max(0, Math.trunc(options.retryDelayMs ?? 180))
+  let startingAfter = Number.isSafeInteger(options.startingAfter)
+    ? Math.max(0, options.startingAfter as number)
+    : 0
+  let lastError: unknown = new Error('Response stream did not reach a terminal event')
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    if (options.signal?.aborted) throw new DOMException('The operation was aborted.', 'AbortError')
+    try {
+      const finalEvent = await responses.resume(id, startingAfter, event => {
+        const sequence = event.sequence
+        if (!Number.isSafeInteger(sequence) || (sequence as number) <= startingAfter) return
+        startingAfter = sequence as number
+        onEvent(event)
+      }, options.signal)
+      if (finalEvent.done === true) return finalEvent
+      lastError = new Error('Response replay ended before a terminal event')
+    } catch (error) {
+      if (options.signal?.aborted) throw error
+      lastError = error
+    }
+
+    if (attempt + 1 < maxAttempts && retryDelayMs > 0) {
+      await new Promise<void>((resolve, reject) => {
+        const timeout = window.setTimeout(resolve, retryDelayMs * (attempt + 1))
+        options.signal?.addEventListener('abort', () => {
+          window.clearTimeout(timeout)
+          reject(new DOMException('The operation was aborted.', 'AbortError'))
+        }, { once: true })
+      })
+    }
+  }
+
+  throw lastError
 }
 
 // ---------------------------------------------------------------------------

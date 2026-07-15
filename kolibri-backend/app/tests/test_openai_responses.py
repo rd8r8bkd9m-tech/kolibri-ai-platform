@@ -287,6 +287,96 @@ def test_stream_maps_text_reasoning_summary_and_tool_lifecycle(monkeypatch):
     assert next(item["response_meta"] for item in output if item.get("response_meta"))["id"] == "resp_stream_1"
 
 
+def test_stream_maps_upstream_work_summary_without_raw_ids_or_topology(monkeypatch):
+    events = [
+        {
+            "type": "response.work_summary.updated",
+            "response_id": "resp_stream_2",
+            "sequence": 17,
+            "work_summary": {
+                "kind": "stage",
+                "stage": "tool_execution",
+                "status": "running",
+                "step_id": "step_private_provider_123",
+                "summary_id": "summary_private_provider_123",
+                "summary": (
+                    "Выполняю через Home Control Plane agent07 openai gpt-5.6-sol "
+                    "token=sk-testtoken123456 http://localhost/internal node-03"
+                ),
+                "occurred_at": "2026-07-15T12:00:00Z",
+                "provider": "openai",
+                "model": "gpt-5.6-sol",
+            },
+        },
+        {
+            "type": "response.work_summary.updated",
+            "response_id": "resp_stream_2",
+            "sequence": 18,
+            "work_summary": {
+                "kind": "stage",
+                "stage": "tool_execution",
+                "status": "completed",
+                "step_id": "step_private_provider_123",
+                "summary_id": "summary_private_provider_123",
+                "summary": "Выполнение завершено после проверки результата",
+                "occurred_at": "2026-07-15T12:00:01Z",
+            },
+        },
+        {
+            "type": "response.work_summary.updated",
+            "response_id": "resp_stream_2",
+            "sequence": 19,
+            "work_summary": {
+                "stage": "reasoning_content",
+                "summary": "PRIVATE RAW REASONING",
+            },
+        },
+        {"type": "response.completed", "response": {"id": "resp_stream_2", "status": "completed"}},
+    ]
+    sse = "".join(f"event: {event['type']}\ndata: {json.dumps(event)}\n\n" for event in events)
+
+    def upstream(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=sse, headers={"content-type": "text/event-stream"})
+
+    _install_transport(monkeypatch, upstream)
+
+    async def collect():
+        return [
+            event async for event in openai_responses.stream_response(
+                _provider(), [{"role": "user", "content": "Покажи ход работы"}]
+            )
+        ]
+
+    output = asyncio.run(collect())
+    summaries = [item for item in output if item.get("work_summary")]
+
+    assert len(summaries) == 2
+    assert [item["response_id"] for item in summaries] == ["resp_stream_2", "resp_stream_2"]
+    assert [item["sequence"] for item in summaries] == [1, 2]
+    first = summaries[0]["work_summary"]
+    second = summaries[1]["work_summary"]
+    assert first["stage"] == "tool_execution"
+    assert first["status"] == "active"
+    assert first["step_id"].startswith("step_")
+    assert first["summary_id"].startswith("summary_")
+    assert first["step_id"] == second["step_id"]
+    assert first["summary_id"] == second["summary_id"]
+    assert second["status"] == "completed"
+    assert first["occurred_at"] == "2026-07-15T12:00:00+00:00"
+    assert second["occurred_at"] == "2026-07-15T12:00:01+00:00"
+    dumped = json.dumps(summaries, ensure_ascii=False)
+    assert "step_private_provider_123" not in dumped
+    assert "summary_private_provider_123" not in dumped
+    assert "sk-testtoken123456" not in dumped
+    assert "Home" not in dumped
+    assert "Control Plane" not in dumped
+    assert "agent07" not in dumped
+    assert "node-03" not in dumped
+    assert "gpt-5.6-sol" not in dumped
+    assert "http://localhost/internal" not in dumped
+    assert "PRIVATE RAW REASONING" not in dumped
+
+
 def test_background_create_retrieve_resume_and_cancel(monkeypatch):
     seen: list[tuple[str, str, dict[str, str]]] = []
 

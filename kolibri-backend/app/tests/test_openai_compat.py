@@ -542,6 +542,69 @@ def test_work_summary_sanitizer_bounds_stage_and_rejects_raw_reasoning():
     assert "private-model" not in serialized
 
 
+def test_work_summary_sanitizer_maps_backend_aliases_to_canonical_contract():
+    response_id = openai_compat.begin_public_response(
+        [{"role": "user", "content": "Проверка"}],
+        owner_scope=_API_SCOPE,
+    )
+    appended: list[dict] = []
+    for summary in (
+        {
+            "stage": "factory_dispatch",
+            "status": "waiting",
+            "summary": "Задача передана Home Control Plane",
+        },
+        {
+            "stage": "factory_verified",
+            "status": "completed",
+            "summary": "Результат проверен",
+        },
+        {
+            "stage": "codex_turn",
+            "status": "recovering",
+            "summary": "Codex продолжает выполнение",
+        },
+        {
+            "stage": "plan_updated",
+            "status": "cancelled",
+            "summary": "План остановлен",
+        },
+    ):
+        appended.extend(
+            openai_compat.record_public_stream_chunk(
+                response_id,
+                {"work_summary": summary},
+            )
+        )
+
+    assert [
+        (event["work_summary"]["stage"], event["work_summary"]["status"])
+        for event in appended
+    ] == [
+        ("provider_route", "active"),
+        ("verification", "completed"),
+        ("tool_execution", "active"),
+        ("planning", "failed"),
+    ]
+    public_dump = json.dumps(appended, ensure_ascii=False)
+    assert "Home" not in public_dump
+    assert "Control Plane" not in public_dump
+    assert "Codex" not in public_dump
+
+    metadata = ProjectMessageMetadata(
+        work_events=[event["work_summary"] for event in appended]
+    ).model_dump(exclude_none=True, exclude_defaults=True)
+    assert [
+        (event["stage"], event["status"])
+        for event in metadata["work_events"]
+    ] == [
+        ("provider_route", "active"),
+        ("verification", "completed"),
+        ("tool_execution", "active"),
+        ("planning", "failed"),
+    ]
+
+
 def test_persisted_work_trace_metadata_uses_strict_canonical_schema():
     event = {
         "kind": "reasoning_excerpt",
@@ -777,6 +840,77 @@ def test_background_response_status_and_cancel_are_truthful(monkeypatch):
     assert cancel.json()["status"] == "cancelled"
     assert repeat.json()["status"] == "cancelled"
     assert cancelled == ["resp_upstream_bg"]
+
+
+def test_streaming_background_response_remains_nonterminal_and_replayable(monkeypatch):
+    async def fake_stream(messages, **kwargs):
+        assert kwargs["background"] is True
+        yield {
+            "content": "",
+            "done": True,
+            "status": "queued",
+            "provider": "openai_codex",
+            "response_id": "resp_upstream_stream_bg",
+        }
+
+    monkeypatch.setattr(openai_compat.ai_provider, "chat_completion_stream", fake_stream)
+    with TestClient(app) as client:
+        streamed = client.post(
+            "/v1/responses",
+            json={
+                "model": "kolibri",
+                "input": "Долгая потоковая задача",
+                "background": True,
+                "stream": True,
+            },
+            headers=_AUTH,
+        )
+
+    created = _typed_sse_events(streamed.text, "response.created")
+    updates = _typed_sse_events(streamed.text, "response.status.updated")
+    assert streamed.status_code == 200
+    assert len(created) == 1
+    response_id = created[0]["response"]["id"]
+    assert updates[-1]["status"] == "queued"
+    assert updates[-1]["response"]["status"] == "queued"
+    assert "event: response.completed" not in streamed.text
+    assert "event: response.failed" not in streamed.text
+    assert "event: response.cancelled" not in streamed.text
+    assert openai_compat._records[response_id]["status"] == "queued"
+    assert openai_compat._records[response_id]["upstream_response_id"] == "resp_upstream_stream_bg"
+    assert [event["type"] for event in openai_compat._records[response_id]["events"]][-1] == "response.status.updated"
+
+
+def test_legacy_chat_recorder_keeps_background_status_nonterminal():
+    response_id = openai_compat.begin_public_response(
+        [{"role": "user", "content": "Долгая задача"}],
+        owner_scope=_API_SCOPE,
+    )
+
+    queued = openai_compat.record_public_stream_chunk(
+        response_id,
+        {
+            "content": "",
+            "done": True,
+            "status": "in_progress",
+            "provider": "openai_codex",
+            "response_id": "resp_upstream_legacy_bg",
+        },
+    )
+
+    assert [event["type"] for event in queued] == ["response.status.updated"]
+    assert openai_compat._records[response_id]["status"] == "in_progress"
+    assert not any(
+        event["type"] in {"response.completed", "response.failed", "response.cancelled"}
+        for event in openai_compat._records[response_id]["events"]
+    )
+
+    terminal = openai_compat.record_public_stream_chunk(
+        response_id,
+        {"content": "Готово", "done": True, "status": "completed"},
+    )
+    assert terminal[-1]["type"] == "response.completed"
+    assert openai_compat._records[response_id]["status"] == "completed"
 
 
 def test_cancel_wins_provider_terminal_race_and_is_idempotent(monkeypatch):
@@ -1026,6 +1160,50 @@ def test_structured_json_rejects_unsupported_schema_and_invalid_provider_output(
     assert bad_output.json()["detail"]["reason_code"] == "structured_output_properties_mismatch"
 
 
+def test_structured_primary_outcome_survives_evidence_write_failure(monkeypatch):
+    from app import capability_runtime
+
+    def fail_evidence(*args, **kwargs):
+        raise OSError("probe ledger unavailable")
+
+    async def valid_completion(messages, **kwargs):
+        return {
+            "content": '{"answer":"ok","score":8}',
+            "status": "completed",
+            "provider": "test-provider",
+        }
+
+    monkeypatch.setattr(capability_runtime, "record_capability_invocation", fail_evidence)
+    monkeypatch.setattr(openai_compat.ai_provider, "chat_completion", valid_completion)
+    with TestClient(app) as client:
+        succeeded = client.post(
+            "/v1/responses",
+            json={"model": "kolibri", "input": "x", "text": _RESPONSE_TEXT_SCHEMA},
+            headers={**_AUTH, "Idempotency-Key": "structured-evidence-success"},
+        )
+
+    assert succeeded.status_code == 200, succeeded.text
+    assert succeeded.json()["output_parsed"] == {"answer": "ok", "score": 8}
+
+    async def invalid_completion(messages, **kwargs):
+        return {
+            "content": '{"answer":"missing score"}',
+            "status": "completed",
+            "provider": "test-provider",
+        }
+
+    monkeypatch.setattr(openai_compat.ai_provider, "chat_completion", invalid_completion)
+    with TestClient(app) as client:
+        failed = client.post(
+            "/v1/responses",
+            json={"model": "kolibri", "input": "x", "text": _RESPONSE_TEXT_SCHEMA},
+            headers={**_AUTH, "Idempotency-Key": "structured-evidence-failure"},
+        )
+
+    assert failed.status_code == 502
+    assert failed.json()["detail"]["code"] == "structured_output_validation_failed"
+
+
 def test_responses_structured_stream_buffers_until_schema_validation(monkeypatch):
     async def fake_stream(messages, **kwargs):
         assert kwargs["raw_json_output"] is True
@@ -1150,6 +1328,61 @@ def test_response_retry_creates_fresh_id_and_is_idempotent(monkeypatch):
     assert second.json()["id"] not in {response_id, first.json()["id"]}
     assert calls == 3
     assert missing.status_code == 404
+
+
+def test_cancel_and_retry_are_not_masked_by_optional_evidence_failure(monkeypatch):
+    from app import capability_runtime
+
+    def fail_evidence_write(*args, **kwargs):
+        raise OSError("evidence ledger unavailable")
+
+    calls = 0
+
+    async def fake_completion(messages, **kwargs):
+        nonlocal calls
+        calls += 1
+        return {
+            "content": "Повтор выполнен",
+            "status": "idle",
+            "provider": "test-provider",
+        }
+
+    monkeypatch.setattr(capability_runtime, "record_capability_invocation", fail_evidence_write)
+    monkeypatch.setattr(openai_compat.ai_provider, "chat_completion", fake_completion)
+
+    with TestClient(app) as client:
+        cancellable_id = openai_compat.begin_public_response(
+            [{"role": "user", "content": "Отмени"}],
+            owner_scope=_API_SCOPE,
+        )
+        cancelled = client.post(f"/v1/responses/{cancellable_id}/cancel", headers=_AUTH)
+
+        source_id = openai_compat.begin_public_response(
+            [{"role": "user", "content": "Повтори"}],
+            owner_scope=_API_SCOPE,
+        )
+        openai_compat.record_public_stream_chunk(
+            source_id,
+            {"content": "Первый ответ", "done": True, "status": "completed"},
+        )
+        retried = client.post(
+            f"/v1/responses/{source_id}/retry",
+            headers={**_AUTH, "Idempotency-Key": "retry-evidence-failure"},
+        )
+        replayed = client.post(
+            f"/v1/responses/{source_id}/retry",
+            headers={**_AUTH, "Idempotency-Key": "retry-evidence-failure"},
+        )
+
+    assert cancelled.status_code == 200
+    assert cancelled.json()["status"] == "cancelled"
+    assert openai_compat._records[cancellable_id]["status"] == "cancelled"
+    assert retried.status_code == 200
+    assert retried.json()["status"] == "completed"
+    assert retried.json()["retry_of"] == source_id
+    assert replayed.status_code == 200
+    assert replayed.json()["id"] == retried.json()["id"]
+    assert calls == 1
 
 
 def test_response_retry_rejects_nonterminal_context(monkeypatch):

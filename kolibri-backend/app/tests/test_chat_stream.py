@@ -2,11 +2,13 @@ import json
 from decimal import Decimal
 
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 
-from app import ai_provider
+from app import ai_provider, capability_runtime
 from app.fgiscs_client import FgisCsClient
 from app.main import app
+from app.routers import openai_compat
 
 
 def _bootstrap(client: TestClient) -> None:
@@ -83,7 +85,13 @@ def test_chat_stream_emits_token_deltas_and_structured_final_event(monkeypatch):
     assert response.headers["cache-control"] == "no-cache"
     assert response.headers["x-accel-buffering"] == "no"
     payloads = _sse_payloads(response)
-    assert "".join(payload["content"] for payload in _content_payloads(response)) == "Привет"
+    live_deltas = [payload["content"] for payload in _content_payloads(response)]
+    assert "".join(live_deltas) == "Привет"
+    assert not any(
+        payload.get("type") == "response.output_text.delta"
+        for payload in payloads
+    )
+    assert sum(1 for payload in payloads if payload.get("done") is True) == 1
     assert payloads[-1] == {
         "content": "",
         "done": True,
@@ -93,6 +101,23 @@ def test_chat_stream_emits_token_deltas_and_structured_final_event(monkeypatch):
         "model": "primary-model",
         "fallback_used": False,
     }
+    replay_payloads = _sse_payloads(replay)
+    replay_deltas = [
+        payload["delta"]
+        for payload in replay_payloads
+        if payload.get("type") == "response.output_text.delta"
+    ]
+    assert "".join(replay_deltas) == "Привет"
+    assert replay_deltas == live_deltas
+    assert [
+        payload["type"]
+        for payload in replay_payloads
+        if payload.get("type") in {
+            "response.completed",
+            "response.failed",
+            "response.cancelled",
+        }
+    ] == ["response.completed"]
     summaries = _work_summaries(response)
     assert [(summary["stage"], summary["status"]) for summary in summaries] == [
         ("accepted", "completed"),
@@ -114,6 +139,227 @@ def test_chat_stream_emits_token_deltas_and_structured_final_event(monkeypatch):
     serialized = json.dumps(payloads, ensure_ascii=False).casefold()
     assert "chain-of-thought" not in serialized
     assert "private reasoning" not in serialized
+
+
+@pytest.mark.parametrize(
+    "nonterminal_status",
+    [
+        "queued",
+        "planning",
+        "in_progress",
+        "running",
+        "waiting_for_input",
+        "approval_required",
+        "verifying",
+    ],
+)
+def test_chat_stream_background_handoff_is_not_a_legacy_terminal(
+    monkeypatch,
+    nonterminal_status,
+):
+    async def fake_stream(messages, **kwargs):
+        assert kwargs["background"] is True
+        yield {
+            "content": "",
+            "done": True,
+            "status": nonterminal_status,
+            "provider": "openai_codex",
+            "model": "account-default",
+            "response_id": f"resp_upstream_{nonterminal_status}",
+        }
+
+    recorded_capabilities: list[str] = []
+
+    def record_evidence(capability_id, **kwargs):
+        recorded_capabilities.append(capability_id)
+
+    monkeypatch.setattr(ai_provider, "chat_completion_stream", fake_stream)
+    monkeypatch.setattr(
+        capability_runtime,
+        "record_capability_invocation",
+        record_evidence,
+    )
+
+    with TestClient(app) as client:
+        _bootstrap(client)
+        response = client.post(
+            "/api/v1/chat/stream",
+            json={
+                "messages": [{"role": "user", "content": "Долгая задача"}],
+                "background": True,
+            },
+            headers={"X-Forwarded-For": f"background-{nonterminal_status}"},
+        )
+
+    payloads = _sse_payloads(response)
+    created = next(
+        payload for payload in payloads if payload.get("type") == "response.created"
+    )
+    public_response_id = created["response"]["id"]
+    status_event = next(
+        payload
+        for payload in payloads
+        if payload.get("type") == "response.status.updated"
+    )
+
+    assert response.status_code == 200
+    assert not any(payload.get("done") is True for payload in payloads)
+    assert status_event["response_id"] == public_response_id
+    assert status_event["status"] == nonterminal_status
+    assert status_event["response"]["status"] == nonterminal_status
+    assert isinstance(status_event["sequence"], int)
+    assert openai_compat._records[public_response_id]["status"] == nonterminal_status
+    assert "chat.streaming" not in recorded_capabilities
+
+
+def test_chat_stream_background_handoff_replays_to_terminal_without_duplicates(
+    monkeypatch,
+):
+    async def fake_stream(messages, **kwargs):
+        yield {
+            "content": "",
+            "done": True,
+            "status": "queued",
+            "provider": "openai_codex",
+            "model": "account-default",
+            "response_id": "resp_upstream_background_replay",
+        }
+
+    async def fake_retrieve(provider, response_id):
+        assert response_id == "resp_upstream_background_replay"
+        return {"status": "completed", "content": "Фоновый ответ готов"}
+
+    monkeypatch.setattr(ai_provider, "chat_completion_stream", fake_stream)
+    monkeypatch.setattr(openai_compat, "retrieve_response", fake_retrieve)
+
+    with TestClient(app) as client:
+        _bootstrap(client)
+        response = client.post(
+            "/api/v1/chat/stream",
+            json={
+                "messages": [{"role": "user", "content": "Долгая задача"}],
+                "background": True,
+            },
+            headers={"X-Forwarded-For": "background-terminal-replay"},
+        )
+        payloads = _sse_payloads(response)
+        public_response_id = next(
+            payload["response"]["id"]
+            for payload in payloads
+            if payload.get("type") == "response.created"
+        )
+        status_event = next(
+            payload
+            for payload in payloads
+            if payload.get("type") == "response.status.updated"
+        )
+        replay = client.get(
+            f"/api/v1/responses/{public_response_id}/events"
+            f"?starting_after={status_event['sequence']}"
+        )
+
+    replay_payloads = _sse_payloads(replay)
+    assert not any(payload.get("done") is True for payload in payloads)
+    assert [
+        payload["delta"]
+        for payload in replay_payloads
+        if payload.get("type") == "response.output_text.delta"
+    ] == ["Фоновый ответ готов"]
+    assert [
+        payload["type"]
+        for payload in replay_payloads
+        if payload.get("type") in {
+            "response.completed",
+            "response.failed",
+            "response.cancelled",
+        }
+    ] == ["response.completed"]
+    sequences = [payload["sequence"] for payload in replay_payloads]
+    assert sequences == sorted(set(sequences))
+
+
+def test_chat_stream_success_survives_optional_evidence_ledger_failure(monkeypatch):
+    async def fake_stream(messages, **kwargs):
+        yield {"content": "Ответ", "done": False}
+        yield {
+            "content": "",
+            "done": True,
+            "actions": [],
+            "status": "idle",
+            "provider": "primary",
+            "model": "primary-model",
+            "fallback_used": False,
+        }
+
+    def fail_evidence(*args, **kwargs):
+        raise OSError("evidence ledger unavailable")
+
+    monkeypatch.setattr(ai_provider, "chat_completion_stream", fake_stream)
+    monkeypatch.setattr(capability_runtime, "record_capability_invocation", fail_evidence)
+
+    with TestClient(app) as client:
+        _bootstrap(client)
+        response = client.post(
+            "/api/v1/chat/stream",
+            json={"messages": [{"role": "user", "content": "Ответь"}]},
+            headers={"X-Forwarded-For": "stream-evidence-outage-success"},
+        )
+        payloads = _sse_payloads(response)
+        response_id = next(
+            payload["response"]["id"]
+            for payload in payloads
+            if payload.get("type") == "response.created"
+        )
+        replay = client.get(
+            f"/api/v1/responses/{response_id}/events?starting_after=0"
+        )
+
+    assert [payload["content"] for payload in _content_payloads(response)] == ["Ответ"]
+    assert sum(1 for payload in payloads if payload.get("done") is True) == 1
+    assert payloads[-1]["status"] == "idle"
+    assert [
+        payload["type"]
+        for payload in _sse_payloads(replay)
+        if payload.get("type") in {"response.completed", "response.failed"}
+    ] == ["response.completed"]
+
+
+def test_chat_stream_error_survives_optional_evidence_ledger_failure(monkeypatch):
+    async def failing_stream(messages, **kwargs):
+        raise RuntimeError("provider stream exploded")
+        yield  # pragma: no cover
+
+    def fail_evidence(*args, **kwargs):
+        raise OSError("evidence ledger unavailable")
+
+    monkeypatch.setattr(ai_provider, "chat_completion_stream", failing_stream)
+    monkeypatch.setattr(capability_runtime, "record_capability_invocation", fail_evidence)
+
+    with TestClient(app) as client:
+        _bootstrap(client)
+        response = client.post(
+            "/api/v1/chat/stream",
+            json={"messages": [{"role": "user", "content": "Ответь"}]},
+            headers={"X-Forwarded-For": "stream-evidence-outage-error"},
+        )
+        payloads = _sse_payloads(response)
+        response_id = next(
+            payload["response"]["id"]
+            for payload in payloads
+            if payload.get("type") == "response.created"
+        )
+        replay = client.get(
+            f"/api/v1/responses/{response_id}/events?starting_after=0"
+        )
+
+    assert sum(1 for payload in payloads if payload.get("done") is True) == 1
+    assert payloads[-1]["status"] == "error"
+    assert payloads[-1]["error_code"] == "provider_stream_failed"
+    assert [
+        payload["type"]
+        for payload in _sse_payloads(replay)
+        if payload.get("type") in {"response.completed", "response.failed"}
+    ] == ["response.failed"]
 
 
 def test_chat_stream_reasoning_excerpt_is_canonical_and_replayable(monkeypatch):
@@ -212,6 +458,14 @@ def test_chat_stream_falls_back_before_first_token(monkeypatch):
             json={"messages": [{"role": "user", "content": "Ответь"}]},
             headers={"X-Forwarded-For": "stream-fallback"},
         )
+        response_id = next(
+            payload["response"]["id"]
+            for payload in _sse_payloads(response)
+            if payload.get("type") == "response.created"
+        )
+        replay = client.get(
+            f"/api/v1/responses/{response_id}/events?starting_after=0"
+        )
 
     payloads = _sse_payloads(response)
     assert [payload["content"] for payload in _content_payloads(response)] == ["Ответ"]
@@ -226,6 +480,7 @@ def test_chat_stream_falls_back_before_first_token(monkeypatch):
     assert [summary["stage"] for summary in summaries] == [
         "accepted",
         "provider_route",
+        "provider_attempt",
         "provider_route",
         "response_received",
     ]
@@ -233,6 +488,7 @@ def test_chat_stream_falls_back_before_first_token(monkeypatch):
     assert all("provider" not in summary for summary in summaries)
     assert all("model" not in summary for summary in summaries)
     assert summaries[-1]["status"] == "completed"
+    assert _work_events(response) == _work_events(replay)
     assert all("reasoning" not in summary for summary in summaries)
     assert all("prompt" not in summary for summary in summaries)
     provider_events = [
@@ -242,12 +498,11 @@ def test_chat_stream_falls_back_before_first_token(monkeypatch):
     ]
     assert provider_events == [{
         "type": "provider.attempt.failed",
-        "provider": "failing",
-        "model": "failing-model",
         "failure_kind": "http_502",
         "will_retry": True,
     }]
     serialized = json.dumps(provider_events, ensure_ascii=False)
+    assert "failing-model" not in serialized
     assert "provider.invalid" not in serialized
     assert "upstream failed" not in serialized
 
