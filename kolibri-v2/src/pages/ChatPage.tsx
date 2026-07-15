@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useNavigate, useOutletContext, useParams, useSearchParams } from 'react-router'
+import { useNavigate, useParams, useSearchParams } from 'react-router'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Copy, FileText, Image as ImageIcon, PencilLine, RotateCw, ThumbsDown, ThumbsUp, Volume2 } from 'lucide-react'
@@ -20,7 +20,6 @@ import {
 import { isFailedResponse, persistedResponseStatus, responseFailureMessage } from '@/features/conversation/responseState'
 import WorkTrace, { type WorkStage } from '@/features/conversation/WorkTrace'
 import { mergeReplayedWorkSummaries } from '@/features/conversation/workTraceState'
-import CartoonMascot from '@/components/CartoonMascot'
 import { capabilityPrompt, useCapabilities, type UiCapabilityKey } from '@/features/capabilities'
 import { createExecutionPolicy } from '@/features/shell/executionPolicy'
 import { useExecutionMode } from '@/features/shell/executionPolicyContext'
@@ -50,8 +49,7 @@ import {
   type ProjectMessageStatus,
 } from '@/lib/api'
 import { createUuid } from '@/lib/uuid'
-import { LocalizedMultiline, useLocale, type Translate } from '@/features/localization'
-import { verifiedFirstName, type ShellOutletContext } from '@/features/auth/shellIdentity'
+import { useLocale, type Translate } from '@/features/localization'
 import { canOfferSpeechOutput } from '@/features/conversation/composerRuntime'
 
 function normalizeEstimateAction(data: Record<string, unknown>): Parameters<typeof estimates.create>[0] {
@@ -290,8 +288,6 @@ function MessageRetryAction({ onRetry }: { onRetry: () => void }) {
 
 export default function ChatPage() {
   const { t } = useLocale()
-  const { user } = useOutletContext<ShellOutletContext>()
-  const firstName = verifiedFirstName(user)
   const [messages, setMessages] = useState<Message[]>([])
   const [project, setProject] = useState<Project | null>(null)
   const [historyLoading, setHistoryLoading] = useState(false)
@@ -319,8 +315,6 @@ export default function ChatPage() {
   const { projectId: routeProjectId } = useParams<{ projectId?: string }>()
   const [searchParams] = useSearchParams()
   const { createProject, remember, refresh } = useProjectHistory()
-  const suggestions = [t('home.suggestionEstimate'), t('home.suggestionContract')]
-
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('kolibri:conversation-state', { detail: { populated: messages.length > 0 } }))
   }, [messages.length])
@@ -1046,18 +1040,7 @@ export default function ChatPage() {
       <div className="conversation-scroll">
         {messages.length === 0 ? (
           <div className="conversation-empty">
-            <p className="conversation-eyebrow">{t('chat.newProject')}</p>
-            <CartoonMascot size={34} className="conversation-empty-mascot" />
-            <h2><span className="conversation-empty-desktop-title">{t('chat.start')}</span><span className="conversation-empty-mobile-title"><LocalizedMultiline text={firstName
-              ? t('chat.mobileStartKnown', { name: firstName })
-              : t('chat.mobileStartGuest')
-            } /></span></h2>
-            <p>{t('chat.emptyCopy')}</p>
-            <div className="conversation-suggestions">
-              {suggestions.map(suggestion => (
-                <button key={suggestion} type="button" onClick={() => void handleSendMessage(suggestion)}>{suggestion}</button>
-              ))}
-            </div>
+            <h2>{t('home.title')}</h2>
           </div>
         ) : (
           <div className="conversation-thread">

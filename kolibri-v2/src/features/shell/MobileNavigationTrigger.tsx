@@ -1,5 +1,4 @@
-import { Menu, X } from 'lucide-react'
-import CartoonMascot from '@/components/CartoonMascot'
+import { Equal, X } from 'lucide-react'
 
 interface MobileNavigationTriggerProps {
   open: boolean
@@ -10,15 +9,8 @@ interface MobileNavigationTriggerProps {
   onToggle: () => void
 }
 
-/**
- * Owns the only header slot which can morph between the Kolibri character and
- * menu chrome. Empty conversations keep the bird in the canvas; populated
- * conversations move it into this slot, so one screen never renders two birds.
- */
 export default function MobileNavigationTrigger({
   open,
-  conversationSurface,
-  conversationHasContent,
   openLabel,
   closeLabel,
   onToggle,
@@ -31,14 +23,7 @@ export default function MobileNavigationTrigger({
       aria-label={open ? closeLabel : openLabel}
       aria-expanded={open}
     >
-      {open ? <X size={24} /> : conversationSurface && !conversationHasContent ? (
-        <Menu size={28} strokeWidth={1.8} />
-      ) : (
-        <>
-          <CartoonMascot size={42} className="mobile-morph-bird" />
-          <Menu size={24} className="mobile-morph-menu" />
-        </>
-      )}
+      {open ? <X size={22} strokeWidth={1.8} /> : <Equal size={23} strokeWidth={1.8} />}
     </button>
   )
 }

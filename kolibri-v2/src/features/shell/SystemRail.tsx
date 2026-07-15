@@ -1,82 +1,58 @@
-import { Clock3, Files, PanelLeft, Plus, Search, Settings } from 'lucide-react'
-import CartoonMascot from '@/components/CartoonMascot'
+import { PanelLeftClose, Settings, SquarePen } from 'lucide-react'
+import type { Project } from '@/lib/api'
 import { useLocale } from '@/features/localization'
 
 interface SystemRailProps {
   expanded: boolean
-  pinned: boolean
-  onExpandedChange: (expanded: boolean) => void
-  onPinnedChange: (pinned: boolean) => void
+  onCollapse: () => void
   onNew: () => void
-  onHistory: () => void
-  onSearch: () => void
-  onFiles: () => void
   onSettings: () => void
+  recentItems: Project[]
+  onRecent: (projectId: string) => void
 }
-
-const RailAction = ({
-  icon: Icon,
-  label,
-  expanded,
-  onClick,
-}: {
-  icon: typeof Plus
-  label: string
-  expanded: boolean
-  onClick: () => void
-}) => (
-  <button onClick={onClick} aria-label={label} title={expanded ? undefined : label} className="shell-rail-action">
-    <Icon size={20} strokeWidth={1.75} />
-    <span className={expanded ? 'opacity-100' : 'pointer-events-none opacity-0'}>{label}</span>
-  </button>
-)
 
 export default function SystemRail({
   expanded,
-  pinned,
-  onExpandedChange,
-  onPinnedChange,
+  onCollapse,
   onNew,
-  onHistory,
-  onSearch,
-  onFiles,
   onSettings,
+  recentItems,
+  onRecent,
 }: SystemRailProps) {
   const { t } = useLocale()
+
   return (
     <aside
       className={`shell-system-rail ${expanded ? 'is-expanded' : ''}`}
-      onMouseEnter={() => onExpandedChange(true)}
-      onMouseLeave={() => { if (!pinned) onExpandedChange(false) }}
       aria-label={t('shell.navigation')}
+      aria-hidden={!expanded}
+      inert={!expanded ? true : undefined}
     >
-      <div className="flex h-16 items-center px-[10px]">
-        <button
-          onClick={() => onPinnedChange(!pinned)}
-          className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl hover:bg-[var(--bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-teal)]"
-          aria-label={pinned ? t('shell.unpinMenu') : t('shell.pinMenu')}
-        >
-          <CartoonMascot size={34} />
+      <header className="shell-history-header">
+        <strong>Kolibri</strong>
+        <button type="button" aria-label={t('shell.unpinMenu')} onClick={onCollapse}>
+          <PanelLeftClose size={20} strokeWidth={1.8} />
         </button>
-        <div className={`ml-2 min-w-0 flex-1 transition-opacity ${expanded ? 'opacity-100' : 'opacity-0'}`}>
-          <p className="truncate text-[15px] font-semibold tracking-[-0.02em]">Kolibri</p>
-          <p className="truncate text-[11px] text-[var(--text-tertiary)]">{t('shell.workspace')}</p>
-        </div>
-        {expanded && (
-          <button onClick={() => onPinnedChange(!pinned)} className="shell-icon-button" aria-label={t('shell.pinMenu')}>
-            <PanelLeft size={18} />
+      </header>
+
+      <button type="button" className="shell-history-new" onClick={onNew}>
+        <SquarePen size={19} strokeWidth={1.8} />
+        <span>{t('shell.newProject')}</span>
+      </button>
+
+      <nav className="shell-history-list" aria-label={t('history.title')}>
+        <p>{t('shell.recent')}</p>
+        {recentItems.length ? recentItems.slice(0, 30).map(project => (
+          <button type="button" key={project.id} onClick={() => onRecent(project.id)}>
+            {project.title}
           </button>
-        )}
-      </div>
-      <nav className="flex flex-1 flex-col gap-1 px-[10px] py-3">
-        <RailAction icon={Plus} label={t('shell.newProject')} expanded={expanded} onClick={onNew} />
-        <RailAction icon={Clock3} label={t('shell.recent')} expanded={expanded} onClick={onHistory} />
-        <RailAction icon={Search} label={t('shell.search')} expanded={expanded} onClick={onSearch} />
-        <RailAction icon={Files} label={t('shell.files')} expanded={expanded} onClick={onFiles} />
+        )) : <span>{t('drawer.empty')}</span>}
       </nav>
-      <div className="px-[10px] pb-3">
-        <RailAction icon={Settings} label={t('common.settings')} expanded={expanded} onClick={onSettings} />
-      </div>
+
+      <button type="button" className="shell-history-settings" onClick={onSettings}>
+        <Settings size={19} strokeWidth={1.8} />
+        <span>{t('common.settings')}</span>
+      </button>
     </aside>
   )
 }

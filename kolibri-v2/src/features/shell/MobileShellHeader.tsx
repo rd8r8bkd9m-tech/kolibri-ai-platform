@@ -1,4 +1,4 @@
-import { ChevronDown, Ellipsis, NotebookTabs, Pencil } from 'lucide-react'
+import { ChevronDown } from 'lucide-react'
 import { useState } from 'react'
 import { useExecutionMode } from './executionPolicyContext'
 import { useLocale } from '@/features/localization'
@@ -21,21 +21,15 @@ export default function MobileShellHeader({
   open,
   title,
   conversationSurface = false,
-  conversationHome = false,
   conversationHasContent = false,
-  voiceModeActive = false,
   onToggle,
-  onNewConversation,
-  onHistory,
-  onFiles,
 }: MobileShellHeaderProps) {
   const { t } = useLocale()
   const [modeOpen, setModeOpen] = useState(false)
-  const [actionsOpen, setActionsOpen] = useState(false)
   const { mode, setMode } = useExecutionMode()
 
   return (
-    <header className={`shell-mobile-header md:hidden ${conversationSurface ? 'is-conversation-surface' : ''}`}>
+    <header className={`shell-mobile-header ${conversationSurface ? 'is-conversation-surface' : ''}`}>
       <MobileNavigationTrigger
         open={open}
         conversationSurface={conversationSurface}
@@ -45,7 +39,7 @@ export default function MobileShellHeader({
         onToggle={onToggle}
       />
 
-      {conversationSurface && !voiceModeActive ? (
+      {conversationSurface ? (
         <div className="shell-mobile-mode-wrap">
           <button
             type="button"
@@ -54,8 +48,7 @@ export default function MobileShellHeader({
             onClick={() => setModeOpen(value => !value)}
           >
             <strong>Kolibri</strong>
-            <span>{mode === 'deep' ? t('shell.mode.deep') : t('shell.mode.fast')}</span>
-            <ChevronDown size={19} strokeWidth={2.1} />
+            <ChevronDown size={14} strokeWidth={2.1} />
           </button>
           {modeOpen && (
             <div className="shell-mobile-mode-menu" role="menu" aria-label={t('shell.responseMode')}>
@@ -67,27 +60,15 @@ export default function MobileShellHeader({
                 <strong>{t('shell.mode.deep')}</strong>
                 <span>{t('shell.mode.deepDescription')}</span>
               </button>
+              <span className="sr-only" aria-live="polite">{mode === 'deep' ? t('shell.mode.deep') : t('shell.mode.fast')}</span>
             </div>
           )}
         </div>
-      ) : !conversationSurface ? (
-        <h1 className="min-w-0 flex-1 truncate text-center text-[18px] font-semibold tracking-[-0.025em]">{title}</h1>
-      ) : <span className="shell-mobile-voice-spacer" aria-hidden="true" />}
+      ) : (
+        <h1 className="shell-mobile-page-title">{title}</h1>
+      )}
 
-      {conversationSurface ? (
-        <div className={`shell-mobile-actions ${conversationHome && !voiceModeActive ? 'is-home' : ''}`}>
-          <button type="button" aria-label={voiceModeActive ? t('shell.openProjectMaterials') : t('shell.newProject')} onClick={voiceModeActive ? onFiles : onNewConversation}>
-            {voiceModeActive ? <NotebookTabs size={25} strokeWidth={1.8} /> : <Pencil size={25} strokeWidth={1.9} />}
-          </button>
-          {(!conversationHome || voiceModeActive) && <button type="button" aria-label={t('shell.moreActions')} aria-expanded={actionsOpen} onClick={() => setActionsOpen(value => !value)}>
-            <Ellipsis size={25} strokeWidth={2.1} />
-          </button>}
-          {actionsOpen && <div className="shell-mobile-actions-menu" role="menu">
-            <button type="button" role="menuitem" onClick={() => { setActionsOpen(false); onHistory?.() }}>{t('shell.history')}</button>
-            <button type="button" role="menuitem" onClick={() => { setActionsOpen(false); onFiles?.() }}>{t('shell.files')}</button>
-          </div>}
-        </div>
-      ) : <span className="h-12 w-12" aria-hidden="true" />}
+      <span className="shell-mobile-balance" aria-hidden="true" />
     </header>
   )
 }

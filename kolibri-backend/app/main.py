@@ -46,6 +46,7 @@ from app.browser_session import (
     resolve_project_principal,
 )
 from app.auth import require_operator_user
+from app.genkit_flow import planned_task_type
 from app.operator_api import is_operator_api_path, safe_cluster_stats, safe_task_page
 
 
@@ -977,6 +978,12 @@ async def chat(
     if not data.messages:
         raise HTTPException(400, "No messages provided")
     messages = [{"role": m.role, "content": m.content} for m in data.messages]
+    policy = data.policy.model_dump() if data.policy else None
+    task_type = await planned_task_type(
+        messages,
+        policy,
+        background=data.background,
+    )
     from app.image_artifacts import (
         IMAGE_CAPABILITY_ID,
         ImageCapabilityUnavailable,
@@ -993,7 +1000,6 @@ async def chat(
                 status_code=428,
                 detail={"code": "session_bootstrap_required"},
             )
-        policy = data.policy.model_dump() if data.policy else None
         try:
             internal_artifact = await generate_invocable_image(
                 ImageGenerationRequest(prompt=image_prompt),
@@ -1045,8 +1051,6 @@ async def chat(
         return _public_legacy_chat_result(truth_result)
     from app.ai_provider import chat_completion
     try:
-        policy = data.policy.model_dump() if data.policy else None
-        task_type = "analyze" if data.policy and data.policy.mode == "deep" else "fast" if data.policy else "chat"
         result = await chat_completion(
             messages,
             task_type=task_type,
@@ -1086,6 +1090,12 @@ async def chat_stream(
     if not data.messages:
         raise HTTPException(400, "No messages provided")
     messages = [{"role": m.role, "content": m.content} for m in data.messages]
+    policy = data.policy.model_dump() if data.policy else None
+    task_type = await planned_task_type(
+        messages,
+        policy,
+        background=data.background,
+    )
     from app.ai_provider import chat_completion_stream, work_summary_event
     from app.image_artifacts import (
         IMAGE_CAPABILITY_ID,
@@ -1197,7 +1207,6 @@ async def chat_stream(
             ):
                 yield sse(event)
             if is_image_generation_request(image_prompt):
-                policy = data.policy.model_dump() if data.policy else None
                 for event in live_canonical_events(
                     work_summary_event(
                         "tool_execution",
@@ -1364,8 +1373,6 @@ async def chat_stream(
                     )
                 ):
                     yield sse(event)
-            policy = data.policy.model_dump() if data.policy else None
-            task_type = "analyze" if data.policy and data.policy.mode == "deep" else "fast" if data.policy else "chat"
             async for chunk in chat_completion_stream(
                 messages,
                 task_type=task_type,

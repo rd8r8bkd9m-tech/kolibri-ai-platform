@@ -1,6 +1,5 @@
-import { useEffect, useRef, type ComponentType } from 'react'
-import { Bot, Files, Plus, Search, Settings, X } from 'lucide-react'
-import CartoonMascot from '@/components/CartoonMascot'
+import { useEffect, useRef } from 'react'
+import { Bot, Search, Settings, SquarePen, X } from 'lucide-react'
 import type { AuthUser, Project } from '@/lib/api'
 import { useLocale } from '@/features/localization'
 import { verifiedDisplayName, verifiedInitials } from '@/features/auth/shellIdentity'
@@ -21,18 +20,28 @@ interface MobileNavigationDrawerProps {
   user: AuthUser | null
 }
 
-export default function MobileNavigationDrawer({ open, onClose, onNavigate, onNew, onHistory, onSearch, onFiles, onAgents, showOwnerControl, onSettings, recentItems, onRecent, user }: MobileNavigationDrawerProps) {
+export default function MobileNavigationDrawer({
+  open,
+  onClose,
+  onNavigate,
+  onNew,
+  onHistory,
+  onSearch,
+  onAgents,
+  showOwnerControl,
+  onSettings,
+  recentItems,
+  onRecent,
+  user,
+}: MobileNavigationDrawerProps) {
   const { t } = useLocale()
   const displayName = verifiedDisplayName(user) ?? t('settings.guest')
   const initials = verifiedInitials(user) ?? 'К'
-  const dialogRef = useRef<HTMLElement>(null)
-  const returnFocusRef = useRef<HTMLElement | null>(null)
-  const actions: Array<{ label: string; icon: ComponentType<{ size?: number; strokeWidth?: number }>; action: () => void }> = [
-    { label: t('shell.newProject'), icon: Plus, action: onNew },
-    { label: t('drawer.searchProjects'), icon: Search, action: onSearch },
-    { label: t('drawer.library'), icon: Files, action: onFiles },
+  const ownerActions = [
     ...(showOwnerControl ? [{ label: t('drawer.agents'), icon: Bot, action: onAgents }] : []),
   ]
+  const dialogRef = useRef<HTMLElement>(null)
+  const returnFocusRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
     if (!open) return
@@ -66,33 +75,50 @@ export default function MobileNavigationDrawer({ open, onClose, onNavigate, onNe
   }, [onClose, open])
 
   return (
-    <div className={`mobile-navigation-layer md:hidden ${open ? 'is-open' : ''}`} aria-hidden={!open}>
+    <div className={`mobile-navigation-layer ${open ? 'is-open' : ''}`} aria-hidden={!open}>
       <button type="button" className="mobile-navigation-backdrop" aria-label={t('shell.closeMenu')} tabIndex={open ? 0 : -1} onClick={onClose} />
       <aside ref={dialogRef} className="mobile-navigation-drawer" role="dialog" aria-modal="true" aria-label={t('shell.navigation')} inert={!open ? true : undefined}>
         <header className="mobile-navigation-header">
-          <CartoonMascot size={44} />
-          <div><strong>Kolibri</strong></div>
-          <button type="button" aria-label={t('shell.closeMenu')} onClick={onClose}><X size={23} /></button>
+          <strong>Kolibri</strong>
+          <button type="button" aria-label={t('shell.closeMenu')} onClick={onClose}><X size={21} /></button>
         </header>
-        <nav className="mobile-navigation-list" aria-label={t('drawer.mainNavigation')}>
-          {actions.map(({ label, icon: Icon, action }) => (
-            <button key={label} type="button" className={action === onNew ? 'is-primary' : ''} onClick={() => onNavigate(action)}>
-              <Icon size={22} strokeWidth={1.8} />
-              <span>{label}</span>
-            </button>
-          ))}
-        </nav>
+
+        <div className="mobile-navigation-list">
+          <button type="button" className="is-primary" onClick={() => onNavigate(onNew)}>
+            <SquarePen size={20} strokeWidth={1.8} />
+            <span>{t('shell.newProject')}</span>
+          </button>
+          <button type="button" onClick={() => onNavigate(onSearch)}>
+            <Search size={20} strokeWidth={1.8} />
+            <span>{t('shell.search')}</span>
+          </button>
+        </div>
+
         <section className="mobile-navigation-recent" aria-label={t('drawer.recentProjects')}>
-          <div className="mobile-navigation-section-title"><span>{t('shell.recent')}</span><button type="button" onClick={() => onNavigate(onHistory)}>{t('drawer.all')}</button></div>
-          {recentItems.length ? recentItems.slice(0, 8).map(item => (
+          <div className="mobile-navigation-section-title">
+            <span>{t('shell.recent')}</span>
+            <button type="button" onClick={() => onNavigate(onHistory)}>{t('drawer.all')}</button>
+          </div>
+          {recentItems.length ? recentItems.slice(0, 30).map(item => (
             <button key={item.id} type="button" onClick={() => onNavigate(() => onRecent(item.id))}>{item.title}</button>
           )) : <p>{t('drawer.empty')}</p>}
         </section>
-        <button type="button" className="mobile-navigation-profile" onClick={() => onNavigate(onSettings)}>
-          <span className="mobile-navigation-avatar">{initials}</span>
-          <span><strong>{displayName}</strong><small>{t('drawer.profileSettings')}</small></span>
-          <Settings size={23} strokeWidth={1.8} />
-        </button>
+        <div className="mobile-navigation-footer">
+          {ownerActions.map(item => {
+            const Icon = item.icon
+            return (
+              <button key={item.label} type="button" onClick={() => onNavigate(item.action)}>
+                <Icon size={20} strokeWidth={1.8} />
+                <span>{item.label}</span>
+              </button>
+            )
+          })}
+          <button type="button" className="mobile-navigation-profile" onClick={() => onNavigate(onSettings)}>
+            <span className="mobile-navigation-avatar">{initials}</span>
+            <span><strong>{displayName}</strong><small>{t('drawer.profileSettings')}</small></span>
+            <Settings size={20} strokeWidth={1.8} />
+          </button>
+        </div>
       </aside>
     </div>
   )

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router'
+import { Equal } from 'lucide-react'
 import SearchModal from './SearchModal'
 import HistoryPanel from '@/features/shell/HistoryPanel'
 import SystemRail from '@/features/shell/SystemRail'
@@ -27,8 +28,7 @@ function LayoutShell({ user }: { user: AuthUser | null }) {
   const { t } = useLocale()
   const navigate = useNavigate()
   const location = useLocation()
-  const [railExpanded, setRailExpanded] = useState(false)
-  const [railPinned, setRailPinned] = useState(false)
+  const [railPinned, setRailPinned] = useState(true)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -104,16 +104,24 @@ function LayoutShell({ user }: { user: AuthUser | null }) {
       <CapabilityProvider>
         <div className={`shell-root ${railPinned ? 'rail-pinned' : ''} ${mobileOpen ? 'is-mobile-navigation-open' : ''} ${conversationRoute ? 'is-conversation-route' : ''} ${conversationHome ? 'is-conversation-home-route' : ''}`} {...drawerGesture}>
           <SystemRail
-            expanded={railExpanded || railPinned}
-            pinned={railPinned}
-            onExpandedChange={setRailExpanded}
-            onPinnedChange={setRailPinned}
+            expanded={railPinned}
+            onCollapse={() => setRailPinned(false)}
             onNew={() => navigate('/chat')}
-            onHistory={() => setHistoryOpen(true)}
-            onSearch={() => setSearchOpen(true)}
-            onFiles={() => navigate('/library')}
             onSettings={() => navigate('/settings')}
+            recentItems={projects}
+            onRecent={selectHistoryItem}
           />
+
+          {!railPinned && (
+            <button
+              type="button"
+              className="shell-desktop-sidebar-trigger"
+              aria-label={t('shell.pinMenu')}
+              onClick={() => setRailPinned(true)}
+            >
+              <Equal size={22} strokeWidth={1.8} />
+            </button>
+          )}
 
           <MobileShellHeader
             open={mobileOpen}

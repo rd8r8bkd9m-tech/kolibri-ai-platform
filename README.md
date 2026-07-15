@@ -73,7 +73,8 @@ runtime registry и привязана к `release_id`.
 flowchart LR
     U["Web / mobile / API client"] --> S["React Shell"]
     S --> B["FastAPI gateway"]
-    B --> P["Project and public-session scope"]
+    B --> G["Genkit typed orchestration flow"]
+    G --> P["Project and public-session scope"]
     P --> R["Responses + tool router"]
     R --> V["Provider routes and deterministic engines"]
     R --> A["Scoped content-addressed artifacts"]
@@ -88,6 +89,9 @@ flowchart LR
   session-bound application routes разделены.
 - **Backend** (`kolibri-backend/`) — FastAPI, project/session scope,
   OpenAI-compatible endpoints, canonical capability registry и tool router.
+- **Genkit Flow** (`kolibri-backend/app/genkit_flow.py`) — in-process
+  Pydantic-типизированная оркестрация `chat / estimate / document`; для сметы
+  принудительно включает source-backed анализ и серверный Decimal-пересчёт.
 - **Deterministic engines** — вычисления смет и экспорт документов не доверяют
   денежный итог свободному тексту модели.
 - **Artifact store** — immutable revisions, MIME/size/SHA-256, scoped access,

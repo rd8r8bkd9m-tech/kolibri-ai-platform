@@ -32,6 +32,7 @@ from app.models import PublicApiKeyDB
 from app.project_schemas import PersistedFileAction
 from app.public_scope import authorize_public_scope as _authorize_public
 from app.openai_responses import cancel_response, retrieve_response
+from app.genkit_flow import planned_task_type
 from app.response_store import (
     ResponseIdempotencyConflict,
     find_idempotent_response,
@@ -1072,10 +1073,6 @@ def _record_result(
     return record
 
 
-def _response_task_type(policy: dict[str, Any] | None) -> str:
-    return "analyze" if policy and policy["mode"] == "deep" else "fast" if policy else "chat"
-
-
 def _previous_upstream_response_id(
     request: ResponsesRequest,
     owner_scope: str,
@@ -1145,11 +1142,11 @@ async def _run_response_provider(
     response_id: str,
     messages: list[dict[str, str]],
     policy: dict[str, Any] | None,
+    task_type: str,
     structured: StructuredOutputSpec | None,
     idempotency_key: str | None,
     owner_scope: str,
 ) -> dict[str, Any]:
-    task_type = _response_task_type(policy)
     result = await _image_result_if_requested(
         messages,
         policy,
@@ -1216,6 +1213,7 @@ async def _run_response_provider_background(
     response_id: str,
     messages: list[dict[str, str]],
     policy: dict[str, Any] | None,
+    task_type: str,
     structured: StructuredOutputSpec | None,
     idempotency_key: str | None,
     owner_scope: str,
@@ -1226,6 +1224,7 @@ async def _run_response_provider_background(
             response_id=response_id,
             messages=messages,
             policy=policy,
+            task_type=task_type,
             structured=structured,
             idempotency_key=idempotency_key,
             owner_scope=owner_scope,
@@ -1247,6 +1246,7 @@ async def _execute_response(
     dict[str, Any] | None,
     str,
     StructuredOutputSpec | None,
+    str,
 ]:
     _ensure_public_model(request.model)
     try:
@@ -1278,8 +1278,14 @@ async def _execute_response(
     })
     existing = _idempotent_record(idempotency_key, fingerprint, owner_scope)
     if existing:
-        return existing, messages, policy, fingerprint, structured
-    return {}, messages, policy, fingerprint, structured
+        task_type = "analyze" if policy and policy["mode"] == "deep" else "fast" if policy else "chat"
+        return existing, messages, policy, fingerprint, structured, task_type
+    task_type = await planned_task_type(
+        messages,
+        policy,
+        background=request.background,
+    )
+    return {}, messages, policy, fingerprint, structured, task_type
 
 
 async def execute_kolibri_response(
@@ -1297,7 +1303,7 @@ async def execute_kolibri_response(
     """
 
     _validate_idempotency_key(idempotency_key)
-    existing, messages, policy, fingerprint, structured = await _execute_response(
+    existing, messages, policy, fingerprint, structured, task_type = await _execute_response(
         request,
         idempotency_key=idempotency_key,
         owner_scope=owner_scope,
@@ -1348,6 +1354,7 @@ async def execute_kolibri_response(
             response_id=response_id,
             messages=messages,
             policy=policy,
+            task_type=task_type,
             structured=structured,
             idempotency_key=idempotency_key,
             owner_scope=owner_scope,
@@ -1377,7 +1384,7 @@ async def create_background_kolibri_response(
     owner_scope: str = "internal:service",
 ) -> dict[str, Any]:
     _validate_idempotency_key(idempotency_key)
-    existing, messages, policy, fingerprint, structured = await _execute_response(
+    existing, messages, policy, fingerprint, structured, task_type = await _execute_response(
         request,
         idempotency_key=idempotency_key,
         owner_scope=owner_scope,
@@ -1409,6 +1416,7 @@ async def create_background_kolibri_response(
             response_id=response_id,
             messages=messages,
             policy=policy,
+            task_type=task_type,
             structured=structured,
             idempotency_key=idempotency_key,
             owner_scope=owner_scope,
@@ -1477,7 +1485,7 @@ async def _streaming_response(
     *,
     owner_scope: str,
 ):
-    existing, messages, policy, fingerprint, structured = await _execute_response(
+    existing, messages, policy, fingerprint, structured, task_type = await _execute_response(
         request,
         idempotency_key=idempotency_key,
         owner_scope=owner_scope,
@@ -1502,7 +1510,6 @@ async def _streaming_response(
         _store(_records[response_id])
     if idempotency_key and not existing:
         _idempotency[(owner_scope, idempotency_key)] = (fingerprint, response_id)
-    task_type = "analyze" if policy and policy["mode"] == "deep" else "fast" if policy else "chat"
     async def events():
         initial_events = snapshot_public_response_events(response_id)
         if existing:
@@ -1968,7 +1975,7 @@ async def chat_completions(
     except StructuredOutputError as exc:
         raise _structured_request_error(exc) from exc
     policy = _policy(request.policy)
-    task_type = "analyze" if policy and policy["mode"] == "deep" else "fast" if policy else "chat"
+    task_type = await planned_task_type(messages, policy)
     completion_id = f"chatcmpl_{secrets.token_hex(12)}"
     image_result = await _image_result_if_requested(
         messages,

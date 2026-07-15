@@ -364,6 +364,15 @@ export default function EstimatesPage() {
             </div>
           )}
         </div>
+        <div className="estimate-mobile-total-bar">
+          <div>
+            <span>Итого</span>
+            <strong>{formatNum(current.total)} ₽</strong>
+          </div>
+          <button type="button" onClick={() => void handleSave()} disabled={mutation !== null || !dirty}>
+            {mutation === 'saving' ? 'Сохраняю…' : dirty ? 'Сохранить' : 'Сохранено'}
+          </button>
+        </div>
       </div>
     )
   }

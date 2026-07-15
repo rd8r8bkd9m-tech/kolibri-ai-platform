@@ -1,10 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Archive, Download, ExternalLink, FileDown, FileSpreadsheet, FileText, Image as ImageIcon, Maximize2, PencilLine, Presentation, RotateCw, X } from 'lucide-react'
-import { documents, estimates, type Document, type Estimate, type FileArtifact, type ImageArtifact } from '@/lib/api'
+import { documents, type Document, type Estimate, type FileArtifact, type ImageArtifact } from '@/lib/api'
 import { formatCurrency } from '@/lib/utils'
-import EstimateEvidencePanel, { EstimateTruthBadge } from '@/features/estimates/EstimateEvidencePanel'
-import { estimateEvidenceSummary } from '@/features/estimates/estimateEvidence'
 import { isVerifiedImageArtifact } from './imageArtifact'
 import { isVerifiedFileArtifact, type VerifiedFileArtifact } from './fileArtifact'
 
@@ -21,47 +19,28 @@ interface ArtifactCardProps {
 }
 
 function EstimateCard({ estimate, onOpen }: { estimate: Estimate; onOpen: () => void }) {
-  const rows = useMemo(() => estimate.sections.flatMap(section => section.positions.map(position => ({ section: section.title, ...position }))), [estimate])
-  const evidence = useMemo(() => estimateEvidenceSummary(estimate), [estimate])
+  const status = estimate.estimate_status === 'verified'
+    ? 'Проверенная'
+    : estimate.estimate_status === 'source_backed'
+      ? 'С подтверждёнными ценами'
+      : estimate.estimate_status === 'needs_input'
+        ? 'Нужны уточнения'
+        : 'Предварительная'
 
   return (
-    <section className="artifact-card estimate-artifact" aria-label={estimate.title}>
-      <header className="artifact-card-header">
-        <div>
-          <span className="artifact-kicker">Редактируемая смета</span>
-          <h3>{estimate.title}</h3>
-          <p>{[estimate.region || 'Регион не задан', evidence.dateLabel ? `цены от ${evidence.dateLabel}` : 'дата цен не подтверждена', `версия ${estimate.version}`].join(' · ')}</p>
-        </div>
-        <EstimateTruthBadge status={evidence.estimateStatus} />
-      </header>
-
-      <div className="artifact-estimate-table" role="table" aria-label="Позиции сметы">
-        <div className="artifact-estimate-row artifact-estimate-head" role="row">
-          <span>Работы и материалы</span><span>Кол-во</span><span>Цена</span><span>Сумма</span>
-        </div>
-        {rows.slice(0, 7).map(row => (
-          <div key={row.id} className="artifact-estimate-row" role="row">
-            <span><strong>{row.name}</strong><small>{row.section} · {row.unit}</small></span>
-            <span>{row.quantity}</span>
-            <span>{formatCurrency(row.price)}</span>
-            <span>{formatCurrency(row.sum)}</span>
-          </div>
-        ))}
-      </div>
-
-      <div className="artifact-mobile-summary">
-        {estimate.sections.slice(0, 4).map(section => (
-          <div key={section.id}><span>{section.title}</span><strong>{formatCurrency(section.subtotal)}</strong></div>
-        ))}
-      </div>
-
-      <div className="artifact-total"><span>Итого</span><strong>{formatCurrency(estimate.total)}</strong></div>
-      <EstimateEvidencePanel estimate={estimate} compact />
-
-      <footer className="artifact-actions">
-        <button type="button" onClick={onOpen}><PencilLine size={18} />Редактировать</button>
-        <a href={estimates.pdfUrl(estimate.id)} target="_blank" rel="noreferrer"><FileDown size={18} />PDF</a>
-      </footer>
+    <section className="artifact-card estimate-artifact artifact-result-card" aria-label={estimate.title}>
+      <button type="button" className="artifact-result-row" onClick={onOpen}>
+        <FileText className="artifact-result-icon" size={27} strokeWidth={1.7} />
+        <span className="artifact-result-copy">
+          <strong>{estimate.title}</strong>
+          <small>{status}</small>
+        </span>
+        <span className="artifact-result-action">
+          <strong>{formatCurrency(estimate.total)}</strong>
+          <i aria-hidden="true" />
+          <small>Открыть</small>
+        </span>
+      </button>
     </section>
   )
 }
