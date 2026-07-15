@@ -273,6 +273,17 @@ def evaluate_price_evidence(
             issues.append(_issue("duplicate_source", record.position_code))
             continue
         seen_sources.add(identity)
+        if _is_federal_region(record.region):
+            issues.append(
+                _issue(
+                    "federal_price_scope",
+                    record.position_code,
+                    message=(
+                        "Источник подтверждает федеральную цену или доставку по России, "
+                        "но не локальную цену населённого пункта."
+                    ),
+                )
+            )
         public_record = record.model_dump(mode="json")
         position["price_evidence"].append(public_record)
         if not position["source"]:
@@ -328,11 +339,15 @@ def _parse_records(value: Any) -> tuple[list[PriceEvidenceRecord], list[dict[str
     return records, issues
 
 
-def _issue(code: str, position_code: str) -> dict[str, str]:
+def _issue(code: str, position_code: str, *, message: str | None = None) -> dict[str, str]:
     return {
         "code": code,
         "position_code": position_code,
-        "message": "Источник цены отклонён строгой проверкой." if position_code else "Набор источников цен отклонён строгой проверкой.",
+        "message": message or (
+            "Источник цены отклонён строгой проверкой."
+            if position_code
+            else "Набор источников цен отклонён строгой проверкой."
+        ),
     }
 
 
@@ -385,9 +400,15 @@ def _evidence_signing_key() -> bytes:
 
 
 def _regions_compatible(estimate_region: str, evidence_region: str) -> bool:
+    if _is_federal_region(evidence_region):
+        return bool(_canonical_region(estimate_region))
     left = _region_tokens(estimate_region)
     right = _region_tokens(evidence_region)
-    return bool(left and right and (left <= right or right <= left or bool(left & right)))
+    return bool(
+        left
+        and right
+        and any(_region_word_matches(a, b) for a in left for b in right)
+    )
 
 
 def _canonical_region(value: str) -> str:
@@ -401,6 +422,29 @@ def _region_tokens(value: str) -> set[str]:
         for token in re.findall(r"[a-zа-яё0-9]+", str(value).casefold())
         if len(token) > 1 and token not in stop
     }
+
+
+def _region_word_matches(left: str, right: str) -> bool:
+    if left == right:
+        return True
+    if min(len(left), len(right)) < 5:
+        return False
+    if len(left) == len(right) and left[:-1] == right[:-1]:
+        return True
+    if (left.startswith(right) or right.startswith(left)) and abs(len(left) - len(right)) <= 2:
+        return True
+    common = 0
+    for left_char, right_char in zip(left, right):
+        if left_char != right_char:
+            break
+        common += 1
+    shortest = min(len(left), len(right))
+    return shortest >= 8 and common >= max(7, shortest - 2)
+
+
+def _is_federal_region(value: str) -> bool:
+    normalized = " ".join(re.findall(r"[a-zа-яё0-9]+", str(value).casefold()))
+    return normalized in {"россия", "рф", "российская федерация"}
 
 
 def _normalise_unit(value: Any) -> str:

@@ -32,7 +32,13 @@ def _html_response(html: str, status_code: int = 200) -> httpx.Response:
     )
 
 
-def _draft(*, region: str = "Москва", unit: str = "м³", price: str = "0") -> dict:
+def _draft(
+    *,
+    region: str = "Москва",
+    unit: str = "м³",
+    price: str = "0",
+    name: str = "Бетон товарный В25",
+) -> dict:
     return {
         "title": "Смета",
         "region": region,
@@ -42,7 +48,7 @@ def _draft(*, region: str = "Москва", unit: str = "м³", price: str = "0"
                 "positions": [
                     {
                         "code": "AI-01-001",
-                        "name": "Бетон товарный В25",
+                        "name": name,
                         "unit": unit,
                         "quantity": "10",
                         "price": price,
@@ -111,6 +117,201 @@ def test_commercial_fallback_extracts_real_https_prices_for_multiple_regions():
         assert evidence[0]["project_region"] == region
         assert region in queries[0]
         assert "Татарстан" not in queries[0]
+
+
+def test_search_queries_are_normalized_and_follow_exact_subject_federal_order():
+    queries: list[str] = []
+
+    async def searcher(query: str, limit: int):
+        queries.append(query)
+        assert limit == 5
+        return []
+
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _request: _html_response(""))) as http_client:
+            client = CommercialPriceResearchClient(
+                searcher=searcher,
+                client=http_client,
+                dns_resolver=_public_resolver,
+            )
+            return await client.enrich_draft(
+                _draft(
+                    region="Лениногорск, Татарстан",
+                    unit="пог.м",
+                    name="  Профилированный лист С8!!! для забора; профлист С8  ",
+                ),
+                observed_at=NOW,
+            )
+
+    enriched, evidence = asyncio.run(scenario())
+
+    assert evidence == []
+    assert enriched["sections"][0]["positions"][0]["price"] == "0"
+    assert len(queries) == 3
+    assert queries[0].endswith("Лениногорск Татарстан")
+    assert "профнастил с8" in queries[0]
+    assert queries[1].endswith("поставщик Татарстан")
+    assert "доставка по России Лениногорск Татарстан" in queries[2]
+    assert "!!!" not in " ".join(queries)
+
+
+def test_schema_org_product_offer_is_bound_to_requested_region_unit_and_fetched_bytes():
+    html = """
+    <html><head><title>Каталог строительного поставщика</title>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Product",
+      "name": "Профнастил С8 для забора",
+      "areaServed": {"@type": "AdministrativeArea", "name": "Екатеринбург"},
+      "dateModified": "2026-07-15",
+      "offers": {
+        "@type": "Offer",
+        "price": "785.40",
+        "priceCurrency": "RUB",
+        "priceValidUntil": "2026-08-10",
+        "valueAddedTaxIncluded": true,
+        "priceSpecification": {
+          "@type": "UnitPriceSpecification",
+          "price": "785.40",
+          "priceCurrency": "RUB",
+          "unitCode": "MTK"
+        }
+      }
+    }
+    </script></head><body>Доставка заказов в Екатеринбурге.</body></html>
+    """
+    url = "https://supplier.example/catalog/profnastil-c8"
+    enriched, evidence, queries = asyncio.run(
+        _run_collector(
+            _draft(
+                region="Екатеринбург",
+                unit="м²",
+                name="Профнастил С8 для забора",
+            ),
+            html=html,
+            url=url,
+            title="Профнастил С8 — Екатеринбург",
+        )
+    )
+
+    record = evidence[0]
+    assert enriched["sections"][0]["positions"][0]["price"] == "785.4"
+    assert record["url"] == url
+    assert record["region"] == "Екатеринбург"
+    assert record["project_region"] == "Екатеринбург"
+    assert record["unit"] == "м²"
+    assert record["vat_status"] == "included"
+    assert record["price_date"] == "2026-07-15"
+    assert record["fresh_until"] == "2026-08-10"
+    assert record["retrieved_at"] == "2026-07-15T09:00:00Z"
+    assert record["content_sha256"] == hashlib.sha256(html.encode("utf-8")).hexdigest()
+    assert "Schema.org Product/Offer" in record["quote"]
+    assert "Екатеринбург" in queries[0]
+
+
+def test_schema_org_nationwide_offer_is_honest_federal_evidence_with_lower_confidence():
+    html = """
+    <html><head><title>Столб профильный 60x60 3 м</title>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Product",
+      "name": "Столб профильный 60x60 3 м",
+      "offers": {
+        "@type": "Offer",
+        "price": 2140,
+        "priceCurrency": "RUB",
+        "unitText": "шт",
+        "valueAddedTaxIncluded": false,
+        "areaServed": "Россия"
+      }
+    }
+    </script></head><body>Доставка по всей России. Актуальная цена.</body></html>
+    """
+    enriched, evidence, _queries = asyncio.run(
+        _run_collector(
+            _draft(
+                region="Владивосток, Приморский край",
+                unit="шт",
+                name="Столб профильный 60x60 3 м",
+            ),
+            html=html,
+            title="Столб профильный 60x60 3 м",
+        )
+    )
+
+    record = evidence[0]
+    assert enriched["sections"][0]["positions"][0]["price"] == "2140"
+    assert record["region"] == "Россия"
+    assert record["project_region"] == "Владивосток, Приморский край"
+    assert record["vat_status"] == "excluded"
+    assert Decimal(record["confidence"]) <= Decimal("0.78")
+
+    action = build_estimate_action(
+        "Составь смету на забор во Владивостоке",
+        enriched,
+        verified_evidence=evidence,
+    )
+    assert action["data"]["pricing_status"] == "source_backed"
+    assert action["data"]["evidence_issues"][0]["code"] == "federal_price_scope"
+
+
+def test_local_result_wins_over_higher_ranked_nationwide_result():
+    federal_url = "https://federal.example/profnastil"
+    local_url = "https://local.example/profnastil"
+
+    async def searcher(_query: str, _limit: int):
+        return [
+            {"title": "Профнастил С8 Россия", "url": federal_url},
+            {"title": "Профнастил С8 Татарстан", "url": local_url},
+        ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == federal_url:
+            return _html_response(
+                "<html><title>Профнастил С8</title><body>Доставка по всей России. "
+                "Профнастил С8 700 руб./м2, с НДС. Обновлено 15.07.2026.</body></html>"
+            )
+        return _html_response(
+            "<html><title>Профнастил С8 Татарстан</title><body>Татарстан. "
+            "Профнастил С8 745 руб./м2, с НДС. Обновлено 15.07.2026.</body></html>"
+        )
+
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+            client = CommercialPriceResearchClient(
+                searcher=searcher,
+                client=http_client,
+                dns_resolver=_public_resolver,
+            )
+            return await client.enrich_draft(
+                _draft(
+                    region="Лениногорск, Татарстан",
+                    unit="м²",
+                    name="Профнастил С8",
+                ),
+                observed_at=NOW,
+            )
+
+    enriched, evidence = asyncio.run(scenario())
+
+    assert enriched["sections"][0]["positions"][0]["price"] == "745"
+    assert evidence[0]["url"] == local_url
+    assert evidence[0]["region"] == "Татарстан"
+
+
+def test_commercial_fallback_rejects_moscow_oblast_for_moscow_city():
+    html = (
+        "<html><title>Бетон товарный В25 — Московская область</title>"
+        "<body>Московская область. Бетон товарный В25 7 800 руб./м3, с НДС. "
+        "Обновлено 15.07.2026.</body></html>"
+    )
+
+    enriched, evidence, _queries = asyncio.run(_run_collector(_draft(region="Москва"), html=html))
+
+    assert evidence == []
+    assert enriched["sections"][0]["positions"][0]["price"] == "0"
 
 
 def test_commercial_fallback_rejects_snippet_rank_and_malformed_page_price():

@@ -167,6 +167,45 @@ def test_trusted_source_promotes_only_to_source_backed():
     assert persisted.label == "Открыть предварительную смету"
 
 
+def test_federal_source_is_compatible_but_explicitly_flagged_as_non_local():
+    evidence = _trusted_evidence(region="Россия")
+    action = build_estimate_action(
+        "Составь смету",
+        _candidate(),
+        verified_evidence=[evidence],
+    )
+
+    data = action["data"]
+    assert data["pricing_status"] == "source_backed"
+    assert data["price_sources"][0]["region"] == "Россия"
+    assert data["region"] == "Лениногорск, Татарстан"
+    assert data["evidence_issues"] == [
+        {
+            "code": "federal_price_scope",
+            "position_code": "ФН-01",
+            "message": (
+                "Источник подтверждает федеральную цену или доставку по России, "
+                "но не локальную цену населённого пункта."
+            ),
+        }
+    ]
+
+
+def test_moscow_oblast_source_is_not_compatible_with_moscow_city():
+    candidate = _candidate()
+    candidate["region"] = "Москва"
+    evidence = _trusted_evidence(region="Московская область")
+
+    action = build_estimate_action(
+        "Составь смету в Москве",
+        candidate,
+        verified_evidence=[evidence],
+    )
+
+    assert action["data"]["price_sources"] == []
+    assert action["data"]["evidence_issues"][0]["code"] == "region_mismatch"
+
+
 def test_verified_estimate_requires_verified_price_and_scope():
     verified_record = _trusted_evidence(verification="verified")
     price_only = build_estimate_action(
