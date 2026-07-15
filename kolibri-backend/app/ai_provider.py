@@ -1,5 +1,6 @@
 """AI provider — multi-model auto-routing for Kolibri."""
 from copy import deepcopy
+from decimal import Decimal, InvalidOperation
 import os
 import json
 import time
@@ -739,6 +740,94 @@ def _estimate_commercial_fallback_enabled() -> bool:
     }
 
 
+def _estimate_source_backed_required(prompt: str) -> bool:
+    text = str(prompt or "").casefold()
+    return (
+        "смет" in text
+        and any(marker in text for marker in ("источник", "подтвержд", "актуальн", "реальн"))
+        and any(marker in text for marker in ("цен", "стоимост", "прайс"))
+    )
+
+
+def _compact_source_backed_action(
+    action: dict,
+    prompt: str,
+    *,
+    verified_evidence: list[dict],
+) -> dict | None:
+    data = deepcopy(action.get("data") or {})
+    compact_sections: list[dict] = []
+    compact_codes: set[str] = set()
+    for section in data.get("sections", []):
+        if not isinstance(section, dict):
+            continue
+        positions = [
+            position
+            for position in section.get("positions", [])
+            if isinstance(position, dict)
+            and position.get("price_evidence")
+            and _positive_decimal(position.get("quantity"))
+            and _positive_decimal(position.get("price"))
+        ]
+        if not positions:
+            continue
+        for position in positions:
+            code = str(position.get("code") or "")
+            if code:
+                compact_codes.add(code)
+        compact_sections.append(
+            {
+                "title": section.get("title") or "",
+                "positions": positions,
+            }
+        )
+    position_count = sum(len(section["positions"]) for section in compact_sections)
+    if len(compact_sections) < 3 or position_count < 6:
+        return None
+    assumptions = data.get("assumptions")
+    if not isinstance(assumptions, list):
+        assumptions = []
+    data["assumptions"] = [
+        *assumptions,
+        (
+            "Строки без подтверждённого источника цены не включены в созданную "
+            "смету; их нужно доисследовать отдельно."
+        ),
+    ]
+    data["sections"] = compact_sections
+    filtered_evidence = [
+        record
+        for record in verified_evidence
+        if isinstance(record, dict) and str(record.get("position_code") or "") in compact_codes
+    ]
+    compact = build_estimate_action(
+        prompt,
+        data,
+        verified_evidence=filtered_evidence,
+        scope_verified=False,
+    )
+    compact_positions = [
+        position
+        for section in compact["data"].get("sections", [])
+        for position in section.get("positions", [])
+    ]
+    if (
+        compact["data"].get("pricing_status") not in {"source_backed", "verified"}
+        or len(compact_positions) != position_count
+        or not all(position.get("price_evidence") for position in compact_positions)
+    ):
+        return None
+    return compact
+
+
+def _positive_decimal(value: object) -> bool:
+    try:
+        parsed = Decimal(str(value if value is not None else "0").replace(" ", "").replace(",", "."))
+        return parsed.is_finite() and parsed > 0
+    except (InvalidOperation, ValueError):
+        return False
+
+
 async def _materialize_estimate_actions(
     messages: List[Dict[str, str]],
     actions: list[dict],
@@ -751,6 +840,8 @@ async def _materialize_estimate_actions(
         return normalized
 
     draft = deepcopy(estimate.get("data") or {})
+    prompt = latest_user_text(messages)
+    source_backed_required = _estimate_source_backed_required(prompt)
     # Provider prices are scope suggestions, not price evidence.  Zero them
     # before research so an unmatched row cannot silently retain an invented
     # amount in the editor or totals.
@@ -770,7 +861,11 @@ async def _materialize_estimate_actions(
         try:
             from app.fgiscs_client import FgisCsClient
 
-            draft, official_evidence = await FgisCsClient().enrich_draft(draft)
+            draft, official_evidence = await FgisCsClient().enrich_draft(
+                draft,
+                request_text=prompt,
+                source_backed_required=source_backed_required,
+            )
             trusted_evidence.extend(official_evidence)
         except Exception:
             # Price research is an optional, untrusted boundary.  Transport,
@@ -792,7 +887,7 @@ async def _materialize_estimate_actions(
                 pass
 
     final_estimate = build_estimate_action(
-        latest_user_text(messages),
+        prompt,
         draft,
         verified_evidence=trusted_evidence,
         scope_verified=False,
@@ -814,11 +909,19 @@ async def _materialize_estimate_actions(
             position["source"] = ""
     if removed_rejected_price:
         final_estimate = build_estimate_action(
-            latest_user_text(messages),
+            prompt,
             sanitized,
             verified_evidence=trusted_evidence,
             scope_verified=False,
         )
+    if source_backed_required:
+        compact = _compact_source_backed_action(
+            final_estimate,
+            prompt,
+            verified_evidence=trusted_evidence,
+        )
+        if compact is not None:
+            final_estimate = compact
     return [
         final_estimate if item is estimate else item
         for item in normalized

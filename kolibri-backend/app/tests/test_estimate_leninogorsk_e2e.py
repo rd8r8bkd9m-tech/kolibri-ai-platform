@@ -22,9 +22,14 @@ from app.database import Base, get_db
 from app.fgiscs_client import FgisCsClient
 from app.main import app
 from app.pdf_generator import _build_estimate_html
+from app.storage import DBStorage
 
 
 PROMPT = "Составь смету на строительство одноэтажного дома 100 м², Лениногорск, Татарстан"
+GATE_TARGET_PROMPT = (
+    "Составь реальную смету одноэтажного дома 100 м² в Лениногорске, Татарстан, "
+    "с актуальными подтверждёнными региональными ценами и источниками."
+)
 
 OFFICIAL_ROWS = [
     {
@@ -79,6 +84,18 @@ OFFICIAL_ROWS = [
         "procureStorageCostPercent": "2.00",
         "estimatedPrice": "4840.29",
     },
+    {
+        "code": "08.1.02.17-0010",
+        "name": (
+            "Прокат арматурный периодического профиля, класс А500С, "
+            "диаметр 12 мм"
+        ),
+        "unitName": "т",
+        "aggregatedPrice": "64100.00",
+        "distancePrice": "900.00",
+        "procureStorageCostPercent": "2.00",
+        "estimatedPrice": "66300.00",
+    },
 ]
 
 
@@ -113,7 +130,7 @@ def _fgis_handler(request: httpx.Request) -> httpx.Response:
 
 
 def _provider_action() -> dict:
-    quantities = ["0.25", "12", "25", "25", "30"]
+    quantities = ["0.25", "12", "25", "25", "30", "1.8"]
     return {
         "type": "create_estimate",
         "label": "Черновик исполнителя",
@@ -140,6 +157,77 @@ def _provider_action() -> dict:
                     for row, quantity in zip(OFFICIAL_ROWS, quantities, strict=True)
                 ],
             }],
+        },
+    }
+
+
+def _broad_ai_provider_action() -> dict:
+    return {
+        "type": "create_estimate",
+        "label": "Черновик исполнителя",
+        "data": {
+            "title": "Смета строительства одноэтажного жилого дома 100 м²",
+            "object_name": "Одноэтажный жилой дом площадью 100 м²",
+            "region": "Лениногорск, Татарстан",
+            "sections": [
+                {
+                    "title": "Подготовительные и земляные работы",
+                    "positions": [
+                        {
+                            "code": "AI-01-001",
+                            "name": "Геодезическая разбивка осей здания",
+                            "unit": "компл",
+                            "quantity": "1",
+                            "price": "999999",
+                        },
+                        {
+                            "code": "AI-01-002",
+                            "name": "Разработка грунта в траншеях под фундамент",
+                            "unit": "м³",
+                            "quantity": "55",
+                            "price": "999999",
+                        },
+                    ],
+                },
+                {
+                    "title": "Фундамент и основание",
+                    "positions": [
+                        {
+                            "code": "AI-02-001",
+                            "name": "Арматура стальная для ленточного фундамента",
+                            "unit": "т",
+                            "quantity": "1.8",
+                            "price": "999999",
+                        },
+                        {
+                            "code": "AI-02-002",
+                            "name": "Укладка бетонной смеси в ленточный фундамент",
+                            "unit": "м³",
+                            "quantity": "18",
+                            "price": "999999",
+                        },
+                    ],
+                },
+                {
+                    "title": "Наружные и внутренние стены",
+                    "positions": [
+                        {
+                            "code": "AI-03-001",
+                            "name": "Кладка наружных стен из кирпича",
+                            "unit": "м³",
+                            "quantity": "48",
+                            "price": "999999",
+                        },
+                        {
+                            "code": "AI-03-002",
+                            "name": "Утепление ограждающих конструкций минераловатными плитами",
+                            "unit": "м³",
+                            "quantity": "30",
+                            "price": "999999",
+                        },
+                    ],
+                },
+            ],
         },
     }
 
@@ -201,7 +289,7 @@ def test_leninogorsk_source_backed_estimate_revision_and_exports(
     assert action_data["estimate_status"] == "source_backed"
     assert action_data["pricing_status"] == "verified"
     assert action_data["scope_status"] == "unverified"
-    assert action_data["totals"]["total"] == "823588.29"
+    assert action_data["totals"]["total"] == "942928.29"
     assert len(action_data["price_sources"]) == len(OFFICIAL_ROWS)
     assert action_data["sections"][0]["positions"][2]["unit"] == "м³"
     assert action_data["sections"][0]["positions"][4]["unit"] == "м³"
@@ -217,7 +305,7 @@ def test_leninogorsk_source_backed_estimate_revision_and_exports(
     assert created["estimate_status"] == "source_backed"
     assert created["pricing_status"] == "verified"
     assert created["scope_status"] == "unverified"
-    assert created["total"] == "823588.29"
+    assert created["total"] == "942928.29"
     assert len(created["price_sources"]) == len(OFFICIAL_ROWS)
 
     changed_sections = deepcopy(created["sections"])
@@ -233,7 +321,7 @@ def test_leninogorsk_source_backed_estimate_revision_and_exports(
     assert updated_response.status_code == 200, updated_response.text
     assert updated_response.headers["etag"] == '"2"'
     updated = updated_response.json()
-    assert updated["total"] == "839965.74"
+    assert updated["total"] == "959305.74"
     assert updated["estimate_status"] == "source_backed"
 
     first_revision = client.get(
@@ -242,8 +330,8 @@ def test_leninogorsk_source_backed_estimate_revision_and_exports(
     second_revision = client.get(
         f"/api/v1/estimates/{estimate_id}/revisions/2"
     ).json()["snapshot"]
-    assert first_revision["total"] == "823588.29"
-    assert second_revision["total"] == "839965.74"
+    assert first_revision["total"] == "942928.29"
+    assert second_revision["total"] == "959305.74"
     assert first_revision["sections"][0]["positions"][3]["quantity"] == "25"
     assert second_revision["sections"][0]["positions"][3]["quantity"] == "26"
     export_html = _build_estimate_html(second_revision)
@@ -270,11 +358,83 @@ def test_leninogorsk_source_backed_estimate_revision_and_exports(
     worksheet = workbook["Смета"]
     assert worksheet["A1"].value == action_data["title"]
     assert worksheet["F11"].value == "=ROUND(D11*E11,2)"
-    assert worksheet["F15"].value == "=ROUND(D15*E15,2)"
-    assert worksheet["F16"].value == "=ROUND(SUM(F11:F15),2)"
+    assert worksheet["F16"].value == "=ROUND(D16*E16,2)"
+    assert worksheet["F17"].value == "=ROUND(SUM(F11:F16),2)"
     workbook.close()
 
     # Reopening the saved revision and regenerating its exports must not read
     # mutable current-estimate data.
     assert client.get(f"/api/v1/estimates/{estimate_id}").json()["version"] == 2
-    assert client.get(f"/api/v1/estimates/{estimate_id}/export/json?version=1").json()["total"] == "823588.29"
+    assert client.get(f"/api/v1/estimates/{estimate_id}/export/json?version=1").json()["total"] == "942928.29"
+
+
+def test_gate_prompt_replaces_unpriced_ai_scope_with_source_backed_fgis_rows(
+    monkeypatch,
+):
+    monkeypatch.setenv("KOLIBRI_ESTIMATE_FGIS_ENABLED", "true")
+    monkeypatch.setenv("KOLIBRI_EVIDENCE_SIGNING_KEY", "e" * 64)
+    original_enrich = FgisCsClient.enrich_draft
+
+    async def enrich_through_official_mock(self, draft, **kwargs):
+        transport = httpx.MockTransport(_fgis_handler)
+        async with httpx.AsyncClient(transport=transport) as http_client:
+            collector = FgisCsClient(client=http_client)
+            return await original_enrich(
+                collector,
+                draft,
+                observed_at=datetime(2026, 7, 14, 9, 0, tzinfo=timezone.utc),
+                **kwargs,
+            )
+
+    monkeypatch.setattr(FgisCsClient, "enrich_draft", enrich_through_official_mock)
+    actions = asyncio.run(
+        ai_provider._materialize_estimate_actions(
+            [{"role": "user", "content": GATE_TARGET_PROMPT}],
+            [_broad_ai_provider_action()],
+        )
+    )
+    action_data = actions[0]["data"]
+    positions = [
+        position
+        for section in action_data["sections"]
+        for position in section["positions"]
+    ]
+
+    assert action_data["estimate_status"] == "source_backed"
+    assert action_data["pricing_status"] == "verified"
+    assert action_data["region"] == "Лениногорск, Татарстан"
+    assert "100" in f"{action_data['title']} {action_data['object_name']}"
+    assert len(action_data["sections"]) >= 3
+    assert len(positions) >= 6
+    assert all(not position["code"].startswith("AI-") for position in positions)
+    assert all(position["price_evidence"] for position in positions)
+    assert all(
+        record["url"].startswith("https://fgiscs.minstroyrf.ru/")
+        for position in positions
+        for record in position["price_evidence"]
+    )
+
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    testing_session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+    db = testing_session()
+    try:
+        created = DBStorage(db, "test:p7-gate").create_estimate(action_data)
+    finally:
+        db.close()
+        Base.metadata.drop_all(bind=engine)
+        engine.dispose()
+    created_positions = [
+        position
+        for section in created["sections"]
+        for position in section["positions"]
+    ]
+    assert created["estimate_status"] == "source_backed"
+    assert created["pricing_status"] == "verified"
+    assert len(created["sections"]) >= 3
+    assert len(created_positions) >= 6
+    assert all(position["price_evidence"] for position in created_positions)

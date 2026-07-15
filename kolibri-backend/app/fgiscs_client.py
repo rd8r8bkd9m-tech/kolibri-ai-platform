@@ -12,7 +12,7 @@ import asyncio
 from copy import deepcopy
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import hashlib
 import json
 import re
@@ -28,6 +28,7 @@ FGISCS_ORIGIN = "https://fgiscs.minstroyrf.ru"
 FGISCS_API = f"{FGISCS_ORIGIN}/api"
 PERIOD_RE = re.compile(r"(?P<quarter>[1-4])\s*квартал\s*(?P<year>20\d{2})", re.IGNORECASE)
 TOKEN_RE = re.compile(r"[a-zа-яё0-9]+", re.IGNORECASE)
+AREA_RE = re.compile(r"(?P<area>\d{1,4}(?:[.,]\d{1,2})?)\s*(?:м\s*[²2]|кв\.?\s*м)", re.IGNORECASE)
 MAX_POSITIONS_PER_REQUEST = 200
 # Fuzzy enrichment changes money, so it must behave like a strict resolver,
 # not a search suggestion.  Looser matches stay unpriced for human review.
@@ -72,6 +73,104 @@ class FgisResource:
     flag: str
 
 
+@dataclass(frozen=True)
+class FgisProfileRule:
+    key: str
+    section_title: str
+    required: tuple[str, ...]
+    optional: tuple[str, ...]
+    forbidden: tuple[str, ...]
+    unit_preferences: tuple[str, ...]
+    quantity_per_m2: Decimal
+
+
+MIN_SOURCE_BACKED_SECTIONS = 3
+MIN_SOURCE_BACKED_POSITIONS = 6
+SOURCE_BACKED_PROFILE_RULES = (
+    FgisProfileRule(
+        key="foundation_waterproofing",
+        section_title="Фундамент и основание",
+        required=("мастика",),
+        optional=("битум", "изоляц", "гидроизоляц"),
+        forbidden=(),
+        unit_preferences=("т",),
+        quantity_per_m2=Decimal("0.0025"),
+    ),
+    FgisProfileRule(
+        key="foundation_cement",
+        section_title="Фундамент и основание",
+        required=("цемент",),
+        optional=("портландцемент",),
+        forbidden=(),
+        unit_preferences=("т",),
+        quantity_per_m2=Decimal("0.12"),
+    ),
+    FgisProfileRule(
+        key="foundation_concrete",
+        section_title="Фундамент и основание",
+        required=("бетон",),
+        optional=("смес", "в15", "в20", "в25", "м200", "м250", "м300"),
+        forbidden=("асфальт",),
+        unit_preferences=("м3", "м³"),
+        quantity_per_m2=Decimal("0.25"),
+    ),
+    FgisProfileRule(
+        key="foundation_rebar",
+        section_title="Фундамент и основание",
+        required=("арматур",),
+        optional=("а500", "период", "сталь"),
+        forbidden=(),
+        unit_preferences=("т",),
+        quantity_per_m2=Decimal("0.018"),
+    ),
+    FgisProfileRule(
+        key="wall_brick",
+        section_title="Стены и перегородки",
+        required=("кирпич",),
+        optional=("керамич", "рядов", "полнотел", "м125"),
+        forbidden=(),
+        unit_preferences=("1000 шт", "тыс. шт", "шт"),
+        quantity_per_m2=Decimal("0.25"),
+    ),
+    FgisProfileRule(
+        key="wall_block",
+        section_title="Стены и перегородки",
+        required=("блок",),
+        optional=("газобет", "бетон", "стен"),
+        forbidden=(),
+        unit_preferences=("м3", "м³", "шт"),
+        quantity_per_m2=Decimal("0.42"),
+    ),
+    FgisProfileRule(
+        key="insulation_mineral_wool",
+        section_title="Теплоизоляция и защита",
+        required=("теплоизоляц",),
+        optional=("минераль", "ват", "плит"),
+        forbidden=(),
+        unit_preferences=("м3", "м³"),
+        quantity_per_m2=Decimal("0.30"),
+    ),
+    FgisProfileRule(
+        key="floor_sand",
+        section_title="Полы и подготовки",
+        required=("пес",),
+        optional=("строитель", "природ", "мытый"),
+        forbidden=(),
+        unit_preferences=("м3", "м³", "т"),
+        quantity_per_m2=Decimal("0.20"),
+    ),
+    FgisProfileRule(
+        key="floor_crushed_stone",
+        section_title="Полы и подготовки",
+        required=("щеб",),
+        optional=("фракц", "грав", "гранит"),
+        forbidden=(),
+        unit_preferences=("м3", "м³", "т"),
+        quantity_per_m2=Decimal("0.15"),
+    ),
+)
+
+
 class FgisCsClient:
     """Small async client for the public, fixed-origin FGIS CS API."""
 
@@ -89,6 +188,8 @@ class FgisCsClient:
         draft: Mapping[str, Any],
         *,
         observed_at: datetime | None = None,
+        request_text: str = "",
+        source_backed_required: bool = False,
     ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         """Replace only matched resource prices and return trusted evidence.
 
@@ -120,7 +221,7 @@ class FgisCsClient:
                 for position in (section.get("positions") or [])[:500]
                 if isinstance(position, dict)
             ][:MAX_POSITIONS_PER_REQUEST]
-            if not positions:
+            if not positions and not source_backed_required:
                 return enriched, []
 
             # Current means the newest period advertised by FGIS CS.  Never
@@ -155,6 +256,18 @@ class FgisCsClient:
                 f"Цена ФГИС ЦС: {period.name}, {region.price_zone_name}, без НДС.",
             )
             evidence.append(record)
+        if source_backed_required and not _source_backed_ready(sections, evidence):
+            profiled = self._source_backed_profile(
+                enriched,
+                catalog,
+                region=region,
+                project_region=region_text,
+                period=selected_period,
+                observed_at=timestamp,
+                request_text=request_text,
+            )
+            if profiled is not None:
+                enriched, evidence = profiled
         return enriched, evidence
 
     async def _resolve_region(
@@ -350,6 +463,85 @@ class FgisCsClient:
             "verification": verification,
         })
 
+    def _source_backed_profile(
+        self,
+        draft: Mapping[str, Any],
+        catalog: list[FgisResource],
+        *,
+        region: FgisRegion,
+        project_region: str,
+        period: FgisPeriod,
+        observed_at: datetime,
+        request_text: str,
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]] | None:
+        selected = _select_profile_resources(catalog)
+        if len(selected) < MIN_SOURCE_BACKED_POSITIONS:
+            return None
+        area = _extract_area(
+            " ".join(
+                str(value or "")
+                for value in (
+                    request_text,
+                    draft.get("title"),
+                    draft.get("object_name"),
+                )
+            )
+        )
+        if area <= 0:
+            return None
+
+        profiled = deepcopy(dict(draft))
+        section_order: list[str] = []
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        evidence: list[dict[str, Any]] = []
+        for rule, resource in selected:
+            quantity = _profile_quantity(area, rule)
+            position = {
+                "code": resource.code,
+                "name": resource.name,
+                "unit": resource.unit,
+                "quantity": _decimal_text(quantity),
+                "price": _decimal_text(resource.estimated_price),
+                "source": "",
+                "price_evidence": [],
+                "comment": (
+                    f"Объём рассчитан от площади {_decimal_text(area)} м²; "
+                    "цена взята из последнего опубликованного периода ФГИС ЦС."
+                ),
+            }
+            if rule.section_title not in grouped:
+                grouped[rule.section_title] = []
+                section_order.append(rule.section_title)
+            grouped[rule.section_title].append(position)
+            evidence.append(
+                self._evidence_record(
+                    position=position,
+                    resource=resource,
+                    region=region,
+                    project_region=project_region,
+                    period=period,
+                    observed_at=observed_at,
+                )
+            )
+
+        profiled["sections"] = [
+            {"title": title, "positions": grouped[title]}
+            for title in section_order
+            if grouped.get(title)
+        ]
+        assumptions = profiled.get("assumptions")
+        if not isinstance(assumptions, list):
+            assumptions = []
+        assumptions = [
+            *assumptions,
+            (
+                "Неподтверждённые исполнителем строки не включены в редактор; "
+                "показаны только ресурсы с актуальной региональной ценой ФГИС ЦС."
+            ),
+        ]
+        profiled["assumptions"] = assumptions
+        return (profiled, evidence) if _source_backed_ready(profiled["sections"], evidence) else None
+
     async def _get_json(
         self,
         client: httpx.AsyncClient,
@@ -448,6 +640,109 @@ def _kind_title(kind: str) -> str:
         "machine": "сметные цены эксплуатации машин и механизмов",
         "labor": "сметные цены затрат труда работников",
     }.get(kind, "сметные цены")
+
+
+def _source_backed_ready(sections: Any, evidence: list[dict[str, Any]]) -> bool:
+    if not isinstance(sections, list):
+        return False
+    evidence_codes = {
+        str(record.get("position_code") or "")
+        for record in evidence
+        if isinstance(record, Mapping)
+    }
+    section_count = 0
+    position_count = 0
+    for section in sections:
+        if not isinstance(section, Mapping):
+            continue
+        section_positions = [
+            position
+            for position in (section.get("positions") or [])
+            if isinstance(position, Mapping)
+        ]
+        evidenced = [
+            position
+            for position in section_positions
+            if str(position.get("code") or "") in evidence_codes
+            and _decimal(position.get("quantity")) > 0
+            and _decimal(position.get("price")) > 0
+        ]
+        if evidenced:
+            section_count += 1
+            position_count += len(evidenced)
+        if len(evidenced) != len(section_positions):
+            return False
+    return (
+        section_count >= MIN_SOURCE_BACKED_SECTIONS
+        and position_count >= MIN_SOURCE_BACKED_POSITIONS
+    )
+
+
+def _select_profile_resources(
+    catalog: list[FgisResource],
+) -> list[tuple[FgisProfileRule, FgisResource]]:
+    selected: list[tuple[FgisProfileRule, FgisResource]] = []
+    used_codes: set[str] = set()
+    for rule in SOURCE_BACKED_PROFILE_RULES:
+        candidates = [
+            resource
+            for resource in catalog
+            if resource.code not in used_codes and _resource_matches_rule(resource, rule)
+        ]
+        candidates.sort(key=lambda resource: _profile_score(resource, rule), reverse=True)
+        if not candidates:
+            continue
+        resource = candidates[0]
+        used_codes.add(resource.code)
+        selected.append((rule, resource))
+    section_count = len({rule.section_title for rule, _resource in selected})
+    if (
+        section_count < MIN_SOURCE_BACKED_SECTIONS
+        or len(selected) < MIN_SOURCE_BACKED_POSITIONS
+    ):
+        return []
+    return selected
+
+
+def _resource_matches_rule(resource: FgisResource, rule: FgisProfileRule) -> bool:
+    text = f"{resource.code} {resource.name}".casefold()
+    unit = _normalise_unit(resource.unit)
+    preferred_units = {_normalise_unit(value) for value in rule.unit_preferences}
+    if preferred_units and unit not in preferred_units:
+        return False
+    if any(term in text for term in rule.forbidden):
+        return False
+    if not all(term in text for term in rule.required):
+        return False
+    return True
+
+
+def _profile_score(resource: FgisResource, rule: FgisProfileRule) -> tuple[int, int, int]:
+    text = f"{resource.code} {resource.name}".casefold()
+    unit = _normalise_unit(resource.unit)
+    optional_hits = sum(1 for term in rule.optional if term in text)
+    try:
+        unit_rank = len(rule.unit_preferences) - [
+            _normalise_unit(value) for value in rule.unit_preferences
+        ].index(unit)
+    except ValueError:
+        unit_rank = 0
+    return optional_hits, unit_rank, -len(resource.name)
+
+
+def _profile_quantity(area: Decimal, rule: FgisProfileRule) -> Decimal:
+    quantity = (area * rule.quantity_per_m2).quantize(
+        Decimal("0.001"),
+        rounding=ROUND_HALF_UP,
+    )
+    return quantity if quantity > 0 else Decimal("0.001")
+
+
+def _extract_area(text: str) -> Decimal:
+    match = AREA_RE.search(text)
+    if not match:
+        return Decimal("0")
+    return _decimal(match.group("area"))
 
 
 def _name_score(expected: str, actual: str) -> Decimal:
