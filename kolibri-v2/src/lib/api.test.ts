@@ -460,6 +460,7 @@ describe('safe response stream', () => {
     const artifact = {
       id: '11111111-1111-4111-8111-111111111111',
       type: 'image',
+      revision: 1,
       title: 'Цветы',
       prompt: 'сгенерируй цветы',
       mime_type: 'image/png',
@@ -467,8 +468,13 @@ describe('safe response stream', () => {
       sha256: 'a'.repeat(64),
       model: 'codex-cli:account-default',
       created_at: '2026-07-14T10:00:00Z',
+      updated_at: '2026-07-14T10:00:01Z',
       url: '/api/v1/artifacts/images/11111111-1111-4111-8111-111111111111',
       download_url: '/api/v1/artifacts/images/11111111-1111-4111-8111-111111111111?download=true',
+      revision_url: '/api/v1/artifacts/11111111-1111-4111-8111-111111111111?revision=1',
+      revision_download_url: '/api/v1/artifacts/11111111-1111-4111-8111-111111111111?revision=1&download=true',
+      reopen_url: '/api/v1/artifacts/11111111-1111-4111-8111-111111111111/reopen',
+      history_url: '/api/v1/artifacts/11111111-1111-4111-8111-111111111111/history',
     }
     expect(normalizeStreamEvent({
       event: 'response.artifact.ready',

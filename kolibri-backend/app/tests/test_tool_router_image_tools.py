@@ -15,6 +15,9 @@ from app.main import app
 _PNG_1X1 = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
 )
+_PNG_1X1_EDITED = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"
+)
 
 
 @pytest.fixture
@@ -61,7 +64,7 @@ def test_image_generate_and_edit_flow_through_unified_router(
         )
         assert source == _PNG_1X1
         return image_artifacts._store_image(
-            _PNG_1X1,
+            _PNG_1X1_EDITED,
             prompt=request.prompt,
             model="codex-cli:account-default",
             source_artifact_id=str(manifest["id"]),
@@ -96,7 +99,11 @@ def test_image_generate_and_edit_flow_through_unified_router(
     revision = edited.json()["result"]["artifact"]
     assert revision["id"] != source["id"]
     assert revision["source_artifact_id"] == source["id"]
-    assert browser_client.get(revision["download_url"]).content == _PNG_1X1
+    assert revision["sha256"] != source["sha256"]
+    assert browser_client.get(revision["download_url"]).content == _PNG_1X1_EDITED
+    reopened = browser_client.get(revision["reopen_url"])
+    assert reopened.status_code == 200
+    assert reopened.json()["integrity"]["digest"] == revision["sha256"]
     assert capability_by_id("image.edit")["status"] == "available"
 
 

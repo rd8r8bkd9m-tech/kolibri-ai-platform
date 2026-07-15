@@ -394,6 +394,7 @@ def test_verified_artifact_metadata_survives_reload_without_duplicate_assistant(
     artifact = {
         "id": artifact_id,
         "type": "image",
+        "revision": 1,
         "title": "Цветы",
         "prompt": "Букет полевых цветов",
         "mime_type": "image/png",
@@ -401,8 +402,13 @@ def test_verified_artifact_metadata_survives_reload_without_duplicate_assistant(
         "sha256": "a" * 64,
         "model": "gpt-image-1",
         "created_at": "2026-07-13T13:00:00Z",
+        "updated_at": "2026-07-13T13:00:01Z",
         "url": f"/api/v1/artifacts/images/{artifact_id}",
         "download_url": f"/api/v1/artifacts/images/{artifact_id}?download=true",
+        "revision_url": f"/api/v1/artifacts/{artifact_id}?revision=1",
+        "revision_download_url": f"/api/v1/artifacts/{artifact_id}?revision=1&download=true",
+        "reopen_url": f"/api/v1/artifacts/{artifact_id}/reopen",
+        "history_url": f"/api/v1/artifacts/{artifact_id}/history",
     }
     completed = client.patch(
         f"/api/v1/projects/{project['id']}/messages/{placeholder['id']}",
@@ -431,6 +437,7 @@ def test_verified_artifact_metadata_survives_reload_without_duplicate_assistant(
     assert assistants[0]["id"] == placeholder["id"]
     assert assistants[0]["status"] == "completed"
     assert assistants[0]["metadata"]["artifact"]["url"] == artifact["url"]
+    assert assistants[0]["metadata"]["artifact"]["reopen_url"] == artifact["reopen_url"]
     assert assistants[0]["metadata"]["artifact"]["sha256"] == artifact["sha256"]
 
 

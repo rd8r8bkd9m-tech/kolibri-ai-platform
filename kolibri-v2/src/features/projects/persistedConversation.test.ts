@@ -11,6 +11,7 @@ import {
 const image: ImageArtifact = {
   id: '11111111-1111-4111-8111-111111111111',
   type: 'image',
+  revision: 1,
   title: 'Цветы',
   prompt: 'Букет полевых цветов',
   mime_type: 'image/png',
@@ -18,8 +19,13 @@ const image: ImageArtifact = {
   sha256: 'a'.repeat(64),
   model: 'gpt-image-1',
   created_at: '2026-07-13T13:00:00Z',
+  updated_at: '2026-07-13T13:00:01Z',
   url: '/api/v1/artifacts/images/11111111-1111-4111-8111-111111111111',
   download_url: '/api/v1/artifacts/images/11111111-1111-4111-8111-111111111111?download=true',
+  revision_url: '/api/v1/artifacts/11111111-1111-4111-8111-111111111111?revision=1',
+  revision_download_url: '/api/v1/artifacts/11111111-1111-4111-8111-111111111111?revision=1&download=true',
+  reopen_url: '/api/v1/artifacts/11111111-1111-4111-8111-111111111111/reopen',
+  history_url: '/api/v1/artifacts/11111111-1111-4111-8111-111111111111/history',
 }
 
 const estimate: Estimate = {
@@ -125,7 +131,13 @@ describe('persisted conversation artifacts', () => {
     expect(restored.actions).toEqual([])
     expect(restored.artifact).toMatchObject({
       type: 'image',
-      value: { url: image.url, download_url: image.download_url, sha256: image.sha256 },
+      value: {
+        url: image.url,
+        download_url: image.download_url,
+        revision_url: image.revision_url,
+        reopen_url: image.reopen_url,
+        sha256: image.sha256,
+      },
     })
     const hydrated = await hydratePersistedArtifact(restored.artifact!, {
       estimate: vi.fn(),

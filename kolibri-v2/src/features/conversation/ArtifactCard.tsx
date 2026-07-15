@@ -179,7 +179,16 @@ function ImageCard({ image, onOpen, onRetry }: { image: ImageArtifact; onOpen: (
 
   return (
     <>
-      <section className="artifact-card image-artifact" aria-label={image.title}>
+      <section
+        className="artifact-card image-artifact"
+        aria-label={image.title}
+        data-artifact-kind="image"
+        data-artifact-id={image.id}
+        data-artifact-sha256={image.sha256}
+        data-artifact-revision={image.revision}
+        data-artifact-reopen-url={image.reopen_url}
+        data-artifact-download-url={image.download_url}
+      >
         <header className="artifact-card-header">
           <div>
             <span className="artifact-kicker">Изображение</span>
@@ -192,9 +201,9 @@ function ImageCard({ image, onOpen, onRetry }: { image: ImageArtifact; onOpen: (
           <img src={image.object_url} alt={image.prompt} loading="eager" />
         </button>
         <footer className="artifact-actions image-artifact-actions">
-          <button type="button" onClick={onOpen}><ExternalLink size={18} />Открыть</button>
+          <button type="button" data-artifact-open onClick={onOpen}><ExternalLink size={18} />Открыть</button>
           <button ref={fullscreenButtonRef} type="button" onClick={() => setFullscreen(true)}><Maximize2 size={18} />На весь экран</button>
-          <a href={image.object_url} download={fileName}><Download size={18} />Скачать</a>
+          <a href={image.download_url} download={fileName} data-artifact-download><Download size={18} />Скачать</a>
           {onRetry && <button type="button" onClick={onRetry}><RotateCw size={18} />Повторить</button>}
         </footer>
       </section>
@@ -208,7 +217,7 @@ function ImageCard({ image, onOpen, onRetry }: { image: ImageArtifact; onOpen: (
         >
           <header>
             <div><strong>{image.title}</strong><span>{imageSize(image.size_bytes)} · байты проверены</span></div>
-            <a href={image.object_url} download={fileName}><Download size={20} /><span>Скачать</span></a>
+            <a href={image.download_url} download={fileName} data-artifact-download><Download size={20} /><span>Скачать</span></a>
             <button ref={closeButtonRef} type="button" aria-label="Закрыть полноэкранный просмотр" onClick={closeFullscreen}><X size={24} /></button>
           </header>
           <img src={image.object_url} alt={image.prompt} />

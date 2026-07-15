@@ -15,6 +15,9 @@ from app.main import app
 _PNG_1X1 = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
 )
+_PNG_1X1_EDITED = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"
+)
 
 
 @pytest.fixture(autouse=True)
@@ -196,6 +199,9 @@ def test_image_generation_persists_and_serves_verified_bytes(monkeypatch, tmp_pa
         assert created.status_code == 201
         artifact = created.json()
         content = client.get(artifact["url"])
+        download = client.get(artifact["download_url"])
+        reopen = client.get(artifact["reopen_url"])
+        history = client.get(artifact["history_url"])
         capability = next(
             item
             for item in client.get("/api/v1/capabilities").json()["capabilities"]
@@ -204,14 +210,33 @@ def test_image_generation_persists_and_serves_verified_bytes(monkeypatch, tmp_pa
 
     assert artifact["type"] == "image"
     assert artifact["model"] == "kolibri"
+    assert artifact["revision"] == 1
     assert artifact["mime_type"] == "image/png"
     assert artifact["size_bytes"] == len(_PNG_1X1)
     assert len(artifact["sha256"]) == 64
+    assert artifact["revision_url"] == f"/api/v1/artifacts/{artifact['id']}?revision=1"
+    assert artifact["revision_download_url"] == f"/api/v1/artifacts/{artifact['id']}?revision=1&download=true"
+    assert artifact["reopen_url"] == f"/api/v1/artifacts/{artifact['id']}/reopen"
+    assert artifact["history_url"] == f"/api/v1/artifacts/{artifact['id']}/history"
     assert "b64_json" not in artifact
     assert content.status_code == 200
     assert content.headers["content-type"] == "image/png"
     assert content.content == _PNG_1X1
     assert content.headers["etag"] == f'"{artifact["sha256"]}"'
+    assert download.status_code == 200
+    assert download.content == _PNG_1X1
+    assert "attachment" in download.headers["content-disposition"]
+    assert reopen.status_code == 200
+    assert reopen.json()["artifact"]["id"] == artifact["id"]
+    assert reopen.json()["artifact"]["metadata"] == {
+        "prompt": artifact["prompt"],
+        "width": 1,
+        "height": 1,
+    }
+    assert reopen.json()["integrity"]["digest"] == artifact["sha256"]
+    assert history.status_code == 200
+    assert history.json()["total"] == 1
+    assert history.json()["items"][0]["id"] == artifact["id"]
     assert capability["status"] == "available"
     assert capability["invocable"] is True
     probe = capability_runtime.capability_invocation_probe("image.generate")
@@ -504,11 +529,11 @@ def test_image_edit_reads_verified_source_and_persists_new_revision(monkeypatch,
         assert prompt == "Сделай фон тёплым"
         assert source_image == _PNG_1X1
         return codex_cli_image_provider.CodexCLIImageResult(
-            data=_PNG_1X1,
+            data=_PNG_1X1_EDITED,
             mime_type="image/png",
             width=1,
             height=1,
-            sha256=image_artifacts.hashlib.sha256(_PNG_1X1).hexdigest(),
+            sha256=image_artifacts.hashlib.sha256(_PNG_1X1_EDITED).hexdigest(),
             model="codex-cli:account-default",
         )
 
@@ -525,9 +550,58 @@ def test_image_edit_reads_verified_source_and_persists_new_revision(monkeypatch,
 
     assert edited["id"] != source["id"]
     assert edited["source_artifact_id"] == source["id"]
-    assert edited["sha256"] == source["sha256"]
+    assert edited["sha256"] != source["sha256"]
+    assert image_artifacts.get_artifact_store().open(edited["id"]).content == _PNG_1X1_EDITED
     assert image_artifacts.verify_image_artifact(edited) == edited
     assert capability_runtime.capability_by_id("image.edit")["status"] == "available"
+
+
+def test_image_edit_rejects_unchanged_provider_bytes(monkeypatch, tmp_path):
+    monkeypatch.setenv("CODEX_CLI_IMAGE_ENABLED", "true")
+    monkeypatch.setenv("KOLIBRI_ARTIFACT_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        image_artifacts,
+        "_codex_cli_route",
+        lambda: {
+            "configured": True,
+            "provider": "codex_cli",
+            "model": "codex-cli:account-default",
+        },
+    )
+    scope_id = "test:image-edit-owner"
+    source = image_artifacts._store_image(
+        _PNG_1X1,
+        prompt="source",
+        model="codex-cli:account-default",
+        scope_id=scope_id,
+    )
+
+    async def fake_unchanged_edit(prompt, source_image, *, size, quality, run_id=None):
+        return codex_cli_image_provider.CodexCLIImageResult(
+            data=source_image,
+            mime_type="image/png",
+            width=1,
+            height=1,
+            sha256=image_artifacts.hashlib.sha256(source_image).hexdigest(),
+            model="codex-cli:account-default",
+        )
+
+    monkeypatch.setattr(codex_cli_image_provider, "edit_codex_cli_image", fake_unchanged_edit)
+
+    with pytest.raises(image_artifacts.ImageGenerationFailed, match="unchanged bytes"):
+        asyncio.run(
+            image_artifacts.edit_image(
+                image_artifacts.ImageEditRequest(
+                    source_artifact_id=source["id"],
+                    prompt="Сделай фон тёплым",
+                ),
+                scope_id=scope_id,
+            )
+        )
+
+    probe = capability_runtime.capability_invocation_probe("image.edit")
+    assert probe.state.value == "failed"
+    assert probe.error_code == "image_edit_unchanged"
 
 
 def test_loopback_codex_worker_preserves_backend_sandbox(monkeypatch, tmp_path):
@@ -1085,9 +1159,14 @@ def test_all_public_image_surfaces_use_kolibri_identity(monkeypatch, tmp_path):
 
     async def upstream(request: httpx.Request) -> httpx.Response:
         assert request.url.path.endswith(("/images/generations", "/images/edits"))
+        image_bytes = (
+            _PNG_1X1_EDITED
+            if request.url.path.endswith("/images/edits")
+            else _PNG_1X1
+        )
         return httpx.Response(
             200,
-            json={"data": [{"b64_json": base64.b64encode(_PNG_1X1).decode()}]},
+            json={"data": [{"b64_json": base64.b64encode(image_bytes).decode()}]},
         )
 
     transport = httpx.MockTransport(upstream)

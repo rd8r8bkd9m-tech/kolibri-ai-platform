@@ -27,6 +27,8 @@ stores prompts, credentials, provider output or artifact bytes.
 - `document.docx`;
 - `document.xlsx`;
 - `document.pptx`;
+- `image.generate`;
+- `image.edit`;
 - `site.create`;
 - `app.create`.
 

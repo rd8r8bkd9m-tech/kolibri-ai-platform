@@ -82,6 +82,7 @@ async function decodeRaster(blob: Blob): Promise<void> {
 export function normalizeImageArtifact(data: Record<string, unknown>): ImageArtifact {
   const id = String(data.id || '')
   const type = String(data.type || '')
+  const revision = Number(data.revision)
   const title = String(data.title || '')
   const prompt = String(data.prompt || '')
   const mimeType = String(data.mime_type || '') as ImageArtifact['mime_type']
@@ -89,11 +90,19 @@ export function normalizeImageArtifact(data: Record<string, unknown>): ImageArti
   const sha256 = String(data.sha256 || '')
   const model = String(data.model || '')
   const createdAt = String(data.created_at || '')
+  const updatedAt = String(data.updated_at || '')
   const expectedUrl = `/api/v1/artifacts/images/${id}`
   const expectedDownloadUrl = `${expectedUrl}?download=true`
+  const expectedRevisionUrl = `/api/v1/artifacts/${id}?revision=${revision}`
+  const expectedRevisionDownloadUrl = `${expectedRevisionUrl}&download=true`
+  const expectedReopenUrl = `/api/v1/artifacts/${id}/reopen`
+  const expectedHistoryUrl = `/api/v1/artifacts/${id}/history`
+  const sourceArtifactId = typeof data.source_artifact_id === 'string' ? data.source_artifact_id : undefined
 
   if (!UUID.test(id)
     || type !== 'image'
+    || !Number.isSafeInteger(revision)
+    || revision <= 0
     || !title.trim()
     || !prompt.trim()
     || !IMAGE_MIME_TYPES.has(mimeType)
@@ -103,14 +112,22 @@ export function normalizeImageArtifact(data: Record<string, unknown>): ImageArti
     || !model.trim()
     || !createdAt
     || Number.isNaN(Date.parse(createdAt))
+    || !updatedAt
+    || Number.isNaN(Date.parse(updatedAt))
     || data.url !== expectedUrl
-    || data.download_url !== expectedDownloadUrl) {
+    || data.download_url !== expectedDownloadUrl
+    || data.revision_url !== expectedRevisionUrl
+    || data.revision_download_url !== expectedRevisionDownloadUrl
+    || data.reopen_url !== expectedReopenUrl
+    || data.history_url !== expectedHistoryUrl
+    || (sourceArtifactId !== undefined && !UUID.test(sourceArtifactId))) {
     throw new Error('Image action does not contain a verified artifact contract')
   }
 
   return {
     id,
     type: 'image',
+    revision,
     title,
     prompt,
     mime_type: mimeType,
@@ -118,8 +135,14 @@ export function normalizeImageArtifact(data: Record<string, unknown>): ImageArti
     sha256,
     model,
     created_at: createdAt,
+    updated_at: updatedAt,
     url: expectedUrl,
     download_url: expectedDownloadUrl,
+    revision_url: expectedRevisionUrl,
+    revision_download_url: expectedRevisionDownloadUrl,
+    reopen_url: expectedReopenUrl,
+    history_url: expectedHistoryUrl,
+    ...(sourceArtifactId ? { source_artifact_id: sourceArtifactId } : {}),
   }
 }
 
@@ -139,10 +162,9 @@ export function safeContentBeforeImageVerification(content: string, imageExpecte
 }
 
 /**
- * Fetches the canonical same-origin artifact and fails closed unless the
- * response is the exact attested raster. The card receives an object URL made
- * from those verified bytes, so preview/open/download never depend on prose or
- * an unchecked second request.
+ * Fetches the canonical immutable revision and fails closed unless the
+ * response is the exact attested raster. Reopen is checked against the same
+ * revision/digest before the card receives a URL made from verified bytes.
  */
 export async function verifyImageArtifact(
   value: Record<string, unknown> | ImageArtifact,
@@ -152,7 +174,8 @@ export async function verifyImageArtifact(
   const token = getAuthToken()
   const headers: Record<string, string> = { Accept: artifact.mime_type }
   if (token) headers.Authorization = `Bearer ${token}`
-  const response = await (options.fetchImpl ?? fetch)(artifact.url, {
+  const fetchImpl = options.fetchImpl ?? fetch
+  const response = await fetchImpl(artifact.revision_url, {
     method: 'GET',
     headers,
     credentials: 'include',
@@ -172,6 +195,30 @@ export async function verifyImageArtifact(
 
   const blob = new Blob([bytes], { type: artifact.mime_type })
   await (options.decode ?? decodeRaster)(blob)
+  const reopen = await fetchImpl(artifact.reopen_url, {
+    method: 'GET',
+    headers: token ? { Authorization: `Bearer ${token}`, Accept: 'application/json' } : { Accept: 'application/json' },
+    credentials: 'include',
+    cache: 'no-store',
+    signal: options.signal,
+  })
+  if (!reopen.ok) throw new Error(`Image artifact reopen returned HTTP ${reopen.status}`)
+  const reopened = await reopen.json() as Record<string, unknown>
+  const reopenedArtifact = reopened.artifact && typeof reopened.artifact === 'object' && !Array.isArray(reopened.artifact)
+    ? reopened.artifact as Record<string, unknown>
+    : null
+  const integrity = reopened.integrity && typeof reopened.integrity === 'object' && !Array.isArray(reopened.integrity)
+    ? reopened.integrity as Record<string, unknown>
+    : null
+  if (Number(reopened.revision) !== artifact.revision
+    || reopened.content_url !== artifact.revision_url
+    || reopened.download_url !== artifact.revision_download_url
+    || integrity?.digest !== artifact.sha256
+    || integrity?.algorithm !== 'sha256'
+    || reopenedArtifact?.id !== artifact.id
+    || reopenedArtifact?.type !== 'image') {
+    throw new Error('Image artifact reopen is not bound to the verified bytes')
+  }
   const createObjectURL = options.createObjectURL ?? URL.createObjectURL.bind(URL)
   const objectUrl = createObjectURL(blob)
   if (!objectUrl) throw new Error('Verified image URL could not be created')

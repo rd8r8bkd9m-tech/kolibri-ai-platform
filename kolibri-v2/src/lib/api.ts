@@ -265,6 +265,7 @@ export interface Document {
 export interface ImageArtifact {
   id: string
   type: 'image'
+  revision: number
   title: string
   prompt: string
   mime_type: 'image/png' | 'image/jpeg' | 'image/webp'
@@ -272,8 +273,14 @@ export interface ImageArtifact {
   sha256: string
   model: string
   created_at: string
+  updated_at: string
   url: string
   download_url: string
+  revision_url: string
+  revision_download_url: string
+  reopen_url: string
+  history_url: string
+  source_artifact_id?: string
 }
 
 export interface FileArtifact {

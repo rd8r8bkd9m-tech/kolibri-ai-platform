@@ -25,6 +25,9 @@ from app.codex_cli_provider import CodexCLISettings
 _PNG_1X1 = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
 )
+_PNG_1X1_EDITED = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"
+)
 
 
 def _fake_codex(tmp_path: Path, body: str) -> Path:
@@ -148,7 +151,7 @@ def test_edit_materializes_verified_new_image_from_host_bound_source(tmp_path):
         generated = os.path.join(os.environ['CODEX_HOME'], 'generated_images', 'edited.png')
         os.makedirs(os.path.dirname(generated), exist_ok=True)
         with open(generated, 'wb') as handle:
-            handle.write(bytes.fromhex({_PNG_1X1.hex()!r}))
+            handle.write(bytes.fromhex({_PNG_1X1_EDITED.hex()!r}))
         with open({str(capture)!r}, 'w', encoding='utf-8') as handle:
             json.dump({{'prompt': prompt, 'source_sha256': __import__('hashlib').sha256(source_bytes).hexdigest(), 'source': source}}, handle)
         print(json.dumps({{'type':'item.completed','item':{{'type':'agent_message','text':generated}}}}), flush=True)
@@ -165,7 +168,8 @@ def test_edit_materializes_verified_new_image_from_host_bound_source(tmp_path):
     )
     captured = json.loads(capture.read_text(encoding="utf-8"))
 
-    assert result.data == _PNG_1X1
+    assert result.data == _PNG_1X1_EDITED
+    assert result.sha256 != hashlib.sha256(_PNG_1X1).hexdigest()
     assert captured["source_sha256"] == hashlib.sha256(_PNG_1X1).hexdigest()
     assert "referenced_image_path" in captured["prompt"]
     assert "Сделай фон тёплым" in captured["prompt"]

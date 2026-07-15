@@ -500,6 +500,7 @@ def _store_image(
     artifact = {
         "id": stored["id"],
         "type": "image",
+        "revision": stored["revision"],
         "title": "Сгенерированное изображение",
         "prompt": prompt,
         "mime_type": mime_type,
@@ -507,8 +508,13 @@ def _store_image(
         "sha256": stored["sha256"],
         "model": model,
         "created_at": stored["created_at"],
+        "updated_at": stored["updated_at"],
         "url": stored["url"],
         "download_url": stored["download_url"],
+        "revision_url": stored["revision_url"],
+        "revision_download_url": stored["revision_download_url"],
+        "reopen_url": stored["reopen_url"],
+        "history_url": stored["history_url"],
         **(
             {"source_artifact_id": source_artifact_id}
             if source_artifact_id is not None
@@ -521,14 +527,20 @@ def _store_image(
 _PUBLIC_IMAGE_ARTIFACT_FIELDS = (
     "id",
     "type",
+    "revision",
     "title",
     "prompt",
     "mime_type",
     "size_bytes",
     "sha256",
     "created_at",
+    "updated_at",
     "url",
     "download_url",
+    "revision_url",
+    "revision_download_url",
+    "reopen_url",
+    "history_url",
     "source_artifact_id",
 )
 
@@ -902,6 +914,20 @@ async def edit_image(
             model=str(route["model"]),
         )
         raise ImageGenerationFailed("The configured image provider returned no bytes.")
+    edited_digest = hashlib.sha256(image_bytes).hexdigest()
+    if edited_digest == source_manifest.get("sha256"):
+        _last_probe_failure = datetime.now(timezone.utc).isoformat()
+        _last_verified_release_id = _runtime_release_id()
+        from app.capability_runtime import try_record_capability_invocation
+
+        try_record_capability_invocation(
+            "image.edit",
+            succeeded=False,
+            error_code="image_edit_unchanged",
+            provider=str(route["provider"]),
+            model=str(route["model"]),
+        )
+        raise ImageGenerationFailed("The image edit returned unchanged bytes.")
     artifact = _store_image(
         image_bytes,
         prompt=request.prompt,
@@ -951,9 +977,15 @@ def _metadata(artifact_id: str) -> dict[str, Any]:
             "size_bytes": stored.get("size_bytes"),
             "sha256": stored.get("sha256"),
             "model": internal.get("model") or "",
+            "revision": stored.get("revision"),
             "created_at": stored.get("created_at"),
+            "updated_at": stored.get("updated_at"),
             "url": stored.get("url"),
             "download_url": stored.get("download_url"),
+            "revision_url": stored.get("revision_url"),
+            "revision_download_url": stored.get("revision_download_url"),
+            "reopen_url": stored.get("reopen_url"),
+            "history_url": stored.get("history_url"),
             **(
                 {"source_artifact_id": internal.get("source_artifact_id")}
                 if internal.get("source_artifact_id")
@@ -1012,10 +1044,21 @@ def verify_image_artifact(artifact: dict[str, Any]) -> dict[str, Any]:
         raise ImageGenerationFailed("Image artifact identifier is invalid.") from exc
     expected_url = f"/api/v1/artifacts/images/{normalized_id}"
     expected_download_url = f"{expected_url}?download=true"
+    revision = artifact.get("revision")
+    if not isinstance(revision, int) or isinstance(revision, bool) or revision <= 0:
+        raise ImageGenerationFailed("Image artifact revision is invalid.")
+    expected_revision_url = f"/api/v1/artifacts/{normalized_id}?revision={revision}"
+    expected_revision_download_url = f"{expected_revision_url}&download=true"
+    expected_reopen_url = f"/api/v1/artifacts/{normalized_id}/reopen"
+    expected_history_url = f"/api/v1/artifacts/{normalized_id}/history"
     if (
         artifact.get("type") != "image"
         or artifact.get("url") != expected_url
         or artifact.get("download_url") != expected_download_url
+        or artifact.get("revision_url") != expected_revision_url
+        or artifact.get("revision_download_url") != expected_revision_download_url
+        or artifact.get("reopen_url") != expected_reopen_url
+        or artifact.get("history_url") != expected_history_url
     ):
         raise ImageGenerationFailed("Image artifact retrieval contract is invalid.")
 
@@ -1050,7 +1093,20 @@ def verify_image_artifact(artifact: dict[str, Any]) -> dict[str, Any]:
     size_bytes = len(content)
     if metadata.get("_storage") != "unified" and filename != expected_filename:
         raise ImageGenerationFailed("Image artifact filename does not match its identifier.")
-    for key in ("id", "type", "mime_type", "size_bytes", "sha256", "url", "download_url"):
+    for key in (
+        "id",
+        "type",
+        "revision",
+        "mime_type",
+        "size_bytes",
+        "sha256",
+        "url",
+        "download_url",
+        "revision_url",
+        "revision_download_url",
+        "reopen_url",
+        "history_url",
+    ):
         if artifact.get(key) != metadata.get(key):
             raise ImageGenerationFailed(f"Image artifact field {key!r} is inconsistent.")
     if (

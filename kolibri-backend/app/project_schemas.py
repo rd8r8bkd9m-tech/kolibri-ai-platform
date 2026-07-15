@@ -274,6 +274,7 @@ class PersistedDocumentDraft(_StrictMetadataModel):
 class PersistedImageArtifact(_StrictMetadataModel):
     id: str = Field(pattern=UUID_PATTERN)
     type: Literal["image"]
+    revision: int = Field(ge=1, le=1_000_000)
     title: str = Field(min_length=1, max_length=240)
     prompt: str = Field(min_length=1, max_length=20_000)
     mime_type: Literal["image/png", "image/jpeg", "image/webp"]
@@ -281,18 +282,34 @@ class PersistedImageArtifact(_StrictMetadataModel):
     sha256: str = Field(pattern=SHA256_PATTERN)
     model: str = Field(min_length=1, max_length=120)
     created_at: str = Field(min_length=1, max_length=64)
+    updated_at: str = Field(min_length=1, max_length=64)
     url: str = Field(min_length=1, max_length=240)
     download_url: str = Field(min_length=1, max_length=280)
+    revision_url: str = Field(min_length=1, max_length=280)
+    revision_download_url: str = Field(min_length=1, max_length=320)
+    reopen_url: str = Field(min_length=1, max_length=280)
+    history_url: str = Field(min_length=1, max_length=280)
+    source_artifact_id: str | None = Field(default=None, pattern=UUID_PATTERN)
 
     @model_validator(mode="after")
     def verify_retrieval_contract(self):
         expected_url = f"/api/v1/artifacts/images/{self.id}"
-        if self.url != expected_url or self.download_url != f"{expected_url}?download=true":
+        canonical = f"/api/v1/artifacts/{self.id}"
+        revision_url = f"{canonical}?revision={self.revision}"
+        if (
+            self.url != expected_url
+            or self.download_url != f"{expected_url}?download=true"
+            or self.revision_url != revision_url
+            or self.revision_download_url != f"{revision_url}&download=true"
+            or self.reopen_url != f"{canonical}/reopen"
+            or self.history_url != f"{canonical}/history"
+        ):
             raise ValueError("image artifact retrieval contract is invalid")
-        try:
-            datetime.fromisoformat(self.created_at.replace("Z", "+00:00"))
-        except ValueError as exc:
-            raise ValueError("image artifact timestamp is invalid") from exc
+        for timestamp in (self.created_at, self.updated_at):
+            try:
+                datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise ValueError("image artifact timestamp is invalid") from exc
         return self
 
 
