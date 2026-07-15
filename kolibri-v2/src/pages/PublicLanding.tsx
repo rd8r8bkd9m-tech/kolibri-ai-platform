@@ -1,8 +1,8 @@
 import { useState, type FormEvent } from 'react'
 import { ArrowRight, CheckCircle2, FileText, MessageSquareText } from 'lucide-react'
 import { Link, useNavigate } from 'react-router'
-import CartoonMascot from '@/components/CartoonMascot'
 import { useLocale } from '@/features/localization'
+import PublicPortalFrame from '@/features/portal/PublicPortalFrame'
 
 export default function PublicLanding() {
   const { t } = useLocale()
@@ -16,24 +16,7 @@ export default function PublicLanding() {
   }
 
   return (
-    <div className="public-landing">
-      <header className="public-landing-header">
-        <Link className="public-brand" to="/" aria-label="Kolibri">
-          <CartoonMascot size={38} />
-          <span>Kolibri</span>
-        </Link>
-        <nav className="public-navigation" aria-label={t('landing.navigation')}>
-          <a href="#product">{t('landing.product')}</a>
-          <Link to="/developers">{t('landing.developers')}</Link>
-          <Link to="/docs">{t('landing.docs')}</Link>
-        </nav>
-        <div className="public-header-actions">
-          <Link className="public-text-link" to="/login">{t('landing.signIn')}</Link>
-          <Link className="public-primary-link" to="/app">{t('landing.open')}</Link>
-        </div>
-      </header>
-
-      <main>
+    <PublicPortalFrame>
         <section className="public-hero" aria-labelledby="landing-title">
           <p className="public-hero-eyebrow">Kolibri AI OS</p>
           <h1 id="landing-title">{t('landing.title')}</h1>
@@ -54,6 +37,9 @@ export default function PublicLanding() {
             </button>
           </form>
           <p className="public-prompt-note">{t('landing.promptNote')}</p>
+          <a className="public-secondary-action" href="#how">
+            Как это работает <ArrowRight size={17} aria-hidden="true" />
+          </a>
         </section>
 
         <section className="public-product" id="product" aria-labelledby="product-title">
@@ -79,15 +65,38 @@ export default function PublicLanding() {
             </article>
           </div>
         </section>
-      </main>
 
-      <footer className="public-footer">
-        <span>© 2026 Kolibri AI</span>
-        <div>
-          <Link to="/docs">{t('landing.docs')}</Link>
-          <Link to="/developers">API</Link>
-        </div>
-      </footer>
-    </div>
+        <section className="public-how" id="how" aria-labelledby="public-how-title">
+          <div className="public-product-heading">
+            <p>Как работает</p>
+            <h2 id="public-how-title">Один понятный путь внутри проекта</h2>
+          </div>
+          <ol>
+            <li><span>1</span><div><h3>Опишите результат</h3><p>Начните обычной фразой или продолжите сохранённый проект.</p></div></li>
+            <li><span>2</span><div><h3>Следите за ходом работы</h3><p>Kolibri показывает реальные этапы, источники и запросы на уточнение.</p></div></li>
+            <li><span>3</span><div><h3>Получите сохраняемый результат</h3><p>Готовые материалы остаются в проекте и открываются после перезагрузки.</p></div></li>
+          </ol>
+        </section>
+
+        <section className="public-trust" aria-labelledby="public-trust-title">
+          <div>
+            <p className="public-hero-eyebrow">Контроль</p>
+            <h2 id="public-trust-title">Только готовые к работе возможности</h2>
+            <p>Неподтверждённый инструмент не появляется в интерфейсе, а созданный файл проходит проверку байтов и повторного открытия.</p>
+          </div>
+          <Link className="public-secondary-link" to="/security">Как устроена безопасность <ArrowRight aria-hidden="true" /></Link>
+        </section>
+
+        <section className="public-final-cta" aria-labelledby="public-final-title">
+          <div>
+            <p className="public-hero-eyebrow">Kolibri AI</p>
+            <h2 id="public-final-title">Начните с одной задачи</h2>
+            <p>Новый проект откроется в защищённом рабочем пространстве.</p>
+          </div>
+          <Link className="public-primary-link" to="/app">
+            Открыть Kolibri <ArrowRight aria-hidden="true" />
+          </Link>
+        </section>
+    </PublicPortalFrame>
   )
 }

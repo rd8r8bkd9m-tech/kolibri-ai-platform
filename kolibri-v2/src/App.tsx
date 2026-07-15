@@ -8,8 +8,10 @@ import { useLocale } from '@/features/localization'
 import ReleaseUpdateController from '@/features/shell/ReleaseUpdateController'
 import ProtectedOwnerRoute from '@/features/auth/ProtectedOwnerRoute'
 import ShellBootstrapBoundary from '@/features/auth/ShellBootstrapBoundary'
+import PortalMetadata from '@/features/portal/PortalMetadata'
 
 const PublicLanding = lazy(() => import('./pages/PublicLanding'))
+const PublicInfoPage = lazy(() => import('./pages/PublicInfoPage'))
 const ChatPage = lazy(() => import('./pages/ChatPage'))
 const LibraryPage = lazy(() => import('./pages/LibraryPage'))
 const EstimatesPage = lazy(() => import('./pages/EstimatesPage'))
@@ -42,12 +44,17 @@ export default function App() {
   return (
     <>
       <ReleaseUpdateController />
+      <PortalMetadata />
       {checking ? (
         <div className="flex items-center justify-center h-[100dvh] text-[var(--text-tertiary)]">{t('app.loading')}</div>
       ) : (
         <Suspense fallback={<div className="flex items-center justify-center h-[100dvh] text-[var(--text-tertiary)]">{t('app.loading')}</div>}>
           <Routes>
             <Route index element={<ErrorBoundary><PublicLanding /></ErrorBoundary>} />
+            <Route path="pricing" element={<ErrorBoundary><PublicInfoPage kind="pricing" /></ErrorBoundary>} />
+            <Route path="security" element={<ErrorBoundary><PublicInfoPage kind="security" /></ErrorBoundary>} />
+            <Route path="privacy" element={<ErrorBoundary><PublicInfoPage kind="privacy" /></ErrorBoundary>} />
+            <Route path="terms" element={<ErrorBoundary><PublicInfoPage kind="terms" /></ErrorBoundary>} />
             <Route path="login" element={<LoginPage onLogin={setUser} />} />
             <Route element={<ShellBootstrapBoundary />}>
               <Route element={<ErrorBoundary><Layout user={user} /></ErrorBoundary>}>
