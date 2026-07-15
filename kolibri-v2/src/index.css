@@ -1899,6 +1899,10 @@ a:hover .kolibri-mascot {
   margin-top: 16px;
 }
 
+.conversation-action-group {
+  width: min(100%, 680px);
+}
+
 .conversation-action-button {
   display: inline-flex;
   min-height: 44px;
@@ -1916,6 +1920,48 @@ a:hover .kolibri-mascot {
 .conversation-action-button:disabled {
   cursor: wait;
   opacity: 0.58;
+}
+
+.estimate-clarification-card {
+  display: grid;
+  gap: 16px;
+  margin-top: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  padding: 18px;
+  background: var(--bg-secondary);
+}
+
+.estimate-clarification-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.estimate-clarification-heading strong { font-size: 16px; font-weight: 620; }
+.estimate-clarification-heading span { color: var(--text-tertiary); font-size: 13px; white-space: nowrap; }
+.estimate-clarification-card ol { display: grid; gap: 10px; padding-left: 22px; list-style: decimal; }
+.estimate-clarification-card li { padding-left: 4px; color: var(--text-secondary); font-size: 14px; line-height: 1.5; }
+.estimate-clarification-card > button {
+  width: fit-content;
+  min-height: 42px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 8px 14px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 600;
+}
+.estimate-clarification-card > button:hover { background: var(--bg-hover); }
+
+@media (max-width: 767px) {
+  .conversation-action-group { width: 100%; }
+  .estimate-clarification-card { gap: 14px; padding: 16px; }
+  .estimate-clarification-heading { align-items: flex-start; flex-direction: column; gap: 3px; }
+  .estimate-clarification-card li { font-size: 15px; }
+  .estimate-clarification-card > button { width: 100%; min-height: 48px; }
 }
 
 .artifact-card {

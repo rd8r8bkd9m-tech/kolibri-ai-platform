@@ -22,16 +22,20 @@ export function shouldAutoMaterializeAction(action: ChatAction): boolean {
     || !estimateActionNeedsClarification(normalized)
 }
 
-export function estimateClarificationPrompt(action: ChatAction): string {
+export function estimateClarificationQuestions(action: ChatAction): string[] {
   const normalized = normalizedEstimate(action)
   const rawQuestions = Array.isArray(normalized?.data?.questions)
     ? normalized.data.questions
     : []
   const questions = rawQuestions
     .filter((value): value is string => typeof value === 'string' && Boolean(value.trim()))
-    .slice(0, 3)
+    .slice(0, 5)
     .map(value => value.trim().slice(0, 280))
-  const visibleQuestions = questions.length ? questions : [FALLBACK_QUESTION]
+  return questions.length ? questions : [FALLBACK_QUESTION]
+}
+
+export function estimateClarificationPrompt(action: ChatAction): string {
+  const visibleQuestions = estimateClarificationQuestions(action).slice(0, 3)
   return [
     'Уточнение для сметы:',
     ...visibleQuestions.map((question, index) => `${index + 1}. ${question}`),

@@ -17,6 +17,22 @@ def test_genkit_flow_routes_estimate_to_verified_server_calculation():
     assert result.requires_sources is True
     assert result.requires_server_calculation is True
     assert result.direct_amounts_allowed is False
+    assert result.estimate_stage == "clarify"
+    assert "конструктив, материалы и требуемое качество" in result.required_inputs
+
+
+def test_genkit_flow_allows_research_only_after_estimate_brief_is_complete():
+    result = asyncio.run(genkit_flow.plan_kolibri_request(
+        [{"role": "user", "content": (
+            "Составь смету в Казани: штукатурка цементная 420 м², работы и материалы, "
+            "включая доставку"
+        )}],
+        {"mode": "fast", "allowed_capabilities": ["web_search"]},
+    ))
+
+    assert result.intent == "estimate"
+    assert result.estimate_stage == "research_and_calculate"
+    assert result.required_inputs == []
 
 
 def test_genkit_flow_keeps_fast_chat_fast():

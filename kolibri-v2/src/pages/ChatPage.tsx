@@ -14,7 +14,7 @@ import {
 import { isVerifiedFileArtifact, verifyFileArtifact } from '@/features/conversation/fileArtifact'
 import {
   estimateActionNeedsClarification,
-  estimateClarificationPrompt,
+  estimateClarificationQuestions,
   shouldAutoMaterializeAction,
 } from '@/features/conversation/estimateActionPolicy'
 import { isFailedResponse, persistedResponseStatus, responseFailureMessage } from '@/features/conversation/responseState'
@@ -246,6 +246,21 @@ function ActionButton({ action, onRun, busy }: { action: ChatAction; onRun: () =
   )
 }
 
+function EstimateClarificationCard({ questions, onAnswer }: { questions: string[]; onAnswer: () => void }) {
+  return (
+    <section className="estimate-clarification-card" aria-label="Уточняющие вопросы для сметы">
+      <div className="estimate-clarification-heading">
+        <strong>Нужно уточнить данные</strong>
+        <span>{questions.length} {questions.length === 1 ? 'вопрос' : questions.length < 5 ? 'вопроса' : 'вопросов'}</span>
+      </div>
+      <ol>
+        {questions.map((question, index) => <li key={`${index}-${question}`}>{question}</li>)}
+      </ol>
+      <button type="button" onClick={onAnswer}>Ответить сообщением</button>
+    </section>
+  )
+}
+
 function MessageActions({ content, onRetry }: { content: string; onRetry: () => void }) {
   const { locale, t } = useLocale()
   const [rating, setRating] = useState<'up' | 'down' | null>(null)
@@ -295,6 +310,7 @@ export default function ChatPage() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [actionBusy, setActionBusy] = useState<string | null>(null)
+  const [openClarificationKey, setOpenClarificationKey] = useState<string | null>(null)
   const { menu: capabilityMenu, loading: capabilitiesLoading } = useCapabilities()
   const { mode } = useExecutionMode()
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -990,7 +1006,7 @@ export default function ChatPage() {
       if (!validatedAction?.data) return
       if (validatedAction.type === 'create_estimate') {
         if (estimateActionNeedsClarification(validatedAction)) {
-          setInput(estimateClarificationPrompt(validatedAction))
+          setOpenClarificationKey(current => current === actionKey ? null : actionKey)
           return
         }
         const created = await estimates.create(normalizeEstimateAction(validatedAction.data))
@@ -1081,12 +1097,23 @@ export default function ChatPage() {
                 {message.actions?.some(action => action.type !== 'present_image') && (
                   <div className="conversation-actions">
                     {message.actions.filter(action => action.type !== 'present_image').map((action, index) => (
-                      <ActionButton
-                        key={`${action.type}-${index}`}
-                        action={action}
-                        busy={actionBusy === `${message.id}:${action.type}`}
-                        onRun={() => void handleAction(message.id, action)}
-                      />
+                      <div className="conversation-action-group" key={`${action.type}-${index}`}>
+                        <ActionButton
+                          action={action}
+                          busy={actionBusy === `${message.id}:${action.type}`}
+                          onRun={() => void handleAction(message.id, action)}
+                        />
+                        {action.type === 'create_estimate'
+                          && estimateActionNeedsClarification(action)
+                          && openClarificationKey === `${message.id}:${action.type}` && (
+                            <EstimateClarificationCard
+                              questions={estimateClarificationQuestions(action)}
+                              onAnswer={() => {
+                                document.querySelector<HTMLTextAreaElement>('.conversation-composer-input')?.focus()
+                              }}
+                            />
+                          )}
+                      </div>
                     ))}
                   </div>
                 )}

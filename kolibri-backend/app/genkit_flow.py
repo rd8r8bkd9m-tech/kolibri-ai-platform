@@ -32,6 +32,8 @@ class KolibriFlowOutput(BaseModel):
     requires_sources: bool
     requires_server_calculation: bool
     direct_amounts_allowed: bool
+    estimate_stage: Literal["not_applicable", "clarify", "research_and_calculate"]
+    required_inputs: list[str] = Field(default_factory=list, max_length=10)
     locale: Literal["ru-RU"] = "ru-RU"
 
 
@@ -68,6 +70,19 @@ def _latest_user_text(messages: list[KolibriFlowMessage]) -> str:
     )
 
 
+def _missing_estimate_inputs(text: str) -> list[str]:
+    missing: list[str] = []
+    if not re.search(r"\d+(?:[.,]\d+)?\s*(?:м\s*[²³23]|кв\.?\s*м|шт\.?|п\.?\s*м)", text, re.IGNORECASE):
+        missing.append("объёмы и единицы измерения")
+    if not re.search(r"(?:\bв\s+[А-ЯЁ][а-яё-]{2,}|город|област|край|республик|район)", text):
+        missing.append("город и регион объекта")
+    if not re.search(r"(?:материал|газобетон|кирпич|каркас|монолит|бетон|гипс|цемент|профлист|марка|класс)", text, re.IGNORECASE):
+        missing.append("конструктив, материалы и требуемое качество")
+    if not re.search(r"(?:под ключ|только работ|работы и материалы|без материал|включая|исключая)", text, re.IGNORECASE):
+        missing.append("границы сметы: работы, материалы, доставка и оборудование")
+    return missing
+
+
 @ai.flow()
 async def kolibri_chat_orchestration_flow(
     input: KolibriFlowInput,
@@ -89,12 +104,19 @@ async def kolibri_chat_orchestration_flow(
         task_type = input.mode
 
     estimate = intent == "estimate"
+    required_inputs = _missing_estimate_inputs(text) if estimate else []
     return KolibriFlowOutput(
         intent=intent,
         task_type=task_type,
         requires_sources=estimate,
         requires_server_calculation=estimate,
         direct_amounts_allowed=not estimate,
+        estimate_stage=(
+            "clarify" if estimate and required_inputs
+            else "research_and_calculate" if estimate
+            else "not_applicable"
+        ),
+        required_inputs=required_inputs,
     )
 
 

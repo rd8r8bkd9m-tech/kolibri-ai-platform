@@ -3,6 +3,7 @@ import type { ChatAction } from '@/lib/api'
 import {
   estimateActionNeedsClarification,
   estimateClarificationPrompt,
+  estimateClarificationQuestions,
   shouldAutoMaterializeAction,
 } from './estimateActionPolicy'
 
@@ -35,6 +36,9 @@ describe('estimate clarification action policy', () => {
 
     expect(estimateActionNeedsClarification(action)).toBe(true)
     expect(shouldAutoMaterializeAction(action)).toBe(false)
+    expect(estimateClarificationQuestions(action)).toEqual([
+      'Уточните материал секций и тип фундамента.',
+    ])
     expect(estimateClarificationPrompt(action)).toBe(
       'Уточнение для сметы:\n1. Уточните материал секций и тип фундамента.',
     )
