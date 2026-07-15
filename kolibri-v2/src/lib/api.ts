@@ -1260,9 +1260,34 @@ export const chat = {
     let durableResponseId: string | undefined
     let lastSequence = 0
     let receivedDurableHandoff = false
+    let legacyContentAwaitingCanonical: string | undefined
+    let canonicalContentAwaitingLegacy: string | undefined
     await readEventStream(response, envelope => {
-      const event = normalizeStreamEvent(envelope)
-      if (event) {
+      const normalized = normalizeStreamEvent(envelope)
+      if (normalized) {
+        let event = normalized
+        if (
+          !event.type
+          && event.content
+          && event.content === canonicalContentAwaitingLegacy
+        ) {
+          event = { ...event, content: undefined }
+          canonicalContentAwaitingLegacy = undefined
+        } else if (!event.type && event.content) {
+          legacyContentAwaitingCanonical = event.content
+        } else if (
+          event.type === 'response.output_text.delta'
+          && event.content
+          && event.content === legacyContentAwaitingCanonical
+        ) {
+          // The browser chat endpoint emits both its legacy text chunk and the
+          // canonical sequenced delta during migration. Keep the canonical
+          // cursor/evidence while delivering the user-visible text only once.
+          event = { ...event, content: undefined }
+          legacyContentAwaitingCanonical = undefined
+        } else if (event.type === 'response.output_text.delta' && event.content) {
+          canonicalContentAwaitingLegacy = event.content
+        }
         finalEvent = event
         durableResponseId = event.response_id ?? durableResponseId
         if (Number.isSafeInteger(event.sequence) && (event.sequence as number) > lastSequence) {

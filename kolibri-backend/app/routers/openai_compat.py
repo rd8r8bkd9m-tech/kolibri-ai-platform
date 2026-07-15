@@ -1341,21 +1341,15 @@ async def _streaming_response(
         _idempotency[(owner_scope, idempotency_key)] = (fingerprint, response_id)
     task_type = "analyze" if policy and policy["mode"] == "deep" else "fast" if policy else "chat"
     async def events():
-        created = _public_response(existing or _records[response_id])
-        yield _sse("response.created", {"type": "response.created", "response": created})
+        initial_events = snapshot_public_response_events(response_id)
         if existing:
-            existing_status = str(existing.get("status") or "in_progress")
-            existing_event = (
-                f"response.{existing_status}"
-                if existing_status in {"completed", "failed", "cancelled"}
-                else "response.status.updated"
-            )
-            yield _sse(existing_event, {
-                "type": existing_event,
-                "response": created,
-                "actions": _public_actions(existing.get("actions")),
-            })
+            for event in initial_events:
+                yield _sse(str(event["type"]), event)
             return
+        created_event = next(
+            event for event in initial_events if event.get("type") == "response.created"
+        )
+        yield _sse("response.created", created_event)
 
         image_result = await _image_result_if_requested(
             messages,
@@ -1372,33 +1366,30 @@ async def _streaming_response(
                     "error_code": "structured_output_incompatible_with_image",
                     "recoverable": False,
                 }
-                record_public_stream_chunk(response_id, failure)
+                failure_events = record_public_stream_chunk(response_id, failure)
                 record = _records[response_id]
-                yield _sse("response.failed", {
-                    "type": "response.failed",
-                    "response": _public_response(record),
-                })
+                for event in failure_events:
+                    if event.get("type") == "response.failed":
+                        yield _sse("response.failed", _public_persisted_event(event, record))
                 return
             if image_result.get("content"):
                 content_chunk = {"content": str(image_result["content"]), "done": False}
-                record_public_stream_chunk(response_id, content_chunk)
-                yield _sse("response.output_text.delta", {
-                    "type": "response.output_text.delta",
-                    "response_id": response_id,
-                    "delta": str(image_result["content"]),
-                })
+                content_events = record_public_stream_chunk(response_id, content_chunk)
+                for event in content_events:
+                    if event.get("type") == "response.output_text.delta":
+                        yield _sse("response.output_text.delta", event)
             final_image = {**image_result, "content": "", "done": True}
-            record_public_stream_chunk(response_id, final_image)
+            appended_events = record_public_stream_chunk(response_id, final_image)
             record = _records[response_id]
-            if isinstance(record.get("artifact"), dict):
-                yield _sse("response.artifact.ready", {
-                    "type": "response.artifact.ready",
-                    "response_id": response_id,
-                    "artifact_type": "image",
-                    "artifact_id": record["artifact"].get("id"),
-                    "artifact": record["artifact"],
-                })
-            event_type = f"response.{record['status']}"
+            for event in appended_events:
+                if event.get("type") in {
+                    "response.artifact.ready",
+                    "response.completed",
+                    "response.failed",
+                    "response.cancelled",
+                }:
+                    public_event = _public_persisted_event(event, record)
+                    yield _sse(str(public_event["type"]), public_event)
             if record["status"] == "completed":
                 from app.capability_runtime import try_record_capability_invocation
                 try_record_capability_invocation(
@@ -1408,11 +1399,6 @@ async def _streaming_response(
                     model=str(image_result.get("_model") or image_result.get("model") or "kolibri"),
                     evidence_id=response_id,
                 )
-            yield _sse(event_type, {
-                "type": event_type,
-                "response": _public_response(record),
-                "actions": _public_actions(record.get("actions")),
-            })
             return
 
         text_parts: list[str] = []
@@ -1598,8 +1584,29 @@ def _public_persisted_event(
     if isinstance(event.get("actions"), list):
         event["actions"] = _public_actions(event["actions"])
     if isinstance(event.get("response"), dict):
-        event["response"] = _public_response(record)
+        response = dict(event["response"])
+        for key in ("provider", "provider_route", "selected_route_id", "_provider", "_model"):
+            response.pop(key, None)
+        response["model"] = "kolibri"
+        if isinstance(response.get("actions"), list):
+            response["actions"] = _public_actions(response["actions"])
+        if isinstance(response.get("sources"), list):
+            response["sources"] = _public_sources(response["sources"])
+        event["response"] = response
     return event
+
+
+def snapshot_public_response_events(response_id: str) -> list[dict[str, Any]]:
+    """Return the exact canonical events used by live delivery and replay."""
+
+    record = _records.get(response_id) or load_response_record(response_id)
+    if not isinstance(record, dict):
+        return []
+    return [
+        _public_persisted_event(event, record)
+        for event in record.get("events", [])
+        if isinstance(event, dict)
+    ]
 
 
 @router.get("/api/v1/responses/{response_id}", include_in_schema=False, dependencies=_PUBLIC_AUTH)

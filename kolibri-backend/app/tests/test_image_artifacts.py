@@ -602,8 +602,17 @@ def test_chat_stream_never_claims_image_success_without_artifact(monkeypatch):
         payload.get("work_summary", {}).get("stage") == "artifact_verification"
         for payload in payloads
     )
-    assert not any(payload.get("type") == "response.output_text.delta" for payload in payloads)
     replay_payloads = _sse_payloads(replay)
+    failure_types = {
+        "response.created",
+        "response.output_text.delta",
+        "response.failed",
+    }
+    assert [
+        payload for payload in payloads if payload.get("type") in failure_types
+    ] == [
+        payload for payload in replay_payloads if payload.get("type") in failure_types
+    ]
     assert [
         payload["delta"]
         for payload in replay_payloads
@@ -660,12 +669,13 @@ def test_chat_stream_emits_present_image_only_after_verified_artifact(monkeypatc
             f"/api/v1/responses/{response_id}/events?starting_after=0"
         )
 
-    assert payloads[-2]["content"].startswith("Изображение создано")
-    assert payloads[-1]["status"] == "ready"
+    legacy_payloads = [payload for payload in payloads if not payload.get("type")]
+    assert legacy_payloads[-2]["content"].startswith("Изображение создано")
+    assert legacy_payloads[-1]["status"] == "ready"
     public_artifact = image_artifacts.public_image_artifact(artifact)
-    assert payloads[-1]["provider"] == "kolibri"
-    assert payloads[-1]["model"] == "kolibri"
-    assert payloads[-1]["actions"] == [
+    assert legacy_payloads[-1]["provider"] == "kolibri"
+    assert legacy_payloads[-1]["model"] == "kolibri"
+    assert legacy_payloads[-1]["actions"] == [
         {"type": "present_image", "label": "Открыть изображение", "data": public_artifact}
     ]
     summaries = [
@@ -683,15 +693,23 @@ def test_chat_stream_emits_present_image_only_after_verified_artifact(monkeypatc
     assert verification["artifact_type"] == "image"
     assert verification["artifact_id"] == artifact["id"]
     assert "reasoning" not in verification
-    assert not any(
-        payload.get("type") in {
-            "response.output_text.delta",
-            "response.artifact.ready",
-            "response.completed",
-        }
-        for payload in payloads
-    )
     replay_payloads = _sse_payloads(replay)
+    canonical_types = {
+        "response.created",
+        "response.output_text.delta",
+        "response.artifact.ready",
+        "response.completed",
+    }
+    live_canonical = [
+        payload for payload in payloads if payload.get("type") in canonical_types
+    ]
+    replay_canonical = [
+        payload for payload in replay_payloads if payload.get("type") in canonical_types
+    ]
+    assert live_canonical == replay_canonical
+    assert [payload["sequence"] for payload in live_canonical] == sorted(
+        payload["sequence"] for payload in live_canonical
+    )
     assert [
         payload["delta"]
         for payload in replay_payloads
@@ -699,7 +717,7 @@ def test_chat_stream_emits_present_image_only_after_verified_artifact(monkeypatc
     ] == ["Изображение создано и сохранено в текущем проекте."]
     artifact_ready = [
         payload
-        for payload in replay_payloads
+        for payload in live_canonical
         if payload.get("type") == "response.artifact.ready"
     ]
     assert len(artifact_ready) == 1
@@ -768,6 +786,16 @@ def test_chat_stream_rejects_action_shaped_metadata_without_bytes(monkeypatch, t
         for payload in payloads
     )
     replay_payloads = _sse_payloads(replay)
+    failure_types = {
+        "response.created",
+        "response.output_text.delta",
+        "response.failed",
+    }
+    assert [
+        payload for payload in payloads if payload.get("type") in failure_types
+    ] == [
+        payload for payload in replay_payloads if payload.get("type") in failure_types
+    ]
     assert [
         payload["delta"]
         for payload in replay_payloads
@@ -1144,7 +1172,36 @@ def test_all_public_image_surfaces_use_kolibri_identity(monkeypatch, tmp_path):
             headers={**api_headers, "X-Forwarded-For": "public-image-responses-stream"},
         )
         assert streamed_response.status_code == 200
-        payloads.extend(_sse_payloads(streamed_response))
+        streamed_payloads = _sse_payloads(streamed_response)
+        payloads.extend(streamed_payloads)
+        streamed_response_id = next(
+            item["response"]["id"]
+            for item in streamed_payloads
+            if item.get("type") == "response.created"
+        )
+        streamed_replay = client.get(
+            f"/v1/responses/{streamed_response_id}/events",
+            headers=api_headers,
+        )
+        assert streamed_replay.status_code == 200
+        streamed_replay_payloads = _sse_payloads(streamed_replay)
+        payloads.extend(streamed_replay_payloads)
+        parity_types = {
+            "response.created",
+            "response.output_text.delta",
+            "response.artifact.ready",
+            "response.completed",
+        }
+        live_canonical = [
+            item for item in streamed_payloads if item.get("type") in parity_types
+        ]
+        replay_canonical = [
+            item for item in streamed_replay_payloads if item.get("type") in parity_types
+        ]
+        assert live_canonical == replay_canonical
+        assert [item["sequence"] for item in live_canonical] == sorted(
+            item["sequence"] for item in live_canonical
+        )
 
         completion = client.post(
             "/v1/chat/completions",

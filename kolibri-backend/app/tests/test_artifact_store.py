@@ -1,3 +1,4 @@
+import base64
 import hashlib
 from pathlib import Path
 
@@ -17,6 +18,9 @@ from app.main import app
 
 _PDF_V1 = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n"
 _PDF_V2 = b"%PDF-1.4\n1 0 obj\n<</Title (revision 2)>>\nendobj\ntrailer\n<<>>\n%%EOF\n"
+_PNG_1X1 = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+)
 
 
 def _bootstrap_scope_key(client: TestClient) -> str:
@@ -283,6 +287,70 @@ def test_generic_download_reopen_and_history_http_contracts(monkeypatch, tmp_pat
     assert history.status_code == 200
     assert history.json()["total"] == 1
     assert history.json()["items"][0]["id"] == created["id"]
+
+
+def test_public_image_manifests_hide_topology_without_mutating_cas_or_non_image_contracts(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setenv("KOLIBRI_ARTIFACT_DIR", str(tmp_path / "http-artifacts"))
+    with TestClient(app) as client:
+        scope_key = _bootstrap_scope_key(client)
+        store = artifact_store.get_artifact_store()
+        private_image_metadata = {
+            "prompt": "Жёлтая канарейка",
+            "width": 1,
+            "height": 1,
+            "model": "private-image-model",
+            "provider": "private-image-provider",
+            "topology": {"node": "private-node", "route": "private-route"},
+            "scope_key": scope_key,
+        }
+        image = store.put_bytes(
+            _PNG_1X1,
+            artifact_type="image",
+            mime_type="image/png",
+            filename="canary.png",
+            metadata=private_image_metadata,
+        )
+        image_reopen = client.get(image["reopen_url"])
+        image_history = client.get(image["history_url"])
+
+        private_document_metadata = {
+            "provider": "document-producer",
+            "model": "document-layout-v1",
+            "topology": {"page_engine": "a4"},
+            "scope_key": scope_key,
+        }
+        document = store.put_bytes(
+            b"Non-image artifact",
+            artifact_type="document.txt",
+            mime_type="text/plain",
+            filename="document.txt",
+            metadata=private_document_metadata,
+        )
+        document_reopen = client.get(document["reopen_url"])
+        document_history = client.get(document["history_url"])
+
+    assert image_reopen.status_code == 200
+    assert image_history.status_code == 200
+    expected_public_metadata = {
+        "prompt": "Жёлтая канарейка",
+        "width": 1,
+        "height": 1,
+    }
+    assert image_reopen.json()["artifact"]["metadata"] == expected_public_metadata
+    assert image_history.json()["items"][0]["metadata"] == expected_public_metadata
+    public_image_bytes = str([image_reopen.json(), image_history.json()])
+    assert "private-image-model" not in public_image_bytes
+    assert "private-image-provider" not in public_image_bytes
+    assert "private-node" not in public_image_bytes
+    assert store.get(image["id"])["metadata"] == private_image_metadata
+
+    assert document_reopen.status_code == 200
+    assert document_history.status_code == 200
+    assert document_reopen.json()["artifact"]["metadata"] == private_document_metadata
+    assert document_history.json()["items"][0]["metadata"] == private_document_metadata
 
 
 def test_http_route_hides_invalid_ids_and_rejects_corrupt_bytes(monkeypatch, tmp_path):

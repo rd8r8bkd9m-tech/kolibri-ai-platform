@@ -340,6 +340,73 @@ describe('safe response stream', () => {
     })
   })
 
+  it('deduplicates a legacy image text chunk while retaining canonical sequences', async () => {
+    const artifactId = '11111111-1111-4111-8111-111111111111'
+    const stream = [
+      'data: {"type":"response.created","response":{"id":"resp_image_1","status":"in_progress"}}',
+      '',
+      'data: {"content":"Изображение создано.","done":false}',
+      '',
+      'data: {"type":"response.output_text.delta","response_id":"resp_image_1","sequence":5,"delta":"Изображение создано."}',
+      '',
+      `data: {"type":"response.artifact.ready","response_id":"resp_image_1","sequence":6,"artifact_type":"image","artifact_id":"${artifactId}","artifact":{"id":"${artifactId}","type":"image"}}`,
+      '',
+      'data: {"type":"response.completed","response_id":"resp_image_1","sequence":7,"response":{"id":"resp_image_1","status":"completed"}}',
+      '',
+      'data: {"content":"","done":true,"status":"ready","provider":"kolibri","model":"kolibri"}',
+      '',
+      '',
+    ].join('\n')
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(stream, {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+    })))
+    const received: Array<ReturnType<typeof normalizeStreamEvent>> = []
+
+    const terminal = await chat.stream(
+      [{ role: 'user', content: 'Создай изображение' }],
+      event => received.push(event),
+    )
+
+    expect(received.filter(event => event?.content).map(event => event?.content)).toEqual([
+      'Изображение создано.',
+    ])
+    expect(received.filter(event => event?.sequence).map(event => event?.sequence)).toEqual([5, 6, 7])
+    expect(terminal).toMatchObject({ done: true, status: 'ready' })
+  })
+
+  it('deduplicates a legacy text chunk emitted after its canonical delta', async () => {
+    const stream = [
+      'data: {"type":"response.created","response":{"id":"resp_text_1","status":"in_progress"}}',
+      '',
+      'data: {"type":"response.output_text.delta","response_id":"resp_text_1","sequence":2,"delta":"Привет"}',
+      '',
+      'data: {"content":"Привет","done":false}',
+      '',
+      'data: {"type":"response.completed","response_id":"resp_text_1","sequence":3,"response":{"id":"resp_text_1","status":"completed"}}',
+      '',
+      'data: {"content":"","done":true,"status":"ready","provider":"kolibri","model":"kolibri"}',
+      '',
+      '',
+    ].join('\n')
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(stream, {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+    })))
+    const received: Array<ReturnType<typeof normalizeStreamEvent>> = []
+
+    const terminal = await chat.stream(
+      [{ role: 'user', content: 'Привет' }],
+      event => received.push(event),
+    )
+
+    expect(received.filter(event => event?.content).map(event => event?.content)).toEqual([
+      'Привет',
+    ])
+    expect(received.filter(event => event?.sequence).map(event => event?.sequence)).toEqual([2, 3])
+    expect(terminal).toMatchObject({ done: true, status: 'ready' })
+  })
+
   it('normalizes the canonical nested reasoning excerpt without private fields', () => {
     expect(normalizeStreamEvent({
       event: 'response.work_summary.updated',

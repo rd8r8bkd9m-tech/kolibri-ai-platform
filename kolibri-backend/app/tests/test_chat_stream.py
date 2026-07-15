@@ -87,21 +87,35 @@ def test_chat_stream_emits_token_deltas_and_structured_final_event(monkeypatch):
     payloads = _sse_payloads(response)
     live_deltas = [payload["content"] for payload in _content_payloads(response)]
     assert "".join(live_deltas) == "Привет"
-    assert not any(
-        payload.get("type") == "response.output_text.delta"
-        for payload in payloads
-    )
     assert sum(1 for payload in payloads if payload.get("done") is True) == 1
     assert payloads[-1] == {
         "content": "",
         "done": True,
         "actions": [],
         "status": "idle",
-        "provider": "primary",
-        "model": "primary-model",
+        "provider": "kolibri",
+        "model": "kolibri",
         "fallback_used": False,
     }
     replay_payloads = _sse_payloads(replay)
+    canonical_types = {
+        "response.created",
+        "response.output_text.delta",
+        "response.artifact.ready",
+        "response.completed",
+        "response.failed",
+        "response.cancelled",
+    }
+    live_canonical = [
+        payload for payload in payloads if payload.get("type") in canonical_types
+    ]
+    replay_canonical = [
+        payload for payload in replay_payloads if payload.get("type") in canonical_types
+    ]
+    assert live_canonical == replay_canonical
+    assert [payload["sequence"] for payload in live_canonical] == sorted(
+        payload["sequence"] for payload in live_canonical
+    )
     replay_deltas = [
         payload["delta"]
         for payload in replay_payloads
@@ -139,6 +153,68 @@ def test_chat_stream_emits_token_deltas_and_structured_final_event(monkeypatch):
     serialized = json.dumps(payloads, ensure_ascii=False).casefold()
     assert "chain-of-thought" not in serialized
     assert "private reasoning" not in serialized
+
+
+def test_legacy_chat_surfaces_hide_provider_identity_but_keep_internal_telemetry(monkeypatch):
+    recorded: list[tuple[str, str | None, str | None]] = []
+
+    async def fake_completion(messages, **kwargs):
+        return {
+            "content": "Синхронный ответ",
+            "actions": [],
+            "status": "ready",
+            "provider": "private-provider",
+            "model": "private-model",
+            "_provider": "private-route",
+            "_model": "private-upstream-model",
+        }
+
+    async def fake_stream(messages, **kwargs):
+        yield {"content": "Потоковый ответ", "done": False}
+        yield {
+            "content": "",
+            "done": True,
+            "actions": [],
+            "status": "ready",
+            "provider": "private-provider",
+            "model": "private-model",
+            "_provider": "private-route",
+            "_model": "private-upstream-model",
+        }
+
+    def record(capability_id, **kwargs):
+        recorded.append((capability_id, kwargs.get("provider"), kwargs.get("model")))
+
+    monkeypatch.setattr(ai_provider, "chat_completion", fake_completion)
+    monkeypatch.setattr(ai_provider, "chat_completion_stream", fake_stream)
+    monkeypatch.setattr(capability_runtime, "record_capability_invocation", record)
+
+    with TestClient(app) as client:
+        _bootstrap(client)
+        sync = client.post(
+            "/api/v1/chat",
+            json={"messages": [{"role": "user", "content": "Ответь коротко"}]},
+            headers={"X-Forwarded-For": "legacy-public-identity-sync"},
+        )
+        streamed = client.post(
+            "/api/v1/chat/stream",
+            json={"messages": [{"role": "user", "content": "Продолжи коротко"}]},
+            headers={"X-Forwarded-For": "legacy-public-identity-stream"},
+        )
+
+    assert sync.status_code == 200
+    assert sync.json()["provider"] == "kolibri"
+    assert sync.json()["model"] == "kolibri"
+    stream_payloads = _sse_payloads(streamed)
+    legacy_final = next(payload for payload in reversed(stream_payloads) if payload.get("done") is True)
+    assert legacy_final["provider"] == "kolibri"
+    assert legacy_final["model"] == "kolibri"
+    public_bytes = json.dumps([sync.json(), stream_payloads], ensure_ascii=False)
+    assert "private-provider" not in public_bytes
+    assert "private-model" not in public_bytes
+    assert "private-route" not in public_bytes
+    assert ("chat.responses", "private-provider", "private-model") in recorded
+    assert ("chat.streaming", "private-provider", "private-model") in recorded
 
 
 @pytest.mark.parametrize(
@@ -355,6 +431,8 @@ def test_chat_stream_error_survives_optional_evidence_ledger_failure(monkeypatch
     assert sum(1 for payload in payloads if payload.get("done") is True) == 1
     assert payloads[-1]["status"] == "error"
     assert payloads[-1]["error_code"] == "provider_stream_failed"
+    assert payloads[-1]["provider"] == "kolibri"
+    assert payloads[-1]["model"] == "kolibri"
     assert [
         payload["type"]
         for payload in _sse_payloads(replay)
@@ -471,8 +549,8 @@ def test_chat_stream_falls_back_before_first_token(monkeypatch):
     assert [payload["content"] for payload in _content_payloads(response)] == ["Ответ"]
     assert payloads[-1]["done"] is True
     assert payloads[-1]["status"] == "idle"
-    assert payloads[-1]["provider"] == "fallback"
-    assert payloads[-1]["model"] == "fallback-model"
+    assert payloads[-1]["provider"] == "kolibri"
+    assert payloads[-1]["model"] == "kolibri"
     assert payloads[-1]["fallback_used"] is True
     assert not ai_provider._provider_is_healthy(failing)
     assert ai_provider._provider_is_healthy(working)
@@ -535,8 +613,11 @@ def test_chat_stream_extracts_create_estimate_action_in_final_event(monkeypatch)
             headers={"X-Forwarded-For": "stream-estimate"},
         )
 
-    final = _sse_payloads(response)[-1]
-    assert _sse_payloads(response)[-2] == {
+    legacy_payloads = [
+        payload for payload in _sse_payloads(response) if "type" not in payload
+    ]
+    final = legacy_payloads[-1]
+    assert legacy_payloads[-2] == {
         "content": (
             "Готовой сметы пока нет: исполнитель не сформировал достаточный "
             "индивидуальный состав либо не найдены подтверждённые цены. "
@@ -546,8 +627,8 @@ def test_chat_stream_extracts_create_estimate_action_in_final_event(monkeypatch)
     }
     assert final["done"] is True
     assert final["status"] == "ready"
-    assert final["provider"] == "estimate-provider"
-    assert final["model"] == "estimate-model"
+    assert final["provider"] == "kolibri"
+    assert final["model"] == "kolibri"
     assert len(final["actions"]) == 1
     action = final["actions"][0]
     assert action["type"] == "create_estimate"
@@ -597,7 +678,8 @@ def test_chat_stream_synthesizes_typed_estimate_for_plain_text_provider_response
     assert response.status_code == 200
     assert final["done"] is True
     assert final["status"] == "ready"
-    assert final["provider"] == "plain-provider"
+    assert final["provider"] == "kolibri"
+    assert final["model"] == "kolibri"
     assert len(final["actions"]) == 1
     action = final["actions"][0]
     data = action["data"]
@@ -706,8 +788,8 @@ def test_chat_stream_returns_needs_input_action_when_routes_are_exhausted(monkey
 
     final = _sse_payloads(response)[-1]
     assert final["status"] == "ready"
-    assert final["provider"] == "local_contract"
-    assert final["model"] == "deterministic-estimate-v1"
+    assert final["provider"] == "kolibri"
+    assert final["model"] == "kolibri"
     assert final["fallback_used"] is False
     assert final["actions"][0]["data"]["pricing_status"] == "needs_input"
     assert final["actions"][0]["data"]["sections"] == []
@@ -785,11 +867,12 @@ def test_chat_stream_extracts_safe_document_content(monkeypatch):
         )
 
     payloads = _sse_payloads(response)
-    assert payloads[-2] == {
+    legacy_payloads = [payload for payload in payloads if "type" not in payload]
+    assert legacy_payloads[-2] == {
         "content": "Документ подготовлен для сохранения в текущем проекте.",
         "done": False,
     }
-    assert payloads[-1]["actions"] == [
+    assert legacy_payloads[-1]["actions"] == [
         {
             "type": "create_document",
             "label": "Создать Договор подряда",

@@ -572,6 +572,42 @@ def get_artifact_store() -> ArtifactStore:
 router = APIRouter(tags=["artifacts"])
 
 
+_PUBLIC_IMAGE_METADATA_FIELDS = {
+    "height",
+    "prompt",
+    "source_artifact_id",
+    "width",
+}
+
+
+def _public_http_artifact_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
+    """Detach a manifest and hide image execution provenance from browsers.
+
+    Internal CAS callers continue to receive the full immutable manifest. The
+    bounded projection is applied only by the authenticated public reopen and
+    history routes. Non-image artifact contracts are intentionally unchanged.
+    """
+
+    public = json.loads(json.dumps(manifest, ensure_ascii=False))
+    if public.get("type") != "image":
+        return public
+    metadata = public.get("metadata")
+    public["metadata"] = (
+        {
+            key: value
+            for key, value in metadata.items()
+            if key in _PUBLIC_IMAGE_METADATA_FIELDS
+        }
+        if isinstance(metadata, dict)
+        else {}
+    )
+    for key in ("provider", "provider_route", "selected_route_id", "topology"):
+        public.pop(key, None)
+    if "model" in public:
+        public["model"] = "kolibri"
+    return public
+
+
 def _assert_http_artifact_access(
     artifact: dict[str, Any],
     principal: ProjectPrincipal | None,
@@ -656,6 +692,7 @@ async def artifact_reopen(
         artifact = store.get(artifact_id, revision=revision)
         _assert_artifact_scope(artifact, scope_id)
         reopened = store.reopen(artifact_id, revision=revision)
+        reopened["artifact"] = _public_http_artifact_manifest(reopened["artifact"])
         if artifact.get("type") in {"site.bundle", "app.bundle"} and scope_id:
             # Preview bearer capabilities are intentionally short lived and
             # are not persisted in the immutable manifest.  Reopen issues a
@@ -679,6 +716,10 @@ async def artifact_history(
         store = get_artifact_store()
         _assert_artifact_scope(store.get(artifact_id), scope_id)
         history = store.history(artifact_id)
-        return {"artifact_id": artifact_id, "items": history, "total": len(history)}
+        return {
+            "artifact_id": artifact_id,
+            "items": [_public_http_artifact_manifest(item) for item in history],
+            "total": len(history),
+        }
     except ArtifactStoreError as exc:
         raise _http_error(exc) from exc

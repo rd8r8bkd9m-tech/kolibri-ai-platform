@@ -950,6 +950,22 @@ async def generate_pdf(data: schemas.PDFGenerateRequest):
 # Chat — Kimi K2.6 AI provider
 # ---------------------------------------------------------------------------
 
+def _public_legacy_chat_result(value: dict[str, Any]) -> dict[str, Any]:
+    """Project one legacy chat result onto the public Kolibri identity.
+
+    The original value remains available to the caller for capability telemetry
+    and durable internal provenance. Only the detached HTTP projection loses
+    provider routing details.
+    """
+
+    result = dict(value)
+    for key in ("_provider", "_model", "provider_route", "selected_route_id"):
+        result.pop(key, None)
+    result["provider"] = "kolibri"
+    result["model"] = "kolibri"
+    return result
+
+
 @app.post("/api/v1/chat", response_model=schemas.ChatResponse)
 async def chat(
     request: Request,
@@ -1017,7 +1033,7 @@ async def chat(
     from app.truth_policy import resolve_current_information
     truth_result = await resolve_current_information(messages)
     if truth_result is not None and truth_result.get("status") == "source_backed":
-        return truth_result
+        return _public_legacy_chat_result(truth_result)
     from app.ai_provider import chat_completion
     try:
         policy = data.policy.model_dump() if data.policy else None
@@ -1039,12 +1055,14 @@ async def chat(
                 provider=str(result.get("provider") or "kolibri"),
                 model=str(result.get("model") or "kolibri"),
             )
-        return result
+        return _public_legacy_chat_result(result)
     except Exception:
         return {
             "content": "Не удалось завершить ответ через доступные маршруты. Повторите запрос — он будет направлен другому исполнителю.",
             "actions": [],
             "status": "error",
+            "provider": "kolibri",
+            "model": "kolibri",
         }
 
 
@@ -1071,7 +1089,11 @@ async def chat_stream(
         public_image_artifact,
     )
     from app.truth_policy import requires_current_evidence, resolve_current_information
-    from app.routers.openai_compat import begin_public_response, record_public_stream_chunk
+    from app.routers.openai_compat import (
+        begin_public_response,
+        record_public_stream_chunk,
+        snapshot_public_response_events,
+    )
     from app.capability_runtime import try_record_capability_invocation
     image_prompt = data.messages[-1].content
     public_response_id = begin_public_response(
@@ -1099,6 +1121,11 @@ async def chat_stream(
             event
             for event in canonical_events(chunk)
             if event.get("type") in {
+                "response.output_text.delta",
+                "response.artifact.ready",
+                "response.completed",
+                "response.failed",
+                "response.cancelled",
                 "response.status.updated",
                 "response.work_summary.updated",
                 "response.tool.started",
@@ -1111,6 +1138,11 @@ async def chat_stream(
         payload.pop("work_summary", None)
         payload.pop("tool_event", None)
         payload.pop("response_id", None)
+        has_internal_identity = any(
+            key in payload for key in ("provider", "model", "_provider", "_model")
+        )
+        for key in ("_provider", "_model", "provider_route", "selected_route_id"):
+            payload.pop(key, None)
         status = str(payload.get("status") or "").strip().lower()
         if payload.get("done") is True and status in nonterminal_response_statuses:
             # A provider may close its upload stream after accepting a durable
@@ -1130,6 +1162,9 @@ async def chat_stream(
                 "failure_kind": safe_failure_kind,
                 "will_retry": provider_event.get("will_retry") is True,
             }
+        if has_internal_identity:
+            payload["provider"] = "kolibri"
+            payload["model"] = "kolibri"
         if (
             payload.get("content")
             or payload.get("done") is True
@@ -1140,7 +1175,12 @@ async def chat_stream(
 
     async def event_generator():
         try:
-            yield sse({'type': 'response.created', 'response': {'id': public_response_id, 'object': 'response', 'status': 'in_progress', 'model': 'kolibri'}, 'content': '', 'done': False})
+            created_event = next(
+                event
+                for event in snapshot_public_response_events(public_response_id)
+                if event.get("type") == "response.created"
+            )
+            yield sse(created_event)
             for event in live_canonical_events(
                 work_summary_event("accepted", "Запрос принят", status="completed")
             ):
@@ -1165,14 +1205,26 @@ async def chat_stream(
                     artifact = public_image_artifact(internal_artifact)
                 except ImageCapabilityUnavailable:
                     final = {"content": "Генерация изображений сейчас недоступна.", "done": True, "actions": [], "status": "capability_unavailable", "provider": "kolibri", "model": "kolibri", "fallback_used": False, "error_code": "capability_unavailable", "recoverable": True, "capability": IMAGE_CAPABILITY_ID, "response_id": public_response_id}
-                    canonical_events(final)
+                    final_events = canonical_events(final)
+                    for event in final_events:
+                        if event.get("type") in {
+                            "response.output_text.delta",
+                            "response.failed",
+                        }:
+                            yield sse(event)
                     legacy = legacy_stream_payload(final)
                     if legacy:
                         yield sse(legacy)
                     return
                 except ImageGenerationFailed:
                     final = {"content": "Провайдер изображений не вернул проверенный файл. Изображение не создано.", "done": True, "actions": [], "status": "failed", "provider": "kolibri", "model": "kolibri", "fallback_used": False, "error_code": "image_artifact_verification_failed", "recoverable": True, "capability": IMAGE_CAPABILITY_ID, "response_id": public_response_id}
-                    canonical_events(final)
+                    final_events = canonical_events(final)
+                    for event in final_events:
+                        if event.get("type") in {
+                            "response.output_text.delta",
+                            "response.failed",
+                        }:
+                            yield sse(event)
                     legacy = legacy_stream_payload(final)
                     if legacy:
                         yield sse(legacy)
@@ -1190,8 +1242,8 @@ async def chat_stream(
                     yield sse(event)
                 content_chunk = {"content": "Изображение создано и сохранено в текущем проекте.", "done": False, "response_id": public_response_id}
                 final = {"content": "", "done": True, "actions": [{"type": "present_image", "label": "Открыть изображение", "data": artifact}], "status": "ready", "provider": "kolibri", "model": "kolibri", "fallback_used": False, "response_id": public_response_id}
-                canonical_events(content_chunk)
-                canonical_events(final)
+                content_events = canonical_events(content_chunk)
+                final_events = canonical_events(final)
                 try_record_capability_invocation(
                     "chat.streaming",
                     succeeded=True,
@@ -1203,6 +1255,13 @@ async def chat_stream(
                 final_payload = legacy_stream_payload(final)
                 if content_payload:
                     yield sse(content_payload)
+                for event in (*content_events, *final_events):
+                    if event.get("type") in {
+                        "response.output_text.delta",
+                        "response.artifact.ready",
+                        "response.completed",
+                    }:
+                        yield sse(event)
                 if final_payload:
                     yield sse(final_payload)
                 return
@@ -1247,20 +1306,31 @@ async def chat_stream(
                 content = str(final.pop("content", ""))
                 if content:
                     content_chunk = {'content': content, 'done': False, 'response_id': public_response_id}
-                    canonical_events(content_chunk)
+                    content_events = canonical_events(content_chunk)
                     legacy = legacy_stream_payload(content_chunk)
                     if legacy:
                         yield sse(legacy)
+                    for event in content_events:
+                        if event.get("type") == "response.output_text.delta":
+                            yield sse(event)
                 final["content"] = ""
                 final["done"] = True
                 final["response_id"] = public_response_id
-                canonical_events(final)
+                final_events = canonical_events(final)
                 try_record_capability_invocation(
                     "chat.streaming",
                     succeeded=True,
                     provider=truth_provider,
                     model=truth_model,
                 )
+                for event in final_events:
+                    if event.get("type") in {
+                        "response.artifact.ready",
+                        "response.completed",
+                        "response.failed",
+                        "response.cancelled",
+                    }:
+                        yield sse(event)
                 legacy = legacy_stream_payload(final)
                 if legacy:
                     yield sse(legacy)
@@ -1301,9 +1371,6 @@ async def chat_stream(
                         yield sse(legacy)
                     continue
                 appended_events = record_public_stream_chunk(public_response_id, chunk)
-                legacy = legacy_stream_payload(chunk)
-                if legacy:
-                    yield sse(legacy)
                 if (
                     chunk.get("done") is True
                     and str(chunk.get("status") or "")
@@ -1323,21 +1390,35 @@ async def chat_stream(
                     )
                 for event in appended_events:
                     if event.get("type") in {
+                        "response.output_text.delta",
+                        "response.artifact.ready",
+                        "response.completed",
+                        "response.failed",
+                        "response.cancelled",
                         "response.work_summary.updated",
                         "response.tool.started",
                         "response.tool.completed",
                         "response.status.updated",
                     }:
                         yield sse(event)
+                legacy = legacy_stream_payload(chunk)
+                if legacy:
+                    yield sse(legacy)
         except Exception:
             try_record_capability_invocation(
                 "chat.streaming",
                 succeeded=False,
                 error_code="provider_stream_failed",
-                provider="kolibri",
+                provider="none",
             )
-            final = {"content": "Не удалось завершить потоковый ответ. Повторите запрос — он будет направлен другому исполнителю.", "done": True, "actions": [], "status": "error", "provider": "none", "model": "none", "fallback_used": True, "error_code": "provider_stream_failed", "response_id": public_response_id}
-            canonical_events(final)
+            final = {"content": "Не удалось завершить потоковый ответ. Повторите запрос — он будет направлен другому исполнителю.", "done": True, "actions": [], "status": "error", "provider": "kolibri", "model": "kolibri", "fallback_used": True, "error_code": "provider_stream_failed", "response_id": public_response_id}
+            final_events = canonical_events(final)
+            for event in final_events:
+                if event.get("type") in {
+                    "response.output_text.delta",
+                    "response.failed",
+                }:
+                    yield sse(event)
             legacy = legacy_stream_payload(final)
             if legacy:
                 yield sse(legacy)

@@ -121,10 +121,14 @@ def test_stream_current_question_falls_back_to_tool_enabled_provider(monkeypatch
 
     payloads = _payloads(response)
     assert response.status_code == 200
-    assert payloads[0]["done"] is False
+    assert any(
+        payload.get("done") is False and payload.get("content")
+        for payload in payloads
+    )
     assert payloads[-1]["done"] is True
     assert payloads[-1]["status"] == "idle"
-    assert payloads[-1]["provider"] == "codex_cli"
+    assert payloads[-1]["provider"] == "kolibri"
+    assert payloads[-1]["model"] == "kolibri"
     content = "".join(str(payload.get("content") or "") for payload in payloads)
     assert "https://weather.example/current/moscow" in content
     assert any(
@@ -156,7 +160,8 @@ def test_stream_current_question_returns_structured_sources(monkeypatch):
 
     payloads = _payloads(response)
     assert payloads[-1]["status"] == "source_backed"
-    assert payloads[-1]["provider"] == "web_search"
+    assert payloads[-1]["provider"] == "kolibri"
+    assert payloads[-1]["model"] == "kolibri"
     assert payloads[-1]["sources"][0]["citation"] == 1
     assert payloads[-1]["sources"][0]["url"] == "https://weather.example/current/moscow"
     content = "".join(str(payload.get("content") or "") for payload in payloads)
