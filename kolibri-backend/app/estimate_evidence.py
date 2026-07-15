@@ -49,13 +49,18 @@ class PriceEvidenceRecord(BaseModel):
     source_id: str = Field(min_length=1, max_length=160)
     url: str = Field(min_length=1, max_length=2_000)
     source_title: str = Field(min_length=1, max_length=500)
+    source_name: str | None = Field(default=None, min_length=1, max_length=240)
     source_type: SOURCE_TYPES
     region: str = Field(min_length=1, max_length=240)
     project_region: str | None = Field(default=None, min_length=1, max_length=240)
     observed_at: str = Field(min_length=1, max_length=64)
+    retrieved_at: str | None = Field(default=None, min_length=1, max_length=64)
     price_date: str = Field(min_length=10, max_length=10)
+    fresh_until: str | None = Field(default=None, min_length=10, max_length=10)
+    ttl_days: int | None = Field(default=None, ge=1, le=365)
     unit: str = Field(min_length=1, max_length=40)
     vat_status: VAT_STATUSES
+    confidence: str | None = Field(default=None, min_length=1, max_length=64, pattern=DECIMAL_PATTERN)
     quote: str = Field(min_length=1, max_length=500)
     unit_price: str = Field(min_length=1, max_length=64, pattern=DECIMAL_PATTERN)
     currency: Literal["RUB"] = "RUB"
@@ -95,15 +100,35 @@ class PriceEvidenceRecord(BaseModel):
     @field_validator("observed_at")
     @classmethod
     def validate_observed_at(cls, value: str) -> str:
+        return _validate_iso_datetime(value, field_name="observed_at")
+
+    @field_validator("retrieved_at")
+    @classmethod
+    def validate_retrieved_at(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return _validate_iso_datetime(value, field_name="retrieved_at")
+
+    @field_validator("source_name")
+    @classmethod
+    def normalize_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = " ".join(value.split()).strip()
+        if not normalized:
+            raise ValueError("value must not be blank")
+        return normalized
+
+    @field_validator("fresh_until")
+    @classmethod
+    def validate_fresh_until(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         try:
-            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            parsed = date.fromisoformat(value)
         except ValueError as exc:
-            raise ValueError("observed_at must be ISO-8601") from exc
-        if parsed.tzinfo is None:
-            raise ValueError("observed_at must include a timezone")
-        if parsed.astimezone(timezone.utc) > datetime.now(timezone.utc) + timedelta(minutes=5):
-            raise ValueError("observed_at must not be in the future")
-        return parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+            raise ValueError("fresh_until must be ISO-8601 date") from exc
+        return parsed.isoformat()
 
     @field_validator("price_date")
     @classmethod
@@ -124,10 +149,25 @@ class PriceEvidenceRecord(BaseModel):
             raise ValueError("unit_price must be positive")
         return _decimal_text(parsed)
 
+    @field_validator("confidence")
+    @classmethod
+    def validate_confidence(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        parsed = _decimal(value)
+        if parsed <= 0 or parsed > 1:
+            raise ValueError("confidence must be between 0 and 1")
+        return _decimal_text(parsed)
+
     @model_validator(mode="after")
-    def verified_record_requires_known_vat(self):
+    def enforce_record_semantics(self):
         if self.verification == "verified" and self.vat_status == "unknown":
             raise ValueError("verified evidence requires a known VAT basis")
+        if self.fresh_until is not None:
+            price_date = date.fromisoformat(self.price_date)
+            fresh_until = date.fromisoformat(self.fresh_until)
+            if fresh_until < price_date:
+                raise ValueError("fresh_until must not be before price_date")
         return self
 
 
@@ -225,6 +265,9 @@ def evaluate_price_evidence(
         if current.date() - price_date > MAX_PRICE_AGE:
             issues.append(_issue("stale_price", record.position_code))
             continue
+        if record.fresh_until and current.date() > date.fromisoformat(record.fresh_until):
+            issues.append(_issue("stale_price", record.position_code))
+            continue
         identity = (record.position_code, record.source_id)
         if identity in seen_sources:
             issues.append(_issue("duplicate_source", record.position_code))
@@ -291,6 +334,18 @@ def _issue(code: str, position_code: str) -> dict[str, str]:
         "position_code": position_code,
         "message": "Источник цены отклонён строгой проверкой." if position_code else "Набор источников цен отклонён строгой проверкой.",
     }
+
+
+def _validate_iso_datetime(value: str, *, field_name: str) -> str:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be ISO-8601") from exc
+    if parsed.tzinfo is None:
+        raise ValueError(f"{field_name} must include a timezone")
+    if parsed.astimezone(timezone.utc) > datetime.now(timezone.utc) + timedelta(minutes=5):
+        raise ValueError(f"{field_name} must not be in the future")
+    return parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _canonical_evidence(value: Mapping[str, Any]) -> bytes:

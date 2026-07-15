@@ -733,11 +733,17 @@ def _estimate_source_collection_enabled() -> bool:
     }
 
 
+def _estimate_commercial_fallback_enabled() -> bool:
+    return os.getenv("KOLIBRI_ESTIMATE_COMMERCIAL_FALLBACK_ENABLED", "true").lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
 async def _materialize_estimate_actions(
     messages: List[Dict[str, str]],
     actions: list[dict],
 ) -> list[dict]:
-    """Cross the estimate price trust boundary through official evidence only."""
+    """Cross the estimate price trust boundary through fetched evidence."""
 
     normalized = ensure_estimate_action(messages, actions)
     estimate = next((item for item in normalized if item.get("type") == "create_estimate"), None)
@@ -764,7 +770,8 @@ async def _materialize_estimate_actions(
         try:
             from app.fgiscs_client import FgisCsClient
 
-            draft, trusted_evidence = await FgisCsClient().enrich_draft(draft)
+            draft, official_evidence = await FgisCsClient().enrich_draft(draft)
+            trusted_evidence.extend(official_evidence)
         except Exception:
             # Price research is an optional, untrusted boundary.  Transport,
             # payload and local attestation/configuration failures must all
@@ -772,6 +779,17 @@ async def _materialize_estimate_actions(
             # its SSE stream.  asyncio cancellation remains a BaseException and
             # is therefore not swallowed here.
             trusted_evidence = []
+        if _estimate_commercial_fallback_enabled():
+            try:
+                from app.commercial_price_research import CommercialPriceResearchClient
+
+                draft, fallback_evidence = await CommercialPriceResearchClient().enrich_draft(draft)
+                trusted_evidence.extend(fallback_evidence)
+            except Exception:
+                # Commercial research is a secondary source collector.  It may
+                # not disturb FGIS-backed rows or keep a partial fetched price
+                # without a signed evidence record.
+                pass
 
     final_estimate = build_estimate_action(
         latest_user_text(messages),
