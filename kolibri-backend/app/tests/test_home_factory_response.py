@@ -222,8 +222,18 @@ def test_stream_emits_factory_stages_then_verified_text_deltas():
         return [event async for event in client.stream([{"role": "user", "content": "Привет"}], run_id="stream")]
 
     events = asyncio.run(collect())
-    assert events[0]["work_summary"]["stage"] == "factory_dispatch"
-    assert events[1]["work_summary"]["stage"] == "factory_verified"
+    assert [event["work_summary"] for event in events if "work_summary" in event] == [
+        {
+            "stage": "factory_dispatch",
+            "summary": "Задача принята и передана в обработку",
+            "status": "active",
+        },
+        {
+            "stage": "factory_verified",
+            "summary": "Результат проверен независимым контуром",
+            "status": "completed",
+        },
+    ]
     assert "Проверенный ответ" == "".join(
         str(event.get("content") or "") for event in events
     )

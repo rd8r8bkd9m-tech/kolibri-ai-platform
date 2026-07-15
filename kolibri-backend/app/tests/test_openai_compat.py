@@ -571,17 +571,17 @@ def test_work_summary_sanitizer_maps_backend_aliases_to_canonical_contract():
         {
             "stage": "factory_dispatch",
             "status": "waiting",
-            "summary": "Задача передана Home Control Plane",
+            "summary": "Задача принята и передана в обработку",
         },
         {
             "stage": "factory_verified",
             "status": "completed",
-            "summary": "Результат проверен",
+            "summary": "Результат проверен независимым контуром",
         },
         {
             "stage": "codex_turn",
             "status": "recovering",
-            "summary": "Codex продолжает выполнение",
+            "summary": "Выполнение продолжается",
         },
         {
             "stage": "plan_updated",
@@ -597,15 +597,20 @@ def test_work_summary_sanitizer_maps_backend_aliases_to_canonical_contract():
         )
 
     assert [
-        (event["work_summary"]["stage"], event["work_summary"]["status"])
+        (
+            event["work_summary"]["stage"],
+            event["work_summary"]["status"],
+            event["work_summary"]["summary"],
+        )
         for event in appended
     ] == [
-        ("provider_route", "active"),
-        ("verification", "completed"),
-        ("tool_execution", "active"),
-        ("planning", "failed"),
+        ("provider_route", "active", "Задача принята и передана в обработку"),
+        ("verification", "completed", "Результат проверен независимым контуром"),
+        ("tool_execution", "active", "Выполнение продолжается"),
+        ("planning", "failed", "План остановлен"),
     ]
     public_dump = json.dumps(appended, ensure_ascii=False)
+    assert "[скрыто]" not in public_dump
     assert "Home" not in public_dump
     assert "Control Plane" not in public_dump
     assert "Codex" not in public_dump

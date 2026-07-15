@@ -340,7 +340,7 @@ class HomeFactoryResponseClient:
         yield {
             "work_summary": {
                 "stage": "factory_dispatch",
-                "summary": "Задача передана единому Home Control Plane",
+                "summary": "Задача принята и передана в обработку",
                 "status": "active",
             }
         }
@@ -352,7 +352,7 @@ class HomeFactoryResponseClient:
         yield {
             "work_summary": {
                 "stage": "factory_verified",
-                "summary": "Результат проверен независимым контуром Control Plane",
+                "summary": "Результат проверен независимым контуром",
                 "status": "completed",
             }
         }
