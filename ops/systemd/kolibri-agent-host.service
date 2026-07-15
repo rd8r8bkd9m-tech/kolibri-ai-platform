@@ -1,15 +1,17 @@
 [Unit]
-Description=Kolibri persistent Agent Host
-After=network-online.target
+Description=Kolibri Agent Host
+After=network-online.target wg-quick@wg-kolibri.service kolibri-mesh-registry.service kolibri-control-plane-relay.service
 Wants=network-online.target
+Requires=wg-quick@wg-kolibri.service
 
 [Service]
 Type=simple
-EnvironmentFile=/etc/kolibri-agent-host.env
+EnvironmentFile=/etc/kolibri-node.env
 ExecStart=/usr/local/bin/kolibri-agent-host
 Restart=always
 RestartSec=5
 KillSignal=SIGTERM
+TimeoutStopSec=30
 
 [Install]
 WantedBy=multi-user.target

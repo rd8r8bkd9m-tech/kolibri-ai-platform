@@ -106,6 +106,7 @@ BACKEND_TEST_ENV_KEYS = (
 )
 BACKEND_TEST_ENV_TYPES = {"backend_python", "python_backend"}
 SUPPORTED_AI_RUNNERS = {"api", "codex", "local_llm", "mimo"}
+LEASE_FENCE_FIELDS = ("attempt_id", "lease_id", "fencing_token")
 RUNNER_AUTH_FAILURE_MARKERS = (
     "401",
     "403",
@@ -158,6 +159,10 @@ class PermissionContractError(RuntimeError):
         self.classification = classification
         permissions = ", ".join(classification.get("forbidden_permissions") or [])
         super().__init__(f"read-only/no-push permission pack forbids requested runtime permissions: {permissions}")
+
+
+class LeaseContractError(RuntimeError):
+    """Raised when Control Plane work is missing or changes its lease fence."""
 
 
 def utc_now() -> str:
@@ -901,6 +906,9 @@ class AgentHost:
         self.max_inflight = args.max_inflight
         self.hostname = platform.node()
         self.pid = os.getpid()
+        self._last_node_heartbeat = 0.0
+        self._registered = False
+        self._active_lease_fences: dict[str, dict[str, Any]] = {}
         self.runner_status = self.detect_runner_status()
         self.capabilities = self.capabilities_with_runners()
         self.work_root.mkdir(parents=True, exist_ok=True)
@@ -913,9 +921,10 @@ class AgentHost:
         return self._request_with_failover("GET", path)
 
     def _ordered_control_urls(self) -> list[str]:
-        urls = [self.control_url]
-        urls.extend(url for url in self.control_urls if url != self.control_url)
-        return urls
+        # Always retry the configured canonical Control Plane first. A
+        # successful fallback is request-local and must not permanently pin a
+        # worker to a stale standby after the canonical API recovers.
+        return list(self.control_urls)
 
     def _request_with_failover(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
         last_exc: Exception | None = None
@@ -971,6 +980,7 @@ class AgentHost:
             **machine_stats(),
         }
         self.post("/v1/nodes/register", body)
+        self._registered = True
 
     def node_heartbeat(self, active_task: str | None = None) -> None:
         body = {
@@ -984,9 +994,60 @@ class AgentHost:
             **machine_stats(),
         }
         self.post(f"/v1/nodes/{self.node_id}/heartbeat", body)
+        self._last_node_heartbeat = time.time()
+
+    def _fence_from_leased_task(self, task: dict[str, Any]) -> dict[str, Any]:
+        task_id = str(task.get("task_id") or "").strip()
+        if not task_id:
+            raise LeaseContractError("leased task is missing task_id")
+        missing = [field for field in LEASE_FENCE_FIELDS if task.get(field) is None]
+        if missing:
+            raise LeaseContractError(
+                f"leased task {task_id} is missing Control Plane fence fields: {', '.join(missing)}"
+            )
+        fence = {
+            "attempt_id": task["attempt_id"],
+            "lease_id": task["lease_id"],
+            "fencing_token": task["fencing_token"],
+            "node_id": self.node_id,
+            "agent_id": self.agent_id,
+        }
+        if task.get("lease_slot_id") is not None:
+            fence["slot_id"] = task["lease_slot_id"]
+        return fence
+
+    def _remember_lease_fence(self, task: dict[str, Any]) -> dict[str, Any]:
+        task_id = str(task.get("task_id") or "").strip()
+        fence = self._fence_from_leased_task(task)
+        existing = self._active_lease_fences.get(task_id)
+        if existing is not None and existing != fence:
+            raise LeaseContractError(f"lease fence changed for active task {task_id}")
+        self._active_lease_fences[task_id] = dict(fence)
+        return dict(fence)
+
+    def _task_mutation_fence(self, task: dict[str, Any]) -> dict[str, Any]:
+        task_id = str(task.get("task_id") or "").strip()
+        remembered = self._active_lease_fences.get(task_id)
+        observed = self._fence_from_leased_task(task)
+        if remembered is None:
+            self._active_lease_fences[task_id] = dict(observed)
+            remembered = observed
+        if remembered != observed:
+            raise LeaseContractError(f"task {task_id} no longer matches its leased fence")
+        return dict(remembered)
+
+    def _forget_lease_fence(self, task: dict[str, Any]) -> None:
+        task_id = str(task.get("task_id") or "").strip()
+        if task_id:
+            self._active_lease_fences.pop(task_id, None)
 
     def task_heartbeat(self, task: dict[str, Any], worktree: Path, branch: str | None, logs: dict[str, str], pid: int | None = None) -> dict[str, Any]:
+        # A worker can execute one task for hours. Keep its node card fresh while
+        # refreshing the task lease so fleet routing never mistakes busy for dead.
+        if time.time() - self._last_node_heartbeat >= self.heartbeat_interval:
+            self.node_heartbeat(active_task=task["task_id"])
         body = {
+            **self._task_mutation_fence(task),
             "state": "running",
             "pid": pid or self.pid,
             "worktree": str(worktree),
@@ -1002,7 +1063,11 @@ class AgentHost:
             "capabilities": self.capabilities,
             "runners": self.runner_status,
         })
-        return sanitize_task_permissions(task) if isinstance(task, dict) else task
+        if not isinstance(task, dict):
+            return task
+        sanitized = sanitize_task_permissions(task)
+        self._remember_lease_fence(sanitized)
+        return sanitized
 
     def run_command(
         self,
@@ -1183,6 +1248,7 @@ class AgentHost:
         text_parts: list[str] = []
         deltas: list[str] = []
         useful_objects: list[dict[str, Any]] = []
+        runner_errors: list[dict[str, Any]] = []
         for line in stdout_path.read_text(encoding="utf-8", errors="ignore").splitlines():
             line = line.strip()
             if not line.startswith("{"):
@@ -1193,6 +1259,19 @@ class AgentHost:
                 continue
             if not isinstance(event, dict):
                 continue
+
+            # Mimo may emit a structured error event and still exit with rc=0.
+            # Preserve only the classification-safe fields; response headers
+            # and bodies can contain credentials or provider internals.
+            error = event.get("error")
+            if str(event.get("type") or "").lower() == "error" and isinstance(error, dict):
+                data = error.get("data") if isinstance(error.get("data"), dict) else {}
+                runner_errors.append({
+                    "name": str(error.get("name") or "runner_error"),
+                    "message": redact_sensitive_text(str(data.get("message") or error.get("message") or "runner error")),
+                    "status_code": data.get("statusCode") or data.get("status_code"),
+                    "retryable": data.get("isRetryable") if "isRetryable" in data else data.get("retryable"),
+                })
 
             event_final, event_parts, event_deltas = cls._extract_json_event_text(event)
             final_messages.extend(event_final)
@@ -1214,7 +1293,7 @@ class AgentHost:
             if not isinstance(text, str) or not text.strip():
                 text = json.dumps(output, ensure_ascii=False, sort_keys=True)
             return {"response": text.strip(), "runner_output": output}
-        return {"response": ""}
+        return {"response": "", **({"runner_error": runner_errors[-1]} if runner_errors else {})}
 
     @classmethod
     def parse_json_text_response(cls, stdout_path: Path) -> str:
@@ -1231,6 +1310,10 @@ class AgentHost:
     @staticmethod
     def classify_runner_error(error: str, runner_output: str) -> tuple[str, str, bool]:
         combined = f"{error}\n{runner_output}".lower()
+        if "illegal_access" in combined:
+            return "runner_policy_blocked", "mimo runner request was blocked by policy: illegal_access", False
+        if "risk control" in combined:
+            return "runner_policy_blocked", "mimo runner request was blocked by provider policy", False
         if "http 401" in combined or " 401" in combined or "unauthorized" in combined:
             return "runner_auth_failed", "mimo runner authentication failed with HTTP 401", False
         if "http 403" in combined or " 403" in combined or "forbidden" in combined or "illegal_access" in combined:
@@ -1274,6 +1357,19 @@ class AgentHost:
             raise
         payload = self.parse_json_response_payload(stdout_path)
         if not payload.get("response"):
+            structured_error = payload.get("runner_error")
+            if isinstance(structured_error, dict):
+                classification_input = json.dumps(structured_error, ensure_ascii=False, sort_keys=True)
+                error_type, message, retry = self.classify_runner_error(
+                    str(structured_error.get("message") or empty_response_label),
+                    classification_input,
+                )
+                raise RunnerExecutionError(
+                    error_type,
+                    empty_response_label,
+                    message,
+                    retry=retry,
+                )
             raise RuntimeError(f"{empty_response_label} completed without text response")
         return payload
 
@@ -1459,18 +1555,22 @@ class AgentHost:
 
     def complete(self, task: dict[str, Any], result: dict[str, Any], result_path: Path) -> None:
         self.post(f"/v1/tasks/{task['task_id']}/complete", {
+            **self._task_mutation_fence(task),
             "result_reference": str(result_path),
             "result": result,
         })
+        self._forget_lease_fence(task)
 
     def fail(self, task: dict[str, Any], error_type: str, error: str, result: dict[str, Any] | None, result_path: Path | None, retry: bool = True) -> None:
         self.post(f"/v1/tasks/{task['task_id']}/fail", {
+            **self._task_mutation_fence(task),
             "error_type": error_type,
             "error": error,
             "result": result,
             "result_reference": str(result_path) if result_path else None,
             "retry": retry,
         })
+        self._forget_lease_fence(task)
 
     def validate_runtime_permission_contract(self, task: dict[str, Any]) -> dict[str, Any]:
         classification = classify_permission_pack(task)
@@ -2411,12 +2511,19 @@ def test_successful_retry_clears_top_level_error_and_keeps_attempt_history():
             self.fail(task, error_type, redact_sensitive_text(str(exc)), result, result_path, retry=retry)
 
     def loop(self) -> None:
-        self.register()
-        last_node_heartbeat = 0.0
         while not STOP:
-            if time.time() - last_node_heartbeat >= self.heartbeat_interval:
-                self.node_heartbeat()
-                last_node_heartbeat = time.time()
+            try:
+                if not self._registered:
+                    self.register()
+                if time.time() - self._last_node_heartbeat >= self.heartbeat_interval:
+                    self.node_heartbeat()
+            except Exception as exc:
+                # A temporary Control Plane outage must not create a systemd
+                # restart storm across the whole fleet.
+                self._registered = False
+                print(f"{utc_now()} control_plane_heartbeat_failed {exc}", flush=True)
+                time.sleep(5)
+                continue
             try:
                 task = self.lease()
             except Exception as exc:

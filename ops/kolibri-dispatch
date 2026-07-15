@@ -20,7 +20,14 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_CONTROL_URL = os.environ.get("KOLIBRI_FACTORY_CONTROL_URL", "http://10.99.0.2:9101")
+# Home is the sole logical Control Plane.  The environment variable remains
+# authoritative for alternate mesh/DNS discovery, but the transitional mesh
+# default must never fall back to the retired ``main`` control plane.
+DEFAULT_CONTROL_URL = (
+    os.environ.get("KOLIBRI_FACTORY_CONTROL_URL")
+    or os.environ.get("KOLIBRI_HOME_CONTROL_URL")
+    or "http://10.99.0.1:9101"
+)
 DEFAULT_NODES = {
     "9fts": {"ssh": "root@94.183.235.154", "proxy_jump": "kolibri-home"},
     "new": {"ssh": "root@109.248.161.39", "proxy_jump": "kolibri-home"},
