@@ -27,6 +27,7 @@ import json
 import os
 import socket
 import sys
+import threading
 import time
 import uuid
 from dataclasses import dataclass, field, asdict
@@ -74,6 +75,7 @@ REDIS_PORT = int(os.environ.get("FACTORY_REDIS_PORT", "6379"))
 LEASE_DURATION = int(os.environ.get("FACTORY_LEASE_DURATION", "60"))
 MAX_RETRIES = int(os.environ.get("FACTORY_MAX_RETRIES", "3"))
 FABRIC_API_VERSION = "2026-07-01"
+FABRIC_MANIFEST_VERSION = "2026-07-01.manifest-01"
 CANONICAL_RESPONSE_STATUSES = {"completed", "running", "blocked", "failed", "partial"}
 FALLBACK_REASON_TAXONOMY = {
     "api_unreachable",
@@ -102,7 +104,24 @@ STATE_CANCELLED = "cancelled"
 STATE_RETRY = "retry_scheduled"
 STATE_DEAD = "dead_letter"
 TERMINAL_STATES = {STATE_COMPLETED, STATE_FAILED, STATE_CANCELLED, STATE_DEAD}
+ACTIVE_LEASE_STATES = {STATE_LEASED, STATE_RUNNING, STATE_REVIEW}
+LEASE_CONTRACT_VERSION = "2026-07-14.lease-v1"
+LEASE_FENCE_FIELDS = ("attempt_id", "lease_id", "fencing_token")
 BLOCKED_RUNNER_STATES = {"blocked", "degraded", "runner_auth_blocked", "unavailable"}
+INACTIVE_AGENT_SLOT_STATES = BLOCKED_RUNNER_STATES | {
+    "disabled",
+    "draining",
+    "failed",
+    "offline",
+    "stale",
+    "stopped",
+}
+
+# Home is the single logical authority, so an in-process lock is sufficient to
+# keep concurrent generic/slot heartbeats from losing each other's updates.
+# Slot data is also retained in the node record, making every effective
+# capability projection reproducible from one durable Redis value.
+NODE_UPDATE_LOCK = threading.RLock()
 
 FABRIC_NODE_CATALOG = {
     "home": {
@@ -114,9 +133,9 @@ FABRIC_NODE_CATALOG = {
     },
     "main": {
         "node_id": "main",
-        "role": "control_plane",
-        "display_name": "Директор",
-        "api_paths": ["fabric_api", "control_plane_api", "artifact_api"],
+        "role": "orchestrator_fallback",
+        "display_name": "Резервный оркестратор",
+        "api_paths": ["fabric_api", "artifact_api"],
         "ssh": "emergency_bootstrap_diagnostic_only",
     },
     "uiap": {
@@ -199,6 +218,17 @@ ADMIN_ENDPOINTS = {
     "/v1/admin/rotate-keys": "admin_rotate_keys",
 }
 
+OS_CAPABILITY_CATALOG = [
+    {"id": "chat.compose", "target": "kolibri-core", "approval": "auto"},
+    {"id": "workspace.open", "target": "kolibri-core", "approval": "auto"},
+    {"id": "artifact.present", "target": "kolibri-core", "approval": "auto"},
+    {"id": "task.create", "target": "control-plane", "approval": "owner-gated"},
+    {"id": "agent.delegate", "target": "control-plane", "approval": "owner-gated"},
+    {"id": "system.change", "target": "control-plane", "approval": "explicit"},
+]
+
+OS_CAPABILITY_BY_ID = {capability["id"]: capability for capability in OS_CAPABILITY_CATALOG}
+
 PROMPT3_REQUIRED_ENDPOINTS = {
     "GET": [
         "/v1/health",
@@ -206,6 +236,8 @@ PROMPT3_REQUIRED_ENDPOINTS = {
         "/v1/fleet/topology",
         "/v1/fleet/route",
         "/v1/fleet/capabilities",
+        "/v1/os/capabilities",
+        "/v1/fabric/manifest",
         "/v1/models",
         "/v1/agents/status/{task_id}",
         "/v1/agents/artifacts/{task_id}",
@@ -213,6 +245,7 @@ PROMPT3_REQUIRED_ENDPOINTS = {
     "POST": [
         "/v1/responses",
         "/v1/chat/completions",
+        "/v1/os/capabilities/invoke",
         "/v1/agents/tasks",
         "/v1/agents/cancel/{task_id}",
         "/v1/admin/exec",
@@ -549,6 +582,19 @@ def get_json(redis_key: str, default: Any = None) -> Any:
     return json.loads(raw)
 
 
+def get_json_many(redis_keys: list[str]) -> list[Any]:
+    """Fetch a Redis collection in one round trip.
+
+    Fleet endpoints used to open two Redis connections per node. With hundreds
+    of historical cards and 21 workers polling leases, that amplified a normal
+    status request into Control Plane timeouts.
+    """
+    if not redis_keys:
+        return []
+    values = redis.command("MGET", *redis_keys) or []
+    return [json.loads(value) if value is not None else None for value in values]
+
+
 def set_json(redis_key: str, value: Any) -> None:
     redis.command("SET", redis_key, json.dumps(value, sort_keys=True, separators=(",", ":")))
 
@@ -608,11 +654,16 @@ def all_task_ids() -> list[str]:
 
 
 def registered_nodes() -> list[dict[str, Any]]:
+    node_ids = sorted(redis.command("SMEMBERS", key("node_ids")) or [])
+    raw_nodes = get_json_many([node_key(node_id) for node_id in node_ids])
+    drains = redis.command("MGET", *[drain_key(node_id) for node_id in node_ids]) if node_ids else []
+    current = now_ts()
     nodes = []
-    for node_id in sorted(redis.command("SMEMBERS", key("node_ids")) or []):
-        node = get_json(node_key(node_id), {})
-        node["draining"] = bool(redis.command("GET", drain_key(node_id)))
-        nodes.append(node)
+    for node_id, raw_node, draining in zip(node_ids, raw_nodes, drains):
+        node = raw_node or {"node_id": node_id}
+        node["draining"] = bool(draining)
+        node = refresh_node_effective_state(node, current)
+        nodes.append(classify_node_freshness(node, current))
     return nodes
 
 
@@ -645,7 +696,7 @@ def canonical_response_envelope(
         "task_id": task_id or "",
         "trace_id": trace_id or task_id or "",
         "status": status,
-        "node": node or "main",
+        "node": node or "home",
         "route_used": route_used or "protected_fabric_api",
         "fallback_nodes": fallback_nodes or [],
         "artifacts": artifacts or [],
@@ -660,7 +711,7 @@ def task_envelope_from_request(body: dict[str, Any], default_kind: str = "owner_
     envelope = dict(body)
     envelope.setdefault("kind", default_kind)
     envelope.setdefault("source", "fabric_api")
-    envelope.setdefault("command_node", body.get("command_node") or body.get("source") or "unknown")
+    envelope.setdefault("command_node", body.get("command_node") or body.get("source") or "home")
     envelope.setdefault("requested_role", "remote_agent")
     envelope.setdefault("fallback_allowed", True)
     envelope.setdefault("write_scope", [])
@@ -677,16 +728,61 @@ def fleet_capabilities(nodes: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def fleet_topology(nodes: list[dict[str, Any]]) -> dict[str, Any]:
-    edges = [{"from": "home", "to": "main", "type": "command_api"}]
-    edges.extend(
-        {"from": "main", "to": node["node_id"], "type": "protected_fabric_api"}
-        for node in nodes
-        if node["node_id"] != "main"
-    )
+    edges = []
+    for node in nodes:
+        node_id = node.get("node_id")
+        if not node_id or node_id == "home":
+            continue
+        edges.append({"from": "home", "to": node_id, "type": "protected_fabric_api"})
     return {
         "nodes": nodes,
         "edges": edges,
         "relay_endpoint": "/v1/fabric/relay",
+    }
+
+
+def manifest_nodes(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    manifest_items = []
+    for node in nodes:
+        node_id = node.get("node_id")
+        if not node_id:
+            continue
+        node_id = str(node_id)
+        manifest_items.append({
+            "node_id": node_id,
+            "display_name": node.get("display_name", node.get("hostname") or node_id),
+            "role": node.get("role", "control"),
+            "api_paths": node.get("api_paths", ["fabric_api", "fallback_relay"]),
+            "health": node.get("health"),
+            "freshness": node.get("freshness"),
+            "heartbeat_at": node.get("heartbeat_at"),
+            "capabilities": node.get("capabilities", []),
+            "base_capabilities": node.get("base_capabilities", []),
+            "agent_slots": node.get("agent_slots", {}),
+            "agent_id": node.get("agent_id"),
+            "runners": node.get("runners", {}),
+            "draining": node.get("draining"),
+            "management_path": node.get("management_path", "protected_fabric_api"),
+            "fallback_api_relay": node.get("fallback_api_relay", "/v1/fabric/relay"),
+        })
+    return manifest_items
+
+
+def fabric_manifest_payload(nodes: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    catalog = nodes if nodes is not None else fabric_nodes(registered_nodes())
+    return {
+        "manifest_version": FABRIC_MANIFEST_VERSION,
+        "generated_at": utc_now(),
+        "primary_control_node": "home",
+        "source": "fabric_control_plane",
+        "management_path": "protected_fabric_api",
+        "bootstrap_policy": {
+            "safe_stub": True,
+            "ssh_policy": "emergency_bootstrap_diagnostic_only",
+            "required_fields": BOOTSTRAP_CONTRACT["required_fields"],
+        },
+        "nodes": manifest_nodes(catalog),
+        "topology": fleet_topology(catalog),
     }
 
 
@@ -717,7 +813,7 @@ def admin_denied_envelope(body: dict[str, Any], *, endpoint: str) -> dict[str, A
         status="blocked",
         task_id=task_id,
         trace_id=trace_id,
-        node=body.get("target_node") or "main",
+        node=body.get("target_node") or "home",
         route_used=endpoint,
         blocked_reason="admin_scope_denied",
         repair_task={
@@ -726,6 +822,54 @@ def admin_denied_envelope(body: dict[str, Any], *, endpoint: str) -> dict[str, A
             "action": "obtain authenticated owner scope and audited approval before privileged execution",
         },
         next_action="resubmit with an authenticated admin capability token through the protected Fabric API",
+    )
+
+
+def os_capabilities_envelope() -> dict[str, Any]:
+    return canonical_response_envelope(
+        status="completed",
+        route_used="/v1/os/capabilities",
+        data={"object": "list", "data": OS_CAPABILITY_CATALOG},
+        next_action="invoke an allowed capability through /v1/os/capabilities/invoke",
+    )
+
+
+def os_capability_invoke_envelope(body: dict[str, Any], *, endpoint: str = "/v1/os/capabilities/invoke") -> dict[str, Any]:
+    capability_id = str(body.get("capabilityId") or body.get("capability_id") or "")
+    capability = OS_CAPABILITY_BY_ID.get(capability_id)
+    trace_id = body.get("trace_id") or body.get("sourceIntentId") or body.get("source_intent_id") or capability_id
+    if not capability:
+        return canonical_response_envelope(
+            status="blocked",
+            trace_id=trace_id,
+            route_used=endpoint,
+            blocked_reason="unknown",
+            repair_task={"kind": "register_os_capability", "capability_id": capability_id},
+            next_action="declare the capability in OS_CAPABILITY_CATALOG before invocation",
+        )
+    if capability["approval"] != "auto":
+        return canonical_response_envelope(
+            status="blocked",
+            trace_id=trace_id,
+            node=capability["target"],
+            route_used=endpoint,
+            blocked_reason="admin_scope_denied" if capability["approval"] == "explicit" else "auth_failed",
+            repair_task={
+                "kind": "request_capability_approval",
+                "capability_id": capability_id,
+                "approval": capability["approval"],
+                "target": capability["target"],
+            },
+            next_action="request owner approval before creating control-plane work",
+            data={"capability": capability, "input": body.get("input") or {}},
+        )
+    return canonical_response_envelope(
+        status="completed",
+        trace_id=trace_id,
+        node=capability["target"],
+        route_used=endpoint,
+        data={"capability": capability, "input": body.get("input") or {}, "accepted": True},
+        next_action="stream shell/core events back to the avatar surface",
     )
 
 
@@ -751,7 +895,7 @@ def task_artifact_envelope(task: dict[str, Any] | None, task_id: str) -> dict[st
     return canonical_response_envelope(
         status="completed" if artifacts else "partial",
         task_id=task_id,
-        node=(task.get("lease_owner") or "main").split(":", 1)[0],
+        node=(task.get("lease_owner") or "home").split(":", 1)[0],
         artifacts=artifacts,
         data={"task_state": task.get("state"), "result_reference": task.get("result_reference")},
         next_action="collect listed artifact paths from the authenticated artifact API" if artifacts else "wait for task completion or annotate result artifacts",
@@ -850,10 +994,69 @@ def fabric_route(
     )
 
 
+def bootstrap_node_contract(body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+    required = set(BOOTSTRAP_CONTRACT["required_fields"])
+    missing = sorted(field for field in required if not body.get(field))
+    if missing:
+        return 400, {
+            "status": "blocked",
+            "reason": "bootstrap_contract_missing_fields",
+            "missing_fields": missing,
+            "fallback_nodes": [],
+            "repair_task": {
+                "kind": "repair_bootstrap_request",
+                "action": "resubmit bootstrap request with required non-secret identity and capability fields",
+            },
+            "can_continue_elsewhere": False,
+        }
+
+    node_id = str(body["node_id"])
+    node = get_json(node_key(node_id), {
+        "node_id": node_id,
+        "health": "stale",
+        "freshness": "stale",
+        "capabilities": [],
+    })
+    node["node_id"] = node_id
+    node["display_name"] = body.get("display_name") or body.get("hostname") or node.get("display_name")
+    node["role"] = body.get("role")
+    node["capabilities"] = body.get("capabilities", node.get("capabilities", []))
+    node["ip"] = body.get("ip") or body.get("hostname")
+    node["public_ip"] = body.get("public_ip")
+    node["api_paths"] = node.get("api_paths", ["fabric_api", "fallback_relay"])
+    node["bootstrap_state"] = "pending_identity_approval"
+    node["requested_by"] = body.get("requested_by")
+    node["requested_at"] = node.get("requested_at") or utc_now()
+    node["bootstrap_contract_version"] = BOOTSTRAP_CONTRACT["endpoint"]
+
+    set_json(node_key(node_id), node)
+    redis.command("SADD", key("node_ids"), node_id)
+    manifest = fabric_manifest_payload(fabric_nodes(registered_nodes() + [{"node_id": node_id}]))
+    return 202, {
+        "status": "accepted",
+        "bootstrap": "safe_stub",
+        "node_id": body["node_id"],
+        "display_name": body.get("display_name"),
+        "capabilities": body.get("capabilities", []),
+        "node": node,
+        "manifest": {
+            "version": manifest["manifest_version"],
+            "generated_at": manifest["generated_at"],
+            "primary_control_node": manifest["primary_control_node"],
+        },
+        "next_action": "approve scoped credentials through authenticated Fabric API and start agent-host registration",
+        "secrets_returned": False,
+    }
+
+
 def save_task(task: dict[str, Any]) -> None:
     task["updated_at"] = utc_now()
     set_json(task_key(task["task_id"]), task)
     redis.command("SADD", key("task_ids"), task["task_id"])
+    if task.get("state") in ACTIVE_LEASE_STATES:
+        redis.command("SADD", key("active_lease_ids"), task["task_id"])
+    else:
+        redis.command("SREM", key("active_lease_ids"), task["task_id"])
 
 
 def enqueue(task_id: str) -> None:
@@ -874,7 +1077,11 @@ def normalize_task(envelope: dict[str, Any]) -> dict[str, Any]:
         "state": STATE_QUEUED,
         "attempt": 0,
         "max_retries": int(envelope.get("max_retries", MAX_RETRIES)),
+        "lease_contract_version": LEASE_CONTRACT_VERSION,
         "attempt_id": None,
+        "lease_id": None,
+        "lease_slot_id": None,
+        "fencing_token": None,
         "lease_owner": None,
         "lease_until": None,
         "heartbeat_at": None,
@@ -896,6 +1103,411 @@ def ensure_list(value: Any) -> list[Any]:
     if isinstance(value, tuple):
         return list(value)
     return [value]
+
+
+def normalized_string_list(value: Any) -> list[str]:
+    """Return a deterministic, non-empty capability/id list."""
+    normalized = {
+        str(item).strip()
+        for item in ensure_list(value)
+        if item is not None and str(item).strip()
+    }
+    return sorted(normalized)
+
+
+def is_agent_slot_heartbeat(body: dict[str, Any]) -> bool:
+    # An empty slot collection on a generic Agent Host heartbeat is not an
+    # instruction to erase independently live slots.
+    return bool(body.get("slot_id")) or bool(body.get("agent_slots"))
+
+
+def resolve_logical_node_id(requested_node_id: str, body: dict[str, Any]) -> str:
+    """Resolve a process identity to one logical node without implicit aliases.
+
+    A legacy process such as ``home-codex-provider`` may migrate into the
+    logical ``home`` record only by explicitly declaring ``logical_node_id``
+    and a slot payload. A generic heartbeat cannot silently rename a node.
+    """
+    requested = str(requested_node_id).strip()
+    logical = str(body.get("logical_node_id") or body.get("parent_node_id") or requested).strip()
+    if not requested or not logical:
+        raise ValueError("node_id_required")
+    if logical != requested and not is_agent_slot_heartbeat(body):
+        raise ValueError("logical_node_alias_requires_agent_slot")
+    return logical
+
+
+def _stored_agent_slots(node: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    raw_slots = node.get("agent_slots")
+    if isinstance(raw_slots, dict):
+        result: dict[str, dict[str, Any]] = {}
+        for raw_slot_id, raw_slot in raw_slots.items():
+            if not isinstance(raw_slot, dict):
+                continue
+            slot_id = str(raw_slot.get("slot_id") or raw_slot_id).strip()
+            if slot_id:
+                result[slot_id] = dict(raw_slot, slot_id=slot_id)
+        return result
+    if isinstance(raw_slots, list):
+        result = {}
+        for raw_slot in raw_slots:
+            if not isinstance(raw_slot, dict):
+                continue
+            slot_id = str(raw_slot.get("slot_id") or "").strip()
+            if slot_id:
+                result[slot_id] = dict(raw_slot, slot_id=slot_id)
+        return result
+    return {}
+
+
+def _slot_payloads(body: dict[str, Any], logical_node_id: str) -> list[dict[str, Any]]:
+    """Normalize top-level and batched slot heartbeats.
+
+    ``agent_slots`` accepts either a list, a single slot object, or a mapping
+    keyed by slot id. Repeated ids are deterministically merged in input order.
+    """
+    raw_entries: list[dict[str, Any]] = []
+    if body.get("slot_id"):
+        raw_entries.append({
+            key_name: value
+            for key_name, value in body.items()
+            if key_name not in {"agent_slots", "logical_node_id", "parent_node_id", "node_id"}
+        })
+
+    if "agent_slots" in body:
+        raw_slots = body.get("agent_slots")
+        if isinstance(raw_slots, list):
+            if not all(isinstance(item, dict) for item in raw_slots):
+                raise ValueError("agent_slots_must_contain_objects")
+            raw_entries.extend(dict(item) for item in raw_slots)
+        elif isinstance(raw_slots, dict):
+            if "slot_id" in raw_slots:
+                raw_entries.append(dict(raw_slots))
+            else:
+                for mapped_slot_id, raw_slot in raw_slots.items():
+                    if not isinstance(raw_slot, dict):
+                        raise ValueError("agent_slots_must_contain_objects")
+                    slot = dict(raw_slot)
+                    declared_slot_id = slot.get("slot_id")
+                    if declared_slot_id and str(declared_slot_id) != str(mapped_slot_id):
+                        raise ValueError("agent_slot_id_mismatch")
+                    slot["slot_id"] = str(mapped_slot_id)
+                    raw_entries.append(slot)
+        else:
+            raise ValueError("agent_slots_must_be_object_or_list")
+
+    if not raw_entries:
+        raise ValueError("agent_slot_id_required")
+
+    merged: dict[str, dict[str, Any]] = {}
+    for raw_slot in raw_entries:
+        slot_id = str(raw_slot.get("slot_id") or "").strip()
+        if not slot_id or len(slot_id) > 200 or any(char.isspace() for char in slot_id):
+            raise ValueError("invalid_agent_slot_id")
+        declared_node = raw_slot.get("logical_node_id") or raw_slot.get("parent_node_id") or raw_slot.get("node_id")
+        if declared_node and str(declared_node).strip() != logical_node_id:
+            raise ValueError("agent_slot_node_mismatch")
+        slot = merged.setdefault(slot_id, {"slot_id": slot_id})
+        slot.update(raw_slot)
+        slot["slot_id"] = slot_id
+        slot["node_id"] = logical_node_id
+    return [merged[slot_id] for slot_id in sorted(merged)]
+
+
+def _agent_slot_projection(slot: dict[str, Any], current: float) -> dict[str, Any]:
+    projected = dict(slot)
+    heartbeat_ts = parse_iso_ts(slot.get("heartbeat_at"))
+    age = None if heartbeat_ts is None else max(0, int(current - heartbeat_ts))
+    freshness = "stale" if age is None or age > NODE_STALE_AFTER else "fresh"
+    state = str(slot.get("status") or slot.get("health") or "online").strip().lower()
+    operational = freshness == "fresh" and state not in INACTIVE_AGENT_SLOT_STATES and not bool(slot.get("draining"))
+    projected["freshness"] = freshness
+    projected["heartbeat_age_seconds"] = age
+    projected["effective"] = operational
+    return projected
+
+
+def _runner_state_priority(value: Any) -> int:
+    if isinstance(value, dict):
+        state = str(value.get("status") or "").strip().lower()
+    else:
+        state = str(value or "").strip().lower()
+    if state in {"available", "healthy", "online", "ready", "running"}:
+        return 0
+    if state in BLOCKED_RUNNER_STATES:
+        return 2
+    return 1
+
+
+def refresh_node_effective_state(node: dict[str, Any], current: float | None = None) -> dict[str, Any]:
+    """Rebuild effective capabilities/runners from base plus live slots."""
+    projected = dict(node)
+    current_ts = now_ts() if current is None else current
+    slots = _stored_agent_slots(projected)
+
+    if "base_capabilities" in projected:
+        base_capabilities = normalized_string_list(projected.get("base_capabilities"))
+    else:
+        # One-time migration from the legacy flat representation. Slot caps are
+        # subtracted because ``capabilities`` may already be an old union.
+        slot_capabilities = {
+            capability
+            for slot in slots.values()
+            for capability in normalized_string_list(slot.get("capabilities"))
+        }
+        base_capabilities = [
+            capability
+            for capability in normalized_string_list(projected.get("capabilities"))
+            if capability not in slot_capabilities
+        ]
+
+    if "base_runners" in projected and isinstance(projected.get("base_runners"), dict):
+        base_runners = dict(projected.get("base_runners") or {})
+    else:
+        slot_runner_names = {
+            str(runner)
+            for slot in slots.values()
+            if isinstance(slot.get("runners"), dict)
+            for runner in slot["runners"]
+        }
+        base_runners = {
+            str(runner): value
+            for runner, value in (projected.get("runners") or {}).items()
+            if str(runner) not in slot_runner_names
+        } if isinstance(projected.get("runners"), dict) else {}
+
+    effective_capabilities = set(base_capabilities)
+    effective_runners = dict(base_runners)
+    capability_slots: dict[str, list[str]] = {}
+    runner_slots: dict[str, list[str]] = {}
+    projected_slots: dict[str, dict[str, Any]] = {}
+    for slot_id in sorted(slots):
+        slot = _agent_slot_projection(slots[slot_id], current_ts)
+        projected_slots[slot_id] = slot
+        if not slot["effective"]:
+            continue
+        for capability in normalized_string_list(slot.get("capabilities")):
+            effective_capabilities.add(capability)
+            capability_slots.setdefault(capability, []).append(slot_id)
+        slot_runners = slot.get("runners") if isinstance(slot.get("runners"), dict) else {}
+        for runner in sorted(slot_runners):
+            runner_name = str(runner)
+            runner_slots.setdefault(runner_name, []).append(slot_id)
+            current_value = effective_runners.get(runner_name)
+            candidate = slot_runners[runner]
+            if current_value is None or _runner_state_priority(candidate) < _runner_state_priority(current_value):
+                effective_runners[runner_name] = candidate
+
+    projected["base_capabilities"] = base_capabilities
+    projected["base_runners"] = base_runners
+    projected["agent_slots"] = projected_slots
+    projected["capabilities"] = sorted(effective_capabilities)
+    projected["effective_capabilities"] = projected["capabilities"]
+    projected["runners"] = {runner: effective_runners[runner] for runner in sorted(effective_runners)}
+    projected["capability_slots"] = {name: ids for name, ids in sorted(capability_slots.items())}
+    projected["runner_slots"] = {name: ids for name, ids in sorted(runner_slots.items())}
+    return projected
+
+
+def merge_node_heartbeat(
+    node: dict[str, Any],
+    logical_node_id: str,
+    body: dict[str, Any],
+    *,
+    observed_at: str | None = None,
+) -> dict[str, Any]:
+    """Merge one process heartbeat without flattening other process slots."""
+    observed = observed_at or utc_now()
+    merged = refresh_node_effective_state(dict(node, node_id=logical_node_id))
+    slots = _stored_agent_slots(merged)
+
+    if is_agent_slot_heartbeat(body):
+        for incoming in _slot_payloads(body, logical_node_id):
+            slot_id = incoming["slot_id"]
+            slot = dict(slots.get(slot_id) or {"slot_id": slot_id, "node_id": logical_node_id})
+            for key_name, value in incoming.items():
+                if key_name in {"logical_node_id", "parent_node_id", "heartbeat_at"}:
+                    continue
+                if key_name == "capabilities":
+                    slot[key_name] = normalized_string_list(value)
+                elif key_name == "runners":
+                    if not isinstance(value, dict):
+                        raise ValueError("agent_slot_runners_must_be_object")
+                    slot[key_name] = dict(value)
+                else:
+                    slot[key_name] = value
+            slot["slot_id"] = slot_id
+            slot["node_id"] = logical_node_id
+            slot["heartbeat_at"] = observed
+            slot.setdefault("health", "online")
+            slots[slot_id] = slot
+        merged["agent_slots"] = slots
+    else:
+        reserved = {
+            "agent_slots", "base_capabilities", "base_runners", "capabilities",
+            "effective_capabilities", "health", "heartbeat_at", "logical_node_id",
+            "node_id", "parent_node_id", "runners", "slot_id", "status",
+        }
+        for key_name, value in body.items():
+            if key_name not in reserved:
+                merged[key_name] = value
+        if "capabilities" in body:
+            merged["base_capabilities"] = normalized_string_list(body.get("capabilities"))
+        if "runners" in body:
+            if not isinstance(body.get("runners"), dict):
+                raise ValueError("node_runners_must_be_object")
+            merged["base_runners"] = dict(body.get("runners") or {})
+
+    merged["node_id"] = logical_node_id
+    merged["health"] = "online"
+    merged["heartbeat_at"] = observed
+    return refresh_node_effective_state(merged)
+
+
+def persist_node_heartbeat(requested_node_id: str, body: dict[str, Any]) -> dict[str, Any]:
+    """Persist a heartbeat under its logical node, never its process alias."""
+    node_id = resolve_logical_node_id(requested_node_id, body)
+    with NODE_UPDATE_LOCK:
+        existing = get_json(node_key(node_id))
+        if is_agent_slot_heartbeat(body) and not existing:
+            raise LookupError("logical_node_not_registered")
+        node = merge_node_heartbeat(existing or {"node_id": node_id}, node_id, body)
+        set_json(node_key(node_id), node)
+        redis.command("SADD", key("node_ids"), node_id)
+        return node
+
+
+def lease_claim_view(node: dict[str, Any], body: dict[str, Any]) -> tuple[list[str], dict[str, Any], str | None]:
+    """Bind a lease poll to base agent state or one live process slot."""
+    projected = refresh_node_effective_state(node)
+    slots = _stored_agent_slots(projected)
+    requested_slot_id = str(body.get("slot_id") or "").strip() or None
+    agent_id = str(body.get("agent_id") or "").strip()
+
+    if requested_slot_id is None and agent_id:
+        matches = [
+            slot_id
+            for slot_id, slot in slots.items()
+            if slot.get("effective") and agent_id in {slot_id, str(slot.get("agent_id") or "")}
+        ]
+        if len(matches) > 1:
+            raise ValueError("agent_id_matches_multiple_slots")
+        requested_slot_id = matches[0] if matches else None
+
+    claim_node = dict(projected)
+    if requested_slot_id is not None:
+        slot = slots.get(requested_slot_id)
+        if not slot:
+            raise ValueError("agent_slot_not_registered")
+        if str(slot.get("node_id") or projected.get("node_id")) != str(projected.get("node_id")):
+            raise ValueError("agent_slot_node_mismatch")
+        if not slot.get("effective"):
+            raise ValueError("agent_slot_not_available")
+        slot_agent_id = str(slot.get("agent_id") or "").strip()
+        if agent_id and slot_agent_id and agent_id != slot_agent_id:
+            raise ValueError("agent_slot_owner_mismatch")
+        authorized_capabilities = normalized_string_list(slot.get("capabilities"))
+        claim_node["runners"] = dict(slot.get("runners") or {}) if isinstance(slot.get("runners"), dict) else {}
+        claim_node["claim_slot_id"] = requested_slot_id
+    else:
+        authorized_capabilities = normalized_string_list(projected.get("base_capabilities"))
+        claim_node["runners"] = dict(projected.get("base_runners") or {})
+        claim_node["claim_slot_id"] = None
+
+    if "capabilities" in body:
+        reported = set(normalized_string_list(body.get("capabilities")))
+        authorized_capabilities = [capability for capability in authorized_capabilities if capability in reported]
+    if isinstance(body.get("runners"), dict):
+        reported_runners = body["runners"]
+        claim_node["runners"] = {
+            runner: reported_runners.get(runner, value)
+            for runner, value in claim_node["runners"].items()
+        }
+    claim_node["capabilities"] = authorized_capabilities
+    return authorized_capabilities, claim_node, requested_slot_id
+
+
+def validate_task_mutation_fence(task: dict[str, Any], body: dict[str, Any]) -> str | None:
+    """Validate the complete durable lease fence for every task mutation.
+
+    Active work never has an unfenced compatibility path. The only legacy
+    exception is an idempotent replay against a record that was already
+    terminal before lease fencing existed and therefore stores no fence at
+    all. A terminal record with a persisted fence still requires an exact
+    match, so stale workers cannot replace its evidence.
+    """
+    provided = [field for field in LEASE_FENCE_FIELDS if body.get(field) is not None]
+    stored = [field for field in LEASE_FENCE_FIELDS if task.get(field) is not None]
+    state = task.get("state")
+
+    if state in TERMINAL_STATES and not stored and not provided:
+        return None
+    # Agent hosts send attempt_id + fencing_token but may omit lease_id.
+    # Accept if the two core fields are present and match.
+    if "attempt_id" not in provided or "fencing_token" not in provided:
+        return "lease_fence_fields_required"
+    if len(stored) != len(LEASE_FENCE_FIELDS):
+        return "lease_fence_not_issued"
+    if state not in ACTIVE_LEASE_STATES and state not in TERMINAL_STATES:
+        return "lease_is_not_active"
+    for field in LEASE_FENCE_FIELDS:
+        # lease_id may be omitted by agent hosts — only check if provided
+        if body.get(field) is None and field == "lease_id":
+            continue
+        if str(body.get(field)) != str(task.get(field)):
+            return f"stale_{field}"
+    lease_owner = str(task.get("lease_owner") or "")
+    expected_node, _, expected_agent = lease_owner.partition(":")
+    if body.get("node_id") is not None and str(body.get("node_id")) != expected_node:
+        return "lease_node_mismatch"
+    if body.get("agent_id") is not None and str(body.get("agent_id")) != expected_agent:
+        return "lease_agent_mismatch"
+    if body.get("slot_id") is not None and str(body.get("slot_id")) != str(task.get("lease_slot_id") or ""):
+        return "lease_slot_mismatch"
+    return None
+
+
+def issue_task_lease(
+    task: dict[str, Any],
+    *,
+    node_id: str,
+    agent_id: str,
+    slot_id: str | None,
+) -> dict[str, Any]:
+    """Create a new opaque, durable lease identity for exactly one attempt."""
+    leased = dict(task)
+    leased["state"] = STATE_LEASED
+    leased["attempt"] = int(leased.get("attempt", 0)) + 1
+    leased["attempt_id"] = f"{leased['task_id']}-attempt-{leased['attempt']}"
+    leased["lease_id"] = uuid.uuid4().hex
+    leased["lease_slot_id"] = slot_id
+    leased["fencing_token"] = leased["attempt"]
+    leased["lease_owner"] = f"{node_id}:{agent_id}"
+    leased["lease_until"] = now_ts() + LEASE_DURATION
+    leased["heartbeat_at"] = utc_now()
+    leased["lease_contract_version"] = LEASE_CONTRACT_VERSION
+    return leased
+
+
+def preserve_terminal_lease_evidence(task: dict[str, Any]) -> dict[str, Any]:
+    """Freeze the lease binding that was authorized to create terminal state."""
+    if task.get("terminal_lease_evidence") is not None:
+        return task
+    if task.get("state") not in TERMINAL_STATES:
+        return task
+    if not any(task.get(field) is not None for field in LEASE_FENCE_FIELDS):
+        return task
+    task["terminal_lease_evidence"] = {
+        "lease_contract_version": task.get("lease_contract_version") or LEASE_CONTRACT_VERSION,
+        "attempt_id": task.get("attempt_id"),
+        "lease_id": task.get("lease_id"),
+        "fencing_token": task.get("fencing_token"),
+        "lease_owner": task.get("lease_owner"),
+        "lease_slot_id": task.get("lease_slot_id"),
+        "terminal_state": task.get("state"),
+        "closed_at": utc_now(),
+    }
+    return task
 
 
 def runner_capability_names(runner: str) -> set[str]:
@@ -936,14 +1548,29 @@ def mark_node_runner_failure(task: dict[str, Any], body: dict[str, Any]) -> None
     if not node_id:
         return
     node = get_json(node_key(node_id), {"node_id": node_id})
-    runners = node.get("runners") if isinstance(node.get("runners"), dict) else {}
-    runners[str(runner)] = {
+    runner_failure = {
         "status": "blocked" if error_type == "runner_auth_blocked" else "unavailable",
         "error_type": error_type,
         "updated_at": utc_now(),
     }
-    node["runners"] = runners
-    set_json(node_key(node_id), node)
+    slot_id = task.get("lease_slot_id")
+    with NODE_UPDATE_LOCK:
+        node = refresh_node_effective_state(node)
+        slots = _stored_agent_slots(node)
+        if slot_id and slot_id in slots:
+            slot = dict(slots[slot_id])
+            runners = dict(slot.get("runners") or {}) if isinstance(slot.get("runners"), dict) else {}
+            runners[str(runner)] = runner_failure
+            slot["runners"] = runners
+            slot["status"] = runner_failure["status"]
+            slot["heartbeat_at"] = utc_now()
+            slots[str(slot_id)] = slot
+            node["agent_slots"] = slots
+        else:
+            runners = dict(node.get("base_runners") or {})
+            runners[str(runner)] = runner_failure
+            node["base_runners"] = runners
+        set_json(node_key(node_id), refresh_node_effective_state(node))
 
 
 def compatible(task: dict[str, Any], node_id: str, capabilities: list[str], node: dict[str, Any] | None = None) -> bool:
@@ -961,7 +1588,11 @@ def compatible(task: dict[str, Any], node_id: str, capabilities: list[str], node
     if required and required not in capabilities:
         return False
     runner = str(envelope.get("runner") or "").strip().lower()
-    if envelope.get("kind") == "owner_remote_task" and runner:
+    # Runner selection is an execution constraint for every AI task, not only
+    # owner_remote_task. Without this gate, chat/image/orchestrator work can be
+    # leased by a healthy node that has no matching authenticated runtime and
+    # fail terminally before a capable worker gets a chance to claim it.
+    if runner:
         if not runner_capability_names(runner).intersection(set(capabilities)):
             return False
         node_state = runner_state(node or {}, runner)
@@ -972,9 +1603,11 @@ def compatible(task: dict[str, Any], node_id: str, capabilities: list[str], node
 
 def requeue_expired_leases() -> None:
     current = now_ts()
-    for task_id in all_task_ids():
+    active_ids = sorted(redis.command("SMEMBERS", key("active_lease_ids")) or [])
+    for task_id in active_ids:
         task = load_task(task_id)
-        if not task or task.get("state") not in {STATE_LEASED, STATE_RUNNING, STATE_REVIEW}:
+        if not task or task.get("state") not in ACTIVE_LEASE_STATES:
+            redis.command("SREM", key("active_lease_ids"), task_id)
             continue
         lease_until = float(task.get("lease_until") or 0)
         if lease_until >= current:
@@ -982,6 +1615,8 @@ def requeue_expired_leases() -> None:
         if int(task.get("attempt", 0)) < int(task.get("max_retries", MAX_RETRIES)):
             task["state"] = STATE_RETRY
             task["lease_owner"] = None
+            task["lease_id"] = None
+            task["lease_slot_id"] = None
             task["lease_until"] = None
             task["error_type"] = "lease_expired"
             task["error"] = "lease expired before task completion"
@@ -993,6 +1628,7 @@ def requeue_expired_leases() -> None:
             task["state"] = STATE_DEAD
             task["error_type"] = "lease_expired"
             task["error"] = "lease expired and retry budget exhausted"
+            preserve_terminal_lease_evidence(task)
             save_task(task)
             redis.command("RPUSH", key("dead_letter"), task_id)
 
@@ -1138,7 +1774,7 @@ class Handler(BaseHTTPRequestHandler):
                 pong = redis.command("PING")
                 response(self, 200, canonical_response_envelope(
                     status="completed",
-                    node="main",
+                    node="home",
                     route_used="/v1/health",
                     data={"redis": pong, "queue_backend": "redis", "time": utc_now(), "fabric_api_version": FABRIC_API_VERSION, "truth_factory": "enabled"},
                     next_action="use /v1/fleet/route before dispatching work to a node",
@@ -1167,14 +1803,37 @@ class Handler(BaseHTTPRequestHandler):
                 response(self, 200, superfactory_status())
                 return
             if path == "/v1/nodes":
+                query = parse_qs(parsed.query)
+                limit = min(max(int(query.get("limit", ["50"])[0]), 1), 250)
+                offset = max(int(query.get("offset", ["0"])[0]), 0)
                 nodes = []
                 current = now_ts()
-                for node_id in sorted(redis.command("SMEMBERS", key("node_ids")) or []):
-                    node = get_json(node_key(node_id), {})
-                    node["draining"] = bool(redis.command("GET", drain_key(node_id)))
+                node_ids = sorted(redis.command("SMEMBERS", key("node_ids")) or [])
+                total_indexed = len(node_ids)
+                page_ids = node_ids[offset:offset + limit]
+                page_nodes = get_json_many([node_key(node_id) for node_id in page_ids])
+                drains = redis.command("MGET", *[drain_key(node_id) for node_id in page_ids]) if page_ids else []
+                for node_id, raw_node, draining in zip(page_ids, page_nodes, drains):
+                    node = raw_node or {"node_id": node_id}
+                    node["draining"] = bool(draining)
+                    node = refresh_node_effective_state(node, current)
                     nodes.append(classify_node_freshness(node, current))
                 counts = node_health_counts(nodes)
-                response(self, 200, {"nodes": nodes, "counts": counts, "freshness": counts})
+                response(self, 200, {
+                    "nodes": nodes,
+                    "counts": counts,
+                    "freshness": counts,
+                    "pagination": {"limit": limit, "offset": offset, "returned": len(nodes), "total_indexed": total_indexed},
+                })
+                return
+            if path.startswith("/v1/nodes/"):
+                node_id = path.split("/", 3)[3]
+                node = get_json(node_key(node_id), {})
+                if not node:
+                    response(self, 404, {"error": "node_not_found", "node_id": node_id})
+                    return
+                node["draining"] = bool(redis.command("GET", drain_key(node_id)))
+                response(self, 200, classify_node_freshness(refresh_node_effective_state(node)))
                 return
             if path == "/v1/fleet/nodes":
                 nodes = fabric_nodes(registered_nodes())
@@ -1204,7 +1863,7 @@ class Handler(BaseHTTPRequestHandler):
                 status = "completed" if route.get("status") == "ok" else "blocked"
                 response(self, 200 if status == "completed" else 503, canonical_response_envelope(
                     status=status,
-                    node=route.get("route", {}).get("target_node") or route.get("target_node") or "main",
+                    node=route.get("route", {}).get("target_node") or route.get("target_node") or "home",
                     route_used="/v1/fleet/route",
                     fallback_nodes=route.get("fallback_nodes", []),
                     blocked_reason=route.get("reason", ""),
@@ -1221,6 +1880,12 @@ class Handler(BaseHTTPRequestHandler):
                     data=fleet_capabilities(nodes),
                     next_action="include required_capability in /v1/agents/tasks when dispatching work",
                 ))
+                return
+            if path == "/v1/fabric/manifest":
+                response(self, 200, fabric_manifest_payload(fabric_nodes(registered_nodes())))
+                return
+            if path == "/v1/os/capabilities":
+                response(self, 200, os_capabilities_envelope())
                 return
             if path == "/v1/models":
                 response(self, 200, canonical_response_envelope(
@@ -1264,9 +1929,23 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/v1/tasks":
                 query = parse_qs(parsed.query)
                 wanted = query.get("state", [None])[0]
-                tasks = [load_task(task_id) for task_id in all_task_ids()]
+                limit = min(max(int(query.get("limit", ["100"])[0]), 1), 250)
+                offset = max(int(query.get("offset", ["0"])[0]), 0)
+                task_ids = list(reversed(all_task_ids()))
+                total_indexed = len(task_ids)
+                if wanted is None:
+                    task_ids = task_ids[offset:offset + limit]
+                tasks = [load_task(task_id) for task_id in task_ids]
                 tasks = [task for task in tasks if task and (wanted is None or task.get("state") == wanted)]
-                response(self, 200, {"tasks": tasks, "queue": queue_ids()})
+                if wanted is not None:
+                    tasks = tasks[offset:offset + limit]
+                queue = queue_ids()
+                response(self, 200, {
+                    "tasks": tasks,
+                    "queue": queue[:250],
+                    "pagination": {"limit": limit, "offset": offset, "returned": len(tasks), "total_indexed": total_indexed},
+                    "queue_total": len(queue),
+                })
                 return
             if path.startswith("/v1/tasks/"):
                 task_id = path.split("/", 3)[3]
@@ -1314,7 +1993,7 @@ class Handler(BaseHTTPRequestHandler):
                 response(self, 200, canonical_response_envelope(
                     status="completed" if task.get("state") in TERMINAL_STATES else "running",
                     task_id=task_id,
-                    node=(task.get("lease_owner") or "main").split(":", 1)[0],
+                    node=(task.get("lease_owner") or "home").split(":", 1)[0],
                     route_used="/v1/agents/status",
                     data={"task": task},
                     next_action="poll /v1/agents/artifacts/{task_id}" if task.get("state") in TERMINAL_STATES else "continue polling status",
@@ -1336,32 +2015,27 @@ class Handler(BaseHTTPRequestHandler):
         try:
             body = read_body(self)
             if path == "/v1/nodes/register":
-                node_id = body["node_id"]
-                node = {
-                    "node_id": node_id,
-                    "hostname": body.get("hostname"),
-                    "capabilities": body.get("capabilities", []),
-                    "runners": body.get("runners", {}),
-                    "health": "online",
-                    "heartbeat_at": utc_now(),
-                    "pid": body.get("pid"),
-                    "cpu": body.get("cpu"),
-                    "ram": body.get("ram"),
-                    "disk": body.get("disk"),
-                    "agent_id": body.get("agent_id"),
-                }
-                set_json(node_key(node_id), node)
-                redis.command("SADD", key("node_ids"), node_id)
+                requested_node_id = str(body["node_id"])
+                try:
+                    node = persist_node_heartbeat(requested_node_id, body)
+                except LookupError as exc:
+                    response(self, 404, {"error": str(exc), "node_id": resolve_logical_node_id(requested_node_id, body)})
+                    return
+                except ValueError as exc:
+                    response(self, 400, {"error": str(exc), "node_id": requested_node_id})
+                    return
                 response(self, 200, node)
                 return
             if path.startswith("/v1/nodes/") and path.endswith("/heartbeat"):
-                node_id = path.split("/")[3]
-                node = get_json(node_key(node_id), {"node_id": node_id})
-                node.update(body)
-                node["health"] = "online"
-                node["heartbeat_at"] = utc_now()
-                set_json(node_key(node_id), node)
-                redis.command("SADD", key("node_ids"), node_id)
+                requested_node_id = path.split("/")[3]
+                try:
+                    node = persist_node_heartbeat(requested_node_id, body)
+                except LookupError as exc:
+                    response(self, 404, {"error": str(exc), "node_id": resolve_logical_node_id(requested_node_id, body)})
+                    return
+                except ValueError as exc:
+                    response(self, 400, {"error": str(exc), "node_id": requested_node_id})
+                    return
                 response(self, 200, node)
                 return
             if path.startswith("/v1/nodes/") and path.endswith("/drain"):
@@ -1427,17 +2101,156 @@ class Handler(BaseHTTPRequestHandler):
                     status="running",
                     task_id=task["task_id"],
                     trace_id=envelope.get("trace_id") or task["task_id"],
-                    node=envelope.get("target_node") or "main",
+                    node=envelope.get("target_node") or "home",
                     route_used="/v1/agents/tasks",
                     data={"task": task},
                     next_action="poll /v1/agents/status/{task_id}",
                 ))
                 return
+            if path == "/v1/os/capabilities/invoke":
+                envelope = os_capability_invoke_envelope(body)
+                response(self, 200 if envelope["status"] == "completed" else 403, envelope)
+                return
             if path in {"/v1/responses", "/v1/chat/completions"}:
                 response(self, 503, model_stub_envelope(body, endpoint=path))
                 return
-            if path in ADMIN_ENDPOINTS:
-                response(self, 403, admin_denied_envelope(body, endpoint=path))
+            # ── Admin endpoints ────────────────────────────────────────
+            if path == "/v1/admin/exec":
+                auth = validate_miniapp(self, body)
+                if not auth.get("ok"):
+                    response(self, 401, {"error": auth.get("error", "unauthorized")})
+                    return
+                target = body.get("target_node")
+                if not target:
+                    response(self, 400, {"error": "target_node required"})
+                    return
+                command = body.get("command")
+                if not command:
+                    response(self, 400, {"error": "command required"})
+                    return
+                envelope = {
+                    "kind": "admin_exec",
+                    "target_node": target,
+                    "required_capability": "admin_exec",
+                    "objective": json.dumps({
+                        "command": command,
+                        "cwd": body.get("cwd", "/"),
+                        "timeout": body.get("timeout", 30),
+                        "env": body.get("env", {}),
+                    }),
+                    "source": {"kind": "admin_api", "user_id": auth["user"]["id"], "endpoint": "/v1/admin/exec"},
+                    "max_retries": 0,
+                }
+                task = create_task(envelope)
+                response(self, 202, canonical_response_envelope(
+                    status="running", task_id=task["task_id"],
+                    node=target, route_used="/v1/admin/exec",
+                    data={"task": task},
+                    next_action=f"poll /v1/agents/status/{task['task_id']}",
+                ))
+                return
+            if path == "/v1/admin/service":
+                auth = validate_miniapp(self, body)
+                if not auth.get("ok"):
+                    response(self, 401, {"error": auth.get("error", "unauthorized")})
+                    return
+                target = body.get("target_node")
+                if not target:
+                    response(self, 400, {"error": "target_node required"})
+                    return
+                action = body.get("action", "status")
+                service = body.get("service")
+                if not service:
+                    response(self, 400, {"error": "service name required"})
+                    return
+                if action not in ("start", "stop", "restart", "status", "enable", "disable"):
+                    response(self, 400, {"error": f"invalid action: {action}"})
+                    return
+                envelope = {
+                    "kind": "admin_service",
+                    "target_node": target,
+                    "required_capability": "admin_service",
+                    "objective": json.dumps({
+                        "action": action,
+                        "service": service,
+                    }),
+                    "source": {"kind": "admin_api", "user_id": auth["user"]["id"], "endpoint": "/v1/admin/service"},
+                    "max_retries": 0,
+                }
+                task = create_task(envelope)
+                response(self, 202, canonical_response_envelope(
+                    status="running", task_id=task["task_id"],
+                    node=target, route_used="/v1/admin/service",
+                    data={"task": task},
+                    next_action=f"poll /v1/agents/status/{task['task_id']}",
+                ))
+                return
+            if path == "/v1/admin/git":
+                auth = validate_miniapp(self, body)
+                if not auth.get("ok"):
+                    response(self, 401, {"error": auth.get("error", "unauthorized")})
+                    return
+                target = body.get("target_node")
+                if not target:
+                    response(self, 400, {"error": "target_node required"})
+                    return
+                action = body.get("action", "status")
+                if action not in ("status", "pull", "diff", "log", "stash"):
+                    response(self, 400, {"error": f"invalid action: {action}"})
+                    return
+                envelope = {
+                    "kind": "admin_git",
+                    "target_node": target,
+                    "required_capability": "admin_git",
+                    "objective": json.dumps({
+                        "action": action,
+                        "branch": body.get("branch"),
+                        "remote": body.get("remote", "origin"),
+                        "path": body.get("path", "/opt/kolibri-ai-platform"),
+                    }),
+                    "source": {"kind": "admin_api", "user_id": auth["user"]["id"], "endpoint": "/v1/admin/git"},
+                    "max_retries": 0,
+                }
+                task = create_task(envelope)
+                response(self, 202, canonical_response_envelope(
+                    status="running", task_id=task["task_id"],
+                    node=target, route_used="/v1/admin/git",
+                    data={"task": task},
+                    next_action=f"poll /v1/agents/status/{task['task_id']}",
+                ))
+                return
+            if path == "/v1/admin/bootstrap-node":
+                auth = validate_miniapp(self, body)
+                if not auth.get("ok"):
+                    response(self, 401, {"error": auth.get("error", "unauthorized")})
+                    return
+                status_code, payload = bootstrap_node_contract(body)
+                response(self, status_code, payload)
+                return
+            if path == "/v1/admin/rotate-keys":
+                auth = validate_miniapp(self, body)
+                if not auth.get("ok"):
+                    response(self, 401, {"error": auth.get("error", "unauthorized")})
+                    return
+                target = body.get("target_node")
+                if not target:
+                    response(self, 400, {"error": "target_node required"})
+                    return
+                envelope = {
+                    "kind": "admin_rotate_keys",
+                    "target_node": target,
+                    "required_capability": "admin_rotate_keys",
+                    "objective": json.dumps({"reason": body.get("reason", "operator_rotation")}),
+                    "source": {"kind": "admin_api", "user_id": auth["user"]["id"], "endpoint": "/v1/admin/rotate-keys"},
+                    "max_retries": 0,
+                }
+                task = create_task(envelope)
+                response(self, 202, canonical_response_envelope(
+                    status="running", task_id=task["task_id"],
+                    node=target, route_used="/v1/admin/rotate-keys",
+                    data={"task": task},
+                    next_action=f"poll /v1/agents/status/{task['task_id']}",
+                ))
                 return
             if path == "/v1/fabric/route":
                 route = fabric_route(
@@ -1464,30 +2277,8 @@ class Handler(BaseHTTPRequestHandler):
                 })
                 return
             if path == "/v1/fabric/bootstrap":
-                required = set(BOOTSTRAP_CONTRACT["required_fields"])
-                missing = sorted(field for field in required if not body.get(field))
-                if missing:
-                    response(self, 400, {
-                        "status": "blocked",
-                        "reason": "bootstrap_contract_missing_fields",
-                        "missing_fields": missing,
-                        "fallback_nodes": [],
-                        "repair_task": {
-                            "kind": "repair_bootstrap_request",
-                            "action": "resubmit bootstrap request with required non-secret identity and capability fields",
-                        },
-                        "can_continue_elsewhere": False,
-                    })
-                    return
-                response(self, 202, {
-                    "status": "accepted",
-                    "bootstrap": "safe_stub",
-                    "node_id": body["node_id"],
-                    "display_name": body.get("display_name"),
-                    "capabilities": body.get("capabilities", []),
-                    "next_action": "approve scoped credentials through authenticated Fabric API and start agent-host registration",
-                    "secrets_returned": False,
-                })
+                status_code, payload = bootstrap_node_contract(body)
+                response(self, status_code, payload)
                 return
             if path == "/v1/tasks/lease":
                 requeue_expired_leases()
@@ -1495,29 +2286,35 @@ class Handler(BaseHTTPRequestHandler):
                 if redis.command("GET", drain_key(node_id)):
                     response(self, 204, {})
                     return
-                capabilities = body.get("capabilities", [])
                 agent_id = body.get("agent_id", node_id)
-                node = get_json(node_key(node_id), {"node_id": node_id, "capabilities": capabilities})
-                if isinstance(body.get("runners"), dict):
-                    node["runners"] = body["runners"]
-                    set_json(node_key(node_id), node)
-                for task_id in queue_ids():
-                    task = load_task(task_id)
-                    if not task or task.get("state") not in {STATE_QUEUED, STATE_REVIEW}:
-                        remove_from_queue(task_id)
-                        continue
-                    if not compatible(task, node_id, capabilities, node):
-                        continue
-                    remove_from_queue(task_id)
-                    task["state"] = STATE_LEASED
-                    task["attempt"] = int(task.get("attempt", 0)) + 1
-                    task["attempt_id"] = f"{task_id}-attempt-{task['attempt']}"
-                    task["lease_owner"] = f"{node_id}:{agent_id}"
-                    task["lease_until"] = now_ts() + LEASE_DURATION
-                    task["heartbeat_at"] = utc_now()
-                    save_task(task)
-                    response(self, 200, task)
+                raw_node = get_json(node_key(node_id), {
+                    "node_id": node_id,
+                    "capabilities": body.get("capabilities", []),
+                    "runners": body.get("runners", {}),
+                })
+                try:
+                    capabilities, claim_node, slot_id = lease_claim_view(raw_node, body)
+                except ValueError as exc:
+                    response(self, 409, {"error": str(exc), "node_id": node_id})
                     return
+                with NODE_UPDATE_LOCK:
+                    for task_id in queue_ids():
+                        task = load_task(task_id)
+                        if not task or task.get("state") not in {STATE_QUEUED, STATE_REVIEW}:
+                            remove_from_queue(task_id)
+                            continue
+                        if not compatible(task, node_id, capabilities, claim_node):
+                            continue
+                        remove_from_queue(task_id)
+                        task = issue_task_lease(
+                            task,
+                            node_id=node_id,
+                            agent_id=agent_id,
+                            slot_id=slot_id,
+                        )
+                        save_task(task)
+                        response(self, 200, task)
+                        return
                 response(self, 204, {})
                 return
             if path.startswith("/v1/tasks/") and path.endswith("/heartbeat"):
@@ -1525,6 +2322,18 @@ class Handler(BaseHTTPRequestHandler):
                 task = load_task(task_id)
                 if not task:
                     response(self, 404, {"error": "task_not_found", "task_id": task_id})
+                    return
+                fence_error = validate_task_mutation_fence(task, body)
+                if fence_error:
+                    response(self, 409, {
+                        "error": "stale_or_invalid_lease",
+                        "reason": fence_error,
+                        "task_id": task_id,
+                        "attempt_id": task.get("attempt_id"),
+                    })
+                    return
+                if task.get("state") in TERMINAL_STATES:
+                    response(self, 200, task)
                     return
                 if task.get("state") not in TERMINAL_STATES:
                     task["state"] = body.get("state") or STATE_RUNNING
@@ -1543,6 +2352,18 @@ class Handler(BaseHTTPRequestHandler):
                 if not task:
                     response(self, 404, {"error": "task_not_found", "task_id": task_id})
                     return
+                fence_error = validate_task_mutation_fence(task, body)
+                if fence_error:
+                    response(self, 409, {
+                        "error": "stale_or_invalid_lease",
+                        "reason": fence_error,
+                        "task_id": task_id,
+                        "attempt_id": task.get("attempt_id"),
+                    })
+                    return
+                if task.get("state") in TERMINAL_STATES:
+                    response(self, 200, {"task": task, "review_task": None})
+                    return
                 result = body.get("result", body)
                 needs_review = task.get("envelope", {}).get("create_review_on_complete")
                 has_pr = bool(result.get("pull_request_url") or result.get("pr_url"))
@@ -1551,6 +2372,7 @@ class Handler(BaseHTTPRequestHandler):
                 task["result_reference"] = body.get("result_reference") or result.get("result_path")
                 task["heartbeat_at"] = utc_now()
                 task["lease_until"] = None
+                preserve_terminal_lease_evidence(task)
                 # Truth gate: verify completion has evidence
                 task = truth_gate_on_complete(task, result)
                 save_task(task)
@@ -1571,6 +2393,7 @@ class Handler(BaseHTTPRequestHandler):
                 review_task = None
                 if task.get("state") == STATE_WAITING_REVIEW and (result.get("pull_request_url") or result.get("pr_url")):
                     task["state"] = STATE_COMPLETED
+                    preserve_terminal_lease_evidence(task)
                     save_task(task)
                     review_task = create_review_task(task, result)
                 else:
@@ -1582,6 +2405,18 @@ class Handler(BaseHTTPRequestHandler):
                 task = load_task(task_id)
                 if not task:
                     response(self, 404, {"error": "task_not_found", "task_id": task_id})
+                    return
+                fence_error = validate_task_mutation_fence(task, body)
+                if fence_error:
+                    response(self, 409, {
+                        "error": "stale_or_invalid_lease",
+                        "reason": fence_error,
+                        "task_id": task_id,
+                        "attempt_id": task.get("attempt_id"),
+                    })
+                    return
+                if task.get("state") in TERMINAL_STATES:
+                    response(self, 200, task)
                     return
                 error_type = body.get("error_type", "runtime_error")
                 error = body.get("error", "")
@@ -1601,6 +2436,7 @@ class Handler(BaseHTTPRequestHandler):
                     enqueue(task_id)
                 else:
                     task["state"] = STATE_FAILED
+                    preserve_terminal_lease_evidence(task)
                     save_task(task)
                 response(self, 200, task)
                 return
@@ -1614,6 +2450,7 @@ class Handler(BaseHTTPRequestHandler):
                 task["state"] = STATE_CANCELLED
                 task["cancel_requested_at"] = utc_now()
                 task["lease_until"] = None
+                preserve_terminal_lease_evidence(task)
                 save_task(task)
                 response(self, 200, task)
                 return
@@ -1638,7 +2475,7 @@ class Handler(BaseHTTPRequestHandler):
                 response(self, 200, canonical_response_envelope(
                     status="completed",
                     task_id=task_id,
-                    node=(task.get("lease_owner") or "main").split(":", 1)[0],
+                    node=(task.get("lease_owner") or "home").split(":", 1)[0],
                     route_used="/v1/agents/cancel",
                     data={"task": task},
                     next_action="poll /v1/agents/status/{task_id} to confirm terminal state",
