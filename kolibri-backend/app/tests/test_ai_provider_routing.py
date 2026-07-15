@@ -64,6 +64,29 @@ def test_failed_route_is_circuited_and_next_route_completes(monkeypatch):
     assert ai_provider._provider_is_healthy(working)
 
 
+def test_async_cancellation_does_not_open_provider_circuit(monkeypatch):
+    provider = dict(
+        ai_provider.PROVIDERS["deepseek_flash"],
+        id="cancelled-provider",
+        key="configured",
+    )
+    monkeypatch.setattr(
+        ai_provider, "_get_providers_for_task", lambda _task_type: [provider]
+    )
+
+    async def cancelled_call(selected, messages, system=None):
+        assert selected is provider
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(ai_provider, "_call_ai", cancelled_call)
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(
+            ai_provider.chat_completion([{"role": "user", "content": "Отмени"}])
+        )
+
+    assert ai_provider._provider_is_healthy(provider)
+
+
 def test_exhausted_routes_never_expose_upstream_url(monkeypatch):
     failed = dict(ai_provider.PROVIDERS["cfbt"], id="failed", key="configured")
     monkeypatch.setattr(ai_provider, "_get_providers_for_task", lambda _: [failed])

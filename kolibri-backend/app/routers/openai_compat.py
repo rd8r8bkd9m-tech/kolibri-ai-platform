@@ -1128,6 +1128,17 @@ def _track_background_task(response_id: str, task: asyncio.Task[None]) -> None:
     task.add_done_callback(_discard)
 
 
+async def _cancel_background_task(response_id: str) -> None:
+    """Stop the local observer without turning cancellation into route failure."""
+
+    with _background_tasks_lock:
+        task = _background_tasks.get(response_id)
+    if task is None or task.done():
+        return
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+
+
 async def _run_response_provider(
     request: ResponsesRequest,
     *,
@@ -1860,6 +1871,7 @@ async def cancel_public_response(response_id: str, request: Request):
         record["error"] = None
         _append_event(record, "response.cancelled", {"response": _public_response(record)})
 
+        await _cancel_background_task(response_id)
         # Cleanup is best effort. The public state is already terminal, so a
         # transport error must not turn cancel into a 5xx or let a late result
         # win the race.

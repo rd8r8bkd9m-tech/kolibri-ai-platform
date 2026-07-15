@@ -167,6 +167,46 @@ def test_submit_fails_closed_when_completion_is_not_verified():
         )
 
 
+def test_submit_retries_transient_control_plane_timeout_idempotently():
+    post_attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal post_attempts
+        if request.method == "POST":
+            post_attempts += 1
+            if post_attempts < 3:
+                raise httpx.ReadTimeout("control plane saturated", request=request)
+            body = json.loads(request.content)
+            return httpx.Response(
+                201, json={"task_id": body["task_id"], "state": "queued"}
+            )
+        return httpx.Response(
+            200, json=_completed(request.url.path.rsplit("/", 1)[-1])
+        )
+
+    settings = _settings()
+    client = HomeFactoryResponseClient(
+        HomeFactoryResponseSettings(
+            **{
+                **settings.__dict__,
+                "request_attempts": 3,
+                "request_retry_seconds": 0,
+            }
+        ),
+        transport=httpx.MockTransport(handler),
+    )
+    result = asyncio.run(
+        client.submit(
+            [{"role": "user", "content": "Привет"}],
+            run_id="retry-saturated-control-plane",
+            idempotency_key="retry-saturated-control-plane",
+        )
+    )
+
+    assert post_attempts == 3
+    assert result["task_id"] == "KOL-RESP-retry-saturated-control-plane"
+
+
 def test_stream_emits_factory_stages_then_verified_text_deltas():
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "POST":

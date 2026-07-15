@@ -932,6 +932,57 @@ def test_background_response_returns_before_completion_cancel_wins_and_retry_com
     assert calls == [True, False]
 
 
+def test_background_cancel_stops_observer_and_does_not_block_immediate_retry(monkeypatch):
+    started = threading.Event()
+    observer_cancelled = threading.Event()
+    calls: list[bool] = []
+
+    async def fake_completion(messages, **kwargs):
+        is_background = bool(kwargs["background"])
+        calls.append(is_background)
+        if is_background:
+            started.set()
+            try:
+                await asyncio.sleep(3_600)
+            except asyncio.CancelledError:
+                observer_cancelled.set()
+                raise
+        return {
+            "content": "Повтор выполнен",
+            "status": "idle",
+            "provider": "test-provider",
+        }
+
+    monkeypatch.setattr(openai_compat.ai_provider, "chat_completion", fake_completion)
+    with TestClient(app) as client:
+        created = client.post(
+            "/v1/responses",
+            json={
+                "model": "kolibri",
+                "input": "Долгая фоновая задача",
+                "background": True,
+            },
+            headers={**_AUTH, "Idempotency-Key": "background-cancel-observer"},
+        )
+        assert started.wait(1)
+        response_id = created.json()["id"]
+        cancelled = client.post(
+            f"/v1/responses/{response_id}/cancel", headers=_AUTH
+        )
+        retried = client.post(
+            f"/v1/responses/{response_id}/retry",
+            headers={**_AUTH, "Idempotency-Key": "background-cancel-retry"},
+        )
+
+    assert cancelled.status_code == 200
+    assert cancelled.json()["status"] == "cancelled"
+    assert observer_cancelled.wait(1)
+    assert retried.status_code == 200
+    assert retried.json()["status"] == "completed"
+    assert retried.json()["output_text"] == "Повтор выполнен"
+    assert calls == [True, False]
+
+
 def test_streaming_background_response_remains_nonterminal_and_replayable(monkeypatch):
     async def fake_stream(messages, **kwargs):
         assert kwargs["background"] is True

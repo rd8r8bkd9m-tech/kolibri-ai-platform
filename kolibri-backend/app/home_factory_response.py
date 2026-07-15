@@ -46,6 +46,8 @@ class HomeFactoryResponseSettings:
     timeout_seconds: float = 3_600.0
     poll_seconds: float = 0.25
     request_timeout_seconds: float = 5.0
+    request_attempts: int = 4
+    request_retry_seconds: float = 0.2
 
     @classmethod
     def from_env(cls) -> "HomeFactoryResponseSettings":
@@ -55,9 +57,15 @@ class HomeFactoryResponseSettings:
             request_timeout = float(
                 os.getenv("KOLIBRI_FACTORY_RESPONSE_REQUEST_TIMEOUT_SECONDS", "5")
             )
+            request_attempts = int(
+                os.getenv("KOLIBRI_FACTORY_RESPONSE_REQUEST_ATTEMPTS", "4")
+            )
+            request_retry = float(
+                os.getenv("KOLIBRI_FACTORY_RESPONSE_REQUEST_RETRY_SECONDS", "0.2")
+            )
         except ValueError as exc:
             raise HomeFactoryResponseError("home_factory_timeout_invalid") from exc
-        if not 10 <= timeout <= 86_400 or not 0.05 <= poll <= 5 or not 1 <= request_timeout <= 30:
+        if not 10 <= timeout <= 86_400 or not 0.05 <= poll <= 5 or not 1 <= request_timeout <= 30 or not 1 <= request_attempts <= 5 or not 0 <= request_retry <= 2:
             raise HomeFactoryResponseError("home_factory_timeout_invalid")
         try:
             control_plane_url = validate_home_control_plane_url(
@@ -74,6 +82,8 @@ class HomeFactoryResponseSettings:
             timeout_seconds=timeout,
             poll_seconds=poll,
             request_timeout_seconds=request_timeout,
+            request_attempts=request_attempts,
+            request_retry_seconds=request_retry,
         )
 
 
@@ -219,25 +229,43 @@ class HomeFactoryResponseClient:
         *,
         body: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
-        try:
-            async with httpx.AsyncClient(
-                base_url=self.settings.control_plane_url,
-                timeout=httpx.Timeout(self.settings.request_timeout_seconds),
-                transport=self.transport,
-                follow_redirects=False,
-            ) as client:
-                response = await client.request(method, path, json=body)
-        except (httpx.TimeoutException, httpx.RequestError) as exc:
-            raise HomeFactoryResponseError("home_factory_unreachable") from exc
-        if not 200 <= response.status_code < 300:
-            raise HomeFactoryResponseError(f"home_factory_http_{response.status_code}")
-        try:
-            payload = response.json()
-        except ValueError as exc:
-            raise HomeFactoryResponseError("home_factory_invalid_json") from exc
-        if not isinstance(payload, dict):
-            raise HomeFactoryResponseError("home_factory_invalid_contract")
-        return payload
+        retryable_statuses = {408, 425, 429, 500, 502, 503, 504}
+        for attempt in range(self.settings.request_attempts):
+            try:
+                async with httpx.AsyncClient(
+                    base_url=self.settings.control_plane_url,
+                    timeout=httpx.Timeout(self.settings.request_timeout_seconds),
+                    transport=self.transport,
+                    follow_redirects=False,
+                ) as client:
+                    response = await client.request(method, path, json=body)
+            except asyncio.CancelledError:
+                # A user cancellation is control flow, not provider failure.
+                # Let it escape without converting it into a circuit verdict.
+                raise
+            except (httpx.TimeoutException, httpx.RequestError) as exc:
+                if attempt + 1 >= self.settings.request_attempts:
+                    raise HomeFactoryResponseError("home_factory_unreachable") from exc
+            else:
+                if 200 <= response.status_code < 300:
+                    try:
+                        payload = response.json()
+                    except ValueError as exc:
+                        raise HomeFactoryResponseError("home_factory_invalid_json") from exc
+                    if not isinstance(payload, dict):
+                        raise HomeFactoryResponseError("home_factory_invalid_contract")
+                    return payload
+                if (
+                    response.status_code not in retryable_statuses
+                    or attempt + 1 >= self.settings.request_attempts
+                ):
+                    raise HomeFactoryResponseError(
+                        f"home_factory_http_{response.status_code}"
+                    )
+            await asyncio.sleep(
+                self.settings.request_retry_seconds * (2**attempt)
+            )
+        raise HomeFactoryResponseError("home_factory_unreachable")
 
     async def submit(
         self,
