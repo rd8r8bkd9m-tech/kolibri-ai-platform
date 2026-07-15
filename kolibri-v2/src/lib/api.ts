@@ -1042,8 +1042,6 @@ function normalizeWorkSummaryPayload(value: unknown): ChatWorkSummary | undefine
     sequence: typeof payload.sequence === 'number' && Number.isSafeInteger(payload.sequence) && payload.sequence >= 0
       ? payload.sequence
       : undefined,
-    provider: safeString(payload.provider, 80),
-    model: safeString(payload.model, 120),
     artifact_type: safeString(payload.artifact_type, 80),
     artifact_id: safeString(payload.artifact_id, 160),
   }

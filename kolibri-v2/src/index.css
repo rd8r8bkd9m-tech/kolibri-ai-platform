@@ -2326,8 +2326,13 @@ a:hover .kolibri-mascot {
 }
 
 .work-trace.streaming,
-.work-trace.dispatching {
+.work-trace.dispatching,
+.work-trace.recovering {
   border-color: color-mix(in srgb, var(--accent-teal) 56%, var(--border-subtle));
+}
+
+.work-trace.waiting {
+  border-color: color-mix(in srgb, var(--text-tertiary) 38%, var(--border-subtle));
 }
 
 .work-trace summary {
@@ -2369,8 +2374,7 @@ a:hover .kolibri-mascot {
   color: var(--accent-teal);
 }
 
-.neural-connection-dots,
-.neural-stage-nodes {
+.neural-connection-dots {
   display: grid;
   width: 46px;
   height: 20px;
@@ -2380,8 +2384,7 @@ a:hover .kolibri-mascot {
   gap: 4px;
 }
 
-.neural-connection-dots > span,
-.neural-node {
+.neural-connection-dots > span {
   display: block;
   width: 7px;
   height: 7px;
@@ -2391,16 +2394,56 @@ a:hover .kolibri-mascot {
   transition: opacity 200ms ease, transform 200ms ease, background-color 200ms ease;
 }
 
+.neural-stage-nodes {
+  position: relative;
+  display: block;
+  width: 34px;
+  height: 34px;
+  animation: neural-stage-enter 200ms ease-out both;
+}
+
+.neural-stage-nodes::before {
+  position: absolute;
+  inset: 5px;
+  border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+  border-radius: 50%;
+  content: '';
+}
+
+.neural-node {
+  --neural-node-scale: 1;
+  position: absolute;
+  top: var(--neural-node-y);
+  left: var(--neural-node-x);
+  display: block;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+  transform: translate(-50%, -50%) scale(var(--neural-node-scale));
+  transition: opacity 200ms ease, transform 200ms ease, background-color 200ms ease;
+}
+
 .neural-connection-dots > span {
   animation: neural-connect-wave 900ms ease-in-out infinite;
 }
 .neural-connection-dots > span:nth-child(2) { animation-delay: 100ms; }
 .neural-connection-dots > span:nth-child(3) { animation-delay: 200ms; }
 
-.neural-node.is-future { opacity: 0.2; transform: scale(0.72); }
+.neural-node.is-future { --neural-node-scale: 0.72; opacity: 0.2; }
 .neural-node.is-active { opacity: 1; animation: neural-node-pulse 1.1s ease-in-out infinite; }
 .neural-node.is-completed { opacity: 0.9; }
-.neural-node.is-failed { opacity: 1; background: var(--danger); transform: scale(1.06); }
+.neural-node.is-failed { --neural-node-scale: 1.06; opacity: 1; background: var(--danger); }
+
+.state-waiting .neural-node.is-active {
+  animation: none;
+  opacity: 0.62;
+}
+
+@keyframes neural-stage-enter {
+  from { opacity: 0; transform: scale(0.82); }
+  to { opacity: 1; transform: scale(1); }
+}
 
 @keyframes neural-connect-wave {
   0%, 100% { opacity: 0.32; transform: translateY(2px) scale(0.82); }
@@ -2408,8 +2451,8 @@ a:hover .kolibri-mascot {
 }
 
 @keyframes neural-node-pulse {
-  0%, 100% { opacity: 0.5; transform: scale(0.8); }
-  50% { opacity: 1; transform: scale(1.12); }
+  0%, 100% { opacity: 0.5; transform: translate(-50%, -50%) scale(0.8); }
+  50% { opacity: 1; transform: translate(-50%, -50%) scale(1.12); }
 }
 
 .work-trace-body {
@@ -2452,7 +2495,8 @@ a:hover .kolibri-mascot {
 
 @media (prefers-reduced-motion: reduce) {
   .neural-connection-dots > span,
-  .neural-node.is-active { animation: none; }
+  .neural-node.is-active,
+  .neural-stage-nodes { animation: none; }
   .neural-node,
   .work-trace-chevron { transition: none; }
 }
@@ -3123,7 +3167,7 @@ a:hover .kolibri-mascot {
   .work-trace-title { display: none; }
   .work-trace summary { padding: 0; color: var(--text-primary); font-weight: 650; }
   .neural-work-indicator { width: 50px; min-width: 50px; }
-  .neural-stage-nodes { gap: 3px; }
+  .neural-stage-nodes { width: 34px; height: 34px; }
   .work-trace-body { border-top: 0; padding: 4px 0 0 60px; }
   .conversation-dock { padding: 10px 12px calc(10px + var(--safe-area-inset-bottom) + var(--keyboard-inset, 0px)); }
   .conversation-composer {

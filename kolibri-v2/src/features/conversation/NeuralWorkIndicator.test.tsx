@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import NeuralWorkIndicator from './NeuralWorkIndicator'
+import { NEURAL_NODE_LAYOUT } from './neuralWorkIndicatorLayout'
 
 function renderedNodeStates(html: string) {
   return [...html.matchAll(/neural-node is-(future|active|completed|failed)/g)].map(match => match[1])
@@ -26,10 +27,27 @@ describe('NeuralWorkIndicator', () => {
       />,
     )
     expect(html).toContain('is-staged')
+    expect(html).toContain('is-circular')
     expect((html.match(/neural-node /g) ?? [])).toHaveLength(5)
     expect(renderedNodeStates(html)).toEqual(['future', 'active', 'future', 'future', 'future'])
-    expect(html).toContain('Сверяю источники: Источники: выполняется')
+    expect(html).toContain('Сверяю источники: Данные и источники: выполняется')
     expect(html).not.toContain('role="img"')
+  })
+
+  it('places five nodes on a compact orbit instead of a horizontal row', () => {
+    expect(NEURAL_NODE_LAYOUT).toHaveLength(5)
+    expect(new Set(NEURAL_NODE_LAYOUT.map(point => point.x)).size).toBeGreaterThan(3)
+    expect(new Set(NEURAL_NODE_LAYOUT.map(point => point.y)).size).toBeGreaterThan(2)
+
+    const html = renderToStaticMarkup(
+      <NeuralWorkIndicator
+        state="active"
+        label="Проверяю"
+        events={[{ stage: 'verification', status: 'active', summary: 'Проверяю' }]}
+      />,
+    )
+    expect((html.match(/--neural-node-x:/g) ?? [])).toHaveLength(5)
+    expect((html.match(/--neural-node-y:/g) ?? [])).toHaveLength(5)
   })
 
   it('does not complete unobserved earlier groups when a later group becomes active', () => {
@@ -96,9 +114,9 @@ describe('NeuralWorkIndicator', () => {
     expect(html).toContain('role="list"')
     expect(html).toContain('role="listitem"')
     expect(html).toContain('aria-label="Этапы выполнения"')
-    expect(html).toContain('aria-label="Подготовка: ожидание"')
-    expect(html).toContain('aria-label="Выполнение: выполняется"')
-    expect(html).toContain('aria-label="Результат: ожидание"')
+    expect(html).toContain('aria-label="Понимаю запрос: ожидание"')
+    expect(html).toContain('aria-label="Инструменты и расчёты: выполняется"')
+    expect(html).toContain('aria-label="Ответ и артефакты: ожидание"')
     expect(renderedNodeStates(html)).toEqual(['future', 'future', 'active', 'future', 'future'])
   })
 
@@ -111,5 +129,26 @@ describe('NeuralWorkIndicator', () => {
     expect(html).toContain('aria-label="Восстановление: подключение"')
     expect(html).not.toContain('neural-stage-nodes')
     expect(html).not.toContain('role="img"')
+  })
+
+  it('announces waiting and failed states without relying on colour alone', () => {
+    const waiting = renderToStaticMarkup(
+      <NeuralWorkIndicator
+        state="waiting"
+        label="Нужно уточнение"
+        events={[{ stage: 'planning', status: 'active', summary: 'Нужно уточнение' }]}
+      />,
+    )
+    const failed = renderToStaticMarkup(
+      <NeuralWorkIndicator
+        state="failed"
+        label="Не удалось завершить"
+        events={[{ stage: 'verification', status: 'failed', summary: 'Проверка не пройдена' }]}
+      />,
+    )
+    expect(waiting).toContain('state-waiting')
+    expect(waiting).toContain('Ожидание')
+    expect(failed).toContain('state-failed')
+    expect(failed).toContain('ошибка')
   })
 })

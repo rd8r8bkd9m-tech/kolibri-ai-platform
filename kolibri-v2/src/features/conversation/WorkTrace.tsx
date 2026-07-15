@@ -5,7 +5,7 @@ import NeuralWorkIndicator from './NeuralWorkIndicator'
 import { dedupeWorkSummaries, shouldRenderWorkTrace, workSummaryLabel } from './workTraceState'
 import { translateKnownTraceSummary, useLocale, type TranslationKey } from '@/features/localization'
 
-export type WorkStage = 'dispatching' | 'streaming' | 'completed' | 'failed' | 'cancelled'
+export type WorkStage = 'dispatching' | 'streaming' | 'waiting' | 'recovering' | 'completed' | 'failed' | 'cancelled'
 
 interface WorkTraceProps {
   stage: WorkStage
@@ -16,6 +16,8 @@ interface WorkTraceProps {
 const stageCopy: Record<WorkStage, TranslationKey> = {
   dispatching: 'trace.dispatching',
   streaming: 'trace.streaming',
+  waiting: 'trace.waiting',
+  recovering: 'trace.recovering',
   completed: 'trace.completed',
   failed: 'trace.failed',
   cancelled: 'trace.cancelled',

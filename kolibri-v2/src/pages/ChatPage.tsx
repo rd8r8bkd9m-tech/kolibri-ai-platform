@@ -194,8 +194,6 @@ function providerAttemptEvent(event: ChatStreamEvent, t: Translate): ChatWorkSum
     summary: event.provider_event.will_retry
       ? t('trace.routeRetrying')
       : t('trace.routeFailed'),
-    provider: event.provider_event.provider,
-    model: event.provider_event.model,
   }
 }
 
@@ -669,7 +667,17 @@ export default function ChatPage() {
             actions: event.actions ? assistantActions : message.actions,
             work: {
               ...message.work!,
-              stage: event.status === 'cancelled' ? 'cancelled' : failed ? 'failed' : terminal ? 'completed' : 'streaming',
+              stage: event.status === 'cancelled'
+                ? 'cancelled'
+                : failed
+                  ? 'failed'
+                  : terminal
+                    ? 'completed'
+                    : event.status === 'waiting_for_input' || event.status === 'approval_required'
+                      ? 'waiting'
+                      : event.work_summary?.stage === 'resuming'
+                        ? 'recovering'
+                        : 'streaming',
               elapsedSeconds: Math.floor((Date.now() - startedAt) / 1000),
               events: workEvents,
             },

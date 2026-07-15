@@ -1,4 +1,6 @@
+import type { CSSProperties } from 'react'
 import type { ChatWorkStage, ChatWorkSummary } from '@/lib/api'
+import { NEURAL_NODE_LAYOUT } from './neuralWorkIndicatorLayout'
 
 type WorkIndicatorState = 'idle' | 'connecting' | 'active' | 'waiting' | 'recovering' | 'completed' | 'failed' | 'cancelled'
 type NodeState = 'future' | 'active' | 'completed' | 'failed'
@@ -11,11 +13,11 @@ interface NeuralWorkIndicatorProps {
 }
 
 const STAGE_LABELS: Record<number, string> = {
-  0: 'Подготовка',
-  1: 'Источники',
-  2: 'Выполнение',
+  0: 'Понимаю запрос',
+  1: 'Данные и источники',
+  2: 'Инструменты и расчёты',
   3: 'Проверка',
-  4: 'Результат',
+  4: 'Ответ и артефакты',
 }
 
 const stageGroup: Record<ChatWorkStage, number> = {
@@ -126,13 +128,17 @@ export default function NeuralWorkIndicator({ state, events, label, latestSummar
       title={title}
     >
       <span className="sr-only">{ariaLabel}</span>
-      <span className="neural-stage-nodes" role="list" aria-label="Этапы выполнения">
+      <span className="neural-stage-nodes is-circular" role="list" aria-label="Этапы выполнения">
         {nodes!.map((nodeState, index) => (
           <span
             key={index}
             className={`neural-node is-${nodeState}`}
             role="listitem"
             aria-label={`${STAGE_LABELS[index]}: ${nodeLabel(nodeState)}`}
+            style={{
+              '--neural-node-x': NEURAL_NODE_LAYOUT[index].x,
+              '--neural-node-y': NEURAL_NODE_LAYOUT[index].y,
+            } as CSSProperties}
           />
         ))}
       </span>
