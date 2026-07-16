@@ -240,11 +240,27 @@ def test_operator_reads_require_bearer_and_owner_role(operator_client: TestClien
     assert owner.headers["Cache-Control"] == "private, no-store"
 
 
-@pytest.mark.parametrize("role", ("owner", "admin", "superadmin"))
+@pytest.mark.parametrize("role", ("owner", "superadmin"))
 def test_all_operator_roles_are_allowed(operator_client: TestClient, role: str):
     response = operator_client.get("/api/v1/cluster/stats", headers=operator_client.auth_for(role))
     assert response.status_code == 200
     assert response.headers["Cache-Control"] == "private, no-store"
+
+
+def test_company_admin_is_not_a_platform_factory_owner(operator_client: TestClient):
+    response = operator_client.get(
+        "/api/v1/control/models",
+        headers=operator_client.auth_for("admin"),
+    )
+    assert response.status_code == 403
+
+
+def test_platform_owner_cookie_auth_is_http_only_session_compatible(operator_client: TestClient):
+    token = create_access_token({"sub": "user-owner"})
+    operator_client.cookies.set("kolibri_auth", token)
+    response = operator_client.get("/api/v1/control/models")
+    assert response.status_code == 200
+    operator_client.cookies.clear()
 
 
 def test_inactive_owner_is_forbidden(operator_client: TestClient):
@@ -286,11 +302,12 @@ def test_owner_can_submit_one_policy_bound_factory_task(operator_client: TestCli
 
     assert response.status_code == 201, response.text
     envelope = _FakeControlPlane.last_envelope
-    assert envelope["kind"] == "owner_remote_task"
+    assert envelope["kind"] == "orchestrator_chat_response"
     assert envelope["runner"] == "codex"
     assert envelope["required_capability"] == "runner:codex"
     assert envelope["max_attempts"] == 1
-    assert envelope["source"]["kind"] == "kolibri_portal"
+    assert len(envelope["request_sha256"]) == 64
+    assert envelope["source"]["kind"] == "kolibri_provider_gateway"
     assert "email" not in envelope["source"]
 
 

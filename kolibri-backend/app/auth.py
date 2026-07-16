@@ -5,17 +5,20 @@ from typing import Optional
 import jwt
 from jwt import InvalidTokenError
 import bcrypt
-from fastapi import Depends, HTTPException, Response, status
+from fastapi import Cookie, Depends, HTTPException, Response, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from app.database import get_db
 
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "kolibri-dev-secret-change-in-production")
+DEVELOPMENT_SECRET = "kolibri-dev-secret-change-in-production"
+SECRET_KEY = os.getenv("JWT_SECRET_KEY", DEVELOPMENT_SECRET)
 ALGORITHM = "HS256"
+TOKEN_ISSUER = "kolibri"
+TOKEN_AUDIENCE = "kolibri-portal"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("TOKEN_EXPIRE_MINUTES", "1440"))
 
 security = HTTPBearer(auto_error=False)
-OPERATOR_ROLES = frozenset({"owner", "admin", "superadmin"})
+OPERATOR_ROLES = frozenset({"owner", "superadmin"})
 OPERATOR_CACHE_HEADERS = {"Cache-Control": "private, no-store"}
 
 
@@ -30,29 +33,51 @@ def verify_password(plain: str, hashed: str) -> bool:
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
-    to_encode.update({"exp": expire})
+    to_encode.update({"exp": expire, "iss": TOKEN_ISSUER, "aud": TOKEN_AUDIENCE})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
 def decode_token(token: str) -> dict:
     try:
-        return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return jwt.decode(
+            token,
+            SECRET_KEY,
+            algorithms=[ALGORITHM],
+            issuer=TOKEN_ISSUER,
+            audience=TOKEN_AUDIENCE,
+        )
     except InvalidTokenError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
 
+def validate_auth_configuration() -> None:
+    production = bool(
+        os.getenv("KOLIBRI_ACTIVE_RELEASE_ID", "").strip()
+        or os.getenv("KOLIBRI_PUBLIC_BASE_URL", "").strip()
+        or os.getenv("KOLIBRI_REQUIRE_SECURE_AUTH", "").strip().lower()
+        in {"1", "true", "yes", "on"}
+    )
+    if production and (SECRET_KEY == DEVELOPMENT_SECRET or len(SECRET_KEY.encode("utf-8")) < 32):
+        raise RuntimeError("jwt_secret_not_configured")
+
+
 def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    auth_cookie: Optional[str] = Cookie(None, alias="kolibri_auth"),
     db: Session = Depends(get_db),
 ):
     from app.models import UserDB
-    if not credentials:
+    token = credentials.credentials if credentials else auth_cookie
+    if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
-    payload = decode_token(credentials.credentials)
+    payload = decode_token(token)
     user_id = payload.get("sub")
     if not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
-    user = db.query(UserDB).filter(UserDB.id == user_id).first()
+    user = db.query(UserDB).filter(
+        UserDB.id == user_id,
+        UserDB.is_active.is_(True),
+    ).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
     return user
@@ -60,16 +85,21 @@ def get_current_user(
 
 def get_optional_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    auth_cookie: Optional[str] = Cookie(None, alias="kolibri_auth"),
     db: Session = Depends(get_db),
 ):
     from app.models import UserDB
-    if not credentials:
+    token = credentials.credentials if credentials else auth_cookie
+    if not token:
         return None
     try:
-        payload = decode_token(credentials.credentials)
+        payload = decode_token(token)
         user_id = payload.get("sub")
         if user_id:
-            return db.query(UserDB).filter(UserDB.id == user_id).first()
+            return db.query(UserDB).filter(
+                UserDB.id == user_id,
+                UserDB.is_active.is_(True),
+            ).first()
     except HTTPException:
         pass
     return None
@@ -77,17 +107,22 @@ def get_optional_user(
 
 def require_auth(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    auth_cookie: Optional[str] = Cookie(None, alias="kolibri_auth"),
     db: Session = Depends(get_db),
 ):
     """Required auth — raises 401 if no valid token."""
     from app.models import UserDB
-    if not credentials:
+    token = credentials.credentials if credentials else auth_cookie
+    if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
-    payload = decode_token(credentials.credentials)
+    payload = decode_token(token)
     user_id = payload.get("sub")
     if not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
-    user = db.query(UserDB).filter(UserDB.id == user_id).first()
+    user = db.query(UserDB).filter(
+        UserDB.id == user_id,
+        UserDB.is_active.is_(True),
+    ).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
     return user
@@ -96,6 +131,7 @@ def require_auth(
 def require_operator_user(
     response: Response,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    auth_cookie: Optional[str] = Cookie(None, alias="kolibri_auth"),
     db: Session = Depends(get_db),
 ):
     """Require an active persisted owner/admin account for operator surfaces.
@@ -108,14 +144,15 @@ def require_operator_user(
     from app.models import UserDB
 
     response.headers.update(OPERATOR_CACHE_HEADERS)
-    if not credentials:
+    token = credentials.credentials if credentials else auth_cookie
+    if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",
             headers=OPERATOR_CACHE_HEADERS,
         )
     try:
-        payload = decode_token(credentials.credentials)
+        payload = decode_token(token)
     except HTTPException as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

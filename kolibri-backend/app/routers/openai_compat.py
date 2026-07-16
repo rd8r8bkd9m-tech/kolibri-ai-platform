@@ -33,6 +33,7 @@ from app.project_schemas import PersistedFileAction
 from app.public_scope import authorize_public_scope as _authorize_public
 from app.openai_responses import cancel_response, retrieve_response
 from app.genkit_flow import planned_task_type
+from app.auth import require_operator_user
 from app.response_store import (
     ResponseIdempotencyConflict,
     find_idempotent_response,
@@ -442,7 +443,7 @@ def developer_response_capabilities() -> list[dict[str, Any]]:
 @router.post(
     "/api/v1/developer/api-keys",
     status_code=201,
-    dependencies=[Depends(_authorize_api_key_admin)],
+    dependencies=[Depends(require_operator_user)],
     response_model=ApiKeyCreatedResponse,
 )
 @router.post(
@@ -486,7 +487,7 @@ async def create_api_key(
 
 @router.get(
     "/api/v1/developer/api-keys",
-    dependencies=[Depends(_authorize_api_key_admin)],
+    dependencies=[Depends(require_operator_user)],
     response_model=ApiKeyListResponse,
 )
 @router.get(
@@ -504,7 +505,7 @@ async def list_api_keys(response: Response, db: Session = Depends(get_db)):
 
 @router.delete(
     "/api/v1/developer/api-keys/{key_id}",
-    dependencies=[Depends(_authorize_api_key_admin)],
+    dependencies=[Depends(require_operator_user)],
     response_model=ApiKeyResponse,
 )
 @router.delete(

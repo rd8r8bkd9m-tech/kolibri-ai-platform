@@ -32,6 +32,8 @@ MAX_TIMEOUT_SECONDS = 10.0
 FLEET_PROOF_PATH = "/v1/runtime/fleet-proof"
 SHA256_PATTERN = re.compile(r"^(?:sha256:)?[0-9a-f]{64}$")
 BEARER_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9._~+/=-]{32,512}$")
+SAFE_EVENT_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$")
+SAFE_CHECK_PATTERN = re.compile(r"^[a-z][a-z0-9_.:-]{0,127}$")
 CONNECTED_HEALTH_STATES = frozenset({"online", "healthy", "ready"})
 DISCONNECTED_HEALTH_STATES = frozenset({"offline", "disconnected", "failed"})
 RUNNER_EXECUTABLE_STATES = frozenset({
@@ -88,6 +90,19 @@ def _optional_bearer_token(path_value: str | None) -> str | None:
     if not raw:
         return None
     path = Path(raw)
+    if not path.is_absolute() or ".." in path.parts:
+        raise ControlPlaneUnavailable("control_plane_token_file_unsafe")
+    for parent in (path.parent, *path.parents[1:]):
+        try:
+            parent_info = parent.lstat()
+        except OSError as exc:
+            raise ControlPlaneUnavailable("control_plane_token_unreadable") from exc
+        if (
+            stat.S_ISLNK(parent_info.st_mode)
+            or not stat.S_ISDIR(parent_info.st_mode)
+            or stat.S_IMODE(parent_info.st_mode) & 0o022
+        ):
+            raise ControlPlaneUnavailable("control_plane_token_file_unsafe")
     try:
         info = path.lstat()
     except OSError as exc:
@@ -963,9 +978,17 @@ class HomeControlPlaneAdapter:
             else None
         )
         mapped = self._map_task(payload, _utc_now())
+        failed_checks = [
+            str(value)
+            for value in _as_list(verifier.get("failed_checks"))[:64]
+            if SAFE_CHECK_PATTERN.fullmatch(str(value))
+        ]
+        result_sha256 = str(evidence.get("result_sha256") or "").removeprefix("sha256:")
+        binding_sha256 = str(evidence.get("binding_sha256") or "").removeprefix("sha256:")
+        objective = str(envelope.get("objective") or envelope.get("message") or "")[:8000]
         mapped.update({
             "kind": str(payload.get("kind") or envelope.get("kind") or "unknown"),
-            "objective": str(envelope.get("objective") or envelope.get("message") or ""),
+            "objective": objective,
             "runner": str(envelope.get("runner") or "") or None,
             "required_capability": str(envelope.get("required_capability") or "") or None,
             "attempt_id": str(payload.get("attempt_id") or "") or None,
@@ -973,9 +996,9 @@ class HomeControlPlaneAdapter:
             "result_reference": safe_reference,
             "verification": {
                 "verdict": verifier.get("verdict"),
-                "failed_checks": _as_list(verifier.get("failed_checks")),
-                "result_sha256": evidence.get("result_sha256"),
-                "binding_sha256": evidence.get("binding_sha256"),
+                "failed_checks": failed_checks,
+                "result_sha256": result_sha256 if re.fullmatch(r"[0-9a-f]{64}", result_sha256) else None,
+                "binding_sha256": binding_sha256 if re.fullmatch(r"[0-9a-f]{64}", binding_sha256) else None,
             },
         })
         return mapped
@@ -1029,17 +1052,44 @@ class HomeControlPlaneAdapter:
         occurred_at = str(event.get("occurred_at") or "").strip()
         sequence = _to_int(event.get("sequence"), -1)
         cursor = _to_int(event.get("cursor"), -1)
+        task_id = subject.removeprefix("task/") if subject.startswith("task/") else ""
+        try:
+            timestamp = datetime.fromisoformat(occurred_at.replace("Z", "+00:00"))
+        except ValueError:
+            timestamp = None
         if (
-            not event_id
-            or not subject.startswith("task/")
-            or not event_type
-            or not occurred_at
+            not SAFE_EVENT_TOKEN_PATTERN.fullmatch(event_id)
+            or not SAFE_EVENT_TOKEN_PATTERN.fullmatch(task_id)
+            or not SAFE_EVENT_TOKEN_PATTERN.fullmatch(event_type)
+            or timestamp is None
+            or timestamp.tzinfo is None
             or sequence < 1
             or cursor < 1
         ):
             raise ControlPlaneUnavailable("control_plane_event_contract_invalid")
         data = _as_dict(event.get("data"))
         provenance = _as_dict(event.get("provenance"))
+        safe_data: dict[str, Any] = {}
+        for name in ("from_state", "to_state", "kind", "attempt_id", "error_type", "verifier_verdict", "cancel_fence_id"):
+            value = str(data.get(name) or "")
+            if value and SAFE_EVENT_TOKEN_PATTERN.fullmatch(value):
+                safe_data[name] = value
+        for name in ("attempt", "fencing_token", "progress_sequence"):
+            value = data.get(name)
+            if type(value) is int and 0 <= value <= 2**53 - 1:
+                safe_data[name] = value
+        result_reference = str(data.get("result_reference") or "")
+        if result_reference.startswith(("artifact://sha256/", "sha256:")) and len(result_reference) <= 256:
+            safe_data["result_reference"] = result_reference
+        lease_owner = str(data.get("lease_owner") or "").partition(":")[0]
+        if lease_owner and SAFE_EVENT_TOKEN_PATTERN.fullmatch(lease_owner):
+            safe_data["lease_owner"] = lease_owner
+        actor = str(provenance.get("actor") or "")
+        if not (
+            re.fullmatch(r"principal:[0-9a-f]{16}", actor)
+            or actor == "control-plane/system"
+        ):
+            actor = ""
         payload_sha256 = hashlib.sha256(
             json.dumps(
                 event,
@@ -1050,17 +1100,17 @@ class HomeControlPlaneAdapter:
         ).hexdigest()
         return {
             "event_id": event_id,
-            "task_id": subject.removeprefix("task/"),
+            "task_id": task_id,
             "event_type": event_type,
-            "state": data.get("to_state"),
-            "actor": provenance.get("actor"),
-            "node_id": data.get("lease_owner"),
-            "attempt_id": data.get("attempt_id"),
+            "state": safe_data.get("to_state"),
+            "actor": actor or None,
+            "node_id": safe_data.get("lease_owner"),
+            "attempt_id": safe_data.get("attempt_id"),
             "occurred_at": occurred_at,
             "sequence": sequence,
             "cursor": cursor,
             "payload_sha256": payload_sha256,
-            "data": data,
+            "data": safe_data,
         }
 
     async def cluster_stats(self) -> dict[str, Any]:

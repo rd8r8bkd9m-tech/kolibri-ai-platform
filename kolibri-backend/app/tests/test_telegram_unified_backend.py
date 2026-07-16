@@ -9,6 +9,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+import app.auth as auth
 from app.control_plane import ControlPlaneUnavailable
 from app.database import Base, get_db
 from app.main import app
@@ -44,6 +45,7 @@ def client(monkeypatch):
     monkeypatch.setenv("KOLIBRI_TELEGRAM_OWNER_APPROVED", "true")
     monkeypatch.setenv("KOLIBRI_TELEGRAM_ALLOWED_CHAT_IDS", "7001,-100123")
     monkeypatch.setenv("KOLIBRI_PUBLIC_BASE_URL", "https://kolibriai.ru")
+    monkeypatch.setattr(auth, "SECRET_KEY", "telegram-test-jwt-secret-0123456789abcdef")
     monkeypatch.setenv(
         "KOLIBRI_PROJECT_HANDOFF_SECRET",
         "test-project-handoff-secret-0123456789abcdef",

@@ -150,8 +150,8 @@ def test_control_plane_event_projection_is_strict_and_content_addressed():
                 "occurred_at": "2026-07-16T08:00:00+00:00",
                 "created_at": "2026-07-16T08:00:00+00:00",
                 "updated_at": "2026-07-16T08:00:00+00:00",
-                "data": {"from_state": "leased", "to_state": "running", "attempt_id": "a1"},
-                "provenance": {"actor": "principal:abc", "policy_version": "v1"},
+                "data": {"from_state": "leased", "to_state": "running", "attempt_id": "a1", "prompt": "secret", "nested": {"token": "secret"}},
+                "provenance": {"actor": "principal:0123456789abcdef", "policy_version": "v1"},
             }],
         })
 
@@ -160,6 +160,9 @@ def test_control_plane_event_projection_is_strict_and_content_addressed():
     assert result["next_cursor"] == "12"
     assert result["items"][0]["task_id"] == "task-1"
     assert result["items"][0]["state"] == "running"
+    assert result["items"][0]["actor"] == "principal:0123456789abcdef"
+    assert "prompt" not in result["items"][0]["data"]
+    assert "nested" not in result["items"][0]["data"]
     assert len(result["items"][0]["payload_sha256"]) == 64
 
 

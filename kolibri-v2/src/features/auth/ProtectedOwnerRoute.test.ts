@@ -10,9 +10,10 @@ describe('owner route authorization UX', () => {
   it('redirects guests to login and authenticated non-owners home', () => {
     expect(ownerRouteTarget(null)).toBe('/login')
     expect(ownerRouteTarget(user('user'))).toBe('/')
+    expect(ownerRouteTarget(user('admin'))).toBe('/')
   })
 
-  it.each(['owner', 'admin', 'superadmin', ' OWNER '])('allows operator role %s', role => {
+  it.each(['owner', 'superadmin', ' OWNER '])('allows platform-owner role %s', role => {
     expect(ownerRouteTarget(user(role))).toBeNull()
   })
 })

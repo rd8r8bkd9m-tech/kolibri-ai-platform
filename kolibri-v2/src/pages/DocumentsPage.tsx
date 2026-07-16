@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
-import { FileText, Search, Plus, ArrowLeft, Bold, Italic, Underline, List, ListOrdered, Download, FileSpreadsheet, Sparkles, Trash2 } from 'lucide-react'
+import { FileText, Search, Plus, ArrowLeft, Download, FileSpreadsheet, Sparkles, Trash2 } from 'lucide-react'
 import { useSearchParams } from 'react-router'
 import { documents, templates, ai, type Document as Doc, type Template } from '@/lib/api'
 import { formatDate } from '@/lib/utils'
+import { sandboxedDocumentHtml } from '@/features/documents/sandboxedDocument'
 
 const statusLabels: Record<string, { text: string; className: string }> = {
   draft: { text: 'Черновик', className: 'bg-gray-100 text-gray-600' },
@@ -103,9 +104,7 @@ export default function DocumentsPage() {
   const handleSave = async () => {
     if (!current) return
     try {
-      const el = document.querySelector('[contenteditable]')
-      const html = el ? (el as HTMLElement).innerHTML : current.content
-      const updated = await documents.update(current.id, { content: html })
+      const updated = await documents.update(current.id, { content: current.content })
       setCurrent(updated)
     } catch (e) { console.error('Failed to save', e) }
   }
@@ -166,18 +165,10 @@ export default function DocumentsPage() {
             </div>
           </header>
 
-          {editMode && (
-            <div className="document-format-toolbar rounded-[var(--radius-md)] bg-[var(--bg-secondary)] border border-[var(--border-subtle)]" role="toolbar" aria-label="Форматирование документа">
-              {[{ icon: Bold, cmd: 'bold' }, { icon: Italic, cmd: 'italic' }, { icon: Underline, cmd: 'underline' }, { icon: List, cmd: 'insertUnorderedList' }, { icon: ListOrdered, cmd: 'insertOrderedList' }].map(({ icon: Icon, cmd }) => (
-                <button key={cmd} onClick={() => document.execCommand(cmd)} className="document-format-action rounded-[var(--radius-sm)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors"><Icon size={15} /></button>
-              ))}
-            </div>
-          )}
-
           {editMode ? (
-            <div contentEditable suppressContentEditableWarning className="document-editor-canvas is-editing min-h-[500px] p-6 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[14px] leading-relaxed outline-none focus:border-[var(--accent-teal)] transition-colors" dangerouslySetInnerHTML={{ __html: current.content }} />
+            <textarea value={current.content} onChange={event => setCurrent({ ...current, content: event.target.value })} aria-label="HTML документа" className="document-editor-canvas is-editing min-h-[500px] w-full resize-y p-6 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] font-mono text-[13px] leading-relaxed outline-none focus:border-[var(--accent-teal)] transition-colors" />
           ) : (
-            <div className="document-editor-canvas is-previewing p-6 sm:p-10 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-sm" dangerouslySetInnerHTML={{ __html: current.content.replace(/<h2>/g, '<h2 style="font-size:18px;font-weight:700;margin-bottom:16px;">').replace(/<h3>/g, '<h3 style="font-size:15px;font-weight:600;margin:20px 0 8px;">').replace(/<p>/g, '<p style="margin-bottom:8px;line-height:1.7;color:var(--text-secondary);">') }} />
+            <iframe title={`Предпросмотр документа: ${current.title}`} sandbox="" referrerPolicy="no-referrer" srcDoc={sandboxedDocumentHtml(current.content)} className="document-editor-canvas is-previewing min-h-[600px] w-full rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-white shadow-sm" />
           )}
         </div>
       </div>

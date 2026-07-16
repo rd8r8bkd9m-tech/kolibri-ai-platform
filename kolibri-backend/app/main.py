@@ -16,7 +16,6 @@ from typing import List, Optional, Dict, Any
 from fastapi import FastAPI, HTTPException, Query, Depends, Header, Request, Cookie
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
-from fastapi.security import HTTPBearer
 from contextlib import asynccontextmanager
 from sqlalchemy.orm import Session
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -47,13 +46,15 @@ from app.browser_session import (
     resolve_optional_project_principal,
     resolve_project_principal,
 )
-from app.auth import require_operator_user
+from app.auth import require_auth, require_operator_user, validate_auth_configuration
 from app.genkit_flow import planned_task_type
 from app.operator_api import is_operator_api_path, safe_cluster_stats, safe_task_page
+from app.document_html import DocumentHtmlError, sanitize_document_html
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    validate_auth_configuration()
     if os.getenv("KOLIBRI_PUBLIC_BASE_URL", "").strip():
         from app.project_handoff import validate_project_handoff_configuration
         validate_project_handoff_configuration()
@@ -106,6 +107,12 @@ def _cors_allowed_origins() -> list[str]:
 
 
 _CORS_ALLOWED_ORIGINS = _cors_allowed_origins()
+_CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; "
+    "script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
+    "font-src 'self' data:; connect-src 'self'; frame-src 'self' blob:; "
+    "form-action 'self'"
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -131,6 +138,9 @@ async def keep_operator_responses_private(request: Request, call_next):
     """Operator data and auth errors must never enter shared browser caches."""
 
     response = await call_next(request)
+    response.headers.setdefault("Content-Security-Policy", _CONTENT_SECURITY_POLICY)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
     if is_operator_api_path(request.url.path):
         response.headers["Cache-Control"] = "private, no-store"
     return response
@@ -205,9 +215,25 @@ async def health():
 # Auth
 # ---------------------------------------------------------------------------
 
+def _set_auth_cookie(response: Response, token: str) -> None:
+    public_url = urlsplit(os.getenv("KOLIBRI_PUBLIC_BASE_URL", ""))
+    secure = public_url.scheme == "https" or os.getenv(
+        "KOLIBRI_SECURE_COOKIES", ""
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    response.set_cookie(
+        "kolibri_auth",
+        token,
+        max_age=int(os.getenv("TOKEN_EXPIRE_MINUTES", "1440")) * 60,
+        httponly=True,
+        secure=secure,
+        samesite="strict",
+        path="/",
+    )
+
 @app.post("/api/v1/auth/register", status_code=201)
 async def register(
     data: schemas.UserRegister,
+    response: Response,
     anonymous_cookie: str | None = Cookie(default=None, alias="kolibri_session"),
     db: Session = Depends(get_db),
 ):
@@ -229,12 +255,14 @@ async def register(
     )
     db.commit()
     token = create_access_token({"sub": user.id})
+    _set_auth_cookie(response, token)
     return {"access_token": token, "token_type": "bearer", "user": {"id": user.id, "email": user.email, "name": user.name, "role": user.role}}
 
 
 @app.post("/api/v1/auth/login")
 async def login(
     data: schemas.UserLogin,
+    response: Response,
     anonymous_cookie: str | None = Cookie(default=None, alias="kolibri_session"),
     db: Session = Depends(get_db),
 ):
@@ -251,35 +279,33 @@ async def login(
     )
     db.commit()
     token = create_access_token({"sub": user.id})
+    _set_auth_cookie(response, token)
     return {"access_token": token, "token_type": "bearer", "user": {"id": user.id, "email": user.email, "name": user.name, "role": user.role}}
 
 
+@app.post("/api/v1/auth/logout", status_code=204)
+async def logout(response: Response):
+    response.delete_cookie(
+        "kolibri_auth",
+        path="/",
+        httponly=True,
+        samesite="strict",
+    )
+    return None
+
+
 @app.get("/api/v1/auth/me")
-async def get_me_profile(
-    credentials = Depends(HTTPBearer()),
-    db: Session = Depends(get_db),
-):
-    from app.auth import decode_token
-    from app.models import UserDB
-    payload = decode_token(credentials.credentials)
-    user = db.query(UserDB).filter(UserDB.id == payload.get("sub")).first()
-    if not user:
-        raise HTTPException(404, "User not found")
+async def get_me_profile(user = Depends(require_auth)):
     return {"id": user.id, "email": user.email, "name": user.name, "role": user.role}
 
 
 @app.put("/api/v1/auth/me")
 async def update_me(
     data: schemas.UserUpdate,
-    credentials = Depends(HTTPBearer()),
+    user = Depends(require_auth),
     db: Session = Depends(get_db),
 ):
-    from app.auth import decode_token, hash_password, verify_password
-    from app.models import UserDB
-    payload = decode_token(credentials.credentials)
-    user = db.query(UserDB).filter(UserDB.id == payload.get("sub")).first()
-    if not user:
-        raise HTTPException(404, "User not found")
+    from app.auth import hash_password, verify_password
     if data.name is not None:
         user.name = data.name
     if data.email is not None:
@@ -633,6 +659,10 @@ async def create_document(
     if "type" in d and hasattr(d["type"], "value"):
         d["type"] = d["type"].value
     try:
+        d["content"] = sanitize_document_html(d.get("content"))
+    except DocumentHtmlError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    try:
         result = storage.create_document(d)
     except DocumentEstimateNotFound:
         raise HTTPException(404, "Estimate not found") from None
@@ -681,6 +711,11 @@ async def update_document(
     update_data = data.model_dump(exclude_unset=True)
     if "type" in update_data and update_data["type"] is not None and hasattr(update_data["type"], "value"):
         update_data["type"] = update_data["type"].value
+    if "content" in update_data:
+        try:
+            update_data["content"] = sanitize_document_html(update_data["content"])
+        except DocumentHtmlError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
     try:
         result = storage.update_document(doc_id, update_data)
     except DocumentEstimateNotFound:
@@ -857,16 +892,24 @@ async def create_factory_task(
         raise HTTPException(status_code=422, detail="Idempotency-Key is required")
     principal_ref = hashlib.sha256(str(operator.id).encode("utf-8")).hexdigest()[:16]
     binding = hashlib.sha256(f"{principal_ref}:{raw_key}".encode("utf-8")).hexdigest()
+    request_sha256 = hashlib.sha256(json.dumps(
+        {"kind": "orchestrator_chat_response", "objective": objective, "public_model": "kolibri"},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")).hexdigest()
     envelope = {
         "task_id": f"KOL-PORTAL-{binding[:20].upper()}",
         "idempotency_key": f"portal:{binding}",
-        "kind": "owner_remote_task",
+        "kind": "orchestrator_chat_response",
         "objective": objective,
+        "request_sha256": request_sha256,
         "runner": "codex",
         "required_capability": "runner:codex",
         "max_attempts": 1,
         "source": {
-            "kind": "kolibri_portal",
+            "kind": "kolibri_provider_gateway",
+            "channel": "portal_factory_control",
             "principal_ref": principal_ref,
         },
     }
@@ -1078,7 +1121,7 @@ async def control_learning(_operator = Depends(require_operator_user)):
             for gate_id, label in gate_labels.items()
         ],
         "as_of": datetime.now(timezone.utc).isoformat(),
-        "source": "home_control_plane",
+        "source": "portal_policy",
     }
 
 

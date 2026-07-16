@@ -9,6 +9,7 @@ from typing import Any, Callable, Dict, Mapping, Optional
 from urllib.parse import urlsplit
 from xml.sax.saxutils import escape
 from jinja2 import Environment, BaseLoader
+from app.document_html import sanitize_document_html
 
 # Prefer WeasyPrint; use ReportLab when native WeasyPrint libraries are unavailable.
 # Both paths return validated PDF bytes and never HTML under a PDF MIME type.
@@ -566,8 +567,8 @@ def generate_estimate_pdf(estimate_data: Dict[str, Any]) -> bytes:
 
 def generate_document_pdf(document_data: Dict[str, Any]) -> bytes:
     """Generate PDF from document HTML content."""
-    html_content = document_data.get("content", "")
-    title = document_data.get("title", "Документ")
+    html_content = sanitize_document_html(document_data.get("content", ""))
+    title = escape(str(document_data.get("title", "Документ")))
 
     template = f"""<!DOCTYPE html>
 <html lang="ru">

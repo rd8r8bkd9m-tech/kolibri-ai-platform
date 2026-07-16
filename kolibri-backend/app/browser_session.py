@@ -13,13 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from fastapi import Cookie, Depends, HTTPException, Request, Response
-from fastapi.security import HTTPAuthorizationCredentials
-import jwt
-from jwt import InvalidTokenError
-from sqlalchemy.orm import Session
-
-from app.auth import ALGORITHM, SECRET_KEY, security
-from app.database import get_db
+from app.auth import DEVELOPMENT_SECRET, get_optional_user
 from app.models import UserDB
 
 
@@ -27,7 +21,11 @@ SESSION_COOKIE_NAME = "kolibri_session"
 SESSION_TTL_SECONDS = int(os.getenv("KOLIBRI_SESSION_TTL_SECONDS", str(30 * 24 * 60 * 60)))
 SESSION_VERSION = 1
 
-_configured_secret = os.getenv("KOLIBRI_SESSION_SECRET") or os.getenv("JWT_SECRET_KEY") or SECRET_KEY
+_configured_secret = (
+    os.getenv("KOLIBRI_SESSION_SECRET")
+    or os.getenv("JWT_SECRET_KEY")
+    or DEVELOPMENT_SECRET
+)
 _SESSION_SIGNING_KEY = _configured_secret.encode("utf-8")
 
 
@@ -105,27 +103,9 @@ def validate_anonymous_session(token: str | None, *, now: int | None = None) -> 
         return None
 
 
-def _optional_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(security),
-    db: Session = Depends(get_db),
-) -> UserDB | None:
-    """Resolve a bearer user without turning public bootstrap into 401/403."""
-
-    if credentials is None:
-        return None
-    try:
-        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
-    except InvalidTokenError:
-        return None
-    user_id = payload.get("sub")
-    if not isinstance(user_id, str) or not user_id:
-        return None
-    return db.query(UserDB).filter(UserDB.id == user_id, UserDB.is_active.is_(True)).first()
-
-
 def resolve_optional_project_principal(
     anonymous_cookie: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
-    user: UserDB | None = Depends(_optional_user),
+    user: UserDB | None = Depends(get_optional_user),
 ) -> ProjectPrincipal | None:
     if user is not None:
         return ProjectPrincipal(scope_id=f"user:{user.id}", kind="authenticated", public_id=user.id)

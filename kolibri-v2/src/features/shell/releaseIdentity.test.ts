@@ -10,7 +10,8 @@ describe('owner build diagnostics release identity', () => {
 
   it('limits diagnostics to owner roles', () => {
     expect(isOwnerRole('owner')).toBe(true)
-    expect(isOwnerRole('ADMIN')).toBe(true)
+    expect(isOwnerRole('ADMIN')).toBe(false)
+    expect(isOwnerRole('superadmin')).toBe(true)
     expect(isOwnerRole('user')).toBe(false)
     expect(isOwnerRole(undefined)).toBe(false)
   })

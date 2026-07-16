@@ -1,4 +1,4 @@
-const OWNER_ROLES = new Set(['admin', 'owner', 'superadmin'])
+const OWNER_ROLES = new Set(['owner', 'superadmin'])
 const RELEASE_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,95}$/i
 
 type BuildReleaseIdentityTarget = typeof globalThis & {

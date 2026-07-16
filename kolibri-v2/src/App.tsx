@@ -3,7 +3,7 @@ import { Navigate, Routes, Route } from 'react-router'
 import Layout from './components/Layout'
 import ErrorBoundary from './components/ErrorBoundary'
 import AppShellEntry from '@/features/projects/AppShellEntry'
-import { auth, getAuthToken, setAuthToken, type AuthUser } from '@/lib/api'
+import { auth, setAuthToken, type AuthUser } from '@/lib/api'
 import { useLocale } from '@/features/localization'
 import ReleaseUpdateController from '@/features/shell/ReleaseUpdateController'
 import ProtectedOwnerRoute from '@/features/auth/ProtectedOwnerRoute'
@@ -32,11 +32,9 @@ const DeveloperPlaygroundPage = lazy(() => import('./pages/DeveloperPlaygroundPa
 export default function App() {
   const { t } = useLocale()
   const [user, setUser] = useState<AuthUser | null>(null)
-  const [checking, setChecking] = useState(() => Boolean(getAuthToken()))
+  const [checking, setChecking] = useState(true)
 
   useEffect(() => {
-    if (!getAuthToken()) return
-
     let active = true
     auth.me()
       .then(u => { if (active) setUser(u) })
@@ -82,7 +80,7 @@ export default function App() {
                 <Route path="developers" element={<DevelopersPage user={user} />} />
                 <Route path="docs" element={<DeveloperDocsPage />} />
                 <Route path="playground" element={<DeveloperPlaygroundPage />} />
-                <Route path="settings" element={<SettingsPage user={user} onLogout={() => { setUser(null); setAuthToken(null) }} />} />
+                <Route path="settings" element={<SettingsPage user={user} onLogout={() => { void auth.logout(); setUser(null); setAuthToken(null) }} />} />
               </Route>
             </Route>
           </Routes>

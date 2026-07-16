@@ -270,10 +270,12 @@ def test_authenticated_principal_overrides_anonymous_cookie(client: TestClient):
     assert registered.status_code == 201
     token = registered.json()["access_token"]
     auth = {"Authorization": f"Bearer {token}"}
+    assert client.cookies.get("kolibri_auth")
 
     project = client.post("/api/v1/projects", json={"title": "Authenticated"}, headers=auth)
     assert project.status_code == 201
     project_id = project.json()["id"]
+    client.cookies.delete("kolibri_auth")
     assert client.get(f"/api/v1/projects/{project_id}").status_code == 404
     assert client.get(f"/api/v1/projects/{project_id}", headers=auth).status_code == 200
 

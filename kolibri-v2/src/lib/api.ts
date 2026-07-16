@@ -60,59 +60,19 @@ function errorDetail(body: unknown, fallback: string): string {
   return fallback
 }
 
-function storedAuthToken(): string | null {
-  try {
-    return typeof localStorage === 'undefined' ? null : localStorage.getItem('kolibri_token')
-  } catch {
-    return null
-  }
-}
+let authToken: string | null = null
 
-let authToken: string | null = storedAuthToken()
+try {
+  if (typeof localStorage !== 'undefined') localStorage.removeItem('kolibri_token')
+} catch {
+  // Legacy bearer cleanup is best effort; browser auth now uses HttpOnly cookie.
+}
 
 export function setAuthToken(token: string | null) {
   authToken = token
-  try {
-    if (typeof localStorage === 'undefined') return
-    if (token) localStorage.setItem('kolibri_token', token)
-    else localStorage.removeItem('kolibri_token')
-  } catch {
-    // In privacy-restricted contexts the in-memory token remains usable.
-  }
 }
 
 export function getAuthToken() { return authToken }
-
-const DEVELOPER_OWNER_TOKEN_SESSION_KEY = 'kolibri_developer_owner_token'
-
-function storedDeveloperOwnerToken(): string | null {
-  try {
-    return typeof sessionStorage === 'undefined'
-      ? null
-      : sessionStorage.getItem(DEVELOPER_OWNER_TOKEN_SESSION_KEY)
-  } catch {
-    return null
-  }
-}
-
-let developerOwnerToken: string | null = storedDeveloperOwnerToken()
-
-/**
- * The owner credential is deliberately isolated from the persistent user auth
- * token. It may live only in this module's memory and the current tab session.
- */
-export function setDeveloperOwnerToken(token: string | null) {
-  developerOwnerToken = token || null
-  try {
-    if (typeof sessionStorage === 'undefined') return
-    if (developerOwnerToken) sessionStorage.setItem(DEVELOPER_OWNER_TOKEN_SESSION_KEY, developerOwnerToken)
-    else sessionStorage.removeItem(DEVELOPER_OWNER_TOKEN_SESSION_KEY)
-  } catch {
-    // In privacy-restricted contexts the in-memory owner token remains usable.
-  }
-}
-
-export function getDeveloperOwnerToken() { return developerOwnerToken }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json', ...init?.headers as Record<string, string> }
@@ -1646,6 +1606,7 @@ export const auth = {
     request<AuthResponse>('/auth/register', { method: 'POST', body: JSON.stringify({ email, name, password }) }),
   login: (email: string, password: string) =>
     request<AuthResponse>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
+  logout: () => request<void>('/auth/logout', { method: 'POST' }),
   me: () => request<AuthUser>('/auth/me'),
   updateMe: (data: { name?: string; email?: string; current_password?: string; new_password?: string }) =>
     request<AuthUser>('/auth/me', { method: 'PUT', body: JSON.stringify(data) }),
@@ -1677,24 +1638,17 @@ export interface DeveloperApiKeyCreated extends DeveloperApiKey {
   secret_shown_once: true
 }
 
-function developerOwnerHeaders(ownerToken: string): Record<string, string> {
-  return { 'X-Kolibri-Owner-Token': ownerToken }
-}
-
 export const developerApiKeys = {
-  list: (ownerToken: string) => request<DeveloperApiKeyListResponse>('/developer/api-keys', {
-    headers: developerOwnerHeaders(ownerToken),
+  list: () => request<DeveloperApiKeyListResponse>('/developer/api-keys', {
     cache: 'no-store',
   }),
-  create: (name: string, ownerToken: string) => request<DeveloperApiKeyCreated>('/developer/api-keys', {
+  create: (name: string) => request<DeveloperApiKeyCreated>('/developer/api-keys', {
     method: 'POST',
-    headers: developerOwnerHeaders(ownerToken),
     body: JSON.stringify({ name }),
     cache: 'no-store',
   }),
-  revoke: (id: string, ownerToken: string) => request<DeveloperApiKey>(`/developer/api-keys/${encodeURIComponent(id)}`, {
+  revoke: (id: string) => request<DeveloperApiKey>(`/developer/api-keys/${encodeURIComponent(id)}`, {
     method: 'DELETE',
-    headers: developerOwnerHeaders(ownerToken),
     cache: 'no-store',
   }),
 }

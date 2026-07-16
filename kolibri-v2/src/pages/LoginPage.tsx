@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
-import { auth, setAuthToken, type AuthUser } from '@/lib/api'
+import { auth, type AuthUser } from '@/lib/api'
 import CartoonMascot from '@/components/CartoonMascot'
 
 interface LoginPageProps {
@@ -24,7 +24,6 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       const res = mode === 'login'
         ? await auth.login(email, password)
         : await auth.register(email, name, password)
-      setAuthToken(res.access_token)
       onLogin(res.user)
       navigate('/app')
     } catch {

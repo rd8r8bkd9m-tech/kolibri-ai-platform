@@ -1,16 +1,15 @@
 import { useEffect, useState } from 'react'
-import { Check, Copy, EyeOff, KeyRound, LogOut, Trash2 } from 'lucide-react'
+import { Check, Copy, EyeOff, KeyRound, Trash2 } from 'lucide-react'
 import { Link } from 'react-router'
 import { useLocale } from '@/features/localization'
 import {
   ApiError,
   developerApiKeys,
-  getDeveloperOwnerToken,
-  setDeveloperOwnerToken,
   type AuthUser,
   type DeveloperApiKey,
   type DeveloperApiKeyCreated,
 } from '@/lib/api'
+import { isOwnerRole } from '@/features/shell/releaseIdentity'
 
 interface ApiKeyPanelProps {
   user: AuthUser | null
@@ -31,74 +30,41 @@ function keyMetadata(key: DeveloperApiKeyCreated): DeveloperApiKey {
 
 export default function ApiKeyPanel({ user }: ApiKeyPanelProps) {
   const { locale, t } = useLocale()
-  const [ownerToken, setOwnerToken] = useState<string | null>(() => getDeveloperOwnerToken())
-  const [ownerTokenInput, setOwnerTokenInput] = useState('')
+  const authorized = isOwnerRole(user?.role)
   const [keys, setKeys] = useState<DeveloperApiKey[]>([])
   const [name, setName] = useState('')
   const [created, setCreated] = useState<DeveloperApiKeyCreated | null>(null)
-  const [loading, setLoading] = useState(Boolean(user && ownerToken))
+  const [loading, setLoading] = useState(Boolean(user && authorized))
   const [submitting, setSubmitting] = useState(false)
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    if (!user || !ownerToken) return
+    if (!user || !authorized) return
     let active = true
-    developerApiKeys.list(ownerToken)
+    developerApiKeys.list()
       .then(result => {
         if (!active) return
-        setDeveloperOwnerToken(ownerToken)
         setKeys(result.data.filter(key => !key.revoked))
         setError('')
       })
-      .catch(reason => {
+      .catch(() => {
         if (!active) return
         setKeys([])
-        if (reason instanceof ApiError && reason.status === 401) {
-          setDeveloperOwnerToken(null)
-          setOwnerToken(null)
-          setError(t('developer.ownerTokenRejected'))
-          return
-        }
         setError(t('developer.keyRequestFailed'))
       })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [ownerToken, t, user])
+  }, [authorized, t, user])
 
   const handleOwnerRequestError = (reason: unknown) => {
-    if (reason instanceof ApiError && reason.status === 401) {
-      setDeveloperOwnerToken(null)
-      setOwnerToken(null)
+    if (reason instanceof ApiError && (reason.status === 401 || reason.status === 403)) {
       setKeys([])
       setCreated(null)
-      setError(t('developer.ownerTokenRejected'))
+      setError(t('developer.keyRequestFailed'))
       return
     }
     setError(t('developer.keyRequestFailed'))
-  }
-
-  const unlockOwnerAccess = () => {
-    const supplied = ownerTokenInput.trim()
-    if (!supplied || loading) return
-    setError('')
-    setKeys([])
-    setCreated(null)
-    setCopied(false)
-    setLoading(true)
-    setOwnerTokenInput('')
-    setOwnerToken(supplied)
-  }
-
-  const lockOwnerAccess = () => {
-    setDeveloperOwnerToken(null)
-    setOwnerToken(null)
-    setOwnerTokenInput('')
-    setKeys([])
-    setCreated(null)
-    setCopied(false)
-    setLoading(false)
-    setError('')
   }
 
   if (!user) {
@@ -116,35 +82,16 @@ export default function ApiKeyPanel({ user }: ApiKeyPanelProps) {
     )
   }
 
-  if (!ownerToken) {
+  if (!authorized) {
     return (
       <section className="developer-panel" aria-labelledby="developer-api-key-title">
         <div className="developer-panel-heading">
           <KeyRound aria-hidden="true" />
           <div>
             <h2 id="developer-api-key-title">{t('developer.keysTitle')}</h2>
-            <p>{t('developer.ownerTokenCopy')}</p>
+            <p>Управление ключами доступно только владельцу платформы.</p>
           </div>
         </div>
-        <form
-          className="developer-key-form"
-          onSubmit={event => { event.preventDefault(); unlockOwnerAccess() }}
-        >
-          <label htmlFor="developer-owner-token">{t('developer.ownerToken')}</label>
-          <div>
-            <input
-              id="developer-owner-token"
-              type="password"
-              value={ownerTokenInput}
-              onChange={event => setOwnerTokenInput(event.target.value)}
-              autoComplete="off"
-              spellCheck={false}
-            />
-            <button type="submit" disabled={!ownerTokenInput.trim() || loading}>
-              {loading ? t('developer.running') : t('developer.ownerUnlock')}
-            </button>
-          </div>
-        </form>
         {error && <p className="developer-error" role="alert">{error}</p>}
       </section>
     )
@@ -157,7 +104,7 @@ export default function ApiKeyPanel({ user }: ApiKeyPanelProps) {
     setError('')
     setCopied(false)
     try {
-      const result = await developerApiKeys.create(safeName, ownerToken)
+      const result = await developerApiKeys.create(safeName)
       const metadata = keyMetadata(result)
       setKeys(current => [metadata, ...current.filter(key => key.id !== result.id)])
       setCreated(result)
@@ -184,7 +131,7 @@ export default function ApiKeyPanel({ user }: ApiKeyPanelProps) {
     if (!window.confirm(`${t('developer.revokeKey')}: ${key.name}?`)) return
     setError('')
     try {
-      await developerApiKeys.revoke(key.id, ownerToken)
+      await developerApiKeys.revoke(key.id)
       setKeys(current => current.filter(item => item.id !== key.id))
       if (created?.id === key.id) setCreated(null)
     } catch (reason) {
@@ -202,10 +149,6 @@ export default function ApiKeyPanel({ user }: ApiKeyPanelProps) {
             <p>{t('developer.keysCopy')}</p>
           </div>
         </div>
-        <button type="button" className="developer-owner-lock" onClick={lockOwnerAccess}>
-          <LogOut aria-hidden="true" />
-          <span>{t('developer.ownerLock')}</span>
-        </button>
       </div>
 
       <form

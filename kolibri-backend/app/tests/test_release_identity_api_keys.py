@@ -7,9 +7,10 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app import ai_provider, capability_runtime
+from app.auth import create_access_token
 from app.database import Base, get_db
 from app.main import app
-from app.models import PublicApiKeyDB
+from app.models import PublicApiKeyDB, UserDB
 
 
 @pytest.fixture()
@@ -35,9 +36,27 @@ def client(monkeypatch, tmp_path):
     monkeypatch.delenv("KOLIBRI_PUBLIC_API_KEY_SHA256", raising=False)
     monkeypatch.setenv("KOLIBRI_ARTIFACT_DIR", str(tmp_path / "artifacts"))
     monkeypatch.setenv("KOLIBRI_CAPABILITY_PROBE_FILE", str(tmp_path / "capability-probes.json"))
+    with testing_session() as db:
+        db.add(UserDB(
+            id="user-platform-owner",
+            email="owner@example.test",
+            name="Platform owner",
+            hashed_password="not-used",
+            role="owner",
+            is_active=True,
+        ))
+        db.commit()
     app.dependency_overrides[get_db] = override_get_db
     with TestClient(app) as test_client:
-        test_client.owner_headers = {"X-Kolibri-Owner-Token": owner_token}
+        test_client.owner_headers = {
+            "Authorization": (
+                "Bearer "
+                + create_access_token({"sub": "user-platform-owner"})
+            )
+        }
+        test_client.legacy_owner_headers = {
+            "X-Kolibri-Owner-Token": owner_token
+        }
         test_client.testing_session = testing_session
         yield test_client
     app.dependency_overrides.pop(get_db, None)
@@ -211,20 +230,39 @@ def test_api_key_name_must_remain_nonempty_after_normalisation(client):
         ("delete", "/api/v1/developer/api-keys/key_missing", None),
     ],
 )
-def test_exact_developer_key_routes_require_owner_header(client, method, path, json):
+def test_exact_developer_key_routes_require_platform_owner_session(client, method, path, json):
     response = client.request(method, path, json=json)
 
     assert response.status_code == 401
-    assert response.json()["error"]["code"] == "owner_authentication_required"
+    assert response.json()["error"]["code"] == "request_failed"
 
     wrong = client.request(
         method,
         path,
-        headers={"X-Kolibri-Owner-Token": "wrong-owner-token"},
+        headers={"Authorization": "Bearer invalid-platform-session"},
         json=json,
     )
     assert wrong.status_code == 401
-    assert wrong.json()["error"]["code"] == "owner_authentication_required"
+    assert wrong.json()["error"]["code"] == "request_failed"
+
+
+def test_legacy_api_key_admin_route_keeps_separate_machine_credential(client):
+    created = client.post(
+        "/v1/api-keys",
+        headers=client.legacy_owner_headers,
+        json={"name": "Legacy automation"},
+    )
+    assert created.status_code == 201
+
+    browser_session_is_not_a_machine_credential = client.get(
+        "/v1/api-keys",
+        headers=client.owner_headers,
+    )
+    assert browser_session_is_not_a_machine_credential.status_code == 401
+    assert (
+        browser_session_is_not_a_machine_credential.json()["error"]["code"]
+        == "owner_authentication_required"
+    )
 
 
 def test_developer_capability_is_truthful_until_admin_route_is_invocable(client, monkeypatch):

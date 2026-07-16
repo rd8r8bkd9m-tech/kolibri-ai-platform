@@ -855,6 +855,13 @@ async def _materialize_estimate_actions(
 ) -> list[dict]:
     """Cross the estimate price trust boundary through fetched evidence."""
 
+    raw_estimate = next(
+        (item for item in actions if item.get("type") == "create_estimate"),
+        None,
+    )
+    raw_region = str(
+        ((raw_estimate or {}).get("data") or {}).get("region") or ""
+    ).strip()
     normalized = ensure_estimate_action(messages, actions)
     estimate = next((item for item in normalized if item.get("type") == "create_estimate"), None)
     if estimate is None:
@@ -863,6 +870,12 @@ async def _materialize_estimate_actions(
     draft = deepcopy(estimate.get("data") or {})
     prompt = estimate_request_text(messages) or latest_user_text(messages)
     source_backed_required = _estimate_source_backed_required(prompt)
+    resolved_region = str(draft.get("region") or "").strip()
+    proposal_region_matches = (
+        not raw_region
+        or not resolved_region
+        or raw_region.casefold() == resolved_region.casefold()
+    )
     # Preserve the provider's proposed prices only as a preliminary fallback.
     # They are never evidence and never promote the estimate above preliminary.
     proposed_prices: dict[str, str] = {}
@@ -873,7 +886,11 @@ async def _materialize_estimate_actions(
             if not isinstance(position, dict):
                 continue
             code = str(position.get("code") or "")
-            if code and _positive_decimal(position.get("price")):
+            if (
+                proposal_region_matches
+                and code
+                and _positive_decimal(position.get("price"))
+            ):
                 proposed_prices[code] = str(position.get("price"))
             position["price"] = "0.00"
             position["sum"] = "0.00"

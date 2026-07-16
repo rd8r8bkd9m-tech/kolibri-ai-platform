@@ -5,6 +5,7 @@ import { documents, type Document, type Estimate, type FileArtifact, type ImageA
 import { formatCurrency } from '@/lib/utils'
 import { isVerifiedImageArtifact } from './imageArtifact'
 import { isVerifiedFileArtifact, type VerifiedFileArtifact } from './fileArtifact'
+import { sandboxedDocumentHtml } from '@/features/documents/sandboxedDocument'
 
 export type ConversationArtifact =
   | { type: 'estimate'; value: Estimate }
@@ -56,7 +57,13 @@ function DocumentCard({ document, onOpen }: { document: Document; onOpen: () => 
         </div>
         <FileText size={26} />
       </header>
-      <div className="artifact-document-preview" dangerouslySetInnerHTML={{ __html: document.content || '<p>Документ создан. Откройте редактор, чтобы продолжить.</p>' }} />
+      <iframe
+        className="artifact-document-preview"
+        title={`Предпросмотр документа: ${document.title}`}
+        sandbox=""
+        referrerPolicy="no-referrer"
+        srcDoc={sandboxedDocumentHtml(document.content || '<p>Документ создан. Откройте редактор, чтобы продолжить.</p>')}
+      />
       <footer className="artifact-actions">
         <button type="button" onClick={onOpen}><PencilLine size={18} />Редактировать</button>
         <a href={documents.pdfUrl(document.id)} target="_blank" rel="noreferrer"><FileDown size={18} />PDF</a>
