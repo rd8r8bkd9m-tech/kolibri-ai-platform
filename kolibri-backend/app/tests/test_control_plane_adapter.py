@@ -5,7 +5,11 @@ import asyncio
 import httpx
 import pytest
 
-from app.control_plane import ControlPlaneUnavailable, HomeControlPlaneAdapter
+from app.control_plane import (
+    ControlPlaneUnavailable,
+    HomeControlPlaneAdapter,
+    _optional_bearer_token,
+)
 
 
 RESULT_SHA256 = "a" * 64
@@ -66,6 +70,87 @@ def _adapter(handler) -> HomeControlPlaneAdapter:
         timeout_seconds=0.5,
         transport=httpx.MockTransport(handler),
     )
+
+
+def test_control_plane_bearer_token_file_is_safe_and_never_in_repr(tmp_path):
+    token_file = tmp_path / "control-plane-token"
+    token = "t" * 48
+    token_file.write_text(token, encoding="utf-8")
+    token_file.chmod(0o600)
+
+    loaded = _optional_bearer_token(str(token_file))
+    adapter = HomeControlPlaneAdapter(base_url="http://home.invalid", bearer_token=loaded)
+
+    assert loaded == token
+    assert token not in repr(adapter)
+
+
+def test_control_plane_bearer_token_rejects_group_writable_file(tmp_path):
+    token_file = tmp_path / "control-plane-token"
+    token_file.write_text("t" * 48, encoding="utf-8")
+    token_file.chmod(0o660)
+
+    with pytest.raises(ControlPlaneUnavailable, match="control_plane_token_file_unsafe"):
+        _optional_bearer_token(str(token_file))
+
+
+def test_control_plane_requests_send_configured_bearer_without_exposing_it():
+    token = "s" * 48
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["Authorization"] == f"Bearer {token}"
+        return httpx.Response(200, json={
+            "schema_version": "kolibri.task-summary.v1",
+            "authority": "control-plane/home",
+            "generated_at": "2026-07-16T08:00:00+00:00",
+            "total": 3,
+            "by_state": {"queued": 1, "running": 1, "completed": 1},
+            "active": 1,
+            "queue_total": 1,
+            "latest_event_cursor": 9,
+        })
+
+    adapter = HomeControlPlaneAdapter(
+        base_url="http://home.invalid",
+        bearer_token=token,
+        transport=httpx.MockTransport(handler),
+    )
+    result = asyncio.run(adapter.task_summary())
+
+    assert result["total"] == 3
+    assert result["running"] == 1
+    assert result["latest_event_cursor"] == 9
+
+
+def test_control_plane_event_projection_is_strict_and_content_addressed():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/events"
+        return httpx.Response(200, json={
+            "object": "list",
+            "next_cursor": 12,
+            "data": [{
+                "schema_version": "kolibri.event.v1",
+                "id": "evt_1",
+                "type": "task.transitioned",
+                "source": "control-plane/home",
+                "subject": "task/task-1",
+                "trace_id": "task-1",
+                "sequence": 2,
+                "cursor": 12,
+                "occurred_at": "2026-07-16T08:00:00+00:00",
+                "created_at": "2026-07-16T08:00:00+00:00",
+                "updated_at": "2026-07-16T08:00:00+00:00",
+                "data": {"from_state": "leased", "to_state": "running", "attempt_id": "a1"},
+                "provenance": {"actor": "principal:abc", "policy_version": "v1"},
+            }],
+        })
+
+    result = asyncio.run(_adapter(handler).list_events(after_cursor=1, limit=10))
+
+    assert result["next_cursor"] == "12"
+    assert result["items"][0]["task_id"] == "task-1"
+    assert result["items"][0]["state"] == "running"
+    assert len(result["items"][0]["payload_sha256"]) == 64
 
 
 def test_nodes_are_mapped_from_live_control_plane_with_truth():

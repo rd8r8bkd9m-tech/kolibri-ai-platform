@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { User, Palette, Shield, Globe, Keyboard, LogOut, Code2 } from 'lucide-react'
+import { User, Palette, Shield, Globe, Keyboard, LogOut, Code2, Factory } from 'lucide-react'
 import { Link } from 'react-router'
 import { auth, type AuthUser } from '@/lib/api'
 import { applyKolibriTheme, getStoredTheme, type KolibriTheme } from '@/features/shell/theme'
@@ -180,6 +180,15 @@ function SettingsPageContent({ user, onLogout }: SettingsPageProps) {
                   {t('developer.signIn')}
                 </Link>}
                 {isOwnerRole(user?.role) && <OwnerBuildDiagnostics />}
+                {isOwnerRole(user?.role) && (
+                  <Link
+                    to="/control"
+                    className="inline-flex min-h-11 items-center gap-2 rounded-[var(--radius-md)] bg-[var(--text-primary)] px-4 text-[13px] font-medium text-[var(--bg-primary)] transition-opacity hover:opacity-85"
+                  >
+                    <Factory size={16} aria-hidden="true" />
+                    Управление фабрикой
+                  </Link>
+                )}
                 <Link
                   to="/developers"
                   className="inline-flex min-h-11 items-center gap-2 rounded-[var(--radius-md)] border border-[var(--border-subtle)] px-4 text-[13px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"

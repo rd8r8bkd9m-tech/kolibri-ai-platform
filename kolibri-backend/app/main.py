@@ -6,6 +6,8 @@ import os
 import json
 import uuid
 import base64
+import hashlib
+import re
 from urllib.parse import urlsplit
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -830,6 +832,103 @@ async def list_tasks(
         raise HTTPException(status_code=503, detail=unavailable_detail(exc.reason)) from exc
 
 
+def _control_plane_mutation_error(exc: ControlPlaneUnavailable) -> HTTPException:
+    status_code = {
+        "control_plane_auth_invalid": 401,
+        "control_plane_scope_denied": 403,
+        "control_plane_resource_not_found": 404,
+        "control_plane_conflict": 409,
+        "control_plane_request_rejected": 422,
+    }.get(exc.reason, 503)
+    return HTTPException(status_code=status_code, detail=unavailable_detail(exc.reason))
+
+
+@app.post("/api/v1/tasks", status_code=201)
+async def create_factory_task(
+    data: dict,
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
+    operator = Depends(require_operator_user),
+):
+    objective = str(data.get("objective") or "").strip()
+    if not 1 <= len(objective) <= 8000:
+        raise HTTPException(status_code=422, detail="objective must contain 1..8000 characters")
+    raw_key = str(idempotency_key or data.get("client_request_id") or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9._:-]{8,160}", raw_key):
+        raise HTTPException(status_code=422, detail="Idempotency-Key is required")
+    principal_ref = hashlib.sha256(str(operator.id).encode("utf-8")).hexdigest()[:16]
+    binding = hashlib.sha256(f"{principal_ref}:{raw_key}".encode("utf-8")).hexdigest()
+    envelope = {
+        "task_id": f"KOL-PORTAL-{binding[:20].upper()}",
+        "idempotency_key": f"portal:{binding}",
+        "kind": "owner_remote_task",
+        "objective": objective,
+        "runner": "codex",
+        "required_capability": "runner:codex",
+        "max_attempts": 1,
+        "source": {
+            "kind": "kolibri_portal",
+            "principal_ref": principal_ref,
+        },
+    }
+    try:
+        adapter = HomeControlPlaneAdapter.from_environment()
+        return await adapter.submit_owner_task(envelope)
+    except ControlPlaneUnavailable as exc:
+        raise _control_plane_mutation_error(exc) from exc
+
+
+@app.get("/api/v1/tasks/{task_id}")
+async def get_factory_task(
+    task_id: str,
+    _operator = Depends(require_operator_user),
+):
+    if not re.fullmatch(r"[A-Za-z0-9._:-]{1,160}", task_id):
+        raise HTTPException(status_code=422, detail="task id invalid")
+    try:
+        adapter = HomeControlPlaneAdapter.from_environment()
+        return await adapter.get_task_detail(task_id)
+    except ControlPlaneUnavailable as exc:
+        raise _control_plane_mutation_error(exc) from exc
+
+
+@app.get("/api/v1/tasks/{task_id}/events")
+async def get_factory_task_events(
+    task_id: str,
+    after_sequence: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    _operator = Depends(require_operator_user),
+):
+    if not re.fullmatch(r"[A-Za-z0-9._:-]{1,160}", task_id):
+        raise HTTPException(status_code=422, detail="task id invalid")
+    try:
+        adapter = HomeControlPlaneAdapter.from_environment()
+        return await adapter.list_task_events(
+            task_id,
+            after_sequence=after_sequence,
+            limit=limit,
+        )
+    except ControlPlaneUnavailable as exc:
+        raise _control_plane_mutation_error(exc) from exc
+
+
+@app.post("/api/v1/tasks/{task_id}/cancel")
+async def cancel_factory_task(
+    task_id: str,
+    data: Optional[dict] = None,
+    _operator = Depends(require_operator_user),
+):
+    if not re.fullmatch(r"[A-Za-z0-9._:-]{1,160}", task_id):
+        raise HTTPException(status_code=422, detail="task id invalid")
+    reason = str((data or {}).get("reason") or "cancelled_by_portal_owner").strip()
+    if not 1 <= len(reason) <= 240:
+        raise HTTPException(status_code=422, detail="cancel reason invalid")
+    try:
+        adapter = HomeControlPlaneAdapter.from_environment()
+        return await adapter.cancel_task(task_id, reason=reason)
+    except ControlPlaneUnavailable as exc:
+        raise _control_plane_mutation_error(exc) from exc
+
+
 # ---------------------------------------------------------------------------
 # Control Plane — Cluster stats, agent/node/task actions
 # ---------------------------------------------------------------------------
@@ -841,6 +940,146 @@ async def cluster_stats(_operator = Depends(require_operator_user)):
         return safe_cluster_stats(await adapter.cluster_stats())
     except ControlPlaneUnavailable as exc:
         raise HTTPException(status_code=503, detail=unavailable_detail(exc.reason)) from exc
+
+
+@app.get("/api/v1/control/tasks/summary")
+async def control_task_summary(_operator = Depends(require_operator_user)):
+    try:
+        adapter = HomeControlPlaneAdapter.from_environment()
+        return await adapter.task_summary()
+    except ControlPlaneUnavailable as exc:
+        raise HTTPException(status_code=503, detail=unavailable_detail(exc.reason)) from exc
+
+
+@app.get("/api/v1/control/events")
+async def control_events(
+    after_cursor: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    _operator = Depends(require_operator_user),
+):
+    try:
+        adapter = HomeControlPlaneAdapter.from_environment()
+        return await adapter.list_events(after_cursor=after_cursor, limit=limit)
+    except ControlPlaneUnavailable as exc:
+        raise HTTPException(status_code=503, detail=unavailable_detail(exc.reason)) from exc
+
+
+@app.get("/api/v1/control/models")
+async def control_models(_operator = Depends(require_operator_user)):
+    from app.providers import list_providers
+
+    routes = []
+    for provider in list_providers():
+        route = provider.get("route") if isinstance(provider.get("route"), dict) else {}
+        capabilities = provider.get("capabilities") if isinstance(provider.get("capabilities"), dict) else {}
+        routable = bool(provider.get("routing_enabled") and route.get("routable"))
+        routes.append({
+            "id": str(route.get("id") or provider.get("id") or "unknown"),
+            "public_name": "kolibri",
+            "provider": str(provider.get("name") or provider.get("id") or "internal"),
+            "status": "ready" if routable else str(route.get("status") or "unavailable"),
+            "capabilities": [
+                str(name)
+                for name, value in capabilities.items()
+                if str(value).lower() not in {"", "false", "none", "unknown", "unsupported"}
+            ],
+            "route": "auto" if routable else None,
+            "reason": route.get("failure_kind") if not routable else None,
+            "evidence": {
+                "verified_at": route.get("verified_at"),
+                "configured": bool(route.get("configured")),
+                "routable": routable,
+            },
+        })
+    ready = [route for route in routes if route["status"] == "ready"]
+    return {
+        "public_model": "kolibri",
+        "routes": routes,
+        "routing_status": "ready" if ready else "unavailable",
+        "as_of": datetime.now(timezone.utc).isoformat(),
+        "source": "portal_provider_gateway",
+    }
+
+
+@app.get("/api/v1/control/local-models")
+async def control_local_models(_operator = Depends(require_operator_user)):
+    try:
+        adapter = HomeControlPlaneAdapter.from_environment()
+        page = await adapter.list_nodes(page=1, page_size=100, status=None)
+    except ControlPlaneUnavailable as exc:
+        raise HTTPException(status_code=503, detail=unavailable_detail(exc.reason)) from exc
+
+    gate_labels = {
+        "memory": "Память",
+        "compute": "Вычислительные ресурсы",
+        "disk": "Дисковое пространство",
+        "license": "Лицензия",
+        "live_invocation": "Проверочный запуск",
+        "benchmark": "Benchmark",
+    }
+    items = []
+    for node in page.get("items", []):
+        capabilities = node.get("capabilities") if isinstance(node.get("capabilities"), dict) else {}
+        declared = capabilities.get("items") if isinstance(capabilities.get("items"), list) else []
+        runners = capabilities.get("runners") if isinstance(capabilities.get("runners"), dict) else {}
+        local_runner = runners.get("local_llm") if isinstance(runners.get("local_llm"), dict) else {}
+        if "runner:local_llm" not in declared and not local_runner:
+            continue
+        model_id = str(local_runner.get("model") or local_runner.get("model_id") or f"local@{node.get('id')}")
+        items.append({
+            "id": model_id,
+            "node_id": str(node.get("id") or "unknown"),
+            "status": "unavailable",
+            "runtime": str(local_runner.get("runtime") or "local_llm"),
+            "gates": [
+                {
+                    "id": gate_id,
+                    "label": label,
+                    "status": "unavailable",
+                    "evidence_sha256": None,
+                    "reason": "admission_evidence_missing",
+                }
+                for gate_id, label in gate_labels.items()
+            ],
+        })
+    return {
+        "items": items,
+        "admitted_total": 0,
+        "candidate_total": len(items),
+        "as_of": datetime.now(timezone.utc).isoformat(),
+        "source": "home_control_plane",
+    }
+
+
+@app.get("/api/v1/control/learning")
+async def control_learning(_operator = Depends(require_operator_user)):
+    gate_labels = {
+        "memory": "Память",
+        "compute": "Вычислительные ресурсы",
+        "disk": "Дисковое пространство",
+        "license": "Лицензия и происхождение данных",
+        "live_invocation": "Проверочный запуск",
+        "benchmark": "Контрольный benchmark",
+    }
+    return {
+        "status": "unavailable",
+        "mode": "disabled_until_admission",
+        "candidate_only": True,
+        "active_model": None,
+        "candidate_model": None,
+        "gates": [
+            {
+                "id": gate_id,
+                "label": label,
+                "status": "unavailable",
+                "evidence_sha256": None,
+                "reason": "formula_runtime_not_admitted",
+            }
+            for gate_id, label in gate_labels.items()
+        ],
+        "as_of": datetime.now(timezone.utc).isoformat(),
+        "source": "home_control_plane",
+    }
 
 
 @app.get("/api/v1/analytics")

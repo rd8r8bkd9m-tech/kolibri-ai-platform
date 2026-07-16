@@ -12,6 +12,8 @@ from app.models import UserDB
 
 
 class _FakeControlPlane:
+    last_envelope = None
+
     async def list_agents(self, **_kwargs):
         return {"items": [], "total": 0, "page": 1, "page_size": 20, "truth": {"availability": "live"}}
 
@@ -81,6 +83,82 @@ class _FakeControlPlane:
             },
         }
 
+    async def task_summary(self):
+        return {
+            "total": 1, "queued": 0, "running": 1, "waiting_review": 0,
+            "completed": 0, "failed": 0, "cancelled": 0, "dead_letter": 0,
+            "as_of": "2026-07-16T08:00:00Z", "source": "home_control_plane",
+        }
+
+    async def list_events(self, **_kwargs):
+        return {
+            "items": [], "total": 0, "next_cursor": None,
+            "as_of": "2026-07-16T08:00:00Z", "source": "home_control_plane",
+        }
+
+    async def submit_owner_task(self, envelope):
+        type(self).last_envelope = envelope
+        return {
+            "id": envelope["task_id"],
+            "workflow_id": envelope["kind"],
+            "state": "queued",
+            "priority": 1,
+            "owner_agent_id": None,
+            "node_id": None,
+            "budget_limit": None,
+            "attempts": 0,
+            "max_retries": 0,
+            "created_at": "2026-07-16T08:00:00Z",
+            "updated_at": "2026-07-16T08:00:00Z",
+        }
+
+    async def get_task_detail(self, task_id):
+        return {
+            "id": task_id,
+            "workflow_id": "Safe title",
+            "state": "running",
+            "priority": 1,
+            "owner_agent_id": "agent",
+            "node_id": "home",
+            "budget_limit": None,
+            "attempts": 1,
+            "max_retries": 0,
+            "created_at": "2026-07-16T08:00:00Z",
+            "updated_at": "2026-07-16T08:00:01Z",
+            "kind": "owner_remote_task",
+            "objective": "Safe title",
+            "runner": "codex",
+            "required_capability": "runner:codex",
+            "attempt_id": "attempt-1",
+            "fencing_token": 1,
+            "result_reference": None,
+            "verification": {
+                "verdict": None, "failed_checks": [],
+                "result_sha256": None, "binding_sha256": None,
+            },
+        }
+
+    async def list_task_events(self, task_id, **_kwargs):
+        return {
+            "items": [], "total": 0, "next_sequence": 0,
+            "as_of": "2026-07-16T08:00:01Z", "source": "home_control_plane",
+        }
+
+    async def cancel_task(self, task_id, *, reason):
+        return {
+            "id": task_id,
+            "workflow_id": "owner_remote_task",
+            "state": "cancelled",
+            "priority": 1,
+            "owner_agent_id": None,
+            "node_id": None,
+            "budget_limit": None,
+            "attempts": 0,
+            "max_retries": 0,
+            "created_at": "2026-07-16T08:00:00Z",
+            "updated_at": "2026-07-16T08:00:01Z",
+        }
+
 
 @pytest.fixture()
 def operator_client(monkeypatch):
@@ -133,7 +211,14 @@ OPERATOR_READ_ROUTES = (
     "/api/v1/agents/agent-1",
     "/api/v1/nodes",
     "/api/v1/tasks",
+    "/api/v1/tasks/task-1",
+    "/api/v1/tasks/task-1/events",
     "/api/v1/cluster/stats",
+    "/api/v1/control/tasks/summary",
+    "/api/v1/control/events",
+    "/api/v1/control/models",
+    "/api/v1/control/local-models",
+    "/api/v1/control/learning",
     "/api/v1/analytics",
     "/api/v1/providers",
     "/api/v1/providers/codex_cli",
@@ -186,6 +271,47 @@ def test_operator_portal_drops_internal_task_results_and_membership(operator_cli
     assert cluster_payload["nodes"]["membership_total"] == 21
     assert cluster_payload["nodes"]["verified"] == 15
     assert "summary" not in cluster_payload["truth"]["verification"]
+
+
+def test_owner_can_submit_one_policy_bound_factory_task(operator_client: TestClient):
+    headers = {
+        **operator_client.auth_for("owner"),
+        "Idempotency-Key": "portal-test-0001",
+    }
+    response = operator_client.post(
+        "/api/v1/tasks",
+        headers=headers,
+        json={"objective": "Проверь экспорт сметы и приложи доказательства тестов"},
+    )
+
+    assert response.status_code == 201, response.text
+    envelope = _FakeControlPlane.last_envelope
+    assert envelope["kind"] == "owner_remote_task"
+    assert envelope["runner"] == "codex"
+    assert envelope["required_capability"] == "runner:codex"
+    assert envelope["max_attempts"] == 1
+    assert envelope["source"]["kind"] == "kolibri_portal"
+    assert "email" not in envelope["source"]
+
+
+def test_factory_task_mutations_require_owner_role(operator_client: TestClient):
+    headers = {
+        **operator_client.auth_for("user"),
+        "Idempotency-Key": "portal-test-0002",
+    }
+    submit = operator_client.post(
+        "/api/v1/tasks",
+        headers=headers,
+        json={"objective": "test"},
+    )
+    cancel = operator_client.post(
+        "/api/v1/tasks/task-1/cancel",
+        headers=operator_client.auth_for("user"),
+        json={"reason": "test"},
+    )
+
+    assert submit.status_code == 403
+    assert cancel.status_code == 403
 
 
 def test_operator_upstream_errors_are_not_shared_cacheable(operator_client: TestClient, monkeypatch):

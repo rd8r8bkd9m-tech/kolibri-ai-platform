@@ -499,6 +499,22 @@ export interface Task {
   updated_at: string
 }
 
+export interface TaskDetail extends Task {
+  kind: string
+  objective: string
+  runner: string | null
+  required_capability: string | null
+  attempt_id: string | null
+  fencing_token: number | null
+  result_reference: string | null
+  verification: {
+    verdict: string | null
+    failed_checks: string[]
+    result_sha256: string | null
+    binding_sha256: string | null
+  }
+}
+
 export interface PaginatedList<T> {
   items: T[]
   total: number
@@ -739,6 +755,24 @@ export const tasks = {
     if (params?.state) qs.set('state', params.state)
     return request<PaginatedList<Task>>(`/tasks?${qs}`)
   },
+  create: (objective: string, idempotencyKey: string) =>
+    request<Task>('/tasks', {
+      method: 'POST',
+      headers: { 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify({ objective }),
+    }),
+  get: (id: string) => request<TaskDetail>(`/tasks/${encodeURIComponent(id)}`),
+  events: (id: string, params?: { after_sequence?: number; limit?: number }) => {
+    const qs = new URLSearchParams()
+    if (params?.after_sequence) qs.set('after_sequence', String(params.after_sequence))
+    if (params?.limit) qs.set('limit', String(params.limit))
+    return request<FactoryTaskEventPage & { next_sequence: number }>(`/tasks/${encodeURIComponent(id)}/events?${qs}`)
+  },
+  cancel: (id: string, reason = 'cancelled_by_portal_owner') =>
+    request<Task>(`/tasks/${encodeURIComponent(id)}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    }),
   update: (id: string, data: Partial<Task>) =>
     request<Task>(`/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 }
@@ -767,6 +801,112 @@ export interface ClusterStats {
 
 export const cluster = {
   stats: () => request<ClusterStats>('/cluster/stats'),
+}
+
+// ---------------------------------------------------------------------------
+// Unified Factory Control Center
+// ---------------------------------------------------------------------------
+
+export interface FactoryModelRoute {
+  id: string
+  public_name: string
+  provider?: string | null
+  status: string
+  capabilities: string[]
+  route?: string | null
+  reason?: string | null
+  evidence?: Record<string, unknown>
+}
+
+export interface FactoryModelsResponse {
+  public_model: string
+  routes: FactoryModelRoute[]
+  routing_status: string
+  as_of: string
+  source: string
+}
+
+export interface FormulaGate {
+  id: string
+  label: string
+  status: 'passed' | 'failed' | 'pending' | 'unavailable'
+  evidence_sha256?: string | null
+  reason?: string | null
+}
+
+export interface LocalModelCandidate {
+  id: string
+  node_id: string
+  status: string
+  runtime: string
+  gates: FormulaGate[]
+}
+
+export interface LocalModelsResponse {
+  items: LocalModelCandidate[]
+  admitted_total: number
+  candidate_total: number
+  as_of: string
+  source: string
+}
+
+export interface FormulaLearningStatus {
+  status: string
+  mode: string
+  candidate_only: boolean
+  active_model: string | null
+  candidate_model: string | null
+  gates: FormulaGate[]
+  as_of: string
+  source: string
+}
+
+export interface FactoryTaskSummary {
+  total: number
+  queued: number
+  running: number
+  waiting_review: number
+  completed: number
+  failed: number
+  cancelled: number
+  dead_letter: number
+  as_of: string
+}
+
+export interface FactoryTaskEvent {
+  event_id: string
+  task_id: string
+  event_type: string
+  state: string | null
+  actor: string | null
+  node_id: string | null
+  attempt_id: string | null
+  occurred_at: string
+  sequence: number
+  payload_sha256: string
+  data?: Record<string, unknown>
+}
+
+export interface FactoryTaskEventPage {
+  items: FactoryTaskEvent[]
+  total: number
+  next_cursor: string | null
+  as_of: string
+  source: string
+}
+
+export const factoryControl = {
+  models: () => request<FactoryModelsResponse>('/control/models'),
+  localModels: () => request<LocalModelsResponse>('/control/local-models'),
+  learning: () => request<FormulaLearningStatus>('/control/learning'),
+  summary: () => request<FactoryTaskSummary>('/control/tasks/summary'),
+  events: (params?: { task_id?: string; cursor?: string; limit?: number }) => {
+    const qs = new URLSearchParams()
+    if (params?.task_id) qs.set('task_id', params.task_id)
+    if (params?.cursor) qs.set('after_cursor', params.cursor)
+    if (params?.limit) qs.set('limit', String(params.limit))
+    return request<FactoryTaskEventPage>(`/control/events?${qs}`)
+  },
 }
 
 // ---------------------------------------------------------------------------

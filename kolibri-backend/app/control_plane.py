@@ -10,10 +10,14 @@ contract.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import os
 import re
-from dataclasses import dataclass
+import stat
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -21,11 +25,13 @@ import httpx
 
 
 CONTROL_PLANE_ENV = "KOLIBRI_CONTROL_PLANE_URL"
+CONTROL_PLANE_TOKEN_FILE_ENV = "KOLIBRI_CONTROL_PLANE_TOKEN_FILE"
 CONTROL_PLANE_SOURCE = "home_control_plane"
 DEFAULT_TIMEOUT_SECONDS = 2.0
 MAX_TIMEOUT_SECONDS = 10.0
 FLEET_PROOF_PATH = "/v1/runtime/fleet-proof"
 SHA256_PATTERN = re.compile(r"^(?:sha256:)?[0-9a-f]{64}$")
+BEARER_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9._~+/=-]{32,512}$")
 CONNECTED_HEALTH_STATES = frozenset({"online", "healthy", "ready"})
 DISCONNECTED_HEALTH_STATES = frozenset({"offline", "disconnected", "failed"})
 RUNNER_EXECUTABLE_STATES = frozenset({
@@ -75,6 +81,32 @@ def _validated_base_url(value: str | None) -> str:
     ):
         raise ControlPlaneUnavailable("control_plane_url_invalid")
     return raw.rstrip("/")
+
+
+def _optional_bearer_token(path_value: str | None) -> str | None:
+    raw = str(path_value or "").strip()
+    if not raw:
+        return None
+    path = Path(raw)
+    try:
+        info = path.lstat()
+    except OSError as exc:
+        raise ControlPlaneUnavailable("control_plane_token_unreadable") from exc
+    if (
+        stat.S_ISLNK(info.st_mode)
+        or not stat.S_ISREG(info.st_mode)
+        or stat.S_IMODE(info.st_mode) not in {0o600, 0o640}
+        or info.st_uid not in {0, os.geteuid()}
+        or not 1 <= info.st_size <= 4096
+    ):
+        raise ControlPlaneUnavailable("control_plane_token_file_unsafe")
+    try:
+        token = path.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeError) as exc:
+        raise ControlPlaneUnavailable("control_plane_token_unreadable") from exc
+    if not BEARER_TOKEN_PATTERN.fullmatch(token):
+        raise ControlPlaneUnavailable("control_plane_token_invalid")
+    return token
 
 
 def _as_dict(value: Any) -> dict[str, Any]:
@@ -394,6 +426,7 @@ class HomeControlPlaneAdapter:
     base_url: str
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
     transport: httpx.AsyncBaseTransport | None = None
+    bearer_token: str | None = field(default=None, repr=False)
 
     @classmethod
     def from_environment(cls) -> "HomeControlPlaneAdapter":
@@ -401,6 +434,9 @@ class HomeControlPlaneAdapter:
             base_url=_validated_base_url(os.getenv(CONTROL_PLANE_ENV)),
             timeout_seconds=_bounded_timeout(
                 os.getenv("KOLIBRI_CONTROL_PLANE_TIMEOUT_SECONDS")
+            ),
+            bearer_token=_optional_bearer_token(
+                os.getenv(CONTROL_PLANE_TOKEN_FILE_ENV)
             ),
         )
 
@@ -417,13 +453,58 @@ class HomeControlPlaneAdapter:
                 transport=self.transport,
                 follow_redirects=False,
             ) as client:
-                response = await client.get(path, params=params)
+                headers = (
+                    {"Authorization": f"Bearer {self.bearer_token}"}
+                    if self.bearer_token else None
+                )
+                response = await client.get(path, params=params, headers=headers)
         except httpx.TimeoutException as exc:
             raise ControlPlaneUnavailable("control_plane_timeout") from exc
         except httpx.RequestError as exc:
             raise ControlPlaneUnavailable("control_plane_unreachable") from exc
         if response.status_code != 200:
             raise ControlPlaneUnavailable("control_plane_bad_status")
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise ControlPlaneUnavailable("control_plane_invalid_json") from exc
+        if not isinstance(payload, dict):
+            raise ControlPlaneUnavailable("control_plane_contract_invalid")
+        return payload
+
+    async def _post(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
+        if not self.bearer_token:
+            raise ControlPlaneUnavailable("control_plane_token_not_configured")
+        timeout = httpx.Timeout(
+            self.timeout_seconds,
+            connect=min(1.0, self.timeout_seconds),
+            pool=min(1.0, self.timeout_seconds),
+        )
+        try:
+            async with httpx.AsyncClient(
+                base_url=self.base_url,
+                timeout=timeout,
+                transport=self.transport,
+                follow_redirects=False,
+            ) as client:
+                response = await client.post(
+                    path,
+                    json=body,
+                    headers={"Authorization": f"Bearer {self.bearer_token}"},
+                )
+        except httpx.TimeoutException as exc:
+            raise ControlPlaneUnavailable("control_plane_timeout") from exc
+        except httpx.RequestError as exc:
+            raise ControlPlaneUnavailable("control_plane_unreachable") from exc
+        if response.status_code not in {200, 201, 202}:
+            reason = {
+                401: "control_plane_auth_invalid",
+                403: "control_plane_scope_denied",
+                404: "control_plane_resource_not_found",
+                409: "control_plane_conflict",
+                422: "control_plane_request_rejected",
+            }.get(response.status_code, "control_plane_bad_status")
+            raise ControlPlaneUnavailable(reason)
         try:
             payload = response.json()
         except ValueError as exc:
@@ -780,6 +861,177 @@ class HomeControlPlaneAdapter:
                 "queue_total": _to_int(payload.get("queue_total"), 0),
                 "total_scope": "returned_page" if state else "all_indexed_tasks",
             },
+        }
+
+    async def task_summary(self) -> dict[str, Any]:
+        payload = await self._get("/v1/tasks/summary", {})
+        if (
+            payload.get("schema_version") != "kolibri.task-summary.v1"
+            or payload.get("authority") != "control-plane/home"
+            or not isinstance(payload.get("by_state"), dict)
+        ):
+            raise ControlPlaneUnavailable("control_plane_task_summary_contract_invalid")
+        by_state = _as_dict(payload.get("by_state"))
+        return {
+            "total": _to_int(payload.get("total"), 0),
+            "queued": _to_int(by_state.get("queued"), 0),
+            "running": _to_int(by_state.get("running"), 0),
+            "waiting_review": _to_int(by_state.get("waiting_review"), 0),
+            "completed": _to_int(by_state.get("completed"), 0),
+            "failed": _to_int(by_state.get("failed"), 0),
+            "cancelled": _to_int(by_state.get("cancelled"), 0),
+            "dead_letter": _to_int(by_state.get("dead_letter"), 0),
+            "as_of": str(payload.get("generated_at") or _utc_now()),
+            "queue_total": _to_int(payload.get("queue_total"), 0),
+            "active": _to_int(payload.get("active"), 0),
+            "latest_event_cursor": _to_int(payload.get("latest_event_cursor"), 0),
+            "source": CONTROL_PLANE_SOURCE,
+        }
+
+    async def list_events(
+        self,
+        *,
+        after_cursor: int = 0,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        payload = await self._get(
+            "/v1/events",
+            {"after_cursor": max(0, int(after_cursor)), "limit": max(1, min(int(limit), 500))},
+        )
+        rows = payload.get("data")
+        if payload.get("object") != "list" or not isinstance(rows, list):
+            raise ControlPlaneUnavailable("control_plane_events_contract_invalid")
+        items = [self._map_event(_as_dict(row)) for row in rows]
+        next_cursor = payload.get("next_cursor")
+        return {
+            "items": items,
+            "total": len(items),
+            "next_cursor": str(next_cursor) if next_cursor is not None else None,
+            "as_of": _utc_now(),
+            "source": CONTROL_PLANE_SOURCE,
+        }
+
+    async def submit_owner_task(self, envelope: dict[str, Any]) -> dict[str, Any]:
+        payload = await self._post("/v1/tasks", envelope)
+        if (
+            str(payload.get("task_id") or "") != str(envelope.get("task_id") or "")
+            or payload.get("state") not in {"queued", "leased", "running"}
+        ):
+            raise ControlPlaneUnavailable("control_plane_task_create_contract_invalid")
+        return self._map_task(payload, _utc_now())
+
+    async def get_task_detail(self, task_id: str) -> dict[str, Any]:
+        payload = await self._get(f"/v1/tasks/{task_id}", {})
+        if str(payload.get("task_id") or "") != task_id:
+            raise ControlPlaneUnavailable("control_plane_task_detail_contract_invalid")
+        envelope = _as_dict(payload.get("envelope"))
+        verifier = _as_dict(payload.get("completion_verifier"))
+        evidence = _as_dict(payload.get("completion_evidence"))
+        result_reference = str(payload.get("result_reference") or "")
+        safe_reference = (
+            result_reference
+            if result_reference.startswith(("artifact://sha256/", "sha256:"))
+            else None
+        )
+        mapped = self._map_task(payload, _utc_now())
+        mapped.update({
+            "kind": str(payload.get("kind") or envelope.get("kind") or "unknown"),
+            "objective": str(envelope.get("objective") or envelope.get("message") or ""),
+            "runner": str(envelope.get("runner") or "") or None,
+            "required_capability": str(envelope.get("required_capability") or "") or None,
+            "attempt_id": str(payload.get("attempt_id") or "") or None,
+            "fencing_token": payload.get("fencing_token"),
+            "result_reference": safe_reference,
+            "verification": {
+                "verdict": verifier.get("verdict"),
+                "failed_checks": _as_list(verifier.get("failed_checks")),
+                "result_sha256": evidence.get("result_sha256"),
+                "binding_sha256": evidence.get("binding_sha256"),
+            },
+        })
+        return mapped
+
+    async def list_task_events(
+        self,
+        task_id: str,
+        *,
+        after_sequence: int = 0,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        payload = await self._get(
+            f"/v1/tasks/{task_id}/events",
+            {
+                "after_sequence": max(0, int(after_sequence)),
+                "limit": max(1, min(int(limit), 500)),
+            },
+        )
+        rows = payload.get("data")
+        if (
+            payload.get("object") != "list"
+            or str(payload.get("task_id") or "") != task_id
+            or not isinstance(rows, list)
+        ):
+            raise ControlPlaneUnavailable("control_plane_task_events_contract_invalid")
+        items = [self._map_event(_as_dict(row)) for row in rows]
+        return {
+            "items": items,
+            "total": len(items),
+            "next_sequence": _to_int(payload.get("next_sequence"), after_sequence),
+            "as_of": _utc_now(),
+            "source": CONTROL_PLANE_SOURCE,
+        }
+
+    async def cancel_task(self, task_id: str, *, reason: str) -> dict[str, Any]:
+        payload = await self._post(
+            f"/v1/tasks/{task_id}/cancel",
+            {"reason": reason},
+        )
+        if str(payload.get("task_id") or "") != task_id:
+            raise ControlPlaneUnavailable("control_plane_task_cancel_contract_invalid")
+        return self._map_task(payload, _utc_now())
+
+    @staticmethod
+    def _map_event(event: dict[str, Any]) -> dict[str, Any]:
+        if event.get("schema_version") != "kolibri.event.v1":
+            raise ControlPlaneUnavailable("control_plane_event_contract_invalid")
+        event_id = str(event.get("id") or "").strip()
+        subject = str(event.get("subject") or "").strip()
+        event_type = str(event.get("type") or "").strip()
+        occurred_at = str(event.get("occurred_at") or "").strip()
+        sequence = _to_int(event.get("sequence"), -1)
+        cursor = _to_int(event.get("cursor"), -1)
+        if (
+            not event_id
+            or not subject.startswith("task/")
+            or not event_type
+            or not occurred_at
+            or sequence < 1
+            or cursor < 1
+        ):
+            raise ControlPlaneUnavailable("control_plane_event_contract_invalid")
+        data = _as_dict(event.get("data"))
+        provenance = _as_dict(event.get("provenance"))
+        payload_sha256 = hashlib.sha256(
+            json.dumps(
+                event,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        return {
+            "event_id": event_id,
+            "task_id": subject.removeprefix("task/"),
+            "event_type": event_type,
+            "state": data.get("to_state"),
+            "actor": provenance.get("actor"),
+            "node_id": data.get("lease_owner"),
+            "attempt_id": data.get("attempt_id"),
+            "occurred_at": occurred_at,
+            "sequence": sequence,
+            "cursor": cursor,
+            "payload_sha256": payload_sha256,
+            "data": data,
         }
 
     async def cluster_stats(self) -> dict[str, Any]:

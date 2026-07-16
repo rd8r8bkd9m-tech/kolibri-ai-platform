@@ -27,6 +27,7 @@ _TASK_TRUTH_FIELDS = (
 _CLUSTER_TRUTH_FIELDS = ("availability", "source", "as_of", "task_pages")
 _OPERATOR_PATH_PREFIXES = (
     "/api/v1/agents",
+    "/api/v1/control",
     "/api/v1/nodes",
     "/api/v1/providers",
     "/api/v1/tasks",

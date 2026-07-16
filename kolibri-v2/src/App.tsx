@@ -18,6 +18,11 @@ const EstimatesPage = lazy(() => import('./pages/EstimatesPage'))
 const DocumentsPage = lazy(() => import('./pages/DocumentsPage'))
 const AgentsPage = lazy(() => import('./pages/AgentsPage'))
 const ServersPage = lazy(() => import('./pages/ServersPage'))
+const ModelsPage = lazy(() => import('./pages/ModelsPage'))
+const LocalModelsPage = lazy(() => import('./pages/LocalModelsPage'))
+const LearningPage = lazy(() => import('./pages/LearningPage'))
+const FactoryEventsPage = lazy(() => import('./pages/FactoryEventsPage'))
+const FactoryTaskPage = lazy(() => import('./pages/FactoryTaskPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 const DevelopersPage = lazy(() => import('./pages/DevelopersPage'))
@@ -67,6 +72,12 @@ export default function App() {
                 <Route path="documents" element={<DocumentsPage />} />
                 <Route path="agents" element={<ProtectedOwnerRoute user={user}><AgentsPage /></ProtectedOwnerRoute>} />
                 <Route path="control" element={<ProtectedOwnerRoute user={user}><AgentsPage /></ProtectedOwnerRoute>} />
+                <Route path="control/servers" element={<ProtectedOwnerRoute user={user}><ServersPage /></ProtectedOwnerRoute>} />
+                <Route path="control/models" element={<ProtectedOwnerRoute user={user}><ModelsPage /></ProtectedOwnerRoute>} />
+                <Route path="control/local-models" element={<ProtectedOwnerRoute user={user}><LocalModelsPage /></ProtectedOwnerRoute>} />
+                <Route path="control/learning" element={<ProtectedOwnerRoute user={user}><LearningPage /></ProtectedOwnerRoute>} />
+                <Route path="control/audit" element={<ProtectedOwnerRoute user={user}><FactoryEventsPage /></ProtectedOwnerRoute>} />
+                <Route path="control/tasks/:taskId" element={<ProtectedOwnerRoute user={user}><FactoryTaskPage /></ProtectedOwnerRoute>} />
                 <Route path="servers" element={<ProtectedOwnerRoute user={user}><ServersPage /></ProtectedOwnerRoute>} />
                 <Route path="developers" element={<DevelopersPage user={user} />} />
                 <Route path="docs" element={<DeveloperDocsPage />} />

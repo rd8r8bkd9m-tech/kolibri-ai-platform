@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react'
-import { Activity, Bot, ChevronDown, Circle, Play, ShieldCheck } from 'lucide-react'
+import { useEffect, useState, type FormEvent } from 'react'
+import { Link } from 'react-router'
+import { Activity, Bot, ChevronDown, Circle, Play, Send, ShieldCheck } from 'lucide-react'
 import { agents, tasks, type Agent, type Task } from '@/lib/api'
 import { evidenceLines, summarizeAgents } from '@/features/factory/factoryTruth'
+import ControlCenterNav from '@/features/factory/ControlCenterNav'
+import { createUuid } from '@/lib/uuid'
 
 const statusConfig: Record<string, { color: string; label: string }> = {
   active: { color: 'text-violet-600', label: 'Есть активная задача' },
@@ -26,6 +29,9 @@ export default function AgentsPage() {
   const [taskList, setTaskList] = useState<Task[] | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadErrors, setLoadErrors] = useState<string[]>([])
+  const [objective, setObjective] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
 
   useEffect(() => {
     Promise.allSettled([
@@ -63,11 +69,30 @@ export default function AgentsPage() {
     { label: 'В очереди', value: taskList ? visibleTasks.filter(task => task.state === 'queued').length : '—', icon: ChevronDown },
   ]
 
+  const submitTask = async (event: FormEvent) => {
+    event.preventDefault()
+    const value = objective.trim()
+    if (!value || submitting) return
+    setSubmitting(true)
+    setSubmitError(null)
+    try {
+      const created = await tasks.create(value, `portal-${createUuid()}`)
+      setTaskList(current => current ? [created, ...current] : [created])
+      setObjective('')
+    } catch (error) {
+      console.error('Failed to submit factory task', error)
+      setSubmitError('Home Control Plane не принял задачу. Проверьте защищённое подключение и повторите.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   return (
     <div className="h-full overflow-y-auto">
       <div className="max-w-[1100px] mx-auto px-4 sm:px-6 py-6">
+        <ControlCenterNav />
         <div className="mb-6">
-          <h1 className="text-[22px] sm:text-[26px] font-semibold text-[var(--text-primary)] tracking-tight">Исполнители и задачи</h1>
+          <h1 className="text-[22px] sm:text-[26px] font-semibold text-[var(--text-primary)] tracking-tight">Фабрика</h1>
           <p className="mt-1 text-[12px] text-[var(--text-tertiary)]">Agent Host membership не считается работающим исполнителем без capability и proof</p>
         </div>
 
@@ -76,6 +101,31 @@ export default function AgentsPage() {
             Home Control Plane не вернул: {loadErrors.join(', ')}. Неизвестные значения показаны как «—», а не как ноль.
           </div>
         )}
+
+        <form onSubmit={submitTask} className="mb-6 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3 sm:p-4">
+          <label htmlFor="factory-objective" className="mb-2 block text-[12px] font-medium text-[var(--text-secondary)]">Новое задание фабрике</label>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+            <textarea
+              id="factory-objective"
+              value={objective}
+              onChange={event => setObjective(event.target.value)}
+              placeholder="Например: проверь экспорт сметы, исправь ошибку и приложи доказательства тестов"
+              rows={3}
+              maxLength={8000}
+              className="min-h-24 flex-1 resize-y rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2.5 text-[13px] text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-tertiary)] focus:border-[var(--accent-teal)] sm:min-h-20"
+            />
+            <button
+              type="submit"
+              disabled={!objective.trim() || submitting}
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-md)] bg-[var(--text-primary)] px-4 text-[13px] font-medium text-[var(--bg-primary)] transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Send size={15} aria-hidden="true" />
+              {submitting ? 'Отправляю…' : 'Поставить задачу'}
+            </button>
+          </div>
+          <p className="mt-2 text-[11px] text-[var(--text-tertiary)]">Задача получает idempotency-key, один запуск и строгую проверку результата.</p>
+          {submitError && <p className="mt-2 text-[12px] text-red-600">{submitError}</p>}
+        </form>
 
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
           {stats.map(stat => (
@@ -176,7 +226,7 @@ export default function AgentsPage() {
             </div>
             {visibleTasks.map(task => (
               <div key={task.id} className="sm:grid sm:grid-cols-[1fr_140px_120px] gap-2 px-4 py-3 border-b border-[var(--border-subtle)] last:border-0 items-center hover:bg-[var(--bg-secondary)]/50 transition-colors">
-                <span className="text-[13px] text-[var(--text-primary)] font-medium">{task.workflow_id}</span>
+                <Link to={`/control/tasks/${encodeURIComponent(task.id)}`} className="text-[13px] text-[var(--text-primary)] font-medium hover:underline">{task.workflow_id}</Link>
                 <span className="text-[12px] text-[var(--text-secondary)]">{task.owner_agent_id || '—'}</span>
                 <span className={`inline-flex px-2 py-0.5 rounded-[var(--radius-pill)] text-[11px] font-medium w-fit ${taskStatus[task.state]?.color || ''}`}>{taskStatus[task.state]?.label || task.state}</span>
               </div>

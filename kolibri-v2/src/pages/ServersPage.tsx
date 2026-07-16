@@ -8,6 +8,7 @@ import {
   summarizeNodes,
   type TruthBadge,
 } from '@/features/factory/factoryTruth'
+import ControlCenterNav from '@/features/factory/ControlCenterNav'
 
 const toneClass: Record<TruthBadge['tone'], string> = {
   neutral: 'border-[var(--border-subtle)] text-[var(--text-tertiary)] bg-[var(--bg-secondary)]',
@@ -111,6 +112,7 @@ export default function ServersPage() {
   return (
     <div className="h-full overflow-y-auto">
       <div className="max-w-[1200px] mx-auto px-4 sm:px-6 py-6">
+        <ControlCenterNav />
         <div className="flex items-start justify-between gap-4 mb-6">
           <div>
             <h1 className="text-[22px] sm:text-[26px] font-semibold text-[var(--text-primary)] tracking-tight">Серверы</h1>
