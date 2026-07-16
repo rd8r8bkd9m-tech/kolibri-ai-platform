@@ -11,7 +11,7 @@ describe('settings truth contract', () => {
   })
 
   it('does not offer guest-only API mutations and lists only implemented shortcuts', () => {
-    expect(settings).toContain("tab.id !== 'security' || Boolean(user)")
+    expect(settings).toContain("!['security', 'organization'].includes(tab.id) || Boolean(user)")
     expect(settings).toContain('if (!user) return')
     expect(settings).not.toContain('settings.shortcutNewChat')
     expect(settings).not.toContain('settings.shortcutLibrary')

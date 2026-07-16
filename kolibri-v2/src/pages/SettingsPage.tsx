@@ -1,14 +1,16 @@
 import { useState, useEffect, useCallback } from 'react'
-import { User, Palette, Shield, Globe, Keyboard, LogOut, Code2, Factory } from 'lucide-react'
+import { User, Palette, Shield, Globe, Keyboard, LogOut, Code2, Factory, Building2 } from 'lucide-react'
 import { Link } from 'react-router'
-import { auth, type AuthUser } from '@/lib/api'
+import { auth, organizations, type AuthUser, type OrganizationSummary } from '@/lib/api'
 import { applyKolibriTheme, getStoredTheme, type KolibriTheme } from '@/features/shell/theme'
 import { isSupportedLocale, useLocale, type TranslationKey } from '@/features/localization'
 import OwnerBuildDiagnostics from '@/features/shell/OwnerBuildDiagnostics'
 import { isOwnerRole } from '@/features/shell/releaseIdentity'
+import OrganizationSettings from '@/features/organizations/OrganizationSettings'
 
 const tabs = [
   { id: 'profile', labelKey: 'settings.profile', icon: User },
+  { id: 'organization', labelKey: 'settings.organization', icon: Building2 },
   { id: 'appearance', labelKey: 'settings.appearance', icon: Palette },
   { id: 'security', labelKey: 'settings.security', icon: Shield },
   { id: 'language', labelKey: 'settings.language', icon: Globe },
@@ -66,10 +68,40 @@ function SettingsPageContent({ user, onLogout }: SettingsPageProps) {
   const [accent, setAccent] = useState(() => localStorage.getItem('kolibri-accent') || '#3ABAB4')
   const [dateFormat, setDateFormat] = useState(() => localStorage.getItem('kolibri-date-format') || 'DD.MM.YYYY')
   const [currency, setCurrency] = useState(() => localStorage.getItem('kolibri-currency') || 'RUB')
+  const [organizationItems, setOrganizationItems] = useState<OrganizationSummary[]>([])
+  const [organizationsLoading, setOrganizationsLoading] = useState(Boolean(user))
+  const [organizationsError, setOrganizationsError] = useState(false)
+
+  const loadOrganizations = useCallback(async () => {
+    if (!user) {
+      setOrganizationItems([])
+      setOrganizationsLoading(false)
+      setOrganizationsError(false)
+      return
+    }
+    setOrganizationsLoading(true)
+    setOrganizationsError(false)
+    try {
+      const payload = await organizations.list()
+      setOrganizationItems(payload.items)
+    } catch {
+      setOrganizationItems([])
+      setOrganizationsError(true)
+    } finally {
+      setOrganizationsLoading(false)
+    }
+  }, [user])
+
+  const activeOrganization = organizationItems.find(item => item.selected) ?? null
 
   useEffect(() => {
     applyKolibriTheme(theme)
   }, [theme])
+
+  useEffect(() => {
+    const initial = window.setTimeout(() => { void loadOrganizations() }, 0)
+    return () => window.clearTimeout(initial)
+  }, [loadOrganizations])
 
   useEffect(() => {
     document.documentElement.style.setProperty('--accent-teal', accent)
@@ -128,7 +160,7 @@ function SettingsPageContent({ user, onLogout }: SettingsPageProps) {
           {/* Sidebar */}
           <nav className="md:w-48 flex-shrink-0">
             <div className="flex md:flex-col gap-1 overflow-x-auto md:overflow-visible pb-2 md:pb-0">
-              {tabs.filter(tab => tab.id !== 'security' || Boolean(user)).map(tab => (
+              {tabs.filter(tab => !['security', 'organization'].includes(tab.id) || Boolean(user)).map(tab => (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
@@ -158,6 +190,12 @@ function SettingsPageContent({ user, onLogout }: SettingsPageProps) {
                     <div>
                       <p className="text-[14px] font-medium text-[var(--text-primary)]">{user?.name || t('settings.guest')}</p>
                       <p className="text-[12px] text-[var(--text-tertiary)]">{user?.email || t('settings.unauthorized')}</p>
+                      {activeOrganization && (
+                        <p className="mt-1 flex items-center gap-1.5 text-[11px] text-[var(--text-tertiary)]" data-active-organization>
+                          <Building2 size={12} strokeWidth={1.7} aria-hidden="true" />
+                          <span className="max-w-52 truncate">{activeOrganization.name}</span>
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -197,6 +235,16 @@ function SettingsPageContent({ user, onLogout }: SettingsPageProps) {
                   {t('settings.developerPortal')}
                 </Link>
               </div>
+            )}
+
+            {activeTab === 'organization' && user && (
+              <OrganizationSettings
+                userId={user.id}
+                items={organizationItems}
+                loading={organizationsLoading}
+                listError={organizationsError}
+                onRefresh={loadOrganizations}
+              />
             )}
 
             {activeTab === 'appearance' && (

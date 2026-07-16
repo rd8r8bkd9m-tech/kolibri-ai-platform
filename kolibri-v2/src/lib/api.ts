@@ -1627,6 +1627,80 @@ export const auth = {
 }
 
 // ---------------------------------------------------------------------------
+// Organizations
+// ---------------------------------------------------------------------------
+
+export type OrganizationRole = 'owner' | 'admin' | 'member'
+export type OrganizationMembershipStatus = 'active' | 'suspended'
+
+export interface OrganizationSummary {
+  id: string
+  name: string
+  slug: string
+  status: 'active'
+  role: OrganizationRole
+  membership_status: 'active'
+  selected: boolean
+}
+
+export interface OrganizationListResponse {
+  items: OrganizationSummary[]
+}
+
+export interface OrganizationMembership {
+  id: string
+  organization_id: string
+  user: {
+    id: string
+    email: string
+    name: string
+  }
+  role: OrganizationRole
+  status: OrganizationMembershipStatus
+  created_at: string
+  updated_at: string
+}
+
+export interface OrganizationMembershipListResponse {
+  items: OrganizationMembership[]
+}
+
+export const organizations = {
+  list: () => request<OrganizationListResponse>('/organizations', { cache: 'no-store' }),
+  create: (data: { name: string; slug?: string }) =>
+    request<OrganizationSummary>('/organizations', {
+      method: 'POST',
+      body: JSON.stringify(data),
+      cache: 'no-store',
+    }),
+  select: (organizationId: string) =>
+    request<OrganizationSummary>(`/organizations/${encodeURIComponent(organizationId)}/select`, {
+      method: 'POST',
+      cache: 'no-store',
+    }),
+  memberships: (organizationId: string) =>
+    request<OrganizationMembershipListResponse>(
+      `/organizations/${encodeURIComponent(organizationId)}/memberships`,
+      { cache: 'no-store' },
+    ),
+  invite: (organizationId: string, data: { email: string; role: Exclude<OrganizationRole, 'owner'> }) =>
+    request<OrganizationMembership>(
+      `/organizations/${encodeURIComponent(organizationId)}/memberships`,
+      { method: 'POST', body: JSON.stringify(data), cache: 'no-store' },
+    ),
+  changeRole: (organizationId: string, membershipId: string, role: OrganizationRole) =>
+    request<OrganizationMembership>(
+      `/organizations/${encodeURIComponent(organizationId)}/memberships/${encodeURIComponent(membershipId)}`,
+      { method: 'PATCH', body: JSON.stringify({ role }), cache: 'no-store' },
+    ),
+  suspend: (organizationId: string, membershipId: string) =>
+    request<OrganizationMembership>(
+      `/organizations/${encodeURIComponent(organizationId)}/memberships/${encodeURIComponent(membershipId)}/suspend`,
+      { method: 'POST', cache: 'no-store' },
+    ),
+}
+
+// ---------------------------------------------------------------------------
 // Developer API keys
 // ---------------------------------------------------------------------------
 
