@@ -1023,7 +1023,7 @@ async def control_local_models(_operator = Depends(require_operator_user)):
         declared = capabilities.get("items") if isinstance(capabilities.get("items"), list) else []
         runners = capabilities.get("runners") if isinstance(capabilities.get("runners"), dict) else {}
         local_runner = runners.get("local_llm") if isinstance(runners.get("local_llm"), dict) else {}
-        if "runner:local_llm" not in declared and not local_runner:
+        if "runner:local_llm" not in declared:
             continue
         model_id = str(local_runner.get("model") or local_runner.get("model_id") or f"local@{node.get('id')}")
         items.append({
