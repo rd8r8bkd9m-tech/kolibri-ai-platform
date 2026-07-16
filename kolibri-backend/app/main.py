@@ -541,7 +541,9 @@ async def estimate_pdf(
     pdf_bytes = generate_estimate_pdf(result)
     return Response(content=pdf_bytes, media_type="application/pdf",
                     headers={
-                        "Content-Disposition": f"attachment; filename=estimate_{est_id[:8]}_v{result['version']}.pdf",
+                        "Content-Disposition": f"inline; filename=estimate_{est_id[:8]}_v{result['version']}.pdf",
+                        "Cache-Control": "private, no-store, max-age=0",
+                        "X-Content-Type-Options": "nosniff",
                         "ETag": _estimate_etag(result["version"]),
                     })
 

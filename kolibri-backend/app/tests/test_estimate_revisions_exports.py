@@ -175,6 +175,9 @@ def test_revision_backed_pdf_xlsx_and_json_exports(client: TestClient):
     pdf = client.get(f"/api/v1/estimates/{estimate_id}/pdf?version=1")
     assert pdf.status_code == 200
     assert pdf.headers["content-type"] == "application/pdf"
+    assert pdf.headers["content-disposition"].startswith("inline;")
+    assert pdf.headers["cache-control"] == "private, no-store, max-age=0"
+    assert pdf.headers["x-content-type-options"] == "nosniff"
     assert pdf.headers["etag"] == '"1"'
     assert pdf.content.startswith(b"%PDF-")
     assert len(pdf.content) > 1_000

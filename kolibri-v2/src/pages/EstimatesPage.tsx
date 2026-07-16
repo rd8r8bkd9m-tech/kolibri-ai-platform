@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Search, FileText, ArrowLeft, Download, Sparkles, MoreHorizontal, Copy, FileDown, Trash2, Calculator, FileSpreadsheet } from 'lucide-react'
+import { Plus, Search, FileText, ArrowLeft, Eye, Sparkles, MoreHorizontal, Copy, FileDown, Trash2, Calculator, FileSpreadsheet } from 'lucide-react'
 import { useSearchParams } from 'react-router'
 import { estimates, ai, type Estimate } from '@/lib/api'
 import { formatDate, formatNum } from '@/lib/utils'
@@ -8,6 +8,7 @@ import EstimateRevisionHistory from '@/features/estimates/EstimateRevisionHistor
 import EstimateEvidencePanel, { EstimateTruthBadge } from '@/features/estimates/EstimateEvidencePanel'
 import { estimateEvidenceSummary } from '@/features/estimates/estimateEvidence'
 import { estimateTotalsEqual, recalculateEstimate, updateEstimatePosition } from '@/features/estimates/estimateMath'
+import { downloadEstimateExport, estimateExportFilename, previewEstimatePdf } from '@/features/estimates/estimateExport'
 
 export default function EstimatesPage() {
   const [view, setView] = useState<'list' | 'editor'>('list')
@@ -24,6 +25,7 @@ export default function EstimatesPage() {
   const [mutationError, setMutationError] = useState<string | null>(null)
   const [dirty, setDirty] = useState(false)
   const [revisionRefreshToken, setRevisionRefreshToken] = useState(0)
+  const [exporting, setExporting] = useState<'pdf' | 'csv' | 'json' | 'xlsx' | null>(null)
 
   const fetchList = useCallback(() => {
     return estimates.list({ search: search || undefined, page_size: 50 })
@@ -153,13 +155,22 @@ export default function EstimatesPage() {
     finally { setAiLoading(false) }
   }
 
-  const handleDownloadPdf = () => {
+  const handlePreviewPdf = async () => {
     if (!current) return
     if (dirty || !estimateTotalsEqual(current, recalculateEstimate(current))) {
       setMutationError('Сначала сохраните согласованные итоги сметы, затем формируйте PDF.')
       return
     }
-    window.open(estimates.pdfUrl(current.id, current.version), '_blank', 'noopener,noreferrer')
+    setExporting('pdf')
+    setMutationError(null)
+    try {
+      await previewEstimatePdf(estimates.pdfUrl(current.id, current.version))
+    } catch (e) {
+      console.error('Failed to preview PDF', e)
+      setMutationError('Не удалось открыть предпросмотр PDF. Разрешите всплывающие окна и повторите попытку.')
+    } finally {
+      setExporting(null)
+    }
   }
 
   const handleDuplicate = async () => {
@@ -172,14 +183,27 @@ export default function EstimatesPage() {
     } catch (e) { console.error('Failed to duplicate', e) }
   }
 
-  const handleExport = (fmt: 'csv' | 'json' | 'xlsx') => {
+  const handleExport = async (fmt: 'csv' | 'json' | 'xlsx') => {
     if (!current) return
     if (dirty || !estimateTotalsEqual(current, recalculateEstimate(current))) {
       setMutationError('Сначала сохраните согласованные итоги сметы, затем выполняйте экспорт.')
       return
     }
-    window.open(estimates.exportUrl(current.id, fmt, current.version), '_blank', 'noopener,noreferrer')
     setMenuOpen(false)
+    setExporting(fmt)
+    setMutationError(null)
+    try {
+      await downloadEstimateExport(
+        estimates.exportUrl(current.id, fmt, current.version),
+        estimateExportFilename(current.title, current.version, fmt),
+        fmt,
+      )
+    } catch (e) {
+      console.error(`Failed to export ${fmt}`, e)
+      setMutationError(`Не удалось скачать ${fmt.toUpperCase()}. Повторите попытку.`)
+    } finally {
+      setExporting(null)
+    }
   }
 
   const handleDelete = async () => {
@@ -239,11 +263,11 @@ export default function EstimatesPage() {
               <button onClick={handleAiAnalyze} disabled={aiLoading} className="estimate-editor-action border border-[var(--accent-lavender)]/30 text-[var(--accent-lavender)] hover:bg-[var(--accent-lavender)]/10 transition-colors flex items-center gap-1.5 disabled:opacity-50">
                 <Sparkles size={14} /> {aiLoading ? 'Анализ...' : 'AI анализ'}
               </button>
-              <button onClick={handleDownloadPdf} disabled={!canExport} className="estimate-editor-action border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors flex items-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-50">
-                <Download size={14} /> PDF
+              <button aria-label="Предпросмотр PDF" title="Открыть предпросмотр PDF" onClick={() => void handlePreviewPdf()} disabled={!canExport || exporting !== null} className="estimate-editor-action border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors flex items-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-50">
+                <Eye size={14} /> {exporting === 'pdf' ? 'Открываю…' : 'PDF'}
               </button>
-              <button onClick={() => handleExport('xlsx')} disabled={!canExport} className="estimate-editor-action border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors flex items-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-50">
-                <FileSpreadsheet size={14} /> XLSX
+              <button aria-label="Скачать XLSX" title="Скачать XLSX без открытия новой вкладки" onClick={() => void handleExport('xlsx')} disabled={!canExport || exporting !== null} className="estimate-editor-action border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors flex items-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-50">
+                <FileSpreadsheet size={14} /> {exporting === 'xlsx' ? 'Скачиваю…' : 'XLSX'}
               </button>
               <button onClick={() => void handleRecalculate()} disabled={mutation !== null} className="estimate-editor-action border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors flex items-center gap-1.5 disabled:opacity-50">
                 <Calculator size={14} /> {mutation === 'calculating' ? 'Считаю…' : 'Пересчитать'}
