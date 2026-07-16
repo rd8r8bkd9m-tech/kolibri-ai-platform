@@ -11,6 +11,7 @@ from typing import AsyncIterator, List, Dict, Optional
 
 from app.estimate_action import (
     build_estimate_action,
+    estimate_request_text,
     ensure_estimate_action,
     is_estimate_request,
     latest_user_text,
@@ -199,23 +200,24 @@ DeepSeek, Mimo, Codex, строительным ассистентом или д
 1. Сначала проверь исходные данные: тип и адрес/регион объекта, зоны и конструктив,
    объёмы с единицами, материалы и качество, границы работ, сроки, доставка,
    демонтаж/вывоз, оборудование, налоговый режим и НДС.
-2. Если блокирующих данных нет — сформируй индивидуальную ведомость. Если они
-   отсутствуют, не изображай готовую смету: верни create_estimate с точными
-   короткими вопросами в questions, пустым region при неизвестном регионе и
-   price=0. Задавай не более пяти вопросов, объединяя связанные параметры.
-3. Вопросы должны позволять замерщику ответить одним сообщением. Не вставляй
-   вопросы в обычный текст ответа и не предлагай пользователю копировать анкету:
-   интерфейс покажет questions отдельным блоком в ленте чата.
+2. Не останавливай расчёт уточняющими вопросами. Если данных не хватает, самостоятельно
+   прими типовые профессиональные допущения для российского малоэтажного строительства,
+   явно перечисли их в assumptions и всё равно сформируй полную редактируемую смету.
+3. questions оставляй пустым. Не проси пользователя сначала заполнить анкету. Регион,
+   конструктив, комплектацию, НДС и границы работ, которых нет в запросе, обозначай
+   как принятые допущения; пользователь сможет изменить их уже в редакторе сметы.
 4. Разделяй работы, материалы, услуги, технику, доставку, накладные расходы и
    налоги. Не смешивай разные единицы и не подменяй неизвестный объём допущением.
 5. Все допущения записывай в assumptions. Не называй предварительный результат
    точным или проверенным без исходных данных и подтверждённых источников.
 
 Не используй укрупнённый фиксированный шаблон. Сформируй индивидуальную ведомость
-по запросу: отдельные ресурсы, работы, машины и труд. Не выдумывай коды КСР,
-цены и источники. Оставляй price равным 0: backend сам подберёт последний реально
-опубликованный региональный период ФГИС ЦС, проверит код, единицу, НДС и формулу.
-Неподтверждённые строки останутся без цены, а все суммы пересчитает Decimal-движок.
+по запросу: отдельные материалы, работы, машины, доставка и услуги. Не выдумывай
+коды КСР и источники. Для каждой позиции обязательно предложи положительную
+предварительную цену в price на основе профессиональной рыночной оценки. Backend
+попытается заменить её последней подтверждённой региональной ценой; если источник
+не найден, сохранит её только как непроверенное допущение со статусом preliminary.
+Все количества и суммы независимо пересчитает Decimal-движок.
 
 Когда просит создать документ — верни:
 ```json
@@ -859,17 +861,20 @@ async def _materialize_estimate_actions(
         return normalized
 
     draft = deepcopy(estimate.get("data") or {})
-    prompt = latest_user_text(messages)
+    prompt = estimate_request_text(messages) or latest_user_text(messages)
     source_backed_required = _estimate_source_backed_required(prompt)
-    # Provider prices are scope suggestions, not price evidence.  Zero them
-    # before research so an unmatched row cannot silently retain an invented
-    # amount in the editor or totals.
+    # Preserve the provider's proposed prices only as a preliminary fallback.
+    # They are never evidence and never promote the estimate above preliminary.
+    proposed_prices: dict[str, str] = {}
     for section in draft.get("sections", []):
         if not isinstance(section, dict):
             continue
         for position in section.get("positions", []):
             if not isinstance(position, dict):
                 continue
+            code = str(position.get("code") or "")
+            if code and _positive_decimal(position.get("price")):
+                proposed_prices[code] = str(position.get("price"))
             position["price"] = "0.00"
             position["sum"] = "0.00"
             position["source"] = ""
@@ -910,28 +915,50 @@ async def _materialize_estimate_actions(
         draft,
         verified_evidence=trusted_evidence,
         scope_verified=False,
+        questions_enabled=False,
     )
     # The collector assigns a price before the shared evidence contract makes
     # its final freshness/region/unit/attestation decision.  If that decision
     # rejects a record, do not leave the now-unbound amount in totals under a
     # softer "preliminary" label: zero it and derive the action again.
     sanitized = deepcopy(final_estimate["data"])
-    removed_rejected_price = False
+    rebuilt_prices = False
     for section in sanitized.get("sections", []):
         for position in section.get("positions", []):
             if position.get("price_evidence"):
                 continue
-            if str(position.get("price") or "0") not in {"0", "0.0", "0.00"}:
-                removed_rejected_price = True
-            position["price"] = "0.00"
-            position["sum"] = "0.00"
+            proposed = proposed_prices.get(str(position.get("code") or ""))
+            if proposed and not source_backed_required:
+                position["price"] = proposed
+                comment = str(position.get("comment") or "").strip()
+                note = "Цена — предварительная профессиональная оценка без подтверждённого источника."
+                position["comment"] = f"{comment} {note}".strip()
+            else:
+                position["price"] = "0.00"
+                position["sum"] = "0.00"
             position["source"] = ""
-    if removed_rejected_price:
+            rebuilt_prices = True
+    if rebuilt_prices:
+        assumptions = sanitized.get("assumptions")
+        if not isinstance(assumptions, list):
+            assumptions = []
+        assumptions = [
+            item
+            for item in assumptions
+            if "строки без цены сохранены для доисследования" not in str(item).casefold()
+        ]
+        if proposed_prices and not source_backed_required:
+            assumptions.extend([
+                "Недостающие параметры объекта приняты по типовой практике малоэтажного строительства и доступны для изменения в редакторе.",
+                "Цены без датированного источника являются предварительной профессиональной оценкой и требуют проверки перед договором.",
+            ])
+        sanitized["assumptions"] = assumptions
         final_estimate = build_estimate_action(
             prompt,
             sanitized,
             verified_evidence=trusted_evidence,
             scope_verified=False,
+            questions_enabled=False,
         )
     if source_backed_required:
         compact = _compact_source_backed_action(
@@ -972,6 +999,13 @@ def _estimate_price_research_outcome(actions: list[dict]) -> dict:
             status="completed",
         )
     if pricing_status == "preliminary":
+        total = str((estimate or {}).get("data", {}).get("totals", {}).get("total") or "0")
+        if _positive_decimal(total):
+            return work_summary_event(
+                "source_retrieval",
+                "Предварительные цены рассчитаны по профессиональным допущениям",
+                status="completed",
+            )
         return work_summary_event(
             "source_retrieval",
             "Часть цен подтверждена; неизвестные строки исключены из итога",
@@ -1014,6 +1048,12 @@ def _estimate_result_message(actions: list[dict]) -> str:
             "ценам ФГИС ЦС и подготовлена для редактора. Объёмы требуют проверки по проекту."
         )
     if status == "preliminary":
+        total = str((estimate or {}).get("data", {}).get("totals", {}).get("total") or "0")
+        if _positive_decimal(total):
+            return (
+                "Предварительная смета рассчитана по профессиональным допущениям "
+                "и готова к редактированию. Проверьте допущения и цены перед договором."
+            )
         return (
             "Индивидуальная ведомость сформирована, но не все строки имеют подходящий "
             "актуальный региональный источник. Неподтверждённые цены не включены."

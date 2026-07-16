@@ -727,10 +727,8 @@ def test_chat_stream_extracts_create_estimate_action_in_final_event(monkeypatch)
     final = legacy_payloads[-1]
     assert legacy_payloads[-2] == {
         "content": (
-            "Готовой сметы пока нет: не сформирован достаточный индивидуальный "
-            "состав либо не найдены подтверждённые цены. Нужны уточнения: "
-            "подтвердите состав работ, объёмы и возможность подбора актуальных "
-            "региональных цен."
+            "Предварительная смета рассчитана по профессиональным допущениям "
+            "и готова к редактированию. Проверьте допущения и цены перед договором."
         ),
         "done": False,
     }
@@ -741,21 +739,21 @@ def test_chat_stream_extracts_create_estimate_action_in_final_event(monkeypatch)
     assert len(final["actions"]) == 1
     action = final["actions"][0]
     assert action["type"] == "create_estimate"
-    assert action["label"] == "Уточнить данные для сметы"
+    assert action["label"] == "Открыть предварительную смету"
     assert action["data"]["title"] == "Дом 100 м² — Лениногорск"
-    assert action["data"]["estimate_status"] == "needs_input"
-    assert action["data"]["pricing_status"] == "needs_input"
+    assert action["data"]["estimate_status"] == "preliminary"
+    assert action["data"]["pricing_status"] == "preliminary"
     assert action["data"]["price_sources"] == []
     position = action["data"]["sections"][0]["positions"][0]
     assert position["unit"] == "м²"
-    assert position["price"] == "0"
-    assert position["sum"] == "0.00"
+    assert position["price"] == "15000"
+    assert position["sum"] == "1500000.00"
     assert position["source"] == ""
     assert action["data"]["totals"] == {
-        "subtotal": "0.00",
+        "subtotal": "1500000.00",
         "overhead_amount": "0.00",
         "vat_amount": "0.00",
-        "total": "0.00",
+        "total": "1500000.00",
     }
     price_research = [
         summary
@@ -763,7 +761,7 @@ def test_chat_stream_extracts_create_estimate_action_in_final_event(monkeypatch)
         if summary["stage"] == "source_retrieval"
         and summary["summary"] in {
             "Подбираю актуальные региональные цены",
-            "Не удалось подтвердить цены — нужны уточнения",
+            "Предварительные цены рассчитаны по профессиональным допущениям",
         }
     ]
     assert [
@@ -771,7 +769,7 @@ def test_chat_stream_extracts_create_estimate_action_in_final_event(monkeypatch)
         for summary in price_research
     ] == [
         ("active", "Подбираю актуальные региональные цены"),
-        ("failed", "Не удалось подтвердить цены — нужны уточнения"),
+        ("completed", "Предварительные цены рассчитаны по профессиональным допущениям"),
     ]
     assert "reasoning" not in final
 
@@ -960,11 +958,11 @@ def test_chat_stream_interruption_survives_estimate_attestation_runtime_error(mo
     assert final["error_code"] == "provider_stream_interrupted"
     action = final["actions"][0]
     position = action["data"]["sections"][0]["positions"][0]
-    assert position["price"] == "0"
-    assert position["sum"] == "0.00"
+    assert position["price"] == "999999"
+    assert position["sum"] == "1999998.00"
     assert position["price_evidence"] == []
-    assert action["data"]["pricing_status"] == "needs_input"
-    assert action["data"]["totals"]["total"] == "0.00"
+    assert action["data"]["pricing_status"] == "preliminary"
+    assert action["data"]["totals"]["total"] == "1999998.00"
 
 
 def test_chat_stream_extracts_safe_document_content(monkeypatch):

@@ -17,8 +17,9 @@ def test_genkit_flow_routes_estimate_to_verified_server_calculation():
     assert result.requires_sources is True
     assert result.requires_server_calculation is True
     assert result.direct_amounts_allowed is False
-    assert result.estimate_stage == "clarify"
-    assert "конструктив, материалы и требуемое качество" in result.required_inputs
+    assert result.estimate_stage == "research_and_calculate"
+    assert result.required_inputs == []
+    assert "конструктив, материалы и требуемое качество" in result.planning_assumptions
 
 
 def test_genkit_flow_allows_research_only_after_estimate_brief_is_complete():
@@ -31,6 +32,23 @@ def test_genkit_flow_allows_research_only_after_estimate_brief_is_complete():
     ))
 
     assert result.intent == "estimate"
+    assert result.estimate_stage == "research_and_calculate"
+    assert result.required_inputs == []
+    assert result.planning_assumptions == []
+
+
+def test_genkit_flow_treats_answers_to_estimate_brief_as_estimate_continuation():
+    result = asyncio.run(genkit_flow.plan_kolibri_request(
+        [
+            {"role": "user", "content": "Составь смету на строительство дома 123 м²"},
+            {"role": "assistant", "content": "Для сметы нужно уточнить исходные данные."},
+            {"role": "user", "content": "Казань, один этаж, газобетон, под ключ, без НДС"},
+        ],
+        {"mode": "fast"},
+    ))
+
+    assert result.intent == "estimate"
+    assert result.task_type == "analyze"
     assert result.estimate_stage == "research_and_calculate"
     assert result.required_inputs == []
 

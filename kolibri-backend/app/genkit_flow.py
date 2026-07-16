@@ -34,6 +34,7 @@ class KolibriFlowOutput(BaseModel):
     direct_amounts_allowed: bool
     estimate_stage: Literal["not_applicable", "clarify", "research_and_calculate"]
     required_inputs: list[str] = Field(default_factory=list, max_length=10)
+    planning_assumptions: list[str] = Field(default_factory=list, max_length=10)
     locale: Literal["ru-RU"] = "ru-RU"
 
 
@@ -83,6 +84,39 @@ def _missing_estimate_inputs(text: str) -> list[str]:
     return missing
 
 
+def _estimate_intent(messages: list[KolibriFlowMessage]) -> bool:
+    """Recognise both a new estimate and a substantive answer to its brief."""
+
+    latest_index = next(
+        (index for index in range(len(messages) - 1, -1, -1) if messages[index].role == "user"),
+        None,
+    )
+    if latest_index is None:
+        return False
+    latest = messages[latest_index].content.strip()
+    if any(pattern.search(latest) for pattern in _ESTIMATE_MARKERS):
+        return True
+    if not re.search(
+        r"(?:\d|этаж|фундамент|стен|кров|газобет|кирпич|каркас|монолит|"
+        r"регион|город|материал|под ключ|короб|ндс|электр|отоп|вод|канал|"
+        r"(?:^|\s)(?:да|нет)(?:\s|$))",
+        latest,
+        re.IGNORECASE,
+    ):
+        return False
+    for index in range(latest_index - 1, -1, -1):
+        message = messages[index]
+        if message.role == "user" and any(
+            pattern.search(message.content) for pattern in _ESTIMATE_MARKERS
+        ):
+            return any(
+                candidate.role == "assistant"
+                and re.search(r"смет|уточн|исходн.*данн|вопрос", candidate.content, re.IGNORECASE)
+                for candidate in messages[index + 1 : latest_index]
+            )
+    return False
+
+
 @ai.flow()
 async def kolibri_chat_orchestration_flow(
     input: KolibriFlowInput,
@@ -90,7 +124,7 @@ async def kolibri_chat_orchestration_flow(
     """Plan one request before Kolibri selects its MIMA/provider route."""
 
     text = _latest_user_text(input.messages)
-    if any(pattern.search(text) for pattern in _ESTIMATE_MARKERS):
+    if _estimate_intent(input.messages):
         intent: Literal["chat", "estimate", "document"] = "estimate"
     elif any(pattern.search(text) for pattern in _DOCUMENT_MARKERS):
         intent = "document"
@@ -104,19 +138,19 @@ async def kolibri_chat_orchestration_flow(
         task_type = input.mode
 
     estimate = intent == "estimate"
-    required_inputs = _missing_estimate_inputs(text) if estimate else []
+    planning_assumptions = _missing_estimate_inputs(text) if estimate else []
     return KolibriFlowOutput(
         intent=intent,
         task_type=task_type,
         requires_sources=estimate,
         requires_server_calculation=estimate,
         direct_amounts_allowed=not estimate,
-        estimate_stage=(
-            "clarify" if estimate and required_inputs
-            else "research_and_calculate" if estimate
-            else "not_applicable"
-        ),
-        required_inputs=required_inputs,
+        # A professional estimator must produce an editable preliminary result
+        # even when the brief is incomplete. Missing fields become visible
+        # assumptions; they no longer block the calculation with a questionnaire.
+        estimate_stage="research_and_calculate" if estimate else "not_applicable",
+        required_inputs=[],
+        planning_assumptions=planning_assumptions,
     )
 
 

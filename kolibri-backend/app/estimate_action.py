@@ -24,6 +24,12 @@ ESTIMATE_REQUEST_RE = re.compile(
 )
 AREA_RE = re.compile(r"(?P<area>\d{1,4}(?:[.,]\d{1,2})?)\s*(?:м\s*[²2]|кв\.?\s*м)", re.IGNORECASE)
 ESTIMATE_STATUSES = {"needs_input", "preliminary", "source_backed", "verified"}
+ESTIMATE_FOLLOWUP_RE = re.compile(
+    r"(?:\d|этаж|фундамент|стен|кров|газобет|кирпич|каркас|монолит|"
+    r"регион|город|материал|под ключ|короб|ндс|электр|отоп|вод|канал|"
+    r"(?:^|\s)(?:да|нет)(?:\s|$))",
+    re.IGNORECASE,
+)
 
 
 def latest_user_text(messages: Iterable[Mapping[str, Any]]) -> str:
@@ -34,15 +40,55 @@ def latest_user_text(messages: Iterable[Mapping[str, Any]]) -> str:
 
 
 def is_estimate_request(messages: Iterable[Mapping[str, Any]]) -> bool:
-    return bool(ESTIMATE_REQUEST_RE.search(latest_user_text(messages)))
+    return bool(estimate_request_text(messages))
+
+
+def estimate_request_text(messages: Iterable[Mapping[str, Any]]) -> str:
+    """Return a complete estimate brief, including a substantive follow-up."""
+
+    rows = list(messages)
+    latest_index = next(
+        (
+            index
+            for index in range(len(rows) - 1, -1, -1)
+            if str(rows[index].get("role") or "").lower() == "user"
+        ),
+        None,
+    )
+    if latest_index is None:
+        return ""
+    latest = str(rows[latest_index].get("content") or "").strip()
+    if ESTIMATE_REQUEST_RE.search(latest):
+        return latest
+    if not ESTIMATE_FOLLOWUP_RE.search(latest):
+        return ""
+    for index in range(latest_index - 1, -1, -1):
+        row = rows[index]
+        if str(row.get("role") or "").lower() != "user":
+            continue
+        original = str(row.get("content") or "").strip()
+        if not ESTIMATE_REQUEST_RE.search(original):
+            continue
+        has_estimate_reply = any(
+            str(candidate.get("role") or "").lower() == "assistant"
+            and re.search(
+                r"смет|уточн|исходн.*данн|вопрос",
+                str(candidate.get("content") or ""),
+                re.IGNORECASE,
+            )
+            for candidate in rows[index + 1 : latest_index]
+        )
+        if has_estimate_reply:
+            return f"{original}\nДополнительные данные пользователя: {latest}"
+    return ""
 
 
 def ensure_estimate_action(
     messages: Iterable[Mapping[str, Any]], actions: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
     """Return a canonical action without inventing a fallback estimate."""
-    prompt = latest_user_text(messages)
-    if not ESTIMATE_REQUEST_RE.search(prompt):
+    prompt = estimate_request_text(messages)
+    if not prompt:
         return actions
 
     estimate_action = next(
@@ -61,6 +107,7 @@ def build_estimate_action(
     verified_evidence: Any = None,
     scope_verified: bool = False,
     project_fact: Mapping[str, Any] | None = None,
+    questions_enabled: bool = True,
 ) -> dict[str, Any]:
     """Build an editable estimate action with deterministic totals.
 
@@ -117,8 +164,13 @@ def build_estimate_action(
             "Итог включает только строки с подтверждённой ценой; строки без цены "
             "сохранены для доисследования и в сумму не включены."
         )
-    questions = _normalise_text_list(candidate_data.get("questions"), limit=50)
-    questions.extend(_required_questions(sections, region, pricing_status, scope_verified))
+    questions = (
+        _normalise_text_list(candidate_data.get("questions"), limit=50)
+        if questions_enabled
+        else []
+    )
+    if questions_enabled:
+        questions.extend(_required_questions(sections, region, pricing_status, scope_verified))
 
     data = {
         "title": title,
@@ -134,7 +186,16 @@ def build_estimate_action(
         "scope_status": "verified" if scope_verified else "unverified",
         "price_sources": evidence["price_sources"],
         "evidence_issues": evidence["evidence_issues"],
-        "source_note": _source_note(estimate_status, pricing_status),
+        "source_note": _source_note(
+            estimate_status,
+            pricing_status,
+            has_unpriced_positions=any(
+                _decimal(position.get("quantity")) <= 0
+                or _decimal(position.get("price")) <= 0
+                for section in sections
+                for position in section.get("positions", [])
+            ),
+        ),
         "assumptions": _dedupe(assumptions),
         "questions": _dedupe(questions),
         "totals": totals,
@@ -303,7 +364,12 @@ def _required_questions(
     return questions
 
 
-def _source_note(estimate_status: str, pricing_status: str) -> str:
+def _source_note(
+    estimate_status: str,
+    pricing_status: str,
+    *,
+    has_unpriced_positions: bool = False,
+) -> str:
     if estimate_status == "verified":
         return "Все объёмы и цены связаны с проверенными исходными данными и датированными источниками."
     if pricing_status == "verified":
@@ -311,6 +377,11 @@ def _source_note(estimate_status: str, pricing_status: str) -> str:
     if pricing_status == "source_backed":
         return "Каждая цена связана с датированным источником, но независимая проверка ещё не завершена."
     if pricing_status == "preliminary":
+        if not has_unpriced_positions:
+            return (
+                "Все строки рассчитаны и включены в итог по предварительным ценам; "
+                "цены без датированного источника требуют проверки перед договором."
+            )
         return (
             "Смета неполная: подтверждённые строки включены в итог, а строки без "
             "актуальной цены сохранены с нулём и в сумму не включены."

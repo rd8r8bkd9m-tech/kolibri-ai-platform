@@ -107,7 +107,7 @@ def test_materialization_replaces_provider_price_only_with_trusted_source(monkey
     ]
 
 
-def test_materialization_keeps_partial_real_prices_as_preliminary_editor(monkeypatch):
+def test_materialization_keeps_partial_real_and_proposed_prices_as_preliminary_editor(monkeypatch):
     monkeypatch.setenv("KOLIBRI_ESTIMATE_FGIS_ENABLED", "true")
     monkeypatch.setenv("KOLIBRI_ESTIMATE_COMMERCIAL_FALLBACK_ENABLED", "false")
     provider_action = _provider_action()
@@ -155,20 +155,21 @@ def test_materialization_keeps_partial_real_prices_as_preliminary_editor(monkeyp
     assert first["price"] == "46445.29"
     assert first["sum"] == "92890.58"
     assert first["price_evidence"]
-    assert unknown["price"] == "0"
-    assert unknown["sum"] == "0.00"
+    assert unknown["price"] == "777"
+    assert unknown["sum"] == "2331.00"
     assert unknown["price_evidence"] == []
-    assert data["totals"]["total"] == "92890.58"
-    assert any("в сумму не включены" in item.casefold() for item in data["assumptions"])
+    assert data["totals"]["total"] == "95221.58"
+    assert any("профессиональной оценкой" in item.casefold() for item in data["assumptions"])
+    assert data["questions"] == []
     assert trace[-1] == {
         "stage": "source_retrieval",
-        "summary": "Часть цен подтверждена; неизвестные строки исключены из итога",
+        "summary": "Предварительные цены рассчитаны по профессиональным допущениям",
         "status": "completed",
     }
     assert PersistedEstimateAction.model_validate(actions[0]).data.pricing_status == "preliminary"
 
 
-def test_materialization_never_retains_unverified_provider_price(monkeypatch):
+def test_materialization_retains_unverified_provider_price_only_as_preliminary(monkeypatch):
     monkeypatch.setenv("KOLIBRI_ESTIMATE_FGIS_ENABLED", "false")
     actions, trace = asyncio.run(
         _collect_streamed_materialization([_provider_action()])
@@ -176,12 +177,18 @@ def test_materialization_never_retains_unverified_provider_price(monkeypatch):
 
     data = actions[0]["data"]
     position = data["sections"][0]["positions"][0]
-    assert position["price"] == "0"
-    assert position["sum"] == "0.00"
+    assert position["price"] == "999999"
+    assert position["sum"] == "1999998.00"
     assert position["source"] == ""
-    assert data["totals"]["total"] == "0.00"
-    assert data["pricing_status"] == "needs_input"
-    assert data["estimate_status"] == "needs_input"
+    assert data["totals"]["total"] == "1999998.00"
+    assert data["pricing_status"] == "preliminary"
+    assert data["estimate_status"] == "preliminary"
+    assert data["questions"] == []
+    assert "Все строки рассчитаны и включены в итог" in data["source_note"]
+    assert not any(
+        "строки без цены сохранены для доисследования" in item.casefold()
+        for item in data["assumptions"]
+    )
     assert trace == [
         {
             "stage": "source_retrieval",
@@ -190,8 +197,8 @@ def test_materialization_never_retains_unverified_provider_price(monkeypatch):
         },
         {
             "stage": "source_retrieval",
-            "summary": "Не удалось подтвердить цены — нужны уточнения",
-            "status": "failed",
+            "summary": "Предварительные цены рассчитаны по профессиональным допущениям",
+            "status": "completed",
         },
     ]
 
@@ -225,7 +232,7 @@ def test_action_total_equals_sum_of_rounded_money_lines():
     assert PersistedEstimateAction.model_validate(action).data.totals.total == "0.03"
 
 
-def test_materialization_zeroes_collector_price_when_evidence_is_rejected(monkeypatch):
+def test_materialization_restores_provider_proposal_when_collector_evidence_is_rejected(monkeypatch):
     monkeypatch.setenv("KOLIBRI_ESTIMATE_FGIS_ENABLED", "true")
 
     async def fake_enrich(self, draft, **_kwargs):
@@ -257,17 +264,17 @@ def test_materialization_zeroes_collector_price_when_evidence_is_rejected(monkey
 
     data = actions[0]["data"]
     position = data["sections"][0]["positions"][0]
-    assert position["price"] == "0"
-    assert position["sum"] == "0.00"
+    assert position["price"] == "999999"
+    assert position["sum"] == "1999998.00"
     assert position["source"] == ""
     assert position["price_evidence"] == []
-    assert data["totals"]["total"] == "0.00"
-    assert data["pricing_status"] == "needs_input"
-    assert data["estimate_status"] == "needs_input"
+    assert data["totals"]["total"] == "1999998.00"
+    assert data["pricing_status"] == "preliminary"
+    assert data["estimate_status"] == "preliminary"
     assert any(issue["code"] == "untrusted_evidence" for issue in data["evidence_issues"])
 
 
-def test_materialization_fails_closed_when_attestation_configuration_raises(monkeypatch):
+def test_materialization_keeps_preliminary_proposal_when_attestation_configuration_raises(monkeypatch):
     monkeypatch.setenv("KOLIBRI_ESTIMATE_FGIS_ENABLED", "true")
 
     async def failing_enrich(self, draft, **_kwargs):
@@ -284,10 +291,29 @@ def test_materialization_fails_closed_when_attestation_configuration_raises(monk
 
     data = actions[0]["data"]
     position = data["sections"][0]["positions"][0]
-    assert position["price"] == "0"
-    assert position["sum"] == "0.00"
+    assert position["price"] == "999999"
+    assert position["sum"] == "1999998.00"
     assert position["source"] == ""
     assert position["price_evidence"] == []
+    assert data["totals"]["total"] == "1999998.00"
+    assert data["pricing_status"] == "preliminary"
+    assert data["estimate_status"] == "preliminary"
+
+
+def test_materialization_still_zeroes_unverified_prices_when_sources_are_explicitly_required(monkeypatch):
+    monkeypatch.setenv("KOLIBRI_ESTIMATE_FGIS_ENABLED", "false")
+    messages = [{
+        "role": "user",
+        "content": "Составь реальную смету на дом 100 м² с актуальными подтверждёнными источниками цен",
+    }]
+
+    actions = asyncio.run(
+        ai_provider._materialize_estimate_actions(messages, [_provider_action()])
+    )
+
+    data = actions[0]["data"]
+    position = data["sections"][0]["positions"][0]
+    assert position["price"] == "0"
+    assert position["sum"] == "0.00"
     assert data["totals"]["total"] == "0.00"
     assert data["pricing_status"] == "needs_input"
-    assert data["estimate_status"] == "needs_input"
