@@ -142,8 +142,6 @@ def _cookie_mutation_origin_allowed(request: Request) -> bool:
         return True
     if "kolibri_auth" not in request.cookies:
         return True
-    if request.headers.get("authorization", "").strip():
-        return True
 
     supplied = _canonical_origin(request.headers.get("origin"))
     if supplied is not None:

@@ -961,13 +961,21 @@ class HomeControlPlaneAdapter:
             status = str(gate.get("status") or "")
             if status not in {"passed", "failed"}:
                 raise ControlPlaneUnavailable("control_plane_model_admission_contract_invalid")
-            digest = str(gate.get("evidence_sha256") or "").removeprefix("sha256:")
+            raw_digest = str(gate.get("evidence_sha256") or "")
+            digest = raw_digest.removeprefix("sha256:")
             reason = str(gate.get("reason_code") or "")
+            digest_valid = re.fullmatch(r"[0-9a-f]{64}", digest) is not None
+            if (
+                (status == "passed" and not digest_valid)
+                or (raw_digest and not digest_valid)
+                or (status == "failed" and not SAFE_CHECK_PATTERN.fullmatch(reason))
+            ):
+                raise ControlPlaneUnavailable("control_plane_model_admission_contract_invalid")
             result.append({
                 "id": gate_id,
                 "label": label,
                 "status": status,
-                "evidence_sha256": digest if re.fullmatch(r"[0-9a-f]{64}", digest) else None,
+                "evidence_sha256": digest if digest_valid else None,
                 "reason": reason if SAFE_CHECK_PATTERN.fullmatch(reason) else None,
             })
         return result
@@ -1029,20 +1037,40 @@ class HomeControlPlaneAdapter:
                 }
             ):
                 raise ControlPlaneUnavailable("control_plane_local_model_admission_contract_invalid")
+            gates = self._admission_gates(report.get("gates"), LOCAL_ADMISSION_GATES)
+            rejection_reasons = [
+                str(reason)
+                for reason in _as_list(report.get("rejection_reasons"))[:32]
+                if SAFE_CHECK_PATTERN.fullmatch(str(reason))
+            ]
+            if (
+                len(rejection_reasons) != len(_as_list(report.get("rejection_reasons")))
+                or (
+                    admitted
+                    and not all(
+                        gate["status"] == "passed" and gate["evidence_sha256"]
+                        for gate in gates
+                    )
+                )
+                or admitted != (not rejection_reasons)
+            ):
+                raise ControlPlaneUnavailable("control_plane_local_model_admission_contract_invalid")
             items.append({
                 "id": identifiers[1],
                 "node_id": identifiers[0],
                 "runtime": identifiers[2],
                 "status": "admitted" if admitted else "rejected",
-                "gates": self._admission_gates(report.get("gates"), LOCAL_ADMISSION_GATES),
-                "rejection_reasons": [
-                    str(reason)
-                    for reason in _as_list(report.get("rejection_reasons"))[:32]
-                    if SAFE_CHECK_PATTERN.fullmatch(str(reason))
-                ],
+                "gates": gates,
+                "rejection_reasons": rejection_reasons,
             })
         summary = _as_dict(payload.get("summary"))
-        if _to_int(summary.get("total"), -1) != len(items):
+        if (
+            _to_int(summary.get("total"), -1) != len(items)
+            or _to_int(summary.get("admitted"), -1)
+            != sum(item["status"] == "admitted" for item in items)
+            or _to_int(summary.get("rejected"), -1)
+            != sum(item["status"] == "rejected" for item in items)
+        ):
             raise ControlPlaneUnavailable("control_plane_local_model_admission_contract_invalid")
         return {
             "items": items,
@@ -1100,20 +1128,41 @@ class HomeControlPlaneAdapter:
                 or report.get("production_weight_mutation") is not False
             ):
                 raise ControlPlaneUnavailable("control_plane_formulalm_admission_contract_invalid")
+            gates = self._admission_gates(report.get("gates"), FORMULALM_ADMISSION_GATES)
+            rejection_reasons = [
+                str(reason)
+                for reason in _as_list(report.get("rejection_reasons"))[:32]
+                if SAFE_CHECK_PATTERN.fullmatch(str(reason))
+            ]
+            gate_admitted = all(
+                gate["status"] == "passed" and gate["evidence_sha256"]
+                for gate in gates
+            )
+            candidate_only = state == "candidate_only"
+            if (
+                len(rejection_reasons) != len(_as_list(report.get("rejection_reasons")))
+                or (candidate_only and not gate_admitted)
+                or candidate_only != (not rejection_reasons and not legacy)
+            ):
+                raise ControlPlaneUnavailable("control_plane_formulalm_admission_contract_invalid")
             candidates.append({
                 "id": candidate_id,
                 "status": state,
                 "eligible_for_signed_release": report.get("eligible_for_signed_release") is True,
                 "legacy_distill_quarantined": legacy,
-                "gates": self._admission_gates(report.get("gates"), FORMULALM_ADMISSION_GATES),
-                "rejection_reasons": [
-                    str(reason)
-                    for reason in _as_list(report.get("rejection_reasons"))[:32]
-                    if SAFE_CHECK_PATTERN.fullmatch(str(reason))
-                ],
+                "gates": gates,
+                "rejection_reasons": rejection_reasons,
             })
         summary = _as_dict(payload.get("summary"))
-        if _to_int(summary.get("total"), -1) != len(candidates):
+        if (
+            _to_int(summary.get("total"), -1) != len(candidates)
+            or _to_int(summary.get("candidate_only"), -1)
+            != sum(item["status"] == "candidate_only" for item in candidates)
+            or _to_int(summary.get("quarantined"), -1)
+            != sum(item["status"] == "quarantined" for item in candidates)
+            or _to_int(summary.get("legacy_distill_quarantined"), -1)
+            != sum(item["legacy_distill_quarantined"] for item in candidates)
+        ):
             raise ControlPlaneUnavailable("control_plane_formulalm_admission_contract_invalid")
         eligible = next(
             (item["id"] for item in candidates if item["status"] == "candidate_only"),

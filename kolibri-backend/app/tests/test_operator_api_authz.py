@@ -345,6 +345,15 @@ def test_cookie_factory_mutations_require_exact_same_origin(operator_client: Tes
         headers={**headers, "Origin": "https://evil.example"},
         json={"objective": "Проверить безопасную cookie-сессию"},
     )
+    spoofed_authorization = operator_client.post(
+        "/api/v1/tasks",
+        headers={
+            **headers,
+            "Origin": "https://www.kolibriai.ru",
+            "Authorization": "Basic not-a-bearer-token",
+        },
+        json={"objective": "Проверить безопасную cookie-сессию"},
+    )
     same_origin = operator_client.post(
         "/api/v1/tasks",
         headers={**headers, "Origin": "http://testserver"},
@@ -364,6 +373,7 @@ def test_cookie_factory_mutations_require_exact_same_origin(operator_client: Tes
     assert missing_origin.status_code == 403
     assert missing_origin.json()["error"]["code"] == "csrf_origin_forbidden"
     assert cross_origin.status_code == 403
+    assert spoofed_authorization.status_code == 403
     assert same_origin.status_code == 201
     assert cancel_cross_origin.status_code == 403
     assert cancel_same_origin.status_code == 200

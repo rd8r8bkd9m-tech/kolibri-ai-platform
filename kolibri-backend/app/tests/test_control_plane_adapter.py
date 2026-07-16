@@ -714,7 +714,12 @@ def test_model_factory_admission_read_models_are_strictly_projected():
         return httpx.Response(200, json={
             **common,
             "schema_version": "kolibri.formulalm-admission-read-model.v1",
-            "summary": {"total": 1, "candidate_only": 1, "quarantined": 0},
+            "summary": {
+                "total": 1,
+                "candidate_only": 1,
+                "quarantined": 0,
+                "legacy_distill_quarantined": 0,
+            },
             "learning_state": {
                 "mode": "candidate_only",
                 "request_path_training": False,
@@ -780,3 +785,89 @@ def test_model_factory_admission_rejects_side_effect_claims():
         match="control_plane_local_model_admission_contract_invalid",
     ):
         asyncio.run(_adapter(handler).local_model_admission())
+
+
+def test_admitted_model_and_formula_candidate_require_content_addressed_gates():
+    def local_handler(_request: httpx.Request) -> httpx.Response:
+        gates = {
+            name: {"status": "passed", "evidence_sha256": "sha256:" + "a" * 64}
+            for name in ("memory", "compute", "disk", "license", "live_invocation", "benchmark")
+        }
+        gates["benchmark"]["evidence_sha256"] = "not-a-digest"
+        return httpx.Response(200, json={
+            "schema_version": "kolibri.local-model-admission-read-model.v1",
+            "authority": "control-plane/home",
+            "status": "ready",
+            "generation_id": "generation-1",
+            "observed_at": "2026-07-16T08:00:00+00:00",
+            "index_sha256": "sha256:" + "9" * 64,
+            "summary": {"total": 1, "admitted": 1, "rejected": 0},
+            "models": [{
+                "node_id": "worker-07", "model_id": "local-7b", "runtime_id": "llama-cpp",
+                "admitted": True, "capability_advertisable": True,
+                "gates": gates, "rejection_reasons": [],
+                "side_effects": {
+                    "model_started": False,
+                    "model_installed": False,
+                    "capability_registered": False,
+                },
+            }],
+            "side_effects": {
+                "models_started": False,
+                "models_installed": False,
+                "capabilities_registered": False,
+            },
+        })
+
+    with pytest.raises(
+        ControlPlaneUnavailable,
+        match="control_plane_model_admission_contract_invalid",
+    ):
+        asyncio.run(_adapter(local_handler).local_model_admission())
+
+    def formula_handler(_request: httpx.Request) -> httpx.Response:
+        gates = {
+            name: {"status": "passed", "evidence_sha256": "sha256:" + "b" * 64}
+            for name in ("provenance", "consent", "license", "evaluation")
+        }
+        gates["evaluation"]["evidence_sha256"] = ""
+        return httpx.Response(200, json={
+            "schema_version": "kolibri.formulalm-admission-read-model.v1",
+            "authority": "control-plane/home",
+            "status": "ready",
+            "generation_id": "generation-1",
+            "observed_at": "2026-07-16T08:00:00+00:00",
+            "index_sha256": "sha256:" + "9" * 64,
+            "summary": {
+                "total": 1, "candidate_only": 1, "quarantined": 0,
+                "legacy_distill_quarantined": 0,
+            },
+            "learning_state": {
+                "mode": "candidate_only",
+                "request_path_training": False,
+                "automatic_promotion": False,
+                "production_weight_mutation": False,
+                "runtime_traffic_allowed": False,
+                "legacy_distill_enabled": False,
+            },
+            "candidates": [{
+                "candidate_id": "formula-1", "admission_state": "candidate_only",
+                "eligible_for_signed_release": True,
+                "legacy_distill_quarantined": False,
+                "gates": gates, "rejection_reasons": [],
+                "runtime_traffic_allowed": False, "auto_promote": False,
+                "request_path_training": False, "production_weight_mutation": False,
+            }],
+            "side_effects": {
+                "training_started": False,
+                "release_applied": False,
+                "traffic_mutated": False,
+                "weights_mutated": False,
+            },
+        })
+
+    with pytest.raises(
+        ControlPlaneUnavailable,
+        match="control_plane_model_admission_contract_invalid",
+    ):
+        asyncio.run(_adapter(formula_handler).formulalm_admission())
