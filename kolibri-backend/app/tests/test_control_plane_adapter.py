@@ -94,6 +94,16 @@ def test_control_plane_bearer_token_rejects_group_writable_file(tmp_path):
         _optional_bearer_token(str(token_file))
 
 
+def test_control_plane_bearer_token_rejects_hardlinks(tmp_path):
+    token_file = tmp_path / "control-plane-token"
+    token_file.write_text("t" * 48, encoding="utf-8")
+    token_file.chmod(0o600)
+    (tmp_path / "second-name").hardlink_to(token_file)
+
+    with pytest.raises(ControlPlaneUnavailable, match="control_plane_token_file_unsafe"):
+        _optional_bearer_token(str(token_file))
+
+
 def test_control_plane_requests_send_configured_bearer_without_exposing_it():
     token = "s" * 48
 

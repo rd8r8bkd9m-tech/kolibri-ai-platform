@@ -92,18 +92,47 @@ def _optional_bearer_token(path_value: str | None) -> str | None:
         info = path.lstat()
     except OSError as exc:
         raise ControlPlaneUnavailable("control_plane_token_unreadable") from exc
+    mode = stat.S_IMODE(info.st_mode)
+    trusted_gids = {os.getegid(), *os.getgroups()}
     if (
         stat.S_ISLNK(info.st_mode)
         or not stat.S_ISREG(info.st_mode)
-        or stat.S_IMODE(info.st_mode) not in {0o600, 0o640}
+        or info.st_nlink != 1
+        or mode not in {0o600, 0o640}
         or info.st_uid not in {0, os.geteuid()}
-        or not 1 <= info.st_size <= 4096
+        or (mode == 0o640 and info.st_gid not in trusted_gids)
+        or not 32 <= info.st_size <= 1024
     ):
         raise ControlPlaneUnavailable("control_plane_token_file_unsafe")
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
-        token = path.read_text(encoding="utf-8").strip()
-    except (OSError, UnicodeError) as exc:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
         raise ControlPlaneUnavailable("control_plane_token_unreadable") from exc
+    try:
+        opened = os.fstat(descriptor)
+        if (
+            opened.st_dev != info.st_dev
+            or opened.st_ino != info.st_ino
+            or opened.st_uid != info.st_uid
+            or opened.st_gid != info.st_gid
+            or opened.st_nlink != 1
+            or stat.S_IMODE(opened.st_mode) != mode
+            or opened.st_size != info.st_size
+            or opened.st_mtime_ns != info.st_mtime_ns
+        ):
+            raise ControlPlaneUnavailable("control_plane_token_file_unsafe")
+        payload = os.read(descriptor, 1025)
+        if len(payload) > 1024 or os.read(descriptor, 1):
+            raise ControlPlaneUnavailable("control_plane_token_file_unsafe")
+    except OSError as exc:
+        raise ControlPlaneUnavailable("control_plane_token_unreadable") from exc
+    finally:
+        os.close(descriptor)
+    try:
+        token = payload.decode("utf-8").strip()
+    except UnicodeError as exc:
+        raise ControlPlaneUnavailable("control_plane_token_invalid") from exc
     if not BEARER_TOKEN_PATTERN.fullmatch(token):
         raise ControlPlaneUnavailable("control_plane_token_invalid")
     return token
