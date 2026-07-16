@@ -34,7 +34,111 @@ class UserDB(Base):
     hashed_password = Column(String, nullable=False)
     role = Column(String, default="user")
     is_active = Column(Boolean, default=True)
+    default_organization_id = Column(
+        String,
+        ForeignKey("organizations.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     created_at = Column(DateTime, default=_now)
+
+
+class OrganizationDB(Base):
+    """Tenant boundary with an immutable storage scope.
+
+    ``data_scope_id`` deliberately retains the existing ``user:<id>`` scope
+    for personal organizations.  Organization membership and platform roles
+    are separate authorization domains.
+    """
+
+    __tablename__ = "organizations"
+
+    id = Column(String, primary_key=True)
+    data_scope_id = Column(String, nullable=False)
+    name = Column(String, nullable=False)
+    slug = Column(String, nullable=False)
+    status = Column(String, nullable=False, default="active", server_default="active")
+    settings = Column(JSON, nullable=False, default=dict, server_default="{}")
+    created_at = Column(DateTime, nullable=False, default=_now)
+    updated_at = Column(DateTime, nullable=False, default=_now, onupdate=_now)
+
+    __table_args__ = (
+        UniqueConstraint("data_scope_id", name="uq_organizations_data_scope_id"),
+        UniqueConstraint("slug", name="uq_organizations_slug"),
+        Index("ix_organizations_status", "status"),
+    )
+
+
+class OrganizationMembershipDB(Base):
+    """An active user's role inside one organization."""
+
+    __tablename__ = "organization_memberships"
+
+    id = Column(String, primary_key=True)
+    organization_id = Column(
+        String,
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_id = Column(
+        String,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    role = Column(String, nullable=False, default="member", server_default="member")
+    status = Column(String, nullable=False, default="active", server_default="active")
+    created_at = Column(DateTime, nullable=False, default=_now)
+    updated_at = Column(DateTime, nullable=False, default=_now, onupdate=_now)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "user_id",
+            name="uq_organization_memberships_org_user",
+        ),
+        Index(
+            "ix_organization_memberships_user_status",
+            "user_id",
+            "status",
+        ),
+        Index(
+            "ix_organization_memberships_org_status",
+            "organization_id",
+            "status",
+        ),
+    )
+
+
+class OrganizationAuditEventDB(Base):
+    """Append-only organization administration audit event."""
+
+    __tablename__ = "organization_audit_events"
+
+    id = Column(String, primary_key=True)
+    organization_id = Column(
+        String,
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    actor_user_id = Column(
+        String,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    action = Column(String, nullable=False)
+    target_type = Column(String, nullable=True)
+    target_id = Column(String, nullable=True)
+    request_id = Column(String, nullable=True)
+    attributes = Column("metadata", JSON, nullable=False, default=dict, server_default="{}")
+    created_at = Column(DateTime, nullable=False, default=_now)
+
+    __table_args__ = (
+        Index(
+            "ix_organization_audit_events_org_created",
+            "organization_id",
+            "created_at",
+        ),
+        Index("ix_organization_audit_events_actor", "actor_user_id"),
+    )
 
 
 class EstimateDB(Base):
@@ -49,6 +153,11 @@ class EstimateDB(Base):
         nullable=False,
         default=LEGACY_ESTIMATE_SCOPE,
         server_default=LEGACY_ESTIMATE_SCOPE,
+    )
+    organization_id = Column(
+        String,
+        ForeignKey("organizations.id", ondelete="SET NULL"),
+        nullable=True,
     )
     version = Column(Integer, nullable=False, default=1)
     status = Column(String, default="draft")
@@ -100,6 +209,7 @@ class EstimateDB(Base):
         Index("ix_estimates_created_at", "created_at"),
         Index("ix_estimates_scope_created_at", "scope_id", "created_at"),
         Index("ix_estimates_scope_status", "scope_id", "status"),
+        Index("ix_estimates_organization_created", "organization_id", "created_at"),
     )
 
 
@@ -176,6 +286,11 @@ class DocumentDB(Base):
         default=LEGACY_DOCUMENT_SCOPE,
         server_default=LEGACY_DOCUMENT_SCOPE,
     )
+    organization_id = Column(
+        String,
+        ForeignKey("organizations.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     title = Column(String, nullable=False)
     type = Column(String, default="custom")
     status = Column(String, default="draft")
@@ -194,6 +309,7 @@ class DocumentDB(Base):
         Index("ix_documents_created_at", "created_at"),
         Index("ix_documents_scope_created_at", "scope_id", "created_at"),
         Index("ix_documents_scope_status", "scope_id", "status"),
+        Index("ix_documents_organization_created", "organization_id", "created_at"),
     )
 
 
@@ -292,6 +408,11 @@ class ProjectDB(Base):
 
     id = Column(String, primary_key=True)
     scope_id = Column(String, nullable=False)
+    organization_id = Column(
+        String,
+        ForeignKey("organizations.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     title = Column(String, nullable=False, default="Новый проект")
     title_source = Column(String, nullable=False, default="default")
     status = Column(String, nullable=False, default="active")
@@ -316,6 +437,7 @@ class ProjectDB(Base):
         UniqueConstraint("scope_id", "idempotency_key", name="uq_projects_scope_idempotency"),
         Index("ix_projects_scope_deleted_updated", "scope_id", "deleted_at", "updated_at"),
         Index("ix_projects_scope_last_message", "scope_id", "last_message_at"),
+        Index("ix_projects_organization_updated", "organization_id", "updated_at"),
     )
 
 
@@ -389,6 +511,11 @@ class PublicResponseDB(Base):
 
     id = Column(String, primary_key=True)
     owner_scope = Column(String, nullable=False)
+    organization_id = Column(
+        String,
+        ForeignKey("organizations.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     status = Column(String, nullable=False)
     idempotency_key = Column(String, nullable=True)
     request_hash = Column(String, nullable=True)
@@ -411,6 +538,11 @@ class PublicResponseDB(Base):
         ),
         Index("ix_public_responses_scope_updated", "owner_scope", "updated_at"),
         Index("ix_public_responses_status_updated", "status", "updated_at"),
+        Index(
+            "ix_public_responses_organization_updated",
+            "organization_id",
+            "updated_at",
+        ),
     )
 
 
@@ -579,6 +711,11 @@ class PublicApiKeyDB(Base):
 
     id = Column(String, primary_key=True)
     owner_scope = Column(String, nullable=False)
+    organization_id = Column(
+        String,
+        ForeignKey("organizations.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     name = Column(String, nullable=False)
     key_prefix = Column(String, nullable=False)
     secret_hash = Column(String, nullable=False)
@@ -589,4 +726,10 @@ class PublicApiKeyDB(Base):
     __table_args__ = (
         UniqueConstraint("secret_hash", name="uq_public_api_keys_secret_hash"),
         Index("ix_public_api_keys_owner_revoked", "owner_scope", "revoked_at", "created_at"),
+        Index(
+            "ix_public_api_keys_organization_revoked",
+            "organization_id",
+            "revoked_at",
+            "created_at",
+        ),
     )

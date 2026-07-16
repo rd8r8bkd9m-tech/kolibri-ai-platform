@@ -311,6 +311,9 @@ async def register(
         hashed_password=hash_password(data.password),
     )
     db.add(user)
+    db.flush()
+    from app.organization_auth import ensure_personal_organization
+    ensure_personal_organization(db, user)
     from app.project_handoff import adopt_anonymous_project_access
     adopt_anonymous_project_access(
         db,

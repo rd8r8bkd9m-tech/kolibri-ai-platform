@@ -54,9 +54,9 @@ def test_fresh_alembic_chain_creates_scoped_documents_and_estimate_relation(
             column["name"]: column for column in inspector.get_columns("documents")
         }
         assert MigrationContext.configure(connection).get_current_revision() == (
-            "010_durable_responses"
+            "011_organization_tenancy"
         )
-        assert {"scope_id", "estimate_id"}.issubset(document_columns)
+        assert {"scope_id", "estimate_id", "organization_id"}.issubset(document_columns)
         assert document_columns["scope_id"]["nullable"] is False
         assert any(
             tuple(foreign_key.get("constrained_columns") or []) == ("estimate_id",)
@@ -69,7 +69,100 @@ def test_fresh_alembic_chain_creates_scoped_documents_and_estimate_relation(
         assert {
             "ix_documents_scope_created_at",
             "ix_documents_scope_status",
+            "ix_documents_organization_created",
         }.issubset({index["name"] for index in inspector.get_indexes("documents")})
+        assert {
+            "organizations",
+            "organization_memberships",
+            "organization_audit_events",
+            "users",
+        }.issubset(inspector.get_table_names())
+    engine.dispose()
+
+
+def test_revision_011_backfills_personal_org_without_claiming_other_scopes(
+    tmp_path: Path,
+):
+    engine = create_engine(f"sqlite:///{tmp_path / 'organization-backfill.db'}")
+    with engine.begin() as connection:
+        command.upgrade(_config(connection), "010_durable_responses")
+        connection.exec_driver_sql(
+            "CREATE TABLE users ("
+            "id VARCHAR PRIMARY KEY, email VARCHAR NOT NULL UNIQUE, name VARCHAR NOT NULL, "
+            "hashed_password VARCHAR NOT NULL, role VARCHAR, is_active BOOLEAN, created_at DATETIME)"
+        )
+        connection.execute(sa.text(
+            "INSERT INTO users "
+            "(id, email, name, hashed_password, role, is_active, created_at) VALUES "
+            "('user-1', 'owner@example.test', 'Иван', 'hash', 'user', 1, CURRENT_TIMESTAMP)"
+        ))
+        connection.execute(sa.text(
+            "INSERT INTO projects "
+            "(id, scope_id, title, title_source, status, version, message_count, metadata, "
+            "created_at, updated_at) VALUES "
+            "('project-user', 'user:user-1', 'User project', 'manual', 'active', 1, 0, '{}', "
+            "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP), "
+            "('project-anon', 'anon:private', 'Anon project', 'manual', 'active', 1, 0, '{}', "
+            "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+        ))
+        connection.execute(sa.text(
+            "INSERT INTO estimates (id, scope_id, title, created_at, updated_at) VALUES "
+            "('estimate-user', 'user:user-1', 'User estimate', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+        ))
+        connection.execute(sa.text(
+            "INSERT INTO documents (id, scope_id, title, created_at, updated_at) VALUES "
+            "('document-user', 'user:user-1', 'User document', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+        ))
+        connection.execute(sa.text(
+            "INSERT INTO public_responses "
+            "(id, owner_scope, status, payload, created_at, updated_at) VALUES "
+            "('response-user', 'user:user-1', 'completed', '{}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+        ))
+        connection.execute(sa.text(
+            "INSERT INTO public_api_keys "
+            "(id, owner_scope, name, key_prefix, secret_hash, created_at) VALUES "
+            "('key-user', 'user:user-1', 'User key', 'kol_user', 'hash-user', CURRENT_TIMESTAMP), "
+            "('key-legacy', 'owner', 'Legacy key', 'kol_owner', 'hash-owner', CURRENT_TIMESTAMP)"
+        ))
+        command.upgrade(_config(connection), "head")
+
+        organization = connection.execute(sa.text(
+            "SELECT id, data_scope_id FROM organizations"
+        )).mappings().one()
+        assert organization["data_scope_id"] == "user:user-1"
+        organization_id = organization["id"]
+        assert connection.execute(sa.text(
+            "SELECT default_organization_id FROM users WHERE id = 'user-1'"
+        )).scalar_one() == organization_id
+        assert connection.execute(sa.text(
+            "SELECT role, status FROM organization_memberships "
+            "WHERE organization_id = :organization_id AND user_id = 'user-1'"
+        ).bindparams(organization_id=organization_id)).one() == ("owner", "active")
+
+        for table, resource_id in (
+            ("projects", "project-user"),
+            ("estimates", "estimate-user"),
+            ("documents", "document-user"),
+            ("public_responses", "response-user"),
+            ("public_api_keys", "key-user"),
+        ):
+            assert connection.execute(sa.text(
+                f"SELECT organization_id FROM {table} WHERE id = :resource_id"
+            ).bindparams(resource_id=resource_id)).scalar_one() == organization_id
+        assert connection.execute(sa.text(
+            "SELECT organization_id FROM projects WHERE id = 'project-anon'"
+        )).scalar_one() is None
+        assert connection.execute(sa.text(
+            "SELECT organization_id FROM public_api_keys WHERE id = 'key-legacy'"
+        )).scalar_one() is None
+        assert connection.execute(sa.text(
+            "SELECT COUNT(*) FROM organization_audit_events "
+            "WHERE action = 'organization.personal_backfilled'"
+        )).scalar_one() == 1
+    # Revision 001 predates the global catalog table; normal startup creates
+    # the complete model baseline before Alembic verification.
+    _models.CatalogItemDB.__table__.create(bind=engine)
+    assert ensure_database_schema(engine) == "011_organization_tenancy"
     engine.dispose()
 
 
@@ -150,8 +243,8 @@ def test_unversioned_create_all_database_is_adopted_and_backfilled(tmp_path: Pat
     revision = ensure_database_schema(engine)
 
     with engine.connect() as connection:
-        assert revision == "010_durable_responses"
-        assert MigrationContext.configure(connection).get_current_revision() == "010_durable_responses"
+        assert revision == "011_organization_tenancy"
+        assert MigrationContext.configure(connection).get_current_revision() == "011_organization_tenancy"
         columns = {column["name"] for column in sa.inspect(connection).get_columns("project_messages")}
         assert "version" in columns
         telegram_columns = {
@@ -172,7 +265,7 @@ def test_unversioned_create_all_database_is_adopted_and_backfilled(tmp_path: Pat
         }
         assert {
             "id", "owner_scope", "name", "key_prefix", "secret_hash", "created_at",
-            "last_used_at", "revoked_at",
+            "last_used_at", "revoked_at", "organization_id",
         } == {
             column["name"]
             for column in sa.inspect(connection).get_columns("public_api_keys")
@@ -443,7 +536,7 @@ def test_sqlite_schema_creation_waits_for_cross_process_lock(tmp_path: Path):
         holder_stdout, holder_stderr = holder.communicate(timeout=30)
         assert holder.returncode == 0, holder_stderr or holder_stdout
         assert runner.returncode == 0, runner_stderr or runner_stdout
-        assert runner_stdout.strip().endswith("010_durable_responses")
+        assert runner_stdout.strip().endswith("011_organization_tenancy")
     finally:
         release_path.touch(exist_ok=True)
         for process in (runner, holder):

@@ -42,6 +42,9 @@ ALLOWED_UNVERSIONED_TABLES = set(BASELINE_COLUMNS) | {
     "project_handoffs",
     "public_responses",
     "public_response_events",
+    "organizations",
+    "organization_memberships",
+    "organization_audit_events",
 }
 
 _PROJECT_ACCESS_NULLABLE = {
@@ -142,6 +145,42 @@ def _table_contract_issues(
     if not project_foreign_key:
         issues.append("project_id foreign key must reference projects.id ON DELETE CASCADE")
     return issues
+
+
+def _has_foreign_key(
+    inspector,
+    table: str,
+    column: str,
+    referred_table: str,
+    *,
+    ondelete: str,
+) -> bool:
+    foreign_keys = inspector.get_foreign_keys(table)
+    if any(
+        tuple(foreign_key.get("constrained_columns") or []) == (column,)
+        and foreign_key.get("referred_table") == referred_table
+        and tuple(foreign_key.get("referred_columns") or []) == ("id",)
+        and str((foreign_key.get("options") or {}).get("ondelete") or "").upper()
+        == ondelete
+        for foreign_key in foreign_keys
+    ):
+        return True
+    if inspector.bind.dialect.name != "sqlite":
+        return False
+    # SQLAlchemy's SQLite DDL parser can omit ``options.ondelete`` for a
+    # REFERENCES column added with ALTER TABLE even though SQLite stores it in
+    # ``foreign_key_list``.  Verify the database pragma rather than weakening
+    # the startup contract.
+    rows = inspector.bind.exec_driver_sql(
+        f'PRAGMA foreign_key_list("{table}")'
+    ).fetchall()
+    return any(
+        str(row[2]) == referred_table
+        and str(row[3]) == column
+        and str(row[4]) == "id"
+        and str(row[6]).upper() == ondelete
+        for row in rows
+    )
 
 
 def _config(connection) -> Config:
@@ -342,6 +381,70 @@ def _ensure_database_schema(engine: Engine) -> str:
             column["name"]: column for column in inspector.get_columns("documents")
         }
         document_expected = {"scope_id", "estimate_id"}
+        user_columns = {
+            column["name"] for column in inspector.get_columns("users")
+        }
+        organization_columns = {
+            column["name"] for column in inspector.get_columns("organizations")
+        }
+        organization_expected = {
+            "id", "data_scope_id", "name", "slug", "status", "settings",
+            "created_at", "updated_at",
+        }
+        organization_unique = {
+            tuple(constraint.get("column_names") or [])
+            for constraint in inspector.get_unique_constraints("organizations")
+        }
+        membership_columns = {
+            column["name"]
+            for column in inspector.get_columns("organization_memberships")
+        }
+        membership_expected = {
+            "id", "organization_id", "user_id", "role", "status", "created_at",
+            "updated_at",
+        }
+        membership_unique = {
+            tuple(constraint.get("column_names") or [])
+            for constraint in inspector.get_unique_constraints("organization_memberships")
+        }
+        organization_audit_columns = {
+            column["name"]
+            for column in inspector.get_columns("organization_audit_events")
+        }
+        organization_audit_expected = {
+            "id", "organization_id", "actor_user_id", "action", "target_type",
+            "target_id", "request_id", "metadata", "created_at",
+        }
+        organization_root_columns = {
+            table: {
+                column["name"]: column
+                for column in inspector.get_columns(table)
+            }
+            for table in (
+                "projects", "estimates", "documents", "public_responses", "public_api_keys"
+            )
+        }
+        organization_foreign_keys_valid = all(
+            _has_foreign_key(
+                inspector,
+                table,
+                "organization_id",
+                "organizations",
+                ondelete="SET NULL",
+            )
+            for table in organization_root_columns
+        ) and _has_foreign_key(
+            inspector,
+            "users",
+            "default_organization_id",
+            "organizations",
+            ondelete="SET NULL",
+        )
+        organization_roots_valid = all(
+            "organization_id" in columns
+            and bool(columns["organization_id"].get("nullable"))
+            for columns in organization_root_columns.values()
+        )
         project_access_issues = _table_contract_issues(
             inspector,
             "project_access",
@@ -374,6 +477,15 @@ def _ensure_database_schema(engine: Engine) -> str:
             or ("estimate_id", "version") not in estimate_revision_unique
             or not document_expected.issubset(document_columns)
             or bool(document_column_contract.get("scope_id", {}).get("nullable", True))
+            or "default_organization_id" not in user_columns
+            or not organization_expected.issubset(organization_columns)
+            or ("data_scope_id",) not in organization_unique
+            or ("slug",) not in organization_unique
+            or not membership_expected.issubset(membership_columns)
+            or ("organization_id", "user_id") not in membership_unique
+            or not organization_audit_expected.issubset(organization_audit_columns)
+            or not organization_roots_valid
+            or not organization_foreign_keys_valid
             or project_access_issues
             or project_handoff_issues
         ):
@@ -398,6 +510,8 @@ def _ensure_database_schema(engine: Engine) -> str:
                 f"{'present' if estimate_revision_expected.issubset(estimate_revision_columns) and ('estimate_id', 'version') in estimate_revision_unique else 'missing'}, "
                 "document_scope="
                 f"{'present' if document_expected.issubset(document_columns) and not bool(document_column_contract.get('scope_id', {}).get('nullable', True)) else 'missing'}, "
+                "organization_tenancy="
+                f"{'present' if 'default_organization_id' in user_columns and organization_expected.issubset(organization_columns) and ('data_scope_id',) in organization_unique and ('slug',) in organization_unique and membership_expected.issubset(membership_columns) and ('organization_id', 'user_id') in membership_unique and organization_audit_expected.issubset(organization_audit_columns) and organization_roots_valid and organization_foreign_keys_valid else 'missing_or_invalid'}, "
                 "project_access="
                 f"{'present' if not project_access_issues else 'invalid: ' + '; '.join(project_access_issues)}, "
                 "project_handoffs="
