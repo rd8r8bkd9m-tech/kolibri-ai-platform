@@ -90,6 +90,25 @@ class _FakeControlPlane:
             "as_of": "2026-07-16T08:00:00Z", "source": "home_control_plane",
         }
 
+    async def local_model_admission(self):
+        return {
+            "items": [], "admitted_total": 0, "candidate_total": 0,
+            "as_of": "2026-07-16T08:00:00Z",
+            "generation_id": "generation-test",
+            "index_sha256": "sha256:" + "a" * 64,
+            "source": "home_control_plane",
+        }
+
+    async def formulalm_admission(self):
+        return {
+            "status": "ready", "mode": "candidate_only", "candidate_only": True,
+            "active_model": None, "candidate_model": None, "gates": [],
+            "candidates": [], "as_of": "2026-07-16T08:00:00Z",
+            "generation_id": "generation-test",
+            "index_sha256": "sha256:" + "a" * 64,
+            "source": "home_control_plane",
+        }
+
     async def list_events(self, **_kwargs):
         return {
             "items": [], "total": 0, "next_cursor": None,
@@ -309,6 +328,99 @@ def test_owner_can_submit_one_policy_bound_factory_task(operator_client: TestCli
     assert len(envelope["request_sha256"]) == 64
     assert envelope["source"]["kind"] == "kolibri_provider_gateway"
     assert "email" not in envelope["source"]
+
+
+def test_cookie_factory_mutations_require_exact_same_origin(operator_client: TestClient):
+    token = create_access_token({"sub": "user-owner"})
+    operator_client.cookies.set("kolibri_auth", token)
+    headers = {"Idempotency-Key": "portal-cookie-csrf-0001"}
+
+    missing_origin = operator_client.post(
+        "/api/v1/tasks",
+        headers=headers,
+        json={"objective": "Проверить безопасную cookie-сессию"},
+    )
+    cross_origin = operator_client.post(
+        "/api/v1/tasks",
+        headers={**headers, "Origin": "https://evil.example"},
+        json={"objective": "Проверить безопасную cookie-сессию"},
+    )
+    same_origin = operator_client.post(
+        "/api/v1/tasks",
+        headers={**headers, "Origin": "http://testserver"},
+        json={"objective": "Проверить безопасную cookie-сессию"},
+    )
+    cancel_cross_origin = operator_client.post(
+        "/api/v1/tasks/task-1/cancel",
+        headers={"Origin": "https://evil.example"},
+        json={"reason": "csrf attempt"},
+    )
+    cancel_same_origin = operator_client.post(
+        "/api/v1/tasks/task-1/cancel",
+        headers={"Origin": "http://testserver"},
+        json={"reason": "owner requested"},
+    )
+
+    assert missing_origin.status_code == 403
+    assert missing_origin.json()["error"]["code"] == "csrf_origin_forbidden"
+    assert cross_origin.status_code == 403
+    assert same_origin.status_code == 201
+    assert cancel_cross_origin.status_code == 403
+    assert cancel_same_origin.status_code == 200
+    operator_client.cookies.clear()
+
+
+def test_portal_task_idempotency_replays_and_conflicts_on_changed_objective(
+    operator_client: TestClient,
+    monkeypatch,
+):
+    class _ConflictAwareControlPlane(_FakeControlPlane):
+        claims: dict[str, tuple[str, dict]] = {}
+
+        async def submit_owner_task(self, envelope):
+            key = envelope["idempotency_key"]
+            digest = envelope["request_sha256"]
+            existing = type(self).claims.get(key)
+            if existing and existing[0] != digest:
+                raise ControlPlaneUnavailable("control_plane_conflict")
+            if existing:
+                return existing[1]
+            created = await super().submit_owner_task(envelope)
+            type(self).claims[key] = (digest, created)
+            return created
+
+    _ConflictAwareControlPlane.claims = {}
+    monkeypatch.setattr(
+        HomeControlPlaneAdapter,
+        "from_environment",
+        staticmethod(lambda: _ConflictAwareControlPlane()),
+    )
+    headers = {
+        **operator_client.auth_for("owner"),
+        "Idempotency-Key": "portal-contract-0001",
+    }
+
+    first = operator_client.post(
+        "/api/v1/tasks",
+        headers=headers,
+        json={"objective": "Проверить экспорт сметы"},
+    )
+    replay = operator_client.post(
+        "/api/v1/tasks",
+        headers=headers,
+        json={"objective": "Проверить экспорт сметы"},
+    )
+    conflict = operator_client.post(
+        "/api/v1/tasks",
+        headers=headers,
+        json={"objective": "Удалить экспорт сметы"},
+    )
+
+    assert first.status_code == 201
+    assert replay.status_code == 201
+    assert replay.json()["id"] == first.json()["id"]
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"]["reason"] == "control_plane_conflict"
 
 
 def test_factory_task_mutations_require_owner_role(operator_client: TestClient):

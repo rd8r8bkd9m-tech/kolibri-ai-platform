@@ -58,20 +58,22 @@ export default function LearningPage() {
               </div>
             </section>
 
-            <section className="space-y-2">
-              {data.gates.map(gate => {
-                const Icon = gateIcon[gate.status]
-                return (
-                  <article key={gate.id} className="flex items-start gap-3 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4">
-                    <Icon size={18} className={gate.status === 'passed' ? 'mt-0.5 text-emerald-600' : gate.status === 'failed' ? 'mt-0.5 text-red-600' : 'mt-0.5 text-amber-600'} />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center justify-between gap-3"><strong className="text-[13px] text-[var(--text-primary)]">{gate.label}</strong><span className="text-[11px] text-[var(--text-tertiary)]">{gate.status}</span></div>
-                      {gate.reason && <p className="mt-1 text-[11px] text-[var(--text-tertiary)]">{gate.reason}</p>}
-                      {gate.evidence_sha256 && <code className="mt-2 block truncate text-[10px] text-[var(--text-secondary)]" title={gate.evidence_sha256}>sha256:{gate.evidence_sha256}</code>}
-                    </div>
-                  </article>
-                )
-              })}
+            <section className="space-y-3">
+              {data.candidates.map(candidate => (
+                <article key={candidate.id} className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <div><strong className="text-[13px] text-[var(--text-primary)]">{candidate.id}</strong><p className="mt-0.5 text-[11px] text-[var(--text-tertiary)]">{candidate.legacy_distill_quarantined ? 'legacy distill изолирован' : 'проверенный кандидат'}</p></div>
+                    <span className="rounded-full border border-[var(--border-subtle)] px-2.5 py-1 text-[10px] text-[var(--text-secondary)]">{candidate.status}</span>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {candidate.gates.map(gate => {
+                      const Icon = gateIcon[gate.status]
+                      return <div key={gate.id} className="flex min-w-0 items-center gap-2 rounded-[var(--radius-md)] bg-[var(--bg-secondary)] px-3 py-2"><Icon size={14} className={gate.status === 'passed' ? 'shrink-0 text-emerald-600' : 'shrink-0 text-red-600'} /><span className="min-w-0 flex-1 truncate text-[11px] text-[var(--text-secondary)]">{gate.label}</span><span className="text-[10px] text-[var(--text-tertiary)]">{gate.status}</span></div>
+                    })}
+                  </div>
+                </article>
+              ))}
+              {data.candidates.length === 0 && <div className="rounded-[var(--radius-lg)] border border-dashed border-[var(--border-subtle)] p-10 text-center text-[13px] text-[var(--text-tertiary)]">Подтверждённых FormulaLM-кандидатов пока нет.</div>}
             </section>
           </>
         )}

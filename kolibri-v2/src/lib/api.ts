@@ -807,7 +807,18 @@ export interface LocalModelsResponse {
   admitted_total: number
   candidate_total: number
   as_of: string
+  generation_id?: string
+  index_sha256?: string
   source: string
+}
+
+export interface FormulaCandidate {
+  id: string
+  status: 'candidate_only' | 'quarantined'
+  eligible_for_signed_release: boolean
+  legacy_distill_quarantined: boolean
+  gates: FormulaGate[]
+  rejection_reasons: string[]
 }
 
 export interface FormulaLearningStatus {
@@ -817,7 +828,10 @@ export interface FormulaLearningStatus {
   active_model: string | null
   candidate_model: string | null
   gates: FormulaGate[]
+  candidates: FormulaCandidate[]
   as_of: string
+  generation_id?: string
+  index_sha256?: string
   source: string
 }
 

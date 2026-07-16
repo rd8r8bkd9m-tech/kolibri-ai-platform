@@ -53,6 +53,7 @@ def decode_token(token: str) -> dict:
 def validate_auth_configuration() -> None:
     production = bool(
         os.getenv("KOLIBRI_ACTIVE_RELEASE_ID", "").strip()
+        or os.getenv("KOLIBRI_RELEASE_ID", "").strip()
         or os.getenv("KOLIBRI_PUBLIC_BASE_URL", "").strip()
         or os.getenv("KOLIBRI_REQUIRE_SECURE_AUTH", "").strip().lower()
         in {"1", "true", "yes", "on"}

@@ -8,14 +8,14 @@ from app.main import _set_auth_cookie
 
 
 def test_production_rejects_development_jwt_secret(monkeypatch):
-    monkeypatch.setenv("KOLIBRI_ACTIVE_RELEASE_ID", "release-test")
+    monkeypatch.setenv("KOLIBRI_RELEASE_ID", "release-test")
     monkeypatch.setattr(auth, "SECRET_KEY", auth.DEVELOPMENT_SECRET)
     with pytest.raises(RuntimeError, match="jwt_secret_not_configured"):
         auth.validate_auth_configuration()
 
 
 def test_production_accepts_long_configured_jwt_secret(monkeypatch):
-    monkeypatch.setenv("KOLIBRI_ACTIVE_RELEASE_ID", "release-test")
+    monkeypatch.setenv("KOLIBRI_RELEASE_ID", "release-test")
     monkeypatch.setattr(auth, "SECRET_KEY", "s" * 48)
     auth.validate_auth_configuration()
 

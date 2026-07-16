@@ -23,6 +23,11 @@ def disable_live_estimate_price_collection(monkeypatch, tmp_path):
         "KOLIBRI_CAPABILITY_PROBE_FILE",
         str(tmp_path / "runtime" / "capability-probes.json"),
     )
+    # The application now rejects the known development JWT secret whenever a
+    # release identity is present.  Tests use an explicit non-production key so
+    # every TestClient exercises the production startup gate hermetically.
+    from app import auth
+    monkeypatch.setattr(auth, "SECRET_KEY", "pytest-jwt-secret-0123456789abcdef0123456789")
 
     # Public Responses use their own durable SQL tables.  Keep those tables
     # hermetic per test instead of mutating a developer's local kolibri.db.

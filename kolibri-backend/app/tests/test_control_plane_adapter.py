@@ -632,3 +632,151 @@ def test_invalid_contract_fails_closed():
         match="control_plane_nodes_contract_invalid",
     ):
         asyncio.run(adapter.list_nodes(page=1, page_size=50, status=None))
+
+
+def test_task_submission_propagates_home_idempotency_conflict():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/tasks"
+        assert request.headers["Authorization"] == "Bearer " + "t" * 48
+        return httpx.Response(
+            409,
+            json={"error": "idempotency_key_payload_conflict"},
+        )
+
+    adapter = HomeControlPlaneAdapter(
+        base_url="http://home.invalid",
+        bearer_token="t" * 48,
+        transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(ControlPlaneUnavailable, match="control_plane_conflict"):
+        asyncio.run(adapter.submit_owner_task({
+            "task_id": "task-1",
+            "idempotency_key": "portal:key-1",
+            "request_sha256": "a" * 64,
+        }))
+
+
+def test_model_factory_admission_read_models_are_strictly_projected():
+    local_gates = {
+        gate: {"status": "passed", "evidence_sha256": "sha256:" + char * 64}
+        for gate, char in zip(
+            ("memory", "compute", "disk", "license", "live_invocation", "benchmark"),
+            "abcdef",
+            strict=True,
+        )
+    }
+    formula_gates = {
+        gate: {"status": "passed", "evidence_sha256": "sha256:" + char * 64}
+        for gate, char in zip(
+            ("provenance", "consent", "license", "evaluation"),
+            "abcd",
+            strict=True,
+        )
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        common = {
+            "authority": "control-plane/home",
+            "status": "ready",
+            "generation_id": "generation-20260716-001",
+            "observed_at": "2026-07-16T08:00:00+00:00",
+            "index_sha256": "sha256:" + "9" * 64,
+            "private": "must-not-leak",
+        }
+        if request.url.path.endswith("/local-models"):
+            return httpx.Response(200, json={
+                **common,
+                "schema_version": "kolibri.local-model-admission-read-model.v1",
+                "summary": {"total": 1, "admitted": 1, "rejected": 0},
+                "host_policy": {"mac_inference_host_allowed": False},
+                "models": [{
+                    "node_id": "worker-07",
+                    "model_id": "kolibri-local-7b",
+                    "runtime_id": "llama-cpp-2026.07",
+                    "admitted": True,
+                    "capability_advertisable": True,
+                    "gates": local_gates,
+                    "rejection_reasons": [],
+                    "side_effects": {
+                        "model_started": False,
+                        "model_installed": False,
+                        "capability_registered": False,
+                    },
+                    "private": "must-not-leak",
+                }],
+                "side_effects": {
+                    "models_started": False,
+                    "models_installed": False,
+                    "capabilities_registered": False,
+                },
+            })
+        assert request.url.path.endswith("/formulalm")
+        return httpx.Response(200, json={
+            **common,
+            "schema_version": "kolibri.formulalm-admission-read-model.v1",
+            "summary": {"total": 1, "candidate_only": 1, "quarantined": 0},
+            "learning_state": {
+                "mode": "candidate_only",
+                "request_path_training": False,
+                "automatic_promotion": False,
+                "production_weight_mutation": False,
+                "runtime_traffic_allowed": False,
+                "legacy_distill_enabled": False,
+            },
+            "candidates": [{
+                "candidate_id": "formula-clean-001",
+                "admission_state": "candidate_only",
+                "eligible_for_signed_release": True,
+                "legacy_distill_quarantined": False,
+                "gates": formula_gates,
+                "rejection_reasons": [],
+                "runtime_traffic_allowed": False,
+                "auto_promote": False,
+                "request_path_training": False,
+                "production_weight_mutation": False,
+                "private": "must-not-leak",
+            }],
+            "side_effects": {
+                "training_started": False,
+                "release_applied": False,
+                "traffic_mutated": False,
+                "weights_mutated": False,
+            },
+        })
+
+    adapter = _adapter(handler)
+    local = asyncio.run(adapter.local_model_admission())
+    formula = asyncio.run(adapter.formulalm_admission())
+
+    assert local["admitted_total"] == 1
+    assert local["items"][0]["status"] == "admitted"
+    assert len(local["items"][0]["gates"]) == 6
+    assert formula["candidate_only"] is True
+    assert formula["candidate_model"] == "formula-clean-001"
+    assert len(formula["candidates"][0]["gates"]) == 4
+    assert "must-not-leak" not in str({"local": local, "formula": formula})
+
+
+def test_model_factory_admission_rejects_side_effect_claims():
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={
+            "schema_version": "kolibri.local-model-admission-read-model.v1",
+            "authority": "control-plane/home",
+            "status": "ready",
+            "generation_id": "generation-1",
+            "observed_at": "2026-07-16T08:00:00+00:00",
+            "index_sha256": "sha256:" + "9" * 64,
+            "summary": {"total": 0, "admitted": 0, "rejected": 0},
+            "models": [],
+            "side_effects": {
+                "models_started": True,
+                "models_installed": False,
+                "capabilities_registered": False,
+            },
+        })
+
+    with pytest.raises(
+        ControlPlaneUnavailable,
+        match="control_plane_local_model_admission_contract_invalid",
+    ):
+        asyncio.run(_adapter(handler).local_model_admission())

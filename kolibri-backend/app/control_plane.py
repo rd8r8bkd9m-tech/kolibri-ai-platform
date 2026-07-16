@@ -34,6 +34,21 @@ SHA256_PATTERN = re.compile(r"^(?:sha256:)?[0-9a-f]{64}$")
 BEARER_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9._~+/=-]{32,512}$")
 SAFE_EVENT_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$")
 SAFE_CHECK_PATTERN = re.compile(r"^[a-z][a-z0-9_.:-]{0,127}$")
+SAFE_MODEL_FACTORY_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$")
+LOCAL_ADMISSION_GATES = (
+    ("memory", "Память"),
+    ("compute", "Вычислительные ресурсы"),
+    ("disk", "Дисковое пространство"),
+    ("license", "Лицензия"),
+    ("live_invocation", "Проверочный запуск"),
+    ("benchmark", "Benchmark"),
+)
+FORMULALM_ADMISSION_GATES = (
+    ("provenance", "Происхождение данных"),
+    ("consent", "Согласие и PII"),
+    ("license", "Лицензия"),
+    ("evaluation", "Независимая оценка"),
+)
 CONNECTED_HEALTH_STATES = frozenset({"online", "healthy", "ready"})
 DISCONNECTED_HEALTH_STATES = frozenset({"offline", "disconnected", "failed"})
 RUNNER_EXECUTABLE_STATES = frozenset({
@@ -929,6 +944,192 @@ class HomeControlPlaneAdapter:
             "queue_total": _to_int(payload.get("queue_total"), 0),
             "active": _to_int(payload.get("active"), 0),
             "latest_event_cursor": _to_int(payload.get("latest_event_cursor"), 0),
+            "source": CONTROL_PLANE_SOURCE,
+        }
+
+    @staticmethod
+    def _admission_gates(
+        raw_gates: Any,
+        expected: tuple[tuple[str, str], ...],
+    ) -> list[dict[str, Any]]:
+        gates = _as_dict(raw_gates)
+        if set(gates) != {gate_id for gate_id, _label in expected}:
+            raise ControlPlaneUnavailable("control_plane_model_admission_contract_invalid")
+        result = []
+        for gate_id, label in expected:
+            gate = _as_dict(gates.get(gate_id))
+            status = str(gate.get("status") or "")
+            if status not in {"passed", "failed"}:
+                raise ControlPlaneUnavailable("control_plane_model_admission_contract_invalid")
+            digest = str(gate.get("evidence_sha256") or "").removeprefix("sha256:")
+            reason = str(gate.get("reason_code") or "")
+            result.append({
+                "id": gate_id,
+                "label": label,
+                "status": status,
+                "evidence_sha256": digest if re.fullmatch(r"[0-9a-f]{64}", digest) else None,
+                "reason": reason if SAFE_CHECK_PATTERN.fullmatch(reason) else None,
+            })
+        return result
+
+    @staticmethod
+    def _model_factory_metadata(payload: dict[str, Any]) -> tuple[str, str, str]:
+        generation_id = str(payload.get("generation_id") or "")
+        index_sha256 = str(payload.get("index_sha256") or "")
+        observed_at = str(payload.get("observed_at") or "")
+        try:
+            observed = datetime.fromisoformat(observed_at.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ControlPlaneUnavailable(
+                "control_plane_model_admission_contract_invalid"
+            ) from exc
+        if (
+            not SAFE_MODEL_FACTORY_ID_PATTERN.fullmatch(generation_id)
+            or not SHA256_PATTERN.fullmatch(index_sha256)
+            or observed.tzinfo is None
+        ):
+            raise ControlPlaneUnavailable("control_plane_model_admission_contract_invalid")
+        return generation_id, index_sha256, observed_at
+
+    async def local_model_admission(self) -> dict[str, Any]:
+        payload = await self._get("/v1/runtime/model-factory/local-models", {})
+        if (
+            payload.get("schema_version")
+            != "kolibri.local-model-admission-read-model.v1"
+            or payload.get("authority") != "control-plane/home"
+            or payload.get("status") != "ready"
+            or not isinstance(payload.get("models"), list)
+            or not isinstance(payload.get("summary"), dict)
+            or not isinstance(payload.get("side_effects"), dict)
+            or _as_dict(payload.get("side_effects")) != {
+                "models_started": False,
+                "models_installed": False,
+                "capabilities_registered": False,
+            }
+        ):
+            raise ControlPlaneUnavailable("control_plane_local_model_admission_contract_invalid")
+        generation_id, index_sha256, observed_at = self._model_factory_metadata(payload)
+        items = []
+        for raw in payload["models"][:256]:
+            report = _as_dict(raw)
+            identifiers = [
+                str(report.get(name) or "")
+                for name in ("node_id", "model_id", "runtime_id")
+            ]
+            if not all(SAFE_MODEL_FACTORY_ID_PATTERN.fullmatch(value) for value in identifiers):
+                raise ControlPlaneUnavailable("control_plane_local_model_admission_contract_invalid")
+            admitted = report.get("admitted")
+            if (
+                type(admitted) is not bool
+                or report.get("capability_advertisable") is not admitted
+                or _as_dict(report.get("side_effects")) != {
+                    "model_started": False,
+                    "model_installed": False,
+                    "capability_registered": False,
+                }
+            ):
+                raise ControlPlaneUnavailable("control_plane_local_model_admission_contract_invalid")
+            items.append({
+                "id": identifiers[1],
+                "node_id": identifiers[0],
+                "runtime": identifiers[2],
+                "status": "admitted" if admitted else "rejected",
+                "gates": self._admission_gates(report.get("gates"), LOCAL_ADMISSION_GATES),
+                "rejection_reasons": [
+                    str(reason)
+                    for reason in _as_list(report.get("rejection_reasons"))[:32]
+                    if SAFE_CHECK_PATTERN.fullmatch(str(reason))
+                ],
+            })
+        summary = _as_dict(payload.get("summary"))
+        if _to_int(summary.get("total"), -1) != len(items):
+            raise ControlPlaneUnavailable("control_plane_local_model_admission_contract_invalid")
+        return {
+            "items": items,
+            "admitted_total": sum(item["status"] == "admitted" for item in items),
+            "candidate_total": len(items),
+            "as_of": observed_at,
+            "generation_id": generation_id,
+            "index_sha256": index_sha256,
+            "source": CONTROL_PLANE_SOURCE,
+        }
+
+    async def formulalm_admission(self) -> dict[str, Any]:
+        payload = await self._get("/v1/runtime/model-factory/formulalm", {})
+        learning = _as_dict(payload.get("learning_state"))
+        side_effects = _as_dict(payload.get("side_effects"))
+        if (
+            payload.get("schema_version")
+            != "kolibri.formulalm-admission-read-model.v1"
+            or payload.get("authority") != "control-plane/home"
+            or payload.get("status") != "ready"
+            or not isinstance(payload.get("candidates"), list)
+            or learning != {
+                "mode": "candidate_only",
+                "request_path_training": False,
+                "automatic_promotion": False,
+                "production_weight_mutation": False,
+                "runtime_traffic_allowed": False,
+                "legacy_distill_enabled": False,
+            }
+            or side_effects != {
+                "training_started": False,
+                "release_applied": False,
+                "traffic_mutated": False,
+                "weights_mutated": False,
+            }
+        ):
+            raise ControlPlaneUnavailable("control_plane_formulalm_admission_contract_invalid")
+        generation_id, index_sha256, observed_at = self._model_factory_metadata(payload)
+        candidates = []
+        for raw in payload["candidates"][:256]:
+            report = _as_dict(raw)
+            candidate_id = str(report.get("candidate_id") or "")
+            state = str(report.get("admission_state") or "")
+            legacy = report.get("legacy_distill_quarantined")
+            if (
+                not SAFE_MODEL_FACTORY_ID_PATTERN.fullmatch(candidate_id)
+                or state not in {"candidate_only", "quarantined"}
+                or type(legacy) is not bool
+                or type(report.get("eligible_for_signed_release")) is not bool
+                or report.get("eligible_for_signed_release")
+                != (state == "candidate_only")
+                or report.get("runtime_traffic_allowed") is not False
+                or report.get("auto_promote") is not False
+                or report.get("request_path_training") is not False
+                or report.get("production_weight_mutation") is not False
+            ):
+                raise ControlPlaneUnavailable("control_plane_formulalm_admission_contract_invalid")
+            candidates.append({
+                "id": candidate_id,
+                "status": state,
+                "eligible_for_signed_release": report.get("eligible_for_signed_release") is True,
+                "legacy_distill_quarantined": legacy,
+                "gates": self._admission_gates(report.get("gates"), FORMULALM_ADMISSION_GATES),
+                "rejection_reasons": [
+                    str(reason)
+                    for reason in _as_list(report.get("rejection_reasons"))[:32]
+                    if SAFE_CHECK_PATTERN.fullmatch(str(reason))
+                ],
+            })
+        summary = _as_dict(payload.get("summary"))
+        if _to_int(summary.get("total"), -1) != len(candidates):
+            raise ControlPlaneUnavailable("control_plane_formulalm_admission_contract_invalid")
+        eligible = next(
+            (item["id"] for item in candidates if item["status"] == "candidate_only"),
+            None,
+        )
+        return {
+            "status": "ready",
+            "mode": "candidate_only",
+            "candidate_only": True,
+            "active_model": None,
+            "candidate_model": eligible,
+            "gates": next((item["gates"] for item in candidates if item["id"] == eligible), []),
+            "candidates": candidates,
+            "as_of": observed_at,
+            "generation_id": generation_id,
+            "index_sha256": index_sha256,
             "source": CONTROL_PLANE_SOURCE,
         }
 

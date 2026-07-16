@@ -113,6 +113,52 @@ _CONTENT_SECURITY_POLICY = (
     "font-src 'self' data:; connect-src 'self'; frame-src 'self' blob:; "
     "form-action 'self'"
 )
+_UNSAFE_HTTP_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+def _canonical_origin(value: str | None) -> str | None:
+    raw = str(value or "").strip().rstrip("/")
+    parsed = urlsplit(raw)
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.netloc
+        or parsed.path
+        or parsed.query
+        or parsed.fragment
+    ):
+        return None
+    return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
+
+
+def _cookie_mutation_origin_allowed(request: Request) -> bool:
+    """Require an exact browser origin for HttpOnly-cookie mutations.
+
+    Bearer clients are not subject to CSRF because browsers do not attach
+    Authorization headers implicitly.  Cookie-authenticated writes must either
+    carry an exact Origin or explicit same-origin Fetch Metadata.
+    """
+
+    if request.method.upper() not in _UNSAFE_HTTP_METHODS:
+        return True
+    if "kolibri_auth" not in request.cookies:
+        return True
+    if request.headers.get("authorization", "").strip():
+        return True
+
+    supplied = _canonical_origin(request.headers.get("origin"))
+    if supplied is not None:
+        allowed: set[str] = set()
+        public_origin = _canonical_origin(os.getenv("KOLIBRI_PUBLIC_BASE_URL"))
+        if public_origin:
+            allowed.add(public_origin)
+        request_origin = _canonical_origin(
+            f"{request.url.scheme}://{request.headers.get('host', '')}"
+        )
+        if request_origin:
+            allowed.add(request_origin)
+        return supplied in allowed
+
+    return request.headers.get("sec-fetch-site", "").strip().lower() == "same-origin"
 
 app.add_middleware(
     CORSMiddleware,
@@ -137,6 +183,26 @@ app.add_middleware(ReleaseIdentityMiddleware)
 async def keep_operator_responses_private(request: Request, call_next):
     """Operator data and auth errors must never enter shared browser caches."""
 
+    if not _cookie_mutation_origin_allowed(request):
+        return JSONResponse(
+            status_code=403,
+            headers={
+                "Cache-Control": "private, no-store",
+                "Content-Security-Policy": _CONTENT_SECURITY_POLICY,
+                "X-Content-Type-Options": "nosniff",
+                "Referrer-Policy": "no-referrer",
+            },
+            content={
+                "detail": {"code": "csrf_origin_forbidden"},
+                "error": {
+                    "message": "csrf_origin_forbidden",
+                    "type": "invalid_request_error",
+                    "code": "csrf_origin_forbidden",
+                    "request_id": getattr(request.state, "request_id", None),
+                },
+                "request_id": getattr(request.state, "request_id", None),
+            },
+        )
     response = await call_next(request)
     response.headers.setdefault("Content-Security-Policy", _CONTENT_SECURITY_POLICY)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
@@ -1048,81 +1114,18 @@ async def control_models(_operator = Depends(require_operator_user)):
 async def control_local_models(_operator = Depends(require_operator_user)):
     try:
         adapter = HomeControlPlaneAdapter.from_environment()
-        page = await adapter.list_nodes(page=1, page_size=100, status=None)
+        return await adapter.local_model_admission()
     except ControlPlaneUnavailable as exc:
         raise HTTPException(status_code=503, detail=unavailable_detail(exc.reason)) from exc
-
-    gate_labels = {
-        "memory": "Память",
-        "compute": "Вычислительные ресурсы",
-        "disk": "Дисковое пространство",
-        "license": "Лицензия",
-        "live_invocation": "Проверочный запуск",
-        "benchmark": "Benchmark",
-    }
-    items = []
-    for node in page.get("items", []):
-        capabilities = node.get("capabilities") if isinstance(node.get("capabilities"), dict) else {}
-        declared = capabilities.get("items") if isinstance(capabilities.get("items"), list) else []
-        runners = capabilities.get("runners") if isinstance(capabilities.get("runners"), dict) else {}
-        local_runner = runners.get("local_llm") if isinstance(runners.get("local_llm"), dict) else {}
-        if "runner:local_llm" not in declared:
-            continue
-        model_id = str(local_runner.get("model") or local_runner.get("model_id") or f"local@{node.get('id')}")
-        items.append({
-            "id": model_id,
-            "node_id": str(node.get("id") or "unknown"),
-            "status": "unavailable",
-            "runtime": str(local_runner.get("runtime") or "local_llm"),
-            "gates": [
-                {
-                    "id": gate_id,
-                    "label": label,
-                    "status": "unavailable",
-                    "evidence_sha256": None,
-                    "reason": "admission_evidence_missing",
-                }
-                for gate_id, label in gate_labels.items()
-            ],
-        })
-    return {
-        "items": items,
-        "admitted_total": 0,
-        "candidate_total": len(items),
-        "as_of": datetime.now(timezone.utc).isoformat(),
-        "source": "home_control_plane",
-    }
 
 
 @app.get("/api/v1/control/learning")
 async def control_learning(_operator = Depends(require_operator_user)):
-    gate_labels = {
-        "memory": "Память",
-        "compute": "Вычислительные ресурсы",
-        "disk": "Дисковое пространство",
-        "license": "Лицензия и происхождение данных",
-        "live_invocation": "Проверочный запуск",
-        "benchmark": "Контрольный benchmark",
-    }
-    return {
-        "status": "unavailable",
-        "mode": "disabled_until_admission",
-        "candidate_only": True,
-        "active_model": None,
-        "candidate_model": None,
-        "gates": [
-            {
-                "id": gate_id,
-                "label": label,
-                "status": "unavailable",
-                "evidence_sha256": None,
-                "reason": "formula_runtime_not_admitted",
-            }
-            for gate_id, label in gate_labels.items()
-        ],
-        "as_of": datetime.now(timezone.utc).isoformat(),
-        "source": "portal_policy",
-    }
+    try:
+        adapter = HomeControlPlaneAdapter.from_environment()
+        return await adapter.formulalm_admission()
+    except ControlPlaneUnavailable as exc:
+        raise HTTPException(status_code=503, detail=unavailable_detail(exc.reason)) from exc
 
 
 @app.get("/api/v1/analytics")

@@ -6,7 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app import ai_provider, capability_runtime
+from app import ai_provider, auth as auth_module, capability_runtime
 from app.auth import create_access_token
 from app.database import Base, get_db
 from app.main import app
@@ -33,6 +33,7 @@ def client(monkeypatch, tmp_path):
         hashlib.sha256(owner_token.encode()).hexdigest(),
     )
     monkeypatch.setenv("KOLIBRI_RELEASE_ID", "kolibri-r17-20260713T1932MSK")
+    monkeypatch.setattr(auth_module, "SECRET_KEY", "release-test-jwt-secret-0123456789abcdef")
     monkeypatch.delenv("KOLIBRI_PUBLIC_API_KEY_SHA256", raising=False)
     monkeypatch.setenv("KOLIBRI_ARTIFACT_DIR", str(tmp_path / "artifacts"))
     monkeypatch.setenv("KOLIBRI_CAPABILITY_PROBE_FILE", str(tmp_path / "capability-probes.json"))
@@ -48,12 +49,11 @@ def client(monkeypatch, tmp_path):
         db.commit()
     app.dependency_overrides[get_db] = override_get_db
     with TestClient(app) as test_client:
+        owner_session_token = create_access_token({"sub": "user-platform-owner"})
         test_client.owner_headers = {
-            "Authorization": (
-                "Bearer "
-                + create_access_token({"sub": "user-platform-owner"})
-            )
+            "Authorization": "Bearer " + owner_session_token
         }
+        test_client.owner_session_token = owner_session_token
         test_client.legacy_owner_headers = {
             "X-Kolibri-Owner-Token": owner_token
         }
@@ -263,6 +263,36 @@ def test_legacy_api_key_admin_route_keeps_separate_machine_credential(client):
         browser_session_is_not_a_machine_credential.json()["error"]["code"]
         == "owner_authentication_required"
     )
+
+
+def test_cookie_api_key_mutations_require_exact_same_origin(client):
+    client.cookies.set("kolibri_auth", client.owner_session_token)
+    denied = client.post(
+        "/api/v1/developer/api-keys",
+        headers={"Origin": "https://evil.example"},
+        json={"name": "CSRF denied"},
+    )
+    created = client.post(
+        "/api/v1/developer/api-keys",
+        headers={"Origin": "http://testserver"},
+        json={"name": "Browser session"},
+    )
+    assert denied.status_code == 403
+    assert denied.json()["error"]["code"] == "csrf_origin_forbidden"
+    assert created.status_code == 201
+
+    key_id = created.json()["id"]
+    denied_revoke = client.delete(
+        f"/api/v1/developer/api-keys/{key_id}",
+        headers={"Origin": "https://evil.example"},
+    )
+    revoked = client.delete(
+        f"/api/v1/developer/api-keys/{key_id}",
+        headers={"Origin": "http://testserver"},
+    )
+    assert denied_revoke.status_code == 403
+    assert revoked.status_code == 200
+    client.cookies.clear()
 
 
 def test_developer_capability_is_truthful_until_admin_route_is_invocable(client, monkeypatch):
