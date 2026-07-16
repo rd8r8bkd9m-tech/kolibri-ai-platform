@@ -107,9 +107,15 @@ class DocumentEstimateNotFound(RuntimeError):
 class DBStorage:
     """Persistent storage using SQLAlchemy."""
 
-    def __init__(self, db: Session, scope_id: Optional[str] = None):
+    def __init__(
+        self,
+        db: Session,
+        scope_id: Optional[str] = None,
+        organization_id: Optional[str] = None,
+    ):
         self.db = db
         self.scope_id = scope_id
+        self.organization_id = organization_id
 
     def _estimate_scope(self) -> str:
         """Return the mandatory estimate principal or fail closed."""
@@ -171,7 +177,10 @@ class DBStorage:
         est_id = _uid()
         now = _now()
         e = EstimateDB(
-            id=est_id, scope_id=self._estimate_scope(), version=1,
+            id=est_id,
+            scope_id=self._estimate_scope(),
+            organization_id=self.organization_id,
+            version=1,
             title=data.get("title", ""), client=data.get("client", ""),
             object_name=data.get("object_name", ""), region=data.get("region", ""),
             currency=data.get("currency", "RUB"),
@@ -806,7 +815,9 @@ class DBStorage:
         doc_id = _uid()
         now = _now()
         d = DocumentDB(
-            id=doc_id, scope_id=self._document_scope(),
+            id=doc_id,
+            scope_id=self._document_scope(),
+            organization_id=self.organization_id,
             title=data.get("title", ""), type=data.get("type", "custom"),
             client=data.get("client", ""), project=data.get("project", ""),
             content=data.get("content", ""), variables=data.get("variables", {}),

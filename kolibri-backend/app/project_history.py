@@ -117,9 +117,15 @@ def _message_snapshot(message: ProjectMessageDB) -> dict[str, Any]:
 
 
 class ProjectHistoryRepository:
-    def __init__(self, db: Session, scope_id: str):
+    def __init__(
+        self,
+        db: Session,
+        scope_id: str,
+        organization_id: str | None = None,
+    ):
         self.db = db
         self.scope_id = scope_id
+        self.organization_id = organization_id
 
     def _project_query(self, *, include_deleted: bool = False):
         granted = self.db.query(ProjectAccessDB.id).filter(
@@ -177,6 +183,7 @@ class ProjectHistoryRepository:
         project = ProjectDB(
             id=_uid(),
             scope_id=self.scope_id,
+            organization_id=self.organization_id,
             title=title,
             title_source=title_source,
             attributes=data.get("metadata") or {},

@@ -13,8 +13,12 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from fastapi import Cookie, Depends, HTTPException, Request, Response
-from app.auth import DEVELOPMENT_SECRET, get_optional_user
+from app.auth import DEVELOPMENT_SECRET
 from app.models import UserDB
+from app.organization_auth import (
+    OrganizationPrincipal,
+    resolve_optional_organization_principal,
+)
 
 
 SESSION_COOKIE_NAME = "kolibri_session"
@@ -58,6 +62,7 @@ class ProjectPrincipal:
     scope_id: str
     kind: str
     public_id: str
+    organization_id: str | None = None
 
 
 def issue_anonymous_session(*, sid: str | None = None, now: int | None = None) -> tuple[str, AnonymousSession]:
@@ -105,10 +110,17 @@ def validate_anonymous_session(token: str | None, *, now: int | None = None) -> 
 
 def resolve_optional_project_principal(
     anonymous_cookie: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
-    user: UserDB | None = Depends(get_optional_user),
+    organization: OrganizationPrincipal | None = Depends(
+        resolve_optional_organization_principal
+    ),
 ) -> ProjectPrincipal | None:
-    if user is not None:
-        return ProjectPrincipal(scope_id=f"user:{user.id}", kind="authenticated", public_id=user.id)
+    if organization is not None:
+        return ProjectPrincipal(
+            scope_id=organization.scope_id,
+            kind="organization",
+            public_id=organization.organization_id,
+            organization_id=organization.organization_id,
+        )
     anonymous = validate_anonymous_session(anonymous_cookie)
     if anonymous is not None:
         return ProjectPrincipal(

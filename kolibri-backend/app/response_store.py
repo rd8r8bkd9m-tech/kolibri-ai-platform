@@ -24,6 +24,7 @@ def _detached(value: Any) -> Any:
 def save_response_record(record: dict[str, Any]) -> None:
     response_id = str(record["id"])
     owner_scope = str(record.get("owner_scope") or "")
+    organization_id = record.get("organization_id")
     status = str(record.get("status") or "in_progress")
     if not owner_scope:
         raise ValueError("response_owner_scope_required")
@@ -37,6 +38,7 @@ def save_response_record(record: dict[str, Any]) -> None:
             row = PublicResponseDB(
                 id=response_id,
                 owner_scope=owner_scope,
+                organization_id=organization_id,
                 status=status,
                 idempotency_key=record.get("idempotency_key"),
                 request_hash=record.get("request_hash"),
@@ -48,6 +50,13 @@ def save_response_record(record: dict[str, Any]) -> None:
         else:
             if row.owner_scope != owner_scope:
                 raise ValueError("response_owner_scope_immutable")
+            if (
+                organization_id is not None
+                and row.organization_id not in {None, organization_id}
+            ):
+                raise ValueError("response_organization_immutable")
+            if organization_id is not None:
+                row.organization_id = organization_id
             row.status = status
             row.idempotency_key = record.get("idempotency_key")
             row.request_hash = record.get("request_hash")
@@ -85,6 +94,7 @@ def _record(row: PublicResponseDB) -> dict[str, Any]:
     payload.update({
         "id": row.id,
         "owner_scope": row.owner_scope,
+        "organization_id": row.organization_id,
         "status": row.status,
         "idempotency_key": row.idempotency_key,
         "request_hash": row.request_hash,

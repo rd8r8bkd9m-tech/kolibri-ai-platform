@@ -250,6 +250,9 @@ app.include_router(tool_router)
 from app.routers.projects import router as projects_router
 app.include_router(projects_router)
 
+from app.routers.organizations import router as organizations_router
+app.include_router(organizations_router)
+
 from app.routers.shell import router as shell_router
 app.include_router(shell_router)
 
@@ -313,12 +316,30 @@ async def register(
     db.add(user)
     db.flush()
     from app.organization_auth import ensure_personal_organization
-    ensure_personal_organization(db, user)
-    from app.project_handoff import adopt_anonymous_project_access
+    organization = ensure_personal_organization(db, user)
+    from app.project_handoff import (
+        AnonymousAdoptionUnsupported,
+        adopt_anonymous_project_access,
+        adopt_anonymous_roots,
+    )
+    try:
+        adopt_anonymous_roots(
+            db,
+            anonymous_cookie=anonymous_cookie,
+            target_scope_id=organization.data_scope_id,
+            target_organization_id=organization.id,
+            actor_user_id=user.id,
+        )
+    except AnonymousAdoptionUnsupported as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail={"code": str(exc)},
+        ) from exc
     adopt_anonymous_project_access(
         db,
         anonymous_cookie=anonymous_cookie,
-        target_scope_id=f"user:{user.id}",
+        target_scope_id=organization.data_scope_id,
     )
     db.commit()
     token = create_access_token({"sub": user.id})
@@ -338,11 +359,31 @@ async def login(
     user = db.query(UserDB).filter(UserDB.email == data.email).first()
     if not user or not verify_password(data.password, user.hashed_password):
         raise HTTPException(401, "Invalid email or password")
-    from app.project_handoff import adopt_anonymous_project_access
+    from app.organization_auth import ensure_personal_organization
+    organization = ensure_personal_organization(db, user)
+    from app.project_handoff import (
+        AnonymousAdoptionUnsupported,
+        adopt_anonymous_project_access,
+        adopt_anonymous_roots,
+    )
+    try:
+        adopt_anonymous_roots(
+            db,
+            anonymous_cookie=anonymous_cookie,
+            target_scope_id=organization.data_scope_id,
+            target_organization_id=organization.id,
+            actor_user_id=user.id,
+        )
+    except AnonymousAdoptionUnsupported as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail={"code": str(exc)},
+        ) from exc
     adopt_anonymous_project_access(
         db,
         anonymous_cookie=anonymous_cookie,
-        target_scope_id=f"user:{user.id}",
+        target_scope_id=organization.data_scope_id,
     )
     db.commit()
     token = create_access_token({"sub": user.id})
@@ -352,8 +393,16 @@ async def login(
 
 @app.post("/api/v1/auth/logout", status_code=204)
 async def logout(response: Response):
+    from app.organization_auth import ORGANIZATION_COOKIE_NAME
+
     response.delete_cookie(
         "kolibri_auth",
+        path="/",
+        httponly=True,
+        samesite="strict",
+    )
+    response.delete_cookie(
+        ORGANIZATION_COOKIE_NAME,
         path="/",
         httponly=True,
         samesite="strict",
@@ -463,7 +512,7 @@ async def list_estimates(
     principal: ProjectPrincipal = Depends(resolve_project_principal),
     db: Session = Depends(get_db),
 ):
-    storage = DBStorage(db, principal.scope_id)
+    storage = DBStorage(db, principal.scope_id, principal.organization_id)
     result = storage.list_estimates(status=status, search=search, page=page, page_size=page_size)
     return {"items": result["items"], "total": result["total"], "page": page, "page_size": page_size}
 
@@ -475,7 +524,7 @@ async def create_estimate(
     principal: ProjectPrincipal = Depends(resolve_project_principal),
     db: Session = Depends(get_db),
 ):
-    storage = DBStorage(db, principal.scope_id)
+    storage = DBStorage(db, principal.scope_id, principal.organization_id)
     try:
         result = storage.create_estimate(data.model_dump())
     except Exception:
@@ -507,7 +556,7 @@ async def get_estimate(
     principal: ProjectPrincipal = Depends(resolve_project_principal),
     db: Session = Depends(get_db),
 ):
-    storage = DBStorage(db, principal.scope_id)
+    storage = DBStorage(db, principal.scope_id, principal.organization_id)
     result = storage.get_estimate(est_id)
     if not result:
         raise HTTPException(404, "Estimate not found")
@@ -524,7 +573,7 @@ async def update_estimate(
     principal: ProjectPrincipal = Depends(resolve_project_principal),
     db: Session = Depends(get_db),
 ):
-    storage = DBStorage(db, principal.scope_id)
+    storage = DBStorage(db, principal.scope_id, principal.organization_id)
     update_data = data.model_dump(exclude_unset=True)
     expected_version = _required_estimate_version(if_match, update_data.pop("version", None))
     if "status" in update_data and update_data["status"] is not None:
@@ -549,7 +598,7 @@ async def delete_estimate(
     principal: ProjectPrincipal = Depends(resolve_project_principal),
     db: Session = Depends(get_db),
 ):
-    storage = DBStorage(db, principal.scope_id)
+    storage = DBStorage(db, principal.scope_id, principal.organization_id)
     if not storage.delete_estimate(est_id):
         raise HTTPException(404, "Estimate not found")
     return Response(status_code=204)
@@ -564,7 +613,7 @@ async def calculate_estimate_endpoint(
     principal: ProjectPrincipal = Depends(resolve_project_principal),
     db: Session = Depends(get_db),
 ):
-    storage = DBStorage(db, principal.scope_id)
+    storage = DBStorage(db, principal.scope_id, principal.organization_id)
     expected_version = _required_estimate_version(if_match, version)
     try:
         result = storage.recalculate_estimate(est_id, expected_version=expected_version)
@@ -582,7 +631,7 @@ async def duplicate_estimate(
     principal: ProjectPrincipal = Depends(resolve_project_principal),
     db: Session = Depends(get_db),
 ):
-    storage = DBStorage(db, principal.scope_id)
+    storage = DBStorage(db, principal.scope_id, principal.organization_id)
     result = storage.duplicate_estimate(est_id)
     if not result:
         raise HTTPException(404, "Estimate not found")
@@ -598,7 +647,9 @@ async def list_estimate_revisions(
     principal: ProjectPrincipal = Depends(resolve_project_principal),
     db: Session = Depends(get_db),
 ):
-    result = DBStorage(db, principal.scope_id).list_estimate_revisions(est_id)
+    result = DBStorage(
+        db, principal.scope_id, principal.organization_id
+    ).list_estimate_revisions(est_id)
     if result is None:
         raise HTTPException(404, "Estimate not found")
     return result
@@ -615,7 +666,9 @@ async def get_estimate_revision(
     principal: ProjectPrincipal = Depends(resolve_project_principal),
     db: Session = Depends(get_db),
 ):
-    result = DBStorage(db, principal.scope_id).get_estimate_revision(est_id, version)
+    result = DBStorage(
+        db, principal.scope_id, principal.organization_id
+    ).get_estimate_revision(est_id, version)
     if result is None:
         raise HTTPException(404, "Estimate revision not found")
     response.headers["ETag"] = _estimate_etag(result["version"])
@@ -629,7 +682,7 @@ async def estimate_pdf(
     principal: ProjectPrincipal = Depends(resolve_project_principal),
     db: Session = Depends(get_db),
 ):
-    storage = DBStorage(db, principal.scope_id)
+    storage = DBStorage(db, principal.scope_id, principal.organization_id)
     result = storage.get_estimate_snapshot(est_id, version)
     if not result:
         raise HTTPException(404, "Estimate revision not found")
@@ -651,7 +704,7 @@ async def export_estimate(
     principal: ProjectPrincipal = Depends(resolve_project_principal),
     db: Session = Depends(get_db),
 ):
-    storage = DBStorage(db, principal.scope_id)
+    storage = DBStorage(db, principal.scope_id, principal.organization_id)
     d = storage.get_estimate_snapshot(est_id, version)
     if not d:
         raise HTTPException(404, "Estimate revision not found")
@@ -710,7 +763,7 @@ async def list_documents(
     db: Session = Depends(get_db),
     principal: ProjectPrincipal = Depends(resolve_project_principal),
 ):
-    storage = DBStorage(db, principal.scope_id)
+    storage = DBStorage(db, principal.scope_id, principal.organization_id)
     result = storage.list_documents(type_=type, page=page, page_size=page_size)
     return {"items": result["items"], "total": result["total"], "page": page, "page_size": page_size}
 
@@ -721,7 +774,7 @@ async def create_document(
     db: Session = Depends(get_db),
     principal: ProjectPrincipal = Depends(resolve_project_principal),
 ):
-    storage = DBStorage(db, principal.scope_id)
+    storage = DBStorage(db, principal.scope_id, principal.organization_id)
     d = data.model_dump()
     if "type" in d and hasattr(d["type"], "value"):
         d["type"] = d["type"].value
@@ -760,7 +813,7 @@ async def get_document(
     db: Session = Depends(get_db),
     principal: ProjectPrincipal = Depends(resolve_project_principal),
 ):
-    storage = DBStorage(db, principal.scope_id)
+    storage = DBStorage(db, principal.scope_id, principal.organization_id)
     result = storage.get_document(doc_id)
     if not result:
         raise HTTPException(404, "Document not found")
@@ -774,7 +827,7 @@ async def update_document(
     db: Session = Depends(get_db),
     principal: ProjectPrincipal = Depends(resolve_project_principal),
 ):
-    storage = DBStorage(db, principal.scope_id)
+    storage = DBStorage(db, principal.scope_id, principal.organization_id)
     update_data = data.model_dump(exclude_unset=True)
     if "type" in update_data and update_data["type"] is not None and hasattr(update_data["type"], "value"):
         update_data["type"] = update_data["type"].value
@@ -798,7 +851,7 @@ async def delete_document(
     db: Session = Depends(get_db),
     principal: ProjectPrincipal = Depends(resolve_project_principal),
 ):
-    storage = DBStorage(db, principal.scope_id)
+    storage = DBStorage(db, principal.scope_id, principal.organization_id)
     if not storage.delete_document(doc_id):
         raise HTTPException(404, "Document not found")
     return Response(status_code=204)
@@ -810,7 +863,7 @@ async def document_pdf(
     db: Session = Depends(get_db),
     principal: ProjectPrincipal = Depends(resolve_project_principal),
 ):
-    storage = DBStorage(db, principal.scope_id)
+    storage = DBStorage(db, principal.scope_id, principal.organization_id)
     result = storage.get_document(doc_id)
     if not result:
         raise HTTPException(404, "Document not found")
@@ -832,7 +885,7 @@ async def list_library(
     db: Session = Depends(get_db),
     principal: ProjectPrincipal = Depends(resolve_project_principal),
 ):
-    storage = DBStorage(db, principal.scope_id)
+    storage = DBStorage(db, principal.scope_id, principal.organization_id)
     items = storage.list_library(item_type=item_type, search=search)
     start = (page - 1) * page_size
     return {"items": items[start:start + page_size], "total": len(items), "page": page, "page_size": page_size}
@@ -1408,6 +1461,7 @@ async def chat_stream(
     public_response_id = begin_public_response(
         messages,
         owner_scope=principal.scope_id,
+        organization_id=principal.organization_id,
     )
     nonterminal_response_statuses = {
         "queued",
@@ -1755,7 +1809,7 @@ async def ai_analyze_estimate(
     principal: ProjectPrincipal = Depends(resolve_project_principal),
 ):
     from app.ai_provider import analyze_estimate
-    storage = DBStorage(db, principal.scope_id)
+    storage = DBStorage(db, principal.scope_id, principal.organization_id)
     est = storage.get_estimate(est_id)
     if not est:
         raise HTTPException(404, "Estimate not found")
@@ -1872,7 +1926,7 @@ async def create_document_from_template(
     t = _get(template_id)
     if not t:
         raise HTTPException(404, "Template not found")
-    storage = DBStorage(db, principal.scope_id)
+    storage = DBStorage(db, principal.scope_id, principal.organization_id)
     return storage.create_document({
         "title": t["title"], "type": t["type"], "content": t["content"],
     })
@@ -1954,7 +2008,7 @@ async def document_docx(
     db: Session = Depends(get_db),
     principal: ProjectPrincipal = Depends(resolve_project_principal),
 ):
-    storage = DBStorage(db, principal.scope_id)
+    storage = DBStorage(db, principal.scope_id, principal.organization_id)
     result = storage.get_document(doc_id)
     if not result:
         raise HTTPException(404, "Document not found")

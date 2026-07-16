@@ -29,11 +29,16 @@ from pydantic import BaseModel, Field
 from app import ai_provider
 from app.database import get_db
 from app.models import PublicApiKeyDB
+from app.organization_auth import (
+    OrganizationPrincipal,
+    record_organization_audit,
+    require_org_admin,
+    resolve_optional_organization_principal,
+)
 from app.project_schemas import PersistedFileAction
 from app.public_scope import authorize_public_scope as _authorize_public
 from app.openai_responses import cancel_response, retrieve_response
 from app.genkit_flow import planned_task_type
-from app.auth import require_operator_user
 from app.response_store import (
     ResponseIdempotencyConflict,
     find_idempotent_response,
@@ -443,7 +448,7 @@ def developer_response_capabilities() -> list[dict[str, Any]]:
 @router.post(
     "/api/v1/developer/api-keys",
     status_code=201,
-    dependencies=[Depends(require_operator_user)],
+    dependencies=[Depends(require_org_admin)],
     response_model=ApiKeyCreatedResponse,
 )
 @router.post(
@@ -453,25 +458,42 @@ def developer_response_capabilities() -> list[dict[str, Any]]:
     response_model=ApiKeyCreatedResponse,
 )
 async def create_api_key(
-    request: ApiKeyCreateRequest,
+    data: ApiKeyCreateRequest,
+    http_request: Request,
     response: Response,
+    organization: OrganizationPrincipal | None = Depends(
+        resolve_optional_organization_principal
+    ),
     db: Session = Depends(get_db),
 ):
     _prevent_owner_response_storage(response)
-    name = request.name.strip()
+    name = data.name.strip()
     if not name:
         raise HTTPException(status_code=422, detail={"code": "api_key_name_required"})
     plaintext = f"koli_live_{secrets.token_urlsafe(32)}"
     digest = hashlib.sha256(plaintext.encode()).hexdigest()
+    browser_route = http_request.url.path.startswith("/api/v1/developer/")
+    if browser_route and organization is None:
+        raise HTTPException(status_code=403, detail={"code": "organization_access_denied"})
     row = PublicApiKeyDB(
         id=f"key_{secrets.token_hex(12)}",
-        owner_scope=_owner_scope(),
+        owner_scope=organization.scope_id if browser_route else _owner_scope(),
+        organization_id=organization.organization_id if browser_route else None,
         name=name,
         key_prefix=plaintext[:14],
         secret_hash=digest,
         created_at=datetime.now(timezone.utc),
     )
     db.add(row)
+    if browser_route:
+        record_organization_audit(
+            db,
+            organization,
+            action="api_key.created",
+            target_type="api_key",
+            target_id=row.id,
+            metadata={"name": name},
+        )
     db.commit()
     db.refresh(row)
     from app.capability_runtime import try_record_capability_invocation
@@ -487,7 +509,7 @@ async def create_api_key(
 
 @router.get(
     "/api/v1/developer/api-keys",
-    dependencies=[Depends(require_operator_user)],
+    dependencies=[Depends(require_org_admin)],
     response_model=ApiKeyListResponse,
 )
 @router.get(
@@ -495,17 +517,38 @@ async def create_api_key(
     dependencies=[Depends(_authorize_api_key_admin)],
     response_model=ApiKeyListResponse,
 )
-async def list_api_keys(response: Response, db: Session = Depends(get_db)):
+async def list_api_keys(
+    http_request: Request,
+    response: Response,
+    organization: OrganizationPrincipal | None = Depends(
+        resolve_optional_organization_principal
+    ),
+    db: Session = Depends(get_db),
+):
     _prevent_owner_response_storage(response)
-    rows = db.query(PublicApiKeyDB).filter(
-        PublicApiKeyDB.owner_scope == _owner_scope()
-    ).order_by(PublicApiKeyDB.created_at.desc(), PublicApiKeyDB.id.desc()).all()
+    browser_route = http_request.url.path.startswith("/api/v1/developer/")
+    if browser_route and organization is None:
+        raise HTTPException(status_code=403, detail={"code": "organization_access_denied"})
+    query = db.query(PublicApiKeyDB)
+    if browser_route:
+        query = query.filter(
+            PublicApiKeyDB.organization_id == organization.organization_id,
+            PublicApiKeyDB.owner_scope == organization.scope_id,
+        )
+    else:
+        query = query.filter(
+            PublicApiKeyDB.organization_id.is_(None),
+            PublicApiKeyDB.owner_scope == _owner_scope(),
+        )
+    rows = query.order_by(
+        PublicApiKeyDB.created_at.desc(), PublicApiKeyDB.id.desc()
+    ).all()
     return {"object": "list", "data": [_public_api_key(row) for row in rows]}
 
 
 @router.delete(
     "/api/v1/developer/api-keys/{key_id}",
-    dependencies=[Depends(require_operator_user)],
+    dependencies=[Depends(require_org_admin)],
     response_model=ApiKeyResponse,
 )
 @router.delete(
@@ -515,18 +558,41 @@ async def list_api_keys(response: Response, db: Session = Depends(get_db)):
 )
 async def revoke_api_key(
     key_id: str,
+    http_request: Request,
     response: Response,
+    organization: OrganizationPrincipal | None = Depends(
+        resolve_optional_organization_principal
+    ),
     db: Session = Depends(get_db),
 ):
     _prevent_owner_response_storage(response)
-    row = db.query(PublicApiKeyDB).filter(
-        PublicApiKeyDB.id == key_id,
-        PublicApiKeyDB.owner_scope == _owner_scope(),
-    ).first()
+    browser_route = http_request.url.path.startswith("/api/v1/developer/")
+    if browser_route and organization is None:
+        raise HTTPException(status_code=403, detail={"code": "organization_access_denied"})
+    query = db.query(PublicApiKeyDB).filter(PublicApiKeyDB.id == key_id)
+    if browser_route:
+        query = query.filter(
+            PublicApiKeyDB.organization_id == organization.organization_id,
+            PublicApiKeyDB.owner_scope == organization.scope_id,
+        )
+    else:
+        query = query.filter(
+            PublicApiKeyDB.organization_id.is_(None),
+            PublicApiKeyDB.owner_scope == _owner_scope(),
+        )
+    row = query.first()
     if row is None:
         raise HTTPException(status_code=404, detail={"code": "api_key_not_found"})
     if row.revoked_at is None:
         row.revoked_at = datetime.now(timezone.utc)
+        if browser_route:
+            record_organization_audit(
+                db,
+                organization,
+                action="api_key.revoked",
+                target_type="api_key",
+                target_id=row.id,
+            )
         db.commit()
         db.refresh(row)
     from app.capability_runtime import try_record_capability_invocation
@@ -749,9 +815,20 @@ def _request_owner_scope(request: Request) -> str:
     return scope
 
 
+def _request_organization_id(request: Request) -> str | None:
+    organization_id = getattr(
+        request.state,
+        "kolibri_response_organization_id",
+        None,
+    )
+    return organization_id if isinstance(organization_id, str) and organization_id else None
+
+
 def _owned_record(response_id: str, owner_scope: str) -> dict[str, Any] | None:
     record = _records.get(response_id)
-    if record is None:
+    if record is None or not hmac.compare_digest(
+        str(record.get("owner_scope") or ""), owner_scope
+    ):
         record = load_response_record(response_id)
         if record is not None:
             _records[response_id] = record
@@ -779,6 +856,7 @@ def begin_public_response(
     messages: list[dict[str, str]],
     *,
     owner_scope: str = "internal:legacy",
+    organization_id: str | None = None,
     idempotency_key: str | None = None,
     request_hash: str | None = None,
 ) -> str:
@@ -794,6 +872,7 @@ def begin_public_response(
         "provider_route": None,
         "messages": messages,
         "owner_scope": owner_scope,
+        "organization_id": organization_id,
         "idempotency_key": idempotency_key,
         "request_hash": request_hash,
         "actions": [],
@@ -1294,6 +1373,7 @@ async def execute_kolibri_response(
     *,
     idempotency_key: str | None = None,
     owner_scope: str = "internal:service",
+    organization_id: str | None = None,
 ) -> dict[str, Any]:
     """Execute one non-streaming response through the canonical provider path.
 
@@ -1338,6 +1418,7 @@ async def execute_kolibri_response(
             response_id = begin_public_response(
                 messages,
                 owner_scope=owner_scope,
+                organization_id=organization_id,
                 idempotency_key=idempotency_key,
                 request_hash=fingerprint if idempotency_key else None,
             )
@@ -1383,6 +1464,7 @@ async def create_background_kolibri_response(
     *,
     idempotency_key: str | None = None,
     owner_scope: str = "internal:service",
+    organization_id: str | None = None,
 ) -> dict[str, Any]:
     _validate_idempotency_key(idempotency_key)
     existing, messages, policy, fingerprint, structured, task_type = await _execute_response(
@@ -1397,6 +1479,7 @@ async def create_background_kolibri_response(
         response_id = begin_public_response(
             messages,
             owner_scope=owner_scope,
+            organization_id=organization_id,
             idempotency_key=idempotency_key,
             request_hash=fingerprint if idempotency_key else None,
         )
@@ -1444,19 +1527,23 @@ async def create_public_response(
             request,
             idempotency_key,
             owner_scope=_request_owner_scope(http_request),
+            organization_id=_request_organization_id(http_request),
         )
     owner_scope = _request_owner_scope(http_request)
+    organization_id = _request_organization_id(http_request)
     if request.background:
         record = await create_background_kolibri_response(
             request,
             idempotency_key=idempotency_key,
             owner_scope=owner_scope,
+            organization_id=organization_id,
         )
     else:
         record = await execute_kolibri_response(
             request,
             idempotency_key=idempotency_key,
             owner_scope=owner_scope,
+            organization_id=organization_id,
         )
     return _public_response(record)
 
@@ -1477,6 +1564,7 @@ async def stream_public_response(
         request,
         idempotency_key,
         owner_scope=_request_owner_scope(http_request),
+        organization_id=_request_organization_id(http_request),
     )
 
 
@@ -1485,6 +1573,7 @@ async def _streaming_response(
     idempotency_key: str | None,
     *,
     owner_scope: str,
+    organization_id: str | None = None,
 ):
     existing, messages, policy, fingerprint, structured, task_type = await _execute_response(
         request,
@@ -1498,6 +1587,7 @@ async def _streaming_response(
             response_id = begin_public_response(
                 messages,
                 owner_scope=owner_scope,
+                organization_id=organization_id,
                 idempotency_key=idempotency_key,
                 request_hash=fingerprint if idempotency_key else None,
             )
@@ -1947,6 +2037,7 @@ async def retry_public_response(
         retry_request,
         idempotency_key=scoped_key,
         owner_scope=owner_scope,
+        organization_id=_request_organization_id(http_request),
     )
     record["retry_of"] = response_id
     _store(record)

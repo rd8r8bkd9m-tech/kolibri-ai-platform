@@ -6,10 +6,10 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import uuid
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Cookie, Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.auth import get_current_user
+from app.auth import get_current_user, get_optional_user
 from app.database import get_db
 from app.models import (
     OrganizationAuditEventDB,
@@ -20,6 +20,7 @@ from app.models import (
 
 
 ORGANIZATION_HEADER = "X-Kolibri-Organization"
+ORGANIZATION_COOKIE_NAME = "kolibri_organization"
 ACTIVE_STATUS = "active"
 ORGANIZATION_ROLES = frozenset({"owner", "admin", "member"})
 ORGANIZATION_ADMIN_ROLES = frozenset({"owner", "admin"})
@@ -139,21 +140,18 @@ def record_organization_audit(
     return event
 
 
-def resolve_organization_principal(
-    selected_organization_id: str | None = Header(
-        default=None,
-        alias=ORGANIZATION_HEADER,
-    ),
-    user: UserDB = Depends(get_current_user),
-    db: Session = Depends(get_db),
+def _resolve_for_user(
+    db: Session,
+    user: UserDB,
+    *,
+    selected_organization_id: str | None,
+    organization_cookie: str | None,
 ) -> OrganizationPrincipal:
-    """Resolve and recheck active user, organization and membership from SQL.
-
-    No role is trusted from a JWT or request header.  A revoked membership is
-    therefore denied on the next request even while the same JWT remains valid.
-    """
-
-    organization_id = selected_organization_id or user.default_organization_id
+    organization_id = (
+        selected_organization_id
+        or organization_cookie
+        or user.default_organization_id
+    )
     if not organization_id or len(organization_id) > 128:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -195,6 +193,54 @@ def resolve_organization_principal(
     )
 
 
+def resolve_optional_organization_principal(
+    selected_organization_id: str | None = Header(
+        default=None,
+        alias=ORGANIZATION_HEADER,
+    ),
+    organization_cookie: str | None = Cookie(
+        default=None,
+        alias=ORGANIZATION_COOKIE_NAME,
+    ),
+    user: UserDB | None = Depends(get_optional_user),
+    db: Session = Depends(get_db),
+) -> OrganizationPrincipal | None:
+    if user is None:
+        return None
+    return _resolve_for_user(
+        db,
+        user,
+        selected_organization_id=selected_organization_id,
+        organization_cookie=organization_cookie,
+    )
+
+
+def resolve_organization_principal(
+    selected_organization_id: str | None = Header(
+        default=None,
+        alias=ORGANIZATION_HEADER,
+    ),
+    organization_cookie: str | None = Cookie(
+        default=None,
+        alias=ORGANIZATION_COOKIE_NAME,
+    ),
+    user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> OrganizationPrincipal:
+    """Resolve and recheck active user, organization and membership from SQL.
+
+    No role is trusted from a JWT or selection cookie.  A revoked membership
+    is denied on the next request even while both credentials remain valid.
+    """
+
+    return _resolve_for_user(
+        db,
+        user,
+        selected_organization_id=selected_organization_id,
+        organization_cookie=organization_cookie,
+    )
+
+
 def require_org_member(
     principal: OrganizationPrincipal = Depends(resolve_organization_principal),
 ) -> OrganizationPrincipal:
@@ -225,11 +271,13 @@ def require_org_owner(
 
 __all__ = [
     "ORGANIZATION_HEADER",
+    "ORGANIZATION_COOKIE_NAME",
     "OrganizationPrincipal",
     "ensure_personal_organization",
     "record_organization_audit",
     "require_org_admin",
     "require_org_member",
     "require_org_owner",
+    "resolve_optional_organization_principal",
     "resolve_organization_principal",
 ]

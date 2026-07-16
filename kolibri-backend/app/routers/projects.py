@@ -146,7 +146,9 @@ def list_projects(
     principal: ProjectPrincipal = Depends(resolve_project_principal),
     db: Session = Depends(get_db),
 ):
-    result = ProjectHistoryRepository(db, principal.scope_id).list_projects(
+    result = ProjectHistoryRepository(
+        db, principal.scope_id, principal.organization_id
+    ).list_projects(
         include_deleted=include_deleted,
         page=page,
         page_size=page_size,
@@ -170,7 +172,9 @@ def create_project(
     db: Session = Depends(get_db),
 ):
     try:
-        result, created = ProjectHistoryRepository(db, principal.scope_id).create_project(
+        result, created = ProjectHistoryRepository(
+            db, principal.scope_id, principal.organization_id
+        ).create_project(
             data.model_dump(),
             _idempotency_key(idempotency_key),
         )
@@ -228,7 +232,9 @@ def get_project(
     db: Session = Depends(get_db),
 ):
     try:
-        return ProjectHistoryRepository(db, principal.scope_id).get_project(project_id)
+        return ProjectHistoryRepository(
+            db, principal.scope_id, principal.organization_id
+        ).get_project(project_id)
     except ProjectNotFoundError as exc:
         raise _not_found() from exc
 
@@ -241,7 +247,9 @@ def update_project(
     db: Session = Depends(get_db),
 ):
     try:
-        return ProjectHistoryRepository(db, principal.scope_id).update_project(
+        return ProjectHistoryRepository(
+            db, principal.scope_id, principal.organization_id
+        ).update_project(
             project_id,
             data.model_dump(exclude_unset=True),
         )
@@ -256,7 +264,9 @@ def delete_project(
     db: Session = Depends(get_db),
 ):
     try:
-        return ProjectHistoryRepository(db, principal.scope_id).soft_delete_project(project_id)
+        return ProjectHistoryRepository(
+            db, principal.scope_id, principal.organization_id
+        ).soft_delete_project(project_id)
     except ProjectNotFoundError as exc:
         raise _not_found() from exc
 
@@ -268,7 +278,9 @@ def restore_project(
     db: Session = Depends(get_db),
 ):
     try:
-        return ProjectHistoryRepository(db, principal.scope_id).restore_project(project_id)
+        return ProjectHistoryRepository(
+            db, principal.scope_id, principal.organization_id
+        ).restore_project(project_id)
     except ProjectNotFoundError as exc:
         raise _not_found() from exc
 
@@ -282,7 +294,9 @@ def list_project_messages(
     db: Session = Depends(get_db),
 ):
     try:
-        result = ProjectHistoryRepository(db, principal.scope_id).list_messages(
+        result = ProjectHistoryRepository(
+            db, principal.scope_id, principal.organization_id
+        ).list_messages(
             project_id,
             after=after,
             limit=limit,
@@ -303,7 +317,9 @@ def append_project_message(
 ):
     _verify_persisted_file_artifacts(data, principal)
     try:
-        result, created = ProjectHistoryRepository(db, principal.scope_id).append_message(
+        result, created = ProjectHistoryRepository(
+            db, principal.scope_id, principal.organization_id
+        ).append_message(
             project_id,
             _message_payload(data),
             _idempotency_key(idempotency_key),
@@ -327,7 +343,9 @@ def update_project_message(
 ):
     _verify_persisted_file_artifacts(data, principal)
     try:
-        result, _ = ProjectHistoryRepository(db, principal.scope_id).update_message(
+        result, _ = ProjectHistoryRepository(
+            db, principal.scope_id, principal.organization_id
+        ).update_message(
             project_id,
             message_id,
             _message_payload(data, exclude_unset=True),

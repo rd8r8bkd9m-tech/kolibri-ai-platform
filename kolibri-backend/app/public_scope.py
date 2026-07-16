@@ -17,7 +17,12 @@ from sqlalchemy.orm import Session
 
 from app.browser_session import ProjectPrincipal, resolve_optional_project_principal
 from app.database import get_db
-from app.models import PublicApiKeyDB
+from app.models import (
+    OrganizationAuditEventDB,
+    OrganizationDB,
+    OrganizationMembershipDB,
+    PublicApiKeyDB,
+)
 
 
 def _configured_key_hashes() -> list[str]:
@@ -56,6 +61,31 @@ def _api_key_scope(
         and key.revoked_at is None
         and hmac.compare_digest(str(key.secret_hash), digest)
     )
+    if key is not None and key.organization_id:
+        # An organization-issued credential can never fall through to the
+        # platform environment-key lane after revocation or suspension.
+        env_match = False
+    if database_match and key is not None and key.organization_id:
+        organization = db.query(OrganizationDB).filter(
+            OrganizationDB.id == key.organization_id,
+            OrganizationDB.status == "active",
+            OrganizationDB.data_scope_id == key.owner_scope,
+        ).first()
+        creator = db.query(OrganizationAuditEventDB.actor_user_id).filter(
+            OrganizationAuditEventDB.organization_id == key.organization_id,
+            OrganizationAuditEventDB.action == "api_key.created",
+            OrganizationAuditEventDB.target_type == "api_key",
+            OrganizationAuditEventDB.target_id == key.id,
+        ).scalar()
+        membership_active = bool(
+            creator
+            and db.query(OrganizationMembershipDB.id).filter(
+                OrganizationMembershipDB.organization_id == key.organization_id,
+                OrganizationMembershipDB.user_id == creator,
+                OrganizationMembershipDB.status == "active",
+            ).first()
+        )
+        database_match = organization is not None and membership_active
     if not env_match and not database_match:
         if required:
             raise HTTPException(status_code=401, detail={"code": "invalid_api_key"})
@@ -73,6 +103,9 @@ def _api_key_scope(
                 provider="kolibri-api-key-auth",
                 evidence_id=str(key.id),
             )
+        if key.organization_id:
+            request.state.kolibri_response_organization_id = key.organization_id
+            return key.owner_scope
         return f"api-key:{key.id}"
     return f"api-key-sha256:{digest}"
 
@@ -94,6 +127,7 @@ async def authorize_public_scope(
                 },
             )
         scope = browser_principal.scope_id
+        request.state.kolibri_response_organization_id = browser_principal.organization_id
     else:
         scope = _api_key_scope(request, db, required=True, touch=True)
         assert scope is not None

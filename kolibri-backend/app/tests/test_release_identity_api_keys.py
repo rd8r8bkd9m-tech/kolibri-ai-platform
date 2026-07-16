@@ -11,6 +11,7 @@ from app.auth import create_access_token
 from app.database import Base, get_db
 from app.main import app
 from app.models import PublicApiKeyDB, UserDB
+from app.organization_auth import ensure_personal_organization
 
 
 @pytest.fixture()
@@ -38,14 +39,17 @@ def client(monkeypatch, tmp_path):
     monkeypatch.setenv("KOLIBRI_ARTIFACT_DIR", str(tmp_path / "artifacts"))
     monkeypatch.setenv("KOLIBRI_CAPABILITY_PROBE_FILE", str(tmp_path / "capability-probes.json"))
     with testing_session() as db:
-        db.add(UserDB(
+        user = UserDB(
             id="user-platform-owner",
             email="owner@example.test",
             name="Platform owner",
             hashed_password="not-used",
             role="owner",
             is_active=True,
-        ))
+        )
+        db.add(user)
+        db.flush()
+        ensure_personal_organization(db, user)
         db.commit()
     app.dependency_overrides[get_db] = override_get_db
     with TestClient(app) as test_client:
