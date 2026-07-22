@@ -14,6 +14,7 @@ from app.estimate_action import (
     is_estimate_request,
     latest_user_text,
 )
+from app.skill_runtime import public_specialization_for_messages
 
 AI_TIMEOUT = int(os.getenv("AI_TIMEOUT", "60"))
 PROVIDER_FAILURE_COOLDOWN_SECONDS = int(os.getenv("PROVIDER_FAILURE_COOLDOWN_SECONDS", "60"))
@@ -235,15 +236,24 @@ def _kolibri_system_prompt() -> str:
     return f"{SYSTEM_PROMPT}\n\n{SOLO_BEHAVIOR_PROMPT}\n\n{capability_context}"
 
 
-def _compose_system_prompt(specialization: Optional[str] = None) -> str:
-    """Add a task specialization without dropping Kolibri/Solo invariants."""
+def _compose_system_prompt(
+    specialization: Optional[str] = None,
+    messages: Optional[List[Dict[str, str]]] = None,
+) -> str:
+    """Compose identity, live capabilities and only the relevant safe skills."""
 
     base = _kolibri_system_prompt()
-    if not specialization:
+    routed = public_specialization_for_messages(messages or [])
+    additions = [
+        value.strip()
+        for value in (routed, specialization)
+        if isinstance(value, str) and value.strip()
+    ]
+    if not additions:
         return base
     return (
         f"{base}\n\nДополнительная специализация для текущей задачи:\n"
-        f"{specialization.strip()}\n\n"
+        f"{'\n\n'.join(additions)}\n\n"
         "Эта специализация не отменяет идентичность Колибри, проверку capabilities, "
         "запрет имитации и остальные правила режима Solo."
     )
@@ -624,7 +634,7 @@ async def chat_completion(
         return image_result
     if not raw_json_output and system is None and _is_self_description_request(messages):
         return _capability_self_description()
-    full_messages = [{"role": "system", "content": _compose_system_prompt(system)}] + messages
+    full_messages = [{"role": "system", "content": _compose_system_prompt(system, messages)}] + messages
     
     # Get ordered list of providers to try
     providers_to_try = _get_providers_for_task(task_type)
@@ -1085,7 +1095,7 @@ async def chat_completion_stream(
             "fallback_used": False,
         }
         return
-    full_messages = [{"role": "system", "content": _compose_system_prompt(system)}] + messages
+    full_messages = [{"role": "system", "content": _compose_system_prompt(system, messages)}] + messages
     providers_to_try = _get_providers_for_task(task_type)
     estimate_requested = is_estimate_request(messages)
 
