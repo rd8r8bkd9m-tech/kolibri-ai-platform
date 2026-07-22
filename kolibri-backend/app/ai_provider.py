@@ -251,9 +251,10 @@ def _compose_system_prompt(
     ]
     if not additions:
         return base
+    combined = "\n\n".join(additions)
     return (
         f"{base}\n\nДополнительная специализация для текущей задачи:\n"
-        f"{'\n\n'.join(additions)}\n\n"
+        f"{combined}\n\n"
         "Эта специализация не отменяет идентичность Колибри, проверку capabilities, "
         "запрет имитации и остальные правила режима Solo."
     )
