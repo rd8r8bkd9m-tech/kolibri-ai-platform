@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
@@ -8,8 +9,6 @@ const APP_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
-const REPO_ROOT = path.dirname(APP_ROOT);
-
 const readSource = (relativePath) =>
   readFile(path.join(APP_ROOT, relativePath), "utf8");
 
@@ -56,15 +55,17 @@ test("the pet roster ships ten original characters with versioned assets", async
 });
 
 test("the original Kolibri remains byte-identical in the versioned master", async () => {
-  const [source, copiedMaster] = await Promise.all([
-    readFile(path.join(REPO_ROOT, "kolibri-v2/public/kolibri-bird.png")),
-    readFile(path.join(APP_ROOT, "public/pets/masters/kolibri-v1.png")),
-  ]);
+  const copiedMaster = await readFile(
+    path.join(APP_ROOT, "public/pets/masters/kolibri-v1.png"),
+  );
 
-  assert.ok(source.equals(copiedMaster));
-  assert.equal(source.readUInt32BE(16), 1254);
-  assert.equal(source.readUInt32BE(20), 1254);
-  assert.equal(source[25], 6, "source PNG must remain RGBA");
+  assert.equal(
+    createHash("sha256").update(copiedMaster).digest("hex"),
+    "6f30357f75c963e5e4d85b464b10eadb2545d2a6b40aced54861571c4322c3d7",
+  );
+  assert.equal(copiedMaster.readUInt32BE(16), 1254);
+  assert.equal(copiedMaster.readUInt32BE(20), 1254);
+  assert.equal(copiedMaster[25], 6, "source PNG must remain RGBA");
 });
 
 test("one existing pet component owns selection, movement, hiding and previews", async () => {
