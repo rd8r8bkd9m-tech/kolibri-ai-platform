@@ -97,8 +97,9 @@ install -d -o root -g root -m 700 "$backup_dir"
 cp -a "$active_nginx" "$backup_dir/nginx-kolibri.conf"
 cp -a "$backend_unit" "$backup_dir/kolibri-v3-backend.service"
 cp -a "$frontend_unit" "$backup_dir/kolibri-v3-frontend.service"
-sqlite3 /opt/kolibri-v3/var/kolibri-v3.db \
-  ".backup '$backup_dir/kolibri-v3.db'"
+"$source_root/backend/venv/bin/python" -c \
+  'import sqlite3, sys; source = sqlite3.connect(sys.argv[1]); destination = sqlite3.connect(sys.argv[2]); source.backup(destination); destination.close(); source.close()' \
+  /opt/kolibri-v3/var/kolibri-v3.db "$backup_dir/kolibri-v3.db"
 chmod 600 "$backup_dir/kolibri-v3.db"
 sha256sum \
   "$backup_dir/nginx-kolibri.conf" \
