@@ -1,0 +1,293 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.kolibriai.ru/v3/contracts/v1/chat/ag-ui-event.schema.json",
+  "title": "Kolibri V3 public AG-UI event v1",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/runStarted"
+    },
+    {
+      "$ref": "#/$defs/textMessageStart"
+    },
+    {
+      "$ref": "#/$defs/textMessageContent"
+    },
+    {
+      "$ref": "#/$defs/textMessageEnd"
+    },
+    {
+      "$ref": "#/$defs/runFinished"
+    },
+    {
+      "$ref": "#/$defs/runError"
+    }
+  ],
+  "$defs": {
+    "opaqueId": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{7,159}$"
+    },
+    "eventMetadata": {
+      "type": "object",
+      "required": [
+        "eventId",
+        "sequence",
+        "recordedAt"
+      ],
+      "properties": {
+        "eventId": {
+          "$ref": "#/$defs/opaqueId"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "runStarted": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/eventMetadata"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "threadId",
+            "runId",
+            "eventId",
+            "sequence",
+            "recordedAt"
+          ],
+          "properties": {
+            "type": {
+              "const": "RUN_STARTED"
+            },
+            "threadId": {
+              "$ref": "#/$defs/opaqueId"
+            },
+            "runId": {
+              "$ref": "#/$defs/opaqueId"
+            },
+            "eventId": {
+              "$ref": "#/$defs/opaqueId"
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "recordedAt": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        }
+      ]
+    },
+    "textMessageStart": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "messageId",
+        "role",
+        "eventId",
+        "sequence",
+        "recordedAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "TEXT_MESSAGE_START"
+        },
+        "messageId": {
+          "$ref": "#/$defs/opaqueId"
+        },
+        "role": {
+          "const": "assistant"
+        },
+        "eventId": {
+          "$ref": "#/$defs/opaqueId"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "textMessageContent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "messageId",
+        "delta",
+        "eventId",
+        "sequence",
+        "recordedAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "TEXT_MESSAGE_CONTENT"
+        },
+        "messageId": {
+          "$ref": "#/$defs/opaqueId"
+        },
+        "delta": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "eventId": {
+          "$ref": "#/$defs/opaqueId"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "textMessageEnd": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "messageId",
+        "eventId",
+        "sequence",
+        "recordedAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "TEXT_MESSAGE_END"
+        },
+        "messageId": {
+          "$ref": "#/$defs/opaqueId"
+        },
+        "eventId": {
+          "$ref": "#/$defs/opaqueId"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "runFinished": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "threadId",
+        "runId",
+        "outcome",
+        "eventId",
+        "sequence",
+        "recordedAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "RUN_FINISHED"
+        },
+        "threadId": {
+          "$ref": "#/$defs/opaqueId"
+        },
+        "runId": {
+          "$ref": "#/$defs/opaqueId"
+        },
+        "outcome": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "const": "success"
+            }
+          }
+        },
+        "eventId": {
+          "$ref": "#/$defs/opaqueId"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "runError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "threadId",
+        "runId",
+        "code",
+        "message",
+        "eventId",
+        "sequence",
+        "recordedAt"
+      ],
+      "properties": {
+        "type": {
+          "const": "RUN_ERROR"
+        },
+        "threadId": {
+          "$ref": "#/$defs/opaqueId"
+        },
+        "runId": {
+          "$ref": "#/$defs/opaqueId"
+        },
+        "code": {
+          "type": "string",
+          "enum": [
+            "provider_unavailable",
+            "provider_timeout",
+            "provider_protocol_error",
+            "provider_cancelled",
+            "run_failed"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        },
+        "eventId": {
+          "$ref": "#/$defs/opaqueId"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}

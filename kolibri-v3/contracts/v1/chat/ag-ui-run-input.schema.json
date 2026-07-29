@@ -1,0 +1,211 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.kolibriai.ru/v3/contracts/v1/chat/ag-ui-run-input.schema.json",
+  "title": "Kolibri V3 AG-UI text run input v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "threadId",
+    "runId",
+    "state",
+    "messages",
+    "tools",
+    "context",
+    "forwardedProps"
+  ],
+  "properties": {
+    "threadId": {
+      "$ref": "#/$defs/opaqueClientId"
+    },
+    "runId": {
+      "$ref": "#/$defs/opaqueClientId"
+    },
+    "state": {
+      "type": "null"
+    },
+    "messages": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 200,
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/userMessage"
+          },
+          {
+            "$ref": "#/$defs/assistantMessage"
+          }
+        ]
+      }
+    },
+    "tools": {
+      "type": "array",
+      "maxItems": 0
+    },
+    "context": {
+      "type": "array",
+      "maxItems": 0
+    },
+    "forwardedProps": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "agentProfile",
+        "executionMode"
+      ],
+      "properties": {
+        "agentProfile": {
+          "$ref": "#/$defs/agentProfile"
+        },
+        "executionMode": {
+          "$ref": "#/$defs/executionMode"
+        },
+        "accessMode": {
+          "$ref": "#/$defs/accessMode"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "executionMode": {
+                "const": "developer"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "accessMode": {
+                "enum": [
+                  "auto",
+                  "full"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "executionMode": {
+                "const": "standard"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "accessMode": {
+                "const": "standard"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "opaqueClientId": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{7,127}$"
+    },
+    "agentProfile": {
+      "type": "string",
+      "enum": [
+        "auto",
+        "mimo-code",
+        "codex-cli"
+      ]
+    },
+    "executionMode": {
+      "type": "string",
+      "enum": [
+        "standard",
+        "developer"
+      ]
+    },
+    "accessMode": {
+      "type": "string",
+      "enum": [
+        "standard",
+        "auto",
+        "full"
+      ]
+    },
+    "textPart": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "text"
+      ],
+      "properties": {
+        "type": {
+          "const": "text"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        }
+      }
+    },
+    "userMessage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "role",
+        "content"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/opaqueClientId"
+        },
+        "role": {
+          "const": "user"
+        },
+        "content": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 65536
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 64,
+              "items": {
+                "$ref": "#/$defs/textPart"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "assistantMessage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "role",
+        "content"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/opaqueClientId"
+        },
+        "role": {
+          "const": "assistant"
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200000
+        }
+      }
+    }
+  }
+}

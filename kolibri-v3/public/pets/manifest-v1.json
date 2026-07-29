@@ -1,0 +1,122 @@
+{
+  "version": 1,
+  "visualDirection": "Небесный сад Kolibri — premium 3D-cartoon друзья с общей бирюзово-белой визуальной ДНК.",
+  "sourceReference": "kolibri-v2/public/kolibri-bird.png",
+  "loadingPolicy": {
+    "active": "512px alpha WebP; загружается только для выбранного питомца",
+    "selector": "144px alpha WebP; lazy-loaded preview",
+    "master": "1254px alpha PNG; не используется интерфейсом напрямую"
+  },
+  "pets": [
+    {
+      "id": "kolibri",
+      "assetSlug": "kolibri",
+      "name": "Коли",
+      "personality": "Энергичный и внимательный",
+      "role": "Универсал",
+      "animation": "Радостный взмах",
+      "master": "/pets/masters/kolibri-v1.png",
+      "active": "/pets/active/kolibri-v1.webp",
+      "thumbnail": "/pets/thumbs/kolibri-v1.webp"
+    },
+    {
+      "id": "lumi",
+      "assetSlug": "lumi",
+      "name": "Луми",
+      "personality": "Мягкая и вдумчивая",
+      "role": "Фокус",
+      "animation": "Раскрывает крылья",
+      "master": "/pets/masters/lumi-v1.png",
+      "active": "/pets/active/lumi-v1.webp",
+      "thumbnail": "/pets/thumbs/lumi-v1.webp"
+    },
+    {
+      "id": "fini",
+      "assetSlug": "fini",
+      "name": "Фини",
+      "personality": "Любопытный и находчивый",
+      "role": "Разведчик",
+      "animation": "Навостряет уши",
+      "master": "/pets/masters/fini-v1.png",
+      "active": "/pets/active/fini-v1.webp",
+      "thumbnail": "/pets/thumbs/fini-v1.webp"
+    },
+    {
+      "id": "spark",
+      "assetSlug": "iskra",
+      "name": "Искра",
+      "personality": "Смелая и стремительная",
+      "role": "Ускоритель",
+      "animation": "Пружинистый рывок",
+      "master": "/pets/masters/iskra-v1.png",
+      "active": "/pets/active/iskra-v1.webp",
+      "thumbnail": "/pets/thumbs/iskra-v1.webp"
+    },
+    {
+      "id": "dewdrop",
+      "assetSlug": "runi",
+      "name": "Руни",
+      "personality": "Терпеливый и добрый",
+      "role": "Поддержка",
+      "animation": "Качает жабрами",
+      "master": "/pets/masters/runi-v1.png",
+      "active": "/pets/active/runi-v1.webp",
+      "thumbnail": "/pets/thumbs/runi-v1.webp"
+    },
+    {
+      "id": "owl",
+      "assetSlug": "buki",
+      "name": "Буки",
+      "personality": "Точный и рассудительный",
+      "role": "Ревьюер",
+      "animation": "Вдумчивый наклон",
+      "master": "/pets/masters/buki-v1.png",
+      "active": "/pets/active/buki-v1.webp",
+      "thumbnail": "/pets/thumbs/buki-v1.webp"
+    },
+    {
+      "id": "sprout",
+      "assetSlug": "mohi",
+      "name": "Мохи",
+      "personality": "Надёжный и созидательный",
+      "role": "Строитель",
+      "animation": "Тянется ростком",
+      "master": "/pets/masters/mohi-v1.png",
+      "active": "/pets/active/mohi-v1.webp",
+      "thumbnail": "/pets/thumbs/mohi-v1.webp"
+    },
+    {
+      "id": "nimbi",
+      "assetSlug": "nimbi",
+      "name": "Нимби",
+      "personality": "Мечтательный и изобретательный",
+      "role": "Идейник",
+      "animation": "Плывёт волной",
+      "master": "/pets/masters/nimbi-v1.png",
+      "active": "/pets/active/nimbi-v1.webp",
+      "thumbnail": "/pets/thumbs/nimbi-v1.webp"
+    },
+    {
+      "id": "klik",
+      "assetSlug": "klik",
+      "name": "Клик",
+      "personality": "Собранный и технический",
+      "role": "Исполнитель",
+      "animation": "Закручивает хвост",
+      "master": "/pets/masters/klik-v1.png",
+      "active": "/pets/active/klik-v1.webp",
+      "thumbnail": "/pets/thumbs/klik-v1.webp"
+    },
+    {
+      "id": "zumi",
+      "assetSlug": "zumi",
+      "name": "Зуми",
+      "personality": "Радостный и отзывчивый",
+      "role": "Мотиватор",
+      "animation": "Весёлый гул",
+      "master": "/pets/masters/zumi-v1.png",
+      "active": "/pets/active/zumi-v1.webp",
+      "thumbnail": "/pets/thumbs/zumi-v1.webp"
+    }
+  ]
+}

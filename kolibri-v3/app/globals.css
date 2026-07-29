@@ -1,0 +1,727 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "tw-shimmer";
+
+@source "../node_modules/@assistant-ui/react-streamdown/dist/*.js";
+@source "../node_modules/streamdown/dist/*.js";
+@source "../node_modules/@streamdown/cjk/dist/*.js";
+@source "../node_modules/@streamdown/code/dist/*.js";
+@source "../node_modules/@streamdown/math/dist/*.js";
+@source "../node_modules/@streamdown/mermaid/dist/*.js";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  @keyframes collapsible-down {
+  from {
+    height: 0;
+    }
+  to {
+    height: var(--radix-collapsible-content-height, var(--collapsible-panel-height, auto));
+    }
+  }
+  @keyframes collapsible-up {
+  from {
+    height: var(--radix-collapsible-content-height, var(--collapsible-panel-height, auto));
+    }
+  to {
+    height: 0;
+    }
+  }
+}
+
+:root {
+  --radius: 0.75rem;
+  --background: oklch(0.995 0.001 95);
+  --foreground: oklch(0.185 0.005 265);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.185 0.005 265);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.185 0.005 265);
+  --primary: oklch(0.205 0.006 265);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.965 0.002 95);
+  --secondary-foreground: oklch(0.205 0.006 265);
+  --muted: oklch(0.965 0.002 95);
+  --muted-foreground: oklch(0.525 0.012 265);
+  --accent: oklch(0.955 0.004 265);
+  --accent-foreground: oklch(0.205 0.006 265);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.905 0.004 265);
+  --input: oklch(0.905 0.004 265);
+  --ring: oklch(0.59 0.018 265);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: oklch(0.955 0.003 95);
+  --sidebar-foreground: oklch(0.185 0.005 265);
+  --sidebar-primary: oklch(0.205 0.006 265);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.925 0.005 95);
+  --sidebar-accent-foreground: oklch(0.205 0.006 265);
+  --sidebar-border: oklch(0.88 0.004 265);
+  --sidebar-ring: oklch(0.59 0.018 265);
+  --kolibri-chrome: #efefec;
+  --kolibri-panel: #f7f7f5;
+  --kolibri-surface: #ffffff;
+  --kolibri-canvas: #f2f2ef;
+  --kolibri-accent: #20201f;
+  --kolibri-positive: #237a56;
+  --kolibri-warning: #956814;
+  --kolibri-panel-shadow: 0 1px 2px rgb(0 0 0 / 0.035),
+    0 12px 36px rgb(0 0 0 / 0.04);
+}
+
+.dark {
+  --background: oklch(0.141 0.005 285.823);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.21 0.006 285.885);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.21 0.006 285.885);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.92 0.004 286.32);
+  --primary-foreground: oklch(0.21 0.006 285.885);
+  --secondary: oklch(0.274 0.006 286.033);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.274 0.006 286.033);
+  --muted-foreground: oklch(0.705 0.015 286.067);
+  --accent: oklch(0.274 0.006 286.033);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.552 0.016 285.938);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.21 0.006 285.885);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.274 0.006 286.033);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.552 0.016 285.938);
+  --kolibri-chrome: #171717;
+  --kolibri-panel: #202020;
+  --kolibri-surface: #242424;
+  --kolibri-canvas: #1b1b1b;
+  --kolibri-accent: #f2f2f0;
+  --kolibri-positive: #65bc91;
+  --kolibri-warning: #d4ab58;
+  --kolibri-panel-shadow: none;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html,
+  body {
+    @apply bg-background text-foreground;
+    min-width: 320px;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+  body {
+    font-feature-settings:
+      "ss01" 1,
+      "cv02" 1,
+      "cv03" 1;
+    text-rendering: optimizeLegibility;
+  }
+  button,
+  [role="button"] {
+    cursor: pointer;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--foreground) 14%, transparent);
+  }
+  :focus-visible {
+    outline-offset: 2px;
+  }
+}
+
+* {
+  scrollbar-color: color-mix(in oklab, var(--foreground) 22%, transparent)
+    transparent;
+  scrollbar-width: thin;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@custom-variant data-open (&:where([data-state="open"], [data-open]:not([data-open="false"])));
+
+@custom-variant data-closed (&:where([data-state="closed"], [data-closed]:not([data-closed="false"])));
+
+@layer components {
+  .aui-streamdown [data-streamdown="code-block"],
+  .aui-streamdown [data-streamdown="mermaid-block"] {
+    margin-block: 0.875rem;
+    border-color: var(--border);
+    border-radius: 0.75rem;
+    background: var(--background);
+  }
+
+  .aui-streamdown [data-streamdown="code-block-body"] {
+    border-color: var(--border);
+    border-radius: 0 0 0.625rem 0.625rem;
+    background: color-mix(in oklab, var(--muted) 42%, var(--background));
+  }
+
+  .aui-streamdown [data-streamdown="code-block-actions"],
+  .aui-streamdown [data-streamdown="mermaid-block-actions"] {
+    border-color: var(--border);
+    background: var(--background);
+    box-shadow: none;
+    backdrop-filter: none !important;
+  }
+
+  .aui-streamdown .katex-display {
+    margin-block: 0.875rem;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-block: 0.25rem;
+  }
+
+  .aui-streamdown .aui-md-blocked-link,
+  .aui-streamdown .aui-md-blocked-image {
+    color: var(--muted-foreground);
+    text-decoration: line-through;
+    pointer-events: none;
+  }
+}
+
+@keyframes kolibri-weather-backdrop-drift {
+  0% {
+    transform: scale(1.045) translate3d(-0.8%, -0.5%, 0);
+  }
+  100% {
+    transform: scale(1.085) translate3d(0.9%, 0.7%, 0);
+  }
+}
+
+@keyframes kolibri-weather-rain-flow {
+  0% {
+    opacity: 0.16;
+    transform: scale(1.08) translate3d(0, -5%, 0);
+  }
+  55% {
+    opacity: 0.35;
+  }
+  100% {
+    opacity: 0.18;
+    transform: scale(1.08) translate3d(0, 6%, 0);
+  }
+}
+
+@keyframes kolibri-weather-celestial-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes kolibri-weather-celestial-float {
+  0% {
+    transform: translate3d(-4px, 3px, 0) rotate(-4deg);
+  }
+  100% {
+    transform: translate3d(5px, -4px, 0) rotate(5deg);
+  }
+}
+
+@keyframes kolibri-weather-snow-fall {
+  0% {
+    opacity: 0;
+    transform: translate3d(-10px, -20px, 0) rotate(0deg);
+  }
+  16% {
+    opacity: 0.75;
+  }
+  84% {
+    opacity: 0.6;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(35px, 620px, 0) rotate(270deg);
+  }
+}
+
+@keyframes kolibri-weather-lightning {
+  0%,
+  89%,
+  93%,
+  100% {
+    opacity: 0;
+  }
+  90% {
+    opacity: 0.13;
+  }
+  91% {
+    opacity: 0.02;
+  }
+  92% {
+    opacity: 0.1;
+  }
+}
+
+.kolibri-weather-scene__backdrop {
+  animation: kolibri-weather-backdrop-drift 18s ease-in-out infinite alternate;
+  transform-origin: center;
+  will-change: transform;
+}
+
+.kolibri-weather-scene__rain {
+  animation: kolibri-weather-rain-flow 5.5s linear infinite;
+  mix-blend-mode: screen;
+  will-change: transform, opacity;
+}
+
+.kolibri-weather-scene__sun {
+  animation: kolibri-weather-celestial-spin 24s linear infinite;
+  filter: drop-shadow(0 0 22px rgb(254 240 138 / 0.48));
+  transform-origin: center;
+}
+
+.kolibri-weather-scene__moon {
+  animation: kolibri-weather-celestial-float 7s ease-in-out infinite alternate;
+  filter: drop-shadow(0 0 18px rgb(226 232 240 / 0.34));
+}
+
+.kolibri-weather-scene__snow {
+  animation: kolibri-weather-snow-fall 8s linear infinite;
+  will-change: transform, opacity;
+}
+
+.kolibri-weather-scene__snow--two {
+  animation-delay: -2.7s;
+  animation-duration: 10s;
+}
+
+.kolibri-weather-scene__snow--three {
+  animation-delay: -5.1s;
+  animation-duration: 7s;
+}
+
+.kolibri-weather-scene__flash {
+  animation: kolibri-weather-lightning 7s linear infinite;
+  opacity: 0;
+}
+
+.kolibri-weather-current-icon--spin {
+  animation: kolibri-weather-celestial-spin 14s linear infinite;
+}
+
+.kolibri-weather-current-icon--float {
+  animation: kolibri-weather-celestial-float 4.5s ease-in-out infinite alternate;
+}
+
+[data-weather-active="false"] .kolibri-weather-scene__backdrop,
+[data-weather-active="false"] .kolibri-weather-scene__rain,
+[data-weather-active="false"] .kolibri-weather-scene__sun,
+[data-weather-active="false"] .kolibri-weather-scene__moon,
+[data-weather-active="false"] .kolibri-weather-scene__snow,
+[data-weather-active="false"] .kolibri-weather-scene__flash,
+[data-weather-active="false"] .kolibri-weather-current-icon {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kolibri-weather-scene__backdrop,
+  .kolibri-weather-scene__rain,
+  .kolibri-weather-scene__sun,
+  .kolibri-weather-scene__moon,
+  .kolibri-weather-scene__snow,
+  .kolibri-weather-scene__flash,
+  .kolibri-weather-current-icon {
+    animation: none !important;
+  }
+}
+@keyframes kolibri-pet-hover {
+  0%,
+  100% {
+    transform: translate3d(0, 1px, 0) rotate(-0.6deg);
+  }
+  50% {
+    transform: translate3d(0, -4px, 0) rotate(0.6deg);
+  }
+}
+
+@keyframes kolibri-pet-drift {
+  0%,
+  100% {
+    transform: translate3d(-2px, 1px, 0) rotate(-1deg);
+  }
+  50% {
+    transform: translate3d(3px, -3px, 0) rotate(1deg);
+  }
+}
+
+@keyframes kolibri-pet-breathe {
+  0%,
+  100% {
+    transform: translate3d(0, 1px, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(0, -1px, 0) scale(1.015);
+  }
+}
+
+@keyframes kolibri-pet-watch {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-1.5deg);
+  }
+  55% {
+    transform: translateY(-2px) rotate(1.2deg);
+  }
+}
+
+@keyframes kolibri-pet-buzz-idle {
+  0%,
+  94%,
+  100% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+  96% {
+    transform: translate3d(-1px, -2px, 0) rotate(-1deg);
+  }
+  98% {
+    transform: translate3d(1px, -1px, 0) rotate(1deg);
+  }
+}
+
+@keyframes kolibri-pet-react-wing {
+  0%,
+  100% {
+    transform: scale(1) rotate(0deg);
+  }
+  32% {
+    transform: scale(1.07) rotate(-7deg);
+  }
+  66% {
+    transform: scale(1.04) rotate(6deg);
+  }
+}
+
+@keyframes kolibri-pet-react-unfold {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.09, 0.96) translateY(-2px);
+  }
+}
+
+@keyframes kolibri-pet-react-ears {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  38% {
+    transform: translateY(-5px) rotate(-3deg);
+  }
+  72% {
+    transform: translateY(-2px) rotate(3deg);
+  }
+}
+
+@keyframes kolibri-pet-react-dash {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  34% {
+    transform: translate3d(8px, -7px, 0) scale(0.98, 1.04);
+  }
+  68% {
+    transform: translate3d(-2px, 1px, 0) scale(1.04, 0.98);
+  }
+}
+
+@keyframes kolibri-pet-react-gills {
+  0%,
+  100% {
+    transform: rotate(0deg) scale(1);
+  }
+  35% {
+    transform: rotate(-3deg) scale(1.025, 0.98);
+  }
+  70% {
+    transform: rotate(3deg) scale(0.99, 1.02);
+  }
+}
+
+@keyframes kolibri-pet-react-review {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  48% {
+    transform: rotate(8deg) translateY(-2px);
+  }
+}
+
+@keyframes kolibri-pet-react-grow {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  45% {
+    transform: translateY(-5px) scale(1.035);
+  }
+}
+
+@keyframes kolibri-pet-react-wave {
+  0%,
+  100% {
+    transform: translateX(0) scale(1);
+  }
+  42% {
+    transform: translateX(4px) scale(1.06, 0.96);
+  }
+  72% {
+    transform: translateX(-2px) scale(0.98, 1.03);
+  }
+}
+
+@keyframes kolibri-pet-react-coil {
+  0%,
+  100% {
+    transform: rotate(0deg) scale(1);
+  }
+  45% {
+    transform: rotate(9deg) scale(0.97);
+  }
+}
+
+@keyframes kolibri-pet-react-buzz {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+  20% {
+    transform: translate3d(-3px, -2px, 0) rotate(-2deg);
+  }
+  40% {
+    transform: translate3d(3px, -4px, 0) rotate(2deg);
+  }
+  60% {
+    transform: translate3d(-2px, -3px, 0) rotate(-1deg);
+  }
+  80% {
+    transform: translate3d(2px, -1px, 0) rotate(1deg);
+  }
+}
+
+.kolibri-pet-art {
+  position: relative;
+  display: grid;
+  place-items: center;
+  overflow: visible;
+  isolation: isolate;
+}
+
+.kolibri-pet-art::after {
+  position: absolute;
+  z-index: -1;
+  width: 62%;
+  height: 62%;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--pet-accent) 17%, transparent);
+  content: "";
+  filter: blur(18px);
+  opacity: 0.72;
+  transform: translateY(8%);
+}
+
+.kolibri-pet-art__idle,
+.kolibri-pet-art__reaction {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  transform-origin: center;
+}
+
+.kolibri-pet-art__idle {
+  animation: kolibri-pet-hover 3.4s ease-in-out infinite;
+  will-change: transform;
+}
+
+.kolibri-pet-art__image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  filter: drop-shadow(0 8px 7px rgb(18 83 115 / 0.2));
+  transform: translate3d(
+    var(--pet-gaze-x, 0),
+    var(--pet-gaze-y, 0),
+    0
+  );
+  transition: transform 80ms ease-out;
+  user-select: none;
+}
+
+.kolibri-pet-art[data-compact="true"]::after {
+  width: 72%;
+  height: 72%;
+  filter: blur(9px);
+  opacity: 0.52;
+}
+
+.kolibri-pet-art[data-compact="true"] .kolibri-pet-art__idle {
+  animation: none;
+}
+
+.kolibri-pet-art[data-pet-id="lumi"] .kolibri-pet-art__idle,
+.kolibri-pet-art[data-pet-id="nimbi"] .kolibri-pet-art__idle {
+  animation-name: kolibri-pet-drift;
+  animation-duration: 4.8s;
+}
+
+.kolibri-pet-art[data-pet-id="fini"] .kolibri-pet-art__idle,
+.kolibri-pet-art[data-pet-id="dewdrop"] .kolibri-pet-art__idle,
+.kolibri-pet-art[data-pet-id="sprout"] .kolibri-pet-art__idle {
+  animation-name: kolibri-pet-breathe;
+  animation-duration: 4.2s;
+}
+
+.kolibri-pet-art[data-pet-id="owl"] .kolibri-pet-art__idle,
+.kolibri-pet-art[data-pet-id="klik"] .kolibri-pet-art__idle {
+  animation-name: kolibri-pet-watch;
+  animation-duration: 5.2s;
+}
+
+.kolibri-pet-art[data-pet-id="zumi"] .kolibri-pet-art__idle {
+  animation-name: kolibri-pet-buzz-idle;
+  animation-duration: 3.8s;
+}
+
+.kolibri-pet-art[data-active="true"][data-pet-id="kolibri"]
+  .kolibri-pet-art__reaction {
+  animation: kolibri-pet-react-wing 680ms ease-out 1;
+}
+
+.kolibri-pet-art[data-active="true"][data-pet-id="lumi"]
+  .kolibri-pet-art__reaction {
+  animation: kolibri-pet-react-unfold 720ms ease-out 1;
+}
+
+.kolibri-pet-art[data-active="true"][data-pet-id="fini"]
+  .kolibri-pet-art__reaction {
+  animation: kolibri-pet-react-ears 650ms ease-out 1;
+}
+
+.kolibri-pet-art[data-active="true"][data-pet-id="spark"]
+  .kolibri-pet-art__reaction {
+  animation: kolibri-pet-react-dash 620ms cubic-bezier(0.22, 1, 0.36, 1) 1;
+}
+
+.kolibri-pet-art[data-active="true"][data-pet-id="dewdrop"]
+  .kolibri-pet-art__reaction {
+  animation: kolibri-pet-react-gills 760ms ease-in-out 1;
+}
+
+.kolibri-pet-art[data-active="true"][data-pet-id="owl"]
+  .kolibri-pet-art__reaction {
+  animation: kolibri-pet-react-review 720ms ease-in-out 1;
+}
+
+.kolibri-pet-art[data-active="true"][data-pet-id="sprout"]
+  .kolibri-pet-art__reaction {
+  animation: kolibri-pet-react-grow 760ms ease-out 1;
+}
+
+.kolibri-pet-art[data-active="true"][data-pet-id="nimbi"]
+  .kolibri-pet-art__reaction {
+  animation: kolibri-pet-react-wave 800ms ease-in-out 1;
+}
+
+.kolibri-pet-art[data-active="true"][data-pet-id="klik"]
+  .kolibri-pet-art__reaction {
+  animation: kolibri-pet-react-coil 680ms ease-in-out 1;
+}
+
+.kolibri-pet-art[data-active="true"][data-pet-id="zumi"]
+  .kolibri-pet-art__reaction {
+  animation: kolibri-pet-react-buzz 560ms ease-out 1;
+}
+
+@media (prefers-reduced-data: reduce) {
+  .kolibri-pet-art::after {
+    display: none;
+  }
+
+  .kolibri-pet-art__idle {
+    animation: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kolibri-pet-art::after {
+    filter: none;
+    opacity: 0.38;
+  }
+
+  .kolibri-pet-art__idle,
+  .kolibri-pet-art__reaction {
+    animation: none !important;
+  }
+
+  .kolibri-pet-art__image {
+    transform: none;
+    transition: none;
+  }
+}
