@@ -36,6 +36,14 @@ cp deploy/portable/config.env.example deploy/portable/config.env
 sudo ./deploy/portable/install.sh ./deploy/portable/config.env
 ```
 
+To validate the host, agent credentials, MiMo, Nginx, and TLS without changing
+the server:
+
+```bash
+sudo KOLIBRI_PREFLIGHT_ONLY=true \
+  ./deploy/portable/install.sh ./deploy/portable/config.env
+```
+
 The installer builds and tests the release before activation, creates an atomic
 `current` symlink, binds both application processes to loopback, installs
 instance-specific systemd units, backs up the SQLite database, and rolls back

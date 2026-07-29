@@ -36,6 +36,7 @@ KOLIBRI_MIMO_BASE_URL="${KOLIBRI_MIMO_BASE_URL:-http://127.0.0.1:39231}"
 KOLIBRI_MIMO_CLI_PATH="${KOLIBRI_MIMO_CLI_PATH:-/usr/local/bin/mimo}"
 KOLIBRI_RUN_FRONTEND_TESTS="${KOLIBRI_RUN_FRONTEND_TESTS:-true}"
 KOLIBRI_HEALTH_TIMEOUT_SECONDS="${KOLIBRI_HEALTH_TIMEOUT_SECONDS:-90}"
+KOLIBRI_PREFLIGHT_ONLY="${KOLIBRI_PREFLIGHT_ONLY:-false}"
 
 [[ "$KOLIBRI_INSTANCE" =~ ^[a-z0-9][a-z0-9-]{1,47}$ ]] ||
   { echo "install_error=invalid_instance" >&2; exit 2; }
@@ -66,7 +67,7 @@ for command_name in bash curl flock git node npm python3 runuser sha256sum syste
   command -v "$command_name" >/dev/null ||
     { echo "install_error=missing_command command=$command_name" >&2; exit 3; }
 done
-node_major="$(node -p 'Number(process.versions.node.split(\".\")[0])')"
+node_major="$(node -p 'Number(process.versions.node.split(".")[0])')"
 (( node_major >= 20 )) ||
   { echo "install_error=node_too_old version=$(node --version)" >&2; exit 3; }
 python3 -c 'import venv' >/dev/null 2>&1 ||
@@ -105,6 +106,13 @@ fi
 test -f "$source_root/package-lock.json"
 test -f "$source_root/backend/requirements.txt"
 test -f "$source_root/deploy/portable/config.env.example"
+
+if [[ "$KOLIBRI_PREFLIGHT_ONLY" == "true" ]]; then
+  echo "preflight_status=ok"
+  echo "instance=$KOLIBRI_INSTANCE"
+  echo "service_user=$KOLIBRI_SERVICE_USER"
+  exit 0
+fi
 
 source_digest="$(
   {
