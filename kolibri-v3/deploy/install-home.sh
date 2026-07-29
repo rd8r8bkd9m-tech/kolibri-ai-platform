@@ -73,6 +73,7 @@ install -d -o root -g root -m 700 "$backup_root"
 }
 install -d -o ladik -g ladik -m 755 "$source_root" "$runtime_root"
 tar -xzf "$archive" --strip-components=1 -C "$source_root"
+chown -R ladik:ladik "$release_root"
 
 test -f "$source_root/package-lock.json"
 test -f "$source_root/backend/requirements.txt"
