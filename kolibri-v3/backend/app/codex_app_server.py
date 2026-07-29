@@ -211,6 +211,31 @@ class CodexAppServerRuntime:
     def configured_effort(self) -> str | None:
         return self._effort or None
 
+    @staticmethod
+    def _subprocess_environment() -> dict[str, str]:
+        environment = {
+            "HOME": str(Path.home()),
+            "PATH": os.getenv("PATH", "/usr/local/bin:/usr/bin:/bin"),
+        }
+        for name in (
+            "CODEX_HOME",
+            "TMPDIR",
+            "LANG",
+            "LC_ALL",
+            "HTTP_PROXY",
+            "HTTPS_PROXY",
+            "ALL_PROXY",
+            "NO_PROXY",
+            "http_proxy",
+            "https_proxy",
+            "all_proxy",
+            "no_proxy",
+        ):
+            value = os.getenv(name)
+            if value:
+                environment[name] = value
+        return environment
+
     def start(self) -> None:
         """Start and initialize the process once; safe to call repeatedly."""
 
@@ -221,14 +246,7 @@ class CodexAppServerRuntime:
                 CodexAppServerError("Codex app-server was restarted.")
             )
             self._runtime_root.mkdir(mode=0o700, parents=True, exist_ok=True)
-            environment = {
-                "HOME": str(Path.home()),
-                "PATH": os.getenv("PATH", "/usr/local/bin:/usr/bin:/bin"),
-            }
-            for name in ("CODEX_HOME", "TMPDIR", "LANG", "LC_ALL"):
-                value = os.getenv(name)
-                if value:
-                    environment[name] = value
+            environment = self._subprocess_environment()
             try:
                 process = subprocess.Popen(
                     self._command,
@@ -460,14 +478,7 @@ class CodexAppServerRuntime:
             if Path(executable).name not in {"codex", "codex.exe"}:
                 self._bundled_models = ()
                 return self._bundled_models
-            environment = {
-                "HOME": str(Path.home()),
-                "PATH": os.getenv("PATH", "/usr/local/bin:/usr/bin:/bin"),
-            }
-            for name in ("CODEX_HOME", "TMPDIR", "LANG", "LC_ALL"):
-                value = os.getenv(name)
-                if value:
-                    environment[name] = value
+            environment = self._subprocess_environment()
             try:
                 completed = subprocess.run(
                     (executable, "debug", "models", "--bundled"),

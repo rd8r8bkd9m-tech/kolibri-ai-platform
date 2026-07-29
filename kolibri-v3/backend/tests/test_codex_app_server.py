@@ -366,6 +366,25 @@ def test_authenticated_preview_catalog_includes_all_gpt_56_variants() -> None:
     )
 
 
+def test_subprocess_environment_forwards_only_bounded_proxy_configuration(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    runtime = CodexAppServerRuntime(
+        runtime_root=tmp_path / "runtime",
+        command=("codex", "app-server", "--stdio"),
+    )
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:11081")
+    monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost")
+    monkeypatch.setenv("OPENAI_API_KEY", "must-not-be-forwarded")
+
+    environment = runtime._subprocess_environment()
+
+    assert environment["HTTPS_PROXY"] == "http://127.0.0.1:11081"
+    assert environment["NO_PROXY"] == "127.0.0.1,localhost"
+    assert "OPENAI_API_KEY" not in environment
+
+
 def test_developer_turn_uses_workspace_write_and_streams_activity(
     tmp_path: Path,
 ) -> None:
