@@ -28,6 +28,9 @@ source "$config_file"
 : "${KOLIBRI_PUBLIC_SCHEME:?KOLIBRI_PUBLIC_SCHEME is required}"
 
 KOLIBRI_ENABLE_NGINX="${KOLIBRI_ENABLE_NGINX:-true}"
+KOLIBRI_NGINX_SITE="${
+  KOLIBRI_NGINX_SITE:-/etc/nginx/sites-enabled/${KOLIBRI_INSTANCE}.conf
+}"
 KOLIBRI_DIRECT_MODEL_RUNTIME="${KOLIBRI_DIRECT_MODEL_RUNTIME:-true}"
 KOLIBRI_CODEX_BIN="${KOLIBRI_CODEX_BIN:-/usr/local/bin/codex}"
 KOLIBRI_REQUIRE_MIMO="${KOLIBRI_REQUIRE_MIMO:-true}"
@@ -90,6 +93,9 @@ if [[ "$KOLIBRI_REQUIRE_MIMO" == "true" ]]; then
 fi
 
 if [[ "$KOLIBRI_ENABLE_NGINX" == "true" ]]; then
+  [[ "$KOLIBRI_NGINX_SITE" == /etc/nginx/sites-enabled/* &&
+    "$KOLIBRI_NGINX_SITE" != */../* ]] ||
+    { echo "install_error=unsafe_nginx_site path=$KOLIBRI_NGINX_SITE" >&2; exit 2; }
   command -v nginx >/dev/null ||
     { echo "install_error=nginx_missing" >&2; exit 3; }
   : "${KOLIBRI_TLS_CERTIFICATE:?KOLIBRI_TLS_CERTIFICATE is required}"
@@ -128,7 +134,7 @@ backend_env_file="$KOLIBRI_CONFIG_ROOT/backend.env"
 frontend_env_file="$KOLIBRI_CONFIG_ROOT/frontend.env"
 backend_unit="/etc/systemd/system/${KOLIBRI_INSTANCE}-backend.service"
 frontend_unit="/etc/systemd/system/${KOLIBRI_INSTANCE}-frontend.service"
-nginx_site="/etc/nginx/sites-enabled/${KOLIBRI_INSTANCE}.conf"
+nginx_site="$KOLIBRI_NGINX_SITE"
 backup_dir="$KOLIBRI_BACKUP_ROOT/$(date -u +%Y%m%dT%H%M%SZ)-$release_id"
 lock_file="/run/lock/${KOLIBRI_INSTANCE}-release.lock"
 switched=0
