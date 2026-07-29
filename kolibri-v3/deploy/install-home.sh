@@ -83,6 +83,8 @@ runuser -u ladik -- python3 -m venv "$source_root/backend/venv"
 runuser -u ladik -- "$source_root/backend/venv/bin/python" -m pip install \
   --disable-pip-version-check -r "$source_root/backend/requirements.txt"
 runuser -u ladik -- bash -lc \
+  "cd '$source_root/backend' && ./venv/bin/python -c 'import app.main'"
+runuser -u ladik -- bash -lc \
   "cd '$source_root' && npm ci && npm run typecheck && npm test && npm run build"
 
 install -d -o ladik -g ladik -m 755 "$runtime_root/frontend"
