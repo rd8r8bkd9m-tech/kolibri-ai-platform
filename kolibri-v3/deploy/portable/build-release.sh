@@ -4,11 +4,9 @@ set -Eeuo pipefail
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 project_root="$(cd -- "$script_dir/../.." && pwd -P)"
 repo_root="$(git -C "$project_root" rev-parse --show-toplevel)"
-relative_project="$(git -C "$repo_root" ls-files --full-name "$project_root" | head -n 1)"
-
-if [[ -z "$relative_project" ]]; then
-  relative_project="${project_root#"$repo_root"/}"
-fi
+[[ "$project_root" == "$repo_root/"* ]] ||
+  { echo "release_error=project_outside_repository" >&2; exit 2; }
+relative_project="${project_root#"$repo_root"/}"
 
 commit="$(git -C "$repo_root" rev-parse HEAD)"
 if [[ -n "$(git -C "$repo_root" status --porcelain --untracked-files=all \
