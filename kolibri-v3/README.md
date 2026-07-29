@@ -94,6 +94,12 @@ npm test
 npm run build
 ```
 
+## Production-деплой
+
+Переносимый Linux/systemd-релиз, конфигурация одного изолированного инстанса,
+атомарное переключение и локальный smoke-test описаны в
+[`deploy/portable/README.md`](deploy/portable/README.md).
+
 Подробный дизайн-контракт находится в
 [`docs/DESIGN_PROJECT.md`](docs/DESIGN_PROJECT.md).
 Продуктовый backend-контракт — в
