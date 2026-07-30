@@ -1193,6 +1193,11 @@ test("install contract renders exact fail-closed monitor and backup units", asyn
   assert.match(monitor, /^Group=kolibri-v3$/m);
   assert.match(monitor, /--backup-owner-uid 1001/);
   assert.match(monitor, /^CapabilityBoundingSet=$/m);
+  assert.match(monitor, /^ReadWritePaths=\/opt\/kolibri-v3\/var$/m);
+  assert.doesNotMatch(
+    monitor,
+    /^ReadOnlyPaths=.*\/opt\/kolibri-v3\/var(?:\s|$)/m,
+  );
   assert.doesNotMatch(monitor, /^Requires=.*(?:backend|frontend|worker)/m);
   assert.match(monitorTimer, /OnUnitActiveSec=60s/);
   assert.match(backup, /database-rehearsal[.]py scheduled-backup/);

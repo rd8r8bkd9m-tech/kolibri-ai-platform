@@ -415,7 +415,8 @@ CapabilityBoundingSet=
 AmbientCapabilities=
 SystemCallArchitectures=native
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-ReadOnlyPaths={current_link} {data_root} {backup_root}
+ReadOnlyPaths={current_link} {backup_root}
+ReadWritePaths={data_root}
 """,
         f"{instance}-release-monitor.timer": f"""\
 [Unit]
