@@ -1,0 +1,359 @@
+name: Kolibri V3
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "codex/**"
+      - "factory/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kolibri-v3-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "24.18.0"
+  PYTHON_VERSION: "3.12"
+  RUST_TOOLCHAIN: "1.85.0"
+
+jobs:
+  web:
+    name: V3 web
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: kolibri-v3
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: kolibri-v3/package-lock.json
+
+      - name: Install dependencies from lockfile
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+  backend:
+    name: V3 backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: kolibri-v3
+    env:
+      PYTHONPATH: backend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            kolibri-v3/backend/requirements.txt
+            kolibri-v3/backend/requirements-dev.txt
+
+      - name: Install backend test dependencies
+        run: python -m pip install -r backend/requirements-dev.txt
+
+      - name: Run the complete backend test suite
+        run: python -m pytest -q backend/tests
+
+  contracts:
+    name: V1 JSON contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: kolibri-v3
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install JSON Schema validator
+        run: python -m pip install "jsonschema[format-nongpl]==4.25.1"
+
+      - name: Check self-contained contract manifest
+        run: python server/generate_contract_manifest.py --check
+
+      - name: Validate V1 schemas and examples
+        shell: bash
+        run: python server/validate_contracts.py
+
+  estimate-kernel:
+    name: Rust estimate kernel
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: kolibri-v3/packages/estimate-kernel-rs
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install "$RUST_TOOLCHAIN" \
+            --profile minimal \
+            --component clippy,rustfmt
+          rustup default "$RUST_TOOLCHAIN"
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            kolibri-v3/packages/estimate-kernel-rs/target/
+          key: cargo-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('kolibri-v3/packages/estimate-kernel-rs/Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}-
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+  mobile:
+    name: Expo mobile
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: kolibri-v3/apps/kolibri-mobile
+    env:
+      EXPO_NO_TELEMETRY: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: kolibri-v3/apps/kolibri-mobile/package-lock.json
+
+      - name: Install dependencies from lockfile
+        run: npm ci
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test native contracts
+        run: npm test
+
+      - name: Expo Doctor
+        run: npx --yes expo-doctor@1.20.1
+
+  mobile-export-smoke:
+    name: Expo export (${{ matrix.platform }})
+    needs: mobile
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - ios
+          - android
+    defaults:
+      run:
+        working-directory: kolibri-v3/apps/kolibri-mobile
+    env:
+      EXPO_NO_TELEMETRY: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: kolibri-v3/apps/kolibri-mobile/package-lock.json
+
+      - name: Install dependencies from lockfile
+        run: npm ci
+
+      - name: Export bundle
+        run: npm run export:${{ matrix.platform }}
+
+  portable-release:
+    name: Canonical portable release
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: kolibri-v3
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      PYTHONPATH: backend
+      PYTHONDONTWRITEBYTECODE: "1"
+
+    steps:
+      - name: Checkout clean release source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: kolibri-v3/package-lock.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            kolibri-v3/backend/requirements.txt
+            kolibri-v3/backend/requirements-dev.txt
+
+      - name: Install release test dependencies
+        run: python -m pip install -r backend/requirements-dev.txt
+
+      - name: Check self-contained contract manifest
+        run: python server/generate_contract_manifest.py --check
+
+      - name: Enforce the single canonical V3 release lane
+        run: |
+          python deploy/portable/release-manifest.py audit-repository \
+            --repo .. \
+            --commit HEAD
+
+      - name: Test migrations and portable release scripts
+        run: |
+          set -euo pipefail
+          python -m pytest -q \
+            backend/tests/test_access_policy_repair_migration.py \
+            backend/tests/test_dev_preflight.py \
+            backend/tests/test_mobile_auth_migration.py \
+            backend/tests/test_platform_admin_migration.py \
+            backend/tests/test_product_entitlement_projection.py \
+            backend/tests/test_release_monitor.py \
+            backend/tests/test_service_tier_access_migration.py \
+            backend/tests/test_trusted_agent_control_migration.py \
+            backend/tests/test_trusted_agent_leases.py
+          python -m unittest discover \
+            -s deploy/workers/tests \
+            -p 'test_*.py'
+          node --test \
+            tests/dev-runtime-launch.test.mjs \
+            tests/portable-release.test.mjs \
+            tests/release-observability.test.mjs
+
+      - name: Render and verify production operation units
+        shell: bash
+        run: |
+          set -euo pipefail
+          unit_root="$RUNNER_TEMP/kolibri-v3-systemd"
+          runtime_root="$unit_root/runtime"
+          data_root="$unit_root/data"
+          backup_root="$unit_root/backups"
+          mkdir -p \
+            "$runtime_root/backend/venv/bin" \
+            "$data_root" \
+            "$backup_root"
+          ln -s "$(command -v python)" \
+            "$runtime_root/backend/venv/bin/python"
+
+          python deploy/portable/install-contract.py render-operations \
+            --output-dir "$unit_root" \
+            --instance kolibri-v3 \
+            --current-link "$runtime_root" \
+            --data-root "$data_root" \
+            --backup-root "$backup_root" \
+            --backend-port 8002 \
+            --frontend-port 3103 \
+            --public-origin https://kolibriai.example \
+            --release-id kolibri-v3-0123456789ab-abcdef012345 \
+            --release-commit 0123456789abcdef0123456789abcdef01234567 \
+            --expected-schema 44 \
+            --systemctl "$(command -v systemctl)" \
+            --journalctl "$(command -v journalctl)" \
+            --database-helper \
+              "$GITHUB_WORKSPACE/kolibri-v3/deploy/portable/database-rehearsal.py"
+
+          for role in backend frontend product-run-worker; do
+            printf '%s\n' \
+              '[Unit]' \
+              "Description=Kolibri V3 CI dependency stub ($role)" \
+              '[Service]' \
+              'Type=oneshot' \
+              'ExecStart=/usr/bin/true' \
+              > "$unit_root/kolibri-v3-$role.service"
+          done
+
+          systemd-analyze verify \
+            "$unit_root/kolibri-v3-backend.service" \
+            "$unit_root/kolibri-v3-frontend.service" \
+            "$unit_root/kolibri-v3-product-run-worker.service" \
+            "$unit_root/kolibri-v3-release-monitor.service" \
+            "$unit_root/kolibri-v3-release-monitor.timer" \
+            "$unit_root/kolibri-v3-database-backup.service" \
+            "$unit_root/kolibri-v3-database-backup.timer"
+
+      - name: Build and verify immutable canonical archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_dir="$RUNNER_TEMP/kolibri-v3-release"
+          release_output="$RUNNER_TEMP/kolibri-v3-release.env"
+          ./deploy/portable/build-release.sh "$release_dir" |
+            tee "$release_output"
+          release_archive="$(
+            awk -F= '$1 == "release_archive" {print $2; exit}' \
+              "$release_output"
+          )"
+          test -n "$release_archive"
+          python deploy/portable/release-manifest.py verify \
+            --archive "$release_archive"
+          ./deploy/portable/smoke-test.sh "$release_archive"

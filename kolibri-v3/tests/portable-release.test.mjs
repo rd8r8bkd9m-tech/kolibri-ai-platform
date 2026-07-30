@@ -1135,6 +1135,12 @@ test("install contract renders exact fail-closed monitor and backup units", asyn
     "kolibri-v3",
     "--current-link",
     "/opt/kolibri-v3/current",
+    "--service-user",
+    "kolibri-v3",
+    "--service-group",
+    "kolibri-v3",
+    "--service-uid",
+    "1001",
     "--data-root",
     "/opt/kolibri-v3/var",
     "--backup-root",
@@ -1183,11 +1189,22 @@ test("install contract renders exact fail-closed monitor and backup units", asyn
   }
   assert.match(monitor, /-m app[.]release_monitor/);
   assert.match(monitor, /--public-url https:\/\/kolibriai[.]ru\/readyz/);
-  assert.match(monitor, /CapabilityBoundingSet=CAP_DAC_READ_SEARCH/);
+  assert.match(monitor, /^User=kolibri-v3$/m);
+  assert.match(monitor, /^Group=kolibri-v3$/m);
+  assert.match(monitor, /--backup-owner-uid 1001/);
+  assert.match(monitor, /^CapabilityBoundingSet=$/m);
   assert.doesNotMatch(monitor, /^Requires=.*(?:backend|frontend|worker)/m);
   assert.match(monitorTimer, /OnUnitActiveSec=60s/);
   assert.match(backup, /database-rehearsal[.]py scheduled-backup/);
   assert.match(backup, /PrivateNetwork=true/);
+  assert.match(
+    backup,
+    /^ReadWritePaths=\/opt\/kolibri-v3\/var \/var\/backups\/kolibri-v3$/m,
+  );
+  assert.doesNotMatch(
+    backup,
+    /^ReadOnlyPaths=.*\/opt\/kolibri-v3\/var(?:\s|$)/m,
+  );
   assert.doesNotMatch(backup, /^Requires=.*backend/m);
   assert.match(backupTimer, /OnCalendar=[*]-[*]-[*] 02:15:00 UTC/);
 
@@ -1200,6 +1217,12 @@ test("install contract renders exact fail-closed monitor and backup units", asyn
     "kolibri-v3",
     "--current-link",
     "/opt/kolibri-v3/current",
+    "--service-user",
+    "kolibri-v3",
+    "--service-group",
+    "kolibri-v3",
+    "--service-uid",
+    "1001",
     "--data-root",
     "/opt/kolibri-v3/var",
     "--backup-root",
@@ -1539,6 +1562,14 @@ test("installer statically binds verification, immutable activation, health iden
   assert.match(installer, /EnvironmentFile=\$backend_env_file[\s\S]+EnvironmentFile=\$release_env_file/);
   assert.match(installer, /UMask=0077/);
   assert.match(installer, /normalize-database/);
+  assert.match(
+    installer,
+    /install -d -o root -g "\$service_group" -m 710 "\$KOLIBRI_BACKUP_ROOT"/,
+  );
+  assert.match(
+    installer,
+    /install -d -o "\$KOLIBRI_SERVICE_USER" -g "\$service_group" -m 700[\s\S]+"\$data_root" "\$scheduled_backup_root"/,
+  );
   assert.match(
     installer,
     /database-rehearsal[.]py" backup[\s\S]+--source "\$data_root\/kolibri-v3[.]db"[\s\S]+--output "\$backup_dir\/kolibri-v3[.]db"/,
