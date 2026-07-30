@@ -1,0 +1,91 @@
+import {
+  ArrowRight,
+  ArrowUp,
+  AudioLines,
+  BriefcaseBusiness,
+  Calculator,
+  Check,
+  ChevronDown,
+  Clock3,
+  Code2,
+  Eye,
+  File,
+  GitBranch,
+  Globe2,
+  Grid2X2,
+  House,
+  Image as ImageIcon,
+  Layers3,
+  ListChecks,
+  Menu,
+  Network,
+  PanelsTopLeft,
+  Pause,
+  Plus,
+  RefreshCw,
+  Scan,
+  Search,
+  Settings2,
+  ShieldCheck,
+  SlidersHorizontal,
+  SquareTerminal,
+  Table2,
+  TriangleAlert,
+  Video,
+  Workflow,
+  X,
+  ZoomIn,
+  ZoomOut,
+} from "lucide-react";
+
+const icons = {
+  alert: TriangleAlert,
+  arrowRight: ArrowRight,
+  arrowUp: ArrowUp,
+  audio: AudioLines,
+  automation: Workflow,
+  branch: GitBranch,
+  browser: PanelsTopLeft,
+  check: Check,
+  chevronDown: ChevronDown,
+  clock: Clock3,
+  close: X,
+  code: Code2,
+  control: SlidersHorizontal,
+  estimate: Calculator,
+  eye: Eye,
+  file: File,
+  fit: Scan,
+  globe: Globe2,
+  grid: Grid2X2,
+  home: House,
+  image: ImageIcon,
+  layers: Layers3,
+  menu: Menu,
+  nodes: Network,
+  pause: Pause,
+  plan: ListChecks,
+  plus: Plus,
+  refresh: RefreshCw,
+  search: Search,
+  settings: Settings2,
+  shield: ShieldCheck,
+  table: Table2,
+  terminal: SquareTerminal,
+  video: Video,
+  work: BriefcaseBusiness,
+  zoomIn: ZoomIn,
+  zoomOut: ZoomOut,
+};
+
+export function Icon({ name, size = 18, strokeWidth = 1.8, className = "" }) {
+  const IconComponent = icons[name] || Layers3;
+  return (
+    <IconComponent
+      aria-hidden="true"
+      className={className}
+      size={size}
+      strokeWidth={strokeWidth}
+    />
+  );
+}

@@ -1,0 +1,25 @@
+[Unit]
+Description=Kolibri Codex Home egress relay
+Documentation=file:/etc/kolibri/codex-cli/README.md
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=10
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/kolibri/codex-cli/egress.env
+ExecStart=/usr/bin/ssh -NT -D 127.0.0.1:11080 -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/root/.ssh/known_hosts -o ExitOnForwardFailure=yes -o ConnectTimeout=15 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 root@${KOLIBRI_CODEX_EGRESS_HOST}
+Restart=always
+RestartSec=3s
+TimeoutStartSec=20s
+TimeoutStopSec=10s
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

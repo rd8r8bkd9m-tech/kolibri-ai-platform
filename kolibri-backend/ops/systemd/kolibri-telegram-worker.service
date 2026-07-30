@@ -1,0 +1,58 @@
+[Unit]
+Description=Kolibri canonical Telegram Responses worker
+Wants=network-online.target kolibri-backend-r9.service
+After=network-online.target kolibri-backend-r9.service
+
+[Service]
+Type=simple
+User=ladik
+Group=ladik
+WorkingDirectory=/opt/kolibri-ai/canary-r9/backend
+EnvironmentFile=/etc/kolibri/backend.env
+EnvironmentFile=/etc/kolibri/codex-cli/proxy.env
+EnvironmentFile=/etc/kolibri/codex-cli.env
+EnvironmentFile=/etc/kolibri/telegram.env
+EnvironmentFile=/etc/kolibri/telegram-webhook.env
+Environment=HOME=/home/ladik
+Environment=KOLIBRI_RELEASE_ID=kolibri-r17-20260713T1932MSK
+Environment=CODEX_HOME=/home/ladik/.codex
+Environment=CODEX_CLI_ENABLED=true
+Environment=CODEX_CLI_BINARY=/usr/local/bin/codex
+Environment=CODEX_CLI_CWD=/var/lib/kolibri/backend-r9/work
+Environment=CODEX_CLI_RESPECT_SYSTEM_PROXY=true
+Environment=CODEX_CLI_IMAGE_ENABLED=true
+Environment=CODEX_CLI_IMAGE_TEMP_ROOT=/var/lib/kolibri/backend-r9/tmp
+Environment=CODEX_CLI_IMAGE_TIMEOUT_SECONDS=600
+Environment=CODEX_CLI_IMAGE_MAX_CONCURRENCY=2
+Environment=KOLIBRI_IMAGE_GENERATION_ENABLED=true
+Environment=OPENAI_REST_ROUTING_ENABLED=false
+Environment=OPENAI_REST_IMAGE_ROUTING_ENABLED=false
+Environment=DATABASE_URL=sqlite:////var/lib/kolibri/backend-r9/kolibri.db
+Environment=KOLIBRI_ARTIFACT_DIR=/var/lib/kolibri/backend-r9/artifacts
+Environment=XDG_CACHE_HOME=/var/lib/kolibri/backend-r9/cache
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+Environment=TMPDIR=/var/lib/kolibri/backend-r9/tmp
+UnsetEnvironment=CODEX_CLI_MODEL KOLIBRI_CODEX_MODEL
+ExecStart=/opt/kolibri-ai/canary-r9/backend/.venv/bin/python -B -m app.telegram_worker
+Restart=on-failure
+RestartSec=2s
+TimeoutStartSec=45s
+TimeoutStopSec=20s
+KillMode=mixed
+UMask=0077
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=no
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+ReadWritePaths=/var/lib/kolibri/backend-r9 /home/ladik/.codex
+
+[Install]
+WantedBy=multi-user.target
