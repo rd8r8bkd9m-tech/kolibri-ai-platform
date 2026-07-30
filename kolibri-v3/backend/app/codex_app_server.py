@@ -17,6 +17,8 @@ import threading
 import time
 from typing import Any, Callable, Sequence
 
+from .agent_runtime import canonical_runtime_activity
+
 
 class CodexAppServerError(RuntimeError):
     """A public-safe app-server failure."""
@@ -994,17 +996,21 @@ class CodexAppServerRuntime:
                         if method == "item/started"
                         else "completed"
                     )
+                    try:
+                        activity = canonical_runtime_activity(phase, item)
+                    except ValueError:
+                        return
                     with self._state_lock:
                         turn = self._turns.setdefault(turn_id, _TurnState())
                         callback = turn.on_activity
                         if callback is None:
                             if len(turn.pending_activities) < 200:
                                 turn.pending_activities.append(
-                                    (phase, dict(item))
+                                    (phase, activity)
                                 )
                     if callback is not None:
                         try:
-                            callback(phase, dict(item))
+                            callback(phase, activity)
                         except Exception:
                             with self._state_lock:
                                 turn.error = (

@@ -22,6 +22,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
 
+from .agent_runtime import canonical_runtime_activity
+
 
 _CLIENT_STDOUT_LIMIT = 2 * 1024 * 1024
 _CLIENT_STDERR_LIMIT = 256 * 1024
@@ -30,6 +32,24 @@ _PROMPT_LIMIT = 200_000
 _SESSION_ID_PREFIX = "ses_"
 _AUTH_FILE_LIMIT = 1024 * 1024
 _SESSION_ID_PATTERN = re.compile(r"ses_[A-Za-z0-9_-]{1,124}")
+_EVENT_LINE_LIMIT = 256 * 1024
+_EVENT_CONNECT_TIMEOUT_SECONDS = 3.0
+_EVENT_DRAIN_TIMEOUT_SECONDS = 1.0
+_TERMINAL_TOOL_STATES = frozenset(
+    {"completed", "error", "failed", "cancelled"}
+)
+_FILE_TOOL_NAMES = frozenset(
+    {
+        "apply_patch",
+        "edit",
+        "multiedit",
+        "patch",
+        "write",
+    }
+)
+_PATCH_FILE_PATTERN = re.compile(
+    r"(?m)^\*\*\* (?:Add|Delete|Update) File: (.+?)\s*$"
+)
 
 
 class MimoDeveloperRuntimeError(RuntimeError):
@@ -52,6 +72,7 @@ class _ParsedClientOutput:
     text: str
     session_id: str | None
     error_message: str | None
+    streamed_text: str = ""
 
 
 class _ByteBuffer:
@@ -382,6 +403,423 @@ def _safe_environment(
         if value:
             environment[name] = value
     return environment
+
+
+def _event_int(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _event_text(value: object, *, limit: int = 16_000) -> str:
+    return str(value or "").strip()[:limit]
+
+
+def _mimo_file_changes(
+    *,
+    tool_name: str,
+    tool_input: dict[str, Any],
+    state: dict[str, Any],
+    metadata: dict[str, Any],
+) -> list[dict[str, str]]:
+    raw_path = next(
+        (
+            tool_input.get(key)
+            for key in ("filePath", "filepath", "path", "file", "filename")
+            if tool_input.get(key)
+        ),
+        None,
+    )
+    patch = _event_text(
+        tool_input.get("patch")
+        or tool_input.get("patchText")
+        or tool_input.get("diff"),
+        limit=64_000,
+    )
+    paths: list[str] = []
+    if raw_path is not None:
+        paths.append(_event_text(raw_path, limit=4_096))
+    if patch:
+        for match in _PATCH_FILE_PATTERN.finditer(patch):
+            candidate = _event_text(match.group(1), limit=4_096)
+            if candidate and candidate not in paths:
+                paths.append(candidate)
+    if not paths:
+        return []
+
+    diff = _event_text(
+        metadata.get("diff")
+        or state.get("diff")
+        or patch,
+        limit=64_000,
+    )
+    kind = {
+        "write": "create",
+        "edit": "update",
+        "multiedit": "update",
+        "patch": "update",
+        "apply_patch": "update",
+    }.get(tool_name, "update")
+    return [
+        {
+            "path": path,
+            "kind": kind,
+            "diff": diff,
+        }
+        for path in paths[:40]
+    ]
+
+
+class _MimoEventBridge:
+    """Translate MiMo's live SSE protocol into the shared agent callbacks."""
+
+    def __init__(
+        self,
+        *,
+        server_url: str,
+        authorization_header: str,
+        workspace_root: Path,
+        session_id: str | None,
+        session_title: str,
+        on_delta: Callable[[str], None],
+        on_activity: Callable[[str, dict[str, Any]], None],
+    ) -> None:
+        self._server_url = server_url
+        self._authorization_header = authorization_header
+        self._workspace_root = workspace_root
+        self._target_session_id = session_id
+        self._session_title = session_title
+        self._on_delta = on_delta
+        self._on_activity = on_activity
+        self._ready = threading.Event()
+        self._idle = threading.Event()
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._response: Any | None = None
+        self._state_lock = threading.Lock()
+        self._assistant_message_ids: set[str] = set()
+        self._part_types: dict[str, str] = {}
+        self._part_text: dict[str, str] = {}
+        self._started_tools: set[str] = set()
+        self._completed_tools: set[str] = set()
+        self._streamed_parts: list[str] = []
+        self._callback_error: str | None = None
+        self._connection_error: str | None = None
+
+    @property
+    def streamed_text(self) -> str:
+        with self._state_lock:
+            return "".join(self._streamed_parts)
+
+    @property
+    def callback_error(self) -> str | None:
+        with self._state_lock:
+            return self._callback_error
+
+    @property
+    def connection_error(self) -> str | None:
+        with self._state_lock:
+            return self._connection_error
+
+    def start(self) -> bool:
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+        if not self._ready.wait(_EVENT_CONNECT_TIMEOUT_SECONDS):
+            self.close()
+            return False
+        return self.connection_error is None
+
+    def close(self, *, drain: bool = False) -> None:
+        if drain:
+            self._idle.wait(_EVENT_DRAIN_TIMEOUT_SECONDS)
+        self._stop.set()
+        response = self._response
+        if response is not None:
+            try:
+                response.close()
+            except (OSError, ValueError):
+                pass
+        thread = self._thread
+        if thread is not None:
+            thread.join(timeout=2)
+
+    def _set_connection_error(self, message: str) -> None:
+        with self._state_lock:
+            self._connection_error = message
+
+    def _set_callback_error(self, message: str) -> None:
+        with self._state_lock:
+            self._callback_error = message
+        self._stop.set()
+
+    def _emit_delta(self, delta: str) -> None:
+        if not delta:
+            return
+        try:
+            self._on_delta(delta)
+        except Exception:
+            self._set_callback_error(
+                "Kolibri could not persist the streamed MiMo response."
+            )
+            return
+        with self._state_lock:
+            self._streamed_parts.append(delta)
+
+    def _emit_activity(self, phase: str, item: dict[str, Any]) -> None:
+        try:
+            canonical = canonical_runtime_activity(phase, item)
+            self._on_activity(phase, canonical)
+        except Exception:
+            self._set_callback_error(
+                "Kolibri could not persist MiMo developer activity."
+            )
+
+    def _run(self) -> None:
+        query = urlencode({"directory": str(self._workspace_root)})
+        request = Request(
+            f"{self._server_url}/event?{query}",
+            method="GET",
+            headers={
+                "Accept": "text/event-stream",
+                "Authorization": self._authorization_header,
+            },
+        )
+        try:
+            with urlopen(
+                request,
+                timeout=max(15.0, _EVENT_CONNECT_TIMEOUT_SECONDS),
+            ) as response:
+                self._response = response
+                if (
+                    response.status != 200
+                    or response.headers.get_content_type()
+                    != "text/event-stream"
+                ):
+                    self._set_connection_error(
+                        "MiMo event stream returned an invalid response."
+                    )
+                    return
+                self._ready.set()
+                while not self._stop.is_set():
+                    raw_line = response.readline(_EVENT_LINE_LIMIT + 1)
+                    if not raw_line:
+                        return
+                    if len(raw_line) > _EVENT_LINE_LIMIT:
+                        self._set_connection_error(
+                            "MiMo event stream exceeded the line limit."
+                        )
+                        return
+                    if not raw_line.startswith(b"data:"):
+                        continue
+                    try:
+                        event = json.loads(
+                            raw_line[5:].strip().decode("utf-8", "strict")
+                        )
+                    except (UnicodeDecodeError, ValueError, TypeError):
+                        continue
+                    if isinstance(event, dict):
+                        self._handle_event(event)
+        except (
+            AttributeError,
+            HTTPError,
+            URLError,
+            TimeoutError,
+            OSError,
+            ValueError,
+        ) as exc:
+            if not self._stop.is_set():
+                self._set_connection_error(type(exc).__name__)
+        finally:
+            self._response = None
+            self._ready.set()
+
+    def _select_session(
+        self,
+        event_type: str,
+        properties: dict[str, Any],
+    ) -> None:
+        if self._target_session_id is not None:
+            return
+        if event_type != "session.created":
+            return
+        info = properties.get("info")
+        if not isinstance(info, dict):
+            return
+        if (
+            info.get("title") != self._session_title
+            or info.get("directory") != str(self._workspace_root)
+        ):
+            return
+        self._target_session_id = _valid_session_id(info.get("id"))
+
+    def _handle_event(self, event: dict[str, Any]) -> None:
+        event_type = event.get("type")
+        properties = event.get("properties")
+        if not isinstance(event_type, str) or not isinstance(properties, dict):
+            return
+        self._select_session(event_type, properties)
+        session_id = _valid_session_id(properties.get("sessionID"))
+        if (
+            self._target_session_id is None
+            or session_id != self._target_session_id
+        ):
+            return
+
+        if event_type == "message.updated":
+            info = properties.get("info")
+            if (
+                isinstance(info, dict)
+                and info.get("role") == "assistant"
+                and isinstance(info.get("id"), str)
+            ):
+                self._assistant_message_ids.add(str(info["id"]))
+            return
+        if event_type == "message.part.updated":
+            part = properties.get("part")
+            if isinstance(part, dict):
+                self._handle_part_updated(part)
+            return
+        if event_type == "message.part.delta":
+            self._handle_part_delta(properties)
+            return
+        if event_type == "session.status":
+            status = properties.get("status")
+            if isinstance(status, dict) and status.get("type") == "idle":
+                self._idle.set()
+
+    def _handle_part_updated(self, part: dict[str, Any]) -> None:
+        part_id = part.get("id")
+        message_id = part.get("messageID")
+        part_type = part.get("type")
+        if (
+            not isinstance(part_id, str)
+            or not isinstance(message_id, str)
+            or not isinstance(part_type, str)
+        ):
+            return
+        self._part_types[part_id] = part_type
+        if message_id not in self._assistant_message_ids:
+            return
+        if part_type == "text":
+            text = part.get("text")
+            if not isinstance(text, str):
+                return
+            previous = self._part_text.get(part_id, "")
+            if text.startswith(previous):
+                self._emit_delta(text[len(previous) :])
+            self._part_text[part_id] = text
+            return
+        if part_type == "tool":
+            self._handle_tool_part(part)
+
+    def _handle_part_delta(self, properties: dict[str, Any]) -> None:
+        message_id = properties.get("messageID")
+        part_id = properties.get("partID")
+        delta = properties.get("delta")
+        if (
+            message_id not in self._assistant_message_ids
+            or not isinstance(part_id, str)
+            or self._part_types.get(part_id) != "text"
+            or properties.get("field") != "text"
+            or not isinstance(delta, str)
+        ):
+            return
+        self._part_text[part_id] = self._part_text.get(part_id, "") + delta
+        self._emit_delta(delta)
+
+    @staticmethod
+    def _activity_id(part_id: str) -> str:
+        safe = re.sub(r"[^A-Za-z0-9_-]", "_", part_id)[:120]
+        return f"mimo-tool-{safe}"
+
+    def _handle_tool_part(self, part: dict[str, Any]) -> None:
+        part_id = part.get("id")
+        state = part.get("state")
+        if not isinstance(part_id, str) or not isinstance(state, dict):
+            return
+        activity_id = self._activity_id(part_id)
+        status = str(state.get("status") or "")
+        tool_input = (
+            state["input"] if isinstance(state.get("input"), dict) else {}
+        )
+        metadata = (
+            state["metadata"]
+            if isinstance(state.get("metadata"), dict)
+            else {}
+        )
+        tool_name = _event_text(part.get("tool"), limit=80) or "tool"
+        file_changes = (
+            _mimo_file_changes(
+                tool_name=tool_name.lower(),
+                tool_input=tool_input,
+                state=state,
+                metadata=metadata,
+            )
+            if tool_name.lower() in _FILE_TOOL_NAMES
+            else []
+        )
+        command = (
+            _event_text(tool_input.get("command"))
+            or _event_text(state.get("title"), limit=800)
+            or tool_name
+        )
+        timing = state["time"] if isinstance(state.get("time"), dict) else {}
+        started_at = _event_int(timing.get("start"))
+        ended_at = _event_int(timing.get("end"))
+        item: dict[str, Any] = {
+            "id": activity_id,
+            "type": "fileChange" if file_changes else "commandExecution",
+            "status": "inProgress",
+        }
+        if file_changes:
+            item["changes"] = [
+                {
+                    "path": change["path"],
+                    "kind": change["kind"],
+                    "diff": "",
+                }
+                for change in file_changes
+            ]
+        else:
+            item.update(
+                {
+                    "command": command,
+                    "cwd": str(self._workspace_root),
+                }
+            )
+        if activity_id not in self._started_tools:
+            self._started_tools.add(activity_id)
+            self._emit_activity("started", dict(item))
+        if (
+            status not in _TERMINAL_TOOL_STATES
+            or activity_id in self._completed_tools
+        ):
+            return
+        self._completed_tools.add(activity_id)
+        item["status"] = (
+            "completed" if status == "completed" else "failed"
+        )
+        if file_changes:
+            item["changes"] = file_changes
+        else:
+            item.update(
+                {
+                    "exitCode": _event_int(
+                        metadata.get("exit")
+                        if "exit" in metadata
+                        else metadata.get("exitCode")
+                    ),
+                    "durationMs": (
+                        ended_at - started_at
+                        if started_at is not None
+                        and ended_at is not None
+                        and ended_at >= started_at
+                        else None
+                    ),
+                    "output": _event_text(
+                        state.get("output") or metadata.get("output")
+                    ),
+                }
+            )
+        self._emit_activity("completed", item)
 
 
 class MimoDeveloperServerRuntime:
@@ -988,11 +1426,13 @@ class MimoDeveloperServerRuntime:
         session_id: str | None,
         timeout: float,
         access_mode: str,
+        on_delta: Callable[[str], None],
         on_activity: Callable[[str, dict[str, Any]], None],
         cancellation_signal: threading.Event | None = None,
     ) -> _ParsedClientOutput:
         server_url = self._server_url
         assert server_url is not None
+        session_title = self._session_title(conversation_key)
         command = [
             *self._command_prefix,
             "run",
@@ -1012,7 +1452,7 @@ class MimoDeveloperServerRuntime:
             command.extend(("--model", model))
         if session_id is None:
             command.extend(
-                ("--title", self._session_title(conversation_key)),
+                ("--title", session_title),
             )
         else:
             command.extend(("--session", session_id))
@@ -1021,18 +1461,17 @@ class MimoDeveloperServerRuntime:
             # and replies "once"; the long-lived server is never globally
             # placed in bypass mode.
             command.append("--dangerously-skip-permissions")
-        activity_id = f"mimo-client-{run_id[:80]}"
         started_at = time.monotonic()
-        on_activity(
-            "started",
-            {
-                "id": activity_id,
-                "type": "commandExecution",
-                "command": "mimo run --attach",
-                "cwd": str(workspace_root),
-                "status": "inProgress",
-            },
+        event_bridge = _MimoEventBridge(
+            server_url=server_url,
+            authorization_header=self._authorization_header(),
+            workspace_root=workspace_root,
+            session_id=session_id,
+            session_title=session_title,
+            on_delta=on_delta,
+            on_activity=on_activity,
         )
+        event_bridge.start()
         try:
             process = subprocess.Popen(
                 command,
@@ -1047,6 +1486,7 @@ class MimoDeveloperServerRuntime:
                 start_new_session=True,
             )
         except OSError as exc:
+            event_bridge.close()
             raise MimoDeveloperRuntimeError(
                 "mimo_developer_cli_unavailable",
                 "Локальный клиент MiMo Code не запускается.",
@@ -1121,24 +1561,11 @@ class MimoDeveloperServerRuntime:
         ):
             failure_code = "mimo_developer_output_limit"
         return_code = process.poll()
-        on_activity(
-            "completed",
-            {
-                "id": activity_id,
-                "type": "commandExecution",
-                "command": "mimo run --attach",
-                "cwd": str(workspace_root),
-                "status": (
-                    "completed"
-                    if failure_code is None and return_code == 0
-                    else "failed"
-                ),
-                "exitCode": return_code,
-                "durationMs": int(
-                    (time.monotonic() - started_at) * 1000,
-                ),
-            },
+        event_bridge.close(
+            drain=failure_code is None and return_code == 0,
         )
+        if event_bridge.callback_error is not None and failure_code is None:
+            failure_code = "mimo_developer_stream_persist_failed"
         if failure_code == "mimo_developer_output_limit":
             raise MimoDeveloperRuntimeError(
                 failure_code,
@@ -1159,12 +1586,24 @@ class MimoDeveloperServerRuntime:
                 failure_code,
                 "Процесс MiMo Code не завершился корректно.",
             )
+        if failure_code == "mimo_developer_stream_persist_failed":
+            raise MimoDeveloperRuntimeError(
+                failure_code,
+                "Не удалось сохранить поток выполнения MiMo Code.",
+            )
         if return_code != 0:
             raise MimoDeveloperRuntimeError(
                 "mimo_developer_failed",
                 "MiMo Code не завершил задачу.",
             )
-        return _parse_client_output(stdout.bytes())
+        parsed = _parse_client_output(stdout.bytes())
+        streamed_text = event_bridge.streamed_text
+        return _ParsedClientOutput(
+            text=parsed.text or streamed_text.strip(),
+            session_id=parsed.session_id,
+            error_message=parsed.error_message,
+            streamed_text=streamed_text,
+        )
 
     def complete(
         self,
@@ -1226,6 +1665,7 @@ class MimoDeveloperServerRuntime:
                     session_id=session_id,
                     timeout=timeout,
                     access_mode=access_mode,
+                    on_delta=on_delta,
                     on_activity=on_activity,
                     cancellation_signal=cancellation_signal,
                 )
@@ -1249,7 +1689,8 @@ class MimoDeveloperServerRuntime:
                         "mimo_developer_response_empty",
                         "MiMo Code завершился без итогового ответа.",
                     )
-                on_delta(parsed.text)
+                if not parsed.streamed_text:
+                    on_delta(parsed.text)
                 result = MimoDeveloperResult(
                     text=parsed.text,
                     session_id=resolved_session_id,

@@ -10,6 +10,8 @@ from typing import Any
 import pytest
 
 from app.mimo_developer_runtime import (
+    _MimoEventBridge,
+    _ParsedClientOutput,
     MimoDeveloperRuntimeError,
     MimoDeveloperServerRuntime,
 )
@@ -212,12 +214,7 @@ print(json.dumps({
         / "mimo-runtime/home/.local/share/mimocode/auth.json"
     ).read_bytes() == b'{"opaque":"test-login"}'
     assert deltas == ["MiMo completed.", "MiMo completed."]
-    assert [phase for phase, _item in activities] == [
-        "started",
-        "completed",
-        "started",
-        "completed",
-    ]
+    assert activities == []
     assert runtime.inspect() == {
         "server_url": "http://127.0.0.1:49291",
         "server_pid": None,
@@ -233,6 +230,314 @@ print(json.dumps({
             "tenant:test-thread": "ses_persistent_test_01",
         },
     }
+
+
+def test_live_event_bridge_streams_text_and_tool_lifecycle(
+    tmp_path: Path,
+) -> None:
+    deltas: list[str] = []
+    activities: list[tuple[str, dict[str, Any]]] = []
+    bridge = _MimoEventBridge(
+        server_url="http://127.0.0.1:49291",
+        authorization_header="Basic test",
+        workspace_root=tmp_path,
+        session_id=None,
+        session_title="kolibri-thread-test",
+        on_delta=deltas.append,
+        on_activity=lambda phase, item: activities.append(
+            (phase, item)
+        ),
+    )
+    session_id = "ses_live_stream_test_01"
+    message_id = "msg_assistant_01"
+    bridge._handle_event(
+        {
+            "type": "session.created",
+            "properties": {
+                "sessionID": session_id,
+                "info": {
+                    "id": session_id,
+                    "title": "kolibri-thread-test",
+                    "directory": str(tmp_path),
+                },
+            },
+        }
+    )
+    bridge._handle_event(
+        {
+            "type": "message.updated",
+            "properties": {
+                "sessionID": session_id,
+                "info": {
+                    "id": message_id,
+                    "role": "assistant",
+                },
+            },
+        }
+    )
+    bridge._handle_event(
+        {
+            "type": "message.part.updated",
+            "properties": {
+                "sessionID": session_id,
+                "part": {
+                    "id": "prt_text_01",
+                    "messageID": message_id,
+                    "type": "text",
+                    "text": "",
+                },
+            },
+        }
+    )
+    for delta in ("MiMo ", "streamed."):
+        bridge._handle_event(
+            {
+                "type": "message.part.delta",
+                "properties": {
+                    "sessionID": session_id,
+                    "messageID": message_id,
+                    "partID": "prt_text_01",
+                    "field": "text",
+                    "delta": delta,
+                },
+            }
+        )
+    bridge._handle_event(
+        {
+            "type": "message.part.updated",
+            "properties": {
+                "sessionID": session_id,
+                "part": {
+                    "id": "prt_tool_01",
+                    "messageID": message_id,
+                    "type": "tool",
+                    "tool": "bash",
+                    "state": {
+                        "status": "completed",
+                        "input": {"command": "/bin/pwd"},
+                        "output": f"{tmp_path}\n",
+                        "metadata": {"exit": 0},
+                        "time": {"start": 1_000, "end": 1_025},
+                    },
+                },
+            },
+        }
+    )
+
+    assert deltas == ["MiMo ", "streamed."]
+    assert bridge.streamed_text == "MiMo streamed."
+    assert [phase for phase, _item in activities] == [
+        "started",
+        "completed",
+    ]
+    started = activities[0][1]
+    completed = activities[1][1]
+    assert started == {
+        "schemaId": "kolibri.agent-activity",
+        "schemaVersion": "1.0",
+        "id": "mimo-tool-prt_tool_01",
+        "type": "commandExecution",
+        "command": "/bin/pwd",
+        "cwd": str(tmp_path),
+        "status": "inProgress",
+    }
+    assert completed["status"] == "completed"
+    assert completed["exitCode"] == 0
+    assert completed["durationMs"] == 25
+    assert completed["output"] == str(tmp_path)
+
+
+def test_runtime_uses_live_stream_as_final_text_when_cli_omits_duplicate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = MimoDeveloperServerRuntime(
+        runtime_root=tmp_path / "runtime",
+        command_prefix=(sys.executable,),
+        auth_file=_fake_auth_file(tmp_path),
+    )
+    monkeypatch.setattr(runtime, "_executable", lambda: Path(sys.executable))
+    monkeypatch.setattr(runtime, "_ensure_started", lambda: None)
+    monkeypatch.setattr(runtime, "_discover_session", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        runtime,
+        "_run_client",
+        lambda **_kwargs: _ParsedClientOutput(
+            text="Ответ из SSE",
+            session_id="ses_stream_only_01",
+            error_message=None,
+            streamed_text="Ответ из SSE",
+        ),
+    )
+    deltas: list[str] = []
+
+    result = runtime.complete(
+        workspace_root=tmp_path,
+        prompt="Ответь.",
+        run_id="run-stream-only",
+        conversation_key="tenant:stream-only",
+        timeout=10,
+        access_mode="auto",
+        on_delta=deltas.append,
+        on_activity=lambda _phase, _item: None,
+    )
+
+    assert result.text == "Ответ из SSE"
+    assert deltas == []
+
+
+def test_live_event_bridge_maps_file_tools_to_file_changes(
+    tmp_path: Path,
+) -> None:
+    activities: list[tuple[str, dict[str, object]]] = []
+    bridge = _MimoEventBridge(
+        server_url="http://127.0.0.1:49291",
+        authorization_header="Basic test",
+        workspace_root=tmp_path,
+        session_id="ses_test_file",
+        session_title="Kolibri test",
+        on_delta=lambda _delta: None,
+        on_activity=lambda phase, item: activities.append((phase, item)),
+    )
+    bridge._assistant_message_ids.add("msg_assistant_file")
+
+    bridge._handle_event(
+        {
+            "type": "message.part.updated",
+            "properties": {
+                "sessionID": "ses_test_file",
+                "part": {
+                    "id": "prt_tool_file",
+                    "messageID": "msg_assistant_file",
+                    "type": "tool",
+                    "tool": "edit",
+                    "state": {
+                        "status": "running",
+                        "input": {
+                            "filePath": str(tmp_path / "app.py"),
+                            "oldString": "before",
+                            "newString": "after",
+                        },
+                    },
+                },
+            },
+        }
+    )
+    bridge._handle_event(
+        {
+            "type": "message.part.updated",
+            "properties": {
+                "sessionID": "ses_test_file",
+                "part": {
+                    "id": "prt_tool_file",
+                    "messageID": "msg_assistant_file",
+                    "type": "tool",
+                    "tool": "edit",
+                    "state": {
+                        "status": "completed",
+                        "input": {
+                            "filePath": str(tmp_path / "app.py"),
+                            "oldString": "before",
+                            "newString": "after",
+                        },
+                        "metadata": {
+                            "diff": "-before\n+after",
+                        },
+                    },
+                },
+            },
+        }
+    )
+
+    assert activities == [
+        (
+            "started",
+            {
+                "schemaId": "kolibri.agent-activity",
+                "schemaVersion": "1.0",
+                "id": "mimo-tool-prt_tool_file",
+                "type": "fileChange",
+                "status": "inProgress",
+                "changes": [
+                    {
+                        "path": str(tmp_path / "app.py"),
+                        "kind": "update",
+                        "diff": "",
+                    }
+                ],
+            },
+        ),
+        (
+            "completed",
+            {
+                "schemaId": "kolibri.agent-activity",
+                "schemaVersion": "1.0",
+                "id": "mimo-tool-prt_tool_file",
+                "type": "fileChange",
+                "status": "completed",
+                "changes": [
+                    {
+                        "path": str(tmp_path / "app.py"),
+                        "kind": "update",
+                        "diff": "-before\n+after",
+                    }
+                ],
+            },
+        ),
+    ]
+
+
+def test_live_event_bridge_extracts_paths_from_apply_patch(
+    tmp_path: Path,
+) -> None:
+    activities: list[tuple[str, dict[str, object]]] = []
+    bridge = _MimoEventBridge(
+        server_url="http://127.0.0.1:49291",
+        authorization_header="Basic test",
+        workspace_root=tmp_path,
+        session_id="ses_test_patch",
+        session_title="Kolibri test",
+        on_delta=lambda _delta: None,
+        on_activity=lambda phase, item: activities.append((phase, item)),
+    )
+    bridge._assistant_message_ids.add("msg_assistant_patch")
+    patch = (
+        "*** Begin Patch\n"
+        "*** Update File: src/a.py\n"
+        "@@\n-old\n+new\n"
+        "*** Add File: src/b.py\n"
+        "+created\n"
+        "*** End Patch"
+    )
+
+    bridge._handle_event(
+        {
+            "type": "message.part.updated",
+            "properties": {
+                "sessionID": "ses_test_patch",
+                "part": {
+                    "id": "prt_tool_patch",
+                    "messageID": "msg_assistant_patch",
+                    "type": "tool",
+                    "tool": "apply_patch",
+                    "state": {
+                        "status": "completed",
+                        "input": {"patchText": patch},
+                    },
+                },
+            },
+        }
+    )
+
+    assert activities[0][1]["type"] == "fileChange"
+    assert [
+        change["path"]
+        for change in activities[1][1]["changes"]
+    ] == ["src/a.py", "src/b.py"]
+    assert all(
+        change["diff"] == patch
+        for change in activities[1][1]["changes"]
+    )
 
 
 def test_runtime_starts_one_server_for_its_lifespan(

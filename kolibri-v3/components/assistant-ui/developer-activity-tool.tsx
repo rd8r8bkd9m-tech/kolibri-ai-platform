@@ -63,6 +63,16 @@ export const DeveloperCommandToolUI = makeAssistantToolUI({
             <span>{Math.round(decoded.durationMs)} мс</span>
           ) : null}
         </footer>
+        {typeof decoded?.output === "string" && decoded.output ? (
+          <details className="border-border/60 bg-background/70 mt-2 rounded-lg border">
+            <summary className="cursor-pointer px-2.5 py-2 text-[11px] font-medium">
+              Вывод команды
+            </summary>
+            <pre className="border-border/60 max-h-72 overflow-auto border-t px-2.5 py-2 text-[10px] whitespace-pre-wrap">
+              {decoded.output}
+            </pre>
+          </details>
+        ) : null}
       </section>
     );
   },

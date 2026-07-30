@@ -382,6 +382,10 @@ def _developer_activity_payload(
             ),
             "exitCode": item.get("exitCode"),
             "durationMs": item.get("durationMs"),
+            "output": _redact_developer_text(
+                item.get("output"),
+                limit=12_000,
+            ),
         }
         return "developer_command", arguments, result
 

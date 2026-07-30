@@ -11,6 +11,8 @@ from fastapi.testclient import TestClient
 
 import app.main as main_module
 from app.agent_runtime import (
+    AGENT_ACTIVITY_SCHEMA_ID,
+    AGENT_ACTIVITY_SCHEMA_VERSION,
     AGENT_RUNTIME_SCHEMA_ID,
     AGENT_RUNTIME_SCHEMA_VERSION,
     AgentAccessPolicy,
@@ -25,6 +27,7 @@ from app.agent_runtime import (
     AgentRuntimeResult,
     AgentWorkspace,
     DelegatingAgentRuntime,
+    canonical_runtime_activity,
 )
 from app.config import Settings
 from app.direct_model_runtime import (
@@ -32,6 +35,55 @@ from app.direct_model_runtime import (
     execute_direct_run,
 )
 from app.main import create_app
+
+
+def test_activity_protocol_normalizes_provider_command_events() -> None:
+    started = canonical_runtime_activity(
+        "started",
+        {
+            "id": "tool-1",
+            "type": "commandExecution",
+            "command": "pwd",
+            "cwd": "/workspace",
+        },
+    )
+    completed = canonical_runtime_activity(
+        "completed",
+        {
+            "id": "tool-1",
+            "type": "commandExecution",
+            "command": "pwd",
+            "cwd": "/workspace",
+            "status": "completed",
+            "exitCode": 0,
+            "durationMs": 12,
+            "output": "/workspace",
+        },
+    )
+
+    assert started == {
+        "schemaId": AGENT_ACTIVITY_SCHEMA_ID,
+        "schemaVersion": AGENT_ACTIVITY_SCHEMA_VERSION,
+        "id": "tool-1",
+        "type": "commandExecution",
+        "status": "inProgress",
+        "command": "pwd",
+        "cwd": "/workspace",
+    }
+    assert completed["schemaId"] == AGENT_ACTIVITY_SCHEMA_ID
+    assert completed["output"] == "/workspace"
+    assert completed["durationMs"] == 12
+
+
+def test_activity_protocol_rejects_provider_specific_ui_events() -> None:
+    with pytest.raises(ValueError, match="unsupported"):
+        canonical_runtime_activity(
+            "started",
+            {
+                "id": "provider-card-1",
+                "type": "mimoCustomCard",
+            },
+        )
 
 
 def _chat_request(*, run_id: str = "run_runtime_contract_01") -> AgentRuntimeRequest:

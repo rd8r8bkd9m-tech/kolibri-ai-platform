@@ -9,6 +9,33 @@ from app.config import Settings
 from app.direct_model_runtime import _developer_activity_payload
 
 
+def test_developer_command_activity_preserves_bounded_safe_output(
+    tmp_path: Path,
+) -> None:
+    tool_name, arguments, result = _developer_activity_payload(
+        {
+            "type": "commandExecution",
+            "command": "/bin/pwd",
+            "cwd": str(tmp_path),
+            "status": "completed",
+            "exitCode": 0,
+            "durationMs": 25,
+            "output": f"{tmp_path}\n",
+        },
+        phase="completed",
+        workspace_root=tmp_path,
+    )
+
+    assert tool_name == "developer_command"
+    assert arguments == {"command": "/bin/pwd", "cwd": "."}
+    assert result == {
+        "status": "completed",
+        "exitCode": 0,
+        "durationMs": 25,
+        "output": str(tmp_path),
+    }
+
+
 def test_developer_file_activity_redacts_sensitive_and_external_paths(
     tmp_path: Path,
 ) -> None:

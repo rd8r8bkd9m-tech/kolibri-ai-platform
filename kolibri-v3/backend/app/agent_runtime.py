@@ -17,6 +17,8 @@ from typing import Any, Callable, Literal, Mapping, Protocol, runtime_checkable
 
 AGENT_RUNTIME_SCHEMA_ID = "kolibri.agent-runtime"
 AGENT_RUNTIME_SCHEMA_VERSION = "1.0"
+AGENT_ACTIVITY_SCHEMA_ID = "kolibri.agent-activity"
+AGENT_ACTIVITY_SCHEMA_VERSION = "1.0"
 _IDENTIFIER = re.compile(r"^[a-z0-9][a-z0-9._-]{1,95}$")
 
 AgentRuntimeMode = Literal["chat", "structured", "developer"]
@@ -26,6 +28,86 @@ SandboxProfile = Literal["read-only", "workspace-write", "danger-full-access"]
 ApprovalPolicy = Literal["never", "on-request"]
 RuntimeActivityCallback = Callable[[str, dict[str, Any]], None]
 RuntimeDeltaCallback = Callable[[str], None]
+RuntimeActivityPhase = Literal["started", "completed"]
+
+
+def _activity_text(value: object, *, limit: int) -> str:
+    return str(value or "").strip()[:limit]
+
+
+def canonical_runtime_activity(
+    phase: RuntimeActivityPhase,
+    item: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Normalize every provider driver into Kolibri's single UI protocol."""
+
+    if phase not in {"started", "completed"}:
+        raise ValueError("runtime activity phase is invalid")
+    item_id = _activity_text(item.get("id"), limit=160)
+    item_type = _activity_text(item.get("type"), limit=40)
+    if not item_id:
+        raise ValueError("runtime activity id is required")
+    status = _activity_text(item.get("status"), limit=40) or (
+        "inProgress" if phase == "started" else "completed"
+    )
+    canonical: dict[str, Any] = {
+        "schemaId": AGENT_ACTIVITY_SCHEMA_ID,
+        "schemaVersion": AGENT_ACTIVITY_SCHEMA_VERSION,
+        "id": item_id,
+        "type": item_type,
+        "status": status,
+    }
+    if item_type == "commandExecution":
+        canonical.update(
+            {
+                "command": _activity_text(item.get("command"), limit=16_000),
+                "cwd": _activity_text(item.get("cwd"), limit=4_096),
+            }
+        )
+        if phase == "completed":
+            canonical.update(
+                {
+                    "exitCode": item.get("exitCode"),
+                    "durationMs": item.get("durationMs"),
+                    "output": _activity_text(
+                        item.get("output"),
+                        limit=64_000,
+                    ),
+                }
+            )
+        return canonical
+    if item_type != "fileChange":
+        raise ValueError("runtime activity type is unsupported")
+
+    changes: list[dict[str, str]] = []
+    raw_changes = item.get("changes")
+    if isinstance(raw_changes, list):
+        for raw_change in raw_changes[:40]:
+            if not isinstance(raw_change, Mapping):
+                continue
+            path = _activity_text(raw_change.get("path"), limit=4_096)
+            if not path:
+                continue
+            changes.append(
+                {
+                    "path": path,
+                    "kind": _activity_text(
+                        raw_change.get("kind"),
+                        limit=40,
+                    )
+                    or "update",
+                    "diff": (
+                        _activity_text(
+                            raw_change.get("diff"),
+                            limit=64_000,
+                        )
+                        if phase == "completed"
+                        else ""
+                    ),
+                }
+            )
+    canonical["changes"] = changes
+    return canonical
 
 
 class AgentRuntimeError(RuntimeError):
