@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "1.0",
+  "deviceId": "device_gateway_site_001",
+  "deviceClass": "gateway",
+  "runtime": "rust_headless",
+  "runtimeVersion": "0.1.0",
+  "platform": {
+    "os": "linux",
+    "osVersion": "managed",
+    "architecture": "aarch64"
+  },
+  "formFactor": "gateway",
+  "inputs": [
+    "sensor",
+    "serial"
+  ],
+  "outputs": [
+    "led",
+    "serial"
+  ],
+  "connectivity": [
+    "ethernet",
+    "cellular",
+    "serial",
+    "mqtt"
+  ],
+  "security": {
+    "secureStorage": true,
+    "hardwareBackedKey": true,
+    "biometric": false,
+    "attestation": "managed"
+  },
+  "localExecution": {
+    "rust": true,
+    "wasm": false,
+    "offlineQueue": true,
+    "localInference": false
+  }
+}

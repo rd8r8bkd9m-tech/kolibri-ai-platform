@@ -104,7 +104,8 @@ export function AssistantChatWidget({
                 type="button"
                 size="lg"
                 aria-label="Открыть чат с Kolibri"
-                className="absolute right-4 bottom-[calc(1rem+env(safe-area-inset-bottom))] z-[60] h-11 rounded-full bg-neutral-950 px-4 text-white shadow-[0_12px_30px_-16px_rgba(0,0,0,0.7)] hover:bg-neutral-800 focus-visible:ring-neutral-400 sm:right-5 sm:bottom-[calc(1.25rem+env(safe-area-inset-bottom))]"
+                data-slot="assistant-chat-trigger"
+                className="absolute right-4 bottom-[calc(5.5rem+env(safe-area-inset-bottom))] z-[60] h-11 rounded-full bg-neutral-950 px-4 text-white shadow-[0_12px_30px_-16px_rgba(0,0,0,0.7)] hover:bg-neutral-800 focus-visible:ring-neutral-400 min-[960px]:right-5 min-[960px]:bottom-[calc(1.25rem+env(safe-area-inset-bottom))]"
               >
                 <MessageCircleIcon className="size-4" aria-hidden="true" />
                 <span>Kolibri</span>

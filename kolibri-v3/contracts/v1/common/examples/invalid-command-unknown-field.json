@@ -1,0 +1,50 @@
+{
+  "schema_id": "kolibri.command",
+  "schema_version": "1.0",
+  "message_id": "cmd_01JZCOMMON0000001",
+  "command_name": "estimate.recalculate",
+  "payload_schema_id": "kolibri.estimate.recalculate.command",
+  "payload_schema_version": "1.0",
+  "issued_at": "2026-07-24T00:30:00+03:00",
+  "deadline_at": "2026-07-24T00:31:00+03:00",
+  "target_owner": "product_data_authority",
+  "identity": {
+    "tenant_id": "ten_01JZTENANT0001",
+    "user_id": "usr_01JZUSER000001",
+    "actor": {
+      "actor_id": "agent_01JZESTIMATOR01",
+      "actor_type": "agent"
+    },
+    "authority": {
+      "authority_id": "auth_01JZPDAUTH0001",
+      "authority_role": "product_data_authority",
+      "authority_epoch": 7,
+      "authority_placement_id": "placement_home_01",
+      "authorization_decision_id": "decision_01JZAUTHZ0001",
+      "capabilities": ["estimate.recalculate"]
+    },
+    "subject_refs": {
+      "goal_id": "goal_01JZGOAL000001",
+      "case_id": "case_01JZCASE000001",
+      "task_id": "task_01JZTASK000001"
+    }
+  },
+  "trace": {
+    "trace_id": "0123456789abcdef0123456789abcdef",
+    "span_id": "0123456789abcdef",
+    "parent_span_id": null,
+    "correlation_id": "corr_01JZCOMMON0001",
+    "causation_id": null
+  },
+  "idempotency": {
+    "key": "estimate.recalculate:01JZCOMMON0001",
+    "scope": "task",
+    "scope_id": "task_01JZTASK000001",
+    "canonical_request_hash": "sha256:9c62cab6e73f9218a853ca01dcde3b9d36221492a4c4e418e1014f01610746ff"
+  },
+  "payload": {
+    "estimate_id": "estimate_01JZESTIMATE01",
+    "expected_version": 4
+  },
+  "admin": true
+}

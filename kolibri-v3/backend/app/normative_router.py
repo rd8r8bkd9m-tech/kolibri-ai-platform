@@ -16,7 +16,7 @@ from pydantic import (
 )
 
 from .database import get_database, transaction
-from .identity import require_owner, require_user
+from .identity import require_owner
 from .normative_corpus import (
     PARSER_VERSION,
     FetchedNormative,
@@ -30,19 +30,18 @@ from .normative_corpus import (
     parse_normative_document,
     sha256_bytes,
     sha256_text,
-    source_origin,
     source_policy,
     store_sections,
 )
+from .product_access import ConstructionEstimateAccessDependency
 from .schemas import UserSession
-from .security import require_csrf
-
+from .security import require_mutation_auth
 
 router = APIRouter(prefix="/v1/normatives", tags=["normatives"])
 DatabaseDependency = Annotated[sqlite3.Connection, Depends(get_database)]
-IdentityDependency = Annotated[UserSession, Depends(require_user)]
+IdentityDependency = ConstructionEstimateAccessDependency
 OwnerDependency = Annotated[UserSession, Depends(require_owner)]
-CsrfDependency = Annotated[None, Depends(require_csrf)]
+MutationAuthDependency = Annotated[None, Depends(require_mutation_auth)]
 
 
 class ContractModel(BaseModel):
@@ -167,7 +166,7 @@ def import_normative_url(
     request: Request,
     database: DatabaseDependency,
     identity: OwnerDependency,
-    _csrf: CsrfDependency,
+    _auth: MutationAuthDependency,
 ) -> dict[str, Any]:
     source_url = str(payload.source_url)
     try:
@@ -370,7 +369,7 @@ def set_normative_edition_status(
     payload: NormativeApprovalInput,
     database: DatabaseDependency,
     identity: OwnerDependency,
-    _csrf: CsrfDependency,
+    _auth: MutationAuthDependency,
 ) -> dict[str, Any]:
     edition = database.execute(
         """

@@ -19,19 +19,16 @@ from .estimate_artifact import (
 )
 from .estimate_exports import (
     EXPORT_MEDIA_TYPES,
-    EstimateExportFormat,
     build_or_load_estimate_export,
 )
-from .identity import require_user
 from .market_pricing import record_price_observations
-from .schemas import UserSession
-from .security import require_csrf
-
+from .product_access import ConstructionEstimateAccessDependency
+from .security import require_mutation_auth
 
 router = APIRouter(prefix="/v1/projects", tags=["project-artifacts"])
 DatabaseDependency = Annotated[sqlite3.Connection, Depends(get_database)]
-IdentityDependency = Annotated[UserSession, Depends(require_user)]
-CsrfDependency = Annotated[None, Depends(require_csrf)]
+IdentityDependency = ConstructionEstimateAccessDependency
+MutationAuthDependency = Annotated[None, Depends(require_mutation_auth)]
 PROJECT_ID = re.compile(r"^project_[A-Za-z0-9._~-]{8,96}$")
 
 
@@ -245,7 +242,7 @@ def update_estimate(
     payload: EstimatePatch,
     database: DatabaseDependency,
     identity: IdentityDependency,
-    _csrf: CsrfDependency,
+    _auth: MutationAuthDependency,
 ) -> dict[str, object]:
     with transaction(database, immediate=True):
         row = _require_slot(

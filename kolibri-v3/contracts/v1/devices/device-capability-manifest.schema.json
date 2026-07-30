@@ -1,0 +1,272 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kolibriai.ru/contracts/v1/devices/device-capability-manifest.schema.json",
+  "title": "Kolibri device capability manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "deviceId",
+    "deviceClass",
+    "runtime",
+    "platform",
+    "formFactor",
+    "inputs",
+    "outputs",
+    "connectivity",
+    "security",
+    "localExecution"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "deviceId": {
+      "type": "string",
+      "pattern": "^device_[a-zA-Z0-9][a-zA-Z0-9._-]{7,127}$"
+    },
+    "deviceClass": {
+      "enum": [
+        "browser",
+        "native_mobile",
+        "desktop",
+        "kiosk",
+        "tv",
+        "wearable",
+        "vehicle",
+        "spatial",
+        "embedded",
+        "headless",
+        "gateway"
+      ]
+    },
+    "runtime": {
+      "enum": [
+        "web",
+        "pwa",
+        "react_native",
+        "tauri",
+        "native_ios",
+        "native_android",
+        "native_other",
+        "rust_headless"
+      ]
+    },
+    "runtimeVersion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "platform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "os",
+        "osVersion",
+        "architecture"
+      ],
+      "properties": {
+        "os": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9._-]{1,63}$"
+        },
+        "osVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "architecture": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{1,31}$"
+        }
+      }
+    },
+    "formFactor": {
+      "enum": [
+        "phone",
+        "tablet",
+        "laptop",
+        "desktop",
+        "wall_display",
+        "tv",
+        "kiosk",
+        "watch",
+        "glasses",
+        "vehicle_console",
+        "speaker",
+        "printer",
+        "sensor",
+        "controller",
+        "gateway",
+        "other"
+      ]
+    },
+    "screen": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "width",
+        "height",
+        "pixelRatio",
+        "color"
+      ],
+      "properties": {
+        "width": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "pixelRatio": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 16
+        },
+        "color": {
+          "type": "boolean"
+        },
+        "touch": {
+          "type": "boolean"
+        }
+      }
+    },
+    "inputs": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 32,
+      "items": {
+        "enum": [
+          "touch",
+          "pointer",
+          "keyboard",
+          "remote_control",
+          "microphone",
+          "camera",
+          "barcode",
+          "nfc",
+          "biometric",
+          "location",
+          "motion",
+          "sensor",
+          "gpio",
+          "serial"
+        ]
+      }
+    },
+    "outputs": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 32,
+      "items": {
+        "enum": [
+          "display",
+          "audio",
+          "haptics",
+          "notification",
+          "file",
+          "printer",
+          "led",
+          "actuator",
+          "gpio",
+          "serial"
+        ]
+      }
+    },
+    "connectivity": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 16,
+      "items": {
+        "enum": [
+          "ethernet",
+          "wifi",
+          "cellular",
+          "bluetooth",
+          "usb",
+          "serial",
+          "mqtt",
+          "offline_only"
+        ]
+      }
+    },
+    "security": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "secureStorage",
+        "hardwareBackedKey",
+        "biometric",
+        "attestation"
+      ],
+      "properties": {
+        "secureStorage": {
+          "type": "boolean"
+        },
+        "hardwareBackedKey": {
+          "type": "boolean"
+        },
+        "biometric": {
+          "type": "boolean"
+        },
+        "attestation": {
+          "enum": [
+            "none",
+            "declared",
+            "platform",
+            "managed"
+          ]
+        }
+      }
+    },
+    "localExecution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rust",
+        "wasm",
+        "offlineQueue",
+        "localInference"
+      ],
+      "properties": {
+        "rust": {
+          "type": "boolean"
+        },
+        "wasm": {
+          "type": "boolean"
+        },
+        "offlineQueue": {
+          "type": "boolean"
+        },
+        "localInference": {
+          "type": "boolean"
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "outputs": {
+            "contains": {
+              "const": "display"
+            }
+          }
+        },
+        "required": [
+          "outputs"
+        ]
+      },
+      "then": {
+        "required": [
+          "screen"
+        ]
+      }
+    }
+  ]
+}
+

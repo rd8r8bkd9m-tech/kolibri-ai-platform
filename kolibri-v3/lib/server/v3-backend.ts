@@ -3,11 +3,17 @@ import "server-only";
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
 const FORWARDED_REQUEST_HEADERS = [
   "accept",
+  "authorization",
+  "content-length",
   "content-type",
   "cookie",
   "idempotency-key",
+  "last-event-id",
   "origin",
   "x-csrf-token",
+  "x-kolibri-filename",
+  "x-kolibri-project-id",
+  "x-kolibri-thread-id",
 ] as const;
 const FORWARDED_RESPONSE_HEADERS = [
   "cache-control",
@@ -16,6 +22,7 @@ const FORWARDED_RESPONSE_HEADERS = [
   "content-security-policy",
   "content-type",
   "etag",
+  "location",
   "pragma",
   "x-accel-buffering",
   "x-ag-ui-protocol-version",
@@ -23,6 +30,7 @@ const FORWARDED_RESPONSE_HEADERS = [
   "x-kolibri-estimate-version",
   "x-kolibri-run-id",
   "x-kolibri-source-sha256",
+  "www-authenticate",
 ] as const;
 
 export class V3BackendConfigurationError extends Error {
@@ -111,25 +119,28 @@ export async function fetchV3Backend(
   request: Request,
   pathname: string,
   options: {
-    body?: ArrayBuffer | null;
+    body?: BodyInit | null;
     method?: string;
     signal?: AbortSignal;
   } = {},
 ) {
-  return fetch(v3BackendUrl(pathname), {
+  const body =
+    options.body === null ||
+    options.body === undefined ||
+    request.method === "GET" ||
+    request.method === "HEAD"
+      ? undefined
+      : options.body;
+  const init: RequestInit & { duplex?: "half" } = {
     method: options.method ?? request.method,
     headers: requestHeaders(request),
-    body:
-      options.body === null ||
-      options.body === undefined ||
-      request.method === "GET" ||
-      request.method === "HEAD"
-        ? undefined
-        : options.body,
+    body,
     cache: "no-store",
     redirect: "manual",
     signal: options.signal ?? request.signal,
-  });
+  };
+  if (body instanceof ReadableStream) init.duplex = "half";
+  return fetch(v3BackendUrl(pathname), init);
 }
 
 export function relayV3BackendResponse(

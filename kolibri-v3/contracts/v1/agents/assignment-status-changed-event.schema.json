@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/agents/assignment-status-changed-event.schema.json",
+  "title": "Kolibri AgentAssignment status changed event payload v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "assignment_id",
+    "previous_status",
+    "new_status",
+    "previous_version",
+    "new_version",
+    "reason"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "kolibri.agent_assignment.status_changed.event"
+    },
+    "schema_version": { "const": "1.0" },
+    "assignment_id": { "$ref": "#/definitions/opaque_id" },
+    "previous_status": { "$ref": "#/definitions/assignment_status" },
+    "new_status": { "$ref": "#/definitions/assignment_status" },
+    "previous_version": { "type": "integer", "minimum": 1 },
+    "new_version": { "type": "integer", "minimum": 2 },
+    "reason": { "type": "string", "minLength": 1, "maxLength": 2000 }
+  },
+  "definitions": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    },
+    "assignment_status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "active",
+        "suspended",
+        "completed",
+        "revoked",
+        "expired",
+        "superseded"
+      ]
+    }
+  }
+}

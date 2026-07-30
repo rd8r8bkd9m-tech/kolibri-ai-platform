@@ -10,23 +10,27 @@ from __future__ import annotations
 
 import argparse
 import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 import logging
+import math
 import os
+import secrets
 import signal
 import socket
 import sqlite3
 import threading
 import uuid
-from typing import Any, Mapping
+from typing import Any, Literal, Mapping
 
 from .chat.service import (
     canonical_command_hash,
     canonical_json,
     new_id,
     sha256_text,
+    typed_identity_id,
 )
 from .config import Settings
 from .database import connect_database, initialize_database, transaction
@@ -36,6 +40,31 @@ from .home_runtime import (
     HomeRuntimeResponse,
     ProductRunExecutionError,
     ProductRunExecutionSettings,
+)
+from .platform_admin import (
+    PlatformPolicyError,
+    enforce_background_execution_policy,
+)
+from .platform_authority import (
+    PlatformDeveloperAuthorityError,
+    require_persisted_platform_developer_authority,
+)
+from .runtime_readiness import (
+    clear_product_worker_heartbeat,
+    record_product_worker_heartbeat,
+)
+from .trusted_agent_execution import (
+    TrustedAgentExecutionError,
+    validate_frozen_trusted_agent_execution_binding,
+)
+from .trusted_agent_leases import (
+    TrustedAgentLeaseError,
+    TrustedAgentLeaseScope,
+    claim_or_renew_trusted_agent_lease,
+    fence_trusted_agent_lease,
+    issue_trusted_agent_lease,
+    revoke_trusted_agent_lease,
+    terminalize_trusted_agent_lease,
 )
 
 
@@ -68,8 +97,29 @@ class OutboxClaim:
     fencing_token: int
 
 
+@dataclass(frozen=True, slots=True)
+class TrustedAgentWorkerClaim:
+    """Worker-held Galileo capability; the raw token must never be persisted."""
+
+    lease_id: str
+    scope: TrustedAgentLeaseScope
+    claim_owner: str
+    claim_token: str = field(repr=False)
+    fencing_token: int
+    expires_at: int
+
+
 class StaleLeaseError(RuntimeError):
     pass
+
+
+class TrustedAgentLeaseDeferred(RuntimeError):
+    """The singleton trusted agent is busy and the outbox must be deferred."""
+
+    def __init__(self, code: str, *, retry_at: int) -> None:
+        super().__init__(code)
+        self.code = code
+        self.retry_at = retry_at
 
 
 def _decode_command(command_json: str) -> dict[str, Any]:
@@ -106,9 +156,14 @@ def _is_developer_effect(command_json: str) -> bool:
         return False
     payload = command.get("payload")
     return (
-        command.get("payload_schema_id")
-        == "kolibri.product.run.execute.v1_2.command"
-        and command.get("payload_schema_version") == "1.2"
+        (
+            command.get("payload_schema_id"),
+            command.get("payload_schema_version"),
+        )
+        in {
+            ("kolibri.product.run.execute.v1_2.command", "1.2"),
+            ("kolibri.product.run.execute.v1_3.command", "1.3"),
+        }
         and isinstance(payload, dict)
         and payload.get("execution_mode") == "developer"
     )
@@ -133,9 +188,661 @@ def _runtime_profile_from_status(status: Mapping[str, Any]) -> str:
     return value
 
 
+def _claim_user_id(claim: OutboxClaim) -> str | None:
+    command = _decode_command(claim.command_json)
+    identity = command.get("identity")
+    if not isinstance(identity, Mapping):
+        raise ProductRunExecutionError(
+            "stored_command_identity_invalid",
+            retryable=False,
+        )
+    user_id = identity.get("user_id")
+    if user_id is None:
+        return None
+    if not isinstance(user_id, str) or not user_id:
+        raise ProductRunExecutionError(
+            "stored_command_identity_invalid",
+            retryable=False,
+        )
+    return user_id
+
+
+def _enforce_claim_policy(
+    database: sqlite3.Connection,
+    claim: OutboxClaim,
+) -> None:
+    run = database.execute(
+        """
+        SELECT run.requested_by_user_id,
+               run.selected_profile,
+               context.execution_mode,
+               context.platform_authority_epoch,
+               context.access_mode,
+               context.sandbox_profile,
+               context.approval_policy,
+               context.approvals_reviewer,
+               context.trusted_agent_profile_id,
+               context.trusted_agent_profile_epoch,
+               context.trusted_agent_workspace_binding_id,
+               context.trusted_agent_workspace_binding_epoch
+        FROM chat_runs AS run
+        LEFT JOIN chat_run_execution_contexts AS context
+          ON context.tenant_id = run.tenant_id
+         AND context.run_id = run.id
+        WHERE run.tenant_id = ? AND run.id = ?
+        LIMIT 1
+        """,
+        (claim.tenant_id, claim.run_id),
+    ).fetchone()
+    if run is None:
+        raise ProductRunExecutionError(
+            "chat_run_missing",
+            retryable=False,
+        )
+    local_user_id = str(run["requested_by_user_id"])
+    if typed_identity_id("user", local_user_id) != _claim_user_id(claim):
+        raise ProductRunExecutionError(
+            "stored_command_identity_invalid",
+            retryable=False,
+        )
+    developer_execution = (
+        str(run["execution_mode"] or "standard") == "developer"
+    )
+    if developer_execution:
+        frozen_epoch = run["platform_authority_epoch"]
+        if frozen_epoch is None:
+            raise ProductRunExecutionError(
+                "owner_required",
+                retryable=False,
+            )
+        try:
+            require_persisted_platform_developer_authority(
+                database,
+                user_id=local_user_id,
+                tenant_id=claim.tenant_id,
+                expected_epoch=int(frozen_epoch),
+            )
+        except PlatformDeveloperAuthorityError as exc:
+            raise ProductRunExecutionError(
+                exc.code,
+                retryable=False,
+            ) from exc
+        try:
+            validate_frozen_trusted_agent_execution_binding(
+                database,
+                tenant_id=claim.tenant_id,
+                user_id=local_user_id,
+                authority_epoch=int(frozen_epoch),
+                runtime_profile=str(run["selected_profile"]),
+                access_mode=str(run["access_mode"]),
+                sandbox_profile=str(run["sandbox_profile"]),
+                approval_policy=str(run["approval_policy"]),
+                approvals_reviewer=(
+                    None
+                    if run["approvals_reviewer"] is None
+                    else str(run["approvals_reviewer"])
+                ),
+                profile_id=run["trusted_agent_profile_id"],
+                profile_epoch=run["trusted_agent_profile_epoch"],
+                workspace_binding_id=(
+                    run["trusted_agent_workspace_binding_id"]
+                ),
+                workspace_binding_epoch=(
+                    run["trusted_agent_workspace_binding_epoch"]
+                ),
+            )
+        except TrustedAgentExecutionError as exc:
+            raise ProductRunExecutionError(
+                exc.code,
+                retryable=False,
+            ) from exc
+    try:
+        enforce_background_execution_policy(
+            database,
+            tenant_id=claim.tenant_id,
+            user_id=local_user_id,
+            require_developer_access=developer_execution,
+        )
+    except PlatformPolicyError as exc:
+        raise ProductRunExecutionError(
+            exc.code,
+            retryable=False,
+        ) from exc
+
+
 class ProductRunStore:
     def __init__(self, database_url: str) -> None:
         self.database_url = database_url
+
+    @staticmethod
+    def _trusted_agent_scope_for_claim(
+        database: sqlite3.Connection,
+        claim: OutboxClaim,
+    ) -> TrustedAgentLeaseScope | None:
+        """Derive Galileo scope only from persisted run authority and identity."""
+
+        command = _decode_command(claim.command_json)
+        payload = command.get("payload")
+        if not isinstance(payload, Mapping):
+            raise ProductRunExecutionError(
+                "stored_command_invalid",
+                retryable=False,
+            )
+        if payload.get("execution_mode") != "developer":
+            return None
+
+        row = database.execute(
+            """
+            SELECT run.requested_by_user_id,
+                   run.selected_profile,
+                   context.execution_mode,
+                   context.platform_authority_epoch,
+                   context.access_mode,
+                   context.sandbox_profile,
+                   context.approval_policy,
+                   context.approvals_reviewer,
+                   context.trusted_agent_profile_id,
+                   context.trusted_agent_profile_epoch,
+                   context.trusted_agent_workspace_binding_id,
+                   context.trusted_agent_workspace_binding_epoch
+            FROM chat_runs AS run
+            LEFT JOIN chat_run_execution_contexts AS context
+              ON context.tenant_id = run.tenant_id
+             AND context.run_id = run.id
+            WHERE run.tenant_id = ? AND run.id = ?
+            LIMIT 1
+            """,
+            (claim.tenant_id, claim.run_id),
+        ).fetchone()
+        if row is None:
+            raise ProductRunExecutionError(
+                "chat_run_missing",
+                retryable=False,
+            )
+        if str(row["execution_mode"] or "") != "developer":
+            raise ProductRunExecutionError(
+                "developer_execution_context_invalid",
+                retryable=False,
+            )
+
+        schema = (
+            command.get("payload_schema_id"),
+            command.get("payload_schema_version"),
+        )
+        fields = (
+            "trusted_agent_profile_id",
+            "trusted_agent_profile_epoch",
+            "trusted_agent_workspace_binding_id",
+            "trusted_agent_workspace_binding_epoch",
+        )
+        persisted = tuple(row[field_name] for field_name in fields)
+        bound = all(value is not None for value in persisted)
+        partial = any(value is not None for value in persisted) and not bound
+        if partial:
+            raise ProductRunExecutionError(
+                "trusted_agent_execution_binding_invalid",
+                retryable=False,
+            )
+        if schema == (
+            "kolibri.product.run.execute.v1_2.command",
+            "1.2",
+        ):
+            if bound:
+                raise ProductRunExecutionError(
+                    "trusted_agent_command_downgrade",
+                    retryable=False,
+                )
+            # Only historical, fully unbound v1.2 commands may drain.
+            return None
+        if schema != (
+            "kolibri.product.run.execute.v1_3.command",
+            "1.3",
+        ):
+            raise ProductRunExecutionError(
+                "trusted_agent_command_version_invalid",
+                retryable=False,
+            )
+        if not bound:
+            raise ProductRunExecutionError(
+                "trusted_agent_execution_binding_invalid",
+                retryable=False,
+            )
+
+        expected_payload = {
+            "tenant_id": typed_identity_id("tenant", claim.tenant_id),
+            "run_id": claim.run_id,
+            "runtime_profile": str(row["selected_profile"]),
+            "access_mode": str(row["access_mode"]),
+            "sandbox": str(row["sandbox_profile"]),
+            "approval_policy": str(row["approval_policy"]),
+            "reviewer": (
+                None
+                if row["approvals_reviewer"] is None
+                else str(row["approvals_reviewer"])
+            ),
+            **{
+                field_name: row[field_name]
+                for field_name in fields
+            },
+        }
+        if any(
+            payload.get(field_name) != expected
+            for field_name, expected in expected_payload.items()
+        ):
+            raise ProductRunExecutionError(
+                "trusted_agent_command_binding_mismatch",
+                retryable=False,
+            )
+        authority_epoch = row["platform_authority_epoch"]
+        if authority_epoch is None:
+            raise ProductRunExecutionError(
+                "owner_required",
+                retryable=False,
+            )
+        return TrustedAgentLeaseScope(
+            owner_user_id=str(row["requested_by_user_id"]),
+            owner_tenant_id=claim.tenant_id,
+            authority_epoch=int(authority_epoch),
+            profile_id=str(row["trusted_agent_profile_id"]),
+            profile_epoch=int(row["trusted_agent_profile_epoch"]),
+            workspace_binding_id=str(
+                row["trusted_agent_workspace_binding_id"]
+            ),
+            workspace_binding_epoch=int(
+                row["trusted_agent_workspace_binding_epoch"]
+            ),
+            assignment_ref=claim.run_id,
+        )
+
+    @staticmethod
+    def _trusted_operation_key(
+        operation: str,
+        *parts: object,
+    ) -> str:
+        digest = hashlib.sha256(
+            canonical_json(
+                {
+                    "operation": operation,
+                    "parts": [str(part) for part in parts],
+                }
+            ).encode("utf-8", "strict")
+        ).hexdigest()
+        return f"product.{operation}:{digest}"
+
+    @staticmethod
+    def _trusted_claim_owner(worker_id: str) -> str:
+        digest = hashlib.sha256(
+            worker_id.encode("utf-8", "strict")
+        ).hexdigest()
+        return f"product-worker-{digest[:32]}"
+
+    @staticmethod
+    def _trusted_error(exc: TrustedAgentLeaseError) -> ProductRunExecutionError:
+        return ProductRunExecutionError(
+            exc.code,
+            retryable=exc.retryable,
+        )
+
+    def acquire_trusted_agent_lease(
+        self,
+        claim: OutboxClaim,
+        *,
+        worker_id: str,
+        ttl_seconds: int,
+        previous: TrustedAgentWorkerClaim | None = None,
+    ) -> TrustedAgentWorkerClaim | None:
+        """Issue and claim the singleton trusted agent for one v1.3 run."""
+
+        database = connect_database(self.database_url)
+        now_text = _iso()
+        now_epoch = int(_now().timestamp())
+        try:
+            with transaction(database, immediate=True):
+                self._owned_outbox(database, claim, now_text=now_text)
+                _enforce_claim_policy(database, claim)
+                scope = self._trusted_agent_scope_for_claim(database, claim)
+                if scope is None:
+                    if previous is not None:
+                        raise ProductRunExecutionError(
+                            "trusted_agent_command_downgrade",
+                            retryable=False,
+                        )
+                    return None
+                if previous is not None and previous.scope != scope:
+                    raise ProductRunExecutionError(
+                        "trusted_agent_lease_scope_mismatch",
+                        retryable=False,
+                    )
+
+                existing = database.execute(
+                    """
+                    SELECT id, state, expires_at
+                    FROM trusted_agent_workspace_leases
+                    WHERE owner_tenant_id = ? AND assignment_ref = ?
+                    LIMIT 1
+                    """,
+                    (scope.owner_tenant_id, scope.assignment_ref),
+                ).fetchone()
+                if existing is None:
+                    try:
+                        issued = issue_trusted_agent_lease(
+                            database,
+                            scope=scope,
+                            idempotency_key=self._trusted_operation_key(
+                                "lease-issue",
+                                scope.owner_tenant_id,
+                                scope.assignment_ref,
+                            ),
+                            ttl_seconds=ttl_seconds,
+                            now=now_epoch,
+                        )
+                    except TrustedAgentLeaseError as exc:
+                        if exc.code == (
+                            "trusted_agent_lease_assignment_conflict"
+                        ):
+                            existing = database.execute(
+                                """
+                                SELECT id, state, expires_at
+                                FROM trusted_agent_workspace_leases
+                                WHERE owner_tenant_id = ?
+                                  AND assignment_ref = ?
+                                LIMIT 1
+                                """,
+                                (
+                                    scope.owner_tenant_id,
+                                    scope.assignment_ref,
+                                ),
+                            ).fetchone()
+                            if existing is None:
+                                raise self._trusted_error(exc) from exc
+                        elif exc.retryable:
+                            competing = database.execute(
+                                """
+                                SELECT expires_at
+                                FROM trusted_agent_workspace_leases
+                                WHERE authority_id = 'platform_owner'
+                                  AND state = 'active'
+                                ORDER BY expires_at, id
+                                LIMIT 1
+                                """
+                            ).fetchone()
+                            retry_at = (
+                                int(competing["expires_at"]) + 1
+                                if competing is not None
+                                else now_epoch + 1
+                            )
+                            raise TrustedAgentLeaseDeferred(
+                                exc.code,
+                                retry_at=retry_at,
+                            ) from exc
+                        else:
+                            raise self._trusted_error(exc) from exc
+                    else:
+                        existing = {
+                            "id": issued.id,
+                            "state": issued.state,
+                            "expires_at": issued.expires_at,
+                        }
+
+                assert existing is not None
+                if str(existing["state"]) != "active":
+                    raise ProductRunExecutionError(
+                        "trusted_agent_lease_terminal",
+                        retryable=False,
+                    )
+                claim_owner = self._trusted_claim_owner(worker_id)
+                claim_token = (
+                    previous.claim_token
+                    if previous is not None
+                    else f"talcap_{secrets.token_urlsafe(32)}"
+                )
+                lease_id = str(existing["id"])
+                try:
+                    leased = claim_or_renew_trusted_agent_lease(
+                        database,
+                        lease_id=lease_id,
+                        scope=scope,
+                        claim_owner=claim_owner,
+                        claim_token=claim_token,
+                        idempotency_key=self._trusted_operation_key(
+                            "lease-claim",
+                            scope.owner_tenant_id,
+                            scope.assignment_ref,
+                            claim.fencing_token,
+                        ),
+                        ttl_seconds=ttl_seconds,
+                        now=now_epoch,
+                    )
+                except TrustedAgentLeaseError as exc:
+                    if exc.retryable:
+                        raise TrustedAgentLeaseDeferred(
+                            exc.code,
+                            retry_at=max(
+                                now_epoch + 1,
+                                int(existing["expires_at"]) + 1,
+                            ),
+                        ) from exc
+                    raise self._trusted_error(exc) from exc
+                return TrustedAgentWorkerClaim(
+                    lease_id=leased.id,
+                    scope=scope,
+                    claim_owner=claim_owner,
+                    claim_token=claim_token,
+                    fencing_token=leased.fencing_token,
+                    expires_at=leased.expires_at,
+                )
+        finally:
+            database.close()
+
+    @staticmethod
+    def _fence_trusted_agent_in_transaction(
+        database: sqlite3.Connection,
+        claim: OutboxClaim,
+        trusted_claim: TrustedAgentWorkerClaim | None,
+    ) -> None:
+        scope = ProductRunStore._trusted_agent_scope_for_claim(
+            database,
+            claim,
+        )
+        if scope is None:
+            if trusted_claim is not None:
+                raise ProductRunExecutionError(
+                    "trusted_agent_command_downgrade",
+                    retryable=False,
+                )
+            return
+        if trusted_claim is None or trusted_claim.scope != scope:
+            raise ProductRunExecutionError(
+                "trusted_agent_lease_required",
+                retryable=False,
+            )
+        try:
+            fence_trusted_agent_lease(
+                database,
+                lease_id=trusted_claim.lease_id,
+                scope=scope,
+                claim_owner=trusted_claim.claim_owner,
+                claim_token=trusted_claim.claim_token,
+                fencing_token=trusted_claim.fencing_token,
+            )
+        except TrustedAgentLeaseError as exc:
+            raise ProductRunStore._trusted_error(exc) from exc
+
+    def fence_external_effect(
+        self,
+        claim: OutboxClaim,
+        trusted_claim: TrustedAgentWorkerClaim | None,
+    ) -> None:
+        """Fence the exact outbox and Galileo capability immediately pre-I/O."""
+
+        database = connect_database(self.database_url)
+        now_text = _iso()
+        try:
+            with transaction(database, immediate=True):
+                self._owned_outbox(database, claim, now_text=now_text)
+                _enforce_claim_policy(database, claim)
+                self._fence_trusted_agent_in_transaction(
+                    database,
+                    claim,
+                    trusted_claim,
+                )
+        finally:
+            database.close()
+
+    @staticmethod
+    def _terminalize_trusted_agent_in_transaction(
+        database: sqlite3.Connection,
+        trusted_claim: TrustedAgentWorkerClaim | None,
+        *,
+        terminal_state: Literal["released", "expired"],
+        reason: str,
+    ) -> None:
+        if trusted_claim is None:
+            return
+        try:
+            terminalize_trusted_agent_lease(
+                database,
+                lease_id=trusted_claim.lease_id,
+                scope=trusted_claim.scope,
+                claim_owner=trusted_claim.claim_owner,
+                claim_token=trusted_claim.claim_token,
+                fencing_token=trusted_claim.fencing_token,
+                terminal_state=terminal_state,
+                reason=reason,
+                idempotency_key=ProductRunStore._trusted_operation_key(
+                    "lease-terminal",
+                    trusted_claim.scope.owner_tenant_id,
+                    trusted_claim.scope.assignment_ref,
+                    trusted_claim.fencing_token,
+                    terminal_state,
+                    reason,
+                ),
+            )
+        except TrustedAgentLeaseError as exc:
+            raise ProductRunStore._trusted_error(exc) from exc
+
+    @staticmethod
+    def _revoke_trusted_agent_in_transaction(
+        database: sqlite3.Connection,
+        trusted_claim: TrustedAgentWorkerClaim | None,
+        *,
+        reason: str,
+    ) -> None:
+        if trusted_claim is None:
+            return
+        persisted = database.execute(
+            """
+            SELECT state
+            FROM trusted_agent_workspace_leases
+            WHERE id = ?
+              AND owner_tenant_id = ?
+              AND assignment_ref = ?
+            LIMIT 1
+            """,
+            (
+                trusted_claim.lease_id,
+                trusted_claim.scope.owner_tenant_id,
+                trusted_claim.scope.assignment_ref,
+            ),
+        ).fetchone()
+        if persisted is not None and str(persisted["state"]) == "revoked":
+            # Administrative/profile revocation already established the fence.
+            return
+        try:
+            revoke_trusted_agent_lease(
+                database,
+                lease_id=trusted_claim.lease_id,
+                scope=trusted_claim.scope,
+                reason=reason,
+                idempotency_key=ProductRunStore._trusted_operation_key(
+                    "lease-revoke",
+                    trusted_claim.scope.owner_tenant_id,
+                    trusted_claim.scope.assignment_ref,
+                    reason,
+                ),
+            )
+        except TrustedAgentLeaseError as exc:
+            raise ProductRunStore._trusted_error(exc) from exc
+
+    @staticmethod
+    def _revoke_scope_lease_in_transaction(
+        database: sqlite3.Connection,
+        scope: TrustedAgentLeaseScope,
+        *,
+        reason: str,
+    ) -> None:
+        row = database.execute(
+            """
+            SELECT id, state
+            FROM trusted_agent_workspace_leases
+            WHERE owner_tenant_id = ? AND assignment_ref = ?
+            LIMIT 1
+            """,
+            (scope.owner_tenant_id, scope.assignment_ref),
+        ).fetchone()
+        if row is None or str(row["state"]) != "active":
+            return
+        try:
+            revoke_trusted_agent_lease(
+                database,
+                lease_id=str(row["id"]),
+                scope=scope,
+                reason=reason,
+                idempotency_key=ProductRunStore._trusted_operation_key(
+                    "lease-revoke",
+                    scope.owner_tenant_id,
+                    scope.assignment_ref,
+                    reason,
+                ),
+            )
+        except TrustedAgentLeaseError as exc:
+            raise ProductRunStore._trusted_error(exc) from exc
+
+    def defer_trusted_agent_lease(
+        self,
+        claim: OutboxClaim,
+        deferred: TrustedAgentLeaseDeferred,
+    ) -> None:
+        """Release only the outbox claim; do not consume a delivery attempt."""
+
+        database = connect_database(self.database_url)
+        now = _now()
+        now_text = _iso(now)
+        retry_at = datetime.fromtimestamp(
+            max(deferred.retry_at, int(now.timestamp()) + 1),
+            tz=timezone.utc,
+        )
+        try:
+            with transaction(database, immediate=True):
+                self._owned_outbox(database, claim, now_text=now_text)
+                _enforce_claim_policy(database, claim)
+                updated = database.execute(
+                    """
+                    UPDATE product_run_outbox
+                    SET state = 'polling',
+                        available_at = ?,
+                        lease_owner = NULL,
+                        lease_token = NULL,
+                        lease_until = NULL,
+                        last_error_code = ?,
+                        updated_at = ?
+                    WHERE tenant_id = ? AND id = ?
+                      AND lease_token = ? AND fencing_token = ?
+                    """,
+                    (
+                        _iso(retry_at),
+                        deferred.code[:128],
+                        now_text,
+                        claim.tenant_id,
+                        claim.outbox_id,
+                        claim.lease_token,
+                        claim.fencing_token,
+                    ),
+                )
+                if updated.rowcount != 1:
+                    raise StaleLeaseError()
+        finally:
+            database.close()
 
     def claim_next(
         self,
@@ -326,6 +1033,7 @@ class ProductRunStore:
         try:
             with transaction(database, immediate=True):
                 self._owned_outbox(database, claim, now_text=now_text)
+                _enforce_claim_policy(database, claim)
                 self._upsert_exchange_request(
                     database,
                     claim,
@@ -537,12 +1245,44 @@ class ProductRunStore:
                     "developer_execution_context_invalid",
                     retryable=False,
                 )
-        payload_schema_id = (
-            "kolibri.product.run.execute.v1_2.command"
-            if is_developer
-            else "kolibri.product.run.execute.command"
+        trusted_binding_fields = (
+            "trusted_agent_profile_id",
+            "trusted_agent_profile_epoch",
+            "trusted_agent_workspace_binding_id",
+            "trusted_agent_workspace_binding_epoch",
         )
-        payload_schema_version = "1.2" if is_developer else "1.0"
+        trusted_binding_values = (
+            tuple(
+                execution_context.get(field_name)
+                for field_name in trusted_binding_fields
+            )
+            if execution_context is not None
+            else (None, None, None, None)
+        )
+        trusted_bound = all(
+            value is not None for value in trusted_binding_values
+        )
+        if any(
+            value is not None for value in trusted_binding_values
+        ) and not trusted_bound:
+            raise ProductRunExecutionError(
+                "trusted_agent_execution_binding_invalid",
+                retryable=False,
+            )
+        payload_schema_id = (
+            (
+                "kolibri.product.run.execute.v1_3.command"
+                if trusted_bound
+                else "kolibri.product.run.execute.v1_2.command"
+            )
+            if is_developer
+            else "kolibri.product.run.execute.v1_1.command"
+        )
+        payload_schema_version = (
+            ("1.3" if trusted_bound else "1.2")
+            if is_developer
+            else "1.1"
+        )
         command = {
             "schema_id": "kolibri.command",
             "schema_version": "1.0",
@@ -605,8 +1345,38 @@ class ProductRunStore:
                     ),
                 }
             )
+            if trusted_bound:
+                command["payload"].update(
+                    {
+                        field_name: execution_context[field_name]
+                        for field_name in trusted_binding_fields
+                    }
+                )
         else:
-            command["payload"]["preferred_agent_profile"] = runtime_profile
+            if execution_context is None:
+                raise ProductRunExecutionError(
+                    "run_execution_context_missing",
+                    retryable=False,
+                )
+            if execution_context.get("service_tier") is not None:
+                raise ProductRunExecutionError(
+                    "home_service_tier_unsupported",
+                    retryable=False,
+                )
+            model = execution_context.get("model_id")
+            effort = execution_context.get("reasoning_effort")
+            if (model is None) != (effort is None):
+                raise ProductRunExecutionError(
+                    "home_model_selection_incomplete",
+                    retryable=False,
+                )
+            command["payload"].update(
+                {
+                    "preferred_agent_profile": runtime_profile,
+                    "preferred_model": model,
+                    "preferred_reasoning_effort": effort,
+                }
+            )
         command["identity"]["subject_refs"] = {
             "goal_id": goal_id,
             "case_id": case_id,
@@ -642,6 +1412,7 @@ class ProductRunStore:
         try:
             with transaction(database, immediate=True):
                 self._owned_outbox(database, claim, now_text=now_text)
+                _enforce_claim_policy(database, claim)
                 if status.get("status") == "failed":
                     error = status["error"]
                     self._store_exchange_response(
@@ -692,7 +1463,11 @@ class ProductRunStore:
                            context.approvals_reviewer,
                            context.model_id,
                            context.reasoning_effort,
-                           context.service_tier
+                           context.service_tier,
+                           context.trusted_agent_profile_id,
+                           context.trusted_agent_profile_epoch,
+                           context.trusted_agent_workspace_binding_id,
+                           context.trusted_agent_workspace_binding_epoch
                     FROM chat_runs AS run
                     LEFT JOIN chat_run_execution_contexts AS context
                       ON context.tenant_id = run.tenant_id
@@ -791,6 +1566,7 @@ class ProductRunStore:
         response: HomeRuntimeResponse,
         *,
         poll_seconds: float,
+        trusted_claim: TrustedAgentWorkerClaim | None = None,
     ) -> str:
         status = response.value
         state = str(status["status"])
@@ -801,6 +1577,12 @@ class ProductRunStore:
         try:
             with transaction(database, immediate=True):
                 self._owned_outbox(database, claim, now_text=now_text)
+                _enforce_claim_policy(database, claim)
+                self._fence_trusted_agent_in_transaction(
+                    database,
+                    claim,
+                    trusted_claim,
+                )
                 existing_runtime = database.execute(
                     """
                     SELECT execution_id, resolved_profile
@@ -897,6 +1679,12 @@ class ProductRunStore:
                 if state == "failed":
                     error = status["error"]
                     error_code = str(error["code"])
+                    self._terminalize_trusted_agent_in_transaction(
+                        database,
+                        trusted_claim,
+                        terminal_state="released",
+                        reason="run_failed",
+                    )
                     if self._is_provider_auth_or_policy_failure(error_code):
                         self._record_provider_execution_projection(
                             database,
@@ -917,6 +1705,12 @@ class ProductRunStore:
 
                 result_text = str(status["result_text"])
                 evidence = status["evidence"]
+                self._terminalize_trusted_agent_in_transaction(
+                    database,
+                    trusted_claim,
+                    terminal_state="released",
+                    reason="run_succeeded",
+                )
                 provider_evidence_hash = (
                     str(evidence["content_hash"])
                     if isinstance(evidence, dict)
@@ -1180,6 +1974,7 @@ class ProductRunStore:
         *,
         retry_base_seconds: float,
         retry_max_seconds: float,
+        trusted_claim: TrustedAgentWorkerClaim | None = None,
     ) -> str:
         database = connect_database(self.database_url)
         now = _now()
@@ -1187,6 +1982,46 @@ class ProductRunStore:
         try:
             with transaction(database, immediate=True):
                 self._owned_outbox(database, claim, now_text=now_text)
+                try:
+                    scope = self._trusted_agent_scope_for_claim(
+                        database,
+                        claim,
+                    )
+                except ProductRunExecutionError:
+                    # A malformed/downgraded command cannot have passed lease
+                    # acquisition, so preserve the original delivery failure.
+                    scope = None
+                if trusted_claim is not None:
+                    if scope is not None and trusted_claim.scope != scope:
+                        raise ProductRunExecutionError(
+                            "trusted_agent_lease_scope_mismatch",
+                            retryable=False,
+                        )
+                    self._revoke_trusted_agent_in_transaction(
+                        database,
+                        trusted_claim,
+                        reason="delivery_failure",
+                    )
+                elif scope is not None:
+                    self._revoke_scope_lease_in_transaction(
+                        database,
+                        scope,
+                        reason="delivery_failure",
+                    )
+                try:
+                    _enforce_claim_policy(database, claim)
+                except ProductRunExecutionError as policy_failure:
+                    self._finish_error_in_transaction(
+                        database,
+                        claim,
+                        code=policy_failure.code,
+                        safe_message=(
+                            "Выполнение остановлено текущей политикой "
+                            "доступа."
+                        ),
+                        now_text=now_text,
+                    )
+                    return "failed"
                 next_attempt = claim.attempts + 1
                 if (
                     failure.retryable
@@ -1262,6 +2097,7 @@ class ProductRunWorker:
             f"v3-product-{socket.gethostname()}-{os.getpid()}-"
             f"{uuid.uuid4().hex[:8]}"
         )
+        self._trusted_claims: dict[str, TrustedAgentWorkerClaim] = {}
 
     def run_once(self) -> bool:
         claim = self.store.claim_next(
@@ -1270,6 +2106,7 @@ class ProductRunWorker:
         )
         if claim is None:
             return False
+        trusted_claim = self._trusted_claims.get(claim.run_id)
         try:
             if claim.phase == "goal_required":
                 self.store.prepare_delivery(
@@ -1277,6 +2114,7 @@ class ProductRunWorker:
                     phase="goal_initialize",
                     path=_GOAL_PATH,
                 )
+                self.store.fence_external_effect(claim, None)
                 response = self.goal_client.execute_with_metadata(
                     claim.command_json
                 )
@@ -1289,6 +2127,19 @@ class ProductRunWorker:
                 )
                 return True
 
+            trusted_claim = self.store.acquire_trusted_agent_lease(
+                claim,
+                worker_id=self.worker_id,
+                ttl_seconds=max(
+                    1,
+                    math.ceil(self.settings.product_run_lease_seconds),
+                ),
+                previous=trusted_claim,
+            )
+            if trusted_claim is None:
+                self._trusted_claims.pop(claim.run_id, None)
+            else:
+                self._trusted_claims[claim.run_id] = trusted_claim
             runtime = connect_database(self.settings.database_url)
             try:
                 binding = runtime.execute(
@@ -1307,6 +2158,7 @@ class ProductRunWorker:
                 phase="run_execute",
                 path=_RUN_PATH,
             )
+            self.store.fence_external_effect(claim, trusted_claim)
             response = self.run_client.execute_with_metadata(
                 claim.command_json,
                 expected_execution_id=(
@@ -1322,12 +2174,26 @@ class ProductRunWorker:
                     else None
                 ),
             )
-            self.store.apply_run_status(
+            outcome = self.store.apply_run_status(
                 claim,
                 response,
                 poll_seconds=self.settings.product_run_poll_seconds,
+                trusted_claim=trusted_claim,
             )
+            if outcome not in {"accepted", "running"}:
+                self._trusted_claims.pop(claim.run_id, None)
+        except TrustedAgentLeaseDeferred as deferred:
+            self._trusted_claims.pop(claim.run_id, None)
+            try:
+                self.store.defer_trusted_agent_lease(claim, deferred)
+            except StaleLeaseError:
+                LOGGER.info(
+                    "trusted-agent defer ignored after lease superseded "
+                    "run_id=%s",
+                    claim.run_id,
+                )
         except StaleLeaseError:
+            self._trusted_claims.pop(claim.run_id, None)
             LOGGER.info("stale lease ignored run_id=%s", claim.run_id)
         except ProductRunExecutionError as failure:
             try:
@@ -1340,7 +2206,9 @@ class ProductRunWorker:
                     retry_max_seconds=(
                         self.settings.product_run_retry_max_seconds
                     ),
+                    trusted_claim=trusted_claim,
                 )
+                self._trusted_claims.pop(claim.run_id, None)
                 LOGGER.warning(
                     "delivery classified run_id=%s code=%s outcome=%s",
                     claim.run_id,
@@ -1348,6 +2216,7 @@ class ProductRunWorker:
                     outcome,
                 )
             except StaleLeaseError:
+                self._trusted_claims.pop(claim.run_id, None)
                 LOGGER.info(
                     "failure ignored after lease superseded run_id=%s",
                     claim.run_id,
@@ -1355,9 +2224,19 @@ class ProductRunWorker:
         return True
 
     def run_forever(self, stop: threading.Event) -> None:
-        while not stop.is_set():
-            if not self.run_once():
-                stop.wait(self.settings.product_run_idle_seconds)
+        try:
+            while not stop.is_set():
+                record_product_worker_heartbeat(
+                    self.settings.database_url,
+                    instance_id=self.worker_id,
+                )
+                if not self.run_once():
+                    stop.wait(self.settings.product_run_idle_seconds)
+        finally:
+            clear_product_worker_heartbeat(
+                self.settings.database_url,
+                instance_id=self.worker_id,
+            )
 
 
 def _parser() -> argparse.ArgumentParser:

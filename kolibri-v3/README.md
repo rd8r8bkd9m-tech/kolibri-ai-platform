@@ -23,10 +23,44 @@ desktop-приложения, но остаётся самостоятельны
 Backend:
 
 ```bash
-python -m venv .venv
-.venv/bin/python -m pip install -r backend/requirements-dev.txt
-.venv/bin/uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8002
+python -m venv backend/venv
+backend/venv/bin/python -m pip install -r backend/requirements-dev.txt
+npm run dev:backend
 ```
+
+`dev:backend` всегда запускается из корня V3, использует рабочую базу
+`var/kolibri-v3.db` и явно включает единый direct/dev runtime. Для временных
+QA-баз и отключённых runtime используются отдельные порты, а не `8002/3103`.
+
+Для обычной разработки запускайте единый supervisor:
+
+```bash
+npm run dev
+```
+
+Он поднимает web и канонический V3 backend вместе и автоматически
+перезапускает любой из процессов после неожиданной остановки. Фоновый
+`launchd` здесь не используется: macOS не разрешает LaunchAgent читать
+исходники из защищённой папки `Documents`, а dev‑режим должен сохранить
+полный доступ к рабочей области агентов.
+
+Чтобы supervisor не зависел от текущего терминала или сессии Codex, используйте
+фоновую пользовательскую `screen`‑сессию:
+
+```bash
+npm run dev:persistent
+npm run dev:persistent:status
+```
+
+Она всё равно делегирует запуск только каноническому `npm run dev`; миграция
+рабочей БД и проверка единственного platform owner выполняются до открытия
+портов. Для просмотра живого вывода: `screen -r kolibri-v3-dev`, для
+контролируемого перезапуска: `npm run dev:persistent:restart`.
+
+`npm run dev:stack` оставлен как явный алиас той же команды.
+`npm run dev:web` намеренно заблокирован: frontend-only запуск мог подключиться
+к устаревшему или чужому процессу на порту `8002` и обойти миграции и проверку
+суперадмина.
 
 В локальной development-среде backend поднимает один постоянный
 `codex app-server` при старте и завершает его при остановке. Все чаты работают
@@ -40,7 +74,7 @@ Durable worker MiMo Code / Codex CLI запускается отдельным �
 обращается только к Logical Home:
 
 ```bash
-PYTHONPATH=backend .venv/bin/python -m app.product_run_worker
+PYTHONPATH=backend backend/venv/bin/python -m app.product_run_worker
 ```
 
 Для worker задаются `KOLIBRI_V3_HOME_PRODUCT_COMMAND_URL`, Product authority
@@ -51,7 +85,7 @@ credentials остаются на Primary.
 Secretless-запросы на подключение провайдеров обрабатывает отдельный worker:
 
 ```bash
-PYTHONPATH=backend .venv/bin/python -m app.provider_enrollment_worker
+PYTHONPATH=backend backend/venv/bin/python -m app.provider_enrollment_worker
 ```
 
 Next/BFF не содержит provider-authority token и не обращается к Primary.
@@ -63,7 +97,7 @@ status либо успешного terminal run через Logical Home → A2A 
 Web:
 
 ```bash
-KOLIBRI_V3_BACKEND_URL=http://127.0.0.1:8002 npm run dev -- --port 3103
+npm run dev
 ```
 
 Интерфейс: <http://127.0.0.1:3103/app>
@@ -73,7 +107,7 @@ KOLIBRI_V3_BACKEND_URL=http://127.0.0.1:8002 npm run dev -- --port 3103
 выполните доверенную серверную команду:
 
 ```bash
-PYTHONPATH=backend .venv/bin/python -m app.owner_bootstrap \
+PYTHONPATH=backend backend/venv/bin/python -m app.owner_bootstrap \
   --email owner@example.com
 ```
 
@@ -88,7 +122,7 @@ Authority. V3 backend и браузер получают только безоп
 ## Проверки
 
 ```bash
-PYTHONPATH=backend .venv/bin/python -m pytest -q backend/tests
+PYTHONPATH=backend backend/venv/bin/python -m pytest -q backend/tests
 npm run typecheck
 npm test
 npm run build
@@ -102,6 +136,12 @@ npm run build
 
 Подробный дизайн-контракт находится в
 [`docs/DESIGN_PROJECT.md`](docs/DESIGN_PROJECT.md).
+Канонические SSH-маршруты и порядок проверки физических Home/Primary
+зафиксированы в
+[`docs/INFRASTRUCTURE_ACCESS.md`](docs/INFRASTRUCTURE_ACCESS.md).
+Границы owner-only очистки, защита активных данных и поэтапное включение
+привилегированного node executor описаны в
+[`docs/STORAGE_ADMIN_OPERATIONS.md`](docs/STORAGE_ADMIN_OPERATIONS.md).
 Продуктовый backend-контракт — в
 [`docs/PRODUCT_KERNEL_V1.md`](docs/PRODUCT_KERNEL_V1.md).
 Разделение официальных, личных, коммерческих и будущих агрегированных цен

@@ -3,16 +3,16 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-
 from app.config import Settings
+from app.database import migration_paths
 from app.main import create_app
 from app.normative_corpus import FetchedNormative
 from app.owner_bootstrap import promote_registered_owner
-
+from fastapi.testclient import TestClient
 
 ORIGIN = {"Origin": "http://testserver"}
 PASSWORD = "correct-horse-battery-staple"
+LATEST_SCHEMA_VERSION = int(migration_paths()[-1].name.split("_", 1)[0])
 
 
 class FixtureFetcher:
@@ -175,7 +175,26 @@ def test_normative_corpus_import_search_versioning_and_tenant_read(
         assert "rawContent" not in listed.text
 
         with TestClient(app) as other_tenant:
-            _register(other_tenant, "reader@example.com")
+            reader = _register(other_tenant, "reader@example.com")
+            denied_corpus = other_tenant.get(
+                "/v1/normatives/search",
+                params={"q": "подготовка основания", "asOf": "2026-07-29"},
+            )
+            assert denied_corpus.status_code == 403
+            assert (
+                denied_corpus.json()["code"]
+                == "product_entitlement_required"
+            )
+            granted = owner_client.patch(
+                (
+                    f"/v1/platform-admin/users/{reader['id']}/entitlements/"
+                    "construction.estimates.use"
+                ),
+                headers=_headers(owner_client),
+                json={"expectedEpoch": 0, "status": "active"},
+            )
+            assert granted.status_code == 200, granted.text
+            assert granted.json()["source"] == "platform_admin"
             shared_corpus = other_tenant.get(
                 "/v1/normatives/search",
                 params={"q": "подготовка основания", "asOf": "2026-07-29"},
@@ -192,7 +211,10 @@ def test_normative_corpus_import_search_versioning_and_tenant_read(
 
     database = sqlite3.connect(database_path)
     try:
-        assert database.execute("PRAGMA user_version").fetchone()[0] == 29
+        assert (
+            database.execute("PRAGMA user_version").fetchone()[0]
+            == LATEST_SCHEMA_VERSION
+        )
         assert database.execute(
             "SELECT COUNT(*) FROM normative_editions"
         ).fetchone()[0] == 1

@@ -1,0 +1,223 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/documents/document-render-request.schema.json",
+  "title": "Kolibri document render request v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "request_id",
+    "template_id",
+    "template_version",
+    "template_locale",
+    "template_jurisdiction",
+    "requested_outputs",
+    "document_data"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "kolibri.document_render_request"
+    },
+    "schema_version": {
+      "const": "1.0"
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 10,
+      "maxLength": 64,
+      "pattern": "^REQ-[A-Z0-9]{10,54}$"
+    },
+    "template_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9_\\-]+\\.v[0-9]+$"
+    },
+    "template_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+(?:\\.\\d+)?$"
+    },
+    "template_locale": {
+      "type": "string",
+      "pattern": "^[a-z]{2}(?:-[A-Z]{2})?$"
+    },
+    "template_jurisdiction": {
+      "type": "string",
+      "pattern": "^[A-Z]{2}$"
+    },
+    "requested_outputs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": ["pdf", "docx", "xlsx"]
+      }
+    },
+    "document_data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "document_data_id",
+        "document_type",
+        "title",
+        "client_name",
+        "contractor_name",
+        "estimate_id",
+        "currency",
+        "total",
+        "locale",
+        "jurisdiction",
+        "sections",
+        "totals",
+        "attachments",
+        "provenance"
+      ],
+      "properties": {
+        "document_data_id": {
+          "type": "string",
+          "pattern": "^DOCDATA_[A-Z0-9]{10}$"
+        },
+        "document_type": {
+          "type": "string",
+          "enum": [
+            "commercial_offer",
+            "contract",
+            "completion_act",
+            "invoice"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "client_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "contractor_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "estimate_id": {
+          "type": "string",
+          "pattern": "^EST-[A-Z0-9]{10,64}$"
+        },
+        "currency": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}$"
+        },
+        "total": {
+          "type": "string",
+          "pattern": "^\\d+(?:\\.\\d{1,4})?$"
+        },
+        "locale": {
+          "type": "string",
+          "pattern": "^[a-z]{2}(?:-[A-Z]{2})?$"
+        },
+        "jurisdiction": {
+          "type": "string",
+          "pattern": "^[A-Z]{2}$"
+        },
+        "sections": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["title", "text"],
+            "properties": {
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 255
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1
+              },
+              "kind": {
+                "type": "string",
+                "enum": ["text", "table", "disclaimer", "heading"]
+              },
+              "rows": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "minProperties": 1
+                }
+              }
+            }
+          }
+        },
+        "totals": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["grand_total", "labor", "materials", "overhead"],
+          "properties": {
+            "grand_total": {
+              "type": "string",
+              "pattern": "^\\d+(?:\\.\\d{1,4})?$"
+            },
+            "labor": {
+              "type": "string",
+              "pattern": "^\\d+(?:\\.\\d{1,4})?$"
+            },
+            "materials": {
+              "type": "string",
+              "pattern": "^\\d+(?:\\.\\d{1,4})?$"
+            },
+            "overhead": {
+              "type": "string",
+              "pattern": "^\\d+(?:\\.\\d{1,4})?$"
+            }
+          }
+        },
+        "attachments": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 255
+          }
+        },
+        "provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["created_at", "updated_at", "estimate_fingerprint"],
+          "properties": {
+            "created_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "updated_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "estimate_fingerprint": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          }
+        }
+      }
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 6,
+      "maxLength": 120
+    },
+    "tenant_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 64
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 64
+    }
+  }
+}

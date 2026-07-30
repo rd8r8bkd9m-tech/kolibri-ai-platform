@@ -255,13 +255,26 @@ def _terminate_process_group(
     grace_seconds: float = 2.0,
 ) -> None:
     process_group_id = process.pid
+    group_signal_permitted = True
     try:
         os.killpg(process_group_id, signal.SIGTERM)
     except ProcessLookupError:
         pass
+    except PermissionError:
+        # A short-lived leader can exit before cleanup and its pid may already
+        # identify a process group that does not belong to this runtime. Never
+        # signal that group. Fall back to the exact child process when it is
+        # still alive.
+        group_signal_permitted = False
+        if process.poll() is None:
+            try:
+                process.terminate()
+            except (OSError, ProcessLookupError):
+                pass
     deadline = time.monotonic() + grace_seconds
     while (
-        _process_group_exists(process_group_id)
+        group_signal_permitted
+        and _process_group_exists(process_group_id)
         and time.monotonic() < deadline
     ):
         if process.poll() is None:
@@ -271,16 +284,23 @@ def _terminate_process_group(
                 pass
         else:
             time.sleep(0.05)
-    if _process_group_exists(process_group_id):
+    if group_signal_permitted and _process_group_exists(process_group_id):
         try:
             os.killpg(process_group_id, signal.SIGKILL)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):
             pass
     if process.poll() is None:
         try:
             process.wait(timeout=grace_seconds)
         except subprocess.TimeoutExpired:
-            pass
+            try:
+                process.kill()
+            except (OSError, ProcessLookupError):
+                pass
+            try:
+                process.wait(timeout=grace_seconds)
+            except subprocess.TimeoutExpired:
+                pass
 
 
 def _close_pipe(stream: Any) -> None:
@@ -969,6 +989,7 @@ class MimoDeveloperServerRuntime:
         timeout: float,
         access_mode: str,
         on_activity: Callable[[str, dict[str, Any]], None],
+        cancellation_signal: threading.Event | None = None,
     ) -> _ParsedClientOutput:
         server_url = self._server_url
         assert server_url is not None
@@ -1057,6 +1078,12 @@ class MimoDeveloperServerRuntime:
         deadline = started_at + timeout
         failure_code: str | None = None
         while process.poll() is None:
+            if (
+                cancellation_signal is not None
+                and cancellation_signal.is_set()
+            ):
+                failure_code = "mimo_developer_cancelled"
+                break
             if stdout.overflow.is_set() or stderr.overflow.is_set():
                 failure_code = "mimo_developer_output_limit"
                 break
@@ -1122,6 +1149,11 @@ class MimoDeveloperServerRuntime:
                 failure_code,
                 "MiMo Code не завершил задачу вовремя.",
             )
+        if failure_code == "mimo_developer_cancelled":
+            raise MimoDeveloperRuntimeError(
+                failure_code,
+                "Задача MiMo Code остановлена пользователем.",
+            )
         if failure_code == "mimo_developer_process_leaked":
             raise MimoDeveloperRuntimeError(
                 failure_code,
@@ -1145,6 +1177,7 @@ class MimoDeveloperServerRuntime:
         access_mode: str,
         on_delta: Callable[[str], None],
         on_activity: Callable[[str, dict[str, Any]], None],
+        cancellation_signal: threading.Event | None = None,
     ) -> MimoDeveloperResult:
         resolved_workspace = workspace_root.resolve()
         if (
@@ -1194,6 +1227,7 @@ class MimoDeveloperServerRuntime:
                     timeout=timeout,
                     access_mode=access_mode,
                     on_activity=on_activity,
+                    cancellation_signal=cancellation_signal,
                 )
                 resolved_session_id = parsed.session_id or session_id
                 if resolved_session_id is None:

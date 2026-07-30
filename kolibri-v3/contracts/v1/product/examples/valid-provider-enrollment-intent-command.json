@@ -1,0 +1,11 @@
+{
+  "schema_id": "kolibri.product.provider.enrollment_intent.command",
+  "schema_version": "1.0",
+  "tenant_id": "tenant_00000001",
+  "intent_id": "intent_00000001",
+  "provider_id": "codex-cli",
+  "requested_by_user_id": "user_00000001",
+  "owner_authorization_decision_id": "decision_00000001",
+  "purpose": "owner_provider_enrollment",
+  "requested_at": "2026-07-28T12:00:00Z"
+}

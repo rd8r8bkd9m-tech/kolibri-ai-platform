@@ -5,7 +5,6 @@ import json
 import re
 import sqlite3
 import uuid
-from datetime import date
 from decimal import Decimal
 from typing import Annotated, Any, Literal
 
@@ -35,20 +34,19 @@ from .estimate_engine import (
     canonical_json,
     content_hash,
 )
-from .identity import require_user
+from .product_access import ConstructionEstimateAccessDependency
 from .runtime_skills import (
     RuntimeSkillError,
     load_runtime_skill_plan,
     skill_plan_evidence,
 )
 from .schemas import UserSession
-from .security import require_csrf
-
+from .security import require_mutation_auth
 
 router = APIRouter(prefix="/v1/projects", tags=["estimate-engine"])
 DatabaseDependency = Annotated[sqlite3.Connection, Depends(get_database)]
-IdentityDependency = Annotated[UserSession, Depends(require_user)]
-CsrfDependency = Annotated[None, Depends(require_csrf)]
+IdentityDependency = ConstructionEstimateAccessDependency
+MutationAuthDependency = Annotated[None, Depends(require_mutation_auth)]
 IdempotencyDependency = Annotated[
     str,
     Header(alias="Idempotency-Key", min_length=16, max_length=128),
@@ -606,7 +604,7 @@ def calculate_plastering(
     payload: PlasteringCalculationInput,
     database: DatabaseDependency,
     identity: IdentityDependency,
-    _csrf: CsrfDependency,
+    _auth: MutationAuthDependency,
     idempotency_key: IdempotencyDependency,
 ) -> dict[str, Any]:
     if not PROJECT_ID.fullmatch(project_id):
@@ -789,7 +787,11 @@ def calculate_plastering(
             status="draft",
             document=document,
             origin_type="engine_calculation",
-            origin_run_id=None,
+            origin_run_id=(
+                str(snapshot["sourceRunId"])
+                if snapshot["sourceRunId"] is not None
+                else None
+            ),
             created_by_user_id=identity.user_id,
             created_at=now,
         )

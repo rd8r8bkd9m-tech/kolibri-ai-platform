@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/workflows/workflow-query.schema.json",
+  "title": "Kolibri Project Workflow query v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "workflow_id",
+    "query_id",
+    "query_type",
+    "requested_at"
+  ],
+  "properties": {
+    "schema_id": { "const": "kolibri.workflow.query" },
+    "schema_version": { "const": "1.0" },
+    "workflow_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    },
+    "query_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    },
+    "query_type": {
+      "type": "string",
+      "enum": ["task_projection", "artifact_state", "owner_state", "telemetry"]
+    },
+    "query_scope": {
+      "oneOf": [
+        { "type": "string", "maxLength": 400 },
+        { "type": "null" }
+      ]
+    },
+    "requested_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "response_contract_id": {
+      "type": "string",
+      "maxLength": 255
+    }
+  }
+}

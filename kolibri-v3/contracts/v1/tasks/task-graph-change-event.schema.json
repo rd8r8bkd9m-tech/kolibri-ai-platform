@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/tasks/task-graph-change-event.schema.json",
+  "title": "Kolibri TaskGraph changed event payload v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "graph_id",
+    "tenant_id",
+    "goal_id",
+    "case_id",
+    "previous_graph_version",
+    "new_graph_version",
+    "task_count",
+    "runnable_task_ids"
+  ],
+  "properties": {
+    "schema_id": { "const": "kolibri.task_graph.changed.event" },
+    "schema_version": { "const": "1.0" },
+    "graph_id": { "$ref": "#/definitions/opaque_id" },
+    "tenant_id": { "$ref": "#/definitions/opaque_id" },
+    "goal_id": { "$ref": "#/definitions/opaque_id" },
+    "case_id": { "$ref": "#/definitions/opaque_id" },
+    "previous_graph_version": {
+      "oneOf": [
+        { "type": "integer", "minimum": 1 },
+        { "type": "null" }
+      ]
+    },
+    "new_graph_version": { "type": "integer", "minimum": 1 },
+    "task_count": { "type": "integer", "minimum": 1, "maximum": 100 },
+    "runnable_task_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/definitions/opaque_id" }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "previous_graph_version": { "type": "null" }
+        },
+        "required": ["previous_graph_version"]
+      },
+      "then": {
+        "properties": { "new_graph_version": { "const": 1 } }
+      }
+    }
+  ],
+  "definitions": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    }
+  }
+}

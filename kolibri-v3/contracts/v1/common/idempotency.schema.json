@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/common/idempotency.schema.json",
+  "title": "Kolibri command idempotency context v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["key", "scope", "scope_id", "canonical_request_hash"],
+  "properties": {
+    "key": {
+      "type": "string",
+      "minLength": 16,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:~-]+$"
+    },
+    "scope": {
+      "type": "string",
+      "enum": ["tenant", "goal", "case", "task", "aggregate"]
+    },
+    "scope_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    },
+    "canonical_request_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

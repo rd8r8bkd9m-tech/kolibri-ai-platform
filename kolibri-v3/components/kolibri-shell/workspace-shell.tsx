@@ -9,11 +9,13 @@ import {
   ProfileSettingsSurface,
   type ProfileSettingsSection,
 } from "@/components/kolibri-shell/profile-settings-surface";
+import { KolibriPetHost } from "@/components/kolibri-shell/kolibri-pet";
 import {
   WorkspaceSidebar,
   type WorkspaceProject,
   type ProjectContentSection,
 } from "@/components/kolibri-shell/workspace-sidebar";
+import { MobileWorkspaceHeader } from "@/components/kolibri-shell/mobile-workspace-header";
 import { WorkspaceHeader } from "@/components/kolibri-shell/workspace-header";
 import {
   CanvasWorkspace,
@@ -59,6 +61,7 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { useIdentity } from "@/lib/identity/provider";
+import { cn } from "@/lib/utils";
 import {
   parseWorkspaceDocuments,
   type WorkspaceCatalogLoadState,
@@ -270,6 +273,18 @@ Never claim that a payment, legal signature, publication, purchase, or external 
     setNavigationPinned(isDesktop);
     setNavigationPreviewOpen(false);
     setMobileNavigationOpen(false);
+    if (!isDesktop) {
+      setCanvasMaximized(false);
+      setCanvasSession((current) => {
+        if (!current.tabs.some((tab) => tab.maximized)) return current;
+        return {
+          ...current,
+          tabs: current.tabs.map((tab) =>
+            tab.maximized ? { ...tab, maximized: false } : tab,
+          ),
+        };
+      });
+    }
   }, [isDesktop]);
 
   const refreshWorkspaceDocuments = useCallback(async () => {
@@ -385,7 +400,7 @@ Never claim that a payment, legal signature, publication, purchase, or external 
     }
 
     const keepImmersiveWorkspace =
-      canvasMaximized && placement === "primary";
+      isDesktop && canvasMaximized && placement === "primary";
     const nextMaximized = maximized ?? keepImmersiveWorkspace;
     if (project) setActiveProject(project);
     setCanvasSession((current) =>
@@ -472,11 +487,13 @@ Never claim that a payment, legal signature, publication, purchase, or external 
       openWorkspaceTab({
         content: { kind: "desktop" },
         id: PRIMARY_CANVAS_TAB_ID,
-        maximized: canvasOpen
-          ? canvasMaximized
-          : storedPrimaryTab?.content.kind === "desktop"
-            ? storedPrimaryTab.maximized
-            : true,
+        maximized:
+          isDesktop &&
+          (canvasOpen
+            ? canvasMaximized
+            : storedPrimaryTab?.content.kind === "desktop"
+              ? storedPrimaryTab.maximized
+              : true),
         placement: destinationPlacement,
         title: "Рабочий стол",
       });
@@ -594,7 +611,6 @@ Never claim that a payment, legal signature, publication, purchase, or external 
       setNavigationPinned((pinned) => !pinned);
       setNavigationPreviewOpen(false);
     } else {
-      setCanvasVisible(false);
       setMobileNavigationOpen((open) => !open);
     }
   };
@@ -872,8 +888,6 @@ Never claim that a payment, legal signature, publication, purchase, or external 
       setAccountSection(section);
       setNavigationPreviewOpen(false);
       setMobileNavigationOpen(false);
-      setCanvasVisible(false);
-      setCanvasMaximized(false);
       setAssistantWidgetOpen(false);
       setAccountSurfaceOpen(true);
     },
@@ -893,20 +907,26 @@ Never claim that a payment, legal signature, publication, purchase, or external 
       );
   }, [openAccountSettings]);
 
-  const header = (
+  const currentSurfaceTitle = accountSurfaceOpen
+    ? identity.status === "authenticated"
+      ? "Личный кабинет"
+      : "Вход"
+    : canvasOpen
+      ? canvasFile?.name ?? activeCanvasTab?.title ?? "Рабочая область"
+      : activeThreadItem?.title?.trim() || PRIMARY_VIEW_TITLES[primaryView];
+  const mobileSurfaceTitle =
+    canvasOpen && canvasFile
+      ? canvasFile.name
+      : canvasOpen && activeCanvasTab?.content.kind === "files"
+        ? "Библиотека"
+        : currentSurfaceTitle;
+
+  const header = isDesktop ? (
     <WorkspaceHeader
       activeProjectId={activeProject?.id}
       projectName={activeProject?.name}
       projects={workspaceProjects}
-      threadTitle={
-        accountSurfaceOpen
-          ? identity.status === "authenticated"
-            ? "Личный кабинет"
-            : "Вход"
-          : canvasOpen
-          ? canvasFile?.name ?? activeCanvasTab?.title ?? "Рабочая область"
-          : activeThreadItem?.title?.trim() || PRIMARY_VIEW_TITLES[primaryView]
-      }
+      threadTitle={currentSurfaceTitle}
       navigationOpen={navigationDocked}
       canvasOpen={canvasOpen}
       onOpenDesktop={toggleWorkspaceVisibility}
@@ -914,6 +934,17 @@ Never claim that a payment, legal signature, publication, purchase, or external 
       onToggleNavigation={toggleNavigation}
       onNavigationPreviewEnter={openNavigationPreview}
       onNavigationPreviewLeave={scheduleNavigationPreviewClose}
+    />
+  ) : (
+    <MobileWorkspaceHeader
+      navigationOpen={mobileNavigationOpen}
+      onBack={
+        canvasOpen ? () => openPrimaryDestination("chat") : undefined
+      }
+      onOpenChat={() => openPrimaryDestination("chat")}
+      onOpenDestination={openPrimaryDestination}
+      onToggleNavigation={toggleNavigation}
+      title={canvasOpen ? mobileSurfaceTitle : "Chat"}
     />
   );
 
@@ -1018,6 +1049,7 @@ Never claim that a payment, legal signature, publication, purchase, or external 
       >
         <CanvasWorkspace
           activeSessionTabId={activeCanvasTab.id}
+          compactChrome={!isDesktop && canvasPlacement === "primary"}
           fileCategory={canvasFileCategory}
           maximized={canvasMaximized}
           projectName={activeProject?.name}
@@ -1066,10 +1098,11 @@ Never claim that a payment, legal signature, publication, purchase, or external 
     </div>
   ) : null;
 
-  const primaryContent = accountSurfaceOpen ? (
+  const accountSurface = (
     <section
       aria-label="Аккаунт Kolibri"
-      className="fixed inset-0 z-[60] h-dvh min-h-0 min-w-0 overflow-hidden bg-background"
+      data-slot="mobile-account-sheet"
+      className="fixed inset-x-0 top-[env(safe-area-inset-top)] bottom-0 z-[60] min-h-0 min-w-0 overflow-hidden rounded-t-[2.5rem] bg-background min-[960px]:inset-0 min-[960px]:h-dvh min-[960px]:rounded-none"
     >
       <ProfileSettingsSurface
         activeSection={accountSection}
@@ -1077,20 +1110,67 @@ Never claim that a payment, legal signature, publication, purchase, or external 
         onSectionChange={setAccountSection}
       />
     </section>
-  ) : canvasOpen && canvasPlacement === "primary" ? (
-      canvasSurface
-    ) : (
-      <section
-        aria-label="Диалог с Kolibri"
-        className="h-full min-h-0 min-w-0 overflow-hidden"
+  );
+  const threadSurface = (
+    <section
+      aria-label="Диалог с Kolibri"
+      className="h-full min-h-0 min-w-0 overflow-hidden"
+    >
+      <Thread
+        compact={!isDesktop}
+        onOpenAccount={() => openAccountSettings()}
+        onOpenDesktop={toggleWorkspaceVisibility}
+        workspaceOpen={canvasOpen}
+      />
+    </section>
+  );
+  const mobilePrimarySurfaceOpen =
+    canvasOpen && canvasPlacement === "primary";
+  const mobilePrimaryCanvasMounted =
+    activeCanvasTab !== null && canvasPlacement === "primary";
+  const mobilePrimaryWorkspaceHidden =
+    !mobilePrimarySurfaceOpen || accountSurfaceOpen;
+  const primaryContent = !isDesktop ? (
+    <div className="relative h-full min-h-0 min-w-0 overflow-hidden">
+      <div
+        data-slot="mobile-thread-preserver"
+        aria-hidden={
+          mobilePrimarySurfaceOpen || accountSurfaceOpen ? true : undefined
+        }
+        inert={
+          mobilePrimarySurfaceOpen || accountSurfaceOpen ? true : undefined
+        }
+        className={cn(
+          "absolute inset-0 min-h-0 min-w-0",
+          (mobilePrimarySurfaceOpen || accountSurfaceOpen) &&
+            "invisible pointer-events-none",
+        )}
       >
-        <Thread
-          onOpenAccount={() => openAccountSettings()}
-          onOpenDesktop={toggleWorkspaceVisibility}
-          workspaceOpen={canvasOpen}
-        />
-      </section>
-    );
+        {threadSurface}
+      </div>
+      {mobilePrimaryCanvasMounted ? (
+        <div
+          data-slot="mobile-primary-workspace"
+          aria-hidden={mobilePrimaryWorkspaceHidden ? true : undefined}
+          inert={mobilePrimaryWorkspaceHidden ? true : undefined}
+          className={cn(
+            "absolute inset-0 min-h-0 min-w-0 overflow-hidden",
+            mobilePrimaryWorkspaceHidden &&
+              "invisible pointer-events-none",
+          )}
+        >
+          {canvasSurface}
+        </div>
+      ) : null}
+      {accountSurfaceOpen ? accountSurface : null}
+    </div>
+  ) : accountSurfaceOpen ? (
+    accountSurface
+  ) : canvasOpen && canvasPlacement === "primary" ? (
+    canvasSurface
+  ) : (
+    threadSurface
+  );
 
   const primaryPane = (
     <PrimaryPane
@@ -1109,6 +1189,7 @@ Never claim that a payment, legal signature, publication, purchase, or external 
         className="bg-background text-foreground h-dvh max-h-dvh w-dvw max-w-full overflow-hidden"
       >
         {canvasSurface}
+        <KolibriPetHost />
         <WorkspaceTaskShelf
           className="fixed bottom-2 left-1/2 z-[70] w-max max-w-[calc(100vw-1rem)] -translate-x-1/2 rounded-xl border bg-background p-1 shadow-lg"
           tabs={canvasSession.tabs}
@@ -1236,6 +1317,7 @@ Never claim that a payment, legal signature, publication, purchase, or external 
           </div>
         ) : null}
 
+        <KolibriPetHost />
       </div>
     );
   }
@@ -1255,7 +1337,7 @@ Never claim that a payment, legal signature, publication, purchase, or external 
         onOpenChange={setMobileNavigationOpen}
         label="Навигация по проектам"
         side="left"
-        widthClassName="w-[min(88vw,22rem)]"
+        widthClassName="w-[min(78vw,24rem)]"
       >
         <div id="workspace-project-navigation" className="h-full">
           <WorkspaceSidebar
@@ -1286,6 +1368,7 @@ Never claim that a payment, legal signature, publication, purchase, or external 
         onRestoreTab={restoreWorkspaceTab}
       />
 
+      <KolibriPetHost />
     </div>
   );
 }
@@ -1425,12 +1508,13 @@ function WorkspaceDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton={false}
+        data-side={side}
         className={[
-          "top-0 bottom-0 h-dvh max-w-none translate-x-0 translate-y-0 gap-0 rounded-none border-y-0 p-0 shadow-2xl sm:max-w-none",
+          "top-0 bottom-0 h-dvh max-w-none translate-x-0 translate-y-0 gap-0 overflow-hidden border-y-0 p-0 shadow-2xl sm:max-w-none",
           "data-[state=closed]:zoom-out-100 data-[state=open]:zoom-in-100",
           side === "left"
-            ? "left-0 border-l-0"
-            : "right-0 left-auto border-r-0",
+            ? "left-0 rounded-l-none rounded-r-[2.5rem] border-l-0 data-[state=closed]:slide-out-to-left-full data-[state=open]:slide-in-from-left-full"
+            : "right-0 left-auto rounded-none border-r-0 data-[state=closed]:slide-out-to-right-full data-[state=open]:slide-in-from-right-full",
           widthClassName,
         ].join(" ")}
       >

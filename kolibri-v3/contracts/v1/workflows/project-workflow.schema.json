@@ -1,0 +1,292 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/workflows/project-workflow.schema.json",
+  "title": "Kolibri Project Workflow aggregate v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "workflow_id",
+    "tenant_id",
+    "goal_id",
+    "case_id",
+    "workflow_type",
+    "status",
+    "version",
+    "graph_id",
+    "graph_version",
+    "activity_count",
+    "signal_count",
+    "query_count",
+    "timer_count",
+    "activities",
+    "pending_signals",
+    "open_queries",
+    "timers",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "kolibri.project_workflow"
+    },
+    "schema_version": {
+      "const": "1.0"
+    },
+    "workflow_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "tenant_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "goal_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "case_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "workflow_type": {
+      "type": "string",
+      "enum": ["project", "child", "child.retry", "child.review"]
+    },
+    "parent_workflow_id": {
+      "oneOf": [
+        { "$ref": "#/definitions/opaque_id" },
+        { "type": "null" }
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "running",
+        "waiting_signal",
+        "waiting_query",
+        "waiting_timer",
+        "cancelling",
+        "completed",
+        "failed",
+        "cancelled",
+        "superseded"
+      ]
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "graph_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "graph_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "activity_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "signal_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "query_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "timer_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "activities": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/activity" }
+    },
+    "pending_signals": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/signal_ref" }
+    },
+    "open_queries": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/query_ref" }
+    },
+    "timers": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/timer_ref" }
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "definitions": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    },
+    "activity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "activity_id",
+        "task_id",
+        "activity_type",
+        "status",
+        "execution_attempt",
+        "started_at",
+        "updated_at"
+      ],
+      "properties": {
+        "activity_id": { "$ref": "#/definitions/opaque_id" },
+        "task_id": { "$ref": "#/definitions/opaque_id" },
+        "activity_type": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_.-]{2,80}$"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "queued",
+            "assigned",
+            "running",
+            "waiting_signal",
+            "waiting_timer",
+            "succeeded",
+            "failed",
+            "cancelled",
+            "superseded"
+          ]
+        },
+        "execution_attempt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "execution_attempt_id": {
+          "oneOf": [
+            { "$ref": "#/definitions/opaque_id" },
+            { "type": "null" }
+          ]
+        },
+        "assigned_node": {
+          "oneOf": [
+            { "type": "string", "maxLength": 255 },
+            { "type": "null" }
+          ]
+        },
+        "started_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "signal_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["signal_id", "signal_type", "status", "received_at"],
+      "properties": {
+        "signal_id": { "$ref": "#/definitions/opaque_id" },
+        "signal_type": {
+          "type": "string",
+          "enum": [
+            "user_change",
+            "approval",
+            "payment",
+            "policy_change",
+            "cancellation"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["queued", "applied", "ignored", "rejected", "failed"]
+        },
+        "received_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "query_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["query_id", "query_type", "status", "requested_at"],
+      "properties": {
+        "query_id": { "$ref": "#/definitions/opaque_id" },
+        "query_type": {
+          "type": "string",
+          "enum": ["task_projection", "artifact_state", "owner_state", "telemetry"]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["queued", "in_progress", "served", "failed"]
+        },
+        "requested_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "timer_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "timer_id",
+        "timer_type",
+        "scheduled_at",
+        "status"
+      ],
+      "properties": {
+        "timer_id": { "$ref": "#/definitions/opaque_id" },
+        "timer_type": {
+          "type": "string",
+          "enum": ["lease_expiry", "retry_backoff", "deadline_policy"]
+        },
+        "scheduled_at": { "type": "string", "format": "date-time" },
+        "status": {
+          "type": "string",
+          "enum": ["waiting", "fired", "cancelled"]
+        },
+        "fired_at": {
+          "oneOf": [
+            { "type": "string", "format": "date-time" },
+            { "type": "null" }
+          ]
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "activity_count": { "const": 0 },
+          "signal_count": { "const": 0 },
+          "query_count": { "const": 0 },
+          "timer_count": { "const": 0 }
+        }
+      },
+      "then": {
+        "properties": {
+          "status": {
+            "enum": ["completed", "failed", "cancelled", "superseded"]
+          },
+          "activities": { "maxItems": 0 },
+          "pending_signals": { "maxItems": 0 },
+          "open_queries": { "maxItems": 0 },
+          "timers": { "maxItems": 0 }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "enum": ["completed", "failed", "cancelled", "superseded"]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "version": { "minimum": 2 },
+          "activity_count": { "minimum": 1 }
+        }
+      }
+    }
+  ]
+}

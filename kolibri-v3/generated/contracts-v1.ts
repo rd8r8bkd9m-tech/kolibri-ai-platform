@@ -8,6 +8,8 @@ export type KolibriA2aMessageAppendedEvent = { readonly "schema_id": "kolibri.a2
 
 export type KolibriAgentAssignment = { readonly "schema_id": "kolibri.agent_assignment"; readonly "schema_version": "1.0"; readonly "assignment_id": string; readonly "tenant_id": string; readonly "goal_id": string; readonly "case_id": string; readonly "task_id": string; readonly "task_version": number; readonly "attempt_id": string; readonly "assignee_actor_id": string; readonly "agent_card_id": string; readonly "agent_card_version": number; readonly "temporary_role": string; readonly "purpose": string; readonly "authority_profile": { readonly "authority_id": string; readonly "authority_role": "logical_home_control_plane"; readonly "authority_epoch": number; readonly "authorization_decision_id": string; readonly "capabilities": ReadonlyArray<string>; readonly "allowed_tool_ids": ReadonlyArray<string>; readonly "allowed_resource_refs": ReadonlyArray<string>; readonly "expires_at": string; }; readonly "context_slice": { readonly "case_version": number; readonly "fact_ids": ReadonlyArray<string>; readonly "assumption_ids": ReadonlyArray<string>; readonly "decision_ids": ReadonlyArray<string>; readonly "artifact_refs": ReadonlyArray<string>; readonly "classification": "public" | "internal" | "confidential" | "restricted"; readonly "max_bytes": number; }; readonly "budget": { readonly "compute_units_limit": number; readonly "tool_calls_limit": number; readonly "external_spend_limit_minor": number; readonly "currency": string; }; readonly "lease_id": string; readonly "deadline_at": string; readonly "required_output_ids": ReadonlyArray<string>; readonly "required_evidence_types": ReadonlyArray<string>; readonly "status": "pending" | "active" | "suspended" | "completed" | "revoked" | "expired" | "superseded"; readonly "version": number; readonly "created_at": string; readonly "updated_at": string; }
 
+export type KolibriAgentAssignmentStatusChangedEvent = { readonly "schema_id": "kolibri.agent_assignment.status_changed.event"; readonly "schema_version": "1.0"; readonly "assignment_id": string; readonly "previous_status": "pending" | "active" | "suspended" | "completed" | "revoked" | "expired" | "superseded"; readonly "new_status": "pending" | "active" | "suspended" | "completed" | "revoked" | "expired" | "superseded"; readonly "previous_version": number; readonly "new_version": number; readonly "reason": string; }
+
 export type KolibriAgentCard = { readonly "schema_id": "kolibri.agent_card"; readonly "schema_version": "1.0"; readonly "agent_card_id": string; readonly "tenant_scope": string | "platform"; readonly "display_name": string; readonly "agent_kind": "model" | "worker" | "human" | "hybrid" | "service"; readonly "capabilities": ReadonlyArray<string>; readonly "skills": ReadonlyArray<string>; readonly "model_profiles": ReadonlyArray<string>; readonly "tool_ids": ReadonlyArray<string>; readonly "jurisdictions": ReadonlyArray<string>; readonly "domain_tags": ReadonlyArray<string>; readonly "limits": { readonly "max_concurrent_assignments": number; readonly "max_context_bytes": number; readonly "max_external_spend_minor": number; readonly "currency": string; readonly "latency_slo_ms": number; }; readonly "availability": "available" | "busy" | "degraded" | "offline" | "revoked"; readonly "policy_constraints": ReadonlyArray<string>; readonly "version": number; readonly "updated_at": string; }
 
 export type KolibriArtifact = { readonly "schema_id": "kolibri.artifact"; readonly "schema_version": "1.0"; readonly "artifact_id": string; readonly "artifact_version": number; readonly "tenant_id": string; readonly "goal_id": string; readonly "case_id": string; readonly "task_id": string | null; readonly "artifact_type": string; readonly "domain_output": { readonly "aggregate_type": string; readonly "aggregate_id": string; readonly "aggregate_version": number; }; readonly "content": { readonly "storage_ref": string; readonly "media_type": string; readonly "size_bytes": number; readonly "content_hash": string; readonly "filename": string; }; readonly "contract": { readonly "schema_id": string; readonly "schema_version": string; readonly "renderer_id": string | null; readonly "renderer_version": string | null; }; readonly "generator": { readonly "generator_id": string; readonly "generator_version": string; readonly "execution_ref": string; }; readonly "inputs": ReadonlyArray<{ readonly "input_id": string; readonly "input_kind": "fact" | "assumption" | "decision" | "domain_aggregate" | "artifact" | "source_document" | "tool_result"; readonly "ref_id": string; readonly "ref_version": number; readonly "content_hash": string; readonly "role": string; }>; readonly "provenance": ReadonlyArray<{ readonly "provenance_id": string; readonly "kind": "user_input" | "source_document" | "calculation" | "tool_execution" | "model_generation" | "human_edit"; readonly "source_ref": string; readonly "recorded_at": string; readonly "effective_at": string | null; readonly "actor_or_tool_ref": string; }>; readonly "supersedes": { readonly "artifact_id": string; readonly "artifact_version": number; readonly "content_hash": string; } | null; readonly "created_by": string; readonly "created_at": string; }
@@ -52,6 +54,16 @@ export type KolibriProductAttachment = { readonly "schema_id": "kolibri.product.
 
 export type KolibriProductDeliveryCursor = { readonly "schema_id": "kolibri.product.delivery_cursor"; readonly "schema_version": "1.0"; readonly "tenant_id": string; readonly "user_id": string; readonly "project_id": string; readonly "thread_id": string; readonly "run_id": string; readonly "last_sequence": number; readonly "last_event_id": string | null; readonly "ledger_version": number; readonly "issued_at": string; }
 
+export type KolibriProductDeveloperDispatch = { readonly "schema_id": "kolibri.product.developer_dispatch"; readonly "schema_version": "1.0"; readonly "source_command_ref": string; readonly "run_id": string; readonly "project_id": string; readonly "thread_id": string; readonly "input_message_id": string; readonly "runtime_profile": string; readonly "runtime_capability": string; readonly "model": string | null; readonly "reasoning_effort": string | null; readonly "service_tier": string | null; readonly "workspace_ref": string; readonly "access_mode": "auto" | "full"; readonly "sandbox": "workspace-write" | "danger-full-access"; readonly "approval_policy": "on-request" | "never"; readonly "reviewer": string | null; }
+
+export type KolibriProductDeveloperDispatchV11 = { readonly "schema_id": "kolibri.product.developer_dispatch.v1_1"; readonly "schema_version": "1.1"; readonly "source_command_ref": string; readonly "run_id": string; readonly "project_id": string; readonly "thread_id": string; readonly "input_message_id": string; readonly "runtime_profile": string; readonly "runtime_capability": string; readonly "model": string | null; readonly "reasoning_effort": string | null; readonly "service_tier": string | null; readonly "workspace_ref": string; readonly "access_mode": "full"; readonly "sandbox": "danger-full-access"; readonly "approval_policy": "never"; readonly "reviewer": null; readonly "trusted_agent_profile_id": string; readonly "trusted_agent_profile_epoch": number; readonly "trusted_agent_workspace_binding_id": string; readonly "trusted_agent_workspace_binding_epoch": number; }
+
+export type KolibriProductDeveloperLeaseSource = { readonly "schema_id": "kolibri.product.developer_lease_source"; readonly "schema_version": "1.0"; readonly "source_command_ref": string; readonly "canonical_request_hash": string; readonly "source_command_hash": string; readonly "tenant_id": string; readonly "task_id": string; readonly "task_version": number; readonly "attempt_id": string; readonly "assignment_id": string; readonly "effect_id": string; readonly "lease_id": string; readonly "fencing_token": number; readonly "runtime_profile": string; readonly "access_policy": { readonly "policy_id": string; readonly "tool_ids": ReadonlyArray<string>; readonly "compute_units_limit": number; readonly "tool_calls_limit": number; }; }
+
+export type KolibriProductDeveloperLeaseSourceV11 = { readonly "schema_id": "kolibri.product.developer_lease_source.v1_1"; readonly "schema_version": "1.1"; readonly "source_command_ref": string; readonly "canonical_request_hash": string; readonly "source_command_hash": string; readonly "tenant_id": string; readonly "task_id": string; readonly "task_version": number; readonly "attempt_id": string; readonly "assignment_id": string; readonly "effect_id": string; readonly "lease_id": string; readonly "fencing_token": number; readonly "runtime_profile": string; readonly "access_policy": { readonly "policy_id": string; readonly "tool_ids": ReadonlyArray<string>; readonly "compute_units_limit": number; readonly "tool_calls_limit": number; }; readonly "trusted_agent_profile_id": string; readonly "trusted_agent_profile_epoch": number; readonly "trusted_agent_workspace_binding_id": string; readonly "trusted_agent_workspace_binding_epoch": number; }
+
+export type KolibriProductDeveloperSourceCommand = { readonly "schema_id": "kolibri.product.developer_source_command"; readonly "schema_version": "1.0"; readonly "source_command_ref": string; readonly "tenant_id": string; readonly "goal_id": string; readonly "case_id": string; readonly "run_id": string; readonly "task_id": string; readonly "graph_id": string; readonly "request_hash": string; readonly "command_hash": string; readonly "requested_runtime_profile": string; readonly "runtime_profile": string; readonly "runtime_capability": string; readonly "access_policy": { readonly "policy_id": string; readonly "tool_ids": ReadonlyArray<string>; readonly "compute_units_limit": number; readonly "tool_calls_limit": number; }; readonly "state": "reserved" | "ready"; readonly "source_command": KolibriCommand; }
+
 export type KolibriProductGoalInitializationStatus = { readonly "schema_id": "kolibri.product.goal.initialization_status"; readonly "schema_version": "1.0"; readonly "run_id": string; readonly "goal_id": string; readonly "case_id": string; readonly "status": "initialized" | "failed"; readonly "goal_version": number | null; readonly "case_version": number | null; readonly "error": KolibriError | null; }
 
 export type KolibriProductGoalInitializeCommand = { readonly "schema_id": "kolibri.product.goal.initialize.command"; readonly "schema_version": "1.0"; readonly "tenant_id": string; readonly "project_id": string; readonly "thread_id": string; readonly "run_id": string; readonly "input_message_id": string; readonly "goal_id": string; readonly "prompt": string; readonly "prompt_hash": string; }
@@ -74,9 +86,11 @@ export type KolibriProductRunEvent = { readonly "schema_id": "kolibri.product.ru
 
 export type KolibriProductRunExecuteCommand = { readonly "schema_id": "kolibri.product.run.execute.command"; readonly "schema_version": "1.0"; readonly "tenant_id": string; readonly "project_id": string; readonly "thread_id": string; readonly "run_id": string; readonly "input_message_id": string; readonly "case_id": string; readonly "goal_id": string; readonly "prompt": string; readonly "prompt_hash": string; readonly "preferred_agent_profile": "auto" | "mimo-code" | "codex-cli"; }
 
-export type KolibriProductRunExecuteV11Command = ({ readonly "schema_id": "kolibri.product.run.execute.v1_1.command"; readonly "schema_version": "1.1"; readonly "tenant_id": string; readonly "project_id": string; readonly "thread_id": string; readonly "run_id": string; readonly "input_message_id": string; readonly "case_id": string; readonly "goal_id": string; readonly "prompt": string; readonly "prompt_hash": string; readonly "preferred_agent_profile": "auto" | "mimo-code" | "codex-cli"; readonly "preferred_model": string | null; readonly "preferred_reasoning_effort": string | null; }) & ({ readonly "preferred_agent_profile": "codex-cli"; readonly "preferred_model": string; readonly "preferred_reasoning_effort": string; } | { readonly "preferred_agent_profile": "codex-cli"; readonly "preferred_model": null; readonly "preferred_reasoning_effort": null; } | { readonly "preferred_agent_profile": "auto" | "mimo-code"; readonly "preferred_model": null; readonly "preferred_reasoning_effort": null; })
+export type KolibriProductRunExecuteV11Command = ({ readonly "schema_id": "kolibri.product.run.execute.v1_1.command"; readonly "schema_version": "1.1"; readonly "tenant_id": string; readonly "project_id": string; readonly "thread_id": string; readonly "run_id": string; readonly "input_message_id": string; readonly "case_id": string; readonly "goal_id": string; readonly "prompt": string; readonly "prompt_hash": string; readonly "preferred_agent_profile": string; readonly "preferred_model": string | null; readonly "preferred_reasoning_effort": string | null; }) & ({ readonly "preferred_model": string; readonly "preferred_reasoning_effort": string; } | { readonly "preferred_model": null; readonly "preferred_reasoning_effort": null; })
 
 export type KolibriProductRunExecuteV12Command = { readonly "schema_id": "kolibri.product.run.execute.v1_2.command"; readonly "schema_version": "1.2"; readonly "tenant_id": string; readonly "project_id": string; readonly "thread_id": string; readonly "run_id": string; readonly "input_message_id": string; readonly "case_id": string; readonly "goal_id": string; readonly "prompt": string; readonly "prompt_hash": string; readonly "execution_mode": "developer"; readonly "runtime_profile": string; readonly "model": string | null; readonly "reasoning_effort": string | null; readonly "service_tier": string | null; readonly "workspace_ref": string; readonly "access_mode": "auto" | "full"; readonly "sandbox": "workspace-write" | "danger-full-access"; readonly "approval_policy": "on-request" | "never"; readonly "reviewer": string | null; readonly "requester_role": "owner"; }
+
+export type KolibriProductRunExecuteV13Command = { readonly "schema_id": "kolibri.product.run.execute.v1_3.command"; readonly "schema_version": "1.3"; readonly "tenant_id": string; readonly "project_id": string; readonly "thread_id": string; readonly "run_id": string; readonly "input_message_id": string; readonly "case_id": string; readonly "goal_id": string; readonly "prompt": string; readonly "prompt_hash": string; readonly "execution_mode": "developer"; readonly "runtime_profile": string; readonly "model": string | null; readonly "reasoning_effort": string | null; readonly "service_tier": string | null; readonly "workspace_ref": string; readonly "access_mode": "full"; readonly "sandbox": "danger-full-access"; readonly "approval_policy": "never"; readonly "reviewer": null; readonly "requester_role": "owner"; readonly "trusted_agent_profile_id": string; readonly "trusted_agent_profile_epoch": number; readonly "trusted_agent_workspace_binding_id": string; readonly "trusted_agent_workspace_binding_epoch": number; }
 
 export type KolibriProductRunExecutionStatus = { readonly "schema_id": "kolibri.product.run.execution_status"; readonly "schema_version": "1.0"; readonly "run_id": string; readonly "status": "accepted" | "running" | "succeeded" | "failed"; readonly "profile": "mimo-code" | "codex-cli"; readonly "execution_id": string; readonly "verification_status": "not_applicable" | "unverified" | "verified"; readonly "result_text": string | null; readonly "result_hash": string | null; readonly "evidence": { readonly "evidence_id": string; readonly "evidence_version": number; readonly "content_hash": string; } | null; readonly "error": KolibriError | null; }
 
@@ -95,6 +109,12 @@ export type KolibriProjectCase = { readonly "schema_id": "kolibri.project_case";
 export type KolibriProjectCaseTransitionCommand = { readonly "schema_id": "kolibri.project_case.transition.command"; readonly "schema_version": "1.0"; readonly "case_id": string; readonly "expected_version": number; readonly "next_version": number; readonly "from_status": "draft" | "intake" | "working" | "blocked" | "review" | "approved_internal" | "released" | "superseded" | "closed"; readonly "to_status": "draft" | "intake" | "working" | "blocked" | "review" | "approved_internal" | "released" | "superseded" | "closed"; readonly "reason": string; readonly "requested_at": string; }
 
 export type KolibriProjectWorkflow = { readonly "schema_id": "kolibri.project_workflow"; readonly "schema_version": "1.0"; readonly "workflow_id": string; readonly "tenant_id": string; readonly "goal_id": string; readonly "case_id": string; readonly "workflow_type": "project" | "child" | "child.retry" | "child.review"; readonly "parent_workflow_id"?: string | null; readonly "status": "running" | "waiting_signal" | "waiting_query" | "waiting_timer" | "cancelling" | "completed" | "failed" | "cancelled" | "superseded"; readonly "version": number; readonly "graph_id": string; readonly "graph_version": number; readonly "activity_count": number; readonly "signal_count": number; readonly "query_count": number; readonly "timer_count": number; readonly "activities": ReadonlyArray<{ readonly "activity_id": string; readonly "task_id": string; readonly "activity_type": string; readonly "status": "queued" | "assigned" | "running" | "waiting_signal" | "waiting_timer" | "succeeded" | "failed" | "cancelled" | "superseded"; readonly "execution_attempt": number; readonly "execution_attempt_id"?: string | null; readonly "assigned_node"?: string | null; readonly "started_at": string; readonly "updated_at": string; }>; readonly "pending_signals": ReadonlyArray<{ readonly "signal_id": string; readonly "signal_type": "user_change" | "approval" | "payment" | "policy_change" | "cancellation"; readonly "status": "queued" | "applied" | "ignored" | "rejected" | "failed"; readonly "received_at": string; }>; readonly "open_queries": ReadonlyArray<{ readonly "query_id": string; readonly "query_type": "task_projection" | "artifact_state" | "owner_state" | "telemetry"; readonly "status": "queued" | "in_progress" | "served" | "failed"; readonly "requested_at": string; }>; readonly "timers": ReadonlyArray<{ readonly "timer_id": string; readonly "timer_type": "lease_expiry" | "retry_backoff" | "deadline_policy"; readonly "scheduled_at": string; readonly "status": "waiting" | "fired" | "cancelled"; readonly "fired_at"?: string | null; }>; readonly "created_at": string; readonly "updated_at": string; }
+
+export type KolibriProviderExecutionCatalog = { readonly "schema_id": "kolibri.provider_execution.catalog"; readonly "schema_version": "1.0"; readonly "agent_cards": ReadonlyArray<KolibriAgentCard>; }
+
+export type KolibriProviderExecutionRequest = { readonly "schema_id": "kolibri.provider_execution.request"; readonly "schema_version": "1.0"; readonly "effect_key": string; readonly "task": KolibriTask; readonly "attempt": KolibriTaskAttempt; readonly "agent_assignment": KolibriAgentAssignment; readonly "requester_assignment": KolibriAgentAssignment; readonly "a2a_request": KolibriA2aMessageAppendedEvent; readonly "developer_dispatch": KolibriProductDeveloperDispatch | KolibriProductDeveloperDispatchV11; readonly "source_command": KolibriCommand; readonly "lease_source": KolibriProductDeveloperLeaseSource | KolibriProductDeveloperLeaseSourceV11; }
+
+export type KolibriProviderExecutionResult = { readonly "schema_id": "kolibri.provider_execution.result"; readonly "schema_version": "1.0"; readonly "effect_key": string; readonly "request_hash": string; readonly "task_id": string; readonly "attempt_id": string; readonly "assignment_id": string; readonly "lease_id": string; readonly "fencing_token": number; readonly "runtime_profile": string; readonly "status": "completed" | "failed"; readonly "replayed": boolean; readonly "output": ({ readonly "response": string | null; readonly "session_id": string | null; readonly "tool_call": { readonly "name": string; readonly "arguments": Readonly<Record<string, unknown>>; } | null; }) & ({ readonly "response"?: string; readonly "tool_call"?: null; } | { readonly "response"?: null; readonly "tool_call"?: Readonly<Record<string, unknown>>; }) | null; readonly "activity": ReadonlyArray<{ readonly "phase": string; readonly "payload": Readonly<Record<string, unknown>>; }>; readonly "error": { readonly "code": string; readonly "category": "configuration" | "authentication" | "unavailable" | "invalid_output" | "execution"; readonly "retryable": boolean; readonly "safe_message": string; } | null; }
 
 export type KolibriReview = { readonly "schema_id": "kolibri.review"; readonly "schema_version": "1.0"; readonly "review_id": string; readonly "review_version": number; readonly "tenant_id": string; readonly "goal_id": string; readonly "case_id": string; readonly "task_id": string; readonly "artifact_ref": { readonly "artifact_id": string; readonly "artifact_version": number; readonly "content_hash": string; }; readonly "author_actor_id": string; readonly "reviewer_actor_id": string; readonly "reviewer_assignment_id": string; readonly "scope": ReadonlyArray<"technical" | "commercial" | "legal" | "quality" | "security" | "release">; readonly "criteria": ReadonlyArray<{ readonly "criterion_id": string; readonly "result": "passed" | "failed" | "not_applicable" | "inconclusive"; readonly "evidence_refs": ReadonlyArray<{ readonly "ref_id": string; readonly "version": number; }>; }>; readonly "evidence_refs": ReadonlyArray<{ readonly "ref_id": string; readonly "version": number; }>; readonly "findings": ReadonlyArray<{ readonly "finding_id": string; readonly "severity": "info" | "low" | "medium" | "high" | "critical"; readonly "category": string; readonly "statement": string; readonly "artifact_locator": string; readonly "evidence_refs": ReadonlyArray<{ readonly "ref_id": string; readonly "version": number; }>; readonly "required_action": string; readonly "owner_ref": string; readonly "status": "open" | "accepted_risk" | "resolved" | "superseded"; readonly "resolution": { readonly "disposition": "fixed" | "not_reproducible" | "accepted_risk" | "superseded"; readonly "resolved_by": string; readonly "resolved_at": string; readonly "evidence_refs": ReadonlyArray<{ readonly "ref_id": string; readonly "version": number; }>; } | null; }>; readonly "disposition": "pending" | "changes_requested" | "rejected" | "accepted_with_conditions" | "approved_internal"; readonly "status": "open" | "completed" | "superseded" | "stale" | "revoked"; readonly "requested_at": string; readonly "completed_at": string | null; readonly "supersedes": { readonly "ref_id": string; readonly "version": number; } | null; }
 
@@ -122,7 +142,7 @@ export type KolibriWorkflowTimer = { readonly "schema_id": "kolibri.workflow.tim
 
 export type KolibriWorkflowVersionTransitionCommand = { readonly "schema_id": "kolibri.workflow.version.transition.command"; readonly "schema_version": "1.0"; readonly "workflow_id": string; readonly "expected_version": number; readonly "next_version": number; readonly "reason": string; readonly "requested_at": string; }
 
-export type KolibriContractV1 = KolibriA2aDeliveryCursor | KolibriA2aMessageAppendedEvent | KolibriAgentAssignment | KolibriAgentCard | KolibriArtifact | KolibriArtifactStateTransitionCommand | KolibriArtifactQualityManifest | KolibriArtifactState | KolibriCommand | KolibriDocumentData | KolibriDocumentRenderRequest | KolibriDocumentRenderResult | KolibriDocumentTemplate | KolibriDocumentTemplateRegistry | KolibriError | KolibriEvent | KolibriEvidence | KolibriGoal | KolibriGoalChangedEvent | KolibriGoalCreateCommand | KolibriGoalTransitionCommand | KolibriGoalUpdateCommand | KolibriProductAguiProjection | KolibriProductAttachment | KolibriProductDeliveryCursor | KolibriProductGoalInitializationStatus | KolibriProductGoalInitializeCommand | KolibriProductInterrupt | KolibriProductMessage | KolibriProductProject | KolibriProductProjectCreateRequest | KolibriProductProviderEnrollmentIntentCommand | KolibriProductProviderEnrollmentStatus | KolibriProductRun | KolibriProductRunEvent | KolibriProductRunExecuteCommand | KolibriProductRunExecuteV11Command | KolibriProductRunExecuteV12Command | KolibriProductRunExecutionStatus | KolibriProductRunExecutionStatusV11 | KolibriProductSession | KolibriProductTextRunRequest | KolibriProductThread | KolibriProductThreadUpdateRequest | KolibriProjectCase | KolibriProjectCaseTransitionCommand | KolibriProjectWorkflow | KolibriReview | KolibriSignoff | KolibriTask | KolibriTaskTransitionCommand | KolibriTaskAttempt | KolibriTaskGraph | KolibriTaskGraphApplyCommand | KolibriTaskGraphChangedEvent | KolibriTaskOwnerState | KolibriWorkflowQuery | KolibriWorkflowSignal | KolibriWorkflowTimer | KolibriWorkflowVersionTransitionCommand
+export type KolibriContractV1 = KolibriA2aDeliveryCursor | KolibriA2aMessageAppendedEvent | KolibriAgentAssignment | KolibriAgentAssignmentStatusChangedEvent | KolibriAgentCard | KolibriArtifact | KolibriArtifactStateTransitionCommand | KolibriArtifactQualityManifest | KolibriArtifactState | KolibriCommand | KolibriDocumentData | KolibriDocumentRenderRequest | KolibriDocumentRenderResult | KolibriDocumentTemplate | KolibriDocumentTemplateRegistry | KolibriError | KolibriEvent | KolibriEvidence | KolibriGoal | KolibriGoalChangedEvent | KolibriGoalCreateCommand | KolibriGoalTransitionCommand | KolibriGoalUpdateCommand | KolibriProductAguiProjection | KolibriProductAttachment | KolibriProductDeliveryCursor | KolibriProductDeveloperDispatch | KolibriProductDeveloperDispatchV11 | KolibriProductDeveloperLeaseSource | KolibriProductDeveloperLeaseSourceV11 | KolibriProductDeveloperSourceCommand | KolibriProductGoalInitializationStatus | KolibriProductGoalInitializeCommand | KolibriProductInterrupt | KolibriProductMessage | KolibriProductProject | KolibriProductProjectCreateRequest | KolibriProductProviderEnrollmentIntentCommand | KolibriProductProviderEnrollmentStatus | KolibriProductRun | KolibriProductRunEvent | KolibriProductRunExecuteCommand | KolibriProductRunExecuteV11Command | KolibriProductRunExecuteV12Command | KolibriProductRunExecuteV13Command | KolibriProductRunExecutionStatus | KolibriProductRunExecutionStatusV11 | KolibriProductSession | KolibriProductTextRunRequest | KolibriProductThread | KolibriProductThreadUpdateRequest | KolibriProjectCase | KolibriProjectCaseTransitionCommand | KolibriProjectWorkflow | KolibriProviderExecutionCatalog | KolibriProviderExecutionRequest | KolibriProviderExecutionResult | KolibriReview | KolibriSignoff | KolibriTask | KolibriTaskTransitionCommand | KolibriTaskAttempt | KolibriTaskGraph | KolibriTaskGraphApplyCommand | KolibriTaskGraphChangedEvent | KolibriTaskOwnerState | KolibriWorkflowQuery | KolibriWorkflowSignal | KolibriWorkflowTimer | KolibriWorkflowVersionTransitionCommand
 export type KolibriContractSchemaId = KolibriContractV1['schema_id']
 
 export const CONTRACT_SPECS = {
@@ -267,6 +287,32 @@ export const CONTRACT_SPECS = {
     "schema_version": "1.0",
     "source_path": "contracts/v1/agents/assignment.schema.json",
     "source_sha256": "af4b6aeffa433d2881c952c35cbc26307426cd78414e7720894cc3a41bd6f684"
+  },
+  "kolibri.agent_assignment.status_changed.event": {
+    "allowed_fields": [
+      "schema_id",
+      "schema_version",
+      "assignment_id",
+      "previous_status",
+      "new_status",
+      "previous_version",
+      "new_version",
+      "reason"
+    ],
+    "required_fields": [
+      "schema_id",
+      "schema_version",
+      "assignment_id",
+      "previous_status",
+      "new_status",
+      "previous_version",
+      "new_version",
+      "reason"
+    ],
+    "schema_uri": "https://schemas.kolibriai.ru/v1/agents/assignment-status-changed-event.schema.json",
+    "schema_version": "1.0",
+    "source_path": "contracts/v1/agents/assignment-status-changed-event.schema.json",
+    "source_sha256": "6fe9bc9915aa111e288e98c94b3e63fe219b74eca5a02b623c2e7883e7c8f70c"
   },
   "kolibri.agent_card": {
     "allowed_fields": [
@@ -1062,6 +1108,234 @@ export const CONTRACT_SPECS = {
     "source_path": "contracts/v1/product/delivery-cursor.schema.json",
     "source_sha256": "111e86cc732b5821d1d836a95dee08b2dc4d8b3ded47d551bc30b7add856c6a2"
   },
+  "kolibri.product.developer_dispatch": {
+    "allowed_fields": [
+      "schema_id",
+      "schema_version",
+      "source_command_ref",
+      "run_id",
+      "project_id",
+      "thread_id",
+      "input_message_id",
+      "runtime_profile",
+      "runtime_capability",
+      "model",
+      "reasoning_effort",
+      "service_tier",
+      "workspace_ref",
+      "access_mode",
+      "sandbox",
+      "approval_policy",
+      "reviewer"
+    ],
+    "required_fields": [
+      "schema_id",
+      "schema_version",
+      "source_command_ref",
+      "run_id",
+      "project_id",
+      "thread_id",
+      "input_message_id",
+      "runtime_profile",
+      "runtime_capability",
+      "model",
+      "reasoning_effort",
+      "service_tier",
+      "workspace_ref",
+      "access_mode",
+      "sandbox",
+      "approval_policy",
+      "reviewer"
+    ],
+    "schema_uri": "https://schemas.kolibriai.ru/v1/product/developer-dispatch.schema.json",
+    "schema_version": "1.0",
+    "source_path": "contracts/v1/product/developer-dispatch.schema.json",
+    "source_sha256": "8ddb035c0f6423791cb4847ef89a4513fc815c5fc8b840836dd00415b48c4f28"
+  },
+  "kolibri.product.developer_dispatch.v1_1": {
+    "allowed_fields": [
+      "schema_id",
+      "schema_version",
+      "source_command_ref",
+      "run_id",
+      "project_id",
+      "thread_id",
+      "input_message_id",
+      "runtime_profile",
+      "runtime_capability",
+      "model",
+      "reasoning_effort",
+      "service_tier",
+      "workspace_ref",
+      "access_mode",
+      "sandbox",
+      "approval_policy",
+      "reviewer",
+      "trusted_agent_profile_id",
+      "trusted_agent_profile_epoch",
+      "trusted_agent_workspace_binding_id",
+      "trusted_agent_workspace_binding_epoch"
+    ],
+    "required_fields": [
+      "schema_id",
+      "schema_version",
+      "source_command_ref",
+      "run_id",
+      "project_id",
+      "thread_id",
+      "input_message_id",
+      "runtime_profile",
+      "runtime_capability",
+      "model",
+      "reasoning_effort",
+      "service_tier",
+      "workspace_ref",
+      "access_mode",
+      "sandbox",
+      "approval_policy",
+      "reviewer",
+      "trusted_agent_profile_id",
+      "trusted_agent_profile_epoch",
+      "trusted_agent_workspace_binding_id",
+      "trusted_agent_workspace_binding_epoch"
+    ],
+    "schema_uri": "https://schemas.kolibriai.ru/v1/product/developer-dispatch-v1.1.schema.json",
+    "schema_version": "1.1",
+    "source_path": "contracts/v1/product/developer-dispatch-v1.1.schema.json",
+    "source_sha256": "0450a6d912c8fcff560b00638d701b448d39147a25ee5fb03f26cce08dcc845d"
+  },
+  "kolibri.product.developer_lease_source": {
+    "allowed_fields": [
+      "schema_id",
+      "schema_version",
+      "source_command_ref",
+      "canonical_request_hash",
+      "source_command_hash",
+      "tenant_id",
+      "task_id",
+      "task_version",
+      "attempt_id",
+      "assignment_id",
+      "effect_id",
+      "lease_id",
+      "fencing_token",
+      "runtime_profile",
+      "access_policy"
+    ],
+    "required_fields": [
+      "schema_id",
+      "schema_version",
+      "source_command_ref",
+      "canonical_request_hash",
+      "source_command_hash",
+      "tenant_id",
+      "task_id",
+      "task_version",
+      "attempt_id",
+      "assignment_id",
+      "effect_id",
+      "lease_id",
+      "fencing_token",
+      "runtime_profile",
+      "access_policy"
+    ],
+    "schema_uri": "https://schemas.kolibriai.ru/v1/product/developer-lease-source.schema.json",
+    "schema_version": "1.0",
+    "source_path": "contracts/v1/product/developer-lease-source.schema.json",
+    "source_sha256": "717cd3cda833129e041687e5d80141ee99bffd4a0b2a349051bf2e712aedeb6e"
+  },
+  "kolibri.product.developer_lease_source.v1_1": {
+    "allowed_fields": [
+      "schema_id",
+      "schema_version",
+      "source_command_ref",
+      "canonical_request_hash",
+      "source_command_hash",
+      "tenant_id",
+      "task_id",
+      "task_version",
+      "attempt_id",
+      "assignment_id",
+      "effect_id",
+      "lease_id",
+      "fencing_token",
+      "runtime_profile",
+      "access_policy",
+      "trusted_agent_profile_id",
+      "trusted_agent_profile_epoch",
+      "trusted_agent_workspace_binding_id",
+      "trusted_agent_workspace_binding_epoch"
+    ],
+    "required_fields": [
+      "schema_id",
+      "schema_version",
+      "source_command_ref",
+      "canonical_request_hash",
+      "source_command_hash",
+      "tenant_id",
+      "task_id",
+      "task_version",
+      "attempt_id",
+      "assignment_id",
+      "effect_id",
+      "lease_id",
+      "fencing_token",
+      "runtime_profile",
+      "access_policy",
+      "trusted_agent_profile_id",
+      "trusted_agent_profile_epoch",
+      "trusted_agent_workspace_binding_id",
+      "trusted_agent_workspace_binding_epoch"
+    ],
+    "schema_uri": "https://schemas.kolibriai.ru/v1/product/developer-lease-source-v1.1.schema.json",
+    "schema_version": "1.1",
+    "source_path": "contracts/v1/product/developer-lease-source-v1.1.schema.json",
+    "source_sha256": "3d5bcd3aa1f3d6c3251e157cb8aee3b4eafe4ff1545eefc6267d70a221fe0368"
+  },
+  "kolibri.product.developer_source_command": {
+    "allowed_fields": [
+      "schema_id",
+      "schema_version",
+      "source_command_ref",
+      "tenant_id",
+      "goal_id",
+      "case_id",
+      "run_id",
+      "task_id",
+      "graph_id",
+      "request_hash",
+      "command_hash",
+      "requested_runtime_profile",
+      "runtime_profile",
+      "runtime_capability",
+      "access_policy",
+      "state",
+      "source_command"
+    ],
+    "required_fields": [
+      "schema_id",
+      "schema_version",
+      "source_command_ref",
+      "tenant_id",
+      "goal_id",
+      "case_id",
+      "run_id",
+      "task_id",
+      "graph_id",
+      "request_hash",
+      "command_hash",
+      "requested_runtime_profile",
+      "runtime_profile",
+      "runtime_capability",
+      "access_policy",
+      "state",
+      "source_command"
+    ],
+    "schema_uri": "https://schemas.kolibriai.ru/v1/product/developer-source-command.schema.json",
+    "schema_version": "1.0",
+    "source_path": "contracts/v1/product/developer-source-command.schema.json",
+    "source_sha256": "89a4fb6e9c9a337c213c146aeb165b20bab2927ac7a30264d71dd97a5c38ecbf"
+  },
   "kolibri.product.goal.initialization_status": {
     "allowed_fields": [
       "schema_id",
@@ -1492,7 +1766,7 @@ export const CONTRACT_SPECS = {
     "schema_uri": "https://schemas.kolibriai.ru/v1/product/run-execute-command-v1.1.schema.json",
     "schema_version": "1.1",
     "source_path": "contracts/v1/product/run-execute-command-v1.1.schema.json",
-    "source_sha256": "106e774448ef10ecd031dca81e392e75a4e5b997a686610f562be5a7d4a748e4"
+    "source_sha256": "43572695e4b7d3480c23a6f46e571cecb1042cc15e47573cb9d626fb2281eb6c"
   },
   "kolibri.product.run.execute.v1_2.command": {
     "allowed_fields": [
@@ -1547,6 +1821,68 @@ export const CONTRACT_SPECS = {
     "schema_version": "1.2",
     "source_path": "contracts/v1/product/run-execute-command-v1.2.schema.json",
     "source_sha256": "04cfe4fc9355221c42176a3559d68b4ce9caf1836e3b538125bbbbc9ed024df5"
+  },
+  "kolibri.product.run.execute.v1_3.command": {
+    "allowed_fields": [
+      "schema_id",
+      "schema_version",
+      "tenant_id",
+      "project_id",
+      "thread_id",
+      "run_id",
+      "input_message_id",
+      "case_id",
+      "goal_id",
+      "prompt",
+      "prompt_hash",
+      "execution_mode",
+      "runtime_profile",
+      "model",
+      "reasoning_effort",
+      "service_tier",
+      "workspace_ref",
+      "access_mode",
+      "sandbox",
+      "approval_policy",
+      "reviewer",
+      "requester_role",
+      "trusted_agent_profile_id",
+      "trusted_agent_profile_epoch",
+      "trusted_agent_workspace_binding_id",
+      "trusted_agent_workspace_binding_epoch"
+    ],
+    "required_fields": [
+      "schema_id",
+      "schema_version",
+      "tenant_id",
+      "project_id",
+      "thread_id",
+      "run_id",
+      "input_message_id",
+      "case_id",
+      "goal_id",
+      "prompt",
+      "prompt_hash",
+      "execution_mode",
+      "runtime_profile",
+      "model",
+      "reasoning_effort",
+      "service_tier",
+      "workspace_ref",
+      "access_mode",
+      "sandbox",
+      "approval_policy",
+      "reviewer",
+      "requester_role",
+      "trusted_agent_profile_id",
+      "trusted_agent_profile_epoch",
+      "trusted_agent_workspace_binding_id",
+      "trusted_agent_workspace_binding_epoch"
+    ],
+    "schema_uri": "https://schemas.kolibriai.ru/v1/product/run-execute-command-v1.3.schema.json",
+    "schema_version": "1.3",
+    "source_path": "contracts/v1/product/run-execute-command-v1.3.schema.json",
+    "source_sha256": "9c442583c83357ade736ce4f0c48d4aed157d9a3268c7601461e1658e2f0ae3f"
   },
   "kolibri.product.run.execution_status": {
     "allowed_fields": [
@@ -1848,6 +2184,94 @@ export const CONTRACT_SPECS = {
     "schema_version": "1.0",
     "source_path": "contracts/v1/workflows/project-workflow.schema.json",
     "source_sha256": "949312f09b7742d974d659f2929f40600d818399cef6f07380b6cb649feaaa2e"
+  },
+  "kolibri.provider_execution.catalog": {
+    "allowed_fields": [
+      "schema_id",
+      "schema_version",
+      "agent_cards"
+    ],
+    "required_fields": [
+      "schema_id",
+      "schema_version",
+      "agent_cards"
+    ],
+    "schema_uri": "https://schemas.kolibriai.ru/v1/provider-execution/catalog.schema.json",
+    "schema_version": "1.0",
+    "source_path": "contracts/v1/provider-execution/catalog.schema.json",
+    "source_sha256": "4bd5fe7f89c4fe2fc6a40de26ee177c1f6b760d6028caa0870e669bc96cd878e"
+  },
+  "kolibri.provider_execution.request": {
+    "allowed_fields": [
+      "schema_id",
+      "schema_version",
+      "effect_key",
+      "task",
+      "attempt",
+      "agent_assignment",
+      "requester_assignment",
+      "a2a_request",
+      "developer_dispatch",
+      "source_command",
+      "lease_source"
+    ],
+    "required_fields": [
+      "schema_id",
+      "schema_version",
+      "effect_key",
+      "task",
+      "attempt",
+      "agent_assignment",
+      "requester_assignment",
+      "a2a_request",
+      "developer_dispatch",
+      "source_command",
+      "lease_source"
+    ],
+    "schema_uri": "https://schemas.kolibriai.ru/v1/provider-execution/request.schema.json",
+    "schema_version": "1.0",
+    "source_path": "contracts/v1/provider-execution/request.schema.json",
+    "source_sha256": "ea8f22a40c7d33399aa69d1101f9cd4647cfd0089cb53ba0357b808da6c32d41"
+  },
+  "kolibri.provider_execution.result": {
+    "allowed_fields": [
+      "schema_id",
+      "schema_version",
+      "effect_key",
+      "request_hash",
+      "task_id",
+      "attempt_id",
+      "assignment_id",
+      "lease_id",
+      "fencing_token",
+      "runtime_profile",
+      "status",
+      "replayed",
+      "output",
+      "activity",
+      "error"
+    ],
+    "required_fields": [
+      "schema_id",
+      "schema_version",
+      "effect_key",
+      "request_hash",
+      "task_id",
+      "attempt_id",
+      "assignment_id",
+      "lease_id",
+      "fencing_token",
+      "runtime_profile",
+      "status",
+      "replayed",
+      "output",
+      "activity",
+      "error"
+    ],
+    "schema_uri": "https://schemas.kolibriai.ru/v1/provider-execution/result.schema.json",
+    "schema_version": "1.0",
+    "source_path": "contracts/v1/provider-execution/result.schema.json",
+    "source_sha256": "dad0e7acff92db6bbba53f2a8a85be39776d4101fc8c8c2b4f8e86d2df9b98ac"
   },
   "kolibri.review": {
     "allowed_fields": [
@@ -2322,6 +2746,901 @@ export const CONTRACT_SPECS = {
 } as const
 
 const CONTRACT_SCHEMAS: Readonly<Record<string, unknown>> = {
+  "https://kolibriai.ru/contracts/v1/devices/device-capability-manifest.schema.json": {
+    "$id": "https://kolibriai.ru/contracts/v1/devices/device-capability-manifest.schema.json",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "allOf": [
+      {
+        "if": {
+          "properties": {
+            "outputs": {
+              "contains": {
+                "const": "display"
+              }
+            }
+          },
+          "required": [
+            "outputs"
+          ]
+        },
+        "then": {
+          "required": [
+            "screen"
+          ]
+        }
+      }
+    ],
+    "properties": {
+      "connectivity": {
+        "items": {
+          "enum": [
+            "ethernet",
+            "wifi",
+            "cellular",
+            "bluetooth",
+            "usb",
+            "serial",
+            "mqtt",
+            "offline_only"
+          ]
+        },
+        "maxItems": 16,
+        "type": "array",
+        "uniqueItems": true
+      },
+      "deviceClass": {
+        "enum": [
+          "browser",
+          "native_mobile",
+          "desktop",
+          "kiosk",
+          "tv",
+          "wearable",
+          "vehicle",
+          "spatial",
+          "embedded",
+          "headless",
+          "gateway"
+        ]
+      },
+      "deviceId": {
+        "pattern": "^device_[a-zA-Z0-9][a-zA-Z0-9._-]{7,127}$",
+        "type": "string"
+      },
+      "formFactor": {
+        "enum": [
+          "phone",
+          "tablet",
+          "laptop",
+          "desktop",
+          "wall_display",
+          "tv",
+          "kiosk",
+          "watch",
+          "glasses",
+          "vehicle_console",
+          "speaker",
+          "printer",
+          "sensor",
+          "controller",
+          "gateway",
+          "other"
+        ]
+      },
+      "inputs": {
+        "items": {
+          "enum": [
+            "touch",
+            "pointer",
+            "keyboard",
+            "remote_control",
+            "microphone",
+            "camera",
+            "barcode",
+            "nfc",
+            "biometric",
+            "location",
+            "motion",
+            "sensor",
+            "gpio",
+            "serial"
+          ]
+        },
+        "maxItems": 32,
+        "type": "array",
+        "uniqueItems": true
+      },
+      "localExecution": {
+        "additionalProperties": false,
+        "properties": {
+          "localInference": {
+            "type": "boolean"
+          },
+          "offlineQueue": {
+            "type": "boolean"
+          },
+          "rust": {
+            "type": "boolean"
+          },
+          "wasm": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "rust",
+          "wasm",
+          "offlineQueue",
+          "localInference"
+        ],
+        "type": "object"
+      },
+      "outputs": {
+        "items": {
+          "enum": [
+            "display",
+            "audio",
+            "haptics",
+            "notification",
+            "file",
+            "printer",
+            "led",
+            "actuator",
+            "gpio",
+            "serial"
+          ]
+        },
+        "maxItems": 32,
+        "type": "array",
+        "uniqueItems": true
+      },
+      "platform": {
+        "additionalProperties": false,
+        "properties": {
+          "architecture": {
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{1,31}$",
+            "type": "string"
+          },
+          "os": {
+            "pattern": "^[a-z][a-z0-9._-]{1,63}$",
+            "type": "string"
+          },
+          "osVersion": {
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "os",
+          "osVersion",
+          "architecture"
+        ],
+        "type": "object"
+      },
+      "runtime": {
+        "enum": [
+          "web",
+          "pwa",
+          "react_native",
+          "tauri",
+          "native_ios",
+          "native_android",
+          "native_other",
+          "rust_headless"
+        ]
+      },
+      "runtimeVersion": {
+        "maxLength": 64,
+        "minLength": 1,
+        "type": "string"
+      },
+      "schemaVersion": {
+        "const": "1.0"
+      },
+      "screen": {
+        "additionalProperties": false,
+        "properties": {
+          "color": {
+            "type": "boolean"
+          },
+          "height": {
+            "maximum": 65535,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "pixelRatio": {
+            "exclusiveMinimum": 0,
+            "maximum": 16,
+            "type": "number"
+          },
+          "touch": {
+            "type": "boolean"
+          },
+          "width": {
+            "maximum": 65535,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "width",
+          "height",
+          "pixelRatio",
+          "color"
+        ],
+        "type": "object"
+      },
+      "security": {
+        "additionalProperties": false,
+        "properties": {
+          "attestation": {
+            "enum": [
+              "none",
+              "declared",
+              "platform",
+              "managed"
+            ]
+          },
+          "biometric": {
+            "type": "boolean"
+          },
+          "hardwareBackedKey": {
+            "type": "boolean"
+          },
+          "secureStorage": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "secureStorage",
+          "hardwareBackedKey",
+          "biometric",
+          "attestation"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "schemaVersion",
+      "deviceId",
+      "deviceClass",
+      "runtime",
+      "platform",
+      "formFactor",
+      "inputs",
+      "outputs",
+      "connectivity",
+      "security",
+      "localExecution"
+    ],
+    "title": "Kolibri device capability manifest",
+    "type": "object"
+  },
+  "https://kolibriai.ru/contracts/v1/estimates/calculation-request.schema.json": {
+    "$defs": {
+      "decimal": {
+        "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$",
+        "type": "string"
+      },
+      "identifier": {
+        "maxLength": 160,
+        "minLength": 1,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/-]*$",
+        "type": "string"
+      },
+      "line": {
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "enum": [
+              "work",
+              "material",
+              "equipment",
+              "service",
+              "delivery",
+              "other"
+            ]
+          },
+          "id": {
+            "$ref": "#/$defs/identifier"
+          },
+          "priceStatus": {
+            "enum": [
+              "missing",
+              "preliminary",
+              "source_backed",
+              "verified"
+            ]
+          },
+          "quantity": {
+            "$ref": "#/$defs/decimal"
+          },
+          "sourceId": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/identifier"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "unit": {
+            "maxLength": 32,
+            "minLength": 1,
+            "type": "string"
+          },
+          "unitPrice": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/decimal"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "category",
+          "title",
+          "unit",
+          "quantity",
+          "unitPrice",
+          "priceStatus",
+          "sourceId"
+        ],
+        "type": "object"
+      },
+      "terms": {
+        "additionalProperties": false,
+        "properties": {
+          "discountPercent": {
+            "$ref": "#/$defs/decimal"
+          },
+          "overheadPercent": {
+            "$ref": "#/$defs/decimal"
+          },
+          "profitPercent": {
+            "$ref": "#/$defs/decimal"
+          },
+          "taxPercent": {
+            "$ref": "#/$defs/decimal"
+          }
+        },
+        "required": [
+          "overheadPercent",
+          "profitPercent",
+          "discountPercent",
+          "taxPercent"
+        ],
+        "type": "object"
+      }
+    },
+    "$id": "https://kolibriai.ru/contracts/v1/estimates/calculation-request.schema.json",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "calculationId": {
+        "$ref": "#/$defs/identifier"
+      },
+      "currency": {
+        "pattern": "^[A-Z]{3}$",
+        "type": "string"
+      },
+      "lines": {
+        "items": {
+          "$ref": "#/$defs/line"
+        },
+        "maxItems": 10000,
+        "minItems": 1,
+        "type": "array"
+      },
+      "releaseMode": {
+        "type": "boolean"
+      },
+      "rulesVersion": {
+        "$ref": "#/$defs/identifier"
+      },
+      "schemaVersion": {
+        "const": "1.0"
+      },
+      "terms": {
+        "$ref": "#/$defs/terms"
+      }
+    },
+    "required": [
+      "schemaVersion",
+      "calculationId",
+      "currency",
+      "rulesVersion",
+      "releaseMode",
+      "lines",
+      "terms"
+    ],
+    "title": "Kolibri estimate calculation request v1",
+    "type": "object"
+  },
+  "https://kolibriai.ru/contracts/v1/estimates/calculation-result.schema.json": {
+    "$defs": {
+      "decimal": {
+        "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$",
+        "type": "string"
+      }
+    },
+    "$id": "https://kolibriai.ru/contracts/v1/estimates/calculation-result.schema.json",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "calculationId": {
+        "type": "string"
+      },
+      "currency": {
+        "pattern": "^[A-Z]{3}$",
+        "type": "string"
+      },
+      "engineVersion": {
+        "const": "kolibri-estimate-kernel/0.1.0",
+        "type": "string"
+      },
+      "lines": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "category": {
+              "enum": [
+                "work",
+                "material",
+                "equipment",
+                "service",
+                "delivery",
+                "other"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "normalizedQuantity": {
+              "$ref": "#/$defs/decimal"
+            },
+            "priceStatus": {
+              "enum": [
+                "missing",
+                "preliminary",
+                "source_backed",
+                "verified"
+              ]
+            },
+            "sourceId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "subtotal": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/decimal"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": {
+              "type": "string"
+            },
+            "unit": {
+              "type": "string"
+            },
+            "unitPrice": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/decimal"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "category",
+            "title",
+            "unit",
+            "normalizedQuantity",
+            "unitPrice",
+            "subtotal",
+            "priceStatus",
+            "sourceId"
+          ],
+          "type": "object"
+        },
+        "maxItems": 10000,
+        "minItems": 1,
+        "type": "array"
+      },
+      "roundingPolicy": {
+        "additionalProperties": false,
+        "properties": {
+          "midpoint": {
+            "const": "away_from_zero"
+          },
+          "moneyScale": {
+            "const": 2
+          },
+          "quantityScale": {
+            "const": 6
+          }
+        },
+        "required": [
+          "moneyScale",
+          "quantityScale",
+          "midpoint"
+        ],
+        "type": "object"
+      },
+      "rulesVersion": {
+        "type": "string"
+      },
+      "schemaVersion": {
+        "const": "1.0"
+      },
+      "totals": {
+        "additionalProperties": false,
+        "properties": {
+          "byCategory": {
+            "additionalProperties": false,
+            "properties": {
+              "delivery": {
+                "$ref": "#/$defs/decimal"
+              },
+              "equipment": {
+                "$ref": "#/$defs/decimal"
+              },
+              "material": {
+                "$ref": "#/$defs/decimal"
+              },
+              "other": {
+                "$ref": "#/$defs/decimal"
+              },
+              "service": {
+                "$ref": "#/$defs/decimal"
+              },
+              "work": {
+                "$ref": "#/$defs/decimal"
+              }
+            },
+            "required": [
+              "work",
+              "material",
+              "equipment",
+              "service",
+              "delivery",
+              "other"
+            ],
+            "type": "object"
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "directCost": {
+            "$ref": "#/$defs/decimal"
+          },
+          "discount": {
+            "$ref": "#/$defs/decimal"
+          },
+          "overhead": {
+            "$ref": "#/$defs/decimal"
+          },
+          "profit": {
+            "$ref": "#/$defs/decimal"
+          },
+          "tax": {
+            "$ref": "#/$defs/decimal"
+          },
+          "total": {
+            "$ref": "#/$defs/decimal"
+          }
+        },
+        "required": [
+          "byCategory",
+          "directCost",
+          "overhead",
+          "profit",
+          "discount",
+          "tax",
+          "total",
+          "complete"
+        ],
+        "type": "object"
+      },
+      "validation": {
+        "additionalProperties": false,
+        "properties": {
+          "missingPriceLineIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "preliminaryPriceLineIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "passed",
+              "blocked"
+            ]
+          }
+        },
+        "required": [
+          "status",
+          "missingPriceLineIds",
+          "preliminaryPriceLineIds"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "schemaVersion",
+      "engineVersion",
+      "calculationId",
+      "currency",
+      "rulesVersion",
+      "roundingPolicy",
+      "lines",
+      "totals",
+      "validation"
+    ],
+    "title": "Kolibri estimate calculation result v1",
+    "type": "object"
+  },
+  "https://kolibriai.ru/contracts/v1/verticals/vertical-pack-manifest.schema.json": {
+    "$defs": {
+      "agentCapability": {
+        "additionalProperties": false,
+        "properties": {
+          "humanApprovalRequired": {
+            "type": "boolean"
+          },
+          "id": {
+            "$ref": "#/$defs/capabilityId"
+          },
+          "inputContractId": {
+            "$ref": "#/$defs/contractId"
+          },
+          "outputContractId": {
+            "$ref": "#/$defs/contractId"
+          }
+        },
+        "required": [
+          "id",
+          "inputContractId",
+          "outputContractId",
+          "humanApprovalRequired"
+        ],
+        "type": "object"
+      },
+      "artifactKind": {
+        "additionalProperties": false,
+        "properties": {
+          "contractId": {
+            "$ref": "#/$defs/contractId"
+          },
+          "editorKey": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/contractId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "exportFormats": {
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9._-]{0,31}$",
+              "type": "string"
+            },
+            "maxItems": 32,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "kind": {
+            "$ref": "#/$defs/capabilityId"
+          },
+          "rendererKey": {
+            "$ref": "#/$defs/contractId"
+          }
+        },
+        "required": [
+          "kind",
+          "contractId",
+          "rendererKey",
+          "editorKey",
+          "exportFormats"
+        ],
+        "type": "object"
+      },
+      "capability": {
+        "additionalProperties": false,
+        "properties": {
+          "clientSurfaces": {
+            "$ref": "#/$defs/clientSurfaces"
+          },
+          "contractId": {
+            "$ref": "#/$defs/contractId"
+          },
+          "id": {
+            "$ref": "#/$defs/capabilityId"
+          },
+          "kind": {
+            "enum": [
+              "navigation",
+              "workflow",
+              "calculation",
+              "source",
+              "export",
+              "integration"
+            ]
+          },
+          "requiredEntitlement": {
+            "$ref": "#/$defs/entitlement"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "contractId",
+          "clientSurfaces",
+          "requiredEntitlement"
+        ],
+        "type": "object"
+      },
+      "capabilityId": {
+        "maxLength": 160,
+        "minLength": 3,
+        "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9_-]*)+$",
+        "type": "string"
+      },
+      "clientSurfaces": {
+        "items": {
+          "enum": [
+            "web",
+            "ios",
+            "android",
+            "desktop"
+          ]
+        },
+        "minItems": 1,
+        "type": "array",
+        "uniqueItems": true
+      },
+      "contractId": {
+        "maxLength": 240,
+        "minLength": 3,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/-]*$",
+        "type": "string"
+      },
+      "entitlement": {
+        "maxLength": 160,
+        "minLength": 3,
+        "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9_-]*)+$",
+        "type": "string"
+      },
+      "policies": {
+        "additionalProperties": false,
+        "properties": {
+          "approvalPolicyId": {
+            "$ref": "#/$defs/contractId"
+          },
+          "crossTenantSharingAllowed": {
+            "const": false
+          },
+          "dataClassification": {
+            "enum": [
+              "business",
+              "sensitive",
+              "regulated"
+            ]
+          },
+          "sourcePolicyId": {
+            "$ref": "#/$defs/contractId"
+          }
+        },
+        "required": [
+          "dataClassification",
+          "sourcePolicyId",
+          "approvalPolicyId",
+          "crossTenantSharingAllowed"
+        ],
+        "type": "object"
+      }
+    },
+    "$id": "https://kolibriai.ru/contracts/v1/verticals/vertical-pack-manifest.schema.json",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "agentCapabilities": {
+        "items": {
+          "$ref": "#/$defs/agentCapability"
+        },
+        "maxItems": 128,
+        "type": "array"
+      },
+      "artifactKinds": {
+        "items": {
+          "$ref": "#/$defs/artifactKind"
+        },
+        "maxItems": 64,
+        "type": "array"
+      },
+      "capabilities": {
+        "items": {
+          "$ref": "#/$defs/capability"
+        },
+        "maxItems": 128,
+        "minItems": 1,
+        "type": "array"
+      },
+      "displayName": {
+        "additionalProperties": false,
+        "properties": {
+          "en": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "ru": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "ru"
+        ],
+        "type": "object"
+      },
+      "packageVersion": {
+        "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+        "type": "string"
+      },
+      "policies": {
+        "$ref": "#/$defs/policies"
+      },
+      "schemaVersion": {
+        "const": "1.0"
+      },
+      "verticalId": {
+        "$ref": "#/$defs/capabilityId"
+      }
+    },
+    "required": [
+      "schemaVersion",
+      "verticalId",
+      "packageVersion",
+      "displayName",
+      "capabilities",
+      "artifactKinds",
+      "agentCapabilities",
+      "policies"
+    ],
+    "title": "Kolibri vertical pack manifest v1",
+    "type": "object"
+  },
   "https://schemas.kolibriai.ru/v1/a2a/delivery-cursor.schema.json": {
     "$id": "https://schemas.kolibriai.ru/v1/a2a/delivery-cursor.schema.json",
     "$schema": "http://json-schema.org/draft-07/schema#",
@@ -2792,6 +4111,73 @@ const CONTRACT_SCHEMAS: Readonly<Record<string, unknown>> = {
       "updated_at"
     ],
     "title": "Kolibri AgentCard v1",
+    "type": "object"
+  },
+  "https://schemas.kolibriai.ru/v1/agents/assignment-status-changed-event.schema.json": {
+    "$id": "https://schemas.kolibriai.ru/v1/agents/assignment-status-changed-event.schema.json",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false,
+    "definitions": {
+      "assignment_status": {
+        "enum": [
+          "pending",
+          "active",
+          "suspended",
+          "completed",
+          "revoked",
+          "expired",
+          "superseded"
+        ],
+        "type": "string"
+      },
+      "opaque_id": {
+        "maxLength": 160,
+        "minLength": 8,
+        "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$",
+        "type": "string"
+      }
+    },
+    "properties": {
+      "assignment_id": {
+        "$ref": "#/definitions/opaque_id"
+      },
+      "new_status": {
+        "$ref": "#/definitions/assignment_status"
+      },
+      "new_version": {
+        "minimum": 2,
+        "type": "integer"
+      },
+      "previous_status": {
+        "$ref": "#/definitions/assignment_status"
+      },
+      "previous_version": {
+        "minimum": 1,
+        "type": "integer"
+      },
+      "reason": {
+        "maxLength": 2000,
+        "minLength": 1,
+        "type": "string"
+      },
+      "schema_id": {
+        "const": "kolibri.agent_assignment.status_changed.event"
+      },
+      "schema_version": {
+        "const": "1.0"
+      }
+    },
+    "required": [
+      "schema_id",
+      "schema_version",
+      "assignment_id",
+      "previous_status",
+      "new_status",
+      "previous_version",
+      "new_version",
+      "reason"
+    ],
+    "title": "Kolibri AgentAssignment status changed event payload v1",
     "type": "object"
   },
   "https://schemas.kolibriai.ru/v1/agents/assignment.schema.json": {
@@ -7239,6 +8625,766 @@ const CONTRACT_SCHEMAS: Readonly<Record<string, unknown>> = {
     "title": "Kolibri Product Delivery Cursor v1",
     "type": "object"
   },
+  "https://schemas.kolibriai.ru/v1/product/developer-dispatch-v1.1.schema.json": {
+    "$id": "https://schemas.kolibriai.ru/v1/product/developer-dispatch-v1.1.schema.json",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false,
+    "definitions": {
+      "epoch": {
+        "maximum": 9007199254740991,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "execution_option": {
+        "maxLength": 32,
+        "minLength": 1,
+        "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$",
+        "type": "string"
+      },
+      "model_selection": {
+        "maxLength": 120,
+        "minLength": 1,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$",
+        "type": "string"
+      },
+      "opaque_id": {
+        "maxLength": 160,
+        "minLength": 8,
+        "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$",
+        "type": "string"
+      },
+      "runtime_profile": {
+        "maxLength": 96,
+        "minLength": 2,
+        "pattern": "^[a-z0-9][a-z0-9._-]{1,95}$",
+        "type": "string"
+      },
+      "source_command_ref": {
+        "pattern": "^sourcecmd_[0-9a-f]{40}$",
+        "type": "string"
+      },
+      "trusted_profile_id": {
+        "pattern": "^tap_[0-9a-f]{32}$",
+        "type": "string"
+      },
+      "trusted_workspace_binding_id": {
+        "pattern": "^wsb_[0-9a-f]{32}$",
+        "type": "string"
+      }
+    },
+    "description": "Logical Home projection of a v1.3 command with immutable trusted-agent profile and workspace epochs.",
+    "properties": {
+      "access_mode": {
+        "const": "full"
+      },
+      "approval_policy": {
+        "const": "never"
+      },
+      "input_message_id": {
+        "$ref": "#/definitions/opaque_id"
+      },
+      "model": {
+        "oneOf": [
+          {
+            "$ref": "#/definitions/model_selection"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "project_id": {
+        "$ref": "#/definitions/opaque_id"
+      },
+      "reasoning_effort": {
+        "oneOf": [
+          {
+            "$ref": "#/definitions/execution_option"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "reviewer": {
+        "type": "null"
+      },
+      "run_id": {
+        "$ref": "#/definitions/opaque_id"
+      },
+      "runtime_capability": {
+        "pattern": "^developer\\.runtime\\.execute\\.[0-9a-f]{32}$",
+        "type": "string"
+      },
+      "runtime_profile": {
+        "$ref": "#/definitions/runtime_profile"
+      },
+      "sandbox": {
+        "const": "danger-full-access"
+      },
+      "schema_id": {
+        "const": "kolibri.product.developer_dispatch.v1_1"
+      },
+      "schema_version": {
+        "const": "1.1"
+      },
+      "service_tier": {
+        "oneOf": [
+          {
+            "$ref": "#/definitions/execution_option"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "source_command_ref": {
+        "$ref": "#/definitions/source_command_ref"
+      },
+      "thread_id": {
+        "$ref": "#/definitions/opaque_id"
+      },
+      "trusted_agent_profile_epoch": {
+        "$ref": "#/definitions/epoch"
+      },
+      "trusted_agent_profile_id": {
+        "$ref": "#/definitions/trusted_profile_id"
+      },
+      "trusted_agent_workspace_binding_epoch": {
+        "$ref": "#/definitions/epoch"
+      },
+      "trusted_agent_workspace_binding_id": {
+        "$ref": "#/definitions/trusted_workspace_binding_id"
+      },
+      "workspace_ref": {
+        "maxLength": 160,
+        "minLength": 1,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+        "type": "string"
+      }
+    },
+    "required": [
+      "schema_id",
+      "schema_version",
+      "source_command_ref",
+      "run_id",
+      "project_id",
+      "thread_id",
+      "input_message_id",
+      "runtime_profile",
+      "runtime_capability",
+      "model",
+      "reasoning_effort",
+      "service_tier",
+      "workspace_ref",
+      "access_mode",
+      "sandbox",
+      "approval_policy",
+      "reviewer",
+      "trusted_agent_profile_id",
+      "trusted_agent_profile_epoch",
+      "trusted_agent_workspace_binding_id",
+      "trusted_agent_workspace_binding_epoch"
+    ],
+    "title": "Kolibri trusted developer dispatch v1.1",
+    "type": "object"
+  },
+  "https://schemas.kolibriai.ru/v1/product/developer-dispatch.schema.json": {
+    "$id": "https://schemas.kolibriai.ru/v1/product/developer-dispatch.schema.json",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false,
+    "definitions": {
+      "execution_option": {
+        "maxLength": 32,
+        "minLength": 1,
+        "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$",
+        "type": "string"
+      },
+      "model_selection": {
+        "maxLength": 120,
+        "minLength": 1,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$",
+        "type": "string"
+      },
+      "opaque_id": {
+        "maxLength": 160,
+        "minLength": 8,
+        "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$",
+        "type": "string"
+      },
+      "runtime_profile": {
+        "maxLength": 96,
+        "minLength": 2,
+        "pattern": "^[a-z0-9][a-z0-9._-]{1,95}$",
+        "type": "string"
+      },
+      "source_command_ref": {
+        "pattern": "^sourcecmd_[0-9a-f]{40}$",
+        "type": "string"
+      }
+    },
+    "description": "The server-frozen provider-neutral execution configuration projected by Logical Home for one developer task.",
+    "properties": {
+      "access_mode": {
+        "enum": [
+          "auto",
+          "full"
+        ],
+        "type": "string"
+      },
+      "approval_policy": {
+        "enum": [
+          "on-request",
+          "never"
+        ],
+        "type": "string"
+      },
+      "input_message_id": {
+        "$ref": "#/definitions/opaque_id"
+      },
+      "model": {
+        "oneOf": [
+          {
+            "$ref": "#/definitions/model_selection"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "project_id": {
+        "$ref": "#/definitions/opaque_id"
+      },
+      "reasoning_effort": {
+        "oneOf": [
+          {
+            "$ref": "#/definitions/execution_option"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "reviewer": {
+        "oneOf": [
+          {
+            "maxLength": 120,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$",
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "run_id": {
+        "$ref": "#/definitions/opaque_id"
+      },
+      "runtime_capability": {
+        "pattern": "^developer\\.runtime\\.execute\\.[0-9a-f]{32}$",
+        "type": "string"
+      },
+      "runtime_profile": {
+        "$ref": "#/definitions/runtime_profile"
+      },
+      "sandbox": {
+        "enum": [
+          "workspace-write",
+          "danger-full-access"
+        ],
+        "type": "string"
+      },
+      "schema_id": {
+        "const": "kolibri.product.developer_dispatch"
+      },
+      "schema_version": {
+        "const": "1.0"
+      },
+      "service_tier": {
+        "oneOf": [
+          {
+            "$ref": "#/definitions/execution_option"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "source_command_ref": {
+        "$ref": "#/definitions/source_command_ref"
+      },
+      "thread_id": {
+        "$ref": "#/definitions/opaque_id"
+      },
+      "workspace_ref": {
+        "maxLength": 160,
+        "minLength": 1,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+        "type": "string"
+      }
+    },
+    "required": [
+      "schema_id",
+      "schema_version",
+      "source_command_ref",
+      "run_id",
+      "project_id",
+      "thread_id",
+      "input_message_id",
+      "runtime_profile",
+      "runtime_capability",
+      "model",
+      "reasoning_effort",
+      "service_tier",
+      "workspace_ref",
+      "access_mode",
+      "sandbox",
+      "approval_policy",
+      "reviewer"
+    ],
+    "title": "Kolibri Product developer dispatch v1",
+    "type": "object"
+  },
+  "https://schemas.kolibriai.ru/v1/product/developer-lease-source-v1.1.schema.json": {
+    "$id": "https://schemas.kolibriai.ru/v1/product/developer-lease-source-v1.1.schema.json",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false,
+    "definitions": {
+      "access_policy": {
+        "additionalProperties": false,
+        "properties": {
+          "compute_units_limit": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "policy_id": {
+            "pattern": "^[a-z][a-z0-9_.:-]{2,127}$",
+            "type": "string"
+          },
+          "tool_calls_limit": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "tool_ids": {
+            "items": {
+              "pattern": "^[a-z][a-z0-9_.:-]{2,127}$",
+              "type": "string"
+            },
+            "maxItems": 64,
+            "type": "array",
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "policy_id",
+          "tool_ids",
+          "compute_units_limit",
+          "tool_calls_limit"
+        ],
+        "type": "object"
+      },
+      "epoch": {
+        "maximum": 9007199254740991,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "opaque_id": {
+        "maxLength": 160,
+        "minLength": 8,
+        "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$",
+        "type": "string"
+      },
+      "runtime_profile": {
+        "maxLength": 96,
+        "minLength": 2,
+        "pattern": "^[a-z0-9][a-z0-9._-]{1,95}$",
+        "type": "string"
+      },
+      "sha256": {
+        "pattern": "^sha256:[0-9a-f]{64}$",
+        "type": "string"
+      },
+      "source_command_ref": {
+        "pattern": "^sourcecmd_[0-9a-f]{40}$",
+        "type": "string"
+      },
+      "trusted_profile_id": {
+        "pattern": "^tap_[0-9a-f]{32}$",
+        "type": "string"
+      },
+      "trusted_workspace_binding_id": {
+        "pattern": "^wsb_[0-9a-f]{32}$",
+        "type": "string"
+      }
+    },
+    "description": "The exact v1.3 trusted-agent authority tuple, command hashes, assignment and Home lease fence forwarded to Provider Execution Authority.",
+    "properties": {
+      "access_policy": {
+        "$ref": "#/definitions/access_policy"
+      },
+      "assignment_id": {
+        "$ref": "#/definitions/opaque_id"
+      },
+      "attempt_id": {
+        "$ref": "#/definitions/opaque_id"
+      },
+      "canonical_request_hash": {
+        "$ref": "#/definitions/sha256"
+      },
+      "effect_id": {
+        "pattern": "^effect_[0-9a-f]{40}$",
+        "type": "string"
+      },
+      "fencing_token": {
+        "maximum": 9007199254740991,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "lease_id": {
+        "$ref": "#/definitions/opaque_id"
+      },
+      "runtime_profile": {
+        "$ref": "#/definitions/runtime_profile"
+      },
+      "schema_id": {
+        "const": "kolibri.product.developer_lease_source.v1_1"
+      },
+      "schema_version": {
+        "const": "1.1"
+      },
+      "source_command_hash": {
+        "$ref": "#/definitions/sha256"
+      },
+      "source_command_ref": {
+        "$ref": "#/definitions/source_command_ref"
+      },
+      "task_id": {
+        "$ref": "#/definitions/opaque_id"
+      },
+      "task_version": {
+        "maximum": 9007199254740991,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "tenant_id": {
+        "$ref": "#/definitions/opaque_id"
+      },
+      "trusted_agent_profile_epoch": {
+        "$ref": "#/definitions/epoch"
+      },
+      "trusted_agent_profile_id": {
+        "$ref": "#/definitions/trusted_profile_id"
+      },
+      "trusted_agent_workspace_binding_epoch": {
+        "$ref": "#/definitions/epoch"
+      },
+      "trusted_agent_workspace_binding_id": {
+        "$ref": "#/definitions/trusted_workspace_binding_id"
+      }
+    },
+    "required": [
+      "schema_id",
+      "schema_version",
+      "source_command_ref",
+      "canonical_request_hash",
+      "source_command_hash",
+      "tenant_id",
+      "task_id",
+      "task_version",
+      "attempt_id",
+      "assignment_id",
+      "effect_id",
+      "lease_id",
+      "fencing_token",
+      "runtime_profile",
+      "access_policy",
+      "trusted_agent_profile_id",
+      "trusted_agent_profile_epoch",
+      "trusted_agent_workspace_binding_id",
+      "trusted_agent_workspace_binding_epoch"
+    ],
+    "title": "Kolibri trusted developer lease source v1.1",
+    "type": "object"
+  },
+  "https://schemas.kolibriai.ru/v1/product/developer-lease-source.schema.json": {
+    "$id": "https://schemas.kolibriai.ru/v1/product/developer-lease-source.schema.json",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false,
+    "definitions": {
+      "access_policy": {
+        "additionalProperties": false,
+        "properties": {
+          "compute_units_limit": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "policy_id": {
+            "pattern": "^[a-z][a-z0-9_.:-]{2,127}$",
+            "type": "string"
+          },
+          "tool_calls_limit": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "tool_ids": {
+            "items": {
+              "pattern": "^[a-z][a-z0-9_.:-]{2,127}$",
+              "type": "string"
+            },
+            "maxItems": 64,
+            "type": "array",
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "policy_id",
+          "tool_ids",
+          "compute_units_limit",
+          "tool_calls_limit"
+        ],
+        "type": "object"
+      },
+      "opaque_id": {
+        "maxLength": 160,
+        "minLength": 8,
+        "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$",
+        "type": "string"
+      },
+      "runtime_profile": {
+        "maxLength": 96,
+        "minLength": 2,
+        "pattern": "^[a-z0-9][a-z0-9._-]{1,95}$",
+        "type": "string"
+      },
+      "sha256": {
+        "pattern": "^sha256:[0-9a-f]{64}$",
+        "type": "string"
+      },
+      "source_command_ref": {
+        "pattern": "^sourcecmd_[0-9a-f]{40}$",
+        "type": "string"
+      }
+    },
+    "description": "The exact command hashes, assignment and Home lease fence forwarded to Provider Execution Authority. The source command is transported separately.",
+    "properties": {
+      "access_policy": {
+        "$ref": "#/definitions/access_policy"
+      },
+      "assignment_id": {
+        "$ref": "#/definitions/opaque_id"
+      },
+      "attempt_id": {
+        "$ref": "#/definitions/opaque_id"
+      },
+      "canonical_request_hash": {
+        "$ref": "#/definitions/sha256"
+      },
+      "effect_id": {
+        "pattern": "^effect_[0-9a-f]{40}$",
+        "type": "string"
+      },
+      "fencing_token": {
+        "maximum": 9007199254740991,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "lease_id": {
+        "$ref": "#/definitions/opaque_id"
+      },
+      "runtime_profile": {
+        "$ref": "#/definitions/runtime_profile"
+      },
+      "schema_id": {
+        "const": "kolibri.product.developer_lease_source"
+      },
+      "schema_version": {
+        "const": "1.0"
+      },
+      "source_command_hash": {
+        "$ref": "#/definitions/sha256"
+      },
+      "source_command_ref": {
+        "$ref": "#/definitions/source_command_ref"
+      },
+      "task_id": {
+        "$ref": "#/definitions/opaque_id"
+      },
+      "task_version": {
+        "maximum": 9007199254740991,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "tenant_id": {
+        "$ref": "#/definitions/opaque_id"
+      }
+    },
+    "required": [
+      "schema_id",
+      "schema_version",
+      "source_command_ref",
+      "canonical_request_hash",
+      "source_command_hash",
+      "tenant_id",
+      "task_id",
+      "task_version",
+      "attempt_id",
+      "assignment_id",
+      "effect_id",
+      "lease_id",
+      "fencing_token",
+      "runtime_profile",
+      "access_policy"
+    ],
+    "title": "Kolibri Product developer lease source v1",
+    "type": "object"
+  },
+  "https://schemas.kolibriai.ru/v1/product/developer-source-command.schema.json": {
+    "$id": "https://schemas.kolibriai.ru/v1/product/developer-source-command.schema.json",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false,
+    "definitions": {
+      "access_policy": {
+        "additionalProperties": false,
+        "properties": {
+          "compute_units_limit": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "policy_id": {
+            "pattern": "^[a-z][a-z0-9_.:-]{2,127}$",
+            "type": "string"
+          },
+          "tool_calls_limit": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "tool_ids": {
+            "items": {
+              "pattern": "^[a-z][a-z0-9_.:-]{2,127}$",
+              "type": "string"
+            },
+            "maxItems": 64,
+            "type": "array",
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "policy_id",
+          "tool_ids",
+          "compute_units_limit",
+          "tool_calls_limit"
+        ],
+        "type": "object"
+      },
+      "opaque_id": {
+        "maxLength": 160,
+        "minLength": 8,
+        "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$",
+        "type": "string"
+      },
+      "runtime_profile": {
+        "maxLength": 96,
+        "minLength": 2,
+        "pattern": "^[a-z0-9][a-z0-9._-]{1,95}$",
+        "type": "string"
+      },
+      "sha256": {
+        "pattern": "^sha256:[0-9a-f]{64}$",
+        "type": "string"
+      },
+      "source_command_ref": {
+        "pattern": "^sourcecmd_[0-9a-f]{40}$",
+        "type": "string"
+      }
+    },
+    "description": "The Home-owned durable provenance record for one admitted Product developer command.",
+    "properties": {
+      "access_policy": {
+        "$ref": "#/definitions/access_policy"
+      },
+      "case_id": {
+        "$ref": "#/definitions/opaque_id"
+      },
+      "command_hash": {
+        "$ref": "#/definitions/sha256"
+      },
+      "goal_id": {
+        "$ref": "#/definitions/opaque_id"
+      },
+      "graph_id": {
+        "$ref": "#/definitions/opaque_id"
+      },
+      "request_hash": {
+        "$ref": "#/definitions/sha256"
+      },
+      "requested_runtime_profile": {
+        "$ref": "#/definitions/runtime_profile"
+      },
+      "run_id": {
+        "$ref": "#/definitions/opaque_id"
+      },
+      "runtime_capability": {
+        "pattern": "^developer\\.runtime\\.execute\\.[0-9a-f]{32}$",
+        "type": "string"
+      },
+      "runtime_profile": {
+        "$ref": "#/definitions/runtime_profile"
+      },
+      "schema_id": {
+        "const": "kolibri.product.developer_source_command"
+      },
+      "schema_version": {
+        "const": "1.0"
+      },
+      "source_command": {
+        "$ref": "https://schemas.kolibriai.ru/v1/common/command-envelope.schema.json"
+      },
+      "source_command_ref": {
+        "$ref": "#/definitions/source_command_ref"
+      },
+      "state": {
+        "enum": [
+          "reserved",
+          "ready"
+        ],
+        "type": "string"
+      },
+      "task_id": {
+        "$ref": "#/definitions/opaque_id"
+      },
+      "tenant_id": {
+        "$ref": "#/definitions/opaque_id"
+      }
+    },
+    "required": [
+      "schema_id",
+      "schema_version",
+      "source_command_ref",
+      "tenant_id",
+      "goal_id",
+      "case_id",
+      "run_id",
+      "task_id",
+      "graph_id",
+      "request_hash",
+      "command_hash",
+      "requested_runtime_profile",
+      "runtime_profile",
+      "runtime_capability",
+      "access_policy",
+      "state",
+      "source_command"
+    ],
+    "title": "Kolibri Product durable developer source command v1",
+    "type": "object"
+  },
   "https://schemas.kolibriai.ru/v1/product/interrupt.schema.json": {
     "$id": "https://schemas.kolibriai.ru/v1/product/interrupt.schema.json",
     "$schema": "http://json-schema.org/draft-07/schema#",
@@ -8400,9 +10546,6 @@ const CONTRACT_SCHEMAS: Readonly<Record<string, unknown>> = {
     "oneOf": [
       {
         "properties": {
-          "preferred_agent_profile": {
-            "const": "codex-cli"
-          },
           "preferred_model": {
             "type": "string"
           },
@@ -8418,30 +10561,6 @@ const CONTRACT_SCHEMAS: Readonly<Record<string, unknown>> = {
       },
       {
         "properties": {
-          "preferred_agent_profile": {
-            "const": "codex-cli"
-          },
-          "preferred_model": {
-            "type": "null"
-          },
-          "preferred_reasoning_effort": {
-            "type": "null"
-          }
-        },
-        "required": [
-          "preferred_agent_profile",
-          "preferred_model",
-          "preferred_reasoning_effort"
-        ]
-      },
-      {
-        "properties": {
-          "preferred_agent_profile": {
-            "enum": [
-              "auto",
-              "mimo-code"
-            ]
-          },
           "preferred_model": {
             "type": "null"
           },
@@ -8467,11 +10586,9 @@ const CONTRACT_SCHEMAS: Readonly<Record<string, unknown>> = {
         "$ref": "#/definitions/opaque_id"
       },
       "preferred_agent_profile": {
-        "enum": [
-          "auto",
-          "mimo-code",
-          "codex-cli"
-        ],
+        "maxLength": 96,
+        "minLength": 2,
+        "pattern": "^[a-z][a-z0-9._-]{1,95}$",
         "type": "string"
       },
       "preferred_model": {
@@ -8712,6 +10829,191 @@ const CONTRACT_SCHEMAS: Readonly<Record<string, unknown>> = {
       "requester_role"
     ],
     "title": "Kolibri Product developer run execute command payload v1.2",
+    "type": "object"
+  },
+  "https://schemas.kolibriai.ru/v1/product/run-execute-command-v1.3.schema.json": {
+    "$id": "https://schemas.kolibriai.ru/v1/product/run-execute-command-v1.3.schema.json",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false,
+    "definitions": {
+      "epoch": {
+        "maximum": 9007199254740991,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "execution_option": {
+        "maxLength": 32,
+        "minLength": 1,
+        "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$",
+        "type": "string"
+      },
+      "model_selection": {
+        "maxLength": 120,
+        "minLength": 1,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$",
+        "type": "string"
+      },
+      "opaque_id": {
+        "maxLength": 160,
+        "minLength": 8,
+        "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$",
+        "type": "string"
+      },
+      "runtime_profile": {
+        "maxLength": 96,
+        "minLength": 2,
+        "pattern": "^[a-z0-9][a-z0-9._-]{1,95}$",
+        "type": "string"
+      },
+      "trusted_profile_id": {
+        "pattern": "^tap_[0-9a-f]{32}$",
+        "type": "string"
+      },
+      "trusted_workspace_binding_id": {
+        "pattern": "^wsb_[0-9a-f]{32}$",
+        "type": "string"
+      }
+    },
+    "description": "Server-frozen developer AgentRuntime request bound to the exact trusted-agent profile and workspace authority epochs.",
+    "properties": {
+      "access_mode": {
+        "const": "full"
+      },
+      "approval_policy": {
+        "const": "never"
+      },
+      "case_id": {
+        "$ref": "#/definitions/opaque_id"
+      },
+      "execution_mode": {
+        "const": "developer"
+      },
+      "goal_id": {
+        "$ref": "#/definitions/opaque_id"
+      },
+      "input_message_id": {
+        "$ref": "#/definitions/opaque_id"
+      },
+      "model": {
+        "oneOf": [
+          {
+            "$ref": "#/definitions/model_selection"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "project_id": {
+        "$ref": "#/definitions/opaque_id"
+      },
+      "prompt": {
+        "maxLength": 200000,
+        "minLength": 1,
+        "type": "string"
+      },
+      "prompt_hash": {
+        "pattern": "^sha256:[0-9a-f]{64}$",
+        "type": "string"
+      },
+      "reasoning_effort": {
+        "oneOf": [
+          {
+            "$ref": "#/definitions/execution_option"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "requester_role": {
+        "const": "owner"
+      },
+      "reviewer": {
+        "type": "null"
+      },
+      "run_id": {
+        "$ref": "#/definitions/opaque_id"
+      },
+      "runtime_profile": {
+        "maxLength": 96,
+        "minLength": 2,
+        "pattern": "^(?!auto$)[a-z0-9][a-z0-9._-]{1,95}$",
+        "type": "string"
+      },
+      "sandbox": {
+        "const": "danger-full-access"
+      },
+      "schema_id": {
+        "const": "kolibri.product.run.execute.v1_3.command"
+      },
+      "schema_version": {
+        "const": "1.3"
+      },
+      "service_tier": {
+        "oneOf": [
+          {
+            "$ref": "#/definitions/execution_option"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "tenant_id": {
+        "$ref": "#/definitions/opaque_id"
+      },
+      "thread_id": {
+        "$ref": "#/definitions/opaque_id"
+      },
+      "trusted_agent_profile_epoch": {
+        "$ref": "#/definitions/epoch"
+      },
+      "trusted_agent_profile_id": {
+        "$ref": "#/definitions/trusted_profile_id"
+      },
+      "trusted_agent_workspace_binding_epoch": {
+        "$ref": "#/definitions/epoch"
+      },
+      "trusted_agent_workspace_binding_id": {
+        "$ref": "#/definitions/trusted_workspace_binding_id"
+      },
+      "workspace_ref": {
+        "maxLength": 160,
+        "minLength": 1,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+        "type": "string"
+      }
+    },
+    "required": [
+      "schema_id",
+      "schema_version",
+      "tenant_id",
+      "project_id",
+      "thread_id",
+      "run_id",
+      "input_message_id",
+      "case_id",
+      "goal_id",
+      "prompt",
+      "prompt_hash",
+      "execution_mode",
+      "runtime_profile",
+      "model",
+      "reasoning_effort",
+      "service_tier",
+      "workspace_ref",
+      "access_mode",
+      "sandbox",
+      "approval_policy",
+      "reviewer",
+      "requester_role",
+      "trusted_agent_profile_id",
+      "trusted_agent_profile_epoch",
+      "trusted_agent_workspace_binding_id",
+      "trusted_agent_workspace_binding_epoch"
+    ],
+    "title": "Kolibri trusted developer run execute command payload v1.3",
     "type": "object"
   },
   "https://schemas.kolibriai.ru/v1/product/run-execute-command.schema.json": {
@@ -9485,6 +11787,377 @@ const CONTRACT_SCHEMAS: Readonly<Record<string, unknown>> = {
       "updated_at"
     ],
     "title": "Kolibri Product Thread v1",
+    "type": "object"
+  },
+  "https://schemas.kolibriai.ru/v1/provider-execution/catalog.schema.json": {
+    "$id": "https://schemas.kolibriai.ru/v1/provider-execution/catalog.schema.json",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false,
+    "properties": {
+      "agent_cards": {
+        "items": {
+          "$ref": "https://schemas.kolibriai.ru/v1/agents/agent-card.schema.json"
+        },
+        "maxItems": 64,
+        "type": "array",
+        "uniqueItems": true
+      },
+      "schema_id": {
+        "const": "kolibri.provider_execution.catalog"
+      },
+      "schema_version": {
+        "const": "1.0"
+      }
+    },
+    "required": [
+      "schema_id",
+      "schema_version",
+      "agent_cards"
+    ],
+    "title": "Kolibri provider execution catalog v1",
+    "type": "object"
+  },
+  "https://schemas.kolibriai.ru/v1/provider-execution/request.schema.json": {
+    "$id": "https://schemas.kolibriai.ru/v1/provider-execution/request.schema.json",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false,
+    "properties": {
+      "a2a_request": {
+        "$ref": "https://schemas.kolibriai.ru/v1/a2a/message.schema.json"
+      },
+      "agent_assignment": {
+        "$ref": "https://schemas.kolibriai.ru/v1/agents/assignment.schema.json"
+      },
+      "attempt": {
+        "$ref": "https://schemas.kolibriai.ru/v1/tasks/attempt.schema.json"
+      },
+      "developer_dispatch": {
+        "oneOf": [
+          {
+            "$ref": "https://schemas.kolibriai.ru/v1/product/developer-dispatch.schema.json"
+          },
+          {
+            "$ref": "https://schemas.kolibriai.ru/v1/product/developer-dispatch-v1.1.schema.json"
+          }
+        ]
+      },
+      "effect_key": {
+        "pattern": "^effect_[0-9a-f]{40}$",
+        "type": "string"
+      },
+      "lease_source": {
+        "oneOf": [
+          {
+            "$ref": "https://schemas.kolibriai.ru/v1/product/developer-lease-source.schema.json"
+          },
+          {
+            "$ref": "https://schemas.kolibriai.ru/v1/product/developer-lease-source-v1.1.schema.json"
+          }
+        ]
+      },
+      "requester_assignment": {
+        "$ref": "https://schemas.kolibriai.ru/v1/agents/assignment.schema.json"
+      },
+      "schema_id": {
+        "const": "kolibri.provider_execution.request"
+      },
+      "schema_version": {
+        "const": "1.0"
+      },
+      "source_command": {
+        "$ref": "https://schemas.kolibriai.ru/v1/common/command-envelope.schema.json"
+      },
+      "task": {
+        "$ref": "https://schemas.kolibriai.ru/v1/tasks/task.schema.json"
+      }
+    },
+    "required": [
+      "schema_id",
+      "schema_version",
+      "effect_key",
+      "task",
+      "attempt",
+      "agent_assignment",
+      "requester_assignment",
+      "a2a_request",
+      "developer_dispatch",
+      "source_command",
+      "lease_source"
+    ],
+    "title": "Kolibri provider execution request v1",
+    "type": "object"
+  },
+  "https://schemas.kolibriai.ru/v1/provider-execution/result.schema.json": {
+    "$id": "https://schemas.kolibriai.ru/v1/provider-execution/result.schema.json",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false,
+    "allOf": [
+      {
+        "else": {
+          "properties": {
+            "error": {
+              "$ref": "#/definitions/error"
+            },
+            "output": {
+              "type": "null"
+            }
+          }
+        },
+        "if": {
+          "properties": {
+            "status": {
+              "const": "completed"
+            }
+          },
+          "required": [
+            "status"
+          ]
+        },
+        "then": {
+          "properties": {
+            "error": {
+              "type": "null"
+            },
+            "output": {
+              "$ref": "#/definitions/output"
+            }
+          }
+        }
+      }
+    ],
+    "definitions": {
+      "activity_event": {
+        "additionalProperties": false,
+        "properties": {
+          "payload": {
+            "type": "object"
+          },
+          "phase": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "phase",
+          "payload"
+        ],
+        "type": "object"
+      },
+      "bounded_id": {
+        "maxLength": 512,
+        "minLength": 1,
+        "pattern": "^[^\\u0000]+$",
+        "type": "string"
+      },
+      "error": {
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "enum": [
+              "configuration",
+              "authentication",
+              "unavailable",
+              "invalid_output",
+              "execution"
+            ],
+            "type": "string"
+          },
+          "code": {
+            "pattern": "^[a-z][a-z0-9_.-]{2,95}$",
+            "type": "string"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "safe_message": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "category",
+          "retryable",
+          "safe_message"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "oneOf": [
+          {
+            "properties": {
+              "response": {
+                "type": "string"
+              },
+              "tool_call": {
+                "type": "null"
+              }
+            }
+          },
+          {
+            "properties": {
+              "response": {
+                "type": "null"
+              },
+              "tool_call": {
+                "type": "object"
+              }
+            }
+          }
+        ],
+        "properties": {
+          "response": {
+            "oneOf": [
+              {
+                "maxLength": 200000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "session_id": {
+            "oneOf": [
+              {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tool_call": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "arguments": {
+                    "type": "object"
+                  },
+                  "name": {
+                    "pattern": "^[a-z0-9][a-z0-9._-]{1,95}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "arguments"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "response",
+          "session_id",
+          "tool_call"
+        ],
+        "type": "object"
+      }
+    },
+    "properties": {
+      "activity": {
+        "items": {
+          "$ref": "#/definitions/activity_event"
+        },
+        "maxItems": 128,
+        "type": "array"
+      },
+      "assignment_id": {
+        "$ref": "#/definitions/bounded_id"
+      },
+      "attempt_id": {
+        "$ref": "#/definitions/bounded_id"
+      },
+      "effect_key": {
+        "pattern": "^effect_[0-9a-f]{40}$",
+        "type": "string"
+      },
+      "error": {
+        "oneOf": [
+          {
+            "$ref": "#/definitions/error"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "fencing_token": {
+        "maximum": 9007199254740991,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "lease_id": {
+        "$ref": "#/definitions/bounded_id"
+      },
+      "output": {
+        "oneOf": [
+          {
+            "$ref": "#/definitions/output"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "replayed": {
+        "type": "boolean"
+      },
+      "request_hash": {
+        "pattern": "^sha256:[0-9a-f]{64}$",
+        "type": "string"
+      },
+      "runtime_profile": {
+        "pattern": "^[a-z0-9][a-z0-9._-]{1,95}$",
+        "type": "string"
+      },
+      "schema_id": {
+        "const": "kolibri.provider_execution.result"
+      },
+      "schema_version": {
+        "const": "1.0"
+      },
+      "status": {
+        "enum": [
+          "completed",
+          "failed"
+        ],
+        "type": "string"
+      },
+      "task_id": {
+        "$ref": "#/definitions/bounded_id"
+      }
+    },
+    "required": [
+      "schema_id",
+      "schema_version",
+      "effect_key",
+      "request_hash",
+      "task_id",
+      "attempt_id",
+      "assignment_id",
+      "lease_id",
+      "fencing_token",
+      "runtime_profile",
+      "status",
+      "replayed",
+      "output",
+      "activity",
+      "error"
+    ],
+    "title": "Kolibri provider execution result v1",
     "type": "object"
   },
   "https://schemas.kolibriai.ru/v1/quality/evidence.schema.json": {

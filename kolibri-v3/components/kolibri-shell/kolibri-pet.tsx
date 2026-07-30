@@ -1,6 +1,12 @@
 "use client";
 
-import { ChevronsLeftRight, PanelRightOpen } from "lucide-react";
+import {
+  ArrowUp,
+  ChevronsLeftRight,
+  PanelRightOpen,
+  Square,
+  X,
+} from "lucide-react";
 import {
   useEffect,
   useRef,
@@ -9,6 +15,11 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
+import {
+  ComposerPrimitive,
+  useAuiState,
+} from "@assistant-ui/react";
+import { useIdentity } from "@/lib/identity/provider";
 import { cn } from "@/lib/utils";
 
 export type KolibriPetId =
@@ -222,6 +233,16 @@ export const KOLIBRI_PETS = [
 
 const DEFAULT_PET = KOLIBRI_PETS[0];
 const PET_MOVEMENT_INSTRUCTIONS_ID = "kolibri-pet-movement-instructions";
+const PET_ASSISTANT_PANEL_ID = "kolibri-pet-mini-assistant";
+
+type PetRunState = "idle" | "thinking" | "success" | "error";
+
+const PET_RUN_COPY: Record<PetRunState, string> = {
+  idle: "Готов помочь в этом чате",
+  thinking: "Работаю над ответом…",
+  success: "Ответ готов",
+  error: "Не удалось завершить ответ",
+};
 
 export const KOLIBRI_PET_SELECTION_EVENT = "kolibri:pet-selection-change";
 export const KOLIBRI_PET_SELECTION_KEY = "kolibri.ui.pet-id";
@@ -284,6 +305,31 @@ export function setKolibriPetVisibility(visible: boolean) {
   );
 }
 
+export function KolibriPetHost() {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    setVisible(readKolibriPetVisibility());
+    const syncVisibility = (event: Event) => {
+      const next = (
+        event as CustomEvent<{ visible?: unknown }>
+      ).detail?.visible;
+      if (typeof next === "boolean") setVisible(next);
+    };
+    globalThis.addEventListener(
+      KOLIBRI_PET_VISIBILITY_EVENT,
+      syncVisibility,
+    );
+    return () =>
+      globalThis.removeEventListener(
+        KOLIBRI_PET_VISIBILITY_EVENT,
+        syncVisibility,
+      );
+  }, []);
+
+  return visible ? <KolibriPet /> : null;
+}
+
 export function PetAvatar({
   active = false,
   className,
@@ -312,7 +358,157 @@ export function PetAvatar({
   );
 }
 
+function usePetRunState(): PetRunState {
+  return useAuiState((state) => {
+    if (state.thread.isRunning) return "thinking";
+    const last = state.thread.messages.at(-1);
+    if (!last || last.role !== "assistant") return "idle";
+    if (last.status.type === "complete") return "success";
+    if (
+      last.status.type === "incomplete" &&
+      last.status.reason !== "cancelled"
+    ) {
+      return "error";
+    }
+    return "idle";
+  });
+}
+
+function PetMiniAssistant({
+  left,
+  onClose,
+  pet,
+  placement,
+  state,
+}: {
+  left: number;
+  onClose: () => void;
+  pet: KolibriPetDefinition;
+  placement: "above" | "below";
+  state: PetRunState;
+}) {
+  const identity = useIdentity();
+  const composerEmpty = useAuiState((value) => value.composer.isEmpty);
+  const running = useAuiState((value) => value.thread.isRunning);
+  const authenticated = identity.status === "authenticated";
+
+  return (
+    <section
+      id={PET_ASSISTANT_PANEL_ID}
+      data-pet-run-state={state}
+      role="dialog"
+      aria-label={`Мини-помощник ${pet.name}`}
+      className={cn(
+        "pointer-events-auto absolute z-20 w-[min(21rem,calc(100vw-1.5rem))] rounded-3xl border border-border bg-background p-3 text-foreground shadow-2xl",
+        placement === "above"
+          ? "bottom-[calc(100%+0.5rem)]"
+          : "top-[calc(100%+0.5rem)]",
+      )}
+      style={{ left }}
+      onKeyDown={(event) => {
+        if (event.key !== "Escape") return;
+        event.preventDefault();
+        onClose();
+      }}
+    >
+      <header className="flex min-w-0 items-center gap-2">
+        <PetAvatar id={pet.id} active={state !== "idle"} className="size-12" />
+        <div className="min-w-0 flex-1">
+          <h2 className="truncate text-sm font-semibold">{pet.name}</h2>
+          <p className="truncate text-xs text-muted-foreground">
+            {pet.role} · {pet.personality}
+          </p>
+        </div>
+        <button
+          type="button"
+          aria-label="Закрыть мини-помощника"
+          className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground outline-none transition hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={onClose}
+        >
+          <X aria-hidden="true" className="size-4" />
+        </button>
+      </header>
+      <div
+        aria-live="polite"
+        className="mt-1.5 flex min-h-6 items-center gap-2 px-1 text-xs text-muted-foreground"
+      >
+        <span
+          aria-hidden="true"
+          className={cn(
+            "size-2 shrink-0 rounded-full",
+            state === "error"
+              ? "bg-destructive"
+              : state === "success"
+                ? "bg-emerald-500"
+                : state === "thinking"
+                  ? "animate-pulse"
+                  : "bg-muted-foreground",
+          )}
+          style={
+            state === "thinking"
+              ? { backgroundColor: pet.accent }
+              : undefined
+          }
+        />
+        {PET_RUN_COPY[state]}
+      </div>
+      <ComposerPrimitive.Root className="mt-2">
+        <div className="flex min-w-0 items-end gap-1 rounded-3xl border border-border bg-background p-1.5 focus-within:ring-2 focus-within:ring-ring/40">
+          <ComposerPrimitive.Input
+            autoFocus
+            aria-label="Сообщение питомцу в текущий чат"
+            disabled={!authenticated}
+            maxLength={65_536}
+            placeholder={
+              authenticated
+                ? "Написать в этот чат…"
+                : "Войдите, чтобы написать"
+            }
+            rows={1}
+            className="max-h-28 min-h-10 min-w-0 flex-1 resize-none bg-transparent px-2 py-2 text-sm outline-none"
+          />
+          {running ? (
+            <ComposerPrimitive.Cancel asChild>
+              <button
+                type="button"
+                aria-label="Остановить ответ"
+                className="flex size-10 shrink-0 items-center justify-center rounded-full text-white outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                style={{ backgroundColor: pet.accent }}
+              >
+                <Square
+                  aria-hidden="true"
+                  className="size-3.5 fill-current"
+                />
+              </button>
+            </ComposerPrimitive.Cancel>
+          ) : (
+            <ComposerPrimitive.Send asChild>
+              <button
+                type="button"
+                aria-label="Отправить в текущий чат"
+                disabled={!authenticated || composerEmpty}
+                className="flex size-10 shrink-0 items-center justify-center rounded-full text-white outline-none transition disabled:bg-muted disabled:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                style={
+                  authenticated && !composerEmpty
+                    ? { backgroundColor: pet.accent }
+                    : undefined
+                }
+              >
+                <ArrowUp aria-hidden="true" className="size-4.5" />
+              </button>
+            </ComposerPrimitive.Send>
+          )}
+        </div>
+      </ComposerPrimitive.Root>
+      <p className="mt-1.5 px-1 text-[11px] text-muted-foreground">
+        Сообщение отправится в открытый диалог Product Chat.
+      </p>
+    </section>
+  );
+}
+
 export function KolibriPet({ className }: { className?: string }) {
+  const runState = usePetRunState();
   const buttonRef = useRef<HTMLButtonElement>(null);
   const collapseButtonRef = useRef<HTMLButtonElement>(null);
   const restoreButtonRef = useRef<HTMLButtonElement>(null);
@@ -335,12 +531,18 @@ export function KolibriPet({ className }: { className?: string }) {
   const [position, setPosition] = useState({ x: 72, y: 150 });
   const [collapsed, setCollapsed] = useState(false);
   const [collapsedSide, setCollapsedSide] = useState<"left" | "right">("left");
+  const [assistantOpen, setAssistantOpen] = useState(false);
   const [reducedData, setReducedData] = useState(false);
+  const [reducedMotion, setReducedMotion] = useState(false);
 
   useEffect(() => {
     const reducedDataQuery =
       typeof globalThis.matchMedia === "function"
         ? globalThis.matchMedia("(prefers-reduced-data: reduce)")
+        : null;
+    const reducedMotionQuery =
+      typeof globalThis.matchMedia === "function"
+        ? globalThis.matchMedia("(prefers-reduced-motion: reduce)")
         : null;
     const dataConnection =
       typeof globalThis.navigator === "undefined"
@@ -351,8 +553,12 @@ export function KolibriPet({ className }: { className?: string }) {
         Boolean(reducedDataQuery?.matches || dataConnection?.saveData),
       );
     };
+    const syncReducedMotion = () => {
+      setReducedMotion(Boolean(reducedMotionQuery?.matches));
+    };
 
     syncReducedData();
+    syncReducedMotion();
     setMounted(true);
     setPetId(readKolibriPetId());
     try {
@@ -400,6 +606,7 @@ export function KolibriPet({ className }: { className?: string }) {
     globalThis.addEventListener(KOLIBRI_PET_SELECTION_EVENT, syncSelection);
     globalThis.addEventListener("resize", keepInsideViewport);
     reducedDataQuery?.addEventListener("change", syncReducedData);
+    reducedMotionQuery?.addEventListener("change", syncReducedMotion);
     dataConnection?.addEventListener?.("change", syncReducedData);
     return () => {
       globalThis.removeEventListener(
@@ -408,6 +615,7 @@ export function KolibriPet({ className }: { className?: string }) {
       );
       globalThis.removeEventListener("resize", keepInsideViewport);
       reducedDataQuery?.removeEventListener("change", syncReducedData);
+      reducedMotionQuery?.removeEventListener("change", syncReducedMotion);
       dataConnection?.removeEventListener?.("change", syncReducedData);
       if (activeTimerRef.current) clearTimeout(activeTimerRef.current);
     };
@@ -431,14 +639,29 @@ export function KolibriPet({ className }: { className?: string }) {
     getKolibriPet(petId);
   const currentMood =
     selectedPet.moods[moodIndex % selectedPet.moods.length];
+  const panelPlacement =
+    position.y > globalThis.innerHeight / 2 ? "above" : "below";
+  const panelWidth = Math.max(
+    0,
+    Math.min(336, globalThis.innerWidth - 24),
+  );
+  const panelViewportLeft = Math.max(
+    12,
+    Math.min(
+      position.x,
+      globalThis.innerWidth - panelWidth - 12,
+    ),
+  );
+  const panelLeft = panelViewportLeft - position.x;
 
-  const react = () => {
+  const toggleAssistant = () => {
     if (suppressClickRef.current) {
       suppressClickRef.current = false;
       return;
     }
     setMoodIndex((current) => (current + 1) % selectedPet.moods.length);
     setActive(true);
+    setAssistantOpen((current) => !current);
     if (activeTimerRef.current) clearTimeout(activeTimerRef.current);
     activeTimerRef.current = setTimeout(() => setActive(false), 900);
   };
@@ -461,6 +684,7 @@ export function KolibriPet({ className }: { className?: string }) {
 
   const collapsePet = () => {
     pendingFocusRef.current = "restore";
+    setAssistantOpen(false);
     setCollapsedPreference(true);
   };
 
@@ -496,7 +720,7 @@ export function KolibriPet({ className }: { className?: string }) {
       <div
         data-slot="kolibri-pet"
         className={cn(
-          "pointer-events-none fixed z-[70]",
+          "pointer-events-none fixed z-40 min-[960px]:z-[70]",
           collapsedSide === "left" ? "left-0" : "right-0",
           className,
         )}
@@ -530,8 +754,9 @@ export function KolibriPet({ className }: { className?: string }) {
   return createPortal(
     <div
       data-slot="kolibri-pet"
+      data-pet-run-state={runState}
       className={cn(
-        "pointer-events-none fixed z-[70] flex w-[132px] flex-col items-center",
+        "pointer-events-none fixed z-40 flex w-[132px] flex-col items-center min-[960px]:z-[70]",
         className,
       )}
       style={{ left: position.x, top: position.y }}
@@ -551,10 +776,13 @@ export function KolibriPet({ className }: { className?: string }) {
         ref={buttonRef}
         type="button"
         data-active={active ? "true" : undefined}
+        data-pet-run-state={runState}
         className="pointer-events-auto group/pet relative flex h-[100px] w-[132px] touch-none cursor-grab items-center justify-center rounded-2xl outline-none transition-transform duration-200 hover:scale-[1.03] focus-visible:ring-2 focus-visible:ring-sky-400/60 active:cursor-grabbing active:scale-[1.01]"
         aria-describedby={PET_MOVEMENT_INSTRUCTIONS_ID}
-        aria-label={`Питомец ${selectedPet.name}. ${currentMood}. Нажмите, чтобы поиграть; перетащите в любую точку экрана.`}
-        onClick={react}
+        aria-controls={PET_ASSISTANT_PANEL_ID}
+        aria-expanded={assistantOpen}
+        aria-label={`Питомец ${selectedPet.name}. ${PET_RUN_COPY[runState]}. Нажмите, чтобы открыть помощника; перетащите в любую точку экрана.`}
+        onClick={toggleAssistant}
         onKeyDown={(event) => {
           const step = event.shiftKey ? 32 : 12;
           if (event.key === "ArrowLeft") {
@@ -626,13 +854,28 @@ export function KolibriPet({ className }: { className?: string }) {
           gaze={gaze}
           id={petId}
           reducedData={reducedData}
+          reducedMotion={reducedMotion}
+          state={runState}
         />
       </button>
+      {assistantOpen ? (
+        <PetMiniAssistant
+          left={panelLeft}
+          onClose={() => {
+            setAssistantOpen(false);
+            globalThis.requestAnimationFrame(() => buttonRef.current?.focus());
+          }}
+          pet={selectedPet}
+          placement={panelPlacement}
+          state={runState}
+        />
+      ) : null}
       <span
         aria-live="polite"
         className="pointer-events-none border-sky-200/70 bg-white/90 text-sky-900 -mt-1 rounded-full border px-2.5 py-1 text-[10px] font-medium shadow-md dark:border-sky-900 dark:bg-sky-950/90 dark:text-sky-100"
       >
-        {selectedPet.name} · {currentMood}
+        {selectedPet.name} ·{" "}
+        {runState === "idle" ? currentMood : PET_RUN_COPY[runState]}
       </span>
       <span id={PET_MOVEMENT_INSTRUCTIONS_ID} className="sr-only">
         Клавиши со стрелками перемещают питомца. Shift + стрелка перемещает
@@ -667,12 +910,16 @@ function PetIllustration({
   gaze,
   id,
   reducedData = false,
+  reducedMotion = false,
+  state = "idle",
 }: {
   active: boolean;
   compact?: boolean;
   gaze: { x: number; y: number };
   id: KolibriPetId;
   reducedData?: boolean;
+  reducedMotion?: boolean;
+  state?: PetRunState;
 }) {
   const pet = getKolibriPet(id);
   const useThumbnail = compact || reducedData;
@@ -688,6 +935,8 @@ function PetIllustration({
       data-active={active ? "true" : "false"}
       data-compact={compact ? "true" : "false"}
       data-pet-id={id}
+      data-pet-run-state={state}
+      data-reduced-motion={reducedMotion ? "true" : "false"}
       data-slot="kolibri-pet-art"
       className={cn(
         "kolibri-pet-art",

@@ -1,0 +1,157 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/product/developer-dispatch.schema.json",
+  "title": "Kolibri Product developer dispatch v1",
+  "description": "The server-frozen provider-neutral execution configuration projected by Logical Home for one developer task.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "source_command_ref",
+    "run_id",
+    "project_id",
+    "thread_id",
+    "input_message_id",
+    "runtime_profile",
+    "runtime_capability",
+    "model",
+    "reasoning_effort",
+    "service_tier",
+    "workspace_ref",
+    "access_mode",
+    "sandbox",
+    "approval_policy",
+    "reviewer"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "kolibri.product.developer_dispatch"
+    },
+    "schema_version": {
+      "const": "1.0"
+    },
+    "source_command_ref": {
+      "$ref": "#/definitions/source_command_ref"
+    },
+    "run_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "project_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "thread_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "input_message_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "runtime_profile": {
+      "$ref": "#/definitions/runtime_profile"
+    },
+    "runtime_capability": {
+      "type": "string",
+      "pattern": "^developer\\.runtime\\.execute\\.[0-9a-f]{32}$"
+    },
+    "model": {
+      "oneOf": [
+        {
+          "$ref": "#/definitions/model_selection"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "reasoning_effort": {
+      "oneOf": [
+        {
+          "$ref": "#/definitions/execution_option"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "service_tier": {
+      "oneOf": [
+        {
+          "$ref": "#/definitions/execution_option"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "workspace_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+    },
+    "access_mode": {
+      "type": "string",
+      "enum": [
+        "auto",
+        "full"
+      ]
+    },
+    "sandbox": {
+      "type": "string",
+      "enum": [
+        "workspace-write",
+        "danger-full-access"
+      ]
+    },
+    "approval_policy": {
+      "type": "string",
+      "enum": [
+        "on-request",
+        "never"
+      ]
+    },
+    "reviewer": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "definitions": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    },
+    "source_command_ref": {
+      "type": "string",
+      "pattern": "^sourcecmd_[0-9a-f]{40}$"
+    },
+    "runtime_profile": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 96,
+      "pattern": "^[a-z0-9][a-z0-9._-]{1,95}$"
+    },
+    "model_selection": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$"
+    },
+    "execution_option": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32,
+      "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$"
+    }
+  }
+}

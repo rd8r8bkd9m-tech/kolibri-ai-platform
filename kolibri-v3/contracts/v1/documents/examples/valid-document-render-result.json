@@ -1,0 +1,21 @@
+{
+  "schema_id": "kolibri.document_render_result",
+  "schema_version": "1.0",
+  "request_id": "REQ-ABCDEF123400",
+  "document_id": "DOC-ABCDEF1234",
+  "template_id": "contract.v1",
+  "template_version": "1.0",
+  "status": "rendered",
+  "generated_at": "2026-07-24T10:01:00+03:00",
+  "rendered_locale": "ru-RU",
+  "rendered_jurisdiction": "RU",
+  "assets": [
+    {
+      "format": "pdf",
+      "content_type": "application/pdf",
+      "path": "artifacts/contracts/DOC-ABCDEF1234/contract-ru-RU-RU.pdf",
+      "size_bytes": 81239,
+      "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+    }
+  ]
+}

@@ -15,19 +15,44 @@ import sqlite3
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping
 
+from ..attachment_service import (
+    AttachmentConflictError,
+    AttachmentMetadataError,
+    AttachmentScopeError,
+    bind_message_attachment_refs,
+    parse_requested_attachment,
+    resolve_requested_attachments,
+)
 from ..config import Settings
 from ..database import transaction
-from ..product_widgets import is_estimate_generation_prompt
+from ..platform_authority import (
+    PlatformDeveloperAuthorityError,
+    require_persisted_platform_developer_authority,
+    require_platform_developer_authority,
+)
+from ..product_entitlements import (
+    CONSTRUCTION_ESTIMATES_ENTITLEMENT,
+    ProductEntitlementError,
+    require_product_entitlement,
+)
+from ..product_widgets import (
+    is_estimate_generation_prompt,
+    is_estimate_prompt,
+)
 from ..runtime_skills import (
     estimate_runtime_skill_plan,
     persist_runtime_skill_plan,
 )
-from ..schemas import AgentProfile, UserSession
+from ..schemas import UserSession
+from ..trusted_agent_execution import (
+    TrustedAgentExecutionError,
+    select_trusted_agent_execution_binding,
+)
 from .errors import (
+    ChatPolicyError,
     ChatRuntimeUnavailableError,
-    DeveloperAgentAccessError,
     IdempotencyConflictError,
     InvalidRunError,
     ProjectRuntimeBlockedError,
@@ -38,8 +63,12 @@ from .models import (
     MessageFeedbackInput,
     ThreadActionInput,
     canonical_run_payload,
+    message_attachment_parts,
     message_text,
 )
+
+if TYPE_CHECKING:
+    from .execution_adapter import PreparedChatExecution
 
 
 _PUBLIC_ID = re.compile(
@@ -68,6 +97,7 @@ class AcceptedRun:
     run_id: str
     public_run_id: str
     execution_mode: str
+    execution_plane: str
     replayed: bool
 
 
@@ -712,7 +742,20 @@ def build_product_run_command(
     sandbox: str | None = None,
     approval_policy: str | None = None,
     reviewer: str | None = None,
+    trusted_agent_profile_id: str | None = None,
+    trusted_agent_profile_epoch: int | None = None,
+    trusted_agent_workspace_binding_id: str | None = None,
+    trusted_agent_workspace_binding_epoch: int | None = None,
 ) -> dict[str, Any]:
+    if execution_mode == "developer":
+        try:
+            require_platform_developer_authority(identity)
+        except PlatformDeveloperAuthorityError as exc:
+            raise ChatPolicyError(
+                exc.status_code,
+                exc.code,
+                exc.message,
+            ) from exc
     command, typed = _command_envelope(
         settings=settings,
         identity=identity,
@@ -733,9 +776,22 @@ def build_product_run_command(
         selected_profile or identity.preferred_agent_profile.value
     )
     if execution_mode == "developer":
+        trusted_binding_values = (
+            trusted_agent_profile_id,
+            trusted_agent_profile_epoch,
+            trusted_agent_workspace_binding_id,
+            trusted_agent_workspace_binding_epoch,
+        )
+        trusted_bound = all(
+            value is not None for value in trusted_binding_values
+        )
+        if any(value is not None for value in trusted_binding_values) and not (
+            trusted_bound
+        ):
+            raise ChatRuntimeUnavailableError()
         authority = command["identity"]["authority"]
         if (
-            identity.role.value != "owner"
+            not identity.is_platform_owner
             or _DEVELOPER_RUN_CAPABILITY
             not in authority["capabilities"]
             or workspace_ref is None
@@ -744,8 +800,12 @@ def build_product_run_command(
             or approval_policy is None
         ):
             raise ChatRuntimeUnavailableError()
-        payload_schema_id = "kolibri.product.run.execute.v1_2.command"
-        payload_schema_version = "1.2"
+        payload_schema_id = (
+            "kolibri.product.run.execute.v1_3.command"
+            if trusted_bound
+            else "kolibri.product.run.execute.v1_2.command"
+        )
+        payload_schema_version = "1.3" if trusted_bound else "1.2"
         payload = {
             "schema_id": payload_schema_id,
             "schema_version": payload_schema_version,
@@ -762,6 +822,21 @@ def build_product_run_command(
             "reviewer": reviewer,
             "requester_role": "owner",
         }
+        if trusted_bound:
+            payload.update(
+                {
+                    "trusted_agent_profile_id": trusted_agent_profile_id,
+                    "trusted_agent_profile_epoch": (
+                        trusted_agent_profile_epoch
+                    ),
+                    "trusted_agent_workspace_binding_id": (
+                        trusted_agent_workspace_binding_id
+                    ),
+                    "trusted_agent_workspace_binding_epoch": (
+                        trusted_agent_workspace_binding_epoch
+                    ),
+                }
+            )
     else:
         payload_schema_id = "kolibri.product.run.execute.v1_1.command"
         payload_schema_version = "1.1"
@@ -837,37 +912,79 @@ def accept_run(
     settings: Settings,
     identity: UserSession,
     run_input: AgUiRunInput,
+    prepared: PreparedChatExecution,
 ) -> AcceptedRun:
     """Atomically accept a strict AG-UI text run.
 
     Standard local-development chat may use the direct model runtime.
-    Developer execution is never direct: it always commits an immutable
-    Product outbox command for Logical Home in the same transaction.
+    The server-selected execution plane applies equally to standard and
+    developer runs. HTTP callers must pass the prepared adapter decision so
+    the exact catalog selection and policy are frozen with the run.
     """
 
     execution_mode = run_input.forwarded_props.execution_mode
-    access_mode = run_input.forwarded_props.access_mode
     if execution_mode == "developer":
-        if identity.role.value != "owner":
-            raise DeveloperAgentAccessError()
         try:
-            developer_grant = settings.require_product_authority_grant()
-        except RuntimeError as exc:
-            raise ChatRuntimeUnavailableError() from exc
-        if _DEVELOPER_RUN_CAPABILITY not in developer_grant.capabilities:
-            raise ChatRuntimeUnavailableError()
-    use_home_runtime = (
-        execution_mode == "developer"
-        or not settings.direct_model_runtime_enabled
-    )
+            require_platform_developer_authority(identity)
+        except PlatformDeveloperAuthorityError as exc:
+            raise ChatPolicyError(
+                exc.status_code,
+                exc.code,
+                exc.message,
+            ) from exc
+    access_mode = run_input.forwarded_props.access_mode
+    execution_plane = prepared.execution_plane
+    if execution_plane not in {"direct", "home"}:
+        raise ChatRuntimeUnavailableError()
+    expected_plane = settings.chat_execution_plane(execution_mode)
+    if execution_plane != expected_plane:
+        raise ChatRuntimeUnavailableError()
+    use_home_runtime = execution_plane == "home"
+    if execution_mode == "developer":
+        if use_home_runtime:
+            try:
+                developer_grant = settings.require_product_authority_grant()
+            except RuntimeError as exc:
+                raise ChatRuntimeUnavailableError() from exc
+            if _DEVELOPER_RUN_CAPABILITY not in developer_grant.capabilities:
+                raise ChatRuntimeUnavailableError()
 
     prompt = message_text(run_input.messages[-1])
+    if is_estimate_prompt(prompt):
+        try:
+            require_product_entitlement(
+                identity,
+                CONSTRUCTION_ESTIMATES_ENTITLEMENT,
+            )
+        except ProductEntitlementError as exc:
+            raise ChatPolicyError(
+                exc.status_code,
+                exc.code,
+                exc.message,
+            ) from exc
     input_message = run_input.messages[-1]
     incoming_hash = request_hash(run_input)
     created_at = utc_now()
 
     try:
         with transaction(database, immediate=True):
+            platform_authority_epoch: int | None = None
+            if execution_mode == "developer":
+                try:
+                    platform_authority_epoch = (
+                        require_persisted_platform_developer_authority(
+                            database,
+                            user_id=identity.user_id,
+                            tenant_id=identity.tenant_id,
+                            expected_epoch=identity.platform_authority_epoch,
+                        )
+                    )
+                except PlatformDeveloperAuthorityError as exc:
+                    raise ChatPolicyError(
+                        exc.status_code,
+                        exc.code,
+                        exc.message,
+                    ) from exc
             created_project = False
             thread = resolve_thread(
                 database,
@@ -891,6 +1008,38 @@ def accept_run(
                 project_id = str(thread["project_id"])
                 thread_id = str(thread["id"])
 
+            try:
+                requested_attachment_refs = [
+                    parse_requested_attachment(
+                        data=part.source.value,
+                        filename=part.metadata.filename,
+                        mime_type=part.source.mime_type,
+                    )
+                    for part in message_attachment_parts(input_message)
+                ]
+                attachment_records = resolve_requested_attachments(
+                    database,
+                    tenant_id=identity.tenant_id,
+                    user_id=identity.user_id,
+                    project_id=project_id,
+                    thread_id=thread_id,
+                    requested=requested_attachment_refs,
+                )
+            except AttachmentMetadataError as exc:
+                raise InvalidRunError(str(exc)) from exc
+            except AttachmentScopeError as exc:
+                raise ChatPolicyError(
+                    404,
+                    "attachment_not_found",
+                    "An attachment is unavailable in this project.",
+                ) from exc
+            except AttachmentConflictError as exc:
+                raise ChatPolicyError(
+                    409,
+                    "attachment_reference_conflict",
+                    "Attachment metadata changed. Add the file again.",
+                ) from exc
+
             stored_client_run_id = storage_client_run_id(
                 run_input.run_id,
                 incoming_hash,
@@ -900,7 +1049,9 @@ def accept_run(
                 SELECT run.id, run.request_hash, run.input_message_id,
                        run.status,
                        COALESCE(context.execution_mode, 'standard')
-                           AS execution_mode
+                           AS execution_mode,
+                       COALESCE(context.execution_plane, 'home')
+                           AS execution_plane
                 FROM chat_runs AS run
                 LEFT JOIN chat_run_execution_contexts AS context
                   ON context.tenant_id = run.tenant_id
@@ -920,7 +1071,9 @@ def accept_run(
                     SELECT run.id, run.request_hash, run.input_message_id,
                            run.status,
                            COALESCE(context.execution_mode, 'standard')
-                               AS execution_mode
+                               AS execution_mode,
+                           COALESCE(context.execution_plane, 'home')
+                               AS execution_plane
                     FROM chat_runs AS run
                     LEFT JOIN chat_run_execution_contexts AS context
                       ON context.tenant_id = run.tenant_id
@@ -949,6 +1102,7 @@ def accept_run(
                     run_id=str(replay["id"]),
                     public_run_id=run_input.run_id,
                     execution_mode=str(replay["execution_mode"]),
+                    execution_plane=str(replay["execution_plane"]),
                     replayed=True,
                 )
 
@@ -1070,42 +1224,34 @@ def accept_run(
                 )
 
             run_id = new_id("run")
-            selected_profile = (
-                run_input.forwarded_props.agent_profile
-                or identity.preferred_agent_profile.value
-            )
+            selected_profile = prepared.runtime_profile
             estimate_owned_model_policy = is_estimate_generation_prompt(prompt)
-            selected_profile_has_frozen_preference = (
-                selected_profile != AgentProfile.AUTO.value
-                and identity.preferred_model_profile is not None
-                and selected_profile
-                == identity.preferred_model_profile.value
+            selected_model = prepared.model_id
+            selected_reasoning_effort = prepared.reasoning_effort
+            selected_service_tier = prepared.service_tier
+            # This second, transactional decision is mandatory even for
+            # internal callers that do not use the HTTP preparation adapter.
+            # It also happens after exact-replay resolution, so retries do not
+            # consume or get rejected by the monthly quota.
+            from ..platform_admin import (
+                PlatformPolicyError,
+                enforce_chat_access_policy,
             )
-            runtime_preference_applies = (
-                not estimate_owned_model_policy
-                and selected_profile_has_frozen_preference
-                and (
-                    execution_mode == "developer"
-                    or (
-                        selected_profile == AgentProfile.CODEX_CLI.value
-                    )
+
+            try:
+                enforce_chat_access_policy(
+                    database,
+                    identity=identity,
+                    execution_mode=execution_mode,
+                    runtime_profile=selected_profile,
+                    model_id=selected_model,
                 )
-            )
-            selected_model = (
-                identity.preferred_model
-                if runtime_preference_applies
-                else None
-            )
-            selected_reasoning_effort = (
-                identity.preferred_reasoning_effort
-                if runtime_preference_applies
-                else None
-            )
-            selected_service_tier = (
-                identity.preferred_service_tier
-                if runtime_preference_applies
-                else None
-            )
+            except PlatformPolicyError as exc:
+                raise ChatPolicyError(
+                    exc.status_code,
+                    exc.code,
+                    exc.message,
+                ) from exc
             stored_input = database.execute(
                 """
                 SELECT id, content_text
@@ -1155,6 +1301,20 @@ def accept_run(
                         created_at,
                     ),
                 )
+            try:
+                bind_message_attachment_refs(
+                    database,
+                    tenant_id=identity.tenant_id,
+                    message_id=input_message_id,
+                    records=attachment_records,
+                    created_at=created_at,
+                )
+            except AttachmentConflictError as exc:
+                raise ChatPolicyError(
+                    409,
+                    "attachment_reference_conflict",
+                    "Message attachments do not match the original send.",
+                ) from exc
             database.execute(
                 """
                 INSERT INTO chat_runs (
@@ -1198,20 +1358,58 @@ def accept_run(
                 if legacy_developer_access
                 else _ACCESS_POLICIES[access_mode]
             )
+            trusted_agent_binding = None
+            if execution_mode == "developer":
+                if platform_authority_epoch is None:
+                    raise ChatPolicyError(
+                        403,
+                        "owner_required",
+                        "Owner access is required for developer agent mode.",
+                    )
+                try:
+                    trusted_agent_binding = (
+                        select_trusted_agent_execution_binding(
+                            database,
+                            tenant_id=identity.tenant_id,
+                            user_id=identity.user_id,
+                            authority_epoch=platform_authority_epoch,
+                            runtime_profile=selected_profile,
+                            access_mode=access_mode,
+                            sandbox_profile=frozen_access_policy[1],
+                            approval_policy=frozen_access_policy[2],
+                            approvals_reviewer=frozen_access_policy[3],
+                        )
+                    )
+                except TrustedAgentExecutionError as exc:
+                    raise ChatPolicyError(
+                        409,
+                        exc.code,
+                        exc.message,
+                    ) from exc
             database.execute(
                 """
                 INSERT INTO chat_run_execution_contexts (
-                    tenant_id, run_id, execution_mode, access_mode,
+                    tenant_id, run_id, execution_mode, execution_plane,
+                    platform_authority_epoch, access_mode,
                     access_policy_version, authority_role, authority_user_id,
                     workspace_ref, sandbox_profile, approval_policy,
                     approvals_reviewer, model_id, reasoning_effort,
-                    service_tier, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    service_tier, created_at,
+                    trusted_agent_profile_id,
+                    trusted_agent_profile_epoch,
+                    trusted_agent_workspace_binding_id,
+                    trusted_agent_workspace_binding_epoch
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?
+                )
                 """,
                 (
                     identity.tenant_id,
                     run_id,
                     execution_mode,
+                    execution_plane,
+                    platform_authority_epoch,
                     access_mode,
                     1 if legacy_developer_access else 2,
                     identity.role.value,
@@ -1224,6 +1422,26 @@ def accept_run(
                     selected_reasoning_effort,
                     selected_service_tier,
                     created_at,
+                    (
+                        trusted_agent_binding.profile_id
+                        if trusted_agent_binding is not None
+                        else None
+                    ),
+                    (
+                        trusted_agent_binding.profile_epoch
+                        if trusted_agent_binding is not None
+                        else None
+                    ),
+                    (
+                        trusted_agent_binding.workspace_binding_id
+                        if trusted_agent_binding is not None
+                        else None
+                    ),
+                    (
+                        trusted_agent_binding.workspace_binding_epoch
+                        if trusted_agent_binding is not None
+                        else None
+                    ),
                 ),
             )
             # A runtime skill is reviewed server-owned guidance, not a
@@ -1279,6 +1497,26 @@ def accept_run(
                         sandbox=frozen_access_policy[1],
                         approval_policy=frozen_access_policy[2],
                         reviewer=frozen_access_policy[3],
+                        trusted_agent_profile_id=(
+                            trusted_agent_binding.profile_id
+                            if trusted_agent_binding is not None
+                            else None
+                        ),
+                        trusted_agent_profile_epoch=(
+                            trusted_agent_binding.profile_epoch
+                            if trusted_agent_binding is not None
+                            else None
+                        ),
+                        trusted_agent_workspace_binding_id=(
+                            trusted_agent_binding.workspace_binding_id
+                            if trusted_agent_binding is not None
+                            else None
+                        ),
+                        trusted_agent_workspace_binding_epoch=(
+                            trusted_agent_binding.workspace_binding_epoch
+                            if trusted_agent_binding is not None
+                            else None
+                        ),
                     )
                     command_kind = "product.run.execute"
                     phase = "run_execute"
@@ -1332,6 +1570,28 @@ def accept_run(
                         created_at,
                     ),
                 )
+            else:
+                database.execute(
+                    """
+                    INSERT INTO direct_run_outbox (
+                        tenant_id, run_id, public_thread_id, public_run_id,
+                        state, lease_owner, lease_token, lease_until,
+                        fencing_token, last_error_code, created_at, updated_at,
+                        completed_at
+                    ) VALUES (
+                        ?, ?, ?, ?, 'queued', NULL, NULL, NULL,
+                        0, NULL, ?, ?, NULL
+                    )
+                    """,
+                    (
+                        identity.tenant_id,
+                        run_id,
+                        run_input.thread_id,
+                        run_input.run_id,
+                        created_at,
+                        created_at,
+                    ),
+                )
             database.execute(
                 """
                 UPDATE chat_threads
@@ -1370,6 +1630,7 @@ def accept_run(
         run_id=run_id,
         public_run_id=run_input.run_id,
         execution_mode=execution_mode,
+        execution_plane=execution_plane,
         replayed=False,
     )
 

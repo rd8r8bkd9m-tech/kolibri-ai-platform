@@ -1,0 +1,50 @@
+{
+  "schema_id": "kolibri.evidence",
+  "schema_version": "1.0",
+  "evidence_id": "evidence_01JZPRICE0001",
+  "evidence_version": 1,
+  "tenant_id": "ten_01JZTENANT0001",
+  "goal_id": "goal_01JZGOAL00001",
+  "case_id": "case_01JZCASE00001",
+  "task_id": "task_01JZESTIMATE01",
+  "claim": {
+    "claim_id": "claim_01JZTOTAL0001",
+    "statement": "The workbook total equals the canonical estimate total.",
+    "target": {
+      "ref_id": "artifact_01JZESTIMATE01",
+      "ref_version": 3,
+      "locator": "worksheet:Summary!F42"
+    }
+  },
+  "source": {
+    "source_type": "calculation",
+    "locator": "estimate://estimate_01JZESTIMATE1/version/12/totals/grand_total",
+    "publisher_or_author": "Kolibri deterministic estimate engine",
+    "retrieved_at": "2026-07-24T02:01:00+03:00",
+    "effective_from": "2026-07-24T00:00:00+03:00",
+    "effective_to": null,
+    "jurisdiction": "RU",
+    "region": "RU-TAT",
+    "content_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "method": {
+    "method_type": "calculation",
+    "method_ref": "tool_01JZCALCULATOR1",
+    "method_version": "5.2.0"
+  },
+  "confidence": 1,
+  "applicability": "applicable",
+  "verifier": {
+    "status": "passed",
+    "verified_by": "tool_01JZXLSXCHECK1",
+    "verified_at": "2026-07-24T02:05:00+03:00",
+    "check_refs": [
+      "check_01JZARITH0001"
+    ]
+  },
+  "status": "active",
+  "supersedes": null,
+  "revocation": null,
+  "created_by": "agent_01JZESTIMATOR1",
+  "created_at": "2026-07-24T02:01:01+03:00"
+}

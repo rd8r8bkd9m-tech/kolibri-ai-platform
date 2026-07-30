@@ -1,0 +1,14 @@
+{
+  "schema_id": "kolibri.artifact.state.transition.command",
+  "schema_version": "1.0",
+  "artifact_id": "artifact_01JZESTIMATE01",
+  "artifact_version": 3,
+  "content_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "expected_state_version": 2,
+  "next_state_version": 3,
+  "from_status": "in_review",
+  "to_status": "approved_internal",
+  "reason": "Independent quality review completed",
+  "invalidated_by": [],
+  "requested_at": "2026-07-24T02:20:00+03:00"
+}

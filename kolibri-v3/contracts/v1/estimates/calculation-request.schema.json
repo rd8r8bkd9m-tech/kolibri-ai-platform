@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kolibriai.ru/contracts/v1/estimates/calculation-request.schema.json",
+  "title": "Kolibri estimate calculation request v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "calculationId",
+    "currency",
+    "rulesVersion",
+    "releaseMode",
+    "lines",
+    "terms"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "calculationId": {
+      "$ref": "#/$defs/identifier"
+    },
+    "currency": {
+      "type": "string",
+      "pattern": "^[A-Z]{3}$"
+    },
+    "rulesVersion": {
+      "$ref": "#/$defs/identifier"
+    },
+    "releaseMode": {
+      "type": "boolean"
+    },
+    "lines": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10000,
+      "items": {
+        "$ref": "#/$defs/line"
+      }
+    },
+    "terms": {
+      "$ref": "#/$defs/terms"
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/-]*$"
+    },
+    "decimal": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+    },
+    "line": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "category",
+        "title",
+        "unit",
+        "quantity",
+        "unitPrice",
+        "priceStatus",
+        "sourceId"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "category": {
+          "enum": [
+            "work",
+            "material",
+            "equipment",
+            "service",
+            "delivery",
+            "other"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "unit": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "quantity": {
+          "$ref": "#/$defs/decimal"
+        },
+        "unitPrice": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/decimal"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "priceStatus": {
+          "enum": [
+            "missing",
+            "preliminary",
+            "source_backed",
+            "verified"
+          ]
+        },
+        "sourceId": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/identifier"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "terms": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "overheadPercent",
+        "profitPercent",
+        "discountPercent",
+        "taxPercent"
+      ],
+      "properties": {
+        "overheadPercent": {
+          "$ref": "#/$defs/decimal"
+        },
+        "profitPercent": {
+          "$ref": "#/$defs/decimal"
+        },
+        "discountPercent": {
+          "$ref": "#/$defs/decimal"
+        },
+        "taxPercent": {
+          "$ref": "#/$defs/decimal"
+        }
+      }
+    }
+  }
+}
+

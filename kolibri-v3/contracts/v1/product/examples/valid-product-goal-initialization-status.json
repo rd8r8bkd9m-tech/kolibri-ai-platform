@@ -1,0 +1,11 @@
+{
+  "schema_id": "kolibri.product.goal.initialization_status",
+  "schema_version": "1.0",
+  "run_id": "run_01JZPRODUCTGOAL01",
+  "goal_id": "goal_01JZPRODUCTGOAL01",
+  "case_id": "case_goal_01JZPRODUCTGOAL01",
+  "status": "initialized",
+  "goal_version": 1,
+  "case_version": 1,
+  "error": null
+}

@@ -6,6 +6,9 @@ from pathlib import Path
 from app.database import initialize_database, migration_paths
 
 
+LATEST_SCHEMA_VERSION = int(migration_paths()[-1].name.split("_", 1)[0])
+
+
 def _create_deployed_v26_database(database_path: Path) -> None:
     database = sqlite3.connect(database_path, isolation_level=None)
     try:
@@ -162,7 +165,10 @@ def test_v27_repairs_the_deployed_v26_shape_without_data_loss(
 
     database = sqlite3.connect(database_path)
     try:
-        assert database.execute("PRAGMA user_version").fetchone()[0] == 29
+        assert (
+            database.execute("PRAGMA user_version").fetchone()[0]
+            == LATEST_SCHEMA_VERSION
+        )
         assert "access_policy_version" in {
             str(row[1])
             for row in database.execute(
@@ -194,7 +200,10 @@ def test_v27_is_compatible_with_a_fresh_v26_schema(tmp_path: Path) -> None:
 
     database = sqlite3.connect(database_path)
     try:
-        assert database.execute("PRAGMA user_version").fetchone()[0] == 29
+        assert (
+            database.execute("PRAGMA user_version").fetchone()[0]
+            == LATEST_SCHEMA_VERSION
+        )
         assert "access_policy_version" in {
             str(row[1])
             for row in database.execute(

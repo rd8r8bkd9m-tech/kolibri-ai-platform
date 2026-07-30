@@ -1,0 +1,28 @@
+{
+  "schema_id": "kolibri.document_template_registry",
+  "schema_version": "1.0",
+  "registry_id": "document-template-registry",
+  "generated_at": "2026-07-24T10:00:00+03:00",
+  "templates": [
+    {
+      "template_id": "contract.v1",
+      "template_version": "1.0",
+      "document_type": "contract",
+      "locale": "ru-RU",
+      "jurisdictions": ["RU"],
+      "output_formats": ["pdf", "docx"],
+      "layout_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "render_enabled": true
+    },
+    {
+      "template_id": "commercial_offer.v1",
+      "template_version": "1.1",
+      "document_type": "commercial_offer",
+      "locale": "ru-RU",
+      "jurisdictions": ["RU", "KZ"],
+      "output_formats": ["pdf", "docx", "xlsx"],
+      "layout_fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "render_enabled": true
+    }
+  ]
+}

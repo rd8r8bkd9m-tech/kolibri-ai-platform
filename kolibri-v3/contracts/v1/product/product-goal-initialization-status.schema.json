@@ -1,0 +1,125 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/product/product-goal-initialization-status.schema.json",
+  "title": "Kolibri Product goal initialization status v1",
+  "description": "Terminal Logical Home result for a Product-authenticated Goal initialization request.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "run_id",
+    "goal_id",
+    "case_id",
+    "status",
+    "goal_version",
+    "case_version",
+    "error"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "kolibri.product.goal.initialization_status"
+    },
+    "schema_version": {
+      "const": "1.0"
+    },
+    "run_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "goal_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "case_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "initialized",
+        "failed"
+      ]
+    },
+    "goal_version": {
+      "oneOf": [
+        {
+          "type": "integer",
+          "minimum": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "case_version": {
+      "oneOf": [
+        {
+          "type": "integer",
+          "minimum": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "error": {
+      "oneOf": [
+        {
+          "$ref": "https://schemas.kolibriai.ru/v1/common/error-envelope.schema.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "initialized"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "goal_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "case_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "error": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "goal_version": {
+            "type": "null"
+          },
+          "case_version": {
+            "type": "null"
+          },
+          "error": {
+            "$ref": "https://schemas.kolibriai.ru/v1/common/error-envelope.schema.json"
+          }
+        }
+      }
+    }
+  ],
+  "definitions": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "schema_id": "kolibri.product.run.execution_status.v1_1",
+  "schema_version": "1.1",
+  "run_id": "run_01JZPRODUCT000001",
+  "status": "succeeded",
+  "runtime_profile": "agent-runtime-profile-01",
+  "execution_id": "execution_01JZPRODUCT01",
+  "verification_status": "verified",
+  "result_text": "Проверенный результат универсального AgentRuntime.",
+  "result_hash": "sha256:848f1b11ff8fb215948369540b123532ee795fb52a014b78e575c9c2c3b9312a",
+  "evidence": {
+    "evidence_id": "evidence_01JZPRODUCT001",
+    "evidence_version": 1,
+    "content_hash": "sha256:848f1b11ff8fb215948369540b123532ee795fb52a014b78e575c9c2c3b9312a"
+  },
+  "error": null
+}

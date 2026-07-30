@@ -1,0 +1,64 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/artifacts/artifact-state-transition.schema.json",
+  "title": "Kolibri Artifact state transition command payload v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "artifact_id",
+    "artifact_version",
+    "content_hash",
+    "expected_state_version",
+    "next_state_version",
+    "from_status",
+    "to_status",
+    "reason",
+    "invalidated_by",
+    "requested_at"
+  ],
+  "properties": {
+    "schema_id": { "const": "kolibri.artifact.state.transition.command" },
+    "schema_version": { "const": "1.0" },
+    "artifact_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    },
+    "artifact_version": { "type": "integer", "minimum": 1 },
+    "content_hash": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "expected_state_version": { "type": "integer", "minimum": 1 },
+    "next_state_version": { "type": "integer", "minimum": 2 },
+    "from_status": {
+      "$ref": "https://schemas.kolibriai.ru/v1/artifacts/artifact-state.schema.json#/definitions/status"
+    },
+    "to_status": {
+      "$ref": "https://schemas.kolibriai.ru/v1/artifacts/artifact-state.schema.json#/definitions/status"
+    },
+    "reason": { "type": "string", "minLength": 1, "maxLength": 1000 },
+    "invalidated_by": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ref_id", "ref_version", "content_hash"],
+        "properties": {
+          "ref_id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+          },
+          "ref_version": { "type": "integer", "minimum": 1 },
+          "content_hash": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          }
+        }
+      }
+    },
+    "requested_at": { "type": "string", "format": "date-time" }
+  }
+}

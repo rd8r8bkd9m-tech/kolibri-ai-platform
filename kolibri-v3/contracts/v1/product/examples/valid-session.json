@@ -1,0 +1,14 @@
+{
+  "schema_id": "kolibri.product.session",
+  "schema_version": "1.0",
+  "tenant_id": "tenant_01JZPRODUCT01",
+  "user_id": "user_01JZPRODUCT0001",
+  "session_kind": "anonymous",
+  "expires_at": "2026-08-25T12:00:00.000+03:00",
+  "product_api_version": "v1",
+  "capabilities": [
+    "product.chat.text_run",
+    "product.agent.mimo-code",
+    "product.agent.codex-cli"
+  ]
+}

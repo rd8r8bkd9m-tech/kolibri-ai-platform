@@ -25,6 +25,7 @@ test("provider settings submit credentials only through bounded same-origin rout
     mimoCredentialRoute,
     codexLoginRoute,
     backend,
+    security,
   ] =
     await Promise.all([
       readSource("components/kolibri-shell/profile-settings-surface.tsx"),
@@ -40,6 +41,7 @@ test("provider settings submit credentials only through bounded same-origin rout
         "app/api/superadmin/provider-connections/codex-cli/login-status/route.ts",
       ),
       readSource("backend/app/provider_connections.py"),
+      readSource("backend/app/security.py"),
     ]);
 
   const aiModelsSection = profile.slice(
@@ -48,7 +50,7 @@ test("provider settings submit credentials only through bounded same-origin rout
   );
   assert.match(
     aiModelsSection,
-    /const\s+isSuperadmin\s*=\s*user\.role\s*===\s*["']owner["']/,
+    /const\s+isSuperadmin\s*=\s*user\.isPlatformOwner/,
   );
   assert.match(aiModelsSection, /\bconnectMimo\b/);
   assert.match(aiModelsSection, /\bconnectCodexLogin\b/);
@@ -94,7 +96,11 @@ test("provider settings submit credentials only through bounded same-origin rout
   assert.match(codexLoginRoute, /maxRequestBytes:\s*0/);
 
   assert.match(backend, /\bDepends\(require_owner\)/);
-  assert.match(backend, /\bDepends\(require_csrf\)/);
+  assert.match(backend, /\bDepends\(require_mutation_auth\)/);
+  assert.match(
+    security,
+    /def require_mutation_auth[\s\S]*?require_bearer_session[\s\S]*?require_same_origin[\s\S]*?require_csrf/,
+  );
   assert.match(backend, /provider_enrollment_reauthentication_required/);
   assert.match(backend, /Provider credentials and request payloads are not accepted/);
   assert.match(backend, /@router\.post\(["']\/mimo-code\/credential["']\)/);

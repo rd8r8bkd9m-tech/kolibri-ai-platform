@@ -1,0 +1,18 @@
+{
+  "schema_id": "kolibri.product.attachment",
+  "schema_version": "1.0",
+  "tenant_id": "tenant_01JZPRODUCT01",
+  "user_id": "user_01JZPRODUCT001",
+  "project_id": "project_01JZPRODUCT001",
+  "attachment_id": "attachment_01JZPRODUCT01",
+  "artifact_id": "artifact_01JZPRODUCT001",
+  "artifact_version": 1,
+  "content_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "filename": "technical-specification.pdf",
+  "mime_type": "application/pdf",
+  "size_bytes": 1024,
+  "content_path": "/api/product/v1/attachments/attachment_01JZPRODUCT01/content",
+  "status": "available",
+  "created_by": "actor_01JZPRODUCT001",
+  "created_at": "2026-07-26T12:00:00.000+03:00"
+}

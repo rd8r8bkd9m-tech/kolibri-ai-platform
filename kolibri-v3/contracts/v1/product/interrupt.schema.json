@@ -1,0 +1,75 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/product/interrupt.schema.json",
+  "title": "Kolibri Product Interrupt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "tenant_id",
+    "project_id",
+    "thread_id",
+    "run_id",
+    "interrupt_id",
+    "interrupt_version",
+    "state",
+    "kind",
+    "prompt",
+    "response_schema_id",
+    "response_schema_version",
+    "required_authority",
+    "answer_message_id",
+    "created_at",
+    "updated_at",
+    "expires_at"
+  ],
+  "properties": {
+    "schema_id": { "const": "kolibri.product.interrupt" },
+    "schema_version": { "const": "1.0" },
+    "tenant_id": { "$ref": "#/definitions/opaque_id" },
+    "project_id": { "$ref": "#/definitions/opaque_id" },
+    "thread_id": { "$ref": "#/definitions/opaque_id" },
+    "run_id": { "$ref": "#/definitions/opaque_id" },
+    "interrupt_id": { "$ref": "#/definitions/opaque_id" },
+    "interrupt_version": { "type": "integer", "minimum": 1 },
+    "state": {
+      "type": "string",
+      "enum": ["pending", "answered", "expired", "cancelled"]
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["clarification", "approval", "missing_source", "conflict"]
+    },
+    "prompt": { "type": "string", "minLength": 1, "maxLength": 4000 },
+    "response_schema_id": {
+      "type": "string",
+      "pattern": "^kolibri\\.product\\.interrupt\\.response\\.[a-z][a-z0-9_.:-]{2,127}$"
+    },
+    "response_schema_version": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]*\\.[0-9]+$"
+    },
+    "required_authority": {
+      "type": "string",
+      "enum": ["user", "project_manager", "estimator", "finance", "owner"]
+    },
+    "answer_message_id": {
+      "oneOf": [
+        { "$ref": "#/definitions/opaque_id" },
+        { "type": "null" }
+      ]
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" }
+  },
+  "definitions": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    }
+  }
+}

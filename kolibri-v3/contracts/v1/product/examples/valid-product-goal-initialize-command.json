@@ -1,0 +1,12 @@
+{
+  "schema_id": "kolibri.product.goal.initialize.command",
+  "schema_version": "1.0",
+  "tenant_id": "tenant_01JZPRODUCT01",
+  "project_id": "project_01JZPRODUCT001",
+  "thread_id": "thread_01JZPRODUCT001",
+  "run_id": "run_01JZPRODUCTGOAL01",
+  "input_message_id": "message_01JZPRODUCT01",
+  "goal_id": "goal_01JZPRODUCTGOAL01",
+  "prompt": "Инициализируй цель и подготовь проверяемый ответ.",
+  "prompt_hash": "sha256:a11386d3329e9c819fcaa7ff3fd1b509ff45d9129257b334fc6d501b39949a83"
+}

@@ -1,0 +1,30 @@
+{
+  "schema_id": "kolibri.error",
+  "schema_version": "1.0",
+  "error_id": "err_01JZCOMMON0000001",
+  "in_response_to": "cmd_01JZCOMMON0000001",
+  "occurred_at": "2026-07-24T00:30:00.100+03:00",
+  "http_status": 409,
+  "code": "idempotency_conflict",
+  "category": "conflict",
+  "retryable": false,
+  "retry_after_ms": null,
+  "safe_message": "Эта операция уже была отправлена с другими данными.",
+  "trace": {
+    "trace_id": "0123456789abcdef0123456789abcdef",
+    "span_id": "fedcba9876543210",
+    "parent_span_id": "0123456789abcdef",
+    "correlation_id": "corr_01JZCOMMON0001",
+    "causation_id": "cmd_01JZCOMMON0000001"
+  },
+  "violations": [
+    {
+      "path": "/idempotency/canonical_request_hash",
+      "code": "hash_mismatch",
+      "message": "Ключ уже связан с другим каноническим запросом."
+    }
+  ],
+  "details": {
+    "original_message_id": "cmd_01JZCOMMON0000000"
+  }
+}

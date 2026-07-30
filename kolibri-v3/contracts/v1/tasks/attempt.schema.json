@@ -1,0 +1,98 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/tasks/attempt.schema.json",
+  "title": "Kolibri TaskAttempt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "attempt_id",
+    "tenant_id",
+    "goal_id",
+    "case_id",
+    "task_id",
+    "attempt_number",
+    "assignment_id",
+    "status",
+    "lease",
+    "effect_id",
+    "result_artifact_refs",
+    "result_hash",
+    "error",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "schema_id": { "const": "kolibri.task_attempt" },
+    "schema_version": { "const": "1.0" },
+    "attempt_id": { "$ref": "#/definitions/opaque_id" },
+    "tenant_id": { "$ref": "#/definitions/opaque_id" },
+    "goal_id": { "$ref": "#/definitions/opaque_id" },
+    "case_id": { "$ref": "#/definitions/opaque_id" },
+    "task_id": { "$ref": "#/definitions/opaque_id" },
+    "attempt_number": { "type": "integer", "minimum": 1 },
+    "assignment_id": { "$ref": "#/definitions/opaque_id" },
+    "status": {
+      "type": "string",
+      "enum": [
+        "created",
+        "leased",
+        "running",
+        "submitted",
+        "verifying",
+        "completed",
+        "failed_retryable",
+        "failed_terminal",
+        "expired",
+        "cancelled"
+      ]
+    },
+    "lease": {
+      "$ref": "https://schemas.kolibriai.ru/v1/tasks/lease.schema.json"
+    },
+    "effect_id": { "$ref": "#/definitions/opaque_id" },
+    "result_artifact_refs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/definitions/opaque_id" }
+    },
+    "result_hash": {
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        { "type": "null" }
+      ]
+    },
+    "error": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["error_type", "message", "retryable"],
+          "properties": {
+            "error_type": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_.:-]{2,127}$"
+            },
+            "message": { "type": "string", "minLength": 1, "maxLength": 2000 },
+            "retryable": { "type": "boolean" }
+          }
+        },
+        { "type": "null" }
+      ]
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" }
+  },
+  "definitions": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    }
+  }
+}

@@ -53,6 +53,8 @@ import {
   ChevronRightIcon,
   CopyIcon,
   DownloadIcon,
+  Globe2Icon,
+  ImageIcon,
   LoaderCircleIcon,
   LayoutDashboardIcon,
   MicIcon,
@@ -98,6 +100,7 @@ export type ThreadComponents = {
 };
 
 export type ThreadProps = {
+  compact?: boolean | undefined;
   components?: ThreadComponents | undefined;
   onOpenAccount?: (() => void) | undefined;
   onOpenDesktop?: (() => void) | undefined;
@@ -108,6 +111,7 @@ const EMPTY_COMPONENTS: ThreadComponents = {};
 
 const ThreadComponentsContext =
   createContext<ThreadComponents>(EMPTY_COMPONENTS);
+const ThreadCompactContext = createContext(false);
 const ThreadNavigationContext = createContext<{
   onOpenAccount?: (() => void) | undefined;
   onOpenDesktop?: (() => void) | undefined;
@@ -169,6 +173,7 @@ const isNewChatView = (s: AssistantState) =>
   (!s.thread.isLoading || s.threads.isLoading);
 
 export const Thread: FC<ThreadProps> = ({
+  compact = false,
   components = EMPTY_COMPONENTS,
   onOpenAccount,
   onOpenDesktop,
@@ -178,20 +183,24 @@ export const Thread: FC<ThreadProps> = ({
     <ThreadNavigationContext.Provider
       value={{ onOpenAccount, onOpenDesktop, workspaceOpen }}
     >
-      <ThreadComponentsContext.Provider value={components}>
-        <ThreadRoot />
-      </ThreadComponentsContext.Provider>
+      <ThreadCompactContext.Provider value={compact}>
+        <ThreadComponentsContext.Provider value={components}>
+          <ThreadRoot />
+        </ThreadComponentsContext.Provider>
+      </ThreadCompactContext.Provider>
     </ThreadNavigationContext.Provider>
   );
 };
 
 const ThreadRoot: FC = () => {
   const { Welcome = ThreadWelcome } = useContext(ThreadComponentsContext);
+  const compact = useContext(ThreadCompactContext);
   const isRunning = useAuiState((s) => s.thread.isRunning);
 
   return (
     <ThreadPrimitive.Root
       aria-busy={isRunning}
+      data-mobile-layout={compact ? "true" : "false"}
       className="aui-root aui-thread-root bg-background @container flex h-full min-h-0 min-w-0 flex-col overflow-hidden"
       style={{
         ["--thread-max-width" as string]: "46rem",
@@ -319,10 +328,42 @@ const ThreadSuggestions: FC = () => {
   }
 
   return (
-    <div
-      className="aui-thread-welcome-suggestions grid w-full min-w-0 grid-cols-2 gap-2"
-      aria-label="Быстрый старт"
-    >
+    <>
+      <div
+        className="aui-mobile-starter-actions hidden w-full min-w-0 flex-col"
+        aria-label="Быстрые действия"
+      >
+        <ThreadPrimitive.Suggestion
+          prompt="Создай изображение по моему описанию. Сначала уточни стиль, формат и назначение."
+          send
+          clearComposer
+          className="aui-mobile-starter-action"
+          aria-label="Создать изображение"
+        >
+          <ImageIcon aria-hidden="true" />
+          <span>Создать изображение</span>
+        </ThreadPrimitive.Suggestion>
+        <ThreadPrimitive.Suggestion
+          prompt="Помоги написать или отредактировать текст. Сначала уточни тип текста, аудиторию и желаемый результат."
+          className="aui-mobile-starter-action"
+          aria-label="Написать или отредактировать"
+        >
+          <PencilIcon aria-hidden="true" />
+          <span>Напиши или отредактируй</span>
+        </ThreadPrimitive.Suggestion>
+        <ThreadPrimitive.Suggestion
+          prompt="Найди актуальную информацию в интернете по моему запросу и приложи источники."
+          className="aui-mobile-starter-action"
+          aria-label="Искать в интернете"
+        >
+          <Globe2Icon aria-hidden="true" />
+          <span>Искать в интернете</span>
+        </ThreadPrimitive.Suggestion>
+      </div>
+      <div
+        className="aui-thread-welcome-suggestions grid w-full min-w-0 grid-cols-2 gap-2"
+        aria-label="Быстрый старт"
+      >
       <ThreadPrimitive.Suggestion
         prompt="Подготовь предварительную смету по моему описанию объекта. Сначала выдели исходные данные и допущения."
         send
@@ -382,11 +423,13 @@ const ThreadSuggestions: FC = () => {
           Источники и доказательства
         </span>
       </ThreadPrimitive.Suggestion>
-    </div>
+      </div>
+    </>
   );
 };
 
 const Composer: FC = () => {
+  const compact = useContext(ThreadCompactContext);
   const identity = useIdentity();
   const authenticated = identity.status === "authenticated";
   const composerDisabled =
@@ -413,13 +456,15 @@ const Composer: FC = () => {
           <ComposerPrimitive.Input
             placeholder={
               authenticated
-                ? "Спросите что угодно"
+                ? compact
+                  ? "Спросить Chat..."
+                  : "Спросите что угодно"
                 : "Войдите в личный кабинет, чтобы написать Kolibri"
             }
             disabled={composerDisabled}
             className="aui-composer-input caret-primary placeholder:text-muted-foreground/80 max-h-36 min-h-12 w-full min-w-0 resize-none overflow-x-hidden bg-transparent px-1.5 py-1 text-[15px] outline-none"
             rows={1}
-            autoFocus
+            autoFocus={!compact}
             enterKeyHint="send"
             aria-label="Сообщение для Kolibri"
           />
@@ -431,6 +476,7 @@ const Composer: FC = () => {
 };
 
 const ComposerAction: FC = () => {
+  const compact = useContext(ThreadCompactContext);
   const identity = useIdentity();
   const { onOpenAccount, onOpenDesktop, workspaceOpen } = useContext(
     ThreadNavigationContext,
@@ -439,6 +485,10 @@ const ComposerAction: FC = () => {
   const attachmentsSupported = useAuiState(
     (s) => s.thread.capabilities.attachments,
   );
+  const dictationSupported = useAuiState(
+    (s) => s.thread.capabilities.dictation,
+  );
+  const composerEmpty = useAuiState((s) => s.composer.isEmpty);
   const attachmentsDisabled = !authenticated || !attachmentsSupported;
   const attachmentTooltip = !authenticated
     ? "Войдите, чтобы прикрепить файл"
@@ -448,7 +498,7 @@ const ComposerAction: FC = () => {
 
   return (
     <div className="aui-composer-action-wrapper relative flex items-center justify-between">
-      <div className="flex min-w-0 items-center gap-1">
+      <div className="aui-composer-leading-actions flex min-w-0 items-center gap-1">
         <ComposerPrimitive.AddAttachment asChild>
           <TooltipIconButton
             tooltip={attachmentTooltip}
@@ -466,7 +516,7 @@ const ComposerAction: FC = () => {
             />
           </TooltipIconButton>
         </ComposerPrimitive.AddAttachment>
-        {onOpenDesktop ? (
+        {!compact && onOpenDesktop ? (
           <TooltipIconButton
             tooltip={
               workspaceOpen
@@ -493,11 +543,16 @@ const ComposerAction: FC = () => {
             <LayoutDashboardIcon className="size-[17px] stroke-[1.7px]" />
           </TooltipIconButton>
         ) : null}
-        {authenticated ? (
+        {authenticated && !compact ? (
           <AgentProfileSelector control="developer" />
         ) : null}
+        {authenticated && compact ? (
+          <div className="aui-composer-mobile-model min-w-0">
+            <AgentProfileSelector />
+          </div>
+        ) : null}
       </div>
-      <div className="flex items-center gap-1.5">
+      <div className="aui-composer-trailing-actions flex items-center gap-1.5">
         {!authenticated && onOpenAccount ? (
           <Button
             type="button"
@@ -510,13 +565,17 @@ const ComposerAction: FC = () => {
         ) : null}
         {authenticated ? (
           <>
-            <AuiIf condition={(s) => s.thread.isRunning}>
-              <LoaderCircleIcon
-                className="text-muted-foreground size-4 animate-spin"
-                aria-hidden="true"
-              />
-            </AuiIf>
-            <AgentProfileSelector />
+            {!compact ? (
+              <>
+                <AuiIf condition={(s) => s.thread.isRunning}>
+                  <LoaderCircleIcon
+                    className="text-muted-foreground size-4 animate-spin"
+                    aria-hidden="true"
+                  />
+                </AuiIf>
+                <AgentProfileSelector />
+              </>
+            ) : null}
             <AuiIf condition={(s) => s.thread.capabilities.dictation}>
               <AuiIf condition={(s) => s.composer.dictation == null}>
                 <ComposerPrimitive.Dictate asChild>
@@ -549,6 +608,20 @@ const ComposerAction: FC = () => {
                 </ComposerPrimitive.StopDictation>
               </AuiIf>
             </AuiIf>
+            {compact && !dictationSupported ? (
+              <TooltipIconButton
+                tooltip="Голосовой ввод недоступен"
+                side="bottom"
+                type="button"
+                variant="ghost"
+                size="icon"
+                disabled
+                className="aui-composer-dictate aui-composer-dictate-fallback size-7 rounded-full"
+                aria-label="Голосовой ввод недоступен"
+              >
+                <MicIcon className="aui-composer-dictate-icon size-4" />
+              </TooltipIconButton>
+            ) : null}
             <AuiIf condition={(s) => !s.thread.isRunning}>
               <ComposerPrimitive.Send asChild>
                 <TooltipIconButton
@@ -558,13 +631,24 @@ const ComposerAction: FC = () => {
                   variant="default"
                   size="icon"
                   disabled={
+                    composerEmpty ||
                     identity.agentProfileSaving ||
                     identity.modelSettingsSaving
                   }
-                  className="aui-composer-send size-7 rounded-full"
-                  aria-label="Отправить сообщение"
+                  className={cn(
+                    "aui-composer-send size-7 rounded-full",
+                    compact && composerEmpty && "aui-composer-send-empty",
+                  )}
+                  aria-label={
+                    composerEmpty
+                      ? "Введите сообщение, чтобы отправить"
+                      : "Отправить сообщение"
+                  }
                 >
-                  <ArrowUpIcon className="aui-composer-send-icon size-4.5" />
+                  <ArrowUpIcon
+                    className="aui-composer-send-icon size-4.5"
+                    aria-hidden="true"
+                  />
                 </TooltipIconButton>
               </ComposerPrimitive.Send>
             </AuiIf>

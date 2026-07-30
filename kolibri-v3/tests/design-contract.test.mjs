@@ -33,7 +33,7 @@ async function collectSourceFiles(relativeDirectory) {
   return sources;
 }
 
-test("the welcome surface uses the Kolibri brand and four starter prompts", async () => {
+test("the welcome surface uses four desktop and three mobile assistant-ui prompts", async () => {
   const thread = await readSource("components/assistant-ui/thread.tsx");
 
   assert.match(thread, /\bKolibri\b/i);
@@ -42,8 +42,8 @@ test("the welcome surface uses the Kolibri brand and four starter prompts", asyn
     thread.match(/<ThreadPrimitive\.Suggestion\b/g) ?? [];
   const prompts = thread.match(/\bprompt\s*=/g) ?? [];
 
-  assert.equal(suggestions.length, 4);
-  assert.equal(prompts.length, 4);
+  assert.equal(suggestions.length, 7);
+  assert.equal(prompts.length, 7);
 
   for (const title of [
     "Рассчитать смету",
@@ -53,6 +53,188 @@ test("the welcome surface uses the Kolibri brand and four starter prompts", asyn
   ]) {
     assert.ok(thread.includes(title), `missing starter prompt: ${title}`);
   }
+
+  for (const title of [
+    "Создать изображение",
+    "Напиши или отредактируй",
+    "Искать в интернете",
+  ]) {
+    assert.ok(thread.includes(title), `missing mobile action: ${title}`);
+  }
+});
+
+test("the compact shell matches the mobile chat contract and persists theme choice", async () => {
+  const [shell, header, sidebar, thread, threadList, theme, layout, css] = await Promise.all([
+    readSource("components/kolibri-shell/workspace-shell.tsx"),
+    readSource("components/kolibri-shell/mobile-workspace-header.tsx"),
+    readSource("components/kolibri-shell/workspace-sidebar.tsx"),
+    readSource("components/assistant-ui/thread.tsx"),
+    readSource("components/assistant-ui/thread-list.tsx"),
+    readSource("components/theme/kolibri-theme-provider.tsx"),
+    readSource("app/layout.tsx"),
+    readSource("app/globals.css"),
+  ]);
+
+  assert.match(shell, /isDesktop\s*\?\s*\([\s\S]*<WorkspaceHeader\b/);
+  assert.match(shell, /<MobileWorkspaceHeader\b/);
+  assert.match(shell, /<Thread[\s\S]{0,100}\bcompact=\{!isDesktop\}/);
+  assert.match(header, /<ThreadListPrimitive\.New\b/);
+  assert.match(header, /Открыть меню/);
+  assert.match(header, /aria-expanded=\{navigationOpen\}/);
+  assert.match(shell, /navigationOpen=\{mobileNavigationOpen\}/);
+  assert.match(header, /data-slot=["']mobile-hamburger-icon["']/);
+  assert.match(header, /data-slot=["']mobile-editor-back["']/);
+  assert.match(header, /aria-label=["']На основной экран["']/);
+  assert.match(sidebar, /previewDisabled=\{isOverlay\}/);
+  assert.match(
+    sidebar,
+    /if\s*\(previewDisabled\)\s*return\s+destinationButton/,
+  );
+  assert.match(shell, /data-slot=["']mobile-account-sheet["']/);
+  assert.match(shell, /top-\[env\(safe-area-inset-top\)\]/);
+  assert.match(shell, /rounded-r-\[2\.5rem\]/);
+  assert.match(shell, /slide-in-from-left-full/);
+  assert.match(shell, /canvasOpen\s*&&\s*canvasFile/);
+  assert.match(
+    shell,
+    /onBack=\{[\s\S]{0,100}canvasOpen\s*\?\s*\(\)\s*=>\s*openPrimaryDestination\(["']chat["']\)/,
+  );
+  assert.match(shell, /openPrimaryDestination\(["']chat["']\)/);
+  assert.match(
+    shell,
+    /isDesktop\s*&&\s*canvasMaximized\s*&&\s*placement\s*===\s*["']primary["']/,
+  );
+  assert.match(
+    shell,
+    /if\s*\(!isDesktop\)\s*\{[\s\S]{0,120}setCanvasMaximized\(false\)/,
+  );
+  assert.match(
+    shell,
+    /maximized:\s*isDesktop\s*&&[\s\S]{0,180}\bstoredPrimaryTab\b/,
+  );
+  assert.doesNotMatch(
+    shell,
+    /const toggleNavigation[\s\S]{0,420}else\s*\{[\s\S]{0,100}setCanvasVisible/,
+  );
+  assert.doesNotMatch(
+    shell,
+    /const openAccountSettings[\s\S]{0,520}setCanvasVisible/,
+  );
+  assert.match(
+    shell,
+    /const mobilePrimaryCanvasMounted\s*=\s*activeCanvasTab\s*!==\s*null\s*&&\s*canvasPlacement\s*===\s*["']primary["']/,
+  );
+  assert.match(
+    shell,
+    /data-slot=["']mobile-primary-workspace["'][\s\S]{0,220}inert=\{mobilePrimaryWorkspaceHidden/,
+  );
+  assert.equal(
+    (header.match(/h-\[2\.5px\]\s+w-full\s+rounded-full\s+bg-current/g) ?? [])
+      .length,
+    2,
+  );
+  assert.match(header, /aria-label=["']Chat\. Выбрать раздел["']/);
+  assert.match(header, /Рабочий стол/);
+  assert.match(header, /onOpenDestination/);
+  assert.doesNotMatch(header, /AgentProfileSelector/);
+  assert.match(thread, /aui-composer-mobile-model/);
+  assert.match(thread, /data-mobile-layout=\{compact\s*\?/);
+  assert.match(thread, /aui-mobile-starter-actions/);
+  assert.match(thread, /Спросить Chat\.\.\./);
+  assert.match(threadList, /setTimeout\(\(\)\s*=>\s*\{/);
+  assert.match(threadList, /setMenuOpen\(true\)/);
+  assert.match(threadList, /onContextMenu=/);
+  assert.match(threadList, /COMPACT_THREAD_MENU_QUERY\s*=\s*["']\(max-width:\s*959px\)["']/);
+  assert.match(threadList, /data-long-pressing=\{longPressing\s*\?/);
+  assert.match(threadList, /data-thread-long-press-consumed/);
+  assert.match(
+    threadList,
+    /onClickCapture=\{preventConsumedLongPressNavigation\}/,
+  );
+  assert.match(threadList, /canStartThreadLongPress\(\{[\s\S]{0,100}\bisDraft\b/);
+  assert.match(
+    threadList,
+    /if\s*\(isDraft\)\s*\{[\s\S]{0,80}event\.preventDefault\(\)[\s\S]{0,40}return/,
+  );
+  assert.match(threadList, /navigator\.vibrate\?\.\(10\)/);
+  assert.match(threadList, /side=\{compactThreadMenu\s*\?\s*["']bottom["']\s*:\s*["']right["']\}/);
+  assert.match(sidebar, /shouldCloseThreadDrawerForClick/);
+  assert.match(css, /\[data-slot=["']workspace-file-category-tabs["']\]/);
+  assert.doesNotMatch(css, /\.border-border\\\/80\.flex\.gap-1/);
+  assert.match(theme, /KOLIBRI_THEME_STORAGE_KEY\s*=\s*["']kolibri-theme["']/);
+  assert.match(theme, /prefers-color-scheme:\s*dark/);
+  assert.match(layout, /<KolibriThemeProvider\b/);
+  assert.match(layout, /\bthemeBootScript\b/);
+  assert.match(css, /@media\s*\(max-width:\s*959px\)/);
+  assert.match(css, /--background:\s*#000000/);
+  assert.match(css, /--background:\s*#ffffff/);
+  assert.match(css, /-webkit-touch-callout:\s*none/);
+  assert.match(css, /touch-action:\s*pan-y/);
+  assert.doesNotMatch(thread, /aui-composer-voice-submit-icon/);
+  assert.match(thread, /composerEmpty\s*\|\|/);
+  assert.match(thread, /Голосовой ввод недоступен/);
+});
+
+test("mobile runtime uses iOS and Android viewport primitives", async () => {
+  const [environment, layout, css] = await Promise.all([
+    readSource("components/kolibri-shell/mobile-environment.tsx"),
+    readSource("app/layout.tsx"),
+    readSource("app/globals.css"),
+  ]);
+
+  assert.match(layout, /viewportFit:\s*["']cover["']/);
+  assert.match(layout, /interactiveWidget:\s*["']resizes-content["']/);
+  assert.match(layout, /appleWebApp:/);
+  assert.match(layout, /<MobileEnvironment\s*\/>/);
+  assert.match(environment, /window\.visualViewport/);
+  assert.match(environment, /iPhone\|iPad\|iPod/);
+  assert.match(environment, /Android/);
+  assert.match(environment, /--kolibri-visual-viewport-height/);
+  assert.match(environment, /virtualKeyboard/);
+  assert.match(environment, /--kolibri-visual-viewport-offset-top/);
+  assert.match(css, /var\(--kolibri-visual-viewport-height,\s*100dvh\)/);
+  assert.match(css, /env\(safe-area-inset-bottom\)/);
+});
+
+test("the estimate editor uses mobile cards without changing desktop table behavior", async () => {
+  const editor = await readSource(
+    "components/assistant-ui/product-widgets.tsx",
+  );
+
+  assert.match(editor, /data-slot=["']estimate-mobile-list["']/);
+  assert.match(editor, /matchMedia\(["']\(max-width:\s*959px\)["']\)/);
+  assert.match(editor, /\bopenEstimateInWorkspace\(/);
+  assert.match(editor, /\bmin-\[960px\]:hidden\b/);
+  assert.match(
+    editor,
+    /\bhidden overflow-x-auto min-\[960px\]:block\b/,
+  );
+  assert.match(editor, /inputMode=["']decimal["']/);
+  assert.match(editor, /enterKeyHint=["']done["']/);
+  assert.match(editor, /env\(safe-area-inset-bottom\)/);
+  assert.match(editor, /<SupplierOfferForm\b/);
+});
+
+test("the visible weather scene does not lazy-load its LCP backdrop", async () => {
+  const widgets = await readSource(
+    "components/assistant-ui/product-widgets.tsx",
+  );
+
+  assert.match(
+    widgets,
+    /kolibri-weather-scene__backdrop[\s\S]{0,220}loading=["']eager["']/,
+  );
+});
+
+test("profile settings expose all persisted appearance modes", async () => {
+  const profile = await readSource(
+    "components/kolibri-shell/profile-settings-surface.tsx",
+  );
+
+  assert.match(profile, /label:\s*["']Системная["']/);
+  assert.match(profile, /label:\s*["']Светлая["']/);
+  assert.match(profile, /label:\s*["']Тёмная["']/);
+  assert.match(profile, /onClick=\{\(\)\s*=>\s*setPreference\(value\)\}/);
 });
 
 test("the application remains wired to the same-origin AG-UI runtime provider", async () => {
@@ -489,7 +671,7 @@ test("superadmin model connections keep provider secrets transient and bounded",
     profile.indexOf("function AiModelsSection"),
     profile.indexOf("function SecuritySection"),
   );
-  assert.match(aiModelsSection, /user\.role\s*===\s*["']owner["']/);
+  assert.match(aiModelsSection, /user\.isPlatformOwner/);
   assert.match(aiModelsSection, /type\s*=\s*["']password["']/i);
   assert.match(aiModelsSection, /autoComplete=["']off["']/);
   assert.match(aiModelsSection, /\bconnectMimo\b/);
@@ -547,18 +729,24 @@ test("superadmin model connections keep provider secrets transient and bounded",
 });
 
 test("provider enrollment is gated by the canonical revocable V3 session", async () => {
-  const [projection, backend, statusRoute, enrollmentRoute] = await Promise.all([
-    readSource("lib/provider-connections.ts"),
-    readSource("backend/app/provider_connections.py"),
-    readSource("app/api/superadmin/provider-connections/route.ts"),
-    readSource(
-      "app/api/superadmin/provider-connections/[providerId]/enrollments/route.ts",
-    ),
-  ]);
+  const [projection, backend, security, statusRoute, enrollmentRoute] =
+    await Promise.all([
+      readSource("lib/provider-connections.ts"),
+      readSource("backend/app/provider_connections.py"),
+      readSource("backend/app/security.py"),
+      readSource("app/api/superadmin/provider-connections/route.ts"),
+      readSource(
+        "app/api/superadmin/provider-connections/[providerId]/enrollments/route.ts",
+      ),
+    ]);
 
   assert.match(projection, /\bfunction\s+isProviderId\b/);
   assert.match(backend, /\bDepends\(require_owner\)/);
-  assert.match(backend, /\bDepends\(require_csrf\)/);
+  assert.match(backend, /\bDepends\(require_mutation_auth\)/);
+  assert.match(
+    security,
+    /def require_mutation_auth[\s\S]*?require_bearer_session[\s\S]*?require_same_origin[\s\S]*?require_csrf/,
+  );
   assert.match(backend, /provider_enrollment_reauthentication_required/);
   assert.match(backend, /owner_authorization_decision_id/);
   assert.match(enrollmentRoute, /\bproxyV3JsonRequest\b/);

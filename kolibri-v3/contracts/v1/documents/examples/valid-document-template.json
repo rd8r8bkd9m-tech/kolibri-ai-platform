@@ -1,0 +1,20 @@
+{
+  "schema_id": "kolibri.document_template",
+  "schema_version": "1.0",
+  "template_id": "contract.v1",
+  "template_version": "1.0",
+  "document_type": "contract",
+  "locale": "ru-RU",
+  "jurisdictions": ["RU"],
+  "output_formats": ["pdf", "docx"],
+  "data_contract": {
+    "schema_id": "kolibri.document_data",
+    "schema_version": "1.0"
+  },
+  "layout_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "required_fields": ["estimate_id", "sections", "totals", "provenance"],
+  "prohibited_fields": ["layout", "style", "css_injection"],
+  "reproducible": true,
+  "created_at": "2026-07-24T10:00:00+03:00",
+  "updated_at": "2026-07-24T10:00:00+03:00"
+}

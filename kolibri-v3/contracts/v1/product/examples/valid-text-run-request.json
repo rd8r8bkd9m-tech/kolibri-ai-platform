@@ -1,0 +1,15 @@
+{
+  "schema_id": "kolibri.product.text_run_request",
+  "schema_version": "1.0",
+  "expected_thread_version": 1,
+  "parent_message_id": null,
+  "parts": [
+    {
+      "part_id": "part_01JZPRODUCT0003",
+      "type": "text",
+      "format": "plain",
+      "text": "Подготовь смету по проекту и перечисли недостающие исходные данные."
+    }
+  ],
+  "preferred_agent_profile": "auto"
+}

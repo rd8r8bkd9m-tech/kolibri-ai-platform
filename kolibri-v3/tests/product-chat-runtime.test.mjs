@@ -161,8 +161,15 @@ test("the official AG-UI runtime is backed by durable server history", async () 
   assert.match(client, /getActiveThreadId/);
   assert.match(client, /threadId:\s*activeThreadId/);
   assert.match(provider, /projectionRef\.current\.activeThreadId/);
+  assert.match(provider, /activeRunIdRef\.current\s*=\s*runId/);
+  assert.match(provider, /\bonCancel:\s*\(\)\s*=>/);
+  assert.match(provider, /agent\.abortRun\(\)/);
+  assert.match(provider, /client\s*\.cancelRun\(runId\)/);
   assert.doesNotMatch(client, /kolibriAgentProfile/);
   assert.match(client, /\bwithCsrfHeader\b/);
+  assert.match(client, /\basync cancelRun\(runId:\s*string\)/);
+  assert.match(client, /x-kolibri-run-id/);
+  assert.match(client, /onAccepted\?\.\(acceptedRunId\)/);
   assert.match(client, /state:\s*null/);
   assert.match(client, /tools:\s*\[\]/);
   assert.match(client, /context:\s*\[\]/);
@@ -190,7 +197,15 @@ test("AG-UI V1 rejects browser-owned authority state", async () => {
 });
 
 test("same-origin BFF relays cookies and the upstream AG-UI SSE without a demo fallback", async () => {
-  const [agUiRoute, threadRoute, messagesRoute, mutationRoute, backendHelper] =
+  const [
+    agUiRoute,
+    threadRoute,
+    messagesRoute,
+    mutationRoute,
+    resumeRoute,
+    cancellationRoute,
+    backendHelper,
+  ] =
     await Promise.all([
       readSource("app/api/agui/route.ts"),
       readSource("app/api/v3/chat/threads/route.ts"),
@@ -198,6 +213,8 @@ test("same-origin BFF relays cookies and the upstream AG-UI SSE without a demo f
         "app/api/v3/chat/threads/[threadId]/messages/route.ts",
       ),
       readSource("app/api/v3/chat/threads/[threadId]/route.ts"),
+      readSource("app/api/v3/chat/runs/[runId]/events/route.ts"),
+      readSource("app/api/v3/chat/runs/[runId]/cancel/route.ts"),
       readSource("lib/server/v3-backend.ts"),
     ]);
 
@@ -218,9 +235,25 @@ test("same-origin BFF relays cookies and the upstream AG-UI SSE without a demo f
     /\/v1\/chat\/threads\/\$\{encodeURIComponent\(threadId\)\}/,
   );
   assert.match(mutationRoute, /method:\s*["']PATCH["']/);
+  assert.match(
+    resumeRoute,
+    /\/v1\/chat\/runs\/\$\{encodeURIComponent\(runId\)\}\/events/,
+  );
+  assert.match(resumeRoute, /method:\s*["']GET["']/);
+  assert.match(
+    cancellationRoute,
+    /\/v1\/chat\/runs\/\$\{encodeURIComponent\(runId\)\}\/cancel/,
+  );
+  assert.match(cancellationRoute, /method:\s*["']POST["']/);
+  assert.match(cancellationRoute, /maxRequestBytes:\s*0/);
 
   assert.match(backendHelper, /KOLIBRI_V3_BACKEND_URL/);
+  assert.match(backendHelper, /["']authorization["']/);
   assert.match(backendHelper, /["']cookie["']/);
+  assert.match(backendHelper, /["']last-event-id["']/);
+  assert.match(backendHelper, /["']x-csrf-token["']/);
+  assert.match(backendHelper, /["']www-authenticate["']/);
   assert.match(backendHelper, /url\.protocol\s*===\s*["']https:["']/);
   assert.match(backendHelper, /url\.protocol\s*===\s*["']http:["']/);
+  assert.match(backendHelper, /["']x-kolibri-run-id["']/);
 });

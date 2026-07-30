@@ -1,0 +1,111 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/product/run.schema.json",
+  "title": "Kolibri Product Run v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "tenant_id",
+    "project_id",
+    "thread_id",
+    "run_id",
+    "run_sequence",
+    "input_message_id",
+    "retry_of_run_id",
+    "resume_of_run_id",
+    "case_id",
+    "goal_id",
+    "home_task_id",
+    "lifecycle",
+    "outcome",
+    "last_event_sequence",
+    "last_event_id",
+    "active_interrupt_ids",
+    "version",
+    "created_by",
+    "created_at",
+    "updated_at",
+    "finished_at"
+  ],
+  "properties": {
+    "schema_id": { "const": "kolibri.product.run" },
+    "schema_version": { "const": "1.0" },
+    "tenant_id": { "$ref": "#/definitions/opaque_id" },
+    "project_id": { "$ref": "#/definitions/opaque_id" },
+    "thread_id": { "$ref": "#/definitions/opaque_id" },
+    "run_id": { "$ref": "#/definitions/opaque_id" },
+    "run_sequence": { "type": "integer", "minimum": 1 },
+    "input_message_id": { "$ref": "#/definitions/opaque_id" },
+    "retry_of_run_id": {
+      "oneOf": [
+        { "$ref": "#/definitions/opaque_id" },
+        { "type": "null" }
+      ]
+    },
+    "resume_of_run_id": {
+      "oneOf": [
+        { "$ref": "#/definitions/opaque_id" },
+        { "type": "null" }
+      ]
+    },
+    "case_id": { "$ref": "#/definitions/opaque_id" },
+    "goal_id": {
+      "oneOf": [
+        { "$ref": "#/definitions/opaque_id" },
+        { "type": "null" }
+      ]
+    },
+    "home_task_id": {
+      "oneOf": [
+        { "$ref": "#/definitions/opaque_id" },
+        { "type": "null" }
+      ]
+    },
+    "lifecycle": {
+      "type": "string",
+      "enum": ["accepted", "running", "cancellation_requested", "finished"]
+    },
+    "outcome": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": ["success", "interrupt", "failure", "cancelled"]
+        },
+        { "type": "null" }
+      ]
+    },
+    "last_event_sequence": { "type": "integer", "minimum": 0 },
+    "last_event_id": {
+      "oneOf": [
+        { "$ref": "#/definitions/opaque_id" },
+        { "type": "null" }
+      ]
+    },
+    "active_interrupt_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 64,
+      "items": { "$ref": "#/definitions/opaque_id" }
+    },
+    "version": { "type": "integer", "minimum": 1 },
+    "created_by": { "$ref": "#/definitions/opaque_id" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "finished_at": {
+      "oneOf": [
+        { "type": "string", "format": "date-time" },
+        { "type": "null" }
+      ]
+    }
+  },
+  "definitions": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    }
+  }
+}

@@ -2,20 +2,18 @@ from __future__ import annotations
 
 import sqlite3
 from collections import defaultdict
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query
 
 from .database import get_database
-from .identity import require_user
 from .market_pricing import normalized_market_text, percentile
-from .schemas import UserSession
-
+from .product_access import ConstructionEstimateAccessDependency
 
 router = APIRouter(prefix="/v1/pricing", tags=["pricing"])
 DatabaseDependency = Annotated[sqlite3.Connection, Depends(get_database)]
-IdentityDependency = Annotated[UserSession, Depends(require_user)]
+IdentityDependency = ConstructionEstimateAccessDependency
 MONEY = Decimal("0.01")
 
 

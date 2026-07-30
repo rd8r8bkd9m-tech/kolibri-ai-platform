@@ -41,6 +41,7 @@ from .codex_app_server import (
 )
 from .config import Settings
 from .database import connect_database, transaction
+from .direct_run_outbox import DirectRunClaim, DirectRunStore
 from .estimate_artifact import (
     ESTIMATE_PROPOSAL_SCHEMA,
     GeneratedEstimateProposal,
@@ -53,6 +54,21 @@ from .estimate_intake import (
     normalize_plastering_intake,
     parse_plastering_intake,
     plastering_intake_instructions,
+)
+from .generated_image_artifacts import (
+    GeneratedImageArtifactError,
+    PreparedGeneratedImageArtifact,
+    persist_generated_image_artifact,
+    prepare_generated_image_artifact,
+)
+from .image_generation import (
+    IMAGE_GENERATION_CAPABILITY_ID,
+    IMAGE_GENERATION_CLARIFICATION,
+    ImageGenerationError,
+    ImageGenerationProvider,
+    ImageGenerationRequest,
+    UnavailableImageGenerationProvider,
+    resolve_image_prompt,
 )
 from .local_provider_authority import (
     LocalProviderAuthorityError,
@@ -75,6 +91,10 @@ from .runtime_skills import (
     estimate_runtime_skill_plan,
     load_runtime_skill_plan,
     persist_runtime_skill_plan,
+)
+from .trusted_agent_execution import (
+    TrustedAgentExecutionError,
+    validate_frozen_trusted_agent_execution_binding,
 )
 from .weather_service import (
     WeatherServiceError,
@@ -269,6 +289,46 @@ class AcceptedRunLike(Protocol):
     run_id: str
     public_run_id: str
     execution_mode: str
+
+
+def _validate_direct_trusted_agent_binding(
+    database: sqlite3.Connection,
+    run: sqlite3.Row,
+    *,
+    tenant_id: str,
+) -> None:
+    frozen_authority_epoch = run["platform_authority_epoch"]
+    if frozen_authority_epoch is None:
+        raise DirectModelError(
+            "owner_required",
+            "Owner access is required for developer agent mode.",
+        )
+    try:
+        validate_frozen_trusted_agent_execution_binding(
+            database,
+            tenant_id=tenant_id,
+            user_id=str(run["requested_by_user_id"]),
+            authority_epoch=int(frozen_authority_epoch),
+            runtime_profile=str(run["selected_profile"]),
+            access_mode=str(run["access_mode"]),
+            sandbox_profile=str(run["sandbox_profile"]),
+            approval_policy=str(run["approval_policy"]),
+            approvals_reviewer=(
+                None
+                if run["approvals_reviewer"] is None
+                else str(run["approvals_reviewer"])
+            ),
+            profile_id=run["trusted_agent_profile_id"],
+            profile_epoch=run["trusted_agent_profile_epoch"],
+            workspace_binding_id=(
+                run["trusted_agent_workspace_binding_id"]
+            ),
+            workspace_binding_epoch=(
+                run["trusted_agent_workspace_binding_epoch"]
+            ),
+        )
+    except TrustedAgentExecutionError as exc:
+        raise DirectModelError(exc.code, exc.message) from exc
 
 
 def _redact_developer_text(value: object, *, limit: int) -> str:
@@ -713,9 +773,10 @@ def _connected_profile(
               connection.tenant_id = ?
               OR EXISTS (
                   SELECT 1
-                  FROM users AS platform_owner
-                  WHERE platform_owner.tenant_id = connection.tenant_id
-                    AND platform_owner.role = 'owner'
+                  FROM platform_authority_grants AS authority
+                  WHERE authority.authority_id = 'platform_owner'
+                    AND authority.tenant_id = connection.tenant_id
+                    AND authority.active = 1
               )
           )
           {requested_filter}
@@ -813,6 +874,7 @@ def _mimo_response(
     messages: list[dict[str, str]],
     runtime: MimoClientRuntime,
     on_delta: Callable[[str], None],
+    cancellation_signal: threading.Event | None = None,
 ) -> ModelTurn:
     try:
         api_key = load_mimo_key(settings, tenant_id=tenant_id)
@@ -884,6 +946,14 @@ def _mimo_response(
     tool_argument_parts: list[str] = []
     try:
         for line in response.iter_lines():
+            if (
+                cancellation_signal is not None
+                and cancellation_signal.is_set()
+            ):
+                raise DirectModelError(
+                    "run_cancelled",
+                    "Задача остановлена пользователем.",
+                )
             if not line.startswith("data:"):
                 continue
             data = line[5:].strip()
@@ -1123,6 +1193,9 @@ def _codex_plastering_intake(
     tenant_id: str,
     product_thread_id: str,
     runtime_guidance: str,
+    model: str | None,
+    effort: str | None,
+    service_tier: str | None,
 ) -> PlasteringIntake:
     conversation = "\n\n".join(
         f"{'Пользователь' if item['role'] == 'user' else 'Kolibri'}:\n{item['content']}"
@@ -1146,11 +1219,9 @@ def _codex_plastering_intake(
             ),
             timeout=settings.direct_model_timeout_seconds,
             execution_profile="estimate-intake",
-            model=(os.getenv("KOLIBRI_V3_CODEX_ESTIMATE_MODEL", "").strip() or None),
-            effort=os.getenv(
-                "KOLIBRI_V3_CODEX_ESTIMATE_EFFORT",
-                "low",
-            ).strip(),
+            model=model,
+            effort=effort,
+            service_tier=service_tier,
         )
         return parse_plastering_intake(text)
     except CodexAppServerAuthenticationError:
@@ -1572,21 +1643,104 @@ def _finish_success(
     *,
     widget: ProductWidget | None = None,
     text_stream: _TextRunStream | None = None,
+    generated_image: PreparedGeneratedImageArtifact | None = None,
 ) -> None:
+    if widget is not None and generated_image is not None:
+        raise ValueError("generated image and widget are mutually exclusive")
     database = connect_database(settings.database_url)
     now = utc_now()
     try:
         with transaction(database, immediate=True):
             run = database.execute(
                 """
-                SELECT project_id, thread_id, client_run_id, last_event_sequence, status
-                FROM chat_runs
-                WHERE tenant_id = ? AND id = ?
+                SELECT project_id, thread_id, client_run_id,
+                       requested_by_user_id, last_event_sequence, status,
+                       run.selected_profile,
+                       COALESCE(context.execution_mode, 'standard')
+                           AS execution_mode,
+                       context.platform_authority_epoch,
+                       context.access_mode,
+                       context.sandbox_profile,
+                       context.approval_policy,
+                       context.approvals_reviewer,
+                       context.trusted_agent_profile_id,
+                       context.trusted_agent_profile_epoch,
+                       context.trusted_agent_workspace_binding_id,
+                       context.trusted_agent_workspace_binding_epoch
+                FROM chat_runs AS run
+                LEFT JOIN chat_run_execution_contexts AS context
+                  ON context.tenant_id = run.tenant_id
+                 AND context.run_id = run.id
+                WHERE run.tenant_id = ? AND run.id = ?
                 """,
                 (accepted.tenant_id, accepted.run_id),
             ).fetchone()
             if run is None or str(run["status"]) != "running":
                 return
+            direct_claim = (
+                accepted
+                if isinstance(accepted, DirectRunClaim)
+                else None
+            )
+            if direct_claim is not None:
+                DirectRunStore.require_owned_in_transaction(
+                    database,
+                    direct_claim,
+                    now_text=now,
+                )
+            from .platform_admin import (
+                PlatformPolicyError,
+                enforce_background_execution_policy,
+            )
+
+            try:
+                enforce_background_execution_policy(
+                    database,
+                    tenant_id=accepted.tenant_id,
+                    user_id=str(run["requested_by_user_id"]),
+                    require_developer_access=(
+                        str(run["execution_mode"]) == "developer"
+                    ),
+                )
+            except PlatformPolicyError as exc:
+                raise DirectModelError(exc.code, exc.message) from exc
+            if str(run["execution_mode"]) == "developer":
+                from .platform_authority import (
+                    PlatformDeveloperAuthorityError,
+                    require_persisted_platform_developer_authority,
+                )
+
+                frozen_epoch = run["platform_authority_epoch"]
+                if frozen_epoch is None:
+                    raise DirectModelError(
+                        "owner_required",
+                        "Owner access is required for developer agent mode.",
+                    )
+                try:
+                    require_persisted_platform_developer_authority(
+                        database,
+                        tenant_id=accepted.tenant_id,
+                        user_id=str(run["requested_by_user_id"]),
+                        expected_epoch=int(frozen_epoch),
+                    )
+                except PlatformDeveloperAuthorityError as exc:
+                    raise DirectModelError(exc.code, exc.message) from exc
+                _validate_direct_trusted_agent_binding(
+                    database,
+                    run,
+                    tenant_id=accepted.tenant_id,
+                )
+            if generated_image is not None:
+                try:
+                    widget = persist_generated_image_artifact(
+                        database,
+                        accepted,
+                        prepared=generated_image,
+                        created_at=now,
+                    )
+                except GeneratedImageArtifactError as exc:
+                    raise DirectModelError(exc.code, exc.message) from exc
+                text = widget.fallback_text
             sequence_row = database.execute(
                 """
                 SELECT COALESCE(MAX(sequence), 0) AS value
@@ -1768,6 +1922,12 @@ def _finish_success(
                 """,
                 (now, now, accepted.tenant_id, accepted.thread_id),
             )
+            if direct_claim is not None:
+                DirectRunStore.complete_in_transaction(
+                    database,
+                    direct_claim,
+                    now_text=now,
+                )
             logger.info(
                 "Direct model completed run=%s total_ms=%d streamed=%s",
                 accepted.public_run_id,
@@ -1796,6 +1956,17 @@ def _finish_error(
             ).fetchone()
             if run is None or str(run["status"]) != "running":
                 return
+            direct_claim = (
+                accepted
+                if isinstance(accepted, DirectRunClaim)
+                else None
+            )
+            if direct_claim is not None:
+                DirectRunStore.require_owned_in_transaction(
+                    database,
+                    direct_claim,
+                    now_text=now,
+                )
             sequence = int(run["last_event_sequence"]) + 1
             _insert_event(
                 database,
@@ -1827,6 +1998,13 @@ def _finish_error(
                     accepted.run_id,
                 ),
             )
+            if direct_claim is not None:
+                DirectRunStore.block_in_transaction(
+                    database,
+                    direct_claim,
+                    code=error.code,
+                    now_text=now,
+                )
     finally:
         database.close()
 
@@ -1947,6 +2125,9 @@ def _codex_runtime_adapter(
                     tenant_id=request.tenant_id,
                     product_thread_id=request.thread_id,
                     runtime_guidance=request.guidance or "",
+                    model=model,
+                    effort=effort,
+                    service_tier=service_tier,
                 )
             except DirectModelError as exc:
                 raise _runtime_error(exc) from None
@@ -1998,6 +2179,7 @@ def _codex_runtime_adapter(
                 sandbox=access.sandbox,
                 approval_policy=access.approval_policy,
                 approvals_reviewer=access.approvals_reviewer,
+                cancellation_signal=request.cancellation_signal,
             )
         except CodexAppServerAuthenticationError:
             raise AgentRuntimeError(
@@ -2110,6 +2292,7 @@ def _mimo_runtime_adapter(
                     access_mode=request.configuration.access.mode,
                     on_delta=request.on_delta or (lambda _delta: None),
                     on_activity=request.on_activity or (lambda _phase, _item: None),
+                    cancellation_signal=request.cancellation_signal,
                 )
             except MimoDeveloperRuntimeError as exc:
                 raise AgentRuntimeError(
@@ -2158,6 +2341,7 @@ def _mimo_runtime_adapter(
                 messages=_runtime_messages(request),
                 runtime=client_transport,  # type: ignore[arg-type]
                 on_delta=request.on_delta or (lambda _delta: None),
+                cancellation_signal=request.cancellation_signal,
             )
         except DirectModelError as exc:
             raise _runtime_error(exc) from None
@@ -2205,7 +2389,7 @@ def build_agent_runtime_registry(
         timeout_seconds=settings.direct_model_timeout_seconds,
     )
     mimo_developer_transport: MimoDeveloperServerRuntime | None = None
-    if settings.environment == "development" and settings.developer_agent_enabled:
+    if settings.developer_agent_enabled:
         mimo_developer_transport = MimoDeveloperServerRuntime(
             runtime_root=runtime_root / "mimo-developer",
         )
@@ -2260,6 +2444,7 @@ def _agent_runtime_request(
     guidance: str | None = None,
     on_delta: Callable[[str], None] | None = None,
     on_activity: Callable[[str, dict[str, Any]], None] | None = None,
+    cancellation_signal: threading.Event | None = None,
 ) -> AgentRuntimeRequest:
     return AgentRuntimeRequest(
         tenant_id=accepted.tenant_id,
@@ -2288,6 +2473,7 @@ def _agent_runtime_request(
         output_schema=output_schema,
         on_delta=on_delta,
         on_activity=on_activity,
+        cancellation_signal=cancellation_signal,
     )
 
 
@@ -2295,19 +2481,36 @@ def execute_direct_run(
     settings: Settings,
     accepted: AcceptedRunLike,
     runtime_registry: AgentRuntimeRegistry,
+    *,
+    cancellation_signal: threading.Event | None = None,
 ) -> None:
     runtimes = runtime_registry
+    registered_image_provider = runtimes.capability(
+        IMAGE_GENERATION_CAPABILITY_ID
+    )
+    image_provider: ImageGenerationProvider = (
+        registered_image_provider
+        if isinstance(registered_image_provider, ImageGenerationProvider)
+        else UnavailableImageGenerationProvider()
+    )
     database = connect_database(settings.database_url)
     try:
         run = database.execute(
             """
-            SELECT run.selected_profile, context.run_id AS context_run_id,
+            SELECT run.selected_profile, run.status,
+                   context.run_id AS context_run_id,
+                   run.requested_by_user_id,
                    context.execution_mode AS context_execution_mode,
+                   context.platform_authority_epoch,
                    context.access_mode, context.access_policy_version,
                    context.sandbox_profile,
                    context.approval_policy, context.approvals_reviewer,
                    context.model_id, context.reasoning_effort,
-                   context.service_tier
+                   context.service_tier,
+                   context.trusted_agent_profile_id,
+                   context.trusted_agent_profile_epoch,
+                   context.trusted_agent_workspace_binding_id,
+                   context.trusted_agent_workspace_binding_epoch
             FROM chat_runs AS run
             LEFT JOIN chat_run_execution_contexts AS context
               ON context.tenant_id = run.tenant_id
@@ -2316,7 +2519,14 @@ def execute_direct_run(
             """,
             (accepted.tenant_id, accepted.run_id),
         ).fetchone()
-        if run is None:
+        if (
+            run is None
+            or str(run["status"]) != "running"
+            or (
+                cancellation_signal is not None
+                and cancellation_signal.is_set()
+            )
+        ):
             return
         messages = _history(database, accepted)
         selected_profile = str(run["selected_profile"])
@@ -2333,6 +2543,11 @@ def execute_direct_run(
         frozen_execution_mode = (
             str(run["context_execution_mode"])
             if run["context_execution_mode"] is not None
+            else None
+        )
+        frozen_platform_authority_epoch = (
+            int(run["platform_authority_epoch"])
+            if run["platform_authority_epoch"] is not None
             else None
         )
         frozen_access_mode = (
@@ -2354,8 +2569,46 @@ def execute_direct_run(
             if run["approvals_reviewer"] is not None
             else None
         )
+        from .platform_admin import (
+            PlatformPolicyError,
+            enforce_background_execution_policy,
+        )
+
+        try:
+            enforce_background_execution_policy(
+                database,
+                tenant_id=accepted.tenant_id,
+                user_id=str(run["requested_by_user_id"]),
+                require_developer_access=(
+                    frozen_execution_mode == "developer"
+                ),
+            )
+        except PlatformPolicyError as exc:
+            raise DirectModelError(exc.code, exc.message) from exc
+        if frozen_execution_mode == "developer":
+            from .platform_authority import (
+                PlatformDeveloperAuthorityError,
+                require_persisted_platform_developer_authority,
+            )
+
+            if frozen_platform_authority_epoch is None:
+                raise DirectModelError(
+                    "owner_required",
+                    "Owner access is required for developer agent mode.",
+                )
+            try:
+                require_persisted_platform_developer_authority(
+                    database,
+                    tenant_id=accepted.tenant_id,
+                    user_id=str(run["requested_by_user_id"]),
+                    expected_epoch=frozen_platform_authority_epoch,
+                )
+            except PlatformDeveloperAuthorityError as exc:
+                raise DirectModelError(exc.code, exc.message) from exc
     finally:
         database.close()
+    if isinstance(accepted, DirectRunClaim):
+        DirectRunStore(settings.database_url).fence(accepted)
     estimate_requested = is_estimate_generation_prompt(
         messages[-1]["content"],
     )
@@ -2377,6 +2630,15 @@ def execute_direct_run(
                 "Контекст запуска изменился. Повторите запрос.",
             )
         if frozen_execution_mode == "developer":
+            authority_database = connect_database(settings.database_url)
+            try:
+                _validate_direct_trusted_agent_binding(
+                    authority_database,
+                    run,
+                    tenant_id=accepted.tenant_id,
+                )
+            finally:
+                authority_database.close()
             if frozen_access_policy_version != 2:
                 raise DirectModelError(
                     "developer_access_policy_legacy_locked",
@@ -2398,15 +2660,13 @@ def execute_direct_run(
             credential_tenant_id = accepted.tenant_id
             resolved_profile = selected_profile
             if selected_profile == "auto":
-                database = connect_database(settings.database_url)
-                try:
-                    resolved_profile, credential_tenant_id = _connected_profile(
-                        database,
-                        accepted,
-                        selected_profile,
-                    )
-                finally:
-                    database.close()
+                raise DirectModelError(
+                    "developer_profile_required",
+                    (
+                        "Для режима разработчика нужен явно выбранный "
+                        "runtime-профиль."
+                    ),
+                )
             try:
                 runtime = runtimes.require(resolved_profile)
             except AgentRuntimeError as exc:
@@ -2445,7 +2705,7 @@ def execute_direct_run(
                     model_id=frozen_model,
                     reasoning_effort=frozen_effort,
                     service_tier=frozen_service_tier,
-                    explicit_profile=False,
+                    explicit_profile=True,
                 ),
                 access=AgentAccessPolicy(
                     mode=frozen_access_mode,  # type: ignore[arg-type]
@@ -2463,6 +2723,7 @@ def execute_direct_run(
                     accepted=accepted,
                     workspace_root=workspace_root,
                 ),
+                cancellation_signal=cancellation_signal,
             )
             try:
                 result = runtime.execute(request)
@@ -2473,6 +2734,66 @@ def execute_direct_run(
                 accepted,
                 result.text or "",
                 text_stream=text_stream,
+            )
+            return
+        image_request = resolve_image_prompt(messages)
+        if image_request is not None and image_request.action == "clarify":
+            _finish_success(
+                settings,
+                accepted,
+                IMAGE_GENERATION_CLARIFICATION,
+            )
+            return
+        if image_request is not None and image_request.prompt is not None:
+            provider_request = ImageGenerationRequest(
+                tenant_id=accepted.tenant_id,
+                project_id=accepted.project_id,
+                thread_id=accepted.thread_id,
+                run_id=accepted.run_id,
+                prompt=image_request.prompt,
+                idempotency_key=f"product-image:{accepted.run_id}",
+            )
+            try:
+                image_result = image_provider.generate(
+                    provider_request,
+                    cancellation_signal=cancellation_signal,
+                )
+                if (
+                    cancellation_signal is not None
+                    and cancellation_signal.is_set()
+                ):
+                    raise ImageGenerationError(
+                        "run_cancelled",
+                        "Задача остановлена пользователем.",
+                    )
+                prepared_image = prepare_generated_image_artifact(
+                    settings,
+                    accepted,
+                    prompt=image_request.prompt,
+                    provider=image_provider,
+                    result=image_result,
+                )
+            except ImageGenerationError as exc:
+                raise DirectModelError(exc.code, exc.message) from exc
+            except GeneratedImageArtifactError as exc:
+                raise DirectModelError(exc.code, exc.message) from exc
+            except Exception:
+                logger.exception(
+                    "Image provider failed run=%s",
+                    accepted.public_run_id,
+                )
+                raise DirectModelError(
+                    "image_generation_failed",
+                    (
+                        "Провайдер не смог создать изображение. "
+                        "Повторите запрос позже."
+                    ),
+                ) from None
+            _finish_success(
+                settings,
+                accepted,
+                "Изображение создано и сохранено в проекте.",
+                generated_image=prepared_image,
             )
             return
         local_answer = (
@@ -2591,7 +2912,10 @@ def execute_direct_run(
                     ),
                     timeout_seconds=settings.direct_model_timeout_seconds,
                     selection=AgentModelSelection(
-                        explicit_profile=False,
+                        model_id=frozen_model,
+                        reasoning_effort=frozen_effort,
+                        service_tier=frozen_service_tier,
+                        explicit_profile=(selected_profile != "auto"),
                     ),
                     access=AgentAccessPolicy(
                         mode="standard",
@@ -2601,6 +2925,7 @@ def execute_direct_run(
                     workspace=AgentWorkspace(reference="none"),
                     output_schema=PLASTERING_INTAKE_SCHEMA,
                     guidance=intake_guidance,
+                    cancellation_signal=cancellation_signal,
                 )
                 result = runtime.execute(request)
                 intake = parse_plastering_intake(result.text or "")
@@ -2785,6 +3110,7 @@ def execute_direct_run(
             ),
             workspace=AgentWorkspace(reference="none"),
             on_delta=text_stream.append,
+            cancellation_signal=cancellation_signal,
         )
         try:
             result = runtime.execute(request)

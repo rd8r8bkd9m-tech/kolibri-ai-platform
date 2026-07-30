@@ -1,0 +1,16 @@
+{
+  "schema_id": "kolibri.task_owner_state",
+  "schema_version": "1.0",
+  "tenant_id": "ten_01JZTENANT0001",
+  "task_id": "task_01JZESTIMATE001",
+  "task_version": 5,
+  "current_status": "running",
+  "current_attempt_id": "attempt_01JZESTIMATE01",
+  "current_assignment_id": "assignment_01JZEST01",
+  "lease_id": "lease_01JZESTIMATE001",
+  "authority_id": "auth_01JZLHCP000001",
+  "authority_epoch": 7,
+  "fencing_token": 11,
+  "lease_expires_at": "2026-07-24T00:41:00+03:00",
+  "committed_effects": {}
+}

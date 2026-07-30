@@ -1,0 +1,112 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/common/error-envelope.schema.json",
+  "title": "Kolibri error envelope v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "error_id",
+    "in_response_to",
+    "occurred_at",
+    "http_status",
+    "code",
+    "category",
+    "retryable",
+    "retry_after_ms",
+    "safe_message",
+    "trace",
+    "violations",
+    "details"
+  ],
+  "properties": {
+    "schema_id": {"const": "kolibri.error"},
+    "schema_version": {"const": "1.0"},
+    "error_id": {
+      "type": "string",
+      "pattern": "^err_[A-Za-z0-9][A-Za-z0-9._~-]{7,127}$"
+    },
+    "in_response_to": {
+      "oneOf": [
+        {"type": "string", "minLength": 8, "maxLength": 160},
+        {"type": "null"}
+      ]
+    },
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "http_status": {"type": "integer", "minimum": 400, "maximum": 599},
+    "code": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{2,95}$"
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "validation",
+        "authentication",
+        "authorization",
+        "conflict",
+        "not_found",
+        "capacity",
+        "dependency",
+        "timeout",
+        "internal"
+      ]
+    },
+    "retryable": {"type": "boolean"},
+    "retry_after_ms": {
+      "oneOf": [
+        {"type": "integer", "minimum": 0, "maximum": 86400000},
+        {"type": "null"}
+      ]
+    },
+    "safe_message": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "trace": {
+      "$ref": "https://schemas.kolibriai.ru/v1/common/trace.schema.json"
+    },
+    "violations": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "code", "message"],
+        "properties": {
+          "path": {"type": "string", "maxLength": 240},
+          "code": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{2,95}$"
+          },
+          "message": {"type": "string", "maxLength": 300}
+        }
+      }
+    },
+    "details": {
+      "type": "object"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"retryable": {"const": false}},
+        "required": ["retryable"]
+      },
+      "then": {
+        "properties": {"retry_after_ms": {"type": "null"}}
+      }
+    },
+    {
+      "if": {
+        "properties": {"retry_after_ms": {"type": "integer"}},
+        "required": ["retry_after_ms"]
+      },
+      "then": {
+        "properties": {"retryable": {"const": true}}
+      }
+    }
+  ]
+}

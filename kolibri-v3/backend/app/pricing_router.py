@@ -11,14 +11,12 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from .database import get_database, transaction
 from .estimate_artifact import (
     canonical_estimate_json,
-    estimate_content_hash,
     estimate_document_with_prices,
     estimate_view,
     load_estimate_slot,
     parse_estimate_document,
     record_estimate_version,
 )
-from .identity import require_user
 from .market_pricing import ObservationSource, record_price_observations
 from .pricing_sources import (
     FGIS_PUBLIC_PRICES_URL,
@@ -41,14 +39,14 @@ from .pricing_sources import (
     sha256_json,
     supplier_price_evidence,
 )
+from .product_access import ConstructionEstimateAccessDependency
 from .schemas import UserSession
-from .security import require_csrf
-
+from .security import require_mutation_auth
 
 router = APIRouter(prefix="/v1/projects", tags=["pricing"])
 DatabaseDependency = Annotated[sqlite3.Connection, Depends(get_database)]
-IdentityDependency = Annotated[UserSession, Depends(require_user)]
-CsrfDependency = Annotated[None, Depends(require_csrf)]
+IdentityDependency = ConstructionEstimateAccessDependency
+MutationAuthDependency = Annotated[None, Depends(require_mutation_auth)]
 IdempotencyDependency = Annotated[
     str,
     Header(alias="Idempotency-Key", min_length=16, max_length=128),
@@ -477,7 +475,7 @@ async def refresh_estimate_prices(
     request: Request,
     database: DatabaseDependency,
     identity: IdentityDependency,
-    _csrf: CsrfDependency,
+    _auth: MutationAuthDependency,
     idempotency_key: IdempotencyDependency,
 ) -> dict[str, Any]:
     slot = _load_slot(
@@ -786,7 +784,7 @@ def attach_supplier_offer(
     payload: SupplierOfferInput,
     database: DatabaseDependency,
     identity: IdentityDependency,
-    _csrf: CsrfDependency,
+    _auth: MutationAuthDependency,
     idempotency_key: IdempotencyDependency,
 ) -> dict[str, Any]:
     with transaction(database, immediate=True):

@@ -1,0 +1,15 @@
+{
+  "schema_id": "kolibri.command",
+  "schema_version": "2.0",
+  "message_id": "cmd_01JZCOMMON0000001",
+  "command_name": "estimate.recalculate",
+  "payload_schema_id": "kolibri.estimate.recalculate.command",
+  "payload_schema_version": "1.0",
+  "issued_at": "2026-07-24T00:30:00+03:00",
+  "deadline_at": "2026-07-24T00:31:00+03:00",
+  "target_owner": "product_data_authority",
+  "identity": {},
+  "trace": {},
+  "idempotency": {},
+  "payload": {}
+}

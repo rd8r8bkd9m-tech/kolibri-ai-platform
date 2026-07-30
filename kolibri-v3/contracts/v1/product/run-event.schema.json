@@ -1,0 +1,90 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/product/run-event.schema.json",
+  "title": "Kolibri Product Run Event v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "tenant_id",
+    "project_id",
+    "thread_id",
+    "run_id",
+    "event_id",
+    "sequence",
+    "event_type",
+    "payload_schema_id",
+    "payload_schema_version",
+    "payload",
+    "trace",
+    "source_task_id",
+    "source_event_id",
+    "occurred_at",
+    "recorded_at"
+  ],
+  "properties": {
+    "schema_id": { "const": "kolibri.product.run.event" },
+    "schema_version": { "const": "1.0" },
+    "tenant_id": { "$ref": "#/definitions/opaque_id" },
+    "project_id": { "$ref": "#/definitions/opaque_id" },
+    "thread_id": { "$ref": "#/definitions/opaque_id" },
+    "run_id": { "$ref": "#/definitions/opaque_id" },
+    "event_id": { "$ref": "#/definitions/opaque_id" },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "run_started",
+        "safe_progress",
+        "message_part_delta",
+        "message_part_committed",
+        "tool_started",
+        "tool_finished",
+        "artifact_referenced",
+        "interrupt_created",
+        "invalidation",
+        "heartbeat",
+        "run_finished",
+        "run_error"
+      ]
+    },
+    "payload_schema_id": {
+      "type": "string",
+      "pattern": "^kolibri\\.product\\.event\\.[a-z][a-z0-9_.:-]{2,127}$"
+    },
+    "payload_schema_version": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]*\\.[0-9]+$"
+    },
+    "payload": {
+      "type": "object",
+      "maxProperties": 128
+    },
+    "trace": {
+      "$ref": "https://schemas.kolibriai.ru/v1/common/trace.schema.json"
+    },
+    "source_task_id": {
+      "oneOf": [
+        { "$ref": "#/definitions/opaque_id" },
+        { "type": "null" }
+      ]
+    },
+    "source_event_id": {
+      "oneOf": [
+        { "$ref": "#/definitions/opaque_id" },
+        { "type": "null" }
+      ]
+    },
+    "occurred_at": { "type": "string", "format": "date-time" },
+    "recorded_at": { "type": "string", "format": "date-time" }
+  },
+  "definitions": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    }
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/tasks/owner-state.schema.json",
+  "title": "Kolibri owner-local Task mutation state v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "tenant_id",
+    "task_id",
+    "task_version",
+    "current_status",
+    "current_attempt_id",
+    "current_assignment_id",
+    "lease_id",
+    "authority_id",
+    "authority_epoch",
+    "fencing_token",
+    "lease_expires_at",
+    "committed_effects"
+  ],
+  "properties": {
+    "schema_id": { "const": "kolibri.task_owner_state" },
+    "schema_version": { "const": "1.0" },
+    "tenant_id": { "$ref": "#/definitions/opaque_id" },
+    "task_id": { "$ref": "#/definitions/opaque_id" },
+    "task_version": { "type": "integer", "minimum": 1 },
+    "current_status": {
+      "$ref": "https://schemas.kolibriai.ru/v1/tasks/task.schema.json#/definitions/status"
+    },
+    "current_attempt_id": { "$ref": "#/definitions/opaque_id" },
+    "current_assignment_id": { "$ref": "#/definitions/opaque_id" },
+    "lease_id": { "$ref": "#/definitions/opaque_id" },
+    "authority_id": { "$ref": "#/definitions/opaque_id" },
+    "authority_epoch": { "type": "integer", "minimum": 1 },
+    "fencing_token": { "type": "integer", "minimum": 1 },
+    "lease_expires_at": { "type": "string", "format": "date-time" },
+    "committed_effects": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["attempt_id", "result_hash"],
+        "properties": {
+          "attempt_id": { "$ref": "#/definitions/opaque_id" },
+          "result_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "schema_id": "kolibri.goal.changed.event",
+  "schema_version": "1.0",
+  "goal_id": "goal_01K0CREATE00001",
+  "command_name": "goal.create",
+  "change_type": "created",
+  "previous_version": null,
+  "new_version": 1,
+  "previous_status": null,
+  "new_status": "new",
+  "reason_provided": false
+}

@@ -41,8 +41,21 @@ export type ProductChatToolCallPart = {
   readonly result: Readonly<Record<string, unknown>>;
 };
 
+export type ProductChatAttachmentPart = {
+  readonly type: "image" | "document";
+  readonly source: {
+    readonly type: "url";
+    readonly value: string;
+    readonly mimeType: string;
+  };
+  readonly metadata: {
+    readonly filename: string;
+  };
+};
+
 export type ProductChatContentPart =
   | ProductChatTextPart
+  | ProductChatAttachmentPart
   | ProductChatToolCallPart;
 
 export type ProductChatMessage = {
@@ -220,11 +233,69 @@ const parseToolCallPart = (value: unknown): ProductChatToolCallPart => {
   };
 };
 
+const ATTACHMENT_CONTENT_PATH =
+  /^\/api\/product\/v1\/attachments\/attachment_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}\/content$/;
+const MIME_TYPE =
+  /^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$/;
+
+const parseAttachmentPart = (
+  value: Record<string, unknown>,
+): ProductChatAttachmentPart => {
+  if (
+    !hasExactlyKeys(value, [
+      "type",
+      "source",
+      "metadata",
+    ]) ||
+    (value.type !== "image" && value.type !== "document") ||
+    !isRecord(value.source) ||
+    !hasExactlyKeys(value.source, [
+      "type",
+      "value",
+      "mimeType",
+    ]) ||
+    value.source.type !== "url" ||
+    typeof value.source.value !== "string" ||
+    !ATTACHMENT_CONTENT_PATH.test(value.source.value) ||
+    typeof value.source.mimeType !== "string" ||
+    !MIME_TYPE.test(value.source.mimeType) ||
+    !isRecord(value.metadata) ||
+    !hasExactlyKeys(value.metadata, ["filename"]) ||
+    typeof value.metadata.filename !== "string" ||
+    value.metadata.filename.length < 1 ||
+    value.metadata.filename.length > 240 ||
+    /[/\\\0\r\n]/.test(value.metadata.filename) ||
+    (value.type === "image") !==
+      value.source.mimeType.startsWith("image/")
+  ) {
+    throw new ProductChatContractError(
+      "Invalid Product Chat attachment part.",
+    );
+  }
+  return {
+    type: value.type,
+    source: {
+      type: "url",
+      value: value.source.value,
+      mimeType: value.source.mimeType,
+    },
+    metadata: {
+      filename: value.metadata.filename,
+    },
+  };
+};
+
 const parseContentPart = (
   value: unknown,
 ): ProductChatContentPart => {
   if (isRecord(value) && value.type === "tool-call") {
     return parseToolCallPart(value);
+  }
+  if (
+    isRecord(value) &&
+    (value.type === "image" || value.type === "document")
+  ) {
+    return parseAttachmentPart(value);
   }
   return parseTextPart(value);
 };

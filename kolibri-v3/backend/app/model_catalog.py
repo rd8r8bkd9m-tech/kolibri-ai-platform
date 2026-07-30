@@ -75,6 +75,7 @@ class ProfileCatalogEntry:
     display_name: str
     available: bool
     model_catalog_available: bool
+    model_selection_supported: bool
     modes: tuple[str, ...]
 
     def as_payload(self) -> dict[str, Any]:
@@ -84,6 +85,7 @@ class ProfileCatalogEntry:
             "displayName": self.display_name,
             "available": self.available,
             "modelCatalogAvailable": self.model_catalog_available,
+            "modelSelectionSupported": self.model_selection_supported,
             "modes": list(self.modes),
         }
 
@@ -372,6 +374,9 @@ def _load_snapshot(
                 display_name=descriptor.display_name,
                 available=available,
                 model_catalog_available=catalog_available,
+                model_selection_supported=(
+                    descriptor.capabilities.model_catalog
+                ),
                 modes=tuple(sorted(descriptor.capabilities.modes)),
             )
         )

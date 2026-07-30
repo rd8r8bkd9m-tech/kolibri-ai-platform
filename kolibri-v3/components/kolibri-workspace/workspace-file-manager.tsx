@@ -17,6 +17,7 @@ import {
   LoaderCircle,
   RefreshCw,
   Search,
+  X,
   type LucideIcon,
 } from "lucide-react";
 
@@ -118,6 +119,12 @@ export function WorkspaceFileManager({
     setActiveCategory(initialCategory);
   }, [initialCategory]);
 
+  useEffect(() => {
+    if (globalThis.matchMedia("(max-width: 959px)").matches) {
+      setView("grid");
+    }
+  }, []);
+
   const categoryCounts = useMemo(
     () =>
       Object.fromEntries(
@@ -161,10 +168,11 @@ export function WorkspaceFileManager({
 
   return (
     <section
-      className="flex min-h-0 flex-1 flex-col"
+      data-slot="workspace-file-manager"
+      className="relative flex min-h-0 flex-1 flex-col"
       aria-labelledby="workspace-files-title"
     >
-      <header className="border-border/80 flex h-11 shrink-0 items-center gap-1.5 border-b px-2">
+      <header className="border-border/80 hidden h-11 shrink-0 items-center gap-1.5 border-b px-2 min-[960px]:flex">
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
@@ -278,8 +286,11 @@ export function WorkspaceFileManager({
           </nav>
         </aside>
 
-        <div className="min-h-0 overflow-auto">
-          <div className="border-border/80 flex gap-1 overflow-x-auto border-b px-2 py-2 @min-[640px]:hidden">
+        <div className="min-h-0 overflow-auto max-[959px]:pb-24">
+          <div
+            data-slot="workspace-file-category-tabs"
+            className="border-border/80 flex gap-1 overflow-x-auto border-b px-2 py-2 @min-[640px]:hidden"
+          >
             {FILE_CATEGORIES.map(({ id, label }) => (
               <Button
                 key={id}
@@ -319,24 +330,60 @@ export function WorkspaceFileManager({
           )}
         </div>
       </div>
+
+      <div className="absolute inset-x-0 bottom-0 z-10 bg-background px-8 pt-2 pb-[max(2rem,env(safe-area-inset-bottom))] min-[960px]:hidden">
+        <div className="relative">
+          <Search
+            className="text-muted-foreground pointer-events-none absolute top-1/2 left-4 size-6 -translate-y-1/2"
+            aria-hidden="true"
+          />
+          <Input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            className="h-12 rounded-full border-foreground/50 bg-muted/45 pr-12 pl-12 text-[17px] shadow-none"
+            placeholder="Поиск в библиотеке"
+            aria-label="Поиск в библиотеке"
+          />
+          {query ? (
+            <button
+              type="button"
+              onClick={() => setQuery("")}
+              className="focus-visible:ring-ring absolute top-1/2 right-2 grid size-9 -translate-y-1/2 place-items-center rounded-full text-muted-foreground outline-none focus-visible:ring-2"
+              aria-label="Очистить поиск в библиотеке"
+            >
+              <X aria-hidden="true" className="size-5" />
+            </button>
+          ) : null}
+        </div>
+      </div>
     </section>
   );
 }
 
 function CatalogLoading() {
   return (
-    <div
-      role="status"
-      className="text-muted-foreground flex min-h-56 flex-col items-center justify-center px-5 text-center"
-    >
-      <LoaderCircle
-        className="mb-3 size-5 animate-spin"
-        aria-hidden="true"
-      />
-      <p className="text-foreground text-xs font-medium">Загружаю файлы</p>
-      <p className="mt-1 max-w-sm text-[10px] leading-4">
-        Kolibri восстанавливает каталог документов проекта.
-      </p>
+    <div role="status" aria-label="Загружаю файлы">
+      <div
+        data-slot="workspace-file-loading-grid"
+        className="grid grid-cols-2 gap-3 px-4 pt-1 min-[960px]:hidden"
+      >
+        {Array.from({ length: 6 }, (_, index) => (
+          <div
+            key={index}
+            className="h-[10.75rem] animate-pulse rounded-[1.75rem] border border-border bg-muted/55"
+          />
+        ))}
+      </div>
+      <div className="text-muted-foreground hidden min-h-56 flex-col items-center justify-center px-5 text-center min-[960px]:flex">
+        <LoaderCircle
+          className="mb-3 size-5 animate-spin"
+          aria-hidden="true"
+        />
+        <p className="text-foreground text-xs font-medium">Загружаю файлы</p>
+        <p className="mt-1 max-w-sm text-[10px] leading-4">
+          Kolibri восстанавливает каталог документов проекта.
+        </p>
+      </div>
     </div>
   );
 }
@@ -478,7 +525,10 @@ function FileGrid({
   }
 
   return (
-    <ul className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-2 p-3">
+    <ul
+      data-slot="workspace-file-grid"
+      className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-2 p-3"
+    >
       {files.map((file) => {
         const Icon = FILE_KIND_ICON[file.kind];
 
@@ -490,18 +540,28 @@ function FileGrid({
               className="border-border hover:bg-muted/45 focus-visible:ring-ring flex min-h-28 w-full flex-col items-start rounded-xl border p-3 text-left outline-none focus-visible:ring-2"
             >
               <Icon
+                data-slot="workspace-file-icon"
                 className="text-muted-foreground mb-auto size-5"
                 aria-hidden="true"
               />
-              <span className="mt-4 line-clamp-2 text-xs font-medium">
+              <span
+                data-slot="workspace-file-name"
+                className="mt-4 line-clamp-2 text-xs font-medium"
+              >
                 {file.name}
               </span>
               {file.projectName ? (
-                <span className="text-muted-foreground mt-1 line-clamp-1 text-[10px]">
+                <span
+                  data-slot="workspace-file-project"
+                  className="text-muted-foreground mt-1 line-clamp-1 text-[10px]"
+                >
                   {file.projectName}
                 </span>
               ) : null}
-              <span className="text-muted-foreground mt-1 text-[10px]">
+              <span
+                data-slot="workspace-file-size"
+                className="text-muted-foreground mt-1 text-[10px]"
+              >
                 {file.size}
               </span>
             </button>

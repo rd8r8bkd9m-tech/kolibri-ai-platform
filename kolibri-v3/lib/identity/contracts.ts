@@ -13,6 +13,8 @@ export type AccountUser = {
   email: string;
   name: string;
   role: AccountRole;
+  isPlatformOwner: boolean;
+  capabilities: string[];
   preferredAgentProfile: AgentProfile;
   preferredModel: string | null;
   preferredReasoningEffort: string | null;
@@ -66,6 +68,9 @@ export function sanitizeAccountUser(value: unknown): AccountUser | null {
   const email = readString(value, "email").toLowerCase();
   const name = readString(value, "name");
   const role = readString(value, "role");
+  const isPlatformOwner =
+    value.isPlatformOwner ?? value.is_platform_owner;
+  const capabilities = value.capabilities;
   const preferredAgentProfile =
     value.preferredAgentProfile ?? value.preferred_agent_profile;
   const preferredModel = optionalSafeValue(
@@ -93,6 +98,16 @@ export function sanitizeAccountUser(value: unknown): AccountUser | null {
     name.length < 1 ||
     name.length > 160 ||
     (role !== "owner" && role !== "user") ||
+    typeof isPlatformOwner !== "boolean" ||
+    isPlatformOwner !== (role === "owner") ||
+    !Array.isArray(capabilities) ||
+    capabilities.length > 32 ||
+    capabilities.some(
+      (capability) =>
+        typeof capability !== "string" ||
+        !/^[a-z][a-z0-9._-]{1,95}$/.test(capability),
+    ) ||
+    new Set(capabilities).size !== capabilities.length ||
     !isAgentProfile(preferredAgentProfile) ||
     preferredModel === undefined ||
     preferredReasoningEffort === undefined ||
@@ -107,6 +122,8 @@ export function sanitizeAccountUser(value: unknown): AccountUser | null {
     email,
     name,
     role,
+    isPlatformOwner,
+    capabilities: capabilities as string[],
     preferredAgentProfile,
     preferredModel,
     preferredReasoningEffort,

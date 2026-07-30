@@ -49,10 +49,39 @@ class TextPart(StrictModel):
     text: str = Field(strict=True, min_length=1, max_length=65_536)
 
 
+class AttachmentUrlSource(StrictModel):
+    type: Literal["url"]
+    value: str = Field(
+        strict=True,
+        min_length=48,
+        max_length=240,
+        pattern=(
+            r"^/api/product/v1/attachments/"
+            r"attachment_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}/content$"
+        ),
+    )
+    mime_type: str = Field(
+        strict=True,
+        min_length=3,
+        max_length=160,
+        alias="mimeType",
+    )
+
+
+class AttachmentMetadata(StrictModel):
+    filename: str = Field(strict=True, min_length=1, max_length=240)
+
+
+class AttachmentInputPart(StrictModel):
+    type: Literal["image", "document"]
+    source: AttachmentUrlSource
+    metadata: AttachmentMetadata
+
+
 class UserMessage(StrictModel):
     id: OpaqueClientId
     role: Literal["user"]
-    content: str | list[TextPart]
+    content: str | list[TextPart | AttachmentInputPart]
 
     @model_validator(mode="after")
     def validate_content(self) -> UserMessage:
@@ -61,10 +90,18 @@ class UserMessage(StrictModel):
                 raise ValueError("user content must contain bounded text")
             return self
         if not 1 <= len(self.content) <= 64:
-            raise ValueError("user content must contain 1 to 64 text parts")
+            raise ValueError("user content must contain 1 to 64 parts")
         combined = message_text(self)
         if not combined.strip() or len(combined) > 65_536:
             raise ValueError("user content must contain text")
+        attachments = [
+            part for part in self.content
+            if isinstance(part, AttachmentInputPart)
+        ]
+        if len(attachments) > 10:
+            raise ValueError("a user message accepts at most 10 attachments")
+        if len({part.source.value for part in attachments}) != len(attachments):
+            raise ValueError("attachment references must be unique")
         return self
 
 
@@ -193,7 +230,21 @@ class MessageFeedbackInput(StrictModel):
 def message_text(message: AgUiMessage) -> str:
     if isinstance(message.content, str):
         return message.content
-    return "".join(part.text for part in message.content)
+    return "".join(
+        part.text for part in message.content
+        if isinstance(part, TextPart)
+    )
+
+
+def message_attachment_parts(
+    message: AgUiMessage,
+) -> list[AttachmentInputPart]:
+    if not isinstance(message, UserMessage) or isinstance(message.content, str):
+        return []
+    return [
+        part for part in message.content
+        if isinstance(part, AttachmentInputPart)
+    ]
 
 
 def canonical_run_payload(run_input: AgUiRunInput) -> dict[str, Any]:

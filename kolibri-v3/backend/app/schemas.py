@@ -122,6 +122,52 @@ class LoginRequest(APIModel):
     password: SecretStr = Field(min_length=1, max_length=256)
 
 
+class MobilePlatform(StrEnum):
+    IOS = "ios"
+    ANDROID = "android"
+
+
+DeviceName = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=120),
+]
+AppVersion = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._+()-]{0,63}$",
+    ),
+]
+
+
+class MobileDeviceMetadata(APIModel):
+    platform: MobilePlatform
+    device_name: DeviceName = Field(alias="deviceName")
+    app_version: AppVersion = Field(alias="appVersion")
+
+
+class MobileLoginRequest(LoginRequest):
+    device: MobileDeviceMetadata
+
+
+class MobileRegisterRequest(RegisterRequest):
+    device: MobileDeviceMetadata
+
+
+class MobileRefreshRequest(APIModel):
+    refresh_token: SecretStr = Field(
+        min_length=32,
+        max_length=512,
+        alias="refreshToken",
+    )
+
+
+class MobileLogoutRequest(MobileRefreshRequest):
+    pass
+
+
 class ProfilePatch(APIModel):
     name: DisplayName | None = None
     preferred_agent_profile: AgentProfile | None = Field(
@@ -173,6 +219,9 @@ class UserView(APIModel):
     email: EmailStr
     name: str
     role: UserRole
+    is_platform_owner: bool = Field(alias="isPlatformOwner")
+    capabilities: tuple[str, ...]
+    entitlements: tuple[str, ...] = ()
     preferred_agent_profile: AgentProfile = Field(alias="preferredAgentProfile")
     preferred_model_profile: AgentProfile | None = Field(
         default=None,
@@ -197,6 +246,16 @@ class SessionView(APIModel):
     user: UserView | None
 
 
+class MobileTokenView(APIModel):
+    token_type: Literal["Bearer"] = Field(default="Bearer", alias="tokenType")
+    access_token: str = Field(alias="accessToken")
+    access_expires_at: datetime = Field(alias="accessExpiresAt")
+    refresh_token: str = Field(alias="refreshToken")
+    refresh_expires_at: datetime = Field(alias="refreshExpiresAt")
+    device_session_id: str = Field(alias="deviceSessionId")
+    user: UserView
+
+
 class ProviderAdminContextView(APIModel):
     subject_id: str = Field(alias="subjectId")
     tenant_id: str = Field(alias="tenantId")
@@ -217,6 +276,12 @@ class UserSession:
     preferred_model: str | None = None
     preferred_reasoning_effort: str | None = None
     preferred_service_tier: str | None = None
+    is_platform_owner: bool = False
+    platform_capabilities: tuple[str, ...] = ("chat.use",)
+    platform_authority_epoch: int | None = None
+    product_capabilities: tuple[str, ...] = ()
+    product_entitlements: tuple[str, ...] = ()
+    product_entitlement_epoch: int | None = None
     expires_at: int = 0
     authenticated_at: int = 0
     session_id: str = ""

@@ -14,6 +14,7 @@ from pathlib import Path
 import re
 import subprocess
 import threading
+import time
 from typing import Any, Callable, Sequence
 
 
@@ -654,6 +655,7 @@ class CodexAppServerRuntime:
         sandbox: str = "read-only",
         approval_policy: str = "never",
         approvals_reviewer: str | None = None,
+        cancellation_signal: threading.Event | None = None,
     ) -> str:
         """Run one model turn on the product chat's ephemeral Codex thread."""
 
@@ -731,15 +733,31 @@ class CodexAppServerRuntime:
                 if on_activity is not None:
                     for phase, item in pending_activities:
                         on_activity(phase, item)
-                if not turn.event.wait(timeout):
-                    self._interrupt_turn(
-                        codex_thread_id,
-                        turn_id,
-                        timeout=min(timeout, 5.0),
-                    )
-                    raise CodexAppServerError(
-                        "Codex app-server turn timed out."
-                    )
+                deadline = time.monotonic() + timeout
+                while not turn.event.wait(
+                    max(0.0, min(0.1, deadline - time.monotonic()))
+                ):
+                    if (
+                        cancellation_signal is not None
+                        and cancellation_signal.is_set()
+                    ):
+                        self._interrupt_turn(
+                            codex_thread_id,
+                            turn_id,
+                            timeout=min(timeout, 5.0),
+                        )
+                        raise CodexAppServerError(
+                            "Codex app-server turn was cancelled."
+                        )
+                    if time.monotonic() >= deadline:
+                        self._interrupt_turn(
+                            codex_thread_id,
+                            turn_id,
+                            timeout=min(timeout, 5.0),
+                        )
+                        raise CodexAppServerError(
+                            "Codex app-server turn timed out."
+                        )
                 if turn.error is not None:
                     raise CodexAppServerError(turn.error)
                 text = (

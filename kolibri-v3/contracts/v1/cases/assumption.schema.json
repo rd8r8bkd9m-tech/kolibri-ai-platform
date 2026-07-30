@@ -1,0 +1,82 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/cases/assumption.schema.json",
+  "title": "Kolibri ProjectCase assumption v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "assumption_id",
+    "statement",
+    "rationale",
+    "confidence",
+    "impact",
+    "allowed_until_stage",
+    "owner_actor_id",
+    "status",
+    "invalidation_targets",
+    "created_at",
+    "superseded_by"
+  ],
+  "properties": {
+    "assumption_id": {"$ref": "#/definitions/opaque_id"},
+    "statement": {"type": "string", "minLength": 1, "maxLength": 2000},
+    "rationale": {"type": "string", "minLength": 1, "maxLength": 2000},
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "impact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["severity", "summary"],
+      "properties": {
+        "severity": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "critical"]
+        },
+        "summary": {"type": "string", "minLength": 1, "maxLength": 1000}
+      }
+    },
+    "allowed_until_stage": {
+      "type": "string",
+      "enum": ["concept", "estimate_draft", "internal_review", "release"]
+    },
+    "owner_actor_id": {"$ref": "#/definitions/opaque_id"},
+    "status": {
+      "type": "string",
+      "enum": ["proposed", "active", "confirmed", "rejected", "superseded"]
+    },
+    "invalidation_targets": {
+      "type": "array",
+      "maxItems": 200,
+      "uniqueItems": true,
+      "items": {"$ref": "#/definitions/opaque_id"}
+    },
+    "created_at": {"type": "string", "format": "date-time"},
+    "superseded_by": {
+      "oneOf": [
+        {"$ref": "#/definitions/opaque_id"},
+        {"type": "null"}
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"status": {"const": "superseded"}},
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {"superseded_by": {"type": "string"}}
+      },
+      "else": {
+        "properties": {"superseded_by": {"type": "null"}}
+      }
+    }
+  ],
+  "definitions": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    }
+  }
+}

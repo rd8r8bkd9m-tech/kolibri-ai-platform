@@ -129,6 +129,7 @@ def test_direct_executor_accepts_only_the_provider_neutral_registry() -> None:
         "settings",
         "accepted",
         "runtime_registry",
+        "cancellation_signal",
     )
     source = inspect.getsource(execute_direct_run)
     assert "codex-cli" not in source

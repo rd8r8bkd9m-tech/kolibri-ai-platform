@@ -11,6 +11,12 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { withCsrfHeader } from "@/lib/csrf";
+import {
+  diffEstimateDrafts,
+  parseEstimateVersionConflict,
+  type EstimateDraftConflictDiff,
+  type EstimateDraftSnapshot,
+} from "@/lib/estimate-version-conflict";
 import { kolibriGenerativeUIComponentSchemas } from "@/lib/generative-ui/schema";
 import { announceAuthenticationRequired } from "@/lib/identity/events";
 import {
@@ -18,6 +24,7 @@ import {
   announceDocumentsChanged,
   openEstimateInWorkspace,
 } from "@/lib/workspace-events";
+import { cn } from "@/lib/utils";
 import { makeAssistantToolUI, useAuiState } from "@assistant-ui/react";
 import {
   ChevronDownIcon,
@@ -195,6 +202,7 @@ function WeatherSceneBackdrop({
         alt=""
         className="kolibri-weather-scene__backdrop absolute inset-0 size-full object-cover"
         fill
+        loading="eager"
         sizes="(max-width: 640px) 100vw, 760px"
         src={WEATHER_SCENE_ASSET[scene]}
       />
@@ -616,6 +624,48 @@ const emptyRow = (): EditableEstimateRow => ({
 type EstimateEditorWidgetProps = EstimateWidgetProps & {
   presentation?: "canvas" | "inline";
 };
+type EstimateConflictState = {
+  currentVersion: number;
+  expectedVersion: number;
+  authoritative: EstimateWidgetProps | null;
+  diff: EstimateDraftConflictDiff | null;
+};
+
+const editableRowsFromEstimate = (estimate: EstimateWidgetProps) =>
+  estimate.rows.map(({ lineTotal: _lineTotal, ...row }) => row);
+
+const draftSnapshotFromEstimate = (
+  estimate: EstimateWidgetProps,
+): EstimateDraftSnapshot => ({
+  title: estimate.estimateTitle,
+  rows: editableRowsFromEstimate(estimate),
+});
+
+function EstimateConflictItems({
+  items,
+  label,
+}: {
+  items: readonly string[];
+  label: string;
+}) {
+  if (items.length === 0) return null;
+  const visibleItems = items.slice(0, 4);
+  return (
+    <div className="min-w-0">
+      <p className="text-xs font-semibold">{label}</p>
+      <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+        {visibleItems.map((item) => (
+          <li key={item} className="truncate">
+            {item}
+          </li>
+        ))}
+        {items.length > visibleItems.length ? (
+          <li>Ещё изменений: {items.length - visibleItems.length}</li>
+        ) : null}
+      </ul>
+    </div>
+  );
+}
 
 const isoDateAfter = (days: number) => {
   const value = new Date();
@@ -652,6 +702,117 @@ const engineVatLabel = (vatMode: EnginePriceProvenance["vatMode"]) => {
   if (vatMode === "not_applicable") return "без НДС";
   return "НДС не указан";
 };
+
+const estimateKindLabel = (kind: EditableEstimateRow["kind"]) => {
+  if (kind === "work") return "работа";
+  if (kind === "material") return "материал";
+  if (kind === "equipment") return "оборудование";
+  return "услуга";
+};
+
+function EstimateRowEvidence({
+  row,
+  className,
+}: {
+  row: EditableEstimateRow;
+  className?: string;
+}) {
+  return (
+    <details className={className}>
+      <summary className="min-h-11 cursor-pointer select-none py-3 font-medium text-foreground">
+        Основание количества и цены
+      </summary>
+      <div className="space-y-1 pb-2 leading-5 text-muted-foreground">
+        <p>Количество: {row.quantityBasis}</p>
+        <p>Цена: {row.priceBasis}</p>
+        {row.priceEvidence ? (
+          <>
+            <p>
+              Регион: {row.priceEvidence.region}
+              {row.priceEvidence.period ? ` · ${row.priceEvidence.period}` : ""}
+            </p>
+            <p>
+              {row.priceEvidence.freshnessBasis === "supplier_valid_until"
+                ? "Действует до"
+                : "Проверить актуальность после"}{" "}
+              {row.priceEvidence.freshUntil} ·{" "}
+              {row.priceEvidence.taxStatus === "included"
+                ? "НДС включён"
+                : row.priceEvidence.taxStatus === "excluded"
+                  ? "без НДС"
+                  : "НДС не указан"}
+            </p>
+            {row.priceEvidence.landedCostStatus === "not_calculated" ? (
+              <p>Справочная цена · доставка и складирование не рассчитаны</p>
+            ) : (
+              <p>
+                Цена с доставкой:{" "}
+                {formatMoney(Number(row.priceEvidence.landedUnitPrice))}
+              </p>
+            )}
+            <a
+              className="inline-flex text-foreground underline underline-offset-2"
+              href={row.priceEvidence.sourceUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Источник · {row.priceEvidence.sourceReference}
+            </a>
+            <p title={row.priceEvidence.snapshotHash}>
+              Снимок: {row.priceEvidence.snapshotHash.slice(0, 18)}…
+            </p>
+          </>
+        ) : row.enginePriceProvenance ? (
+          <>
+            <p
+              className={
+                row.enginePriceProvenance.verified
+                  ? "text-emerald-700 dark:text-emerald-400"
+                  : "text-amber-700 dark:text-amber-400"
+              }
+            >
+              {enginePriceSourceLabel(row.enginePriceProvenance)}
+            </p>
+            <p>
+              {row.enginePriceProvenance.label} ·{" "}
+              {row.enginePriceProvenance.reference}
+            </p>
+            <p>
+              Регион: {row.enginePriceProvenance.region} · на{" "}
+              {row.enginePriceProvenance.observedAt.slice(0, 10)}
+            </p>
+            <p>
+              {engineVatLabel(row.enginePriceProvenance.vatMode)} · уверенность{" "}
+              {Math.round(Number(row.enginePriceProvenance.confidence) * 100)}%
+            </p>
+            {row.enginePriceProvenance.validUntil ? (
+              <p>
+                Действует до{" "}
+                {row.enginePriceProvenance.validUntil.slice(0, 10)}
+              </p>
+            ) : null}
+            {row.enginePriceProvenance.sourceUrl.startsWith("https://") ? (
+              <a
+                className="inline-flex text-foreground underline underline-offset-2"
+                href={row.enginePriceProvenance.sourceUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Открыть источник
+              </a>
+            ) : (
+              <p>Источник сохранён в текущем расчёте</p>
+            )}
+          </>
+        ) : (
+          <p className="text-amber-700 dark:text-amber-400">
+            Цена введена без подтверждённого источника.
+          </p>
+        )}
+      </div>
+    </details>
+  );
+}
 
 function SupplierOfferForm({
   projectId,
@@ -897,11 +1058,13 @@ export function EstimateEditorWidget({
     JSON.stringify({ title: initial.estimateTitle, rows }),
   );
   const [saveState, setSaveState] = useState<
-    "idle" | "saving" | "saved" | "error"
+    "idle" | "saving" | "saved" | "error" | "conflict"
   >("idle");
   const [saveMessage, setSaveMessage] = useState("");
   const [saveRetryAttempt, setSaveRetryAttempt] = useState(0);
   const [saveErrorRetryable, setSaveErrorRetryable] = useState(false);
+  const [versionConflict, setVersionConflict] =
+    useState<EstimateConflictState | null>(null);
   const [actionMessage, setActionMessage] = useState("");
   const [priceRefreshState, setPriceRefreshState] = useState<
     "idle" | "checking" | "error"
@@ -1013,7 +1176,9 @@ export function EstimateEditorWidget({
         };
       }),
     );
-    setSaveState("idle");
+    setSaveState((current) =>
+      current === "conflict" ? current : "idle",
+    );
   };
 
   const downloadEstimate = (format: EstimateExportFormat) => {
@@ -1041,7 +1206,7 @@ export function EstimateEditorWidget({
   };
 
   const save = useCallback(async () => {
-    if (!dirty || !valid || savingRef.current) return;
+    if (!dirty || !valid || savingRef.current || versionConflict) return;
     const snapshotAtStart = currentSnapshot;
     const versionAtStart = version;
     const titleAtStart = title.trim();
@@ -1080,6 +1245,53 @@ export function EstimateEditorWidget({
         },
       );
       if (!response.ok) {
+        let errorPayload: unknown = null;
+        try {
+          errorPayload = await response.clone().json();
+        } catch {
+          // The bounded fallback below remains available for non-JSON errors.
+        }
+        const conflict = parseEstimateVersionConflict(
+          response.status,
+          errorPayload,
+        );
+        if (conflict) {
+          let authoritative: EstimateWidgetProps | null = null;
+          try {
+            authoritative = await loadEstimateDocument(initial.projectId);
+          } catch {
+            // Keep the local draft even when the current server copy cannot
+            // be loaded yet. The user can retry the comparison explicitly.
+          }
+          const baseline = JSON.parse(
+            savedSnapshot,
+          ) as EstimateDraftSnapshot;
+          const local = JSON.parse(
+            latestSnapshotRef.current,
+          ) as EstimateDraftSnapshot;
+          const currentVersion =
+            authoritative?.version ?? conflict.currentVersion;
+          setVersionConflict({
+            ...conflict,
+            currentVersion,
+            authoritative,
+            diff: authoritative
+              ? diffEstimateDrafts(
+                  baseline,
+                  local,
+                  draftSnapshotFromEstimate(authoritative),
+                )
+              : null,
+          });
+          setSaveMessage(
+            authoritative
+              ? `Серверная версия ${currentVersion} загружена для сравнения. Локальный черновик не изменён.`
+              : `На сервере уже версия ${currentVersion}. Локальный черновик не изменён; повторите загрузку сравнения.`,
+          );
+          setSaveErrorRetryable(false);
+          setSaveState("conflict");
+          return;
+        }
         setSaveMessage(await readResponseError(response));
         setSaveErrorRetryable(
           response.status === 408 ||
@@ -1135,10 +1347,86 @@ export function EstimateEditorWidget({
     initial.currency,
     initial.projectId,
     rows,
+    savedSnapshot,
     title,
     valid,
     version,
+    versionConflict,
   ]);
+
+  const refreshVersionConflict = useCallback(async () => {
+    if (!versionConflict) return;
+    setSaveMessage("Загружаю текущую серверную версию для сравнения…");
+    try {
+      const authoritative = await loadEstimateDocument(initial.projectId);
+      const baseline = JSON.parse(savedSnapshot) as EstimateDraftSnapshot;
+      const local = JSON.parse(
+        latestSnapshotRef.current,
+      ) as EstimateDraftSnapshot;
+      setVersionConflict((current) =>
+        current
+          ? {
+              ...current,
+              authoritative,
+              currentVersion: authoritative.version,
+              diff: diffEstimateDrafts(
+                baseline,
+                local,
+                draftSnapshotFromEstimate(authoritative),
+              ),
+            }
+          : null,
+      );
+      setSaveMessage(
+        `Серверная версия ${authoritative.version} загружена. Локальный черновик не изменён.`,
+      );
+    } catch {
+      setSaveMessage(
+        "Не удалось загрузить серверную версию. Локальный черновик остаётся в редакторе.",
+      );
+    }
+  }, [initial.projectId, savedSnapshot, versionConflict]);
+
+  const useAuthoritativeVersion = useCallback(() => {
+    const authoritative = versionConflict?.authoritative;
+    if (!authoritative) return;
+    const nextRows = editableRowsFromEstimate(authoritative);
+    const nextSnapshot = JSON.stringify({
+      title: authoritative.estimateTitle,
+      rows: nextRows,
+    });
+    setVersion(authoritative.version);
+    setTitle(authoritative.estimateTitle);
+    setRegion(authoritative.estimateRegion);
+    setAssumptions(authoritative.assumptions);
+    setPricing(authoritative.pricing);
+    setRows(nextRows);
+    setSavedSnapshot(nextSnapshot);
+    hasLocalEdits.current = false;
+    setVersionConflict(null);
+    setSaveMessage("");
+    setSaveRetryAttempt(0);
+    setSaveErrorRetryable(false);
+    setSaveState("saved");
+  }, [versionConflict]);
+
+  const rebaseLocalDraft = useCallback(() => {
+    const authoritative = versionConflict?.authoritative;
+    if (!authoritative) return;
+    setVersion(authoritative.version);
+    setRegion(authoritative.estimateRegion);
+    setAssumptions(authoritative.assumptions);
+    setPricing(authoritative.pricing);
+    setSavedSnapshot(
+      JSON.stringify(draftSnapshotFromEstimate(authoritative)),
+    );
+    hasLocalEdits.current = true;
+    setVersionConflict(null);
+    setSaveMessage("");
+    setSaveRetryAttempt(0);
+    setSaveErrorRetryable(false);
+    setSaveState("idle");
+  }, [versionConflict]);
 
   const applyPricedEstimate = useCallback(
     (next: EstimateWidgetProps, message: string) => {
@@ -1221,7 +1509,13 @@ export function EstimateEditorWidget({
   ]);
 
   useEffect(() => {
-    if (!dirty || !valid || saveState === "saving") {
+    if (
+      !dirty ||
+      !valid ||
+      saveState === "saving" ||
+      saveState === "conflict" ||
+      versionConflict
+    ) {
       return;
     }
     if (saveState === "error" && !saveErrorRetryable) return;
@@ -1238,31 +1532,35 @@ export function EstimateEditorWidget({
     saveRetryAttempt,
     saveState,
     valid,
+    versionConflict,
   ]);
 
   return (
     <section
+      data-slot="estimate-editor"
       className={
         presentation === "inline"
-          ? "overflow-hidden border-t border-border bg-card"
-          : "overflow-hidden rounded-xl border border-border bg-card"
+          ? "overflow-visible border-t border-border bg-card min-[960px]:overflow-hidden"
+          : "overflow-visible border border-border bg-card min-[960px]:overflow-hidden min-[960px]:rounded-xl"
       }
       aria-label="Редактор сметы"
     >
-      <header className="flex flex-wrap items-start justify-between gap-3 border-b border-border px-4 py-3">
+      <header className="grid items-start gap-3 border-b border-border px-4 py-3 min-[960px]:grid-cols-[minmax(0,1fr)_auto]">
         <div className="min-w-0 flex-1">
           <label className="sr-only" htmlFor={`estimate-title-${initial.documentId}`}>
             Название сметы
           </label>
           <input
             id={`estimate-title-${initial.documentId}`}
-            className="w-full rounded-md bg-transparent px-1 py-0.5 text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="min-h-11 w-full rounded-md bg-transparent px-1 py-1 text-base font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring min-[960px]:min-h-0 min-[960px]:py-0.5 min-[960px]:text-sm"
             value={title}
             maxLength={240}
             onChange={(event) => {
               hasLocalEdits.current = true;
               setTitle(event.target.value);
-              setSaveState("idle");
+              setSaveState((current) =>
+                current === "conflict" ? current : "idle",
+              );
             }}
           />
           <p className="mt-0.5 px-1 text-xs text-muted-foreground">
@@ -1270,7 +1568,7 @@ export function EstimateEditorWidget({
             {region ? ` · ${region}` : ""}
           </p>
         </div>
-        <div className="text-right">
+        <div className="rounded-2xl bg-muted/40 px-3 py-2 text-left min-[960px]:bg-transparent min-[960px]:p-0 min-[960px]:text-right">
           <p className="text-[11px] text-muted-foreground">Итого</p>
           <p className="text-lg font-semibold tabular-nums">
             {formatMoney(total)}
@@ -1278,7 +1576,97 @@ export function EstimateEditorWidget({
         </div>
       </header>
 
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/15 px-4 py-2.5">
+      {versionConflict ? (
+        <section
+          data-slot="estimate-version-conflict"
+          className="border-b border-amber-300 bg-amber-50 px-4 py-4 text-amber-950 dark:border-amber-900 dark:bg-amber-950/35 dark:text-amber-100"
+          role="alert"
+          aria-live="assertive"
+        >
+          <div className="flex items-start gap-3">
+            <RefreshCwIcon
+              aria-hidden="true"
+              className="mt-0.5 size-4 shrink-0"
+            />
+            <div className="min-w-0 flex-1">
+              <h3 className="text-sm font-semibold">
+                Смета изменилась в другом окне
+              </h3>
+              <p className="mt-1 text-xs leading-5">
+                Редактор открыт на версии {versionConflict.expectedVersion},
+                сервер уже на версии {versionConflict.currentVersion}. Ваш
+                локальный черновик сохранён в редакторе и не был заменён.
+              </p>
+              {versionConflict.diff ? (
+                <div
+                  data-slot="estimate-conflict-diff"
+                  className="mt-3 grid gap-3 rounded-xl border border-amber-300/70 bg-background/70 p-3 text-foreground min-[700px]:grid-cols-3 dark:border-amber-800"
+                >
+                  <EstimateConflictItems
+                    items={versionConflict.diff.localChanges}
+                    label="В вашем черновике"
+                  />
+                  <EstimateConflictItems
+                    items={versionConflict.diff.remoteChanges}
+                    label="На сервере"
+                  />
+                  <EstimateConflictItems
+                    items={versionConflict.diff.conflicts}
+                    label="Требуют выбора"
+                  />
+                  {versionConflict.diff.localChanges.length === 0 &&
+                  versionConflict.diff.remoteChanges.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      Содержимое совпадает; различается только номер версии.
+                    </p>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="mt-2 text-xs">{saveMessage}</p>
+              )}
+              <div className="mt-3 flex flex-col gap-2 min-[700px]:flex-row min-[700px]:flex-wrap">
+                {versionConflict.authoritative ? (
+                  <>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={useAuthoritativeVersion}
+                    >
+                      Загрузить версию {versionConflict.currentVersion}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={rebaseLocalDraft}
+                    >
+                      Сохранить мой черновик поверх версии{" "}
+                      {versionConflict.currentVersion}
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void refreshVersionConflict()}
+                  >
+                    Повторить загрузку сравнения
+                  </Button>
+                )}
+              </div>
+              {versionConflict.authoritative ? (
+                <p className="mt-2 text-[11px] leading-4 text-muted-foreground">
+                  Загрузка серверной версии заменит поля редактора. Сохранение
+                  черновика создаст следующую версию после явного выбора.
+                </p>
+              ) : null}
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      <div className="flex flex-col items-stretch gap-2 border-b border-border bg-muted/15 px-4 py-3 min-[960px]:flex-row min-[960px]:items-center min-[960px]:justify-between min-[960px]:py-2.5">
         <div className="flex min-w-0 items-center gap-2 text-xs">
           {priceRefreshState === "checking" ? (
             <LoaderCircleIcon
@@ -1308,6 +1696,7 @@ export function EstimateEditorWidget({
             priceRefreshState === "checking"
           }
           onClick={() => void refreshOfficialPrices()}
+          className="min-h-11 w-full min-[960px]:min-h-0 min-[960px]:w-auto"
         >
           <RefreshCwIcon
             aria-hidden="true"
@@ -1336,7 +1725,168 @@ export function EstimateEditorWidget({
         </div>
       ) : null}
 
-      <div className="overflow-x-auto">
+      <div
+        data-slot="estimate-mobile-list"
+        className="space-y-3 bg-muted/10 p-3 pb-28 min-[960px]:hidden"
+      >
+        {rows.length === 0 ? (
+          <div className="rounded-3xl border border-dashed border-border bg-background px-5 py-10 text-center text-sm text-muted-foreground">
+            Позиций пока нет. Добавьте первую строку — расчёт появится
+            автоматически.
+          </div>
+        ) : (
+          rows.map((row, index) => (
+            <article
+              key={row.id}
+              className="overflow-hidden rounded-3xl border border-border bg-background p-4 shadow-sm"
+              aria-labelledby={`estimate-mobile-row-${row.id}`}
+            >
+              <div className="flex min-w-0 items-start gap-2">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-semibold tabular-nums">
+                  {index + 1}
+                </span>
+                <div className="min-w-0 flex-1 pt-0.5">
+                  <p
+                    id={`estimate-mobile-row-${row.id}`}
+                    className="truncate text-xs font-semibold tracking-wide text-muted-foreground uppercase"
+                  >
+                    {row.section} · {estimateKindLabel(row.kind)}
+                  </p>
+                  <p
+                    className={cn(
+                      "mt-1 truncate text-xs",
+                      row.priceEvidence?.status === "stale" ||
+                        (!row.priceEvidence &&
+                          !row.enginePriceProvenance?.verified)
+                        ? "text-amber-700 dark:text-amber-400"
+                        : "text-emerald-700 dark:text-emerald-400",
+                    )}
+                  >
+                    {row.priceEvidence
+                      ? priceSourceLabel(row.priceEvidence)
+                      : row.enginePriceProvenance
+                        ? enginePriceSourceLabel(row.enginePriceProvenance)
+                        : "Источник не указан"}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-11 shrink-0 rounded-full"
+                  aria-label={`Удалить позицию ${index + 1}`}
+                  onClick={() => {
+                    hasLocalEdits.current = true;
+                    setRows((current) =>
+                      current.filter((item) => item.id !== row.id),
+                    );
+                    setSaveState((current) =>
+                      current === "conflict" ? current : "idle",
+                    );
+                  }}
+                >
+                  <Trash2Icon aria-hidden="true" className="size-5" />
+                </Button>
+              </div>
+
+              <label className="mt-3 block text-xs font-medium text-muted-foreground">
+                Работа или материал
+                <input
+                  aria-label={`Наименование позиции ${index + 1}`}
+                  className="mt-1 min-h-12 w-full rounded-2xl border border-input bg-background px-3 py-2 text-base outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="Введите наименование"
+                  value={row.description}
+                  maxLength={300}
+                  enterKeyHint="next"
+                  onChange={(event) =>
+                    updateRow(row.id, "description", event.target.value)
+                  }
+                />
+              </label>
+
+              <div className="mt-3 grid grid-cols-2 gap-2.5">
+                <label className="text-xs font-medium text-muted-foreground">
+                  Единица
+                  <input
+                    aria-label={`Единица позиции ${index + 1}`}
+                    className="mt-1 min-h-12 w-full rounded-2xl border border-input bg-background px-3 py-2 text-base text-foreground outline-none focus:ring-2 focus:ring-ring"
+                    value={row.unit}
+                    maxLength={32}
+                    enterKeyHint="next"
+                    onChange={(event) =>
+                      updateRow(row.id, "unit", event.target.value)
+                    }
+                  />
+                </label>
+                <label className="text-xs font-medium text-muted-foreground">
+                  Количество
+                  <input
+                    aria-label={`Количество позиции ${index + 1}`}
+                    inputMode="decimal"
+                    enterKeyHint="next"
+                    className="mt-1 min-h-12 w-full rounded-2xl border border-input bg-background px-3 py-2 text-right text-base text-foreground tabular-nums outline-none focus:ring-2 focus:ring-ring"
+                    value={row.quantity}
+                    onChange={(event) =>
+                      updateRow(row.id, "quantity", event.target.value)
+                    }
+                  />
+                </label>
+                <label className="text-xs font-medium text-muted-foreground">
+                  Цена
+                  <input
+                    aria-label={`Цена позиции ${index + 1}`}
+                    inputMode="decimal"
+                    enterKeyHint="done"
+                    className="mt-1 min-h-12 w-full rounded-2xl border border-input bg-background px-3 py-2 text-right text-base text-foreground tabular-nums outline-none focus:ring-2 focus:ring-ring"
+                    value={row.unitPrice}
+                    onChange={(event) =>
+                      updateRow(row.id, "unitPrice", event.target.value)
+                    }
+                  />
+                </label>
+                <div className="text-xs font-medium text-muted-foreground">
+                  Сумма
+                  <output className="mt-1 flex min-h-12 items-center justify-end rounded-2xl bg-muted px-3 py-2 text-base font-semibold text-foreground tabular-nums">
+                    {formatMoney(toAmount(row.quantity, row.unitPrice))}
+                  </output>
+                </div>
+              </div>
+
+              <EstimateRowEvidence
+                row={row}
+                className="mt-2 border-t border-border text-xs"
+              />
+
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-11 w-full rounded-2xl"
+                disabled={dirty}
+                onClick={() =>
+                  setOfferRowId((current) =>
+                    current === row.id ? null : row.id,
+                  )
+                }
+              >
+                {offerRowId === row.id
+                  ? "Скрыть предложение"
+                  : "Цена поставщика"}
+              </Button>
+
+              {offerRowId === row.id ? (
+                <SupplierOfferForm
+                  projectId={initial.projectId}
+                  row={row}
+                  version={version}
+                  onApplied={applyPricedEstimate}
+                />
+              ) : null}
+            </article>
+          ))
+        )}
+      </div>
+
+      <div className="hidden overflow-x-auto min-[960px]:block">
         <table className="w-full min-w-[700px] border-collapse text-sm">
           <caption className="sr-only">
             Редактируемые позиции сметы
@@ -1609,7 +2159,9 @@ export function EstimateEditorWidget({
                         setRows((current) =>
                           current.filter((item) => item.id !== row.id),
                         );
-                        setSaveState("idle");
+                        setSaveState((current) =>
+                          current === "conflict" ? current : "idle",
+                        );
                       }}
                     >
                       <Trash2Icon aria-hidden="true" className="size-4" />
@@ -1635,28 +2187,40 @@ export function EstimateEditorWidget({
         </table>
       </div>
 
-      <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-3">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
+      <footer
+        data-slot="estimate-editor-footer"
+        className="sticky bottom-0 z-20 flex flex-wrap items-center justify-between gap-3 border-t border-border bg-card px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] min-[960px]:static min-[960px]:pb-3"
+      >
+        <div
+          data-slot="estimate-editor-footer-actions"
+          className="flex min-w-0 flex-wrap items-center gap-2"
+        >
           <Button
+            data-slot="estimate-add-row-action"
             type="button"
             variant="outline"
             size="sm"
+            className="min-h-11 flex-1 rounded-2xl min-[960px]:min-h-0 min-[960px]:flex-none min-[960px]:rounded-md"
             onClick={() => {
               hasLocalEdits.current = true;
               setRows((current) => [...current, emptyRow()]);
-              setSaveState("idle");
+              setSaveState((current) =>
+                current === "conflict" ? current : "idle",
+              );
             }}
           >
             <PlusIcon aria-hidden="true" className="size-4" />
             Позиция
           </Button>
           <span
-            className={`truncate text-xs ${
+            className={`min-w-0 flex-1 text-xs ${
               saveState === "error"
                 ? "text-destructive"
+                : versionConflict
+                  ? "text-amber-700 dark:text-amber-300"
                 : "text-muted-foreground"
             }`}
-            role={saveState === "error" ? "alert" : "status"}
+            role={saveState === "error" || versionConflict ? "alert" : "status"}
           >
             {saveState === "saving" ? (
               <LoaderCircleIcon
@@ -1664,7 +2228,9 @@ export function EstimateEditorWidget({
                 className="size-3.5 shrink-0 animate-spin"
               />
             ) : null}
-            {saveState === "error"
+            {versionConflict
+              ? `Нужно выбрать версию · локальный черновик сохранён`
+              : saveState === "error"
               ? saveMessage
               : saveState === "saving"
                 ? "Сохраняю изменения…"
@@ -1689,7 +2255,7 @@ export function EstimateEditorWidget({
         </div>
       </footer>
       {rows.length > 0 && !dirty ? (
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border bg-muted/15 px-4 py-2.5">
+        <div className="flex flex-col items-stretch gap-2 border-t border-border bg-muted/15 px-4 py-3 min-[960px]:flex-row min-[960px]:items-center min-[960px]:justify-between min-[960px]:py-2.5">
           <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
             <CheckCircle2Icon
               aria-hidden="true"
@@ -1699,7 +2265,7 @@ export function EstimateEditorWidget({
               {actionMessage || `Сохранено в проекте · версия ${version}`}
             </span>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 [&>button]:w-full min-[960px]:[&>button]:w-auto">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button type="button" variant="outline" size="sm">
@@ -2388,6 +2954,20 @@ export function EstimateDocumentCard(initial: EstimateWidgetProps) {
     });
   };
 
+  const openEditor = () => {
+    if (window.matchMedia("(max-width: 959px)").matches) {
+      openEstimateInWorkspace({
+        documentId: estimate.documentId,
+        projectId: estimate.projectId,
+        projectName: projectContext?.projectName,
+        title: estimate.estimateTitle,
+        version: estimate.version,
+      });
+      return;
+    }
+    toggleExpanded();
+  };
+
   if (!currentCard) return null;
 
   const cardSummary = (
@@ -2451,7 +3031,7 @@ export function EstimateDocumentCard(initial: EstimateWidgetProps) {
             className="grid min-w-0 flex-1 grid-cols-[2.5rem_minmax(0,1fr)_auto] gap-x-3 gap-y-1.5 p-4 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset sm:flex sm:items-center sm:gap-3"
             aria-expanded="false"
             aria-label={`Открыть смету «${estimate.estimateTitle}» для редактирования`}
-            onClick={toggleExpanded}
+            onClick={openEditor}
           >
             {cardSummary}
           </button>
@@ -2616,11 +3196,20 @@ export function EstimateDocumentSurface({
     );
   }
   return (
-    <div className="space-y-3">
+    <div data-slot="estimate-document-surface" className="min-w-0 space-y-3">
       {projectContext ? (
-        <section className="overflow-hidden rounded-xl border border-border bg-card">
-          <div className="flex flex-wrap items-center gap-3 px-4 py-3">
-            <div className="min-w-0 flex-1">
+        <section
+          data-slot="estimate-project-context"
+          className="overflow-hidden rounded-xl border border-border bg-card"
+        >
+          <div
+            data-slot="estimate-project-context-toolbar"
+            className="flex flex-wrap items-center gap-3 px-4 py-3"
+          >
+            <div
+              data-slot="estimate-project-context-summary"
+              className="min-w-0 flex-1"
+            >
               <p className="truncate text-sm font-medium">
                 {projectContext.projectName}
               </p>
@@ -2635,6 +3224,7 @@ export function EstimateDocumentSurface({
               </p>
             </div>
             <Button
+              data-slot="estimate-project-context-action"
               type="button"
               size="sm"
               variant={activePanel === "parties" ? "secondary" : "outline"}
@@ -2649,6 +3239,7 @@ export function EstimateDocumentSurface({
               Участники
             </Button>
             <Button
+              data-slot="estimate-project-context-action"
               type="button"
               size="sm"
               variant={activePanel === "copy" ? "secondary" : "outline"}

@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/product/delivery-cursor.schema.json",
+  "title": "Kolibri Product Delivery Cursor v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "tenant_id",
+    "user_id",
+    "project_id",
+    "thread_id",
+    "run_id",
+    "last_sequence",
+    "last_event_id",
+    "ledger_version",
+    "issued_at"
+  ],
+  "properties": {
+    "schema_id": { "const": "kolibri.product.delivery_cursor" },
+    "schema_version": { "const": "1.0" },
+    "tenant_id": { "$ref": "#/definitions/opaque_id" },
+    "user_id": { "$ref": "#/definitions/opaque_id" },
+    "project_id": { "$ref": "#/definitions/opaque_id" },
+    "thread_id": { "$ref": "#/definitions/opaque_id" },
+    "run_id": { "$ref": "#/definitions/opaque_id" },
+    "last_sequence": { "type": "integer", "minimum": 0 },
+    "last_event_id": {
+      "oneOf": [
+        { "$ref": "#/definitions/opaque_id" },
+        { "type": "null" }
+      ]
+    },
+    "ledger_version": { "type": "integer", "minimum": 1 },
+    "issued_at": { "type": "string", "format": "date-time" }
+  },
+  "definitions": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    }
+  }
+}

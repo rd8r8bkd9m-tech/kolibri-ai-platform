@@ -215,6 +215,11 @@ class AgentRuntimeRequest:
         repr=False,
         compare=False,
     )
+    cancellation_signal: threading.Event | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
     schema_id: str = AGENT_RUNTIME_SCHEMA_ID
     schema_version: str = AGENT_RUNTIME_SCHEMA_VERSION
 
@@ -339,8 +344,34 @@ class AgentRuntimeRegistry:
 
     def __init__(self) -> None:
         self._runtimes: dict[str, AgentRuntime] = {}
+        self._capabilities: dict[str, object] = {}
         self._start_errors: dict[str, str] = {}
         self._lock = threading.RLock()
+
+    def register_capability(
+        self,
+        capability_id: str,
+        implementation: object,
+    ) -> None:
+        """Bind one provider-neutral process capability to this registry."""
+
+        if not _IDENTIFIER.fullmatch(capability_id):
+            raise ValueError("capability_id is not a bounded identifier")
+        with self._lock:
+            existing = self._capabilities.get(capability_id)
+            if existing is implementation:
+                return
+            if existing is not None:
+                raise ValueError(
+                    f"duplicate agent runtime capability: {capability_id}"
+                )
+            self._capabilities[capability_id] = implementation
+
+    def capability(self, capability_id: str) -> object | None:
+        if not _IDENTIFIER.fullmatch(capability_id):
+            return None
+        with self._lock:
+            return self._capabilities.get(capability_id)
 
     def register(self, runtime: AgentRuntime) -> None:
         descriptor = runtime.descriptor

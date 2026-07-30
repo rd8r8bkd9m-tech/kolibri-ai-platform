@@ -1,0 +1,65 @@
+[Unit]
+Description=Kolibri V3 Provider Enrollment outbox worker
+Requires=@BACKEND_SERVICE@
+Wants=network-online.target
+After=network-online.target @BACKEND_SERVICE@
+PartOf=@BACKEND_SERVICE@
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=@SERVICE_USER@
+Group=@SERVICE_GROUP@
+EnvironmentFile=@CONFIG_ROOT@/backend.env
+EnvironmentFile=@CONFIG_ROOT@/release.env
+EnvironmentFile=@CONFIG_ROOT@/workers.env
+LoadCredential=provider-authority-command-token:@CONFIG_ROOT@/credentials/provider-authority-command-token
+LoadCredential=provider-authority-identity-hmac-key:@CONFIG_ROOT@/credentials/provider-authority-identity-hmac-key
+Environment=KOLIBRI_V3_PROVIDER_AUTHORITY_COMMAND_TOKEN_FILE=%d/provider-authority-command-token
+Environment=KOLIBRI_V3_PROVIDER_AUTHORITY_IDENTITY_HMAC_KEY_FILE=%d/provider-authority-identity-hmac-key
+Environment=KOLIBRI_WORKER_EXPECTED_DATABASE_URL=sqlite:///@INSTALL_ROOT@/var/kolibri-v3.db
+Environment=KOLIBRI_WORKER_LOCK_PATH=/run/kolibri-v3-provider-enrollment-worker/owner.lock
+Environment=HOME=/nonexistent
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+WorkingDirectory=@INSTALL_ROOT@/current/backend
+ExecStartPre=@INSTALL_ROOT@/current/backend/venv/bin/python @INSTALL_ROOT@/libexec/worker_launcher.py provider-enrollment --check
+ExecStart=@INSTALL_ROOT@/current/backend/venv/bin/python @INSTALL_ROOT@/libexec/worker_launcher.py provider-enrollment
+Restart=on-failure
+RestartPreventExitStatus=73 75 78
+RestartSec=5s
+TimeoutStartSec=30s
+TimeoutStopSec=45s
+KillSignal=SIGTERM
+KillMode=mixed
+RuntimeDirectory=kolibri-v3-provider-enrollment-worker
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=restart
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectHostname=true
+ProtectClock=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectProc=invisible
+ProcSubset=pid
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=@INSTALL_ROOT@/var /run/kolibri-v3-provider-enrollment-worker
+ReadOnlyPaths=@INSTALL_ROOT@/current @INSTALL_ROOT@/libexec @CONFIG_ROOT@
+
+[Install]
+WantedBy=@BACKEND_SERVICE@

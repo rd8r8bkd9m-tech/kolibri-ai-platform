@@ -9,6 +9,9 @@ import pytest
 from app.database import initialize_database, migration_paths
 
 
+LATEST_SCHEMA_VERSION = int(migration_paths()[-1].name.split("_", 1)[0])
+
+
 def _create_v27_database(path: Path) -> None:
     database = sqlite3.connect(path, isolation_level=None)
     try:
@@ -128,7 +131,10 @@ def test_v28_upgrades_a_v27_copy_without_data_or_fk_loss(
     database = sqlite3.connect(upgraded, isolation_level=None)
     database.execute("PRAGMA foreign_keys = ON")
     try:
-        assert database.execute("PRAGMA user_version").fetchone()[0] == 29
+        assert (
+            database.execute("PRAGMA user_version").fetchone()[0]
+            == LATEST_SCHEMA_VERSION
+        )
         assert database.execute("PRAGMA integrity_check").fetchall() == [
             ("ok",)
         ]

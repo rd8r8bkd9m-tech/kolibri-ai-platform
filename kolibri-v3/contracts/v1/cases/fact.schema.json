@@ -1,0 +1,92 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/cases/fact.schema.json",
+  "title": "Kolibri ProjectCase fact v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "fact_id",
+    "key",
+    "value",
+    "value_type",
+    "unit",
+    "source",
+    "confidence",
+    "status",
+    "recorded_at",
+    "superseded_by"
+  ],
+  "properties": {
+    "fact_id": {"$ref": "#/definitions/opaque_id"},
+    "key": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_.-]{1,127}$"
+    },
+    "value": {},
+    "value_type": {
+      "type": "string",
+      "enum": ["text", "number", "boolean", "date", "quantity", "reference", "json"]
+    },
+    "unit": {
+      "oneOf": [
+        {"type": "string", "minLength": 1, "maxLength": 40},
+        {"type": "null"}
+      ]
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_type", "reference_id", "locator", "observed_at"],
+      "properties": {
+        "source_type": {
+          "type": "string",
+          "enum": [
+            "user_message",
+            "uploaded_document",
+            "measurement",
+            "domain_artifact",
+            "external_registry",
+            "human_confirmation"
+          ]
+        },
+        "reference_id": {"$ref": "#/definitions/opaque_id"},
+        "locator": {"type": "string", "minLength": 1, "maxLength": 1000},
+        "observed_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "status": {
+      "type": "string",
+      "enum": ["active", "refuted", "superseded"]
+    },
+    "recorded_at": {"type": "string", "format": "date-time"},
+    "superseded_by": {
+      "oneOf": [
+        {"$ref": "#/definitions/opaque_id"},
+        {"type": "null"}
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"status": {"const": "superseded"}},
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {"superseded_by": {"type": "string"}}
+      },
+      "else": {
+        "properties": {"superseded_by": {"type": "null"}}
+      }
+    }
+  ],
+  "definitions": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    }
+  }
+}

@@ -7,13 +7,11 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends
 
 from .database import get_database
-from .identity import require_user
-from .schemas import UserSession
-
+from .product_access import ConstructionEstimateAccessDependency
 
 router = APIRouter(prefix="/v1/documents", tags=["documents"])
 DatabaseDependency = Annotated[sqlite3.Connection, Depends(get_database)]
-IdentityDependency = Annotated[UserSession, Depends(require_user)]
+IdentityDependency = ConstructionEstimateAccessDependency
 
 
 def _estimate_summary(raw: object) -> tuple[str, int, str]:

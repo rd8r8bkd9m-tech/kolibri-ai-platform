@@ -3,10 +3,12 @@
 import { useAssistantContext } from "@assistant-ui/react";
 import {
   AlertCircle,
+  Folder,
   FolderKanban,
   LoaderCircle,
   RefreshCw,
   Search,
+  X,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 
@@ -32,17 +34,31 @@ export function ProjectsOverview({
   projects,
 }: ProjectsOverviewProps) {
   const [query, setQuery] = useState("");
+  const [mobileFilter, setMobileFilter] = useState<"all" | "recent">("all");
 
   const visibleProjects = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase("ru-RU");
-    if (!normalizedQuery) return projects;
-
-    return projects.filter(
+    const matchingProjects = projects.filter(
       (project) =>
+        !normalizedQuery ||
         project.name.toLocaleLowerCase("ru-RU").includes(normalizedQuery) ||
         project.id.toLocaleLowerCase("ru-RU").includes(normalizedQuery),
     );
-  }, [projects, query]);
+
+    if (mobileFilter !== "recent") return matchingProjects;
+
+    return [...matchingProjects]
+      .sort((left, right) => {
+        const parseDate = (value?: string | null) => {
+          if (!value) return 0;
+          const match = value.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+          if (!match) return 0;
+          return Date.UTC(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
+        };
+        return parseDate(right.updatedAt) - parseDate(left.updatedAt);
+      })
+      .slice(0, 8);
+  }, [mobileFilter, projects, query]);
 
   const activeProject =
     projects.find((project) => project.id === activeProjectId) ?? null;
@@ -63,10 +79,118 @@ export function ProjectsOverview({
 
   return (
     <section
-      className="bg-background flex h-full min-h-0 flex-col"
+      className="bg-background relative flex h-full min-h-0 flex-col"
       aria-labelledby="projects-overview-title"
     >
-      <header className="border-border/80 shrink-0 border-b">
+      <div className="flex min-h-0 flex-1 flex-col min-[960px]:hidden">
+        <nav
+          aria-label="Фильтры проектов"
+          className="flex shrink-0 gap-3 overflow-x-auto px-4 pb-3"
+        >
+          {[
+            { id: "all", label: "Все" },
+            { id: "recent", label: "Недавние" },
+          ].map((filter) => (
+            <button
+              key={filter.id}
+              type="button"
+              aria-pressed={mobileFilter === filter.id}
+              onClick={() =>
+                setMobileFilter(filter.id as "all" | "recent")
+              }
+              className={cn(
+                "h-11 shrink-0 rounded-full px-4 text-[17px] font-semibold tracking-[-0.02em] outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                mobileFilter === filter.id
+                  ? "bg-muted text-foreground"
+                  : "text-muted-foreground",
+              )}
+            >
+              {filter.label}
+            </button>
+          ))}
+        </nav>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-28">
+          {visibleProjects.length > 0 ? (
+            <div aria-label="Список проектов" className="space-y-2">
+              {visibleProjects.map((project) => (
+                <button
+                  key={project.id}
+                  type="button"
+                  aria-current={
+                    project.id === activeProjectId ? "page" : undefined
+                  }
+                  aria-label={`Открыть проект «${project.name}»`}
+                  onClick={() => onOpenProject(project)}
+                  className="focus-visible:ring-ring flex min-h-[62px] w-full items-center gap-3 rounded-2xl text-left outline-none focus-visible:ring-2"
+                >
+                  <span className="grid size-[52px] shrink-0 place-items-center rounded-2xl bg-muted">
+                    <Folder
+                      aria-hidden="true"
+                      className="size-6 stroke-[1.75]"
+                    />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[18px] leading-6 font-semibold tracking-[-0.025em]">
+                      {project.name}
+                    </span>
+                    <span className="text-muted-foreground mt-0.5 block truncate text-[15px] leading-5">
+                      {project.updatedAt?.trim() || "Дата не указана"}
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="text-muted-foreground flex h-full min-h-64 flex-col items-center justify-center px-5 text-center">
+              {catalogState === "loading" ? (
+                <LoaderCircle
+                  className="mb-3 size-6 animate-spin"
+                  aria-hidden="true"
+                />
+              ) : (
+                <FolderKanban className="mb-3 size-6" aria-hidden="true" />
+              )}
+              <p className="text-foreground text-base font-semibold">
+                {query.trim() ? "Проекты не найдены" : "Проектов пока нет"}
+              </p>
+              <p className="mt-1 max-w-xs text-sm leading-5">
+                {query.trim()
+                  ? "Измените поисковый запрос."
+                  : "Новый проект появится после сохранения реальной задачи."}
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="absolute inset-x-0 bottom-0 z-10 bg-background px-8 pt-2 pb-[max(2rem,env(safe-area-inset-bottom))]">
+          <div className="relative">
+            <Search
+              className="text-muted-foreground pointer-events-none absolute top-1/2 left-4 size-6 -translate-y-1/2"
+              aria-hidden="true"
+            />
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              className="h-12 rounded-full border-foreground/50 bg-muted/45 pr-12 pl-12 text-[17px] shadow-none"
+              placeholder="Поиск проектов"
+              aria-label="Поиск проектов"
+            />
+            {query ? (
+              <button
+                type="button"
+                onClick={() => setQuery("")}
+                className="focus-visible:ring-ring absolute top-1/2 right-2 grid size-9 -translate-y-1/2 place-items-center rounded-full text-muted-foreground outline-none focus-visible:ring-2"
+                aria-label="Очистить поиск проектов"
+              >
+                <X aria-hidden="true" className="size-5" />
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+
+      <header className="border-border/80 hidden shrink-0 border-b min-[960px]:block">
         <div className="mx-auto flex min-h-16 w-full max-w-5xl flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:px-6">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
@@ -105,7 +229,7 @@ export function ProjectsOverview({
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div className="hidden min-h-0 flex-1 overflow-auto min-[960px]:block">
         <div className="mx-auto w-full max-w-5xl px-4 py-5 sm:px-6">
           <p className="text-muted-foreground mb-3 text-[11px]">
             {catalogState === "loading" && projects.length === 0

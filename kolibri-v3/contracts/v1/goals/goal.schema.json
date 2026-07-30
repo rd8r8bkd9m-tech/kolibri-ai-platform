@@ -1,0 +1,239 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/goals/goal.schema.json",
+  "title": "Kolibri Goal aggregate v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "goal_id",
+    "tenant_id",
+    "user_id",
+    "intent",
+    "acceptance_criteria",
+    "budget_policy",
+    "deadline_policy",
+    "status",
+    "blocking_question_ids",
+    "case_id",
+    "current_case_version",
+    "workflow_id",
+    "current_workflow_version",
+    "version",
+    "supersedes_goal_id",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "schema_id": {"const": "kolibri.goal"},
+    "schema_version": {"const": "1.0"},
+    "goal_id": {"$ref": "#/definitions/opaque_id"},
+    "tenant_id": {"$ref": "#/definitions/opaque_id"},
+    "user_id": {
+      "oneOf": [
+        {"$ref": "#/definitions/opaque_id"},
+        {"type": "null"}
+      ]
+    },
+    "intent": {"$ref": "#/definitions/intent"},
+    "acceptance_criteria": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": {"$ref": "#/definitions/acceptance_criterion"}
+    },
+    "budget_policy": {"$ref": "#/definitions/budget_policy"},
+    "deadline_policy": {"$ref": "#/definitions/deadline_policy"},
+    "status": {"$ref": "#/definitions/status"},
+    "blocking_question_ids": {
+      "type": "array",
+      "maxItems": 50,
+      "uniqueItems": true,
+      "items": {"$ref": "#/definitions/opaque_id"}
+    },
+    "case_id": {
+      "oneOf": [
+        {"$ref": "#/definitions/opaque_id"},
+        {"type": "null"}
+      ]
+    },
+    "current_case_version": {
+      "oneOf": [
+        {"type": "integer", "minimum": 1},
+        {"type": "null"}
+      ]
+    },
+    "workflow_id": {
+      "oneOf": [
+        {"$ref": "#/definitions/opaque_id"},
+        {"type": "null"}
+      ]
+    },
+    "current_workflow_version": {
+      "oneOf": [
+        {"type": "integer", "minimum": 1},
+        {"type": "null"}
+      ]
+    },
+    "version": {"type": "integer", "minimum": 1},
+    "supersedes_goal_id": {
+      "oneOf": [
+        {"$ref": "#/definitions/opaque_id"},
+        {"type": "null"}
+      ]
+    },
+    "created_at": {"type": "string", "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"case_id": {"type": "null"}},
+        "required": ["case_id"]
+      },
+      "then": {
+        "properties": {"current_case_version": {"type": "null"}}
+      },
+      "else": {
+        "properties": {"current_case_version": {"type": "integer"}}
+      }
+    },
+    {
+      "if": {
+        "properties": {"workflow_id": {"type": "null"}},
+        "required": ["workflow_id"]
+      },
+      "then": {
+        "properties": {"current_workflow_version": {"type": "null"}}
+      },
+      "else": {
+        "properties": {"current_workflow_version": {"type": "integer"}}
+      }
+    }
+  ],
+  "definitions": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    },
+    "intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_message_id",
+        "original_request",
+        "normalized_objective",
+        "locale"
+      ],
+      "properties": {
+        "source_message_id": {"$ref": "#/definitions/opaque_id"},
+        "original_request": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20000
+        },
+        "normalized_objective": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "locale": {
+          "type": "string",
+          "pattern": "^[a-z]{2}(?:-[A-Z]{2})?$"
+        }
+      }
+    },
+    "acceptance_criterion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "criterion_id",
+        "statement",
+        "verification_method",
+        "required",
+        "status"
+      ],
+      "properties": {
+        "criterion_id": {"$ref": "#/definitions/opaque_id"},
+        "statement": {"type": "string", "minLength": 1, "maxLength": 1000},
+        "verification_method": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "required": {"type": "boolean"},
+        "status": {
+          "type": "string",
+          "enum": ["pending", "satisfied", "waived", "failed"]
+        }
+      }
+    },
+    "budget_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "currency",
+        "compute_units_limit",
+        "tool_calls_limit",
+        "external_spend_limit_minor",
+        "human_services_limit_minor",
+        "approval_required_above_minor"
+      ],
+      "properties": {
+        "currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
+        "compute_units_limit": {"type": "integer", "minimum": 1},
+        "tool_calls_limit": {"type": "integer", "minimum": 0},
+        "external_spend_limit_minor": {"type": "integer", "minimum": 0},
+        "human_services_limit_minor": {"type": "integer", "minimum": 0},
+        "approval_required_above_minor": {"type": "integer", "minimum": 0}
+      }
+    },
+    "deadline_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["due_at", "timezone", "late_action"],
+      "properties": {
+        "due_at": {
+          "oneOf": [
+            {"type": "string", "format": "date-time"},
+            {"type": "null"}
+          ]
+        },
+        "timezone": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "late_action": {
+          "type": "string",
+          "enum": ["continue_and_flag", "escalate", "pause"]
+        }
+      }
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "new",
+        "intake",
+        "planning",
+        "executing",
+        "reviewing",
+        "awaiting_user",
+        "awaiting_approval",
+        "awaiting_payment",
+        "awaiting_external",
+        "revising",
+        "approved_internal",
+        "released",
+        "executing_physical",
+        "completed",
+        "failed_recoverable",
+        "cancelled",
+        "superseded"
+      ]
+    }
+  }
+}

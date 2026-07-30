@@ -1,0 +1,146 @@
+{
+  "schema_id": "kolibri.project_case",
+  "schema_version": "1.0",
+  "case_id": "case_01JZCASE000001",
+  "goal_id": "goal_01JZGOAL000001",
+  "goal_version": 2,
+  "tenant_id": "ten_01JZTENANT0001",
+  "status": "working",
+  "version": 3,
+  "event_sequence": 8,
+  "intent_snapshot": {
+    "goal_version": 2,
+    "normalized_objective": "Подготовить проверяемую предварительную смету штукатурных работ площадью 120 м² для объекта в Москве."
+  },
+  "acceptance_criterion_ids": [
+    "criterion_01JZTOTAL001",
+    "criterion_01JZSOURCE01"
+  ],
+  "facts": [
+    {
+      "fact_id": "fact_01JZREGION0001",
+      "key": "object.region",
+      "value": "Москва",
+      "value_type": "text",
+      "unit": null,
+      "source": {
+        "source_type": "user_message",
+        "reference_id": "message_01JZMESSAGE01",
+        "locator": "Фраза «в Москве»",
+        "observed_at": "2026-07-24T00:30:00+03:00"
+      },
+      "confidence": 1,
+      "status": "active",
+      "recorded_at": "2026-07-24T00:30:01+03:00",
+      "superseded_by": null
+    },
+    {
+      "fact_id": "fact_01JZAREA000001",
+      "key": "work.area",
+      "value": 120,
+      "value_type": "quantity",
+      "unit": "м²",
+      "source": {
+        "source_type": "user_message",
+        "reference_id": "message_01JZMESSAGE01",
+        "locator": "Фраза «120 м²»",
+        "observed_at": "2026-07-24T00:30:00+03:00"
+      },
+      "confidence": 1,
+      "status": "active",
+      "recorded_at": "2026-07-24T00:30:01+03:00",
+      "superseded_by": null
+    }
+  ],
+  "assumptions": [
+    {
+      "assumption_id": "assumption_01JZLAYER01",
+      "statement": "Средняя толщина штукатурного слоя предварительно принята 20 мм.",
+      "rationale": "Толщина слоя не указана пользователем и нужна для расчёта материалов.",
+      "confidence": 0.6,
+      "impact": {
+        "severity": "medium",
+        "summary": "Изменение толщины влияет на расход материалов и стоимость."
+      },
+      "allowed_until_stage": "estimate_draft",
+      "owner_actor_id": "agent_01JZESTIMATOR01",
+      "status": "active",
+      "invalidation_targets": ["estimate_01JZESTIMATE01"],
+      "created_at": "2026-07-24T00:30:02+03:00",
+      "superseded_by": null
+    }
+  ],
+  "proposals": [
+    {
+      "proposal_id": "proposal_01JZMATERIAL1",
+      "question": "Какой класс смеси использовать в предварительном расчёте?",
+      "option": "Гипсовая штукатурная смесь для внутренних работ.",
+      "rationale": "Соответствует указанному виду внутренних штукатурных работ.",
+      "evidence_refs": [],
+      "status": "selected",
+      "created_by_actor_id": "agent_01JZESTIMATOR01",
+      "created_at": "2026-07-24T00:30:03+03:00"
+    }
+  ],
+  "decisions": [
+    {
+      "decision_id": "decision_01JZMATERIAL1",
+      "question": "Какой класс смеси использовать в предварительном расчёте?",
+      "alternatives": [
+        "Гипсовая штукатурная смесь для внутренних работ.",
+        "Цементная штукатурная смесь."
+      ],
+      "selected_option": "Гипсовая штукатурная смесь для внутренних работ.",
+      "selected_proposal_id": "proposal_01JZMATERIAL1",
+      "evidence_refs": [],
+      "authority_decision_id": "authz_01JZMATERIAL01",
+      "made_by_actor_id": "agent_01JZESTIMATOR01",
+      "effective_case_version": 3,
+      "consequences": [
+        "Расход и цена материалов рассчитываются для гипсовой смеси."
+      ],
+      "decided_at": "2026-07-24T00:30:04+03:00",
+      "supersedes_decision_id": null
+    }
+  ],
+  "open_questions": [
+    {
+      "question_id": "question_01JZREGION001",
+      "question": "Подтвердите муниципальное образование объекта.",
+      "reason": "Регион известен, но локальные цены могут зависеть от муниципального образования.",
+      "blocking": false,
+      "answer_type": "text",
+      "options": [],
+      "status": "open",
+      "owner_actor_id": "agent_01JZESTIMATOR01",
+      "answer_ref": null,
+      "created_at": "2026-07-24T00:30:05+03:00",
+      "resolved_at": null
+    }
+  ],
+  "requirements": [
+    {
+      "item_id": "requirement_01JZEDIT001",
+      "statement": "Пользователь должен редактировать объёмы и цены.",
+      "source_ref": "message_01JZMESSAGE01",
+      "status": "active"
+    }
+  ],
+  "constraints": [
+    {
+      "item_id": "constraint_01JZPRELIM1",
+      "statement": "Результат является предварительным до подтверждения источников цен.",
+      "source_ref": "policy_01JZESTIMATE001",
+      "status": "active"
+    }
+  ],
+  "domain_refs": [
+    {
+      "ref_type": "estimate",
+      "ref_id": "estimate_01JZESTIMATE01",
+      "version": 1
+    }
+  ],
+  "created_at": "2026-07-24T00:30:01+03:00",
+  "updated_at": "2026-07-24T00:31:00+03:00"
+}

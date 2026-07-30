@@ -1,0 +1,60 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/a2a/delivery-cursor.schema.json",
+  "title": "Kolibri A2A delivery cursor v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "tenant_id",
+    "channel_id",
+    "last_sequence",
+    "last_message_id",
+    "accepted_messages",
+    "deduplication_index"
+  ],
+  "properties": {
+    "schema_id": { "const": "kolibri.a2a.delivery_cursor" },
+    "schema_version": { "const": "1.0" },
+    "tenant_id": { "$ref": "#/definitions/opaque_id" },
+    "channel_id": { "$ref": "#/definitions/opaque_id" },
+    "last_sequence": { "type": "integer", "minimum": 0 },
+    "last_message_id": {
+      "oneOf": [
+        { "$ref": "#/definitions/opaque_id" },
+        { "type": "null" }
+      ]
+    },
+    "accepted_messages": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^sha256:[0-9a-f]{64}$"
+      }
+    },
+    "deduplication_index": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["message_id", "content_hash"],
+        "properties": {
+          "message_id": { "$ref": "#/definitions/opaque_id" },
+          "content_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    }
+  }
+}

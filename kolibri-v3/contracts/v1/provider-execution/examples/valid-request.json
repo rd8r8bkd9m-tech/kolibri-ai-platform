@@ -1,0 +1,384 @@
+{
+  "schema_id": "kolibri.provider_execution.request",
+  "schema_version": "1.0",
+  "effect_key": "effect_2fe91268aef6aadc9d097d9cbb9cc3f969b59881",
+  "task": {
+    "schema_id": "kolibri.task",
+    "schema_version": "1.0",
+    "task_id": "task_c3465130bc7a4417c7b76f04aa5234f924356ad2",
+    "tenant_id": "tenant_01JZPRODUCT01",
+    "goal_id": "goal_01JZPRODUCT0001",
+    "case_id": "case_01JZPRODUCT0001",
+    "title": "Выполнить developer-команду владельца",
+    "objective": "Execute the owner-approved developer command stored in the Home-owned source record sourcecmd_c3465130bc7a4417c7b76f04aa5234f924356ad2; return a fenced typed A2A handoff or rejection.",
+    "kind": "developer.runtime.execute",
+    "parent_task_id": null,
+    "dependency_task_ids": [],
+    "required_capabilities": [
+      "developer.runtime.execute.02592e7dfeeb50c9eabffb2658ddd742"
+    ],
+    "acceptance_criteria": [
+      {
+        "criterion_id": "criterion_c3465130bc7a4417c7b76f04aa5234f924356ad2",
+        "statement": "Назначенный runtime вернул типизированный A2A handoff или rejection с тем же lease fence.",
+        "verification_method": "Проверка TaskAttempt, AgentAssignment, A2A cursor и fencing token кодом Logical Home.",
+        "required": true
+      }
+    ],
+    "expected_outputs": [
+      {
+        "output_id": "output_c3465130bc7a4417c7b76f04aa5234f924356ad2",
+        "artifact_type": "developer_execution_result",
+        "schema_id": "kolibri.a2a.message_appended.event",
+        "evidence_required": true
+      }
+    ],
+    "budget": {
+      "compute_units_limit": 1000000,
+      "tool_calls_limit": 20000,
+      "external_spend_limit_minor": 0,
+      "currency": "RUB"
+    },
+    "deadline_at": "2026-07-26T12:15:00+03:00",
+    "risk_class": "critical",
+    "state": "leased",
+    "graph_version": 1,
+    "version": 4,
+    "current_attempt_id": "attempt_0f58a75993e847604a3f1726",
+    "current_assignment_id": "assignment_5f829cbd889d18189871b3d80e27e45acb8c7b56",
+    "created_at": "2026-07-26T12:00:00+03:00",
+    "updated_at": "2026-07-26T12:00:00+03:00"
+  },
+  "attempt": {
+    "schema_id": "kolibri.task_attempt",
+    "schema_version": "1.0",
+    "attempt_id": "attempt_0f58a75993e847604a3f1726",
+    "tenant_id": "tenant_01JZPRODUCT01",
+    "goal_id": "goal_01JZPRODUCT0001",
+    "case_id": "case_01JZPRODUCT0001",
+    "task_id": "task_c3465130bc7a4417c7b76f04aa5234f924356ad2",
+    "attempt_number": 1,
+    "assignment_id": "assignment_5f829cbd889d18189871b3d80e27e45acb8c7b56",
+    "status": "leased",
+    "lease": {
+      "lease_id": "lease_b9679c7a312641e5934ca49445efcfda",
+      "authority_id": "auth_01K0LHCP000001",
+      "authority_epoch": 8,
+      "fencing_token": 1,
+      "worker_id": "worker_7562ca99bfc897d875980af4",
+      "agent_card_id": "agentcard_01K0THIRDRUNTIME1",
+      "acquired_at": "2026-07-26T12:00:00+03:00",
+      "heartbeat_at": "2026-07-26T12:00:00+03:00",
+      "expires_at": "2026-07-26T09:01:00+00:00"
+    },
+    "effect_id": "effect_2fe91268aef6aadc9d097d9cbb9cc3f969b59881",
+    "result_artifact_refs": [],
+    "result_hash": null,
+    "error": null,
+    "created_at": "2026-07-26T12:00:00+03:00",
+    "updated_at": "2026-07-26T12:00:00+03:00"
+  },
+  "agent_assignment": {
+    "schema_id": "kolibri.agent_assignment",
+    "schema_version": "1.0",
+    "assignment_id": "assignment_5f829cbd889d18189871b3d80e27e45acb8c7b56",
+    "tenant_id": "tenant_01JZPRODUCT01",
+    "goal_id": "goal_01JZPRODUCT0001",
+    "case_id": "case_01JZPRODUCT0001",
+    "task_id": "task_c3465130bc7a4417c7b76f04aa5234f924356ad2",
+    "task_version": 4,
+    "attempt_id": "attempt_0f58a75993e847604a3f1726",
+    "assignee_actor_id": "agent_e5f6f4f570c8fe363bd00bb6e610147087ad14ee",
+    "agent_card_id": "agentcard_01K0THIRDRUNTIME1",
+    "agent_card_version": 1,
+    "temporary_role": "developer.runtime.executor",
+    "purpose": "Execute the owner-approved developer command stored in the Home-owned source record sourcecmd_c3465130bc7a4417c7b76f04aa5234f924356ad2; return a fenced typed A2A handoff or rejection.",
+    "authority_profile": {
+      "authority_id": "auth_01K0LHCP000001",
+      "authority_role": "logical_home_control_plane",
+      "authority_epoch": 8,
+      "authorization_decision_id": "decision_464ccfa618b9bf3f7fb490891d14886a8e8fb5bb",
+      "capabilities": [
+        "a2a.message.append",
+        "developer.runtime.execute.02592e7dfeeb50c9eabffb2658ddd742",
+        "task_owner_state"
+      ],
+      "allowed_tool_ids": [
+        "tool.filesystem.full",
+        "tool.network.full",
+        "tool.shell.full"
+      ],
+      "allowed_resource_refs": [
+        "case_01JZPRODUCT0001",
+        "goal_01JZPRODUCT0001",
+        "sourcecmd_c3465130bc7a4417c7b76f04aa5234f924356ad2",
+        "task_c3465130bc7a4417c7b76f04aa5234f924356ad2"
+      ],
+      "expires_at": "2026-07-26T09:01:00+00:00"
+    },
+    "context_slice": {
+      "case_version": 4,
+      "fact_ids": [],
+      "assumption_ids": [],
+      "decision_ids": [],
+      "artifact_refs": [
+        "sourcecmd_c3465130bc7a4417c7b76f04aa5234f924356ad2"
+      ],
+      "classification": "restricted",
+      "max_bytes": 1048576
+    },
+    "budget": {
+      "compute_units_limit": 1000000,
+      "tool_calls_limit": 20000,
+      "external_spend_limit_minor": 0,
+      "currency": "RUB"
+    },
+    "lease_id": "lease_b9679c7a312641e5934ca49445efcfda",
+    "deadline_at": "2026-07-26T09:01:00+00:00",
+    "required_output_ids": [
+      "output_c3465130bc7a4417c7b76f04aa5234f924356ad2"
+    ],
+    "required_evidence_types": [
+      "a2a.handoff_or_rejection"
+    ],
+    "status": "active",
+    "version": 1,
+    "created_at": "2026-07-26T12:00:00+03:00",
+    "updated_at": "2026-07-26T12:00:00+03:00"
+  },
+  "requester_assignment": {
+    "schema_id": "kolibri.agent_assignment",
+    "schema_version": "1.0",
+    "assignment_id": "assignment_15c20b0789a9de0e718579cdee01e6a7d49710f4",
+    "tenant_id": "tenant_01JZPRODUCT01",
+    "goal_id": "goal_01JZPRODUCT0001",
+    "case_id": "case_01JZPRODUCT0001",
+    "task_id": "task_c3465130bc7a4417c7b76f04aa5234f924356ad2",
+    "task_version": 4,
+    "attempt_id": "attempt_0f58a75993e847604a3f1726",
+    "assignee_actor_id": "service_86ef8b7c9fbb643bb5b789bc2563fb047aeb4be8",
+    "agent_card_id": "agentcard_01K0LOGICALHOME01",
+    "agent_card_version": 1,
+    "temporary_role": "developer.requester",
+    "purpose": "Issue and receive the Home-owned developer A2A request.",
+    "authority_profile": {
+      "authority_id": "auth_01K0LHCP000001",
+      "authority_role": "logical_home_control_plane",
+      "authority_epoch": 8,
+      "authorization_decision_id": "decision_15c20b0789a9de0e718579cdee01e6a7d49710f4",
+      "capabilities": [
+        "a2a.message.append",
+        "task_owner_state"
+      ],
+      "allowed_tool_ids": [],
+      "allowed_resource_refs": [
+        "case_01JZPRODUCT0001",
+        "goal_01JZPRODUCT0001",
+        "sourcecmd_c3465130bc7a4417c7b76f04aa5234f924356ad2",
+        "task_c3465130bc7a4417c7b76f04aa5234f924356ad2"
+      ],
+      "expires_at": "2026-07-26T09:01:00+00:00"
+    },
+    "context_slice": {
+      "case_version": 4,
+      "fact_ids": [],
+      "assumption_ids": [],
+      "decision_ids": [],
+      "artifact_refs": [
+        "sourcecmd_c3465130bc7a4417c7b76f04aa5234f924356ad2"
+      ],
+      "classification": "restricted",
+      "max_bytes": 1048576
+    },
+    "budget": {
+      "compute_units_limit": 0,
+      "tool_calls_limit": 0,
+      "external_spend_limit_minor": 0,
+      "currency": "RUB"
+    },
+    "lease_id": "lease_b9679c7a312641e5934ca49445efcfda",
+    "deadline_at": "2026-07-26T09:01:00+00:00",
+    "required_output_ids": [
+      "output_c3465130bc7a4417c7b76f04aa5234f924356ad2"
+    ],
+    "required_evidence_types": [
+      "a2a.handoff_or_rejection"
+    ],
+    "status": "active",
+    "version": 1,
+    "created_at": "2026-07-26T12:00:00+03:00",
+    "updated_at": "2026-07-26T12:00:00+03:00"
+  },
+  "a2a_request": {
+    "schema_id": "kolibri.a2a.message_appended.event",
+    "schema_version": "1.0",
+    "a2a_message_id": "a2amsg_4b8419a8a818e783679d405def4d8d5cee867403",
+    "tenant_id": "tenant_01JZPRODUCT01",
+    "goal_id": "goal_01JZPRODUCT0001",
+    "case_id": "case_01JZPRODUCT0001",
+    "task_id": "task_c3465130bc7a4417c7b76f04aa5234f924356ad2",
+    "task_version": 4,
+    "channel_id": "channel_2fe91268aef6aadc9d097d9cbb9cc3f969b59881",
+    "sequence": 1,
+    "previous_message_id": null,
+    "sender_actor_id": "service_86ef8b7c9fbb643bb5b789bc2563fb047aeb4be8",
+    "sender_assignment_id": "assignment_15c20b0789a9de0e718579cdee01e6a7d49710f4",
+    "recipient_assignment_ids": [
+      "assignment_5f829cbd889d18189871b3d80e27e45acb8c7b56"
+    ],
+    "recipient_capability": "developer.runtime.execute.02592e7dfeeb50c9eabffb2658ddd742",
+    "message_type": "request",
+    "purpose": "Execute the Home-owned developer task.",
+    "response_to_message_id": null,
+    "content": {
+      "trust": "untrusted_content",
+      "text": "Execute the owner-approved developer command stored in the Home-owned source record sourcecmd_c3465130bc7a4417c7b76f04aa5234f924356ad2; return a fenced typed A2A handoff or rejection.",
+      "structured_data": {
+        "expected_response": "a2a.handoff_or_rejection",
+        "status": "requested",
+        "source_command_ref": "sourcecmd_c3465130bc7a4417c7b76f04aa5234f924356ad2",
+        "runtime_profile": "third-agent.runtime-01",
+        "model": "generic-model-01",
+        "reasoning_effort": "high",
+        "service_tier": "priority",
+        "workspace_ref": "repository.workspace-01",
+        "access_mode": "full",
+        "sandbox": "danger-full-access",
+        "approval_policy": "never",
+        "reviewer": null,
+        "source_command_hash": "sha256:0e490e5ac9c44fb10323031c430aaa94bbd4ff7083080eaca1c3363800981513",
+        "canonical_request_hash": "sha256:272cd16409cb26a4beb56862d934e6d04f5759bf1b0c61afe0c094dba2ced072",
+        "lease": {
+          "attempt_id": "attempt_0f58a75993e847604a3f1726",
+          "lease_id": "lease_b9679c7a312641e5934ca49445efcfda",
+          "fencing_token": 1
+        }
+      },
+      "reference_ids": [
+        "attempt_0f58a75993e847604a3f1726",
+        "sourcecmd_c3465130bc7a4417c7b76f04aa5234f924356ad2",
+        "task_c3465130bc7a4417c7b76f04aa5234f924356ad2"
+      ]
+    },
+    "content_hash": "sha256:df5e5d572a92d4e18b01531ed4828ae11c59e240485b9b87fed38f21ce486819",
+    "deduplication_key": "a2a:developer-request:681ee676b62cf5575315911ef32361820025279fef57f850d1c525be5d7bf47e",
+    "sent_at": "2026-07-26T12:00:00+03:00",
+    "expires_at": "2026-07-26T09:01:00+00:00"
+  },
+  "developer_dispatch": {
+    "schema_id": "kolibri.product.developer_dispatch",
+    "schema_version": "1.0",
+    "source_command_ref": "sourcecmd_c3465130bc7a4417c7b76f04aa5234f924356ad2",
+    "run_id": "run_01JZPRODUCTPROVIDERFIXTURE1",
+    "project_id": "project_01JZPRODUCT001",
+    "thread_id": "thread_01JZPRODUCT001",
+    "input_message_id": "message_01JZPRODUCTPROVIDERFIXTURE1",
+    "runtime_profile": "third-agent.runtime-01",
+    "runtime_capability": "developer.runtime.execute.02592e7dfeeb50c9eabffb2658ddd742",
+    "model": "generic-model-01",
+    "reasoning_effort": "high",
+    "service_tier": "priority",
+    "workspace_ref": "repository.workspace-01",
+    "access_mode": "full",
+    "sandbox": "danger-full-access",
+    "approval_policy": "never",
+    "reviewer": null
+  },
+  "source_command": {
+    "schema_id": "kolibri.command",
+    "schema_version": "1.0",
+    "message_id": "cmd_01JZPRODUCTPROVIDERFIXTURE1",
+    "command_name": "product.run.execute",
+    "payload_schema_id": "kolibri.product.run.execute.v1_2.command",
+    "payload_schema_version": "1.2",
+    "issued_at": "2026-07-26T11:59:00+03:00",
+    "deadline_at": "2026-07-26T12:15:00+03:00",
+    "target_owner": "logical_home_control_plane",
+    "identity": {
+      "tenant_id": "tenant_01JZPRODUCT01",
+      "user_id": "user_01JZPRODUCT001",
+      "actor": {
+        "actor_id": "actor_01JZPRODUCT01",
+        "actor_type": "user"
+      },
+      "authority": {
+        "authority_id": "authority_product_data_v1",
+        "authority_role": "product_data_authority",
+        "authority_epoch": 3,
+        "authority_placement_id": "placement_product_backend",
+        "authorization_decision_id": "decision_01JZPRODUCTAUTH1",
+        "capabilities": [
+          "product.developer.run.execute.request"
+        ]
+      },
+      "subject_refs": {
+        "goal_id": "goal_01JZPRODUCT0001",
+        "case_id": "case_01JZPRODUCT0001",
+        "task_id": null
+      }
+    },
+    "trace": {
+      "trace_id": "0123456789abcdef0123456789abcdef",
+      "span_id": "0123456789abcdef",
+      "parent_span_id": null,
+      "correlation_id": "run_01JZPRODUCTPROVIDERFIXTURE1",
+      "causation_id": "message_01JZPRODUCTPROVIDERFIXTURE1"
+    },
+    "idempotency": {
+      "key": "product.run.execute:run_01JZPRODUCTPROVIDERFIXTURE1",
+      "scope": "aggregate",
+      "scope_id": "run_01JZPRODUCTPROVIDERFIXTURE1",
+      "canonical_request_hash": "sha256:272cd16409cb26a4beb56862d934e6d04f5759bf1b0c61afe0c094dba2ced072"
+    },
+    "payload": {
+      "schema_id": "kolibri.product.run.execute.v1_2.command",
+      "schema_version": "1.2",
+      "tenant_id": "tenant_01JZPRODUCT01",
+      "project_id": "project_01JZPRODUCT001",
+      "thread_id": "thread_01JZPRODUCT001",
+      "run_id": "run_01JZPRODUCTPROVIDERFIXTURE1",
+      "input_message_id": "message_01JZPRODUCTPROVIDERFIXTURE1",
+      "case_id": "case_01JZPRODUCT0001",
+      "goal_id": "goal_01JZPRODUCT0001",
+      "prompt": "Исправь ошибку и выполни тесты.",
+      "prompt_hash": "sha256:950f88b6734cfa321afb587b3e7cf3d2f219368a3daca9e899940a675de474c6",
+      "execution_mode": "developer",
+      "runtime_profile": "third-agent.runtime-01",
+      "model": "generic-model-01",
+      "reasoning_effort": "high",
+      "service_tier": "priority",
+      "workspace_ref": "repository.workspace-01",
+      "access_mode": "full",
+      "sandbox": "danger-full-access",
+      "approval_policy": "never",
+      "reviewer": null,
+      "requester_role": "owner"
+    }
+  },
+  "lease_source": {
+    "schema_id": "kolibri.product.developer_lease_source",
+    "schema_version": "1.0",
+    "source_command_ref": "sourcecmd_c3465130bc7a4417c7b76f04aa5234f924356ad2",
+    "canonical_request_hash": "sha256:272cd16409cb26a4beb56862d934e6d04f5759bf1b0c61afe0c094dba2ced072",
+    "source_command_hash": "sha256:0e490e5ac9c44fb10323031c430aaa94bbd4ff7083080eaca1c3363800981513",
+    "tenant_id": "tenant_01JZPRODUCT01",
+    "task_id": "task_c3465130bc7a4417c7b76f04aa5234f924356ad2",
+    "task_version": 4,
+    "attempt_id": "attempt_0f58a75993e847604a3f1726",
+    "assignment_id": "assignment_5f829cbd889d18189871b3d80e27e45acb8c7b56",
+    "effect_id": "effect_2fe91268aef6aadc9d097d9cbb9cc3f969b59881",
+    "lease_id": "lease_b9679c7a312641e5934ca49445efcfda",
+    "fencing_token": 1,
+    "runtime_profile": "third-agent.runtime-01",
+    "access_policy": {
+      "policy_id": "developer.full_owner_approved",
+      "tool_ids": [
+        "tool.filesystem.full",
+        "tool.network.full",
+        "tool.shell.full"
+      ],
+      "compute_units_limit": 1000000,
+      "tool_calls_limit": 20000
+    }
+  }
+}

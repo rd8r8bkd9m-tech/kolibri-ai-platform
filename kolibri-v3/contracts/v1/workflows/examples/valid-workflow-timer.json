@@ -1,0 +1,10 @@
+{
+  "schema_id": "kolibri.workflow.timer",
+  "schema_version": "1.0",
+  "workflow_id": "workflow_01JZWFLOWEXAMPLE1",
+  "timer_id": "timer_01K0TIMER002",
+  "timer_type": "retry_backoff",
+  "scheduled_at": "2026-07-24T03:20:20+03:00",
+  "status": "waiting",
+  "fired_at": null
+}

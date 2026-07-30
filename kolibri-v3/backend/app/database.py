@@ -93,10 +93,16 @@ def initialize_database(database_url_or_path: str | Path) -> None:
     with _migration_lock(database_url_or_path):
         connection = connect_database(database_url_or_path)
         try:
+            migrations = migration_paths()
             current_version = int(
                 connection.execute("PRAGMA user_version").fetchone()[0]
             )
-            for migration_path in migration_paths():
+            latest_version = int(migrations[-1].name.split("_", 1)[0])
+            if current_version > latest_version:
+                raise RuntimeError(
+                    "Kolibri V3 database schema is newer than this runtime"
+                )
+            for migration_path in migrations:
                 migration_version = int(
                     migration_path.name.split("_", 1)[0]
                 )
@@ -105,7 +111,14 @@ def initialize_database(database_url_or_path: str | Path) -> None:
                 connection.executescript(
                     migration_path.read_text(encoding="utf-8")
                 )
-                current_version = migration_version
+                applied_version = int(
+                    connection.execute("PRAGMA user_version").fetchone()[0]
+                )
+                if applied_version != migration_version:
+                    raise RuntimeError(
+                        "Kolibri V3 migration did not set its schema version"
+                    )
+                current_version = applied_version
         finally:
             connection.close()
 

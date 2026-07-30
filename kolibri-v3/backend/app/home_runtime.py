@@ -620,6 +620,7 @@ def _validate_product_command(command: dict[str, Any]) -> None:
             ("kolibri.product.run.execute.command", "1.0"),
             ("kolibri.product.run.execute.v1_1.command", "1.1"),
             ("kolibri.product.run.execute.v1_2.command", "1.2"),
+            ("kolibri.product.run.execute.v1_3.command", "1.3"),
         }
         or command.get("target_owner") != "logical_home_control_plane"
     ):
@@ -670,7 +671,10 @@ def _validate_product_command(command: dict[str, Any]) -> None:
         required_capability=(
             "product.developer.run.execute.request"
             if payload_contract
-            == ("kolibri.product.run.execute.v1_2.command", "1.2")
+            in {
+                ("kolibri.product.run.execute.v1_2.command", "1.2"),
+                ("kolibri.product.run.execute.v1_3.command", "1.3"),
+            }
             else "product.run.execute.request"
         ),
         expected_case_id=payload["case_id"],
@@ -700,10 +704,15 @@ def _validate_product_payload(payload: dict[str, Any]) -> None:
         "kolibri.product.run.execute.v1_2.command",
         "1.2",
     )
+    is_v1_3 = payload_contract == (
+        "kolibri.product.run.execute.v1_3.command",
+        "1.3",
+    )
     if payload_contract not in {
         ("kolibri.product.run.execute.command", "1.0"),
         ("kolibri.product.run.execute.v1_1.command", "1.1"),
         ("kolibri.product.run.execute.v1_2.command", "1.2"),
+        ("kolibri.product.run.execute.v1_3.command", "1.3"),
     }:
         raise HomeRuntimeCommandError(
             "home_product_command_payload_invalid"
@@ -735,7 +744,17 @@ def _validate_product_payload(payload: dict[str, Any]) -> None:
             "reviewer",
             "requester_role",
         }
-        if is_v1_2
+        | (
+            {
+                "trusted_agent_profile_id",
+                "trusted_agent_profile_epoch",
+                "trusted_agent_workspace_binding_id",
+                "trusted_agent_workspace_binding_epoch",
+            }
+            if is_v1_3
+            else set()
+        )
+        if is_v1_2 or is_v1_3
         else {
             "preferred_agent_profile",
             *(
@@ -780,7 +799,7 @@ def _validate_product_payload(payload: dict[str, Any]) -> None:
         raise HomeRuntimeCommandError(
             "home_product_command_payload_invalid"
         )
-    if is_v1_2:
+    if is_v1_2 or is_v1_3:
         _require_string(
             payload.get("runtime_profile"),
             code="home_product_command_payload_invalid",
@@ -838,24 +857,60 @@ def _validate_product_payload(payload: dict[str, Any]) -> None:
             raise HomeRuntimeCommandError(
                 "home_product_command_payload_invalid"
             )
+        if is_v1_3:
+            if (
+                payload.get("runtime_profile") == "auto"
+                or payload.get("access_mode") != "full"
+                or payload.get("sandbox") != "danger-full-access"
+                or payload.get("approval_policy") != "never"
+                or payload.get("reviewer") is not None
+            ):
+                raise HomeRuntimeCommandError(
+                    "home_product_command_payload_invalid"
+                )
+            for field_name, pattern in (
+                (
+                    "trusted_agent_profile_id",
+                    re.compile(r"^tap_[0-9a-f]{32}$"),
+                ),
+                (
+                    "trusted_agent_workspace_binding_id",
+                    re.compile(r"^wsb_[0-9a-f]{32}$"),
+                ),
+            ):
+                _require_string(
+                    payload.get(field_name),
+                    code="home_product_command_payload_invalid",
+                    maximum=36,
+                    pattern=pattern,
+                )
+            for field_name in (
+                "trusted_agent_profile_epoch",
+                "trusted_agent_workspace_binding_epoch",
+            ):
+                epoch = payload.get(field_name)
+                if (
+                    isinstance(epoch, bool)
+                    or not isinstance(epoch, int)
+                    or epoch < 1
+                    or epoch > 9_007_199_254_740_991
+                ):
+                    raise HomeRuntimeCommandError(
+                        "home_product_command_payload_invalid"
+                    )
         return
-    if payload.get("preferred_agent_profile") not in {
-        "auto",
-        "mimo-code",
-        "codex-cli",
-    }:
+    profile = payload.get("preferred_agent_profile")
+    if (
+        not isinstance(profile, str)
+        or _RUNTIME_PROFILE_PATTERN.fullmatch(profile) is None
+    ):
         raise HomeRuntimeCommandError(
             "home_product_command_payload_invalid"
         )
     if is_v1_1:
-        profile = payload["preferred_agent_profile"]
         model = payload["preferred_model"]
         effort = payload["preferred_reasoning_effort"]
         if (model is None) != (effort is None):
-            raise HomeRuntimeCommandError(
-                "home_product_command_payload_invalid"
-            )
-        if profile != "codex-cli" and (model is not None or effort is not None):
             raise HomeRuntimeCommandError(
                 "home_product_command_payload_invalid"
             )
@@ -1362,20 +1417,40 @@ def validate_product_execution_status(
     payload = command.get("payload")
     if not isinstance(payload, Mapping):
         _status_error("home_product_status_run_binding_invalid")
-    universal_command = (
+    standard_selection_command = (
         command.get("payload_schema_id")
-        == "kolibri.product.run.execute.v1_2.command"
-        and command.get("payload_schema_version") == "1.2"
+        == "kolibri.product.run.execute.v1_1.command"
+        and command.get("payload_schema_version") == "1.1"
         and payload.get("schema_id")
-        == "kolibri.product.run.execute.v1_2.command"
-        and payload.get("schema_version") == "1.2"
+        == "kolibri.product.run.execute.v1_1.command"
+        and payload.get("schema_version") == "1.1"
+    )
+    developer_command = (
+        (
+            command.get("payload_schema_id"),
+            command.get("payload_schema_version"),
+        )
+        in {
+            ("kolibri.product.run.execute.v1_2.command", "1.2"),
+            ("kolibri.product.run.execute.v1_3.command", "1.3"),
+        }
+        and (
+            payload.get("schema_id"),
+            payload.get("schema_version"),
+        )
+        == (
+            command.get("payload_schema_id"),
+            command.get("payload_schema_version"),
+        )
     )
     universal_status = (
         value.get("schema_id")
         == "kolibri.product.run.execution_status.v1_1"
         and value.get("schema_version") == "1.1"
     )
-    if universal_status != universal_command:
+    if developer_command and not universal_status:
+        _status_error("home_product_status_contract_invalid")
+    if not (developer_command or standard_selection_command) and universal_status:
         _status_error("home_product_status_contract_invalid")
     profile_field = "runtime_profile" if universal_status else "profile"
     if frozenset(value) != frozenset(
@@ -1433,7 +1508,7 @@ def validate_product_execution_status(
         _status_error("home_product_status_run_binding_invalid")
     requested_profile = (
         payload.get("runtime_profile")
-        if universal_command
+        if developer_command
         else payload.get("preferred_agent_profile")
     )
     if (

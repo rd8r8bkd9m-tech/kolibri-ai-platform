@@ -25,10 +25,16 @@ import {
   toAgUiThreadData,
 } from "@/lib/product-chat/adapters";
 import {
+  createProductChatAttachmentAdapter,
+  loadProductAttachmentCapability,
+  type ProductAttachmentCapability,
+} from "@/lib/product-chat/attachments";
+import {
   PRODUCT_AG_UI_BFF_URL,
   ProductChatClient,
   createProductAgUiFetch,
 } from "@/lib/product-chat/client";
+import { GeneratedImageToolUI } from "@/components/assistant-ui/generated-image-tool";
 import { WeatherToolUI } from "@/components/assistant-ui/product-widgets";
 import { DeveloperActivityToolUIs } from "@/components/assistant-ui/developer-activity-tool";
 import type {
@@ -101,6 +107,7 @@ function ProductChatRuntimeScope({
   const mountedRef = useRef(false);
   const pendingProjectionRef = useRef<RuntimeProjection | null>(null);
   const refreshThreadsRef = useRef<() => Promise<void>>(async () => undefined);
+  const activeRunIdRef = useRef<string | null>(null);
   const bootstrapRef = useRef<Promise<BootstrapResult> | null>(null);
 
   const agent = useMemo(
@@ -117,7 +124,10 @@ function ProductChatRuntimeScope({
           getAccessMode: () => developerAccessModeRef.current,
           getActiveThreadId: () =>
             projectionRef.current.activeThreadId,
-          onAccepted: () => refreshThreadsRef.current(),
+          onAccepted: (runId) => {
+            activeRunIdRef.current = runId;
+            return refreshThreadsRef.current();
+          },
         }),
       }),
     [],
@@ -350,6 +360,47 @@ function ProductChatRuntimeScope({
   const activeThread = projection.threads.find(
     (thread) => thread.id === projection.activeThreadId,
   );
+  const [attachmentCapability, setAttachmentCapability] =
+    useState<ProductAttachmentCapability | null>(null);
+  useEffect(() => {
+    if (
+      !authenticated ||
+      projection.status !== "ready" ||
+      !activeThread ||
+      activeThread.status !== "regular"
+    ) {
+      setAttachmentCapability(null);
+      return;
+    }
+    let current = true;
+    setAttachmentCapability(null);
+    void loadProductAttachmentCapability({
+      projectId: activeThread.projectId,
+      threadId: activeThread.id,
+    })
+      .then((capability) => {
+        if (current) setAttachmentCapability(capability);
+      })
+      .catch(() => {
+        if (current) setAttachmentCapability(null);
+      });
+    return () => {
+      current = false;
+    };
+  }, [
+    activeThread,
+    authenticated,
+    projection.status,
+  ]);
+  const attachments = useMemo(
+    () =>
+      attachmentCapability
+        ? createProductChatAttachmentAdapter({
+            capability: attachmentCapability,
+          })
+        : undefined,
+    [attachmentCapability],
+  );
   const feedback = useMemo(
     () =>
       createProductChatFeedbackAdapter({
@@ -369,6 +420,25 @@ function ProductChatRuntimeScope({
   );
   const runtime = useAgUiRuntime({
     agent,
+    onCancel: () => {
+      // assistant-ui and HttpAgent own separate abort controllers. Stop both
+      // locally, then terminalize and fence the canonical server run.
+      agent.abortRun();
+      const runId = activeRunIdRef.current;
+      activeRunIdRef.current = null;
+      if (!runId) return;
+      void client
+        .cancelRun(runId)
+        .then(() => refreshThreadsRef.current())
+        .catch((error: unknown) => {
+          if (process.env.NODE_ENV === "development") {
+            console.error(
+              "[Kolibri Product Chat] failed to cancel run",
+              error,
+            );
+          }
+        });
+    },
     // Keep reasoning lifecycle parts so the UI can show a safe, collapsible
     // progress summary. Raw chain-of-thought text is never rendered.
     showThinking: true,
@@ -377,6 +447,7 @@ function ProductChatRuntimeScope({
       projection.status !== "ready" ||
       activeThread?.status === "archived",
     adapters: {
+      attachments,
       feedback: authenticated ? feedback : undefined,
       history,
       threadList: threadListAdapter,
@@ -407,6 +478,7 @@ function ProductChatRuntimeScope({
       }}
     >
       <AssistantRuntimeProvider runtime={runtime}>
+        <GeneratedImageToolUI />
         <WeatherToolUI />
         <DeveloperActivityToolUIs />
         {children}

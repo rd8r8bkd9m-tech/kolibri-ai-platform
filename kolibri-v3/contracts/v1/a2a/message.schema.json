@@ -1,0 +1,143 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/a2a/message.schema.json",
+  "title": "Kolibri typed A2A message event payload v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "a2a_message_id",
+    "tenant_id",
+    "goal_id",
+    "case_id",
+    "task_id",
+    "task_version",
+    "channel_id",
+    "sequence",
+    "previous_message_id",
+    "sender_actor_id",
+    "sender_assignment_id",
+    "recipient_assignment_ids",
+    "recipient_capability",
+    "message_type",
+    "purpose",
+    "response_to_message_id",
+    "content",
+    "content_hash",
+    "deduplication_key",
+    "sent_at",
+    "expires_at"
+  ],
+  "properties": {
+    "schema_id": { "const": "kolibri.a2a.message_appended.event" },
+    "schema_version": { "const": "1.0" },
+    "a2a_message_id": { "$ref": "#/definitions/opaque_id" },
+    "tenant_id": { "$ref": "#/definitions/opaque_id" },
+    "goal_id": { "$ref": "#/definitions/opaque_id" },
+    "case_id": { "$ref": "#/definitions/opaque_id" },
+    "task_id": { "$ref": "#/definitions/opaque_id" },
+    "task_version": { "type": "integer", "minimum": 1 },
+    "channel_id": { "$ref": "#/definitions/opaque_id" },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "previous_message_id": {
+      "oneOf": [
+        { "$ref": "#/definitions/opaque_id" },
+        { "type": "null" }
+      ]
+    },
+    "sender_actor_id": { "$ref": "#/definitions/opaque_id" },
+    "sender_assignment_id": { "$ref": "#/definitions/opaque_id" },
+    "recipient_assignment_ids": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/definitions/opaque_id" }
+    },
+    "recipient_capability": {
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_.:-]{2,127}$"
+        },
+        { "type": "null" }
+      ]
+    },
+    "message_type": {
+      "type": "string",
+      "enum": [
+        "request",
+        "clarification",
+        "proposal",
+        "challenge",
+        "handoff",
+        "review",
+        "revision_request",
+        "approval",
+        "rejection",
+        "escalation"
+      ]
+    },
+    "purpose": { "type": "string", "minLength": 1, "maxLength": 1000 },
+    "response_to_message_id": {
+      "oneOf": [
+        { "$ref": "#/definitions/opaque_id" },
+        { "type": "null" }
+      ]
+    },
+    "content": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "trust",
+        "text",
+        "structured_data",
+        "reference_ids"
+      ],
+      "properties": {
+        "trust": { "const": "untrusted_content" },
+        "text": { "type": "string", "minLength": 1, "maxLength": 32000 },
+        "structured_data": { "type": "object" },
+        "reference_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/definitions/opaque_id" }
+        }
+      }
+    },
+    "content_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "deduplication_key": {
+      "type": "string",
+      "minLength": 16,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:~-]+$"
+    },
+    "sent_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" }
+  },
+  "definitions": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "sequence": { "const": 1 } },
+        "required": ["sequence"]
+      },
+      "then": {
+        "properties": { "previous_message_id": { "type": "null" } }
+      },
+      "else": {
+        "properties": { "previous_message_id": { "type": "string" } }
+      }
+    }
+  ]
+}

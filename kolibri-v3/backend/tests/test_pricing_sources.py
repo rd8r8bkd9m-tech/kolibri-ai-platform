@@ -11,25 +11,23 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from docx import Document
-from fastapi.testclient import TestClient
-from openpyxl import load_workbook
-
 from app.config import Settings
 from app.estimate_artifact import GeneratedEstimateProposal
 from app.main import create_app
 from app.pricing_sources import (
+    FGIS_SOURCE_POLICY_VERSION,
     FgisCandidate,
     FgisContext,
     FgisMatch,
     FgisPriceAdapter,
     FgisRefreshResult,
-    FGIS_SOURCE_POLICY_VERSION,
     PricingSourceUnavailable,
     sha256_json,
 )
 from app.product_widgets import materialize_generated_estimate_widget
-
+from docx import Document
+from fastapi.testclient import TestClient
+from openpyxl import load_workbook
 
 ORIGIN = {"Origin": "http://testserver"}
 
@@ -186,6 +184,18 @@ def _seed_project(
     database = sqlite3.connect(database_path)
     try:
         database.execute("PRAGMA foreign_keys = ON")
+        database.execute(
+            """
+            INSERT INTO product_entitlement_grants (
+                tenant_id, user_id, entitlement_code, status,
+                grant_epoch, source, created_at, updated_at
+            ) VALUES (
+                ?, ?, 'construction.estimates.use', 'active',
+                1, 'subscription_policy', unixepoch(), unixepoch()
+            )
+            """,
+            (tenant_id, user_id),
+        )
         database.execute(
             """
             INSERT INTO projects (

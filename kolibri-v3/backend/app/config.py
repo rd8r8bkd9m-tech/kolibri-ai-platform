@@ -33,6 +33,20 @@ _REQUIRED_PRODUCT_AUTHORITY_CAPABILITIES = frozenset(
         _PRODUCT_PROVIDER_ENROLLMENT_CAPABILITY,
     }
 )
+_STORAGE_EXECUTOR_SOCKET = Path(
+    "/run/kolibri-storage-executor/executor.sock"
+)
+_STORAGE_EXECUTOR_BINARY = Path(
+    "/usr/local/libexec/kolibri-storage-executor"
+)
+_STORAGE_EXECUTOR_POLICY = Path(
+    "/etc/kolibri-storage-executor/policy.json"
+)
+_SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+_V3_ROOT = Path(__file__).resolve().parents[2]
+_DEFAULT_DATABASE_URL = (
+    f"sqlite:///{_V3_ROOT / 'var' / 'kolibri-v3.db'}"
+)
 
 
 def _parse_bool(value: str | None, *, default: bool) -> bool:
@@ -221,7 +235,7 @@ class Settings:
     requests can never supply or infer a role or tenant id.
     """
 
-    database_url: str = "sqlite:///./var/kolibri-v3.db"
+    database_url: str = _DEFAULT_DATABASE_URL
     allowed_origins: tuple[str, ...] = (
         "http://127.0.0.1:3103",
         "http://localhost:3103",
@@ -232,6 +246,9 @@ class Settings:
     session_cookie_name: str = "kolibri_v3_session"
     csrf_cookie_name: str = "kolibri_v3_csrf"
     session_ttl_seconds: int = 7 * 24 * 60 * 60
+    mobile_access_ttl_seconds: int = 15 * 60
+    mobile_refresh_ttl_seconds: int = 30 * 24 * 60 * 60
+    attachment_storage_root: Path | None = None
     csrf_secret: bytes = field(default_factory=lambda: secrets.token_bytes(32))
     product_authority_id: str | None = None
     product_authority_epoch: int | None = None
@@ -278,15 +295,45 @@ class Settings:
         "tool.shell.full",
         "tool.shell.workspace",
     )
-    provider_execution_card_version: int = 1
+    provider_execution_card_version: int = 2
     provider_execution_card_updated_at: str = (
-        "2026-07-29T00:00:00+00:00"
+        "2026-07-30T00:00:00+00:00"
     )
+    storage_executor_enabled: bool = False
+    storage_executor_protocol_version: str = "v1"
+    storage_executor_home_socket_path: Path | None = None
+    storage_executor_home_executable_path: Path | None = None
+    storage_executor_home_policy_path: Path | None = None
+    storage_executor_home_policy_digest: str | None = None
+    storage_executor_timeout_seconds: float = 2.0
+    storage_executor_max_request_bytes: int = 65_536
+    storage_executor_max_response_bytes: int = 262_144
     fgis_pricing_enabled: bool = False
 
     def __post_init__(self) -> None:
         if not self.database_url.startswith("sqlite:///"):
             raise ValueError("Kolibri V3 currently accepts only sqlite:/// URLs")
+
+        attachment_storage_root = self.attachment_storage_root
+        if attachment_storage_root is None:
+            database_filename = self.database_url.removeprefix("sqlite:///")
+            if database_filename == ":memory:":
+                attachment_storage_root = Path("./var/kolibri-v3.attachments")
+            else:
+                database_file = Path(database_filename)
+                attachment_storage_root = (
+                    database_file.parent / f"{database_file.name}.attachments"
+                )
+        attachment_storage_root = (
+            attachment_storage_root.expanduser().resolve()
+        )
+        if attachment_storage_root == Path(attachment_storage_root.anchor):
+            raise ValueError("Attachment storage root cannot be a filesystem root")
+        object.__setattr__(
+            self,
+            "attachment_storage_root",
+            attachment_storage_root,
+        )
 
         normalized_origins = tuple(
             dict.fromkeys(normalize_origin(origin) for origin in self.allowed_origins)
@@ -307,6 +354,20 @@ class Settings:
 
         if not (300 <= self.session_ttl_seconds <= 30 * 24 * 60 * 60):
             raise ValueError("session TTL must be between 5 minutes and 30 days")
+        if not (60 <= self.mobile_access_ttl_seconds <= 60 * 60):
+            raise ValueError(
+                "mobile access TTL must be between 1 minute and 1 hour"
+            )
+        if not (
+            60 * 60
+            <= self.mobile_refresh_ttl_seconds
+            <= 90 * 24 * 60 * 60
+        ):
+            raise ValueError(
+                "mobile refresh TTL must be between 1 hour and 90 days"
+            )
+        if self.mobile_access_ttl_seconds >= self.mobile_refresh_ttl_seconds:
+            raise ValueError("mobile access TTL must be shorter than refresh TTL")
         if len(self.csrf_secret) < 32:
             raise ValueError("CSRF secret must contain at least 32 bytes")
         if not self.session_cookie_name or not self.csrf_cookie_name:
@@ -414,8 +475,7 @@ class Settings:
         if self.developer_agent_enabled:
             if self.environment == "production":
                 raise ValueError(
-                    "Local developer agent cannot run in production; use "
-                    "Provider Execution Authority"
+                    "Developer agent cannot run in production"
                 )
             if not self.direct_model_runtime_enabled:
                 raise ValueError(
@@ -429,6 +489,10 @@ class Settings:
             if not workspace_root.is_dir():
                 raise ValueError(
                     "Developer agent workspace root must be an existing directory"
+                )
+            if not os.access(workspace_root, os.W_OK | os.X_OK):
+                raise ValueError(
+                    "Developer agent workspace root must be writable"
                 )
             object.__setattr__(
                 self,
@@ -514,6 +578,63 @@ class Settings:
                 provider_workspace_root,
             )
 
+        storage_identity = (
+            self.storage_executor_home_socket_path,
+            self.storage_executor_home_executable_path,
+            self.storage_executor_home_policy_path,
+            self.storage_executor_home_policy_digest,
+        )
+        has_storage_identity = all(
+            value is not None for value in storage_identity
+        )
+        if any(value is not None for value in storage_identity) and not (
+            has_storage_identity
+        ):
+            raise ValueError(
+                "Storage executor Home identity must be configured together"
+            )
+        if (
+            self.storage_executor_protocol_version != "v1"
+            or isinstance(self.storage_executor_timeout_seconds, bool)
+            or not isinstance(
+                self.storage_executor_timeout_seconds,
+                (int, float),
+            )
+            or not 0.1 <= self.storage_executor_timeout_seconds <= 10
+            or isinstance(self.storage_executor_max_request_bytes, bool)
+            or not isinstance(self.storage_executor_max_request_bytes, int)
+            or not 1_024 <= self.storage_executor_max_request_bytes <= 65_536
+            or isinstance(self.storage_executor_max_response_bytes, bool)
+            or not isinstance(self.storage_executor_max_response_bytes, int)
+            or not (
+                1_024
+                <= self.storage_executor_max_response_bytes
+                <= 262_144
+            )
+        ):
+            raise ValueError("Storage executor protocol limits are invalid")
+        if self.storage_executor_enabled and not has_storage_identity:
+            raise ValueError(
+                "Enabled storage executor requires an exact Home identity"
+            )
+        if has_storage_identity and (
+            self.storage_executor_home_socket_path
+            != _STORAGE_EXECUTOR_SOCKET
+            or self.storage_executor_home_executable_path
+            != _STORAGE_EXECUTOR_BINARY
+            or self.storage_executor_home_policy_path
+            != _STORAGE_EXECUTOR_POLICY
+            or not isinstance(
+                self.storage_executor_home_policy_digest,
+                str,
+            )
+            or _SHA256_PATTERN.fullmatch(
+                self.storage_executor_home_policy_digest
+            )
+            is None
+        ):
+            raise ValueError("Storage executor Home identity is invalid")
+
     def require_product_authority_grant(self) -> ProductAuthorityGrant:
         """Return a complete server-owned grant or fail before accepting a run."""
 
@@ -532,11 +653,24 @@ class Settings:
             capabilities=self.product_authority_capabilities,
         )
 
+    def chat_execution_plane(self, execution_mode: str) -> str:
+        """Choose the physical runtime exclusively from server capabilities."""
+
+        if execution_mode == "developer":
+            if (
+                self.environment != "production"
+                and self.direct_model_runtime_enabled
+                and self.developer_agent_enabled
+            ):
+                return "direct"
+            return "home"
+        return "direct" if self.direct_model_runtime_enabled else "home"
+
     @classmethod
     def from_env(cls) -> "Settings":
         environment = os.getenv("KOLIBRI_V3_ENV", "development").strip().lower()
         database_url = os.getenv(
-            "KOLIBRI_V3_DATABASE_URL", "sqlite:///./var/kolibri-v3.db"
+            "KOLIBRI_V3_DATABASE_URL", _DEFAULT_DATABASE_URL
         ).strip()
         raw_origins = os.getenv(
             "KOLIBRI_V3_ALLOWED_ORIGINS",
@@ -553,9 +687,27 @@ class Settings:
             else _development_csrf_secret(database_url)
         )
 
-        default_workspace_root = Path(__file__).resolve().parents[3]
+        default_workspace_root = Path(__file__).resolve().parents[2]
         configured_workspace_root = _optional_text(
             os.getenv("KOLIBRI_V3_DEVELOPER_WORKSPACE_ROOT")
+        )
+        configured_attachment_storage_root = _optional_text(
+            os.getenv("KOLIBRI_V3_ATTACHMENT_STORAGE_ROOT")
+        )
+        storage_executor_enabled = _parse_bool(
+            os.getenv("KOLIBRI_V3_STORAGE_EXECUTOR_ENABLED"),
+            default=False,
+        )
+        storage_socket = _optional_text(
+            os.getenv("KOLIBRI_V3_STORAGE_EXECUTOR_HOME_SOCKET_PATH")
+        )
+        storage_executable = _optional_text(
+            os.getenv(
+                "KOLIBRI_V3_STORAGE_EXECUTOR_HOME_EXECUTABLE_PATH"
+            )
+        )
+        storage_policy = _optional_text(
+            os.getenv("KOLIBRI_V3_STORAGE_EXECUTOR_HOME_POLICY_PATH")
         )
         provider_execution_enabled = _parse_bool(
             os.getenv("KOLIBRI_V3_PROVIDER_EXECUTION_ENABLED"),
@@ -577,6 +729,11 @@ class Settings:
                 os.getenv("KOLIBRI_V3_COOKIE_SECURE"),
                 default=environment == "production",
             ),
+            attachment_storage_root=(
+                Path(configured_attachment_storage_root)
+                if configured_attachment_storage_root is not None
+                else None
+            ),
             direct_model_runtime_enabled=_parse_bool(
                 os.getenv("KOLIBRI_V3_DIRECT_MODEL_RUNTIME"),
                 default=environment == "development",
@@ -590,7 +747,11 @@ class Settings:
             developer_workspace_root=(
                 Path(configured_workspace_root)
                 if configured_workspace_root is not None
-                else default_workspace_root
+                else (
+                    default_workspace_root
+                    if environment != "production"
+                    else None
+                )
             ),
             developer_agent_timeout_seconds=_parse_float(
                 os.getenv("KOLIBRI_V3_DEVELOPER_AGENT_TIMEOUT_SECONDS"),
@@ -637,13 +798,55 @@ class Settings:
             ),
             provider_execution_card_version=_parse_int(
                 os.getenv("KOLIBRI_V3_PROVIDER_EXECUTION_CARD_VERSION"),
-                default=1,
+                default=2,
                 name="KOLIBRI_V3_PROVIDER_EXECUTION_CARD_VERSION",
             ),
             provider_execution_card_updated_at=os.getenv(
                 "KOLIBRI_V3_PROVIDER_EXECUTION_CARD_UPDATED_AT",
-                "2026-07-29T00:00:00+00:00",
+                "2026-07-30T00:00:00+00:00",
             ).strip(),
+            storage_executor_enabled=storage_executor_enabled,
+            storage_executor_protocol_version=os.getenv(
+                "KOLIBRI_V3_STORAGE_EXECUTOR_PROTOCOL_VERSION",
+                "v1",
+            ).strip(),
+            storage_executor_home_socket_path=(
+                Path(storage_socket) if storage_socket is not None else None
+            ),
+            storage_executor_home_executable_path=(
+                Path(storage_executable)
+                if storage_executable is not None
+                else None
+            ),
+            storage_executor_home_policy_path=(
+                Path(storage_policy) if storage_policy is not None else None
+            ),
+            storage_executor_home_policy_digest=_optional_text(
+                os.getenv(
+                    "KOLIBRI_V3_STORAGE_EXECUTOR_HOME_POLICY_DIGEST"
+                )
+            ),
+            storage_executor_timeout_seconds=_parse_float(
+                os.getenv(
+                    "KOLIBRI_V3_STORAGE_EXECUTOR_TIMEOUT_SECONDS"
+                ),
+                default=2.0,
+                name="KOLIBRI_V3_STORAGE_EXECUTOR_TIMEOUT_SECONDS",
+            ),
+            storage_executor_max_request_bytes=_parse_int(
+                os.getenv(
+                    "KOLIBRI_V3_STORAGE_EXECUTOR_MAX_REQUEST_BYTES"
+                ),
+                default=65_536,
+                name="KOLIBRI_V3_STORAGE_EXECUTOR_MAX_REQUEST_BYTES",
+            ),
+            storage_executor_max_response_bytes=_parse_int(
+                os.getenv(
+                    "KOLIBRI_V3_STORAGE_EXECUTOR_MAX_RESPONSE_BYTES"
+                ),
+                default=262_144,
+                name="KOLIBRI_V3_STORAGE_EXECUTOR_MAX_RESPONSE_BYTES",
+            ),
             fgis_pricing_enabled=_parse_bool(
                 os.getenv("KOLIBRI_V3_FGIS_PRICING_ENABLED"),
                 default=environment != "production",
@@ -656,6 +859,16 @@ class Settings:
             ).strip(),
             session_ttl_seconds=int(
                 os.getenv("KOLIBRI_V3_SESSION_TTL_SECONDS", str(7 * 24 * 60 * 60))
+            ),
+            mobile_access_ttl_seconds=_parse_int(
+                os.getenv("KOLIBRI_V3_MOBILE_ACCESS_TTL_SECONDS"),
+                default=15 * 60,
+                name="KOLIBRI_V3_MOBILE_ACCESS_TTL_SECONDS",
+            ),
+            mobile_refresh_ttl_seconds=_parse_int(
+                os.getenv("KOLIBRI_V3_MOBILE_REFRESH_TTL_SECONDS"),
+                default=30 * 24 * 60 * 60,
+                name="KOLIBRI_V3_MOBILE_REFRESH_TTL_SECONDS",
             ),
             csrf_secret=csrf_secret,
             product_authority_id=_optional_text(

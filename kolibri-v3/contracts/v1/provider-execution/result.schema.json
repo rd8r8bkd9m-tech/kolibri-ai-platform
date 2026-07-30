@@ -1,0 +1,197 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/provider-execution/result.schema.json",
+  "title": "Kolibri provider execution result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "effect_key",
+    "request_hash",
+    "task_id",
+    "attempt_id",
+    "assignment_id",
+    "lease_id",
+    "fencing_token",
+    "runtime_profile",
+    "status",
+    "replayed",
+    "output",
+    "activity",
+    "error"
+  ],
+  "properties": {
+    "schema_id": { "const": "kolibri.provider_execution.result" },
+    "schema_version": { "const": "1.0" },
+    "effect_key": {
+      "type": "string",
+      "pattern": "^effect_[0-9a-f]{40}$"
+    },
+    "request_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "task_id": { "$ref": "#/definitions/bounded_id" },
+    "attempt_id": { "$ref": "#/definitions/bounded_id" },
+    "assignment_id": { "$ref": "#/definitions/bounded_id" },
+    "lease_id": { "$ref": "#/definitions/bounded_id" },
+    "fencing_token": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "runtime_profile": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{1,95}$"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["completed", "failed"]
+    },
+    "replayed": { "type": "boolean" },
+    "output": {
+      "oneOf": [
+        { "$ref": "#/definitions/output" },
+        { "type": "null" }
+      ]
+    },
+    "activity": {
+      "type": "array",
+      "maxItems": 128,
+      "items": { "$ref": "#/definitions/activity_event" }
+    },
+    "error": {
+      "oneOf": [
+        { "$ref": "#/definitions/error" },
+        { "type": "null" }
+      ]
+    }
+  },
+  "definitions": {
+    "bounded_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[^\\u0000]+$"
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["response", "session_id", "tool_call"],
+      "properties": {
+        "response": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200000
+            },
+            { "type": "null" }
+          ]
+        },
+        "session_id": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            { "type": "null" }
+          ]
+        },
+        "tool_call": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name", "arguments"],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9][a-z0-9._-]{1,95}$"
+                },
+                "arguments": { "type": "object" }
+              }
+            },
+            { "type": "null" }
+          ]
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "response": { "type": "string" },
+            "tool_call": { "type": "null" }
+          }
+        },
+        {
+          "properties": {
+            "response": { "type": "null" },
+            "tool_call": { "type": "object" }
+          }
+        }
+      ]
+    },
+    "activity_event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phase", "payload"],
+      "properties": {
+        "phase": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "payload": { "type": "object" }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "category", "retryable", "safe_message"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_.-]{2,95}$"
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "configuration",
+            "authentication",
+            "unavailable",
+            "invalid_output",
+            "execution"
+          ]
+        },
+        "retryable": { "type": "boolean" },
+        "safe_message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "status": { "const": "completed" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "output": { "$ref": "#/definitions/output" },
+          "error": { "type": "null" }
+        }
+      },
+      "else": {
+        "properties": {
+          "output": { "type": "null" },
+          "error": { "$ref": "#/definitions/error" }
+        }
+      }
+    }
+  ]
+}

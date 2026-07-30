@@ -163,3 +163,38 @@ test("each character has a distinct interaction and motion/data reductions", asy
     /\.kolibri-pet-art__idle,[\s\S]*\.kolibri-pet-art__reaction[\s\S]*animation:\s*none !important/,
   );
 });
+
+test("the web pet is a persistent assistant bound to the active Product Chat", async () => {
+  const [pet, shell, sidebar, css] = await Promise.all([
+    readSource("components/kolibri-shell/kolibri-pet.tsx"),
+    readSource("components/kolibri-shell/workspace-shell.tsx"),
+    readSource("components/kolibri-shell/workspace-sidebar.tsx"),
+    readSource("app/globals.css"),
+  ]);
+
+  assert.match(pet, /export function KolibriPetHost/);
+  assert.match(shell, /<KolibriPetHost \/>/);
+  assert.doesNotMatch(sidebar, /<KolibriPet\b/);
+  assert.match(pet, /ComposerPrimitive\.Root/);
+  assert.match(pet, /ComposerPrimitive\.Input/);
+  assert.match(pet, /ComposerPrimitive\.Send/);
+  assert.match(pet, /ComposerPrimitive\.Cancel/);
+  assert.match(pet, /useAuiState/);
+  assert.match(pet, /state\.thread\.isRunning/);
+  assert.match(pet, /(?:state|value)\.composer\.isEmpty/);
+  assert.match(pet, /role="dialog"/);
+  assert.match(pet, /aria-live="polite"/);
+  assert.match(pet, /data-pet-run-state=\{runState\}/);
+  assert.match(pet, /"idle" \| "thinking" \| "success" \| "error"/);
+  assert.match(pet, /prefers-reduced-motion: reduce/);
+  assert.doesNotMatch(pet, /\bfetch\s*\(/);
+  assert.doesNotMatch(pet, /setTimeout\([^)]*(fake|mock)|mock response/i);
+
+  for (const state of ["thinking", "success", "error"]) {
+    assert.ok(
+      css.includes(`data-pet-run-state="${state}"`),
+      `missing visual pet state ${state}`,
+    );
+  }
+  assert.match(css, /data-reduced-motion="true"/);
+});

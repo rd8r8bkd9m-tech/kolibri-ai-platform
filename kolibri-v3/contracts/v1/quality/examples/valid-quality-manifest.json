@@ -1,0 +1,38 @@
+{
+  "schema_id": "kolibri.artifact_quality_manifest",
+  "schema_version": "1.0",
+  "manifest_id": "manifest_01JZQUALITY01",
+  "manifest_version": 1,
+  "tenant_id": "ten_01JZTENANT0001",
+  "goal_id": "goal_01JZGOAL00001",
+  "case_id": "case_01JZCASE00001",
+  "artifact_ref": {
+    "artifact_id": "artifact_01JZESTIMATE01",
+    "artifact_version": 3,
+    "content_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "artifact_state_version": 3,
+  "artifact_status": "approved_internal",
+  "evidence_refs": [
+    {
+      "ref_id": "evidence_01JZPRICE0001",
+      "version": 1
+    }
+  ],
+  "review_refs": [
+    {
+      "ref_id": "review_01JZQUALITY001",
+      "version": 1
+    }
+  ],
+  "signoff_refs": [
+    {
+      "ref_id": "signoff_01JZINTERNAL1",
+      "version": 1
+    }
+  ],
+  "eligibility": "eligible_internal",
+  "blockers": [],
+  "generated_at": "2026-07-24T02:20:01+03:00",
+  "generated_by": "service_01JZQUALITY01"
+}

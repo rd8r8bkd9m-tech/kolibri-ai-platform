@@ -37,14 +37,14 @@ from .local_provider_authority import (
     verify_codex_login,
 )
 from .schemas import UserSession
-from .security import require_csrf
+from .security import require_mutation_auth
 
 
 router = APIRouter(prefix="/v1/provider-connections", tags=["providers"])
 
 DatabaseDependency = Annotated[sqlite3.Connection, Depends(get_database)]
 OwnerDependency = Annotated[UserSession, Depends(require_owner)]
-CsrfDependency = Annotated[None, Depends(require_csrf)]
+MutationAuthDependency = Annotated[None, Depends(require_mutation_auth)]
 
 # These IDs name the two transport-specific enrollment adapters implemented in
 # this module. Common storage and projection accept any registered bounded
@@ -423,7 +423,7 @@ async def create_provider_enrollment_intent(
     request: Request,
     database: DatabaseDependency,
     identity: OwnerDependency,
-    _csrf: CsrfDependency,
+    _auth: MutationAuthDependency,
     idempotency_key: Annotated[
         str | None,
         Header(alias="Idempotency-Key"),
@@ -687,7 +687,7 @@ async def connect_local_mimo(
     request: Request,
     database: DatabaseDependency,
     identity: OwnerDependency,
-    _csrf: CsrfDependency,
+    _auth: MutationAuthDependency,
 ) -> dict[str, Any]:
     body = await request.body()
     if not body or len(body) > _MAX_CREDENTIAL_BODY_BYTES:
@@ -738,7 +738,7 @@ def connect_local_codex(
     request: Request,
     database: DatabaseDependency,
     identity: OwnerDependency,
-    _csrf: CsrfDependency,
+    _auth: MutationAuthDependency,
 ) -> dict[str, Any]:
     settings: Settings = request.app.state.settings
     try:

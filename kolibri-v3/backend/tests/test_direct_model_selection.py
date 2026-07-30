@@ -6,25 +6,25 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-import pytest
-from fastapi.testclient import TestClient
-
 import app.direct_model_runtime as direct_model_runtime
+import pytest
+from app.chat.execution_adapter import PreparedChatExecution
 from app.chat.models import AgUiRunInput
 from app.chat.service import accept_run
 from app.codex_app_server import CodexModel
 from app.config import Settings
+from app.database import connect_database, transaction
 from app.estimate_artifact import (
     GeneratedEstimateProposal,
     canonical_estimate_json,
     estimate_content_hash,
     estimate_document_from_proposal,
 )
-from app.database import connect_database, transaction
 from app.main import create_app
 from app.mimo_developer_runtime import MimoDeveloperResult
+from app.product_entitlements import bind_product_entitlements
 from app.schemas import AgentProfile, UserRole, UserSession
-
+from fastapi.testclient import TestClient
 
 ORIGIN = {"Origin": "http://testserver"}
 PASSWORD = "correct-horse-battery-staple"
@@ -33,6 +33,63 @@ PROJECT_ID = "project_direct_model_selection_01"
 THREAD_ID = "thread_direct_model_selection_01"
 MESSAGE_ID = "message_direct_model_selection_01"
 RUN_ID = "run_direct_model_selection_01"
+
+
+def _prepared(
+    *,
+    profile: str,
+    model: str | None = None,
+    effort: str | None = None,
+    service_tier: str | None = None,
+) -> PreparedChatExecution:
+    return PreparedChatExecution(
+        execution_plane="direct",
+        runtime_profile=profile,
+        model_id=model,
+        reasoning_effort=effort,
+        service_tier=service_tier,
+    )
+
+
+def _enable_developer_policy(
+    database: sqlite3.Connection,
+    identity: UserSession,
+) -> None:
+    database.execute(
+        """
+        INSERT INTO platform_authority_grants (
+            authority_id, user_id, tenant_id, active, authority_epoch,
+            capabilities_json, created_at, updated_at
+        ) VALUES (
+            'platform_owner', ?, ?, 1, 1,
+            '["platform.admin","chat.developer.request","chat.use"]',
+            unixepoch(), unixepoch()
+        )
+        ON CONFLICT(authority_id) DO UPDATE SET
+            user_id = excluded.user_id,
+            tenant_id = excluded.tenant_id,
+            active = 1,
+            capabilities_json = excluded.capabilities_json,
+            updated_at = unixepoch()
+        """,
+        (identity.user_id, identity.tenant_id),
+    )
+    database.execute(
+        """
+        UPDATE platform_tenant_policies
+        SET developer_access_enabled = 1
+        WHERE tenant_id = ?
+        """,
+        (identity.tenant_id,),
+    )
+    database.execute(
+        """
+        UPDATE platform_user_controls
+        SET developer_access = 'allow'
+        WHERE tenant_id = ? AND user_id = ?
+        """,
+        (identity.tenant_id, identity.user_id),
+    )
 
 
 def _catalog_model() -> CodexModel:
@@ -81,7 +138,10 @@ class RecordingMimoDeveloperRuntime:
 
 
 def _settings(database_path: Path) -> Settings:
-    return Settings.for_testing(database_url=database_path)
+    return replace(
+        Settings.for_testing(database_url=database_path),
+        direct_model_runtime_enabled=True,
+    )
 
 
 def _runtime_registry(
@@ -194,19 +254,54 @@ def _seed_run(
                 ),
             )
             if include_execution_context:
+                if execution_mode == "developer":
+                    database.execute(
+                        """
+                        INSERT INTO platform_authority_grants (
+                            authority_id, user_id, tenant_id, active,
+                            authority_epoch, capabilities_json,
+                            created_at, updated_at
+                        ) VALUES (
+                            'platform_owner', ?, ?, 1, 1,
+                            '["platform.admin","chat.developer.request","chat.use"]',
+                            unixepoch(), unixepoch()
+                        )
+                        """,
+                        (user_id, tenant_id),
+                    )
+                    database.execute(
+                        """
+                        UPDATE platform_tenant_policies
+                        SET developer_access_enabled = 1
+                        WHERE tenant_id = ?
+                        """,
+                        (tenant_id,),
+                    )
+                    database.execute(
+                        """
+                        UPDATE platform_user_controls
+                        SET developer_access = 'allow'
+                        WHERE tenant_id = ? AND user_id = ?
+                        """,
+                        (tenant_id, user_id),
+                    )
                 database.execute(
                     """
                     INSERT INTO chat_run_execution_contexts (
-                        tenant_id, run_id, execution_mode, access_mode,
+                        tenant_id, run_id, execution_mode,
+                        platform_authority_epoch, access_mode,
                         authority_role, authority_user_id, workspace_ref,
                         sandbox_profile, approval_policy, approvals_reviewer,
                         model_id, reasoning_effort, service_tier, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    )
                     """,
                     (
                         tenant_id,
                         RUN_ID,
                         execution_mode,
+                        1 if execution_mode == "developer" else None,
                         access_mode,
                         "owner" if execution_mode == "developer" else "user",
                         user_id,
@@ -398,6 +493,12 @@ def test_acceptance_snapshot_is_the_selection_used_by_direct_execution(
             settings=settings,
             identity=identity,
             run_input=run_input,
+            prepared=_prepared(
+                profile="codex-cli",
+                model="gpt-test-selected",
+                effort="high",
+                service_tier="priority",
+            ),
         )
         frozen = database.execute(
             """
@@ -475,6 +576,16 @@ def test_run_acceptance_freezes_only_applicable_model_preferences(
         preferred_service_tier="priority",
         email="direct-model@example.com",
         name="Direct Model",
+        is_platform_owner=(execution_mode == "developer"),
+        platform_capabilities=(
+            (
+                "platform.admin",
+                "chat.developer.request",
+                "chat.use",
+            )
+            if execution_mode == "developer"
+            else ("chat.use",)
+        ),
     )
     run_input = AgUiRunInput.model_validate(
         {
@@ -499,11 +610,33 @@ def test_run_acceptance_freezes_only_applicable_model_preferences(
     )
     database = connect_database(database_path)
     try:
+        if execution_mode == "developer":
+            _enable_developer_policy(database, identity)
+        if "смет" in prompt.casefold():
+            database.execute(
+                """
+                INSERT INTO product_entitlement_grants (
+                    tenant_id, user_id, entitlement_code, status,
+                    grant_epoch, source, created_at, updated_at
+                ) VALUES (
+                    ?, ?, 'construction.estimates.use', 'active',
+                    1, 'subscription_policy', unixepoch(), unixepoch()
+                )
+                """,
+                (identity.tenant_id, identity.user_id),
+            )
+            identity = bind_product_entitlements(database, identity)
         accepted = accept_run(
             database,
             settings=settings,
             identity=identity,
             run_input=run_input,
+            prepared=_prepared(
+                profile="codex-cli",
+                model=expected_selection[0],
+                effort=expected_selection[1],
+                service_tier=expected_selection[2],
+            ),
         )
         frozen = database.execute(
             """
@@ -556,10 +689,17 @@ def test_developer_mimo_profile_executes_mimo_without_codex_substitution(
         preferred_service_tier="priority",
         email="direct-model@example.com",
         name="Direct Model",
+        is_platform_owner=True,
+        platform_capabilities=(
+            "platform.admin",
+            "chat.developer.request",
+            "chat.use",
+        ),
     )
     database = connect_database(database_path)
     try:
         with transaction(database, immediate=True):
+            _enable_developer_policy(database, identity)
             database.execute(
                 """
                 INSERT INTO provider_connections (
@@ -594,6 +734,7 @@ def test_developer_mimo_profile_executes_mimo_without_codex_substitution(
                     },
                 }
             ),
+            prepared=_prepared(profile="mimo-code"),
         )
         frozen = database.execute(
             """
@@ -630,7 +771,7 @@ def test_developer_mimo_profile_executes_mimo_without_codex_substitution(
     assert mimo_developer_runtime.complete_calls[0]["workspace_root"] == tmp_path
 
 
-def test_developer_auto_profile_resolves_mimo_without_codex_substitution(
+def test_historical_developer_auto_profile_fails_without_substitution(
     tmp_path: Path,
 ) -> None:
     database_path = tmp_path / "developer-auto-mimo.db"
@@ -681,8 +822,17 @@ def test_developer_auto_profile_resolves_mimo_without_codex_substitution(
 
     assert codex_runtime.catalog_calls == 0
     assert codex_runtime.complete_calls == []
-    assert len(mimo_developer_runtime.complete_calls) == 1
-    assert mimo_developer_runtime.complete_calls[0]["access_mode"] == "auto"
+    assert mimo_developer_runtime.complete_calls == []
+    database = sqlite3.connect(database_path)
+    try:
+        status, error_code = database.execute(
+            "SELECT status, error_code FROM chat_runs WHERE id = ?",
+            (RUN_ID,),
+        ).fetchone()
+    finally:
+        database.close()
+    assert status == "failed"
+    assert error_code is not None
 
 
 def test_legacy_developer_access_snapshot_is_locked_not_broadened(
@@ -762,9 +912,16 @@ def test_omitted_legacy_developer_access_is_persisted_locked(
         preferred_service_tier="priority",
         email="direct-model@example.com",
         name="Direct Model",
+        is_platform_owner=True,
+        platform_capabilities=(
+            "platform.admin",
+            "chat.developer.request",
+            "chat.use",
+        ),
     )
     database = connect_database(database_path)
     try:
+        _enable_developer_policy(database, identity)
         accepted = accept_run(
             database,
             settings=settings,
@@ -788,6 +945,12 @@ def test_omitted_legacy_developer_access_is_persisted_locked(
                         "executionMode": "developer",
                     },
                 }
+            ),
+            prepared=_prepared(
+                profile="codex-cli",
+                model="gpt-test-selected",
+                effort="high",
+                service_tier="priority",
             ),
         )
         frozen = database.execute(
@@ -1042,7 +1205,7 @@ def test_execution_mode_hint_cannot_override_frozen_context(
     )
 
 
-def test_estimate_keeps_server_owned_model_policy(
+def test_estimate_uses_the_frozen_accepted_model_selection(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1053,8 +1216,9 @@ def test_estimate_keeps_server_owned_model_policy(
         database_path,
         tenant_id=user["tenantId"],
         user_id=user["id"],
-        model="gpt-hostile-chat-selection",
-        effort="ultra",
+        model="gpt-test-selected",
+        effort="high",
+        service_tier="priority",
         prompt=(
             "Составь смету на 358 м² механизированной штукатурки, "
             "слой 15 мм, Татарстан."
@@ -1078,10 +1242,11 @@ def test_estimate_keeps_server_owned_model_policy(
         _runtime_registry(settings, codex_runtime=runtime),
     )
 
-    assert runtime.catalog_calls == 0
+    assert runtime.catalog_calls == 1
     assert len(runtime.complete_calls) == 1
-    assert runtime.complete_calls[0]["model"] == "gpt-server-estimate"
-    assert runtime.complete_calls[0]["effort"] == "low"
+    assert runtime.complete_calls[0]["model"] == "gpt-test-selected"
+    assert runtime.complete_calls[0]["effort"] == "high"
+    assert runtime.complete_calls[0]["service_tier"] == "priority"
 
 
 def test_developer_uses_frozen_codex_selection_over_server_default(
@@ -1145,8 +1310,9 @@ def test_developer_auto_access_uses_reviewed_workspace_policy(
         database_path,
         tenant_id=user["tenantId"],
         user_id=user["id"],
-        model=None,
-        effort=None,
+        model="gpt-test-selected",
+        effort="high",
+        service_tier="priority",
         execution_mode="developer",
         access_mode="auto",
     )
@@ -1159,6 +1325,7 @@ def test_developer_auto_access_uses_reviewed_workspace_policy(
     )
 
     assert len(runtime.complete_calls) == 1
+    assert runtime.complete_calls[0]["model"] == "gpt-test-selected"
     assert runtime.complete_calls[0]["sandbox"] == "workspace-write"
     assert runtime.complete_calls[0]["approval_policy"] == "on-request"
     assert runtime.complete_calls[0]["approvals_reviewer"] == "auto_review"

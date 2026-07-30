@@ -29,6 +29,11 @@ from .estimate_engine_router import (
 )
 from .estimate_intake import PlasteringIntake
 from .market_pricing import record_price_observations
+from .product_entitlements import (
+    CONSTRUCTION_ESTIMATES_ENTITLEMENT,
+    ProductEntitlementError,
+    require_persisted_product_entitlement,
+)
 from .reference_price_snapshot import (
     PLASTERING_REFERENCE_PRICE_SNAPSHOT_VERSION,
     plastering_reference_price_assumption,
@@ -92,12 +97,41 @@ def is_estimate_generation_prompt(prompt: str) -> bool:
     )
 
 
+def _require_estimate_run_entitlement(
+    database: Any,
+    accepted: WidgetRunLike,
+) -> str:
+    actor = database.execute(
+        """
+        SELECT requested_by_user_id
+        FROM chat_runs
+        WHERE tenant_id = ? AND id = ?
+        LIMIT 1
+        """,
+        (accepted.tenant_id, accepted.run_id),
+    ).fetchone()
+    if actor is None:
+        raise RuntimeError("estimate run actor is missing")
+    actor_user_id = str(actor["requested_by_user_id"])
+    try:
+        require_persisted_product_entitlement(
+            database,
+            tenant_id=accepted.tenant_id,
+            user_id=actor_user_id,
+            entitlement_code=CONSTRUCTION_ESTIMATES_ENTITLEMENT,
+        )
+    except ProductEntitlementError as exc:
+        raise RuntimeError("estimate product entitlement is unavailable") from exc
+    return actor_user_id
+
+
 def _estimate_widget(
     settings: Settings,
     accepted: WidgetRunLike,
 ) -> ProductWidget | None:
     database = connect_database(settings.database_url)
     try:
+        _require_estimate_run_entitlement(database, accepted)
         slot = load_estimate_slot(
             database,
             tenant_id=accepted.tenant_id,
@@ -137,6 +171,10 @@ def materialize_generated_estimate_widget(
     database = connect_database(settings.database_url)
     try:
         with transaction(database, immediate=True):
+            actor_user_id = _require_estimate_run_entitlement(
+                database,
+                accepted,
+            )
             slot = load_estimate_slot(
                 database,
                 tenant_id=accepted.tenant_id,
@@ -158,17 +196,6 @@ def materialize_generated_estimate_widget(
                     document=current,
                 )
             else:
-                actor = database.execute(
-                    """
-                    SELECT requested_by_user_id
-                    FROM chat_runs
-                    WHERE tenant_id = ? AND id = ?
-                    LIMIT 1
-                    """,
-                    (accepted.tenant_id, accepted.run_id),
-                ).fetchone()
-                if actor is None:
-                    raise RuntimeError("estimate run actor is missing")
                 now = str(
                     database.execute(
                         "SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
@@ -204,7 +231,7 @@ def materialize_generated_estimate_widget(
                     document=document,
                     origin_type="ai_proposal",
                     origin_run_id=accepted.run_id,
-                    created_by_user_id=str(actor["requested_by_user_id"]),
+                    created_by_user_id=actor_user_id,
                     created_at=now,
                 )
                 record_price_observations(
@@ -217,7 +244,7 @@ def materialize_generated_estimate_widget(
                     document=document,
                     source_type="ai_preliminary",
                     lifecycle="draft",
-                    created_by_user_id=str(actor["requested_by_user_id"]),
+                    created_by_user_id=actor_user_id,
                     observed_at=now,
                 )
                 database.execute(
@@ -257,6 +284,7 @@ def materialize_engine_estimate_widget(
 ) -> ProductWidget:
     database = connect_database(settings.database_url)
     try:
+        _require_estimate_run_entitlement(database, accepted)
         slot = load_estimate_slot(
             database,
             tenant_id=accepted.tenant_id,

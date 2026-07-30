@@ -1,0 +1,126 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/documents/document-render-result.schema.json",
+  "title": "Kolibri document render result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "request_id",
+    "document_id",
+    "template_id",
+    "template_version",
+    "status",
+    "generated_at",
+    "assets"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "kolibri.document_render_result"
+    },
+    "schema_version": {
+      "const": "1.0"
+    },
+    "request_id": {
+      "type": "string",
+      "pattern": "^REQ-[A-Z0-9]{10,54}$"
+    },
+    "document_id": {
+      "type": "string",
+      "pattern": "^DOC-[A-Z0-9]{10}$"
+    },
+    "template_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9_\\-]+\\.v[0-9]+$"
+    },
+    "template_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+(?:\\.\\d+)?$"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["rendered", "failed", "deferred"]
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "rendered_locale": {
+      "type": "string",
+      "pattern": "^[a-z]{2}(?:-[A-Z]{2})?$"
+    },
+    "rendered_jurisdiction": {
+      "type": "string",
+      "pattern": "^[A-Z]{2}$"
+    },
+    "assets": {
+      "type": "array",
+      "minItems": 0,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["format", "content_type", "path", "size_bytes", "sha256"],
+        "properties": {
+          "format": {
+            "type": "string",
+            "enum": ["pdf", "docx", "xlsx"]
+          },
+          "content_type": {
+            "type": "string",
+            "pattern": "^[a-z]+/[a-z0-9.+-]+$"
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "size_bytes": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 200
+      }
+    },
+    "error": {
+      "type": "string",
+      "maxLength": 400
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "rendered"
+          }
+        }
+      },
+      "then": {
+        "required": ["assets"],
+        "properties": {
+          "assets": {
+            "minItems": 1
+          },
+          "error": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "required": ["error"]
+      }
+    }
+  ]
+}

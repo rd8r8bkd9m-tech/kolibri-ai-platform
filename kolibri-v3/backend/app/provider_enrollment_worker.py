@@ -6,16 +6,22 @@ import argparse
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import hashlib
+import json
 import sqlite3
 import time
 import uuid
 
+from .chat.service import typed_identity_id
 from .config import Settings
 from .database import connect_database, initialize_database, transaction
 from .provider_authority import (
     ProviderAuthorityClient,
     ProviderAuthorityError,
     ProviderAuthoritySettings,
+)
+from .platform_admin import (
+    PlatformPolicyError,
+    enforce_background_execution_policy,
 )
 
 
@@ -185,6 +191,51 @@ class ProviderEnrollmentWorker:
                     lease_token=lease_token,
                     fencing_token=fencing_token,
                 )
+        finally:
+            database.close()
+
+    def _policy_error(self, lease: EnrollmentLease) -> str | None:
+        database = connect_database(self.database_url)
+        try:
+            row = database.execute(
+                """
+                SELECT requested_by_user_id
+                FROM provider_enrollment_intents
+                WHERE tenant_id = ? AND id = ?
+                LIMIT 1
+                """,
+                (lease.tenant_id, lease.intent_id),
+            ).fetchone()
+            if row is None:
+                return "provider_enrollment_intent_missing"
+            user_id = str(row["requested_by_user_id"])
+            command_user_id: str | None = None
+            try:
+                command = json.loads(lease.command_json)
+            except (TypeError, json.JSONDecodeError):
+                command = None
+            if isinstance(command, dict):
+                identity = command.get("identity")
+                if isinstance(identity, dict) and isinstance(
+                    identity.get("user_id"),
+                    str,
+                ):
+                    command_user_id = str(identity["user_id"])
+            if (
+                command_user_id is None
+                or command_user_id
+                != typed_identity_id("user", user_id)
+            ):
+                return "stored_command_identity_invalid"
+            try:
+                enforce_background_execution_policy(
+                    database,
+                    tenant_id=lease.tenant_id,
+                    user_id=user_id,
+                )
+            except PlatformPolicyError as exc:
+                return exc.code
+            return None
         finally:
             database.close()
 
@@ -394,10 +445,27 @@ class ProviderEnrollmentWorker:
                 ),
             )
             return True
+        policy_error = self._policy_error(lease)
+        if policy_error is not None:
+            self._fail(
+                lease,
+                ProviderAuthorityError(policy_error, retryable=False),
+            )
+            return True
         try:
             response = self.authority.submit(lease.command_json)
         except ProviderAuthorityError as error:
             self._fail(lease, error)
+            return True
+
+        # A suspension can race an already-started authority call. Do not
+        # project that response as connected after policy has changed.
+        policy_error = self._policy_error(lease)
+        if policy_error is not None:
+            self._fail(
+                lease,
+                ProviderAuthorityError(policy_error, retryable=False),
+            )
             return True
 
         value = response.value

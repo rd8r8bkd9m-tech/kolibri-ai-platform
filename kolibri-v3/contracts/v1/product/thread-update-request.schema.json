@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/product/thread-update-request.schema.json",
+  "title": "Kolibri Product thread update request v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "expected_thread_version",
+    "title"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "kolibri.product.thread_update_request"
+    },
+    "schema_version": {
+      "const": "1.0"
+    },
+    "expected_thread_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    }
+  }
+}

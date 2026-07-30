@@ -1,0 +1,251 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/artifacts/artifact.schema.json",
+  "title": "Kolibri immutable Artifact version v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "artifact_id",
+    "artifact_version",
+    "tenant_id",
+    "goal_id",
+    "case_id",
+    "task_id",
+    "artifact_type",
+    "domain_output",
+    "content",
+    "contract",
+    "generator",
+    "inputs",
+    "provenance",
+    "supersedes",
+    "created_by",
+    "created_at"
+  ],
+  "properties": {
+    "schema_id": { "const": "kolibri.artifact" },
+    "schema_version": { "const": "1.0" },
+    "artifact_id": { "$ref": "#/definitions/opaque_id" },
+    "artifact_version": { "type": "integer", "minimum": 1 },
+    "tenant_id": { "$ref": "#/definitions/opaque_id" },
+    "goal_id": { "$ref": "#/definitions/opaque_id" },
+    "case_id": { "$ref": "#/definitions/opaque_id" },
+    "task_id": {
+      "oneOf": [
+        { "$ref": "#/definitions/opaque_id" },
+        { "type": "null" }
+      ]
+    },
+    "artifact_type": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_.:-]{2,127}$"
+    },
+    "domain_output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["aggregate_type", "aggregate_id", "aggregate_version"],
+      "properties": {
+        "aggregate_type": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_.:-]{2,127}$"
+        },
+        "aggregate_id": { "$ref": "#/definitions/opaque_id" },
+        "aggregate_version": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "content": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "storage_ref",
+        "media_type",
+        "size_bytes",
+        "content_hash",
+        "filename"
+      ],
+      "properties": {
+        "storage_ref": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 500,
+          "pattern": "^(cas|artifact-store)://[A-Za-z0-9._~:/-]+$"
+        },
+        "media_type": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$"
+        },
+        "size_bytes": { "type": "integer", "minimum": 0 },
+        "content_hash": { "$ref": "#/definitions/sha256" },
+        "filename": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240,
+          "pattern": "^[^/\\\\\\u0000\\r\\n]+$"
+        }
+      }
+    },
+    "contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_id", "schema_version", "renderer_id", "renderer_version"],
+      "properties": {
+        "schema_id": {
+          "type": "string",
+          "pattern": "^kolibri\\.[a-z][a-z0-9_.]+$"
+        },
+        "schema_version": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*\\.[0-9]+$"
+        },
+        "renderer_id": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_.:-]{2,127}$"
+            },
+            { "type": "null" }
+          ]
+        },
+        "renderer_version": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$"
+            },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "generator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["generator_id", "generator_version", "execution_ref"],
+      "properties": {
+        "generator_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_.:-]{2,127}$"
+        },
+        "generator_version": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$"
+        },
+        "execution_ref": { "$ref": "#/definitions/opaque_id" }
+      }
+    },
+    "inputs": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10000,
+      "items": { "$ref": "#/definitions/input_ref" }
+    },
+    "provenance": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10000,
+      "items": { "$ref": "#/definitions/provenance" }
+    },
+    "supersedes": {
+      "oneOf": [
+        { "$ref": "#/definitions/artifact_ref" },
+        { "type": "null" }
+      ]
+    },
+    "created_by": { "$ref": "#/definitions/opaque_id" },
+    "created_at": { "type": "string", "format": "date-time" }
+  },
+  "definitions": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "artifact_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_id", "artifact_version", "content_hash"],
+      "properties": {
+        "artifact_id": { "$ref": "#/definitions/opaque_id" },
+        "artifact_version": { "type": "integer", "minimum": 1 },
+        "content_hash": { "$ref": "#/definitions/sha256" }
+      }
+    },
+    "input_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "input_id",
+        "input_kind",
+        "ref_id",
+        "ref_version",
+        "content_hash",
+        "role"
+      ],
+      "properties": {
+        "input_id": { "$ref": "#/definitions/opaque_id" },
+        "input_kind": {
+          "type": "string",
+          "enum": [
+            "fact",
+            "assumption",
+            "decision",
+            "domain_aggregate",
+            "artifact",
+            "source_document",
+            "tool_result"
+          ]
+        },
+        "ref_id": { "$ref": "#/definitions/opaque_id" },
+        "ref_version": { "type": "integer", "minimum": 1 },
+        "content_hash": { "$ref": "#/definitions/sha256" },
+        "role": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provenance_id",
+        "kind",
+        "source_ref",
+        "recorded_at",
+        "effective_at",
+        "actor_or_tool_ref"
+      ],
+      "properties": {
+        "provenance_id": { "$ref": "#/definitions/opaque_id" },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "user_input",
+            "source_document",
+            "calculation",
+            "tool_execution",
+            "model_generation",
+            "human_edit"
+          ]
+        },
+        "source_ref": { "$ref": "#/definitions/opaque_id" },
+        "recorded_at": { "type": "string", "format": "date-time" },
+        "effective_at": {
+          "oneOf": [
+            { "type": "string", "format": "date-time" },
+            { "type": "null" }
+          ]
+        },
+        "actor_or_tool_ref": { "$ref": "#/definitions/opaque_id" }
+      }
+    }
+  }
+}

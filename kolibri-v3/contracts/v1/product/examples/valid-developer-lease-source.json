@@ -1,0 +1,26 @@
+{
+  "schema_id": "kolibri.product.developer_lease_source",
+  "schema_version": "1.0",
+  "source_command_ref": "sourcecmd_c3465130bc7a4417c7b76f04aa5234f924356ad2",
+  "canonical_request_hash": "sha256:272cd16409cb26a4beb56862d934e6d04f5759bf1b0c61afe0c094dba2ced072",
+  "source_command_hash": "sha256:0e490e5ac9c44fb10323031c430aaa94bbd4ff7083080eaca1c3363800981513",
+  "tenant_id": "tenant_01JZPRODUCT01",
+  "task_id": "task_c3465130bc7a4417c7b76f04aa5234f924356ad2",
+  "task_version": 4,
+  "attempt_id": "attempt_0f58a75993e847604a3f1726",
+  "assignment_id": "assignment_5f829cbd889d18189871b3d80e27e45acb8c7b56",
+  "effect_id": "effect_2fe91268aef6aadc9d097d9cbb9cc3f969b59881",
+  "lease_id": "lease_b9679c7a312641e5934ca49445efcfda",
+  "fencing_token": 1,
+  "runtime_profile": "third-agent.runtime-01",
+  "access_policy": {
+    "policy_id": "developer.full_owner_approved",
+    "tool_ids": [
+      "tool.filesystem.full",
+      "tool.network.full",
+      "tool.shell.full"
+    ],
+    "compute_units_limit": 1000000,
+    "tool_calls_limit": 20000
+  }
+}

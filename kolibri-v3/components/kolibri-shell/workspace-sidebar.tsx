@@ -26,11 +26,11 @@ import type { WorkspaceFile } from "@/components/kolibri-workspace/workspace-fil
 import {
   KOLIBRI_PET_VISIBILITY_EVENT,
   KOLIBRI_PET_VISIBILITY_KEY,
-  KolibriPet,
   setKolibriPetVisibility,
 } from "@/components/kolibri-shell/kolibri-pet";
 import { accountInitials } from "@/lib/identity/contracts";
 import { useIdentity } from "@/lib/identity/provider";
+import { shouldCloseThreadDrawerForClick } from "@/lib/mobile-thread-navigation";
 import { cn } from "@/lib/utils";
 import { ThreadListPrimitive } from "@assistant-ui/react";
 import {
@@ -178,24 +178,42 @@ export function WorkspaceSidebar({
     <TooltipProvider delayDuration={420}>
       <aside
         aria-label="Навигация рабочего пространства"
+        data-overlay={isOverlay ? "true" : "false"}
         className={cn(
           "text-sidebar-foreground flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden",
           "border-r border-[#dce5f5] bg-[#f2f6ff] dark:border-sky-950 dark:bg-[#101721]",
           className,
         )}
       >
-        <div className="flex h-12 shrink-0 items-center px-2">
+        <div
+          data-slot="workspace-sidebar-chrome"
+          className="flex h-12 shrink-0 items-center px-2"
+        >
           <SidebarChromeButton
             label="Переключить боковую панель"
             shortcut="⌘B"
             onClick={onRequestClose}
             disabled={!onRequestClose}
           >
-            <PanelLeft aria-hidden="true" className="size-[18px]" />
+            {isOverlay ? (
+              <span
+                data-slot="mobile-hamburger-icon"
+                aria-hidden="true"
+                className="flex w-6 flex-col gap-[7px]"
+              >
+                <span className="h-[2.5px] w-full rounded-full bg-current" />
+                <span className="h-[2.5px] w-full rounded-full bg-current" />
+              </span>
+            ) : (
+              <PanelLeft aria-hidden="true" className="size-[18px]" />
+            )}
           </SidebarChromeButton>
         </div>
 
-        <div className="flex h-12 shrink-0 items-center pr-2 pl-3.5">
+        <div
+          data-slot="workspace-sidebar-brand"
+          className="flex h-12 shrink-0 items-center pr-2 pl-3.5"
+        >
           <div className="flex min-w-0 items-center">
             <span className="truncate text-[17px] font-semibold tracking-[-0.02em]">
               Kolibri
@@ -203,7 +221,10 @@ export function WorkspaceSidebar({
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-2.5 pt-1 pb-3">
+        <div
+          data-slot="workspace-sidebar-body"
+          className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-2.5 pt-1 pb-3"
+        >
           <nav aria-label="Основные разделы">
             <ul className="space-y-0.5">
               <li>
@@ -212,6 +233,7 @@ export function WorkspaceSidebar({
                     type="button"
                     variant="ghost"
                     onClick={onOpenChat}
+                    data-slot="workspace-sidebar-destination"
                     className="h-9 w-full justify-start gap-2.5 rounded-lg px-2 text-[14px] font-normal hover:bg-[#e2edff] dark:hover:bg-sky-950/45"
                   >
                     <SquarePen className="size-[17px]" />
@@ -224,6 +246,7 @@ export function WorkspaceSidebar({
                   <SidebarDestination
                     {...item}
                     active={activeDestination === item.id}
+                    previewDisabled={isOverlay}
                     launcherId={
                       item.id === "desktop" ? "sidebar" : undefined
                     }
@@ -254,8 +277,6 @@ export function WorkspaceSidebar({
             </ul>
           </nav>
 
-          {petVisible ? <KolibriPet /> : null}
-
           <section className="mt-5" aria-labelledby="recent-chats-heading">
             <h2
               id="recent-chats-heading"
@@ -263,7 +284,29 @@ export function WorkspaceSidebar({
             >
               Диалоги
             </h2>
-            <nav aria-label="Диалоги пользователя" className="pl-0.5">
+            <nav
+              aria-label="Диалоги пользователя"
+              className="pl-0.5"
+              onClickCapture={(event) => {
+                const trigger =
+                  event.target instanceof Element
+                    ? event.target.closest(
+                        '[data-slot="aui_thread-list-item-trigger"]',
+                      )
+                    : null;
+                if (
+                  shouldCloseThreadDrawerForClick({
+                    isThreadTrigger: trigger !== null,
+                    longPressConsumed:
+                      trigger?.getAttribute(
+                        "data-thread-long-press-consumed",
+                      ) === "true",
+                  })
+                ) {
+                  onRequestClose?.();
+                }
+              }}
+            >
               <ThreadListItems />
             </nav>
           </section>
@@ -285,10 +328,12 @@ export function WorkspaceSidebar({
                     ? undefined
                     : onOpenProfileSettings
                 }
+                data-slot="workspace-profile-trigger"
                 className="focus-visible:ring-sidebar-ring/50 flex min-w-0 flex-1 items-center rounded-lg px-1.5 py-1 text-left outline-none transition-colors hover:bg-[#e2edff] focus-visible:ring-[3px] data-[state=open]:bg-[#dce9fd] dark:hover:bg-sky-950/45"
                 aria-label="Открыть меню личного кабинета"
               >
                 <span
+                  data-slot="workspace-profile-avatar"
                   aria-hidden="true"
                   className="flex size-7 shrink-0 items-center justify-center rounded-full bg-[#fb927c] text-[10px] font-medium text-white"
                 >
@@ -466,6 +511,7 @@ type SidebarDestinationProps = {
   onClick?: () => void;
   onOpenFile?: (file: WorkspaceFile) => void;
   onOpenProject?: (project: WorkspaceProject) => void;
+  previewDisabled?: boolean;
   projects: readonly WorkspaceProject[];
   workspaceFiles: readonly WorkspaceFile[];
 };
@@ -479,28 +525,34 @@ function SidebarDestination({
   onClick,
   onOpenFile,
   onOpenProject,
+  previewDisabled = false,
   projects,
   workspaceFiles,
 }: SidebarDestinationProps) {
+  const destinationButton = (
+    <Button
+      type="button"
+      variant="ghost"
+      onClick={onClick}
+      data-canvas-launcher={launcherId}
+      data-slot="workspace-sidebar-destination"
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "h-9 w-full justify-start gap-2.5 rounded-lg px-2 text-[14px] font-normal transition-colors hover:bg-[#e2edff] dark:hover:bg-sky-950/45",
+        active &&
+          "bg-[#d9e7fc] text-sidebar-accent-foreground hover:bg-[#d9e7fc] dark:bg-sky-900/45",
+      )}
+    >
+      <Icon className="size-[17px]" />
+      <span className="truncate">{label}</span>
+    </Button>
+  );
+
+  if (previewDisabled) return destinationButton;
+
   return (
     <HoverCard>
-      <HoverCardTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={onClick}
-          data-canvas-launcher={launcherId}
-          aria-current={active ? "page" : undefined}
-          className={cn(
-            "h-9 w-full justify-start gap-2.5 rounded-lg px-2 text-[14px] font-normal transition-colors hover:bg-[#e2edff] dark:hover:bg-sky-950/45",
-            active &&
-              "bg-[#d9e7fc] text-sidebar-accent-foreground hover:bg-[#d9e7fc] dark:bg-sky-900/45",
-          )}
-        >
-          <Icon className="size-[17px]" />
-          <span className="truncate">{label}</span>
-        </Button>
-      </HoverCardTrigger>
+      <HoverCardTrigger asChild>{destinationButton}</HoverCardTrigger>
       <HoverCardContent
         className="max-h-[min(28rem,calc(100dvh-1rem))] w-[min(21rem,calc(100vw-1rem))] overflow-y-auto overscroll-contain p-3"
       >

@@ -1,0 +1,14 @@
+{
+  "schema_id": "kolibri.product.run.execute.command",
+  "schema_version": "1.0",
+  "tenant_id": "tenant_01JZPRODUCT01",
+  "project_id": "project_01JZPRODUCT001",
+  "thread_id": "thread_01JZPRODUCT001",
+  "run_id": "run_01JZPRODUCT000001",
+  "input_message_id": "message_01JZPRODUCT01",
+  "case_id": "case_01JZPRODUCT0001",
+  "goal_id": "goal_01JZPRODUCT0001",
+  "prompt": "Создай проект по приложенному ТЗ и подготовь проверяемую локальную смету.",
+  "prompt_hash": "sha256:48f58ff55eb9c9ac083e45d4f6e4569235f5f828abc78a9def84435d7e74c636",
+  "preferred_agent_profile": "auto"
+}

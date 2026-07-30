@@ -8,6 +8,13 @@ import {
   HoverCardContent,
   HoverCardTrigger,
 } from "@/components/ui/hover-card";
+import {
+  canStartThreadLongPress,
+  shouldIgnoreThreadMenuCloseRequest,
+  THREAD_LONG_PRESS_CLICK_SUPPRESSION_MS,
+  THREAD_LONG_PRESS_DURATION_MS,
+  THREAD_LONG_PRESS_MOVE_TOLERANCE_PX,
+} from "@/lib/mobile-thread-navigation";
 import { cn } from "@/lib/utils";
 import {
   AuiIf,
@@ -32,11 +39,30 @@ import {
 import {
   forwardRef,
   Fragment,
+  useEffect,
   useMemo,
+  useRef,
   useState,
+  useSyncExternalStore,
   type ComponentPropsWithoutRef,
   type FC,
 } from "react";
+
+const COMPACT_THREAD_MENU_QUERY = "(max-width: 959px)";
+
+function subscribeCompactThreadMenu(listener: () => void) {
+  const media = window.matchMedia(COMPACT_THREAD_MENU_QUERY);
+  media.addEventListener("change", listener);
+  return () => media.removeEventListener("change", listener);
+}
+
+function compactThreadMenuSnapshot() {
+  return window.matchMedia(COMPACT_THREAD_MENU_QUERY).matches;
+}
+
+function serverCompactThreadMenuSnapshot() {
+  return false;
+}
 
 export const ThreadList: FC = () => {
   const [search, setSearch] = useState("");
@@ -335,6 +361,23 @@ const ThreadListSkeleton: FC = () => {
 
 export const ThreadListItem: FC = () => {
   const aui = useAui();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [longPressing, setLongPressing] = useState(false);
+  const compactThreadMenu = useSyncExternalStore(
+    subscribeCompactThreadMenu,
+    compactThreadMenuSnapshot,
+    serverCompactThreadMenuSnapshot,
+  );
+  const longPressRef = useRef<{
+    timer: ReturnType<typeof setTimeout>;
+    x: number;
+    y: number;
+  } | null>(null);
+  const threadTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const suppressNextClickRef = useRef(false);
+  const suppressClickResetTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   const title = useAuiState(
     (state) => state.threadListItem.title || "Новая задача",
   );
@@ -353,18 +396,142 @@ export const ThreadListItem: FC = () => {
         timeStyle: "short",
       }).format(lastMessageAt)
     : "Сообщений пока нет";
+  const cancelLongPress = () => {
+    setLongPressing(false);
+    if (longPressRef.current) {
+      clearTimeout(longPressRef.current.timer);
+      longPressRef.current = null;
+    }
+  };
+  const clearConsumedLongPress = () => {
+    suppressNextClickRef.current = false;
+    if (suppressClickResetTimerRef.current) {
+      clearTimeout(suppressClickResetTimerRef.current);
+      suppressClickResetTimerRef.current = null;
+    }
+    threadTriggerRef.current?.removeAttribute(
+      "data-thread-long-press-consumed",
+    );
+  };
+  const handleMenuOpenChange = (open: boolean) => {
+    if (
+      shouldIgnoreThreadMenuCloseRequest({
+        open,
+        longPressClickPending: suppressNextClickRef.current,
+      })
+    ) {
+      return;
+    }
+    setMenuOpen(open);
+    if (!open) clearConsumedLongPress();
+  };
+  const consumeLongPressClick = (event: {
+    preventDefault: () => void;
+    stopPropagation: () => void;
+  }) => {
+    if (!suppressNextClickRef.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    clearConsumedLongPress();
+  };
+  const preventConsumedLongPressNavigation = (event: {
+    preventDefault: () => void;
+  }) => {
+    if (suppressNextClickRef.current) event.preventDefault();
+  };
+
+  useEffect(
+    () => () => {
+      if (longPressRef.current) {
+        clearTimeout(longPressRef.current.timer);
+      }
+      if (suppressClickResetTimerRef.current) {
+        clearTimeout(suppressClickResetTimerRef.current);
+      }
+      threadTriggerRef.current?.removeAttribute(
+        "data-thread-long-press-consumed",
+      );
+    },
+    [],
+  );
+
+  const threadMenuItemClass = cn(
+    "flex cursor-default select-none items-center gap-2 rounded-lg px-2.5 py-2 outline-none data-[highlighted]:bg-sky-100 dark:data-[highlighted]:bg-sky-950/50",
+    compactThreadMenu && "min-h-12 rounded-xl px-3 text-[16px]",
+  );
 
   return (
     <ThreadListItemPrimitive.Root
       data-slot="aui_thread-list-item"
-      className="group relative flex min-h-9 items-center rounded-lg transition-colors hover:bg-[#e2edff] focus-within:bg-[#e2edff] focus-visible:bg-[#e2edff] data-active:bg-[#d8e6fb] has-data-[state=open]:bg-[#dce9fd] dark:hover:bg-sky-950/45 dark:focus-within:bg-sky-950/45 dark:data-active:bg-sky-900/45"
+      data-long-pressing={longPressing ? "true" : undefined}
+      data-thread-action-menu-open={menuOpen ? "true" : undefined}
+      className="group relative flex min-h-9 items-center rounded-lg transition-[transform,background-color] duration-150 hover:bg-[#e2edff] focus-within:bg-[#e2edff] focus-visible:bg-[#e2edff] data-active:bg-[#d8e6fb] data-[long-pressing=true]:scale-[0.985] data-[long-pressing=true]:bg-[#dce9fd] has-data-[state=open]:bg-[#dce9fd] dark:hover:bg-sky-950/45 dark:focus-within:bg-sky-950/45 dark:data-active:bg-sky-900/45 dark:data-[long-pressing=true]:bg-sky-900/45"
     >
       <HoverCard>
         <HoverCardTrigger asChild>
           <ThreadListItemPrimitive.Trigger
+            ref={threadTriggerRef}
             data-slot="aui_thread-list-item-trigger"
             className="flex h-full min-w-0 flex-1 items-center rounded-lg px-2.5 text-start text-[13px] outline-none group-hover:pe-9 group-focus-within:pe-9 group-has-data-[state=open]:pe-9 group-data-active:pe-9 focus-visible:ring-2 focus-visible:ring-ring/50"
             aria-label={`Открыть задачу «${title}»`}
+            onPointerDown={(event) => {
+              if (
+                !canStartThreadLongPress({
+                  isDraft,
+                  pointerType: event.pointerType,
+                })
+              ) {
+                return;
+              }
+              cancelLongPress();
+              setLongPressing(true);
+              const trigger = event.currentTarget;
+              longPressRef.current = {
+                x: event.clientX,
+                y: event.clientY,
+                timer: setTimeout(() => {
+                  setLongPressing(false);
+                  suppressNextClickRef.current = true;
+                  trigger.setAttribute(
+                    "data-thread-long-press-consumed",
+                    "true",
+                  );
+                  suppressClickResetTimerRef.current = setTimeout(
+                    clearConsumedLongPress,
+                    THREAD_LONG_PRESS_CLICK_SUPPRESSION_MS,
+                  );
+                  longPressRef.current = null;
+                  globalThis.navigator.vibrate?.(10);
+                  setMenuOpen(true);
+                }, THREAD_LONG_PRESS_DURATION_MS),
+              };
+            }}
+            onPointerMove={(event) => {
+              const pending = longPressRef.current;
+              if (
+                pending &&
+                Math.hypot(
+                  event.clientX - pending.x,
+                  event.clientY - pending.y,
+                ) > THREAD_LONG_PRESS_MOVE_TOLERANCE_PX
+              ) {
+                cancelLongPress();
+              }
+            }}
+            onPointerUp={cancelLongPress}
+            onPointerCancel={cancelLongPress}
+            onPointerLeave={cancelLongPress}
+            onContextMenu={(event) => {
+              if (isDraft) {
+                event.preventDefault();
+                return;
+              }
+              event.preventDefault();
+              cancelLongPress();
+              setMenuOpen(true);
+            }}
+            onClickCapture={preventConsumedLongPressNavigation}
+            onClick={consumeLongPressClick}
           >
             <span
               data-slot="aui_thread-list-item-title"
@@ -426,7 +593,11 @@ export const ThreadListItem: FC = () => {
       </HoverCard>
 
       {!isDraft ? (
-        <ThreadListItemMorePrimitive.Root sharedFocusGroup>
+        <ThreadListItemMorePrimitive.Root
+          sharedFocusGroup
+          open={menuOpen}
+          onOpenChange={handleMenuOpenChange}
+        >
           <ThreadListItemMorePrimitive.Trigger
             aria-label={`Действия с диалогом «${title}»`}
             render={
@@ -439,14 +610,18 @@ export const ThreadListItem: FC = () => {
             <MoreHorizontalIcon className="size-4" />
           </ThreadListItemMorePrimitive.Trigger>
           <ThreadListItemMorePrimitive.Content
-            align="start"
-            side="right"
-            sideOffset={6}
+            align={compactThreadMenu ? "center" : "start"}
+            side={compactThreadMenu ? "bottom" : "right"}
+            sideOffset={compactThreadMenu ? 10 : 6}
             collisionPadding={8}
-            className="z-[90] min-w-52 rounded-xl border bg-popover p-1.5 text-sm text-popover-foreground shadow-xl outline-none"
+            className={cn(
+              "z-[90] min-w-52 rounded-xl border bg-popover p-1.5 text-sm text-popover-foreground shadow-xl outline-none",
+              compactThreadMenu &&
+                "w-[min(17.5rem,calc(100vw-2rem))] rounded-[1.5rem] p-2 shadow-2xl",
+            )}
           >
             <ThreadListItemMorePrimitive.Item
-              className="flex cursor-default select-none items-center gap-2 rounded-lg px-2.5 py-2 outline-none data-[highlighted]:bg-sky-100 dark:data-[highlighted]:bg-sky-950/50"
+              className={threadMenuItemClass}
               onSelect={() =>
                 aui.threadListItem.updateCustom({
                   ...custom,
@@ -462,7 +637,7 @@ export const ThreadListItem: FC = () => {
               {isPinned ? "Открепить" : "Закрепить"}
             </ThreadListItemMorePrimitive.Item>
             <ThreadListItemMorePrimitive.Item
-              className="flex cursor-default select-none items-center gap-2 rounded-lg px-2.5 py-2 outline-none data-[highlighted]:bg-sky-100 dark:data-[highlighted]:bg-sky-950/50"
+              className={threadMenuItemClass}
               onSelect={() => {
                 if (status === "archived") {
                   aui.threadListItem.unarchive();
@@ -480,7 +655,10 @@ export const ThreadListItem: FC = () => {
             </ThreadListItemMorePrimitive.Item>
             <ThreadListItemMorePrimitive.Separator className="my-1 h-px bg-border" />
             <ThreadListItemMorePrimitive.Item
-              className="flex cursor-default select-none items-center gap-2 rounded-lg px-2.5 py-2 text-destructive outline-none data-[highlighted]:bg-destructive/10"
+              className={cn(
+                threadMenuItemClass,
+                "text-destructive data-[highlighted]:bg-destructive/10",
+              )}
               onSelect={() => {
                 const confirmed = globalThis.confirm(
                   `Удалить диалог «${title}» из списка? Проект и документы сохранятся.`,

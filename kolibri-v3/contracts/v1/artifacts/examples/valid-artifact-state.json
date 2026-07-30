@@ -1,0 +1,13 @@
+{
+  "schema_id": "kolibri.artifact_state",
+  "schema_version": "1.0",
+  "artifact_id": "artifact_01JZESTIMATE01",
+  "artifact_version": 3,
+  "content_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "tenant_id": "ten_01JZTENANT0001",
+  "status": "approved_internal",
+  "state_version": 3,
+  "changed_at": "2026-07-24T02:20:00+03:00",
+  "reason": "Independent quality review completed",
+  "invalidated_by": []
+}

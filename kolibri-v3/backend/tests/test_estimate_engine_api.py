@@ -5,16 +5,14 @@ import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 
-from fastapi.testclient import TestClient
-
 from app.config import Settings
-from app.database import connect_database
+from app.database import connect_database, migration_paths
 from app.estimate_engine import canonical_json, content_hash
 from app.estimate_intake import PLASTERING_INTAKE_SCHEMA, PlasteringIntake
 from app.estimate_reconciliation import reconcile_ai_candidate_estimates
 from app.main import create_app
 from app.product_widgets import materialize_engine_estimate_widget
-
+from fastapi.testclient import TestClient
 
 ORIGIN = {"Origin": "http://testserver"}
 PASSWORD = "correct-horse-battery-staple"
@@ -45,6 +43,7 @@ PRICE_FIXTURE: dict[str, tuple[str, str]] = {
     "waste_removal": ("trip", "6500.00"),
     "consumables": ("set", "8500.00"),
 }
+LATEST_SCHEMA_VERSION = int(migration_paths()[-1].name.split("_", 1)[0])
 
 
 def test_intake_contract_accepts_complete_technology_assumption() -> None:
@@ -104,12 +103,43 @@ def _register(client: TestClient, email: str) -> dict[str, str]:
     return response.json()["user"]
 
 
+def _grant_estimate_access(
+    database_path: Path,
+    *,
+    tenant_id: str,
+    user_id: str,
+) -> None:
+    database = sqlite3.connect(database_path)
+    try:
+        database.execute("PRAGMA foreign_keys = ON")
+        database.execute(
+            """
+            INSERT INTO product_entitlement_grants (
+                tenant_id, user_id, entitlement_code, status,
+                grant_epoch, source, created_at, updated_at
+            ) VALUES (
+                ?, ?, 'construction.estimates.use', 'active',
+                1, 'subscription_policy', unixepoch(), unixepoch()
+            )
+            """,
+            (tenant_id, user_id),
+        )
+        database.commit()
+    finally:
+        database.close()
+
+
 def _seed_project(
     database_path: Path,
     *,
     tenant_id: str,
     user_id: str,
 ) -> str:
+    _grant_estimate_access(
+        database_path,
+        tenant_id=tenant_id,
+        user_id=user_id,
+    )
     project_id = "project_engine_api_01"
     thread_id = "thread_engine_api_01"
     now = "2026-07-29T00:00:00Z"
@@ -317,7 +347,10 @@ def test_engine_api_persists_project_case_technology_card_and_estimate_once(
 
     database = sqlite3.connect(database_path)
     try:
-        assert database.execute("PRAGMA user_version").fetchone()[0] == 29
+        assert (
+            database.execute("PRAGMA user_version").fetchone()[0]
+            == LATEST_SCHEMA_VERSION
+        )
         assert database.execute(
             "SELECT COUNT(*) FROM project_cases"
         ).fetchone()[0] == 1
@@ -385,6 +418,11 @@ def test_engine_api_enforces_tenant_version_and_release_price_gates(
 
         second = _register(client, "second@example.com")
         assert second["tenantId"] != first["tenantId"]
+        _grant_estimate_access(
+            database_path,
+            tenant_id=second["tenantId"],
+            user_id=second["id"],
+        )
         hidden = client.get(f"/v1/projects/{project_id}/estimate")
         assert hidden.status_code == 404
         assert hidden.json()["code"] == "estimate_not_found"

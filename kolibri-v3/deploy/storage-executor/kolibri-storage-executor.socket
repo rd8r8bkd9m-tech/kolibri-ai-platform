@@ -1,0 +1,16 @@
+[Unit]
+Description=Kolibri Storage Executor local protocol socket
+Documentation=file:/usr/share/doc/kolibri-storage-executor/README.md
+
+[Socket]
+ListenStream=/run/kolibri-storage-executor/executor.sock
+SocketMode=0660
+SocketUser=root
+SocketGroup=kolibri-storage
+DirectoryMode=0750
+Accept=yes
+MaxConnections=8
+MaxConnectionsPerSource=2
+
+[Install]
+WantedBy=sockets.target

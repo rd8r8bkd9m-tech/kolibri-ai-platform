@@ -1,0 +1,10 @@
+{
+  "schema_id": "kolibri.agent_assignment.status_changed.event",
+  "schema_version": "1.0",
+  "assignment_id": "assignment_01JZEST01",
+  "previous_status": "active",
+  "new_status": "failed",
+  "previous_version": 1,
+  "new_version": 2,
+  "reason": "An undeclared status must fail closed."
+}

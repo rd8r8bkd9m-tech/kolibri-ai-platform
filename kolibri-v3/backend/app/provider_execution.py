@@ -108,6 +108,14 @@ _SOURCE_SIDECAR_FIELDS = frozenset(
         "source_command",
     }
 )
+_TRUSTED_AGENT_BINDING_FIELDS = frozenset(
+    {
+        "trusted_agent_profile_id",
+        "trusted_agent_profile_epoch",
+        "trusted_agent_workspace_binding_id",
+        "trusted_agent_workspace_binding_epoch",
+    }
+)
 _REQUEST_FIELDS = frozenset(
     {
         "schema_id",
@@ -278,9 +286,9 @@ def _generated_contracts() -> ModuleType:
     """Load the canonical generated validator from this immutable release."""
 
     generated_path = (
-        Path(__file__).resolve().parents[3]
-        / "ops"
-        / "generated_contracts_v1.py"
+        Path(__file__).resolve().parents[2]
+        / "server"
+        / "contracts_runtime.py"
     )
     if not generated_path.is_file():
         raise ProviderExecutionError(
@@ -1049,6 +1057,7 @@ class ProviderExecutionService:
                 ),
                 "lease_fence_required",
                 "provider_execution_authority",
+                f"runtime.profile:{runtime_profile}",
             ],
             "version": self.settings.provider_execution_card_version,
             "updated_at": self.settings.provider_execution_card_updated_at,
@@ -1127,12 +1136,39 @@ class ProviderExecutionService:
             request_value["a2a_request"],
             "kolibri.a2a.message_appended.event",
         )
+        sidecar_value = request_value["source_command_sidecar"]
+        if not isinstance(sidecar_value, dict):
+            raise ProviderExecutionError(
+                "provider_execution_source_sidecar_invalid"
+            )
+        command = _contract(
+            sidecar_value.get("source_command"),
+            "kolibri.command",
+        )
+        payload_contract = (
+            command.get("payload_schema_id"),
+            command.get("payload_schema_version"),
+        )
+        trusted_bound = payload_contract == (
+            "kolibri.product.run.execute.v1_3.command",
+            "1.3",
+        )
+        if payload_contract not in {
+            ("kolibri.product.run.execute.v1_2.command", "1.2"),
+            ("kolibri.product.run.execute.v1_3.command", "1.3"),
+        }:
+            raise ProviderExecutionError(
+                "provider_execution_contract_invalid"
+            )
         sidecar = _strict_mapping(
-            request_value["source_command_sidecar"],
-            _SOURCE_SIDECAR_FIELDS,
+            sidecar_value,
+            (
+                _SOURCE_SIDECAR_FIELDS | _TRUSTED_AGENT_BINDING_FIELDS
+                if trusted_bound
+                else _SOURCE_SIDECAR_FIELDS
+            ),
             code="provider_execution_source_sidecar_invalid",
         )
-        command = _contract(sidecar["source_command"], "kolibri.command")
         if (
             not isinstance(sidecar["source_command_ref"], str)
             or _SOURCE_COMMAND_REF_PATTERN.fullmatch(
@@ -1145,7 +1181,7 @@ class ProviderExecutionService:
             )
         payload = _contract(
             command["payload"],
-            "kolibri.product.run.execute.v1_2.command",
+            str(command["payload_schema_id"]),
         )
         command["payload"] = payload
 
@@ -1238,6 +1274,7 @@ class ProviderExecutionService:
                 "slot",
                 self.settings.provider_execution_allowed_slot_id or "",
             ),
+            f"runtime.profile:{runtime_profile}",
         }
         if (
             set(card["policy_constraints"]) != expected_constraints
@@ -1267,15 +1304,31 @@ class ProviderExecutionService:
                 status_code=403,
             )
 
+        trusted_binding = (
+            {
+                field_name: payload[field_name]
+                for field_name in _TRUSTED_AGENT_BINDING_FIELDS
+            }
+            if trusted_bound
+            else {}
+        )
         expected_source = {
-            "kind": "product_run_execute_v1_2",
+            "kind": (
+                "product_run_execute_v1_3"
+                if trusted_bound
+                else "product_run_execute_v1_2"
+            ),
             "message_id": command["message_id"],
             "source_command_ref": sidecar["source_command_ref"],
             "accepted_by": "logical_home_control_plane",
         }
         expected_dispatch = {
-            "schema_id": "kolibri.product.developer_dispatch",
-            "schema_version": "1.0",
+            "schema_id": (
+                "kolibri.product.developer_dispatch.v1_1"
+                if trusted_bound
+                else "kolibri.product.developer_dispatch"
+            ),
+            "schema_version": "1.1" if trusted_bound else "1.0",
             "source_command_ref": sidecar["source_command_ref"],
             "run_id": payload["run_id"],
             "project_id": payload["project_id"],
@@ -1291,12 +1344,17 @@ class ProviderExecutionService:
             "sandbox": payload["sandbox"],
             "approval_policy": payload["approval_policy"],
             "reviewer": payload["reviewer"],
+            **trusted_binding,
         }
         expected_command_hash = _sha256_json(command)
         expected_request_hash = _canonical_product_request_hash(command)
         expected_sidecar = {
-            "schema_id": "kolibri.product.developer_lease_source",
-            "schema_version": "1.0",
+            "schema_id": (
+                "kolibri.product.developer_lease_source.v1_1"
+                if trusted_bound
+                else "kolibri.product.developer_lease_source"
+            ),
+            "schema_version": "1.1" if trusted_bound else "1.0",
             "source_command_ref": sidecar["source_command_ref"],
             "canonical_request_hash": expected_request_hash,
             "source_command_hash": expected_command_hash,
@@ -1310,6 +1368,7 @@ class ProviderExecutionService:
             "fencing_token": fencing_token,
             "runtime_profile": runtime_profile,
             "access_policy": access_policy,
+            **trusted_binding,
             "source_command": command,
         }
         if sidecar != expected_sidecar:
@@ -1339,7 +1398,11 @@ class ProviderExecutionService:
         if (
             command["command_name"] != "product.run.execute"
             or command["payload_schema_id"] != payload["schema_id"]
-            or command["payload_schema_version"] != "1.2"
+            or (
+                command["payload_schema_id"],
+                command["payload_schema_version"],
+            )
+            != payload_contract
             or command["target_owner"] != "logical_home_control_plane"
             or identity["tenant_id"] != payload["tenant_id"]
             or identity["authority"]["authority_role"]
@@ -1410,6 +1473,14 @@ class ProviderExecutionService:
                 canonical_task["case_id"],
                 task_id,
                 sidecar["source_command_ref"],
+                *(
+                    (
+                        payload["trusted_agent_profile_id"],
+                        payload["trusted_agent_workspace_binding_id"],
+                    )
+                    if trusted_bound
+                    else ()
+                ),
             }
         )
         expected_output_ids = [
@@ -1551,6 +1622,7 @@ class ProviderExecutionService:
             "sandbox": payload["sandbox"],
             "approval_policy": payload["approval_policy"],
             "reviewer": payload["reviewer"],
+            **trusted_binding,
             "source_command_hash": expected_command_hash,
             "canonical_request_hash": expected_request_hash,
             "lease": {
@@ -1579,6 +1651,16 @@ class ProviderExecutionService:
                     sidecar["source_command_ref"],
                     task_id,
                     attempt_id,
+                    *(
+                        (
+                            payload["trusted_agent_profile_id"],
+                            payload[
+                                "trusted_agent_workspace_binding_id"
+                            ],
+                        )
+                        if trusted_bound
+                        else ()
+                    ),
                 }
             ),
         }

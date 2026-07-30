@@ -9,6 +9,9 @@ from app.chat.service import canonical_json, request_hash, sha256_text
 from app.database import initialize_database, migration_paths
 
 
+LATEST_SCHEMA_VERSION = int(migration_paths()[-1].name.split("_", 1)[0])
+
+
 MIGRATION = (
     Path(__file__).parents[1]
     / "migrations"
@@ -164,7 +167,10 @@ def test_v26_startup_is_serialized_across_concurrent_initializers(
 
     database = sqlite3.connect(database_path)
     try:
-        assert database.execute("PRAGMA user_version").fetchone()[0] == 29
+        assert (
+            database.execute("PRAGMA user_version").fetchone()[0]
+            == LATEST_SCHEMA_VERSION
+        )
         assert {
             str(row[1])
             for row in database.execute("PRAGMA table_info(users)")

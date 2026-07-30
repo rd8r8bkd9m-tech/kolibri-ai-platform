@@ -16,6 +16,7 @@ from app.agent_runtime import (
 )
 from app.codex_app_server import CodexModel
 from app.config import Settings
+from app.database import migration_paths
 from app.direct_model_runtime import DirectModelError, _finish_error
 from app.main import create_app
 from app.owner_bootstrap import OwnerBootstrapError, promote_registered_owner
@@ -23,6 +24,7 @@ from app.owner_bootstrap import OwnerBootstrapError, promote_registered_owner
 
 ORIGIN = {"Origin": "http://testserver"}
 PASSWORD = "correct-horse-battery-staple"
+LATEST_SCHEMA_VERSION = int(migration_paths()[-1].name.split("_", 1)[0])
 
 
 def _settings(database_path: Path) -> Settings:
@@ -95,6 +97,61 @@ def _catalog_registry(
     return registry
 
 
+def _configure_owner_codex_selection(
+    client: TestClient,
+    *,
+    database_path: Path,
+    tenant_id: str,
+    csrf: str,
+) -> None:
+    class Runtime:
+        def list_models(self, *, timeout: float) -> tuple[CodexModel, ...]:
+            assert timeout == 10.0
+            return (
+                CodexModel(
+                    id="gpt-owner-explicit",
+                    display_name="Owner Explicit",
+                    description="Test-only explicit developer model.",
+                    supported_reasoning_efforts=(("high", "Thorough"),),
+                    default_reasoning_effort="high",
+                    is_default=True,
+                    supports_personality=False,
+                    service_tiers=(),
+                    upgrade=None,
+                ),
+            )
+
+    database = sqlite3.connect(database_path)
+    try:
+        database.execute(
+            """
+            INSERT INTO provider_connections (
+                tenant_id, provider_id, status, authority_observed,
+                last_verified_at, created_at, updated_at
+            ) VALUES (?, 'codex-cli', 'connected', 1, 'now', 'now', 'now')
+            ON CONFLICT(tenant_id, provider_id) DO UPDATE SET
+                status = 'connected',
+                authority_observed = 1,
+                updated_at = 'now'
+            """,
+            (tenant_id,),
+        )
+        database.commit()
+    finally:
+        database.close()
+    client.app.state.agent_runtime_registry = _catalog_registry(Runtime())
+    selected = client.put(
+        "/v1/profile/model-settings",
+        headers={**ORIGIN, "X-CSRF-Token": csrf},
+        json={
+            "profile": "codex-cli",
+            "model": "gpt-owner-explicit",
+            "reasoningEffort": "high",
+        },
+    )
+    assert selected.status_code == 200
+
+
 def test_registration_session_profile_and_logout_are_durable(
     tmp_path: Path,
 ) -> None:
@@ -164,7 +221,10 @@ def test_registration_session_profile_and_logout_are_durable(
         ).fetchone()[0]
         assert PASSWORD not in password_hash
         assert password_hash.startswith("scrypt-v1$")
-        assert database.execute("PRAGMA user_version").fetchone()[0] == 29
+        assert (
+            database.execute("PRAGMA user_version").fetchone()[0]
+            == LATEST_SCHEMA_VERSION
+        )
         assert database.execute(
             "SELECT COUNT(*) FROM identity_events"
         ).fetchone()[0] >= 4
@@ -648,6 +708,7 @@ def test_public_registration_never_grants_owner_authority(
 
 def test_developer_agent_mode_is_owner_only_and_audited(
     tmp_path: Path,
+    monkeypatch,
 ) -> None:
     database_path = tmp_path / "developer-agent.db"
     settings = replace(
@@ -657,17 +718,24 @@ def test_developer_agent_mode_is_owner_only_and_audited(
         developer_workspace_root=tmp_path,
     )
 
-    class TerminalExecutor:
-        def submit(self, _callable, run_settings, accepted, *_args):
-            _finish_error(
-                run_settings,
-                accepted,
-                DirectModelError("test_complete", "Test completed."),
-            )
-            return None
+    def terminal_execute(
+        run_settings,
+        accepted,
+        _runtime_registry,
+        *,
+        cancellation_signal=None,
+    ):
+        del cancellation_signal
+        _finish_error(
+            run_settings,
+            accepted,
+            DirectModelError("test_complete", "Test completed."),
+        )
 
-        def shutdown(self, **_kwargs) -> None:
-            return None
+    monkeypatch.setattr(
+        "app.chat.execution_adapter.execute_direct_run",
+        terminal_execute,
+    )
 
     with TestClient(create_app(settings)) as client:
         registered = _register(
@@ -700,9 +768,13 @@ def test_developer_agent_mode_is_owner_only_and_audited(
             email="owner@example.com",
         )
         assert promotion.changed is True
-        original_executor = client.app.state.direct_model_executor
-        original_executor.shutdown(wait=False, cancel_futures=True)
-        client.app.state.direct_model_executor = TerminalExecutor()
+        _configure_owner_codex_selection(
+            client,
+            database_path=database_path,
+            tenant_id=registered.json()["user"]["tenantId"],
+            csrf=str(csrf),
+        )
+        payload["forwardedProps"]["agentProfile"] = "codex-cli"
 
         accepted = client.post(
             "/v1/chat/ag-ui",
@@ -737,6 +809,7 @@ def test_developer_agent_mode_is_owner_only_and_audited(
 
 def test_developer_auto_access_is_strict_and_audited(
     tmp_path: Path,
+    monkeypatch,
 ) -> None:
     database_path = tmp_path / "developer-auto-access.db"
     settings = replace(
@@ -746,17 +819,24 @@ def test_developer_auto_access_is_strict_and_audited(
         developer_workspace_root=tmp_path,
     )
 
-    class TerminalExecutor:
-        def submit(self, _callable, run_settings, accepted, *_args):
-            _finish_error(
-                run_settings,
-                accepted,
-                DirectModelError("test_complete", "Test completed."),
-            )
-            return None
+    def terminal_execute(
+        run_settings,
+        accepted,
+        _runtime_registry,
+        *,
+        cancellation_signal=None,
+    ):
+        del cancellation_signal
+        _finish_error(
+            run_settings,
+            accepted,
+            DirectModelError("test_complete", "Test completed."),
+        )
 
-        def shutdown(self, **_kwargs) -> None:
-            return None
+    monkeypatch.setattr(
+        "app.chat.execution_adapter.execute_direct_run",
+        terminal_execute,
+    )
 
     with TestClient(create_app(settings)) as client:
         registered = _register(
@@ -790,9 +870,13 @@ def test_developer_auto_access_is_strict_and_audited(
         )
         assert rejected.status_code == 422
 
-        original_executor = client.app.state.direct_model_executor
-        original_executor.shutdown(wait=False, cancel_futures=True)
-        client.app.state.direct_model_executor = TerminalExecutor()
+        _configure_owner_codex_selection(
+            client,
+            database_path=database_path,
+            tenant_id=registered.json()["user"]["tenantId"],
+            csrf=str(csrf),
+        )
+
         accepted = client.post(
             "/v1/chat/ag-ui",
             headers={**ORIGIN, "X-CSRF-Token": csrf},
@@ -803,6 +887,7 @@ def test_developer_auto_access_is_strict_and_audited(
                     **payload["forwardedProps"],
                     "executionMode": "developer",
                     "accessMode": "auto",
+                    "agentProfile": "codex-cli",
                 },
             },
         )

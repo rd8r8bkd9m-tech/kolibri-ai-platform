@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/product/provider-enrollment-intent-command.schema.json",
+  "title": "Kolibri Product provider enrollment intent command payload v1",
+  "description": "A secretless Product/Data Authority request for Provider Execution Authority to begin or inspect one owner-approved provider enrollment. Provider credentials and authorization URLs are forbidden.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "tenant_id",
+    "intent_id",
+    "provider_id",
+    "requested_by_user_id",
+    "owner_authorization_decision_id",
+    "purpose",
+    "requested_at"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "kolibri.product.provider.enrollment_intent.command"
+    },
+    "schema_version": {
+      "const": "1.0"
+    },
+    "tenant_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "intent_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "provider_id": {
+      "type": "string",
+      "enum": [
+        "mimo-code",
+        "codex-cli"
+      ]
+    },
+    "requested_by_user_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "owner_authorization_decision_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "purpose": {
+      "const": "owner_provider_enrollment"
+    },
+    "requested_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "definitions": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    }
+  }
+}

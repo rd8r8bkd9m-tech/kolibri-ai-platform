@@ -2,17 +2,17 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
-from fastapi.testclient import TestClient
-
 import app.direct_model_runtime as direct_model_runtime
 import app.runtime_skills as runtime_skills_module
-from app.config import Settings
+import pytest
+from app.chat.execution_adapter import PreparedChatExecution
 from app.chat.models import AgUiRunInput
 from app.chat.service import accept_run
+from app.config import Settings
 from app.database import (
     connect_database,
     initialize_database,
@@ -28,6 +28,7 @@ from app.estimate_intake import (
     plastering_intake_instructions,
 )
 from app.main import create_app
+from app.product_entitlements import bind_product_entitlements
 from app.runtime_skills import (
     RuntimeSkillError,
     RuntimeSkillPlan,
@@ -37,7 +38,7 @@ from app.runtime_skills import (
     skill_plan_evidence,
 )
 from app.schemas import AgentProfile, UserRole, UserSession
-
+from fastapi.testclient import TestClient
 
 ORIGIN = {"Origin": "http://testserver"}
 PASSWORD = "correct-horse-battery-staple"
@@ -59,7 +60,9 @@ def _runtime_registry(
         codex_transport=codex_runtime,
         mimo_transport=mimo_runtime,
         mimo_developer_transport=None,
-    )
+)
+
+LATEST_SCHEMA_VERSION = int(migration_paths()[-1].name.split("_", 1)[0])
 
 
 def _register(client: TestClient) -> dict[str, str]:
@@ -258,7 +261,10 @@ def test_runtime_skill_migration_upgrades_a_v21_database(tmp_path: Path) -> None
 
     database = connect_database(database_path)
     try:
-        assert database.execute("PRAGMA user_version").fetchone()[0] == 29
+        assert (
+            database.execute("PRAGMA user_version").fetchone()[0]
+            == LATEST_SCHEMA_VERSION
+        )
         assert (
             database.execute(
                 "SELECT 1 FROM sqlite_master WHERE type = 'table' "
@@ -385,7 +391,10 @@ def test_estimate_run_acceptance_freezes_server_owned_skill_plan(
     tmp_path: Path,
 ) -> None:
     database_path = tmp_path / "runtime-skills-acceptance.db"
-    settings = Settings.for_testing(database_url=database_path)
+    settings = replace(
+        Settings.for_testing(database_url=database_path),
+        direct_model_runtime_enabled=True,
+    )
     with TestClient(create_app(settings)) as client:
         user = _register(client)
 
@@ -419,11 +428,31 @@ def test_estimate_run_acceptance_freezes_server_owned_skill_plan(
     )
     database = connect_database(database_path)
     try:
+        database.execute(
+            """
+            INSERT INTO product_entitlement_grants (
+                tenant_id, user_id, entitlement_code, status,
+                grant_epoch, source, created_at, updated_at
+            ) VALUES (
+                ?, ?, 'construction.estimates.use', 'active',
+                1, 'subscription_policy', unixepoch(), unixepoch()
+            )
+            """,
+            (identity.tenant_id, identity.user_id),
+        )
+        identity = bind_product_entitlements(database, identity)
         accepted = accept_run(
             database,
             settings=settings,
             identity=identity,
             run_input=run_input,
+            prepared=PreparedChatExecution(
+                execution_plane="direct",
+                runtime_profile="codex-cli",
+                model_id=None,
+                reasoning_effort=None,
+                service_tier=None,
+            ),
         )
         persisted = load_runtime_skill_plan(
             database,

@@ -48,6 +48,10 @@ class ChatRuntimeUnavailableError(ChatError):
         )
 
 
+class ChatPolicyError(ChatError):
+    pass
+
+
 class DeveloperAgentAccessError(ChatError):
     def __init__(
         self,

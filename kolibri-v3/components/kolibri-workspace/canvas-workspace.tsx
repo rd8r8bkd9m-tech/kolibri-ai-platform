@@ -70,6 +70,7 @@ export type CanvasSessionTabPresentation = {
 
 export interface CanvasWorkspaceProps {
   activeSessionTabId?: string;
+  compactChrome?: boolean;
   fileCategory?: WorkspaceFileCategory;
   maximized?: boolean;
   projectName?: string;
@@ -498,6 +499,7 @@ function WorkspaceLauncher({
 
 export function CanvasWorkspace({
   activeSessionTabId,
+  compactChrome = false,
   fileCategory = "all",
   maximized = false,
   projectName,
@@ -572,10 +574,11 @@ export function CanvasWorkspace({
         data-canvas-fullscreen={maximized}
         className={cn(
           "border-border bg-background @container flex h-full min-h-0 min-w-0 flex-col overflow-hidden",
-          maximized ? "border-l-0" : "border-l",
+          maximized || compactChrome ? "border-l-0" : "border-l",
         )}
         aria-label="Рабочая область проекта"
       >
+        {!compactChrome ? (
         <header className="border-border/80 bg-background flex h-12 shrink-0 items-center gap-2 border-b px-3">
           {onOpenDesktop ? (
             <IconAction
@@ -709,6 +712,7 @@ export function CanvasWorkspace({
             ) : null}
           </div>
         </header>
+        ) : null}
 
         <div
           id="canvas-active-tabpanel"
@@ -730,6 +734,7 @@ export function CanvasWorkspace({
         ) : openFile ? (
           <WorkspaceArtifactEditor
             key={openFile.id}
+            compactChrome={compactChrome}
             file={openFile}
             projectLabel={projectLabel}
             onBack={() => setOpenFile(null)}

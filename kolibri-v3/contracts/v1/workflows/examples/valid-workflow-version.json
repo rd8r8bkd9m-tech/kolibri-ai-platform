@@ -1,0 +1,9 @@
+{
+  "schema_id": "kolibri.workflow.version.transition.command",
+  "schema_version": "1.0",
+  "workflow_id": "workflow_01JZWFLOWEXAMPLE1",
+  "expected_version": 3,
+  "next_version": 4,
+  "reason": "task graph commit advanced to version 4",
+  "requested_at": "2026-07-24T03:20:10+03:00"
+}

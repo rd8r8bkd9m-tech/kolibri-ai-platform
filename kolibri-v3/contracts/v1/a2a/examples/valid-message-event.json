@@ -1,0 +1,87 @@
+{
+  "schema_id": "kolibri.event",
+  "schema_version": "1.0",
+  "message_id": "evt_01JZA2AEVENT0001",
+  "event_name": "a2a.message_appended",
+  "payload_schema_id": "kolibri.a2a.message_appended.event",
+  "payload_schema_version": "1.0",
+  "occurred_at": "2026-07-24T00:40:00+03:00",
+  "recorded_at": "2026-07-24T00:40:01+03:00",
+  "producer_owner": "logical_home_control_plane",
+  "identity": {
+    "tenant_id": "ten_01JZTENANT0001",
+    "user_id": null,
+    "actor": {
+      "actor_id": "agent_01JZESTIMATOR01",
+      "actor_type": "system"
+    },
+    "authority": {
+      "authority_id": "auth_01JZLHCP000001",
+      "authority_role": "logical_home_control_plane",
+      "authority_epoch": 7,
+      "authority_placement_id": "placement_home_01",
+      "authorization_decision_id": "decision_01JZA2AAUTH01",
+      "capabilities": [
+        "a2a.message.append"
+      ]
+    },
+    "subject_refs": {
+      "goal_id": "goal_01JZGOAL000001",
+      "case_id": "case_01JZCASE000001",
+      "task_id": "task_01JZESTIMATE001"
+    }
+  },
+  "trace": {
+    "trace_id": "3123456789abcdef0123456789abcdef",
+    "span_id": "3123456789abcdef",
+    "parent_span_id": "2123456789abcdef",
+    "correlation_id": "corr_01JZESTWORKFLOW",
+    "causation_id": "cmd_01JZA2AAPPEND01"
+  },
+  "aggregate": {
+    "aggregate_type": "task",
+    "aggregate_id": "task_01JZESTIMATE001",
+    "aggregate_version": 5
+  },
+  "source_command_id": "cmd_01JZA2AAPPEND01",
+  "deduplication_key": "a2a:estimate-review:01JZESTREVIEW2",
+  "payload": {
+    "schema_id": "kolibri.a2a.message_appended.event",
+    "schema_version": "1.0",
+    "a2a_message_id": "a2amsg_01JZESTREVIEW2",
+    "tenant_id": "ten_01JZTENANT0001",
+    "goal_id": "goal_01JZGOAL000001",
+    "case_id": "case_01JZCASE000001",
+    "task_id": "task_01JZESTIMATE001",
+    "task_version": 5,
+    "channel_id": "channel_01JZESTREVIEW",
+    "sequence": 2,
+    "previous_message_id": "a2amsg_01JZESTREVIEW1",
+    "sender_actor_id": "agent_01JZESTIMATOR01",
+    "sender_assignment_id": "assignment_01JZEST01",
+    "recipient_assignment_ids": [
+      "assignment_01JZREVIEW1"
+    ],
+    "recipient_capability": "estimate.review",
+    "message_type": "review",
+    "purpose": "Передать смету независимому проверяющему.",
+    "response_to_message_id": "a2amsg_01JZESTREVIEW1",
+    "content": {
+      "trust": "untrusted_content",
+      "text": "Черновик готов. Проверьте арифметику и источники цен.",
+      "structured_data": {
+        "requested_checks": [
+          "arithmetic",
+          "price_sources"
+        ]
+      },
+      "reference_ids": [
+        "artifact_01JZESTIMATE01"
+      ]
+    },
+    "content_hash": "sha256:7c49731af5db25aa60e057a4123118194a840c4bc39c85619faf721a82ebdcea",
+    "deduplication_key": "a2a:estimate-review:01JZESTREVIEW2",
+    "sent_at": "2026-07-24T00:40:00+03:00",
+    "expires_at": "2026-07-24T01:40:00+03:00"
+  }
+}

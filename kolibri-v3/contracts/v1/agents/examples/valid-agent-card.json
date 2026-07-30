@@ -1,0 +1,43 @@
+{
+  "schema_id": "kolibri.agent_card",
+  "schema_version": "1.0",
+  "agent_card_id": "agentcard_01JZEST001",
+  "tenant_scope": "platform",
+  "display_name": "Сметчик",
+  "agent_kind": "model",
+  "capabilities": [
+    "a2a.message.append",
+    "estimate.calculate",
+    "pricing.read"
+  ],
+  "skills": [
+    "construction.estimate.ru"
+  ],
+  "model_profiles": [
+    "modelprofile_01JZMIMO01"
+  ],
+  "tool_ids": [
+    "tool.pricing.read"
+  ],
+  "jurisdictions": [
+    "RU",
+    "RU-MOW"
+  ],
+  "domain_tags": [
+    "construction.estimate"
+  ],
+  "limits": {
+    "max_concurrent_assignments": 20,
+    "max_context_bytes": 1048576,
+    "max_external_spend_minor": 0,
+    "currency": "RUB",
+    "latency_slo_ms": 120000
+  },
+  "availability": "available",
+  "policy_constraints": [
+    "no_legal_signoff",
+    "no_unverified_price_release"
+  ],
+  "version": 4,
+  "updated_at": "2026-07-24T00:33:00+03:00"
+}

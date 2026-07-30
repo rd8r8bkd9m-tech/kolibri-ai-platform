@@ -35,10 +35,12 @@ const FILE_KIND_ICON: Record<WorkspaceFileKind, LucideIcon> = {
 };
 
 export function WorkspaceArtifactEditor({
+  compactChrome = false,
   file,
   onBack,
   projectLabel,
 }: {
+  compactChrome?: boolean;
   file: WorkspaceFile;
   onBack: () => void;
   projectLabel: string;
@@ -58,12 +60,17 @@ export function WorkspaceArtifactEditor({
   if (file.kind === "estimate" && file.projectId) {
     return (
       <section className="flex min-h-0 flex-1 flex-col">
-        <ArtifactToolbar
-          file={file}
-          onBack={onBack}
-          projectLabel={file.projectName || projectLabel}
-        />
-        <div className="min-h-0 flex-1 overflow-auto bg-muted/10 p-3 @min-[700px]:p-5">
+        {!compactChrome ? (
+          <ArtifactToolbar
+            file={file}
+            onBack={onBack}
+            projectLabel={file.projectName || projectLabel}
+          />
+        ) : null}
+        <div
+          data-slot="mobile-artifact-scroll"
+          className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-muted/10 p-3 @min-[700px]:p-5"
+        >
           <EstimateDocumentSurface projectId={file.projectId} />
         </div>
       </section>
@@ -72,11 +79,13 @@ export function WorkspaceArtifactEditor({
 
   return (
     <section className="flex min-h-0 flex-1 flex-col">
-      <ArtifactToolbar
-        file={file}
-        onBack={onBack}
-        projectLabel={projectLabel}
-      />
+      {!compactChrome ? (
+        <ArtifactToolbar
+          file={file}
+          onBack={onBack}
+          projectLabel={projectLabel}
+        />
+      ) : null}
       <div className="bg-muted/15 flex min-h-0 flex-1 items-center justify-center p-6">
         <div className="text-muted-foreground flex max-w-sm flex-col items-center text-center">
           <span className="border-border bg-background mb-4 grid size-12 place-items-center rounded-xl border">

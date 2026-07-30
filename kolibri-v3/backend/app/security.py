@@ -4,11 +4,14 @@ import base64
 import hashlib
 import hmac
 import secrets
+import sqlite3
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
 
 from .config import Settings, normalize_origin
+from .database import get_database
+from .mobile_auth import MobileAuthFailure, require_bearer_session
 
 _SCRYPT_N = 1 << 14
 _SCRYPT_R = 8
@@ -154,3 +157,33 @@ def require_csrf(
                 "message": "Сессия защиты устарела. Обновите страницу и повторите подключение.",
             },
         )
+
+
+def require_mutation_auth(
+    request: Request,
+    database: Annotated[sqlite3.Connection, Depends(get_database)],
+) -> None:
+    """Accept a validated native bearer or the browser origin+CSRF boundary."""
+
+    if request.headers.get("authorization") is not None:
+        try:
+            identity_row = require_bearer_session(request, database)
+        except MobileAuthFailure as error:
+            raise HTTPException(
+                status_code=error.status_code,
+                detail={"code": error.code, "message": error.message},
+                headers={"WWW-Authenticate": "Bearer"},
+            ) from error
+        if identity_row is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail={
+                    "code": "mobile_access_token_invalid",
+                    "message": "The access token is invalid or expired.",
+                },
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return
+
+    origin = require_same_origin(request)
+    require_csrf(request, origin)

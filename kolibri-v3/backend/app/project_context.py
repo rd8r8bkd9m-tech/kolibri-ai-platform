@@ -17,15 +17,13 @@ from .estimate_artifact import (
     estimate_content_hash,
     record_estimate_version,
 )
-from .identity import require_user
-from .schemas import UserSession
-from .security import require_csrf
-
+from .product_access import ConstructionEstimateAccessDependency
+from .security import require_mutation_auth
 
 router = APIRouter(prefix="/v1/projects", tags=["project-context"])
 DatabaseDependency = Annotated[sqlite3.Connection, Depends(get_database)]
-IdentityDependency = Annotated[UserSession, Depends(require_user)]
-CsrfDependency = Annotated[None, Depends(require_csrf)]
+IdentityDependency = ConstructionEstimateAccessDependency
+MutationAuthDependency = Annotated[None, Depends(require_mutation_auth)]
 PROJECT_ID = re.compile(r"^project_[A-Za-z0-9._~-]{8,96}$")
 PARTY_ROLE = re.compile(r"^(client|contractor)$")
 DOCUMENT_SLOTS = (
@@ -422,7 +420,7 @@ def assign_project_party(
     payload: ProjectPartyInput,
     database: DatabaseDependency,
     identity: IdentityDependency,
-    _csrf: CsrfDependency,
+    _auth: MutationAuthDependency,
 ) -> dict[str, Any]:
     if not PARTY_ROLE.fullmatch(role):
         raise _error(
@@ -552,7 +550,7 @@ def copy_estimate_for_client(
     idempotency_key: IdempotencyKey,
     database: DatabaseDependency,
     identity: IdentityDependency,
-    _csrf: CsrfDependency,
+    _auth: MutationAuthDependency,
 ) -> dict[str, Any]:
     incoming_hash = _request_hash(project_id, payload)
     now = _utc_now()

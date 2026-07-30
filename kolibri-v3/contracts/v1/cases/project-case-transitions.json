@@ -1,0 +1,16 @@
+{
+  "schema_id": "kolibri.project_case.transitions",
+  "schema_version": "1.0",
+  "terminal_states": ["superseded", "closed"],
+  "allowed": {
+    "draft": ["intake", "superseded", "closed"],
+    "intake": ["working", "blocked", "superseded", "closed"],
+    "working": ["blocked", "review", "superseded", "closed"],
+    "blocked": ["working", "review", "superseded", "closed"],
+    "review": ["working", "blocked", "approved_internal", "superseded", "closed"],
+    "approved_internal": ["working", "released", "superseded", "closed"],
+    "released": ["superseded", "closed"],
+    "superseded": [],
+    "closed": []
+  }
+}

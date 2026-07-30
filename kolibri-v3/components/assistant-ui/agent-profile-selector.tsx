@@ -49,7 +49,7 @@ import {
   type FC,
 } from "react";
 
-const MOBILE_SELECTOR_QUERY = "(max-width: 639px)";
+const MOBILE_SELECTOR_QUERY = "(max-width: 959px)";
 
 function subscribeMobileSelector(listener: () => void) {
   const media = window.matchMedia(MOBILE_SELECTOR_QUERY);
@@ -514,36 +514,41 @@ function MobileSelectorMenu({
           keepMenuOpen(event);
           goTo("model");
         }}
-        className="min-h-12 px-3 text-[15px]"
+        className="min-h-14 rounded-2xl px-4 text-[18px]"
       >
-        <span>Модель</span>
-        <span className="text-muted-foreground ml-auto max-w-36 truncate">
-          {props.selectedModel
-            ? compactModelName(props.selectedModel.displayName)
-            : "—"}
+        <span className="min-w-0 flex-1 truncate font-medium">
+          {props.selectedModel?.displayName ?? "Выбрать модель"}
         </span>
         <ChevronRightIcon className="size-4" aria-hidden="true" />
       </DropdownMenuItem>
-      <DropdownMenuItem
-        ref={effortRowRef}
-        disabled={
-          !props.selectedModel ||
-          props.selectedModel.supportedReasoningEfforts.length === 0
-        }
-        onSelect={(event) => {
-          keepMenuOpen(event);
-          goTo("effort");
-        }}
-        className="min-h-12 px-3 text-[15px]"
-      >
-        <span>Усилие</span>
-        <span className="text-muted-foreground ml-auto max-w-36 truncate">
-          {props.selectedEffort
-            ? EFFORT_NAMES[props.selectedEffort] ?? props.selectedEffort
-            : "—"}
-        </span>
-        <ChevronRightIcon className="size-4" aria-hidden="true" />
-      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <DropdownMenuLabel className="text-muted-foreground px-4 pt-2 pb-1 text-[15px] font-semibold">
+        Интеллект
+      </DropdownMenuLabel>
+      {props.selectedModel?.supportedReasoningEfforts.length ? (
+        <DropdownMenuRadioGroup value={props.selectedEffort ?? ""}>
+          {props.selectedModel.supportedReasoningEfforts.map((effort) => (
+            <DropdownMenuRadioItem
+              key={effort.id}
+              ref={effort.id === props.selectedEffort ? effortRowRef : undefined}
+              value={effort.id}
+              disabled={props.disabled}
+              onSelect={(event) => {
+                keepMenuOpen(event);
+                props.onEffortSelect(effort.id);
+              }}
+              className="min-h-12 rounded-xl px-4 text-[18px]"
+            >
+              {EFFORT_NAMES[effort.id] ?? effort.id}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      ) : (
+        <p className="text-muted-foreground px-4 py-3 text-sm">
+          Для этой модели уровень интеллекта выбирается автоматически.
+        </p>
+      )}
+      <DropdownMenuSeparator />
       <DropdownMenuItem
         ref={speedRowRef}
         disabled={props.selectedModel?.profile !== "codex-cli"}
@@ -551,7 +556,7 @@ function MobileSelectorMenu({
           keepMenuOpen(event);
           goTo("speed");
         }}
-        className="min-h-12 px-3 text-[15px]"
+        className="min-h-11 rounded-xl px-4 text-[15px]"
       >
         <span>Скорость</span>
         <span className="text-muted-foreground ml-auto max-w-28 truncate">
@@ -559,20 +564,12 @@ function MobileSelectorMenu({
         </span>
         <ChevronRightIcon className="size-4" aria-hidden="true" />
       </DropdownMenuItem>
-      <DropdownMenuSeparator />
-      <DropdownMenuItem
-        onSelect={() => openModelSettings()}
-        className="text-muted-foreground min-h-11 px-3 text-[15px]"
-      >
-        <Settings2Icon className="size-4" aria-hidden="true" />
-        Модели и подключения
-      </DropdownMenuItem>
     </>
   );
 }
 
 const ModelProfileSelectorControl: FC<{
-  surface?: "composer" | "settings";
+  surface?: "composer" | "settings" | "mobile-header";
 }> = ({ surface = "composer" }) => {
   const identity = useIdentity();
   const modelCatalog = useModelCatalog();
@@ -795,7 +792,11 @@ const ModelProfileSelectorControl: FC<{
   return (
     <div
       className={
-        surface === "settings" ? "relative w-full" : "relative min-w-0"
+        surface === "settings"
+          ? "relative w-full"
+          : surface === "mobile-header"
+            ? "relative"
+            : "relative min-w-0"
       }
     >
       <ModelSelector.Root
@@ -824,34 +825,59 @@ const ModelProfileSelectorControl: FC<{
               className={
                 surface === "settings"
                   ? "h-11 w-full justify-between rounded-xl px-3"
-                  : "h-11 max-w-[9rem] min-w-0 gap-1.5 rounded-full px-2 text-xs sm:h-9 sm:max-w-56 sm:px-3 sm:text-sm"
+                  : surface === "mobile-header"
+                    ? "h-11 gap-1 rounded-xl px-3 text-[21px] leading-none font-semibold tracking-[-0.035em] underline decoration-[1.5px] underline-offset-4"
+                  : "h-11 max-w-[9rem] min-w-0 gap-1.5 rounded-full px-2 text-xs min-[960px]:h-9 min-[960px]:max-w-56 min-[960px]:px-3 min-[960px]:text-sm"
               }
             >
-              {saving ? (
-                <LoaderCircleIcon
-                  className="size-3.5 shrink-0 animate-spin"
-                  aria-hidden="true"
-                />
+              {surface === "mobile-header" ? (
+                <>
+                  <span>Chat</span>
+                  <ChevronDownIcon
+                    className="text-muted-foreground size-5 shrink-0"
+                    aria-hidden="true"
+                  />
+                </>
               ) : (
-                <ZapIcon
-                  className="size-3.5 shrink-0 fill-current"
-                  aria-hidden="true"
-                />
+                <>
+                  {saving ? (
+                    <LoaderCircleIcon
+                      className="size-3.5 shrink-0 animate-spin"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <ZapIcon
+                      className="size-3.5 shrink-0 fill-current"
+                      aria-hidden="true"
+                    />
+                  )}
+                  <span className="min-w-0 truncate">{modelName}</span>
+                  {effortName ? (
+                    <span className="text-muted-foreground hidden min-w-0 truncate min-[960px]:inline">
+                      {effortName}
+                    </span>
+                  ) : null}
+                  <ChevronDownIcon
+                    className="text-muted-foreground size-3.5 shrink-0"
+                    aria-hidden="true"
+                  />
+                </>
               )}
-              <span className="min-w-0 truncate">{modelName}</span>
-              {effortName ? (
-                <span className="text-muted-foreground hidden min-w-0 truncate sm:inline">
-                  {effortName}
-                </span>
-              ) : null}
-              <ChevronDownIcon
-                className="text-muted-foreground size-3.5 shrink-0"
-                aria-hidden="true"
-              />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
-            align={surface === "settings" ? "start" : "end"}
+            align={
+              surface === "settings"
+                ? "start"
+                : surface === "mobile-header"
+                  ? "center"
+                  : isMobileSelector
+                    ? "start"
+                    : "end"
+            }
+            alignOffset={
+              isMobileSelector && surface === "composer" ? 56 : 0
+            }
             sideOffset={8}
             onEscapeKeyDown={(event) => {
               if (isMobileSelector && mobilePage !== "root") {
@@ -869,7 +895,13 @@ const ModelProfileSelectorControl: FC<{
                 setMobilePage("root");
               }
             }}
-            className="z-[80] w-[min(20rem,calc(100vw-1rem))] rounded-2xl p-1.5 shadow-xl"
+            className={
+              surface === "mobile-header"
+                ? "z-[80] w-[min(24rem,calc(100vw-1.5rem))] rounded-[2rem] border-foreground/45 p-3 shadow-xl"
+                : isMobileSelector
+                  ? "z-[80] w-[min(15.5rem,calc(100vw-1.5rem))] rounded-[1.75rem] border-foreground/35 p-2 shadow-xl"
+                  : "z-[80] w-[min(20rem,calc(100vw-1rem))] rounded-2xl p-1.5 shadow-xl"
+            }
           >
             {isMobileSelector ? (
               <MobileSelectorMenu
@@ -936,7 +968,7 @@ const ACCESS_OPTIONS: readonly {
 ];
 
 const DeveloperModeControl: FC<{
-  surface?: "composer" | "settings";
+  surface?: "composer" | "settings" | "mobile-header";
 }> = ({ surface = "composer" }) => {
   const developerMode = useDeveloperAgentMode();
   const isRunning = useAuiState((state) => state.thread.isRunning);
@@ -1021,7 +1053,7 @@ const DeveloperModeControl: FC<{
 };
 
 export const AgentProfileSelector: FC<{
-  surface?: "composer" | "settings";
+  surface?: "composer" | "settings" | "mobile-header";
   control?: "model" | "developer";
 }> = ({ surface = "composer", control = "model" }) =>
   control === "developer" ? (

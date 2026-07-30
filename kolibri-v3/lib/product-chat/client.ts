@@ -35,7 +35,96 @@ const normalizeOpaqueId = (
 type NormalizedAgUiMessage = {
   readonly id: string;
   readonly role: "user";
-  readonly content: string | Array<{ type: "text"; text: string }>;
+  readonly content:
+    | string
+    | Array<
+        | { type: "text"; text: string }
+        | {
+            type: "image" | "document";
+            source: {
+              type: "url";
+              value: string;
+              mimeType: string;
+            };
+            metadata: { filename: string };
+          }
+      >;
+};
+
+const ATTACHMENT_CONTENT_PATH =
+  /^\/api\/product\/v1\/attachments\/attachment_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}\/content$/;
+const MIME_TYPE =
+  /^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$/;
+
+const normalizeAttachmentUrl = (value: string): string | null => {
+  if (ATTACHMENT_CONTENT_PATH.test(value)) return value;
+  if (typeof globalThis.location?.origin !== "string") return null;
+  try {
+    const parsed = new URL(value);
+    if (
+      parsed.origin !== globalThis.location.origin ||
+      parsed.search ||
+      parsed.hash ||
+      !ATTACHMENT_CONTENT_PATH.test(parsed.pathname)
+    ) {
+      return null;
+    }
+    return parsed.pathname;
+  } catch {
+    return null;
+  }
+};
+
+const normalizeAgUiContentPart = (
+  value: unknown,
+):
+  | { type: "text"; text: string }
+  | {
+      type: "image" | "document";
+      source: {
+        type: "url";
+        value: string;
+        mimeType: string;
+      };
+      metadata: { filename: string };
+    }
+  | null => {
+  if (!isRecord(value)) return null;
+  if (
+    value.type === "text" &&
+    typeof value.text === "string" &&
+    value.text.trim()
+  ) {
+    return { type: "text", text: value.text };
+  }
+  if (
+    (value.type !== "image" && value.type !== "document") ||
+    !isRecord(value.source) ||
+    value.source.type !== "url" ||
+    typeof value.source.value !== "string" ||
+    typeof value.source.mimeType !== "string" ||
+    !MIME_TYPE.test(value.source.mimeType) ||
+    !isRecord(value.metadata) ||
+    typeof value.metadata.filename !== "string" ||
+    value.metadata.filename.length < 1 ||
+    value.metadata.filename.length > 240 ||
+    /[/\\\0\r\n]/.test(value.metadata.filename) ||
+    (value.type === "image") !==
+      value.source.mimeType.startsWith("image/")
+  ) {
+    return null;
+  }
+  const contentPath = normalizeAttachmentUrl(value.source.value);
+  if (!contentPath) return null;
+  return {
+    type: value.type,
+    source: {
+      type: "url",
+      value: contentPath,
+      mimeType: value.source.mimeType,
+    },
+    metadata: { filename: value.metadata.filename },
+  };
 };
 
 const normalizeAgUiMessages = (
@@ -61,16 +150,18 @@ const normalizeAgUiMessages = (
       }];
     }
     if (!Array.isArray(raw.content)) return null;
-    const content = raw.content.flatMap((part) =>
-      isRecord(part) &&
-      part.type === "text" &&
-      typeof part.text === "string" &&
-      part.text.trim()
-        ? [{ type: "text" as const, text: part.text }]
-        : [],
+    const content = raw.content.map(normalizeAgUiContentPart);
+    if (
+      content.some((part) => part === null) ||
+      !content.some((part) => part?.type === "text") ||
+      content.filter((part) => part?.type !== "text").length > 10
+    ) {
+      return null;
+    }
+    const normalizedContent = content.filter(
+      (part): part is NonNullable<typeof part> => part !== null,
     );
-    if (content.length === 0) return null;
-    return [{ id, role: "user", content }];
+    return [{ id, role: "user", content: normalizedContent }];
   }
   return null;
 };
@@ -263,6 +354,28 @@ export class ProductChatClient {
       );
     }
   }
+
+  async cancelRun(runId: string): Promise<void> {
+    if (!isSafeProductChatId(runId)) {
+      throw new ProductChatContractError("Invalid Product Chat run ID.");
+    }
+    const response = await this.fetchImpl(
+      `${this.baseUrl}/runs/${encodeURIComponent(runId)}/cancel`,
+      {
+        method: "POST",
+        headers: withCsrfHeader({ Accept: "application/json" }),
+        credentials: "same-origin",
+        cache: "no-store",
+      },
+    );
+    if (response.status === 401) announceAuthenticationRequired();
+    if (!response.ok) throw await responseError(response);
+    if (response.status !== 204) {
+      throw new ProductChatContractError(
+        "Product Chat cancellation returned an incompatible response.",
+      );
+    }
+  }
 }
 
 const parseAgUiRequestBody = (
@@ -315,7 +428,7 @@ export type ProductAgUiFetchOptions = {
   readonly getExecutionMode: () => KolibriExecutionMode;
   readonly getAccessMode: () => KolibriAccessMode;
   readonly getActiveThreadId: () => string | null;
-  readonly onAccepted?: () => void | Promise<void>;
+  readonly onAccepted?: (runId: string) => void | Promise<void>;
 };
 
 /**
@@ -435,8 +548,17 @@ export const createProductAgUiFetch = ({
           "AG-UI backend did not return an event stream.",
         );
       }
+      const acceptedRunId = response.headers.get("x-kolibri-run-id");
+      if (!isSafeProductChatId(acceptedRunId)) {
+        await response.body.cancel().catch(() => undefined);
+        throw new ProductChatContractError(
+          "AG-UI backend did not identify the accepted run.",
+        );
+      }
       try {
-        void Promise.resolve(onAccepted?.()).catch(() => undefined);
+        void Promise.resolve(onAccepted?.(acceptedRunId)).catch(
+          () => undefined,
+        );
       } catch {
         // A projection refresh cannot invalidate an already accepted run.
       }
